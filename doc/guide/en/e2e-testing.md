@@ -119,7 +119,7 @@ The lines are joined with `\n`, the CSS is injected as a `<style>` element and t
 
 ### Damage, frame-work and resource assertions
 
-`snapshot_frame` (`as`), `snapshot_resources` (`as`) and `reset_frame_counters` are plain ops that record state for the assertions below. They read `LayoutWindow::frame_report` (paint/present damage + work counters).
+`snapshot_frame` (`as`), `snapshot_resources` (`as`), `snapshot_managers` (`as`) and `reset_frame_counters` are plain ops that record state for the assertions below. They read `LayoutWindow::frame_report` (paint/present damage + work counters).
 
 Three more plain ops make the frame report directly observable:
 
@@ -136,6 +136,36 @@ The `assert_damage*` ops look at the damage **accumulated since the last `reset_
 - `assert_idle_stable` (params: `vs?`). No input ⇒ damage drained to `none` (and pixels identical to `vs`). The infinite-redraw detector.
 - `assert_work_bounded` (params: `max_relayouts?`, `max_dom_regens?`, `allow_depth_cap?`). Measured since the last `reset_frame_counters`. Fails if `MAX_EVENT_RECURSION_DEPTH` was hit — an invalidation loop is now a red test rather than a `log_warn`.
 - `assert_resource_counts` (params: `vs`, then one mode per counter: `"eq"`|`"le"`|`"ge"` or an exact number). Counters: `fonts`, `font_hash_map`, `font_id_map`, `font_families_map`, `images`, `image_key_map`, `parsed_fonts`, `font_hash_to_families`, `font_chain_cache`.
+
+### Manager assertions: consistency, and non-interference
+
+The engine keeps ~20 managers on `LayoutWindow` (scroll, focus, hover, gesture, text edit, undo, virtual view, GPU state, the capability managers …). Two different questions can be asked about them, and they need two different assertions.
+
+**Is any manager's state internally wrong?** — `assert_manager_invariants` (params: `managers?`, `cross?`, `min_checked?`). It sweeps for dangling node keys (X10: no manager key may name a node that no longer exists) plus the pairwise invariants from `scripts/E2E_PLAN.md`. Six of them (`X2 X3 X5 X6 X9 X10`) hold unconditionally and run by default. Four are opt-in because each is a statement *about an interaction* and hard-fails when the scenario never performed it:
+
+- `X1` — after a `scroll_into_view`, the target is inside its container's visible rect according to `ScrollManager`'s own offset.
+- `X4` — the `DragState` the public drag API hands out describes the same drag the engine is running.
+- `X7` — focus was cleared, so no cursor scroll may still be owed (`cursor_needs_initialization` / `pending_contenteditable_focus`).
+- `X8` — during a text-selection drag, the container that autoscrolled is the selection focus node's own scroll container.
+
+Naming a manager the assertion cannot check, or an invariant nobody implemented, is a hard failure with the reason attached — never a silent pass. `min_checked` lets a scenario require that the sweep actually inspected N things, so "nothing was wrong" cannot be confused with "there was no state to inspect".
+
+**Did this op move a manager it has no business touching?** — `snapshot_managers` (`as`) + `assert_only_managers_changed` (params: `vs`, `changed`, `min_populated?`). Record every manager's state, perform one op, and require the set that moved to be *exactly* `changed`. Write `"changed": []` for "this must not touch a single manager".
+
+```json
+{ "op": "snapshot_managers", "as": "scrolled_and_settled" },
+{ "op": "key_down", "key": "tab" },
+{ "op": "key_up",   "key": "tab" },
+{ "op": "wait_frame" },
+{ "op": "assert_only_managers_changed",
+  "vs": "scrolled_and_settled", "changed": ["focus"], "min_populated": 2 }
+```
+
+A scroll that quietly cleared focus, or a Tab that reset a scroll offset, renders identically to one that did not: it is invisible in the DOM, in the pixels and in the resource counters. This is the only assertion that sees it.
+
+The check is **two-sided**. A manager that moved without being listed is a leak; a manager listed in `changed` that did *not* move is a scenario that has stopped exercising what it claims to. Without the second half, `"changed": [every, manager]` would pass forever while asserting nothing. `min_populated` is the third guard: two empty snapshots always compare equal, so it requires that at least N managers were actually holding state.
+
+Settle the frames (`wait_frame` + `wait`, and `tick_ms` past any running fade or animation) before **both** the snapshot and the assertion. Transient repaint flags are real manager state and are recorded, so comparing a settled window against a mid-flight one correctly reports them as moved.
 
 Selector resolution accepts CSS selectors (`.btn`, `#counter`, `div > span`), explicit `node_id` integers, or a `text` substring match. Pick whichever is least brittle. `selector` is preferred because the inspector can build them by clicking nodes in the DOM tree.
 

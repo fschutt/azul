@@ -1,0 +1,68 @@
+{
+  "name": "noninterference_tab_focus_does_not_move_scroll",
+  "description": "NON-INTERFERENCE in the other direction, and the one users actually report: a container is scrolled, the user presses Tab, and the container jumps back to the top. The DOM is identical either way, the focus ring lands on the right node either way, and every existing assertion in this suite passes either way — the scroll offset is the only witness, and nothing was comparing it. Here the scroller is put at y=120 and left alone for 2000 ms so its fade has expired and the whole window is settled; Tab then moves keyboard focus and MUST move nothing but the focus manager. The focusable nodes sit OUTSIDE the scroll container on purpose: focusing a node inside it would legitimately scroll it into view, which is the engine doing its job, not interference. If gpu_state turns up in the diff, that is a real finding about the display-list rebuild a focus change triggers (a re-armed fade with no scroll activity, or a GPU event queue nothing drains) and belongs in an issue, not in a widened `changed` list.",
+  "setup": {
+    "window_width": 400,
+    "window_height": 300,
+    "dpi": 96
+  },
+  "steps": [
+    {
+      "op": "mount",
+      "html": [
+        "<div id=\"root\">",
+        "  <div id=\"f1\" tabindex=\"0\" class=\"item\">one</div>",
+        "  <div id=\"f2\" tabindex=\"0\" class=\"item\">two</div>",
+        "  <div id=\"scroller\">",
+        "    <div class=\"row\" id=\"r0\"></div>",
+        "    <div class=\"row\" id=\"r1\"></div>",
+        "    <div class=\"row\" id=\"r2\"></div>",
+        "    <div class=\"row\" id=\"r3\"></div>",
+        "    <div class=\"row\" id=\"r4\"></div>",
+        "    <div class=\"row\" id=\"r5\"></div>",
+        "  </div>",
+        "</div>"
+      ],
+      "css": [
+        "html, body { margin: 0; padding: 0; }",
+        "#root { display: flex; flex-direction: column; }",
+        ".item { width: 120px; height: 30px; background: silver; }",
+        "#scroller { width: 200px; height: 100px; overflow-y: scroll; }",
+        ".row { width: 100%; height: 50px; background: green; }"
+      ]
+    },
+    { "op": "wait_frame" },
+    { "op": "wait", "ms": 150 },
+    { "op": "assert_exists", "selector": "#scroller" },
+
+    { "op": "scroll_node_by", "selector": "#scroller", "delta_x": 0, "delta_y": 120 },
+    { "op": "wait_frame" },
+    { "op": "wait", "ms": 100 },
+    { "op": "assert_scroll", "selector": "#scroller", "x": 0, "y": 120, "tolerance": 1.0 },
+
+    { "op": "tick_ms", "ms": 2000 },
+    { "op": "wait_frame" },
+    { "op": "wait", "ms": 100 },
+    { "op": "assert_state_machines_idle" },
+
+    { "op": "snapshot_managers", "as": "scrolled_and_settled" },
+
+    { "op": "key_down", "key": "tab" },
+    { "op": "wait", "ms": 1 },
+    { "op": "key_up", "key": "tab" },
+    { "op": "wait_frame" },
+    { "op": "wait", "ms": 100 },
+
+    { "op": "get_focus_state" },
+    { "op": "assert_response", "contains": "f1" },
+
+    { "op": "assert_scroll", "selector": "#scroller", "x": 0, "y": 120, "tolerance": 1.0 },
+    {
+      "op": "assert_only_managers_changed",
+      "vs": "scrolled_and_settled",
+      "changed": ["focus"],
+      "min_populated": 2
+    },
+    { "op": "assert_manager_invariants", "min_checked": 1 }
+  ]
+}

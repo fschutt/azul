@@ -2080,6 +2080,27 @@ pub enum DebugEvent {
         #[serde(rename = "as")]
         name: String,
     },
+    /// Store EVERY manager's observable state under `as`, for a later
+    /// `assert_only_managers_changed` — the non-interference primitive.
+    ///
+    /// `snapshot_resources` answers "did this op leak a font?". This answers the
+    /// question one level up: "did this op move a manager it has no business
+    /// touching?". Tab-focus must not move the scroll manager; a scroll must not
+    /// move the selection; replacing a subtree must not resurrect a drag. None of
+    /// those leaks is visible in the DOM, in the pixels or in the resource
+    /// counters — the only way to see one is to record every manager BEFORE the
+    /// op and diff afterwards.
+    ///
+    /// ```json
+    /// { "op": "snapshot_managers", "as": "before_tab" },
+    /// { "op": "key_down", "key": "tab" },
+    /// { "op": "assert_only_managers_changed", "vs": "before_tab",
+    ///   "changed": ["focus"] }
+    /// ```
+    SnapshotManagers {
+        #[serde(rename = "as")]
+        name: String,
+    },
     /// Advance the injectable engine clock by `ms` and render a frame — WITHOUT
     /// sleeping. Everything time-driven (scroll momentum, scrollbar fade, cursor
     /// blink, animations, timers) reads `Instant::now()`, which honours this
@@ -2774,8 +2795,21 @@ pub struct E2eScratch {
     frame_snapshots: BTreeMap<String, Vec<u8>>,
     /// Named resource-counter snapshots taken by the `snapshot_resources` op.
     resource_snapshots: BTreeMap<String, BTreeMap<String, u64>>,
-    /// Manager-stage trace folded by the step loop, read by `assert_composition`.
-    composition_trace: Option<CompositionTrace>,
+    /// Named per-manager state snapshots taken by the `snapshot_managers` op and
+    /// diffed by `assert_only_managers_changed` — the NON-INTERFERENCE primitive.
+    /// See [`manager_fingerprints`].
+    manager_snapshots: BTreeMap<String, BTreeMap<String, ManagerFingerprint>>,
+    /// The node the most recent `scroll_into_view` op asked for.
+    ///
+    /// `scroll_into_view` is stateless — it computes `ScrollAdjustment`s, writes
+    /// them into `ScrollManager` and forgets both the adjustments AND which node
+    /// it was asked about. Cross-invariant X1 ("after a `scroll_into_view` the
+    /// target must be inside the container's visible rect according to
+    /// `ScrollManager`'s own offset") therefore has no subject to check unless
+    /// the op records one. This is that record — the E2E harness's own note of
+    /// what IT asked for, not a guess about engine internals. X1 hard-fails when
+    /// it is `None`, so the invariant can never pass because nothing scrolled.
+    last_scroll_into_view: Option<(azul_core::dom::DomId, azul_core::dom::NodeId)>,
     /// The damage-driven framebuffer of the frame just rendered `(w, h, rgba)`.
     #[cfg(feature = "cpurender")]
     presented_frame: Option<(u32, u32, Vec<u8>)>,
@@ -3510,6 +3544,7 @@ impl AssertionResult {
 /// | `assert_screenshot`  | `reference`, `threshold?`, `max_diff_ratio?`, `save_actual?` |
 /// | `assert_state_machines_idle` | `damage?`                            |
 /// | `assert_manager_invariants`  | `managers?`, `cross?`                |
+/// | `assert_only_managers_changed` | `vs`, `changed`, `min_populated?`  |
 /// | `assert_composition` | `expect`, `fixpoint?`, `damage?`             |
 /// | `assert_damage_sound`| `vs`, `max_overpaint_ratio?`, `forbid_full?`, `pixel_identity?` |
 #[cfg(feature = "std")]
@@ -3548,6 +3583,9 @@ pub fn evaluate_assertion(
         // Manager / composition / damage-soundness (E2E_PLAN §(c)/(g1)/(g2)/(g3))
         "assert_state_machines_idle" => eval_assert_state_machines_idle(params, callback_info),
         "assert_manager_invariants" => eval_assert_manager_invariants(params, callback_info),
+        "assert_only_managers_changed" => {
+            eval_assert_only_managers_changed(params, callback_info)
+        }
         "assert_composition" => eval_assert_composition(params, callback_info),
         "assert_damage_sound" => eval_assert_damage_sound(params, callback_info),
         other => AssertionResult::fail(format!("Unknown assertion: {}", other)),
@@ -5465,14 +5503,28 @@ fn eval_assert_resource_counts(
 // every other assertion in this file uses — plus, for `assert_composition`, a
 // per-step sample recorded by the step loop in `resume_e2e_continuation`.
 //
-// DELIBERATELY NOT IMPLEMENTED, and LOUD about it: the cross-manager invariants
-// X1 (`scroll_into_view` ↔ `scroll_state`), X4 (`gesture.active_drag` ↔ the
-// deprecated `DragDropManager` — `LayoutWindow` has no `drag_drop_manager` field
-// at all, so that pair does not exist in this crate), X7 and X8. Each needs a
-// per-step trace of an adjustment that is applied and forgotten, or a manager
-// this crate does not own. Asking for one FAILS with that reason instead of
-// passing: a stub that always passes manufactures false-green, which is strictly
-// worse than no assertion at all.
+// ALL TEN of the plan's cross-invariants are implemented. Four of them (X1, X4,
+// X7, X8) were previously refused with a reason, because each needs something
+// the engine applies and forgets. What they needed:
+//
+// * X1 — WHICH node was passed to `scroll_into_view`. Recorded by the op itself
+//   (`E2eScratch::last_scroll_into_view`); everything else is re-derived live.
+// * X4 — the second `Option<DragContext>` this pair named was deleted in
+//   2026-07. The seam survives as `DragState::from_context`, a derived view that
+//   every reader of the public drag API sees, so the invariant becomes "the view
+//   must agree with its source".
+// * X7 — an issued `ScrollAdjustment` is still not retained, and that half stays
+//   unobservable. What IS retained is the marker that says a cursor scroll is
+//   OWED, which catches the same bug one step earlier. The narrowing is spelled
+//   out at the check.
+// * X8 — frame-to-frame history, now that the composition trace keeps two
+//   samples and records per-container scroll offsets.
+//
+// They are OPT-IN, not in `DEFAULT_CROSS`: each is a statement about an
+// interaction, and each HARD-FAILS when the scenario did not perform that
+// interaction. A stub that always passes manufactures false-green, which is
+// strictly worse than no assertion at all — and so does an invariant that
+// quietly holds because its premise was empty.
 
 /// Does `(dom, node)` name a node that exists in the CURRENT layout?
 #[cfg(feature = "std")]
@@ -5745,9 +5797,11 @@ fn eval_assert_state_machines_idle(
 ///   supported. Known: `scroll`, `hover`, `focus`, `gesture`, `selection`,
 ///   `text_edit`, `virtual_view`, `undo_redo`.
 /// * `cross` — which pairwise invariants to check. Default:
-///   `["X2","X3","X5","X6","X9","X10"]`. `X1`, `X4`, `X7` and `X8` are NOT
-///   implemented and asking for one is an explicit failure (see the module
-///   comment above) — never a silent pass.
+///   `["X2","X3","X5","X6","X9","X10"]`, the six that hold unconditionally.
+///   `X1`, `X4`, `X7` and `X8` are implemented but OPT-IN, because each one is a
+///   statement about an interaction that must actually have happened; requesting
+///   one without performing that interaction fails loudly rather than passing on
+///   an empty premise. See the module comment above.
 #[cfg(feature = "std")]
 #[allow(clippy::too_many_lines)]
 const KNOWN_MANAGERS: &[&str] = &[
@@ -5807,32 +5861,30 @@ fn eval_assert_manager_invariants(
     if let Some(bad) = reject_unknown_params("assert_manager_invariants", params, &["managers", "cross", "min_checked"]) {
         return bad;
     }
-    const KNOWN_CROSS: &[&str] = &["X2", "X3", "X5", "X6", "X9", "X10"];
-    /// Invariants the plan lists that this crate CANNOT check. Requesting one is
-    /// a hard failure, so no test can go green on an assertion nobody wrote.
-    const UNIMPLEMENTED_CROSS: &[(&str, &str)] = &[
-        (
-            "X1",
-            "scroll_into_view is stateless (free functions that write ScrollManager and forget); \
-             proving the target landed inside the container needs a per-adjustment trace that does \
-             not exist",
-        ),
-        (
-            "X4",
-            "LayoutWindow has NO drag_drop_manager field — the deprecated second Option<DragContext> \
-             does not exist in azul-layout, so the pair cannot disagree",
-        ),
-        (
-            "X7",
-            "needs the pending scroll_cursor_into_view adjustment set, which is not retained \
-             anywhere",
-        ),
-        (
-            "X8",
-            "needs frame-to-frame selection-focus vs scrolled-container history, which is not \
-             retained anywhere",
-        ),
+    /// Every invariant a scenario may request.
+    const KNOWN_CROSS: &[&str] = &[
+        "X1", "X2", "X3", "X4", "X5", "X6", "X7", "X8", "X9", "X10",
     ];
+    /// The invariants checked when a scenario does not say which.
+    ///
+    /// These six hold UNCONDITIONALLY — on a blank window, on a mounted one, at
+    /// any point in any scenario — so running them by default costs a scenario
+    /// nothing and catches everything.
+    ///
+    /// X1, X4, X7 and X8 are deliberately NOT here. Each one is a statement
+    /// ABOUT an interaction ("after a `scroll_into_view` …", "during a text
+    /// selection drag …"), so on a window where that interaction never happened
+    /// it has no subject. They are opt-in and they HARD-FAIL when their subject
+    /// is missing, instead of passing on an empty premise — a scenario that asks
+    /// for X4 without a live drag has not checked X4, and must be told so.
+    const DEFAULT_CROSS: &[&str] = &["X2", "X3", "X5", "X6", "X9", "X10"];
+    /// Invariants this crate cannot check, each with the reason. Requesting one
+    /// is a hard failure, so no test can go green on an assertion nobody wrote.
+    ///
+    /// EMPTY as of the X1/X4/X7/X8 implementation — all ten of the plan's
+    /// cross-invariants are now real. The mechanism stays because the next
+    /// invariant somebody sketches must land here, not in silence.
+    const UNIMPLEMENTED_CROSS: &[(&str, &str)] = &[];
 
     /// Managers this assertion does NOT check, each with the reason. Recorded
     /// rather than omitted: gpu_state was simply absent from KNOWN_MANAGERS, and
@@ -5864,7 +5916,7 @@ fn eval_assert_manager_invariants(
         Ok(m) => m,
         Err(e) => return AssertionResult::fail(format!("assert_manager_invariants: {e}")),
     };
-    let cross = match list("cross", KNOWN_CROSS) {
+    let cross = match list("cross", DEFAULT_CROSS) {
         Ok(c) => c,
         Err(e) => return AssertionResult::fail(format!("assert_manager_invariants: {e}")),
     };
@@ -6209,6 +6261,127 @@ fn eval_assert_manager_invariants(
         }
     }
 
+    // ---- X1: after a scroll_into_view, the target IS inside the container ---
+    //
+    // `scroll_into_view` is stateless: it computes `ScrollAdjustment`s, writes
+    // them into `ScrollManager` and forgets both. So X1's subject — WHICH node
+    // was asked for — has to come from the harness's own record of what it
+    // requested (`E2eScratch::last_scroll_into_view`), not from engine state.
+    // Everything else is re-derived from live state, which is the point: the
+    // check asks `ScrollManager` where the container ended up and asks the
+    // layout where the target is, and the two must agree.
+    if cross.iter().any(|c| c == "X1") {
+        checked += 1;
+        // Bind first: the guard must not still be held while the check below
+        // walks the window.
+        let requested = scratch(callback_info).last_scroll_into_view;
+        match requested {
+            None => violations.push(
+                "X1 was requested but NO scroll_into_view op ran in this scenario. The invariant \
+                 is about where a scroll_into_view landed; with nothing to land, asking for it \
+                 proves nothing."
+                    .to_string(),
+            ),
+            Some((tdom, tnode)) => {
+                violations.extend(check_x1_target_is_visible(lw, tdom, tnode, &mut checked));
+            }
+        }
+    }
+
+    // ---- X4: the two representations of one drag must agree ----------------
+    //
+    // The plan wrote X4 as `gesture.active_drag` vs the SECOND
+    // `Option<DragContext>` that `DragDropManager` used to hold. That mirror was
+    // write-only and unremapped, so it was deleted in 2026-07 — the plan's own
+    // instruction ("if they routinely disagree, delete the deprecated one — that
+    // is a finding") was carried out.
+    //
+    // The seam did NOT go away: `DragState::from_context` is still a SECOND
+    // representation of the same drag, and it is the one the public
+    // `get_drag_state` API and every drag callback see. A stored mirror became a
+    // derived view, so the invariant becomes "the derived view must agree with
+    // its source" — same pair, same failure (the API says a different node, or
+    // no drag, than the engine has), and now it cannot drift silently.
+    if cross.iter().any(|c| c == "X4") {
+        checked += 1;
+        match lw.gesture_drag_manager.active_drag.as_ref() {
+            None => violations.push(
+                "X4 was requested but NO drag is active. The invariant compares the live \
+                 DragContext against the DragState view built from it; with no drag there are no \
+                 two things to compare."
+                    .to_string(),
+            ),
+            Some(d) => {
+                violations.extend(check_x4_drag_view_agrees(d, &mut checked));
+            }
+        }
+    }
+
+    // ---- X7: focus was cleared, so no cursor scroll may still be owed ------
+    //
+    // NARROWER THAN THE PLAN'S WORDING, and the difference matters. The plan
+    // says "if focus was cleared, no scroll adjustment may still be pending for
+    // it". An issued `ScrollAdjustment` is not retained anywhere, so an
+    // already-in-flight one CANNOT be seen from here — that is the residual
+    // blind spot and it is not being papered over.
+    //
+    // What IS retained is the engine's record that a cursor scroll is OWED:
+    // `cursor_needs_initialization` and `pending_contenteditable_focus` are what
+    // make the next pass call `scroll_cursor_into_view_if_needed`. If focus is
+    // gone and either is still set, the engine will initialize a cursor for a
+    // node nothing is focused on and scroll to it — which is precisely the bug
+    // X7 names, caught one step earlier than the plan proposed.
+    if cross.iter().any(|c| c == "X7") {
+        checked += 1;
+        if lw.focus_manager.focused_node.is_none() {
+            if lw.focus_manager.cursor_needs_initialization {
+                violations.push(
+                    "X7: focus_manager.focused_node is None but cursor_needs_initialization is \
+                     still true — the next pass will initialize a caret for a node nothing is \
+                     focused on, and scroll it into view"
+                        .to_string(),
+                );
+            }
+            if lw.focus_manager.pending_contenteditable_focus.is_some() {
+                violations.push(
+                    "X7: focus_manager.focused_node is None but pending_contenteditable_focus is \
+                     still Some — a cursor scroll is owed to a focus that no longer exists"
+                        .to_string(),
+                );
+            }
+        }
+        if let Some(p) = lw.focus_manager.pending_contenteditable_focus.as_ref() {
+            checked += 1;
+            if !node_is_live(lw, p.dom_id, p.container_node_id)
+                || !node_is_live(lw, p.dom_id, p.text_node_id)
+            {
+                violations.push(format!(
+                    "X7: a cursor scroll is pending for ({}, container {}, text {}), which no \
+                     longer exists",
+                    p.dom_id.inner,
+                    p.container_node_id.index(),
+                    p.text_node_id.index()
+                ));
+            }
+        }
+    }
+
+    // ---- X8: selection autoscroll goes through the SELECTION's container ---
+    //
+    // Frame-to-frame, which nothing retained until the composition trace grew a
+    // second sample. `(prev2, prev)` is the delta of the last step that did
+    // something (see `CompositionTrace::prev2`), so this compares the container
+    // offsets before and after the drag step and asks: of the containers that
+    // moved, is the selection focus node's own scroll container one of them?
+    //
+    // If it is not, the selection scrolled something else — which is the shape
+    // of "the selection focus moved to a node that is not under the pointer"
+    // that X8 was written to catch.
+    if cross.iter().any(|c| c == "X8") {
+        checked += 1;
+        violations.extend(check_x8_selection_autoscroll(lw, callback_info, &mut checked));
+    }
+
     // A scenario can REQUIRE that this assertion actually looked at something.
     //
     // Without it the assertion passes on an empty violation list, which is also
@@ -6250,6 +6423,1175 @@ fn eval_assert_manager_invariants(
     )
 }
 
+/// X1's body: the node the harness asked `scroll_into_view` for must now be
+/// inside its scroll container's visible rect, according to `ScrollManager`'s
+/// OWN offset.
+///
+/// Three legitimate reasons a target can sit outside are excluded by name, so a
+/// correct engine is never called wrong: an axis that cannot scroll at all
+/// (`max_scroll == 0`), a target taller/wider than the container (it cannot fit,
+/// so no offset makes it contained), and a still-running smooth animation (the
+/// offset has not landed yet — that one is reported, because a scenario that
+/// asserts before the animation finishes is asking a question it cannot get a
+/// meaningful answer to).
+#[cfg(feature = "std")]
+#[allow(clippy::cast_precision_loss)] // bounded layout geometry, isize -> f32
+fn check_x1_target_is_visible(
+    lw: &azul_layout::window::LayoutWindow,
+    tdom: azul_core::dom::DomId,
+    tnode: azul_core::dom::NodeId,
+    checked: &mut usize,
+) -> Vec<String> {
+    let mut out: Vec<String> = Vec::new();
+    if !node_is_live(lw, tdom, tnode) {
+        out.push(format!(
+            "X1: the scroll_into_view target ({}, {}) no longer exists",
+            tdom.inner,
+            tnode.index()
+        ));
+        return out;
+    }
+    let target_id = azul_core::dom::DomNodeId {
+        dom: tdom,
+        node: azul_core::styled_dom::NodeHierarchyItemId::from_crate_internal(Some(tnode)),
+    };
+    let Some(anc) = lw.find_scrollable_ancestor(target_id) else {
+        out.push(format!(
+            "X1: the scroll_into_view target ({}, {}) has NO scrollable ancestor, so nothing \
+             could have scrolled and there is no containment to check. Point the op at a node \
+             inside an overflow:scroll container.",
+            tdom.inner,
+            tnode.index()
+        ));
+        return out;
+    };
+    let Some(anode) = anc.node.into_crate_internal() else {
+        out.push(
+            "X1: find_scrollable_ancestor named a DOM with no node id — there is no container to \
+             measure against"
+                .to_string(),
+        );
+        return out;
+    };
+    *checked += 1;
+
+    // The plan's second half: "a ScrollAdjustment for a container with no
+    // AnimatedScrollState entry is a bug".
+    let Some(info) = lw.scroll_manager.get_scroll_node_info(anc.dom, anode) else {
+        out.push(format!(
+            "X1: the scroll container ({}, {}) that scroll_into_view had to move has NO \
+             AnimatedScrollState entry — the adjustment was computed against a container \
+             ScrollManager does not know about",
+            anc.dom.inner,
+            anode.index()
+        ));
+        return out;
+    };
+    if lw
+        .scroll_manager
+        .get_scroll_state(anc.dom, anode)
+        .is_some_and(|s| s.animation.is_some())
+    {
+        out.push(format!(
+            "X1: the scroll container ({}, {}) is STILL ANIMATING, so its offset has not landed \
+             and no containment statement can be made yet. Drive the smooth scroll to completion \
+             (tick_ms) before asserting X1.",
+            anc.dom.inner,
+            anode.index()
+        ));
+        return out;
+    }
+
+    let (Some(trect), Some(arect)) = (
+        lw.get_node_bounds(tdom, tnode),
+        lw.get_node_bounds(anc.dom, anode),
+    ) else {
+        out.push(
+            "X1: layout reports no bounds for the target or for its scroll container".to_string(),
+        );
+        return out;
+    };
+
+    // Layout coordinates are UNSCROLLED; the visible window into the content is
+    // the container's rect displaced by the current offset. Same arithmetic
+    // `scroll_cursor_into_view_if_needed` uses to decide whether to scroll.
+    const TOL: f32 = 1.0;
+    let vis_x = arect.origin.x as f32 + info.current_offset.x;
+    let vis_y = arect.origin.y as f32 + info.current_offset.y;
+    let vis_w = arect.size.width as f32;
+    let vis_h = arect.size.height as f32;
+    let tx = trect.origin.x as f32;
+    let ty = trect.origin.y as f32;
+    let tw = trect.size.width as f32;
+    let th = trect.size.height as f32;
+
+    *checked += 1;
+    if info.max_scroll_y > 0.0 && th <= vis_h + TOL && (ty < vis_y - TOL || ty + th > vis_y + vis_h + TOL)
+    {
+        out.push(format!(
+            "X1: after scroll_into_view, target ({}, {}) spans y [{ty:.1}, {:.1}] but container \
+             ({}, {}) is scrolled to y {:.1}, showing y [{vis_y:.1}, {:.1}] — ScrollManager and \
+             the layout disagree about whether the target is visible",
+            tdom.inner,
+            tnode.index(),
+            ty + th,
+            anc.dom.inner,
+            anode.index(),
+            info.current_offset.y,
+            vis_y + vis_h
+        ));
+    }
+    if info.max_scroll_x > 0.0 && tw <= vis_w + TOL && (tx < vis_x - TOL || tx + tw > vis_x + vis_w + TOL)
+    {
+        out.push(format!(
+            "X1: after scroll_into_view, target ({}, {}) spans x [{tx:.1}, {:.1}] but container \
+             ({}, {}) is scrolled to x {:.1}, showing x [{vis_x:.1}, {:.1}] — ScrollManager and \
+             the layout disagree about whether the target is visible",
+            tdom.inner,
+            tnode.index(),
+            tx + tw,
+            anc.dom.inner,
+            anode.index(),
+            info.current_offset.x,
+            vis_x + vis_w
+        ));
+    }
+    out
+}
+
+/// X4's body: the `DragState` the public API hands out must describe the SAME
+/// drag the engine is running.
+///
+/// `DragState::from_context` is the only conversion, so every reader of
+/// `get_drag_state` / a drag callback sees its output. If it drops the source
+/// node, reports the wrong kind, or manufactures a node drag out of a text
+/// selection, the app acts on a drag the engine is not running.
+#[cfg(feature = "std")]
+fn check_x4_drag_view_agrees(
+    d: &azul_core::drag::DragContext,
+    checked: &mut usize,
+) -> Vec<String> {
+    use azul_core::drag::ActiveDragType;
+    use azul_layout::managers::drag_drop::{DragState, DragType};
+
+    let mut out: Vec<String> = Vec::new();
+    let view = DragState::from_context(d);
+    *checked += 1;
+    match &d.drag_type {
+        ActiveDragType::Node(n) => {
+            let want = azul_core::dom::DomNodeId {
+                dom: n.dom_id,
+                node: azul_core::styled_dom::NodeHierarchyItemId::from_crate_internal(Some(
+                    n.node_id,
+                )),
+            };
+            match view {
+                None => out.push(format!(
+                    "X4: a NODE drag on ({}, {}) is active but DragState::from_context returned \
+                     None — every reader of the public drag API sees no drag at all",
+                    n.dom_id.inner,
+                    n.node_id.index()
+                )),
+                Some(v) => {
+                    if v.drag_type != DragType::Node {
+                        out.push(format!(
+                            "X4: the engine is running a NODE drag but the DragState view calls \
+                             it {:?}",
+                            v.drag_type
+                        ));
+                    }
+                    match v.source_node {
+                        azul_core::dom::OptionDomNodeId::Some(got) if got == want => {}
+                        azul_core::dom::OptionDomNodeId::Some(got) => out.push(format!(
+                            "X4: the engine's drag is anchored on ({}, {}) but the DragState view \
+                             says ({}, {:?})",
+                            n.dom_id.inner,
+                            n.node_id.index(),
+                            got.dom.inner,
+                            got.node.into_crate_internal().map(|x| x.index())
+                        )),
+                        azul_core::dom::OptionDomNodeId::None => out.push(format!(
+                            "X4: the engine's drag is anchored on ({}, {}) but the DragState view \
+                             reports no source node",
+                            n.dom_id.inner,
+                            n.node_id.index()
+                        )),
+                    }
+                }
+            }
+        }
+        ActiveDragType::FileDrop(_) => match view {
+            None => out.push(
+                "X4: a FILE drag is active but DragState::from_context returned None".to_string(),
+            ),
+            Some(v) => {
+                if v.drag_type != DragType::File {
+                    out.push(format!(
+                        "X4: the engine is running a FILE drag but the DragState view calls it \
+                         {:?}",
+                        v.drag_type
+                    ));
+                }
+            }
+        },
+        // The remaining kinds have no `DragState` representation at all, by
+        // design: `DragState` is the node/file drag-and-drop API. A `Some` here
+        // would mean the view invented a node drag out of a text selection or a
+        // window move, which is the same class of disagreement as a wrong node.
+        _ => {
+            if view.is_some() {
+                out.push(format!(
+                    "X4: DragState::from_context produced a node/file DragState for a {} drag, \
+                     which has no such representation",
+                    drag_kind_str(d)
+                ));
+            }
+        }
+    }
+    out
+}
+
+/// X8's body: during a text-selection drag, the container that autoscrolled must
+/// be the selection focus node's OWN scroll container.
+///
+/// Reads the two most recent composition samples, which is the only
+/// frame-to-frame history this crate keeps. `prev` is the state as of the start
+/// of the assertion step (i.e. after the last op that did something) and `prev2`
+/// is the state before that op — see [`CompositionTrace::prev2`].
+#[cfg(feature = "std")]
+fn check_x8_selection_autoscroll(
+    lw: &azul_layout::window::LayoutWindow,
+    callback_info: &azul_layout::callbacks::CallbackInfo,
+    checked: &mut usize,
+) -> Vec<String> {
+    let mut out: Vec<String> = Vec::new();
+    let samples = {
+        let guard = scratch(callback_info);
+        guard.composition_trace.as_ref().and_then(|t| {
+            match (t.prev.as_ref(), t.prev2.as_ref()) {
+                (Some(a), Some(b)) => Some((a.clone(), b.clone())),
+                _ => None,
+            }
+        })
+    };
+    let Some((prev, prev2)) = samples else {
+        out.push(
+            "X8 needs two steps of history and this scenario has fewer. The invariant is about \
+             what changed BETWEEN two frames of a drag; run the drag over at least two steps \
+             before asserting it."
+                .to_string(),
+        );
+        return out;
+    };
+    if !prev.text_selection_drag {
+        out.push(
+            "X8 was requested but no TEXT-SELECTION drag was live at the previous step. The \
+             invariant speaks only about selection autoscroll; with no selection drag it has no \
+             subject."
+                .to_string(),
+        );
+        return out;
+    }
+
+    let mut moved: Vec<(usize, usize)> = Vec::new();
+    for (key, now) in &prev.scroll_offsets {
+        if prev2.scroll_offsets.get(key) != Some(now) {
+            moved.push(*key);
+        }
+    }
+    for key in prev2.scroll_offsets.keys() {
+        if !prev.scroll_offsets.contains_key(key) {
+            moved.push(*key);
+        }
+    }
+    moved.sort_unstable();
+    moved.dedup();
+    *checked += 1;
+    if moved.is_empty() {
+        out.push(
+            "X8 was requested but NO container scrolled between the last two steps. The invariant \
+             is about where a selection AUTOSCROLL went; drag past the container edge so one \
+             happens."
+                .to_string(),
+        );
+        return out;
+    }
+
+    let Some((sdom, snode)) = prev.selection_focus_node else {
+        out.push(format!(
+            "X8: a text-selection drag scrolled {} container(s), but there is no selection focus \
+             node — the scroll cannot belong to the selection",
+            moved.len()
+        ));
+        return out;
+    };
+    let focus_id = azul_core::dom::DomNodeId {
+        dom: azul_core::dom::DomId { inner: sdom },
+        node: azul_core::styled_dom::NodeHierarchyItemId::from_crate_internal(Some(
+            azul_core::id::NodeId::new(snode),
+        )),
+    };
+    let Some(anc) = lw.find_scrollable_ancestor(focus_id) else {
+        out.push(format!(
+            "X8: {} container(s) scrolled during the selection drag, but the selection focus node \
+             ({sdom}, {snode}) has no scrollable ancestor at all — the autoscroll moved something \
+             the selection is not inside",
+            moved.len()
+        ));
+        return out;
+    };
+    let Some(anode) = anc.node.into_crate_internal() else {
+        out.push("X8: the selection's scroll container has no node id".to_string());
+        return out;
+    };
+    *checked += 1;
+    if !moved.contains(&(anc.dom.inner, anode.index())) {
+        out.push(format!(
+            "X8: during a text-selection drag the container(s) that scrolled were {moved:?}, but \
+             the selection focus node ({sdom}, {snode}) lives in container ({}, {}) — the \
+             autoscroll went through a container the selection is not in, which is exactly the \
+             'selection focus moved instead of scrolling' failure",
+            anc.dom.inner,
+            anode.index()
+        ));
+    }
+    out
+}
+
+// ==================== NON-INTERFERENCE: what did this op MOVE? ==============
+//
+// `assert_manager_invariants` answers "is some manager's state internally
+// wrong?". That is only half of the cross-manager question. The other half — the
+// one a user actually asks — is "did pressing Tab quietly move the SCROLL
+// manager?".
+//
+// Nothing could answer it. A manager that is written by an unrelated code path
+// is invisible in the DOM, invisible in the pixels, invisible in the resource
+// counters and (as long as the value it was given happens to be self-consistent)
+// invisible to every invariant in this file. `snapshot_resources` /
+// `assert_resource_counts` already established the shape for RESOURCES: record
+// before, diff after, require the delta to be what the scenario said it would
+// be. These two ops are the same shape for MANAGERS.
+//
+// The assertion is deliberately TWO-SIDED. "A manager moved that you did not
+// list" is a leak; "a manager you listed did not move" is a scenario that has
+// stopped exercising what it claims to exercise. Only checking the first would
+// let `changed: [every, manager, here]` pass forever while asserting nothing,
+// which is the same false-green `min_checked` exists to prevent on
+// `assert_manager_invariants`.
+
+/// One manager's observable state, reduced to something a diff can compare.
+#[cfg(feature = "std")]
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct ManagerFingerprint {
+    /// How many discrete pieces of state this manager is holding right now.
+    /// `0` means idle/empty. Used by `min_populated` so a scenario can require
+    /// that the managers it talks about were actually carrying state, rather
+    /// than comparing two empty snapshots and calling it non-interference.
+    population: usize,
+    /// The state itself, rendered so a failure can point at what moved.
+    digest: String,
+}
+
+#[cfg(feature = "std")]
+impl ManagerFingerprint {
+    fn new(population: usize, digest: String) -> Self {
+        Self { population, digest }
+    }
+}
+
+/// Every manager whose state `snapshot_managers` records, in the order a report
+/// lists them. These are the names a scenario writes in `changed`.
+///
+/// `scroll` and `focus` are the same aliases `KNOWN_MANAGERS` uses for the
+/// `scroll_state` / `focus_cursor` modules — what a scenario writes, not what
+/// the file is called.
+///
+/// This list is BROADER than `KNOWN_MANAGERS`, and deliberately so: X10 needs a
+/// manager to expose node KEYS it can prove live, which most of the capability
+/// managers do not, whereas non-interference only needs the manager's state to
+/// be readable and to move when it is written. `keyring` can be fingerprinted
+/// even though there is no such thing as a dangling keyring node.
+///
+/// A function rather than a `const` because `a11y` is conditional: without the
+/// feature, `A11yManager` is a field-less stub whose fingerprint would be a
+/// constant, and a constant fingerprint is an assertion that cannot fail.
+#[cfg(feature = "std")]
+fn fingerprinted_managers() -> Vec<&'static str> {
+    #[allow(unused_mut)]
+    let mut names: Vec<&'static str> = alloc::vec![
+        "scroll",
+        "hover",
+        "focus",
+        "gesture",
+        "text_edit",
+        "text_input",
+        "undo_redo",
+        "virtual_view",
+        "gpu_state",
+        "permission",
+        "clipboard",
+        "file_drop",
+        "gamepad",
+        "geolocation",
+        "biometric",
+        "keyring",
+        "sensors",
+    ];
+    #[cfg(feature = "a11y")]
+    names.push("a11y");
+    names
+}
+
+/// Manager modules that `snapshot_managers` does NOT record, each with the
+/// reason. Recorded rather than omitted, for exactly the reason
+/// `UNOBSERVABLE_MANAGERS` is: an absent manager is a silent hole, and a silent
+/// hole in a NON-INTERFERENCE check is worse than one in an invariant — it makes
+/// the leak it would have caught read as "nothing changed".
+///
+/// Naming one of these in `changed` is a hard failure with its reason attached.
+/// A unit test pins this list plus [`fingerprinted_managers`] against the
+/// contents of `layout/src/managers/`, so a new manager cannot join the tree
+/// unclassified.
+#[cfg(feature = "std")]
+fn not_fingerprintable() -> Vec<(&'static str, &'static str)> {
+    #[allow(unused_mut)]
+    let mut reasons: Vec<(&'static str, &'static str)> = alloc::vec![
+    (
+        "scroll_into_view",
+        "stateless — free functions that compute ScrollAdjustments, write them into ScrollManager \
+         and return; there is no state of its own to move. Its effect shows up as a `scroll` \
+         change, which IS fingerprinted",
+    ),
+    (
+        "drag_drop",
+        "holds no state: the second Option<DragContext> was deleted in 2026-07 and what remains is \
+         the stateless DragState view built on demand from gesture_drag_manager.active_drag, which \
+         IS fingerprinted as `gesture`",
+    ),
+    (
+        "changeset",
+        "not a manager — a data type. A recorded changeset lives in TextInputManager, which IS \
+         fingerprinted as `text_input`",
+    ),
+    (
+        "selection",
+        "there is no SelectionManager; the live selection is TextEditManager::multi_cursor, which \
+         the `text_edit` fingerprint already covers. A separate entry would double-count one \
+         manager and make \"only text_edit moved\" unstateable",
+    ),
+    ];
+    #[cfg(not(feature = "a11y"))]
+    reasons.push((
+        "a11y",
+        "this build has no `a11y` feature, so A11yManager is a field-less stub. Its fingerprint \
+         would be a constant, and a constant fingerprint is an assertion that cannot fail",
+    ));
+    reasons
+}
+
+/// Fingerprint every manager on this window.
+///
+/// WHAT IS DELIBERATELY EXCLUDED, and why — an unexplained exclusion is a blind
+/// spot that reads as coverage:
+///
+/// * `AnimatedScrollState::last_activity` (an `Instant`): moves on every scroll,
+///   i.e. it is redundant with the offset that is recorded, and rendering a
+///   clock value into a digest makes the digest depend on the wall clock.
+/// * `ScrollManager::scrollbar_states`: private, and recomputed from geometry
+///   every frame — it is a derived cache, not state anybody can leak into.
+/// * `GpuValueCache`'s animated VALUES: they change every frame of a running
+///   animation, so they would report "gpu_state moved" for every tick of a fade
+///   the scenario asked for. The KEYS are recorded (a key is what leaks) and
+///   `scrollbar_fade_active` says whether a fade is live.
+/// * `VirtualViewState`'s per-view internals and geolocation's private pending
+///   queues: no accessor exists. The view KEYS and the refcount are recorded.
+/// * the a11y tree's CONTENT — see [`fp_a11y`] for why, and for what that costs.
+///
+/// A scenario must settle its frames (`wait_frame` + `wait`) before BOTH the
+/// snapshot and the assertion: the transient repaint flags (`display_list_dirty`,
+/// `scroll_dirty`, `pending_wheel_event`) are real state and ARE recorded, so
+/// comparing a settled window against a mid-flight one reports them as moved.
+/// That is the correct answer to the question asked; it is not noise.
+#[cfg(feature = "std")]
+pub(crate) fn manager_fingerprints(
+    lw: &azul_layout::window::LayoutWindow,
+) -> BTreeMap<String, ManagerFingerprint> {
+    let mut out: BTreeMap<String, ManagerFingerprint> = BTreeMap::new();
+    out.insert("scroll".to_string(), fp_scroll(&lw.scroll_manager));
+    out.insert("hover".to_string(), fp_hover(&lw.hover_manager));
+    out.insert("focus".to_string(), fp_focus(&lw.focus_manager));
+    out.insert("gesture".to_string(), fp_gesture(&lw.gesture_drag_manager));
+    out.insert("text_edit".to_string(), fp_text_edit(&lw.text_edit_manager));
+    out.insert(
+        "text_input".to_string(),
+        fp_text_input(&lw.text_input_manager),
+    );
+    out.insert("undo_redo".to_string(), fp_undo_redo(&lw.undo_redo_manager));
+    out.insert(
+        "virtual_view".to_string(),
+        fp_virtual_view(&lw.virtual_view_manager),
+    );
+    out.insert("gpu_state".to_string(), fp_gpu_state(&lw.gpu_state_manager));
+    out.insert(
+        "permission".to_string(),
+        fp_permission(&lw.permission_manager),
+    );
+    out.insert("clipboard".to_string(), fp_clipboard(&lw.clipboard_manager));
+    out.insert("file_drop".to_string(), fp_file_drop(&lw.file_drop_manager));
+    out.insert("gamepad".to_string(), fp_gamepad(&lw.gamepad_manager));
+    out.insert(
+        "geolocation".to_string(),
+        fp_geolocation(&lw.geolocation_manager),
+    );
+    out.insert("biometric".to_string(), fp_biometric(&lw.biometric_manager));
+    out.insert("keyring".to_string(), fp_keyring(&lw.keyring_manager));
+    out.insert("sensors".to_string(), fp_sensors(&lw.sensor_manager));
+    #[cfg(feature = "a11y")]
+    out.insert("a11y".to_string(), fp_a11y(&lw.a11y_manager));
+    out
+}
+
+// -- the per-manager fingerprints --------------------------------------------
+//
+// Each takes ONLY its own manager, never the window. That is what makes them
+// unit-testable without an engine: `fingerprint_moves_when_its_manager_moves`
+// builds a default manager, mutates ONE field through the manager's own public
+// API, and requires the digest to change. A fingerprint that ignored the field
+// somebody later leaks into is an assertion that cannot fail, and this repo has
+// shipped that defect before — see the scrollbar-fade latch that sat outside
+// `KNOWN_MANAGERS`.
+
+#[cfg(feature = "std")]
+fn fp_scroll(m: &azul_layout::managers::scroll_state::ScrollManager) -> ManagerFingerprint {
+    let keys = m.state_keys();
+    let mut parts: Vec<String> = Vec::new();
+    for (dom, node) in &keys {
+        let (ox, oy) = m
+            .get_current_offset(*dom, *node)
+            .map_or((0.0_f32, 0.0_f32), |o| (o.x, o.y));
+        let animating = m
+            .get_scroll_state(*dom, *node)
+            .is_some_and(|s| s.animation.is_some());
+        parts.push(format!(
+            "({},{})=({ox:.2},{oy:.2}){}",
+            dom.inner,
+            node.index(),
+            if animating { "+anim" } else { "" }
+        ));
+    }
+    parts.push(format!("dirty={}", m.has_pending_scroll_changes()));
+    parts.push(format!("wheel={}", m.pending_wheel_event.is_some()));
+    ManagerFingerprint::new(keys.len(), parts.join(" "))
+}
+
+#[cfg(feature = "std")]
+fn fp_hover(m: &azul_layout::managers::hover::HoverManager) -> ManagerFingerprint {
+    let (points, entries) = m.debug_counts();
+    let mut parts: Vec<String> = Vec::new();
+    for point in m.get_active_input_points() {
+        let Some(hit) = m.get_current(&point) else {
+            continue;
+        };
+        let mut nodes: Vec<String> = Vec::new();
+        for (dom, ht) in &hit.hovered_nodes {
+            for nid in ht
+                .regular_hit_test_nodes
+                .keys()
+                .chain(ht.scroll_hit_test_nodes.keys())
+                .chain(ht.cursor_hit_test_nodes.keys())
+            {
+                nodes.push(format!("({},{})", dom.inner, nid.index()));
+            }
+        }
+        nodes.sort_unstable();
+        nodes.dedup();
+        parts.push(format!("{point:?}=[{}]", nodes.join(",")));
+    }
+    ManagerFingerprint::new(
+        points,
+        format!("points={points} entries={entries} {}", parts.join(" ")),
+    )
+}
+
+#[cfg(feature = "std")]
+fn fp_focus(m: &azul_layout::managers::focus_cursor::FocusManager) -> ManagerFingerprint {
+    let mut population = 0usize;
+    let focused = match m.focused_node {
+        None => "none".to_string(),
+        Some(f) => {
+            population += 1;
+            format!(
+                "({},{:?})",
+                f.dom.inner,
+                f.node.into_crate_internal().map(|n| n.index())
+            )
+        }
+    };
+    if m.pending_focus_request.is_some() {
+        population += 1;
+    }
+    let pending_ce = match m.pending_contenteditable_focus.as_ref() {
+        None => "none".to_string(),
+        Some(p) => {
+            population += 1;
+            format!(
+                "({},{},{})",
+                p.dom_id.inner,
+                p.container_node_id.index(),
+                p.text_node_id.index()
+            )
+        }
+    };
+    ManagerFingerprint::new(
+        population,
+        format!(
+            "focused={focused} pending={:?} cursor_init={} pending_ce={pending_ce}",
+            m.pending_focus_request, m.cursor_needs_initialization
+        ),
+    )
+}
+
+#[cfg(feature = "std")]
+fn fp_gesture(m: &azul_layout::managers::gesture::GestureAndDragManager) -> ManagerFingerprint {
+    let mut population = m.input_sessions.len();
+    let drag = match m.active_drag.as_ref() {
+        None => "none".to_string(),
+        Some(d) => {
+            population += 1;
+            let anchor = drag_source_node(d)
+                .map_or_else(|| "-".to_string(), |(dom, n)| format!("({},{})", dom.inner, n.index()));
+            format!(
+                "{}@{anchor}#{}{}",
+                drag_kind_str(d),
+                d.session_id,
+                if d.cancelled { "!cancelled" } else { "" }
+            )
+        }
+    };
+    let sessions: Vec<String> = m
+        .input_sessions
+        .iter()
+        .map(|s| {
+            format!(
+                "#{}:{}{}",
+                s.session_id,
+                s.samples.len(),
+                if s.ended { "" } else { "+live" }
+            )
+        })
+        .collect();
+    if m.pen_state.is_some() {
+        population += 1;
+    }
+    if m.pad_state.is_some() {
+        population += 1;
+    }
+    if m.native_gesture.is_some() {
+        population += 1;
+    }
+    ManagerFingerprint::new(
+        population,
+        format!(
+            "drag={drag} sessions=[{}] pen={} pen_pending={} pad={} native={:?}",
+            sessions.join(","),
+            m.pen_state
+                .as_ref()
+                .map_or_else(|| "none".to_string(), |p| format!(
+                    "dev{}{}",
+                    p.device_id,
+                    if p.in_contact { "+contact" } else { "" }
+                )),
+            m.pen_event_pending,
+            m.pad_state.is_some(),
+            m.native_gesture
+        ),
+    )
+}
+
+#[cfg(feature = "std")]
+fn fp_text_edit(m: &azul_layout::managers::text_edit::TextEditManager) -> ManagerFingerprint {
+    let mut population = 0usize;
+    let cursor = match m.multi_cursor.as_ref() {
+        None => "none".to_string(),
+        Some(mc) => {
+            population += mc.selections.len();
+            format!(
+                "({},{:?})x{}span{}key{}",
+                mc.node_id.dom.inner,
+                mc.node_id.node.into_crate_internal().map(|n| n.index()),
+                mc.selections.len(),
+                multi_cursor_span(mc),
+                mc.contenteditable_key
+            )
+        }
+    };
+    if m.preedit_text.is_some() {
+        population += 1;
+    }
+    ManagerFingerprint::new(
+        population,
+        format!(
+            "cursor={cursor} preedit={:?}({},{}) blink={} dirty={}",
+            m.preedit_text.as_deref().unwrap_or(""),
+            m.preedit_cursor_begin,
+            m.preedit_cursor_end,
+            m.blink.blink_timer_active,
+            m.display_list_dirty
+        ),
+    )
+}
+
+#[cfg(feature = "std")]
+fn fp_text_input(m: &azul_layout::managers::text_input::TextInputManager) -> ManagerFingerprint {
+    let mut population = 0usize;
+    let pending = match m.pending_changeset.as_ref() {
+        None => "none".to_string(),
+        Some(p) => {
+            population += 1;
+            format!(
+                "({},{:?})+{}/{}",
+                p.node.dom.inner,
+                p.node.node.into_crate_internal().map(|n| n.index()),
+                p.inserted_text.as_str().len(),
+                p.old_text.as_str().len()
+            )
+        }
+    };
+    if m.input_source.is_some() {
+        population += 1;
+    }
+    ManagerFingerprint::new(
+        population,
+        format!("pending={pending} source={:?}", m.input_source),
+    )
+}
+
+#[cfg(feature = "std")]
+fn fp_undo_redo(m: &azul_layout::managers::undo_redo::UndoRedoManager) -> ManagerFingerprint {
+    let stacks: Vec<String> = m
+        .node_stacks
+        .iter()
+        .map(|s| {
+            format!(
+                "{}:u{}r{}",
+                s.node_id.index(),
+                s.undo_stack.len(),
+                s.redo_stack.len()
+            )
+        })
+        .collect();
+    ManagerFingerprint::new(
+        m.node_stacks.len() + m.content_snapshots.len(),
+        format!(
+            "stacks=[{}] snapshots={}",
+            stacks.join(","),
+            m.content_snapshots.len()
+        ),
+    )
+}
+
+#[cfg(feature = "std")]
+fn fp_virtual_view(m: &azul_layout::managers::virtual_view::VirtualViewManager) -> ManagerFingerprint {
+    let keys = m.all_view_keys();
+    let rendered: Vec<String> = keys
+        .iter()
+        .map(|(dom, node)| {
+            format!(
+                "({},{}){}",
+                dom.inner,
+                node.index(),
+                if m.was_virtual_view_invoked(*dom, *node) {
+                    "+invoked"
+                } else {
+                    ""
+                }
+            )
+        })
+        .collect();
+    ManagerFingerprint::new(
+        keys.len(),
+        format!("views=[{}] count={}", rendered.join(","), m.debug_counts()),
+    )
+}
+
+#[cfg(feature = "std")]
+fn fp_gpu_state(m: &azul_layout::managers::gpu_state::GpuStateManager) -> ManagerFingerprint {
+    let mut population = 0usize;
+    let mut caches: Vec<String> = Vec::new();
+    for (dom, cache) in &m.caches {
+        let node_keys = cache.transform_keys.len()
+            + cache.h_transform_keys.len()
+            + cache.css_transform_keys.len()
+            + cache.opacity_keys.len();
+        let bar_keys = cache.scrollbar_v_opacity_keys.len() + cache.scrollbar_h_opacity_keys.len();
+        population += node_keys + bar_keys;
+        caches.push(format!("dom{}:n{node_keys}b{bar_keys}", dom.inner));
+    }
+    ManagerFingerprint::new(
+        population,
+        format!(
+            "caches=[{}] fade={} pending={}",
+            caches.join(","),
+            m.scrollbar_fade_active,
+            m.pending_changes.transform_key_changes.len()
+                + m.pending_changes.opacity_key_changes.len()
+                + m.pending_changes.scrollbar_opacity_changes.len()
+        ),
+    )
+}
+
+#[cfg(feature = "std")]
+fn fp_permission(m: &azul_layout::managers::permission::PermissionManager) -> ManagerFingerprint {
+    let entries: Vec<String> = m
+        .statuses
+        .iter()
+        .map(|(cap, e)| {
+            format!(
+                "{cap:?}={:?}x{}@{}",
+                e.state,
+                e.refcount,
+                e.last_subscriber.map_or_else(
+                    || "-".to_string(),
+                    |s| format!(
+                        "({},{:?})",
+                        s.dom.inner,
+                        s.node.into_crate_internal().map(|n| n.index())
+                    )
+                )
+            )
+        })
+        .collect();
+    ManagerFingerprint::new(m.statuses.len(), entries.join(" "))
+}
+
+#[cfg(feature = "std")]
+fn fp_clipboard(m: &azul_layout::managers::clipboard::ClipboardManager) -> ManagerFingerprint {
+    let paste = m.get_paste_content().map_or(0, |c| c.plain_text.as_str().len());
+    let copy = m.get_copy_content().map_or(0, |c| c.plain_text.as_str().len());
+    ManagerFingerprint::new(
+        usize::from(m.has_paste_content()) + usize::from(m.has_copy_content()),
+        format!(
+            "paste={}({paste}) copy={}({copy})",
+            m.has_paste_content(),
+            m.has_copy_content()
+        ),
+    )
+}
+
+#[cfg(feature = "std")]
+fn fp_file_drop(m: &azul_layout::managers::file_drop::FileDropManager) -> ManagerFingerprint {
+    let hovered = m.get_hovered_files();
+    let dropped = m.get_dropped_files();
+    ManagerFingerprint::new(
+        hovered.len() + dropped.len(),
+        format!(
+            "hovered={} dropped={} cancelled={}",
+            hovered.len(),
+            dropped.len(),
+            m.hover_was_cancelled()
+        ),
+    )
+}
+
+#[cfg(feature = "std")]
+fn fp_gamepad(m: &azul_layout::managers::gamepad::GamepadManager) -> ManagerFingerprint {
+    let pads = m.gamepads();
+    ManagerFingerprint::new(
+        pads.len(),
+        format!(
+            "pads={} primary={} listeners={}",
+            pads.len(),
+            m.primary().is_some(),
+            m.has_listeners()
+        ),
+    )
+}
+
+#[cfg(feature = "std")]
+fn fp_geolocation(
+    m: &azul_layout::managers::geolocation::GeolocationManager,
+) -> ManagerFingerprint {
+    let mut population = m.refcount() as usize;
+    if m.latest_fix().is_some() {
+        population += 1;
+    }
+    if m.last_error.is_some() {
+        population += 1;
+    }
+    ManagerFingerprint::new(
+        population,
+        format!(
+            "refcount={} subscribed={} fix={} config={} error={}",
+            m.refcount(),
+            m.has_active_subscription(),
+            m.latest_fix().is_some(),
+            m.active_config.is_some(),
+            m.last_error
+                .as_ref()
+                .map_or_else(|| "-".to_string(), |e| e.code.to_string())
+        ),
+    )
+}
+
+#[cfg(feature = "std")]
+fn fp_biometric(m: &azul_layout::managers::biometric::BiometricManager) -> ManagerFingerprint {
+    ManagerFingerprint::new(
+        usize::from(m.last_result.is_some()) + m.in_flight as usize,
+        format!(
+            "result={:?} availability={:?} in_flight={} pending={}",
+            m.last_result, m.availability, m.in_flight, m.pending_event
+        ),
+    )
+}
+
+#[cfg(feature = "std")]
+fn fp_keyring(m: &azul_layout::managers::keyring::KeyringManager) -> ManagerFingerprint {
+    ManagerFingerprint::new(
+        usize::from(m.last_result.is_some()) + m.in_flight as usize,
+        format!(
+            "result={:?} in_flight={} pending={}",
+            m.last_result, m.in_flight, m.pending_event
+        ),
+    )
+}
+
+#[cfg(feature = "std")]
+fn fp_sensors(m: &azul_layout::managers::sensors::SensorManager) -> ManagerFingerprint {
+    ManagerFingerprint::new(
+        usize::from(m.accelerometer.is_some())
+            + usize::from(m.gyroscope.is_some())
+            + usize::from(m.magnetometer.is_some()),
+        format!(
+            "accel={:?} gyro={:?} mag={:?} pending={} listeners={}",
+            m.accelerometer, m.gyroscope, m.magnetometer, m.pending_event, m.has_listeners
+        ),
+    )
+}
+
+/// PRESENCE-GRANULARITY ONLY, and that is a real limit worth stating: `tree` and
+/// `last_tree_update` are recorded as booleans, not as content.
+/// `update_a11y_tree` runs after EVERY successful layout and overwrites
+/// `last_tree_update`, so a content-sensitive digest would report "a11y moved"
+/// for every relayout in every scenario and be useless; a presence digest is
+/// stable but blind to a tree that changed shape. Proving THAT would need an
+/// `A11yNodeId -> NodeId` walk this crate does not have — the same gap
+/// `UNOBSERVABLE_MANAGERS` records for X10.
+#[cfg(all(feature = "std", feature = "a11y"))]
+fn fp_a11y(m: &azul_layout::managers::a11y::A11yManager) -> ManagerFingerprint {
+    ManagerFingerprint::new(
+        usize::from(m.tree.is_some()) + usize::from(m.last_tree_update.is_some()),
+        format!(
+            "root={:?} tree={} update={} initialized={}",
+            m.root_id,
+            m.tree.is_some(),
+            m.last_tree_update.is_some(),
+            m.tree_initialized
+        ),
+    )
+}
+
+/// The pure diff behind `assert_only_managers_changed`.
+///
+/// Returns `(moved, expected_but_static)`: the managers whose fingerprint
+/// differs between `before` and `after`, and the managers the scenario said
+/// would move that did not. Split out from the op so it can be unit-tested
+/// without an engine — the two failure directions have to be PROVEN to fire,
+/// not assumed to.
+#[cfg(feature = "std")]
+fn diff_manager_fingerprints(
+    before: &BTreeMap<String, ManagerFingerprint>,
+    after: &BTreeMap<String, ManagerFingerprint>,
+    expected: &[String],
+) -> (Vec<String>, Vec<String>) {
+    let mut moved: Vec<String> = Vec::new();
+    for (name, now) in after {
+        match before.get(name) {
+            // A manager present in one snapshot and absent from the other is a
+            // MOVE, not something to skip: it means the two snapshots were taken
+            // by builds with different manager sets, and silently ignoring that
+            // is how a whole manager disappears from a non-interference check.
+            None => moved.push(name.clone()),
+            Some(was) if was != now => moved.push(name.clone()),
+            Some(_) => {}
+        }
+    }
+    for name in before.keys() {
+        if !after.contains_key(name) {
+            moved.push(name.clone());
+        }
+    }
+    moved.sort_unstable();
+    moved.dedup();
+    let expected_but_static: Vec<String> = expected
+        .iter()
+        .filter(|e| !moved.contains(*e))
+        .cloned()
+        .collect();
+    (moved, expected_but_static)
+}
+
+/// `assert_only_managers_changed` — the non-interference assertion.
+///
+/// Diffs every manager against a named `snapshot_managers` and requires the set
+/// that moved to be EXACTLY the set the scenario named in `changed`.
+///
+/// Parameters:
+/// * `vs` — the `snapshot_managers` name to diff against (required).
+/// * `changed` — the exact set of managers expected to have moved (required;
+///   `[]` means "this op must not have touched a single manager").
+/// * `min_populated` — optionally require that at least N managers are holding
+///   non-empty state right now. Without it, two empty snapshots compare equal
+///   and the assertion reports "nothing interfered" for a window where nothing
+///   ever happened. Same guard, same reason, as `min_checked` on
+///   `assert_manager_invariants`.
+///
+/// ```json
+/// { "op": "snapshot_managers", "as": "before" },
+/// { "op": "key_down", "key": "tab" },
+/// { "op": "wait_frame" },
+/// { "op": "assert_only_managers_changed",
+///   "vs": "before", "changed": ["focus"], "min_populated": 1 }
+/// ```
+#[cfg(feature = "std")]
+fn eval_assert_only_managers_changed(
+    params: &serde_json::Value,
+    callback_info: &azul_layout::callbacks::CallbackInfo,
+) -> AssertionResult {
+    if let Some(bad) = reject_unknown_params(
+        "assert_only_managers_changed",
+        params,
+        &["vs", "changed", "min_populated"],
+    ) {
+        return bad;
+    }
+
+    let Some(vs) = params.get("vs").and_then(|v| v.as_str()) else {
+        return AssertionResult::fail(
+            "assert_only_managers_changed: missing 'vs' (the snapshot_managers name to diff \
+             against)",
+        );
+    };
+
+    let Some(serde_json::Value::Array(want)) = params.get("changed") else {
+        return AssertionResult::fail(
+            "assert_only_managers_changed: missing 'changed' (the EXACT array of managers this op \
+             is allowed to move; write [] for \"it must move nothing\"). It is not optional — a \
+             default would have to be either \"anything goes\" or a guess, and both pass leaks.",
+        );
+    };
+    let known = fingerprinted_managers();
+    let unknown_reasons = not_fingerprintable();
+    let mut expected: Vec<String> = Vec::new();
+    for v in want {
+        let Some(name) = v.as_str() else {
+            return AssertionResult::fail(
+                "assert_only_managers_changed: 'changed' must be an array of strings",
+            );
+        };
+        if let Some((_, why)) = unknown_reasons.iter().find(|(n, _)| *n == name) {
+            return AssertionResult::fail(format!(
+                "assert_only_managers_changed: manager '{name}' is NOT recorded by \
+                 snapshot_managers and will not be silently passed — {why}"
+            ));
+        }
+        if !known.contains(&name) {
+            return AssertionResult::fail(format!(
+                "assert_only_managers_changed: unknown manager '{name}' (known: {}). Refusing to \
+                 accept an expectation nothing can check.",
+                known.join(", ")
+            ));
+        }
+        expected.push(name.to_string());
+    }
+    expected.sort_unstable();
+    expected.dedup();
+
+    let Some(before) = scratch(callback_info).manager_snapshots.get(vs).cloned() else {
+        return AssertionResult::fail(format!(
+            "assert_only_managers_changed: no manager snapshot named '{vs}' (use \
+             snapshot_managers first)"
+        ));
+    };
+    let after = manager_fingerprints(callback_info.get_layout_window());
+
+    // The name list and the map builder must agree. If a manager is declared but
+    // never built, this assertion happily ACCEPTS its name in `changed` and then
+    // never compares it — a name that reads as full coverage and checks nothing.
+    // Checked here rather than in a test because only the running builder knows
+    // what it actually produced.
+    let missing: Vec<&str> = known
+        .iter()
+        .copied()
+        .filter(|n| !after.contains_key(*n))
+        .collect();
+    if !missing.is_empty() {
+        return AssertionResult::fail(format!(
+            "assert_only_managers_changed: {missing:?} are named by fingerprinted_managers() but \
+             manager_fingerprints did not produce them. Every name this assertion accepts must be \
+             a name it actually compares; refusing to report non-interference over a set it did \
+             not measure."
+        ));
+    }
+
+    if let Some(min) = params.get("min_populated") {
+        let Some(min) = min.as_u64() else {
+            return AssertionResult::fail(
+                "assert_only_managers_changed: 'min_populated' must be a number",
+            );
+        };
+        let populated = after.values().filter(|f| f.population > 0).count();
+        if (populated as u64) < min {
+            return AssertionResult::fail_with(
+                format!(
+                    "assert_only_managers_changed: only {populated} manager(s) hold any state, but \
+                     the scenario requires at least {min}. Two empty snapshots always compare \
+                     equal — this assertion proved nothing about interference."
+                ),
+                format!("at least {min} populated manager(s)"),
+                populated.to_string(),
+            );
+        }
+    }
+
+    let (moved, expected_but_static) = diff_manager_fingerprints(&before, &after, &expected);
+
+    let mut violations: Vec<String> = Vec::new();
+    for name in &moved {
+        if expected.contains(name) {
+            continue;
+        }
+        let was = before.get(name).map_or("<absent>", |f| f.digest.as_str());
+        let now = after.get(name).map_or("<absent>", |f| f.digest.as_str());
+        violations.push(format!(
+            "'{name}' moved but was not listed in 'changed': [{was}] -> [{now}]"
+        ));
+    }
+    for name in &expected_but_static {
+        violations.push(format!(
+            "'{name}' was listed in 'changed' but did not move — the scenario is no longer \
+             exercising it, so this assertion is no longer proving what it claims"
+        ));
+    }
+
+    if violations.is_empty() {
+        return AssertionResult::pass(format!(
+            "assert_only_managers_changed: exactly [{}] moved vs '{vs}'; the other {} manager(s) \
+             are untouched",
+            expected.join(","),
+            after.len() - moved.len()
+        ));
+    }
+    AssertionResult::fail_with(
+        format!(
+            "assert_only_managers_changed: {} manager(s) disagree with 'changed'",
+            violations.len()
+        ),
+        format!("exactly [{}] moved", expected.join(",")),
+        violations.join("; "),
+    )
+}
+
 // ---- assert_composition: the per-step stage trace --------------------------
 
 /// One sample of the manager state, taken by the step loop before every step.
@@ -6267,6 +7609,16 @@ struct CompositionSample {
     /// Sum of |scroll offset| over every scroll state, in 1/100 logical px, so
     /// "the container started scrolling" is a plain integer comparison.
     scroll_offset_sum: i64,
+    /// Per-scroll-node offsets, keyed `(dom.inner, node.index())`, in 1/100
+    /// logical px. The sum above answers "did SOMETHING scroll"; X8 has to know
+    /// WHICH container scrolled, because its whole point is that a selection
+    /// autoscroll must move the selection's OWN container and not some other one.
+    scroll_offsets: BTreeMap<(usize, usize), (i64, i64)>,
+    /// The node the live selection's cursor sits in, if any. X8 compares it
+    /// against the container that actually moved.
+    selection_focus_node: Option<(usize, usize)>,
+    /// Is the live drag a TEXT-SELECTION drag? X8 only speaks about those.
+    text_selection_drag: bool,
 }
 
 /// The stage trace `assert_composition` reads: for each stage name, the index of
@@ -6276,6 +7628,17 @@ struct CompositionSample {
 struct CompositionTrace {
     entered: BTreeMap<String, usize>,
     prev: Option<CompositionSample>,
+    /// The sample BEFORE `prev`.
+    ///
+    /// Samples are taken before every step, so when an assertion step is
+    /// running, `prev` is the state as of just before that assertion — i.e.
+    /// AFTER the last op that did something — and `prev2` is the state before
+    /// that op. `(prev2, prev)` is therefore the frame-to-frame delta of the
+    /// last real op, which is the only thing X8 ("selection focus and the
+    /// scrolled container must stay mutually consistent frame-to-frame") can be
+    /// asked about. Comparing live state against `prev` would compare an
+    /// assertion step against itself and always see zero.
+    prev2: Option<CompositionSample>,
     samples: usize,
 }
 
@@ -6336,6 +7699,31 @@ fn e2e_record_composition_sample(
                 (f64::from(o.x.abs()) * 100.0) as i64 + (f64::from(o.y.abs()) * 100.0) as i64
             })
             .sum(),
+        scroll_offsets: lw
+            .scroll_manager
+            .state_keys()
+            .into_iter()
+            .filter_map(|(d, n)| {
+                let o = lw.scroll_manager.get_current_offset(d, n)?;
+                Some((
+                    (d.inner, n.index()),
+                    (
+                        (f64::from(o.x) * 100.0) as i64,
+                        (f64::from(o.y) * 100.0) as i64,
+                    ),
+                ))
+            })
+            .collect(),
+        selection_focus_node: lw.text_edit_manager.multi_cursor.as_ref().and_then(|mc| {
+            mc.node_id
+                .node
+                .into_crate_internal()
+                .map(|n| (mc.node_id.dom.inner, n.index()))
+        }),
+        text_selection_drag: matches!(
+            lw.gesture_drag_manager.active_drag.as_ref().map(|d| &d.drag_type),
+            Some(azul_core::drag::ActiveDragType::TextSelection(_))
+        ),
     };
 
     let mut guard = scratch(callback_info);
@@ -6381,6 +7769,7 @@ fn e2e_record_composition_sample(
     for name in entered {
         trace.entered.entry(name.to_string()).or_insert(step_index);
     }
+    trace.prev2 = trace.prev.take();
     trace.prev = Some(sample);
     trace.samples += 1;
 }
@@ -10199,6 +11588,14 @@ pub fn process_debug_event(
             send_ok(request, None, None);
         }
 
+        DebugEvent::SnapshotManagers { name } => {
+            let prints = manager_fingerprints(callback_info.get_layout_window());
+            scratch(callback_info)
+                .manager_snapshots
+                .insert(name.clone(), prints);
+            send_ok(request, None, None);
+        }
+
         DebugEvent::TickMs { ms } => {
             let total = azul_core::task::advance_test_clock_ms(*ms);
             log(
@@ -11680,6 +13077,12 @@ pub fn process_debug_event(
                 dom: dom_id,
                 node: NodeHierarchyItemId::from_crate_internal(Some(node)),
             };
+
+            // Remember WHAT we asked to be scrolled into view. `scroll_into_view`
+            // itself keeps no record (it applies its adjustments and drops them),
+            // so cross-invariant X1 would otherwise have no subject and could only
+            // ever pass vacuously. See `E2eScratch::last_scroll_into_view`.
+            scratch(callback_info).last_scroll_into_view = Some((dom_id, node));
 
             // Call scroll_node_into_view on CallbackInfo (queues the scroll change)
             callback_info.scroll_node_into_view(dom_node_id, options);
@@ -14348,4 +15751,380 @@ mod e2e_manager_accounting {
             );
         }
     }
+
+    /// The same gate for NON-INTERFERENCE. A manager `snapshot_managers` does
+    /// not record is worse than one no invariant checks: the leak it would have
+    /// caught reads back as "nothing changed", i.e. as a PASS.
+    #[test]
+    fn every_manager_module_is_either_fingerprinted_or_declared_not_fingerprintable() {
+        let fingerprinted = super::fingerprinted_managers();
+        let not_fingerprintable = super::not_fingerprintable();
+
+        let dir = concat!(env!("CARGO_MANIFEST_DIR"), "/src/managers");
+        let mut modules: Vec<String> = std::fs::read_dir(dir)
+            .unwrap_or_else(|e| panic!("cannot read {dir}: {e}"))
+            .filter_map(Result::ok)
+            .filter_map(|e| {
+                let name = e.file_name().to_string_lossy().into_owned();
+                let stem = name.strip_suffix(".rs")?.to_string();
+                (stem != "mod").then_some(stem)
+            })
+            .collect();
+        modules.sort();
+        assert!(
+            !modules.is_empty(),
+            "found no manager modules under {dir} — this test would pass vacuously",
+        );
+
+        fn alias(m: &str) -> &str {
+            match m {
+                "scroll_state" => "scroll",
+                "focus_cursor" => "focus",
+                other => other,
+            }
+        }
+
+        let unclassified: Vec<&String> = modules
+            .iter()
+            .filter(|m| {
+                let a = alias(m);
+                !fingerprinted.contains(&a)
+                    && !not_fingerprintable.iter().any(|(n, _)| *n == a)
+            })
+            .collect();
+        assert!(
+            unclassified.is_empty(),
+            "these manager modules are neither fingerprinted by snapshot_managers nor listed in \
+             not_fingerprintable(): {unclassified:?}.\nFingerprint it, or record why it has no \
+             state. A manager missing from the fingerprint set makes every leak into it read as \
+             'nothing changed'.",
+        );
+
+        for (name, _) in &not_fingerprintable {
+            assert!(
+                modules.iter().any(|m| alias(m) == *name),
+                "not_fingerprintable() lists '{name}', which is not a module under {dir}",
+            );
+        }
+
+        // No name may be in both lists: one of the two statements would be a lie.
+        for name in &fingerprinted {
+            assert!(
+                !not_fingerprintable.iter().any(|(n, _)| n == name),
+                "'{name}' is both fingerprinted and declared not-fingerprintable",
+            );
+        }
+    }
+}
+
+/// PROOF THAT THE NON-INTERFERENCE ASSERTION CAN FAIL.
+///
+/// A non-interference check that cannot go red silently blesses every
+/// cross-manager leak in the engine, which is strictly worse than not having one
+/// — a green suite would then be evidence FOR correctness that nothing produced.
+/// Two things have to be true for `assert_only_managers_changed` to be real, and
+/// each gets its own test here:
+///
+/// 1. The DIFF must report both failure directions: a manager that moved without
+///    being listed (the leak), and a listed manager that did not move (a
+///    scenario that has quietly stopped exercising what it names).
+/// 2. Every FINGERPRINT must actually move when its manager is written. A
+///    fingerprint that ignores the field somebody later leaks into is exactly the
+///    "cannot fail" defect at the level below the diff — and this repo has
+///    shipped it: `gpu_state` sat outside `KNOWN_MANAGERS`, so the scrollbar-fade
+///    latch was invisible to every invariant in this file.
+#[cfg(all(test, feature = "std"))]
+mod non_interference_can_fail {
+    use alloc::collections::BTreeMap;
+
+    use super::{diff_manager_fingerprints, ManagerFingerprint};
+
+    fn fp(digest: &str) -> ManagerFingerprint {
+        ManagerFingerprint::new(1, digest.to_string())
+    }
+
+    fn snapshot(pairs: &[(&str, &str)]) -> BTreeMap<String, ManagerFingerprint> {
+        pairs
+            .iter()
+            .map(|(k, v)| ((*k).to_string(), fp(v)))
+            .collect()
+    }
+
+    fn names(v: &[String]) -> Vec<&str> {
+        v.iter().map(String::as_str).collect()
+    }
+
+    #[test]
+    fn a_manager_that_moved_without_being_listed_is_reported() {
+        let before = snapshot(&[("focus", "none"), ("scroll", "(0,4)=(0.00,0.00)")]);
+        // Focus moved as expected AND scroll moved, which nobody asked for.
+        let after = snapshot(&[("focus", "(0,7)"), ("scroll", "(0,4)=(0.00,120.00)")]);
+        let (moved, stale) =
+            diff_manager_fingerprints(&before, &after, &["focus".to_string()]);
+        assert_eq!(names(&moved), vec!["focus", "scroll"]);
+        assert!(stale.is_empty());
+        // The op only lists `focus`, so `scroll` is the leak the caller must see.
+        let leaked: Vec<&String> = moved.iter().filter(|m| m.as_str() != "focus").collect();
+        assert_eq!(
+            leaked.len(),
+            1,
+            "a manager moved outside the declared set and the diff did not surface it — this \
+             assertion would bless every cross-manager leak",
+        );
+    }
+
+    #[test]
+    fn a_listed_manager_that_did_not_move_is_reported() {
+        let before = snapshot(&[("focus", "none"), ("scroll", "(0,4)=(0.00,0.00)")]);
+        let after = snapshot(&[("focus", "none"), ("scroll", "(0,4)=(0.00,120.00)")]);
+        let (moved, stale) = diff_manager_fingerprints(
+            &before,
+            &after,
+            &["focus".to_string(), "scroll".to_string()],
+        );
+        assert_eq!(names(&moved), vec!["scroll"]);
+        assert_eq!(
+            names(&stale),
+            vec!["focus"],
+            "a scenario named `focus` and focus never moved; without this the scenario keeps \
+             passing long after it stopped exercising focus at all",
+        );
+    }
+
+    #[test]
+    fn an_exact_match_is_silent() {
+        let before = snapshot(&[("focus", "none"), ("scroll", "(0,4)=(0.00,0.00)")]);
+        let after = snapshot(&[("focus", "(0,7)"), ("scroll", "(0,4)=(0.00,0.00)")]);
+        let (moved, stale) =
+            diff_manager_fingerprints(&before, &after, &["focus".to_string()]);
+        assert_eq!(names(&moved), vec!["focus"]);
+        assert!(
+            stale.is_empty(),
+            "the expected set moved exactly; a red here would make the assertion unusable and \
+             invite somebody to weaken it",
+        );
+    }
+
+    #[test]
+    fn a_manager_appearing_or_vanishing_counts_as_moved() {
+        // Two snapshots with different manager SETS mean the builds disagree
+        // about what exists. Skipping the odd one out is how a whole manager
+        // drops out of a non-interference check without anybody noticing.
+        let before = snapshot(&[("focus", "none")]);
+        let after = snapshot(&[("focus", "none"), ("a11y", "root=1")]);
+        let (moved, _) = diff_manager_fingerprints(&before, &after, &[]);
+        assert_eq!(names(&moved), vec!["a11y"]);
+
+        let (moved_back, _) = diff_manager_fingerprints(&after, &before, &[]);
+        assert_eq!(names(&moved_back), vec!["a11y"]);
+    }
+
+    /// The other half of the proof: a fingerprint must MOVE when its manager is
+    /// written. Each case builds a default manager, writes ONE thing through the
+    /// manager's own public API, and requires the digest to differ.
+    ///
+    /// This is why the `fp_*` functions take their manager rather than the
+    /// window: it makes them testable with no engine, no layout and no fonts.
+    #[test]
+    fn every_fingerprint_moves_when_its_manager_moves() {
+        use azul_core::dom::{DomId, DomNodeId, NodeId};
+
+        const ROOT: DomId = DomId { inner: 0 };
+        let mut moved: Vec<&str> = Vec::new();
+
+        macro_rules! assert_moves {
+            ($name:literal, $mk:expr, $mutate:expr, $fp:path) => {{
+                let mut m = $mk;
+                let before = $fp(&m);
+                #[allow(clippy::redundant_closure_call)]
+                ($mutate)(&mut m);
+                let after = $fp(&m);
+                assert_ne!(
+                    before, after,
+                    "the `{}` fingerprint did NOT change after writing that manager. A \
+                     fingerprint blind to a field is an assertion that cannot fail: every leak \
+                     into `{}` would report as 'nothing changed'.",
+                    $name, $name
+                );
+                moved.push($name);
+            }};
+        }
+
+        assert_moves!(
+            "scroll",
+            azul_layout::managers::scroll_state::ScrollManager::new(),
+            |m: &mut azul_layout::managers::scroll_state::ScrollManager| {
+                m.pending_wheel_event =
+                    Some(azul_core::geom::LogicalPosition { x: 1.0, y: 2.0 });
+            },
+            super::fp_scroll
+        );
+        assert_moves!(
+            "hover",
+            azul_layout::managers::hover::HoverManager::new(),
+            |m: &mut azul_layout::managers::hover::HoverManager| {
+                m.push_hit_test(
+                    azul_layout::managers::hover::InputPointId::Mouse,
+                    azul_core::hit_test::FullHitTest::empty(None),
+                );
+            },
+            super::fp_hover
+        );
+        assert_moves!(
+            "focus",
+            azul_layout::managers::focus_cursor::FocusManager::new(),
+            |m: &mut azul_layout::managers::focus_cursor::FocusManager| {
+                m.cursor_needs_initialization = true;
+            },
+            super::fp_focus
+        );
+        assert_moves!(
+            "gesture",
+            azul_layout::managers::gesture::GestureAndDragManager::new(),
+            |m: &mut azul_layout::managers::gesture::GestureAndDragManager| {
+                m.pen_event_pending = true;
+            },
+            super::fp_gesture
+        );
+        assert_moves!(
+            "text_edit",
+            azul_layout::managers::text_edit::TextEditManager::new(),
+            |m: &mut azul_layout::managers::text_edit::TextEditManager| {
+                m.display_list_dirty = true;
+            },
+            super::fp_text_edit
+        );
+        assert_moves!(
+            "text_input",
+            azul_layout::managers::text_input::TextInputManager::new(),
+            |m: &mut azul_layout::managers::text_input::TextInputManager| {
+                m.input_source =
+                    Some(azul_layout::managers::text_input::TextInputSource::Keyboard);
+            },
+            super::fp_text_input
+        );
+        assert_moves!(
+            "undo_redo",
+            azul_layout::managers::undo_redo::UndoRedoManager::new(),
+            |m: &mut azul_layout::managers::undo_redo::UndoRedoManager| {
+                m.node_stacks.push(
+                    azul_layout::managers::undo_redo::NodeUndoRedoStack::new(NodeId::new(3)),
+                );
+            },
+            super::fp_undo_redo
+        );
+        assert_moves!(
+            "virtual_view",
+            azul_layout::managers::virtual_view::VirtualViewManager::new(),
+            |m: &mut azul_layout::managers::virtual_view::VirtualViewManager| {
+                let _ = m.get_or_create_nested_dom_id(ROOT, NodeId::new(1));
+            },
+            super::fp_virtual_view
+        );
+        assert_moves!(
+            "gpu_state",
+            azul_layout::managers::gpu_state::GpuStateManager::default(),
+            |m: &mut azul_layout::managers::gpu_state::GpuStateManager| {
+                m.scrollbar_fade_active = true;
+            },
+            super::fp_gpu_state
+        );
+        assert_moves!(
+            "permission",
+            azul_layout::managers::permission::PermissionManager::new(),
+            |m: &mut azul_layout::managers::permission::PermissionManager| {
+                m.subscribe(
+                    azul_layout::managers::permission::Capability::Camera,
+                    DomNodeId::ROOT,
+                );
+            },
+            super::fp_permission
+        );
+        assert_moves!(
+            "clipboard",
+            azul_layout::managers::clipboard::ClipboardManager::new(),
+            |m: &mut azul_layout::managers::clipboard::ClipboardManager| {
+                m.set_copy_content(azul_layout::managers::selection::ClipboardContent {
+                    plain_text: "x".to_string().into(),
+                    styled_runs:
+                        azul_layout::managers::selection::StyledTextRunVec::from_vec(Vec::new()),
+                });
+            },
+            super::fp_clipboard
+        );
+        assert_moves!(
+            "file_drop",
+            azul_layout::managers::file_drop::FileDropManager::new(),
+            |m: &mut azul_layout::managers::file_drop::FileDropManager| {
+                m.set_dropped_file(Some("f".to_string().into()));
+            },
+            super::fp_file_drop
+        );
+        assert_moves!(
+            "gamepad",
+            azul_layout::managers::gamepad::GamepadManager::new(),
+            |m: &mut azul_layout::managers::gamepad::GamepadManager| {
+                m.set_has_listeners(true);
+            },
+            super::fp_gamepad
+        );
+        assert_moves!(
+            "geolocation",
+            azul_layout::managers::geolocation::GeolocationManager::new(),
+            |m: &mut azul_layout::managers::geolocation::GeolocationManager| {
+                m.set_last_error(azul_layout::managers::geolocation::LocationError {
+                    code: 7,
+                    message: "denied".to_string(),
+                });
+            },
+            super::fp_geolocation
+        );
+        assert_moves!(
+            "biometric",
+            azul_layout::managers::biometric::BiometricManager::new(),
+            |m: &mut azul_layout::managers::biometric::BiometricManager| {
+                m.pending_event = true;
+            },
+            super::fp_biometric
+        );
+        assert_moves!(
+            "keyring",
+            azul_layout::managers::keyring::KeyringManager::default(),
+            |m: &mut azul_layout::managers::keyring::KeyringManager| {
+                m.pending_event = true;
+            },
+            super::fp_keyring
+        );
+        assert_moves!(
+            "sensors",
+            azul_layout::managers::sensors::SensorManager::new(),
+            |m: &mut azul_layout::managers::sensors::SensorManager| {
+                m.pending_event = true;
+            },
+            super::fp_sensors
+        );
+        #[cfg(feature = "a11y")]
+        assert_moves!(
+            "a11y",
+            azul_layout::managers::a11y::A11yManager::new(),
+            |m: &mut azul_layout::managers::a11y::A11yManager| {
+                m.tree_initialized = !m.tree_initialized;
+            },
+            super::fp_a11y
+        );
+
+        // And the set covered here must be the WHOLE fingerprint set — otherwise
+        // a manager could be fingerprinted and never proven sensitive, which is
+        // the same hole one level down.
+        let mut covered = moved;
+        covered.sort_unstable();
+        let mut declared: Vec<&str> = super::fingerprinted_managers();
+        declared.sort_unstable();
+        assert_eq!(
+            covered, declared,
+            "every fingerprinted manager must be proven to MOVE when written; the two sets \
+             disagree, so at least one fingerprint is untested and may be a constant",
+        );
+    }
+
 }

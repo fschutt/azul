@@ -758,6 +758,37 @@ Not guesses. Each one is a seam that exists in the source:
   "cross": ["X1","X3","X5","X6","X9","X10"] }
 ```
 
+**STATUS (as built, `layout/src/e2e/full.rs`).** All ten are implemented. Six —
+`X2 X3 X5 X6 X9 X10` — hold unconditionally and are the DEFAULT `cross` set.
+Four are OPT-IN because each is a statement *about an interaction*, and each
+hard-fails when the scenario never performed it rather than passing on an empty
+premise:
+
+- **X1** needed the one thing `scroll_into_view` does not retain: WHICH node it
+  was asked about. The `scroll_into_view` op records its own target; the rest is
+  re-derived from live layout + `ScrollManager`.
+- **X4**'s premise changed. The second `Option<DragContext>` this row names was
+  deleted on 2026-07-13 — this table's own instruction ("if they routinely
+  disagree, delete the deprecated one — that is a finding") was carried out, and
+  `drag_drop.rs` now holds only view types. The SEAM survived: `DragState::from_context`
+  is still a second representation of one drag, and it is the one every reader of
+  the public drag API sees. X4 is implemented against that: the derived view must
+  agree with its source about the drag's kind and its source node.
+- **X7** is narrower than this row's wording, deliberately. An issued
+  `ScrollAdjustment` is still not retained anywhere, so an in-flight one cannot be
+  observed. What IS retained is the marker that says a cursor scroll is *owed*
+  (`cursor_needs_initialization`, `pending_contenteditable_focus`); focus being
+  cleared while one is still set catches the same bug one step earlier.
+- **X8** needed frame-to-frame history, which the composition trace now keeps
+  (two samples, with per-container scroll offsets).
+
+**NON-INTERFERENCE** — the other half of (g2), and the half this table does not
+cover — is `snapshot_managers` + `assert_only_managers_changed`. The invariants
+above ask "is a manager's state internally wrong?"; those two ask "did this op
+move a manager it has no business touching?", which no invariant can see: a
+scroll that quietly cleared focus is self-consistent, renders identically and
+leaks no resources.
+
 ---
 **(g3) STATE-MACHINE LEAKS — "it ended, but the manager didn't notice"**
 

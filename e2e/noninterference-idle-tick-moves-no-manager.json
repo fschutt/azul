@@ -1,0 +1,54 @@
+{
+  "name": "noninterference_idle_tick_moves_no_manager",
+  "description": "NON-INTERFERENCE, the baseline case: once every state machine has settled, ADVANCING THE CLOCK must not move a single manager. A window sits with keyboard focus on a node; 500 ms of virtual time pass; every one of the fingerprinted managers must read back byte-identical. This is the assertion that establishes the floor — if time alone moves a manager, no other non-interference statement in the suite means anything, because every scenario spends time. Deliberately mouse-free: the headless host re-publishes a hit test whenever a queued window state carries a cursor position, so a scenario that has moved the mouse legitimately moves the hover manager on every tick, and that would be a property of the mouse, not of the clock. Deliberately scroll-container-free: a scrollbar arms a 500 ms fade in gpu_state, and its expiry is real work the clock is supposed to do. min_populated pins the other half — focus IS holding state here, so this is not two empty snapshots comparing equal.",
+  "setup": {
+    "window_width": 400,
+    "window_height": 300,
+    "dpi": 96
+  },
+  "steps": [
+    {
+      "op": "mount",
+      "html": [
+        "<div id=\"root\">",
+        "  <div id=\"f1\" tabindex=\"0\" class=\"item\">one</div>",
+        "  <div id=\"f2\" tabindex=\"0\" class=\"item\">two</div>",
+        "</div>"
+      ],
+      "css": [
+        "html, body { margin: 0; padding: 0; }",
+        "#root { display: flex; flex-direction: column; }",
+        ".item { width: 120px; height: 30px; background: silver; }"
+      ]
+    },
+    { "op": "wait_frame" },
+    { "op": "wait", "ms": 150 },
+    { "op": "assert_exists", "selector": "#f1" },
+
+    { "op": "focus_node", "selector": "#f1" },
+    { "op": "wait_frame" },
+    { "op": "wait", "ms": 100 },
+    { "op": "get_focus_state" },
+    { "op": "assert_response", "contains": "f1" },
+
+    { "op": "tick_ms", "ms": 2000 },
+    { "op": "wait_frame" },
+    { "op": "wait", "ms": 100 },
+    { "op": "assert_state_machines_idle" },
+
+    { "op": "snapshot_managers", "as": "settled" },
+
+    { "op": "tick_ms", "ms": 500 },
+    { "op": "wait_frame" },
+    { "op": "wait", "ms": 100 },
+
+    {
+      "op": "assert_only_managers_changed",
+      "vs": "settled",
+      "changed": [],
+      "min_populated": 1
+    },
+    { "op": "assert_manager_invariants", "min_checked": 1 },
+    { "op": "assert_state_machines_idle" }
+  ]
+}
