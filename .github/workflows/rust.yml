@@ -230,12 +230,29 @@ jobs:
       #     so a correctly-gated site read as ungated in 295 of 400 runs on an
       #     unchanged tree. That one produced a DIFFERENT answer run to run.
       #
-      # It also prints how many sites rest on `#[cfg(feature = "std")]` alone.
-      # That is NOT a wasm exclusion in this repo — the wasm job below builds
-      # azul-core with default features (std) and azul-layout with `text_layout`
-      # (which enables std). STRICT_WASM_CFG=1 turns those into failures.
+      # STRICT_WASM_CFG=1 is deliberate, and it makes this step RED today (14
+      # sites).
+      #
+      # The audit that rewrote this script established that `#[cfg(feature =
+      # "std")]` is NOT a wasm exclusion in this repo: the wasm job below builds
+      # azul-core with default features (`default = ["std"]`) and azul-layout
+      # with `text_layout` (which enables std), so a site gated only on `std` is
+      # compiled INTO the wasm build and `Instant::now()` panics there at
+      # runtime. 14 sites rest on that false premise — 6 in layout/src/window.rs
+      # and core/src/task.rs:285/321/323 among them.
+      #
+      # Running the lenient mode would report zero and be green, which is the
+      # under-reporting failure: the sites do not stop existing because the
+      # check stopped naming them. `get_system_time_libstd` shows the shape that
+      # actually holds — `not(target_arch = "wasm32")` ON TOP OF `std`.
+      #
+      # The fix is NOT a blind sweep of `Instant::now()`: ~140 call sites route
+      # through it, and the correct guard depends on whether the `web_lift`
+      # lifted-native backend (where target_arch is x86_64, not wasm) must also
+      # be covered. That is a design decision, tracked as its own task; until it
+      # is made, this stays red and visible rather than green and quiet.
       - name: Check no std Instant::now() in WASM-compatible crates
-        run: bash scripts/check_wasm_instant.sh
+        run: STRICT_WASM_CFG=1 bash scripts/check_wasm_instant.sh
 
   # Check that the crate compiles with various feature combinations
   # This catches issues like missing Copy/Clone derives on stub types
