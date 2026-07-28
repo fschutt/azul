@@ -13,19 +13,27 @@ use azul_core::{
     dom::{DomId, DomNodeId, NodeId},
     selection::{MultiCursorState, Selection, TextCursor},
     styled_dom::NodeHierarchyItemId,
-    task::Instant,
+    task::{Duration, Instant},
 };
 
 
 /// Default cursor blink interval in milliseconds
 pub const CURSOR_BLINK_INTERVAL_MS: u64 = 530;
 
+/// Default cursor blink interval as a variant-agnostic [`Duration`].
+///
+/// The interval is a `Duration`, not a bare `u64` of milliseconds, so a
+/// stylesheet can express it in the clockless `t` unit (`caret-animation-duration:
+/// 5t`) and have it survive all the way to the comparison. `Duration`'s
+/// comparisons are unit-aware, so a tick-unit interval and a wall-clock elapsed
+/// value (or vice versa) still compare truthfully.
+pub const CURSOR_BLINK_INTERVAL: Duration = Duration::from_millis(CURSOR_BLINK_INTERVAL_MS);
+
 /// Cursor blink animation state.
 ///
 /// Extracted from the old `CursorManager` so it can live independently
 /// on `TextEditManager` without coupling to cursor position.
 #[derive(Debug, Clone)]
-#[derive(Default)]
 pub struct BlinkState {
     /// Whether the cursor is currently visible (toggled by blink timer)
     pub is_visible: bool,
@@ -34,11 +42,37 @@ pub struct BlinkState {
     pub last_input_time: Option<Instant>,
     /// Whether the cursor blink timer is currently active
     pub blink_timer_active: bool,
+    /// How long the caret stays solid after input before blinking resumes, and
+    /// the interval the blink timer is armed with.
+    ///
+    /// Defaults to [`CURSOR_BLINK_INTERVAL`]; `caret-animation-duration` on the
+    /// focused node overrides it, in whichever unit the stylesheet used.
+    pub blink_interval: Duration,
+}
+
+impl Default for BlinkState {
+    fn default() -> Self {
+        Self {
+            is_visible: false,
+            last_input_time: None,
+            blink_timer_active: false,
+            blink_interval: CURSOR_BLINK_INTERVAL,
+        }
+    }
 }
 
 
 impl BlinkState {
     #[must_use] pub fn new() -> Self { Self::default() }
+
+    /// Override the blink interval (from `caret-animation-duration`).
+    ///
+    /// Takes a [`Duration`] rather than milliseconds so a `t`-unit stylesheet
+    /// value stays a frame count: a `5t` caret flips on the 5th frame exactly,
+    /// on any machine, at any load.
+    pub const fn set_blink_interval(&mut self, interval: Duration) {
+        self.blink_interval = interval;
+    }
 
     /// Reset blink on user input — cursor stays solid until blink interval elapses.
     pub fn reset_blink_on_input(&mut self, now: Instant) {
@@ -65,20 +99,30 @@ impl BlinkState {
     }
 
     /// Check if enough time has passed since last input to start blinking.
+    ///
+    /// The interval is [`Self::blink_interval`], compared unit-aware: a tick
+    /// interval against wall-clock elapsed time (or the reverse) both answer
+    /// truthfully. This used to build a `Duration::System` constant inline, which
+    /// meant a tick-driven clock produced a `Duration::Tick` elapsed value that
+    /// could never be "greater than" it — the caret stopped blinking, silently
+    /// and permanently, on every clockless build.
     #[must_use] pub fn should_blink(&self, now: &Instant) -> bool {
-        use azul_core::task::{Duration, SystemTimeDiff};
         self.last_input_time.as_ref().is_none_or(|last_input| {
-                let elapsed = now.duration_since(last_input);
-                let blink_interval = Duration::System(SystemTimeDiff::from_millis(CURSOR_BLINK_INTERVAL_MS));
-                elapsed.greater_than(&blink_interval)
+                now.duration_since(last_input).greater_than(&self.blink_interval)
             })
     }
 
     /// Clear all blink state (when editing ends).
+    ///
+    /// The interval goes back to the default too: it was read off the node that
+    /// just lost focus, and leaving it behind would apply that node's
+    /// `caret-animation-duration` to the next element focused — including one
+    /// that never set the property.
     pub fn clear(&mut self) {
         self.is_visible = false;
         self.last_input_time = None;
         self.blink_timer_active = false;
+        self.blink_interval = CURSOR_BLINK_INTERVAL;
     }
 }
 
@@ -450,6 +494,10 @@ mod autotest_generated {
         assert!(b.last_input_time.is_none());
         assert!(!b.is_blink_timer_active());
         assert!(!b.blink_timer_active);
+        // The default interval is the wall-clock one, so every existing caller
+        // that never sets an interval keeps the 530ms behaviour it had.
+        assert_eq!(b.blink_interval, CURSOR_BLINK_INTERVAL);
+        assert_eq!(b.blink_interval, Duration::from_millis(CURSOR_BLINK_INTERVAL_MS));
         // No input has ever been recorded, so blinking is allowed immediately.
         assert!(b.should_blink(&Instant::now()));
     }
@@ -597,23 +645,70 @@ mod autotest_generated {
     }
 
     #[test]
-    fn autotest_blink_should_blink_mismatched_clock_kinds_are_deterministic() {
-        // A Tick instant compared against a System instant has no meaningful span:
-        // `duration_since` saturates to `Duration::Tick(0)` and `greater_than`
-        // returns false for mismatched kinds. Assert it is deterministic and
-        // panic-free rather than assuming a particular blink outcome.
+    fn autotest_blink_should_blink_mismatched_instant_kinds_are_deterministic() {
+        // A Tick instant compared against a System instant has no meaningful
+        // span: the two counters have no common origin, so `duration_since`
+        // saturates to `Duration::Tick(0)` and nothing is ever "elapsed".
+        // (This is about mismatched INSTANTS, which really are incomparable —
+        // unlike mismatched DURATIONS, which are just two units of the same
+        // thing and now convert.)
         let mut b = BlinkState::new();
         b.reset_blink_on_input(Instant::now());
         let tick_now = Instant::Tick(SystemTick::new(u64::MAX));
         assert_eq!(b.should_blink(&tick_now), b.should_blink(&tick_now));
         assert!(!b.should_blink(&tick_now));
+    }
 
-        // Both endpoints Tick: the elapsed span is a Tick duration, which is never
-        // "greater than" the System-typed blink interval, so a tick-only clock
-        // (no_std) never resumes blinking. Deterministic, but worth knowing.
+    /// A tick-only clock (no_std, or any clockless build) MUST resume blinking.
+    ///
+    /// Both endpoints are Tick, so the elapsed span is a `Duration::Tick`, which
+    /// is compared against the wall-clock-typed blink interval on a canonical
+    /// scale. Before that comparison was unit-aware, the answer was `false`
+    /// forever and the caret on a clockless build simply never blinked again.
+    #[test]
+    fn autotest_blink_a_tick_only_clock_resumes_blinking_at_the_exact_frame() {
         let mut t = BlinkState::new();
         t.reset_blink_on_input(Instant::Tick(SystemTick::new(0)));
-        assert!(!t.should_blink(&Instant::Tick(SystemTick::new(u64::MAX))));
+
+        // 530ms is 31.8 frames at 60Hz, so frame 31 is early and frame 32 blinks.
+        assert!(!t.should_blink(&Instant::Tick(SystemTick::new(31))));
+        assert!(t.should_blink(&Instant::Tick(SystemTick::new(32))));
+        assert!(t.should_blink(&Instant::Tick(SystemTick::new(u64::MAX))));
+    }
+
+    /// The whole point of the `t` unit: a blink interval expressed in FRAMES
+    /// flips on exactly the Nth frame — frame N-1 is solid, frame N blinks.
+    /// There is no rounding, no clock, and nothing for a slow machine to shift.
+    #[test]
+    fn autotest_blink_a_tick_interval_flips_on_exactly_the_nth_frame() {
+        let mut b = BlinkState::new();
+        b.set_blink_interval(Duration::from_ticks(5));
+        b.reset_blink_on_input(Instant::Tick(SystemTick::new(100)));
+
+        for frame in 100..=105 {
+            assert!(
+                !b.should_blink(&Instant::Tick(SystemTick::new(frame))),
+                "frame {frame} is within 5 frames of the input and must stay solid"
+            );
+        }
+        assert!(
+            b.should_blink(&Instant::Tick(SystemTick::new(106))),
+            "frame 106 is strictly more than 5 frames past the input"
+        );
+    }
+
+    /// The same tick interval, driven off a WALL-CLOCK instant: 5 frames is
+    /// 83.33ms, so 83ms is solid and 84ms blinks. A `5t` stylesheet value
+    /// therefore behaves identically on a desktop shell and on a clockless one.
+    #[test]
+    fn autotest_blink_a_tick_interval_converts_on_a_wall_clock_instant() {
+        let base = Instant::now();
+        let mut b = BlinkState::new();
+        b.set_blink_interval(Duration::from_ticks(5));
+        b.reset_blink_on_input(base.clone());
+
+        assert!(!b.should_blink(&plus_ms(&base, 83)));
+        assert!(b.should_blink(&plus_ms(&base, 84)));
     }
 
     #[test]
@@ -621,11 +716,16 @@ mod autotest_generated {
         let mut b = BlinkState::new();
         b.reset_blink_on_input(Instant::now());
         b.set_blink_timer_active(true);
+        b.set_blink_interval(Duration::from_ticks(5));
 
         b.clear();
         assert!(!b.is_visible);
         assert!(b.last_input_time.is_none());
         assert!(!b.is_blink_timer_active());
+        assert_eq!(
+            b.blink_interval, CURSOR_BLINK_INTERVAL,
+            "the previous node's caret-animation-duration must not leak to the next"
+        );
 
         // Clearing an already-cleared state must not panic or resurrect anything.
         b.clear();

@@ -219,12 +219,21 @@ jobs:
       # #[cfg(test)], #[cfg(target_os = "windows")], #[cfg(feature = "svg")] all
       # counted, none of which excludes wasm.
       #
-      # This is KNOWN to over-report: it cannot yet see a #[cfg] attached to a
-      # parent `mod` declaration, so `pub mod e2e;` (#[cfg(feature =
-      # "e2e-server")] at layout/src/lib.rs:387) and probe get flagged. It is
-      # wired anyway and RED ON PURPOSE. An over-reporting check is noise you can
-      # tune; the under-reporting one it replaces was a bug that would ship.
-      # Teaching it parent-mod cfgs is tracked in #35 — the red X is the reminder.
+      # It used to over-report three sites; all three causes are fixed and the
+      # check is green:
+      #   - a #[cfg] on the parent `mod` declaration is now resolved up the whole
+      #     module chain (`pub mod e2e;` is #[cfg(feature = "e2e-server")]);
+      #   - multi-line #[cfg(all( ... ))] attributes are flattened before matching
+      #     (layout/src/probe.rs gates on not(target_family = "wasm") across four
+      #     lines and was invisible);
+      #   - `set -o pipefail` + `grep -q` turned SIGPIPE into a pipeline failure,
+      #     so a correctly-gated site read as ungated in 295 of 400 runs on an
+      #     unchanged tree. That one produced a DIFFERENT answer run to run.
+      #
+      # It also prints how many sites rest on `#[cfg(feature = "std")]` alone.
+      # That is NOT a wasm exclusion in this repo — the wasm job below builds
+      # azul-core with default features (std) and azul-layout with `text_layout`
+      # (which enables std). STRICT_WASM_CFG=1 turns those into failures.
       - name: Check no std Instant::now() in WASM-compatible crates
         run: bash scripts/check_wasm_instant.sh
 

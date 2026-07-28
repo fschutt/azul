@@ -61,7 +61,10 @@ the syntax and the Rust type the parser produces.
 - Length (no percent) accepts `4px` or `2em`. Type `PixelValueNoPercent`.
 - Percentage accepts `50%`. Type `PercentageValue`.
 - Angle accepts `90deg`, `0.5turn`, `1.57rad`, or `100grad`. Type `AngleValue`.
-- Time accepts `200ms` or `0.3s`. Type `CssDuration`.
+- Time accepts `200ms`, `0.3s`, or `5t`. Type `CssDuration`. `t` is a **tick**
+  (one frame at the nominal 60Hz rate): it expresses a duration without assuming
+  a real clock, so `caret-animation-duration: 5t` flips on exactly the 5th frame
+  on any machine. `t` rather than `fr`, because `fr` is CSS grid's flex unit.
 - Color accepts `#fff`, `#1a2b3c`, `rgb(...)`, `rgba(...)`, `hsl(...)`, `hsla(...)`, named colors, and `currentcolor`. Type `ColorU`.
 - System color accepts `system:accent`, `system:text`, `system:background`, and so on. Type `ColorOrSystem`.
 - System font accepts `system:ui`, `system:monospace`, `system:title`, and so on. Type `StyleFontFamily::SystemType`.

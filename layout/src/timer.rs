@@ -139,10 +139,17 @@ impl Timer {
         }
     }
 
+    /// How often, in REAL milliseconds, the platform layer should wake to service
+    /// this timer.
+    ///
+    /// A `Duration::Tick` interval is a FRAME count, so it is converted at the
+    /// nominal frame rate rather than passed through. Passing it through treated
+    /// one tick as one millisecond, so a `5t` interval asked the OS to wake ~16x
+    /// more often than the timer could possibly fire — a measurable idle burn for
+    /// a timer that flips at most every 5 frames.
     #[must_use] pub const fn tick_millis(&self) -> u64 {
         match self.interval.as_ref() {
-            Some(Duration::System(s)) => s.millis(),
-            Some(Duration::Tick(s)) => s.tick_diff,
+            Some(d) => d.as_millis_u64(),
             None => DEFAULT_TIMER_TICK_MS,
         }
     }
@@ -932,13 +939,42 @@ mod autotest_generated {
         assert_eq!(t.tick_millis(), DEFAULT_TIMER_TICK_MS);
     }
 
+    /// A tick interval is a FRAME count, so the platform wake-up interval it
+    /// implies is `ticks / 60` seconds, not `ticks` milliseconds. The old
+    /// pass-through made a `5t` timer ask the OS to wake every 5ms for a callback
+    /// that can only fire every ~83ms.
     #[test]
-    fn tick_millis_passes_tick_intervals_through_unclamped() {
+    fn tick_millis_converts_tick_intervals_at_the_nominal_frame_rate() {
         let _g = clock_guard();
-        for raw in [0_u64, 1, 10, u64::from(u32::MAX), u64::MAX] {
+        for (raw, expected_ms) in [
+            (0_u64, 0_u64),
+            (1, 16),
+            (5, 83),
+            (60, 1_000),
+            (600, 10_000),
+        ] {
             let t = timer_at(0, recording_cb as TimerCallbackType).with_interval(tick_dur(raw));
-            assert_eq!(t.tick_millis(), raw, "tick interval {raw} must round-trip");
+            assert_eq!(
+                t.tick_millis(),
+                expected_ms,
+                "a {raw}-tick interval is {expected_ms}ms of wall clock"
+            );
         }
+    }
+
+    /// `u64::MAX` ticks is ~9.7 billion years, which does NOT fit in `u64`
+    /// milliseconds. The conversion must clamp — wrapping would turn "never" into
+    /// some small interval and busy-wake the event loop forever.
+    #[test]
+    fn tick_millis_saturates_on_an_absurd_tick_interval_instead_of_wrapping() {
+        let _g = clock_guard();
+        let t = timer_at(0, recording_cb as TimerCallbackType).with_interval(tick_dur(u64::MAX));
+        assert_eq!(t.tick_millis(), u64::MAX);
+
+        // The largest tick interval that still converts without clamping.
+        let fits = u64::MAX / 1000 * 60;
+        let t = timer_at(0, recording_cb as TimerCallbackType).with_interval(tick_dur(fits));
+        assert!(t.tick_millis() < u64::MAX, "{fits} ticks should not clamp");
     }
 
     #[test]
@@ -1021,15 +1057,27 @@ mod autotest_generated {
         assert!(near_max.is_about_to_finish(&tick(u64::MAX)));
     }
 
+    /// A wall-clock timeout on a tick-driven timer must EXPIRE. `duration_since`
+    /// yields a Tick duration, which is now compared against the System timeout
+    /// on a canonical scale instead of saturating to `false`.
+    ///
+    /// The old saturating comparison made this timeout unexpirable — a timer
+    /// created with a timeout silently became a timer with no timeout, and the
+    /// only symptom was a callback that ran forever.
     #[test]
-    fn is_about_to_finish_never_fires_on_a_mismatched_clock_kind() {
+    fn is_about_to_finish_expires_a_wall_clock_timeout_on_a_tick_clock() {
         let _g = clock_guard();
-        // A wall-clock timeout on a tick-driven timer: `duration_since` yields a
-        // Tick duration, and Tick-vs-System comparison saturates to false. The
-        // timeout can therefore NEVER expire — it degrades to "no timeout"
-        // instead of panicking or firing immediately.
+        // 1ms at 60Hz is less than one frame, so the FIRST tick already exceeds it.
         let t = timer_at(0, recording_cb as TimerCallbackType).with_timeout(sys_dur_millis(1));
-        assert!(!t.is_about_to_finish(&tick(u64::MAX)));
+        assert!(!t.is_about_to_finish(&tick(0)), "no time has passed yet");
+        assert!(t.is_about_to_finish(&tick(1)));
+        assert!(t.is_about_to_finish(&tick(u64::MAX)));
+
+        // A one-second timeout takes 60 whole frames, and expires strictly after.
+        let t = timer_at(0, recording_cb as TimerCallbackType).with_timeout(sys_dur_millis(1_000));
+        assert!(!t.is_about_to_finish(&tick(59)), "1 frame early");
+        assert!(!t.is_about_to_finish(&tick(60)), "exactly at the timeout");
+        assert!(t.is_about_to_finish(&tick(61)), "1 frame past the timeout");
     }
 
     // ==================================================================
@@ -1079,14 +1127,28 @@ mod autotest_generated {
         assert_eq!(tick_of(&t.instant_of_next_run()), u64::MAX);
     }
 
+    /// System durations on a Tick instant are CONVERTED to whole frames, not
+    /// dropped. Dropping them made `instant_of_next_run == created`, i.e. the
+    /// timer claimed to be due immediately and stayed that way forever, which is
+    /// how a unit mismatch turned into a scheduling bug with no error.
     #[test]
-    fn instant_of_next_run_ignores_mismatched_duration_kinds() {
+    fn instant_of_next_run_converts_wall_clock_delays_to_whole_frames() {
         let _g = clock_guard();
-        // System durations on a Tick instant are an undefined combination and are
-        // dropped (saturate to `self`) rather than panicking.
         let t = timer_at(42, recording_cb as TimerCallbackType)
             .with_delay(sys_dur_millis(1_000))
             .with_interval(sys_dur_millis(1_000));
+        // 1000ms is 60 frames; delay + interval is 120.
+        assert_eq!(tick_of(&t.instant_of_next_run()), 42 + 120);
+    }
+
+    /// A sub-frame wall-clock interval rounds DOWN to zero frames on a tick
+    /// clock. That is the truthful answer at one-frame resolution — but it does
+    /// mean such a timer is always due, so it is pinned here deliberately rather
+    /// than rounded up to 1 to make something happen.
+    #[test]
+    fn instant_of_next_run_rounds_a_sub_frame_interval_down_to_zero_ticks() {
+        let _g = clock_guard();
+        let t = timer_at(42, recording_cb as TimerCallbackType).with_interval(sys_dur_millis(1));
         assert_eq!(tick_of(&t.instant_of_next_run()), 42);
     }
 
@@ -1896,27 +1958,209 @@ mod autotest_generated {
         });
     }
 
+    /// A wall-clock interval on a tick-driven clock must THROTTLE, at the exact
+    /// frame the interval converts to.
+    ///
+    /// It used to run on every single invoke: the Tick-vs-System comparison
+    /// saturated to `false`, so the "not yet" branch was never taken and the
+    /// interval was silently a no-op. A 60-second timer fired at 60Hz.
     #[test]
-    fn invoke_with_a_mismatched_interval_kind_runs_every_tick() {
+    fn invoke_throttles_a_wall_clock_interval_on_a_tick_clock_at_the_exact_frame() {
         let _g = clock_guard();
         with_env(|env| {
-            // A wall-clock interval on a tick-driven timer: the Tick-vs-System
-            // comparison saturates to false, so the "not yet" branch is never
-            // taken and the interval degrades to "run on every invoke".
+            // 60_000ms is exactly 3600 frames at 60Hz.
             let mut t =
                 timer_at(0, recording_cb as TimerCallbackType).with_interval(sys_dur_millis(60_000));
             let info = env.info();
 
+            // First invoke has no `last_run`, so only the (absent) delay gates it.
             let _ = t.invoke(&info, &fake_clock_cb());
+            assert_eq!(CB_INVOCATIONS.load(Ordering::SeqCst), 1);
+
             set_now(1);
             let _ = t.invoke(&info, &fake_clock_cb());
             assert_eq!(
                 CB_INVOCATIONS.load(Ordering::SeqCst),
-                2,
-                "a 60s interval does not throttle a tick clock"
+                1,
+                "a 60s interval must not fire one frame later"
             );
+
+            // One frame BEFORE the interval: still nothing.
+            set_now(3_599);
+            let _ = t.invoke(&info, &fake_clock_cb());
+            assert_eq!(CB_INVOCATIONS.load(Ordering::SeqCst), 1, "frame 3599 is early");
+
+            // Exactly at the interval: fires, because the gate is `elapsed < interval`.
+            set_now(3_600);
+            let _ = t.invoke(&info, &fake_clock_cb());
+            assert_eq!(CB_INVOCATIONS.load(Ordering::SeqCst), 2, "frame 3600 is the flip");
             assert_eq!(t.run_count, 2);
         });
+    }
+
+    // ==================================================================
+    // The `t` (tick) unit, end to end through Timer::invoke
+    //
+    // These are the tests the CSS `t` unit exists for: advance the clock by an
+    // EXACT number of frames and assert the callback fired on that frame and no
+    // other. Nothing here can be perturbed by how fast the machine is.
+    // ==================================================================
+
+    /// A tick interval on a tick clock fires on exactly the Nth frame — not N-1,
+    /// not N+1. This is the off-by-one detector: with a millisecond interval the
+    /// boundary frame is whatever rounding produced, and a one-frame error hides
+    /// inside the jitter.
+    #[test]
+    fn invoke_with_a_tick_interval_fires_on_exactly_the_nth_frame() {
+        let _g = clock_guard();
+        with_env(|env| {
+            let mut t = timer_at(0, recording_cb as TimerCallbackType).with_interval(tick_dur(5));
+            let info = env.info();
+
+            // Frame 0: first run (no last_run, no delay).
+            let _ = t.invoke(&info, &fake_clock_cb());
+            assert_eq!(CB_INVOCATIONS.load(Ordering::SeqCst), 1);
+            assert_eq!(t.last_run, OptionInstant::Some(tick(0)));
+
+            // Frames 1..=4 are all early. Stepping one frame at a time is the
+            // point: a boundary that is off by one shows up as a count mismatch
+            // on a specific frame, not as a flaky total.
+            for frame in 1..=4 {
+                set_now(frame);
+                let _ = t.invoke(&info, &fake_clock_cb());
+                assert_eq!(
+                    CB_INVOCATIONS.load(Ordering::SeqCst),
+                    1,
+                    "frame {frame} is inside the 5-frame interval and must not fire"
+                );
+            }
+
+            // Frame 5 is the flip.
+            set_now(5);
+            let _ = t.invoke(&info, &fake_clock_cb());
+            assert_eq!(CB_INVOCATIONS.load(Ordering::SeqCst), 2, "frame 5 must fire");
+            assert_eq!(CB_SEEN_FRAME_START.load(Ordering::SeqCst), 5);
+            assert_eq!(t.last_run, OptionInstant::Some(tick(5)));
+
+            // ...and frame 6 is early again for the NEXT interval.
+            set_now(6);
+            let _ = t.invoke(&info, &fake_clock_cb());
+            assert_eq!(CB_INVOCATIONS.load(Ordering::SeqCst), 2, "frame 6 restarts the wait");
+
+            set_now(10);
+            let _ = t.invoke(&info, &fake_clock_cb());
+            assert_eq!(CB_INVOCATIONS.load(Ordering::SeqCst), 3, "frame 10 is the second flip");
+        });
+    }
+
+    /// A `1t` interval fires on every single frame and never skips one — the
+    /// degenerate case the unit has to get right for per-frame animation.
+    #[test]
+    fn a_one_tick_interval_fires_on_every_frame() {
+        let _g = clock_guard();
+        with_env(|env| {
+            let mut t = timer_at(0, recording_cb as TimerCallbackType).with_interval(tick_dur(1));
+            let info = env.info();
+
+            for frame in 0..=10 {
+                set_now(frame);
+                let _ = t.invoke(&info, &fake_clock_cb());
+                assert_eq!(
+                    CB_INVOCATIONS.load(Ordering::SeqCst),
+                    (frame + 1) as usize,
+                    "every frame up to {frame} must have fired exactly once"
+                );
+            }
+        });
+    }
+
+    /// A tick DELAY gates the first run on exactly the Nth frame, the same way a
+    /// tick interval gates the rest.
+    #[test]
+    fn a_tick_delay_gates_the_first_run_on_exactly_the_nth_frame() {
+        let _g = clock_guard();
+        with_env(|env| {
+            let mut t = timer_at(0, recording_cb as TimerCallbackType).with_delay(tick_dur(3));
+            let info = env.info();
+
+            for frame in 0..=2 {
+                set_now(frame);
+                let _ = t.invoke(&info, &fake_clock_cb());
+                assert_eq!(
+                    CB_INVOCATIONS.load(Ordering::SeqCst),
+                    0,
+                    "frame {frame} is inside the 3-frame delay"
+                );
+            }
+
+            set_now(3);
+            let _ = t.invoke(&info, &fake_clock_cb());
+            assert_eq!(CB_INVOCATIONS.load(Ordering::SeqCst), 1, "frame 3 is the first run");
+        });
+    }
+
+    /// A tick interval on a WALL-CLOCK timer converts, so a `5t` CSS interval
+    /// behaves on a desktop shell exactly as it does on a tick clock: 5 frames is
+    /// 83.33ms, so 83ms is early and 84ms fires.
+    ///
+    /// This is the direction that used to be broken the OTHER way round — the
+    /// mismatched comparison never took the "not yet" branch, so a `5t` interval
+    /// on a real shell fired on every wake of the platform loop.
+    ///
+    /// Driven by the injectable clock (frozen, then advanced by an exact number
+    /// of milliseconds), so it is a wall-clock path with no wall-clock jitter.
+    #[cfg(feature = "std")]
+    #[test]
+    fn a_tick_interval_throttles_a_wall_clock_timer_at_the_converted_boundary() {
+        use azul_core::task::{
+            advance_test_clock_ms, freeze_test_clock, get_system_time_libstd, reset_test_clock,
+        };
+
+        let _g = clock_guard();
+        reset_test_clock();
+        freeze_test_clock();
+        let real_clock = GetSystemTimeCallback {
+            cb: get_system_time_libstd,
+        };
+
+        with_env(|env| {
+            let mut t = Timer::create(
+                RefAny::new(0_usize),
+                recording_cb as TimerCallbackType,
+                real_clock,
+            )
+            .with_interval(tick_dur(5));
+            let info = env.info();
+
+            // The first invoke has no `last_run`, so only the (absent) delay
+            // gates it: it runs at +0ms and arms the interval.
+            let _ = t.invoke(&info, &real_clock);
+            assert_eq!(CB_INVOCATIONS.load(Ordering::SeqCst), 1);
+            assert!(
+                matches!(t.last_run, OptionInstant::Some(Instant::System(_))),
+                "this timer must really be running on the wall clock"
+            );
+
+            // 5 frames is 83.333ms, so 83ms is still inside the interval.
+            let _ = advance_test_clock_ms(83);
+            let _ = t.invoke(&info, &real_clock);
+            assert_eq!(
+                CB_INVOCATIONS.load(Ordering::SeqCst),
+                1,
+                "83ms is less than 5 frames (83.33ms) and must not fire"
+            );
+
+            // ...and one more millisecond is past it.
+            let _ = advance_test_clock_ms(1);
+            let _ = t.invoke(&info, &real_clock);
+            assert_eq!(
+                CB_INVOCATIONS.load(Ordering::SeqCst),
+                2,
+                "84ms is past 5 frames and must fire"
+            );
+        });
+
+        reset_test_clock();
     }
 
     #[test]

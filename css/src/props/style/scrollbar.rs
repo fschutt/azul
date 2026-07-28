@@ -1069,9 +1069,14 @@ impl ScrollbarFadeDelayParseErrorOwned {
     }
 }
 
+/// `scrollbar-fade-delay` / `scrollbar-fade-duration` are stored as a plain
+/// millisecond `u32`, so a `t` (tick) value has to be converted here rather than
+/// carried. `CssDuration::millis` does that at the nominal frame rate — reading
+/// `d.inner` directly would hand a FRAME COUNT to a field every consumer reads as
+/// milliseconds (`5t` would silently become 5ms, a 16x error).
 #[cfg(feature = "parser")]
 fn parse_time_ms(input: &str) -> Option<u32> {
-    crate::props::basic::time::parse_duration(input).ok().map(|d| d.inner)
+    crate::props::basic::time::parse_duration(input).ok().map(|d| d.millis())
 }
 
 #[cfg(feature = "parser")]
@@ -1950,6 +1955,20 @@ mod autotest_generated {
         assert_eq!(parse_time_ms("1.5s"), Some(1500));
         assert_eq!(parse_time_ms("  200ms  "), Some(200));
         assert_eq!(parse_time_ms("200MS"), Some(200), "units are case-insensitive");
+    }
+
+    /// The scrollbar fade fields are a bare millisecond `u32`, so a `t` (tick)
+    /// value has to be CONVERTED at the nominal frame rate on the way in, not
+    /// passed through. `60t` is one second; passing the raw tick count through
+    /// would make it 60ms.
+    #[cfg(feature = "parser")]
+    #[test]
+    fn parse_time_ms_converts_the_tick_unit_to_milliseconds() {
+        assert_eq!(parse_time_ms("60t"), Some(1000));
+        assert_eq!(parse_time_ms("30t"), Some(500));
+        assert_eq!(parse_time_ms("1t"), Some(16));
+        assert_eq!(parse_time_ms("0t"), Some(0));
+        assert_ne!(parse_time_ms("60t"), Some(60), "ticks passed through as ms");
     }
 
     /// A unit is mandatory (except for a bare `0`) and must be attached to the

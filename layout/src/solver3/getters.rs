@@ -13,6 +13,7 @@ use azul_css::{
         basic::{
             font::{StyleFontFamily, StyleFontFamilyVec, StyleFontStyle, StyleFontWeight},
             pixel::{DEFAULT_FONT_SIZE, PT_TO_PX},
+            time::CssDuration,
             ColorU, PhysicalSize, PixelValue, PropertyContext, ResolutionContext,
         },
         layout::{
@@ -2416,8 +2417,13 @@ pub struct CaretStyle {
     pub color: ColorU,
     /// Width of the caret bar in pixels
     pub width: f32,
-    /// Blink animation duration in milliseconds (0 = no blink)
-    pub animation_duration: u32,
+    /// Blink animation duration (0 = no blink).
+    ///
+    /// A [`CssDuration`], not a bare millisecond count, so a stylesheet written
+    /// in the clockless `t` unit (`caret-animation-duration: 5t`) keeps its FRAME
+    /// count all the way to the blink timer. Flattening it to milliseconds here
+    /// would silently reintroduce wall-clock rounding.
+    pub animation_duration: CssDuration,
 }
 
 impl Default for CaretStyle {
@@ -2425,7 +2431,7 @@ impl Default for CaretStyle {
         Self {
             color: ColorU::BLACK,
             width: DEFAULT_CARET_WIDTH_PX,
-            animation_duration: DEFAULT_CARET_BLINK_MS,
+            animation_duration: CssDuration::from_millis(DEFAULT_CARET_BLINK_MS),
         }
     }
 }
@@ -2464,12 +2470,15 @@ impl Default for CaretStyle {
         .and_then(|w| w.get_property().copied())
         .map_or(DEFAULT_CARET_WIDTH_PX, |w| w.inner.to_pixels_internal(0.0, DEFAULT_EM_SIZE, DEFAULT_EM_SIZE));
 
+    // Bound first so the fallback is neither a lazy closure nor an inline call
+    // in `map_or` — both shapes trip a clippy lint, and neither reads better.
+    let default_blink = CssDuration::from_millis(DEFAULT_CARET_BLINK_MS);
     let animation_duration = styled_dom
         .css_property_cache
         .ptr
         .get_caret_animation_duration(node_data, &node_id, node_state)
         .and_then(|d| d.get_property().copied())
-        .map_or(DEFAULT_CARET_BLINK_MS, |d| d.inner.inner);
+        .map_or(default_blink, |d| d.inner);
 
     CaretStyle {
         color,
@@ -7574,11 +7583,46 @@ mod autotest_generated {
         assert_eq!(get_caret_style(&sd, None).width, DEFAULT_CARET_WIDTH_PX);
         assert_eq!(
             get_caret_style(&sd, None).animation_duration,
-            DEFAULT_CARET_BLINK_MS
+            CssDuration::from_millis(DEFAULT_CARET_BLINK_MS)
         );
         let sel = get_selection_style(&sd, None, None);
         assert_eq!(sel.radius, 0.0);
         assert_eq!(sel.text_color, None);
+    }
+
+    /// `caret-animation-duration` has to reach the caret style in the UNIT the
+    /// stylesheet used. A `5t` that arrived here as 5 *milliseconds* would blink
+    /// ~16x too fast and would be indistinguishable, at this layer, from a
+    /// deliberate wall-clock value.
+    #[test]
+    fn caret_animation_duration_preserves_the_unit_the_stylesheet_used() {
+        let child = Some(NodeId::new(1));
+
+        let sd = body_with_divs(1, "div { caret-animation-duration: 5t; }");
+        assert_eq!(
+            get_caret_style(&sd, child).animation_duration,
+            CssDuration::from_ticks(5)
+        );
+
+        let sd = body_with_divs(1, "div { caret-animation-duration: 250ms; }");
+        assert_eq!(
+            get_caret_style(&sd, child).animation_duration,
+            CssDuration::from_millis(250)
+        );
+
+        let sd = body_with_divs(1, "div { caret-animation-duration: 1s; }");
+        assert_eq!(
+            get_caret_style(&sd, child).animation_duration,
+            CssDuration::from_millis(1000)
+        );
+
+        // 60 frames and 1000ms are the same span but NOT the same value: the
+        // unit is preserved, not normalised.
+        let sd = body_with_divs(1, "div { caret-animation-duration: 60t; }");
+        assert_ne!(
+            get_caret_style(&sd, child).animation_duration,
+            CssDuration::from_millis(1000)
+        );
     }
 
     #[test]

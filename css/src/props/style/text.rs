@@ -2321,7 +2321,7 @@ pub struct CaretAnimationDuration {
 impl Default for CaretAnimationDuration {
     fn default() -> Self {
         Self {
-            inner: CssDuration { inner: 500 },
+            inner: CssDuration::from_millis(500),
         } // Default 500ms blink time
     }
 }

@@ -72097,7 +72097,36 @@
                         ],
                         "repr": "C"
                     },
+                    "CssDurationUnit": {
+                        "doc": [
+                            "The unit a `CssDuration` magnitude is counted in: wall-clock milliseconds (`ms` / `s`) or engine ticks / frames (`t`)."
+                        ],
+                        "external": "azul_css::props::basic::time::CssDurationUnit",
+                        "derive": [
+                            "Debug",
+                            "Copy",
+                            "Clone",
+                            "PartialEq",
+                            "Eq",
+                            "PartialOrd",
+                            "Ord",
+                            "Hash",
+                            "Default"
+                        ],
+                        "enum_fields": [
+                            {
+                                "Milliseconds": {}
+                            },
+                            {
+                                "Ticks": {}
+                            }
+                        ],
+                        "repr": "C"
+                    },
                     "CssDuration": {
+                        "doc": [
+                            "A CSS time duration: a magnitude plus the unit it is counted in. `inner` is NOT unconditionally milliseconds - read it together with `unit`."
+                        ],
                         "external": "azul_css::props::basic::time::CssDuration",
                         "derive": [
                             "Debug",
@@ -72114,6 +72143,11 @@
                             {
                                 "inner": {
                                     "type": "u32"
+                                }
+                            },
+                            {
+                                "unit": {
+                                    "type": "CssDurationUnit"
                                 }
                             }
                         ],

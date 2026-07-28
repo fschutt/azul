@@ -918,28 +918,14 @@ const fn default_duration_200ms() -> Duration {
     Duration::System(SystemTimeDiff::from_millis(200))
 }
 
-/// Helper function to convert Duration to milliseconds
+/// Helper function to convert Duration to milliseconds.
 ///
-/// Duration is an enum with System (`std::time::Duration`) and Tick variants.
-/// We need to handle both cases for proper time calculations.
-#[allow(clippy::cast_possible_truncation)] // bounded layout/render numeric cast
-fn duration_to_millis(duration: Duration) -> u64 {
-    match duration {
-        #[cfg(feature = "std")]
-        Duration::System(system_diff) => {
-            let std_duration: std::time::Duration = system_diff.into();
-            std_duration.as_millis() as u64
-        }
-        #[cfg(not(feature = "std"))]
-        Duration::System(system_diff) => {
-            // Manual calculation: secs * 1000 + nanos / 1_000_000
-            system_diff.secs * 1000 + (system_diff.nanos / 1_000_000) as u64
-        }
-        Duration::Tick(tick_diff) => {
-            // Assume tick = 1ms for simplicity (platform-specific)
-            tick_diff.tick_diff
-        }
-    }
+/// Both variants go through `Duration::as_millis_u64`, which converts ticks at
+/// the nominal frame rate. The Tick arm used to assume "tick = 1ms", so a
+/// 5-frame span reported itself as 5ms instead of ~83ms — a 16x under-report in
+/// every scheduling decision that consumed it.
+const fn duration_to_millis(duration: Duration) -> u64 {
+    duration.as_millis_u64()
 }
 
 impl LayoutWindow {
@@ -2772,8 +2758,14 @@ impl LayoutWindow {
     /// Returns `Some(0)` if a timer is already overdue.
     /// Otherwise returns the minimum time in milliseconds until any timer fires.
     ///
-    /// This is used by Linux (X11/Wayland) to set an efficient poll/select timeout
-    /// instead of always polling every 16ms.
+    /// Reads `now` through the injectable `GetSystemTimeCallback`, so it follows
+    /// a frozen/virtual clock rather than wall time.
+    ///
+    /// NOTE: no platform backend calls this today. The X11 and Wayland loops use
+    /// a hardcoded 16ms/-1 `poll` timeout (`x11/mod.rs`, `wayland/mod.rs`), and
+    /// the per-timer wake-up is armed once from `Timer::tick_millis` via
+    /// `timerfd` / `SetTimer` / `NSTimer`. The comment that used to sit here
+    /// claimed X11 and Wayland used this function; they do not.
     pub fn time_until_next_timer_ms(
         &self,
         get_system_time_fn: &azul_core::task::GetSystemTimeCallback,
@@ -2832,15 +2824,20 @@ impl LayoutWindow {
 
     /// Create the cursor blink timer
     ///
-    /// This timer toggles cursor visibility at ~530ms intervals.
+    /// This timer toggles cursor visibility at the interval currently held by
+    /// `text_edit_manager.blink` — [`crate::managers::text_edit::CURSOR_BLINK_INTERVAL`]
+    /// (530ms) unless the focused node's `caret-animation-duration` overrode it.
     /// It checks if enough time has passed since the last user input before blinking,
     /// to avoid blinking while the user is actively typing.
+    ///
+    /// The interval is copied as a whole [`Duration`], UNIT INCLUDED, so a
+    /// stylesheet's `5t` reaches `Timer::invoke` as five frames rather than as a
+    /// millisecond count someone already rounded.
     pub fn create_cursor_blink_timer(&self, _window_state: &FullWindowState) -> Timer {
-        use azul_core::task::{Duration, SystemTimeDiff};
         use crate::timer::{Timer, TimerCallback};
         use azul_core::refany::RefAny;
 
-        let interval_ms = crate::managers::text_edit::CURSOR_BLINK_INTERVAL_MS;
+        let interval = self.text_edit_manager.blink.blink_interval;
 
         // Create a RefAny with a unit type - the timer callback doesn't need any data
         // The actual cursor state is in LayoutWindow.text_edit_manager.multi_cursor / blink
@@ -2853,7 +2850,7 @@ impl LayoutWindow {
             run_count: 0,
             last_run: azul_core::task::OptionInstant::None,
             delay: azul_core::task::OptionDuration::None,
-            interval: azul_core::task::OptionDuration::Some(Duration::System(SystemTimeDiff::from_millis(interval_ms))),
+            interval: azul_core::task::OptionDuration::Some(interval),
             timeout: azul_core::task::OptionDuration::None,
             callback: TimerCallback::create(cursor_blink_timer_callback),
         }
@@ -2954,6 +2951,37 @@ impl LayoutWindow {
         is_node_contenteditable_inherited(&layout_result.styled_dom, node_id)
     }
 
+    /// The caret blink interval for a node, from its `caret-animation-duration`.
+    ///
+    /// Returns a [`Duration`] rather than milliseconds so the stylesheet's UNIT
+    /// survives: `caret-animation-duration: 5t` yields `Duration::Tick(5)` (five
+    /// frames, no clock involved) and `500ms` yields `Duration::System(500ms)`.
+    ///
+    /// Falls back to [`crate::managers::text_edit::CURSOR_BLINK_INTERVAL`] when
+    /// the node's layout is not available, and when the resolved interval is
+    /// ZERO. Zero is documented in `CaretStyle` as "no blink", which is not the
+    /// same thing as "blink every frame" — until suppression is actually
+    /// implemented, honouring it literally would turn `0` into a strobing caret,
+    /// so the default is the conservative reading.
+    #[must_use]
+    pub fn caret_blink_interval_for(&self, dom_id: DomId, node_id: NodeId) -> Duration {
+        use crate::{managers::text_edit::CURSOR_BLINK_INTERVAL, solver3::getters::get_caret_style};
+
+        let Some(layout_result) = self.layout_results.get(&dom_id) else {
+            return CURSOR_BLINK_INTERVAL;
+        };
+
+        let interval: Duration = get_caret_style(&layout_result.styled_dom, Some(node_id))
+            .animation_duration
+            .into();
+
+        if interval.as_nanos() == 0 {
+            CURSOR_BLINK_INTERVAL
+        } else {
+            interval
+        }
+    }
+
     /// Handle focus change for cursor blink timer management (W3C "flag and defer" pattern)
     ///
     /// This method implements the W3C focus/selection model:
@@ -3006,6 +3034,19 @@ impl LayoutWindow {
                 container_node_id,
                 text_node_id,
             );
+
+            // Adopt the focused node's `caret-animation-duration` BEFORE arming
+            // the timer, so `create_cursor_blink_timer` builds the timer with the
+            // stylesheet's interval — in the stylesheet's UNIT. A `5t` value stays
+            // five FRAMES here; collapsing it to milliseconds would put the wall
+            // clock back in the path.
+            //
+            // Bound to a local first: the `&self` read and the `&mut` receiver
+            // would otherwise overlap in one expression.
+            let blink_interval = self.caret_blink_interval_for(dom_id, container_node_id);
+            self.text_edit_manager
+                .blink
+                .set_blink_interval(blink_interval);
 
             // Make cursor visible and record current time (even before actual initialization)
             let now = Instant::now();
@@ -9583,17 +9624,24 @@ mod autotest_generated {
         }
     }
 
+    /// Tick instants driving wall-clock fade constants must still fade.
+    ///
+    /// Every `div` across units used to yield `0.0`, so the function permanently
+    /// reported "still inside the delay" and returned 1.0 — a scrollbar that
+    /// never faded on any tick-driven clock. Now the ratio is computed on a
+    /// canonical scale: 600 frames is 10 seconds, which is far past a 500ms delay
+    /// plus a 200ms fade, so the scrollbar is fully faded.
     #[test]
-    fn scrollbar_opacity_with_mismatched_clock_kinds_stays_opaque() {
-        // Tick instants + System durations: every `div` across kinds yields
-        // 0.0, so the function reports "still inside the delay" -> 1.0.
-        let v = opacity(
-            Some(tick(0)),
-            tick(600),
-            sys_dur_ms(500),
-            sys_dur_ms(200),
-        );
-        assert_eq!(v, 1.0);
+    fn scrollbar_opacity_fades_when_a_tick_clock_drives_wall_clock_constants() {
+        let v = opacity(Some(tick(0)), tick(600), sys_dur_ms(500), sys_dur_ms(200));
+        assert_eq!(v, 0.0, "10s of frames is long past a 500ms + 200ms fade");
+
+        // Inside the delay it is still opaque: 30 frames is 500ms exactly, and
+        // the delay check is `ratio < 1.0`.
+        assert_eq!(opacity(Some(tick(0)), tick(29), sys_dur_ms(500), sys_dur_ms(200)), 1.0);
+        // Halfway through the fade: 500ms delay + 100ms = 36 frames.
+        let v = opacity(Some(tick(0)), tick(36), sys_dur_ms(500), sys_dur_ms(200));
+        assert!((v - 0.5).abs() < 0.05, "expected ~0.5 halfway through the fade, got {v}");
     }
 
     #[test]
@@ -10107,8 +10155,12 @@ mod autotest_generated {
     #[test]
     fn time_until_next_timer_ms_saturates_across_mismatched_clock_kinds() {
         let mut w = fresh_window();
-        // Tick-based timer, System-based clock: the comparison and the span are
-        // both undefined, and both saturate rather than panic.
+        // Tick-based timer, System-based clock. The mismatch here is between two
+        // INSTANTS — `Timer::default()` is created at tick 0 and the clock hands
+        // back a wall-clock instant — and those have no common origin, so the
+        // span really is undefined and saturates. (A mismatch between the
+        // interval's UNIT and the clock's unit is a different thing, and now
+        // converts: see `add_optional_duration`.)
         w.add_timer(
             TimerId { id: 1 },
             Timer::default().with_interval(tick_dur(5_000)),
@@ -10165,6 +10217,41 @@ mod autotest_generated {
             ),
             azul_core::task::OptionDuration::None => panic!("interval must be set"),
         }
+    }
+
+    /// The blink timer copies the blink state's interval WHOLE — unit included.
+    /// If it flattened to milliseconds, a `caret-animation-duration: 5t` would
+    /// reach `Timer::invoke` as a wall-clock span and the exact-frame guarantee
+    /// would be gone.
+    #[test]
+    fn create_cursor_blink_timer_carries_a_tick_interval_through_as_ticks() {
+        let mut w = fresh_window();
+        w.text_edit_manager
+            .blink
+            .set_blink_interval(Duration::from_ticks(5));
+
+        let t = w.create_cursor_blink_timer(&FullWindowState::default());
+        assert_eq!(
+            t.interval,
+            azul_core::task::OptionDuration::Some(Duration::from_ticks(5)),
+            "the tick unit must survive into the timer"
+        );
+        // ...and it converts to real milliseconds only where a real OS timer
+        // needs one: 5 frames at 60Hz is 83ms, not 5ms.
+        assert_eq!(t.tick_millis(), 83);
+    }
+
+    /// `duration_to_millis` must convert ticks at the nominal frame rate. The
+    /// old "assume tick = 1ms" made every tick-unit span 16x too short.
+    #[test]
+    fn duration_to_millis_converts_ticks_at_the_nominal_frame_rate() {
+        assert_eq!(duration_to_millis(Duration::from_ticks(60)), 1_000);
+        assert_eq!(duration_to_millis(Duration::from_ticks(5)), 83);
+        assert_eq!(duration_to_millis(Duration::from_ticks(1)), 16);
+        assert_eq!(duration_to_millis(Duration::from_ticks(0)), 0);
+        // The wall-clock arm is unchanged.
+        assert_eq!(duration_to_millis(Duration::from_millis(530)), 530);
+        assert_eq!(duration_to_millis(Duration::from_millis(0)), 0);
     }
 
     // ==================================================================

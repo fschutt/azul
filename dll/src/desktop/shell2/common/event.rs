@@ -3075,15 +3075,12 @@ pub trait PlatformWindow {
                 let external = ExternalSystemCallbacks::rust_internal();
                 let current_instant = (external.get_system_time_fn.cb)();
                 let duration_since_event = current_instant.duration_since(timestamp);
-                let current_time_ms = match duration_since_event {
-                    azul_core::task::Duration::System(d) => {
-                        #[cfg(feature = "std")]
-                        { let std_duration: std::time::Duration = d.into(); std_duration.as_millis() as u64 }
-                        #[cfg(not(feature = "std"))]
-                        { 0u64 }
-                    }
-                    azul_core::task::Duration::Tick(t) => t.tick_diff,
-                };
+                // `as_millis_u64` converts a Tick span at the nominal frame rate.
+                // The hand-rolled match this replaces returned the raw tick count
+                // for the Tick arm — a FRAME count handed to a routine that reads
+                // it as milliseconds — and answered 0 for every System span on
+                // no_std.
+                let current_time_ms = duration_since_event.as_millis_u64();
                 if let Some(layout_window) = self.get_layout_window_mut() {
                     if layout_window.process_mouse_click_for_selection(*position, current_time_ms).is_some() {
                         return ProcessEventResult::ShouldUpdateDisplayListCurrentWindow;

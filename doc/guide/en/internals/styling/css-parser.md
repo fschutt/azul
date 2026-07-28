@@ -210,10 +210,35 @@ pub struct AngleValue {
 
 ```rust,ignore
 #[repr(C)]
-pub struct CssDuration { pub inner: u32 }   // milliseconds
+pub enum CssDurationUnit { Milliseconds, Ticks }
+
+#[repr(C)]
+pub struct CssDuration {
+    pub inner: u32,           // magnitude, counted in `unit`
+    pub unit: CssDurationUnit,
+}
 ```
 
-`parse_duration("1.5s") == CssDuration { inner: 1500 }`. Negative durations error.
+Three units parse: `ms`, `s` (both stored as milliseconds), and `t` — engine
+**ticks**, i.e. frames.
+
+`parse_duration("1.5s") == CssDuration::from_millis(1500)` and
+`parse_duration("5t") == CssDuration::from_ticks(5)`. Negative durations error.
+
+`t` is not normalised to milliseconds at parse time. The unit exists so a
+duration can be expressed without assuming a real clock: `azul_core::task::Duration`
+has a `Tick` variant, and a `t` value reaches the timer as an exact frame count,
+which is what makes "advance N frames and assert the Nth frame flipped" a
+deterministic test rather than a wall-clock race. `CssDuration::millis()` /
+`CssDuration::ticks()` convert at `TICKS_PER_SECOND` (60) for the consumers that
+still need a single scale.
+
+The unit is `t` and not `fr` because `fr` is already CSS grid's flex unit
+(`grid-template-columns: 1fr`) and would collide in dimension parsing.
+
+The derived `Ord` compares `inner` before `unit`, so it is a total order for
+storage but **not** a chronological comparison across units — convert first, or
+compare through `azul_core::task::Duration`, whose comparisons are unit-aware.
 
 ## Macros: impl_pixel_value! and css_property_from_type!
 
