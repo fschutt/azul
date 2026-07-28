@@ -1,0 +1,67 @@
+{
+  "name": "manager_keys_drop_with_their_nodes",
+  "description": "X10 across every manager that keys state by node, with gpu_state as the point: scroll a container so the scrollbar fade arms GPU opacity keys for it, then replace the DOM with one that does not contain the container at all. Every manager key must go with the node it referred to. gpu_state is the reason this scenario exists — it was NOT in KNOWN_MANAGERS, so nothing here could see it, and the scrollbar-fade latch was caught only incidentally by a hard-coded field read in assert_state_machines_idle. A GpuValueCache entry keyed to a deleted node is invisible in the DOM and invisible in the display list: an assertion is the only thing that can find it. The `tick_ms` past the fade window matters — it is what makes the fade RUN rather than sit idle, so the keys are genuinely live before the mutation removes their nodes.",
+  "setup": {
+    "window_width": 400,
+    "window_height": 300,
+    "dpi": 96
+  },
+  "steps": [
+    {
+      "op": "mount",
+      "html": [
+        "<div id=\"scroller\">",
+        "  <div class=\"row\" id=\"r0\"></div>",
+        "  <div class=\"row\" id=\"r1\"></div>",
+        "  <div class=\"row\" id=\"r2\"></div>",
+        "  <div class=\"row\" id=\"r3\"></div>",
+        "  <div class=\"row\" id=\"r4\"></div>",
+        "  <div class=\"row\" id=\"r5\"></div>",
+        "  <div class=\"row\" id=\"r6\"></div>",
+        "  <div class=\"row\" id=\"r7\"></div>",
+        "  <div class=\"row\" id=\"r8\"></div>",
+        "  <div class=\"row\" id=\"r9\"></div>",
+        "</div>"
+      ],
+      "css": [
+        "html, body { margin: 0; padding: 0; }",
+        "#scroller { width: 200px; height: 100px; overflow-y: scroll; }",
+        ".row { width: 100%; height: 50px; background: blue; }"
+      ]
+    },
+    { "op": "wait_frame" },
+    { "op": "wait", "ms": 150 },
+    { "op": "assert_exists", "selector": "#scroller" },
+    { "op": "assert_node_count", "selector": ".row", "expected": 10 },
+
+    { "op": "scroll_node_by", "selector": "#scroller", "delta_x": 0, "delta_y": 120 },
+    { "op": "wait_frame" },
+    { "op": "wait", "ms": 100 },
+    { "op": "assert_scroll", "selector": "#scroller", "x": 0, "y": 120, "tolerance": 1.0 },
+
+    { "op": "assert_manager_invariants" },
+
+    {
+      "op": "mount",
+      "html": [
+        "<div id=\"plain\">no scroller here</div>"
+      ],
+      "css": [
+        "html, body { margin: 0; padding: 0; }",
+        "#plain { width: 200px; height: 40px; background: green; }"
+      ]
+    },
+    { "op": "wait_frame" },
+    { "op": "wait", "ms": 150 },
+    { "op": "tick_ms", "ms": 2000 },
+    { "op": "wait_frame" },
+    { "op": "wait", "ms": 150 },
+
+    { "op": "assert_not_exists", "selector": "#scroller" },
+    { "op": "assert_not_exists", "selector": ".row" },
+    { "op": "assert_exists", "selector": "#plain" },
+
+    { "op": "assert_manager_invariants" },
+    { "op": "assert_state_machines_idle" }
+  ]
+}

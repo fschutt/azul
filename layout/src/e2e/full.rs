@@ -5708,6 +5708,7 @@ fn eval_assert_manager_invariants(
         "text_edit",
         "virtual_view",
         "undo_redo",
+        "gpu_state",
     ];
     const KNOWN_CROSS: &[&str] = &["X2", "X3", "X5", "X6", "X9", "X10"];
     /// Invariants the plan lists that this crate CANNOT check. Requesting one is
@@ -5843,6 +5844,70 @@ fn eval_assert_manager_invariants(
                                 f.dom.inner,
                                 f.node.into_crate_internal().map(|n| n.index())
                             ));
+                        }
+                    }
+                }
+                // The manager the scrollbar-fade latch lived in, and the reason
+                // this list is not allowed to quietly omit anything: gpu_state was
+                // outside KNOWN_MANAGERS, so no invariant here could see it, and
+                // the bug was caught only incidentally by a hard-coded field read
+                // in assert_state_machines_idle.
+                //
+                // Every value in a GpuValueCache is keyed by the node it animates.
+                // A key that outlives its node is a GPU resource nothing will ever
+                // update or release — it is invisible in the DOM and invisible in
+                // the display list, which is exactly why it needs an assertion.
+                "gpu_state" => {
+                    for (dom, cache) in &lw.gpu_state_manager.caches {
+                        checked += 1;
+                        if !lw.layout_results.contains_key(dom) {
+                            violations.push(format!(
+                                "X10 gpu_state: a GPU value cache is still held for DOM {} which no \
+                                 longer exists",
+                                dom.inner
+                            ));
+                            // Its per-node keys cannot be judged against a DOM
+                            // that is already gone; the cache itself is the defect.
+                            continue;
+                        }
+                        // Node-keyed animated values, all within this cache's DOM.
+                        let node_keyed = cache
+                            .transform_keys
+                            .keys()
+                            .chain(cache.current_transform_values.keys())
+                            .chain(cache.h_transform_keys.keys())
+                            .chain(cache.h_current_transform_values.keys())
+                            .chain(cache.css_transform_keys.keys())
+                            .chain(cache.css_current_transform_values.keys())
+                            .chain(cache.opacity_keys.keys())
+                            .chain(cache.current_opacity_values.keys());
+                        for nid in node_keyed {
+                            checked += 1;
+                            if !node_is_live(lw, *dom, *nid) {
+                                violations.push(format!(
+                                    "X10 gpu_state: DOM {} holds a GPU value keyed to node {}, which \
+                                     no longer exists",
+                                    dom.inner,
+                                    nid.index()
+                                ));
+                            }
+                        }
+                        // Scrollbar opacity carries its OWN (DomId, NodeId) — the
+                        // scrolled container need not live in this cache's DOM.
+                        for (kdom, knid) in cache
+                            .scrollbar_v_opacity_keys
+                            .keys()
+                            .chain(cache.scrollbar_h_opacity_keys.keys())
+                        {
+                            checked += 1;
+                            if !node_is_live(lw, *kdom, *knid) {
+                                violations.push(format!(
+                                    "X10 gpu_state: a scrollbar opacity key is held for ({}, {}), \
+                                     which no longer exists",
+                                    kdom.inner,
+                                    knid.index()
+                                ));
+                            }
                         }
                     }
                 }
