@@ -20,6 +20,27 @@
 //! 20 px tall. Caret offsets, selection rectangles, line-break positions and
 //! bidi run widths become exact integers a test can write down.
 //!
+//! # Every glyph draws DIFFERENT ink
+//!
+//! Metrics are uniform; ink is not. Each glyph is the same box with a
+//! codepoint-derived bite out of its interior (a constant frame plus a 3x3
+//! grid of cells, cell `k` kept iff bit `k` of `codepoint - 0x20` is clear —
+//! see `scripts/gen_mock_fonts.py`). All 94 inked glyphs therefore rasterise
+//! to distinct pixels.
+//!
+//! This is load-bearing, not decoration. When every glyph was the identical
+//! filled rectangle, two equal-length strings rendered bit-identically, so a
+//! text edit like `"tick 1"` -> `"tick 2"` produced damage but no pixel
+//! change. Any scenario combining a mock font with a pixel-liveness assertion
+//! (`assert_changed`, `assert_damage_covers_changes`,
+//! `assert_damage_sound{pixel_identity}`) was then asserting something the
+//! font made impossible; the ones that passed did so only because their two
+//! strings happened to differ in LENGTH.
+//!
+//! The frame is what keeps this free: it touches all four sides of the glyph
+//! box, so the tight bounding box — and every metric derived from it — is
+//! exactly what it was when the box was solid.
+//!
 //! # Registration path
 //!
 //! These are registered as ordinary rust-fontconfig **memory fonts** in the
@@ -63,7 +84,7 @@ pub fn mock_font_ranges() -> Vec<UnicodeRange> {
 ///
 /// Registering them unconditionally (rather than behind a test-only flag)
 /// is intentional: it keeps the production and test font paths identical,
-/// costs ~10 KiB, and the families are only reachable if a stylesheet asks
+/// costs ~30 KiB, and the families are only reachable if a stylesheet asks
 /// for them by name.
 pub const BUILTIN_MOCK_FONTS: &[(&str, &[u8])] = &[
     ("Azul Mock Mono", MOCK_MONO_TTF),
@@ -735,6 +756,104 @@ mod autotest_generated {
                 covered + 1,
                 "{family:?}: glyph count does not match cmap coverage + .notdef"
             );
+        }
+    }
+
+    /// Every glyph's raw `glyf` entry, indexed by glyph id, via `loca`.
+    ///
+    /// Assumes the long `loca` format, which these fonts declare
+    /// (`head.indexToLocFormat == 1`); the assert below states that rather
+    /// than silently misparsing if the generator ever switches.
+    fn glyph_outlines(data: &[u8]) -> Option<Vec<&[u8]>> {
+        let head = sfnt_table(data, b"head")?;
+        assert_eq!(be_i16(head, 50)?, 1, "expected long loca format");
+        let loca = sfnt_table(data, b"loca")?;
+        let glyf = sfnt_table(data, b"glyf")?;
+        let num_glyphs = be_u16(sfnt_table(data, b"maxp")?, 4)? as usize;
+
+        let mut out = Vec::with_capacity(num_glyphs);
+        for gid in 0..num_glyphs {
+            let start = be_u32(loca, gid.checked_mul(4)?)? as usize;
+            let end = be_u32(loca, gid.checked_add(1)?.checked_mul(4)?)? as usize;
+            out.push(glyf.get(start..end.min(glyf.len()))?);
+        }
+        Some(out)
+    }
+
+    #[test]
+    fn mock_ttf_every_inked_glyph_draws_distinct_ink() {
+        // THE regression guard for the reason the ink is codepoint-derived at
+        // all. These fonts used to give every glyph the identical filled
+        // rectangle, which made two equal-length strings rasterise to
+        // BIT-IDENTICAL pixels: a text edit then produced damage but no pixel
+        // change, and every pixel-liveness assertion over a mock-font text
+        // mutation (`assert_changed` and friends) was asserting something the
+        // font made impossible. Collapse the outlines back onto one shape and
+        // this fails instead of silently making those assertions vacuous.
+        for (family, data) in BUILTIN_MOCK_FONTS {
+            let outlines = glyph_outlines(data)
+                .unwrap_or_else(|| panic!("{family:?}: cannot read glyf/loca"));
+
+            let blank: Vec<usize> = outlines
+                .iter()
+                .enumerate()
+                .filter(|(_, o)| o.is_empty())
+                .map(|(gid, _)| gid)
+                .collect();
+            assert_eq!(
+                blank,
+                vec![0, 1],
+                "{family:?}: exactly .notdef (gid 0) and U+0020 (gid 1) may be \
+                 blank — they still advance, they just draw nothing"
+            );
+
+            let inked: Vec<&[u8]> = outlines.iter().copied().filter(|o| !o.is_empty()).collect();
+            let distinct: std::collections::BTreeSet<&[u8]> = inked.iter().copied().collect();
+            assert_eq!(
+                distinct.len(),
+                inked.len(),
+                "{family:?}: {} of {} inked glyphs share an outline with another \
+                 glyph, so the characters they encode are indistinguishable in \
+                 pixels",
+                inked.len() - distinct.len(),
+                inked.len()
+            );
+        }
+    }
+
+    #[test]
+    fn mock_ttf_glyph_boxes_are_identical_across_glyphs() {
+        // The companion to the test above, and the reason varying the ink is
+        // FREE: the per-glyph pattern lives strictly INSIDE a frame that
+        // touches all four sides of the box, so every glyph declares the same
+        // bounding box and it still equals `head`'s global one. If a future
+        // pattern let ink drive the box, glyph extents would start varying by
+        // character and the mock fonts would stop being arithmetic.
+        for (family, data) in BUILTIN_MOCK_FONTS {
+            let head = sfnt_table(data, b"head").unwrap();
+            let global = (
+                be_i16(head, 36).unwrap(),
+                be_i16(head, 38).unwrap(),
+                be_i16(head, 40).unwrap(),
+                be_i16(head, 42).unwrap(),
+            );
+
+            for (gid, outline) in glyph_outlines(data).unwrap().iter().enumerate() {
+                if outline.is_empty() {
+                    continue; // blank glyphs carry no bbox at all
+                }
+                let bbox = (
+                    be_i16(outline, 2).unwrap(),
+                    be_i16(outline, 4).unwrap(),
+                    be_i16(outline, 6).unwrap(),
+                    be_i16(outline, 8).unwrap(),
+                );
+                assert_eq!(
+                    bbox, global,
+                    "{family:?}: glyph {gid} has bbox {bbox:?} but head declares \
+                     {global:?} — glyph extents must not vary by character"
+                );
+            }
         }
     }
 

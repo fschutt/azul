@@ -3,10 +3,13 @@
 //! Each test renders one text-layout scenario through the FULL solver3 + text3
 //! pipeline and CPU-rasterizes it to a coloured PNG under
 //! `target/text3_visual/<scenario>.png`. Because every mock-font glyph outline
-//! is a filled rectangle, the PNG shows exactly where each glyph box landed
-//! after shaping + layout — a human or agent can open the image and confirm at
-//! a glance that wrapping / justification / dropcap / RTL shaping / vertical
-//! text / ligatures / kerning are working.
+//! fills the same box (the built-in fonts frame that box and pattern only its
+//! interior, so the silhouette is still a rectangle at the exact glyph
+//! extents), the PNG shows exactly where each glyph box landed after shaping +
+//! layout — a human or agent can open the image and confirm at a glance that
+//! wrapping / justification / dropcap / RTL shaping / vertical text /
+//! ligatures / kerning are working. The interior pattern additionally makes
+//! distinct characters visually distinguishable.
 //!
 //! Fonts:
 //!  * built-in embedded "Azul Mock Mono" (0.5 em) / "Azul Mock Wide" (1.0 em);

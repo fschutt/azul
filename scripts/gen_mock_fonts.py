@@ -9,9 +9,14 @@ font-size 20px occupies exactly 50px and its line box is exactly 20px tall.
 Caret offsets, selection rects, line-break positions and bidi run widths all
 become exact integers you can write down in a test.
 
-The glyphs are deliberately dumb: every printable ASCII codepoint maps to its
-own glyph id whose outline is one filled rectangle. Nothing about the SHAPE
-matters; everything about the METRICS does.
+The glyphs are deliberately dumb, but they are NOT interchangeable: every
+printable ASCII codepoint maps to its own glyph id whose outline is the SAME
+rectangle with a codepoint-derived bite taken out of its interior (see
+`_glyf_cell`). Nothing about the SHAPE matters; everything about the METRICS
+does — but the shapes must still DIFFER from each other, because a font whose
+glyphs all rasterise identically makes "the text changed" invisible to a pixel
+diff, and every `assert_changed` over an equal-length text edit then asserts
+something that cannot hold.
 
 Generating a NEW mock font is mechanical — add an entry to FONTS below:
     family      : the CSS font-family name the tests will ask for
@@ -19,6 +24,8 @@ Generating a NEW mock font is mechanical — add an entry to FONTS below:
     upem        : units per em (keep 1000 so `advance/upem` reads as a fraction of em)
     ascent/descent
     codepoints  : which characters get a glyph (everything else = .notdef → fallback)
+                  (must be contiguous; the per-glyph ink pattern is keyed off
+                  the offset from the first codepoint)
 Then run:  python3 scripts/gen_mock_fonts.py
 and commit the .ttf. E.g. an RTL mock = same call with Hebrew/Arabic codepoints;
 a "missing glyph" mock = drop half the ASCII range; a proportional mock = pass a
@@ -53,17 +60,117 @@ def _checksum(b: bytes) -> int:
     return total
 
 
-def _glyf_rect(xmin, ymin, xmax, ymax) -> bytes:
-    """One closed contour, 4 on-curve points: a filled rectangle."""
-    out = struct.pack(">hhhhh", 1, xmin, ymin, xmax, ymax)  # numContours + bbox
-    out += struct.pack(">H", 3)  # endPtsOfContours[0] = 3 (4 points)
+def _glyf_rects(bbox, rects) -> bytes:
+    """A simple glyph made of `rects`, each one closed 4-point contour.
+
+    The declared bbox is passed in rather than computed so it stays CONSTANT
+    across every glyph of a font — see `_glyf_cell`, which guarantees the ink
+    really does touch all four sides, so the declared box is also the tight one.
+
+    All contours are wound the same way (CCW in font units) and are pairwise
+    DISJOINT — they may share an edge but never overlap or nest. That makes the
+    fill rule irrelevant: non-zero and even-odd rasterizers agree on the result,
+    and abutting edges cancel exactly because the coordinates are integers
+    scaled by one common factor, so tiled cells leave no seam.
+    """
+    pts = []
+    for x0, y0, x1, y1 in rects:
+        pts += [(x0, y0), (x1, y0), (x1, y1), (x0, y1)]
+    n_contours = len(rects)
+
+    out = struct.pack(">h", n_contours) + struct.pack(">hhhh", *bbox)
+    # endPtsOfContours: each rect closes after its 4th point
+    out += b"".join(struct.pack(">H", 4 * i + 3) for i in range(n_contours))
     out += struct.pack(">H", 0)  # instructionLength
-    # flags: on-curve (0x01) for all 4 points
-    out += bytes([0x01, 0x01, 0x01, 0x01])
-    # x coords as int16 deltas (flag bit 0x02/0x10 not set → SHORT off, so int16)
-    out += struct.pack(">hhhh", xmin, xmax - xmin, 0, xmin - xmax)
-    out += struct.pack(">hhhh", ymin, 0, ymax - ymin, 0)
+    # flags: on-curve (0x01) for every point, run-length encoded via REPEAT
+    # (0x08) so the largest glyph here (9 contours / 36 points) spends 2 bytes
+    # on flags instead of 36.
+    out += _repeat_flags(0x01, len(pts))
+    # Coordinates are int16 deltas from the PREVIOUS point across the whole
+    # glyph — the point array is global, so the chain does not restart per
+    # contour. (flag bits 0x02/0x10 and 0x04/0x20 clear → 16-bit signed delta.)
+    for axis in (0, 1):
+        prev = 0
+        for p in pts:
+            out += struct.pack(">h", p[axis] - prev)
+            prev = p[axis]
     return _pad4(out)
+
+
+def _repeat_flags(flag: int, count: int) -> bytes:
+    """`count` copies of `flag`, using the glyf REPEAT bit (0x08)."""
+    out = b""
+    while count > 0:
+        run = min(count, 256)  # one flag byte + a repeat count of up to 255
+        if run == 1:
+            out += bytes([flag])
+        else:
+            out += bytes([flag | 0x08, run - 1])
+        count -= run
+    return out
+
+
+def _glyf_cell(bbox, index):
+    """The rectangles of glyph `index`: a constant frame + a variable interior.
+
+    Why not just one filled rectangle (what this generator used to emit): if
+    every glyph is the same ink, two equal-length strings rasterise to
+    IDENTICAL pixels. A text edit like "tick 1" → "tick 2" then produces damage
+    but no pixel change, so `assert_changed` / `assert_damage_covers_changes` /
+    `assert_damage_sound` cannot pass — not because the engine is wrong, but
+    because the font cannot express the difference.
+
+    So the ink varies while every METRIC stays bit-identical:
+
+      * the frame (four disjoint bars tiling the ring) is the same for every
+        glyph and touches all four sides of `bbox`, so the glyph's tight bbox —
+        and therefore `head`'s global bbox, `hhea.xMaxExtent` and any ink
+        extent a rasterizer computes — is exactly what it was when the whole
+        box was filled;
+      * the interior is a 3x3 grid of cells, and cell k is KEPT iff bit k of
+        `index` is CLEAR. `index` is `codepoint - first_codepoint`, so distinct
+        codepoints get distinct bit patterns and therefore distinct ink. 95
+        printable ASCII codepoints only reach index 94, which needs 7 of the 9
+        bits, so cells 7 and 8 happen to be kept in every glyph — the grid has
+        room for a wider codepoint range without losing distinctness.
+
+    Deriving the pattern straight from the codepoint keeps this deterministic
+    across runs, platforms and Python versions — no hashing, no iteration
+    order, no randomness.
+
+    Nothing in `hmtx`, `hhea`, `head`, `cmap`, `OS/2` or `post` is touched by
+    any of this: the advance width, ascent, descent, line gap and upem are the
+    same numbers regardless of which cells a glyph keeps.
+    """
+    xmin, ymin, xmax, ymax = bbox
+    fx = (xmax - xmin) // 8  # frame bar thickness, x
+    fy = (ymax - ymin) // 8  # frame bar thickness, y
+    ix0, ix1 = xmin + fx, xmax - fx  # interior span, x
+    iy0, iy1 = ymin + fy, ymax - fy  # interior span, y
+
+    # The frame ring as four disjoint bars (corners belong to the side bars).
+    rects = [
+        (xmin, ymin, xmax, iy0),  # bottom
+        (xmin, iy1, xmax, ymax),  # top
+        (xmin, iy0, ix0, iy1),  # left
+        (ix1, iy0, xmax, iy1),  # right
+    ]
+
+    # 3x3 interior grid, integer boundaries, exactly tiling [ix0,ix1]x[iy0,iy1].
+    xs = [ix0 + (ix1 - ix0) * c // 3 for c in range(4)]
+    ys = [iy0 + (iy1 - iy0) * r // 3 for r in range(4)]
+    for r in range(3):
+        # Merge horizontally adjacent kept cells into one rectangle: fewer
+        # contours, fewer bytes, and no interior seams to reason about.
+        run_start = None
+        for c in range(4):
+            keep = c < 3 and not (index >> (r * 3 + c)) & 1
+            if keep and run_start is None:
+                run_start = c
+            elif not keep and run_start is not None:
+                rects.append((xs[run_start], ys[r], xs[c], ys[r + 1]))
+                run_start = None
+    return rects
 
 
 def build_font(family, upem, advance, ascent, descent, codepoints, box):
@@ -76,12 +183,17 @@ def build_font(family, upem, advance, ascent, descent, codepoints, box):
     empty_glyph = b""  # .notdef: no contours (blank), still advances
     glyf += empty_glyph
     loca.append(len(glyf))
-    rect = _glyf_rect(*box)
+    max_contours, max_points = 0, 0
     for cp in codepoints:
         if cp == 0x20:  # space: blank, but same advance
             pass
         else:
-            glyf += rect
+            # Each codepoint gets its OWN ink (same box, same advance) so that
+            # two equal-length strings can never rasterise identically.
+            rects = _glyf_cell(box, cp - codepoints[0])
+            glyf += _glyf_rects(box, rects)
+            max_contours = max(max_contours, len(rects))
+            max_points = max(max_points, 4 * len(rects))
         loca.append(len(glyf))
     loca_tbl = b"".join(struct.pack(">I", o) for o in loca)  # long format
 
@@ -160,7 +272,13 @@ def build_font(family, upem, advance, ascent, descent, codepoints, box):
         0,  # metricDataFormat
         n_glyphs,  # numberOfHMetrics: all glyphs have an entry
     )
-    maxp = struct.pack(">IHHHHHHHHHHHHHH", 0x00010000, n_glyphs, 4, 1, 0, 0, 2, 0, 0, 0, 0, 0, 0, 0, 0)
+    # maxPoints/maxContours must cover the LARGEST glyph: rasterizers (FreeType
+    # among them) size their point buffers from these, so understating them
+    # truncates or rejects the glyph.
+    maxp = struct.pack(
+        ">IHHHHHHHHHHHHHH",
+        0x00010000, n_glyphs, max_points, max_contours, 0, 0, 2, 0, 0, 0, 0, 0, 0, 0, 0,
+    )
     os2 = struct.pack(
         ">HhHHHhhhhhhhhhh",
         4,  # version
