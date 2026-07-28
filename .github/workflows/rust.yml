@@ -780,9 +780,24 @@ jobs:
       # `azul-core/serde-json` + `azul-layout/json` gate the JSON parse/serialise
       # test modules; without them those `#[cfg(feature = …)]` blocks are not
       # compiled and the suite reports green over a strictly smaller set.
-      - name: Run workspace lib tests (debug-assertions + overflow-checks ON)
+      # `--lib --tests`, not just `--lib`.
+      #
+      # `--lib` covers only the crates' UNIT tests; everything under `*/tests/` is
+      # an integration-test target and was excluded. Those ~1,545 test functions
+      # ran only under the `coverage` job — and `[profile.coverage]` inherits
+      # release, so debug-assertions and overflow-checks are OFF there. That is
+      # verbatim the false green this job's own header comment was written to fix;
+      # the fix reached the unit tests and never reached the integration tests.
+      # A further 93 (coverage.sh's SLOW_TESTS exclusion list) ran in no job at all.
+      #
+      # Measured on the dev profile before enabling, one crate at a time:
+      #   azul-css    ~3,000 passed / 0 failed
+      #   azul-core   all targets   / 0 failed
+      #   azul-layout  7,938 passed / 0 failed across 93 targets
+      # so this does not turn the gate red today — it just makes it a gate.
+      - name: Run workspace lib + integration tests (debug-assertions + overflow-checks ON)
         run: |
-          cargo test -p azul-css -p azul-core -p azul-layout --lib \
+          cargo test -p azul-css -p azul-core -p azul-layout --lib --tests \
             --features azul-core/serde-json,azul-layout/json \
             --no-fail-fast
 
