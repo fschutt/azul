@@ -1520,9 +1520,24 @@ jobs:
             strip --strip-debug "$DST/libazuldbg.so" || true
           fi
 
+      # The features are NAMED, and that is the whole point.
+      #
+      # `examples/rust/Cargo.toml` declares `default = ["link-static"]` and
+      # nothing else, while 4 of its 12 `[[example]]` targets carry
+      # `required-features`: opengl (serde), icu_demo (icu), fluent_demo
+      # (fluent+icu), http_zip_demo (fluent+http+zip). Cargo skips a target whose
+      # required-features are unmet SILENTLY — no warning, no diagnostic, exit 0 —
+      # so a third of the shipped Rust examples had never been compile-checked,
+      # while the step reported success. These are the user-facing API surface the
+      # guide and website link to.
+      #
+      # It was not hypothetical: with the features on, `fluent_demo` did not
+      # compile (it called `as_str()` on FluentLoadError, which has no such
+      # method). Naming the features also makes a REMOVED feature an error rather
+      # than a fresh silent skip.
       - name: Build Rust examples
         if: steps.cache-valid.outputs.skip != 'true'
-        run: cargo check --verbose --examples
+        run: cargo check --verbose -p azul-examples --examples --features serde,icu,fluent,http,zip
 
       - name: Take screenshots (Linux)
         if: steps.cache-valid.outputs.skip != 'true' && matrix.os == 'ubuntu-22.04'
