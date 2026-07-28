@@ -4153,6 +4153,18 @@ impl WaylandWindow {
             self.frame_callback_armed_at = None;
         }
 
+        // Did this frame actually put content on the surface? Set by the GPU swap
+        // and by the CPU attach. Everything below keys off it: a frame that
+        // committed nothing must NOT arm the frame-callback latch, because the
+        // compositor has nothing to answer `done` for and the latch would then
+        // block every future frame until the watchdog expires it.
+        //
+        // Reachable paths that commit nothing: the lazy CPU allocation
+        // (RenderMode::Cpu(None) renders nothing on its first pass), the GPU
+        // `should_present == false` skip, an empty CPU damage list, and a missing
+        // renderer.
+        let mut surface_committed = false;
+
         // CRITICAL: Make OpenGL context current BEFORE generate_frame
         // The image callbacks (RenderImageCallback) need the GL context to be current
         // to allocate textures and draw to them
@@ -4429,6 +4441,11 @@ impl WaylandWindow {
                             return;
                         }
                         self.gpu_last_render_presented = true;
+                        // eglSwapBuffers attaches, damages AND commits. Record it
+                        // so step 4 does not commit a second time and so the
+                        // frame-callback latch is only armed against a surface
+                        // that actually has content pending.
+                        surface_committed = true;
                         let swap_carried_damage =
                             matches!(&present_rects, Some(r) if !r.is_empty());
 
@@ -4730,6 +4747,7 @@ impl WaylandWindow {
                             0,
                         );
                         *cpu_state.slots[cpu_state.active].busy = true;
+                        surface_committed = true;
                         if fractional {
                             // Fractional path: buffer scale stays 1 (reset a
                             // stale integer value if any); the viewport maps
@@ -4808,7 +4826,22 @@ impl WaylandWindow {
             }
         }
 
-        // 4. Set up frame callback for next frame (VSync)
+        // 4. Set up frame callback for next frame (VSync).
+        //
+        // ONLY when the surface actually has content pending. Previously this ran
+        // unconditionally, so a frame that committed nothing still armed
+        // frame_callback_pending — and since the compositor had nothing to answer
+        // for, no `done` ever arrived and the gate at the top of this function
+        // blocked every subsequent frame.
+        if !surface_committed {
+            log_warn!(
+                LogCategory::Rendering,
+                "[Wayland] frame produced no buffer commit (lazy CPU alloc, empty damage, GPU \
+                 skip, or no renderer) — not arming the frame callback, so the next frame is \
+                 not blocked waiting for a `done` that cannot come",
+            );
+            return;
+        }
         unsafe {
             let frame_callback = (self.wayland.wl_surface_frame)(self.surface);
             // The listener MUST outlive the proxy: wl_proxy_add_listener stores the
@@ -4826,18 +4859,32 @@ impl WaylandWindow {
             (self.wayland.wl_surface_commit)(self.surface);
         }
 
-        // If any scrollbar is actively fading (0 < opacity < 1), schedule
-        // another frame so the fade-out animation runs to completion.
+        // ARM THE THROTTLE FIRST, then re-arm the fade. The order matters and the
+        // old one recursed.
+        //
+        // On Wayland `request_redraw` is SYNCHRONOUS — it sets needs_redraw and
+        // calls generate_frame_if_needed() directly (unlike X11, where it only
+        // posts an Expose). With the fade re-arm running BEFORE
+        // frame_callback_pending was set, the nested call found needs_work true
+        // and the throttle still false, rendered a whole frame, reached this same
+        // point, and re-armed again — an unbounded recursion / frame storm for as
+        // long as a scrollbar was fading.
+        //
+        // Setting the latch first means the nested call hits the gate at the top
+        // of this function and returns immediately, leaving the fade to advance
+        // one frame per compositor callback, which is what it wanted.
+        self.common.frame_needs_regeneration = false;
+        self.frame_callback_pending = true;
+        self.frame_callback_armed_at = Some(std::time::Instant::now());
+
+        // If any scrollbar is actively fading (0 < opacity < 1), schedule another
+        // frame so the fade-out animation runs to completion.
         let needs_fade_frame = self.common.layout_window.as_ref()
             .map(|lw| lw.gpu_state_manager.scrollbar_fade_active)
             .unwrap_or(false);
         if needs_fade_frame {
             self.request_redraw();
         }
-
-        self.common.frame_needs_regeneration = false;
-        self.frame_callback_pending = true;
-        self.frame_callback_armed_at = Some(std::time::Instant::now());
     }
 
     /// Set the mouse cursor for this window
