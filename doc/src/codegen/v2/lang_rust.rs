@@ -249,13 +249,13 @@ impl LanguageGenerator for RustGenerator {
                     if !config.should_include_type(&struct_def.name) {
                         continue;
                     }
-                    self.generate_capi_trait_impls(&mut builder, struct_def, config);
+                    self.generate_capi_trait_impls(&mut builder, struct_def, ir, config);
                 }
                 for enum_def in &ir.enums {
                     if !config.should_include_type(&enum_def.name) {
                         continue;
                     }
-                    self.generate_capi_trait_impls_enum(&mut builder, enum_def, config);
+                    self.generate_capi_trait_impls_enum(&mut builder, enum_def, ir, config);
                 }
                 // For generic types with custom Clone/Drop (e.g. BoxOrStatic<T>),
                 // generate inline generic impls since we can't call per-instantiation
@@ -3053,10 +3053,175 @@ impl RustGenerator {
 // ============================================================================
 
 impl RustGenerator {
+    /// Emit the trait impls a class's api.json `derive` list asks for, by
+    /// delegating each one to the REAL type behind the mirror.
+    ///
+    /// `derive` in api.json is a statement about the real type, but the
+    /// `UsingCAPI` emitter honoured exactly two entries of it — `Copy` and
+    /// `Clone` (see `generate_struct` / `generate_enum`, which read only
+    /// `traits.is_copy` and `traits.clone_is_derived`). `Debug`, `PartialEq`,
+    /// `Eq`, `PartialOrd`, `Ord`, `Hash` and `Default` were each computed into a
+    /// [`TypeTraits`] flag and then read by NO emitter, so they were silently
+    /// dropped from `dll_api_internal.rs` for every declaring class. The visible
+    /// symptom: a caller of `FluentLocalizerHandle::load_from_zip` could not
+    /// inspect the errors it returns at all — no `Display`, no `as_str()`, no
+    /// `Debug`, and matching on the variant fails because the vec yields
+    /// `AzFluentLoadError` while the nameable path
+    /// `azul::desktop::fluent::FluentLoadError` is a DIFFERENT type to rustc.
+    ///
+    /// Delegating to the external type (rather than putting the trait in a
+    /// `#[derive(...)]` on the mirror) is what makes this safe to do for ~1600
+    /// classes at once: a derive would require every FIELD's mirror to implement
+    /// the trait too — a cascade nothing here can verify — whereas a delegation
+    /// needs only the external type itself. It is also the more useful output:
+    /// for `Debug`, a `debug_struct(name).finish()` stub would satisfy "does it
+    /// implement Debug" while still telling a caller nothing about WHICH error
+    /// it holds, which is the entire complaint.
+    ///
+    /// The preconditions are not assumptions. This emits only where C-ABI
+    /// function BODIES are generated (`InternalBindings`), and in exactly that
+    /// case `generate_function_body` has ALREADY emitted into this same file,
+    /// ungated (`skip_trait_functions` is false for `UsingCAPI`) and keyed on
+    /// these same flags, the bodies of `Az{Type}_toDbgString`,
+    /// `Az{Type}_partialEq`, `Az{Type}_partialCmp`, `Az{Type}_cmp`,
+    /// `Az{Type}_hash` and `Az{Type}_default` — each of which already transmutes
+    /// to this exact external path and invokes this exact trait on it. That
+    /// existing, compiling code requires precisely what these impls require, so
+    /// nothing here can fail to compile that does not already fail today.
+    /// `ExternalBindings` (`dll_api_external.rs`) is skipped: it declares the C
+    /// functions instead of defining them and has no dependency on the external
+    /// crate, so the path would not resolve there.
+    fn generate_capi_derived_trait_impls(
+        &self,
+        builder: &mut CodeBuilder,
+        class_name: &str,
+        traits: &TypeTraits,
+        ir: &CodegenIR,
+        config: &CodegenConfig,
+    ) {
+        if !matches!(config.cabi_functions, CAbiFunctionMode::InternalBindings { .. }) {
+            return;
+        }
+
+        let name = config.apply_prefix(class_name);
+        // Resolved exactly as `generate_function_body` resolves it, so the path
+        // is character-for-character the one the `_toDbgString` / `_partialEq` /
+        // `_cmp` / `_hash` / `_default` bodies already compile against.
+        let external_path = ir
+            .type_to_external
+            .get(class_name)
+            .map(|p| config.transform_external_path(p))
+            .unwrap_or_else(|| format!("crate::{}", class_name));
+
+        // `self`/`other` as a borrow of the real type.
+        let this = format!("&*(self as *const {name} as *const {external_path})");
+        let other = format!("&*(other as *const {name} as *const {external_path})");
+
+        // Rust's supertrait bounds are closed over here rather than trusted from
+        // api.json: `Ord: Eq + PartialOrd` and `PartialOrd: PartialEq`, so a class
+        // declaring only the stronger trait still gets the weaker ones. Emitting
+        // the extra impl is always sound — the external type cannot implement the
+        // stronger trait without the weaker one — and today it changes nothing,
+        // because no class in api.json declares `Ord` without `Eq` or `PartialOrd`
+        // without `PartialEq`. It keeps that from becoming a build break if one
+        // ever does.
+        let need_partial_eq = traits.is_partial_eq || traits.is_partial_ord;
+        let need_eq = traits.is_eq || traits.is_ord;
+
+        if traits.is_debug {
+            builder.line(&format!("impl core::fmt::Debug for {name} {{"));
+            builder.indent();
+            builder.line("fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {");
+            builder.indent();
+            builder.line(&format!("unsafe {{ core::fmt::Debug::fmt({this}, f) }}"));
+            builder.dedent();
+            builder.line("}");
+            builder.dedent();
+            builder.line("}");
+            builder.blank();
+        }
+
+        if need_partial_eq {
+            builder.line(&format!("impl PartialEq for {name} {{"));
+            builder.indent();
+            builder.line(&format!("fn eq(&self, other: &{name}) -> bool {{"));
+            builder.indent();
+            builder.line(&format!("unsafe {{ PartialEq::eq({this}, {other}) }}"));
+            builder.dedent();
+            builder.line("}");
+            builder.dedent();
+            builder.line("}");
+            builder.blank();
+        }
+
+        if need_eq {
+            builder.line(&format!("impl Eq for {name} {{}}"));
+            builder.blank();
+        }
+
+        if traits.is_partial_ord {
+            builder.line(&format!("impl PartialOrd for {name} {{"));
+            builder.indent();
+            builder.line(&format!(
+                "fn partial_cmp(&self, other: &{name}) -> Option<core::cmp::Ordering> {{"
+            ));
+            builder.indent();
+            builder.line(&format!("unsafe {{ PartialOrd::partial_cmp({this}, {other}) }}"));
+            builder.dedent();
+            builder.line("}");
+            builder.dedent();
+            builder.line("}");
+            builder.blank();
+        }
+
+        if traits.is_ord {
+            builder.line(&format!("impl Ord for {name} {{"));
+            builder.indent();
+            builder.line(&format!("fn cmp(&self, other: &{name}) -> core::cmp::Ordering {{"));
+            builder.indent();
+            builder.line(&format!("unsafe {{ Ord::cmp({this}, {other}) }}"));
+            builder.dedent();
+            builder.line("}");
+            builder.dedent();
+            builder.line("}");
+            builder.blank();
+        }
+
+        if traits.is_hash {
+            builder.line(&format!("impl core::hash::Hash for {name} {{"));
+            builder.indent();
+            builder.line("fn hash<H: core::hash::Hasher>(&self, state: &mut H) {");
+            builder.indent();
+            builder.line(&format!("unsafe {{ core::hash::Hash::hash({this}, state) }}"));
+            builder.dedent();
+            builder.line("}");
+            builder.dedent();
+            builder.line("}");
+            builder.blank();
+        }
+
+        if traits.is_default {
+            builder.line(&format!("impl Default for {name} {{"));
+            builder.indent();
+            builder.line(&format!("fn default() -> {name} {{"));
+            builder.indent();
+            builder.line(&format!(
+                "unsafe {{ core::mem::transmute::<{external_path}, {name}>(<{external_path} as \
+                 Default>::default()) }}"
+            ));
+            builder.dedent();
+            builder.line("}");
+            builder.dedent();
+            builder.line("}");
+            builder.blank();
+        }
+    }
+
     fn generate_capi_trait_impls(
         &self,
         builder: &mut CodeBuilder,
         struct_def: &StructDef,
+        ir: &CodegenIR,
         config: &CodegenConfig,
     ) {
         // Skip generic types — only concrete instantiations get C-API impls
@@ -3065,6 +3230,14 @@ impl RustGenerator {
         }
 
         let name = config.apply_prefix(&struct_def.name);
+
+        self.generate_capi_derived_trait_impls(
+            builder,
+            &struct_def.name,
+            &struct_def.traits,
+            ir,
+            config,
+        );
 
         // Clone impl calling C-ABI function
         if struct_def.traits.is_clone && !struct_def.traits.is_copy {
@@ -3121,6 +3294,7 @@ impl RustGenerator {
         &self,
         builder: &mut CodeBuilder,
         enum_def: &EnumDef,
+        ir: &CodegenIR,
         config: &CodegenConfig,
     ) {
         // Skip generic types — only concrete instantiations get C-API impls
@@ -3129,6 +3303,14 @@ impl RustGenerator {
         }
 
         let name = config.apply_prefix(&enum_def.name);
+
+        self.generate_capi_derived_trait_impls(
+            builder,
+            &enum_def.name,
+            &enum_def.traits,
+            ir,
+            config,
+        );
 
         // Clone impl calling C-ABI function
         if enum_def.traits.is_clone && !enum_def.traits.is_copy {

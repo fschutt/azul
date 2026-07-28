@@ -1,6 +1,6 @@
 {
   "name": "op_partial_repaint_text",
-  "description": "PARTIAL REPAINT (text change): editing ONE text node must repaint just that node, bounded. The <p> at node 10 uses \"Azul Mock Mono\" (10px/glyph at 20px) so the glyph geometry is deterministic. reset_frame_counters + snapshot_frame baseline; set_node_text changes 'before' → 'AFTER'; get_frame_report feeds the asserts. assert_changed proves the pixels really differ, assert_damage_covers_changes proves the damage set contains every changed pixel, assert_work_bounded caps the work so a one-word edit cannot trigger a full rebuild. DOM mirrors e2e/bug-dom-mutation-no-damage.json so node id 10 is a stable <p>.",
+  "description": "PARTIAL REPAINT (text change): editing ONE text node must repaint just that node, bounded. The <p> at node 10 uses \"Azul Mock Mono\" (10px/glyph at 20px) so the glyph geometry is deterministic. reset_frame_counters + snapshot_frame baseline; set_node_text changes 'before' → 'AFTER!'; get_frame_report feeds the asserts. assert_changed proves the pixels really differ, assert_damage_covers_changes proves the damage set contains every changed pixel, assert_work_bounded caps the work so a one-word edit cannot trigger a full rebuild. The two strings are deliberately the SAME LENGTH, and differ at every one of their six positions. In a monospaced font that makes the text's box pixel-for-pixel identical before and after, so assert_changed can only pass if the GLYPHS themselves rasterise differently — it is not satisfiable by the run of text simply getting shorter. That distinction used to be the whole ballgame: every mock glyph was the same filled rectangle, so an equal-length edit produced damage and no pixel change at all, and a length-changing edit was the only kind that could pass (an accident of the strings, not a property of the engine). scripts/gen_mock_fonts.py now gives each codepoint its own ink inside an unchanged glyph box, so the strict form is the one worth asserting. DOM mirrors e2e/bug-dom-mutation-no-damage.json so node id 10 is a stable <p>.",
   "setup": {
     "window_width": 400,
     "window_height": 300,
@@ -29,7 +29,7 @@
 
     { "op": "reset_frame_counters" },
     { "op": "snapshot_frame", "as": "before_text" },
-    { "op": "set_node_text", "node_id": 10, "text": "AFTER" },
+    { "op": "set_node_text", "node_id": 10, "text": "AFTER!" },
     { "op": "wait_frame" },
     { "op": "wait", "ms": 200 },
     { "op": "get_frame_report" },

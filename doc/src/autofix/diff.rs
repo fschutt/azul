@@ -2746,19 +2746,26 @@ mod api_json_declared_derives {
     /// Every type that declares `derive` in api.json must actually GET it on the
     /// generated FFI mirror.
     ///
-    /// FluentLoadError declares `"derive": ["Debug", "Clone"]` and the generated
-    /// AzFluentLoadError implements NEITHER — nor does AzFluentLoadErrorVec,
-    /// despite azul-layout invoking `impl_vec_debug!` for it. The practical
-    /// effect is that a caller of `FluentLocalizerHandle::load_from_zip` has NO
-    /// way to inspect the errors it returns: no Display, no as_str(), no Debug,
-    /// and matching on the variant fails because the vec yields
-    /// `AzFluentLoadError` while the nameable path
-    /// `azul::desktop::fluent::FluentLoadError` is a DIFFERENT type to rustc.
-    /// examples/rust/src/fluent_demo.rs can only print a count, and says so.
-    ///
     /// A declared-but-unemitted derive is invisible until somebody tries to print
-    /// something, which is why it survived this long. Fix the emitter so the
-    /// declaration in api.json and the generated mirror agree.
+    /// something, which is why the gap survived so long: the `UsingCAPI` emitter
+    /// that builds `dll_api_internal.rs` honoured exactly two entries of the
+    /// `derive` list — `Copy` and `Clone`. `Debug`, `PartialEq`, `Eq`,
+    /// `PartialOrd`, `Ord`, `Hash` and `Default` were each computed into a
+    /// `TypeTraits` flag and then read by no emitter at all, so they were
+    /// dropped for every declaring class (~1600 of them; 1468 declare `Debug`).
+    ///
+    /// What that cost, concretely: `FluentLoadError` declares
+    /// `"derive": ["Debug", "Clone"]`, and a caller of
+    /// `FluentLocalizerHandle::load_from_zip` had NO way to inspect the errors it
+    /// returns — no Display, no as_str(), no Debug, and matching on the variant
+    /// fails because the vec yields `AzFluentLoadError` while the nameable path
+    /// `azul::desktop::fluent::FluentLoadError` is a DIFFERENT type to rustc.
+    /// examples/rust/src/fluent_demo.rs could print only a count.
+    ///
+    /// The emitter now delegates each declared trait to the real type behind the
+    /// mirror (`generate_capi_derived_trait_impls` in
+    /// `doc/src/codegen/v2/lang_rust.rs`). This test is what keeps the api.json
+    /// declaration and the generated mirror agreeing.
     #[test]
     fn every_declared_derive_is_emitted() {
         let api: serde_json::Value = serde_json::from_str(
@@ -2819,10 +2826,23 @@ mod api_json_declared_derives {
             let start = src[..pos].rfind("\n\n").map_or(0, |i| i + 2);
             let attrs = &src[start..pos];
             for d in derives {
-                // Debug/Clone may be hand-implemented rather than derived.
-                let hand_impl = src.contains(&format!("impl core::fmt::{d} for {az}"))
-                    || src.contains(&format!("impl {d} for {az}"))
-                    || src.contains(&format!("impl ::core::fmt::{d} for {az}"));
+                // A declared trait may be hand-implemented rather than derived —
+                // in `UsingCAPI` mode most of them are, delegating to the real
+                // type behind the mirror.
+                //
+                // Every spelling below is matched WITH its opening brace, so
+                // `AzFluentLoadError` is not credited with `AzFluentLoadErrorVec`'s
+                // impls: without it, `impl Clone for AzFluentLoadError` is a
+                // substring of `impl Clone for AzFluentLoadErrorVec` and a type
+                // could pass on a namesake's implementation.
+                //
+                // `core::hash::` is listed for the same reason `core::fmt::`
+                // already was: `Hash` is not in the prelude, so a generated impl
+                // must spell it `impl core::hash::Hash for AzX` — that is a real
+                // implementation and has to count as one.
+                let hand_impl = ["", "core::fmt::", "::core::fmt::", "core::hash::", "::core::hash::"]
+                    .iter()
+                    .any(|path| src.contains(&format!("impl {path}{d} for {az} {{")));
                 if !attrs.contains(d.as_str()) && !hand_impl {
                     missing.push(format!("{az} declares {d} but neither derives nor implements it"));
                 }
