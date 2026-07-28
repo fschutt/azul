@@ -1820,8 +1820,16 @@ pip install azul --index-url {HTML_ROOT}
 # Node - install the npm tarball straight from its stable URL
 npm install {HTML_ROOT}/npm/azul-{version}.tgz
 
-# C# / Ruby - stable file URLs (use as a local NuGet feed / local gem install)
-#   {HTML_ROOT}/nuget/flatcontainer/azul/{version}/azul.{version}.nupkg
+# C# - self-hosted NuGet v3 feed (the package id is Azul.Net, not azul)
+dotnet nuget add source {HTML_ROOT}/nuget/index.json --name azul
+dotnet add package Azul.Net --version {version}
+
+# Ruby - self-hosted gem source (--clear-sources is required: --source only
+# APPENDS, and an unrelated `azul` gem exists on rubygems.org)
+gem install azul --clear-sources --source {HTML_ROOT}/gems
+
+# ...or the stable file URLs, as a local NuGet feed / a local gem install:
+#   {HTML_ROOT}/nuget/flatcontainer/azul.net/{version}/azul.net.{version}.nupkg
 #   {HTML_ROOT}/gems/gems/azul-{version}.gem</code></pre>
               <p class='release-note'>Every binding file is also served
               directly from this page:</p>

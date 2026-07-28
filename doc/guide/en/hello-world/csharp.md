@@ -40,11 +40,12 @@ You need the **.NET 10 SDK** and the native `libazul` library for your platform.
 
 azul isn't on nuget.org, but a self-hosted NuGet v3 feed lives at azul.rs and the
 package bundles the native `libazul` for Linux/macOS/Windows under
-`runtimes/<rid>/native` (.NET picks the right RID at runtime):
+`runtimes/<rid>/native` (.NET picks the right RID at runtime). The package id is
+`Azul.Net` (the assembly and namespace are still `Azul`):
 
 ```sh
 dotnet nuget add source https://azul.rs/ui/nuget/index.json --name azul
-dotnet add package azul --version $VERSION
+dotnet add package Azul.Net --version $VERSION
 ```
 
 Or install the native library + binding by hand:
