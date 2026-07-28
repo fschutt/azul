@@ -59,6 +59,7 @@ use rust_fontconfig::registry::FcFontRegistry;
 
 use super::common::debug_server;
 use super::common::debug_server::LogCategory;
+use super::common::event::PlatformWindow;
 use super::common::event::SharedUndoManager;
 use crate::{log_debug, log_error, log_info, log_trace};
 
