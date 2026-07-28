@@ -29,6 +29,7 @@ use azul_layout::window_state::WindowCreateOptions;
 use rust_fontconfig::FcFontCache;
 use rust_fontconfig::registry::FcFontRegistry;
 
+use super::event::PlatformWindow;
 use super::super::headless::HeadlessWindow;
 use super::WindowError;
 
