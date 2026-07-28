@@ -767,19 +767,18 @@ jobs:
       # cargo error out if the feature is ever removed, instead of skipping the
       # target in silence the way a bare `--tests` would.
       #
-      # `--release`, unlike the step above, and deliberately: this target now
-      # runs the repo-root `e2e/` corpus, and the corpus is gated on release
-      # EVERYWHERE else (`e2e_headless` builds `--release -p azul-doc`; the
-      # `AZ_E2E` shipped-binding runs are release too). On the dev profile
-      # `bug_font_never_removed` is reproducibly red: `parsed_fonts` grows
-      # 1 -> 7 when the text node mounts (IDENTICALLY on both profiles — probed)
-      # and returns to 1 after the unmount + `tick_ms 1000` + `wait 200ms` only
-      # in an optimized build. The scenario's 200 ms of real-time headroom is not
-      # enough for the eviction pass unoptimized. That is an engine/scenario
-      # timing weakness worth fixing on its own; it is NOT a reason to weaken the
-      # scenario, and it must not be hidden by dropping the corpus from this gate.
+      # Runs on the DEV profile, like the step above. It used to be pinned to
+      # `--release` because `bug_font_never_removed` was reproducibly red
+      # unoptimized: a `wait` slept in real time, so how much progress a scenario
+      # got out of one depended on how fast the build was. Engine time is now
+      # frozen per scenario and a `wait` advances the injectable clock instead
+      # (`freeze_test_clock`), so elapsed time is a pure function of the ops a
+      # scenario ran — identical on dev, on release and on a saturated runner.
+      # Verified green 5/5 on dev and 4/4 under full CPU saturation before the
+      # pin came off. Keeping it on dev is the point: this is the only place the
+      # corpus meets debug-assertions and overflow-checks.
       - name: Run the JSON-driven E2E scenario target (required-features gate)
-        run: cargo test --release -p azul-layout --test e2e_json --features e2e-server
+        run: cargo test -p azul-layout --test e2e_json --features e2e-server
 
   test_heavy:
     name: Run Heavy Tests (Miri + Reftests)
