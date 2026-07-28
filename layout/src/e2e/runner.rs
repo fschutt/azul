@@ -2818,12 +2818,29 @@ pub fn run_e2e_test(test: &E2eTest) -> E2eTestResult {
                 e2e_pump_continuation(ci, &mut session)
             });
 
-        if let Some(deadline) = resume_not_before {
-            let now = Instant::now();
-            if now < deadline {
-                std::thread::sleep(deadline - now);
-            }
-        }
+        // `resume_not_before` is never set to `Some` anywhere in the tree: a
+        // `wait` yields with no deadline and advances the injectable clock
+        // instead, so scenario time is a pure function of the ops a scenario ran
+        // rather than of how fast the build is.
+        //
+        // This used to `std::thread::sleep` to the deadline. That is now
+        // unreachable, and leaving it would be a landmine: the moment anything
+        // repopulated the field the whole suite would silently go back to being
+        // pinned to realtime — the exact regression that made
+        // `bug_font_never_removed` red only on unoptimized builds. It would also
+        // reintroduce a `std::time::Instant::now()` here, which panics on
+        // wasm32.
+        //
+        // So it fails loudly instead. If you are here because this fired, the
+        // fix is to advance the test clock (`advance_test_clock_ms`), not to
+        // sleep.
+        assert!(
+            resume_not_before.is_none(),
+            "e2e runner: scenario '{}' asked to resume at a wall-clock deadline. Scenario time \
+             is virtual — advance the injectable clock instead of sleeping, or the suite is \
+             pinned to realtime again.",
+            test.name,
+        );
         runner.service(&callback_changes, needs_update);
 
         if !still_pending {
