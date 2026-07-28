@@ -366,9 +366,14 @@ pub struct AnimatedScrollState {
     pub has_vertical_scrollbar: bool,
 }
 
-/// Details of an in-progress smooth scroll animation
+/// Details of an in-progress smooth scroll animation.
+///
+/// `pub` because `ScrollState::animation` is already a `pub` field holding it —
+/// a private type behind a public field is only an error at the point somebody
+/// outside this module reads it, which is why this compiled until the E2E
+/// manager fingerprints needed to ask "is a scroll animation in flight?".
 #[derive(Debug, Clone)]
-struct ScrollAnimation {
+pub struct ScrollAnimation {
     /// When the animation started
     start_time: Instant,
     /// Total duration of the animation

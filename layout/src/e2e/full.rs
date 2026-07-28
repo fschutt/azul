@@ -2986,6 +2986,14 @@ pub struct E2eScratch {
     /// The damage-driven framebuffer of the frame just rendered `(w, h, rgba)`.
     #[cfg(feature = "cpurender")]
     presented_frame: Option<(u32, u32, Vec<u8>)>,
+    /// Per-step composition history for cross-invariant X8.
+    ///
+    /// Reset by `e2e_reset_composition_trace` at each step boundary and appended
+    /// to as composition runs, so X8 can compare this step against the previous
+    /// one (`prev`/`prev2`) instead of against ambient state. `None` means no
+    /// step has begun yet, which is why X8 hard-fails rather than passing when
+    /// it finds none — an invariant with no subject must not report success.
+    composition_trace: Option<CompositionTrace>,
 }
 
 /// Lock this window's E2E scratch. A poisoned lock is recovered rather than

@@ -5537,7 +5537,7 @@ impl LayoutWindow {
                                 self.text_edit_manager.initialize_editing(cursor, dom_id, node_id, 0);
 
                                 // Scroll cursor into view if necessary
-                                self.scroll_cursor_into_view_if_needed(dom_id, node_id, now);
+                                self.scroll_cursor_into_view_if_needed(dom_id, node_id, now.clone());
                             }
                         } else {
                             // Not editable - clear cursor
@@ -5547,7 +5547,7 @@ impl LayoutWindow {
                 }
 
                 // Optionally scroll into view
-                self.scroll_to_node_if_needed(dom_id, node_id, now);
+                self.scroll_to_node_if_needed(dom_id, node_id, now.clone());
             }
             AccessibilityAction::Blur => {
                 self.focus_manager.clear_focus();
@@ -5566,7 +5566,7 @@ impl LayoutWindow {
 
             // Scroll actions
             AccessibilityAction::ScrollIntoView => {
-                self.scroll_to_node_if_needed(dom_id, node_id, now);
+                self.scroll_to_node_if_needed(dom_id, node_id, now.clone());
             }
             AccessibilityAction::ScrollLeft |
             AccessibilityAction::ScrollRight |

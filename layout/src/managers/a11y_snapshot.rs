@@ -499,7 +499,7 @@ fn node_type_to_role(node_type: &NodeType) -> AccessibilityRole {
         | NodeType::H5
         | NodeType::H6 => AccessibilityRole::StaticText,
         NodeType::Input | NodeType::TextArea => AccessibilityRole::Text,
-        NodeType::Image => AccessibilityRole::Graphic,
+        NodeType::Image(_) => AccessibilityRole::Graphic,
         NodeType::Ul | NodeType::Ol => AccessibilityRole::List,
         NodeType::Li => AccessibilityRole::ListItem,
         NodeType::Table => AccessibilityRole::Table,
