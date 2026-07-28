@@ -394,6 +394,12 @@ pub(super) extern "C" fn registry_global_handler(
                     data,
                 )
             };
+            // THE shipped-crash site: this listener is registered while `data`
+            // still points at the `WaylandWindow::new()` STACK local, and
+            // `xdg_wm_base` has no entry in the old hand-written rebind array, so
+            // the first compositor ping after the window was boxed dereferenced a
+            // dead stack frame. Registration now records the proxy itself.
+            window.track_listener(window.xdg_wm_base);
         }
         "wl_seat" => {
             let seat = unsafe {
@@ -406,6 +412,7 @@ pub(super) extern "C" fn registry_global_handler(
             };
             window.seat = seat;
             unsafe { (window.wayland.wl_seat_add_listener)(seat, &WL_SEAT_LISTENER, data) };
+            window.track_listener(seat);
             unsafe { try_init_tablet(window, data) };
             unsafe { try_init_data_device(window, data) };
         }
@@ -463,6 +470,11 @@ pub(super) extern "C" fn registry_global_handler(
             unsafe {
                 (window.wayland.wl_output_add_listener)(output, &WL_OUTPUT_LISTENER, data)
             };
+            // Same defect class as `xdg_wm_base` above: outputs bound during the
+            // initial roundtrip carry the stack pointer, and the old rebind array
+            // had no entry for them — a monitor scale/geometry change would have
+            // faulted in `wl_output_scale_handler` exactly like the ping did.
+            window.track_listener(output);
         }
         "zwp_text_input_manager_v3" => {
             let manager_interface = defines::get_text_input_manager_v3_interface();
@@ -529,6 +541,7 @@ pub(super) extern "C" fn registry_global_handler(
                                 data,
                             )
                         };
+                        window.track_listener(text_input);
 
                         window.text_input = Some(text_input);
                         crate::log_debug!(
@@ -746,6 +759,7 @@ pub(super) unsafe fn try_init_tablet(window: &mut WaylandWindow, data: *mut c_vo
         (window.wayland.zwp_tablet_manager_v2_get_tablet_seat)(window.tablet_manager, window.seat);
     window.tablet_seat = seat;
     (window.wayland.zwp_tablet_seat_v2_add_listener)(seat, &ZWP_TABLET_SEAT_LISTENER, data);
+    window.track_listener(seat);
     window.tablet_initialized = true;
 }
 
@@ -756,6 +770,7 @@ extern "C" fn tablet_seat_tablet_added(
 ) {
     let window = unsafe { &mut *(data as *mut WaylandWindow) };
     unsafe { (window.wayland.zwp_tablet_v2_add_listener)(id, &ZWP_TABLET_V2_LISTENER, data) };
+    window.track_listener(id);
 }
 extern "C" fn tablet_seat_tool_added(
     data: *mut c_void,
@@ -764,6 +779,7 @@ extern "C" fn tablet_seat_tool_added(
 ) {
     let window = unsafe { &mut *(data as *mut WaylandWindow) };
     unsafe { (window.wayland.zwp_tablet_tool_v2_add_listener)(id, &ZWP_TABLET_TOOL_LISTENER, data) };
+    window.track_listener(id);
 }
 extern "C" fn tablet_seat_pad_added(
     _data: *mut c_void,
@@ -916,6 +932,7 @@ pub(super) unsafe fn try_init_data_device(window: &mut WaylandWindow, data: *mut
     );
     window.data_device = dev;
     (window.wayland.wl_data_device_add_listener)(dev, &WL_DATA_DEVICE_LISTENER, data);
+    window.track_listener(dev);
     window.data_device_initialized = true;
 }
 
@@ -1303,20 +1320,23 @@ pub(super) extern "C" fn seat_capabilities_handler(
         unsafe {
             (window.wayland.wl_pointer_add_listener)(pointer, &WL_POINTER_LISTENER, data)
         };
+        window.track_listener(pointer);
     }
 
     if capabilities & WL_SEAT_CAPABILITY_KEYBOARD != 0 {
         let keyboard = unsafe { (window.wayland.wl_seat_get_keyboard)(seat) };
-        window.keyboard = keyboard; // stored so rebind_listeners() can re-point it
+        window.keyboard = keyboard;
         unsafe {
             (window.wayland.wl_keyboard_add_listener)(keyboard, &WL_KEYBOARD_LISTENER, data)
         };
+        window.track_listener(keyboard);
     }
 
     if capabilities & WL_SEAT_CAPABILITY_TOUCH != 0 {
         let touch = unsafe { (window.wayland.wl_seat_get_touch)(seat) };
-        window.touch = touch; // stored so rebind_listeners() can re-point it
+        window.touch = touch;
         unsafe { (window.wayland.wl_touch_add_listener)(touch, &WL_TOUCH_LISTENER, data) };
+        window.track_listener(touch);
     }
 }
 

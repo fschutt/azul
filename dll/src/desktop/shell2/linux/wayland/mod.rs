@@ -234,6 +234,19 @@ pub struct WaylandWindow {
     tablet_pen: events::TabletPenPending,
     // False until the first poll rebinds all proxy listeners to the stable boxed `self`.
     listeners_rebound: bool,
+    /// EVERY proxy whose listener dereferences its user-data as `*mut WaylandWindow`,
+    /// recorded by [`Self::track_listener`] AT THE MOMENT OF REGISTRATION.
+    ///
+    /// This is what makes `rebind_listeners` correct BY CONSTRUCTION. It used to
+    /// re-point a hand-written array of named fields, which silently missed any
+    /// proxy that had no field of its own or that a maintainer forgot to add —
+    /// `xdg_wm_base` (bound inside `registry_global_handler`, so it has no
+    /// registration site in `new()`) and every `wl_output` were both missing, and
+    /// the first `xdg_wm_base.ping` the compositor sent after the window was boxed
+    /// dereferenced the dead `new()` stack frame and SIGSEGV'd the process
+    /// (`events.rs:xdg_wm_base_ping_handler`, `mov 0x180(%rax)` with `rax` read out
+    /// of reclaimed stack). Registration now records; nothing can be forgotten.
+    listener_proxies: Vec<*mut defines::wl_proxy>,
     is_open: bool,
     configured: bool,
 
@@ -801,38 +814,36 @@ impl WaylandWindow {
     /// `0x7ffe…` (stack) vs live boxed addr `0x5bcb…` (heap).
     fn rebind_listeners(&mut self) {
         let set = self.wayland.wl_proxy_set_user_data;
-        // Snapshot every proxy that carries a listener which dereferences `data as
-        // *mut WaylandWindow`, BEFORE taking the raw self-pointer. Proxies created later
-        // (frame callbacks, tablet tools) are made by handlers that — after this rebind —
-        // already hold the stable pointer, so they inherit it automatically.
-        let proxies: [*mut std::ffi::c_void; 10] = [
-            self.registry as _,
-            self.surface as _,
-            self.xdg_surface as _,
-            self.xdg_toplevel as _,
-            self.seat as _,
-            self.pointer_state.pointer as _,
-            self.keyboard as _,
-            self.touch as _,
-            self.tablet_manager as _,
-            self.tablet_seat as _,
-        ];
-        let opt_proxies: [*mut std::ffi::c_void; 4] = [
-            self.text_input.map_or(std::ptr::null_mut(), |p| p as _),
-            self.toplevel_decoration.map_or(std::ptr::null_mut(), |p| p as _),
-            // wp_fractional_scale_v1 (preferred_scale events dereference `data`).
-            self.fractional_scale.map_or(std::ptr::null_mut(), |p| p as _),
-            // wl_data_device (file DnD). The per-drag wl_data_offer proxies are
-            // created by handlers that already hold the stable pointer, so they
-            // inherit it automatically.
-            self.data_device as _,
-        ];
         let me = self as *mut Self as *mut std::ffi::c_void;
-        for p in proxies.iter().chain(opt_proxies.iter()) {
+        // `listener_proxies` is the COMPLETE set: every `*_add_listener` call that
+        // can run before this rebind hands its proxy to `track_listener` first, so
+        // the list is built by the registration itself and cannot drift out of sync
+        // with it. Proxies created LATER (frame callbacks, per-drag wl_data_offers,
+        // popups) are made by handlers that already hold the stable pointer, so they
+        // inherit it automatically and are deliberately not recorded — that also
+        // keeps this list bounded (one frame callback per frame would not be).
+        for i in 0..self.listener_proxies.len() {
+            let p = self.listener_proxies[i];
             if !p.is_null() {
-                unsafe { set(*p as *mut defines::wl_proxy, me) };
+                unsafe { set(p, me) };
             }
         }
+    }
+
+    /// Record a proxy whose listener dereferences its user-data as
+    /// `*mut WaylandWindow`, so [`Self::rebind_listeners`] re-points it once the
+    /// window reaches its final (heap) address.
+    ///
+    /// MUST be called next to every `*_add_listener` that passes a
+    /// `*mut WaylandWindow` as user-data and can run before the rebind — i.e.
+    /// everything registered from `new()` or from a handler dispatched by the
+    /// initial `wl_display_roundtrip_queue`. Calling it after the rebind is a
+    /// no-op: by then registration already uses the stable pointer.
+    pub(super) fn track_listener<T>(&mut self, proxy: *mut T) {
+        if self.listeners_rebound || proxy.is_null() {
+            return;
+        }
+        self.listener_proxies.push(proxy.cast());
     }
 
     /// Rebind listeners to the stable `self` exactly once, on the first event pump after
@@ -1341,6 +1352,7 @@ impl WaylandWindow {
             keyboard: std::ptr::null_mut(),
             touch: std::ptr::null_mut(),
             listeners_rebound: false,
+            listener_proxies: Vec::new(),
             tablet_manager: std::ptr::null_mut(),
             tablet_seat: std::ptr::null_mut(),
             tablet_initialized: false,
@@ -1434,6 +1446,7 @@ impl WaylandWindow {
                 &mut window as *mut _ as *mut _,
             )
         };
+        window.track_listener(registry);
         // The registry — and every object bound from it — lives on our custom
         // `event_queue`, so the initial global-binding roundtrip MUST dispatch
         // THAT queue. `wl_display_roundtrip()` pumps only the default queue,
@@ -1462,6 +1475,7 @@ impl WaylandWindow {
                 &mut window as *mut _ as *mut _,
             )
         };
+        window.track_listener(window.surface);
 
         // Fractional-scale support (wp-fractional-scale-v1 + wp-viewporter).
         // Both managers were bound in the registry roundtrip above (if the
@@ -1496,6 +1510,7 @@ impl WaylandWindow {
                         &FRACTIONAL_SCALE_LISTENER as *const _ as *const _,
                         &mut window as *mut _ as *mut _,
                     );
+                    window.track_listener(fs);
                     window.fractional_scale = Some(fs as *mut defines::wp_fractional_scale_v1);
                 }
             }
@@ -1528,6 +1543,7 @@ impl WaylandWindow {
                 &mut window as *mut _ as *mut _,
             )
         };
+        window.track_listener(window.xdg_surface);
 
         window.xdg_toplevel =
             unsafe { (window.wayland.xdg_surface_get_toplevel)(window.xdg_surface) };
@@ -1546,6 +1562,7 @@ impl WaylandWindow {
                 &mut window as *mut _ as *mut _,
             )
         };
+        window.track_listener(window.xdg_toplevel);
 
         // Request server-side decorations (xdg-decoration-unstable-v1) so the
         // compositor draws a titlebar (move / close), instead of relying on
@@ -1588,6 +1605,7 @@ impl WaylandWindow {
                         // after that rebind.
                         &mut window as *mut WaylandWindow as *mut _,
                     );
+                    window.track_listener(deco);
                     // MWA-B6: honor flags.decorations instead of forcing
                     // server-side. CSD-wanting and frameless windows request
                     // client_side (compositor draws nothing); everything
