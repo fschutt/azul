@@ -3426,8 +3426,15 @@ impl X11Window {
         // skip-heuristic below honours `want_redraw`, so any explicitly
         // requested repaint (resize, caret move/blink, physics-scroll, a11y,
         // real Expose) is never skipped — only a truly idle speculative call is.
+        // Read the intent, but do NOT consume it yet.
+        //
+        // Clearing here meant every early return BELOW this line destroyed the
+        // request: the 0-size window path, and the renderer/render/swap failure
+        // paths, all return with the flag already gone and nothing to
+        // re-schedule them — so a minimise, or one transient GPU error, silently
+        // cost a repaint that nobody would ever ask for again. The flag is now
+        // cleared at the END, on the paths that actually rendered.
         let want_redraw = self.needs_redraw;
-        self.needs_redraw = false;
 
         // Skip rendering a degenerate (0-size) window. A reparenting/compositing
         // WM delivers a 0-size ConfigureNotify on iconify (minimize) and during
@@ -4041,6 +4048,13 @@ impl X11Window {
             );
             std::process::exit(0);
         }
+
+        // Consume the render-intent flag HERE, not at the top: this line is only
+        // reached by a call that actually rendered and presented. Every early
+        // return above — the 0-size window on minimise, and the renderer/render/
+        // swap failures — now leaves the flag SET, so the next turn of the loop
+        // retries instead of silently dropping the repaint.
+        self.needs_redraw = false;
 
         Ok(())
     }
