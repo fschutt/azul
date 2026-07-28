@@ -137,6 +137,30 @@ jobs:
         if: steps.codegen-cache.outputs.cache-hit != 'true'
         run: cargo run -r -p azul-doc codegen all
 
+      # Codegen must be a pure function of its inputs.
+      #
+      # Checking `git diff` here would prove NOTHING: `codegen all` writes into
+      # target/codegen/, which is untracked, so a tree-cleanliness assertion
+      # passes no matter what the generator emitted. Running it a second time and
+      # comparing the bytes is the only check here that CAN fail.
+      #
+      # This gate exists because the generator WAS non-deterministic:
+      # `generate_auto_from_impls` iterated a HashMap, and RandomState reseeds per
+      # process, so 184 lines of `impl From<Widget> for Dom` reordered on every
+      # run across azul.rs, dll_api_internal.rs, dll_api_external.rs and
+      # memtest.rs. Churn like that makes a genuine regeneration diff impossible
+      # to review — a real change hides in the noise.
+      - name: Codegen must be deterministic (same inputs -> same bytes)
+        if: steps.codegen-cache.outputs.cache-hit != 'true'
+        run: |
+          rm -rf /tmp/codegen-run1
+          cp -r target/codegen /tmp/codegen-run1
+          cargo run -r -p azul-doc codegen all
+          if ! diff -r /tmp/codegen-run1 target/codegen; then
+            echo "::error::'azul-doc codegen all' is not deterministic - the same inputs produced different output. Look for HashMap/HashSet iteration or an unsorted read_dir in doc/src/codegen."
+            exit 1
+          fi
+
       - name: Run DLL tests
         run: cd dll && cargo test
 
