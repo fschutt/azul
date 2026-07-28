@@ -390,7 +390,7 @@ impl CpuBackend {
                 &mut output,
                 dpi_factor,
                 renderer_resources,
-                Some(&layout_window.font_manager),
+                &layout_window.font_manager,
                 &mut self.glyph_cache,
                 &render_state,
                 &all_damage,
@@ -402,7 +402,7 @@ impl CpuBackend {
                 display_list,
                 dpi_factor,
                 renderer_resources,
-                Some(&layout_window.font_manager),
+                &layout_window.font_manager,
                 &mut self.glyph_cache,
                 &render_state,
             ));

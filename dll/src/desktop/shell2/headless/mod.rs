@@ -727,7 +727,7 @@ impl CpuBackend {
             // Incremental: render only damaged regions
             let _ = cpurender::render_display_list_damaged(
                 display_list, &mut output, dpi_factor,
-                renderer_resources, Some(&layout_window.font_manager),
+                renderer_resources, &layout_window.font_manager,
                 &mut self.glyph_cache, &render_state, &all_damage,
             );
         } else {
@@ -736,7 +736,7 @@ impl CpuBackend {
             compositor.allocate_layers_from_display_list(display_list, dpi_factor);
             if let Err(e) = compositor.render_layers(
                 display_list, dpi_factor, renderer_resources,
-                Some(&layout_window.font_manager), &mut self.glyph_cache,
+                &layout_window.font_manager, &mut self.glyph_cache,
                 &render_state,
             ) {
                 log_error!(
@@ -3136,7 +3136,7 @@ mod tests {
             &mut reference,
             dpi,
             &w.common.renderer_resources,
-            Some(&lw.font_manager),
+            &lw.font_manager,
             &mut w.cpu_backend.glyph_cache,
             &rs,
             &[full_clip],

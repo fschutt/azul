@@ -1244,8 +1244,11 @@ pub fn collect_font_resource_updates(
         if font_needs_registration {
             // First try to get embedded font (e.g. Material Icons)
             // Then fall back to parsed font (fontconfig-loaded)
-            let font_ref = layout_window.font_manager.get_embedded_font_by_hash(font_hash)
-                .or_else(|| layout_window.font_manager.get_font_by_hash(font_hash));
+            // THE font lookup — the same one the CPU renderer uses. Both pools
+            // (loaded faces + `StyleFontFamily::Ref` embedded faces) can shape
+            // text, so both must be searched, and by ONE function so the GPU and
+            // CPU paths cannot drift apart.
+            let font_ref = layout_window.font_manager.resolve_font_by_hash(font_hash);
             
             if let Some(font_ref) = font_ref {
                 log_debug!(
@@ -1268,7 +1271,9 @@ pub fn collect_font_resource_updates(
             } else {
                 log_debug!(
                     LogCategory::Rendering,
-                    "[collect_font_resource_updates] ✗ WARNING: Font {} not found in FontManager!",
+                    "[collect_font_resource_updates] BUG: layout emitted font hash {} \
+                     that its own FontManager cannot resolve — text using it cannot be \
+                     drawn",
                     font_hash
                 );
                 continue;

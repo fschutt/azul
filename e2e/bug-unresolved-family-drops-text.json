@@ -1,0 +1,45 @@
+{
+  "name": "bug_unresolved_family_drops_text",
+  "description": "Text asking for a font-family that resolves to NOTHING must still reach the framebuffer, in a fallback face. An unresolved family is the normal case, not an error: the shipped 0.2.0 widgets demo asks for Cantarell (GNOME's UI font, absent on KDE and most non-GNOME Linux), Sans and system:ui and gets '[azul][font] UNRESOLVED font-family' for all three on a stock KDE box. That warning is correct. What must never follow is the next line the shipped demo printed — '[cpurender] Font hash ... not found in FontManager' — i.e. layout shaping a run with a face the renderer then cannot resolve, so the text is silently dropped with only an eprintln. Layout and render now share ONE font lookup (FontManager::resolve_font_by_hash, covering both the loaded faces and the embedded StyleFontFamily::Ref faces), so a hash layout emitted always resolves at raster time. This scenario pins the contract end to end: mounting text in a family nothing can match must grow the font tables (a fallback WAS resolved and loaded) and must actually paint (damage is produced and the frame changes).",
+  "setup": {
+    "window_width": 400,
+    "window_height": 300,
+    "dpi": 96
+  },
+  "steps": [
+    {
+      "op": "mount",
+      "html": [
+        "<div id=\"root\"></div>"
+      ],
+      "css": [
+        "#root { width: 300px; height: 80px; background: white; }"
+      ]
+    },
+    { "op": "wait_frame" },
+    { "op": "wait", "ms": 200 },
+    { "op": "snapshot_resources", "as": "baseline" },
+    { "op": "snapshot_frame", "as": "no_text" },
+
+    {
+      "op": "mount",
+      "html": [
+        "<div id=\"root\">",
+        "  <p id=\"txt\">HELLO FALLBACK</p>",
+        "</div>"
+      ],
+      "css": [
+        "#root { width: 300px; height: 80px; background: white; }",
+        "#txt  { font-family: \"Definitely Not Installed Sans\", Cantarell; font-size: 32px; color: black; }"
+      ]
+    },
+    { "op": "wait_frame" },
+    { "op": "wait", "ms": 300 },
+
+    { "op": "assert_exists", "selector": "#txt" },
+
+    { "op": "assert_resource_counts", "vs": "baseline", "font_chain_cache": "gt", "font_hash_to_families": "gt" },
+
+    { "op": "assert_changed", "vs": "no_text", "min_damage_rects": 1 }
+  ]
+}

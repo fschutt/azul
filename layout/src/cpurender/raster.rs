@@ -653,9 +653,14 @@ fn acquire_pixmap(retained: Option<AzulPixmap>, w: u32, h: u32) -> Result<AzulPi
 /// # Errors
 ///
 /// Returns an error string if rendering fails.
+/// `font_manager` is REQUIRED, not optional: it is the only thing that can turn
+/// the `font_hash` values in `dl` back into faces. There is no second font table
+/// to fall back to — a renderer given no manager would silently drop every glyph
+/// run instead of failing, which is how the 0.2.0 icon regression stayed invisible.
 pub fn render(
     dl: &DisplayList,
     res: &RendererResources,
+    font_manager: &FontManager<FontRef>,
     opts: RenderOptions,
     glyph_cache: &mut GlyphCache,
 ) -> Result<AzulPixmap, String> {
@@ -672,7 +677,7 @@ pub fn render(
     )?;
     pixmap.fill(255, 255, 255, 255);
 
-    render_display_list(dl, &mut pixmap, dpi_factor, res, None, glyph_cache)?;
+    render_display_list(dl, &mut pixmap, dpi_factor, res, font_manager, glyph_cache)?;
 
     Ok(pixmap)
 }
@@ -749,7 +754,7 @@ pub fn render_with_font_manager_and_scroll_retained(
         &mut pixmap,
         dpi_factor,
         res,
-        Some(font_manager),
+        font_manager,
         glyph_cache,
         render_state,
     )?;
@@ -931,7 +936,7 @@ fn render_display_list(
     pixmap: &mut AzulPixmap,
     dpi_factor: f32,
     renderer_resources: &RendererResources,
-    font_manager: Option<&FontManager<FontRef>>,
+    font_manager: &FontManager<FontRef>,
     glyph_cache: &mut GlyphCache,
 ) -> Result<(), String> {
     let empty_state = CpuRenderState::new(ScrollOffsetMap::new());
@@ -951,7 +956,7 @@ fn render_display_list_with_state(
     pixmap: &mut AzulPixmap,
     dpi_factor: f32,
     renderer_resources: &RendererResources,
-    font_manager: Option<&FontManager<FontRef>>,
+    font_manager: &FontManager<FontRef>,
     glyph_cache: &mut GlyphCache,
     render_state: &CpuRenderState,
 ) -> Result<(), String> {
@@ -1057,7 +1062,7 @@ pub fn render_display_list_damaged(
     pixmap: &mut AzulPixmap,
     dpi_factor: f32,
     renderer_resources: &RendererResources,
-    font_manager: Option<&FontManager<FontRef>>,
+    font_manager: &FontManager<FontRef>,
     glyph_cache: &mut GlyphCache,
     render_state: &CpuRenderState,
     damage_rects: &[LogicalRect],
@@ -1262,7 +1267,7 @@ pub fn render_single_item(
     pixmap: &mut AzulPixmap,
     dpi_factor: f32,
     renderer_resources: &RendererResources,
-    font_manager: Option<&FontManager<FontRef>>,
+    font_manager: &FontManager<FontRef>,
     glyph_cache: &mut GlyphCache,
     transform_stack: &mut Vec<TransAffine>,
     clip_stack: &mut Vec<Option<AzRect>>,
@@ -2281,6 +2286,46 @@ fn render_glyphs_lcd(
     render_scanlines_aa_solid(&mut ras, &mut sl, &mut rb, &agg_color);
 }
 
+/// A `font_hash` that layout emitted but the `FontManager` that emitted it cannot
+/// resolve is a broken invariant, not a missing asset — the display list and the
+/// font state have gone out of sync and the user loses text with no other symptom.
+///
+/// Fail LOUDLY (and, in a debug build, fatally so a test catches it), but never by
+/// dereferencing something unresolved: the caller drops this one run and keeps the
+/// frame. Deduplicated per hash so a broken frame cannot spam the log at 60 Hz.
+#[cfg(feature = "std")]
+fn font_resolution_failed(font_hash: u64) {
+    use std::sync::{Mutex, OnceLock};
+    static SEEN: OnceLock<Mutex<std::collections::BTreeSet<u64>>> = OnceLock::new();
+    debug_assert!(
+        false,
+        "[cpurender] BUG: layout emitted font hash {font_hash} that its own FontManager \
+         cannot resolve — the display list and the font state are out of sync"
+    );
+    let seen = SEEN.get_or_init(|| Mutex::new(std::collections::BTreeSet::new()));
+    if let Ok(mut seen) = seen.lock() {
+        if seen.insert(font_hash) {
+            eprintln!(
+                "[azul][font] BUG: layout emitted font hash {font_hash} that its own \
+                 FontManager cannot resolve (neither a loaded face nor a registered \
+                 embedded font). The text using it CANNOT be drawn. This is an azul \
+                 bug — please report it."
+            );
+        }
+    }
+}
+
+#[cfg(not(feature = "std"))]
+const fn font_resolution_failed(_font_hash: u64) {}
+
+/// A `FontManager` with no faces at all, for tests whose display list carries no
+/// text. The CPU renderer has exactly ONE font source, so "no fonts" has to be
+/// spelled as an empty manager rather than as an absent one.
+#[cfg(test)]
+pub(crate) fn empty_font_manager() -> FontManager<FontRef> {
+    FontManager::new(rust_fontconfig::FcFontCache::default()).expect("FontManager::new")
+}
+
 #[allow(clippy::cast_possible_truncation, clippy::cast_possible_wrap, clippy::cast_sign_loss)] // software rasterizer: bounded pixel/coord/colour casts
 #[allow(clippy::too_many_lines)] // large but cohesive: font lookup + grayscale/LCD dispatch + glyph loop
 fn render_text(
@@ -2292,7 +2337,7 @@ fn render_text(
     clip_rect: &LogicalRect,
     clip: Option<AzRect>,
     renderer_resources: &RendererResources,
-    font_manager: Option<&FontManager<FontRef>>,
+    font_manager: &FontManager<FontRef>,
     dpi_factor: f32,
     glyph_cache: &mut GlyphCache,
     scroll_offset: (f32, f32),
@@ -2323,34 +2368,22 @@ fn render_text(
         u32::from(color.a),
     );
 
-    // Try to get the parsed font
-    let parsed_font: &ParsedFont = if let Some(fm) = font_manager {
-        if let Some(font_ref) = fm.get_font_by_hash(font_hash.font_hash) { unsafe { &*font_ref.get_parsed().cast::<ParsedFont>() } } else {
-            eprintln!(
-                "[cpurender] Font hash {} not found in FontManager",
-                font_hash.font_hash
-            );
-            return;
-        }
-    } else {
-        let Some(font_key) = renderer_resources.font_hash_map.get(&font_hash.font_hash) else {
-            eprintln!(
-                "[cpurender] Font hash {} not found in font_hash_map (available: {:?})",
-                font_hash.font_hash,
-                renderer_resources.font_hash_map.keys().collect::<Vec<_>>()
-            );
-            return;
-        };
-
-        let Some((font_ref, _instances)) = renderer_resources.currently_registered_fonts.get(font_key) else {
-            eprintln!(
-                "[cpurender] FontKey {font_key:?} not found in currently_registered_fonts"
-            );
-            return;
-        };
-
-        unsafe { &*font_ref.get_parsed().cast::<ParsedFont>() }
+    // ONE source of truth. `font_hash` was produced by this very `FontManager`
+    // during layout, so resolving it here cannot fail for any font layout could
+    // have shaped with — parsed OR embedded (see `resolve_font_by_hash`). There is
+    // deliberately no second lookup table: the renderer used to fall back to
+    // `renderer_resources.font_hash_map`, a parallel map that could (and did)
+    // disagree with the manager layout had actually used.
+    let Some(font_ref) = font_manager.resolve_font_by_hash(font_hash.font_hash) else {
+        // Not a "font we happen not to have": layout emitted a hash the manager
+        // that produced it cannot resolve, i.e. the two went out of sync. Report it
+        // as the invariant violation it is instead of quietly dropping the text.
+        font_resolution_failed(font_hash.font_hash);
+        return;
     };
+    // Safe reborrow with a lifetime tied to the `font_ref` we hold — NOT a raw
+    // pointer deref whose result outlives the handle keeping the face alive.
+    let parsed_font: &ParsedFont = crate::font_ref_to_parsed_font(&font_ref);
 
     let units_per_em = f32::from(parsed_font.font_metrics.units_per_em);
     if units_per_em <= 0.0 {
@@ -2467,7 +2500,7 @@ fn render_text_shadow(
     clip_rect: &LogicalRect,
     clip: Option<AzRect>,
     renderer_resources: &RendererResources,
-    font_manager: Option<&FontManager<FontRef>>,
+    font_manager: &FontManager<FontRef>,
     dpi_factor: f32,
     glyph_cache: &mut GlyphCache,
     scroll_offset: (f32, f32),
@@ -3353,7 +3386,7 @@ pub fn render_component_preview(
         &mut pixmap,
         dpi,
         &renderer_resources,
-        Some(&preview_font_manager),
+        &preview_font_manager,
         &mut preview_glyph_cache,
         &preview_render_state,
     )?;
@@ -3471,15 +3504,16 @@ pub fn render_text_run_to_pixmap(
     }
     let scale = font_size_px / upm;
 
-    // 2. Register the font in a throwaway RendererResources so the display-list
-    //    renderer can resolve the glyph run by hash.
-    let mut rr = RendererResources::default();
+    // 2. Register the font in a throwaway FontManager. This helper builds its own
+    //    one-item display list, so it also has to supply the font state that list
+    //    is written against — through the SAME manager every other renderer
+    //    consults, never a parallel RendererResources map.
+    let rr = RendererResources::default();
     let font_ref = crate::parsed_font_to_font_ref(parsed.clone());
-    let key = FontKey::unique(IdNamespace(0));
     let hash = crate::font_ref_to_parsed_font(&font_ref).hash;
-    rr.font_hash_map.insert(hash, key);
-    rr.currently_registered_fonts
-        .insert(key, (font_ref, std::collections::BTreeMap::default()));
+    let fm: FontManager<FontRef> =
+        FontManager::new(rust_fontconfig::FcFontCache::default()).ok()?;
+    fm.insert_font(rust_fontconfig::FontId::new(), font_ref);
     let font_hash = FontHash { font_hash: hash };
 
     // 3. Shape the string (simple per-char advances; tooltips are short,
@@ -3530,7 +3564,7 @@ pub fn render_text_run_to_pixmap(
         ..Default::default()
     };
     let mut gc = GlyphCache::new();
-    render_display_list(&dl, &mut pixmap, dpi_factor, &rr, None, &mut gc).ok()?;
+    render_display_list(&dl, &mut pixmap, dpi_factor, &rr, &fm, &mut gc).ok()?;
 
     Some(pixmap)
 }
@@ -3572,16 +3606,19 @@ mod text_shadow_tests {
         None
     }
 
-    fn renderer_resources_with(font: &ParsedFont) -> (RendererResources, FontHash) {
-        let mut rr = RendererResources::default();
+    fn renderer_resources_with(
+        font: &ParsedFont,
+    ) -> (RendererResources, FontManager<FontRef>, FontHash) {
+        let rr = RendererResources::default();
         let font_ref = crate::parsed_font_to_font_ref(font.clone());
-        let key = FontKey::unique(IdNamespace(0));
         let hash = crate::font_ref_to_parsed_font(&font_ref).hash;
-        rr.font_hash_map.insert(hash, key);
-        rr.currently_registered_fonts
-            .insert(key, (font_ref, std::collections::BTreeMap::default()));
-        (rr, FontHash { font_hash: hash })
+        let fm: FontManager<FontRef> =
+            FontManager::new(rust_fontconfig::FcFontCache::default()).expect("FontManager::new");
+        fm.insert_font(rust_fontconfig::FontId::new(), font_ref);
+        (rr, fm, FontHash { font_hash: hash })
     }
+
+
 
     /// Shape a string into glyph instances with a baseline at (x, y).
     fn shape(parsed: &ParsedFont, text: &str, font_size: f32, x: f32, y: f32) -> Vec<GlyphInstance> {
@@ -3621,7 +3658,7 @@ mod text_shadow_tests {
             eprintln!("[skip] no system font available");
             return;
         };
-        let (rr, font_hash) = renderer_resources_with(&font);
+        let (rr, fm, font_hash) = renderer_resources_with(&font);
 
         let w = 200u32;
         let h = 60u32;
@@ -3653,7 +3690,7 @@ mod text_shadow_tests {
             items: vec![text_item.clone()],
             ..Default::default()
         };
-        render_display_list(&dl_plain, &mut no_shadow, 1.0, &rr, None, &mut gc).unwrap();
+        render_display_list(&dl_plain, &mut no_shadow, 1.0, &rr, &fm, &mut gc).unwrap();
         // Baseline red-pixel count. With grayscale text this is 0; with LCD
         // subpixel AA (now the default) black glyph edges carry faint red/blue
         // fringes, so the shadow must add red BEYOND this baseline (checked below).
@@ -3679,7 +3716,7 @@ mod text_shadow_tests {
             ..Default::default()
         };
         let mut gc2 = GlyphCache::new();
-        render_display_list(&dl_shadow, &mut with_shadow, 1.0, &rr, None, &mut gc2).unwrap();
+        render_display_list(&dl_shadow, &mut with_shadow, 1.0, &rr, &fm, &mut gc2).unwrap();
         let red_shadow = count_red(&with_shadow);
 
         assert!(
@@ -3715,7 +3752,7 @@ mod text_shadow_tests {
             eprintln!("[skip] no system font available");
             return;
         };
-        let (rr, font_hash) = renderer_resources_with(&font);
+        let (rr, fm, font_hash) = renderer_resources_with(&font);
         let w = 200u32;
         let h = 80u32;
         let font_size = 32.0;
@@ -3756,7 +3793,7 @@ mod text_shadow_tests {
             let mut pm = AzulPixmap::new(w, h).unwrap();
             pm.fill(255, 255, 255, 255);
             let mut gc = GlyphCache::new();
-            render_display_list(&dl, &mut pm, 1.0, &rr, None, &mut gc).unwrap();
+            render_display_list(&dl, &mut pm, 1.0, &rr, &fm, &mut gc).unwrap();
             // count any non-white pixel (shadow coverage)
             pm.data()
                 .chunks_exact(4)
@@ -3969,7 +4006,7 @@ mod autotest_generated {
             p,
             1.0,
             &res,
-            None,
+            &empty_font_manager(),
             &mut gc,
             &mut st.transforms,
             &mut st.clips,
@@ -3983,7 +4020,7 @@ mod autotest_generated {
     fn run_list(dl: &DisplayList, p: &mut AzulPixmap, dpi: f32) -> Result<(), String> {
         let res = RendererResources::default();
         let mut gc = GlyphCache::new();
-        render_display_list(dl, p, dpi, &res, None, &mut gc)
+        render_display_list(dl, p, dpi, &res, &empty_font_manager(), &mut gc)
     }
 
     fn run_list_with_state(
@@ -3993,7 +4030,7 @@ mod autotest_generated {
     ) -> Result<(), String> {
         let res = RendererResources::default();
         let mut gc = GlyphCache::new();
-        render_display_list_with_state(dl, p, 1.0, &res, None, &mut gc, state)
+        render_display_list_with_state(dl, p, 1.0, &res, &empty_font_manager(), &mut gc, state)
     }
 
     // ==================================================================
@@ -5062,7 +5099,7 @@ mod autotest_generated {
         let dl = DisplayList::default();
         let res = RendererResources::default();
         let mut gc = GlyphCache::new();
-        let p = render(&dl, &res, opts(4.0, 4.0, 1.0), &mut gc).expect("must render");
+        let p = render(&dl, &res, &empty_font_manager(), opts(4.0, 4.0, 1.0), &mut gc).expect("must render");
         assert_eq!((p.width, p.height), (4, 4));
         assert!(p
             .data()
@@ -5075,7 +5112,7 @@ mod autotest_generated {
         let dl = DisplayList::default();
         let res = RendererResources::default();
         let mut gc = GlyphCache::new();
-        let p = render(&dl, &res, opts(4.0, 3.0, 2.0), &mut gc).expect("must render");
+        let p = render(&dl, &res, &empty_font_manager(), opts(4.0, 3.0, 2.0), &mut gc).expect("must render");
         assert_eq!((p.width, p.height), (8, 6));
     }
 
@@ -5095,7 +5132,7 @@ mod autotest_generated {
             opts(4.0, 4.0, f32::NAN),
             opts(0.4, 0.4, 1.0), // truncates to 0
         ] {
-            let got = render(&dl, &res, o, &mut gc);
+            let got = render(&dl, &res, &empty_font_manager(), o, &mut gc);
             assert!(
                 got.is_err(),
                 "{o:?} must return Err, not panic or allocate a 0-sized buffer"
@@ -5115,7 +5152,7 @@ mod autotest_generated {
         };
         let res = RendererResources::default();
         let mut gc = GlyphCache::new();
-        let p = render(&dl, &res, opts(8.0, 8.0, 1.0), &mut gc).expect("must render");
+        let p = render(&dl, &res, &empty_font_manager(), opts(8.0, 8.0, 1.0), &mut gc).expect("must render");
         assert!(is_reddish(px_at(&p, 1, 1)));
         assert_eq!(px_at(&p, 7, 7), [255, 255, 255, 255]);
     }
@@ -6152,7 +6189,7 @@ mod autotest_generated {
         let res = RendererResources::default();
         let mut gc = GlyphCache::new();
         let state = CpuRenderState::new(ScrollOffsetMap::new());
-        render_display_list_damaged(dl, p, 1.0, &res, None, &mut gc, &state, rects)
+        render_display_list_damaged(dl, p, 1.0, &res, &empty_font_manager(), &mut gc, &state, rects)
     }
 
     fn full_red_dl() -> DisplayList {

@@ -406,7 +406,7 @@ impl CompositorState {
         display_list: &DisplayList,
         dpi_factor: f32,
         renderer_resources: &RendererResources,
-        font_manager: Option<&FontManager<FontRef>>,
+        font_manager: &FontManager<FontRef>,
         glyph_cache: &mut GlyphCache,
         render_state: &CpuRenderState,
     ) -> Result<(), String> {
@@ -592,7 +592,7 @@ impl CompositorState {
         display_list: &DisplayList,
         dpi_factor: f32,
         renderer_resources: &RendererResources,
-        font_manager: Option<&FontManager<FontRef>>,
+        font_manager: &FontManager<FontRef>,
         glyph_cache: &mut GlyphCache,
     ) -> Result<(), String> {
         // Find the layer with this scroll_id
@@ -1551,7 +1551,7 @@ fn render_display_list_range(
     offset_y: f32,
     dpi_factor: f32,
     renderer_resources: &RendererResources,
-    font_manager: Option<&FontManager<FontRef>>,
+    font_manager: &FontManager<FontRef>,
     glyph_cache: &mut GlyphCache,
     render_state: &CpuRenderState,
 ) -> Result<(), String> {
@@ -2110,6 +2110,14 @@ mod scroll_shift_tests {
 #[cfg(test)]
 mod backdrop_filter_tests {
     use super::*;
+
+    /// The CPU renderer resolves every glyph run through a `FontManager` — there is
+    /// no second font table. These display lists carry no text, so an empty manager
+    /// is the honest input; a text-bearing test must register its face here.
+    fn test_font_manager() -> FontManager<FontRef> {
+        FontManager::new(rust_fontconfig::FcFontCache::default()).expect("FontManager::new")
+    }
+
     use azul_core::resources::RendererResources;
     use azul_css::props::basic::ColorU;
     use azul_css::props::style::filter::StyleFilter;
@@ -2172,7 +2180,7 @@ mod backdrop_filter_tests {
         let rr = RendererResources::default();
         let mut gc = GlyphCache::new();
         let state = CpuRenderState::new(ScrollOffsetMap::new());
-        comp.render_layers(&dl, 1.0, &rr, None, &mut gc, &state).unwrap();
+        comp.render_layers(&dl, 1.0, &rr, &test_font_manager(), &mut gc, &state).unwrap();
 
         let mut out = AzulPixmap::new(w, h).unwrap();
         out.fill(0, 0, 0, 255);
@@ -2204,6 +2212,13 @@ mod backdrop_filter_tests {
 #[allow(clippy::similar_names)] // domain-standard coordinate/geometry short names
 #[allow(clippy::cast_possible_truncation, clippy::cast_precision_loss, clippy::cast_sign_loss)]
 mod autotest_generated {
+
+    /// The CPU renderer resolves every glyph run through a `FontManager` — there is
+    /// no second font table. These display lists carry no text, so an empty manager
+    /// is the honest input; a text-bearing test must register its face here.
+    fn test_font_manager() -> FontManager<FontRef> {
+        FontManager::new(rust_fontconfig::FcFontCache::default()).expect("FontManager::new")
+    }
     use std::{
         collections::{BTreeMap, BTreeSet, HashMap},
         sync::Arc,
@@ -3702,7 +3717,7 @@ mod autotest_generated {
         let list = dlist(vec![]);
         c.allocate_layers_from_display_list(&list, 1.0);
         let (rr, mut gc, st) = render_deps();
-        assert!(c.render_layers(&list, 1.0, &rr, None, &mut gc, &st).is_ok());
+        assert!(c.render_layers(&list, 1.0, &rr, &test_font_manager(), &mut gc, &st).is_ok());
     }
 
     #[test]
@@ -3717,7 +3732,7 @@ mod autotest_generated {
         )]);
         c.allocate_layers_from_display_list(&list, 1.0);
         let (rr, mut gc, st) = render_deps();
-        c.render_layers(&list, 1.0, &rr, None, &mut gc, &st).unwrap();
+        c.render_layers(&list, 1.0, &rr, &test_font_manager(), &mut gc, &st).unwrap();
         let root = c.layers.get(&c.root_layer).unwrap();
         assert_eq!(at(&root.pixbuf, 8, 8), [0, 0, 255, 255]);
 
@@ -3743,7 +3758,7 @@ mod autotest_generated {
             c.allocate_layers_from_display_list(&list, dpi);
             let (rr, mut gc, st) = render_deps();
             assert!(
-                c.render_layers(&list, dpi, &rr, None, &mut gc, &st).is_ok(),
+                c.render_layers(&list, dpi, &rr, &test_font_manager(), &mut gc, &st).is_ok(),
                 "dpi {dpi} must not error or panic"
             );
             let root = c.layers.get(&c.root_layer).unwrap();
@@ -3765,7 +3780,7 @@ mod autotest_generated {
         c.layers.get_mut(&root_id).unwrap().display_list_range = (999, 1000);
         let (rr, mut gc, st) = render_deps();
         assert!(
-            c.render_layers(&list, 1.0, &rr, None, &mut gc, &st).is_ok(),
+            c.render_layers(&list, 1.0, &rr, &test_font_manager(), &mut gc, &st).is_ok(),
             "an out-of-range range must be skipped, not indexed"
         );
     }
@@ -3784,7 +3799,7 @@ mod autotest_generated {
         let root_id = c.root_layer;
         c.layers.get_mut(&root_id).unwrap().display_list_range = (0, 9999);
         let (rr, mut gc, st) = render_deps();
-        c.render_layers(&list, 1.0, &rr, None, &mut gc, &st).unwrap();
+        c.render_layers(&list, 1.0, &rr, &test_font_manager(), &mut gc, &st).unwrap();
         let root = c.layers.get(&c.root_layer).unwrap();
         assert_eq!(at(&root.pixbuf, 4, 4), [0, 255, 0, 255], "end is clamped to items.len()");
     }
@@ -3795,7 +3810,7 @@ mod autotest_generated {
         let list = dlist(vec![]);
         c.allocate_layers_from_display_list(&list, 1.0);
         let (rr, mut gc, st) = render_deps();
-        c.render_layers(&list, 1.0, &rr, None, &mut gc, &st).unwrap();
+        c.render_layers(&list, 1.0, &rr, &test_font_manager(), &mut gc, &st).unwrap();
 
         for dpi in [0.0_f32, -1.0, f32::NAN] {
             let mut out = AzulPixmap::new(16, 16).unwrap();
@@ -3824,7 +3839,7 @@ mod autotest_generated {
         ]);
         c.allocate_layers_from_display_list(&list, 1.0);
         let (rr, mut gc, st) = render_deps();
-        c.render_layers(&list, 1.0, &rr, None, &mut gc, &st).unwrap();
+        c.render_layers(&list, 1.0, &rr, &test_font_manager(), &mut gc, &st).unwrap();
         let mut out = AzulPixmap::new(16, 16).unwrap();
         out.fill(0, 0, 0, 255);
         c.composite_frame(&mut out, 1.0);
@@ -3844,7 +3859,7 @@ mod autotest_generated {
         c.allocate_layers_from_display_list(&list, 1.0);
         let (rr, mut gc, _st) = render_deps();
         assert!(
-            c.scroll_layer(4242, (0.0, 10.0), &list, 1.0, &rr, None, &mut gc).is_ok(),
+            c.scroll_layer(4242, (0.0, 10.0), &list, 1.0, &rr, &test_font_manager(), &mut gc).is_ok(),
             "scrolling a frame that has no layer is a no-op, not a panic"
         );
     }
@@ -3859,7 +3874,7 @@ mod autotest_generated {
         ]);
         c.allocate_layers_from_display_list(&list, 1.0);
         let (rr, mut gc, _st) = render_deps();
-        c.scroll_layer(1, (0.0, 0.4), &list, 1.0, &rr, None, &mut gc).unwrap();
+        c.scroll_layer(1, (0.0, 0.4), &list, 1.0, &rr, &test_font_manager(), &mut gc).unwrap();
         let l = c.layers.values().find(|l| l.scroll_id == Some(1)).unwrap();
         assert_eq!(l.scroll_offset, (0.0, 0.0), "|dy| < 0.5 must not move anything");
         assert!(l.damage.is_empty());
@@ -3875,7 +3890,7 @@ mod autotest_generated {
         ]);
         c.allocate_layers_from_display_list(&list, 1.0);
         let (rr, mut gc, _st) = render_deps();
-        c.scroll_layer(1, (0.0, 10.0), &list, 1.0, &rr, None, &mut gc).unwrap();
+        c.scroll_layer(1, (0.0, 10.0), &list, 1.0, &rr, &test_font_manager(), &mut gc).unwrap();
         let l = c.layers.values().find(|l| l.scroll_id == Some(1)).unwrap();
         assert_eq!(l.scroll_offset, (0.0, 10.0));
         assert_eq!(l.damage.len(), 1, "a single-axis scroll exposes one strip");
@@ -3890,7 +3905,7 @@ mod autotest_generated {
         let mut p = solid(4, 4, [255, 255, 255, 255]);
         let (rr, mut gc, st) = render_deps();
         let r = render_display_list_range(
-            &list, &mut p, 5, 2, &[], 0.0, 0.0, 1.0, &rr, None, &mut gc, &st,
+            &list, &mut p, 5, 2, &[], 0.0, 0.0, 1.0, &rr, &test_font_manager(), &mut gc, &st,
         );
         assert!(r.is_ok(), "an inverted range is an empty range, not a panic");
         assert_eq!(at(&p, 0, 0), [255, 255, 255, 255], "nothing was drawn");
@@ -3908,7 +3923,7 @@ mod autotest_generated {
         let mut p = solid(4, 4, [255, 255, 255, 255]);
         let (rr, mut gc, st) = render_deps();
         render_display_list_range(
-            &list, &mut p, 0, 1, &[(0, 1)], 0.0, 0.0, 1.0, &rr, None, &mut gc, &st,
+            &list, &mut p, 0, 1, &[(0, 1)], 0.0, 0.0, 1.0, &rr, &test_font_manager(), &mut gc, &st,
         )
         .unwrap();
         assert_eq!(

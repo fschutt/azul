@@ -1284,6 +1284,36 @@ impl<T: ParsedFontTrait> FontManager<T> {
         found
     }
 
+    /// THE font lookup: resolve a `font_hash` — the value layout stamps onto every
+    /// shaped glyph and carries in `DisplayListItem::Text` — back to the face that
+    /// produced it.
+    ///
+    /// A `FontManager` shapes with faces from TWO pools: `parsed_fonts` (loaded from
+    /// the resolved font chains) and `embedded_fonts` (handed to it directly by the
+    /// DOM as `StyleFontFamily::Ref` — Material Icons and every other
+    /// `FontStack::Ref`). Both can put a hash in the display list, so a renderer that
+    /// consults only one of them silently drops user-visible text. That is exactly
+    /// what shipped in 0.2.0: the CPU renderer searched `parsed_fonts` alone, so
+    /// every widget icon vanished with `[cpurender] Font hash … not found in
+    /// FontManager` while layout had happily measured and positioned it.
+    ///
+    /// Every renderer resolves through this one function, so "layout produced this
+    /// hash" and "the renderer can draw this hash" cannot disagree.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the internal font-cache mutex is poisoned.
+    #[must_use]
+    pub fn resolve_font_by_hash(&self, font_hash: u64) -> Option<azul_css::props::basic::FontRef>
+    where
+        T: Into<azul_css::props::basic::FontRef> + Clone,
+    {
+        if let Some(embedded) = self.get_embedded_font_by_hash(font_hash) {
+            return Some(embedded);
+        }
+        self.get_font_by_hash(font_hash).map(Into::into)
+    }
+
     /// Register an embedded `FontRef` for later lookup by hash
     /// This is called when using `FontStack::Ref` during shaping
     /// # Panics

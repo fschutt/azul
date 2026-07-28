@@ -3008,7 +3008,10 @@ impl CallbackInfo {
     #[cfg(feature = "text_layout")]
     #[must_use] pub fn get_loaded_font_bytes(&self, font_hash: u64) -> OptionU8Vec {
         let font_manager = &self.get_layout_window().font_manager;
-        let Some(font_ref) = font_manager.get_font_by_hash(font_hash) else {
+        // Resolve through the ONE lookup: an embedded (`StyleFontFamily::Ref`)
+        // face can carry a glyph run just as a loaded one can, so a callback asking
+        // for "the bytes behind this glyph run" must find either.
+        let Some(font_ref) = font_manager.resolve_font_by_hash(font_hash) else {
             return OptionU8Vec::None;
         };
         let parsed = crate::font_ref_to_parsed_font(&font_ref);

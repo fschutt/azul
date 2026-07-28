@@ -16,6 +16,14 @@
 //!    Html [ menubar, user_body ] — replicated here, since the bare body
 //!    version does NOT reproduce.
 
+/// The CPU renderer resolves every glyph run through a `FontManager` — there is no
+/// second font table to fall back to. These two display lists carry no text, so an
+/// empty manager is the honest input.
+fn test_font_manager() -> azul_layout::text3::cache::FontManager<azul_css::props::basic::FontRef> {
+    azul_layout::text3::cache::FontManager::new(rust_fontconfig::FcFontCache::default())
+        .expect("FontManager::new")
+}
+
 use azul_core::{
     dom::{Dom, DomId, DomNodeId, IdOrClass, NodeId},
     geom::LogicalSize,
@@ -263,7 +271,7 @@ fn maps_render_paints_header_pixels() {
             &root.display_list,
             dpi,
             &renderer_resources,
-            Some(&lw.font_manager),
+            &lw.font_manager,
             &mut glyph_cache,
             &render_state,
         )
@@ -400,7 +408,7 @@ fn virtual_view_child_clip_cannot_escape_composite_bounds() {
     let mut compositor = cpurender::CompositorState::new(640, 480);
     compositor.allocate_layers_from_display_list(&parent_dl, 1.0);
     compositor
-        .render_layers(&parent_dl, 1.0, &renderer_resources, None, &mut glyph_cache, &render_state)
+        .render_layers(&parent_dl, 1.0, &renderer_resources, &test_font_manager(), &mut glyph_cache, &render_state)
         .expect("render_layers");
     let mut out = cpurender::AzulPixmap::new(640, 480).expect("pixmap");
     compositor.composite_frame(&mut out, 1.0);
@@ -435,7 +443,7 @@ fn virtual_view_child_clip_cannot_escape_composite_bounds() {
         &mut out,
         1.0,
         &renderer_resources,
-        None,
+        &test_font_manager(),
         &mut glyph_cache,
         &render_state,
         &[LogicalRect {

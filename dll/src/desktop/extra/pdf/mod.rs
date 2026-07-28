@@ -320,18 +320,15 @@ mod engine {
                                 if font_data.contains_key(&key) {
                                     continue;
                                 }
+                                // The ONE lookup: PDF export of icon text (a
+                                // `StyleFontFamily::Ref` face) used to find nothing
+                                // here and silently drop the glyphs.
                                 if let Some(font_ref) =
-                                    font_manager.get_font_by_hash(glyph.font_hash)
+                                    font_manager.resolve_font_by_hash(glyph.font_hash)
                                 {
-                                    // SAFETY: get_parsed() returns a pointer to the
-                                    // ParsedFont this FontRef owns; it lives as long
-                                    // as the font_manager borrow we hold.
-                                    let parsed = unsafe {
-                                        let ptr = font_ref.get_parsed();
-                                        (&*(ptr
-                                            as *const azul_layout::font::parsed::ParsedFont))
-                                            .clone()
-                                    };
+                                    // Safe reborrow, lifetime tied to `font_ref`.
+                                    let parsed =
+                                        azul_layout::font_ref_to_parsed_font(&font_ref).clone();
                                     font_data.insert(key, parsed);
                                 }
                             }
