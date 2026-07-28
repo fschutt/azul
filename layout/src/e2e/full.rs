@@ -5687,6 +5687,31 @@ fn eval_assert_state_machines_idle(
     if let Some(bad) = reject_unknown_params("assert_state_machines_idle", params, &["damage"]) {
         return bad;
     }
+
+    // LIVENESS PRECONDITION, the same one assert_idle_stable and
+    // assert_work_bounded already carry: this is an assertion of ABSENCE
+    // ("nothing is mid-flight"), and an assertion of absence passes for free when
+    // the machinery that would produce the thing never ran. On a freshly mounted
+    // window where no drag, gesture, scroll, focus or edit ever happened, every
+    // state machine is trivially settled and this reported "every state machine
+    // settled" — true, and worth nothing.
+    //
+    // The contract this pins is the useful reading: "an interaction ENDED
+    // cleanly", not "nothing has happened yet". Requiring a rendered frame is
+    // the weakest check that separates the two, and it matches what the sibling
+    // assertions demand, so a scenario cannot pass here by doing less.
+    let report = frame_report_of(callback_info);
+    if report.frames_since_reset == 0 {
+        return AssertionResult::fail_with(
+            "assert_state_machines_idle: NO FRAME was rendered since the last reset — every state \
+             machine is vacuously settled when nothing ever drove one. Perform the interaction and \
+             drive a frame (tick_ms / wait_frame) first."
+                .to_string(),
+            "frames_since_reset >= 1".to_string(),
+            "0".to_string(),
+        );
+    }
+
     let check_damage = params
         .get("damage")
         .and_then(serde_json::Value::as_bool)
