@@ -3307,6 +3307,30 @@ jobs:
     # e2e_headless is likewise BLOCKING: it runs every e2e/*.json engine
     # scenario (damage / stale-screen / window-size / resource-leak invariants)
     # headlessly, and a red invariant must not ship.
+    #
+    # WHICH `needs` ENTRIES ACTUALLY GATE. A job with `continue-on-error: true`
+    # always reports SUCCESS to its dependents, so listing it here is SEQUENCING,
+    # not gating — it delays the deploy until the job finishes and then lets it
+    # through regardless. 11 of the 20 entries below are in that category, and
+    # only five of them said so. Recorded in full so nobody reads this list as a
+    # safety net it is not:
+    #
+    #   BLOCKS: test_lib, test_heavy, build_binaries, build_rust9x,
+    #           build_linux_packages, build_website_skeleton, coverage,
+    #           e2e_native, e2e_headless
+    #   PARTIAL: cross_build_binaries — `continue-on-error: ${{ matrix.experimental }}`,
+    #           so the 5 solid legs block and the 3 exotic ones do not
+    #   DOES NOT BLOCK (continue-on-error: true): build_demos, docs_pdf,
+    #           build_mobile, build_mobile_apps, build_mobile_apps_android,
+    #           pypi, npm, rubygems, nuget, maven-central
+    #
+    # The four previously-unannotated ones — build_demos, docs_pdf and the two
+    # build_mobile* — read as gates and are not. That matters concretely: if
+    # docs_pdf fails, guide.pdf is absent and the release page links a dead file.
+    # The merge step now ASSERTS guide.pdf landed rather than `|| true`-ing the
+    # copy, so that particular silence is closed at the consuming end instead of
+    # by making a flaky renderer block every deploy.
+    #
     # pypi/npm/rubygems/nuget/maven-central are in `needs` so their package
     # artifacts are ready when this job lays out the self-hosted mirrors under
     # azul.rs/ui/{pypi,npm,gems,nuget,maven}. All five (plus their shared
@@ -3735,7 +3759,23 @@ jobs:
 
           # Guide + API reference PDF (rendered by the docs_pdf job). The release
           # page links it as release/0.2.0/guide.pdf.
+          #
+          # The `|| true` here used to be the whole story: docs_pdf is
+          # continue-on-error, so if it failed this find matched nothing, the copy
+          # silently did not happen, and the release shipped with a page linking a
+          # guide.pdf that is not there. A dead link on the release page is the
+          # exact failure class this repo keeps getting bitten by, and it is
+          # invisible in a green run.
+          #
+          # Keep `|| true` on the find (it must not abort on a missing directory)
+          # and ASSERT the outcome instead — what matters is whether the file
+          # landed, not whether the command exited 0.
           find artifacts-pdf -name "azul-documentation.pdf" -exec cp {} "$RELEASE_DIR/guide.pdf" \; 2>/dev/null || true
+          if [ ! -s "$RELEASE_DIR/guide.pdf" ]; then
+            echo "::error::guide.pdf is missing or empty in $RELEASE_DIR - the docs_pdf job did not produce azul-documentation.pdf, and the release page links this file. Fix docs_pdf rather than shipping a dead link."
+            exit 1
+          fi
+          echo "guide.pdf: $(du -h "$RELEASE_DIR/guide.pdf" | cut -f1)"
 
           # NOTE: the self-hosted package channels (brew tap, apt repo, registry
           # mirrors under azul.rs/ui/...) are built in the dedicated step BELOW
