@@ -3957,7 +3957,7 @@ pub struct OnTextInputReturn {
 
         // // verify callback_typedef extractions - the critical part
         //
-        // LayoutCallbackType: fn(&mut RefAny, &mut LayoutCallbackInfo) -> StyledDom
+        // LayoutCallbackType: fn(&mut RefAny, &mut LayoutCallbackInfo) -> Dom
         let layout_cb = type_map
             .get("LayoutCallbackType")
             .expect("LayoutCallbackType not found");
@@ -4005,10 +4005,15 @@ pub struct OnTextInputReturn {
                     returns.is_some(),
                     "LayoutCallbackType should have a return type"
                 );
-                assert!(
-                    returns.as_ref().unwrap().contains("StyledDom"),
-                    "Return type should contain StyledDom, got: {:?}",
-                    returns
+                // "Dom", matching the fixture above. The fixture was updated from
+                // StyledDom to Dom and this assertion was not, so the test
+                // contradicted its own input — asserting a return type its source
+                // never declared. Nothing caught it because azul-doc's tests run
+                // in no CI job (audit D1).
+                assert_eq!(
+                    returns.as_deref(),
+                    Some("Dom"),
+                    "LayoutCallbackType's return must match the fixture's `-> Dom`",
                 );
             }
             other => panic!(
@@ -4300,50 +4305,56 @@ pub struct OnTextInputReturn {
         if let Some(layout) = layout_cb {
             match &layout.kind {
                 TypeDefKind::CallbackTypedef { args, .. } => {
-                    // The first two args should be &mut references
                     assert!(
                         args.len() >= 2,
                         "LayoutCallbackType should have at least 2 args"
                     );
 
-                    // CRITICAL: Verify the bug is fixed
-                    // args[0] should be RefMut with type "RefAny", NOT Value with type "& mut
-                    // RefAny"
-                    assert_eq!(
-                        args[0].ref_kind,
-                        RefKind::RefMut,
-                        "LayoutCallbackType first arg should be RefMut, got {:?}",
-                        args[0].ref_kind
-                    );
-                    assert!(
-                        !args[0].ty.starts_with("&"),
-                        "Type should not start with '&', got: {}",
-                        args[0].ty
-                    );
-
-                    assert_eq!(
-                        args[1].ref_kind,
-                        RefKind::RefMut,
-                        "LayoutCallbackType second arg should be RefMut, got {:?}",
-                        args[1].ref_kind
-                    );
-                    assert!(
-                        !args[1].ty.starts_with("&"),
-                        "Type should not start with '&', got: {}",
-                        args[1].ty
-                    );
-
-                    eprintln!("✓ LayoutCallbackType correctly parsed:");
-                    eprintln!(
-                        "  arg[0]: type={:?}, ref_kind={:?}",
-                        args[0].ty, args[0].ref_kind
-                    );
-                    eprintln!(
-                        "  arg[1]: type={:?}, ref_kind={:?}",
-                        args[1].ty, args[1].ref_kind
-                    );
+                    // THE INVARIANT, and the bug this test was written for: the
+                    // reference-ness of an argument belongs in `ref_kind`, never
+                    // smuggled into the type STRING. A parser that reports
+                    // `Value` + "& mut RefAny" emits a C signature taking a
+                    // by-value `AzRefAny` named `& mut RefAny`, which does not
+                    // compile.
+                    //
+                    // This deliberately no longer pins arg[0] to RefMut. The real
+                    // signature is now
+                    //   extern "C" fn(RefAny, LayoutCallbackInfo) -> Dom
+                    // i.e. RefAny is passed BY VALUE, so `Value` is the correct
+                    // answer and the old assertion had been failing ever since
+                    // that change — invisibly, because azul-doc's tests run in no
+                    // CI job (audit D1). Pinning one callback's arity/ref-ness
+                    // just re-breaks the moment the API moves again; the sigil
+                    // invariant is what actually has to hold.
+                    for (i, a) in args.iter().enumerate() {
+                        assert!(
+                            !a.ty.starts_with('&'),
+                            "LayoutCallbackType arg[{i}] carries its reference in the TYPE \
+                             ({:?}) instead of in ref_kind ({:?})",
+                            a.ty,
+                            a.ref_kind,
+                        );
+                    }
                 }
                 _ => panic!("LayoutCallbackType should be CallbackTypedef"),
+            }
+        }
+
+        // Every callback typedef in the real file, not just the one above: the
+        // sigil invariant is global, and checking one type would let the next
+        // regression hide in any of the others.
+        for cb in &callback_typedefs {
+            if let TypeDefKind::CallbackTypedef { args, .. } = &cb.kind {
+                for (i, a) in args.iter().enumerate() {
+                    assert!(
+                        !a.ty.starts_with('&'),
+                        "{} arg[{i}] carries its reference in the TYPE ({:?}) instead of in \
+                         ref_kind ({:?})",
+                        cb.type_name,
+                        a.ty,
+                        a.ref_kind,
+                    );
+                }
             }
         }
 
@@ -4447,11 +4458,22 @@ pub struct OnTextInputReturn {
     }
 
     #[test]
-    fn test_non_into_generic_not_rewritten() {
-        // Test that generics without Into<T> bounds are NOT rewritten
+    fn test_non_into_generic_is_skipped_entirely() {
+        // A generic parameter that is NOT an `Into<T>` bound cannot be expressed
+        // in the C API at all, so `extract_method_def` skips the whole method —
+        // see its own comment: "This is a truly generic method that cannot be
+        // exported to C API".
+        //
+        // This test used to `.expect("Should extract method")` and then assert
+        // the argument type had been left as "T". That was the OLD behaviour,
+        // from when such a method was extracted-but-not-rewritten. Skipping is
+        // strictly stronger: a method that is never extracted can never be
+        // emitted with an unexpressible signature. The test asserted the weaker
+        // guarantee and has been failing since the behaviour tightened, unnoticed
+        // because azul-doc's tests run in no CI job (audit D1).
         let source = r#"
             pub struct TestType;
-            
+
             impl TestType {
                 pub fn clone_item<T: Clone>(item: T) -> T {
                     item
@@ -4461,30 +4483,25 @@ pub struct OnTextInputReturn {
 
         let syntax_tree: File = syn::parse_file(source).expect("Failed to parse");
 
+        let mut saw_method = false;
         for item in &syntax_tree.items {
             if let Item::Impl(impl_block) = item {
                 for impl_item in &impl_block.items {
                     if let syn::ImplItem::Fn(method) = impl_item {
-                        let method_def =
-                            extract_method_def(method, "TestType").expect("Should extract method");
-
-                        assert_eq!(method_def.name, "clone_item");
-                        assert_eq!(method_def.args.len(), 1);
-
-                        let item_arg = &method_def.args[0];
-                        assert_eq!(item_arg.name, "item");
-                        // Should stay as "T" because Clone is not Into<T>
-                        assert_eq!(
-                            item_arg.ty, "T",
-                            "Generic T: Clone should NOT be rewritten, got '{}'",
-                            item_arg.ty
+                        saw_method = true;
+                        assert!(
+                            extract_method_def(method, "TestType").is_none(),
+                            "`fn clone_item<T: Clone>` has a generic that is not an Into<T> bound, \
+                             so it cannot be exported to the C API and must not be extracted",
                         );
-
-                        eprintln!("✓ Non-Into generic correctly preserved as 'T'");
                     }
                 }
             }
         }
+        assert!(
+            saw_method,
+            "the fixture parsed to no impl method, so this test asserted nothing",
+        );
     }
 
     #[test]
