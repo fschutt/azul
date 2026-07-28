@@ -4999,7 +4999,11 @@ jobs:
     name: Docs PDF (artifact)
     if: github.event_name != 'workflow_dispatch' || github.event.inputs.run_mode == 'ci' || github.event.inputs.run_mode == 'deploy' || github.event.inputs.run_mode == 'website'
     runs-on: ubuntu-22.04
-    continue-on-error: true
+    # NOT continue-on-error. A packager that silently fails ships a release whose
+    # documented install command does not work — the exact failure this repo keeps
+    # hitting (a 404 wheel, a dead /ui/gems, demos without an execute bit). The
+    # flag also made this job's presence in deploy_pages.needs pure sequencing.
+    # If a registry is genuinely flaky, fix or remove the channel; do not hide it.
     steps:
       - uses: actions/checkout@v7
       - uses: dtolnay/rust-toolchain@stable
@@ -5482,7 +5486,11 @@ jobs:
     # deploy-only.
     if: github.event.inputs.run_mode == 'deploy' || github.event.inputs.run_mode == 'website'
     runs-on: ubuntu-22.04
-    continue-on-error: true
+    # NOT continue-on-error. A packager that silently fails ships a release whose
+    # documented install command does not work — the exact failure this repo keeps
+    # hitting (a 404 wheel, a dead /ui/gems, demos without an execute bit). The
+    # flag also made this job's presence in deploy_pages.needs pure sequencing.
+    # If a registry is genuinely flaky, fix or remove the channel; do not hide it.
     steps:
       - name: Checkout repository
         uses: actions/checkout@v7
@@ -5573,7 +5581,11 @@ jobs:
     # deploy-only.
     if: github.event.inputs.run_mode == 'deploy' || github.event.inputs.run_mode == 'website'
     runs-on: ubuntu-22.04
-    continue-on-error: true
+    # NOT continue-on-error. A packager that silently fails ships a release whose
+    # documented install command does not work — the exact failure this repo keeps
+    # hitting (a 404 wheel, a dead /ui/gems, demos without an execute bit). The
+    # flag also made this job's presence in deploy_pages.needs pure sequencing.
+    # If a registry is genuinely flaky, fix or remove the channel; do not hide it.
     steps:
       - name: Checkout repository
         uses: actions/checkout@v7
@@ -5666,7 +5678,11 @@ jobs:
     # deploy-only.
     if: github.event.inputs.run_mode == 'deploy' || github.event.inputs.run_mode == 'website'
     runs-on: ubuntu-22.04
-    continue-on-error: true
+    # NOT continue-on-error. A packager that silently fails ships a release whose
+    # documented install command does not work — the exact failure this repo keeps
+    # hitting (a 404 wheel, a dead /ui/gems, demos without an execute bit). The
+    # flag also made this job's presence in deploy_pages.needs pure sequencing.
+    # If a registry is genuinely flaky, fix or remove the channel; do not hide it.
     steps:
       - name: Checkout repository
         uses: actions/checkout@v7
@@ -5752,7 +5768,11 @@ jobs:
     # deploy-only.
     if: github.event.inputs.run_mode == 'deploy' || github.event.inputs.run_mode == 'website'
     runs-on: ubuntu-22.04
-    continue-on-error: true
+    # NOT continue-on-error. A packager that silently fails ships a release whose
+    # documented install command does not work — the exact failure this repo keeps
+    # hitting (a 404 wheel, a dead /ui/gems, demos without an execute bit). The
+    # flag also made this job's presence in deploy_pages.needs pure sequencing.
+    # If a registry is genuinely flaky, fix or remove the channel; do not hide it.
     steps:
       - name: Checkout repository
         uses: actions/checkout@v7
