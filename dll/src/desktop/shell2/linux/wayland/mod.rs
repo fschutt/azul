@@ -2229,19 +2229,6 @@ impl WaylandWindow {
         Ok(())
     }
 
-    /// Process events using state-diffing architecture.
-    /// V2: Uses cross-platform dispatch system with recursive callback handling.
-    pub fn process_events(&mut self) -> ProcessEventResult {
-        // Process GNOME menu DBus messages (non-blocking)
-        if let Some(ref manager) = self.gnome_menu {
-            manager.process_messages();
-        }
-
-        // Process any pending menu callbacks from DBus
-        self.process_pending_menu_callbacks();
-
-        self.process_window_events(0)
-    }
 
     /// Export the application menu bar to GNOME Shell via DBus.
     ///

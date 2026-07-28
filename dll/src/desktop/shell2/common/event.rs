@@ -1069,9 +1069,6 @@ macro_rules! impl_platform_window_getters {
         fn get_renderer_mut(&mut self) -> Option<&mut webrender::Renderer> {
             self.$field.renderer.as_mut()
         }
-        fn needs_frame_regeneration(&self) -> bool {
-            self.$field.frame_needs_regeneration
-        }
         fn mark_frame_needs_regeneration(&mut self) {
             self.$field.frame_needs_regeneration = true;
             self.$field.regen_generation = self.$field.regen_generation.wrapping_add(1);
@@ -1110,7 +1107,7 @@ macro_rules! impl_platform_window_getters {
 /// - Window state access (`get_current_window_state`, `get_previous_window_state`, etc.)
 /// - Resource access (`get_image_cache_mut`, `get_renderer_resources_mut`, etc.)
 /// - Hit testing state (`get_hit_tester`, `get_scrollbar_drag_state`, etc.)
-/// - Frame regeneration (`needs_frame_regeneration`, `mark_frame_needs_regeneration`, etc.)
+/// - Frame regeneration (`mark_frame_needs_regeneration`, `clear_frame_regeneration_flag`)
 /// - Raw window handle (`get_raw_window_handle`)
 /// - **Callback preparation (`prepare_callback_invocation`)** - Returns all borrows needed for
 ///   callbacks
@@ -1293,9 +1290,6 @@ pub trait PlatformWindow {
         }
         Ok(result)
     }
-
-    /// Check if frame needs regeneration
-    fn needs_frame_regeneration(&self) -> bool;
 
     /// Mark that the frame needs regeneration
     fn mark_frame_needs_regeneration(&mut self);

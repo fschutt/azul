@@ -4269,48 +4269,6 @@ impl MacOSWindow {
         }
     }
 
-    /// Generate frame if needed and reset flag
-    pub fn generate_frame_if_needed(&mut self) {
-        if !self.common.frame_needs_regeneration {
-            return;
-        }
-
-        // GPU backend only: in CPU mode `render_api`/`document_id` are None and the
-        // CPU present path (render_and_present_in_draw_rect) regenerates frames itself.
-        // Guarding here keeps the unconditional unwraps below from aborting in CPU mode.
-        if self.common.render_api.is_none() || self.common.document_id.is_none() {
-            crate::plog_trace!("[compositor] macOS generate_frame_if_needed: CPU backend, skipping WebRender frame gen");
-            self.common.frame_needs_regeneration = false;
-            return;
-        }
-
-        // CRITICAL: Make OpenGL context current BEFORE generate_frame
-        // The image callbacks (RenderImageCallback) need the GL context to be current
-        // to allocate textures and draw to them
-        if let Some(ref gl_context) = self.gl_context {
-            unsafe {
-                gl_context.makeCurrentContext();
-            }
-        }
-
-        if let Some(ref mut layout_window) = self.common.layout_window {
-            crate::desktop::shell2::common::layout::generate_frame(
-                layout_window,
-                self.common.render_api.as_mut().unwrap(),
-                self.common.document_id.unwrap(),
-                &self.common.gl_context_ptr,
-            );
-
-            // After sending display list, request new hit tester
-            // (will be resolved on next hit test)
-            let doc_id = crate::desktop::wr_translate2::wr_translate_document_id(self.common.document_id.unwrap());
-            let hit_tester_request = self.common.render_api.as_ref().unwrap().request_hit_tester(doc_id);
-            self.common.hit_tester =
-                Some(crate::desktop::wr_translate2::AsyncHitTester::Requested(hit_tester_request));
-        }
-
-        self.common.frame_needs_regeneration = false;
-    }
 
     /// Get the current HiDPI scale factor from the NSWindow's screen
     ///

@@ -3412,33 +3412,6 @@ impl X11Window {
         }
     }
 
-    /// Generate frame if needed and reset flag
-    pub fn generate_frame_if_needed(&mut self) {
-        if !self.common.frame_needs_regeneration {
-            return;
-        }
-
-        // CRITICAL: Make OpenGL context current BEFORE generate_frame
-        // The image callbacks (RenderImageCallback) need the GL context to be current
-        if let RenderMode::Gpu(ref gl_context, _) = self.render_mode {
-            gl_context.make_current();
-        }
-
-        if let (Some(ref mut layout_window), Some(ref mut render_api), Some(document_id)) = (
-            self.common.layout_window.as_mut(),
-            self.common.render_api.as_mut(),
-            self.common.document_id,
-        ) {
-            crate::desktop::shell2::common::layout::generate_frame(
-                layout_window,
-                render_api,
-                document_id,
-                &self.common.gl_context_ptr,
-            );
-        }
-
-        self.common.frame_needs_regeneration = false;
-    }
 
     /// Render and present a frame using WebRender
     ///
