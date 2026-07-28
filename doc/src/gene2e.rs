@@ -454,6 +454,7 @@ const OP_POLICY: &[(&str, Option<DenyReason>)] = &[
     ("reset_frame_counters",      None),
     ("snapshot_frame",            None),
     ("snapshot_resources",        None),
+    ("snapshot_managers",         None),
     ("get_frame_report",          None),
     ("capture_damage_png",        None),
     ("take_screenshot",           None),
@@ -1082,8 +1083,9 @@ fn schema_doc(schema: &Schema) -> String {
          repaint or a relayout — the engine must decide to do that BY ITSELF in response to the \
          input/mutation you perform; that decision is exactly what these tests measure.\n\
          `vs` always names a snapshot created EARLIER in the same timeline by \
-         `snapshot_frame {\"as\": …}` (pixels) or `snapshot_resources {\"as\": …}` \
-         (resource counters).\n",
+         `snapshot_frame {\"as\": …}` (pixels), `snapshot_resources {\"as\": …}` \
+         (resource counters) or `snapshot_managers {\"as\": …}` (every manager's \
+         state, for `assert_only_managers_changed`).\n",
     );
     s
 }
@@ -1408,7 +1410,7 @@ pub fn validate(schema: &Schema, json: &str) -> Result<()> {
             asserted = true;
         }
         match op {
-            "snapshot_frame" | "snapshot_resources" => {
+            "snapshot_frame" | "snapshot_resources" | "snapshot_managers" => {
                 let name = s
                     .get("as")
                     .and_then(|n| n.as_str())
@@ -1420,7 +1422,7 @@ pub fn validate(schema: &Schema, json: &str) -> Result<()> {
                     if !snapshots.contains(vs) {
                         bail!(
                             "step {i}: `{op}` references snapshot `{vs}`, which no earlier \
-                             snapshot_frame/snapshot_resources created"
+                             snapshot_frame/snapshot_resources/snapshot_managers created"
                         );
                     }
                 }
@@ -2955,6 +2957,7 @@ mod tests {
             "reset_frame_counters",
             "snapshot_frame",
             "snapshot_resources",
+            "snapshot_managers",
             "get_frame_report",
             "capture_damage_png",
             "click",
@@ -3127,7 +3130,8 @@ mod tests {
             "delete_node", "set_app_state", "scroll_node_to", "scroll_node_by", "scroll_into_view",
             "commit_undo_snapshot", "undo_app_state", "redo_app_state", "mount", "unmount",
             "tick_ms", "wait", "wait_frame", "reset_frame_counters", "snapshot_frame",
-            "snapshot_resources", "get_frame_report", "capture_damage_png", "get_state",
+            "snapshot_resources", "snapshot_managers", "get_frame_report", "capture_damage_png",
+            "get_state",
             "get_app_state", "get_dom", "get_focus_state", "get_scroll_states",
             "get_selection_state", "get_cursor_state", "assert_changed", "assert_idle_stable",
         ] {

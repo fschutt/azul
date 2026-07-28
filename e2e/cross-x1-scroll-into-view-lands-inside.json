@@ -1,0 +1,53 @@
+{
+  "name": "cross_x1_scroll_into_view_lands_inside",
+  "description": "CROSS-INVARIANT X1 (E2E_PLAN g2): after a scroll_into_view, the target must be inside its container's visible rect ACCORDING TO ScrollManager'S OWN OFFSET, and the container it moved must have an AnimatedScrollState entry. The two halves of that seam are computed by different code — scroll_into_view derives a delta from layout geometry, ScrollManager stores an offset — and nothing compared them, because scroll_into_view is stateless: it applies its adjustments and forgets both them and which node it was asked about. The `scroll_into_view` op now records its own target so the invariant has a subject; X1 hard-fails when no scroll_into_view ran, so it cannot pass on an empty premise. `behavior: instant` matters — a smooth scroll has not landed yet, and X1 says so rather than measuring a half-finished animation. The scroll_node_by first moves the container AWAY from the target so the scroll_into_view has real work to do; without it the target is already visible and the invariant would hold for the wrong reason.",
+  "setup": {
+    "window_width": 400,
+    "window_height": 300,
+    "dpi": 96
+  },
+  "steps": [
+    {
+      "op": "mount",
+      "html": [
+        "<div id=\"scroller\">",
+        "  <div class=\"row\" id=\"r0\"></div>",
+        "  <div class=\"row\" id=\"r1\"></div>",
+        "  <div class=\"row\" id=\"r2\"></div>",
+        "  <div class=\"row\" id=\"r3\"></div>",
+        "  <div class=\"row\" id=\"r4\"></div>",
+        "  <div class=\"row\" id=\"r5\"></div>",
+        "  <div class=\"row\" id=\"r6\"></div>",
+        "  <div class=\"row\" id=\"r7\"></div>",
+        "</div>"
+      ],
+      "css": [
+        "html, body { margin: 0; padding: 0; }",
+        "#scroller { width: 200px; height: 100px; overflow-y: scroll; }",
+        ".row { width: 100%; height: 50px; background: blue; }"
+      ]
+    },
+    { "op": "wait_frame" },
+    { "op": "wait", "ms": 150 },
+    { "op": "assert_exists", "selector": "#scroller" },
+    { "op": "assert_node_count", "selector": ".row", "expected": 8 },
+
+    { "op": "scroll_node_by", "selector": "#scroller", "delta_x": 0, "delta_y": 40 },
+    { "op": "wait_frame" },
+    { "op": "wait", "ms": 100 },
+
+    { "op": "scroll_into_view", "selector": "#r7", "block": "nearest", "behavior": "instant" },
+    { "op": "wait_frame" },
+    { "op": "wait", "ms": 150 },
+    { "op": "tick_ms", "ms": 1000 },
+    { "op": "wait_frame" },
+    { "op": "wait", "ms": 100 },
+
+    {
+      "op": "assert_manager_invariants",
+      "cross": ["X1", "X2", "X9", "X10"],
+      "min_checked": 2
+    },
+    { "op": "assert_state_machines_idle" }
+  ]
+}

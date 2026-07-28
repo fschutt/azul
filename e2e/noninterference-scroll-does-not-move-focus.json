@@ -1,0 +1,66 @@
+{
+  "name": "noninterference_scroll_does_not_move_focus",
+  "description": "NON-INTERFERENCE across the scroll/focus/selection seam: scrolling a container must move the scroll manager and re-arm the scrollbar fade in gpu_state, AND NOTHING ELSE. Focus stays where it was, no selection appears, no undo entry is recorded, no permission is subscribed. Every one of those is a coupling that would be invisible in the DOM, in the pixels and in the resource counters — a scroll that quietly cleared focus renders identically to one that did not. The baseline is taken 2000 ms after the mount so the mount's own scrollbar fade has already expired; the assertion then runs INSIDE the 500 ms fade delay that the scroll re-arms, which is what makes 'gpu_state moved' a deterministic statement rather than a race. Two-sided on purpose: if scroll or gpu_state stops moving here, this scenario has stopped exercising what it names and says so, instead of passing on a shrinking set.",
+  "setup": {
+    "window_width": 400,
+    "window_height": 300,
+    "dpi": 96
+  },
+  "steps": [
+    {
+      "op": "mount",
+      "html": [
+        "<div id=\"root\">",
+        "  <div id=\"f1\" tabindex=\"0\" class=\"item\">one</div>",
+        "  <div id=\"scroller\">",
+        "    <div class=\"row\" id=\"r0\"></div>",
+        "    <div class=\"row\" id=\"r1\"></div>",
+        "    <div class=\"row\" id=\"r2\"></div>",
+        "    <div class=\"row\" id=\"r3\"></div>",
+        "    <div class=\"row\" id=\"r4\"></div>",
+        "    <div class=\"row\" id=\"r5\"></div>",
+        "  </div>",
+        "</div>"
+      ],
+      "css": [
+        "html, body { margin: 0; padding: 0; }",
+        "#root { display: flex; flex-direction: column; }",
+        ".item { width: 120px; height: 30px; background: silver; }",
+        "#scroller { width: 200px; height: 100px; overflow-y: scroll; }",
+        ".row { width: 100%; height: 50px; background: green; }"
+      ]
+    },
+    { "op": "wait_frame" },
+    { "op": "wait", "ms": 150 },
+    { "op": "assert_exists", "selector": "#scroller" },
+
+    { "op": "focus_node", "selector": "#f1" },
+    { "op": "wait_frame" },
+    { "op": "wait", "ms": 100 },
+    { "op": "get_focus_state" },
+    { "op": "assert_response", "contains": "f1" },
+
+    { "op": "tick_ms", "ms": 2000 },
+    { "op": "wait_frame" },
+    { "op": "wait", "ms": 100 },
+    { "op": "assert_state_machines_idle" },
+
+    { "op": "snapshot_managers", "as": "before_scroll" },
+
+    { "op": "scroll_node_by", "selector": "#scroller", "delta_x": 0, "delta_y": 120 },
+    { "op": "wait_frame" },
+    { "op": "wait", "ms": 100 },
+
+    { "op": "assert_scroll", "selector": "#scroller", "x": 0, "y": 120, "tolerance": 1.0 },
+    {
+      "op": "assert_only_managers_changed",
+      "vs": "before_scroll",
+      "changed": ["scroll", "gpu_state"],
+      "min_populated": 2
+    },
+
+    { "op": "get_focus_state" },
+    { "op": "assert_response", "contains": "f1" },
+    { "op": "assert_manager_invariants", "min_checked": 1 }
+  ]
+}
