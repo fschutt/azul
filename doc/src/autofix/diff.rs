@@ -2741,3 +2741,101 @@ fn infer_element_type_from_name(type_name: &str) -> String {
         _ => base.to_string(),
     }
 }
+#[cfg(test)]
+mod api_json_declared_derives {
+    /// Every type that declares `derive` in api.json must actually GET it on the
+    /// generated FFI mirror.
+    ///
+    /// FluentLoadError declares `"derive": ["Debug", "Clone"]` and the generated
+    /// AzFluentLoadError implements NEITHER — nor does AzFluentLoadErrorVec,
+    /// despite azul-layout invoking `impl_vec_debug!` for it. The practical
+    /// effect is that a caller of `FluentLocalizerHandle::load_from_zip` has NO
+    /// way to inspect the errors it returns: no Display, no as_str(), no Debug,
+    /// and matching on the variant fails because the vec yields
+    /// `AzFluentLoadError` while the nameable path
+    /// `azul::desktop::fluent::FluentLoadError` is a DIFFERENT type to rustc.
+    /// examples/rust/src/fluent_demo.rs can only print a count, and says so.
+    ///
+    /// THIS TEST IS EXPECTED TO FAIL until the codegen bug is fixed. It is
+    /// committed red deliberately: a declared-but-unemitted derive is invisible
+    /// until someone tries to print something, and a red test is the only form
+    /// of that finding anybody will actually see. Do not delete it, do not
+    /// #[ignore] it — fix the emitter (tracked in #38).
+    #[test]
+    fn every_declared_derive_is_emitted() {
+        let api: serde_json::Value = serde_json::from_str(
+            &std::fs::read_to_string(concat!(env!("CARGO_MANIFEST_DIR"), "/../api.json"))
+                .expect("read api.json"),
+        )
+        .expect("parse api.json");
+
+        // Collect (type_name, declared_derives) for every class in every module.
+        let mut declared: Vec<(String, Vec<String>)> = Vec::new();
+        fn walk(v: &serde_json::Value, out: &mut Vec<(String, Vec<String>)>) {
+            if let Some(obj) = v.as_object() {
+                if let Some(classes) = obj.get("classes").and_then(|c| c.as_object()) {
+                    for (name, def) in classes {
+                        if let Some(ds) = def.get("derive").and_then(|d| d.as_array()) {
+                            let ds: Vec<String> = ds
+                                .iter()
+                                .filter_map(|d| d.as_str().map(ToString::to_string))
+                                .collect();
+                            if !ds.is_empty() {
+                                out.push((name.clone(), ds));
+                            }
+                        }
+                    }
+                }
+                for (_k, sub) in obj {
+                    walk(sub, out);
+                }
+            }
+        }
+        walk(&api, &mut declared);
+
+        assert!(
+            !declared.is_empty(),
+            "no type in api.json declares a derive - this test would prove nothing",
+        );
+
+        // The generated Rust mirror. If codegen has not been run, skip rather
+        // than report a false pass: an absent file is not evidence of anything.
+        let gen = concat!(env!("CARGO_MANIFEST_DIR"), "/../target/codegen/dll_api_internal.rs");
+        let Ok(src) = std::fs::read_to_string(gen) else {
+            eprintln!("skipping: {gen} not present (run `azul-doc codegen all` first)");
+            return;
+        };
+
+        let mut missing: Vec<String> = Vec::new();
+        for (name, derives) in &declared {
+            let az = format!("Az{name}");
+            // Find the derive attribute attached to this type's definition.
+            let Some(pos) = src
+                .find(&format!("pub struct {az} "))
+                .or_else(|| src.find(&format!("pub struct {az}{{")))
+                .or_else(|| src.find(&format!("pub enum {az} ")))
+                .or_else(|| src.find(&format!("pub enum {az}{{")))
+            else {
+                continue; // not emitted as a plain type (alias, fn ptr, ...)
+            };
+            let start = src[..pos].rfind("\n\n").map_or(0, |i| i + 2);
+            let attrs = &src[start..pos];
+            for d in derives {
+                // Debug/Clone may be hand-implemented rather than derived.
+                let hand_impl = src.contains(&format!("impl core::fmt::{d} for {az}"))
+                    || src.contains(&format!("impl {d} for {az}"))
+                    || src.contains(&format!("impl ::core::fmt::{d} for {az}"));
+                if !attrs.contains(d.as_str()) && !hand_impl {
+                    missing.push(format!("{az} declares {d} but neither derives nor implements it"));
+                }
+            }
+        }
+
+        assert!(
+            missing.is_empty(),
+            "api.json declares derives that codegen does not emit ({} type(s)):\n  {}",
+            missing.len(),
+            missing.join("\n  "),
+        );
+    }
+}
