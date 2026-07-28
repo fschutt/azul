@@ -52,12 +52,26 @@
 //! is no test-only bypass, which is the point: a test using them exercises
 //! font resolution rather than skipping it.
 //!
-//! # Adding more mock fonts
+//! # Regenerating, and adding more mock fonts
 //!
-//! `scripts/gen_mock_fonts.py` builds the `.ttf`s (no third-party deps). Add
-//! an entry to its `FONTS` list — family name, upem, advance, ascent,
-//! descent, codepoint range — re-run it, commit the `.ttf`, and add it to
-//! [`BUILTIN_MOCK_FONTS`] below. An RTL mock is the same call with a
+//! The `.ttf`s are built by a committed generator, not by hand:
+//!
+//! ```text
+//! python3 scripts/gen_mock_fonts.py
+//! ```
+//!
+//! It rewrites both copies — `assets/fonts/test/` (canonical) and the vendored
+//! `layout/assets/fonts/test/` that `include_bytes!` below actually reads,
+//! since that macro cannot reach outside the crate root — and it is
+//! deterministic: every byte is derived from the `FONTS` table and the
+//! codepoint, with no hashing, timestamps or iteration order. Re-running it
+//! without changing the script leaves the working tree clean, so a diff after
+//! a re-run means the committed fonts are stale.
+//!
+//! The script needs no third-party deps (the repo cannot assume `fonttools`).
+//! To add a font, add an entry to its `FONTS` list — family name, upem,
+//! advance, ascent, descent, codepoint range — re-run it, commit the `.ttf`,
+//! and add it to [`BUILTIN_MOCK_FONTS`] below. An RTL mock is the same call with a
 //! Hebrew/Arabic range; a missing-glyph mock is the same call with a
 //! truncated range (uncovered chars then take the real fallback path); a
 //! proportional mock is the same call with a wider advance.
@@ -876,52 +890,146 @@ mod autotest_generated {
 
 #[cfg(all(test, feature = "font_loading"))]
 mod distinguishable_glyphs {
-    use super::*;
+    use std::collections::BTreeMap;
 
-    /// Two different ASCII characters must not produce identical pixels.
+    use super::*;
+    use crate::font::parsed::ParsedFont;
+
+    /// The decoded ink of one character: contour end indices plus the raw
+    /// outline points, in font units.
     ///
-    /// The mock fonts render EVERY glyph as the same filled rectangle, so any two
-    /// equal-length strings are pixel-identical. That is not theoretical:
+    /// Two characters whose signatures compare equal cover exactly the same
+    /// pixels at every size and every transform, so no rasteriser can tell
+    /// them apart. Reading the DECODED outline (rather than a rendered bitmap)
+    /// keeps this free of a rasteriser while still being the thing a
+    /// rasteriser consumes.
+    fn ink_of(font: &ParsedFont, ch: char) -> (Vec<u16>, Vec<(i16, i16)>) {
+        let gid = font
+            .lookup_glyph_index(ch as u32)
+            .unwrap_or_else(|| panic!("{ch:?} is in the mock font's ASCII range"));
+        let glyph = font
+            .get_or_decode_glyph(gid)
+            .unwrap_or_else(|| panic!("{ch:?} (gid {gid}) must decode"));
+        let ends = glyph.raw_contour_ends.clone().unwrap_or_else(|| {
+            panic!(
+                "{ch:?} (gid {gid}) decoded with no contour list — every inked mock glyph is a \
+                 simple TrueType glyph, so this means the outline was not read at all"
+            )
+        });
+        (ends, glyph.raw_points.clone().unwrap_or_default())
+    }
+
+    /// Two different ASCII characters must not decode to the same ink.
     ///
-    ///   * a timer scenario rewriting "tick 1" -> "tick 2" failed with "damage
-    ///     was reported but NO pixel changed", and had to be moved off the mock
-    ///     font to pass;
-    ///   * the gen-e2e prompt pushes mock fonts hard, and correctly so —
-    ///     deterministic metrics, no OS font dependency, and real font names
-    ///     collapse onto one shared FontId on the CI box, which makes
-    ///     font-identity and leak assertions vacuously green;
-    ///   * so any GENERATED scenario that uses a mock font AND asserts a text
-    ///     change is visible in pixels is asserting something that cannot be
-    ///     true. It fails, or it passes only because the string LENGTH changed —
-    ///     an accident, not a property. Whole corpus families sit on that
-    ///     combination (mutate/*, idle/noop-text, the callback text paths).
+    /// This is the property `mock_ttf_every_inked_glyph_draws_distinct_ink`
+    /// pins in the raw `glyf` bytes, asserted one layer further down: through
+    /// the real font parser, on the outline a rasteriser actually consumes. A
+    /// generator emitting distinct `glyf` entries that nonetheless decoded to
+    /// the same contours would satisfy the byte-level test and still make text
+    /// edits invisible.
     ///
-    /// The fix is to regenerate the TTFs so the filled rectangle varies by
-    /// codepoint: metrics stay deterministic, which is the whole point of the
-    /// mocks, and pixel assertions become meaningful.
+    /// Why it is load-bearing: when every glyph was the identical filled
+    /// rectangle, two equal-length strings rasterised bit-identically, so a
+    /// text edit like `"tick 1"` -> `"tick 2"` produced damage but NO pixel
+    /// change. Every scenario combining a mock font with a pixel-liveness
+    /// assertion (`assert_changed`, `assert_damage_covers_changes`,
+    /// `assert_damage_sound`) was then asserting something the font made
+    /// impossible; the ones that passed did so only because their two strings
+    /// differed in LENGTH — an accident, not a property. The gen-e2e prompt
+    /// pushes mock fonts hard and is right to (deterministic metrics, no OS
+    /// font dependency, and real family names collapse onto one shared
+    /// `FontId` on a CI box, which makes font-identity and leak assertions
+    /// vacuously green), so the font is what had to change.
     ///
-    /// Asserts on the GLYPH OUTLINE rather than a rendered bitmap so it needs no
-    /// rasteriser: identical outlines are what makes identical pixels inevitable.
+    /// Note what this deliberately does NOT assert on: GLYPH IDS. The broken
+    /// fonts already gave every codepoint its own id — `'A'` was gid 34 and
+    /// `'B'` gid 35 before the ink was fixed exactly as after it — while all
+    /// 94 inked glyphs shared ONE outline. An id-based check passes just as
+    /// happily on a font whose glyphs are indistinguishable, so it cannot fail
+    /// for the reason stated above; only the outline can.
     #[test]
     fn mock_font_glyphs_differ_between_characters() {
-        use crate::font::parsed::ParsedFont;
+        for (family, bytes) in BUILTIN_MOCK_FONTS {
+            let mut warnings = Vec::new();
+            let font = ParsedFont::from_bytes(bytes, 0, &mut warnings)
+                .unwrap_or_else(|| panic!("{family:?} must parse"));
 
-        let mut warnings = Vec::new();
-        let font = ParsedFont::from_bytes(MOCK_MONO_TTF, 0, &mut warnings)
-            .expect("Azul Mock Mono must parse");
+            // The pair from the original bug report, named explicitly so a
+            // failure reads as characters rather than glyph indices.
+            assert_ne!(
+                ink_of(&font, 'A'),
+                ink_of(&font, 'B'),
+                "{family:?}: 'A' and 'B' decode to the SAME outline, so every string of a given \
+                 length renders identically and no pixel assertion over a text edit can hold"
+            );
 
-        let gid_a = font
-            .lookup_glyph_index('A' as u32)
-            .expect("'A' is in the mock font's ASCII range");
-        let gid_b = font
-            .lookup_glyph_index('B' as u32)
-            .expect("'B' is in the mock font's ASCII range");
+            // ...and the whole inked range is pairwise distinct, not just that
+            // one pair. U+0020 is excluded: it is blank by design (it still
+            // advances, it just draws nothing).
+            let mut seen: BTreeMap<(Vec<u16>, Vec<(i16, i16)>), char> = BTreeMap::new();
+            for cp in 0x21..=0x7E_u32 {
+                let ch = char::from_u32(cp).expect("printable ASCII is a scalar value");
+                if let Some(prev) = seen.insert(ink_of(&font, ch), ch) {
+                    panic!(
+                        "{family:?}: {ch:?} and {prev:?} decode to the same outline, so the two \
+                         characters are indistinguishable in pixels"
+                    );
+                }
+            }
+            assert_eq!(seen.len(), 94, "{family:?}: 0x21..=0x7E is 94 inked glyphs");
+        }
+    }
 
-        assert_ne!(
-            gid_a, gid_b,
-            "'A' and 'B' map to the SAME glyph id ({gid_a}) in Azul Mock Mono, so every string \
-             of a given length renders identically. Any e2e assertion that a text CHANGE is \
-             visible in pixels is unprovable against this font — see the doc comment above.",
-        );
+    /// The companion property, and the reason varying the ink is FREE: the ink
+    /// varies, the METRICS DO NOT.
+    ///
+    /// The per-glyph pattern lives strictly inside a frame that touches all
+    /// four sides of the glyph box, so every glyph decodes to the same tight
+    /// bounding box and the same advance. `mock_ttf_glyph_boxes_are_identical_across_glyphs`
+    /// checks the bbox each glyph DECLARES in its `glyf` header; this checks
+    /// the one the parser COMPUTES from the outline, which is what layout and
+    /// rasterisation actually use. A future pattern that let ink escape the
+    /// frame would keep the declared box intact and still make glyph extents
+    /// vary by character — that is the gap this closes.
+    #[test]
+    fn mock_font_ink_varies_without_moving_any_metric() {
+        for (family, bytes) in BUILTIN_MOCK_FONTS {
+            let mut warnings = Vec::new();
+            let font = ParsedFont::from_bytes(bytes, 0, &mut warnings)
+                .unwrap_or_else(|| panic!("{family:?} must parse"));
+
+            let mut advances = BTreeMap::new();
+            let mut boxes = BTreeMap::new();
+            for cp in 0x20..=0x7E_u32 {
+                let ch = char::from_u32(cp).expect("printable ASCII is a scalar value");
+                let gid = font
+                    .lookup_glyph_index(cp)
+                    .unwrap_or_else(|| panic!("{family:?}: {ch:?} has no glyph"));
+                advances.entry(font.get_horizontal_advance(gid)).or_insert(ch);
+                if cp == 0x20 {
+                    continue; // blank: its bbox is the seeded one, not ink
+                }
+                let glyph = font
+                    .get_or_decode_glyph(gid)
+                    .unwrap_or_else(|| panic!("{family:?}: {ch:?} must decode"));
+                let bbox = glyph.bounding_box;
+                boxes
+                    .entry((bbox.min_x, bbox.min_y, bbox.max_x, bbox.max_y))
+                    .or_insert(ch);
+            }
+
+            assert_eq!(
+                advances.len(),
+                1,
+                "{family:?}: advances differ across characters ({advances:?}) — the mock fonts \
+                 exist to make text layout arithmetic, which requires one advance for all of them"
+            );
+            assert_eq!(
+                boxes.len(),
+                1,
+                "{family:?}: the DECODED tight bounding box varies by character ({boxes:?}), so \
+                 ink escaped the constant frame and glyph extents are no longer deterministic"
+            );
+        }
     }
 }
