@@ -801,10 +801,21 @@ jobs:
       #   azul-core   all targets   / 0 failed
       #   azul-layout  7,938 passed / 0 failed across 93 targets
       # so this does not turn the gate red today — it just makes it a gate.
+      # `azul-layout/e2e-server` is in the feature list for a reason that is easy
+      # to lose: the ENTIRE `layout/src/e2e/` module is `#[cfg(feature =
+      # "e2e-server")]` (layout/src/lib.rs:387). Without the feature this step
+      # compiled none of it, so every #[test] written INSIDE that module ran
+      # nowhere — the manager-accounting test, the UNOBSERVABLE_MANAGERS
+      # partition test, the non-interference primitive's own failure-injection
+      # proof (`non_interference_can_fail`, whose whole purpose is to show the
+      # gate can go red before any scenario trusts it), and
+      # `every_fingerprint_moves_when_its_manager_moves`. The step below runs
+      # `--test e2e_json`, which is the integration TARGET; it never ran the
+      # library's own unit tests for the same module.
       - name: Run workspace lib + integration tests (debug-assertions + overflow-checks ON)
         run: |
           cargo test -p azul-css -p azul-core -p azul-layout --lib --tests \
-            --features azul-core/serde-json,azul-layout/json \
+            --features azul-core/serde-json,azul-layout/json,azul-layout/e2e-server \
             --no-fail-fast
 
       # Separate step, and NOT merged into the one above: `e2e_json` declares
