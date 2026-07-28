@@ -149,6 +149,52 @@ BETA_LANGS=( python odin nim racket red d crystal v swift julia )
 # hide a genuine binding regression (that would also fail on macOS/Linux).
 WINDOWS_NONGATING_LANGS=( haskell lisp zig )
 
+# REQUIRED_LANGS: SHIPPED bindings whose toolchain is provisioned on EVERY runner
+# we use, so a SKIP from them means the CI environment broke — not that the
+# binding legitimately cannot run here.
+#
+# This is the mirror image of WINDOWS_NONGATING_LANGS, and it exists because the
+# exception mechanism was previously wired only in the permissive direction:
+# --gate-shipped counts FAILS and SKIP never trips it, while all 16 shipped
+# languages return `skip` when their toolchain is missing AND 15 of the
+# toolchain-setup steps in the e2e_native job are continue-on-error. So an
+# upstream setup-action outage produced SKIP, SKIP did not gate, and a shipped
+# binding that was never compiled or run reported green. In the limit every row
+# could be SKIP and the gate still exited 0.
+#
+# Membership rule: a language belongs here iff EVERY `skip` in its recipe means
+# "the toolchain is not installed". Audited one recipe at a time — 14 of the 16
+# SHIPPED languages have exactly one skip guard and it is toolchain-absence.
+#
+# The two that are excluded, because they have a LEGITIMATE platform skip that
+# must stay a clean skip rather than a failure:
+#   kotlin — "JVM hangs after the headless layout on Windows"
+#   lua    — "LuaJIT FFI NYI: cannot call by-value-aggregate C fns"
+# python is not SHIPPED-tier and additionally skips when the separately-built
+# azul.so is absent, so it is not a candidate either.
+#
+# haskell and zig appear here AND in WINDOWS_NONGATING_LANGS; that composes
+# correctly, because requires_works defers to gates_shipped, so they are required
+# on linux/macOS and excused on windows.
+REQUIRED_LANGS=(
+  c cpp rust csharp java ruby node ocaml
+  zig go pascal scala fortran haskell
+)
+
+# requires_works <lang> -> 0 (true) iff a SKIP of <lang> should fail the gate on
+# THIS OS. Honours the same per-OS exclusions as gates_shipped, so a language can
+# never be simultaneously required and excused.
+requires_works() {
+  local l="$1" r
+  for r in "${REQUIRED_LANGS[@]:-}"; do
+    if [ "$l" = "$r" ]; then
+      gates_shipped "$l" && return 0
+      return 1
+    fi
+  done
+  return 1
+}
+
 # tier_of <lang> -> "shipped" | "beta" | "alpha"
 tier_of() {
   local l="$1" s
@@ -2138,6 +2184,9 @@ emit_table() {
 # reported SKIP and is NOT counted here.
 shipped_fails=0
 shipped_failed_list=""
+shipped_works=0
+required_missing=0
+required_missing_list=""
 for i in "${!RESULT_STATUS[@]}"; do
   case "${RESULT_STATUS[$i]}" in
     WORKS) n_works=$((n_works+1)) ;;
@@ -2147,6 +2196,16 @@ for i in "${!RESULT_STATUS[@]}"; do
   if [ "${RESULT_STATUS[$i]}" = "FAILS" ] && gates_shipped "${RESULT_LANGS[$i]}"; then
     shipped_fails=$((shipped_fails+1))
     shipped_failed_list="$shipped_failed_list ${RESULT_LANGS[$i]}"
+  fi
+  # A shipped binding that actually RAN. Used as proof of execution below.
+  if [ "${RESULT_STATUS[$i]}" = "WORKS" ] && [ "$(tier_of "${RESULT_LANGS[$i]}")" = shipped ]; then
+    shipped_works=$((shipped_works+1))
+  fi
+  # A REQUIRED binding that did not run: the toolchain that is supposed to be on
+  # every runner was absent, which is a broken environment, not a clean skip.
+  if [ "${RESULT_STATUS[$i]}" != "WORKS" ] && requires_works "${RESULT_LANGS[$i]}"; then
+    required_missing=$((required_missing+1))
+    required_missing_list="$required_missing_list ${RESULT_LANGS[$i]}(${RESULT_STATUS[$i]})"
   fi
 done
 TALLY="Tally: ${n_works} ✓ WORKS / ${n_fails} ✗ FAILS / ${n_skip} ⊘ SKIP  (of ${#RESULT_LANGS[@]} languages); SHIPPED failures: ${shipped_fails}"
@@ -2234,6 +2293,35 @@ fi
 if [ "$GATE_SHIPPED" = 1 ] && [ "$shipped_fails" -gt 0 ]; then
   echo "" >&2
   echo "--gate-shipped: ${shipped_fails} SHIPPED binding(s) FAILED ->${shipped_failed_list} -> exiting nonzero." >&2
+  exit 1
+fi
+
+# A REQUIRED binding did not report WORKS. Its toolchain is supposed to exist on
+# every runner, so this is a broken CI environment — exactly the case SKIP-never-
+# gates used to wave through.
+if [ "$GATE_SHIPPED" = 1 ] && [ "$required_missing" -gt 0 ]; then
+  echo "" >&2
+  echo "--gate-shipped: ${required_missing} REQUIRED binding(s) did not report WORKS ->${required_missing_list}" >&2
+  echo "  These toolchains are provisioned on every runner, so this is a broken environment," >&2
+  echo "  not a legitimate skip. If a runner genuinely stopped shipping one, move it out of" >&2
+  echo "  REQUIRED_LANGS deliberately rather than letting a SKIP pass silently." >&2
+  exit 1
+fi
+
+# PROOF OF EXECUTION. Exit 0 alone is not a gate: a run where every shipped
+# binding SKIPped would also exit 0, having compiled and run nothing. This is the
+# same hardening e2e_headless already carries.
+#
+# FULL RUNS ONLY. CI invokes this per family (`--gate-shipped ${{
+# matrix.family.langs }}`), and a family can legitimately contain no shipped
+# language at all, or only ones excused on this OS — kotlin on windows, say. In
+# that case zero shipped WORKS is the correct outcome, not a broken environment,
+# and firing here would be a false alarm. A subset run is still covered by the
+# REQUIRED_LANGS check above, which is per-language and therefore exact.
+if [ "$GATE_SHIPPED" = 1 ] && [ -z "${SUBSET_RAW// /}" ] && [ "$shipped_works" -eq 0 ]; then
+  echo "" >&2
+  echo "--gate-shipped: ZERO shipped bindings reported WORKS -> exiting nonzero." >&2
+  echo "  Nothing was actually compiled or run, so this job proved nothing about the C ABI." >&2
   exit 1
 fi
 if [ "$STRICT" = 1 ] && [ "$n_fails" -gt 0 ]; then
