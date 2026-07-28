@@ -9,8 +9,13 @@
 //!   * `process_timers_and_threads()` had ZERO call sites on iOS and Android, so
 //!     no Timer fired, no background Thread writeback was collected and no
 //!     animation advanced on either platform. Fixed in 822c2a7fd.
-//!   * `process_accessibility_actions()` still has no implementation on iOS,
-//!     Android or headless, so accessibility actions never dispatch there.
+//!   * `process_accessibility_actions()` had ZERO implementations on iOS,
+//!     Android and headless — not even a field to receive an action — so a
+//!     screen reader's request did nothing on any of the three, and headless
+//!     being one of them meant the E2E corpus could not observe accessibility
+//!     at all. Fixed by giving headless an injectable queue, iOS a
+//!     `UIAccessibilityContainer` bridge and Android an
+//!     `AccessibilityNodeProvider` bridge.
 //!
 //! A scan is a weak check, but a weak check that goes red beats a strong
 //! abstraction nobody has written. When the trait exists, delete this file.

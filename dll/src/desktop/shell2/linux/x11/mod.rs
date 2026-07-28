@@ -1072,29 +1072,15 @@ impl X11Window {
                 actions.iter().map(|(d, n, a)| (d.inner, n.index(), format!("{:?}", a))).collect::<Vec<_>>());
         }
 
-        let now = std::time::Instant::now();
-        for (dom_id, node_id, action) in actions {
-            if let Some(lw) = self.common.layout_window.as_mut() {
-                let affected = lw.process_accessibility_action(dom_id, node_id, action, now);
-                if !affected.is_empty() {
-                    self.common.display_list_dirty = true;
-                    // Invoke the callbacks the action mapped to (synthetic
-                    // MouseUp for the Default/click action, etc.) — previously
-                    // this map was dropped and screen-reader activation did
-                    // nothing.
-                    use crate::desktop::shell2::common::event::PlatformWindow as _;
-                    let update = self.dispatch_accessibility_events(&affected);
-                    if !matches!(update, azul_core::callbacks::Update::DoNothing) {
-                        // The callback asked for a refresh (e.g. RefreshDom
-                        // from a zoom button) — regenerate on the next frame,
-                        // exactly like pointer-event dispatch does.
-                        self.common.frame_needs_regeneration = true;
-                    }
-                }
-            }
-        }
-
-        self.common.a11y_dirty = true;
+        // Body shared with every other backend
+        // (`PlatformWindow::dispatch_accessibility_actions`): apply each action,
+        // mark the display list dirty for a non-empty affected set, dispatch the
+        // callbacks it mapped to and honour the `Update` they return. This used
+        // to be a hand-copy per backend, and a hand-copy is how the callback
+        // dispatch went missing in the first place — Orca could `do_action` a
+        // button and no `on_click` ran.
+        use crate::desktop::shell2::common::event::PlatformWindow as _;
+        self.dispatch_accessibility_actions(actions);
         self.request_redraw();
     }
 

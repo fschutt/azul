@@ -26,12 +26,14 @@ import android.content.Intent;
 import android.os.Bundle;
 import android.view.View;
 
+import com.azul.a11y.AzulAccessibilityBridge;
 import com.azul.gesture.NativeGestureBridge;
 import com.azul.picker.AzulFilePicker;
 
 public class AzulActivity extends NativeActivity {
 
     private NativeGestureBridge gestureBridge;
+    private AzulAccessibilityBridge accessibilityBridge;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -56,9 +58,17 @@ public class AzulActivity extends NativeActivity {
             // on the next focus event.
             return;
         }
-        gestureBridge = new NativeGestureBridge(nativePtr);
         View decor = getWindow().getDecorView();
+        gestureBridge = new NativeGestureBridge(nativePtr);
         gestureBridge.attach(this, decor);
+
+        // AccessibilityNodeProvider bridge. Without it TalkBack sees one
+        // opaque View and every button, link and text node azul draws is
+        // unreachable — the state Android shipped in. Attached to the same
+        // decor view and on the same lazily-resolved nativePtr, because the
+        // provider needs the AndroidWindow to describe nodes at all.
+        accessibilityBridge = new AzulAccessibilityBridge(nativePtr);
+        accessibilityBridge.attach(decor);
     }
 
     @Override

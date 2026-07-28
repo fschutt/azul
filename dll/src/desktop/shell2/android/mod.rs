@@ -43,6 +43,8 @@ use crate::desktop::shell2::headless::CpuBackend;
 use crate::desktop::wr_translate2::{AsyncHitTester, WrRenderApi};
 use crate::{impl_platform_window_getters, log_debug, log_error, log_info};
 
+pub mod accessibility;
+
 #[cfg(feature = "android-activity")]
 use android_activity::{
     input::{Axis, InputEvent, KeyAction, Keycode, MotionAction, ToolType},
@@ -86,6 +88,14 @@ pub struct AndroidWindow {
     /// Shared font registry for async font discovery / loading.
     /// `None` means the registry was never installed; defaults to disabled.
     pub font_registry: Option<Arc<FcFontRegistry>>,
+    /// `AccessibilityNodeProvider` bridge: the virtual-view tree TalkBack
+    /// reads and the queue the actions it performs land in. Hand-written
+    /// because `accesskit` has no Android adapter.
+    ///
+    /// Read from the Java UI thread via JNI while the loop thread writes it,
+    /// which is why its state is behind a lock and why nothing in it touches
+    /// the `LayoutWindow`.
+    pub accessibility_adapter: accessibility::AndroidAccessibilityAdapter,
 }
 
 impl AndroidWindow {
@@ -148,10 +158,58 @@ impl AndroidWindow {
             is_open: true,
             icon_provider,
             font_registry,
+            accessibility_adapter: accessibility::AndroidAccessibilityAdapter::new(),
         })
     }
 
     pub fn is_open(&self) -> bool { self.is_open }
+
+    /// Drain the accessibility actions TalkBack queued and apply them.
+    ///
+    /// Mirrors `Win32Window::process_accessibility_actions` /
+    /// `X11Window::process_accessibility_actions`: poll the adapter, route each
+    /// action through `LayoutWindow::process_accessibility_action`, dispatch the
+    /// callbacks it maps to, honour the `Update` they return. Android had NO
+    /// such method, so even once the provider existed a `performAction` would
+    /// have had nowhere to go.
+    ///
+    /// Runs on the loop thread, never in the JNI upcall: `performAction`
+    /// arrives on the Java UI thread, and mutating the `LayoutWindow` from
+    /// there would race the frame loop.
+    #[cfg(feature = "a11y")]
+    pub fn process_accessibility_actions(&mut self) {
+        let mut actions = Vec::new();
+        while let Some(action) = self.accessibility_adapter.poll_action() {
+            actions.push(action);
+        }
+        if actions.is_empty() {
+            return;
+        }
+        self.dispatch_accessibility_actions(actions);
+        // Unconditional, like every desktop backend's `request_redraw()`:
+        // Focus / Blur / the Scroll* family map to no callback and return an
+        // empty affected set while having genuinely changed the screen.
+        self.common.frame_needs_regeneration = true;
+    }
+
+    /// Rebuild the virtual-view tree the Java provider reads.
+    ///
+    /// Android's equivalent of the desktop backends' `adapter.update_tree()`.
+    /// The Java side is additionally told to invalidate, so TalkBack re-reads
+    /// instead of highlighting where things used to be.
+    #[cfg(feature = "a11y")]
+    fn refresh_accessibility_tree(&mut self) {
+        let Some(lw) = self.common.layout_window.as_ref() else {
+            return;
+        };
+        let snapshot = lw.build_a11y_snapshot();
+        // Android wants physical pixels. `android_main` derives the framework
+        // dpi as `density * 96 / 160`, so the android scale (`density / 160`)
+        // is exactly `dpi / 96` — the same factor everything else here uses.
+        let scale = self.common.current_window_state.size.dpi as f32 / 96.0;
+        self.accessibility_adapter.update_snapshot(snapshot, scale);
+        self.common.a11y_dirty = false;
+    }
     pub fn close(&mut self) { self.is_open = false; }
 
     /// Run a full layout regeneration pass and CPU-render the resulting
@@ -233,6 +291,12 @@ impl AndroidWindow {
                 );
             }
         }
+
+        // Republish the virtual-view tree. Bounds, labels and the focused node
+        // all just changed and TalkBack reads a cached tree, so without this it
+        // keeps announcing (and highlighting) the previous layout.
+        #[cfg(feature = "a11y")]
+        self.refresh_accessibility_tree();
 
         self.common.frame_needs_regeneration = false;
         Ok(result)
@@ -421,6 +485,14 @@ pub fn android_main(app: AndroidApp) {
         if window.process_timers_and_threads() {
             window.common.frame_needs_regeneration = true;
         }
+
+        // Accessibility actions arrive off-loop: TalkBack calls
+        // `AccessibilityNodeProvider.performAction` on the Java UI thread, which
+        // only QUEUES the action (mutating the LayoutWindow from there would
+        // race this loop). This is where they get applied — the same per-frame
+        // slot `run.rs` gives the four desktop backends.
+        #[cfg(feature = "a11y")]
+        window.process_accessibility_actions();
 
         // Regenerate layout when something invalidated the frame (init,
         // resize, input). Populates cpu_backend.last_frame.

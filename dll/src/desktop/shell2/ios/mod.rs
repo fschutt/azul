@@ -48,6 +48,9 @@ use crate::desktop::shell2::common::{
     WindowError,
 };
 use crate::desktop::shell2::headless::CpuBackend;
+
+pub mod accessibility;
+
 use crate::desktop::wr_translate2::{AsyncHitTester, WrRenderApi};
 use crate::{log_debug, log_error, log_info};
 
@@ -733,6 +736,13 @@ extern "C" fn display_tick(_this: &Object, _cmd: Sel, _link: *mut Object) {
         if window.process_timers_and_threads() {
             window.common.frame_needs_regeneration = true;
         }
+        // Accessibility actions arrive off-loop (VoiceOver invokes
+        // `accessibilityActivate` and friends whenever the user gestures) and
+        // are queued, not applied, so that UIKit is never re-entered
+        // mid-traversal. The display tick is where they get applied — the same
+        // per-frame slot `run.rs` gives the four desktop backends.
+        #[cfg(feature = "a11y")]
+        window.process_accessibility_actions();
         if window.common.frame_needs_regeneration {
             let _ = window.present();
         }
@@ -833,6 +843,16 @@ fn get_or_create_view_class() -> &'static Class {
             sel!(layoutSubviews),
             layout_subviews as extern "C" fn(&Object, Sel),
         );
+
+        // UIAccessibilityContainer conformance. `UIAccessibilityContainer` is
+        // an INFORMAL protocol (an NSObject category), so it must NOT go
+        // through `add_protocol` — `Protocol::get` returns None for it and the
+        // unwrap would abort at launch. Adding the four methods IS the
+        // conformance. Without them, VoiceOver sees one opaque view: every
+        // button, link and text node azul draws is invisible to it, which is
+        // the state iOS shipped in.
+        #[cfg(feature = "a11y")]
+        accessibility::install_container_methods(&mut decl);
 
         AZUL_VIEW_CLASS = decl.register();
     });
@@ -1016,6 +1036,12 @@ pub struct IOSWindow {
     pub icon_provider: SharedIconProvider,
     /// Optional shared font registry for async font discovery.
     pub font_registry: Option<Arc<FcFontRegistry>>,
+    /// UIKit accessibility bridge: owns the `UIAccessibilityElement` list
+    /// VoiceOver navigates and the queue the actions it invokes land in.
+    /// Named to match the four desktop backends' field of the same name; the
+    /// difference is that this one is hand-written, because `accesskit` has no
+    /// UIKit adapter.
+    pub accessibility_adapter: accessibility::IOSAccessibilityAdapter,
 }
 
 impl IOSWindow {
@@ -1128,6 +1154,7 @@ impl IOSWindow {
             is_open: true,
             icon_provider,
             font_registry,
+            accessibility_adapter: accessibility::IOSAccessibilityAdapter::new(),
         })
     }
 
@@ -1151,6 +1178,50 @@ impl IOSWindow {
     }
     pub fn request_redraw(&mut self) {
         let _ = self.present();
+    }
+
+    /// Drain the accessibility actions UIKit queued and apply them.
+    ///
+    /// Mirrors `Win32Window::process_accessibility_actions` /
+    /// `X11Window::process_accessibility_actions`: poll the adapter, route each
+    /// action through `LayoutWindow::process_accessibility_action`, dispatch the
+    /// callbacks it maps to, honour the `Update` they return. iOS had NO such
+    /// method, so `accessibilityActivate` had nowhere to go even once the
+    /// container existed.
+    ///
+    /// Called from the `CADisplayLink` tick rather than from the UIKit callback
+    /// itself: applying an action inline would re-enter the layout window while
+    /// UIKit is mid-traversal on the main thread, and could run a user callback
+    /// that mutates the very tree UIKit is walking.
+    #[cfg(feature = "a11y")]
+    pub fn process_accessibility_actions(&mut self) {
+        let mut actions = Vec::new();
+        while let Some(action) = self.accessibility_adapter.poll_action() {
+            actions.push(action);
+        }
+        if actions.is_empty() {
+            return;
+        }
+        self.dispatch_accessibility_actions(actions);
+        // Unconditional, like every desktop backend: Focus / Blur / the Scroll*
+        // family map to no callback and return an empty affected set while
+        // having genuinely changed what is on screen.
+        self.request_redraw();
+    }
+
+    /// Rebuild the UIKit element list from the current layout.
+    ///
+    /// `accesskit` has no UIKit backend, so this is iOS's equivalent of the
+    /// desktop backends' `adapter.update_tree(tree_update)`.
+    #[cfg(feature = "a11y")]
+    fn refresh_accessibility_tree(&mut self) {
+        let Some(lw) = self.common.layout_window.as_ref() else {
+            return;
+        };
+        let snapshot = lw.build_a11y_snapshot();
+        let view = (&*self.ui_view as *const Object) as *mut Object;
+        self.accessibility_adapter.update_snapshot(snapshot, view);
+        self.common.a11y_dirty = false;
     }
 
     /// Run a full layout regeneration pass and CPU-render the resulting
@@ -1231,6 +1302,13 @@ impl IOSWindow {
                 );
             }
         }
+
+        // Republish the accessibility tree. Bounds, labels and the focused
+        // element all just changed; VoiceOver reads a cached element list, so
+        // without this it would keep highlighting where things USED to be.
+        // Same slot the desktop backends push their `TreeUpdate` from.
+        #[cfg(feature = "a11y")]
+        self.refresh_accessibility_tree();
 
         self.common.frame_needs_regeneration = false;
         Ok(result)
