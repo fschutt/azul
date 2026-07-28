@@ -2672,11 +2672,21 @@ fn fail_result(test: &E2eTest, reason: &str) -> E2eTestResult {
 /// results) — the same value the HTTP `run_e2e_tests` command produces.
 #[must_use]
 pub fn run_e2e_test(test: &E2eTest) -> E2eTestResult {
-    // Start this scenario on REAL time. The `tick_ms` op advances a clock that
-    // is scoped to the calling thread, and worker threads are reused across
+    // Start this scenario on a clean clock. The `tick_ms` / `wait` ops advance a
+    // clock scoped to the calling thread, and worker threads are reused across
     // scenarios — without this reset the next scenario scheduled onto this
     // thread would start with the previous one's accumulated offset.
     azul_core::task::reset_test_clock();
+    // ...and then STOP real time for this thread, so engine time is a pure
+    // function of the ops this scenario runs. Otherwise elapsed time is
+    // (what the scenario asked for) + (what this build, under this load, spent
+    // computing), and the suite runs scenarios 8-wide: that second term is large
+    // and varies run to run, which is enough to flip an assertion on a blinking
+    // caret's phase while the same scenario passes 10/10 in isolation.
+    //
+    // Only the ENGINE clock stops. The harness keeps measuring itself with
+    // `wall_clock_now()`, so reported step durations stay real.
+    azul_core::task::freeze_test_clock();
 
     // This scenario's own scheduler slot. It is a LOCAL, not a `Runner` field,
     // only because `Runner::with_callback_info` takes `&mut self` and the

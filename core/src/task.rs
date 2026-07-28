@@ -244,22 +244,79 @@ pub fn test_clock_offset_ms() -> u64 {
     TEST_CLOCK_OFFSET_MS.with(core::cell::Cell::get)
 }
 
+#[cfg(feature = "std")]
+std::thread_local! {
+    /// When set, this thread's clock is FROZEN at this instant: `Instant::now()`
+    /// answers `base + TEST_CLOCK_OFFSET_MS` and real time does not flow into it
+    /// at all. See [`freeze_test_clock`].
+    static TEST_CLOCK_BASE: core::cell::Cell<Option<StdInstant>> =
+        const { core::cell::Cell::new(None) };
+}
+
+/// Freeze this thread's clock, so engine time advances ONLY when a scenario says
+/// it does (`tick_ms` / `wait`) and never because wall time passed.
+///
+/// Offsetting alone is not enough. `Instant::now()` was
+/// `StdInstant::now() + offset`, so the REAL component still flowed and every
+/// time-driven behaviour rode on however long the machine happened to take:
+/// elapsed = (exact virtual) + (whatever this build, under this load, spent
+/// computing). The E2E suite runs 8 scenarios per core, so that second term is
+/// both large and variable, and an assertion on a blinking caret's phase would
+/// flip between runs on a loaded runner while passing every time in isolation.
+///
+/// Frozen, engine time becomes a pure function of the ops a scenario executed —
+/// identical on a debug build, a release build and a saturated CI box. That is
+/// also what makes an off-by-one in animation timing *observable*: advance
+/// exactly one interval and the frame either flipped or it did not, with no
+/// jitter to hide behind.
+///
+/// This deliberately does NOT touch [`Instant::Tick`]. Interval constants are
+/// built as `Duration::System` (e.g. the cursor blink in `text_edit`), and
+/// `Duration::greater_than` compares only matching variants — handing the engine
+/// `Tick` elapsed values against `System` intervals would mismatch and silently
+/// answer "not yet" forever. Freezing keeps every existing comparison intact.
+///
+/// Idempotent: re-freezing an already-frozen clock keeps the original base, so
+/// the offset stays the single source of elapsed time.
+#[cfg(feature = "std")]
+pub fn freeze_test_clock() {
+    TEST_CLOCK_BASE.with(|c| {
+        if c.get().is_none() {
+            c.set(Some(StdInstant::now()));
+        }
+    });
+}
+
+/// Whether this thread's clock is frozen (see [`freeze_test_clock`]).
+#[cfg(feature = "std")]
+#[must_use]
+pub fn test_clock_is_frozen() -> bool {
+    TEST_CLOCK_BASE.with(core::cell::Cell::get).is_some()
+}
+
 /// Put this thread's test clock back on real time.
 ///
 /// Worker threads are REUSED across scenarios, so without this the next
 /// scenario scheduled onto this thread would inherit the previous one's
 /// accumulated offset — the same cross-contamination the process-global
 /// offset had, just at thread granularity. The E2E runner calls this at the
-/// start of every scenario.
+/// start of every scenario. Clears the freeze as well, so a scenario cannot
+/// leave the next one's clock stopped.
 #[cfg(feature = "std")]
 pub fn reset_test_clock() {
     TEST_CLOCK_OFFSET_MS.with(|c| c.set(0));
+    TEST_CLOCK_BASE.with(|c| c.set(None));
 }
 
-/// `std::time::Instant::now()` shifted by the injectable test-clock offset.
+/// `std::time::Instant::now()` shifted by the injectable test-clock offset, or —
+/// when the clock is frozen — built from the frozen base so real time cannot
+/// leak in.
 #[cfg(feature = "std")]
 fn std_now_with_test_offset() -> StdInstant {
     let offset = test_clock_offset_ms();
+    if let Some(base) = TEST_CLOCK_BASE.with(core::cell::Cell::get) {
+        return base + core::time::Duration::from_millis(offset);
+    }
     if offset == 0 {
         StdInstant::now()
     } else {
@@ -1114,6 +1171,62 @@ mod tests {
         // And a reset really is a reset (worker threads are reused).
         reset_test_clock();
         assert_eq!(test_clock_offset_ms(), 0);
+    }
+
+    /// A frozen clock must advance ONLY by what a scenario asks for.
+    ///
+    /// Offsetting alone left `Instant::now()` as `StdInstant::now() + offset`, so
+    /// real time still flowed and elapsed time was (what the scenario asked for)
+    /// + (what the machine happened to spend). Under the 8-wide E2E runner that
+    /// second term is large and varies per run — enough to flip an assertion on a
+    /// blinking caret's phase while the same scenario passes in isolation.
+    #[test]
+    #[cfg(feature = "std")]
+    fn a_frozen_clock_advances_only_by_what_the_scenario_asks_for() {
+        reset_test_clock();
+        assert!(!test_clock_is_frozen());
+
+        freeze_test_clock();
+        assert!(test_clock_is_frozen());
+
+        let t0 = Instant::now();
+        // Burn REAL time. A frozen clock must not notice.
+        std::thread::sleep(core::time::Duration::from_millis(25));
+        let t1 = Instant::now();
+        assert_eq!(
+            t1.duration_since(&t0),
+            Duration::System(SystemTimeDiff { secs: 0, nanos: 0 }),
+            "real time leaked into a frozen clock",
+        );
+
+        // Only an explicit advance moves it, and by exactly that much.
+        let _ = advance_test_clock_ms(500);
+        let t2 = Instant::now();
+        assert_eq!(
+            t2.duration_since(&t0),
+            Duration::System(SystemTimeDiff { secs: 0, nanos: 500_000_000 }),
+            "a 500 ms tick must read back as exactly 500 ms",
+        );
+
+        // Freezing is idempotent: it must not re-base and lose the offset.
+        freeze_test_clock();
+        assert_eq!(
+            Instant::now().duration_since(&t0),
+            Duration::System(SystemTimeDiff { secs: 0, nanos: 500_000_000 }),
+            "re-freezing re-based the clock and discarded elapsed virtual time",
+        );
+
+        // A reset must unfreeze, or the next scenario on this reused worker
+        // thread would start with time stopped.
+        reset_test_clock();
+        assert!(!test_clock_is_frozen());
+        let r0 = Instant::now();
+        std::thread::sleep(core::time::Duration::from_millis(15));
+        assert!(
+            Instant::now().duration_since(&r0)
+                > Duration::System(SystemTimeDiff { secs: 0, nanos: 0 }),
+            "reset_test_clock left the clock frozen",
+        );
     }
 
     #[test]
