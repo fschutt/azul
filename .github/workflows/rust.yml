@@ -4214,6 +4214,11 @@ jobs:
             } 2>/dev/null | sort -u
           )
 
+          # Basenames of every asset this step actually pushed to the Release —
+          # the freshness assertion at the bottom judges exactly these and
+          # nothing else.
+          UPLOADED_NAMES=()
+
           if [ "${#LARGE[@]}" -eq 0 ]; then
             echo "no LARGE assets present — nothing to upload or trim"
           else
@@ -4269,6 +4274,7 @@ jobs:
               esac
             done
             gh release upload "${AZUL_VERSION}" "${UPLOAD[@]}" --clobber
+            for f in "${UPLOAD[@]}"; do UPLOADED_NAMES+=("$(basename "$f")"); done
 
             # Drop the LARGE originals (+ any .tar.gz) from the Pages artifact so
             # it stays < 1 GB.
@@ -4291,9 +4297,47 @@ jobs:
             tgz="$REL/libazul-${label}.a.tar.gz"
             tar -czf "$tgz" -C "$adir" libazul.a
             echo "mobile .a $label -> $(du -h "$tgz" | cut -f1)"
-            gh release upload "${AZUL_VERSION}" "$tgz" --clobber || true
+            # NO `|| true`: a swallowed upload failure here is indistinguishable
+            # from success and leaves the previous release's copy in place, which
+            # is precisely the silent-staleness this step now asserts against.
+            gh release upload "${AZUL_VERSION}" "$tgz" --clobber
+            UPLOADED_NAMES+=("$(basename "$tgz")")
             rm -f "$a" "$tgz"
           done
+
+          # ---- assert the upload actually replaced what it claimed to --------
+          # For 24 days the 0.2.0 Release served 21 assets dated 2026-07-04
+          # while the deploy reported success every time. `--clobber` above is
+          # correct and does overwrite, and `gh release create ... || true` is
+          # correct idempotency — the mechanism was never the bug; nobody ever
+          # checked the result. So check it: every asset THIS step uploaded must
+          # carry an updatedAt at or after this run's start. Scoped to
+          # UPLOADED_NAMES on purpose — assets this step did not upload (a demo
+          # whose producer failed, anything published by another job) are not
+          # ours to judge here, and asserting on them would be a false red.
+          if [ "${#UPLOADED_NAMES[@]}" -gt 0 ]; then
+            run_started="$(gh api "repos/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}" --jq '.run_started_at')"
+            run_epoch="$(date -u -d "$run_started" +%s)"
+            echo "=== asserting ${#UPLOADED_NAMES[@]} uploaded assets are newer than the run start ($run_started) ==="
+            gh release view "${AZUL_VERSION}" --json assets \
+              --jq '.assets[] | "\(.name)\t\(.updatedAt)"' > /tmp/release-assets.tsv
+            stale=""
+            for name in "${UPLOADED_NAMES[@]}"; do
+              ts="$(awk -F'\t' -v n="$name" '$1 == n { print $2 }' /tmp/release-assets.tsv)"
+              if [ -z "$ts" ]; then
+                echo "::error::release asset '$name' was uploaded by this step but is not on the ${AZUL_VERSION} release"
+                stale="$stale $name(absent)"
+              elif [ "$(date -u -d "$ts" +%s)" -lt "$run_epoch" ]; then
+                echo "::error::release asset '$name' still dates from $ts — this run uploaded it but the Release kept an older copy"
+                stale="$stale $name($ts)"
+              fi
+            done
+            if [ -n "$stale" ]; then
+              echo "::error::the GitHub Release is serving stale assets that this deploy believed it replaced:$stale"
+              exit 1
+            fi
+            echo "all ${#UPLOADED_NAMES[@]} uploaded assets are fresh"
+          fi
 
           echo "release dir after:"; du -sh "$REL" || true
           echo "total website size:"; du -sh website || true
