@@ -2161,7 +2161,7 @@ impl LayoutWindow {
     pub fn set_scroll_position(&mut self, dom_id: DomId, node_id: NodeId, scroll: ScrollPosition) {
         // Convert ScrollPosition to the internal representation
         #[cfg(feature = "std")]
-        let now = Instant::System(std::time::Instant::now().into());
+        let now = Instant::now();
         #[cfg(not(feature = "std"))]
         let now = Instant::Tick(azul_core::task::SystemTick { tick_counter: 0 });
 
@@ -5228,7 +5228,7 @@ mod tests {
 
         // Create a scroll input
         #[cfg(feature = "std")]
-        let now = Instant::System(std::time::Instant::now().into());
+        let now = Instant::now();
         #[cfg(not(feature = "std"))]
         let now = Instant::Tick(azul_core::task::SystemTick { tick_counter: 0 });
 
@@ -5257,7 +5257,7 @@ mod tests {
         let node_id = NodeId::new(0);
 
         #[cfg(feature = "std")]
-        let now = Instant::System(std::time::Instant::now().into());
+        let now = Instant::now();
         #[cfg(not(feature = "std"))]
         let now = Instant::Tick(azul_core::task::SystemTick { tick_counter: 0 });
 
@@ -6056,7 +6056,7 @@ impl LayoutWindow {
             cursor_position: old_cursor.into(),
             selection_range: old_selection_range.into(),
             #[cfg(feature = "std")]
-            timestamp: Instant::System(std::time::Instant::now().into()),
+            timestamp: Instant::now(),
             #[cfg(not(feature = "std"))]
             timestamp: azul_core::task::Instant::Tick(azul_core::task::SystemTick { tick_counter: 0 }),
         };
@@ -6110,7 +6110,7 @@ impl LayoutWindow {
                 new_cursor,
             }),
             #[cfg(feature = "std")]
-            timestamp: Instant::System(std::time::Instant::now().into()),
+            timestamp: Instant::now(),
             #[cfg(not(feature = "std"))]
             timestamp: azul_core::task::Instant::Tick(azul_core::task::SystemTick { tick_counter: 0 }),
         };
@@ -7822,7 +7822,7 @@ impl LayoutWindow {
             let timestamp = {
                 #[cfg(feature = "std")]
                 {
-                    Instant::System(std::time::Instant::now().into())
+                    Instant::now()
                 }
                 #[cfg(not(feature = "std"))]
                 {

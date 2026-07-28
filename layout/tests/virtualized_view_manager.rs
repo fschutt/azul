@@ -12,7 +12,7 @@ use azul_layout::managers::{virtual_view::VirtualViewManager, scroll_state::Scro
 fn test_instant() -> Instant {
     #[cfg(feature = "std")]
     {
-        Instant::System(std::time::Instant::now().into())
+        Instant::now()
     }
     #[cfg(not(feature = "std"))]
     {

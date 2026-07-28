@@ -1393,7 +1393,7 @@ mod natural_scroll_tests {
             dom_id: DomId::ROOT_ID,
             node_id: NodeId::new(0),
             delta: LogicalPosition::new(dx, dy),
-            timestamp: Instant::from(std::time::Instant::now()),
+            timestamp: Instant::now(),
             source: ScrollInputSource::WheelDiscrete,
         }
     }

@@ -29,7 +29,7 @@ use azul_layout::managers::sensors::{
 };
 
 fn ts() -> Instant {
-    Instant::from(std::time::Instant::now())
+    Instant::now()
 }
 
 /// P6 sensor: a synthetic accelerometer reading injected via the platform-
