@@ -9916,12 +9916,24 @@ pub fn process_debug_event(
                     send_ok(request, None, Some(ResponseData::ClickNode(response)));
                 }
                 None => {
-                    let response = ClickNodeResponse {
-                        success: false,
-                        message: "Could not resolve click target (no matching node or position)"
+                    // send_err, NOT send_ok-with-success-false. The step loop maps
+                    // any Ok(DebugResponseData::Ok{..}) to status "pass" without
+                    // reading the payload, so a `success: false` body was invisible
+                    // and `{"op":"click","selector":".typo"}` PASSED while queueing
+                    // no window-state change at all.
+                    //
+                    // Every sibling node-addressed op already does this —
+                    // FocusNode, ScrollNodeBy/To, ScrollIntoView, GetNodeLayout,
+                    // Insert/Delete/SetNodeText/SetNodeClasses/SetNodeCssOverride,
+                    // TextInput — and FocusNode states the reason: a test that
+                    // acted on a node that does not exist "would run its whole
+                    // keyboard timeline against no focus at all and blame the
+                    // engine".
+                    send_err(
+                        request,
+                        "click: could not resolve the click target (no matching node or position)"
                             .to_string(),
-                    };
-                    send_ok(request, None, Some(ResponseData::ClickNode(response)));
+                    );
                 }
             }
         }
@@ -11751,11 +11763,13 @@ pub fn process_debug_event(
                 };
                 send_ok(request, None, Some(ResponseData::ClickNode(response)));
             } else {
-                let response = ClickNodeResponse {
-                    success: false,
-                    message: format!("Node {} not found or has no rect", node_id),
-                };
-                send_ok(request, None, Some(ResponseData::ClickNode(response)));
+                // send_err for the same reason as `click` above: a `success: false`
+                // payload is never inspected, so this reported "pass" for a node
+                // that does not exist or has no rect.
+                send_err(
+                    request,
+                    format!("click_node: node {node_id} not found or has no rect"),
+                );
             }
         }
 
@@ -12389,11 +12403,18 @@ pub fn process_debug_event(
             let deserialize_fn = app_data.get_deserialize_fn();
             
             if deserialize_fn == 0 {
-                let response = AppStateSetResponse {
-                    success: false,
-                    error: Some(RefAnyError::NotDeserializable),
-                };
-                send_ok(request, None, Some(ResponseData::AppStateSet(response)));
+                // send_err, not send_ok-with-success-false: the step loop maps any
+                // Ok response to "pass" without reading the payload, so all three
+                // of this op's failure paths reported success. A scenario that
+                // seeds state with set_app_state and then asserts behaviour would
+                // run its whole timeline against the ORIGINAL state and blame the
+                // engine.
+                send_err(
+                    request,
+                    "set_app_state: the app's RefAny has no deserialize fn, so state cannot be \
+                     restored into it"
+                        .to_string(),
+                );
             } else {
                 // Convert serde_json::Value to our Json type
                 let json_string = state.to_string();
@@ -12408,20 +12429,18 @@ pub fn process_debug_event(
                                 send_ok(request, None, Some(ResponseData::AppStateSet(response)));
                             }
                             Err(e) => {
-                                let response = AppStateSetResponse {
-                                    success: false,
-                                    error: Some(RefAnyError::TypeConstructionError(e)),
-                                };
-                                send_ok(request, None, Some(ResponseData::AppStateSet(response)));
+                                send_err(
+                                    request,
+                                    format!("set_app_state: could not restore the app state: {e}"),
+                                );
                             }
                         }
                     }
                     Err(e) => {
-                        let response = AppStateSetResponse {
-                            success: false,
-                            error: Some(RefAnyError::SerdeError(alloc::format!("{:?}", e))),
-                        };
-                        send_ok(request, None, Some(ResponseData::AppStateSet(response)));
+                        send_err(
+                            request,
+                            alloc::format!("set_app_state: the supplied state is not valid JSON: {e:?}"),
+                        );
                     }
                 }
             }
