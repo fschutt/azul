@@ -1062,8 +1062,24 @@ define_class!(
             if let Some(window_ptr) = *self.ivars().window_ptr.borrow() {
                 unsafe {
                     let macos_window = &mut *(window_ptr as *mut MacOSWindow);
+                    // A runtime light/dark switch. AppKit's `effectiveAppearance`
+                    // is MAIN-THREAD-ONLY, so unlike the Linux backends — where
+                    // the equivalent probe is a blocking D-Bus round trip pushed
+                    // onto a watcher thread — this one is polled right here. It
+                    // self-throttles to 500ms and returns false when the theme
+                    // already matches, so it costs nothing on an ordinary frame.
+                    let theme_changed =
+                        crate::desktop::shell2::macos::system_style::adopt_observed_theme(
+                            &mut macos_window.common,
+                        );
+                    if theme_changed {
+                        let _ = macos_window.process_window_events(0);
+                        macos_window.common.request_regeneration(
+                            azul_core::callbacks::RelayoutReason::ThemeChange,
+                        );
+                    }
                     let needs_redraw = macos_window.process_timers_and_threads();
-                    if needs_redraw {
+                    if needs_redraw || theme_changed {
                         let _: () = msg_send![self, setNeedsDisplay: true];
                     }
                 }
@@ -1698,6 +1714,22 @@ define_class!(
             if let Some(window_ptr) = *self.ivars().window_ptr.borrow() {
                 unsafe {
                     let macos_window = &mut *(window_ptr as *mut MacOSWindow);
+                    // A runtime light/dark switch. AppKit's `effectiveAppearance`
+                    // is MAIN-THREAD-ONLY, so unlike the Linux backends — where
+                    // the equivalent probe is a blocking D-Bus round trip pushed
+                    // onto a watcher thread — this one is polled right here. It
+                    // self-throttles to 500ms and returns false when the theme
+                    // already matches, so it costs nothing on an ordinary frame.
+                    let theme_changed =
+                        crate::desktop::shell2::macos::system_style::adopt_observed_theme(
+                            &mut macos_window.common,
+                        );
+                    if theme_changed {
+                        let _ = macos_window.process_window_events(0);
+                        macos_window.common.request_regeneration(
+                            azul_core::callbacks::RelayoutReason::ThemeChange,
+                        );
+                    }
                     let needs_redraw = macos_window.process_timers_and_threads();
                     // CPU mode: run the full render pipeline (layout → cpurender → framebuffer)
                     // then request drawRect to blit to screen.

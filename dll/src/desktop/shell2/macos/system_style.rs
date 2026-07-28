@@ -672,3 +672,96 @@ fn load_app_specific_stylesheet() -> Option<Css> {
     let (css, _warnings) = azul_css::parser2::new_from_str(&contents);
     if css.is_empty() { None } else { Some(css) }
 }
+
+// ============================================================================
+// Runtime light/dark switching
+// ============================================================================
+
+/// The current `NSApp.effectiveAppearance`, as a [`Theme`].
+///
+/// This is the same probe `discover()` performs at startup, lifted out so it can
+/// be re-read while the app runs — the whole reason a macOS dark-mode toggle did
+/// nothing until restart is that `discover()` ran once and nothing called it
+/// again.
+///
+/// MAIN THREAD ONLY. `effectiveAppearance` is AppKit, so unlike the Linux
+/// backend — where the equivalent probe is a blocking D-Bus round trip that has
+/// to be pushed onto a watcher thread — this one must NOT be moved off the loop
+/// thread. It is affordable there: one `objc_msgSend` pair and a short string
+/// read, no IPC and no subprocess.
+pub(crate) fn probe_effective_appearance() -> Option<Theme> {
+    let lib = ObjcLib::load()?;
+    unsafe {
+        let app = lib.send_id(lib.cls(b"NSApplication\0"), lib.sel(b"sharedApplication\0"));
+        if app.is_null() {
+            return None;
+        }
+        let appearance = lib.send_id(app, lib.sel(b"effectiveAppearance\0"));
+        if appearance.is_null() {
+            return None;
+        }
+        let name = nsstring_to_string(&lib, lib.send_id(appearance, lib.sel(b"name\0")))?;
+        Some(if name.contains("Dark") {
+            Theme::Dark
+        } else {
+            Theme::Light
+        })
+    }
+}
+
+/// How often the appearance is re-read. The probe is cheap but not free, and a
+/// theme switch is a human action — half a second is imperceptible.
+const APPEARANCE_POLL_INTERVAL: core::time::Duration = core::time::Duration::from_millis(500);
+
+std::thread_local! {
+    /// Last time this thread probed. A thread-local rather than a field on the
+    /// window: the probe is main-thread-only anyway, and every window on that
+    /// thread wants the same answer, so one timer serves all of them without
+    /// touching either window struct.
+    static LAST_APPEARANCE_POLL: core::cell::Cell<Option<std::time::Instant>> =
+        const { core::cell::Cell::new(None) };
+}
+
+/// Re-read the system appearance and adopt it into `common`, returning whether
+/// anything changed.
+///
+/// Safe to call every frame: it self-throttles, and returns `false` when the
+/// theme already matches, so a no-op poll never costs a relayout.
+///
+/// The caller still owes the event pump and
+/// `request_regeneration(RelayoutReason::ThemeChange)` — see the call site.
+pub(crate) fn adopt_observed_theme(
+    common: &mut crate::desktop::shell2::common::event::CommonWindowState,
+) -> bool {
+    use azul_core::window::WindowTheme;
+
+    let now = std::time::Instant::now();
+    let due = LAST_APPEARANCE_POLL.with(|c| match c.get() {
+        Some(last) if now.duration_since(last) < APPEARANCE_POLL_INTERVAL => false,
+        _ => {
+            c.set(Some(now));
+            true
+        }
+    });
+    if !due {
+        return false;
+    }
+
+    let Some(theme) = probe_effective_appearance() else {
+        return false;
+    };
+    let theme = match theme {
+        Theme::Dark => WindowTheme::DarkMode,
+        Theme::Light => WindowTheme::LightMode,
+    };
+    if common.current_window_state.theme == theme {
+        return false;
+    }
+
+    // The diff pipeline compares against previous_window_state to decide that a
+    // ThemeChanged event fired; without this snapshot the event is never
+    // determined and no callback runs.
+    common.previous_window_state = Some(common.current_window_state.clone());
+    common.current_window_state.theme = theme;
+    true
+}
