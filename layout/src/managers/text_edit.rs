@@ -175,6 +175,37 @@ impl TextEditManager {
     ///
     /// Creates a `MultiCursorState` with a single cursor, starts the blink,
     /// and sets preedit to None.
+    ///
+    /// # The caret is SOLID for the first half-period, not just "visible"
+    ///
+    /// This used to set `is_visible = true` and, in the same breath,
+    /// `last_input_time = None`. Those two statements contradict each other:
+    /// `None` is the "no input has EVER been recorded" encoding, for which
+    /// [`BlinkState::should_blink`] is true immediately — so the blink timer's
+    /// FIRST tick (a `Timer` with an interval and no delay runs on the first
+    /// pump) toggled the freshly-shown caret straight back OFF. Clicking or
+    /// tabbing into a field made the caret disappear on the next frame and only
+    /// reappear a blink-interval later, which reads as a glitch and matches no
+    /// other toolkit.
+    ///
+    /// It also made every caller responsible for repairing the state this
+    /// method had just broken. Two of the three did:
+    /// `LayoutWindow::handle_focus_change_for_cursor_blink` calls
+    /// `reset_blink_on_input` BEFORE the deferred `finalize_pending_focus_changes`
+    /// gets here (so its timestamp was overwritten with `None`), and
+    /// `process_mouse_click_for_selection` calls it immediately AFTER (so its
+    /// caret survived). The third, `process_accessibility_action`, did not — an
+    /// AT-driven focus got the broken phase.
+    ///
+    /// `reset_blink_on_input(now)` sets BOTH halves consistently: caret shown
+    /// AND the blink phase anchored at this instant, so `should_blink` stays
+    /// false for `CURSOR_BLINK_INTERVAL_MS` and the first toggle happens one
+    /// half-period after focus. That is the behaviour every other toolkit ships,
+    /// and it makes the callers' own `reset_blink_on_input` calls redundant
+    /// rather than load-bearing.
+    ///
+    /// `Instant::now()` honours the thread-scoped E2E test clock, so this stays
+    /// deterministic under `tick_ms`.
     pub fn initialize_editing(
         &mut self,
         cursor: TextCursor,
@@ -191,8 +222,7 @@ impl TextEditManager {
             dom_node_id,
             contenteditable_key,
         ));
-        self.blink.is_visible = true;
-        self.blink.last_input_time = None;
+        self.blink.reset_blink_on_input(Instant::now());
         self.clear_preedit();
         self.mark_dirty();
     }
@@ -675,7 +705,19 @@ mod autotest_generated {
             Some(0)
         );
         assert!(m.blink.is_visible);
-        assert!(m.blink.last_input_time.is_none());
+        // The caret is SOLID for the first half-period after focus, so the blink
+        // phase must be ANCHORED here. `None` would mean "no input ever", for
+        // which `should_blink` is true immediately and the timer's first tick
+        // hides the caret the user just placed. See `initialize_editing`.
+        let anchored = m
+            .blink
+            .last_input_time
+            .as_ref()
+            .expect("initialize_editing must anchor the blink phase, not clear it");
+        assert!(
+            !m.blink.should_blink(anchored),
+            "at the instant of focus, zero time has elapsed — blinking must not be allowed yet"
+        );
         assert!(m.should_draw_cursor());
         assert!(m.display_list_dirty);
         assert_eq!(

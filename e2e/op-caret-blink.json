@@ -1,0 +1,62 @@
+{
+  "name": "op_caret_blink",
+  "description": "CARET BLINK, end to end — the ONLY scenario that drives a timer. Focusing a contenteditable arms CURSOR_BLINK_TIMER_ID (LayoutWindow::handle_focus_change_for_cursor_blink -> CursorBlinkTimerAction::Start); the interval is CURSOR_BLINK_INTERVAL_MS = 530 (layout/src/managers/text_edit.rs), so advancing the injectable test clock past it must TOGGLE the caret, and advancing again must toggle it back. Before 10c7ec3d6 this host had no clock for timers at all: AddTimer / RemoveTimer / StartCursorBlinkTimer / StopCursorBlinkTimer were declared `unsupported`, `LayoutWindow::tick_timers` / `run_single_timer` were never called, and every step here failed by name. BOTH halves are asserted at every beat, on purpose: `get_cursor_state`.is_visible is the ENGINE FLAG and `assert_changed` is the PIXELS — the flag alone would stay green even if the caret were never painted, and damage alone would stay green if something else on screen moved. The tail is the valuable part: Escape clears focus, CursorBlinkTimerAction::Stop removes CURSOR_BLINK_TIMER_ID, and two further 600 ms ticks then produce FrameDamage::None. A leaked blink timer keeps toggling and repainting an unfocused window forever, and `assert_damage kind none` is what catches it. Starting phase (caret ON immediately after focus, blinking only from the first half-period on) is pinned separately by e2e/bug-caret-off-after-focus.json; the generic `CallbackChange::AddTimer` / `RemoveTimer` arms by e2e/op-add-remove-timer.json.",
+  "setup": {
+    "window_width": 400,
+    "window_height": 200,
+    "dpi": 96
+  },
+  "steps": [
+    {
+      "op": "mount",
+      "html": [
+        "<div id=\"ed\" contenteditable=\"true\">hello</div>"
+      ],
+      "css": [
+        "html, body { margin: 0; padding: 0; }",
+        "body { font-size: 24px; color: black; background: white; }",
+        "#ed { width: 300px; height: 60px; background: white; }"
+      ]
+    },
+    { "op": "wait_frame" },
+    { "op": "wait", "ms": 120 },
+
+    { "op": "focus_node", "selector": "#ed" },
+    { "op": "wait_frame" },
+    { "op": "wait", "ms": 50 },
+    { "op": "get_cursor_state" },
+    { "op": "assert_response", "type": "cursor_state", "contains": "\"blink_timer_active\":true" },
+    { "op": "assert_response", "type": "cursor_state", "contains": "\"is_visible\":true" },
+
+    { "op": "reset_frame_counters" },
+    { "op": "snapshot_frame", "as": "phase_on" },
+    { "op": "tick_ms", "ms": 600 },
+    { "op": "wait_frame" },
+    { "op": "get_cursor_state" },
+    { "op": "assert_response", "type": "cursor_state", "contains": "\"is_visible\":false" },
+    { "op": "assert_changed", "vs": "phase_on", "min_damage_rects": 1 },
+
+    { "op": "reset_frame_counters" },
+    { "op": "snapshot_frame", "as": "phase_off" },
+    { "op": "tick_ms", "ms": 600 },
+    { "op": "wait_frame" },
+    { "op": "get_cursor_state" },
+    { "op": "assert_response", "type": "cursor_state", "contains": "\"is_visible\":true" },
+    { "op": "assert_changed", "vs": "phase_off", "min_damage_rects": 1 },
+
+    { "op": "key_down", "key": "escape" },
+    { "op": "key_up", "key": "escape" },
+    { "op": "wait_frame" },
+    { "op": "wait", "ms": 50 },
+    { "op": "get_cursor_state" },
+    { "op": "assert_response", "type": "cursor_state", "contains": "\"has_cursor\":false" },
+
+    { "op": "reset_frame_counters" },
+    { "op": "snapshot_frame", "as": "after_blur" },
+    { "op": "tick_ms", "ms": 600 },
+    { "op": "wait_frame" },
+    { "op": "tick_ms", "ms": 600 },
+    { "op": "wait_frame" },
+    { "op": "assert_damage", "which": "paint", "kind": "none" }
+  ]
+}

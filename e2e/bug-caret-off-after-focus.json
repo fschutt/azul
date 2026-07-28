@@ -1,0 +1,45 @@
+{
+  "name": "bug_caret_off_after_focus",
+  "description": "BUG: the caret went OFF on the first tick after focus. `TextEditManager::initialize_editing` set `blink.is_visible = true` and, in the same breath, `blink.last_input_time = None`. `None` is the 'no input has EVER been recorded' encoding, for which `BlinkState::should_blink` is true IMMEDIATELY — and the blink timer has an interval but no delay, so `Timer::invoke` runs it on the very first pump. `ToggleCursorVisibility` therefore found `should_blink == true` at t≈0 and turned the caret the user had just placed straight back off; it only reappeared a full 530 ms later. Identical on X11/Wayland and headless (`process_timers_and_threads` pumps on every poll there, `Runner::pump_timers` on every service here), so this was shipped behaviour, not a harness artefact. It also made the callers responsible for repairing state `initialize_editing` had just broken: `handle_focus_change_for_cursor_blink` calls `reset_blink_on_input` BEFORE the deferred `finalize_pending_focus_changes` reaches `initialize_editing` (overwritten), `process_mouse_click_for_selection` calls it AFTER (survived), and `process_accessibility_action` never did (broken). `initialize_editing` now calls `reset_blink_on_input(Instant::now())`, which sets both halves consistently. BEAT 1 — immediately after focus the caret is ON. BEAT 2 — after a 300 ms tick, i.e. still inside the first half-period, it is STILL on: `should_blink` is false, so even when the timer does fire the caret is held solid. BEAT 3 — the counter-assertion, and the reason this is not just 'pin the caret on forever': after a further 300 ms (past CURSOR_BLINK_INTERVAL_MS = 530) the caret really does go off, in the engine flag AND in the pixels.",
+  "setup": {
+    "window_width": 400,
+    "window_height": 200,
+    "dpi": 96
+  },
+  "steps": [
+    {
+      "op": "mount",
+      "html": [
+        "<div id=\"ed\" contenteditable=\"true\">hello</div>"
+      ],
+      "css": [
+        "html, body { margin: 0; padding: 0; }",
+        "body { font-size: 24px; color: black; background: white; }",
+        "#ed { width: 300px; height: 60px; background: white; }"
+      ]
+    },
+    { "op": "wait_frame" },
+    { "op": "wait", "ms": 120 },
+
+    { "op": "focus_node", "selector": "#ed" },
+    { "op": "wait_frame" },
+    { "op": "wait", "ms": 50 },
+    { "op": "get_cursor_state" },
+    { "op": "assert_response", "type": "cursor_state", "contains": "\"has_cursor\":true" },
+    { "op": "assert_response", "type": "cursor_state", "contains": "\"blink_timer_active\":true" },
+    { "op": "assert_response", "type": "cursor_state", "contains": "\"is_visible\":true" },
+
+    { "op": "reset_frame_counters" },
+    { "op": "snapshot_frame", "as": "caret_on" },
+    { "op": "tick_ms", "ms": 300 },
+    { "op": "wait_frame" },
+    { "op": "get_cursor_state" },
+    { "op": "assert_response", "type": "cursor_state", "contains": "\"is_visible\":true" },
+
+    { "op": "tick_ms", "ms": 300 },
+    { "op": "wait_frame" },
+    { "op": "get_cursor_state" },
+    { "op": "assert_response", "type": "cursor_state", "contains": "\"is_visible\":false" },
+    { "op": "assert_changed", "vs": "caret_on", "min_damage_rects": 1 }
+  ]
+}
