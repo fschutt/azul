@@ -9,8 +9,13 @@
 //!   * `process_timers_and_threads()` had ZERO call sites on iOS and Android, so
 //!     no Timer fired, no background Thread writeback was collected and no
 //!     animation advanced on either platform. Fixed in 822c2a7fd.
-//!   * `process_accessibility_actions()` still has no implementation on iOS,
-//!     Android or headless, so accessibility actions never dispatch there.
+//!   * `process_accessibility_actions()` had ZERO implementations on iOS,
+//!     Android and headless — not even a field to receive an action — so a
+//!     screen reader's request did nothing on any of the three, and headless
+//!     being one of them meant the E2E corpus could not observe accessibility
+//!     at all. Fixed by giving headless an injectable queue, iOS a
+//!     `UIAccessibilityContainer` bridge and Android an
+//!     `AccessibilityNodeProvider` bridge.
 //!
 //! A scan is a weak check, but a weak check that goes red beats a strong
 //! abstraction nobody has written. When the trait exists, delete this file.
@@ -106,14 +111,15 @@ fn every_backend_dispatches_accessibility_actions() {
 /// runs on, so it needs a way to be TOLD the theme changed or no scenario can
 /// ever cover theme-dependent layout.
 ///
-/// Making this pass by shortening the backend list would restore exactly the
-/// silence it exists to break.
 /// Keyed on `RelayoutReason::ThemeChange` rather than on `discover_system_style`,
 /// because the latter cannot tell the two cases apart: headless calls it in its
 /// CONSTRUCTOR and Windows calls it only in its runtime handler, so both contain
 /// the string exactly once while meaning opposite things. A backend that
 /// genuinely handles a runtime theme switch has to request a regeneration for
 /// it, and the reason is what says so.
+///
+/// Making this pass by shortening the backend list would restore exactly the
+/// silence it exists to break.
 #[test]
 fn every_backend_reacts_to_a_runtime_theme_change() {
     let missing: Vec<&str> = FRAME_DRIVING_BACKENDS

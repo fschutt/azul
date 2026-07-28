@@ -417,6 +417,13 @@ const OP_POLICY: &[(&str, Option<DenyReason>)] = &[
     // it had no op to express. Click-to-focus is not a substitute: it needs a
     // coordinate, which a generated test may not guess.
     ("focus_node",                None),
+    // Assistive technology as a drive surface. Not a synonym for `click`: it
+    // addresses a node directly the way AT-SPI `do_action` / UIA Invoke /
+    // `accessibilityActivate` do, and it exercises the action -> EventFilter
+    // mapping no pointer op ever touches. Refuses by name on an unknown action,
+    // a missing payload, or a node no screen reader can reach, so it cannot go
+    // green on nothing.
+    ("accessibility_action",      None),
 
     // -- ALLOW: APP-CALLBACK API — a real app mutates the DOM from a callback,
     //    so this is a legitimate second drive surface. ----------------------

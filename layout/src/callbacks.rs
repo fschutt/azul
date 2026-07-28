@@ -18,7 +18,7 @@ use std::sync::Mutex;
 use azul_core::{
     resources::UpdateImageType,
     callbacks::{CoreCallback, FocusTarget, FocusTargetPath, HidpiAdjustedBounds, Update},
-    dom::{DomId, DomIdVec, DomNodeId, IdOrClass, NodeId, NodeType},
+    dom::{AccessibilityAction, DomId, DomIdVec, DomNodeId, IdOrClass, NodeId, NodeType},
     geom::{LogicalPosition, LogicalRect, LogicalSize, OptionLogicalPosition, OptionCursorNodePosition, OptionScreenPosition, OptionDragDelta, CursorNodePosition, ScreenPosition, DragDelta},
     gl::OptionGlContextPtr,
     gpu::GpuValueCache,
@@ -174,6 +174,21 @@ pub enum CallbackChange {
     /// `detect_rotation` / `detect_double_click` call, then cleared.
     InjectNativeGesture {
         gesture: crate::managers::gesture::NativeGestureEvent,
+    },
+    /// Apply an accessibility action (what a screen reader asks for) to a node
+    /// and dispatch whatever callbacks it maps to.
+    ///
+    /// The PRIMARY ingress for an a11y action is the per-backend
+    /// `process_accessibility_actions()` frame pump, which reads its own OS
+    /// adapter (AT-SPI / UIA / NSAccessibility / UIKit / Android). This variant
+    /// is the second door, for a caller that only holds a `CallbackInfo`: the
+    /// E2E `accessibility_action` op. Both doors end in the same
+    /// `LayoutWindow::process_accessibility_action` + synthetic-event dispatch,
+    /// so what a test drives is what a screen reader drives.
+    PerformAccessibilityAction {
+        dom_id: DomId,
+        node_id: NodeId,
+        action: AccessibilityAction,
     },
     /// Queue multiple window state changes to be applied in sequence across frames.
     /// This is needed for simulating clicks (mouse down -> wait -> mouse up) where each
@@ -3256,6 +3271,31 @@ impl CallbackInfo {
         gesture: crate::managers::gesture::NativeGestureEvent,
     ) {
         self.push_change(CallbackChange::InjectNativeGesture { gesture });
+    }
+
+    /// Perform an accessibility action on a node, exactly as if assistive
+    /// technology had requested it.
+    ///
+    /// Applied after the callback returns, via
+    /// `CallbackChange::PerformAccessibilityAction` →
+    /// `LayoutWindow::process_accessibility_action` → dispatch of the synthetic
+    /// events the action maps to (e.g. `AccessibilityAction::Default` on a
+    /// button becomes a `MouseUp` on that button, so its `on_click` runs).
+    ///
+    /// This is the door the E2E `accessibility_action` op uses. Before it,
+    /// nothing outside a real screen reader could reach that code path, so
+    /// "activation invokes no callback" was unobservable from any test.
+    pub fn perform_accessibility_action(
+        &mut self,
+        dom_id: DomId,
+        node_id: NodeId,
+        action: AccessibilityAction,
+    ) {
+        self.push_change(CallbackChange::PerformAccessibilityAction {
+            dom_id,
+            node_id,
+            action,
+        });
     }
 
     /// Get immutable reference to the focus manager

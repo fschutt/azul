@@ -2976,6 +2976,52 @@ pub trait PlatformWindow {
                 ProcessEventResult::ShouldRegenerateDomCurrentWindow
             }
 
+            // === Accessibility action (screen-reader request) ===
+            //
+            // The out-of-band twin of the per-backend
+            // `process_accessibility_actions()` pump: same
+            // `LayoutWindow::process_accessibility_action`, same synthetic-event
+            // dispatch. Routed through the shared
+            // `dispatch_accessibility_actions` so this arm and the seven frame
+            // pumps cannot disagree about what an action does.
+            CallbackChange::PerformAccessibilityAction {
+                dom_id,
+                node_id,
+                action,
+            } => {
+                #[cfg(feature = "a11y")]
+                {
+                    self.dispatch_accessibility_actions(vec![(
+                        *dom_id,
+                        *node_id,
+                        action.clone(),
+                    )]);
+                    // UNCONDITIONAL, matching every backend's unconditional
+                    // `request_redraw()` after a batch: Focus / Blur / the
+                    // Scroll* family / SetTextSelection change manager state and
+                    // map to NO callback, so their affected-node map is empty
+                    // while the screen has genuinely gone stale.
+                    ProcessEventResult::ShouldReRenderCurrentWindow
+                }
+                #[cfg(not(feature = "a11y"))]
+                {
+                    // Not "nothing happened" — the build genuinely cannot
+                    // perform the action, and a caller that asked for one must
+                    // hear about it rather than read a silent DoNothing as
+                    // success.
+                    log_warn!(
+                        super::debug_server::LogCategory::EventLoop,
+                        "[azul] PerformAccessibilityAction on dom {} node {} ignored: this build \
+                         has the `a11y` feature disabled, so no accessibility action can be \
+                         applied",
+                        dom_id.inner,
+                        node_id.index(),
+                    );
+                    let _ = action;
+                    ProcessEventResult::DoNothing
+                }
+            }
+
             // === App-global Undo / Redo (mini-git over the app state) ===
 
             CallbackChange::CommitUndoSnapshot => {
@@ -4436,6 +4482,67 @@ pub trait PlatformWindow {
         }
         let (_, update, _) = self.dispatch_events_propagated(&events);
         update
+    }
+
+    /// Apply a batch of already-decoded accessibility actions and dispatch the
+    /// callbacks they map to.
+    ///
+    /// This is the body of every backend's inherent `process_accessibility_actions`
+    /// once that backend has polled its own action source. It was copy-pasted
+    /// four times (windows / macos / x11 / wayland) before iOS, Android and
+    /// headless needed a fifth, sixth and seventh copy — and a copy that drifts
+    /// is how "the callback map was dropped and screen-reader activation did
+    /// nothing" shipped in the first place. One body, seven callers.
+    ///
+    /// Returns `true` when at least one action produced affected nodes.
+    ///
+    /// That is NOT "the caller owes a redraw" — every caller redraws
+    /// unconditionally after a non-empty batch, because Focus, Blur, the
+    /// `Scroll*` family, `ScrollIntoView` and `SetTextSelection` all change
+    /// manager state and map to no callback, so they return an EMPTY affected
+    /// set while the screen has genuinely gone stale. The flag is for callers
+    /// that want to know whether any callback path was reachable at all.
+    #[cfg(feature = "a11y")]
+    fn dispatch_accessibility_actions(
+        &mut self,
+        actions: Vec<(
+            azul_core::dom::DomId,
+            azul_core::dom::NodeId,
+            azul_core::dom::AccessibilityAction,
+        )>,
+    ) -> bool {
+        if actions.is_empty() {
+            return false;
+        }
+
+        let now = std::time::Instant::now();
+        let mut anything_changed = false;
+
+        for (dom_id, node_id, action) in actions {
+            let affected = match self.get_layout_window_mut() {
+                Some(lw) => lw.process_accessibility_action(dom_id, node_id, action, now),
+                None => continue,
+            };
+            if affected.is_empty() {
+                continue;
+            }
+            anything_changed = true;
+            self.get_common_mut().display_list_dirty = true;
+            // Invoke the callbacks the action mapped to (synthetic MouseUp for
+            // the Default/click action, etc.) — dropping this map is exactly
+            // the bug that made screen-reader activation a no-op.
+            let update = self.dispatch_accessibility_events(&affected);
+            if !matches!(update, azul_core::callbacks::Update::DoNothing) {
+                // The callback asked for a refresh (e.g. RefreshDom from a zoom
+                // button) — regenerate on the next frame, exactly like
+                // pointer-event dispatch does.
+                self.get_common_mut()
+                    .request_regeneration(azul_core::callbacks::RelayoutReason::RefreshDom);
+            }
+        }
+
+        self.get_common_mut().a11y_dirty = true;
+        anything_changed
     }
 
     /// Drain `LayoutWindow.pending_lifecycle_events` and dispatch each event.

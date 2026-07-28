@@ -1,0 +1,48 @@
+{
+  "name": "op_accessibility_action_focus",
+  "description": "ACCESSIBILITY ACTIONS, the first scenario in the corpus that touches them at all. `LayoutWindow::process_accessibility_action` — focus moves, scroll offsets, expand/collapse, text replacement, and the action -> EventFilter mapping that turns a screen reader's activation into a callback — was reachable from exactly one place: a live AT-SPI / UIA / NSAccessibility connection. No test has one. That is how 'a screen reader activates a button and no callback runs' shipped, and it is why iOS, Android and headless could go all the way to release with NO `process_accessibility_actions` implementation at all and nothing anywhere going red. The `accessibility_action` op is the door: it addresses a node the way an assistive technology does (by identity + action name, not by pointer coordinate) and pushes `CallbackChange::PerformAccessibilityAction`, i.e. the SAME change the platform pumps apply. BEAT 1 — `focus` on #f2. `AccessibilityAction::Focus` calls `focus_manager.set_focused_node` directly, so `get_focus_state` must now name f2; a no-op action leaves focus empty and `assert_response` goes red on the missing id. BEAT 2 — `focus` on #f3, proving the action re-targets rather than latching on the first node it ever saw. BEAT 3 — `blur`, which must clear the focus manager: `has_focus` false. That beat is the one that cannot be faked by an implementation that only ever sets focus. NOT COVERED HERE, deliberately and not silently: `default` (activation), which maps to a synthetic MouseUp on the target so the node's click callback runs. A JSON scenario cannot attach a Rust callback to a node — no op in the set binds one — so no scenario in this corpus can observe ANY user callback firing, a11y or otherwise. Focus/blur are the part of the action surface that JSON can prove, and they are proven here.",
+  "setup": {
+    "window_width": 400,
+    "window_height": 300,
+    "dpi": 96
+  },
+  "steps": [
+    {
+      "op": "mount",
+      "html": [
+        "<div id=\"root\">",
+        "  <div id=\"f1\" tabindex=\"0\" class=\"item\">one</div>",
+        "  <div id=\"f2\" tabindex=\"0\" class=\"item\">two</div>",
+        "  <div id=\"f3\" tabindex=\"0\" class=\"item\">three</div>",
+        "</div>"
+      ],
+      "css": [
+        "html, body { margin: 0; padding: 0; }",
+        "#root { display: flex; flex-direction: column; }",
+        ".item { width: 120px; height: 30px; background: silver; font-family: \"Azul Mock Mono\"; font-size: 20px; }"
+      ]
+    },
+    { "op": "wait_frame" },
+    { "op": "wait", "ms": 200 },
+
+    { "op": "assert_exists", "selector": "#f1" },
+    { "op": "assert_exists", "selector": "#f2" },
+    { "op": "assert_exists", "selector": "#f3" },
+
+    { "op": "accessibility_action", "selector": "#f2", "action": "focus" },
+    { "op": "wait", "ms": 100 },
+    { "op": "get_focus_state" },
+    { "op": "assert_response", "type": "focus_state" },
+    { "op": "assert_response", "contains": "f2" },
+
+    { "op": "accessibility_action", "selector": "#f3", "action": "focus" },
+    { "op": "wait", "ms": 100 },
+    { "op": "get_focus_state" },
+    { "op": "assert_response", "contains": "f3" },
+
+    { "op": "accessibility_action", "selector": "#f3", "action": "blur" },
+    { "op": "wait", "ms": 100 },
+    { "op": "get_focus_state" },
+    { "op": "assert_response", "contains": "\"has_focus\":false" }
+  ]
+}

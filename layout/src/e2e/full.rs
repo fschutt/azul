@@ -1863,6 +1863,62 @@ pub enum DebugEvent {
         #[serde(default)]
         node_id: Option<u64>,
     },
+
+    /// Perform an accessibility action on a node — what a screen reader does.
+    ///
+    /// This is the ONLY way any test can reach
+    /// `LayoutWindow::process_accessibility_action` and the synthetic-event
+    /// dispatch behind it. Until it existed, a11y was reachable exclusively
+    /// from a live AT-SPI / UIA / `NSAccessibility` connection, which no test
+    /// has — which is how "a screen reader activates a button and no callback
+    /// runs" shipped once and stayed invisible afterwards.
+    ///
+    /// It is NOT a synonym for `click`: `click` moves the mouse and lets hit
+    /// testing decide, whereas this addresses a node directly the way an AT
+    /// does, and it exercises the action → `EventFilter` mapping table that
+    /// `click` never touches.
+    ///
+    /// Give exactly one of `selector` / `node_id` / `text`. Refuses (loudly) if
+    /// the node does not exist, if it is not exposed to assistive technology
+    /// (`is_exposed_to_accessibility`), if `action` is not a known name, or if
+    /// the named action needs a payload that was not supplied.
+    AccessibilityAction {
+        /// CSS selector for the target node
+        #[serde(default)]
+        selector: Option<String>,
+        /// Node ID of the target (alternative to `selector`)
+        #[serde(default)]
+        node_id: Option<u64>,
+        /// Text content of the target (alternative to `selector`)
+        #[serde(default)]
+        text: Option<String>,
+        /// Snake-case action name, e.g. `default`, `focus`, `increment`,
+        /// `scroll_down`, `set_value`. See the handler for the full list —
+        /// every `AccessibilityAction` variant is nameable.
+        action: String,
+        /// Payload for `set_value` / `replace_selected_text`.
+        #[serde(default)]
+        value: Option<String>,
+        /// Payload for `set_numeric_value`.
+        #[serde(default)]
+        number: Option<f32>,
+        /// X payload for `scroll_to_point` / `set_scroll_offset`.
+        #[serde(default)]
+        x: Option<f32>,
+        /// Y payload for `scroll_to_point` / `set_scroll_offset`.
+        #[serde(default)]
+        y: Option<f32>,
+        /// Start payload for `set_text_selection`.
+        #[serde(default)]
+        selection_start: Option<u64>,
+        /// End payload for `set_text_selection`.
+        #[serde(default)]
+        selection_end: Option<u64>,
+        /// Payload for `custom_action`.
+        #[serde(default)]
+        custom_id: Option<i32>,
+    },
+
     Close,
     DpiChanged {
         dpi: u32,
@@ -2416,6 +2472,119 @@ pub enum DebugEvent {
         #[serde(default)]
         line: u32,
     },
+}
+
+// ==================== Accessibility Action Parsing ====================
+
+/// Parse the `accessibility_action` op's `action` name (+ its payload fields)
+/// into a real [`azul_core::dom::AccessibilityAction`].
+///
+/// EVERY variant of the enum is nameable — the match below is exhaustive over
+/// the accepted names and the list is kept in sync with `core/src/a11y.rs` by
+/// hand, so a new action that nobody wires here is a name the op refuses rather
+/// than one it silently mistranslates.
+///
+/// An unknown name is an ERROR, not a fallback to `Default`. Substituting
+/// `Default` would let a scenario report that it tested `increment` while it
+/// had in fact performed a click — the same class of lie as a no-op stub.
+/// Likewise a payload-carrying action with no payload is an error: performing
+/// `set_value` with an empty string is a different test from the one that was
+/// written.
+#[cfg(feature = "std")]
+#[allow(clippy::too_many_arguments)]
+fn parse_accessibility_action(
+    name: &str,
+    value: Option<&str>,
+    number: Option<f32>,
+    x: Option<f32>,
+    y: Option<f32>,
+    selection_start: Option<u64>,
+    selection_end: Option<u64>,
+    custom_id: Option<i32>,
+) -> Result<azul_core::dom::AccessibilityAction, String> {
+    use azul_core::dom::{AccessibilityAction as A, TextSelectionStartEnd};
+    use azul_core::geom::LogicalPosition;
+
+    /// Every name this op accepts, in the error message so a typo is one read
+    /// away from fixed.
+    const KNOWN: &str = "default, focus, blur, collapse, expand, scroll_into_view, increment, \
+                         decrement, show_context_menu, hide_tooltip, show_tooltip, scroll_up, \
+                         scroll_down, scroll_left, scroll_right, \
+                         set_sequential_focus_navigation_starting_point, replace_selected_text, \
+                         scroll_to_point, set_scroll_offset, set_text_selection, set_value, \
+                         set_numeric_value, custom_action";
+
+    let need_value = |what: &str| -> Result<azul_css::AzString, String> {
+        value.map(azul_css::AzString::from).ok_or_else(|| {
+            format!("action '{what}' needs a \"value\" string, and none was given")
+        })
+    };
+    let need_point = |what: &str| -> Result<LogicalPosition, String> {
+        match (x, y) {
+            (Some(x), Some(y)) => Ok(LogicalPosition { x, y }),
+            _ => Err(format!(
+                "action '{what}' needs both \"x\" and \"y\", and at least one was missing"
+            )),
+        }
+    };
+
+    Ok(match name {
+        "default" => A::Default,
+        "focus" => A::Focus,
+        "blur" => A::Blur,
+        "collapse" => A::Collapse,
+        "expand" => A::Expand,
+        "scroll_into_view" => A::ScrollIntoView,
+        "increment" => A::Increment,
+        "decrement" => A::Decrement,
+        "show_context_menu" => A::ShowContextMenu,
+        "hide_tooltip" => A::HideTooltip,
+        "show_tooltip" => A::ShowTooltip,
+        "scroll_up" => A::ScrollUp,
+        "scroll_down" => A::ScrollDown,
+        "scroll_left" => A::ScrollLeft,
+        "scroll_right" => A::ScrollRight,
+        "set_sequential_focus_navigation_starting_point" => {
+            A::SetSequentialFocusNavigationStartingPoint
+        }
+        "replace_selected_text" => A::ReplaceSelectedText(need_value("replace_selected_text")?),
+        "set_value" => A::SetValue(need_value("set_value")?),
+        "scroll_to_point" => A::ScrollToPoint(need_point("scroll_to_point")?),
+        "set_scroll_offset" => A::SetScrollOffset(need_point("set_scroll_offset")?),
+        "set_text_selection" => match (selection_start, selection_end) {
+            (Some(s), Some(e)) => A::SetTextSelection(TextSelectionStartEnd {
+                selection_start: s as usize,
+                selection_end: e as usize,
+            }),
+            _ => {
+                return Err("action 'set_text_selection' needs both \"selection_start\" and \
+                            \"selection_end\", and at least one was missing"
+                    .to_string())
+            }
+        },
+        "set_numeric_value" => match number {
+            Some(n) => A::SetNumericValue(azul_css::props::basic::length::FloatValue::new(n)),
+            None => {
+                return Err(
+                    "action 'set_numeric_value' needs a \"number\", and none was given".to_string(),
+                )
+            }
+        },
+        "custom_action" => match custom_id {
+            Some(id) => A::CustomAction(id),
+            None => {
+                return Err(
+                    "action 'custom_action' needs a \"custom_id\" int, and none was given"
+                        .to_string(),
+                )
+            }
+        },
+        other => {
+            return Err(format!(
+                "unknown action '{other}'. Known actions: {KNOWN}"
+            ))
+        }
+    })
 }
 
 // ==================== Node Resolution Helper ====================
@@ -11063,6 +11232,114 @@ pub fn process_debug_event(
                     request,
                     format!("focus_node: no node matches '{described}'"),
                 ),
+            }
+        }
+
+        // ─── Accessibility ───────────────────────────────────────────
+        //
+        // The only door in the whole op set onto
+        // `LayoutWindow::process_accessibility_action`. Everything else here
+        // drives the engine through mouse/keyboard/window state; assistive
+        // technology does not, it addresses a node and names an action, and the
+        // action → `EventFilter` mapping in between is code no other op reaches.
+        //
+        // Applied via `CallbackChange::PerformAccessibilityAction`, i.e. the
+        // same path the platform `process_accessibility_actions()` pumps use —
+        // so a green test here is evidence about what a screen reader gets, not
+        // about a test-only shortcut.
+        DebugEvent::AccessibilityAction {
+            selector,
+            node_id,
+            text,
+            action,
+            value,
+            number,
+            x,
+            y,
+            selection_start,
+            selection_end,
+            custom_id,
+        } => {
+            let described = selector
+                .clone()
+                .or_else(|| text.as_ref().map(|t| format!("text {t:?}")))
+                .unwrap_or_else(|| {
+                    node_id.map_or_else(|| "<nothing>".to_string(), |n| format!("node {n}"))
+                });
+
+            let parsed = parse_accessibility_action(
+                action,
+                value.as_deref(),
+                *number,
+                *x,
+                *y,
+                *selection_start,
+                *selection_end,
+                *custom_id,
+            );
+
+            let target =
+                resolve_node_target(callback_info, selector.as_deref(), *node_id, text.as_deref());
+
+            // Is the node one assistive technology can actually see? Same
+            // predicate the accesskit tree builder uses, so this cannot drift
+            // from what a screen reader is offered.
+            let exposed = target.and_then(|nid| {
+                callback_info
+                    .get_layout_window()
+                    .layout_results
+                    .get(&ROOT_DOM_ID)
+                    .and_then(|lr| {
+                        lr.styled_dom
+                            .node_data
+                            .as_container()
+                            .get(nid)
+                            .map(azul_layout::managers::a11y::is_exposed_to_accessibility)
+                    })
+            });
+
+            match (target, exposed, parsed) {
+                (_, _, Err(why)) => {
+                    send_err(request, format!("accessibility_action: {why}"));
+                }
+                (None, _, _) => send_err(
+                    request,
+                    format!("accessibility_action: no node matches '{described}'"),
+                ),
+                (Some(nid), None, _) => send_err(
+                    request,
+                    format!(
+                        "accessibility_action: '{described}' resolves to node {} but that node is \
+                         not in the root DOM's layout results, so there is nothing to act on",
+                        nid.index()
+                    ),
+                ),
+                (Some(nid), Some(false), _) => send_err(
+                    request,
+                    format!(
+                        "accessibility_action: '{described}' resolves to node {} but that node is \
+                         NOT exposed to assistive technology (metadata / pseudo-element with no \
+                         a11y info, not focusable, not contenteditable). No screen reader can \
+                         reach it, so an action on it proves nothing about accessibility.",
+                        nid.index()
+                    ),
+                ),
+                (Some(nid), Some(true), Ok(parsed_action)) => {
+                    log(
+                        LogLevel::Info,
+                        LogCategory::EventLoop,
+                        format!(
+                            "Accessibility action '{action}' on node {} ({described})",
+                            nid.index()
+                        ),
+                        None,
+                    );
+                    callback_info.perform_accessibility_action(ROOT_DOM_ID, nid, parsed_action);
+                    // NO `needs_update` — see the note on `process_debug_event`.
+                    // The change itself decides what re-render is owed, exactly
+                    // like a real adapter's action does.
+                    send_ok(request, None, None);
+                }
             }
         }
 

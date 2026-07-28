@@ -3772,6 +3772,29 @@ impl LayoutWindow {
         }
     }
 
+    /// Build the platform-neutral accessibility snapshot.
+    ///
+    /// The counterpart of [`Self::update_a11y_tree`] for the two shells
+    /// `accesskit` has no backend for: iOS (UIKit) and Android
+    /// (`AccessibilityNodeProvider`). Both need the same information the
+    /// accesskit tree carries — label, value, role, bounds, supported actions,
+    /// parent/child links — expressed in Azul's own types, because neither can
+    /// consume an `accesskit::TreeUpdate`.
+    ///
+    /// Cheap enough to call once per layout: it is one pass over the exposed
+    /// nodes, no platform round trip.
+    #[cfg(feature = "a11y")]
+    #[must_use]
+    pub fn build_a11y_snapshot(&self) -> crate::managers::a11y_snapshot::A11ySnapshot {
+        crate::managers::a11y_snapshot::A11ySnapshot::build(
+            &self.layout_results,
+            &self.scroll_manager,
+            self.focus_manager.get_focused_node().copied(),
+            self.current_window_state.title.as_str(),
+            self.current_window_state.size.dimensions,
+        )
+    }
+
     /// Incremental a11y update: only push the focused contenteditable node's
     /// updated value + cursor/selection.  Falls back to full rebuild if the
     /// tree hasn't been initialized yet or there's no active editing.

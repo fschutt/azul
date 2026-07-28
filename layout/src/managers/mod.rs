@@ -26,6 +26,10 @@
 //! classified) drives all of them from one place.
 
 pub mod a11y;
+/// Platform-neutral a11y element list for the shells `accesskit` does not
+/// cover (iOS / Android). Gated with the same feature as `a11y` itself.
+#[cfg(feature = "a11y")]
+pub mod a11y_snapshot;
 pub mod biometric;
 pub mod changeset;
 pub mod clipboard;
