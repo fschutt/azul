@@ -4290,8 +4290,14 @@ pub trait PlatformWindow {
     /// is how "the callback map was dropped and screen-reader activation did
     /// nothing" shipped in the first place. One body, seven callers.
     ///
-    /// Returns `true` when at least one action changed something, i.e. the
-    /// caller owes a redraw.
+    /// Returns `true` when at least one action produced affected nodes.
+    ///
+    /// That is NOT "the caller owes a redraw" — every caller redraws
+    /// unconditionally after a non-empty batch, because Focus, Blur, the
+    /// `Scroll*` family, `ScrollIntoView` and `SetTextSelection` all change
+    /// manager state and map to no callback, so they return an EMPTY affected
+    /// set while the screen has genuinely gone stale. The flag is for callers
+    /// that want to know whether any callback path was reachable at all.
     #[cfg(feature = "a11y")]
     fn dispatch_accessibility_actions(
         &mut self,
