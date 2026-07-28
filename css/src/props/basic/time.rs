@@ -1,29 +1,161 @@
-//! CSS property types for time durations (s, ms).
+//! CSS property types for time durations (`s`, `ms`, `t`).
 
 use alloc::string::{String, ToString};
 use crate::corety::AzString;
 
 use crate::props::formatter::PrintAsCssValue;
 
-/// A CSS time duration, stored internally in milliseconds.
+/// Nominal engine tick (frame) rate, in ticks per second.
+///
+/// The CSS `t` unit — and `azul_core::task::Duration::Tick` behind it — counts
+/// FRAMES, not wall time. Nothing needs a real clock to advance a tick; that is
+/// the entire point of the unit. But a tick span still has to be COMPARABLE
+/// against a wall-clock one, because the engine's interval constants are
+/// milliseconds (`Duration::System`) and a comparison between the two variants
+/// has to answer something truthful rather than "not yet, forever".
+///
+/// This constant is the single exchange rate between the two scales, shared by
+/// `azul-css` (parsing/printing) and `azul-core` (`Duration` arithmetic). It is
+/// NOT a clock: nothing reads it to decide *when* a frame happens, only how many
+/// nanoseconds a frame is worth when the two units must be put side by side.
+///
+/// 60 Hz because that is the frame budget the renderer already targets (see the
+/// `16_666_667`ns scroll-animation step in `azul-layout`), so `1t` is one frame
+/// at the target rate and `60t` is exactly one second.
+pub const TICKS_PER_SECOND: u64 = 60;
+
+/// The unit a [`CssDuration`]'s magnitude is expressed in.
+///
+/// `Milliseconds` is the CSS `ms` / `s` family (wall time). `Ticks` is the CSS
+/// `t` unit: engine frames, which advance because the engine rendered, not
+/// because a clock ticked. `t` was chosen over `fr` because `fr` is already
+/// taken by CSS grid (`grid-template-columns: 1fr`) and would collide in
+/// dimension parsing.
+#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Default)]
+#[repr(C)]
+pub enum CssDurationUnit {
+    /// Wall-clock milliseconds (parsed from `ms` and `s`).
+    #[default]
+    Milliseconds,
+    /// Engine ticks / frames (parsed from `t`).
+    Ticks,
+}
+
+impl PrintAsCssValue for CssDurationUnit {
+    fn print_as_css_value(&self) -> String {
+        match self {
+            Self::Milliseconds => "ms".to_string(),
+            Self::Ticks => "t".to_string(),
+        }
+    }
+}
+
+impl crate::codegen::format::FormatAsRustCode for CssDurationUnit {
+    fn format_as_rust_code(&self, _tabs: usize) -> String {
+        match self {
+            Self::Milliseconds => "CssDurationUnit::Milliseconds".to_string(),
+            Self::Ticks => "CssDurationUnit::Ticks".to_string(),
+        }
+    }
+}
+
+/// A CSS time duration: a magnitude plus the unit it is counted in.
+///
+/// `inner` is NOT unconditionally milliseconds — read it together with `unit`,
+/// or go through [`CssDuration::millis`] / [`CssDuration::ticks`], which convert.
+///
+/// The derived `Ord` compares `inner` first and only then `unit`, so it is a
+/// total order for storage/dedup purposes but is NOT a chronological comparison
+/// across units (`5ms` sorts below `5t` purely by field order). Compare
+/// durations chronologically by converting them first, or by handing them to
+/// `azul_core::task::Duration`, which compares on a canonical scale.
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[repr(C)]
 #[derive(Default)]
 pub struct CssDuration {
-    /// Duration in milliseconds.
+    /// Magnitude, counted in `unit`.
     pub inner: u32,
+    /// The unit `inner` is counted in.
+    pub unit: CssDurationUnit,
 }
 
+impl CssDuration {
+    /// A duration of `ms` wall-clock milliseconds.
+    #[must_use]
+    pub const fn from_millis(ms: u32) -> Self {
+        Self {
+            inner: ms,
+            unit: CssDurationUnit::Milliseconds,
+        }
+    }
+
+    /// A duration of `ticks` engine frames (the CSS `t` unit).
+    #[must_use]
+    pub const fn from_ticks(ticks: u32) -> Self {
+        Self {
+            inner: ticks,
+            unit: CssDurationUnit::Ticks,
+        }
+    }
+
+    /// This duration in whole milliseconds, converting ticks at
+    /// [`TICKS_PER_SECOND`] and truncating toward zero.
+    ///
+    /// Saturates at `u32::MAX` rather than wrapping: `u32::MAX` ticks is ~828
+    /// days, which does not fit `u32` milliseconds.
+    // `as` rather than `From`/`TryFrom`: this is a `const fn`. The widening is
+    // lossless and the narrowing is range-checked immediately above it.
+    #[allow(clippy::cast_lossless, clippy::cast_possible_truncation)]
+    #[must_use]
+    pub const fn millis(&self) -> u32 {
+        match self.unit {
+            CssDurationUnit::Milliseconds => self.inner,
+            CssDurationUnit::Ticks => {
+                // `* 1000` first, then divide: 60t is exactly 1000ms, not 996ms.
+                let ms = (self.inner as u64) * 1000 / TICKS_PER_SECOND;
+                if ms > u32::MAX as u64 {
+                    u32::MAX
+                } else {
+                    ms as u32
+                }
+            }
+        }
+    }
+
+    /// This duration in whole ticks, converting milliseconds at
+    /// [`TICKS_PER_SECOND`] and truncating toward zero.
+    ///
+    /// Truncation means a sub-frame duration (`10ms` at 60Hz) is **zero** ticks,
+    /// not one — "how many whole frames fit in this span".
+    // `as` rather than `From`/`TryFrom`: this is a `const fn`. `u32::MAX * 60 /
+    // 1000` is ~2.6e8, comfortably inside u32, so the narrowing cannot truncate.
+    #[allow(clippy::cast_lossless, clippy::cast_possible_truncation)]
+    #[must_use]
+    pub const fn ticks(&self) -> u32 {
+        match self.unit {
+            CssDurationUnit::Ticks => self.inner,
+            CssDurationUnit::Milliseconds => {
+                // Cannot overflow: u32::MAX ms * 60 / 1000 < u32::MAX.
+                ((self.inner as u64) * TICKS_PER_SECOND / 1000) as u32
+            }
+        }
+    }
+}
 
 impl PrintAsCssValue for CssDuration {
     fn print_as_css_value(&self) -> String {
-        format!("{}ms", self.inner)
+        format!("{}{}", self.inner, self.unit.print_as_css_value())
     }
 }
 
 impl crate::codegen::format::FormatAsRustCode for CssDuration {
     fn format_as_rust_code(&self, _tabs: usize) -> String {
-        format!("CssDuration {{ inner: {} }}", self.inner)
+        use crate::codegen::format::FormatAsRustCode;
+        format!(
+            "CssDuration {{ inner: {}, unit: {} }}",
+            self.inner,
+            self.unit.format_as_rust_code(0)
+        )
     }
 }
 
@@ -72,7 +204,20 @@ impl DurationParseErrorOwned {
     }
 }
 
-/// Parses a CSS duration string (e.g. `"200ms"`, `"1.5s"`) into a [`CssDuration`].
+/// Parses a CSS duration string (e.g. `"200ms"`, `"1.5s"`, `"5t"`) into a
+/// [`CssDuration`].
+///
+/// Three units are accepted:
+///
+/// * `ms` — milliseconds
+/// * `s`  — seconds (stored as milliseconds)
+/// * `t`  — engine ticks / frames, kept as ticks (see [`CssDurationUnit::Ticks`])
+///
+/// `t` is deliberately NOT normalised to milliseconds here: the whole reason the
+/// unit exists is that a tick count survives to the timer as an exact frame
+/// count, so a test can advance N ticks and assert the Nth frame — and only the
+/// Nth — flipped. Converting at parse time would throw that away and reintroduce
+/// the wall-clock rounding the unit is meant to escape.
 #[cfg(feature = "parser")]
 /// # Errors
 ///
@@ -80,8 +225,11 @@ impl DurationParseErrorOwned {
 pub fn parse_duration(input: &str) -> Result<CssDuration, DurationParseError<'_>> {
     let trimmed = input.trim().to_lowercase();
     if trimmed == "0" {
-        return Ok(CssDuration { inner: 0 });
+        return Ok(CssDuration::from_millis(0));
     }
+    // Suffix order matters: `ms` must be stripped before the bare `s`, otherwise
+    // "5ms" reads as 5 *seconds*. `t` shares no suffix with either, so it can sit
+    // anywhere in the chain.
     if let Some(num_str) = trimmed.strip_suffix("ms") {
         let ms = num_str
             .parse::<f32>()
@@ -89,7 +237,7 @@ pub fn parse_duration(input: &str) -> Result<CssDuration, DurationParseError<'_>
         if ms < 0.0 {
             return Err(DurationParseError::InvalidValue(input));
         }
-        Ok(CssDuration { inner: crate::cast::f32_to_u32(ms) })
+        Ok(CssDuration::from_millis(crate::cast::f32_to_u32(ms)))
     } else if let Some(num_str) = trimmed.strip_suffix('s') {
         let s = num_str
             .parse::<f32>()
@@ -97,9 +245,15 @@ pub fn parse_duration(input: &str) -> Result<CssDuration, DurationParseError<'_>
         if s < 0.0 {
             return Err(DurationParseError::InvalidValue(input));
         }
-        Ok(CssDuration {
-            inner: crate::cast::f32_to_u32(s * 1000.0),
-        })
+        Ok(CssDuration::from_millis(crate::cast::f32_to_u32(s * 1000.0)))
+    } else if let Some(num_str) = trimmed.strip_suffix('t') {
+        let t = num_str
+            .parse::<f32>()
+            .map_err(DurationParseError::ParseFloat)?;
+        if t < 0.0 {
+            return Err(DurationParseError::InvalidValue(input));
+        }
+        Ok(CssDuration::from_ticks(crate::cast::f32_to_u32(t)))
     } else {
         Err(DurationParseError::InvalidValue(input))
     }
@@ -118,12 +272,34 @@ mod autotest_generated {
     #[cfg(feature = "parser")]
     const TWO_POW_24: u32 = 16_777_216;
 
-    /// Convenience: parse and unwrap to the raw millisecond count.
+    /// Convenience: parse, assert the result is in milliseconds, and unwrap to
+    /// the raw millisecond count.
     #[cfg(feature = "parser")]
     fn ms(input: &str) -> u32 {
-        parse_duration(input)
-            .unwrap_or_else(|e| panic!("expected {input:?} to parse, got {e}"))
-            .inner
+        let d = parse_duration(input)
+            .unwrap_or_else(|e| panic!("expected {input:?} to parse, got {e}"));
+        assert_eq!(
+            d.unit,
+            CssDurationUnit::Milliseconds,
+            "{input:?} parsed as {:?}, not milliseconds",
+            d.unit
+        );
+        d.inner
+    }
+
+    /// Convenience: parse, assert the result is in ticks, and unwrap to the raw
+    /// tick count.
+    #[cfg(feature = "parser")]
+    fn ticks(input: &str) -> u32 {
+        let d = parse_duration(input)
+            .unwrap_or_else(|e| panic!("expected {input:?} to parse, got {e}"));
+        assert_eq!(
+            d.unit,
+            CssDurationUnit::Ticks,
+            "{input:?} parsed as {:?}, not ticks",
+            d.unit
+        );
+        d.inner
     }
 
     // ------------------------------------------------------ positive control ---
@@ -160,6 +336,80 @@ mod autotest_generated {
         assert_eq!(ms("200Ms"), 200);
         assert_eq!(ms("1S"), 1000);
         assert_eq!(ms("1.5E1S"), 15000);
+        assert_eq!(ticks("5T"), 5);
+    }
+
+    // ---------------------------------------------------------- tick unit ---
+
+    /// `t` counts FRAMES and must survive parsing as a frame count. If this ever
+    /// starts returning milliseconds, every "advance exactly N ticks" test
+    /// silently becomes a wall-clock test again.
+    #[cfg(feature = "parser")]
+    #[test]
+    fn the_t_unit_parses_to_a_tick_count_and_is_not_normalised_to_millis() {
+        assert_eq!(parse_duration("5t"), Ok(CssDuration::from_ticks(5)));
+        assert_eq!(ticks("0t"), 0);
+        assert_eq!(ticks("1t"), 1);
+        assert_eq!(ticks("60t"), 60);
+        assert_eq!(ticks("4294967295t"), u32::MAX);
+        // Not milliseconds, and not silently multiplied by anything.
+        assert_ne!(parse_duration("5t"), parse_duration("5ms"));
+        assert_ne!(parse_duration("60t"), parse_duration("1s"));
+    }
+
+    /// `t` is only ever the *last* suffix tried, so it must not steal values that
+    /// belong to `ms` / `s`, and it must not accept unit-ish garbage.
+    #[cfg(feature = "parser")]
+    #[test]
+    fn the_t_unit_does_not_collide_with_the_other_units_or_swallow_garbage() {
+        assert_eq!(ms("5ms"), 5);
+        assert_eq!(ms("5s"), 5000);
+        // Suffixes that merely END in `t` are not durations.
+        for garbage in ["5pt", "5t5", "t", "5tt", "5mst", "5st", "5 t", "-5t"] {
+            assert!(
+                parse_duration(garbage).is_err(),
+                "expected {garbage:?} to be rejected"
+            );
+        }
+    }
+
+    /// Truncation across units is exact at the boundaries that matter: 60 ticks
+    /// is one whole second, and a sub-frame millisecond span is zero frames (not
+    /// one) — "how many whole frames fit", never "round up so something happens".
+    #[test]
+    fn millis_and_ticks_convert_at_the_nominal_frame_rate() {
+        assert_eq!(TICKS_PER_SECOND, 60);
+
+        assert_eq!(CssDuration::from_ticks(60).millis(), 1000);
+        assert_eq!(CssDuration::from_ticks(30).millis(), 500);
+        assert_eq!(CssDuration::from_ticks(1).millis(), 16);
+        assert_eq!(CssDuration::from_ticks(0).millis(), 0);
+
+        assert_eq!(CssDuration::from_millis(1000).ticks(), 60);
+        assert_eq!(CssDuration::from_millis(500).ticks(), 30);
+        assert_eq!(CssDuration::from_millis(16).ticks(), 0, "sub-frame is 0 frames");
+        assert_eq!(CssDuration::from_millis(17).ticks(), 1);
+        assert_eq!(CssDuration::from_millis(0).ticks(), 0);
+
+        // Same-unit conversions are the identity, not a round-trip through the
+        // other scale (which would lose precision).
+        assert_eq!(CssDuration::from_millis(7).millis(), 7);
+        assert_eq!(CssDuration::from_ticks(7).ticks(), 7);
+    }
+
+    /// `u32::MAX` ticks is ~828 days, which does not fit in `u32` milliseconds.
+    /// It must clamp, not wrap.
+    #[test]
+    fn tick_to_milli_conversion_saturates_instead_of_wrapping() {
+        assert_eq!(CssDuration::from_ticks(u32::MAX).millis(), u32::MAX);
+        // The largest tick count that still fits: floor(u32::MAX * 60 / 1000).
+        let last_exact = (u64::from(u32::MAX) * TICKS_PER_SECOND / 1000) as u32;
+        assert!(CssDuration::from_ticks(last_exact).millis() < u32::MAX);
+        // ...and the reverse direction cannot overflow at all.
+        assert_eq!(
+            CssDuration::from_millis(u32::MAX).ticks(),
+            (u64::from(u32::MAX) * TICKS_PER_SECOND / 1000) as u32
+        );
     }
 
     // ----------------------------------------------------------- truncation ---
@@ -488,7 +738,7 @@ mod autotest_generated {
             4_294_967_040,   // 2^32 - 256: still exact (a multiple of the f32 ulp there)
             u32::MAX,        // rounds up to 2^32 in f32, then the cast saturates back down
         ] {
-            let duration = CssDuration { inner };
+            let duration = CssDuration::from_millis(inner);
             let printed = duration.print_as_css_value();
             assert_eq!(
                 parse_duration(&printed),
@@ -498,12 +748,35 @@ mod autotest_generated {
         }
     }
 
+    /// A tick duration must print back as `t` and reparse as the SAME tick count.
+    /// A printer that emitted `ms` here would silently convert every stylesheet
+    /// round-trip from frames to wall time.
+    #[cfg(feature = "parser")]
     #[test]
-    fn print_as_css_value_always_emits_the_ms_unit() {
+    fn print_as_css_value_round_trips_tick_durations_as_ticks() {
+        for inner in [0, 1, 5, 60, 999, TWO_POW_24, u32::MAX] {
+            let duration = CssDuration::from_ticks(inner);
+            let printed = duration.print_as_css_value();
+            assert_eq!(printed, format!("{inner}t"));
+            assert_eq!(
+                parse_duration(&printed),
+                Ok(duration),
+                "round-trip failed for {inner}t (printed as {printed:?})"
+            );
+        }
+    }
+
+    #[test]
+    fn print_as_css_value_always_emits_the_unit_it_was_built_with() {
         for inner in [0, 1, u32::MAX] {
-            let printed = CssDuration { inner }.print_as_css_value();
+            let printed = CssDuration::from_millis(inner).print_as_css_value();
             assert!(printed.ends_with("ms"), "{printed:?} lacks a unit");
             assert_eq!(printed, format!("{inner}ms"));
+
+            let printed = CssDuration::from_ticks(inner).print_as_css_value();
+            assert!(printed.ends_with('t'), "{printed:?} lacks a unit");
+            assert!(!printed.ends_with("ms"), "{printed:?} lost the tick unit");
+            assert_eq!(printed, format!("{inner}t"));
         }
     }
 
@@ -513,9 +786,7 @@ mod autotest_generated {
     #[cfg(feature = "parser")]
     #[test]
     fn round_trip_above_two_pow_24_is_lossy_but_bounded() {
-        let duration = CssDuration {
-            inner: TWO_POW_24 + 1,
-        };
+        let duration = CssDuration::from_millis(TWO_POW_24 + 1);
         let reparsed = parse_duration(&duration.print_as_css_value()).unwrap();
         assert_ne!(reparsed.inner, duration.inner);
         assert_eq!(reparsed.inner, TWO_POW_24);
@@ -532,32 +803,53 @@ mod autotest_generated {
 
     // ------------------------------------------------------- CssDuration ---
 
+    /// The default unit is milliseconds, not ticks: every pre-existing
+    /// `CssDuration::default()` in the tree means "0ms", and a default that
+    /// silently meant frames would reinterpret all of them.
     #[test]
-    fn default_duration_is_zero() {
-        assert_eq!(CssDuration::default(), CssDuration { inner: 0 });
+    fn default_duration_is_zero_milliseconds() {
+        assert_eq!(CssDuration::default(), CssDuration::from_millis(0));
         assert_eq!(CssDuration::default().inner, 0);
+        assert_eq!(CssDuration::default().unit, CssDurationUnit::Milliseconds);
+        assert_eq!(CssDurationUnit::default(), CssDurationUnit::Milliseconds);
     }
 
     #[test]
-    fn ordering_and_equality_follow_the_inner_millisecond_count() {
-        let a = CssDuration { inner: 1 };
-        let b = CssDuration { inner: 2 };
-        let max = CssDuration { inner: u32::MAX };
+    fn ordering_and_equality_follow_the_inner_count_within_one_unit() {
+        let a = CssDuration::from_millis(1);
+        let b = CssDuration::from_millis(2);
+        let max = CssDuration::from_millis(u32::MAX);
         assert!(a < b);
         assert!(b < max);
-        assert_eq!(a, CssDuration { inner: 1 });
+        assert_eq!(a, CssDuration::from_millis(1));
         assert_eq!(a.max(b), b);
-        assert_eq!(CssDuration::default(), CssDuration { inner: 0 });
+        assert_eq!(CssDuration::default(), CssDuration::from_millis(0));
+
+        // Same magnitude, different unit: NOT equal. `5ms` and `5t` are
+        // different durations and must never compare equal, or a stylesheet
+        // dedup/cache would collapse them into one.
+        assert_ne!(CssDuration::from_millis(5), CssDuration::from_ticks(5));
     }
 
     #[test]
     fn format_as_rust_code_emits_a_constructor_and_ignores_indentation() {
-        let d = CssDuration { inner: 42 };
-        assert_eq!(d.format_as_rust_code(0), "CssDuration { inner: 42 }");
+        let d = CssDuration::from_millis(42);
+        assert_eq!(
+            d.format_as_rust_code(0),
+            "CssDuration { inner: 42, unit: CssDurationUnit::Milliseconds }"
+        );
         assert_eq!(d.format_as_rust_code(7), d.format_as_rust_code(0));
         assert_eq!(
-            CssDuration { inner: u32::MAX }.format_as_rust_code(0),
-            "CssDuration { inner: 4294967295 }"
+            CssDuration::from_millis(u32::MAX).format_as_rust_code(0),
+            "CssDuration { inner: 4294967295, unit: CssDurationUnit::Milliseconds }"
+        );
+        assert_eq!(
+            CssDuration::from_ticks(5).format_as_rust_code(0),
+            "CssDuration { inner: 5, unit: CssDurationUnit::Ticks }"
+        );
+        assert_eq!(
+            CssDurationUnit::Ticks.format_as_rust_code(0),
+            "CssDurationUnit::Ticks"
         );
     }
 

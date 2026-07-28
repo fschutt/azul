@@ -46,27 +46,16 @@ pub fn allocate_event_id() -> u64 {
 /// Helper function to convert `CoreDuration` to milliseconds
 ///
 /// `CoreDuration` is an enum with System (`std::time::Duration`) and Tick variants.
-/// We need to handle both cases for proper time calculations.
-#[allow(clippy::cast_possible_truncation)] // bounded layout/render numeric cast
-fn duration_to_millis(duration: CoreDuration) -> u64 {
-    match duration {
-        #[cfg(feature = "std")]
-        CoreDuration::System(system_diff) => {
-            let std_duration: std::time::Duration = system_diff.into();
-            std_duration.as_millis() as u64
-        }
-        #[cfg(not(feature = "std"))]
-        CoreDuration::System(system_diff) => {
-            // Manual calculation: secs * 1000 + nanos / 1_000_000
-            system_diff.secs * 1000 + (system_diff.nanos / 1_000_000) as u64
-        }
-        CoreDuration::Tick(tick_diff) => {
-            // WARNING: assumes 1 tick = 1 ms. This is correct for platforms
-            // that use a millisecond tick counter, but will silently produce
-            // wrong timing on platforms with a different tick resolution.
-            tick_diff.tick_diff
-        }
-    }
+/// Both go through `CoreDuration::as_millis_u64`, which converts ticks at the
+/// nominal frame rate.
+///
+/// The Tick arm used to return the raw tick count and carried a WARNING that it
+/// "assumes 1 tick = 1 ms ... will silently produce wrong timing on platforms
+/// with a different tick resolution". A tick is a FRAME, so that assumption was
+/// wrong by a factor of ~16 on every platform, and gesture thresholds
+/// (double-click, long-press) read the result as milliseconds.
+const fn duration_to_millis(duration: CoreDuration) -> u64 {
+    duration.as_millis_u64()
 }
 
 /// Maximum number of input samples to keep in memory
@@ -1841,6 +1830,26 @@ mod autotest_generated {
                 tick_diff: u64::MAX
             })),
             u64::MAX
+        );
+    }
+
+    /// A tick is a FRAME, so it converts at the nominal frame rate. Returning the
+    /// raw tick count made every gesture threshold read a 16x-too-small number of
+    /// milliseconds — a 60-frame hold looked like 60ms, well under any
+    /// long-press threshold.
+    #[test]
+    fn duration_to_millis_converts_ticks_at_the_nominal_frame_rate() {
+        assert_eq!(
+            duration_to_millis(CoreDuration::Tick(SystemTickDiff { tick_diff: 60 })),
+            1_000
+        );
+        assert_eq!(
+            duration_to_millis(CoreDuration::Tick(SystemTickDiff { tick_diff: 30 })),
+            500
+        );
+        assert_eq!(
+            duration_to_millis(CoreDuration::Tick(SystemTickDiff { tick_diff: 1 })),
+            16
         );
     }
 

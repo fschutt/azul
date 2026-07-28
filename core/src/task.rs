@@ -373,12 +373,24 @@ impl Instant {
         ratio.clamp(0.0, 1.0)
     }
 
-    /// Adds a duration to the instant, does nothing in undefined cases
-    /// (i.e. trying to add a `Duration::Tick` to an `Instant::System`).
+    /// Adds a duration to the instant.
     ///
-    /// Mismatched kinds (`System` instant + `Tick` duration, or vice versa)
-    /// saturate to `self` unchanged instead of panicking — a stray mismatch
-    /// must never crash the event loop.
+    /// The duration's UNIT need not match the instant's: a `Tick` duration added
+    /// to a `System` instant is converted at [`TICKS_PER_SECOND`], and a `System`
+    /// duration added to a `Tick` instant is converted to whole ticks.
+    ///
+    /// # Why the mismatch is converted rather than dropped
+    ///
+    /// This used to return `self` unchanged for a unit mismatch, which turned a
+    /// `Duration::Tick` interval on a wall-clock timer into a schedule point of
+    /// `last_run + 0` — `Timer::instant_of_next_run` is literally
+    /// `last_run + delay + interval`, so the timer reported itself permanently
+    /// overdue and `LayoutWindow::time_until_next_timer_ms` answered `Some(0)`
+    /// for it, i.e. "block for zero milliseconds" to any loop that consults it.
+    ///
+    /// `System + System` still overflow-panics on an absurd duration (that is
+    /// `StdInstant`'s own behaviour, characterised in the tests); the tick arms
+    /// saturate.
     #[must_use] pub fn add_optional_duration(&self, duration: Option<&Duration>) -> Self {
         duration.map_or_else(|| self.clone(), |d| match (self, d) {
                 (Self::System(i), Duration::System(d)) => {
@@ -402,8 +414,20 @@ impl Instant {
                     // Saturate so a runaway tick delta cannot overflow-panic.
                     tick_counter: s.tick_counter.saturating_add(d.tick_diff),
                 }),
-                // Mismatched kinds: undefined operation -> do nothing (saturate).
-                _ => self.clone(),
+                // System instant + Tick duration: convert the frame count to wall
+                // time. Routed through the same `System + System` arm so the
+                // overflow behaviour is identical for both units.
+                (Self::System(_), Duration::Tick(_)) => {
+                    self.add_optional_duration(Some(&Duration::System(
+                        SystemTimeDiff::from_nanos_u128(d.as_nanos()),
+                    )))
+                }
+                // Tick instant + System duration: convert to WHOLE ticks. A
+                // sub-frame duration therefore advances nothing, which is the
+                // truthful answer on a clock whose resolution is one frame.
+                (Self::Tick(s), Duration::System(_)) => Self::Tick(SystemTick {
+                    tick_counter: s.tick_counter.saturating_add(d.as_ticks()),
+                }),
             })
     }
 
@@ -684,7 +708,87 @@ impl From<StdDuration> for Duration {
     }
 }
 
+/// Nominal engine tick (frame) rate — the single exchange rate between
+/// [`Duration::Tick`] (frames) and [`Duration::System`] (wall time).
+///
+/// Re-exported from `azul-css` so the CSS `t` unit and the engine's `Duration`
+/// arithmetic cannot drift apart. See [`azul_css::props::basic::time::TICKS_PER_SECOND`].
+pub use azul_css::props::basic::time::TICKS_PER_SECOND;
+
 impl Duration {
+    /// This duration on ONE canonical scale, in nanoseconds — the common ground
+    /// on which a `Tick` span and a `System` span can be compared.
+    ///
+    /// `u128` because a `System` duration holds up to `u64::MAX` *seconds*
+    /// (~1.8e28 ns), which does not fit `u64`. The tick conversion multiplies
+    /// before it divides so whole seconds stay exact: `60t` is `1_000_000_000`ns,
+    /// not `60 * 16_666_666 = 999_999_960`ns.
+    ///
+    /// Note this also normalises a DENORMALISED `SystemTimeDiff` (`nanos` past
+    /// `1e9`) the same way `std::time::Duration::new` would — except it cannot
+    /// panic on overflow while doing it.
+    // `as u128` rather than `u128::from`: this is a `const fn` and `From` is not
+    // const. Every one of these widenings is lossless.
+    #[allow(clippy::cast_lossless)]
+    #[must_use]
+    pub const fn as_nanos(&self) -> u128 {
+        match self {
+            Self::System(s) => (s.secs as u128) * (NANOS_PER_SEC as u128) + (s.nanos as u128),
+            Self::Tick(t) => (t.tick_diff as u128) * (NANOS_PER_SEC as u128) / (TICKS_PER_SECOND as u128),
+        }
+    }
+
+    /// A wall-clock duration of `ms` whole milliseconds.
+    #[must_use]
+    pub const fn from_millis(ms: u64) -> Self {
+        Self::System(SystemTimeDiff::from_millis(ms))
+    }
+
+    /// A duration of `ticks` engine frames — the clockless unit, and what the
+    /// CSS `t` unit becomes.
+    #[must_use]
+    pub const fn from_ticks(ticks: u64) -> Self {
+        Self::Tick(SystemTickDiff { tick_diff: ticks })
+    }
+
+    /// This duration in whole ticks (frames), truncating toward zero.
+    ///
+    /// A sub-frame span is **zero** ticks, not one: "how many whole frames fit",
+    /// never "round up so that something happens".
+    // `as` casts: `const fn`, so `From`/`TryFrom` are unavailable. The widenings
+    // are lossless and the u128 -> u64 narrowing is range-checked immediately
+    // above it.
+    #[allow(clippy::cast_lossless, clippy::cast_possible_truncation)]
+    #[must_use]
+    pub const fn as_ticks(&self) -> u64 {
+        match self {
+            Self::Tick(t) => t.tick_diff,
+            Self::System(_) => {
+                let ticks = self.as_nanos() * (TICKS_PER_SECOND as u128) / (NANOS_PER_SEC as u128);
+                if ticks > u64::MAX as u128 {
+                    u64::MAX
+                } else {
+                    ticks as u64
+                }
+            }
+        }
+    }
+
+    /// This duration in whole milliseconds, truncating toward zero and
+    /// saturating at `u64::MAX` rather than wrapping.
+    // `as` casts: `const fn`, so `From`/`TryFrom` are unavailable. The u128 ->
+    // u64 narrowing is range-checked immediately above it.
+    #[allow(clippy::cast_lossless, clippy::cast_possible_truncation)]
+    #[must_use]
+    pub const fn as_millis_u64(&self) -> u64 {
+        let ms = self.as_nanos() / (NANOS_PER_MILLI as u128);
+        if ms > u64::MAX as u128 {
+            u64::MAX
+        } else {
+            ms as u64
+        }
+    }
+
     /// Returns the maximum possible duration.
     #[must_use] pub fn max() -> Self {
         #[cfg(feature = "std")]
@@ -700,20 +804,28 @@ impl Duration {
     }
 
     /// Divides this duration by another, returning the ratio as f32.
+    ///
+    /// Same-unit division goes through the unit's own `div` so its exact
+    /// floating-point result is unchanged. Cross-unit division falls back to the
+    /// canonical nanosecond scale rather than returning `0.0` — a `0.0` ratio
+    /// here means "animation is at 0% progress", which is a frozen animation, not
+    /// an error anyone would notice.
     // the f64 ratio is intentionally narrowed to the f32 return type; the value
     // is a duration ratio, far inside f32's range.
-    #[allow(clippy::cast_possible_truncation)]
+    #[allow(clippy::cast_possible_truncation, clippy::cast_precision_loss)]
     #[must_use] pub fn div(&self, other: &Self) -> f32 {
         use self::Duration::{System, Tick};
         match (self, other) {
             (System(s), System(s2)) => s.div(s2) as f32,
             (Tick(t), Tick(t2)) => t.div(t2) as f32,
-            _ => 0.0,
+            // u128 -> f64 loses precision only past 2^53 ns (~104 days), and the
+            // result is a ratio that is then narrowed to f32 anyway.
+            _ => (self.as_nanos() as f64 / other.as_nanos() as f64) as f32,
         }
     }
 
     /// Returns the smaller of two durations.
-    #[must_use] pub fn min(self, other: Self) -> Self {
+    #[must_use] pub const fn min(self, other: Self) -> Self {
         if self.smaller_than(&other) {
             self
         } else {
@@ -723,53 +835,37 @@ impl Duration {
 
     /// Returns true if self > other.
     ///
-    /// Mismatched kinds (comparing a System duration with a Tick duration) are
-    /// undefined and saturate to `false` instead of panicking.
-    #[allow(unused_variables)]
-    #[must_use] pub fn greater_than(&self, other: &Self) -> bool {
-        match (self, other) {
-            // self > other
-            (Self::System(s), Self::System(o)) => {
-                #[cfg(feature = "std")]
-                {
-                    let s: StdDuration = (*s).into();
-                    let o: StdDuration = (*o).into();
-                    s > o
-                }
-                #[cfg(not(feature = "std"))]
-                {
-                    false
-                }
-            }
-            (Self::Tick(s), Self::Tick(o)) => s.tick_diff > o.tick_diff,
-            _ => false,
-        }
+    /// Compares on the canonical nanosecond scale ([`Self::as_nanos`]), so a
+    /// `Tick` span and a `System` span compare TRUTHFULLY against each other.
+    ///
+    /// # Why this is not "mismatched kinds saturate to false"
+    ///
+    /// It used to be. That made a unit mismatch invisible and permanent instead
+    /// of loud: the engine's interval constants are `Duration::System` (the
+    /// cursor blink, the scrollbar fade, the tooltip delay), so the moment a
+    /// clock produced `Tick` elapsed values every one of those comparisons
+    /// answered "not yet" — forever. Nothing panicked, nothing logged, the UI
+    /// simply stopped animating. That is precisely the failure a clockless unit
+    /// is supposed to make *catchable*, so the comparison has to be total.
+    ///
+    /// Three behaviours changed, all in the safe direction:
+    ///
+    /// 1. Cross-unit comparisons now answer, instead of always `false`.
+    /// 2. On `no_std` the `System`/`System` arm used to be hardcoded `false`
+    ///    (there was no `StdDuration` to defer to); it now compares properly.
+    /// 3. A denormalised `SystemTimeDiff` whose `secs + nanos/1e9` overflows
+    ///    `u64` used to panic inside `StdDuration::new`; `u128` nanoseconds
+    ///    cannot overflow.
+    #[must_use] pub const fn greater_than(&self, other: &Self) -> bool {
+        self.as_nanos() > other.as_nanos()
     }
 
     /// Returns true if self < other.
     ///
-    /// Mismatched kinds (comparing a System duration with a Tick duration) are
-    /// undefined and saturate to `false` instead of panicking.
-    #[allow(unused_variables)]
-    #[must_use] pub fn smaller_than(&self, other: &Self) -> bool {
-        // self < other
-        match (self, other) {
-            // self > other
-            (Self::System(s), Self::System(o)) => {
-                #[cfg(feature = "std")]
-                {
-                    let s: StdDuration = (*s).into();
-                    let o: StdDuration = (*o).into();
-                    s < o
-                }
-                #[cfg(not(feature = "std"))]
-                {
-                    false
-                }
-            }
-            (Self::Tick(s), Self::Tick(o)) => s.tick_diff < o.tick_diff,
-            _ => false,
-        }
+    /// Canonical-scale comparison; see [`Self::greater_than`] for why this is
+    /// unit-aware rather than saturating to `false` on a unit mismatch.
+    #[must_use] pub const fn smaller_than(&self, other: &Self) -> bool {
+        self.as_nanos() < other.as_nanos()
     }
 }
 
@@ -855,6 +951,30 @@ impl SystemTimeDiff {
             nanos: (nanos % (NANOS_PER_SEC as u64)) as u32,
         }
     }
+
+    /// Creates a duration from a `u128` nanosecond count, saturating at the
+    /// largest representable duration instead of wrapping.
+    ///
+    /// Needed because [`Duration::as_nanos`] is `u128`: a tick count near
+    /// `u64::MAX` converts to ~3e26 ns, far past what `u64` nanoseconds hold.
+    // `nanos % NANOS_PER_SEC` is always < 10^9 and `secs` is range-checked above,
+    // so neither narrowing cast can truncate. `as` widenings rather than `From`
+    // because this is a `const fn`.
+    #[allow(clippy::cast_possible_truncation, clippy::cast_lossless)]
+    #[must_use] pub const fn from_nanos_u128(nanos: u128) -> Self {
+        let secs = nanos / (NANOS_PER_SEC as u128);
+        if secs > u64::MAX as u128 {
+            Self {
+                secs: u64::MAX,
+                nanos: NANOS_PER_SEC - 1,
+            }
+        } else {
+            Self {
+                secs: secs as u64,
+                nanos: (nanos % (NANOS_PER_SEC as u128)) as u32,
+            }
+        }
+    }
     /// Adds two durations, returning None on overflow.
     #[must_use] pub const fn checked_add(self, rhs: Self) -> Option<Self> {
         if let Some(mut secs) = self.secs.checked_add(rhs.secs) {
@@ -887,6 +1007,24 @@ impl SystemTimeDiff {
     #[cfg(feature = "std")]
     #[must_use] pub fn get(&self) -> StdDuration {
         (*self).into()
+    }
+}
+
+/// Bridge from the CSS-level duration to the engine-level one, preserving the
+/// unit.
+///
+/// This is the join that makes a CSS `5t` mean five FRAMES all the way down to
+/// the timer: `ms`/`s` become `Duration::System`, `t` becomes `Duration::Tick`.
+/// Collapsing ticks to milliseconds here would put the wall clock back in the
+/// path and make "advance exactly 5 ticks, assert the 5th frame flipped"
+/// untestable again.
+impl From<azul_css::props::basic::time::CssDuration> for Duration {
+    fn from(d: azul_css::props::basic::time::CssDuration) -> Self {
+        use azul_css::props::basic::time::CssDurationUnit;
+        match d.unit {
+            CssDurationUnit::Milliseconds => Self::from_millis(u64::from(d.inner)),
+            CssDurationUnit::Ticks => Self::from_ticks(u64::from(d.inner)),
+        }
     }
 }
 
@@ -1250,30 +1388,60 @@ mod tests {
         assert_eq!(d, tick_dur(0));
     }
 
+    /// Cross-unit comparison must answer TRUTHFULLY, not saturate to `false`.
+    ///
+    /// The saturating version made a unit mismatch a permanent silent "not yet":
+    /// every interval constant in the engine is a `Duration::System`, so a Tick
+    /// elapsed value compared against one never expired and the UI simply stopped
+    /// animating, with nothing to catch.
     #[test]
-    fn duration_compare_mismatched_kinds_saturates() {
-        // greater_than / smaller_than across kinds must not panic (saturate to false).
-        let a = tick_dur(5);
-        let b = sys_dur(1, 0);
-        assert!(!a.greater_than(&b));
-        assert!(!a.smaller_than(&b));
-        assert!(!b.greater_than(&a));
-        assert!(!b.smaller_than(&a));
+    fn duration_compare_is_unit_aware_across_ticks_and_wall_clock() {
+        // 5 ticks at 60Hz is ~83ms, i.e. LESS than one second.
+        let five_ticks = tick_dur(5);
+        let one_second = sys_dur(1, 0);
+        assert!(five_ticks.smaller_than(&one_second));
+        assert!(!five_ticks.greater_than(&one_second));
+        assert!(one_second.greater_than(&five_ticks));
+        assert!(!one_second.smaller_than(&five_ticks));
+
+        // 120 ticks is two seconds, i.e. MORE than one second.
+        assert!(tick_dur(120).greater_than(&one_second));
+        assert!(one_second.smaller_than(&tick_dur(120)));
+
+        // Exactly 60 ticks IS one second: neither greater nor smaller.
+        assert!(!tick_dur(60).greater_than(&one_second));
+        assert!(!tick_dur(60).smaller_than(&one_second));
+        assert!(!one_second.greater_than(&tick_dur(60)));
+        assert!(!one_second.smaller_than(&tick_dur(60)));
+    }
+
+    /// `Duration::max()` is `System`, and it must still dominate every tick count
+    /// — including `u64::MAX` ticks, which is a bigger *number* but a smaller
+    /// span.
+    #[test]
+    fn duration_compare_across_units_at_the_extremes() {
+        assert!(Duration::max().greater_than(&tick_dur(u64::MAX)));
+        assert!(tick_dur(u64::MAX).smaller_than(&Duration::max()));
+        assert!(!tick_dur(0).greater_than(&sys_dur(0, 0)));
+        assert!(!sys_dur(0, 0).greater_than(&tick_dur(0)));
+        // One nanosecond beats zero ticks.
+        assert!(sys_dur(0, 1).greater_than(&tick_dur(0)));
     }
 
     #[test]
-    fn add_optional_duration_mismatched_is_noop() {
+    fn add_optional_duration_converts_across_units() {
         let inst = tick(100);
-        // Adding a System duration to a Tick instant is undefined -> returns self.
-        let out = inst.add_optional_duration(Some(&sys_dur(1, 0)));
-        assert_eq!(out, tick(100));
+        // A System duration on a Tick instant advances by WHOLE ticks: 1s = 60.
+        assert_eq!(inst.add_optional_duration(Some(&sys_dur(1, 0))), tick(160));
+        // Sub-frame durations advance nothing — one frame is the resolution.
+        assert_eq!(inst.add_optional_duration(Some(&sys_dur(0, 1))), tick(100));
         // Matching kinds add and saturate.
-        let out2 = inst.add_optional_duration(Some(&tick_dur(5)));
-        assert_eq!(out2, tick(105));
+        assert_eq!(inst.add_optional_duration(Some(&tick_dur(5))), tick(105));
         // Saturating add: near-max tick doesn't overflow-panic.
         let big = tick(u64::MAX);
-        let out3 = big.add_optional_duration(Some(&tick_dur(10)));
-        assert_eq!(out3, tick(u64::MAX));
+        assert_eq!(big.add_optional_duration(Some(&tick_dur(10))), tick(u64::MAX));
+        // ...and the cross-unit arm saturates too.
+        assert_eq!(big.add_optional_duration(Some(&Duration::max())), tick(u64::MAX));
     }
 
     #[test]
@@ -1284,12 +1452,19 @@ mod tests {
         assert_eq!(normal.millis(), 2500);
     }
 
+    /// Cross-unit division goes through the canonical scale. Returning `0.0` (the
+    /// old behaviour) reads downstream as "this animation is at 0% progress",
+    /// i.e. a frozen animation that never reports an error.
     #[test]
-    fn duration_div_mismatched_kinds_is_zero() {
-        // Dividing a Tick duration by a System duration is undefined -> 0.0.
-        assert_eq!(tick_dur(10).div(&sys_dur(1, 0)), 0.0);
+    fn duration_div_is_unit_aware() {
+        // 30 ticks is half a second.
+        assert!((tick_dur(30).div(&sys_dur(1, 0)) - 0.5).abs() < 1e-6);
+        // ...and one second is two lots of 30 ticks.
+        assert!((sys_dur(1, 0).div(&tick_dur(30)) - 2.0).abs() < 1e-6);
         // Matching Tick kinds divide normally.
         assert!((tick_dur(5).div(&tick_dur(10)) - 0.5).abs() < 1e-6);
+        // Matching System kinds divide normally.
+        assert!((sys_dur(1, 0).div(&sys_dur(2, 0)) - 0.5).abs() < 1e-6);
     }
 
     // Exercises the `unsafe` pointer work in `std_instant_clone` (`&*ptr`) and
@@ -1524,15 +1699,25 @@ mod autotest_generated {
         assert_eq!(base.duration_since(&later), sys_dur(0, 0));
     }
 
+    /// A `Tick` interval on a wall-clock instant has to ADVANCE that instant, not
+    /// leave it alone. `Timer::instant_of_next_run` is exactly `last_run +
+    /// delay + interval`; when this returned `self`, a tick-unit timer's next run
+    /// was always "now" — permanently overdue, and `time_until_next_timer_ms`
+    /// answered `Some(0)` for it.
     #[cfg(feature = "std")]
     #[test]
-    fn add_optional_duration_mismatched_kinds_saturate_both_ways() {
+    fn add_optional_duration_converts_between_units_in_both_directions() {
         let sys = Instant::now();
-        // System instant + Tick duration -> unchanged.
-        assert_eq!(sys.add_optional_duration(Some(&tick_dur(500))), sys);
-        // Tick instant + System duration -> unchanged.
-        let t = tick(7);
-        assert_eq!(t.add_optional_duration(Some(&sys_dur(3, 0))), t);
+        // System instant + Tick duration: 60 ticks is exactly one second.
+        let later = sys.add_optional_duration(Some(&tick_dur(60)));
+        assert!(later > sys, "a tick interval must advance a wall-clock instant");
+        assert_eq!(later.duration_since(&sys), sys_dur(1, 0));
+
+        // 0 ticks is genuinely no time at all.
+        assert_eq!(sys.add_optional_duration(Some(&tick_dur(0))), sys);
+
+        // Tick instant + System duration: 3s is 180 whole frames.
+        assert_eq!(tick(7).add_optional_duration(Some(&sys_dur(3, 0))), tick(187));
     }
 
     // A `System` instant plus an enormous `System` duration overflows the
@@ -1727,10 +1912,13 @@ mod autotest_generated {
         assert_eq!(sys_dur(3, 0).div(&sys_dur(2, 0)), 1.5);
     }
 
+    /// Cross-unit division converts instead of collapsing to `0.0`. 10 ticks is
+    /// one sixth of a second, so the two ratios are reciprocals of each other —
+    /// which is the property `0.0` both ways could never satisfy.
     #[test]
-    fn duration_div_mismatched_kinds_saturates_to_zero_both_ways() {
-        assert_eq!(sys_dur(1, 0).div(&tick_dur(10)), 0.0);
-        assert_eq!(tick_dur(10).div(&sys_dur(1, 0)), 0.0);
+    fn duration_div_across_kinds_converts_both_ways() {
+        assert!((sys_dur(1, 0).div(&tick_dur(10)) - 6.0).abs() < 1e-5);
+        assert!((tick_dur(10).div(&sys_dur(1, 0)) - (1.0 / 6.0)).abs() < 1e-5);
     }
 
     #[test]
@@ -1739,25 +1927,30 @@ mod autotest_generated {
         assert_eq!(tick_dur(10).min(tick_dur(5)), tick_dur(5));
         assert_eq!(tick_dur(7).min(tick_dur(7)), tick_dur(7));
         assert_eq!(tick_dur(0).min(tick_dur(u64::MAX)), tick_dur(0));
-        // System comparisons need the std conversion (no_std saturates to false).
-        #[cfg(feature = "std")]
+        // Comparison no longer needs std: it is u128 nanosecond arithmetic.
         assert_eq!(sys_dur(1, 0).min(sys_dur(1, 1)), sys_dur(1, 0));
     }
 
+    /// `min` is built on `smaller_than`, so it picks the genuinely shorter span
+    /// across units and is COMMUTATIVE. It used to just return `other` whenever
+    /// the units differed — so `a.min(b)` and `b.min(a)` disagreed, and the
+    /// answer depended on argument order rather than on the durations.
     #[test]
-    fn duration_min_across_kinds_falls_back_to_other() {
-        // `min` is built on `smaller_than`, which saturates to `false` for
-        // mismatched kinds -> `min` degenerates to "return `other`". Pinned here
-        // because it makes `min` non-commutative across kinds.
-        assert_eq!(tick_dur(5).min(sys_dur(1, 0)), sys_dur(1, 0));
+    fn duration_min_across_kinds_picks_the_genuinely_shorter_span() {
+        // 5 ticks is ~83ms, so it is shorter than a second either way round.
+        assert_eq!(tick_dur(5).min(sys_dur(1, 0)), tick_dur(5));
         assert_eq!(sys_dur(1, 0).min(tick_dur(5)), tick_dur(5));
+        // ...and 120 ticks is 2s, so the second wins either way round.
+        assert_eq!(tick_dur(120).min(sys_dur(1, 0)), sys_dur(1, 0));
+        assert_eq!(sys_dur(1, 0).min(tick_dur(120)), sys_dur(1, 0));
     }
 
     #[test]
     fn duration_comparison_is_a_strict_total_order_within_a_kind() {
         let mut pairs = alloc::vec![(tick_dur(0), tick_dur(u64::MAX)), (tick_dur(1), tick_dur(2))];
-        // System ordering only exists under std; no_std saturates it to `false`.
-        #[cfg(feature = "std")]
+        // System ordering no longer needs std: the comparison is u128 nanosecond
+        // arithmetic. It used to defer to `StdDuration`, so on no_std it answered
+        // `false` for every System pair — a total order that ordered nothing.
         pairs.extend_from_slice(&[
             (sys_dur(0, 0), sys_dur(u64::MAX, 0)),
             (sys_dur(1, 999_999_999), sys_dur(2, 0)),

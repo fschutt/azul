@@ -2501,9 +2501,16 @@ mod autotest_generated {
 
     #[test]
     fn tick_with_a_mismatched_clock_kind_stalls_at_zero_instead_of_panicking() {
-        // Tick-clock animation ticked by a System instant: duration_since and div
-        // both saturate to 0 => t = 0 forever. The animation never advances and
-        // never completes — but it does not panic or corrupt the offset.
+        // Tick-clock animation ticked by a System INSTANT. A System instant and a
+        // Tick instant have no common origin, so `duration_since` has no
+        // meaningful span to report and saturates to zero => t = 0 forever. The
+        // animation never advances and never completes — but it does not panic or
+        // corrupt the offset.
+        //
+        // Note this is specifically an INSTANT mismatch. A mismatch between the
+        // elapsed DURATION's unit and the animation duration's unit is a
+        // different thing entirely and does convert: `Duration::div` puts both on
+        // a canonical nanosecond scale.
         let mut m = mgr(size(100.0, 100.0), size(100.0, 500.0));
         m.set_scroll_position(DOM, node(0), pos(0.0, 25.0), at(0));
         m.scroll_to(DOM, node(0), pos(0.0, 400.0), tick_dur(10), EasingFunction::Linear, at(0));
