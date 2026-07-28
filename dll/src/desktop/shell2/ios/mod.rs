@@ -719,11 +719,20 @@ fn get_or_create_gesture_target_class() -> &'static Class {
 }
 
 extern "C" fn display_tick(_this: &Object, _cmd: Sel, _link: *mut Object) {
-    // Cheap rate limit: only ask for a redraw when the layout has
-    // changed since the last frame. The framework's
-    // `frame_needs_regeneration` flag is the authoritative answer —
-    // touch / timer / async-thread results all flip it.
+    // Cheap rate limit: only ask for a redraw when the layout has changed since
+    // the last frame.
+    //
+    // The comment here used to claim "touch / timer / async-thread results all
+    // flip it". That was false for two of the three: process_timers_and_threads
+    // had NO call site anywhere in ios/mod.rs, so no Timer ever fired, no
+    // background Thread writeback was ever collected, and no animation advanced
+    // on iOS. Only touch flipped the flag. The CADisplayLink tick is the natural
+    // place to drive it — it fires every screen refresh — so it now does, and the
+    // comment is true.
     if let Some(window) = unsafe { azul_ios_window() } {
+        if window.process_timers_and_threads() {
+            window.common.frame_needs_regeneration = true;
+        }
         if window.common.frame_needs_regeneration {
             let _ = window.present();
         }

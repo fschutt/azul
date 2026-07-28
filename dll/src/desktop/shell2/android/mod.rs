@@ -412,6 +412,15 @@ pub fn android_main(app: AndroidApp) {
             handle_poll_event(&app, &mut window, event);
         });
 
+        // Timers, Thread writebacks and animations. This call had NO call site
+        // on Android at all, so nothing time-driven ever ran here: no Timer
+        // fired, no background Thread result was ever collected, and no
+        // animation advanced. The 16 ms poll above was already the right place
+        // to drive it; it simply was never wired.
+        if window.process_timers_and_threads() {
+            window.common.frame_needs_regeneration = true;
+        }
+
         // Regenerate layout when something invalidated the frame (init,
         // resize, input). Populates cpu_backend.last_frame.
         if window.common.frame_needs_regeneration {
