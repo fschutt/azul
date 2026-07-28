@@ -176,6 +176,16 @@ impl MonitorState {
     }
 }
 
+/// How long to wait for `wl_surface.frame`'s `done` before assuming it is never
+/// coming and rendering anyway.
+///
+/// Generous on purpose: this is a deadlock escape, not a frame-pacing knob. At
+/// 60 Hz a healthy compositor answers in ~16 ms, so half a second is ~30 missed
+/// frames — long enough that it cannot fire on a merely slow machine, short
+/// enough that a user who un-minimises a window does not sit looking at a frozen
+/// one.
+const FRAME_CALLBACK_TIMEOUT: std::time::Duration = std::time::Duration::from_millis(500);
+
 pub struct WaylandWindow {
     wayland: Rc<Wayland>,
     xkb: Rc<Xkb>,
@@ -337,6 +347,16 @@ pub struct WaylandWindow {
 
     // V2 Event system state
     pub frame_callback_pending: bool, // Wayland frame callback synchronization
+    /// When `frame_callback_pending` was armed. The latch has no other escape:
+    /// it is cleared ONLY by `frame_done_callback`, and a compositor is entitled
+    /// to never send `done` — wayland.xml says a server "should avoid signaling
+    /// the frame callbacks if the surface is not visible in any way, e.g. the
+    /// surface is off-screen, or completely obscured by other opaque surfaces",
+    /// and Weston implements that literally. Without an expiry, minimising or
+    /// occluding a window froze it permanently: Wayland has no Expose, and
+    /// poll_event never calls generate_frame_if_needed, so nothing would ever
+    /// retry. See FRAME_CALLBACK_TIMEOUT.
+    pub frame_callback_armed_at: Option<std::time::Instant>,
     /// Set to true when a visual update is needed but no layout regeneration is required.
     /// This happens when scroll offsets change (timer callbacks) or GPU values are updated.
     /// The next `render_frame_if_ready()` will send a lightweight transaction.
@@ -1375,6 +1395,7 @@ impl WaylandWindow {
             drag: events::WaylandDragState::default(),
             tablet_pen: events::TabletPenPending::default(),
             frame_callback_pending: false,
+            frame_callback_armed_at: None,
             needs_redraw: false,
             gpu_damage_rects: Vec::new(),
             gpu_last_render_presented: true,
@@ -4103,8 +4124,33 @@ impl WaylandWindow {
         let needs_work = self.common.frame_needs_regeneration
             || self.common.frame_relayout_only
             || self.needs_redraw;
-        if !needs_work || self.frame_callback_pending {
+        if !needs_work {
             return;
+        }
+        if self.frame_callback_pending {
+            // Expire a latch the compositor is never going to release.
+            //
+            // This flag is armed unconditionally after a commit and cleared ONLY
+            // in frame_done_callback. It is also armed on paths that committed no
+            // buffer at all (lazy CPU alloc, the GPU should_present skip, a
+            // missing renderer), so there was nothing for the compositor to
+            // answer. Combined with an occluded surface — where the protocol
+            // explicitly permits withholding `done` — the window froze for good.
+            let stale = self
+                .frame_callback_armed_at
+                .is_some_and(|t| t.elapsed() > FRAME_CALLBACK_TIMEOUT);
+            if !stale {
+                return;
+            }
+            log_warn!(
+                LogCategory::Rendering,
+                "[Wayland] frame callback not delivered within {:?} — proceeding anyway. The \
+                 surface is likely occluded or minimised, where the compositor is entitled to \
+                 withhold it.",
+                FRAME_CALLBACK_TIMEOUT,
+            );
+            self.frame_callback_pending = false;
+            self.frame_callback_armed_at = None;
         }
 
         // CRITICAL: Make OpenGL context current BEFORE generate_frame
@@ -4791,6 +4837,7 @@ impl WaylandWindow {
 
         self.common.frame_needs_regeneration = false;
         self.frame_callback_pending = true;
+        self.frame_callback_armed_at = Some(std::time::Instant::now());
     }
 
     /// Set the mouse cursor for this window
@@ -4945,6 +4992,7 @@ extern "C" fn frame_done_callback(
 ) {
     let window = unsafe { &mut *(data as *mut WaylandWindow) };
     window.frame_callback_pending = false;
+    window.frame_callback_armed_at = None;
 
     // The frame callback is one-shot: once the compositor delivers `done`, this
     // wl_callback proxy is dead. Destroy it here — otherwise EVERY frame leaks one
