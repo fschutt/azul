@@ -4424,7 +4424,12 @@ unsafe extern "system" fn window_proc(
             window.common.system_style = new_style;
             let r = window.process_window_events(0);
             window.route_main_window_result(hwnd, r);
-            window.common.request_regeneration(azul_core::callbacks::RelayoutReason::RefreshDom);
+            // Tagged ThemeChange, not RefreshDom: the reason reaches the user's
+            // layout callback via LayoutCallbackInfo::relayout_reason(), and a
+            // theme switch is exactly the case where a callback wants to know it
+            // may re-read system colours rather than assume a generic refresh.
+            // This was the ONLY producer of the variant; it reported RefreshDom.
+            window.common.request_regeneration(azul_core::callbacks::RelayoutReason::ThemeChange);
             unsafe {
                 (window.win32.user32.InvalidateRect)(hwnd, ptr::null(), 0);
             }

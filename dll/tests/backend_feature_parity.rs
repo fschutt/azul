@@ -75,3 +75,56 @@ fn every_backend_dispatches_accessibility_actions() {
          {missing:?}",
     );
 }
+
+/// A system theme switch must reach the window at runtime.
+///
+/// The system style is captured ONCE, when the window is created. Windows is the
+/// only backend that ever re-reads it: its `WM_SETTINGCHANGE | WM_THEMECHANGED`
+/// arm calls `discover_system_style()` again, updates
+/// `current_window_state.theme` and requests a regeneration. Nowhere else in
+/// `shell2/` calls `discover_system_style` except each backend's constructor.
+///
+/// So on macOS, X11, Wayland, iOS and Android, toggling the OS between light and
+/// dark mode does NOTHING until the app is restarted — the DOM keeps whatever
+/// theme it started with, and `prefers-color-scheme` styling never re-evaluates.
+/// The `EventType::ThemeChange` event and the `WindowEventFilter::ThemeChanged`
+/// filter both exist and are fully wired in azul-core; there is simply no
+/// platform code to fire them.
+///
+/// Each platform has the notification available and it is not the same API on
+/// any two of them:
+///   * macOS  — KVO on `NSApp.effectiveAppearance`, or
+///     `viewDidChangeEffectiveAppearance` on the view;
+///   * X11    — the XSETTINGS `Net/ThemeName` property, or the
+///     `org.freedesktop.portal.Settings` `SettingChanged` signal;
+///   * Wayland — `org.freedesktop.portal.Settings`, `color-scheme` (there is no
+///     Wayland protocol for it; the portal is the mechanism);
+///   * iOS    — `traitCollectionDidChange` / `UIUserInterfaceStyle`;
+///   * Android — `onConfigurationChanged` with `UI_MODE_NIGHT_MASK`.
+///
+/// headless has no system theme to observe, but it is the backend the E2E corpus
+/// runs on, so it needs a way to be TOLD the theme changed or no scenario can
+/// ever cover theme-dependent layout.
+///
+/// Making this pass by shortening the backend list would restore exactly the
+/// silence it exists to break.
+/// Keyed on `RelayoutReason::ThemeChange` rather than on `discover_system_style`,
+/// because the latter cannot tell the two cases apart: headless calls it in its
+/// CONSTRUCTOR and Windows calls it only in its runtime handler, so both contain
+/// the string exactly once while meaning opposite things. A backend that
+/// genuinely handles a runtime theme switch has to request a regeneration for
+/// it, and the reason is what says so.
+#[test]
+fn every_backend_reacts_to_a_runtime_theme_change() {
+    let missing: Vec<&str> = FRAME_DRIVING_BACKENDS
+        .iter()
+        .copied()
+        .filter(|b| !backend_src(b).contains("RelayoutReason::ThemeChange"))
+        .collect();
+
+    assert!(
+        missing.is_empty(),
+        "these backends never request a regeneration tagged ThemeChange, so a user toggling \
+         dark mode sees no change until restart: {missing:?}",
+    );
+}
