@@ -1062,7 +1062,20 @@ jobs:
           ASAN_OPTIONS: detect_leaks=0,abort_on_error=1
           AZ_EXIT_SUCCESS_AFTER_FRAME_RENDER: "1"
           AZ_BACKEND: headless
-        run: ${{ matrix.timeout_cmd }} 30 ./hello-world-asan || [ $? -eq 124 ]
+        # NO `|| [ $? -eq 124 ]`. That clause turned the timeout kill into a
+        # pass — and the process ALWAYS timed out, because AZ_BACKEND=headless
+        # and the headless backend did not read
+        # AZ_EXIT_SUCCESS_AFTER_FRAME_RENDER (only windows/macos/x11/wayland
+        # did). So an app that rendered nothing, hung on first layout or
+        # deadlocked was indistinguishable from the healthy path: all rc 124, all
+        # green. The gate still caught an ASan abort (rc 134), but it had never
+        # once verified a frame rendered, which is what its own env var claims.
+        #
+        # headless now honours the variable and exits 0 on the first rendered
+        # frame, so exit 0 MEANS a frame rendered and a timeout is a real
+        # failure. Deliberately does NOT exit 0 when no frame rendered — that
+        # would rebuild the same false green from the other side.
+        run: ${{ matrix.timeout_cmd }} 30 ./hello-world-asan
 
       - name: Run Miri on azul-dll
         # azul-dll is a shell/GUI library: its unit tests legitimately touch

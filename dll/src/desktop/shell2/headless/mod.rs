@@ -1319,6 +1319,48 @@ impl HeadlessWindow {
             self.close();
         }
 
+        // -- Exit once a frame has actually rendered --
+        // `AZ_EXIT_SUCCESS_AFTER_FRAME_RENDER=1` closes the window as soon as
+        // one frame exists, so the process exits 0 having PROVEN it rendered.
+        //
+        // windows, macos, x11 and wayland have honoured this for a while;
+        // headless did not, and that silently defeated the ASan gate. The CI
+        // step sets AZ_BACKEND=headless plus this variable and then runs
+        // `timeout 30 ./hello-world-asan || [ $? -eq 124 ]` — so the process
+        // ALWAYS ran to the 30s wall, was killed with rc 124, and the `|| [ $? -eq
+        // 124 ]` converted that into success. An app that rendered nothing, hung
+        // on first layout, or deadlocked was indistinguishable from the healthy
+        // path: all rc 124, all green. The gate still caught an ASan abort (rc
+        // 134), but it had never once verified a frame rendered, which is
+        // precisely what its own env var claims to check.
+        //
+        // Deliberately AFTER the snapshot block so both can be set together: the
+        // snapshot writes the frame, this exits on it.
+        if std::env::var("AZ_EXIT_SUCCESS_AFTER_FRAME_RENDER").is_ok() {
+            #[cfg(feature = "cpurender")]
+            let rendered = self.cpu_backend.last_frame.is_some();
+            #[cfg(not(feature = "cpurender"))]
+            let rendered = false;
+
+            if rendered {
+                log_info!(
+                    LogCategory::Rendering,
+                    "[Headless] AZ_EXIT_SUCCESS_AFTER_FRAME_RENDER: a frame rendered, exiting 0",
+                );
+                self.close();
+            } else {
+                // Do NOT close. Exiting 0 here would re-create the false green
+                // this exists to remove — the caller must be able to tell "no
+                // frame" apart from "frame rendered". Staying up means the
+                // caller's timeout fires, which is now a real failure signal.
+                log_warn!(
+                    LogCategory::Rendering,
+                    "[Headless] AZ_EXIT_SUCCESS_AFTER_FRAME_RENDER set but NO frame has rendered — \
+                     not exiting, so the caller's timeout reports this as the failure it is",
+                );
+            }
+        }
+
         // -- child windows (sub-HeadlessWindows for menus, dialogs) --
         let mut children: Vec<HeadlessWindow> = Vec::new();
         let mut warned_no_wake_sources = false;
