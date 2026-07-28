@@ -56,9 +56,15 @@ azul-layout = { path = "layout" }
 # azul-layout 0.0.12, all published). The azul-* path patches above redirect
 # printpdf's azul deps to this one workspace copy, so there is a single
 # azul-layout and NO printpdf git patch is needed. (dll/ pins printpdf 0.12.2.)
-# rust-fontconfig: use crates.io 4.4.4 (the vendored copy was a labelled REVERT;
-# its only functional delta was a web_lift-only hashbrown workaround). Deps
-# bumped to 4.4.4 in core/ + layout/.
+# rust-fontconfig: use crates.io (the vendored copy was a labelled REVERT; its
+# only functional delta was a web_lift-only hashbrown workaround). core/ and
+# layout/ pin `>=4.4.7, <4.5`; the lock is on 4.4.8.
+#
+# That pin is why 4.4.8 is a PATCH release despite adding public API: printpdf
+# 0.12.2 declares the same `>=4.4.7, <4.5` range, so a 4.5.0 would satisfy
+# neither and cargo would resolve TWO rust-fontconfigs into one binary — two
+# independent FcFontCaches, i.e. layout resolving a font the renderer cannot
+# find. Keep any future release inside this range until printpdf moves.
 #
 # allsorts-azul is NOT patched. It used to be (`path = "third_party/allsorts"`), and that
 # is exactly how azul-layout 0.0.9 shipped broken: the vendored tree grew

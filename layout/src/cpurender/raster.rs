@@ -3476,16 +3476,17 @@ pub fn render_text_run_to_pixmap(
     use rust_fontconfig::{FcPattern, OwnedFontSource};
 
     // 1. Resolve a default (sans-serif) system font, falling back to any font.
+    //    `query_with_fallback` IS that ladder — exact, then family-relaxed, then
+    //    coverage-only — so it replaces the hand-rolled `or_else` chain and keeps
+    //    the relaxation rules in one place, where fontconfig's own live.
     let mut trace = Vec::new();
-    let matched = fc_cache
-        .query(
-            &FcPattern {
-                family: Some("sans-serif".to_string()),
-                ..Default::default()
-            },
-            &mut trace,
-        )
-        .or_else(|| fc_cache.query(&FcPattern::default(), &mut trace))?;
+    let matched = fc_cache.query_with_fallback(
+        &FcPattern {
+            family: Some("sans-serif".to_string()),
+            ..Default::default()
+        },
+        &mut trace,
+    )?;
 
     let bytes = fc_cache.get_font_bytes(&matched.id)?;
     let font_index = fc_cache
