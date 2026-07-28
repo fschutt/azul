@@ -4181,6 +4181,17 @@ fn eval_assert_scroll(
     params: &serde_json::Value,
     callback_info: &azul_layout::callbacks::CallbackInfo,
 ) -> AssertionResult {
+    // At least one AXIS is required. With neither, this resolved the selector,
+    // confirmed the node had *some* scroll state, and returned pass — so it
+    // passed for any offset, including one produced by a completely broken
+    // scroll implementation.
+    if params.get("x").is_none() && params.get("y").is_none() {
+        return AssertionResult::fail(
+            "assert_scroll: neither 'x' nor 'y' given — at least one is required, otherwise this \
+             assertion never compares a position"
+                .to_string(),
+        );
+    }
     if let Some(bad) = reject_unknown_params("assert_scroll", params, &["selector", "x", "y", "tolerance"]) {
         return bad;
     }
@@ -5196,6 +5207,28 @@ fn eval_assert_work_bounded(
         ],
     ) {
         return bad;
+    }
+
+    // At least one BOUND is required. `allow_depth_cap` is deliberately not in
+    // this list: it only relaxes a check, so a step carrying nothing but that
+    // still asserts nothing.
+    //
+    // Without this, `{"op":"assert_work_bounded"}` passed on any window that
+    // rendered a frame and did not hit the depth cap, while printing a
+    // convincing "N event iteration(s), M DOM regen(s) ... depth cap not hit"
+    // that constrains none of those numbers. assert_damage already guards this
+    // way, with the same reasoning in its own message.
+    const CONSTRAINTS: &[&str] = &[
+        "max_relayouts", "min_relayouts", "exact_relayouts",
+        "max_dom_regens", "min_dom_regens", "exact_dom_regens",
+        "max_layout_passes", "min_layout_passes", "exact_layout_passes",
+    ];
+    if !CONSTRAINTS.iter().any(|c| params.get(*c).is_some()) {
+        return AssertionResult::fail(format!(
+            "assert_work_bounded: no bound given — at least one of {} is required, otherwise this \
+             assertion passes unconditionally",
+            CONSTRAINTS.join(", ")
+        ));
     }
 
     let report = frame_report_of(callback_info);
