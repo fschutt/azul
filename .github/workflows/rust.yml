@@ -3715,6 +3715,22 @@ jobs:
               find "$demodir" -type f -exec cp {} "$RELEASE_DIR/demos/" \; 2>/dev/null || true
             fi
           done
+          # RESTORE THE EXECUTE BIT. actions/upload-artifact zips its input and
+          # actions/download-artifact unzips it WITHOUT unix permissions, so every
+          # demo arrives here as 0644 — and `tar` (below) faithfully ships that
+          # mode. The 0.2.0 azul-widgets-linux tarball therefore contained a
+          # non-executable binary: a user had to `chmod +x` before the demo would
+          # start at all. These files are executables by construction (the
+          # build_demos job stages nothing else), so mark them as such — for every
+          # OS, not just the one that was noticed.
+          chmod +x "$RELEASE_DIR/demos/"* 2>/dev/null || true
+          # Same round-trip, same flattened mode: the shared libraries land 0644
+          # too. dlopen() does not require the bit, so nothing was broken by it,
+          # but a shipped .so/.dylib is conventionally 0755 and some packagers and
+          # loaders do check. Fix it at the same place, for the same reason.
+          chmod +x "$RELEASE_DIR"/*.so "$RELEASE_DIR"/*.so.* "$RELEASE_DIR"/*.dylib \
+                   "$RELEASE_DIR"/*.dll "$RELEASE_DIR"/mobile/*/*.so \
+                   "$RELEASE_DIR"/mobile/*/*.dylib 2>/dev/null || true
           echo "=== Demo binaries ==="
           ls -la "$RELEASE_DIR/demos/" 2>/dev/null || echo "  (no demo binaries shipped)"
 
