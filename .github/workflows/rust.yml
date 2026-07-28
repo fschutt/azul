@@ -3996,6 +3996,75 @@ jobs:
           check_channel artifacts-registry/nuget-package website/ui/nuget
           check_channel artifacts-registry/ruby-gem      website/ui/gems
           check_channel artifacts-registry/maven-jar     website/ui/maven
+
+          # ...but a directory existing is NOT the same as a channel working.
+          # website/ui/gems DID get created while its index generation failed,
+          # so the check above passed and `gem install --source` 404'd anyway.
+          # For every live channel, assert the exact file a real client fetches
+          # is present and non-empty — the entry point of the protocol, not the
+          # folder it happens to live in.
+          have_artifacts() { [ -d "$1" ] && [ -n "$(ls -A "$1" 2>/dev/null)" ]; }
+          need_file() { # $1 = channel, $2 = client-fetched path
+            if [ ! -s "$2" ]; then
+              echo "::error::$1: $2 is missing or empty — the client fetches this path first, so the channel is unusable"
+              missing="$missing $2"
+            fi
+          }
+          need_glob() { # $1 = channel, $2 = description, $3... = glob(s)
+            chan="$1"; what="$2"; shift 2
+            for g in "$@"; do
+              for f in $g; do [ -s "$f" ] && return 0; done
+            done
+            echo "::error::$chan: no $what matching: $* — the channel advertises a package it does not host"
+            missing="$missing $chan/$what"
+          }
+
+          # pip install azul --index-url https://azul.rs/ui
+          #   -> GET /ui/azul/  (PEP 503 project page) -> the linked distribution
+          if have_artifacts artifacts-registry/pypi-dist; then
+            need_file pypi website/ui/azul/index.html
+            need_glob pypi wheel 'website/ui/azul/*.whl'
+            # Every href on the project page must resolve to a file we host —
+            # a link to a distribution that isn't there is a pip hard error.
+            if [ -s website/ui/azul/index.html ]; then
+              for d in $(sed -n 's/.*<a href="\([^"#]*\)[^"]*".*/\1/p' website/ui/azul/index.html); do
+                need_file pypi "website/ui/azul/$d"
+              done
+            fi
+          fi
+
+          # npm install azul --registry ... / the flat tarball URL in the docs
+          if have_artifacts artifacts-registry/npm-package; then
+            need_file npm website/ui/npm/azul/index.json
+            need_glob npm tarball "website/ui/npm/azul-${AZUL_VERSION}.tgz"
+          fi
+
+          # dotnet nuget add source https://azul.rs/ui/nuget/index.json
+          #   -> service index -> flat container -> .nupkg
+          if have_artifacts artifacts-registry/nuget-package; then
+            need_file nuget website/ui/nuget/index.json
+            need_glob nuget nupkg 'website/ui/nuget/flatcontainer/azul/*/*.nupkg'
+          fi
+
+          # gem install azul --clear-sources --source https://azul.rs/ui/gems
+          #   -> latest_specs.4.8.gz -> quick/Marshal.4.8/<full>.gemspec.rz -> gems/<full>.gem
+          if have_artifacts artifacts-registry/ruby-gem; then
+            need_file gems website/ui/gems/latest_specs.4.8.gz
+            need_file gems website/ui/gems/specs.4.8.gz
+            need_glob gems 'quick spec' 'website/ui/gems/quick/Marshal.4.8/*.gemspec.rz'
+            need_glob gems 'hosted .gem' 'website/ui/gems/gems/*.gem'
+          fi
+
+          # maven { url "https://azul.rs/ui/maven" } + rs.azul:azul:<V>
+          # Maven fetches by EXACT coordinate path and never browses, so
+          # /ui/maven itself legitimately has no index — assert the metadata and
+          # the artifacts it points at, not the browse root.
+          if have_artifacts artifacts-registry/maven-jar; then
+            need_file maven website/ui/maven/rs/azul/azul/maven-metadata.xml
+            need_file maven "website/ui/maven/rs/azul/azul/${AZUL_VERSION}/azul-${AZUL_VERSION}.jar"
+            need_file maven "website/ui/maven/rs/azul/azul/${AZUL_VERSION}/azul-${AZUL_VERSION}.pom"
+          fi
+
           if [ -n "$missing" ]; then
             echo "::error::registry mirrors missing for:$missing"
             exit 1
