@@ -2022,6 +2022,17 @@ impl Runner {
             // whole job. Time comes from `Instant::now()`, which honours the
             // thread-scoped test clock the `tick_ms` op advances, so a timer
             // fires when the SCENARIO says it does — no sleeping, no race.
+            //
+            // HOW THE FIRST TWO ARE REACHED FROM A SCENARIO. `AddTimer` /
+            // `RemoveTimer` are produced by `CallbackInfo::add_timer` /
+            // `remove_timer`, an APP-callback API — and a scenario is HTML + CSS
+            // + ops, so it cannot install the Rust `TimerCallback` fn pointer an
+            // `AddTimer` carries. The `add_timer` / `remove_timer` DEBUG OPS
+            // (`DebugEvent::AddTimer` / `RemoveTimer` in `full.rs`) close that
+            // gap: they build a timer around a callback the e2e module itself
+            // owns and push it through the same two `CallbackInfo` methods a
+            // real app calls, so these arms run for real.
+            // `e2e/op-add-remove-timer.json` is the guard.
             CallbackChange::AddTimer { timer_id, timer } => {
                 self.layout_window.add_timer(*timer_id, timer.clone());
                 ProcessEventResult::DoNothing

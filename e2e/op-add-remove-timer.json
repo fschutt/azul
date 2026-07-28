@@ -1,0 +1,62 @@
+{
+  "name": "op_add_remove_timer",
+  "description": "APP TIMERS: `CallbackInfo::add_timer` / `remove_timer`, i.e. the `CallbackChange::AddTimer` / `RemoveTimer` arms of `apply_user_change`. Those two arms were implemented in both hosts and reachable from NOTHING in the suite: a `CallbackChange::AddTimer` carries a Rust `TimerCallback` fn pointer, which a JSON scenario cannot supply, so the only timer any scenario could arm was the caret blink — and that goes through the separate `StartCursorBlinkTimer` arm. The `add_timer` / `remove_timer` debug ops close the gap by supplying the one thing JSON cannot (the callback) and pushing it through the same two `CallbackInfo` methods a real app calls; the canned callback rewrites the <p>'s text to '<text> <run_count>' on every expiry, so a fired timer is visible as REAL PIXEL DAMAGE and not merely as a registry entry. BEAT 1 — register a 200 ms timer and tick 300 ms past its interval: the text changes and `assert_changed` sees non-empty damage AND differing pixels. BEAT 2 — tick again: it fires AGAIN. The appended run count is what makes that beat meaningful — `ChangeNodeText` correctly short-circuits a byte-identical write, so a constant-text timer would damage once and every later expiry would be indistinguishable from a dead timer. BEAT 3 — the beat that matters most: `remove_timer`, then two further 400 ms ticks must produce `FrameDamage::None`, and `assert_idle_stable` pins the pixels too. A `RemoveTimer` arm that silently did nothing would look EXACTLY like success up to this point, and the leaked timer would keep rewriting and repainting an idle window forever — the 'idle window never settles' class this suite exists to catch. Timer id 4242 is above USER_TIMER_ID_START (0x0100); the op refuses the reserved block by name, because registering there would overwrite an engine timer (caret blink / scroll momentum / tooltip / long press) instead of testing one. DOM mirrors e2e/bug-dom-mutation-no-damage.json so node id 10 is a stable text node. It deliberately does NOT use \"Azul Mock Mono\": every glyph in the mock fonts is the SAME filled rectangle (scripts/gen_mock_fonts.py — 'nothing about the SHAPE is meaningful'), so 'tick 1' and 'tick 2' would be pixel-identical under it and beat 2 could not tell a firing timer from a dead one. Measured, not assumed: the first version of this scenario used the mock font and beat 2 failed with 'damage was reported but NO pixel changed'.",
+  "setup": {
+    "window_width": 400,
+    "window_height": 300,
+    "dpi": 96
+  },
+  "steps": [
+    {
+      "op": "mount",
+      "html": [
+        "<div id=\"root\">",
+        "  <div class=\"box\" id=\"a\"></div>",
+        "  <div class=\"box\" id=\"b\"></div>",
+        "  <p id=\"t\">before</p>",
+        "</div>"
+      ],
+      "css": [
+        "body  { font-size: 24px; color: black; }",
+        "#root { display: flex; flex-direction: column; }",
+        ".box  { width: 60px; height: 40px; background: blue; }",
+        "#t    { font-size: 20px; color: black; }"
+      ]
+    },
+    { "op": "wait_frame" },
+    { "op": "wait", "ms": 200 },
+    { "op": "assert_exists", "selector": "#t" },
+
+    { "op": "reset_frame_counters" },
+    { "op": "snapshot_frame", "as": "before_timer" },
+    { "op": "add_timer", "timer_id": 4242, "interval_ms": 200, "node_id": 10, "text": "tick" },
+    { "op": "tick_ms", "ms": 300 },
+    { "op": "wait_frame" },
+    { "op": "wait", "ms": 150 },
+    { "op": "get_frame_report" },
+    { "op": "assert_changed", "vs": "before_timer", "min_damage_rects": 1 },
+
+    { "op": "reset_frame_counters" },
+    { "op": "snapshot_frame", "as": "after_first_tick" },
+    { "op": "tick_ms", "ms": 300 },
+    { "op": "wait_frame" },
+    { "op": "wait", "ms": 150 },
+    { "op": "get_frame_report" },
+    { "op": "assert_changed", "vs": "after_first_tick", "min_damage_rects": 1 },
+
+    { "op": "remove_timer", "timer_id": 4242 },
+    { "op": "wait_frame" },
+    { "op": "wait", "ms": 150 },
+
+    { "op": "reset_frame_counters" },
+    { "op": "snapshot_frame", "as": "after_remove" },
+    { "op": "tick_ms", "ms": 400 },
+    { "op": "wait_frame" },
+    { "op": "tick_ms", "ms": 400 },
+    { "op": "wait_frame" },
+    { "op": "wait", "ms": 150 },
+    { "op": "get_frame_report" },
+    { "op": "assert_damage", "which": "paint", "kind": "none" },
+    { "op": "assert_idle_stable", "vs": "after_remove" }
+  ]
+}

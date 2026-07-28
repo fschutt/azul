@@ -432,6 +432,18 @@ const OP_POLICY: &[(&str, Option<DenyReason>)] = &[
     ("commit_undo_snapshot",      None),
     ("undo_app_state",            None),
     ("redo_app_state",            None),
+    // `CallbackInfo::add_timer` / `remove_timer` — the API every real azul app
+    // schedules work with (examples/azul-maps, azul-gamepad, rust/anim.rs, …).
+    // A scenario cannot hand over the Rust `TimerCallback` fn pointer a
+    // `CallbackChange::AddTimer` carries, so these two ops supply a canned
+    // callback (rewrite one text node with the run count appended) and push it
+    // through the real `CallbackInfo` methods. NOT in the `redraw`/`relayout`
+    // deny class: those forge the repaint the engine was supposed to schedule
+    // by itself, whereas these ask the engine to schedule something and then
+    // let it decide, so the assertions still measure engine behaviour — and the
+    // removal half is a genuine leak detector.
+    ("add_timer",                 None),
+    ("remove_timer",              None),
 
     // -- ALLOW: HARNESS CONTROL --------------------------------------------
     ("mount",                     None),
@@ -3368,6 +3380,24 @@ fn eval_assert_changed(params: &Value) -> AssertionResult {{
                 "assert_response must advertise `{p}`, got: {ar}"
             );
         }
+
+        // The two TIMER ops. They are the only drive surface the suite has for
+        // `CallbackChange::AddTimer` / `RemoveTimer`, and every one of their
+        // params is load-bearing: an `add_timer` rendered without `node_id` or
+        // `text` cannot be written at all, and one rendered without
+        // `interval_ms` produces a timer the op rejects by name. This is the
+        // scanner blind spot that already bit `assert_manager_invariants`,
+        // checked against the REAL full.rs rather than a synthetic fixture.
+        let at = line("add_timer");
+        for p in ["timer_id", "interval_ms", "node_id", "text"] {
+            assert!(at.contains(p), "add_timer must advertise `{p}`, got: {at}");
+        }
+        assert!(!at.contains("(no params)"), "add_timer takes four: {at}");
+        let rt = line("remove_timer");
+        assert!(
+            rt.contains("timer_id"),
+            "remove_timer must advertise `timer_id`, got: {rt}"
+        );
     }
 
     // -----------------------------------------------------------------------

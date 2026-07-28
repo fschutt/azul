@@ -2088,6 +2088,49 @@ pub enum DebugEvent {
     TickMs {
         ms: u64,
     },
+    /// Register a repeating timer that rewrites one text node on every expiry.
+    ///
+    /// This is the E2E drive surface for `CallbackInfo::add_timer`, i.e. for
+    /// `CallbackChange::AddTimer`. That change carries a Rust `TimerCallback`
+    /// function pointer, which no JSON scenario can supply, so without this op
+    /// the whole app-facing timer API is implemented and unreachable: the only
+    /// timer any scenario could ever arm was the caret blink, and the generic
+    /// add/remove arms in both hosts' `apply_user_change` were dead to the
+    /// suite. The op supplies the one thing JSON cannot — the callback — and
+    /// pushes it through the SAME `CallbackInfo::add_timer` a real app calls.
+    ///
+    /// The effect is deliberately OBSERVABLE rather than a bare registry
+    /// mutation: each expiry writes `"<text> <run_count>"` into node `node_id`,
+    /// so a fired timer shows up as real pixel damage that `assert_changed`
+    /// can see, and a timer that was removed shows up as `FrameDamage::None`.
+    /// A `remove_timer` that silently did nothing would otherwise be
+    /// indistinguishable from success.
+    AddTimer {
+        /// User timer id. Must be at or above `USER_TIMER_ID_START` (0x0100);
+        /// the block below it is reserved for the engine's own timers
+        /// (caret blink, scroll momentum, tooltip delay, long press …) and
+        /// colliding with one would corrupt engine state rather than test it.
+        timer_id: u64,
+        /// Repeat interval in milliseconds; must be non-zero. The timer has no
+        /// delay, so — exactly like the caret blink — it also runs once on the
+        /// first pump after registration.
+        interval_ms: u64,
+        /// The node whose text is rewritten. Same addressing as `set_node_text`:
+        /// this is the `NodeType::Text` node itself, not its element parent.
+        node_id: u64,
+        /// Text written on expiry. The run count is appended, so consecutive
+        /// expiries never write the byte-identical string that
+        /// `CallbackChange::ChangeNodeText` correctly short-circuits.
+        text: String,
+    },
+    /// Deregister the timer registered under `timer_id` — the E2E drive surface
+    /// for `CallbackInfo::remove_timer` / `CallbackChange::RemoveTimer`. See
+    /// [`DebugEvent::AddTimer`].
+    RemoveTimer {
+        /// The id passed to `add_timer`. Refuses reserved system ids for the
+        /// same reason `add_timer` does.
+        timer_id: u64,
+    },
     /// Return the current `FrameReport` (damage rects + work counters) as JSON —
     /// the same data the `assert_damage*` / `assert_work_bounded` ops read.
     GetFrameReport,
@@ -9107,6 +9150,68 @@ fn build_dom_response(
     })
 }
 
+/// The `RefAny` payload of the timer that [`DebugEvent::AddTimer`] installs.
+///
+/// A `Timer`'s data is an opaque `RefAny`, so this is how the op smuggles the
+/// per-registration parameters (which node, what text) into a callback whose
+/// signature is a bare `extern "C" fn`.
+#[cfg(feature = "std")]
+#[derive(Debug, Clone)]
+struct E2eTickTimerData {
+    node: azul_core::dom::DomNodeId,
+    text: String,
+}
+
+/// The callback [`DebugEvent::AddTimer`] installs: rewrite the target node's
+/// text to `"<text> <run_count>"`.
+///
+/// The run count is what makes each expiry OBSERVABLE. `CallbackChange::
+/// ChangeNodeText` short-circuits a write of the byte-identical string (and is
+/// right to — re-shaping identical text is the maximum work for a no-op), so a
+/// timer that wrote a constant would produce damage exactly once and every
+/// later expiry would be indistinguishable from a timer that never fired,
+/// which is precisely the failure mode the removal half of the test has to
+/// detect.
+///
+/// It writes through `CallbackInfo`, so the mutation travels the normal
+/// `CallbackChange` path out of `run_single_timer` and back through
+/// `apply_user_change` — the same route an app's own timer callback takes.
+#[cfg(feature = "std")]
+extern "C" fn e2e_tick_timer_callback(
+    mut data: azul_core::refany::RefAny,
+    mut info: azul_layout::timer::TimerCallbackInfo,
+) -> azul_core::callbacks::TimerCallbackReturn {
+    use azul_core::{
+        callbacks::{TimerCallbackReturn, Update},
+        task::TerminateTimer,
+    };
+
+    let Some(payload) = data.downcast_ref::<E2eTickTimerData>() else {
+        // Only reachable if this module built the timer with a different
+        // payload type. Terminate rather than spin a timer that can never do
+        // anything — a silently-running no-op timer is the exact thing the
+        // scenario's final beat is trying to rule out.
+        return TimerCallbackReturn {
+            should_update: Update::DoNothing,
+            should_terminate: TerminateTimer::Terminate,
+        };
+    };
+    let node = payload.node;
+    let text = azul_css::AzString::from(format!("{} {}", payload.text, info.call_count));
+    drop(payload);
+
+    info.callback_info.change_node_text(node, text);
+
+    // `DoNothing`, not `RefreshDom`: the queued `ChangeNodeText` already
+    // relayouts and rebuilds the display list, whereas `RefreshDom` would
+    // re-run the app's layout callback and throw the mutation away — the same
+    // trap documented on the `set_node_text` op.
+    TimerCallbackReturn {
+        should_update: Update::DoNothing,
+        should_terminate: TerminateTimer::Continue,
+    }
+}
+
 /// Process a single debug event
 ///
 /// # An INPUT op must never set `needs_update`
@@ -9846,6 +9951,121 @@ pub fn process_debug_event(
             // unanswerable. See `request_repaint`.
             request_repaint(callback_info);
             send_ok(request, None, None);
+        }
+
+        DebugEvent::AddTimer {
+            timer_id,
+            interval_ms,
+            node_id,
+            text,
+        } => {
+            use azul_core::{
+                dom::{DomNodeId, NodeType},
+                id::NodeId,
+                refany::RefAny,
+                styled_dom::NodeHierarchyItemId,
+                task::{Duration, SystemTimeDiff, TimerId, USER_TIMER_ID_START},
+            };
+            use azul_layout::timer::{Timer, TimerCallback};
+
+            let target = NodeId::new(*node_id as usize);
+            let is_text_node = callback_info
+                .get_layout_window()
+                .layout_results
+                .get(&ROOT_DOM_ID)
+                .and_then(|lr| {
+                    lr.styled_dom
+                        .node_data
+                        .as_container()
+                        .get(target)
+                        .map(|n| matches!(n.get_node_type(), NodeType::Text(_)))
+                });
+
+            // Every rejection below is a REAL reason, reported by name. A timer
+            // that is silently not registered, or registered onto a node whose
+            // text can never change, produces a scenario that asserts "nothing
+            // happened" and passes for the wrong reason.
+            if (*timer_id as usize) < USER_TIMER_ID_START {
+                send_err(
+                    request,
+                    format!(
+                        "add_timer: timer_id {timer_id} is inside the RESERVED system-timer block \
+                         (< {USER_TIMER_ID_START}); registering there would overwrite an engine \
+                         timer (caret blink / scroll momentum / tooltip / long press) instead of \
+                         testing one. Use an id >= {USER_TIMER_ID_START}."
+                    ),
+                );
+            } else if *interval_ms == 0 {
+                send_err(
+                    request,
+                    "add_timer: interval_ms must be > 0 — a zero interval fires on every single \
+                     pump, which is a busy loop, not a timer"
+                        .to_string(),
+                );
+            } else if is_text_node != Some(true) {
+                send_err(
+                    request,
+                    format!(
+                        "add_timer: node {node_id} is not a NodeType::Text node (found: {}), so \
+                         the timer's ChangeNodeText would be dropped and every expiry would be \
+                         invisible. Address the TEXT node, exactly like set_node_text.",
+                        match is_text_node {
+                            None => "no such node",
+                            Some(_) => "a non-text node",
+                        }
+                    ),
+                );
+            } else {
+                let timer = Timer {
+                    refany: RefAny::new(E2eTickTimerData {
+                        node: DomNodeId {
+                            dom: ROOT_DOM_ID,
+                            node: NodeHierarchyItemId::from_crate_internal(Some(target)),
+                        },
+                        text: text.clone(),
+                    }),
+                    node_id: None.into(),
+                    created: azul_core::task::Instant::now(),
+                    run_count: 0,
+                    last_run: azul_core::task::OptionInstant::None,
+                    delay: azul_core::task::OptionDuration::None,
+                    interval: azul_core::task::OptionDuration::Some(Duration::System(
+                        SystemTimeDiff::from_millis(*interval_ms),
+                    )),
+                    timeout: azul_core::task::OptionDuration::None,
+                    callback: TimerCallback::create(e2e_tick_timer_callback),
+                };
+                // Through `CallbackInfo`, NOT straight into `LayoutWindow`:
+                // pushing `CallbackChange::AddTimer` is the whole point, because
+                // that arm is what this op exists to exercise.
+                callback_info.add_timer(
+                    TimerId {
+                        id: *timer_id as usize,
+                    },
+                    timer,
+                );
+                send_ok(request, None, None);
+            }
+        }
+
+        DebugEvent::RemoveTimer { timer_id } => {
+            use azul_core::task::{TimerId, USER_TIMER_ID_START};
+
+            if (*timer_id as usize) < USER_TIMER_ID_START {
+                send_err(
+                    request,
+                    format!(
+                        "remove_timer: timer_id {timer_id} is inside the RESERVED system-timer \
+                         block (< {USER_TIMER_ID_START}); tearing down an engine timer from a \
+                         scenario would corrupt engine state, not test it."
+                    ),
+                );
+            } else {
+                callback_info.remove_timer(TimerId {
+                    id: *timer_id as usize,
+                });
+                send_ok(request, None, None);
+            }
         }
 
         DebugEvent::GetFrameReport => {
