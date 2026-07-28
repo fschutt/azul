@@ -3351,6 +3351,11 @@ jobs:
     environment:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}
+    outputs:
+      # `channel <TAB> site-relative-path <TAB> sha256` for every self-hosted
+      # install channel, consumed by the post-deploy verify_install_* jobs so
+      # they can tell THIS deploy's bytes from a previous one's still in the CDN.
+      channel_digests: ${{ steps.channel_digests.outputs.channels }}
     steps:
       # This job downloads EVERY build artifact (15+ arch binaries, 200MB+ static
       # libs, demos x3 OS, mobile libs, coverage HTML, docs PDF, apt mirror) onto
@@ -3385,6 +3390,7 @@ jobs:
           sparse-checkout: |
             examples/assets/screenshots
             scripts/build_registry_mirrors.sh
+            scripts/verify_install_commands.sh
           sparse-checkout-cone-mode: false
 
       - name: Download website skeleton
@@ -4195,7 +4201,21 @@ jobs:
           #   -> service index -> flat container -> .nupkg
           if have_artifacts artifacts-registry/nuget-package; then
             need_file nuget website/ui/nuget/index.json
-            need_glob nuget nupkg 'website/ui/nuget/flatcontainer/azul/*/*.nupkg'
+            need_glob nuget nupkg 'website/ui/nuget/flatcontainer/*/*/*.nupkg'
+            # NuGet re-reads the <id>/<version> out of every .nupkg it downloads
+            # and refuses one whose embedded id differs from the flat-container
+            # path it came from:
+            #   The nupkg at .../flatcontainer/azul/0.2.0/azul.0.2.0.nupkg is not valid.
+            #     Expected package azul 0.2.0, but got package Azul.Net 0.2.0
+            # The mirror hosted the binding under `azul` while <PackageId> in
+            # doc/src/codegen/v2/lang_csharp/csproj.rs is `Azul.Net`. Every file
+            # resolved, the index was well-formed, and `dotnet add package`
+            # could not work for anybody. So assert the LAYOUT RULE against the
+            # package's own metadata rather than against a name we hope is right.
+            if ! bash scripts/verify_install_commands.sh --check-nuget-layout website; then
+              echo "::error::nuget: a hosted package's id/version disagrees with its flat-container path — NuGet rejects the download as invalid, so 'dotnet add package' cannot work"
+              missing="$missing nuget/flatcontainer-id-mismatch"
+            fi
           fi
 
           # gem install azul --clear-sources --source https://azul.rs/ui/gems
@@ -4276,6 +4296,99 @@ jobs:
             kill "$gem_srv" 2>/dev/null
             rm -rf "$gem_root"
           fi
+
+          # ---- PyPI: same treatment, and for the same reason ----------------
+          # /ui/azul has the worst history of any channel here: the docs said
+          # `pip install azul --index-url https://azul.rs/ui` while the wheel
+          # 404'd from that index. The href-resolve check above would not have
+          # caught the variant where the index is fine and pip still refuses
+          # (a wheel whose filename tags no interpreter accepts, a truncated
+          # download, a bad `#sha256=`), because pip — not `test -s` — is the
+          # thing that decides.
+          #
+          # This runs BEFORE the deploy, so a broken index costs a red build
+          # instead of a live site telling users to run a command that fails.
+          # The post-deploy verify_install_pypi job runs the same command
+          # against the real https://azul.rs; this one is the early, cheap half.
+          if [ -d website/ui/azul ]; then
+            python3 -m http.server 8100 --bind 127.0.0.1 --directory website \
+              >/tmp/pypi-mirror-server.log 2>&1 &
+            pypi_srv=$!
+            pypi_ok=""
+            for _ in $(seq 1 30); do
+              if curl -fsS -o /dev/null "http://127.0.0.1:8100/ui/azul/"; then pypi_ok=yes; break; fi
+              sleep 1
+            done
+            if [ -z "$pypi_ok" ]; then
+              echo "::error::pypi: /ui/azul/ is not served from the built site — the PEP 503 project page was not generated"
+              kill "$pypi_srv" 2>/dev/null
+              exit 1
+            fi
+            pypi_root="$(mktemp -d)"
+            # The documented command verbatim except for --target (install into
+            # a scratch dir instead of the runner's site-packages) and the host.
+            # --index-url (not --extra-index-url) so pypi.org is NOT in play:
+            # an unrelated `azul` exists there and would otherwise satisfy this
+            # check while our index was broken.
+            if python3 -m pip install azul --index-url "http://127.0.0.1:8100/ui" \
+                 --target "$pypi_root" --no-cache-dir; then
+              if ls -d "$pypi_root/azul-${AZUL_VERSION}.dist-info" >/dev/null 2>&1; then
+                echo "[pypi] verified: 'pip install azul --index-url .../ui' installs azul ${AZUL_VERSION} from the built index"
+              else
+                echo "::error::pypi: pip installed something other than azul ${AZUL_VERSION}:"
+                ls -1 "$pypi_root" | head -20
+                kill "$pypi_srv" 2>/dev/null
+                exit 1
+              fi
+            else
+              echo "::error::pypi: 'pip install azul --index-url <mirror>' FAILED against the tree we are about to publish"
+              echo "::error::pypi: the site would keep telling users to run exactly that command"
+              kill "$pypi_srv" 2>/dev/null
+              exit 1
+            fi
+            kill "$pypi_srv" 2>/dev/null
+            rm -rf "$pypi_root"
+          fi
+
+      # For each channel, record the sha256 of the ONE file its client fetches
+      # first and whose bytes change on every deploy. The post-deploy
+      # verify_install_* jobs block until https://azul.rs serves exactly these
+      # bytes before running the documented install command — otherwise a run
+      # could "prove" a channel works by installing the PREVIOUS deploy's copy
+      # still held in the Pages CDN, i.e. verify bytes it never published.
+      #
+      # Safe to record here, before the large-asset trim: that step is scoped to
+      # website/ui/release/<V> (maxdepth 1) plus its demos/, mobile-apps/ and
+      # mobile/*/libazul.a. It never touches the mirror trees under
+      # /ui/{azul,npm,gems,nuget,maven,apt} or the homebrew-azul.git tap, so
+      # every index below stays self-contained on Pages and these digests still
+      # describe what gets published.
+      - name: Record channel entry-point digests
+        id: channel_digests
+        run: |
+          set -euo pipefail
+          bash scripts/verify_install_commands.sh --emit-digests website "${AZUL_VERSION}" \
+            > /tmp/channel-digests.tsv
+          echo "=== channel entry points published by this run ==="
+          cat /tmp/channel-digests.tsv
+          # The site documents an install command for every one of these six.
+          # A channel with no entry point here is a command the docs advertise
+          # with nothing behind it — the exact failure this chain exists to
+          # stop — so it reds the build BEFORE the deploy, not after.
+          miss=""
+          for ch in pypi npm gems nuget brew apt; do
+            awk -F'\t' -v c="$ch" '$1 == c { f = 1 } END { exit !f }' /tmp/channel-digests.tsv \
+              || miss="$miss $ch"
+          done
+          if [ -n "$miss" ]; then
+            echo "::error::the site publishes an install command for pypi/npm/gems/nuget/brew/apt, but this deploy built no mirror for:$miss"
+            exit 1
+          fi
+          {
+            echo "channels<<AZUL_CHANNEL_DIGESTS"
+            cat /tmp/channel-digests.tsv
+            echo "AZUL_CHANNEL_DIGESTS"
+          } >> "$GITHUB_OUTPUT"
 
       # Fold the real shared libraries + the compiled demo binaries into
       # examples.zip so the one download demonstrates the "one dll, many small
@@ -4577,6 +4690,135 @@ jobs:
             -f push_image=true \
             && echo "dispatched dockery.yml on ${{ github.ref_name }}" \
             || echo "::warning::could not dispatch dockery.yml (non-fatal)"
+
+  # ══════════════════ Post-deploy: the DOCUMENTED install commands ══════════
+  #
+  # Everything before this point checks that FILES EXIST. That is necessary and
+  # it is not sufficient — a well-formed PEP 503 page can still be uninstallable
+  # — and this repo has shipped the difference more than once, every time behind
+  # a green deploy:
+  #
+  #   * a python wheel that 404'd from the index the docs point at
+  #   * /ui/gems serving a bare .gem with no spec index for two months
+  #   * a NuGet flat container keyed on `azul` while <PackageId> is `Azul.Net`,
+  #     so `dotnet add package azul` died on "Expected package azul 0.2.0, but
+  #     got package Azul.Net 0.2.0" while every single file resolved
+  #   * demo binaries published without an execute bit
+  #
+  # So these jobs run the command the site tells users to run, as a user runs
+  # it, in a container that has that ecosystem's client and no azul — against
+  # the real https://azul.rs, after the deploy. That is the only check that
+  # answers the actual question, and it can only run once the site is live.
+  #
+  # NOT continue-on-error, deliberately and permanently: a release whose
+  # documented install command does not work is not a release, and the run must
+  # say so. `fail-fast: false` so one dead channel does not hide the state of
+  # the other four.
+  #
+  # WHY POST-DEPLOY AND NOT PRE-DEPLOY. Three options were on the table:
+  #   (a) resolve against the staged tree before the large-asset trim — cheap,
+  #       catches a malformed index, proves nothing about the public URL. KEPT
+  #       for pypi and gems (the two worst histories) inside the channel-build
+  #       step, where it costs a red build instead of a live broken command.
+  #   (b) run the real command against the live site afterwards — the only one
+  #       that reflects what a user experiences. This, for all six channels.
+  #   (c) keep one small artefact local per channel so the index stays
+  #       self-contained. NOT NEEDED: the large-asset trim is scoped to
+  #       website/ui/release/<V> (maxdepth 1) + demos/ + mobile-apps/ +
+  #       mobile/*/libazul.a. It never touches /ui/{azul,npm,gems,nuget,maven,
+  #       apt} or the homebrew-azul.git tap, so every index already resolves
+  #       entirely within Pages and nothing needs to be held back.
+  verify_install_linux:
+    name: Verify documented install (${{ matrix.channel }})
+    needs: deploy_pages
+    if: github.event.inputs.run_mode == 'deploy' || github.event.inputs.run_mode == 'website'
+    runs-on: ubuntu-22.04
+    # A container per ecosystem: the client is the image's reason to exist, and
+    # a fresh one cannot pass by picking up an azul left behind by an earlier
+    # job. All five are glibc/Debian-based, which is what the runner's mounted
+    # node needs to run the checkout action.
+    container:
+      image: ${{ matrix.image }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - channel: pypi
+            image: python:3.11-slim
+          - channel: npm
+            image: node:20-slim
+          - channel: gems
+            image: ruby:3.2-slim
+          # The package targets net10.0 (<TargetFramework> in
+          # doc/src/codegen/v2/lang_csharp/csproj.rs); an older SDK would fail
+          # the restore for a framework reason rather than a channel one.
+          - channel: nuget
+            image: mcr.microsoft.com/dotnet/sdk:10.0
+          - channel: apt
+            image: debian:bookworm
+    steps:
+      # curl for the freshness fetch, git+ca-certificates for the checkout.
+      # These are the CHECK's own tools; nothing here installs azul.
+      - name: Install the harness prerequisites
+        run: |
+          set -eu
+          export DEBIAN_FRONTEND=noninteractive
+          apt-get update
+          apt-get install -y --no-install-recommends ca-certificates curl git
+
+      - name: Checkout the verifier
+        uses: actions/checkout@v7
+        with:
+          # Same trap as scripts/build_registry_mirrors.sh: with cone mode off,
+          # a path not listed here simply is not in the workspace and the step
+          # below dies with exit 127. Adding a script without adding its path
+          # is silent — keep the two in sync.
+          sparse-checkout: |
+            scripts/verify_install_commands.sh
+          sparse-checkout-cone-mode: false
+
+      - name: Run the command the site tells ${{ matrix.channel }} users to run
+        env:
+          # Via env, not string interpolation, so the multi-line value cannot be
+          # spliced into the script text.
+          AZUL_CHANNEL_DIGESTS: ${{ needs.deploy_pages.outputs.channel_digests }}
+        run: |
+          set -eu
+          printf '%s\n' "$AZUL_CHANNEL_DIGESTS" > /tmp/channel-digests.tsv
+          bash scripts/verify_install_commands.sh \
+            "${{ matrix.channel }}" https://azul.rs "${AZUL_VERSION}" /tmp/channel-digests.tsv
+
+  # Homebrew needs its own job: the formula body is `on_macos`, so on Linux
+  # `brew install` would install nothing and exit 0 — a check that cannot fail
+  # is worse than no check. macos-14 is arm64, which is the formula's `on_arm`
+  # branch (libazul.dylib); the Intel branch is covered by the sha256 the
+  # formula pins, which the deploy computes from the file it publishes.
+  verify_install_brew:
+    name: Verify documented install (brew)
+    needs: deploy_pages
+    if: github.event.inputs.run_mode == 'deploy' || github.event.inputs.run_mode == 'website'
+    runs-on: macos-14
+    env:
+      # Keeps the run deterministic and quick. It does not affect whether OUR
+      # tap resolves — that is the whole thing being measured.
+      HOMEBREW_NO_AUTO_UPDATE: "1"
+      HOMEBREW_NO_ANALYTICS: "1"
+    steps:
+      - name: Checkout the verifier
+        uses: actions/checkout@v7
+        with:
+          sparse-checkout: |
+            scripts/verify_install_commands.sh
+          sparse-checkout-cone-mode: false
+
+      - name: Run the command the site tells macOS users to run
+        env:
+          AZUL_CHANNEL_DIGESTS: ${{ needs.deploy_pages.outputs.channel_digests }}
+        run: |
+          set -eu
+          printf '%s\n' "$AZUL_CHANNEL_DIGESTS" > "$RUNNER_TEMP/channel-digests.tsv"
+          bash scripts/verify_install_commands.sh \
+            brew https://azul.rs "${AZUL_VERSION}" "$RUNNER_TEMP/channel-digests.tsv"
 
   # ───────────────────────────── Quality & Security ─────────────────────────
   # Merged in from the former quality.yml so there is ONE push-triggered
