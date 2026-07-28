@@ -181,7 +181,9 @@ fn regenerate_layout_does_not_leak_under_resize_stress() {
         // Force a full relayout so the callback fires and
         // `request_fonts` is called — this is the exact trigger the
         // fix guards against.
-        window.common.frame_needs_regeneration = true;
+        window
+            .common
+            .request_regeneration(azul_core::callbacks::RelayoutReason::Resize);
         window
             .regenerate_layout()
             .expect("stress-loop regenerate_layout failed");

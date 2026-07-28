@@ -580,10 +580,7 @@ impl Win32Window {
                 },
                 document_id,
                 id_namespace,
-                frame_needs_regeneration: true,
-                regen_generation: 0,
-                frame_relayout_only: false,
-                next_relayout_reason: azul_core::callbacks::RelayoutReason::Initial, // Initial render deferred to WM_PAINT
+                regen: crate::desktop::shell2::common::event::RegenerationState::pending_initial(),
                 display_list_initialized: false,
                 display_list_dirty: false,
                 a11y_dirty: true,
@@ -657,7 +654,10 @@ impl Win32Window {
         // NOTE: We do NOT show the window here! The window will be shown by run.rs
         // after this function returns and after waiting for new_frame_ready signal.
         {
-            // Send first frame: regenerate layout + full transaction
+            // Send first frame: regenerate layout + full transaction.
+            // Epoch captured BEFORE the pass so the retirement below cannot eat
+            // a request raised by a lifecycle callback running inside it.
+            let regen_epoch_seen = result.common.regen_epoch();
             if let Err(e) = result.regenerate_layout() {
                 log_error!(LogCategory::Layout, "First frame layout error: {:?}", e);
             }
@@ -694,7 +694,9 @@ impl Win32Window {
                 }
             }
 
-            result.common.frame_needs_regeneration = false;
+            // The initial request is satisfied by the pass above — retire only
+            // what that pass observed.
+            result.common.clear_regeneration_unless_reraised(regen_epoch_seen);
             let _ = result.render_and_present(true);
         }
         timing_log!("Render first frame (async - not waiting for completion)");
@@ -739,7 +741,7 @@ impl Win32Window {
             for change in &changes {
                 let r = result.apply_user_change(change);
                 if r != azul_core::events::ProcessEventResult::DoNothing {
-                    result.common.frame_needs_regeneration = true;
+                    result.common.request_regeneration(azul_core::callbacks::RelayoutReason::RefreshDom);
                 }
             }
         }
@@ -1314,6 +1316,11 @@ impl Win32Window {
 
     /// Regenerate layout (called after DOM changes)
     pub fn regenerate_layout_inner(&mut self) -> Result<crate::desktop::shell2::common::layout::LayoutRegenerateResult, String> {
+        // Consume the reason tag BEFORE borrowing the layout window: this is
+        // the regeneration this window asked for, and the tag travels with
+        // the request (see CommonWindowState::request_regeneration).
+        let relayout_reason = self.common.take_relayout_reason();
+
         let layout_window = self.common.layout_window.as_mut().ok_or("No layout window")?;
 
         // Collect debug messages if debug server is enabled
@@ -1338,11 +1345,8 @@ impl Win32Window {
             &self.icon_provider,
             &mut debug_messages,
         
-            self.common.next_relayout_reason,
+            relayout_reason,
         )?;
-        // Consumed; reset so an untagged regen sees the implicit RefreshDom.
-        self.common.next_relayout_reason =
-            azul_core::callbacks::RelayoutReason::RefreshDom;
 
         // Forward layout debug messages to the debug server's log queue
         if let Some(msgs) = debug_messages {
@@ -1433,7 +1437,7 @@ impl Win32Window {
     ///
     /// `incremental_relayout()` (called from the `ShouldIncrementalRelayout` event
     /// arm) re-runs layout on the existing StyledDom but, unlike
-    /// `regenerate_layout()`, does NOT send a frame. The `frame_relayout_only`
+    /// `regenerate_layout()`, does NOT send a frame. The relayout-only
     /// WM_PAINT branch calls this so the restyle still reaches `generate_frame` /
     /// the present path. Mirrors `regenerate_layout()`'s GPU `generate_frame` + CPU
     /// hit-tester tail.
@@ -1492,15 +1496,15 @@ impl Win32Window {
     /// variant — so a restyle / runtime edit triggered from plain input
     /// (hover/focus CSS, `set_css_property`, `set_node_text` →
     /// `ShouldIncrementalRelayout`, or a `ShouldRegenerateDom*`) never set
-    /// `frame_needs_regeneration` NOR took the incremental-relayout fast path, and
+    /// requested a regeneration NOR took the incremental-relayout fast path, and
     /// WM_PAINT then just repainted the STALE layout.
     ///
     /// Mirrors the `WM_COMMAND` `match event_result` arm:
     /// - `ShouldIncrementalRelayout` → `incremental_relayout()` on the existing
-    ///   StyledDom + `frame_relayout_only` + `frame_needs_regeneration`, then
-    ///   invalidate (WM_PAINT's `frame_relayout_only` branch sends the frame).
+    ///   StyledDom + `request_relayout_only()`, then invalidate (WM_PAINT's
+    ///   relayout-only branch sends the frame).
     /// - `ShouldRegenerateDom* | UpdateHitTesterAndProcessAgain` →
-    ///   `frame_needs_regeneration` + invalidate (full `regenerate_layout()` in
+    ///   `request_regeneration()` + invalidate (full `regenerate_layout()` in
     ///   WM_PAINT).
     /// - `ShouldUpdateDisplayListCurrentWindow | ShouldReRenderCurrentWindow` →
     ///   invalidate only (preserves the old `!DoNothing` repaint).
@@ -1517,7 +1521,7 @@ impl Win32Window {
                 // set_node_text): re-run layout on the EXISTING StyledDom instead of
                 // a full regenerate_layout() (which would re-invoke the user's
                 // layout_callback + rebuild the StyledDom). Mirrors the macOS backend
-                // + the WM_COMMAND menu arm. frame_relayout_only then makes WM_PAINT
+                // + the WM_COMMAND menu arm. The relayout-only request then makes WM_PAINT
                 // skip regenerate_layout and only rebuild + send the WebRender
                 // transaction.
                 if let Some(layout_window) = self.common.layout_window.as_mut() {
@@ -1533,8 +1537,7 @@ impl Win32Window {
                         log_warn!(LogCategory::Layout, "Incremental relayout failed: {}", e);
                     }
                 }
-                self.common.frame_relayout_only = true;
-                self.common.frame_needs_regeneration = true;
+                self.common.request_relayout_only();
                 unsafe {
                     (self.win32.user32.InvalidateRect)(hwnd, ptr::null(), 0);
                 }
@@ -1554,14 +1557,14 @@ impl Win32Window {
                         }
                         if let Some(wptr) = registry::get_window(other_hwnd) {
                             let w = unsafe { &mut *wptr };
-                            w.common.frame_needs_regeneration = true;
+                            w.common.request_regeneration(azul_core::callbacks::RelayoutReason::RefreshDom);
                             unsafe {
                                 (w.win32.user32.InvalidateRect)(other_hwnd, ptr::null(), 0);
                             }
                         }
                     }
                 }
-                self.common.frame_needs_regeneration = true;
+                self.common.request_regeneration(azul_core::callbacks::RelayoutReason::RefreshDom);
                 unsafe {
                     (self.win32.user32.InvalidateRect)(hwnd, ptr::null(), 0);
                 }
@@ -2241,7 +2244,7 @@ impl Win32Window {
         if frame_ready {
             // A frame is ready in WebRender's backbuffer - present it
             // No layout regeneration happened here, but the transaction was already
-            // sent when frame_needs_regeneration was processed in WM_PAINT.
+            // sent when the regeneration request was processed in WM_PAINT.
             // If no transaction was pending, this is a no-op render.
             if let Err(e) = self.render_and_present(false) {
                 log_error!(LogCategory::Rendering, "Failed to present frame: {:?}", e);
@@ -2822,7 +2825,7 @@ unsafe extern "system" fn window_proc(
             // can raise a new regeneration request, and only what we saw here may
             // be retired.
             let regen_epoch_seen = window.common.regen_epoch();
-            let layout_was_regenerated = if window.common.frame_relayout_only {
+            let layout_was_regenerated = if window.common.take_relayout_only() {
                 // Restyle / runtime edit: incremental_relayout() already re-ran layout
                 // on the existing StyledDom in the ShouldIncrementalRelayout event arm.
                 // Skip the full regenerate_layout() (no layout_callback / StyledDom
@@ -2830,13 +2833,12 @@ unsafe extern "system" fn window_proc(
                 // transaction (GPU) / rebuild the CPU hit-tester so the restyle reaches
                 // the screen — render_and_present(true) then presents the new scene.
                 window.send_frame_after_incremental_relayout();
-                window.common.frame_relayout_only = false;
                 // Retire ONLY the request this frame observed: a lifecycle callback
                 // running inside the render above can raise a new one, and a bare
                 // `= false` here would erase it.
                 window.common.clear_regeneration_unless_reraised(regen_epoch_seen);
                 true
-            } else if window.common.frame_needs_regeneration {
+            } else if window.common.regeneration_pending() {
                 if let Err(e) = window.regenerate_layout() {
                     log_error!(LogCategory::Layout, "Layout regeneration error: {:?}", e);
                 }
@@ -2965,11 +2967,10 @@ unsafe extern "system" fn window_proc(
 
                 // Tag the next regen as a resize so the user's layout()
                 // callback can detect it via `info.relayout_reason()`.
-                window.common.next_relayout_reason =
-                    azul_core::callbacks::RelayoutReason::Resize;
-
-                // Resize requires full display list rebuild
-                window.common.frame_needs_regeneration = true;
+                // Resize requires a full display list rebuild, tagged as a
+                // resize so the user's layout() can branch on it.
+                window.common
+                    .request_regeneration(azul_core::callbacks::RelayoutReason::Resize);
 
                 // Request redraw (will trigger regenerate_layout in WM_PAINT)
                 (window.win32.user32.InvalidateRect)(hwnd, ptr::null(), 0);
@@ -4201,7 +4202,7 @@ unsafe extern "system" fn window_proc(
                             // instead of a full regenerate_layout() (which would
                             // re-invoke the user's layout_callback + rebuild the
                             // StyledDom). Mirrors the macOS backend's
-                            // ShouldIncrementalRelayout arm. frame_relayout_only then
+                            // ShouldIncrementalRelayout arm. The relayout-only request then
                             // makes WM_PAINT skip regenerate_layout and only rebuild +
                             // send the WebRender transaction.
                             if let Some(layout_window) = window.common.layout_window.as_mut() {
@@ -4221,14 +4222,13 @@ unsafe extern "system" fn window_proc(
                                     );
                                 }
                             }
-                            window.common.frame_relayout_only = true;
-                            window.common.frame_needs_regeneration = true;
+                            window.common.request_relayout_only();
                             (window.win32.user32.InvalidateRect)(hwnd, ptr::null(), 0);
                         }
                         ProcessEventResult::ShouldRegenerateDomCurrentWindow
                         | ProcessEventResult::ShouldRegenerateDomAllWindows
                         | ProcessEventResult::UpdateHitTesterAndProcessAgain => {
-                            window.common.frame_needs_regeneration = true;
+                            window.common.request_regeneration(azul_core::callbacks::RelayoutReason::RefreshDom);
                             (window.win32.user32.InvalidateRect)(hwnd, ptr::null(), 0);
                         }
                         // ShouldUpdateDisplayListCurrentWindow: pending VirtualView updates are
@@ -4296,8 +4296,12 @@ unsafe extern "system" fn window_proc(
                 window.common.current_window_state.size.dimensions = logical_size;
             }
 
-            // DPI change requires full relayout
-            window.common.frame_needs_regeneration = true;
+            // DPI change requires a full relayout, tagged `Resize` — the enum's
+            // own definition covers "DPI scale change", and the X11 DPI path
+            // already tags it that way. WM_DPICHANGED used to leave the tag
+            // untouched, so the same physical event reported a different reason
+            // to the user's `layout()` depending on which OS delivered it.
+            window.common.request_regeneration(azul_core::callbacks::RelayoutReason::Resize);
 
             // Request redraw
             unsafe {
@@ -4420,7 +4424,7 @@ unsafe extern "system" fn window_proc(
             window.common.system_style = new_style;
             let r = window.process_window_events(0);
             window.route_main_window_result(hwnd, r);
-            window.common.frame_needs_regeneration = true;
+            window.common.request_regeneration(azul_core::callbacks::RelayoutReason::RefreshDom);
             unsafe {
                 (window.win32.user32.InvalidateRect)(hwnd, ptr::null(), 0);
             }
@@ -4588,7 +4592,7 @@ impl Win32Window {
                         // The callback asked for a refresh (e.g. RefreshDom
                         // from a zoom button) — regenerate on the next frame,
                         // exactly like pointer-event dispatch does.
-                        self.common.frame_needs_regeneration = true;
+                        self.common.request_regeneration(azul_core::callbacks::RelayoutReason::RefreshDom);
                     }
                 }
             }

@@ -84,7 +84,7 @@ pub enum EventProcessResult {
     /// re-invoked). This is the non-lossy projection of
     /// `ProcessEventResult::ShouldIncrementalRelayout` (previously collapsed into
     /// `UpdateDisplayList`, which only rebuilt the display list and never re-ran
-    /// layout). Mapped to `incremental_relayout()` + `frame_relayout_only` in the
+    /// layout). Mapped to `incremental_relayout()` + `request_relayout_only()` in the
     /// main-window input handlers.
     RegenerateLayoutIncremental,
     /// Full DOM rebuild needed (layout callback will be re-invoked)
@@ -132,7 +132,7 @@ impl MacOSWindow {
                     continue; // self is handled by the returned result
                 }
                 let w = unsafe { &mut *wptr };
-                w.common.frame_needs_regeneration = true;
+                w.common.request_regeneration(azul_core::callbacks::RelayoutReason::RefreshDom);
                 w.request_redraw();
             }
         }
@@ -716,13 +716,13 @@ impl MacOSWindow {
         }
 
         // Apply the result: text edits go through the incremental path
-        // (display_list_dirty), NOT the full DOM rebuild path (frame_needs_regeneration).
+        // (display_list_dirty), NOT the full DOM rebuild path (a regeneration request).
         // The display list was already regenerated inside apply_text_changeset() →
         // update_text_cache_after_edit() → regenerate_display_list_for_dom().
         let event_result = self.convert_result_with_fanout(overall_result);
         match event_result {
             EventProcessResult::RegenerateDisplayList => {
-                self.common.frame_needs_regeneration = true;
+                self.common.request_regeneration(azul_core::callbacks::RelayoutReason::RefreshDom);
                 self.request_redraw();
             }
             EventProcessResult::UpdateDisplayList => {
@@ -855,8 +855,8 @@ impl MacOSWindow {
                 self.dynamic_selector_context.viewport_width,
                 self.dynamic_selector_context.viewport_height
             );
-            self.common.next_relayout_reason =
-                azul_core::callbacks::RelayoutReason::Resize;
+            self.common
+                .request_regeneration(azul_core::callbacks::RelayoutReason::Resize);
         }
 
         // Whether or not a breakpoint was crossed, the platform path

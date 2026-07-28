@@ -90,7 +90,7 @@ struct Runner {
     #[cfg(feature = "font_async_registry")]
     font_registry: Option<Arc<azul_layout::FcFontRegistry>>,
     /// Set by a `ModifyWindowState` whose size or DPI changed — the DLL answers
-    /// that with `RelayoutReason::Resize` + `mark_frame_needs_regeneration()`,
+    /// that with `request_regeneration(RelayoutReason::Resize)`,
     /// which invalidates every cached rasterisation.
     resize_pending: bool,
     /// `CallbackChange`s this host could not apply faithfully (see
@@ -440,7 +440,7 @@ impl Runner {
             result = result.max(ProcessEventResult::ShouldRegenerateDomCurrentWindow);
         }
         // A size/DPI change invalidates every rasterised pixel — same thing
-        // WM_DPICHANGED / the X11 DPI path do (`frame_needs_regeneration`).
+        // WM_DPICHANGED / the X11 DPI path do (`request_regeneration`).
         if self.resize_pending {
             result = result.max(ProcessEventResult::ShouldRegenerateDomCurrentWindow);
         }

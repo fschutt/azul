@@ -236,8 +236,11 @@ pub fn run_e2e_scenario(
                 }
                 Step::ResizeFull { width, height } => {
                     set_size(&mut window, *width, *height);
-                    window.common.frame_needs_regeneration = true;
-                    if let Err(e) = window.regenerate_layout() {
+                    // Request + satisfy in one step, tagged as the resize it is,
+                    // so the scenario drives the same path a real window would.
+                    if let Err(e) =
+                        window.regenerate_now(azul_core::callbacks::RelayoutReason::Resize)
+                    {
                         eprintln!("[E2E] iter {} resize_full regenerate_layout error: {}", iter, e);
                     }
                 }

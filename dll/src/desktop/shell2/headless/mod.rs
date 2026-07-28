@@ -891,10 +891,7 @@ impl HeadlessWindow {
                 id_namespace: None,
                 render_api: None,
                 renderer: None,
-                frame_needs_regeneration: true,
-                regen_generation: 0,
-                frame_relayout_only: false,
-                next_relayout_reason: azul_core::callbacks::RelayoutReason::Initial,
+                regen: crate::desktop::shell2::common::event::RegenerationState::pending_initial(),
                 display_list_initialized: false,
                 display_list_dirty: false,
                 a11y_dirty: true,
@@ -940,6 +937,11 @@ impl HeadlessWindow {
     pub fn regenerate_layout_inner(
         &mut self,
     ) -> Result<crate::desktop::shell2::common::layout::LayoutRegenerateResult, String> {
+        // Consume the reason tag BEFORE borrowing the layout window: this is
+        // the regeneration this window asked for, and the tag travels with
+        // the request (see CommonWindowState::request_regeneration).
+        let relayout_reason = self.common.take_relayout_reason();
+
         let layout_window = self.common.layout_window.as_mut().ok_or("No layout window")?;
 
         // Collect debug messages if debug server is enabled
@@ -963,13 +965,8 @@ impl HeadlessWindow {
             &self.common.system_style,
             &self.icon_provider,
             &mut debug_messages,
-            self.common.next_relayout_reason,
+            relayout_reason,
         )?;
-        // Reset the reason now that it has been consumed. Subsequent
-        // untagged regen calls (RefAny mutation -> Update::RefreshDom) will
-        // see the implicit `RefreshDom` reason.
-        self.common.next_relayout_reason =
-            azul_core::callbacks::RelayoutReason::RefreshDom;
 
         // Forward layout debug messages to the debug server's log queue
         if let Some(msgs) = debug_messages {
@@ -1043,7 +1040,7 @@ impl HeadlessWindow {
         }
 
         // Mark that frame needs regeneration
-        self.common.frame_needs_regeneration = true;
+        self.common.request_regeneration(azul_core::callbacks::RelayoutReason::RefreshDom);
 
         Ok(result)
     }
@@ -1051,7 +1048,7 @@ impl HeadlessWindow {
     /// Re-run layout on the EXISTING (already mutated) `StyledDom` and re-render —
     /// the `ShouldIncrementalRelayout` path every other backend implements
     /// (macOS `apply_incremental_relayout_result`, windows/wayland
-    /// `frame_relayout_only`), and which headless was missing entirely.
+    /// `request_relayout_only`), and which headless was missing entirely.
     ///
     /// Headless used to answer *every* redraw signal with the full
     /// `regenerate_layout()`. For an in-place DOM mutation that is not just the
@@ -1116,7 +1113,7 @@ impl HeadlessWindow {
             }
         }
 
-        self.common.frame_needs_regeneration = true;
+        self.common.request_regeneration(azul_core::callbacks::RelayoutReason::RefreshDom);
         Ok(())
     }
 
@@ -1145,15 +1142,14 @@ impl HeadlessWindow {
     pub fn simulate_resize(&mut self, width: f32, height: f32) {
         use azul_core::geom::LogicalSize;
         self.common.current_window_state.size.dimensions = LogicalSize { width, height };
-        self.common.next_relayout_reason =
-            azul_core::callbacks::RelayoutReason::Resize;
+        self.common.request_regeneration(azul_core::callbacks::RelayoutReason::Resize);
     }
 
     /// Read the queued reason for the next `regenerate_layout()` call.
     /// Useful for asserting in tests that an event handler tagged the
     /// upcoming relayout correctly.
     pub fn pending_relayout_reason(&self) -> azul_core::callbacks::RelayoutReason {
-        self.common.next_relayout_reason
+        self.common.regeneration_reason()
     }
 
     /// Convert a `KeyDown` virtual keycode into the locale-independent character
@@ -1582,8 +1578,8 @@ impl HeadlessWindow {
                         // (this one left the implicit RefreshDom), so the
                         // user's LayoutCallback saw a phantom non-resize
                         // relayout depending on which API drove the resize.
-                        self.common.next_relayout_reason =
-                            azul_core::callbacks::RelayoutReason::Resize;
+                        self.common
+                            .request_regeneration(azul_core::callbacks::RelayoutReason::Resize);
                         events_need_redraw = true;
                     }
                     HeadlessEvent::Scroll { delta_x, delta_y } => {
@@ -1684,7 +1680,7 @@ impl HeadlessWindow {
             // handle scroll-offset-only or repaint-only updates.  Every
             // visual change (including scroll) requires a full display
             // list rebuild, so we re-render on any redraw signal — but
-            // `frame_relayout_only` decides WHICH pass runs: an in-place DOM
+            // the relayout-only request decides WHICH pass runs: an in-place DOM
             // mutation (debug-server DOM ops, restyle, runtime text edit) must
             // re-run layout on the EXISTING StyledDom. Sending it through the
             // full `regenerate_layout()` is not a slower way to get the same
@@ -1695,7 +1691,7 @@ impl HeadlessWindow {
             if needs_redraw {
                 let relayout_only = {
                     use super::common::event::PlatformWindow;
-                    self.take_frame_relayout_only()
+                    self.take_relayout_only()
                 };
                 let res = if relayout_only {
                     self.relayout_only()

@@ -915,13 +915,17 @@ pub struct X11Window {
     /// Damage rects for incremental rendering (CPU and GPU)
     gpu_damage_rects: Vec<azul_core::geom::LogicalRect>,
 
-    /// Render-intent flag: the authoritative "a repaint is needed" signal.
-    /// Set by request_redraw()/Expose/events/timers; CONSUMED by
-    /// render_and_present (which renders whenever it is set). This replaces the
-    /// old GPU skip-heuristic that guessed "did anything change?" from only
+    /// Render-intent request: the authoritative "a repaint is needed" signal.
+    /// Raised by request_redraw()/Expose/events/timers; retired by
+    /// render_and_present (which renders whenever it is pending). This replaces
+    /// the old GPU skip-heuristic that guessed "did anything change?" from only
     /// scroll/scrollbar-fade/virtual-view and so dropped resize, caret move/
     /// blink, physics-scroll and a11y repaints.
-    needs_redraw: bool,
+    ///
+    /// A latched request, not a bare bool: render_and_present RAISES it again
+    /// near its own end (the scrollbar-fade re-arm), so a bare `= false` after
+    /// that would eat the very frame the fade just asked for.
+    needs_redraw: crate::desktop::shell2::common::event::LatchedRequest,
 
     /// Set when this window was created with `size_to_content` (e.g. menus).
     /// The window is created UNMAPPED; the first `poll_event` lays the DOM out
@@ -964,9 +968,9 @@ impl X11Window {
         // purely Expose-driven, but a compositing WM (e.g. xfwm4, which Mint/XFCE runs by
         // default) does NOT send an Expose when the window is first mapped — so without
         // this the very first frame is never drawn and the window stays blank/black.
-        // `frame_needs_regeneration` starts true and is cleared inside render_and_present,
-        // so this fires once for the initial frame (and again only when a real relayout is
-        // queued, e.g. resize) — it does not busy-loop.
+        // The regeneration request starts raised and is retired inside
+        // render_and_present, so this fires once for the initial frame (and again only
+        // when a real relayout is queued, e.g. resize) — it does not busy-loop.
         //
         // One-time size_to_content pass (menus/tooltips, created UNMAPPED): measure
         // the content's natural size, resize the window to it, and map — before the
@@ -989,7 +993,7 @@ impl X11Window {
         // needs_redraw is included deliberately: MapNotify, Expose and the CPU
         // shm retry all set ONLY that, and a gate that ignores it leaves those
         // events with no path to a frame at all.
-        if self.common.frame_needs_regeneration || vview_pending || self.needs_redraw {
+        if self.common.regeneration_pending() || vview_pending || self.needs_redraw.pending() {
             if let Err(e) = self.render_and_present() {
                 log_error!(
                     LogCategory::Rendering,
@@ -1088,7 +1092,7 @@ impl X11Window {
                         // The callback asked for a refresh (e.g. RefreshDom
                         // from a zoom button) — regenerate on the next frame,
                         // exactly like pointer-event dispatch does.
-                        self.common.frame_needs_regeneration = true;
+                        self.common.request_regeneration(azul_core::callbacks::RelayoutReason::RefreshDom);
                     }
                 }
             }
@@ -1130,7 +1134,7 @@ impl X11Window {
         // consumes) AND post a synthetic Expose to wake the blocking event
         // loop so the repaint happens promptly. The flag is what guarantees
         // the frame actually paints; the Expose is just the wake-up.
-        self.needs_redraw = true;
+        self.needs_redraw.raise();
         // Use per-rect Expose events when damage rects available
         if !self.gpu_damage_rects.is_empty() {
             let rects: Vec<_> = self.gpu_damage_rects.drain(..).collect();
@@ -1835,10 +1839,7 @@ impl X11Window {
                 undo_manager: resources.undo_manager.clone(),
                 scrollbar_drag_state: None,
                 last_hovered_node: None,
-                frame_needs_regeneration: true,
-                regen_generation: 0,
-                frame_relayout_only: false,
-                next_relayout_reason: azul_core::callbacks::RelayoutReason::Initial,
+                regen: crate::desktop::shell2::common::event::RegenerationState::pending_initial(),
                 display_list_initialized: false,
                 display_list_dirty: false,
                 a11y_dirty: true,
@@ -1868,7 +1869,7 @@ impl X11Window {
             os_present_requested: true, // first present must be full
             frame_ready_wake_fd,
             gpu_damage_rects: Vec::new(),
-            needs_redraw: true,
+            needs_redraw: crate::desktop::shell2::common::event::LatchedRequest::raised(),
             size_to_content_pending: options.size_to_content,
             #[cfg(feature = "a11y")]
             accessibility_adapter: accessibility::LinuxAccessibilityAdapter::new(),
@@ -1987,7 +1988,7 @@ impl X11Window {
             for change in &changes {
                 let r = window.apply_user_change(change);
                 if r != azul_core::events::ProcessEventResult::DoNothing {
-                    window.common.frame_needs_regeneration = true;
+                    window.common.request_regeneration(azul_core::callbacks::RelayoutReason::RefreshDom);
                 }
             }
         }
@@ -2251,12 +2252,12 @@ impl X11Window {
                         }
                         if let Some(wptr) = unsafe { super::registry::get_window(wid) } {
                             if let super::LinuxWindow::X11(w) = unsafe { &mut *wptr } {
-                                w.common.frame_needs_regeneration = true;
+                                w.common.request_regeneration(azul_core::callbacks::RelayoutReason::RefreshDom);
                                 w.request_redraw();
                             }
                         }
                     }
-                    self.common.frame_needs_regeneration = true;
+                    self.common.request_regeneration(azul_core::callbacks::RelayoutReason::RefreshDom);
                     self.request_redraw();
                 }
                 ProcessEventResult::ShouldIncrementalRelayout => {
@@ -2274,19 +2275,20 @@ impl X11Window {
                             log_warn!(LogCategory::Layout, "Incremental relayout failed: {}", e);
                         }
                     }
-                    // BOTH flags, like the main handle_event arm: without
-                    // frame_relayout_only, render_and_present takes the full
+                    // Same call as the main handle_event arm. It raises the
+                    // relayout-only request AND the ordinary one: without the
+                    // former, render_and_present takes the full
                     // regenerate_layout() path — re-invoking the user's layout
                     // callback and DISCARDING the incremental relayout just
                     // performed (double layout + runtime styled-dom edits that
-                    // aren't reflected in app state get lost).
-                    self.common.frame_relayout_only = true;
-                    self.common.frame_needs_regeneration = true;
+                    // aren't reflected in app state get lost); without the
+                    // latter, poll_event's gate never notices work is owed.
+                    self.common.request_relayout_only();
                     self.request_redraw();
                 }
                 ProcessEventResult::ShouldRegenerateDomCurrentWindow
                 | ProcessEventResult::UpdateHitTesterAndProcessAgain => {
-                    self.common.frame_needs_regeneration = true;
+                    self.common.request_regeneration(azul_core::callbacks::RelayoutReason::RefreshDom);
                     self.request_redraw();
                 }
                 // ShouldUpdateDisplayListCurrentWindow: pending VirtualView updates are
@@ -2437,7 +2439,7 @@ impl X11Window {
                         std::mem::take(&mut *g)
                     };
                     if ready {
-                        self.needs_redraw = true;
+                        self.needs_redraw.raise();
                         if let Err(e) = self.render_and_present() {
                             log_warn!(
                                 LogCategory::Rendering,
@@ -2531,7 +2533,7 @@ impl X11Window {
                 // request ping-ponged and the frame never actually painted
                 // (resize/timer/caret repaints appeared frozen). This now
                 // matches poll_event's Expose arm.
-                self.needs_redraw = true;
+                self.needs_redraw.raise();
                 // OS-driven repaint: the exposed area's on-screen content is
                 // undefined — the next present must push the full frame.
                 self.os_present_requested = true;
@@ -2616,15 +2618,18 @@ impl X11Window {
             defines::MapNotify => {
                 // The window just became visible and owes its FIRST frame.
                 //
-                // Setting only needs_redraw was not enough: the forced-render gate
-                // in poll_event tests `frame_needs_regeneration || vview_pending`
-                // and ignores needs_redraw entirely, and needs_redraw is cleared at
-                // the top of render_and_present, so nothing downstream acted on it.
-                // A freshly mapped window therefore stayed blank until some
-                // unrelated later event happened to request a regeneration.
-                self.needs_redraw = true;
+                // Setting only the redraw request was not enough: the forced-render
+                // gate in poll_event used to test the regeneration request alone and
+                // ignore the redraw one, and the redraw request was cleared at the TOP
+                // of render_and_present, so nothing downstream acted on it. A freshly
+                // mapped window therefore stayed blank until some unrelated later event
+                // happened to request a regeneration. Both of those are fixed (the gate
+                // reads both; the clear moved to the end); raise both anyway, because a
+                // map owes a full rebuild AND a present.
+                self.needs_redraw.raise();
                 self.os_present_requested = true;
-                self.common.mark_regen_on_map();
+                self.common
+                    .request_regeneration(azul_core::callbacks::RelayoutReason::RefreshDom);
                 ProcessEventResult::ShouldRegenerateDomCurrentWindow
             }
             defines::ConfigureNotify => {
@@ -2668,9 +2673,8 @@ impl X11Window {
                             self.dynamic_selector_context.viewport_height
                         );
                     }
-                    self.common.next_relayout_reason =
-                        azul_core::callbacks::RelayoutReason::Resize;
-                    self.regenerate_layout().ok();
+                    self.regenerate_now(azul_core::callbacks::RelayoutReason::Resize)
+                        .ok();
 
                     // XWayland / some compositors don't send an Expose after
                     // ConfigureNotify, so request a repaint explicitly (self-Expose,
@@ -2761,9 +2765,8 @@ impl X11Window {
                             self.common.current_window_state.size.dimensions = new_logical;
                             self.dynamic_selector_context.viewport_width = new_logical.width;
                             self.dynamic_selector_context.viewport_height = new_logical.height;
-                            self.common.next_relayout_reason =
-                                azul_core::callbacks::RelayoutReason::Resize;
-                            self.regenerate_layout().ok();
+                            self.regenerate_now(azul_core::callbacks::RelayoutReason::Resize)
+                                .ok();
                             // Everything on screen was rendered at the old scale:
                             // force a full re-present (the CPU surface re-allocates
                             // itself from the new physical dims in render_frame).
@@ -2794,8 +2797,8 @@ impl X11Window {
             }
         };
 
-        // Mark SELF for DOM regeneration. process_window_events marks
-        // frame_needs_regeneration only for callback returns of
+        // Mark SELF for DOM regeneration. process_window_events requests
+        // regeneration only for callback returns of
         // Update::RefreshDom* — producers that return the result directly
         // through apply_user_change (SwitchRoute, UndoAppState/RedoAppState,
         // CreateTextInput's Input handler) skip that mark. Without this,
@@ -2806,7 +2809,7 @@ impl X11Window {
             ProcessEventResult::ShouldRegenerateDomCurrentWindow
                 | ProcessEventResult::ShouldRegenerateDomAllWindows
         ) {
-            self.common.frame_needs_regeneration = true;
+            self.common.request_regeneration(azul_core::callbacks::RelayoutReason::RefreshDom);
         }
 
         // Fan out a cross-window refresh. For RefreshDomAllWindows we must
@@ -2822,7 +2825,7 @@ impl X11Window {
                 }
                 if let Some(wptr) = unsafe { super::registry::get_window(wid) } {
                     if let super::LinuxWindow::X11(w) = unsafe { &mut *wptr } {
-                        w.common.frame_needs_regeneration = true;
+                        w.common.request_regeneration(azul_core::callbacks::RelayoutReason::RefreshDom);
                         w.request_redraw();
                     }
                 }
@@ -2832,11 +2835,11 @@ impl X11Window {
         // Restyle / runtime edit (hover/focus CSS, set_css_property, set_node_text):
         // re-run layout on the EXISTING StyledDom instead of forcing the full
         // regenerate_layout(). process_window_events() does NOT mark
-        // frame_needs_regeneration for ShouldIncrementalRelayout (it is not a
+        // request regeneration for ShouldIncrementalRelayout (it is not a
         // RefreshDom), so the main event loop owns it here — mirrors the menu-callback
         // arm in process_pending_menu_callbacks() and the macOS
         // apply_incremental_relayout_result() helper. render_and_present() then takes
-        // the frame_relayout_only fast path (skip regenerate_layout, rebuild + send the
+        // the relayout-only fast path (skip regenerate_layout, rebuild + send the
         // transaction). The redraw is posted by the != DoNothing block below.
         if result == ProcessEventResult::ShouldIncrementalRelayout {
             if let Some(layout_window) = self.common.layout_window.as_mut() {
@@ -2850,8 +2853,7 @@ impl X11Window {
                     log_warn!(LogCategory::Layout, "Incremental relayout failed: {}", e);
                 }
             }
-            self.common.frame_relayout_only = true;
-            self.common.frame_needs_regeneration = true;
+            self.common.request_relayout_only();
         }
 
         // Request redraw if needed
@@ -3291,10 +3293,15 @@ impl X11Window {
         }
 
         // 5. Re-layout at the final size (drops the scrollbars the tiny pass added).
-        self.common.frame_needs_regeneration = true;
+        self.common.request_regeneration(azul_core::callbacks::RelayoutReason::RefreshDom);
     }
 
     pub fn regenerate_layout_inner(&mut self) -> Result<crate::desktop::shell2::common::layout::LayoutRegenerateResult, String> {
+        // Consume the reason tag BEFORE borrowing the layout window: this is
+        // the regeneration this window asked for, and the tag travels with
+        // the request (see CommonWindowState::request_regeneration).
+        let relayout_reason = self.common.take_relayout_reason();
+
         let layout_window = self.common.layout_window.as_mut().ok_or("No layout window")?;
 
         // Collect debug messages if debug server is enabled
@@ -3319,11 +3326,8 @@ impl X11Window {
             &self.resources.icon_provider,
             &mut debug_messages,
         
-            self.common.next_relayout_reason,
+            relayout_reason,
         )?;
-        // Consumed; reset so an untagged regen sees the implicit RefreshDom.
-        self.common.next_relayout_reason =
-            azul_core::callbacks::RelayoutReason::RefreshDom;
 
         // Forward layout debug messages to the debug server's log queue
         if let Some(msgs) = debug_messages {
@@ -3430,11 +3434,16 @@ impl X11Window {
         //
         // Clearing here meant every early return BELOW this line destroyed the
         // request: the 0-size window path, and the renderer/render/swap failure
-        // paths, all return with the flag already gone and nothing to
+        // paths, all return with the request already gone and nothing to
         // re-schedule them — so a minimise, or one transient GPU error, silently
-        // cost a repaint that nobody would ever ask for again. The flag is now
-        // cleared at the END, on the paths that actually rendered.
-        let want_redraw = self.needs_redraw;
+        // cost a repaint that nobody would ever ask for again. It is now retired
+        // at the END, on the paths that actually rendered.
+        let want_redraw = self.needs_redraw.pending();
+        // ... and retired BY EPOCH, because this function raises the request
+        // again itself: the scrollbar-fade re-arm below calls request_redraw().
+        // A bare `= false` at the end would eat exactly that frame and freeze
+        // the fade half-way.
+        let redraw_epoch_seen = self.needs_redraw.epoch();
 
         // Skip rendering a degenerate (0-size) window. A reparenting/compositing
         // WM delivers a 0-size ConfigureNotify on iconify (minimize) and during
@@ -3448,7 +3457,7 @@ impl X11Window {
         }
 
         // Step 1: Regenerate layout if needed, otherwise send lightweight transaction
-        let layout_was_regenerated = if self.common.frame_relayout_only {
+        let layout_was_regenerated = if self.common.take_relayout_only() {
             // Restyle / runtime edit: the ShouldIncrementalRelayout arm in handle_event()
             // already re-ran layout on the EXISTING StyledDom (incremental_relayout) AND
             // regenerated the per-DOM display list into layout_results. SKIP the full
@@ -3461,9 +3470,8 @@ impl X11Window {
             // since we skip it, send the full transaction here, mirroring
             // generate_frame_if_needed(). CPU mode has render_api = None (the block below
             // no-ops) and renders straight from layout_results further down. Checked
-            // BEFORE frame_needs_regeneration (handle_event sets BOTH). Mirrors wayland's
-            // relayout-only generate_frame path.
-            self.common.frame_relayout_only = false;
+            // BEFORE the plain regeneration request (handle_event raises BOTH).
+            // Mirrors wayland's relayout-only generate_frame path.
             // Retire ONLY the request this frame observed: a lifecycle callback
             // running inside the render above can raise a new one, and a bare
             // `= false` here would erase it.
@@ -3485,7 +3493,7 @@ impl X11Window {
                 render_api.flush_scene_builder();
             }
             true
-        } else if self.common.frame_needs_regeneration {
+        } else if self.common.regeneration_pending() {
             // Captured BEFORE the render: a callback inside it can raise a new
             // regeneration request, and only what we saw here may be retired.
             let regen_epoch_seen = self.common.regen_epoch();
@@ -4049,12 +4057,13 @@ impl X11Window {
             std::process::exit(0);
         }
 
-        // Consume the render-intent flag HERE, not at the top: this line is only
-        // reached by a call that actually rendered and presented. Every early
-        // return above — the 0-size window on minimise, and the renderer/render/
-        // swap failures — now leaves the flag SET, so the next turn of the loop
-        // retries instead of silently dropping the repaint.
-        self.needs_redraw = false;
+        // Retire the render-intent request HERE, not at the top: this line is
+        // only reached by a call that actually rendered and presented. Every
+        // early return above — the 0-size window on minimise, and the
+        // renderer/render/swap failures — now leaves it RAISED, so the next turn
+        // of the loop retries instead of silently dropping the repaint. And the
+        // epoch check means the scrollbar-fade re-arm above survives too.
+        self.needs_redraw.retire_unless_reraised(redraw_epoch_seen);
 
         Ok(())
     }
@@ -4504,7 +4513,7 @@ impl PlatformWindow for X11Window {
         // For X11, we don't need a separate timer - threads are checked
         // in the event loop when layout_window.threads is non-empty
         // Just mark for regeneration to start checking
-        self.common.frame_needs_regeneration = true;
+        self.common.request_regeneration(azul_core::callbacks::RelayoutReason::RefreshDom);
     }
 
     fn stop_thread_poll_timer(&mut self) {
@@ -4523,7 +4532,7 @@ impl PlatformWindow for X11Window {
         }
 
         // Mark for regeneration to start thread polling
-        self.common.frame_needs_regeneration = true;
+        self.common.request_regeneration(azul_core::callbacks::RelayoutReason::RefreshDom);
     }
 
     fn remove_threads(
