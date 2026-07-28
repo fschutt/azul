@@ -1056,6 +1056,46 @@ mod jni_bridge {
     }
 
     #[no_mangle]
+    pub unsafe extern "system" fn Java_com_azul_app_AzulActivity_nativeOnUiModeChanged(
+        _env: *mut core::ffi::c_void,
+        _class: *mut core::ffi::c_void,
+        native_ptr: i64,
+        night_mode: i32,
+    ) {
+        // `night_mode` is azul's own encoding, mapped Java-side from
+        // UI_MODE_NIGHT_MASK: 0 = undefined, 1 = light, 2 = dark. Android's
+        // constants stay on the Java side of JNI, like the a11y bridge's.
+        //
+        // Called from AzulActivity.onConfigurationChanged AND once from
+        // onWindowFocusChanged, because Android built its window from
+        // SystemStyle::default() and never read the device setting at all — an
+        // app launched on a dark-mode device rendered light and stayed light.
+        // The change hook alone would only have fixed the second half.
+        //
+        // This runs on the JAVA UI THREAD, not the loop thread. It only writes
+        // window state that the next loop iteration reads, exactly as the
+        // gesture bridge does.
+        let theme = match night_mode {
+            1 => azul_core::window::WindowTheme::LightMode,
+            2 => azul_core::window::WindowTheme::DarkMode,
+            // Undefined: the device is not expressing a preference, so keep
+            // whatever the window already carries.
+            _ => return,
+        };
+        with_window(native_ptr, |w| {
+            if w.common.current_window_state.theme == theme {
+                return;
+            }
+            // previous_window_state is what the diff pipeline compares against
+            // to decide a ThemeChanged event fired; without it no callback runs.
+            w.common.previous_window_state = Some(w.common.current_window_state.clone());
+            w.common.current_window_state.theme = theme;
+            w.common
+                .request_regeneration(RelayoutReason::ThemeChange);
+        });
+    }
+
+    #[no_mangle]
     pub unsafe extern "system" fn Java_com_azul_gesture_NativeGestureBridge_nativeOnDoubleTap(
         _env: *mut core::ffi::c_void,
         _class: *mut core::ffi::c_void,

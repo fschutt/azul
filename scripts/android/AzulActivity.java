@@ -23,6 +23,7 @@ package com.azul.app;
 
 import android.app.NativeActivity;
 import android.content.Intent;
+import android.content.res.Configuration;
 import android.os.Bundle;
 import android.view.View;
 
@@ -69,6 +70,37 @@ public class AzulActivity extends NativeActivity {
         // provider needs the AndroidWindow to describe nodes at all.
         accessibilityBridge = new AzulAccessibilityBridge(nativePtr);
         accessibilityBridge.attach(decor);
+
+        // Push the CURRENT ui mode as well as future changes. Android built its
+        // window from SystemStyle::default() and never read the device setting,
+        // so an app launched on a dark-mode device rendered light and stayed
+        // light. onConfigurationChanged alone would only fix the second half.
+        pushUiMode(nativePtr);
+    }
+
+    @Override
+    public void onConfigurationChanged(Configuration newConfig) {
+        super.onConfigurationChanged(newConfig);
+        // AndroidManifest declares uiMode in android:configChanges, so the
+        // activity is NOT recreated on a dark-mode toggle and this is the only
+        // notification we get.
+        long nativePtr = nativeGetWindowPointer();
+        if (nativePtr != 0L) {
+            pushUiMode(nativePtr);
+        }
+    }
+
+    /** Map UI_MODE_NIGHT_MASK onto the codes the Rust side expects. */
+    private void pushUiMode(long nativePtr) {
+        int night = getResources().getConfiguration().uiMode
+                & Configuration.UI_MODE_NIGHT_MASK;
+        // 0 = undefined (let the Rust side keep whatever it has), 1 = light,
+        // 2 = dark. These are azul's own numbers, not Android's, so the
+        // constants stay on this side of JNI.
+        int mapped = (night == Configuration.UI_MODE_NIGHT_YES) ? 2
+                   : (night == Configuration.UI_MODE_NIGHT_NO) ? 1
+                   : 0;
+        nativeOnUiModeChanged(nativePtr, mapped);
     }
 
     @Override
@@ -87,4 +119,7 @@ public class AzulActivity extends NativeActivity {
 
     /** Implemented in Rust (dll/src/desktop/shell2/android/mod.rs). */
     private static native long nativeGetWindowPointer();
+
+    /** Implemented in Rust (dll/src/desktop/shell2/android/mod.rs). */
+    private static native void nativeOnUiModeChanged(long nativePtr, int nightMode);
 }
