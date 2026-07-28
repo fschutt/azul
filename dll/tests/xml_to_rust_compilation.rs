@@ -621,9 +621,20 @@ mod xml_compilation_tests {
 
 #[cfg(not(feature = "xml"))]
 mod no_xml_feature {
+    /// Compile canary for the no-`xml` configuration.
+    ///
+    /// The body was `assert!(true)`, which is a test that cannot fail —
+    /// indistinguishable from a passing one, and it reads as coverage in the
+    /// count. The VALUE here is entirely in the module compiling at all, so say
+    /// that, and assert the one thing that is actually checkable: that we really
+    /// are in the configuration this module claims to cover. If the cfg ever
+    /// stops matching the feature, this stops being a canary for anything.
     #[test]
-    fn test_xml_feature_not_enabled() {
-        // This test just ensures the tests compile when xml feature is disabled
-        assert!(true);
+    fn the_no_xml_configuration_compiles() {
+        assert!(
+            cfg!(not(feature = "xml")),
+            "this module is gated on `not(feature = \"xml\")` but the feature is enabled — the \
+             canary is guarding a configuration that is not the one being built",
+        );
     }
 }
