@@ -818,6 +818,20 @@ pub struct CommonWindowState {
     pub renderer: Option<webrender::Renderer>,
     /// Track if frame needs regeneration (to avoid multiple generate_frame calls)
     pub frame_needs_regeneration: bool,
+    /// Bumped every time a regeneration is REQUESTED through
+    /// `mark_frame_needs_regeneration`.
+    ///
+    /// Exists because `frame_needs_regeneration = false` after a render erases
+    /// any request raised DURING that render — and requests are raised during it:
+    /// `regenerate_layout` runs user lifecycle callbacks, which can return
+    /// `Update::RefreshDom`, which routes through `process_window_events` to
+    /// `mark_frame_needs_regeneration`. A bool cannot tell "nobody asked" from
+    /// "somebody asked while we were busy"; a monotonic counter can.
+    ///
+    /// Consumers capture this before rendering and retire only what they SAW,
+    /// via `clear_regeneration_unless_reraised`. A request that arrived mid-flight
+    /// therefore survives into the next frame instead of being wiped.
+    pub regen_generation: u64,
     /// When `true`, layout is ALREADY up to date — an `incremental_relayout()`
     /// re-ran layout on the existing `StyledDom` (restyle / runtime edit) in the
     /// event arm, so the frame-generation path must SKIP the full
@@ -848,6 +862,33 @@ pub struct CommonWindowState {
     /// Whether the accessibility tree needs to be rebuilt and sent to the OS.
     /// Set on focus change, DOM rebuild, text edit — NOT on every mouse move.
     pub a11y_dirty: bool,
+}
+
+impl CommonWindowState {
+    /// The regeneration epoch to capture BEFORE rendering.
+    #[must_use]
+    pub fn regen_epoch(&self) -> u64 {
+        self.regen_generation
+    }
+
+    /// Retire a regeneration request — but ONLY the one that was observed.
+    ///
+    /// Every backend used to end its frame with a bare
+    /// `frame_needs_regeneration = false`, which erased anything raised while
+    /// that frame was being produced. And things ARE raised then:
+    /// `regenerate_layout` runs user lifecycle callbacks, and a callback
+    /// returning `Update::RefreshDom` routes through `process_window_events` into
+    /// `mark_frame_needs_regeneration`. The symptom is a widget that seeds derived
+    /// state on mount showing its pre-seed DOM until some unrelated later event
+    /// happens to force another pass.
+    ///
+    /// Pass the epoch captured before the work. If the counter moved, somebody
+    /// asked again mid-flight and the flag STAYS SET.
+    pub fn clear_regeneration_unless_reraised(&mut self, seen: u64) {
+        if self.regen_generation == seen {
+            self.frame_needs_regeneration = false;
+        }
+    }
 }
 
 impl CommonWindowState {
@@ -1024,6 +1065,7 @@ macro_rules! impl_platform_window_getters {
         }
         fn mark_frame_needs_regeneration(&mut self) {
             self.$field.frame_needs_regeneration = true;
+            self.$field.regen_generation = self.$field.regen_generation.wrapping_add(1);
         }
         fn clear_frame_regeneration_flag(&mut self) {
             self.$field.frame_needs_regeneration = false;

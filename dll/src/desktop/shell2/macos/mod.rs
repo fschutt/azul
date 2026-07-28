@@ -3945,6 +3945,7 @@ impl MacOSWindow {
                 fc_cache,
                 system_style,
                 frame_needs_regeneration: false,
+                regen_generation: 0,
                 frame_relayout_only: false,
                 next_relayout_reason: azul_core::callbacks::RelayoutReason::Initial,
                 display_list_initialized: false,
@@ -5949,10 +5950,16 @@ impl MacOSWindow {
             // Mirrors wayland generate_frame_if_needed's relayout-only path.
             log_trace!(
                 LogCategory::Layout,
+                // Captured BEFORE the render: a callback inside it can raise a new
+                // regeneration request, and only what we saw here may be retired.
+                let regen_epoch_seen = self.common.regen_epoch();
                 "[build_atomic_txn] Relayout-only: skipping regenerate_layout()"
             );
             self.common.frame_relayout_only = false;
-            self.common.frame_needs_regeneration = false;
+            // Retire ONLY the request this frame observed: a lifecycle callback
+            // running inside the render above can raise a new one, and a bare
+            // `= false` here would erase it.
+            self.common.clear_regeneration_unless_reraised(regen_epoch_seen);
             self.common.display_list_dirty = false;
             true
         } else if self.common.frame_needs_regeneration {
@@ -5960,6 +5967,9 @@ impl MacOSWindow {
                 LogCategory::Layout,
                 "[build_atomic_txn] Regenerating layout"
             );
+            // Captured BEFORE the render: a callback inside it can raise a new
+            // regeneration request, and only what we saw here may be retired.
+            let regen_epoch_seen = self.common.regen_epoch();
             let result = match self.regenerate_layout() {
                 Ok(r) => r,
                 Err(e) => {
@@ -5973,7 +5983,10 @@ impl MacOSWindow {
                     ));
                 }
             };
-            self.common.frame_needs_regeneration = false;
+            // Retire ONLY the request this frame observed: a lifecycle callback
+            // running inside the render above can raise a new one, and a bare
+            // `= false` here would erase it.
+            self.common.clear_regeneration_unless_reraised(regen_epoch_seen);
             // Layout was regenerated — rebuild display list unless layout result is identical
             let mut needs_rebuild = result != crate::desktop::shell2::common::layout::LayoutRegenerateResult::LayoutUnchanged;
             // If layout is unchanged but display_list_dirty is set (e.g. cursor blink

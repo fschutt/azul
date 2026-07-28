@@ -892,6 +892,7 @@ impl HeadlessWindow {
                 render_api: None,
                 renderer: None,
                 frame_needs_regeneration: true,
+                regen_generation: 0,
                 frame_relayout_only: false,
                 next_relayout_reason: azul_core::callbacks::RelayoutReason::Initial,
                 display_list_initialized: false,

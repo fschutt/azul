@@ -581,6 +581,7 @@ impl Win32Window {
                 document_id,
                 id_namespace,
                 frame_needs_regeneration: true,
+                regen_generation: 0,
                 frame_relayout_only: false,
                 next_relayout_reason: azul_core::callbacks::RelayoutReason::Initial, // Initial render deferred to WM_PAINT
                 display_list_initialized: false,
@@ -2816,7 +2817,11 @@ unsafe extern "system" fn window_proc(
         }
 
         WM_PAINT => {
-            // Determine if layout needs regeneration (DOM changed)
+            // Determine if layout needs regeneration (DOM changed).
+            // Captured BEFORE either branch renders: a callback inside the render
+            // can raise a new regeneration request, and only what we saw here may
+            // be retired.
+            let regen_epoch_seen = window.common.regen_epoch();
             let layout_was_regenerated = if window.common.frame_relayout_only {
                 // Restyle / runtime edit: incremental_relayout() already re-ran layout
                 // on the existing StyledDom in the ShouldIncrementalRelayout event arm.
@@ -2826,13 +2831,19 @@ unsafe extern "system" fn window_proc(
                 // the screen — render_and_present(true) then presents the new scene.
                 window.send_frame_after_incremental_relayout();
                 window.common.frame_relayout_only = false;
-                window.common.frame_needs_regeneration = false;
+                // Retire ONLY the request this frame observed: a lifecycle callback
+                // running inside the render above can raise a new one, and a bare
+                // `= false` here would erase it.
+                window.common.clear_regeneration_unless_reraised(regen_epoch_seen);
                 true
             } else if window.common.frame_needs_regeneration {
                 if let Err(e) = window.regenerate_layout() {
                     log_error!(LogCategory::Layout, "Layout regeneration error: {:?}", e);
                 }
-                window.common.frame_needs_regeneration = false;
+                // Retire ONLY the request this frame observed: a lifecycle callback
+                // running inside the render above can raise a new one, and a bare
+                // `= false` here would erase it.
+                window.common.clear_regeneration_unless_reraised(regen_epoch_seen);
                 true
             } else {
                 false

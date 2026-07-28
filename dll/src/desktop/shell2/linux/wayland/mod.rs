@@ -1368,6 +1368,7 @@ impl WaylandWindow {
                 scrollbar_drag_state: None,
                 last_hovered_node: None,
                 frame_needs_regeneration: false,
+                regen_generation: 0,
                 frame_relayout_only: false,
                 next_relayout_reason: azul_core::callbacks::RelayoutReason::Initial,
                 display_list_initialized: false,
@@ -4172,6 +4173,10 @@ impl WaylandWindow {
             gl_context.make_current();
         }
 
+        // Captured BEFORE either path renders: a callback inside the render can
+        // raise a new regeneration request, and only what we saw here may be
+        // retired.
+        let regen_epoch_seen = self.common.regen_epoch();
         if self.common.frame_needs_regeneration || self.common.frame_relayout_only {
             // FULL or RELAYOUT-ONLY PATH: both rebuild the CPU hit-tester + build &
             // send the full WebRender transaction below. Only the FULL path re-runs
@@ -4190,7 +4195,10 @@ impl WaylandWindow {
                     );
                 }
             }
-            self.common.frame_needs_regeneration = false;
+            // Retire ONLY the request this frame observed: a lifecycle callback
+            // running inside the render above can raise a new one, and a bare
+            // `= false` here would erase it.
+            self.common.clear_regeneration_unless_reraised(regen_epoch_seen);
             self.common.frame_relayout_only = false;
 
             // Rebuild the CPU hit-tester from the fresh layout. CPU mode has no

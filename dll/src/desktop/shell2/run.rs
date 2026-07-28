@@ -1172,6 +1172,9 @@ pub fn run(
                     let window = &mut *window_ptr_from_registry;
 
                     if window.common.frame_needs_regeneration {
+                        // Captured BEFORE the render: a callback inside it can raise a new
+                        // regeneration request, and only what we saw here may be retired.
+                        let regen_epoch_seen = window.common.regen_epoch();
                         if let Err(e) = window.regenerate_layout() {
                             log_error!(
                                 debug_server::LogCategory::Layout,
@@ -1179,7 +1182,10 @@ pub fn run(
                                 e
                             );
                         }
-                        window.common.frame_needs_regeneration = false;
+                        // Retire ONLY the request this frame observed: a lifecycle callback
+                        // running inside the render above can raise a new one, and a bare
+                        // `= false` here would erase it.
+                        window.common.clear_regeneration_unless_reraised(regen_epoch_seen);
 
                         // Request WM_PAINT
                         use std::ptr;

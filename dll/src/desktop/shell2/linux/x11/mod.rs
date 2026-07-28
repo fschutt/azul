@@ -1833,6 +1833,7 @@ impl X11Window {
                 scrollbar_drag_state: None,
                 last_hovered_node: None,
                 frame_needs_regeneration: true,
+                regen_generation: 0,
                 frame_relayout_only: false,
                 next_relayout_reason: azul_core::callbacks::RelayoutReason::Initial,
                 display_list_initialized: false,
@@ -3460,6 +3461,9 @@ impl X11Window {
             // already re-ran layout on the EXISTING StyledDom (incremental_relayout) AND
             // regenerated the per-DOM display list into layout_results. SKIP the full
             // regenerate_layout() (it would re-invoke the user's layout_callback). On the
+            // Captured BEFORE the render: a callback inside it can raise a new
+            // regeneration request, and only what we saw here may be retired.
+            let regen_epoch_seen = self.common.regen_epoch();
             // GPU path regenerate_layout() is what normally SENDS the full WebRender
             // transaction (see Step 3.5's `!layout_was_regenerated` lightweight path) — so
             // since we skip it, send the full transaction here, mirroring
@@ -3468,7 +3472,10 @@ impl X11Window {
             // BEFORE frame_needs_regeneration (handle_event sets BOTH). Mirrors wayland's
             // relayout-only generate_frame path.
             self.common.frame_relayout_only = false;
-            self.common.frame_needs_regeneration = false;
+            // Retire ONLY the request this frame observed: a lifecycle callback
+            // running inside the render above can raise a new one, and a bare
+            // `= false` here would erase it.
+            self.common.clear_regeneration_unless_reraised(regen_epoch_seen);
             if let RenderMode::Gpu(ref gl_context, _) = self.render_mode {
                 gl_context.make_current();
             }
@@ -3487,10 +3494,16 @@ impl X11Window {
             }
             true
         } else if self.common.frame_needs_regeneration {
+            // Captured BEFORE the render: a callback inside it can raise a new
+            // regeneration request, and only what we saw here may be retired.
+            let regen_epoch_seen = self.common.regen_epoch();
             if let Err(e) = self.regenerate_layout() {
                 return Err(WindowError::PlatformError(format!("Layout failed: {}", e)));
             }
-            self.common.frame_needs_regeneration = false;
+            // Retire ONLY the request this frame observed: a lifecycle callback
+            // running inside the render above can raise a new one, and a bare
+            // `= false` here would erase it.
+            self.common.clear_regeneration_unless_reraised(regen_epoch_seen);
             true
         } else {
             false
