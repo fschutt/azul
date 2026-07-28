@@ -140,7 +140,24 @@ jobs:
               echo "::warning::${IMAGE}:${VER}-${a} not published (arch build failed?) — skipping"
             fi
           done
-          if [ -z "$SRCS" ]; then echo "::warning::no arch images published; nothing to stitch"; exit 0; fi
+          # NOT `exit 0`. Combined with job-level continue-on-error on both jobs,
+          # that made this workflow structurally incapable of failing: it reported
+          # two green checks over a build that docker/Dockerfile itself documents
+          # as unable to succeed ("remill's cmake does find_package(XED CONFIG) ...
+          # the image build fails at this step ... the web-base image is
+          # experimental and not yet green"), because no VCPKG_ROOT /
+          # CMAKE_TOOLCHAIN_FILE is ever set and no cxx-common is installed. The
+          # only way to learn it was broken was to read the Dockerfile comments.
+          #
+          # Publishing NOTHING is the actual outcome to surface. The jobs keep
+          # continue-on-error — this image is genuinely experimental and must not
+          # block anything — so this exits 1 to turn the check red-but-non-blocking
+          # rather than green-and-wrong. A workflow that cannot report its own
+          # failure is worse than one that is simply absent.
+          if [ -z "$SRCS" ]; then
+            echo "::error::no arch images published, so there is nothing to stitch. The azul-web-base build is failing - see docker/Dockerfile:61-63: remill's cmake needs find_package(XED CONFIG) and this workflow sets no VCPKG_ROOT/CMAKE_TOOLCHAIN_FILE and installs no cxx-common."
+            exit 1
+          fi
           docker manifest create "${IMAGE}:${VER}" $SRCS
           docker manifest push   "${IMAGE}:${VER}"
           if [ "${GITHUB_REF_TYPE}" = "tag" ]; then
