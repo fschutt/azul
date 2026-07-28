@@ -3921,13 +3921,25 @@ jobs:
       #   Maven     azul.rs/ui/maven        maven2 layout (rs.azul:azul:<V>)
       #   npm       azul.rs/ui/npm/azul-<V>.tgz          stable tarball URL
       #   NuGet     azul.rs/ui/nuget        static v3 feed (+ choco libazul)
-      #   RubyGems  azul.rs/ui/gems         hosted .gem (+ legacy index)
+      #   RubyGems  azul.rs/ui/gems         Marshal spec index + quick/ + gems/
       #   dnf/arch/apk  azul.rs/ui/{rpm,arch,alpine}
       #
       # MUST run AFTER "Merge real artifacts" (the brew formula embeds sha256s
       # of the staged libazul.dylib / libazul.x86_64.dylib / azul.h and the
       # choco package the staged azul.dll) and BEFORE upload-pages-artifact.
       # Every channel skips gracefully when its input artifact is missing.
+
+      # build_registry_mirrors.sh generates the RubyGems spec index with ruby
+      # itself (Marshal + Zlib), and the step below re-installs the result with
+      # the real `gem` client. Pin the interpreter instead of trusting whatever
+      # the image happens to ship: "Free disk space" above deletes
+      # $AGENT_TOOLSDIRECTORY, and the gems channel is now a hard failure, so a
+      # missing ruby would red the whole deploy.
+      - name: Set up Ruby (RubyGems mirror index + its install self-check)
+        uses: ruby/setup-ruby@v1
+        with:
+          ruby-version: "3.2"
+
       - name: Build self-hosted package channels (brew tap, apt, registry mirrors)
         run: |
           set -u
@@ -3987,6 +3999,61 @@ jobs:
           if [ -n "$missing" ]; then
             echo "::error::registry mirrors missing for:$missing"
             exit 1
+          fi
+
+          # ---- RubyGems: prove the mirror is installable, don't assume it ----
+          # The gems channel shipped a bare .gem with no index for two months
+          # because the index generator failed and the script printed a note.
+          # The only honest check is to run the DOCUMENTED command against the
+          # tree we just built: serve website/ over HTTP on localhost so the
+          # source URL has the same sub-path shape as https://azul.rs/ui/gems
+          # (RubyGems resolves index paths relative to the source, so a sub-path
+          # source exercises a code path that a bare-host source does not), then
+          # `gem install` from it for real.
+          # --ignore-dependencies: the mirror hosts azul only, not its `ffi`
+          # runtime dep, so dependency resolution would fail for a reason that
+          # has nothing to do with the index being correct.
+          if [ -d website/ui/gems ]; then
+            python3 -m http.server 8099 --bind 127.0.0.1 --directory website \
+              >/tmp/gem-mirror-server.log 2>&1 &
+            gem_srv=$!
+            gem_ok=""
+            for _ in $(seq 1 30); do
+              if curl -fsS -o /dev/null "http://127.0.0.1:8099/ui/gems/latest_specs.4.8.gz"; then
+                gem_ok=yes; break
+              fi
+              sleep 1
+            done
+            if [ -z "$gem_ok" ]; then
+              echo "::error::gems: latest_specs.4.8.gz is not served from the built site — the RubyGems index was not generated"
+              kill "$gem_srv" 2>/dev/null
+              exit 1
+            fi
+            # --clear-sources is NOT optional and NOT cosmetic: `--source`
+            # APPENDS to the source list, so without it RubyGems still resolves
+            # against rubygems.org, where an unrelated `azul` gem exists. That
+            # would both mis-install for users AND make this check pass while
+            # our mirror was broken. Keep it identical to the command api.json
+            # documents.
+            gem_root="$(mktemp -d)"
+            if gem install azul --clear-sources --source "http://127.0.0.1:8099/ui/gems" \
+                 --install-dir "$gem_root" --no-document --ignore-dependencies; then
+              echo "[gems] verified: 'gem install azul --clear-sources --source .../ui/gems' installs from the built mirror"
+              ls -l "$gem_root/gems" || true
+              # ...and it must be OUR gem at OUR version, not a same-named gem.
+              if [ ! -d "$gem_root/gems/azul-${AZUL_VERSION}" ]; then
+                echo "::error::gems: install resolved to something other than azul-${AZUL_VERSION}"
+                kill "$gem_srv" 2>/dev/null
+                exit 1
+              fi
+            else
+              echo "::error::gems: 'gem install azul --source <mirror>' FAILED against the tree we are about to publish"
+              echo "::error::gems: /ui/gems would be advertised in the install docs while being unusable"
+              kill "$gem_srv" 2>/dev/null
+              exit 1
+            fi
+            kill "$gem_srv" 2>/dev/null
+            rm -rf "$gem_root"
           fi
 
       # Fold the real shared libraries + the compiled demo binaries into

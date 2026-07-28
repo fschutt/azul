@@ -2990,7 +2990,7 @@
                             "steps": [
                                 {
                                     "type": "command",
-                                    "content": "gem install azul --source $HOSTNAME/ui/gems"
+                                    "content": "gem install azul --clear-sources --source $HOSTNAME/ui/gems"
                                 },
                                 {
                                     "type": "command",
@@ -3007,7 +3007,7 @@
                             "steps": [
                                 {
                                     "type": "command",
-                                    "content": "gem install azul --source $HOSTNAME/ui/gems"
+                                    "content": "gem install azul --clear-sources --source $HOSTNAME/ui/gems"
                                 },
                                 {
                                     "type": "command",
@@ -3024,7 +3024,7 @@
                             "steps": [
                                 {
                                     "type": "command",
-                                    "content": "gem install azul --source $HOSTNAME/ui/gems"
+                                    "content": "gem install azul --clear-sources --source $HOSTNAME/ui/gems"
                                 },
                                 {
                                     "type": "command",

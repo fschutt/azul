@@ -37,11 +37,13 @@ You need **Ruby 2.6+** (system Ruby on macOS works), the **`ffi` gem**, and the
 native `libazul` library.
 
 The name `azul` on rubygems.org belongs to an unrelated project, so azul ships
-from its own source at azul.rs. The gem bundles `libazul` for Linux/macOS/Windows
-and pulls in `ffi`:
+from its own source at azul.rs. `--source` only *appends* to the source list, so
+`--clear-sources` is required — without it RubyGems resolves against
+rubygems.org as well and installs that other `azul`. The gem bundles `libazul`
+for Linux/macOS/Windows and pulls in `ffi`:
 
 ```sh
-gem install azul --source https://azul.rs/ui/gems
+gem install azul --clear-sources --source https://azul.rs/ui/gems
 ```
 
 With the gem installed you just `require 'azul'` (no `-I.`). To wire it up by

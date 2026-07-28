@@ -6,7 +6,7 @@
 #   PyPI     azul.rs/ui            (PEP 503 index root; pip fetches /ui/azul/)
 #   npm      azul.rs/ui/npm/azul     (registry metadata doc + hosted .tgz)
 #   NuGet    azul.rs/ui/nuget        (v3 service index + flat-container + nupkg)
-#   RubyGems azul.rs/ui/gems         (flat: hosted .gem + a human index; see note)
+#   RubyGems azul.rs/ui/gems         (Marshal spec index + quick/ + gems/; see note)
 #   DNF/yum/zypper azul.rs/ui/rpm    (createrepo_c repodata; ONE repo serves all
 #                                  three — yum and zypper consume dnf repodata)
 #   pacman   azul.rs/ui/arch         (repo-add db over the .pkg.tar.zst)
@@ -27,9 +27,10 @@
 #
 # These are plain files served by GitHub Pages — no registry server needed. The
 # clients that can consume a fully-static tree (Maven, pip --index-url, npm
-# --registry via the metadata doc, NuGet v3, dnf) work directly. RubyGems'
-# compact index needs a couple of binary-format files we generate best-effort
-# when `gem` is available; otherwise we still host the .gem for manual install.
+# --registry via the metadata doc, NuGet v3, dnf) work directly. RubyGems is one
+# of them: it probes the compact index, 404s, and falls back to the static
+# Marshal spec index (specs.4.8.gz + quick/Marshal.4.8/), which build_gems
+# generates directly — see the note above build_gems.
 #
 # Homebrew is handled as a REAL bare git repo (a tap is just a git repo; brew
 # clones any explicit URL, including dumb-HTTP from GitHub Pages). Chocolatey
@@ -217,24 +218,148 @@ SVC
 }
 
 # --------------------------------------------------------------------------
-# RubyGems — host the .gem; build the compact index if `gem`/`gem generate_index`
-# is available (best-effort: the modern compact index needs server logic, but a
-# legacy `gems/` + `quick/` tree from `gem generate_index` supports
-#   gem install azul --source https://azul.rs/ui/gems ).
+# RubyGems — the STATIC "Marshal spec index" tree that `gem install --source`
+# actually fetches:
+#
+#   <source>/latest_specs.4.8.gz              Marshal([[name, Gem::Version, platform], …])
+#   <source>/specs.4.8.gz                     ditto, all released versions
+#   <source>/prerelease_specs.4.8.gz          ditto, prerelease versions
+#   <source>/quick/Marshal.4.8/<full>.gemspec.rz   Zlib::Deflate(Marshal(Gem::Specification))
+#   <source>/gems/<full>.gem                  the package itself
+#
+# That is exactly the sequence in rubygems' lib/rubygems/source.rb:
+# `load_specs` → `load_compact_index_specs || load_marshal_specs` (the compact
+# index probe 404s on a static host and falls back), then `fetch_spec` →
+# `quick/Marshal.4.8/…rz`, then `download` → `gems/<spec.file_name>`. Source
+# URIs are run through `enforce_trailing_slash`, so the documented
+# `--source https://azul.rs/ui/gems` (no trailing slash) resolves correctly.
+#
+# We build those files DIRECTLY rather than shelling out to `gem generate_index`,
+# which is dead on every modern RubyGems for two independent reasons:
+#   1. `--legacy` was removed in RubyGems 3.0 — passing it is an InvalidOption,
+#      so the command exits non-zero on anything newer than that. (This is what
+#      the deploy actually hit: "[gems] hosted .gem only (generate_index failed)".)
+#   2. RubyGems ≥ 3.5 moved the command out into the `rubygems-generate_index`
+#      gem and left behind a trampoline stub. `gem help generate_index` still
+#      succeeds — so the old `gem help` guard is a false positive by
+#      construction — while executing it tries to `Gem.install` that gem into
+#      the system gem dir and fails without root.
+#
+# Failure here is FATAL (the caller aborts the whole mirror build): hosting a
+# bare .gem with no index ships a `gem install azul --source https://azul.rs/ui/gems`
+# command that cannot work, which is the exact class of dead install command
+# this script exists to prevent.
 # --------------------------------------------------------------------------
 build_gems() {
   local gem; gem="$(ls -1 "$ART"/ruby-gem/*.gem 2>/dev/null | head -1)"
-  [ -n "$gem" ] || { echo "  [gems] no gem artifact — skip"; return; }
+  [ -n "$gem" ] || { echo "  [gems] no gem artifact — skip"; return 0; }
   local g="$SITE/ui/gems"
   mkdir -p "$g/gems"
   cp "$gem" "$g/gems/"
-  if command -v gem >/dev/null 2>&1 && gem help generate_index >/dev/null 2>&1; then
-    ( cd "$g" && gem generate_index --legacy >/dev/null 2>&1 ) \
-      && echo "  [gems] built legacy index (gem generate_index)" \
-      || echo "  [gems] hosted .gem only (generate_index failed)"
-  else
-    echo "  [gems] hosted .gem only (no gem generate_index available)"
+
+  if ! command -v ruby >/dev/null 2>&1; then
+    echo "::error::[gems] ruby is not installed on this runner — cannot build the RubyGems"
+    echo "::error::[gems] spec index, and a .gem with no index is not installable."
+    return 1
   fi
+
+  ruby - "$g" <<'RUBY_INDEX' || return 1
+# Build (and then read back) the RubyGems Marshal spec index for a static mirror.
+# Mirrors Gem::Indexer#build_marshal_gemspecs / #build_modern_index without
+# depending on the (removed) `gem generate_index` command.
+require "rubygems/package"
+require "zlib"
+require "fileutils"
+
+root    = ARGV[0]
+gem_dir = File.join(root, "gems")
+quick   = File.join(root, "quick", "Marshal.4.8")
+FileUtils.mkdir_p(quick)
+
+paths = Dir[File.join(gem_dir, "*.gem")].sort
+abort("no .gem files under #{gem_dir}") if paths.empty?
+
+specs = paths.map do |path|
+  spec = Gem::Package.new(path).spec
+  # RemoteFetcher#download requests gems/<spec.file_name>; normalise the on-disk
+  # name so the URL the index advertises always resolves.
+  want = File.join(gem_dir, spec.file_name)
+  FileUtils.mv(path, want) unless File.expand_path(path) == File.expand_path(want)
+  spec
+end
+
+specs.each do |spec|
+  File.binwrite(File.join(quick, "#{spec.original_name}.gemspec.rz"),
+                Zlib::Deflate.deflate(Marshal.dump(spec)))
+end
+
+def tuples(specs)
+  specs.sort_by {|s| [s.name, s.version] }.map do |s|
+    plat = s.original_platform.to_s
+    plat = Gem::Platform::RUBY if plat.empty?
+    [s.name, s.version, plat]
+  end
+end
+
+def dump_gz(path, data)
+  Zlib::GzipWriter.open(path) {|gz| gz.write(Marshal.dump(data)) }
+end
+
+prerelease, released = specs.partition {|s| s.version.prerelease? }
+# One entry per (name, platform): the highest version.
+latest = released.group_by {|s| [s.name, s.original_platform.to_s] }
+                 .map {|_, group| group.max_by(&:version) }
+
+dump_gz(File.join(root, "specs.4.8.gz"),            tuples(released))
+dump_gz(File.join(root, "latest_specs.4.8.gz"),     tuples(latest))
+dump_gz(File.join(root, "prerelease_specs.4.8.gz"), tuples(prerelease))
+
+# ---- read the tree back exactly the way a client walks it -----------------
+def load_gz(path)
+  Marshal.load(Zlib::GzipReader.open(path, &:read))
+end
+
+listed = load_gz(File.join(root, "latest_specs.4.8.gz"))
+abort("latest_specs.4.8.gz lists no gems") if listed.empty?
+
+listed.each do |name, version, platform|
+  full = platform.to_s == "ruby" ? "#{name}-#{version}" : "#{name}-#{version}-#{platform}"
+
+  quick_file = File.join(quick, "#{full}.gemspec.rz")
+  abort("index lists #{full} but #{quick_file} is missing/empty") unless File.size?(quick_file)
+  loaded = Marshal.load(Zlib::Inflate.inflate(File.binread(quick_file)))
+  unless loaded.name == name && loaded.version.to_s == version.to_s
+    abort("quick spec #{quick_file} describes #{loaded.full_name}, index says #{full}")
+  end
+
+  gem_file = File.join(gem_dir, "#{full}.gem")
+  abort("index lists #{full} but #{gem_file} is missing/empty") unless File.size?(gem_file)
+end
+
+puts "  [gems] built RubyGems spec index for #{specs.size} gem(s): " \
+     "specs/latest_specs/prerelease_specs.4.8.gz + quick/Marshal.4.8 " \
+     "(#{listed.map {|n, v, _| "#{n}-#{v}" }.join(', ')})"
+RUBY_INDEX
+
+  # Human landing page: /ui/gems/ is a real URL in the install docs, and a bare
+  # 404 there reads as "the whole channel is broken". RubyGems only ever fetches
+  # the exact paths above, so an index.html cannot collide with it.
+  cat > "$g/index.html" <<HTML
+<!DOCTYPE html><html><head><meta charset="utf-8"><title>azul — RubyGems mirror</title></head>
+<body><h1>azul — self-hosted RubyGems source</h1>
+<pre><code>gem install azul --clear-sources --source $BASE/ui/gems</code></pre>
+<p><code>--clear-sources</code> is required: <code>--source</code> only <em>appends</em> to the
+source list, and an unrelated gem named <code>azul</code> exists on rubygems.org.</p>
+<p>Or in a Gemfile (a <code>source</code> block is already exclusive):</p>
+<pre><code>source "$BASE/ui/gems" do
+  gem "azul"
+end</code></pre>
+<p>Index files: <a href="specs.4.8.gz">specs.4.8.gz</a>,
+<a href="latest_specs.4.8.gz">latest_specs.4.8.gz</a>,
+<a href="prerelease_specs.4.8.gz">prerelease_specs.4.8.gz</a>,
+<code>quick/Marshal.4.8/</code>, <code>gems/</code>.</p>
+</body></html>
+HTML
 }
 
 # --------------------------------------------------------------------------
@@ -483,14 +608,24 @@ echo "==> Building self-hosted registry mirrors under $SITE (v$V)"
 # so the bare git repo (objects/, info/refs, HEAD) and every metadata file serve
 # verbatim. Harmless under the static (Actions) Pages path too.
 touch "$SITE/.nojekyll"
+FAILED=""
 build_maven
 build_pypi
 build_npm
 build_nuget   # must run before build_choco (choco writes into the nuget tree)
 build_choco
-build_gems
+# A channel that produced an UNUSABLE mirror must red the deploy, not print a
+# note and continue: "hosted .gem only (generate_index failed)" scrolled past
+# unread for two months while `gem install --source https://azul.rs/ui/gems`
+# 404'd for every user. Build everything first so one broken channel does not
+# mask the state of the others, then fail once at the end.
+build_gems || FAILED="$FAILED gems"
 build_rpm       # yum + zypper consume this same repo
 build_pacman
 build_apk
 build_homebrew
+if [ -n "$FAILED" ]; then
+  echo "::error::registry mirror channels FAILED to build a usable index:$FAILED"
+  exit 1
+fi
 echo "==> Registry mirrors done."
