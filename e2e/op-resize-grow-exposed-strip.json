@@ -1,0 +1,38 @@
+{
+  "name": "op_resize_grow_exposed_strip",
+  "description": "RESIZE GROW — TIGHTNESS. A window that grows must repaint the newly-exposed L and nothing else. `CpuBackend::render_frame` used to build that bounded repaint and then throw it away: `resize_grow_only` copied the old pixels into the top-left of the enlarged buffer and `compute_resize_damage` computed the exposed right/bottom strip, but the display-list diff was gated on `!needs_resize`, so `dl_damage` was forced to None, the render match fell through to the `_` arm, the buffer was cleared and EVERYTHING was re-rasterised as FrameDamage::Full (2f49bcb64). This layout is deliberately FIXED-SIZE — nothing reflows when the window grows — so the only legitimate damage is the exposed L: 500x600 -> 520x620 measures 23.6% of the window, and `max_area_ratio` 0.35 leaves headroom for antialiasing/rounding while still failing outright on the pre-fix 100%. `assert_damage_incremental` rejects a `full` repaint by NAME as well as by area, so a revert is red for two independent reasons. `assert_damage_sound` is the other half and is what makes tightness safe to demand: across a dimension change it counts a pixel inside the overlap as changed iff it differs from the snapshot and EVERY pixel outside the overlap as changed by definition, then requires the damage set to cover all of them and the damage-driven framebuffer to be pixel-identical to an independent full repaint at the NEW size. Forgetting the L (under-paint) fails coverage; painting the L but not the reflow fails pixel identity.",
+  "setup": {
+    "window_width": 500,
+    "window_height": 600,
+    "dpi": 96
+  },
+  "steps": [
+    {
+      "op": "mount",
+      "html": [
+        "<div id=\"root\">",
+        "  <div class=\"box\"></div>",
+        "  <p id=\"t\">grow tight</p>",
+        "</div>"
+      ],
+      "css": [
+        "body  { font-size: 20px; color: black; }",
+        "#root { display: flex; flex-direction: column; }",
+        ".box  { width: 60px; height: 40px; background: blue; }"
+      ]
+    },
+    { "op": "wait_frame" },
+    { "op": "wait", "ms": 120 },
+    { "op": "assert_exists", "selector": "#t" },
+
+    { "op": "reset_frame_counters" },
+    { "op": "snapshot_frame", "as": "before_grow" },
+    { "op": "resize", "width": 520, "height": 620 },
+    { "op": "wait_frame" },
+    { "op": "wait", "ms": 120 },
+    { "op": "get_frame_report" },
+
+    { "op": "assert_damage_incremental", "which": "paint", "max_area_ratio": 0.35 },
+    { "op": "assert_damage_sound", "vs": "before_grow", "pixel_identity": true, "forbid_full": true }
+  ]
+}

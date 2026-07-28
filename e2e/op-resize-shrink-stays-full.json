@@ -1,0 +1,50 @@
+{
+  "name": "op_resize_shrink_stays_full",
+  "description": "RESIZE SHRINK — the FULL repaint is a MEASURED DECISION, not an oversight. Sibling of e2e/op-resize-grow-exposed-strip.json and e2e/op-resize-grow-reflow.json, which pin that a GROW must be a patch; this one pins the other side so that nobody 'symmetrises' the two. A non-grow resize takes the branch that recreates the compositor (CompositorState::new) and never calls `compute_resize_damage`, so there is no exposed-region rect to union in and reusing the previous frame UNDER-PAINTS. BEAT 1 is a pure shrink (800x900 -> 500x600). BEAT 2 is a MIXED resize (500x600 -> 700x400, wider but shorter): `is_grow` demands BOTH axes, so it lands on exactly the same branch, and it is the case someone optimising by area alone would break first. The two beats are guarded by two DIFFERENT nets, and that split is measured, not assumed — injecting `resize_preserved_pixels = true` into the shrink branch produced: beat 1 caught ONLY by kind == 'full' (a pure shrink exposes nothing new, so reusing pixels there really is sound — flipping it is a policy change, not a bug); beat 2 caught by `assert_damage_sound` with '53200 uncovered of 80240 changed, first at (500, 134)', i.e. the whole newly-exposed right strip left stale on screen. That is why both beats assert both things. If a future change makes a non-grow resize genuinely incremental, this scenario goes red as a REVIEW PROMPT rather than as a correctness claim: update it together with the proof that the MIXED case is covered too. `max_overpaint_ratio` is deliberately enormous because a full repaint over a small changed bbox IS a documented over-paint; this scenario is about the DECISION and about soundness, never about tightness. A shrink also exposes nothing new in the common case and the buffer it repaints is the new, SMALLER one, so the full repaint is cheap.",
+  "setup": {
+    "window_width": 800,
+    "window_height": 900,
+    "dpi": 96
+  },
+  "steps": [
+    {
+      "op": "mount",
+      "html": [
+        "<div id=\"root\">",
+        "  <div class=\"bar\"></div>",
+        "  <div class=\"box\"></div>",
+        "  <p id=\"t\">shrink probe</p>",
+        "</div>"
+      ],
+      "css": [
+        "body  { font-size: 20px; color: black; }",
+        "#root { display: flex; flex-direction: column; }",
+        ".bar  { width: 100%; height: 30px; background: green; }",
+        ".box  { width: 60px; height: 40px; background: blue; }"
+      ]
+    },
+    { "op": "wait_frame" },
+    { "op": "wait", "ms": 120 },
+    { "op": "assert_exists", "selector": ".bar" },
+
+    { "op": "reset_frame_counters" },
+    { "op": "snapshot_frame", "as": "before_shrink" },
+    { "op": "resize", "width": 500, "height": 600 },
+    { "op": "wait_frame" },
+    { "op": "wait", "ms": 120 },
+    { "op": "get_frame_report" },
+
+    { "op": "assert_damage", "which": "paint", "kind": "full" },
+    { "op": "assert_damage_sound", "vs": "before_shrink", "pixel_identity": true, "max_overpaint_ratio": 2000 },
+
+    { "op": "reset_frame_counters" },
+    { "op": "snapshot_frame", "as": "before_mixed" },
+    { "op": "resize", "width": 700, "height": 400 },
+    { "op": "wait_frame" },
+    { "op": "wait", "ms": 120 },
+    { "op": "get_frame_report" },
+
+    { "op": "assert_damage", "which": "paint", "kind": "full" },
+    { "op": "assert_damage_sound", "vs": "before_mixed", "pixel_identity": true, "max_overpaint_ratio": 2000 }
+  ]
+}

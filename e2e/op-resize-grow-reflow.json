@@ -1,0 +1,40 @@
+{
+  "name": "op_resize_grow_reflow",
+  "description": "RESIZE GROW — SOUNDNESS when the grow also REFLOWS. Sibling of e2e/op-resize-grow-exposed-strip.json, which pins the tight case over a fixed layout; this one pins the hard case. `.bar` is `width: 100%`, so growing 500x600 -> 800x900 changes pixels INSIDE the old area as well as exposing the new L, and the incremental path has to union the display-list diff with `compute_resize_damage` to get both. A repaint that only covered the exposed L would leave the stretched bar stale, which `assert_damage_sound` catches twice over: coverage (every changed pixel, and every pixel outside the 500x600 overlap counts as changed by definition, must lie inside the damage set) and `pixel_identity` (the damage-driven framebuffer must equal an independent full repaint at 800x900). `forbid_full` plus `max_area_ratio` 0.90 keep it a PATCH: the measured repaint is 73.1% of the 800x900 window — large, because 420000 of the 720000 px really are newly exposed — and the pre-fix behaviour was FrameDamage::Full, i.e. 100%, which both assertions reject. 0.90 is chosen to sit clearly above the measurement and clearly below a full-frame redraw.",
+  "setup": {
+    "window_width": 500,
+    "window_height": 600,
+    "dpi": 96
+  },
+  "steps": [
+    {
+      "op": "mount",
+      "html": [
+        "<div id=\"root\">",
+        "  <div class=\"bar\"></div>",
+        "  <div class=\"box\"></div>",
+        "  <p id=\"t\">grow reflow</p>",
+        "</div>"
+      ],
+      "css": [
+        "body  { font-size: 20px; color: black; }",
+        "#root { display: flex; flex-direction: column; }",
+        ".bar  { width: 100%; height: 30px; background: green; }",
+        ".box  { width: 60px; height: 40px; background: blue; }"
+      ]
+    },
+    { "op": "wait_frame" },
+    { "op": "wait", "ms": 120 },
+    { "op": "assert_exists", "selector": ".bar" },
+
+    { "op": "reset_frame_counters" },
+    { "op": "snapshot_frame", "as": "before_grow" },
+    { "op": "resize", "width": 800, "height": 900 },
+    { "op": "wait_frame" },
+    { "op": "wait", "ms": 120 },
+    { "op": "get_frame_report" },
+
+    { "op": "assert_damage", "which": "paint", "max_area_ratio": 0.90 },
+    { "op": "assert_damage_sound", "vs": "before_grow", "pixel_identity": true, "forbid_full": true }
+  ]
+}
