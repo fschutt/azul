@@ -1571,7 +1571,64 @@ fn main() -> anyhow::Result<()> {
                 output_filename: "index.html",
             };
 
-            reftest::run_reftests(config)?;
+            // This subcommand IS the `Run reftests` CI step, and that step is in
+            // `deploy_pages.needs`. It used to exit 0 unconditionally: 0/312
+            // passing, Chrome absent, or no test files found all looked like
+            // success, and the release shipped on that. Exit non-zero unless the
+            // run actually demonstrated something.
+            let outcome = reftest::run_reftests(config)?;
+
+            // Conditions that mean the run proved nothing at all.
+            if let Some(reason) = outcome.failure_reason() {
+                eprintln!("\nreftest FAILED: {reason}");
+                eprintln!("Report: {}", output_dir.join("index.html").display());
+                std::process::exit(1);
+            }
+
+            // Regression gate. azul passes a minority of these; requiring all of
+            // them would block every deploy, and requiring none is what this
+            // command did before (it returned Ok(()) unconditionally, so 0/44 and
+            // 44/44 were the same green). So: whatever passed when the baseline
+            // was recorded must keep passing.
+            let baseline_path =
+                PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("reftest_baseline.txt");
+            let baseline_text = std::fs::read_to_string(&baseline_path).map_err(|e| {
+                anyhow::anyhow!("cannot read reftest baseline {}: {e}", baseline_path.display())
+            })?;
+            let baseline = reftest::parse_baseline(&baseline_text);
+            if baseline.is_empty() {
+                eprintln!(
+                    "\nreftest FAILED: {} lists no tests, so the regression gate would pass \
+                     unconditionally.",
+                    baseline_path.display()
+                );
+                std::process::exit(1);
+            }
+
+            let regressions = reftest::regressions_against(&baseline, &outcome.passed_names);
+            let gains = reftest::gains_against(&baseline, &outcome.passed_names);
+
+            println!(
+                "\nreftest: {}/{} passed ({} failed, {} errored)",
+                outcome.passed, outcome.total, outcome.failed, outcome.errored
+            );
+            if !gains.is_empty() {
+                println!(
+                    "reftest: {} newly passing (add to {} to lock the gain in): {}",
+                    gains.len(),
+                    baseline_path.display(),
+                    gains.join(", ")
+                );
+            }
+            if !regressions.is_empty() {
+                eprintln!(
+                    "\nreftest FAILED: {} test(s) in the baseline stopped passing: {}",
+                    regressions.len(),
+                    regressions.join(", ")
+                );
+                eprintln!("Report: {}", output_dir.join("index.html").display());
+                std::process::exit(1);
+            }
 
             let report_path = output_dir.join("index.html");
             println!(
@@ -1787,8 +1844,19 @@ fn main() -> anyhow::Result<()> {
                 };
 
                 match reftest::run_reftests(reftest_config) {
-                    Ok(_) => {
-                        println!("  [OK] Reftests completed");
+                    // Deploy is deliberately more lenient than the `reftest` gate:
+                    // it still copies the report so a human can look at it. But
+                    // "completed" must not be printed over a run that proved
+                    // nothing, or the deploy log reads green while shipping
+                    // unverified rendering.
+                    Ok(outcome) => {
+                        match outcome.failure_reason() {
+                            Some(reason) => eprintln!("  [WARN] Reftests did not pass: {reason}"),
+                            None => println!(
+                                "  [OK] Reftests completed: {}/{} passed",
+                                outcome.passed, outcome.total
+                            ),
+                        }
                         let reftest_html = reftest_output_dir.join("index.html");
                         if reftest_html.exists() {
                             fs::copy(&reftest_html, output_dir.join("reftest.html"))?;

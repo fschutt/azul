@@ -75,7 +75,99 @@ pub struct RunRefTestsConfig {
     pub output_filename: &'static str,
 }
 
-pub fn run_reftests(config: RunRefTestsConfig) -> anyhow::Result<()> {
+/// What a reftest run actually did.
+///
+/// `run_reftests` used to return `anyhow::Result<()>` and compute `passed` only
+/// to print it, so the `reftest` CI step — which IS in `deploy_pages.needs` —
+/// exited 0 whether 312 tests passed or 0 did. Every reftest rendering a blank
+/// page, Chrome being absent, or `find_test_files` returning nothing were all
+/// indistinguishable from success, and the release shipped on the strength of it.
+///
+/// Returning the counts forces each caller to decide what they mean.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ReftestOutcome {
+    /// Tests whose rendering matched the reference.
+    pub passed: usize,
+    /// Tests that ran and did not match.
+    pub failed: usize,
+    /// Tests that could not be run at all (pipeline error). Previously these were
+    /// `println!`-ed and dropped, so a run where EVERY test errored looked exactly
+    /// like a run where every test passed.
+    pub errored: usize,
+    /// Test files discovered. Zero is a failure, not a clean sweep.
+    pub total: usize,
+    /// False when Chrome could not be found, in which case nothing ran.
+    pub chrome_available: bool,
+    /// Names of the tests that passed. Compared against the recorded baseline:
+    /// a pass COUNT would let a newly-fixed test silently pay for a newly-broken
+    /// one, and the swap is exactly the regression worth catching.
+    pub passed_names: Vec<String>,
+}
+
+impl ReftestOutcome {
+    /// One line explaining a non-success, for the caller to print before exiting.
+    ///
+    /// This is deliberately NOT "every test must pass". azul passes 5 of 44 CSS
+    /// reftests today; demanding 100% would block every deploy, and demanding
+    /// nothing is what this command did before. So the conditions here are the
+    /// ones that mean the run proved nothing at all — see
+    /// [`ReftestOutcome::regressions_against`] for the per-test regression gate.
+    #[must_use]
+    pub fn failure_reason(&self) -> Option<String> {
+        if !self.chrome_available {
+            return Some(
+                "Chrome was not found, so no reftest ran. This is a failure, not a skip: the \
+                 gate exists to compare azul's rendering against Chrome's."
+                    .to_string(),
+            );
+        }
+        if self.total == 0 {
+            return Some(
+                "no reftest files were found. An empty suite cannot demonstrate anything."
+                    .to_string(),
+            );
+        }
+        None
+    }
+}
+
+/// Names of the reftests a run is required to keep passing.
+///
+/// Parsed from `doc/reftest_baseline.txt`; `#` comments and blank lines ignored.
+#[must_use]
+pub fn parse_baseline(text: &str) -> Vec<String> {
+    text.lines()
+        .map(str::trim)
+        .filter(|l| !l.is_empty() && !l.starts_with('#'))
+        .map(ToString::to_string)
+        .collect()
+}
+
+/// Baseline tests that are no longer passing, given the names that passed.
+///
+/// The regression gate. An all-must-pass rule is unusable at 5/44 and a
+/// pass-count comparison is not enough — it would let a fixed test silently pay
+/// for a broken one. Comparing NAMES catches the swap.
+#[must_use]
+pub fn regressions_against(baseline: &[String], passed_names: &[String]) -> Vec<String> {
+    baseline
+        .iter()
+        .filter(|b| !passed_names.iter().any(|p| p == *b))
+        .cloned()
+        .collect()
+}
+
+/// Tests passing now that the baseline does not list — a gain worth recording.
+#[must_use]
+pub fn gains_against(baseline: &[String], passed_names: &[String]) -> Vec<String> {
+    passed_names
+        .iter()
+        .filter(|p| !baseline.iter().any(|b| b == *p))
+        .cloned()
+        .collect()
+}
+
+pub fn run_reftests(config: RunRefTestsConfig) -> anyhow::Result<ReftestOutcome> {
     let RunRefTestsConfig {
         test_dir,
         output_dir,
@@ -96,6 +188,7 @@ pub fn run_reftests(config: RunRefTestsConfig) -> anyhow::Result<()> {
 
     // Results to be collected for JSON
     let enhanced_results = Arc::new(Mutex::new(Vec::new()));
+    let mut errored = 0usize;
 
     // Get Chrome path
     let chrome_path = get_chrome_path();
@@ -127,7 +220,14 @@ pub fn run_reftests(config: RunRefTestsConfig) -> anyhow::Result<()> {
             is_chrome_installed,
         )?;
 
-        return Ok(());
+        return Ok(ReftestOutcome {
+            passed: 0,
+            failed: 0,
+            errored: 0,
+            total: test_files.len(),
+            chrome_available: false,
+            passed_names: Vec::new(),
+        });
     }
 
     let _ = std::fs::create_dir_all(output_dir.join("reftest_img"));
@@ -161,6 +261,9 @@ pub fn run_reftests(config: RunRefTestsConfig) -> anyhow::Result<()> {
                 enhanced_results.lock().unwrap().push(etr);
             }
             Err(e) => {
+                // Counted, not just printed: a run where every test errors used
+                // to be indistinguishable from a run where every test passed.
+                errored += 1;
                 println!("  ERROR: {}", e);
             }
         }
@@ -191,7 +294,21 @@ pub fn run_reftests(config: RunRefTestsConfig) -> anyhow::Result<()> {
     );
     println!("Passed: {}/{}", passed_tests, final_enhanced_results.len());
 
-    Ok(())
+    Ok(ReftestOutcome {
+        passed: passed_tests,
+        failed: final_enhanced_results.len().saturating_sub(passed_tests),
+        errored,
+        // Every discovered file, NOT just the ones that produced a result — an
+        // errored test never reaches `enhanced_results`, so counting that vec
+        // would let failures shrink the denominator until the ratio looked clean.
+        total: test_files.len(),
+        chrome_available: true,
+        passed_names: final_enhanced_results
+            .iter()
+            .filter(|r| r.passed)
+            .map(|r| r.test_name.clone())
+            .collect(),
+    })
 }
 
 /// Generate a reftest HTML page without running any tests.

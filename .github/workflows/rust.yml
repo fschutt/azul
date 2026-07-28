@@ -855,7 +855,7 @@ jobs:
         uses: actions/cache@v6
         with:
           path: doc/target/reftest/reftest_img/*_chrome.webp
-          key: reftest-chrome-images-${{ env.CACHE_BUST }}-${{ hashFiles('doc/working/*.xhtml') }}
+          key: reftest-chrome-images-${{ env.CACHE_BUST }}-${{ hashFiles('doc/working/*.xht') }}
           restore-keys: |
             reftest-chrome-images-${{ env.CACHE_BUST }}-
 

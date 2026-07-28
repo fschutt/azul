@@ -1,0 +1,16 @@
+# Reftests known to PASS at the time this baseline was recorded.
+#
+# azul currently passes 5 of 44 CSS reftests. That is the real number, and it
+# is why this gate is a REGRESSION gate rather than an all-must-pass gate:
+# demanding 100% today would block every deploy, and demanding nothing is what
+# `azul-doc reftest` did before (it returned Ok(()) unconditionally, so 0/44
+# was indistinguishable from 44/44).
+#
+# A test listed here MUST keep passing. Making a new test pass is welcome —
+# add it here in the same commit so the gain cannot silently regress later.
+# Removing a name is a deliberate admission of regression; say why.
+margin-auto-centering-001
+padding-debug-001
+padding-debug-002
+padding-debug-003
+position-absolute-001
