@@ -5685,8 +5685,25 @@ impl MacOSWindow {
                 LogCategory::EventLoop,
                 "[handle_event] Frame needs regeneration, requesting redraw"
             );
+            // Do NOT clear frame_needs_regeneration here.
+            //
+            // request_redraw() is setNeedsDisplay — ASYNCHRONOUS. No layout has
+            // run at this point; drawRect: will run later, on a subsequent turn
+            // of the loop, and IT is what regenerates. Clearing the flag here
+            // told drawRect: there was nothing to do, so it took its early
+            // return and blitted the stale framebuffer.
+            //
+            // This is live in the DEFAULT configuration: AppTerminationBehavior
+            // defaults to EndProcess, which selects the manual loop in run.rs,
+            // and that loop calls process_event BEFORE sendEvent. Within one
+            // drain over events [A, B]: A's handler sets the flag, B's tail
+            // cleared it having done nothing, drawRect: found nothing dirty, and
+            // A's DOM change was never rendered. The symptom is a UI that runs
+            // one interaction behind during any burst — mouse-move streams, key
+            // repeat, trackpad scroll.
+            //
+            // drawRect: clears it after the layout it actually performed.
             self.request_redraw();
-            self.common.frame_needs_regeneration = false;
         }
 
         // Process a11y actions from VoiceOver (sets a11y_dirty if needed)
@@ -6552,8 +6569,12 @@ impl MacOSWindow {
             // Atomic transaction will be built in drawRect if needed
             // Just request redraw here if layout changed
             if self.common.frame_needs_regeneration {
+                // Same as the handle_event tail: request_redraw() is an
+                // asynchronous setNeedsDisplay and performs no layout, so
+                // clearing the flag here makes the later drawRect: take its
+                // early return and blit a stale frame. drawRect: clears it after
+                // the work it actually did.
                 self.request_redraw();
-                self.common.frame_needs_regeneration = false;
             }
 
             Some(macos_event)
