@@ -2756,11 +2756,9 @@ mod api_json_declared_derives {
     /// `azul::desktop::fluent::FluentLoadError` is a DIFFERENT type to rustc.
     /// examples/rust/src/fluent_demo.rs can only print a count, and says so.
     ///
-    /// THIS TEST IS EXPECTED TO FAIL until the codegen bug is fixed. It is
-    /// committed red deliberately: a declared-but-unemitted derive is invisible
-    /// until someone tries to print something, and a red test is the only form
-    /// of that finding anybody will actually see. Do not delete it, do not
-    /// #[ignore] it — fix the emitter (tracked in #38).
+    /// A declared-but-unemitted derive is invisible until somebody tries to print
+    /// something, which is why it survived this long. Fix the emitter so the
+    /// declaration in api.json and the generated mirror agree.
     #[test]
     fn every_declared_derive_is_emitted() {
         let api: serde_json::Value = serde_json::from_str(

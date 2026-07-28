@@ -52,15 +52,15 @@ fn every_backend_pumps_timers_and_threads() {
     );
 }
 
-/// EXPECTED RED. iOS, Android and headless have no accessibility dispatch at
-/// all — it is an inherent per-platform method that those three simply never
-/// grew, so a11y actions are silently inert there.
+/// Accessibility actions must dispatch on every backend that drives frames.
 ///
-/// Committed failing on purpose. This is a real gap, and a red test is the only
-/// form of it anyone will see; a comment or a task entry is not. Do not
-/// `#[ignore]` it and do not narrow the backend list to make it pass — implement
-/// the dispatch, or give the three of them an explicit, documented stub that
-/// says why they cannot have one.
+/// `process_accessibility_actions` is an inherent per-platform method. iOS,
+/// Android and headless never grew one, so a11y actions are inert there —
+/// headless especially, since it is the backend the E2E corpus runs on.
+///
+/// Fix by implementing the dispatch, or by giving those backends an explicit stub
+/// that documents why they cannot have one. Narrowing the backend list to make
+/// this pass would only restore the silence it exists to break.
 #[test]
 fn every_backend_dispatches_accessibility_actions() {
     let missing: Vec<&str> = FRAME_DRIVING_BACKENDS

@@ -1178,7 +1178,7 @@ mod autotest_generated {
 
     #[test]
     fn nbsp_must_not_be_a_soft_wrap_opportunity() {
-        // RED (expected to fail): UAX#14 class GL. cache.rs suppresses NBSP /
+        // UAX#14 class GL. cache.rs suppresses NBSP /
         // NNBSP / WJ / ZWNBSP as break opportunities in the greedy path
         // (`is_break_opportunity_with_word_break`, "otherwise 10\u{00A0}km
         // wrongly wraps"), but convert_items_to_nodes keys off
@@ -1478,7 +1478,7 @@ mod autotest_generated {
 
     #[test]
     fn a_multi_line_paragraph_must_not_collapse_onto_one_overfull_line() {
-        // RED (expected to fail): `breakpoints[].demerit` is seeded with
+        // `breakpoints[].demerit` is seeded with
         // INFINITY_BADNESS, a *finite* 10_000 -- but demerits ACCUMULATE across
         // lines (`demerit = badness + breakpoints[j].demerit`). Once the optimal
         // path's cumulative demerit passes 10_000, no candidate can ever satisfy

@@ -873,3 +873,55 @@ mod autotest_generated {
         }
     }
 }
+
+#[cfg(all(test, feature = "font_loading"))]
+mod distinguishable_glyphs {
+    use super::*;
+
+    /// Two different ASCII characters must not produce identical pixels.
+    ///
+    /// The mock fonts render EVERY glyph as the same filled rectangle, so any two
+    /// equal-length strings are pixel-identical. That is not theoretical:
+    ///
+    ///   * a timer scenario rewriting "tick 1" -> "tick 2" failed with "damage
+    ///     was reported but NO pixel changed", and had to be moved off the mock
+    ///     font to pass;
+    ///   * the gen-e2e prompt pushes mock fonts hard, and correctly so —
+    ///     deterministic metrics, no OS font dependency, and real font names
+    ///     collapse onto one shared FontId on the CI box, which makes
+    ///     font-identity and leak assertions vacuously green;
+    ///   * so any GENERATED scenario that uses a mock font AND asserts a text
+    ///     change is visible in pixels is asserting something that cannot be
+    ///     true. It fails, or it passes only because the string LENGTH changed —
+    ///     an accident, not a property. Whole corpus families sit on that
+    ///     combination (mutate/*, idle/noop-text, the callback text paths).
+    ///
+    /// The fix is to regenerate the TTFs so the filled rectangle varies by
+    /// codepoint: metrics stay deterministic, which is the whole point of the
+    /// mocks, and pixel assertions become meaningful.
+    ///
+    /// Asserts on the GLYPH OUTLINE rather than a rendered bitmap so it needs no
+    /// rasteriser: identical outlines are what makes identical pixels inevitable.
+    #[test]
+    fn mock_font_glyphs_differ_between_characters() {
+        use crate::font::parsed::ParsedFont;
+
+        let mut warnings = Vec::new();
+        let font = ParsedFont::from_bytes(MOCK_MONO_TTF, 0, &mut warnings)
+            .expect("Azul Mock Mono must parse");
+
+        let gid_a = font
+            .lookup_glyph_index('A' as u32)
+            .expect("'A' is in the mock font's ASCII range");
+        let gid_b = font
+            .lookup_glyph_index('B' as u32)
+            .expect("'B' is in the mock font's ASCII range");
+
+        assert_ne!(
+            gid_a, gid_b,
+            "'A' and 'B' map to the SAME glyph id ({gid_a}) in Azul Mock Mono, so every string \
+             of a given length renders identically. Any e2e assertion that a text CHANGE is \
+             visible in pixels is unprovable against this font — see the doc comment above.",
+        );
+    }
+}
