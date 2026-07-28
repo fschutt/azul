@@ -986,7 +986,10 @@ impl X11Window {
             .as_ref()
             .map(|lw| !lw.pending_virtual_view_updates.is_empty())
             .unwrap_or(false);
-        if self.common.frame_needs_regeneration || vview_pending {
+        // needs_redraw is included deliberately: MapNotify, Expose and the CPU
+        // shm retry all set ONLY that, and a gate that ignores it leaves those
+        // events with no path to a frame at all.
+        if self.common.frame_needs_regeneration || vview_pending || self.needs_redraw {
             if let Err(e) = self.render_and_present() {
                 log_error!(
                     LogCategory::Rendering,
@@ -2611,9 +2614,18 @@ impl X11Window {
                 self.process_window_events(0)
             }
             defines::MapNotify => {
+                // The window just became visible and owes its FIRST frame.
+                //
+                // Setting only needs_redraw was not enough: the forced-render gate
+                // in poll_event tests `frame_needs_regeneration || vview_pending`
+                // and ignores needs_redraw entirely, and needs_redraw is cleared at
+                // the top of render_and_present, so nothing downstream acted on it.
+                // A freshly mapped window therefore stayed blank until some
+                // unrelated later event happened to request a regeneration.
                 self.needs_redraw = true;
                 self.os_present_requested = true;
-                ProcessEventResult::DoNothing
+                self.common.mark_regen_on_map();
+                ProcessEventResult::ShouldRegenerateDomCurrentWindow
             }
             defines::ConfigureNotify => {
                 let ev = unsafe { &event.configure };

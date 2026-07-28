@@ -865,6 +865,15 @@ pub struct CommonWindowState {
 }
 
 impl CommonWindowState {
+    /// Request a regeneration from a place that has no `PlatformWindow` in hand
+    /// (a raw X11 event arm, for example). Bumps the generation like
+    /// `mark_frame_needs_regeneration`, so a request raised here cannot be
+    /// retired by a render that never saw it.
+    pub fn mark_regen_on_map(&mut self) {
+        self.frame_needs_regeneration = true;
+        self.regen_generation = self.regen_generation.wrapping_add(1);
+    }
+
     /// The regeneration epoch to capture BEFORE rendering.
     #[must_use]
     pub fn regen_epoch(&self) -> u64 {
