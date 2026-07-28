@@ -3731,20 +3731,29 @@ mod tests {
 
     #[test]
     fn test_expands_impl_vec_macro() {
+        // The REAL macro signature, e.g. from azul-layout's fluent.rs:
+        //   impl_vec!(T, TVec, TVecDestructor, TVecDestructorType, TVecSlice, OptionT)
+        // This test used to pass only three arguments, which is a form
+        // `impl_vec!` has not taken for a long time. The expander requires
+        // `args.len() >= 5` — correctly, since it needs the slice type — so the
+        // three-arg call expanded to NOTHING and the test saw just `Font`.
+        // Nobody noticed because azul-doc's tests run in no CI job (audit D1).
         let source = r#"
             pub struct Font { pub data: u8 }
-            impl_vec!(Font, FontVec, FontVecDestructor);
+            impl_vec!(Font, FontVec, FontVecDestructor, FontVecDestructorType, FontVecSlice, OptionFont);
         "#;
         let types = extract_types_from_source(source);
 
-        // Should have: Font, FontVec, FontVecDestructor, FontVecDestructorType
-        assert_eq!(types.len(), 4);
-
         let names: Vec<_> = types.iter().map(|t| t.type_name.as_str()).collect();
-        assert!(names.contains(&"Font"));
-        assert!(names.contains(&"FontVec"));
-        assert!(names.contains(&"FontVecDestructor"));
-        assert!(names.contains(&"FontVecDestructorType"));
+        assert!(names.contains(&"Font"), "got {names:?}");
+        assert!(names.contains(&"FontVec"), "got {names:?}");
+        assert!(names.contains(&"FontVecDestructor"), "got {names:?}");
+        assert!(names.contains(&"FontVecDestructorType"), "got {names:?}");
+        assert!(names.contains(&"FontVecSlice"), "got {names:?}");
+
+        // Font plus the four types the expander emits. Asserted after the names
+        // so a count mismatch reports WHICH type appeared or went missing.
+        assert_eq!(types.len(), 5, "got {names:?}");
     }
 
     #[test]
@@ -3765,21 +3774,28 @@ mod tests {
     }
 
     #[test]
-    fn test_expands_impl_callback_macro() {
+    fn test_expands_impl_widget_callback_macro() {
+        // The 4-parameter callback macro is `impl_widget_callback!`. This test
+        // used to call `impl_callback!` with four arguments, which is the form it
+        // had BEFORE the rename — the comment at the `impl_callback` arm records
+        // it: "4-parameter version is now impl_widget_callback!". Today
+        // `impl_callback!` takes two arguments and only ADDS TRAITS to an existing
+        // type, generating nothing, so the old call expanded to nothing and the
+        // test saw only the type alias. azul-doc's tests run in no CI job, so the
+        // rename never broke anything visibly (audit D1).
         let source = r#"
             pub type OnClickCallbackType = extern "C" fn(data: &mut RefAny) -> Update;
-            impl_callback!(OnClick, OptionOnClick, OnClickCallback, OnClickCallbackType);
+            impl_widget_callback!(OnClick, OptionOnClick, OnClickCallback, OnClickCallbackType);
         "#;
         let types = extract_types_from_source(source);
 
-        // Should have: OnClickCallbackType (type alias), OnClick, OptionOnClick, OnClickCallback
-        assert_eq!(types.len(), 4);
-
         let names: Vec<_> = types.iter().map(|t| t.type_name.as_str()).collect();
-        assert!(names.contains(&"OnClickCallbackType")); // The type alias
-        assert!(names.contains(&"OnClick")); // CallbackWrapper
-        assert!(names.contains(&"OptionOnClick")); // OptionCallbackWrapper
-        assert!(names.contains(&"OnClickCallback")); // CallbackValue
+        assert!(names.contains(&"OnClickCallbackType"), "the type alias, got {names:?}");
+        assert!(names.contains(&"OnClick"), "CallbackWrapper, got {names:?}");
+        assert!(names.contains(&"OptionOnClick"), "OptionCallbackWrapper, got {names:?}");
+        assert!(names.contains(&"OnClickCallback"), "CallbackValue, got {names:?}");
+
+        assert_eq!(types.len(), 4, "got {names:?}");
     }
 
     #[test]
