@@ -5696,7 +5696,7 @@ fn eval_assert_manager_invariants(
     params: &serde_json::Value,
     callback_info: &azul_layout::callbacks::CallbackInfo,
 ) -> AssertionResult {
-    if let Some(bad) = reject_unknown_params("assert_manager_invariants", params, &["managers", "cross"]) {
+    if let Some(bad) = reject_unknown_params("assert_manager_invariants", params, &["managers", "cross", "min_checked"]) {
         return bad;
     }
     const KNOWN_MANAGERS: &[&str] = &[
@@ -5709,6 +5709,8 @@ fn eval_assert_manager_invariants(
         "virtual_view",
         "undo_redo",
         "gpu_state",
+        "text_input",
+        "permission",
     ];
     const KNOWN_CROSS: &[&str] = &["X2", "X3", "X5", "X6", "X9", "X10"];
     /// Invariants the plan lists that this crate CANNOT check. Requesting one is
@@ -5911,6 +5913,41 @@ fn eval_assert_manager_invariants(
                         }
                     }
                 }
+                // A text edit staged for a node that has since been deleted will
+                // either be applied to whatever now occupies that id, or dropped
+                // silently. Both are wrong, and neither shows up in the DOM.
+                "text_input" => {
+                    if let Some(pending) = lw.text_input_manager.pending_changeset.as_ref() {
+                        checked += 1;
+                        if !dom_node_is_live(lw, pending.node) {
+                            violations.push(format!(
+                                "X10 text_input: a pending text edit is staged for ({}, {:?}), which \
+                                 no longer exists",
+                                pending.node.dom.inner,
+                                pending.node.node.into_crate_internal().map(|n| n.index())
+                            ));
+                        }
+                    }
+                }
+                // Capability subscriptions are refcounted, so a subscriber that
+                // goes away without releasing pins the capability on forever —
+                // a permission prompt the user can never get rid of.
+                "permission" => {
+                    for (cap, entry) in &lw.permission_manager.statuses {
+                        if let Some(sub) = entry.last_subscriber {
+                            checked += 1;
+                            if !dom_node_is_live(lw, sub) {
+                                violations.push(format!(
+                                    "X10 permission: capability {cap:?} is still subscribed by ({}, \
+                                     {:?}) (refcount {}), which no longer exists",
+                                    sub.dom.inner,
+                                    sub.node.into_crate_internal().map(|n| n.index()),
+                                    entry.refcount
+                                ));
+                            }
+                        }
+                    }
+                }
                 "gesture" => {
                     if let Some(drag) = lw.gesture_drag_manager.active_drag.as_ref() {
                         if let Some((dom, node)) = drag_source_node(drag) {
@@ -6059,6 +6096,30 @@ fn eval_assert_manager_invariants(
                  does not exist"
                     .to_string(),
             );
+        }
+    }
+
+    // A scenario can REQUIRE that this assertion actually looked at something.
+    //
+    // Without it the assertion passes on an empty violation list, which is also
+    // what "there was no manager state to inspect" looks like — the two are
+    // indistinguishable from the outside. A scenario written to exercise a
+    // manager can therefore keep passing long after it stopped producing the
+    // state it meant to check, which is the failure mode this whole assertion
+    // exists to prevent. Opt-in, because plenty of scenarios legitimately have
+    // no scroll/focus/hover state at all and must not be forced to invent some.
+    if let Some(min) = params.get("min_checked") {
+        let Some(min) = min.as_u64() else {
+            return AssertionResult::fail(
+                "assert_manager_invariants: 'min_checked' must be a number".to_string(),
+            );
+        };
+        if (checked as u64) < min {
+            return AssertionResult::fail(format!(
+                "assert_manager_invariants: inspected only {checked} key(s)/invariant(s) but the \
+                 scenario requires at least {min}. The managers it means to exercise are not \
+                 holding the state it assumes — this assertion proved nothing."
+            ));
         }
     }
 
