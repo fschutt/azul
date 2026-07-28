@@ -1147,7 +1147,7 @@ impl IOSWindow {
     /// display list. Mirrors `AndroidWindow::regenerate_layout()`. Called
     /// from the `drawRect:` handler when `frame_needs_regeneration` is
     /// true (Sprint C-iOS wires that).
-    pub fn regenerate_layout(
+    pub fn regenerate_layout_inner(
         &mut self,
     ) -> Result<crate::desktop::shell2::common::layout::LayoutRegenerateResult, String> {
         let layout_window = self
@@ -1196,7 +1196,6 @@ impl IOSWindow {
         // layout's reconciliation — the SAME step headless + X11 run. Without it,
         // EventFilter::Component(AfterMount) callbacks never fire on iOS (e.g. the
         // MapWidget's first tile fetch never starts).
-        let _ = self.dispatch_pending_lifecycle_events();
 
         // CPU-render the frame — populates `self.cpu_backend.last_frame`,
         // ready for `drawRect:` to blit into the layer (Sprint C-iOS).
@@ -1229,6 +1228,14 @@ impl IOSWindow {
 }
 
 impl PlatformWindow for IOSWindow {
+    fn regenerate_layout_once(
+        &mut self,
+    ) -> Result<crate::desktop::shell2::common::layout::LayoutRegenerateResult, String> {
+        // The single pass. The bounded lifecycle loop lives in the trait
+        // default `regenerate_layout`, which is what frame paths call.
+        self.regenerate_layout_inner()
+    }
+
     impl_platform_window_getters!(common);
 
     fn get_raw_window_handle(&self) -> RawWindowHandle {

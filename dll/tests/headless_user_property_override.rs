@@ -32,6 +32,7 @@ use azul_layout::callbacks::{Callback, CallbackInfo};
 use azul_layout::window_state::WindowCreateOptions;
 use rust_fontconfig::FcFontCache;
 
+use azul::desktop::shell2::common::PlatformWindow;
 use azul::desktop::shell2::headless::HeadlessWindow;
 
 #[derive(Clone)]

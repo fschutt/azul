@@ -30,6 +30,7 @@
 
 use std::{cell::RefCell, sync::Arc};
 
+use azul::desktop::shell2::common::PlatformWindow;
 use azul::desktop::shell2::headless::HeadlessWindow;
 use azul_core::{
     callbacks::{LayoutCallback, LayoutCallbackInfo},

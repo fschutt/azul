@@ -34,6 +34,7 @@ use azul_core::resources::{
 use azul_layout::window_state::WindowCreateOptions;
 use rust_fontconfig::FcFontCache;
 
+use azul::desktop::shell2::common::PlatformWindow;
 use azul::desktop::shell2::headless::HeadlessWindow;
 use azul::desktop::wr_translate2::collect_image_resource_updates;
 

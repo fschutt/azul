@@ -497,6 +497,23 @@ pub struct FrameReport {
 /// of it ([`crate::e2e`]), whose whole purpose is to report the same numbers.
 pub const MAX_EVENT_RECURSION_DEPTH: usize = 7;
 
+/// How many extra layout passes a single frame may run because a lifecycle
+/// callback asked for one.
+///
+/// A `Mount`/`AfterMount` callback that seeds derived state and returns
+/// `Update::RefreshDom` needs the DOM rebuilt before the frame is presented, or
+/// the user sees the pre-seed layout until some unrelated event happens to force
+/// another pass. `PlatformWindow::regenerate_layout` therefore loops.
+///
+/// Deliberately SMALLER than [`MAX_EVENT_RECURSION_DEPTH`]. Each pass is a full
+/// layout callback + cascade + flex solve + display-list build — the most
+/// expensive thing the engine does — so seven of them inside one paint is a
+/// visible stall. A convergent seed-on-mount needs exactly 2; 3 leaves one pass
+/// of slack for a widget that seeds in two stages. Exhausting it is a BUG in the
+/// callback (it is asking to refresh forever), so the cap logs and sets
+/// `FrameReport::hit_depth_cap` rather than silently truncating.
+pub const MAX_LIFECYCLE_REGEN_PASSES: usize = 3;
+
 impl FrameReport {
     /// Zero the work counters + accumulated damage if `requested_generation`
     /// (this window's [`LayoutWindow::frame_report_reset_request`]) has moved

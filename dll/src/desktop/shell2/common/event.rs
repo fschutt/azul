@@ -1189,6 +1189,60 @@ pub trait PlatformWindow {
 
     // Frame Regeneration
 
+    /// Rebuild the DOM and lay it out ONCE. Implemented per backend.
+    ///
+    /// Do NOT call this directly from a frame path — call
+    /// [`PlatformWindow::regenerate_layout`], which additionally runs the
+    /// lifecycle callbacks this pass queued and honours their refresh requests.
+    fn regenerate_layout_once(
+        &mut self,
+    ) -> Result<crate::desktop::shell2::common::layout::LayoutRegenerateResult, String>;
+
+    /// Rebuild the DOM, then keep rebuilding while lifecycle callbacks ask for it.
+    ///
+    /// `dispatch_pending_lifecycle_events` returns `true` when a callback
+    /// returned something other than `Update::DoNothing`, and its contract is
+    /// that the caller regenerates again. Every backend used to call it at the
+    /// end of its own `regenerate_layout` and throw the answer away with
+    /// `let _ =`, so a callback that seeds derived state on mount and asks for a
+    /// refresh — a common pattern — had that request dropped ON EVERY PLATFORM.
+    /// The UI only caught up when an unrelated later event forced another pass.
+    ///
+    /// The loop lives HERE, not at the seven call sites, because the obvious
+    /// local fix does not work: those calls were made from INSIDE each backend's
+    /// `regenerate_layout`, so `if dispatch() { self.regenerate_layout() }` would
+    /// recurse. Splitting the single pass out as `regenerate_layout_once` makes
+    /// the nesting structurally impossible — the once-variant no longer dispatches
+    /// anything — and gives all seven backends the fix from one place.
+    ///
+    /// Bounded by [`MAX_LIFECYCLE_REGEN_PASSES`]: a callback that refreshes
+    /// unconditionally would otherwise spin forever. Exhaustion is a bug in the
+    /// callback, so it is logged and recorded in `FrameReport::hit_depth_cap`
+    /// rather than passed over in silence.
+    fn regenerate_layout(
+        &mut self,
+    ) -> Result<crate::desktop::shell2::common::layout::LayoutRegenerateResult, String> {
+        use azul_layout::window::MAX_LIFECYCLE_REGEN_PASSES;
+
+        let mut result = self.regenerate_layout_once()?;
+
+        for _pass in 1..MAX_LIFECYCLE_REGEN_PASSES {
+            if !self.dispatch_pending_lifecycle_events() {
+                return Ok(result);
+            }
+            result = self.regenerate_layout_once()?;
+        }
+
+        // One last drain, so callbacks still RUN on the final pass even though we
+        // will not lay out again for them.
+        if self.dispatch_pending_lifecycle_events() {
+            if let Some(lw) = self.get_layout_window_mut() {
+                lw.frame_report.hit_depth_cap = true;
+            }
+        }
+        Ok(result)
+    }
+
     /// Check if frame needs regeneration
     fn needs_frame_regeneration(&self) -> bool;
 

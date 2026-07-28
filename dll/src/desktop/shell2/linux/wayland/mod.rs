@@ -910,6 +910,14 @@ impl WaylandWindow {
 // PlatformWindow Trait Implementation (Cross-platform V2 Event System)
 
 impl PlatformWindow for WaylandWindow {
+    fn regenerate_layout_once(
+        &mut self,
+    ) -> Result<crate::desktop::shell2::common::layout::LayoutRegenerateResult, String> {
+        // The single pass. The bounded lifecycle loop lives in the trait
+        // default `regenerate_layout`, which is what frame paths call.
+        self.regenerate_layout_inner()
+    }
+
 
     impl_platform_window_getters!(common);
 
@@ -3552,7 +3560,7 @@ impl WaylandWindow {
     /// Regenerate layout after DOM changes
     ///
     /// Wayland-specific implementation with mandatory CSD injection.
-    pub fn regenerate_layout(&mut self) -> Result<crate::desktop::shell2::common::layout::LayoutRegenerateResult, String> {
+    pub fn regenerate_layout_inner(&mut self) -> Result<crate::desktop::shell2::common::layout::LayoutRegenerateResult, String> {
         let layout_window = self.common.layout_window.as_mut().ok_or("No layout window")?;
 
         // Collect debug messages if debug server is enabled
@@ -3621,7 +3629,6 @@ impl WaylandWindow {
         // EventFilter::Component(AfterMount) callbacks never fire on Wayland, so
         // e.g. the MapWidget's first tile-fetch (kicked from AfterMount) never
         // starts. (The 16ms thread-poll tick below then drains the writebacks.)
-        let _ = self.dispatch_pending_lifecycle_events();
 
         // Phase 2: Post-Layout callback - sync IME position after layout (MOST IMPORTANT)
         self.update_ime_position_from_cursor();

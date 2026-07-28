@@ -3281,7 +3281,7 @@ impl X11Window {
         self.common.frame_needs_regeneration = true;
     }
 
-    pub fn regenerate_layout(&mut self) -> Result<crate::desktop::shell2::common::layout::LayoutRegenerateResult, String> {
+    pub fn regenerate_layout_inner(&mut self) -> Result<crate::desktop::shell2::common::layout::LayoutRegenerateResult, String> {
         let layout_window = self.common.layout_window.as_mut().ok_or("No layout window")?;
 
         // Collect debug messages if debug server is enabled
@@ -3373,7 +3373,6 @@ impl X11Window {
         // callbacks NEVER fire on X11, so e.g. the MapWidget's first tile-fetch
         // (kicked from AfterMount) never starts. The VirtualView render above has
         // already inserted the Pending tiles, so the AfterMount handler sees them.
-        let _ = self.dispatch_pending_lifecycle_events();
 
         // Phase 2: Post-Layout callback - sync IME position after layout (MOST IMPORTANT)
         self.update_ime_position_from_cursor();
@@ -4409,6 +4408,14 @@ impl X11Window {
 // PlatformWindow Trait Implementation
 
 impl PlatformWindow for X11Window {
+    fn regenerate_layout_once(
+        &mut self,
+    ) -> Result<crate::desktop::shell2::common::layout::LayoutRegenerateResult, String> {
+        // The single pass. The bounded lifecycle loop lives in the trait
+        // default `regenerate_layout`, which is what frame paths call.
+        self.regenerate_layout_inner()
+    }
+
 
     impl_platform_window_getters!(common);
 

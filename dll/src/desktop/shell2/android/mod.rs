@@ -157,7 +157,7 @@ impl AndroidWindow {
     /// display list. Mirrors `HeadlessWindow::regenerate_layout()`; the
     /// lifecycle-event dispatch step is skipped for now (Android backend
     /// has no callback driver yet — pending sprint H).
-    pub fn regenerate_layout(
+    pub fn regenerate_layout_inner(
         &mut self,
     ) -> Result<crate::desktop::shell2::common::layout::LayoutRegenerateResult, String> {
         let layout_window = self
@@ -207,7 +207,6 @@ impl AndroidWindow {
         // layout's reconciliation — the SAME step headless + X11 run. Without it,
         // EventFilter::Component(AfterMount) callbacks never fire on Android (e.g.
         // the MapWidget's first tile fetch never starts).
-        let _ = self.dispatch_pending_lifecycle_events();
 
         // CPU-render the frame — populates `self.cpu_backend.last_frame`
         // so the next `render_frame()` call can blit pixels.
@@ -240,6 +239,14 @@ impl AndroidWindow {
 }
 
 impl PlatformWindow for AndroidWindow {
+    fn regenerate_layout_once(
+        &mut self,
+    ) -> Result<crate::desktop::shell2::common::layout::LayoutRegenerateResult, String> {
+        // The single pass. The bounded lifecycle loop lives in the trait
+        // default `regenerate_layout`, which is what frame paths call.
+        self.regenerate_layout_inner()
+    }
+
     impl_platform_window_getters!(common);
 
     fn get_raw_window_handle(&self) -> RawWindowHandle {

@@ -29,6 +29,7 @@ use azul_layout::callbacks::{Callback, CallbackInfo};
 use azul_layout::window_state::WindowCreateOptions;
 use rust_fontconfig::FcFontCache;
 
+use azul::desktop::shell2::common::PlatformWindow;
 use azul::desktop::shell2::headless::HeadlessWindow;
 
 #[derive(Clone)]
@@ -363,5 +364,76 @@ fn initial_mount_does_not_refire_on_identical_relayout() {
         "frame 1 (identical DOM): AfterMount must NOT fire a second time \
          (mount={})",
         counters.mounts.load(Ordering::SeqCst),
+    );
+}
+
+/// Layout callback for the refresh test: same DOM every call (one keyed node
+/// wired to AfterMount), so a second regeneration cannot re-fire the mount by
+/// accident. `frame` counts how many times layout actually ran.
+extern "C" fn layout_cb_counting(mut data: RefAny, _info: LayoutCallbackInfo) -> Dom {
+    let counters = match data.downcast_ref::<Counters>() {
+        Some(c) => c.clone(),
+        None => return Dom::create_body(),
+    };
+    counters.frame.fetch_add(1, Ordering::SeqCst);
+
+    let cb = Callback { cb: on_mount_asking_for_refresh, ctx: azul_core::refany::OptionRefAny::None }
+        .to_core();
+    let mut w = NodeData::create_text("widget").with_key(0xBEEF_0001u64);
+    w.add_callback(
+        EventFilter::Component(ComponentEventFilter::AfterMount),
+        RefAny::new(counters.clone()),
+        cb,
+    );
+    Dom::create_body().with_child(Dom::create_from_data(w))
+}
+
+/// An AfterMount callback that seeds derived state and asks for another pass —
+/// the pattern the whole test is about. Only the FIRST invocation asks, so a
+/// correct implementation converges instead of looping forever.
+extern "C" fn on_mount_asking_for_refresh(mut data: RefAny, _info: CallbackInfo) -> Update {
+    if let Some(c) = data.downcast_ref::<Counters>() {
+        let n = c.mounts.fetch_add(1, Ordering::SeqCst);
+        if n == 0 {
+            return Update::RefreshDom;
+        }
+    }
+    Update::DoNothing
+}
+
+/// A `Mount`/`AfterMount` callback that returns `Update::RefreshDom` must cause
+/// another layout pass.
+///
+/// `dispatch_pending_lifecycle_events` returns `true` for exactly this, and its
+/// own doc says "the caller should regenerate again" — but every one of the 7
+/// call sites discarded it (`let _ = ...`, or bare in the headless backend). So
+/// a callback that seeds derived state on mount and asks for a refresh had that
+/// request dropped ON EVERY PLATFORM, and the UI only caught up when some
+/// unrelated later event happened to trigger a pass.
+///
+/// The existing tests in this file cover that lifecycle events REACH callbacks,
+/// not that a returned `Refresh` causes a re-regen, which is why nothing noticed.
+#[test]
+fn a_mount_callback_asking_for_refresh_gets_another_layout_pass() {
+    let counters = Counters::new();
+    let mut window = make_window_with(counters.clone(), layout_cb_counting);
+
+    window
+        .regenerate_layout()
+        .expect("regenerate_layout must succeed");
+
+    let mounts = counters.mounts.load(Ordering::SeqCst);
+    let frames = counters.frame.load(Ordering::SeqCst);
+
+    assert!(
+        mounts >= 1,
+        "the AfterMount callback never fired, so this test proves nothing about its return value \
+         (mounts={mounts}, layout passes={frames})",
+    );
+    assert!(
+        frames >= 2,
+        "an AfterMount callback returned Update::RefreshDom and NO second layout pass happened: \
+         layout ran {frames} time(s). dispatch_pending_lifecycle_events' return value is being \
+         discarded — its doc says the caller should regenerate again.",
     );
 }
