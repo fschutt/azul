@@ -2811,6 +2811,48 @@ mod api_json_declared_derives {
             return;
         };
 
+        // An ABSENT artifact skips; a STALE one used to pass silently, which is
+        // worse, because the answer is then about a build nobody asked about.
+        // Observed for real: this test reported 36 missing derives against a
+        // `dll_api_internal.rs` generated eight hours before the emitter fix that
+        // added them. The verdict was neither right nor wrong — it was about a
+        // different program. A stale artifact is an UNKNOWN result, and unknown
+        // must not read as either pass or fail.
+        let newest_emitter_mtime = {
+            let emitter_dir = concat!(env!("CARGO_MANIFEST_DIR"), "/src/codegen");
+            fn newest(dir: &std::path::Path) -> Option<std::time::SystemTime> {
+                let mut best: Option<std::time::SystemTime> = None;
+                for entry in std::fs::read_dir(dir).ok()? {
+                    let path = entry.ok()?.path();
+                    let t = if path.is_dir() {
+                        newest(&path)
+                    } else if path.extension().is_some_and(|e| e == "rs") {
+                        path.metadata().ok()?.modified().ok()
+                    } else {
+                        None
+                    };
+                    if let Some(t) = t {
+                        best = Some(best.map_or(t, |b| b.max(t)));
+                    }
+                }
+                best
+            }
+            newest(std::path::Path::new(emitter_dir))
+        };
+        let generated_mtime = std::fs::metadata(gen).and_then(|m| m.modified()).ok();
+        let is_stale = match (newest_emitter_mtime, generated_mtime) {
+            (Some(emitter), Some(generated)) => emitter > generated,
+            _ => false,
+        };
+        if is_stale {
+            panic!(
+                "{gen} is OLDER than the codegen sources that produce it, so this test would \
+                 report on a build that no longer exists. Re-run `azul-doc codegen all` and try \
+                 again. (Refusing to pass or fail on a stale artifact: the result would be \
+                 about a different program.)",
+            );
+        }
+
         let mut missing: Vec<String> = Vec::new();
         for (name, derives) in &declared {
             let az = format!("Az{name}");
