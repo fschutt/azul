@@ -5248,7 +5248,15 @@ jobs:
     # azul.rs/ui index, wheels at /ui/azul/); publishing to pypi.org stays deploy-only.
     if: github.event.inputs.run_mode == 'deploy' || github.event.inputs.run_mode == 'website'
     runs-on: ubuntu-22.04
-    continue-on-error: true
+    # NOT continue-on-error. This job already installs every built wheel into a
+    # fresh env and imports it — a genuinely good gate — but the flag meant a
+    # FAILED import still reported success to everything downstream, so "the
+    # python binding is broken" could not turn anything red. Given the history
+    # here (SIGILL on import, a pyclass dealloc SIGSEGV, a wheel that 404'd from
+    # the documented index), that is the last signal worth suppressing.
+    #
+    # deploy_pages lists this job in `needs`, which was pure sequencing while the
+    # flag was on; it now actually gates.
     steps:
       - name: Checkout repository
         uses: actions/checkout@v7
