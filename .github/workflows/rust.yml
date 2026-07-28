@@ -4888,25 +4888,53 @@ jobs:
             printf '%-14s %-12s %s\n' "$1" "$2" "$3" >> stats/sanitizers.txt
             echo "| $1 | $2 | $3 |" >> "$GITHUB_STEP_SUMMARY"
           }
+          # Four independent suppressions used to live in this function:
+          #   (a) a COMPILE failure emitted "build-fail" into a table and returned 0;
+          #   (b) rc 124 (the timeout) was scored "pass" — and under
+          #       AZ_BACKEND=headless the timeout was the NORMAL outcome, so this
+          #       was the usual path, not an edge case (see the ASan gate fix);
+          #   (c) TSAN_OPTIONS=halt_on_error=0 means a data race never changes the
+          #       exit code, so the ThreadSan row was unconditionally "pass";
+          #   (d) nothing ever grepped stats/sanitizers.txt for FAIL.
+          # The table looked like a result and could not report one.
+          san_failed=0
           run_san() { # <example> <label> <san-flags>
             local ex="$1" label="$2" flags="$3"
             if ! clang -g -O1 $flags -fno-omit-frame-pointer -I target/codegen \
                  "examples/c/$ex.c" -L target/debug -lazul -o "/tmp/$ex-san" 2>/tmp/cc.log; then
-              emit "$ex" "$label" "build-fail"; return
+              emit "$ex" "$label" "build-fail"
+              cat /tmp/cc.log >&2 || true
+              san_failed=1
+              return
             fi
             local rc=0
+            # halt_on_error=1 for TSan too: a data race must change the exit code,
+            # or the row is decoration.
+            # AZ_EXIT_SUCCESS_AFTER_FRAME_RENDER makes the headless backend exit 0
+            # once a frame exists, so 0 now means "it ran and rendered" and 124
+            # means "it hung" — which is a failure, not a pass.
             ASAN_OPTIONS=detect_leaks=0:abort_on_error=1 UBSAN_OPTIONS=halt_on_error=1 \
-            TSAN_OPTIONS=halt_on_error=0 LD_LIBRARY_PATH=target/debug \
+            TSAN_OPTIONS=halt_on_error=1 LD_LIBRARY_PATH=target/debug \
+            AZ_BACKEND=headless AZ_EXIT_SUCCESS_AFTER_FRAME_RENDER=1 \
               timeout 30 "/tmp/$ex-san" || rc=$?
-            if [ "$rc" -eq 0 ] || [ "$rc" -eq 124 ]; then
+            if [ "$rc" -eq 0 ]; then
               emit "$ex" "$label" "pass"
+            elif [ "$rc" -eq 124 ]; then
+              emit "$ex" "$label" "FAIL timeout(124) - no frame rendered in 30s"
+              san_failed=1
             else
               emit "$ex" "$label" "FAIL rc=$rc"
+              san_failed=1
             fi
           }
           run_san hello-world "ASan+UBSan" "-fsanitize=address,undefined"
           run_san async       "ASan+UBSan" "-fsanitize=address,undefined"
           run_san async       "ThreadSan"  "-fsanitize=thread"
+
+          if [ "$san_failed" -ne 0 ]; then
+            echo "::error::a sanitizer run failed or did not render - see the table above and stats/sanitizers.txt"
+            exit 1
+          fi
 
       - name: Upload sanitizers report
         uses: actions/upload-artifact@v7
