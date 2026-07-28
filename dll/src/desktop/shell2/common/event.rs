@@ -4408,7 +4408,10 @@ pub trait PlatformWindow {
             None => return BTreeMap::new(),
         };
 
-        let now = std::time::Instant::now();
+        // The injectable clock, not the wall clock: a11y-driven scroll and caret
+        // timing must freeze with the rest of the engine under `freeze_test_clock`,
+        // or no e2e scenario can assert on them.
+        let now = azul_core::task::Instant::now();
 
         // Delegate to LayoutWindow's process_accessibility_action
         // This has direct mutable access to all managers and returns affected nodes
@@ -4512,12 +4515,15 @@ pub trait PlatformWindow {
             return false;
         }
 
-        let now = std::time::Instant::now();
+        // The injectable clock, not the wall clock: a11y-driven scroll and caret
+        // timing must freeze with the rest of the engine under `freeze_test_clock`,
+        // or no e2e scenario can assert on them.
+        let now = azul_core::task::Instant::now();
         let mut anything_changed = false;
 
         for (dom_id, node_id, action) in actions {
             let affected = match self.get_layout_window_mut() {
-                Some(lw) => lw.process_accessibility_action(dom_id, node_id, action, now),
+                Some(lw) => lw.process_accessibility_action(dom_id, node_id, action, now.clone()),
                 None => continue,
             };
             if affected.is_empty() {

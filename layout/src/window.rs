@@ -5486,7 +5486,7 @@ impl LayoutWindow {
         dom_id: DomId,
         node_id: NodeId,
         action: AccessibilityAction,
-        now: std::time::Instant,
+        now: azul_core::task::Instant,
     ) -> BTreeMap<DomNodeId, (Vec<EventFilter>, bool)> {
         use crate::managers::text_input::TextInputSource;
 
@@ -5600,7 +5600,7 @@ impl LayoutWindow {
                     LogicalPosition { x: dx, y: dy },
                     std::time::Duration::from_millis(250).into(),
                     EasingFunction::EaseOut,
-                    now.into(),
+                    now.clone(),
                 );
             }
             AccessibilityAction::SetScrollOffset(pos) => {
@@ -5610,7 +5610,7 @@ impl LayoutWindow {
                     pos,
                     std::time::Duration::from_millis(0).into(),
                     EasingFunction::Linear,
-                    now.into(),
+                    now.clone(),
                 );
             }
             AccessibilityAction::ScrollToPoint(pos) => {
@@ -5620,7 +5620,7 @@ impl LayoutWindow {
                     pos,
                     std::time::Duration::from_millis(300).into(),
                     EasingFunction::EaseInOut,
-                    now.into(),
+                    now.clone(),
                 );
             }
 
@@ -6999,7 +6999,7 @@ impl LayoutWindow {
         &mut self,
         dom_id: DomId,
         node_id: NodeId,
-        now: std::time::Instant,
+        now: azul_core::task::Instant,
     ) {
         // 1. Get target node bounds
         let Some(target_bounds) = self.get_node_bounds(dom_id, node_id) else {
@@ -7066,7 +7066,7 @@ impl LayoutWindow {
             LogicalPosition { x: scroll_x, y: scroll_y },
             std::time::Duration::from_millis(300).into(),
             EasingFunction::EaseOut,
-            now.into(),
+            now.clone(),
         );
     }
 
@@ -7087,7 +7087,7 @@ impl LayoutWindow {
         &mut self,
         dom_id: DomId,
         node_id: NodeId,
-        now: std::time::Instant,
+        now: azul_core::task::Instant,
     ) {
         // Get the cursor from multi_cursor
         let Some(cursor) = self.text_edit_manager.get_primary_cursor() else {
@@ -7181,7 +7181,7 @@ impl LayoutWindow {
             },
             std::time::Duration::from_millis(200).into(),
             EasingFunction::EaseOut,
-            now.into(),
+            now.clone(),
         );
     }
 
@@ -7354,7 +7354,7 @@ impl LayoutWindow {
         _dom_id: DomId,
         _node_id: NodeId,
         _action: azul_core::dom::AccessibilityAction,
-        _now: std::time::Instant,
+        _now: azul_core::task::Instant,
     ) -> BTreeMap<DomNodeId, (Vec<azul_core::events::EventFilter>, bool)> {
         // No-op when accessibility is disabled
         BTreeMap::new()

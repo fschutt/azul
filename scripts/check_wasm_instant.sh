@@ -369,7 +369,11 @@ for dir in "${DIRS[@]}"; do
     fi
     # The fully-qualified form needs no import.
     pattern='std::time::Instant::now\(\)'
-    [ -n "$names" ] && pattern="$pattern|\\b($names)::now\\(\\)"
+    # `\b` is NOT enough for the bare form: in `azul_core::task::Instant::now()`
+    # the boundary before `Instant` is satisfied by the preceding `:`, so the
+    # imported-name pattern matched the very abstraction this check tells you to
+    # switch TO. Require the name to not be preceded by a path separator.
+    [ -n "$names" ] && pattern="$pattern|(^|[^:[:alnum:]_])($names)::now\\(\\)"
 
     grep -qE "$pattern" "$file" || continue
 

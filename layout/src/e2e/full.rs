@@ -47,7 +47,11 @@ const ROOT_DOM_ID: azul_core::dom::DomId = azul_core::dom::DomId { inner: 0 };
 /// (`azul_core::task::Instant::now`): step durations and the `wait` deadline
 /// must measure real elapsed time, or `tick_ms` would let a scenario "wait"
 /// without the event loop ever making progress.
-#[cfg(feature = "std")]
+// The `not(target_family = "wasm")` states in code what the comment above
+// claims: `e2e-server` is not in `default` and is never enabled for a wasm
+// build. A feature gate is not a target exclusion, so without this the guard
+// was an assertion in prose only.
+#[cfg(all(feature = "std", not(target_family = "wasm")))]
 fn wall_clock_now() -> std::time::Instant {
     std::time::Instant::now()
 }

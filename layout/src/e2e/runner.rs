@@ -2038,7 +2038,7 @@ impl Runner {
                     *dom_id,
                     *node_id,
                     action.clone(),
-                    Instant::now(),
+                    azul_core::task::Instant::now(),
                 );
 
                 // NOT gated on `affected.is_empty()`. Focus / Blur / the
