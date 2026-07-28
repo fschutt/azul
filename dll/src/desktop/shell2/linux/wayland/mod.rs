@@ -4866,6 +4866,23 @@ impl WaylandWindow {
             );
             return;
         }
+        // KNOWN-SUBOPTIMAL, deliberately left visible here rather than only in a
+        // tracker: this requests the frame callback AFTER the present and then
+        // commits a SECOND time to schedule it. On the GPU path eglSwapBuffers has
+        // already attached, damaged and committed, and Mesa's own guidance is that
+        // "sending a wl_surface.commit request at all outside of eglSwapBuffers
+        // will break frame throttling, and may result in discarded frames".
+        //
+        // The correct shape is to request wl_surface_frame BEFORE the present, so
+        // the present's own commit carries it and no second commit exists. That
+        // means threading the request through both the GPU and CPU branches, so it
+        // is a focused change rather than a line edit — see #42.
+        //
+        // It is not currently harmful in the way Mesa warns about, because
+        // configure_vsync now forces eglSwapInterval(0) (b94eeb146): Mesa arms no
+        // throttle callback of its own, so ours is the only one and there is
+        // nothing for the extra commit to desynchronise. It does cost one
+        // redundant content update per frame.
         unsafe {
             let frame_callback = (self.wayland.wl_surface_frame)(self.surface);
             // The listener MUST outlive the proxy: wl_proxy_add_listener stores the
