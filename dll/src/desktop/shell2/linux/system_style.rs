@@ -1194,3 +1194,113 @@ pub(crate) fn discover() -> SystemStyle {
 
     style
 }
+
+// ============================================================================
+// Runtime light/dark switching
+// ============================================================================
+
+/// The desktop's light/dark preference as last observed by the watcher thread.
+///
+/// 0 = not yet known / no preference expressed, 1 = dark, 2 = light. An
+/// `AtomicU8` rather than a channel on purpose: the setting is process-wide, so
+/// every window wants the same answer, and a channel would deliver the change to
+/// exactly one of them. Each window instead compares this against the theme it
+/// is already carrying (`current_window_state.theme`), which it has anyway — so
+/// no window needs to store a "last seen" of its own.
+static OBSERVED_COLOR_SCHEME: core::sync::atomic::AtomicU8 =
+    core::sync::atomic::AtomicU8::new(0);
+
+static THEME_WATCHER: std::sync::OnceLock<()> = std::sync::OnceLock::new();
+
+/// Map the XDG `color-scheme` setting onto a [`Theme`].
+///
+/// Per the portal spec: 0 = no preference, 1 = prefer dark, 2 = prefer light.
+/// "No preference" deliberately yields `None` rather than defaulting to light —
+/// it means the desktop is not expressing one, so whatever full detection chose
+/// at startup (GTK theme name, kdeglobals, pywal, ...) remains the better answer.
+fn color_scheme_to_theme(scheme: u32) -> Option<Theme> {
+    match scheme {
+        1 => Some(Theme::Dark),
+        2 => Some(Theme::Light),
+        _ => None,
+    }
+}
+
+/// The system theme, if a watcher has observed one.
+///
+/// Cheap: one relaxed atomic load. Safe to call every frame — the D-Bus round
+/// trip happens on the watcher thread, never on the caller's.
+pub(crate) fn observed_system_theme() -> Option<Theme> {
+    ensure_theme_watcher();
+    match OBSERVED_COLOR_SCHEME.load(core::sync::atomic::Ordering::Relaxed) {
+        1 => Some(Theme::Dark),
+        2 => Some(Theme::Light),
+        _ => None,
+    }
+}
+
+/// Start the watcher thread once per process.
+///
+/// It MUST NOT run on the event-loop thread. `query_xdg_portal` opens a Unix
+/// socket to the session bus and does a synchronous request/response with two-
+/// second read and write timeouts, so polling it inline would risk a two-second
+/// freeze of the UI every time the portal was slow or absent — trading "dark
+/// mode does not apply until restart" for "the window hangs", which is worse.
+///
+/// Polling rather than subscribing to `SettingChanged`: reading a signal needs a
+/// match rule and a message loop against the bus, where a poll reuses the
+/// request path that already exists here. Two seconds is far below human
+/// tolerance for a theme switch and is one tiny D-Bus call.
+fn ensure_theme_watcher() {
+    THEME_WATCHER.get_or_init(|| {
+        let _ = std::thread::Builder::new()
+            .name("azul-theme-watch".into())
+            .spawn(|| {
+                loop {
+                    if let Some((scheme, _accent)) = query_xdg_portal() {
+                        if color_scheme_to_theme(scheme).is_some() {
+                            OBSERVED_COLOR_SCHEME.store(
+                                scheme as u8,
+                                core::sync::atomic::Ordering::Relaxed,
+                            );
+                        }
+                    }
+                    std::thread::sleep(core::time::Duration::from_secs(2));
+                }
+            });
+    });
+}
+
+/// Adopt the watcher's theme into `common`, returning whether anything changed.
+///
+/// Split from the pump deliberately: this half is identical on X11 and Wayland,
+/// while pumping is not (`process_window_events` is a trait method and each
+/// backend follows it with its own redraw request). Returning `false` when the
+/// theme already matches is what makes it safe to call every frame — a polled
+/// backend re-asserting the current theme must not cost a relayout.
+///
+/// The caller still owes the event pump and
+/// `request_regeneration(RelayoutReason::ThemeChange)`; see the call sites.
+pub(crate) fn adopt_observed_theme(
+    common: &mut crate::desktop::shell2::common::event::CommonWindowState,
+) -> bool {
+    use azul_core::window::WindowTheme;
+
+    let Some(theme) = observed_system_theme() else {
+        return false;
+    };
+    let theme = match theme {
+        Theme::Dark => WindowTheme::DarkMode,
+        Theme::Light => WindowTheme::LightMode,
+    };
+    if common.current_window_state.theme == theme {
+        return false;
+    }
+
+    // The diff pipeline compares against previous_window_state to decide that a
+    // ThemeChanged event fired; without this snapshot the event is never
+    // determined and no callback runs.
+    common.previous_window_state = Some(common.current_window_state.clone());
+    common.current_window_state.theme = theme;
+    true
+}

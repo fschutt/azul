@@ -5502,6 +5502,19 @@ impl WaylandWindow {
             self.needs_redraw.raise();
             self.generate_frame_if_needed();
         }
+
+        // A runtime light/dark switch. There is NO Wayland protocol for this —
+        // the xdg-desktop-portal `Settings` interface is the mechanism — so the
+        // same watcher serves X11 and Wayland alike. `observed_system_theme` is
+        // a relaxed atomic load; the blocking D-Bus round trip that feeds it
+        // runs on a watcher thread, never on this one.
+        if super::system_style::adopt_observed_theme(&mut self.common) {
+            let _ = self.process_window_events(0);
+            self.common
+                .request_regeneration(azul_core::callbacks::RelayoutReason::ThemeChange);
+            self.needs_redraw.raise();
+            self.generate_frame_if_needed();
+        }
     }
 
     /// Returns the logical size of the window's surface.

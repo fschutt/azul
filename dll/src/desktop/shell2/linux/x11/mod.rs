@@ -4888,6 +4888,19 @@ impl X11Window {
         if self.process_timers_and_threads() {
             self.request_redraw();
         }
+
+        // A runtime light/dark switch. The system style was read once at window
+        // creation and never again, so toggling the desktop theme did nothing
+        // until the app restarted. `observed_system_theme` is a relaxed atomic
+        // load — the D-Bus round trip that feeds it runs on a watcher thread,
+        // never here, because `query_xdg_portal` blocks with a two-second
+        // timeout and that would freeze the event loop.
+        if super::system_style::adopt_observed_theme(&mut self.common) {
+            let _ = self.process_window_events(0);
+            self.common
+                .request_regeneration(azul_core::callbacks::RelayoutReason::ThemeChange);
+            self.request_redraw();
+        }
     }
 
     /// Set the window to always be on top (X11 implementation using _NET_WM_STATE_ABOVE)
