@@ -9498,7 +9498,7 @@ extern "C" fn e2e_tick_timer_callback(
 /// handler runs the state-diff pass when something actually changed and sets
 /// `resize_pending` for a size/DPI delta (which the runner turns into
 /// `ShouldRegenerateDomCurrentWindow` on its own, exactly as
-/// `mark_frame_needs_regeneration` does in the real shell).
+/// `request_regeneration` does in the real shell).
 ///
 /// `mount` / `unmount` / `remount` / `set_app_state` / `update_component` DO
 /// still set it: those are the ops that legitimately mean "rebuild the DOM".
@@ -9560,7 +9560,7 @@ pub fn process_debug_event(
             callback_info.modify_window_state(new_state);
             // NO `needs_update` — see the note on `process_debug_event`. The
             // size delta is what forces the rebuild: `ModifyWindowState` sets
-            // `resize_pending` / `mark_frame_needs_regeneration` for it, so the
+            // `resize_pending` / `request_regeneration` for it, so the
             // regeneration is the ENGINE's decision, not the harness's.
 
             send_ok(request, None, None);
@@ -9714,7 +9714,7 @@ pub fn process_debug_event(
             callback_info.modify_window_state(new_state);
             // The relayout+repaint a real DPI change causes is driven by the DPI
             // delta itself: `ModifyWindowState` sets `resize_pending` /
-            // `mark_frame_needs_regeneration`. NO `needs_update` — see the note
+            // `request_regeneration`. NO `needs_update` — see the note
             // on `process_debug_event`.
 
             send_ok(request, None, None);

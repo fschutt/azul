@@ -1171,7 +1171,7 @@ pub fn run(
                 unsafe {
                     let window = &mut *window_ptr_from_registry;
 
-                    if window.common.frame_needs_regeneration {
+                    if window.common.regeneration_pending() {
                         // Captured BEFORE the render: a callback inside it can raise a new
                         // regeneration request, and only what we saw here may be retired.
                         let regen_epoch_seen = window.common.regen_epoch();

@@ -171,7 +171,7 @@ extern "C" fn draw_rect(this: &Object, _cmd: Sel, _rect: CGRect) {
         None => return,
     };
 
-    if window.common.frame_needs_regeneration {
+    if window.common.regeneration_pending() {
         if let Err(e) = window.regenerate_layout() {
             log_error!(LogCategory::Layout, "[iOS] regenerate_layout: {}", e);
         }
@@ -399,7 +399,7 @@ fn handle_touch(this: &Object, touches: *mut Object, phase: u8) {
     }
     let r = window.process_window_events(0);
     if !matches!(r, ProcessEventResult::DoNothing) {
-        window.common.frame_needs_regeneration = true;
+        window.common.request_regeneration(RelayoutReason::RefreshDom);
     }
     if let Some(lw) = window.common.layout_window.as_mut() {
         lw.gesture_drag_manager.clear_native_gesture();
@@ -428,7 +428,7 @@ fn handle_touch(this: &Object, touches: *mut Object, phase: u8) {
             } else {
                 lw.gesture_drag_manager.clear_pen_state();
             }
-            window.common.frame_needs_regeneration = true;
+            window.common.request_regeneration(RelayoutReason::RefreshDom);
         }
     }
 
@@ -474,7 +474,7 @@ extern "C" fn touches_cancelled(
 /// orientation rotation, split-view resize on iPad, `safeAreaInsets`
 /// shift, etc. We re-read `[this bounds]`, refresh
 /// `current_window_state.size.dimensions`, and flag a relayout. The
-/// CADisplayLink will pick up `frame_needs_regeneration` on its next
+/// CADisplayLink will pick up the pending regeneration on its next
 /// tick and call `present()` → `drawRect:` → `regenerate_layout`.
 extern "C" fn layout_subviews(this: &Object, _cmd: Sel) {
     use objc::sel;
@@ -501,7 +501,7 @@ extern "C" fn layout_subviews(this: &Object, _cmd: Sel) {
                 );
                 dims.width = w;
                 dims.height = h;
-                window.common.frame_needs_regeneration = true;
+                window.common.request_regeneration(RelayoutReason::RefreshDom);
             }
         }
         // Safe-area insets (notch / Dynamic Island / home indicator / rounded
@@ -563,7 +563,7 @@ const UI_GESTURE_RECOGNIZER_STATE_CHANGED: i64 = 2;
 fn inject(window: &mut IOSWindow, gesture: azul_layout::managers::gesture::NativeGestureEvent) {
     if let Some(lw) = window.common.layout_window.as_mut() {
         lw.gesture_drag_manager.inject_native_gesture(gesture);
-        window.common.frame_needs_regeneration = true;
+        window.common.request_regeneration(RelayoutReason::RefreshDom);
     }
 }
 
@@ -731,9 +731,9 @@ extern "C" fn display_tick(_this: &Object, _cmd: Sel, _link: *mut Object) {
     // comment is true.
     if let Some(window) = unsafe { azul_ios_window() } {
         if window.process_timers_and_threads() {
-            window.common.frame_needs_regeneration = true;
+            window.common.request_regeneration(RelayoutReason::RefreshDom);
         }
-        if window.common.frame_needs_regeneration {
+        if window.common.regeneration_pending() {
             let _ = window.present();
         }
     }
@@ -890,7 +890,7 @@ extern "C" fn app_did_become_active(_this: &Object, _cmd: Sel, _app: *mut Object
     if let Some(window) = unsafe { azul_ios_window() } {
         // Force a redraw so the layer contents are fresh after
         // returning from background.
-        window.common.frame_needs_regeneration = true;
+        window.common.request_regeneration(RelayoutReason::RefreshDom);
         let _ = window.present();
     }
 }
@@ -1112,10 +1112,7 @@ impl IOSWindow {
                 id_namespace: None,
                 render_api: None,
                 renderer: None,
-                frame_needs_regeneration: true,
-                regen_generation: 0,
-                frame_relayout_only: false,
-                next_relayout_reason: RelayoutReason::Initial,
+                regen: crate::desktop::shell2::common::event::RegenerationState::pending_initial(),
                 display_list_initialized: false,
                 display_list_dirty: false,
                 a11y_dirty: true,
@@ -1155,11 +1152,23 @@ impl IOSWindow {
 
     /// Run a full layout regeneration pass and CPU-render the resulting
     /// display list. Mirrors `AndroidWindow::regenerate_layout()`. Called
-    /// from the `drawRect:` handler when `frame_needs_regeneration` is
-    /// true (Sprint C-iOS wires that).
+    /// from the `drawRect:` handler when a regeneration is pending
+    /// (Sprint C-iOS wires that).
     pub fn regenerate_layout_inner(
         &mut self,
     ) -> Result<crate::desktop::shell2::common::layout::LayoutRegenerateResult, String> {
+        // Captured BEFORE the pass: `regenerate_layout` (the trait wrapper that
+        // calls this) drains lifecycle callbacks between passes, and one of
+        // those returning `Update::RefreshDom` raises a NEW request. Retiring
+        // by epoch at the end means this pass only retires the request it
+        // actually saw.
+        let regen_epoch_seen = self.common.regen_epoch();
+
+        // Consume the reason tag BEFORE borrowing the layout window: this is
+        // the regeneration this window asked for, and the tag travels with
+        // the request (see CommonWindowState::request_regeneration).
+        let relayout_reason = self.common.take_relayout_reason();
+
         let layout_window = self
             .common
             .layout_window
@@ -1182,10 +1191,8 @@ impl IOSWindow {
             &self.common.system_style,
             &self.icon_provider,
             &mut debug_messages,
-            self.common.next_relayout_reason,
+            relayout_reason,
         )?;
-        self.common.next_relayout_reason =
-            azul_core::callbacks::RelayoutReason::RefreshDom;
 
         if let Some(msgs) = debug_messages {
             for msg in msgs {
@@ -1232,7 +1239,7 @@ impl IOSWindow {
             }
         }
 
-        self.common.frame_needs_regeneration = false;
+        self.common.clear_regeneration_unless_reraised(regen_epoch_seen);
         Ok(result)
     }
 }

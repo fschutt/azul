@@ -357,10 +357,17 @@ pub struct WaylandWindow {
     /// poll_event never calls generate_frame_if_needed, so nothing would ever
     /// retry. See FRAME_CALLBACK_TIMEOUT.
     pub frame_callback_armed_at: Option<std::time::Instant>,
-    /// Set to true when a visual update is needed but no layout regeneration is required.
-    /// This happens when scroll offsets change (timer callbacks) or GPU values are updated.
-    /// The next `render_frame_if_ready()` will send a lightweight transaction.
-    pub needs_redraw: bool,
+    /// Raised when a visual update is needed but no layout regeneration is
+    /// required. This happens when scroll offsets change (timer callbacks) or
+    /// GPU values are updated. The next `generate_frame_if_needed()` sends a
+    /// lightweight transaction.
+    ///
+    /// A latched request, not a bare bool, and PRIVATE to this module. It is
+    /// raised from INSIDE `generate_frame_if_needed` — the CPU
+    /// both-buffers-held retry, and the scrollbar-fade re-arm — so retiring it
+    /// with a bare `= false` at the end of that function would eat exactly the
+    /// frames those paths just asked for. Retire by epoch instead.
+    needs_redraw: super::super::common::event::LatchedRequest,
 
     // Native timer support via timerfd (Linux-specific)
     // Maps TimerId -> (timerfd file descriptor)
@@ -453,7 +460,6 @@ pub struct WaylandPopup {
     // V2 Event system state
     pub scrollbar_drag_state: Option<ScrollbarDragState>,
     pub last_hovered_node: Option<event::HitTestNode>,
-    pub frame_needs_regeneration: bool,
     pub frame_callback_pending: bool,
 
     // Shared resources
@@ -912,7 +918,7 @@ impl WaylandWindow {
                         // The callback asked for a refresh (e.g. RefreshDom
                         // from a zoom button) — regenerate on the next frame,
                         // exactly like pointer-event dispatch does.
-                        self.common.frame_needs_regeneration = true;
+                        self.common.request_regeneration(azul_core::callbacks::RelayoutReason::RefreshDom);
                     }
                 }
             }
@@ -923,7 +929,7 @@ impl WaylandWindow {
     }
 
     pub fn request_redraw(&mut self) {
-        self.needs_redraw = true;
+        self.needs_redraw.raise();
         if self.configured {
             self.generate_frame_if_needed();
         }
@@ -1024,7 +1030,7 @@ impl PlatformWindow for WaylandWindow {
         // For Wayland, we don't need a separate timer - threads are checked
         // in the event loop when layout_window.threads is non-empty
         // Just mark for regeneration to start checking
-        self.common.frame_needs_regeneration = true;
+        self.common.request_regeneration(azul_core::callbacks::RelayoutReason::RefreshDom);
     }
 
     fn stop_thread_poll_timer(&mut self) {
@@ -1043,7 +1049,7 @@ impl PlatformWindow for WaylandWindow {
         }
 
         // Mark for regeneration to start thread polling
-        self.common.frame_needs_regeneration = true;
+        self.common.request_regeneration(azul_core::callbacks::RelayoutReason::RefreshDom);
     }
 
     fn remove_threads(
@@ -1377,10 +1383,7 @@ impl WaylandWindow {
                 undo_manager: resources.undo_manager.clone(),
                 scrollbar_drag_state: None,
                 last_hovered_node: None,
-                frame_needs_regeneration: false,
-                regen_generation: 0,
-                frame_relayout_only: false,
-                next_relayout_reason: azul_core::callbacks::RelayoutReason::Initial,
+                regen: crate::desktop::shell2::common::event::RegenerationState::idle_initial(),
                 display_list_initialized: false,
                 display_list_dirty: false,
                 a11y_dirty: true,
@@ -1407,7 +1410,7 @@ impl WaylandWindow {
             tablet_pen: events::TabletPenPending::default(),
             frame_callback_pending: false,
             frame_callback_armed_at: None,
-            needs_redraw: false,
+            needs_redraw: super::super::common::event::LatchedRequest::default(),
             gpu_damage_rects: Vec::new(),
             gpu_last_render_presented: true,
             timer_fds: std::collections::BTreeMap::new(),
@@ -1932,7 +1935,7 @@ impl WaylandWindow {
             for change in &changes {
                 let r = window.apply_user_change(change);
                 if r != azul_core::events::ProcessEventResult::DoNothing {
-                    window.common.frame_needs_regeneration = true;
+                    window.common.request_regeneration(azul_core::callbacks::RelayoutReason::RefreshDom);
                 }
             }
         }
@@ -2215,7 +2218,7 @@ impl WaylandWindow {
             }
 
             // Invoke expired timer AND thread callbacks via the shared
-            // check_timers_and_threads, which ALSO marks needs_redraw when a
+            // check_timers_and_threads, which ALSO raises needs_redraw when a
             // callback produced a visual change. Run on every wake while threads
             // are active (the 16ms tick guarantees we get here) so tile-fetch
             // writebacks drain promptly.
@@ -2347,7 +2350,7 @@ impl WaylandWindow {
                     // Restyle / runtime edit (hover/focus CSS, set_css_property,
                     // set_node_text): re-run layout on the EXISTING StyledDom instead
                     // of a full regenerate_layout(). Mirrors the macOS arm.
-                    // frame_relayout_only then makes generate_frame_if_needed() skip
+                    // The relayout-only request then makes generate_frame_if_needed() skip
                     // regenerate_layout() and only rebuild + send the transaction.
                     if let Some(layout_window) = self.common.layout_window.as_mut() {
                         let mut debug_messages = None;
@@ -2360,14 +2363,13 @@ impl WaylandWindow {
                             log_warn!(LogCategory::Layout, "Incremental relayout failed: {}", e);
                         }
                     }
-                    self.common.frame_relayout_only = true;
-                    self.common.frame_needs_regeneration = true;
+                    self.common.request_relayout_only();
                     self.request_redraw();
                 }
                 ProcessEventResult::ShouldRegenerateDomCurrentWindow
                 | ProcessEventResult::ShouldRegenerateDomAllWindows
                 | ProcessEventResult::UpdateHitTesterAndProcessAgain => {
-                    self.common.frame_needs_regeneration = true;
+                    self.common.request_regeneration(azul_core::callbacks::RelayoutReason::RefreshDom);
                     self.request_redraw();
                 }
                 // ShouldUpdateDisplayListCurrentWindow: pending VirtualView updates are
@@ -2489,7 +2491,7 @@ impl WaylandWindow {
                         .map_or(false, |p| p.activate_hovered());
                     if activated {
                         self.dismiss_active_popup();
-                        self.common.frame_needs_regeneration = true;
+                        self.common.request_regeneration(azul_core::callbacks::RelayoutReason::RefreshDom);
                         self.request_redraw();
                     }
                 }
@@ -2575,7 +2577,7 @@ impl WaylandWindow {
                 // Restyle / runtime edit: re-run layout on the EXISTING StyledDom
                 // instead of a full regenerate_layout() (mirrors the macOS arm).
                 // generate_frame_if_needed() then takes the relayout-only path
-                // (frame_relayout_only): skip regenerate_layout, but still rebuild the
+                // (relayout-only): skip regenerate_layout, but still rebuild the
                 // CPU hit-tester + build & send the full WebRender transaction + present
                 // (an incremental relayout does NOT send the transaction itself).
                 if let Some(layout_window) = self.common.layout_window.as_mut() {
@@ -2589,8 +2591,7 @@ impl WaylandWindow {
                         log_warn!(LogCategory::Layout, "Incremental relayout failed: {}", e);
                     }
                 }
-                self.common.frame_relayout_only = true;
-                self.common.frame_needs_regeneration = true;
+                self.common.request_relayout_only();
                 self.request_redraw();
             }
             ProcessEventResult::ShouldRegenerateDomCurrentWindow
@@ -2599,7 +2600,7 @@ impl WaylandWindow {
                 // Layout/content changed → take the FULL rebuild path:
                 // generate_frame_if_needed() runs regenerate_layout + rebuilds the CPU
                 // hit-tester + builds & sends the WebRender transaction + presents, but
-                // only when frame_needs_regeneration is set. Calling regenerate_layout()
+                // only when a regeneration is pending. Calling regenerate_layout()
                 // directly here does NOT build/send the transaction on Wayland, so the
                 // change never reached the screen until a later redraw — that was why
                 // typed text (a content change) only appeared on the next mouse click.
@@ -2616,13 +2617,13 @@ impl WaylandWindow {
                         }
                         if let Some(wptr) = unsafe { super::registry::get_window(wid) } {
                             if let super::LinuxWindow::Wayland(w) = unsafe { &mut *wptr } {
-                                w.common.frame_needs_regeneration = true;
+                                w.common.request_regeneration(azul_core::callbacks::RelayoutReason::RefreshDom);
                                 w.request_redraw();
                             }
                         }
                     }
                 }
-                self.common.frame_needs_regeneration = true;
+                self.common.request_regeneration(azul_core::callbacks::RelayoutReason::RefreshDom);
                 self.request_redraw();
             }
             ProcessEventResult::ShouldUpdateDisplayListCurrentWindow
@@ -2763,7 +2764,7 @@ impl WaylandWindow {
             let result = PlatformWindow::handle_scrollbar_drag(self, logical_pos);
             // Route like every other pointer path: a scroll callback can restyle
             // (ShouldIncrementalRelayout → incremental fast path) or rebuild the DOM
-            // (ShouldRegenerateDom* → frame_needs_regeneration). DoNothing stays a
+            // (ShouldRegenerateDom* → request_regeneration). DoNothing stays a
             // no-op and the redraw-only variants still request_redraw, so plain
             // scrollbar drags behave exactly as before.
             self.handle_process_event_result(result);
@@ -2832,7 +2833,7 @@ impl WaylandWindow {
                 self.dismiss_active_popup();
                 // The menu callback likely mutated shared app state — regenerate
                 // and repaint the parent so the selection's effect is visible.
-                self.common.frame_needs_regeneration = true;
+                self.common.request_regeneration(azul_core::callbacks::RelayoutReason::RefreshDom);
                 self.request_redraw();
             }
             return;
@@ -3586,6 +3587,11 @@ impl WaylandWindow {
     ///
     /// Wayland-specific implementation with mandatory CSD injection.
     pub fn regenerate_layout_inner(&mut self) -> Result<crate::desktop::shell2::common::layout::LayoutRegenerateResult, String> {
+        // Consume the reason tag BEFORE borrowing the layout window: this is
+        // the regeneration this window asked for, and the tag travels with
+        // the request (see CommonWindowState::request_regeneration).
+        let relayout_reason = self.common.take_relayout_reason();
+
         let layout_window = self.common.layout_window.as_mut().ok_or("No layout window")?;
 
         // Collect debug messages if debug server is enabled
@@ -3610,11 +3616,8 @@ impl WaylandWindow {
             &self.resources.icon_provider,
             &mut debug_messages,
         
-            self.common.next_relayout_reason,
+            relayout_reason,
         )?;
-        // Consumed; reset so an untagged regen sees the implicit RefreshDom.
-        self.common.next_relayout_reason =
-            azul_core::callbacks::RelayoutReason::RefreshDom;
 
         // Forward layout debug messages to the debug server's log queue
         if let Some(msgs) = debug_messages {
@@ -3628,7 +3631,7 @@ impl WaylandWindow {
             }
         }
 
-        // NOTE: Do NOT set frame_needs_regeneration here!
+        // NOTE: Do NOT request a regeneration here!
         // The caller (generate_frame_if_needed) manages this flag.
         // Setting it to true here would cause unnecessary re-layouts.
 
@@ -4117,17 +4120,17 @@ impl WaylandWindow {
     /// Render a frame if needed, sending the appropriate WebRender transaction.
     ///
     /// Two paths:
-    /// 1. **Full path** (`frame_needs_regeneration = true`): Regenerate layout, build full
+    /// 1. **Full path** (a regeneration is pending): Regenerate layout, build full
     ///    transaction (fonts, images, display lists, scroll offsets, GPU values).
-    /// 2. **Lightweight path** (`needs_redraw = true`, layout unchanged): Build lightweight
+    /// 2. **Lightweight path** (only a redraw is pending, layout unchanged): Build lightweight
     ///    transaction (image callbacks, scroll offsets, GPU values only — skip scene builder).
     ///
     /// After sending the transaction, renders via WebRender and swaps buffers.
     /// Sets up Wayland frame callback for VSync.
     pub fn generate_frame_if_needed(&mut self) {
-        let needs_work = self.common.frame_needs_regeneration
-            || self.common.frame_relayout_only
-            || self.needs_redraw;
+        let needs_work = self.common.regeneration_pending()
+            || self.common.relayout_only_pending()
+            || self.needs_redraw.pending();
         if !needs_work {
             return;
         }
@@ -4180,15 +4183,19 @@ impl WaylandWindow {
         // raise a new regeneration request, and only what we saw here may be
         // retired.
         let regen_epoch_seen = self.common.regen_epoch();
-        if self.common.frame_needs_regeneration || self.common.frame_relayout_only {
+        // Same for the redraw request: the CPU "both buffers held" retry and the
+        // scrollbar-fade re-arm BOTH raise it from inside this function.
+        let redraw_epoch_seen = self.needs_redraw.epoch();
+        let relayout_only = self.common.take_relayout_only();
+        if self.common.regeneration_pending() || relayout_only {
             // FULL or RELAYOUT-ONLY PATH: both rebuild the CPU hit-tester + build &
             // send the full WebRender transaction below. Only the FULL path re-runs
             // regenerate_layout() (re-invokes the user's layout_callback + rebuilds the
             // StyledDom). The RELAYOUT-ONLY path's layout was already re-run by
             // incremental_relayout() in the ShouldIncrementalRelayout event arm
-            // (frame_relayout_only) — re-running regenerate_layout() here would discard
+            // (relayout-only) — re-running regenerate_layout() here would discard
             // that work and re-invoke the layout_callback.
-            if self.common.frame_needs_regeneration && !self.common.frame_relayout_only {
+            if self.common.regeneration_pending() && !relayout_only {
                 // FULL PATH: Regenerate layout
                 if let Err(e) = self.regenerate_layout() {
                     log_error!(
@@ -4198,11 +4205,14 @@ impl WaylandWindow {
                     );
                 }
             }
-            // Retire ONLY the request this frame observed: a lifecycle callback
-            // running inside the render above can raise a new one, and a bare
-            // `= false` here would erase it.
-            self.common.clear_regeneration_unless_reraised(regen_epoch_seen);
-            self.common.frame_relayout_only = false;
+            // The regeneration request is NOT retired here — it is retired at
+            // the very end, together with the redraw request, on the only path
+            // that actually commits a buffer. Retiring it here meant the three
+            // early returns below (WebRender render error, eglSwapBuffers
+            // failure, and the "nothing was committed" bail that the lazy CPU
+            // buffer allocation takes on its first pass) dropped the rebuild on
+            // the floor: no frame reached the screen and no request was left to
+            // produce one.
 
             // Rebuild the CPU hit-tester from the fresh layout. CPU mode has no
             // WebRender hit-tester (render_api is None), and without this rebuild every
@@ -4302,7 +4312,14 @@ impl WaylandWindow {
             }
         }
 
-        self.needs_redraw = false;
+        // NOTE: the redraw request is NOT retired here. It used to be, and every
+        // early return below this line therefore destroyed it: the WebRender
+        // render error, the eglSwapBuffers failure, and the "no buffer was
+        // committed" bail all return with the request already gone and nothing
+        // left to re-schedule them, so one transient GPU hiccup silently cost a
+        // repaint nobody would ever ask for again. It is retired at the END, by
+        // epoch, on the path that actually committed a frame — mirroring X11's
+        // render_and_present.
 
         // Fractional-scale presentation state (computed before the
         // render_mode borrow): with a viewport + preferred_scale the buffer
@@ -4711,7 +4728,7 @@ impl WaylandWindow {
                                             // diff as "unchanged", so force a
                                             // full copy+present then or this
                                             // frame would never reach screen.
-                                            self.needs_redraw = true;
+                                            self.needs_redraw.raise();
                                             self.os_present_requested = true;
                                         }
                                     }
@@ -4729,7 +4746,7 @@ impl WaylandWindow {
                             let (w, h) = (cpu_state.width, cpu_state.height);
                             cpu_state.damage_rects.push((0, 0, w, h));
                         } else {
-                            self.needs_redraw = true;
+                            self.needs_redraw.raise();
                         }
                     }
                 }
@@ -4741,7 +4758,7 @@ impl WaylandWindow {
                         let (w, h) = (cpu_state.width, cpu_state.height);
                         cpu_state.damage_rects.push((0, 0, w, h));
                     } else {
-                        self.needs_redraw = true;
+                        self.needs_redraw.raise();
                     }
                 }
 
@@ -4887,10 +4904,19 @@ impl WaylandWindow {
             (self.wayland.wl_surface_commit)(self.surface);
         }
 
+        // Retire both requests HERE — the only point reached by a frame that
+        // actually committed a buffer — and retire only what THIS frame saw. A
+        // bare `= false` would erase a request raised while the frame was being
+        // produced: `regenerate_layout` above runs user lifecycle callbacks, and
+        // the CPU present retry raises the redraw request from inside this very
+        // function, a few dozen lines up.
+        self.common.clear_regeneration_unless_reraised(regen_epoch_seen);
+        self.needs_redraw.retire_unless_reraised(redraw_epoch_seen);
+
         // ARM THE THROTTLE FIRST, then re-arm the fade. The order matters and the
         // old one recursed.
         //
-        // On Wayland `request_redraw` is SYNCHRONOUS — it sets needs_redraw and
+        // On Wayland `request_redraw` is SYNCHRONOUS — it raises needs_redraw and
         // calls generate_frame_if_needed() directly (unlike X11, where it only
         // posts an Expose). With the fade re-arm running BEFORE
         // frame_callback_pending was set, the nested call found needs_work true
@@ -4901,7 +4927,6 @@ impl WaylandWindow {
         // Setting the latch first means the nested call hits the gate at the top
         // of this function and returns immediately, leaving the fade to advance
         // one frame per compositor callback, which is what it wanted.
-        self.common.frame_needs_regeneration = false;
         self.frame_callback_pending = true;
         self.frame_callback_armed_at = Some(std::time::Instant::now());
 
@@ -5080,7 +5105,16 @@ extern "C" fn frame_done_callback(
     }
 
     // If there are more changes pending, request another frame
-    if window.common.frame_needs_regeneration || window.needs_redraw {
+    // The relayout-only request counts as work owed too. It used to be absent
+    // from this gate, so a restyle queued by a timer callback (the only producer
+    // that raised it alone) sat here until some unrelated event happened to
+    // redraw the window. `request_relayout_only` now also raises the ordinary
+    // regeneration request, and this gate names it explicitly so the intent
+    // survives the next reader.
+    if window.common.regeneration_pending()
+        || window.common.relayout_only_pending()
+        || window.needs_redraw.pending()
+    {
         window.generate_frame_if_needed();
     }
 }
@@ -5475,12 +5509,12 @@ impl WaylandWindow {
 
     /// Check timers and threads, trigger callbacks if needed.
     /// This is called on every poll_event() to simulate timer ticks.
-    /// If any timer/thread callback requested a visual update, mark needs_redraw
+    /// If any timer/thread callback requested a visual update, raise needs_redraw
     /// and attempt to render immediately (if no frame callback is pending).
     fn check_timers_and_threads(&mut self) {
         use super::super::common::event::PlatformWindow;
         if self.process_timers_and_threads() {
-            self.needs_redraw = true;
+            self.needs_redraw.raise();
             self.generate_frame_if_needed();
         }
     }
@@ -5805,7 +5839,6 @@ impl WaylandPopup {
 
             scrollbar_drag_state: None,
             last_hovered_node: None,
-            frame_needs_regeneration: true,
             frame_callback_pending: false,
 
             resources: parent.resources.clone(),

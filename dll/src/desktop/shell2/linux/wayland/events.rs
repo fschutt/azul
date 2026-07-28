@@ -226,7 +226,7 @@ pub(super) extern "C" fn wl_surface_enter_handler(
             new_dpi
         );
         window.common.current_window_state.size.dpi = new_dpi;
-        window.common.frame_needs_regeneration = true;
+        window.common.request_regeneration(azul_core::callbacks::RelayoutReason::RefreshDom);
         // Recreate the shm buffers at the new scale (physical = logical ×
         // scale) — the old buffers are sized for the previous scale and the
         // copy clamp would truncate every frame.
@@ -272,7 +272,7 @@ pub(super) extern "C" fn wl_surface_leave_handler(
             new_dpi
         );
         window.common.current_window_state.size.dpi = new_dpi;
-        window.common.frame_needs_regeneration = true;
+        window.common.request_regeneration(azul_core::callbacks::RelayoutReason::RefreshDom);
         // Same as the enter handler: recreate buffers at the new scale +
         // schedule the frame now (no spurious events on Wayland to mask a
         // missing redraw request).
@@ -318,7 +318,7 @@ pub(super) extern "C" fn wp_fractional_scale_preferred_scale_handler(
         scale_120
     );
     window.common.current_window_state.size.dpi = new_dpi;
-    window.common.frame_needs_regeneration = true;
+    window.common.request_regeneration(azul_core::callbacks::RelayoutReason::RefreshDom);
     // Recreate the shm buffers at the new physical size (same rationale as the
     // wl_output enter/leave handlers) and schedule the frame NOW — Wayland
     // sends no spurious expose/configure to mask a missing redraw request.
@@ -669,7 +669,7 @@ pub(super) extern "C" fn toplevel_decoration_configure_handler(
     {
         flags.decorations = azul_core::window::WindowDecorations::None;
         flags.has_decorations = true;
-        window.common.frame_needs_regeneration = true;
+        window.common.request_regeneration(azul_core::callbacks::RelayoutReason::RefreshDom);
         window.request_redraw();
     }
 }
@@ -1482,8 +1482,8 @@ pub(super) extern "C" fn xdg_surface_configure_handler(
     // be a FULL regeneration (relayout + rebuild + send the display-list transaction),
     // not the lightweight image-only path — otherwise WebRender has no display list
     // for this surface and renders an uncleared backbuffer (garbage). This mirrors
-    // the X11 ConfigureNotify path. request_redraw() additionally sets needs_redraw.
-    window.common.frame_needs_regeneration = true;
+    // the X11 ConfigureNotify path. request_redraw() additionally raises needs_redraw.
+    window.common.request_regeneration(azul_core::callbacks::RelayoutReason::RefreshDom);
     window.request_redraw();
 }
 
@@ -1539,7 +1539,10 @@ pub(super) extern "C" fn xdg_toplevel_configure_handler(
 
             window.common.current_window_state.size.dimensions.width = width as f32;
             window.common.current_window_state.size.dimensions.height = height as f32;
-            window.common.frame_needs_regeneration = true;
+            // Tag the regeneration as a resize so the user's layout() callback
+            // can detect it via `info.relayout_reason()`.
+            window.common
+                .request_regeneration(azul_core::callbacks::RelayoutReason::Resize);
 
             // Update dynamic selector context with new viewport dimensions
             window.dynamic_selector_context.viewport_width = width as f32;
@@ -1566,11 +1569,6 @@ pub(super) extern "C" fn xdg_toplevel_configure_handler(
                     window.dynamic_selector_context.viewport_height
                 );
             }
-
-            // Tag the next regen as a resize so the user's layout()
-            // callback can detect it via `info.relayout_reason()`.
-            window.common.next_relayout_reason =
-                azul_core::callbacks::RelayoutReason::Resize;
 
             // Resize the rendering surface
             window.resize_surface(width, height);

@@ -184,7 +184,7 @@ mod view_handlers {
                 );
                 match result {
                     EventProcessResult::RegenerateDisplayList => {
-                        macos_window.common.frame_needs_regeneration = true;
+                        macos_window.common.request_regeneration(azul_core::callbacks::RelayoutReason::RefreshDom);
                         macos_window.request_redraw();
                     }
                     EventProcessResult::UpdateDisplayList => {
@@ -216,7 +216,7 @@ mod view_handlers {
                 let result = macos_window.handle_mouse_up(event, azul_core::events::MouseButton::Left);
                 match result {
                     EventProcessResult::RegenerateDisplayList => {
-                        macos_window.common.frame_needs_regeneration = true;
+                        macos_window.common.request_regeneration(azul_core::callbacks::RelayoutReason::RefreshDom);
                         macos_window.request_redraw();
                     }
                     EventProcessResult::UpdateDisplayList => {
@@ -243,7 +243,7 @@ mod view_handlers {
                 let result = macos_window.handle_mouse_move(event);
                 match result {
                     EventProcessResult::RegenerateDisplayList => {
-                        macos_window.common.frame_needs_regeneration = true;
+                        macos_window.common.request_regeneration(azul_core::callbacks::RelayoutReason::RefreshDom);
                         macos_window.request_redraw();
                     }
                     EventProcessResult::UpdateDisplayList => {
@@ -270,7 +270,7 @@ mod view_handlers {
                 let result = macos_window.handle_mouse_down(event, azul_core::events::MouseButton::Right);
                 match result {
                     EventProcessResult::RegenerateDisplayList => {
-                        macos_window.common.frame_needs_regeneration = true;
+                        macos_window.common.request_regeneration(azul_core::callbacks::RelayoutReason::RefreshDom);
                         macos_window.request_redraw();
                     }
                     EventProcessResult::UpdateDisplayList => {
@@ -297,7 +297,7 @@ mod view_handlers {
                 let result = macos_window.handle_mouse_up(event, azul_core::events::MouseButton::Right);
                 match result {
                     EventProcessResult::RegenerateDisplayList => {
-                        macos_window.common.frame_needs_regeneration = true;
+                        macos_window.common.request_regeneration(azul_core::callbacks::RelayoutReason::RefreshDom);
                         macos_window.request_redraw();
                     }
                     EventProcessResult::UpdateDisplayList => {
@@ -443,7 +443,7 @@ mod view_handlers {
                 let result = macos_window.handle_scroll_wheel(event);
                 match result {
                     EventProcessResult::RegenerateDisplayList => {
-                        macos_window.common.frame_needs_regeneration = true;
+                        macos_window.common.request_regeneration(azul_core::callbacks::RelayoutReason::RefreshDom);
                         macos_window.request_redraw();
                     }
                     EventProcessResult::UpdateDisplayList => {
@@ -470,7 +470,7 @@ mod view_handlers {
                 let result = macos_window.handle_key_up(event);
                 match result {
                     EventProcessResult::RegenerateDisplayList => {
-                        macos_window.common.frame_needs_regeneration = true;
+                        macos_window.common.request_regeneration(azul_core::callbacks::RelayoutReason::RefreshDom);
                         macos_window.request_redraw();
                     }
                     EventProcessResult::UpdateDisplayList => {
@@ -497,7 +497,7 @@ mod view_handlers {
                 let result = macos_window.handle_flags_changed(event);
                 match result {
                     EventProcessResult::RegenerateDisplayList => {
-                        macos_window.common.frame_needs_regeneration = true;
+                        macos_window.common.request_regeneration(azul_core::callbacks::RelayoutReason::RefreshDom);
                         macos_window.request_redraw();
                     }
                     EventProcessResult::UpdateDisplayList => {
@@ -523,7 +523,7 @@ mod view_handlers {
                 let result = macos_window.handle_mouse_entered(event);
                 match result {
                     EventProcessResult::RegenerateDisplayList => {
-                        macos_window.common.frame_needs_regeneration = true;
+                        macos_window.common.request_regeneration(azul_core::callbacks::RelayoutReason::RefreshDom);
                         macos_window.request_redraw();
                     }
                     EventProcessResult::UpdateDisplayList => {
@@ -550,7 +550,7 @@ mod view_handlers {
                 let result = macos_window.handle_mouse_exited(event);
                 match result {
                     EventProcessResult::RegenerateDisplayList => {
-                        macos_window.common.frame_needs_regeneration = true;
+                        macos_window.common.request_regeneration(azul_core::callbacks::RelayoutReason::RefreshDom);
                         macos_window.request_redraw();
                     }
                     EventProcessResult::UpdateDisplayList => {
@@ -577,7 +577,7 @@ mod view_handlers {
                 let result = macos_window.handle_mouse_move(event);
                 match result {
                     EventProcessResult::RegenerateDisplayList => {
-                        macos_window.common.frame_needs_regeneration = true;
+                        macos_window.common.request_regeneration(azul_core::callbacks::RelayoutReason::RefreshDom);
                         macos_window.request_redraw();
                     }
                     EventProcessResult::UpdateDisplayList => {
@@ -635,7 +635,7 @@ mod view_handlers {
     unsafe fn route_result(macos_window: &mut MacOSWindow, result: EventProcessResult) {
         match result {
             EventProcessResult::RegenerateDisplayList => {
-                macos_window.common.frame_needs_regeneration = true;
+                macos_window.common.request_regeneration(azul_core::callbacks::RelayoutReason::RefreshDom);
                 macos_window.request_redraw();
             }
             EventProcessResult::UpdateDisplayList => {
@@ -984,7 +984,7 @@ define_class!(
                     let result = macos_window.handle_key_down(event);
                     match result {
                         EventProcessResult::RegenerateDisplayList => {
-                            macos_window.common.frame_needs_regeneration = true;
+                            macos_window.common.request_regeneration(azul_core::callbacks::RelayoutReason::RefreshDom);
                             macos_window.request_redraw();
                         }
                         EventProcessResult::UpdateDisplayList => {
@@ -1418,7 +1418,7 @@ define_class!(
                 unsafe {
                     let macos_window = &mut *(window_ptr as *mut std::ffi::c_void as *mut MacOSWindow);
                     if !macos_window.common.display_list_initialized
-                        || macos_window.common.frame_needs_regeneration
+                        || macos_window.common.regeneration_pending()
                         || macos_window.common.display_list_dirty
                     {
                         let _ = macos_window.render_and_present_in_draw_rect();
@@ -1655,7 +1655,7 @@ define_class!(
                     let result = macos_window.handle_key_down(event);
                     match result {
                         EventProcessResult::RegenerateDisplayList => {
-                            macos_window.common.frame_needs_regeneration = true;
+                            macos_window.common.request_regeneration(azul_core::callbacks::RelayoutReason::RefreshDom);
                             macos_window.request_redraw();
                         }
                         EventProcessResult::UpdateDisplayList => {
@@ -1701,7 +1701,7 @@ define_class!(
                     let needs_redraw = macos_window.process_timers_and_threads();
                     // CPU mode: run the full render pipeline (layout → cpurender → framebuffer)
                     // then request drawRect to blit to screen.
-                    if needs_redraw || macos_window.common.frame_needs_regeneration {
+                    if needs_redraw || macos_window.common.regeneration_pending() {
                         let _ = macos_window.render_and_present_in_draw_rect();
                     }
                 }
@@ -2357,7 +2357,7 @@ define_class!(
                         let result = macos_window.handle_resize(new_width, new_height);
                         match result {
                             EventProcessResult::RegenerateDisplayList => {
-                                macos_window.common.frame_needs_regeneration = true;
+                                macos_window.common.request_regeneration(azul_core::callbacks::RelayoutReason::RefreshDom);
                                 macos_window.surface_needs_update = true;
                                 macos_window.request_redraw();
                             }
@@ -3944,10 +3944,7 @@ impl MacOSWindow {
                 undo_manager,
                 fc_cache,
                 system_style,
-                frame_needs_regeneration: false,
-                regen_generation: 0,
-                frame_relayout_only: false,
-                next_relayout_reason: azul_core::callbacks::RelayoutReason::Initial,
+                regen: crate::desktop::shell2::common::event::RegenerationState::idle_initial(),
                 display_list_initialized: false,
                 display_list_dirty: false,
                 a11y_dirty: true,
@@ -4030,7 +4027,7 @@ impl MacOSWindow {
             for change in &changes {
                 let r = window.apply_user_change(change);
                 if r != azul_core::events::ProcessEventResult::DoNothing {
-                    window.common.frame_needs_regeneration = true;
+                    window.common.request_regeneration(azul_core::callbacks::RelayoutReason::RefreshDom);
                 }
             }
             // Sync window state to OS (handles close_requested, title, size, etc.)
@@ -4070,8 +4067,8 @@ impl MacOSWindow {
             window.init_accessibility();
         }
 
-        // Set frame_needs_regeneration to true so drawRect will build and send transaction
-        window.common.frame_needs_regeneration = true;
+        // Request a regeneration so drawRect will build and send the transaction
+        window.common.request_regeneration(azul_core::callbacks::RelayoutReason::RefreshDom);
 
         // Detect current monitor and set monitor_id
         window.detect_current_monitor();
@@ -4162,6 +4159,11 @@ impl MacOSWindow {
                 let i = cv.safeAreaInsets();
                 (i.top, i.left, i.bottom, i.right)
             });
+        // Consume the reason tag BEFORE borrowing the layout window: this is
+        // the regeneration this window asked for, and the tag travels with
+        // the request (see CommonWindowState::request_regeneration).
+        let relayout_reason = self.common.take_relayout_reason();
+
         let layout_window = self.common.layout_window.as_mut().ok_or("No layout window")?;
         if let Some((top, left, bottom, right)) = safe_area {
             let mk = |v: f64| {
@@ -4201,11 +4203,8 @@ impl MacOSWindow {
             &self.icon_provider,
             &mut debug_messages,
         
-            self.common.next_relayout_reason,
+            relayout_reason,
         )?;
-        // Consumed; reset so an untagged regen sees the implicit RefreshDom.
-        self.common.next_relayout_reason =
-            azul_core::callbacks::RelayoutReason::RefreshDom;
 
         // Forward layout debug messages to the debug server's log queue
         if let Some(msgs) = debug_messages {
@@ -4219,7 +4218,7 @@ impl MacOSWindow {
             }
         }
 
-        // NOTE: Do NOT set frame_needs_regeneration here!
+        // NOTE: Do NOT request a regeneration here!
         // The caller (render_and_present_in_draw_rect) manages this flag.
         // Setting it to true here would cause unnecessary re-layouts.
 
@@ -4723,7 +4722,7 @@ impl MacOSWindow {
                         log_warn!(LogCategory::Layout, "[process_close_event] Incremental relayout failed: {}", e);
                     }
                 }
-                self.common.frame_needs_regeneration = true;
+                self.common.request_regeneration(azul_core::callbacks::RelayoutReason::RefreshDom);
             }
             azul_core::events::ProcessEventResult::ShouldReRenderCurrentWindow => {
                 self.request_redraw();
@@ -4742,8 +4741,8 @@ impl MacOSWindow {
     /// would re-invoke the user's `layout_callback` and rebuild the StyledDom).
     ///
     /// Mirrors `process_close_event`'s `ShouldIncrementalRelayout` arm (identical
-    /// `incremental_relayout()` call + `log_warn`), but ALSO sets
-    /// `frame_relayout_only` so the drawRect path (`build_atomic_txn`) SKIPS
+    /// `incremental_relayout()` call + `log_warn`), but ALSO calls
+    /// `request_relayout_only()` so the drawRect path (`build_atomic_txn`) SKIPS
     /// `regenerate_layout()` and only rebuilds + sends the WebRender transaction
     /// from the layout `incremental_relayout()` already updated.
     /// `request_redraw()` schedules the drawRect.
@@ -4759,8 +4758,7 @@ impl MacOSWindow {
                 log_warn!(LogCategory::Layout, "Incremental relayout failed: {}", e);
             }
         }
-        self.common.frame_relayout_only = true;
-        self.common.frame_needs_regeneration = true;
+        self.common.request_relayout_only();
         self.request_redraw();
     }
 
@@ -5203,7 +5201,7 @@ impl MacOSWindow {
             | ProcessEventResult::ShouldRegenerateDomAllWindows
             | ProcessEventResult::ShouldIncrementalRelayout
             | ProcessEventResult::UpdateHitTesterAndProcessAgain => {
-                self.common.frame_needs_regeneration = true;
+                self.common.request_regeneration(azul_core::callbacks::RelayoutReason::RefreshDom);
                 self.request_redraw();
             }
             ProcessEventResult::ShouldUpdateDisplayListCurrentWindow
@@ -5263,8 +5261,12 @@ impl MacOSWindow {
             };
             self.common.current_window_state.size.dpi = (scale_factor * BASE_DPI) as u32;
 
-            // Mark frame as needing regeneration
-            self.common.frame_needs_regeneration = true;
+            // The dimensions AND the backing scale just changed — that is a
+            // `Resize` by the enum's own definition, and it is what the X11 and
+            // Win32 DPI paths report. This site used to leave the tag untouched,
+            // so the same physical event reached the user's `layout()` under a
+            // different reason depending on the OS.
+            self.common.request_regeneration(azul_core::callbacks::RelayoutReason::Resize);
 
             log_debug!(
                 LogCategory::Window,
@@ -5638,16 +5640,16 @@ impl MacOSWindow {
 
         // After processing event, just request a redraw if needed
         // The atomic transaction will be built in drawRect
-        if self.common.frame_needs_regeneration {
+        if self.common.regeneration_pending() {
             log_trace!(
                 LogCategory::EventLoop,
                 "[handle_event] Frame needs regeneration, requesting redraw"
             );
-            // Do NOT clear frame_needs_regeneration here.
+            // Do NOT retire the regeneration request here.
             //
             // request_redraw() is setNeedsDisplay — ASYNCHRONOUS. No layout has
             // run at this point; drawRect: will run later, on a subsequent turn
-            // of the loop, and IT is what regenerates. Clearing the flag here
+            // of the loop, and IT is what regenerates. Retiring the request here
             // told drawRect: there was nothing to do, so it took its early
             // return and blitted the stale framebuffer.
             //
@@ -5807,7 +5809,7 @@ impl MacOSWindow {
             // Only regenerate layout when DOM actually changed, not for mere re-renders
             match thread_update {
                 Update::RefreshDom | Update::RefreshDomAllWindows => {
-                    self.common.frame_needs_regeneration = true;
+                    self.common.request_regeneration(azul_core::callbacks::RelayoutReason::RefreshDom);
                 }
                 _ => {}
             }
@@ -5825,7 +5827,7 @@ impl MacOSWindow {
                     | ProcessEventResult::ShouldRegenerateDomAllWindows
                     | ProcessEventResult::ShouldIncrementalRelayout
                     | ProcessEventResult::UpdateHitTesterAndProcessAgain => {
-                        self.common.frame_needs_regeneration = true;
+                        self.common.request_regeneration(azul_core::callbacks::RelayoutReason::RefreshDom);
                         self.request_redraw();
                     }
                     ProcessEventResult::ShouldUpdateDisplayListCurrentWindow
@@ -5909,42 +5911,40 @@ impl MacOSWindow {
         // Force layout on first frame — layout_results is empty until the first
         // regenerate_layout() call. Both GPU and CPU paths need this.
         if !self.common.display_list_initialized {
-            self.common.frame_needs_regeneration = true;
+            self.common.request_regeneration(azul_core::callbacks::RelayoutReason::RefreshDom);
         }
 
         // CRITICAL: Regenerate layout FIRST if needed
         // Layout must be current before building display lists
-        let display_list_needs_rebuild = if self.common.frame_relayout_only {
+        //
+        // Captured BEFORE either branch renders: a lifecycle callback inside the
+        // render can raise a new regeneration request, and only what we saw here
+        // may be retired.
+        let regen_epoch_seen = self.common.regen_epoch();
+        let display_list_needs_rebuild = if self.common.take_relayout_only() {
             // Restyle / runtime edit: the RegenerateLayoutIncremental input arm already
             // re-ran layout on the EXISTING StyledDom (incremental_relayout) AND
             // regenerated the per-DOM display list into layout_results. SKIP the full
             // regenerate_layout() — re-running it would discard that work and re-invoke
             // the user's layout_callback. Just force a WebRender display-list rebuild
             // from the already-updated layout so the restyle reaches the screen.
-            // Checked BEFORE frame_needs_regeneration (the input arm sets BOTH flags).
-            // Mirrors wayland generate_frame_if_needed's relayout-only path.
+            // Checked BEFORE the plain regeneration request (the input arm raises
+            // BOTH). Mirrors wayland generate_frame_if_needed's relayout-only path.
             log_trace!(
                 LogCategory::Layout,
-                // Captured BEFORE the render: a callback inside it can raise a new
-                // regeneration request, and only what we saw here may be retired.
-                let regen_epoch_seen = self.common.regen_epoch();
                 "[build_atomic_txn] Relayout-only: skipping regenerate_layout()"
             );
-            self.common.frame_relayout_only = false;
             // Retire ONLY the request this frame observed: a lifecycle callback
             // running inside the render above can raise a new one, and a bare
             // `= false` here would erase it.
             self.common.clear_regeneration_unless_reraised(regen_epoch_seen);
             self.common.display_list_dirty = false;
             true
-        } else if self.common.frame_needs_regeneration {
+        } else if self.common.regeneration_pending() {
             log_trace!(
                 LogCategory::Layout,
                 "[build_atomic_txn] Regenerating layout"
             );
-            // Captured BEFORE the render: a callback inside it can raise a new
-            // regeneration request, and only what we saw here may be retired.
-            let regen_epoch_seen = self.common.regen_epoch();
             let result = match self.regenerate_layout() {
                 Ok(r) => r,
                 Err(e) => {
@@ -6181,7 +6181,7 @@ impl MacOSWindow {
 
         // Build transaction: full rebuild if display list changed, lightweight otherwise
         log_trace!(LogCategory::Rendering, "[RENDER] display_list_needs_rebuild={} frame_needs_regen={} initialized={}",
-            display_list_needs_rebuild, self.common.frame_needs_regeneration, self.common.display_list_initialized);
+            display_list_needs_rebuild, self.common.regeneration_pending(), self.common.display_list_initialized);
         if display_list_needs_rebuild {
             // Full rebuild: fonts, images, display lists, everything
             crate::desktop::wr_translate2::build_webrender_transaction(
@@ -6526,12 +6526,12 @@ impl MacOSWindow {
 
             // Atomic transaction will be built in drawRect if needed
             // Just request redraw here if layout changed
-            if self.common.frame_needs_regeneration {
+            if self.common.regeneration_pending() {
                 // Same as the handle_event tail: request_redraw() is an
                 // asynchronous setNeedsDisplay and performs no layout, so
-                // clearing the flag here makes the later drawRect: take its
-                // early return and blit a stale frame. drawRect: clears it after
-                // the work it actually did.
+                // retiring the request here makes the later drawRect: take its
+                // early return and blit a stale frame. drawRect: retires it
+                // after the work it actually did.
                 self.request_redraw();
             }
 
@@ -6595,7 +6595,7 @@ impl MacOSWindow {
                 self.apply_incremental_relayout_result();
             }
             _ => {
-                self.common.frame_needs_regeneration = true;
+                self.common.request_regeneration(azul_core::callbacks::RelayoutReason::RefreshDom);
                 self.request_redraw();
             }
         }
@@ -6958,7 +6958,7 @@ impl MacOSWindow {
                         // The callback asked for a refresh (e.g. RefreshDom
                         // from a zoom button) — regenerate on the next frame,
                         // exactly like pointer-event dispatch does.
-                        self.common.frame_needs_regeneration = true;
+                        self.common.request_regeneration(azul_core::callbacks::RelayoutReason::RefreshDom);
                     }
                 }
             }

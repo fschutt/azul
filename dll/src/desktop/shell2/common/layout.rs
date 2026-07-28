@@ -877,22 +877,23 @@ pub fn regenerate_layout(
 ///
 /// - **Transaction-only generate path** (macOS, linux/x11): `generate_frame_if_needed`
 ///   already rebuilds the WebRender transaction from the current StyledDom WITHOUT
-///   re-running layout (it calls `generate_frame()`), so the event arm just sets
-///   `frame_needs_regeneration = true` and the existing path presents.
+///   re-running layout (it calls `generate_frame()`), so the event arm just calls
+///   `request_regeneration(reason)` and the existing path presents.
 ///     - DONE: macos/mod.rs (`process_close_event` etc., the reference arm).
 ///     - DONE: linux/x11/mod.rs (its `generate_frame_if_needed` is transaction-only).
 ///
 /// - **Full-regen generate path** (windows, linux/wayland): the frame path runs the
-///   FULL `regenerate_layout()` when `frame_needs_regeneration` is set, which would
-///   OVERRIDE the incremental pass. These use the `frame_relayout_only` flag on
-///   `CommonWindowState` (`event.rs`), set alongside `frame_needs_regeneration` by the
-///   event arm. The frame path then branches: `frame_relayout_only` ⇒ SKIP the full
+///   FULL `regenerate_layout()` when a regeneration is pending, which would
+///   OVERRIDE the incremental pass. These use `request_relayout_only()` on
+///   `CommonWindowState` (`event.rs`), which raises the relayout-only request
+///   AND the ordinary one (so the frame gates see that work is owed). The frame
+///   path then branches: `relayout_only_pending()` ⇒ SKIP the full
 ///   `regenerate_layout()` (layout is already up to date) but STILL build + send the
-///   WebRender transaction + present; else `frame_needs_regeneration` ⇒ full
-///   `regenerate_layout()`. Both flags reset after the frame is sent.
+///   WebRender transaction + present; else `regeneration_pending()` ⇒ full
+///   `regenerate_layout()`. Both requests are retired after the frame is sent.
 ///     - DONE: windows/mod.rs — `ShouldIncrementalRelayout` event arm +
 ///       `send_frame_after_incremental_relayout()` helper called from the WM_PAINT
-///       `frame_relayout_only` branch (GPU `generate_frame` + flush / CPU hit-tester
+///       relayout-only branch (GPU `generate_frame` + flush / CPU hit-tester
 ///       rebuild — `regenerate_layout()`'s finalize tail — then `render_and_present(true)`).
 ///     - DONE: linux/wayland/mod.rs — both `ShouldIncrementalRelayout` event arms
 ///       split; `generate_frame_if_needed` runs `regenerate_layout()` only in the true

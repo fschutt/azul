@@ -133,10 +133,7 @@ impl AndroidWindow {
                 id_namespace: None,
                 render_api: None,
                 renderer: None,
-                frame_needs_regeneration: true,
-                regen_generation: 0,
-                frame_relayout_only: false,
-                next_relayout_reason: RelayoutReason::Initial,
+                regen: crate::desktop::shell2::common::event::RegenerationState::pending_initial(),
                 display_list_initialized: false,
                 display_list_dirty: false,
                 a11y_dirty: true,
@@ -161,6 +158,18 @@ impl AndroidWindow {
     pub fn regenerate_layout_inner(
         &mut self,
     ) -> Result<crate::desktop::shell2::common::layout::LayoutRegenerateResult, String> {
+        // Captured BEFORE the pass: `regenerate_layout` (the trait wrapper that
+        // calls this) drains lifecycle callbacks between passes, and one of
+        // those returning `Update::RefreshDom` raises a NEW request. Retiring
+        // by epoch at the end means this pass only retires the request it
+        // actually saw.
+        let regen_epoch_seen = self.common.regen_epoch();
+
+        // Consume the reason tag BEFORE borrowing the layout window: this is
+        // the regeneration this window asked for, and the tag travels with
+        // the request (see CommonWindowState::request_regeneration).
+        let relayout_reason = self.common.take_relayout_reason();
+
         let layout_window = self
             .common
             .layout_window
@@ -183,10 +192,8 @@ impl AndroidWindow {
             &self.common.system_style,
             &self.icon_provider,
             &mut debug_messages,
-            self.common.next_relayout_reason,
+            relayout_reason,
         )?;
-        self.common.next_relayout_reason =
-            azul_core::callbacks::RelayoutReason::RefreshDom;
 
         if let Some(msgs) = debug_messages {
             for msg in msgs {
@@ -234,7 +241,7 @@ impl AndroidWindow {
             }
         }
 
-        self.common.frame_needs_regeneration = false;
+        self.common.clear_regeneration_unless_reraised(regen_epoch_seen);
         Ok(result)
     }
 }
@@ -419,12 +426,12 @@ pub fn android_main(app: AndroidApp) {
         // animation advanced. The 16 ms poll above was already the right place
         // to drive it; it simply was never wired.
         if window.process_timers_and_threads() {
-            window.common.frame_needs_regeneration = true;
+            window.common.request_regeneration(RelayoutReason::RefreshDom);
         }
 
         // Regenerate layout when something invalidated the frame (init,
         // resize, input). Populates cpu_backend.last_frame.
-        if window.common.frame_needs_regeneration {
+        if window.common.regeneration_pending() {
             if let Err(e) = window.regenerate_layout() {
                 log_error!(
                     LogCategory::Layout,
@@ -474,7 +481,7 @@ fn handle_poll_event(app: &AndroidApp, window: &mut AndroidWindow, event: PollEv
                         window.common.current_window_state.size.dimensions.width = logical_w;
                         window.common.current_window_state.size.dimensions.height = logical_h;
                         window.native_window = Some(nw);
-                        window.common.frame_needs_regeneration = true;
+                        window.common.request_regeneration(RelayoutReason::RefreshDom);
                     }
                 }
             }
@@ -495,7 +502,7 @@ fn handle_poll_event(app: &AndroidApp, window: &mut AndroidWindow, event: PollEv
                             (nw.height() as f32) / android_scale;
                     }
                 }
-                window.common.frame_needs_regeneration = true;
+                window.common.request_regeneration(RelayoutReason::RefreshDom);
             }
             MainEvent::InputAvailable => {
                 drain_input(app, window);
@@ -684,7 +691,7 @@ fn drain_input(app: &AndroidApp, window: &mut AndroidWindow) {
         window.update_hit_test_at(update.mouse_pos);
         let r = window.process_window_events(0);
         if !matches!(r, azul_core::events::ProcessEventResult::DoNothing) {
-            window.common.frame_needs_regeneration = true;
+            window.common.request_regeneration(RelayoutReason::RefreshDom);
         }
     }
 
@@ -708,7 +715,7 @@ fn drain_input(app: &AndroidApp, window: &mut AndroidWindow) {
             } else {
                 lw.gesture_drag_manager.clear_pen_state();
             }
-            window.common.frame_needs_regeneration = true;
+            window.common.request_regeneration(RelayoutReason::RefreshDom);
         }
     }
 
@@ -741,7 +748,7 @@ fn drain_input(app: &AndroidApp, window: &mut AndroidWindow) {
         }
         let r = window.process_window_events(0);
         if !matches!(r, azul_core::events::ProcessEventResult::DoNothing) {
-            window.common.frame_needs_regeneration = true;
+            window.common.request_regeneration(RelayoutReason::RefreshDom);
         }
     }
 
@@ -971,7 +978,7 @@ mod jni_bridge {
     fn inject(window: &mut super::AndroidWindow, gesture: NativeGestureEvent) {
         if let Some(lw) = window.common.layout_window.as_mut() {
             lw.gesture_drag_manager.inject_native_gesture(gesture);
-            window.common.frame_needs_regeneration = true;
+            window.common.request_regeneration(RelayoutReason::RefreshDom);
         }
     }
 

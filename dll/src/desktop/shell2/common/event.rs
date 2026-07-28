@@ -773,6 +773,145 @@ impl Default for SharedUndoManager {
     }
 }
 
+/// A one-bit "somebody asked for this" request that survives being serviced.
+///
+/// A bare `bool` cannot distinguish "nobody asked" from "somebody asked while
+/// we were busy answering the last ask". That distinction is the whole problem
+/// here: every frame path in this shell ends by clearing the request it was
+/// serving, and the work in between runs USER CALLBACKS that can raise the very
+/// same request again. A bare `= false` at the end silently eats those.
+///
+/// So the bit travels with a monotonic generation counter:
+///
+/// ```ignore
+/// let seen = req.epoch();      // BEFORE the work
+/// do_the_work();               // may call req.raise()
+/// req.retire_unless_reraised(seen);  // clears ONLY what `seen` covered
+/// ```
+///
+/// The counter also means the only way to clear the bit is to name an epoch,
+/// which is much harder to do by accident than typing `= false`.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct LatchedRequest {
+    set: bool,
+    generation: u64,
+}
+
+impl LatchedRequest {
+    /// A request that is already outstanding (a window that owes its first frame).
+    #[must_use]
+    pub fn raised() -> Self {
+        Self {
+            set: true,
+            generation: 0,
+        }
+    }
+
+    /// Ask. Always bumps the generation, even if the bit was already set — the
+    /// counter's job is to record that an ask HAPPENED, not that the state
+    /// changed.
+    pub fn raise(&mut self) {
+        self.set = true;
+        self.generation = self.generation.wrapping_add(1);
+    }
+
+    /// Is a request outstanding? Read-only on purpose: a gate that only wants
+    /// to know must not be able to consume what it is asking about.
+    #[must_use]
+    pub fn pending(&self) -> bool {
+        self.set
+    }
+
+    /// The epoch to capture BEFORE doing the work this request asked for.
+    #[must_use]
+    pub fn epoch(&self) -> u64 {
+        self.generation
+    }
+
+    /// Retire the request — but only the one identified by `seen`. If the
+    /// counter moved while the work ran, somebody asked again and the bit
+    /// STAYS SET so the next turn of the loop services it.
+    pub fn retire_unless_reraised(&mut self, seen: u64) {
+        if self.generation == seen {
+            self.set = false;
+        }
+    }
+
+    /// Take the request outright: returns whether one was outstanding and
+    /// clears it unconditionally.
+    ///
+    /// ONLY for callers where no new request can arrive between the take and
+    /// the work — i.e. nothing in between runs a user callback. Anything that
+    /// goes through `regenerate_layout()` must use `epoch()` +
+    /// `retire_unless_reraised()` instead, because that path runs lifecycle
+    /// callbacks and they DO raise new requests.
+    #[must_use]
+    pub fn take(&mut self) -> bool {
+        std::mem::replace(&mut self.set, false)
+    }
+}
+
+/// The pending "rebuild this window's DOM before the next frame" request.
+///
+/// The three pieces live together and are PRIVATE on purpose. A census of the
+/// previous shape — a bare `pub frame_needs_regeneration: bool` plus a bare
+/// `pub next_relayout_reason` beside it — found **91 places that set the bool
+/// against 18 that cleared it**, three of those clears unreachable and two
+/// doing no work at all. At that ratio a flag stops being a signal and becomes
+/// a hazard: every producer had to remember to also tag the reason, and every
+/// consumer had to remember not to erase a request raised while it rendered.
+///
+/// Now there is exactly one way in — [`CommonWindowState::request_regeneration`],
+/// which cannot be called without saying WHY — and the ways out all go through
+/// [`LatchedRequest`], so a `= false` that eats a mid-flight request is not
+/// expressible.
+#[derive(Debug, Clone, Copy)]
+pub struct RegenerationState {
+    /// "The DOM must be rebuilt", latched so a render cannot eat a request
+    /// that arrived while it was running.
+    request: LatchedRequest,
+    /// Why, forwarded to the user's `LayoutCallback` via
+    /// `LayoutCallbackInfo::relayout_reason()`. Consumed (and reset to the
+    /// implicit `RefreshDom`) by the `regenerate_layout()` call it describes.
+    reason: azul_core::callbacks::RelayoutReason,
+    /// When `true`, layout is ALREADY up to date — an `incremental_relayout()`
+    /// re-ran layout on the existing `StyledDom` (restyle / runtime edit) in the
+    /// event arm, so the frame-generation path must SKIP the full
+    /// `regenerate_layout()` (which would re-invoke the user's `layout_callback`
+    /// and rebuild the `StyledDom`) and only rebuild + send the WebRender
+    /// transaction. All four desktop frame paths honor it — windows
+    /// (`WM_PAINT`), wayland (`generate_frame_if_needed`), macOS
+    /// (`build_atomic_txn`) and x11 (`render_and_present`) check it BEFORE the
+    /// plain regeneration request and take the transaction-only path.
+    relayout_only: bool,
+}
+
+impl RegenerationState {
+    /// A window that has not laid out yet: the first frame is already owed and
+    /// the user's `layout()` must see `RelayoutReason::Initial`.
+    #[must_use]
+    pub fn pending_initial() -> Self {
+        Self {
+            request: LatchedRequest::raised(),
+            reason: azul_core::callbacks::RelayoutReason::Initial,
+            relayout_only: false,
+        }
+    }
+
+    /// A window whose first frame is driven by a platform paint message
+    /// (`WM_PAINT`, `drawRect:`, the first xdg `configure`) rather than by this
+    /// request. The reason stays `Initial` — whoever asks first is still asking
+    /// for the first layout.
+    #[must_use]
+    pub fn idle_initial() -> Self {
+        Self {
+            request: LatchedRequest::default(),
+            reason: azul_core::callbacks::RelayoutReason::Initial,
+            relayout_only: false,
+        }
+    }
+}
+
 pub struct CommonWindowState {
     /// LayoutWindow integration (for UI callbacks and display list)
     pub layout_window: Option<LayoutWindow>,
@@ -816,41 +955,12 @@ pub struct CommonWindowState {
     pub render_api: Option<WrRenderApi>,
     /// WebRender renderer (software or hardware depending on backend)
     pub renderer: Option<webrender::Renderer>,
-    /// Track if frame needs regeneration (to avoid multiple generate_frame calls)
-    pub frame_needs_regeneration: bool,
-    /// Bumped every time a regeneration is REQUESTED through
-    /// `mark_frame_needs_regeneration`.
-    ///
-    /// Exists because `frame_needs_regeneration = false` after a render erases
-    /// any request raised DURING that render — and requests are raised during it:
-    /// `regenerate_layout` runs user lifecycle callbacks, which can return
-    /// `Update::RefreshDom`, which routes through `process_window_events` to
-    /// `mark_frame_needs_regeneration`. A bool cannot tell "nobody asked" from
-    /// "somebody asked while we were busy"; a monotonic counter can.
-    ///
-    /// Consumers capture this before rendering and retire only what they SAW,
-    /// via `clear_regeneration_unless_reraised`. A request that arrived mid-flight
-    /// therefore survives into the next frame instead of being wiped.
-    pub regen_generation: u64,
-    /// When `true`, layout is ALREADY up to date — an `incremental_relayout()`
-    /// re-ran layout on the existing `StyledDom` (restyle / runtime edit) in the
-    /// event arm, so the frame-generation path must SKIP the full
-    /// `regenerate_layout()` (which would re-invoke the user's `layout_callback`
-    /// and rebuild the `StyledDom`) and only rebuild + send the WebRender
-    /// transaction. Set alongside `frame_needs_regeneration` by the
-    /// `ShouldIncrementalRelayout` arms on every backend; both flags are reset
-    /// after the frame is sent. All four desktop frame paths honor it — windows
-    /// (`WM_PAINT`), wayland (`generate_frame_if_needed`), macOS
-    /// (`build_atomic_txn`) and x11 (`render_and_present`) all otherwise run the
-    /// full `regenerate_layout()`, so each checks this flag to take the
-    /// transaction-only path after an incremental relayout.
-    pub frame_relayout_only: bool,
-    /// Reason tag the *next* `regenerate_layout()` call should pass to the
-    /// user's `LayoutCallback` via `LayoutCallbackInfo::relayout_reason()`.
-    /// Set by the resize / theme / route handlers right before they trigger
-    /// regeneration; reset to `RefreshDom` after each call so any subsequent
-    /// untagged regen shows up as the implicit reason.
-    pub next_relayout_reason: azul_core::callbacks::RelayoutReason,
+    /// The pending "rebuild this window's DOM" request — the flag, the reason
+    /// it carries, and the generation counter that keeps a mid-render request
+    /// alive. Its fields are PRIVATE; see [`RegenerationState`] for why, and go
+    /// through [`CommonWindowState::request_regeneration`] /
+    /// [`CommonWindowState::take_regeneration`] / the epoch pair.
+    pub regen: RegenerationState,
     /// Whether a WebRender display list has ever been sent for this window.
     /// Used to force a full display list build on the very first frame, even if
     /// regenerate_layout() returns LayoutUnchanged (because create_window already
@@ -865,19 +975,56 @@ pub struct CommonWindowState {
 }
 
 impl CommonWindowState {
-    /// Request a regeneration from a place that has no `PlatformWindow` in hand
-    /// (a raw X11 event arm, for example). Bumps the generation like
-    /// `mark_frame_needs_regeneration`, so a request raised here cannot be
-    /// retired by a render that never saw it.
-    pub fn mark_regen_on_map(&mut self) {
-        self.frame_needs_regeneration = true;
-        self.regen_generation = self.regen_generation.wrapping_add(1);
+    /// Ask for this window's DOM to be rebuilt before the next frame, and say
+    /// WHY.
+    ///
+    /// This is the ONLY way to raise the request. The reason is not optional
+    /// because it used to be a second, separate field that producers kept
+    /// forgetting: a resize handler that set the flag but not the tag left the
+    /// user's `layout()` callback seeing a phantom `RefreshDom` and unable to
+    /// tell a breakpoint change from an app-state change.
+    ///
+    /// `RefreshDom` is the IMPLICIT tag — "something changed, rebuild" — and the
+    /// tag most call sites carry. It deliberately does NOT overwrite a more
+    /// specific reason (`Initial`, `Resize`, `ThemeChange`, `RouteChange`) that
+    /// another producer already queued for the same, not-yet-serviced
+    /// regeneration. That is exactly what the old two-field code did by simply
+    /// not touching `next_relayout_reason`, and losing it would mean a plain
+    /// redraw request arriving after a resize could downgrade the resize.
+    pub fn request_regeneration(&mut self, reason: azul_core::callbacks::RelayoutReason) {
+        self.regen.request.raise();
+        if reason != azul_core::callbacks::RelayoutReason::RefreshDom {
+            self.regen.reason = reason;
+        }
+    }
+
+    /// Is a DOM rebuild outstanding? Read-only: a gate cannot consume the
+    /// request it is only asking about.
+    #[must_use]
+    pub fn regeneration_pending(&self) -> bool {
+        self.regen.request.pending()
+    }
+
+    /// The reason a pending regeneration carries, without consuming it.
+    #[must_use]
+    pub fn regeneration_reason(&self) -> azul_core::callbacks::RelayoutReason {
+        self.regen.reason
+    }
+
+    /// Consume the reason for the `regenerate_layout()` call about to run, and
+    /// reset it to the implicit `RefreshDom` so a later untagged regeneration
+    /// does not inherit a stale `Resize`/`RouteChange`.
+    pub fn take_relayout_reason(&mut self) -> azul_core::callbacks::RelayoutReason {
+        std::mem::replace(
+            &mut self.regen.reason,
+            azul_core::callbacks::RelayoutReason::RefreshDom,
+        )
     }
 
     /// The regeneration epoch to capture BEFORE rendering.
     #[must_use]
     pub fn regen_epoch(&self) -> u64 {
-        self.regen_generation
+        self.regen.request.epoch()
     }
 
     /// Retire a regeneration request — but ONLY the one that was observed.
@@ -887,16 +1034,54 @@ impl CommonWindowState {
     /// that frame was being produced. And things ARE raised then:
     /// `regenerate_layout` runs user lifecycle callbacks, and a callback
     /// returning `Update::RefreshDom` routes through `process_window_events` into
-    /// `mark_frame_needs_regeneration`. The symptom is a widget that seeds derived
+    /// `request_regeneration`. The symptom is a widget that seeds derived
     /// state on mount showing its pre-seed DOM until some unrelated later event
     /// happens to force another pass.
     ///
     /// Pass the epoch captured before the work. If the counter moved, somebody
-    /// asked again mid-flight and the flag STAYS SET.
+    /// asked again mid-flight and the request STAYS SET.
     pub fn clear_regeneration_unless_reraised(&mut self, seen: u64) {
-        if self.regen_generation == seen {
-            self.frame_needs_regeneration = false;
-        }
+        self.regen.request.retire_unless_reraised(seen);
+    }
+
+    /// Take the regeneration request outright — returns whether one was
+    /// pending and clears it.
+    ///
+    /// ONLY for consumers with no mid-flight window: nothing between the take
+    /// and the work may run a user callback. A path that calls
+    /// `regenerate_layout()` MUST use [`Self::regen_epoch`] +
+    /// [`Self::clear_regeneration_unless_reraised`] instead — that path runs
+    /// lifecycle callbacks and they raise new requests.
+    #[must_use]
+    pub fn take_regeneration(&mut self) -> bool {
+        self.regen.request.take()
+    }
+
+    /// Ask for the "layout is already up to date on the EXISTING StyledDom"
+    /// fast path: re-run layout on that DOM, do NOT rebuild it.
+    ///
+    /// This ALSO raises the ordinary regeneration request, and that is not
+    /// redundant — it is the fix for a real stall. The frame gates
+    /// (`X11::poll_event`, wayland's `frame_done_callback`) ask "is a frame
+    /// owed?" by testing the regeneration request, so a lone `relayout_only`
+    /// was invisible to them: the work sat queued until some unrelated event
+    /// happened to redraw. Every frame path checks `relayout_only_pending()`
+    /// FIRST, so raising both cannot cause a spurious DOM rebuild.
+    pub fn request_relayout_only(&mut self) {
+        self.regen.relayout_only = true;
+        self.request_regeneration(azul_core::callbacks::RelayoutReason::RefreshDom);
+    }
+
+    /// Is the relayout-only fast path requested? Read-only.
+    #[must_use]
+    pub fn relayout_only_pending(&self) -> bool {
+        self.regen.relayout_only
+    }
+
+    /// Consume the relayout-only request.
+    #[must_use]
+    pub fn take_relayout_only(&mut self) -> bool {
+        std::mem::replace(&mut self.regen.relayout_only, false)
     }
 }
 
@@ -1069,27 +1254,12 @@ macro_rules! impl_platform_window_getters {
         fn get_renderer_mut(&mut self) -> Option<&mut webrender::Renderer> {
             self.$field.renderer.as_mut()
         }
-        fn mark_frame_needs_regeneration(&mut self) {
-            self.$field.frame_needs_regeneration = true;
-            self.$field.regen_generation = self.$field.regen_generation.wrapping_add(1);
-        }
-        fn clear_frame_regeneration_flag(&mut self) {
-            self.$field.frame_needs_regeneration = false;
-        }
         fn mark_display_list_dirty(&mut self) {
             self.$field.display_list_dirty = true;
         }
         fn take_display_list_dirty(&mut self) -> bool {
             let v = self.$field.display_list_dirty;
             self.$field.display_list_dirty = false;
-            v
-        }
-        fn mark_frame_relayout_only(&mut self) {
-            self.$field.frame_relayout_only = true;
-        }
-        fn take_frame_relayout_only(&mut self) -> bool {
-            let v = self.$field.frame_relayout_only;
-            self.$field.frame_relayout_only = false;
             v
         }
     };
@@ -1107,7 +1277,7 @@ macro_rules! impl_platform_window_getters {
 /// - Window state access (`get_current_window_state`, `get_previous_window_state`, etc.)
 /// - Resource access (`get_image_cache_mut`, `get_renderer_resources_mut`, etc.)
 /// - Hit testing state (`get_hit_tester`, `get_scrollbar_drag_state`, etc.)
-/// - Frame regeneration (`mark_frame_needs_regeneration`, `clear_frame_regeneration_flag`)
+/// - Frame regeneration — provided, not required: `request_regeneration(reason)`
 /// - Raw window handle (`get_raw_window_handle`)
 /// - **Callback preparation (`prepare_callback_invocation`)** - Returns all borrows needed for
 ///   callbacks
@@ -1291,11 +1461,38 @@ pub trait PlatformWindow {
         Ok(result)
     }
 
-    /// Mark that the frame needs regeneration
-    fn mark_frame_needs_regeneration(&mut self);
+    /// Ask for the DOM to be rebuilt before the next frame, saying WHY.
+    ///
+    /// Delegates to [`CommonWindowState::request_regeneration`] — the single
+    /// entry point. There is deliberately no counterpart that just *clears* the
+    /// request: consumers either take it with a stated epoch
+    /// (`regen_epoch()` + `clear_regeneration_unless_reraised()`) or, when no
+    /// user callback can run in between, with
+    /// [`CommonWindowState::take_regeneration`].
+    fn request_regeneration(&mut self, reason: azul_core::callbacks::RelayoutReason) {
+        self.get_common_mut().request_regeneration(reason);
+    }
 
-    /// Clear frame regeneration flag
-    fn clear_frame_regeneration_flag(&mut self);
+    /// Rebuild the DOM NOW for `reason`, retiring only the request this call
+    /// satisfies.
+    ///
+    /// For the handful of event arms that relayout synchronously instead of
+    /// queueing a frame (the X11 ConfigureNotify / DPI paths). Doing it by hand
+    /// meant either forgetting the reason tag or leaving the request set for a
+    /// second, redundant regeneration on the next frame; a lifecycle callback
+    /// that asks for another rebuild during this one still survives, because
+    /// the epoch is captured before the work.
+    fn regenerate_now(
+        &mut self,
+        reason: azul_core::callbacks::RelayoutReason,
+    ) -> Result<crate::desktop::shell2::common::layout::LayoutRegenerateResult, String> {
+        self.get_common_mut().request_regeneration(reason);
+        let seen = self.get_common_mut().regen_epoch();
+        let result = self.regenerate_layout();
+        self.get_common_mut()
+            .clear_regeneration_unless_reraised(seen);
+        result
+    }
 
     /// Mark that the display list was updated internally and needs sending to WebRender
     fn mark_display_list_dirty(&mut self);
@@ -1303,12 +1500,21 @@ pub trait PlatformWindow {
     /// Check and clear the display_list_dirty flag
     fn take_display_list_dirty(&mut self) -> bool;
 
-    /// Mark the next frame as "layout is already up to date on the EXISTING
-    /// StyledDom — re-run layout on it, do NOT rebuild the DOM".
-    fn mark_frame_relayout_only(&mut self);
+    /// Ask for the next frame to take the "layout is already up to date on the
+    /// EXISTING StyledDom" path — re-run layout on it, do NOT rebuild the DOM.
+    ///
+    /// See [`CommonWindowState::request_relayout_only`]: this also raises the
+    /// ordinary regeneration request so the frame gates can see that work is
+    /// owed.
+    fn request_relayout_only(&mut self) {
+        self.get_common_mut().request_relayout_only();
+    }
 
-    /// Check and clear the `frame_relayout_only` flag.
-    fn take_frame_relayout_only(&mut self) -> bool;
+    /// Consume the relayout-only request.
+    #[must_use]
+    fn take_relayout_only(&mut self) -> bool {
+        self.get_common_mut().take_relayout_only()
+    }
 
     // Callback Invocation Preparation
 
@@ -1569,11 +1775,9 @@ pub trait PlatformWindow {
 
                 // A size OR scale change invalidates every rasterised pixel:
                 // same thing WM_DPICHANGED / the X11 DPI path do
-                // (`frame_needs_regeneration` + RelayoutReason::Resize).
+                // (a regeneration request tagged RelayoutReason::Resize).
                 if size_changed || dpi_changed {
-                    self.get_common_mut().next_relayout_reason =
-                        azul_core::callbacks::RelayoutReason::Resize;
-                    self.mark_frame_needs_regeneration();
+                    self.request_regeneration(azul_core::callbacks::RelayoutReason::Resize);
                 }
 
                 // Mouse state changed → update hit test before the event pass
@@ -3961,7 +4165,7 @@ pub trait PlatformWindow {
     /// GPU-accelerated smooth scrolling.
     ///
     /// Updates the ScrollManager state with the scroll delta. Does NOT set
-    /// `frame_needs_regeneration` — scrolling only requires a lightweight
+    /// a regeneration request — scrolling only requires a lightweight
     /// WebRender transaction (scroll offsets + GPU values), not a full layout
     /// regeneration or display list rebuild.
     ///
@@ -4010,7 +4214,7 @@ pub trait PlatformWindow {
         // Recalculate scrollbar thumb positions after offset change
         layout_window.scroll_manager.calculate_scrollbar_states();
 
-        // NOTE: We intentionally do NOT call mark_frame_needs_regeneration() here.
+        // NOTE: We intentionally do NOT call request_regeneration() here.
         // Scroll offset changes are frame-level operations in WebRender
         // (FrameMsg::SetScrollOffsets), not scene-level changes. The platform
         // render function will send scroll offsets via build_image_only_transaction
@@ -4912,12 +5116,12 @@ pub trait PlatformWindow {
         use azul_core::callbacks::Update;
         match callback_update {
             Update::RefreshDom => {
-                self.mark_frame_needs_regeneration();
+                self.request_regeneration(azul_core::callbacks::RelayoutReason::RefreshDom);
                 result = result.max(ProcessEventResult::ShouldRegenerateDomCurrentWindow);
                 should_recurse = true;
             }
             Update::RefreshDomAllWindows => {
-                self.mark_frame_needs_regeneration();
+                self.request_regeneration(azul_core::callbacks::RelayoutReason::RefreshDom);
                 result = result.max(ProcessEventResult::ShouldRegenerateDomAllWindows);
                 should_recurse = true;
             }
@@ -5300,7 +5504,7 @@ pub trait PlatformWindow {
                 result = result.max(click_changes_result);
 
                 if matches!(click_update, Update::RefreshDom | Update::RefreshDomAllWindows) {
-                    self.mark_frame_needs_regeneration();
+                    self.request_regeneration(azul_core::callbacks::RelayoutReason::RefreshDom);
                     result = result.max(ProcessEventResult::ShouldRegenerateDomCurrentWindow);
                     should_recurse = true;
                 }
@@ -5394,7 +5598,7 @@ pub trait PlatformWindow {
                     let (focus_changes_result, focus_update, _) = self.dispatch_events_propagated(&focus_events);
                     result = result.max(focus_changes_result);
                     if matches!(focus_update, Update::RefreshDom | Update::RefreshDomAllWindows) {
-                        self.mark_frame_needs_regeneration();
+                        self.request_regeneration(azul_core::callbacks::RelayoutReason::RefreshDom);
                         result = result.max(ProcessEventResult::ShouldRegenerateDomCurrentWindow);
                     }
                 }
@@ -5526,12 +5730,12 @@ pub trait PlatformWindow {
         // `CreateTextInput`, and a USER callback dispatched inside that pass can
         // return `Update::RefreshDom` — which `process_window_events` reports by
         // returning `ShouldRegenerateDomCurrentWindow` (and by calling
-        // `mark_frame_needs_regeneration` itself).
+        // `request_regeneration` itself).
         //
         // Leaving `needs_layout_regeneration` false for that case was not merely
         // a missed flag: it fell through to the `ShouldIncrementalRelayout` arm
-        // below and DOWNGRADED the request to `frame_relayout_only`. Every frame
-        // path — X11, Wayland, Windows and headless — tests `frame_relayout_only`
+        // below and DOWNGRADED the request to relayout-only. Every frame
+        // path — X11, Wayland, Windows and headless — tests `relayout_only`
         // FIRST and clears both flags, so the requested DOM rebuild was not
         // delayed, it was discarded: `relayout_only` re-runs layout on the OLD
         // StyledDom and never re-invokes the layout callback, so the window kept
@@ -5547,7 +5751,7 @@ pub trait PlatformWindow {
         // — we just need a repaint, NOT a full layout() call which would rebuild
         // the DOM from stale application data.
         if needs_layout_regeneration {
-            self.mark_frame_needs_regeneration();
+            self.request_regeneration(azul_core::callbacks::RelayoutReason::RefreshDom);
         }
 
         // If changes produced a new display list (e.g. text edit), mark it dirty
@@ -5571,10 +5775,20 @@ pub trait PlatformWindow {
         // regeneration threshold: a `ShouldRegenerateDom*` result has already set
         // that flag just above, so a rebuild can never be downgraded to a
         // relayout of the DOM it was supposed to replace.
+        //
+        // This arm used to raise the relayout-only flag ALONE, and the flag
+        // alone was invisible to the loops that decide whether a frame is owed:
+        // X11's `poll_event` gate and wayland's `frame_done_callback` re-arm
+        // both ask "is a regeneration or a redraw pending?" and never looked at
+        // relayout-only. A timer callback that only restyled therefore sat
+        // there until some unrelated event happened to redraw the window —
+        // a caret that stops blinking, a hover style that lands a second late.
+        // `request_relayout_only` now raises BOTH, and since every frame path
+        // tests relayout-only first, the DOM is still not rebuilt.
         if max_changes_result >= ProcessEventResult::ShouldIncrementalRelayout
             && !needs_layout_regeneration
         {
-            self.mark_frame_relayout_only();
+            self.request_relayout_only();
             needs_redraw = true;
         }
 
@@ -5881,7 +6095,7 @@ pub trait PlatformWindow {
             if update == Update::RefreshDom
                 || update == Update::RefreshDomAllWindows
             {
-                self.mark_frame_needs_regeneration();
+                self.request_regeneration(azul_core::callbacks::RelayoutReason::RefreshDom);
             }
 
             all_results.push(update);
