@@ -743,10 +743,72 @@ extern "C" fn display_tick(_this: &Object, _cmd: Sel, _link: *mut Object) {
         // per-frame slot `run.rs` gives the four desktop backends.
         #[cfg(feature = "a11y")]
         window.process_accessibility_actions();
+        // The device light/dark setting. iOS built its window from
+        // SystemStyle::default() and never read the real one, so an app launched
+        // on a dark-mode device rendered light and stayed light. Polled here
+        // because UITraitCollection is main-thread-only and this tick is the
+        // main thread.
+        #[cfg(target_os = "ios")]
+        if unsafe { adopt_device_appearance(&mut window.common) } {
+            let _ = window.process_window_events(0);
+            window
+                .common
+                .request_regeneration(RelayoutReason::ThemeChange);
+        }
         if window.common.regeneration_pending() {
             let _ = window.present();
         }
     }
+}
+
+/// The device's light/dark setting, as a [`WindowTheme`].
+///
+/// `UITraitCollection.currentTraitCollection.userInterfaceStyle`:
+/// 0 = unspecified, 1 = light, 2 = dark (`UIUserInterfaceStyle`). Unspecified
+/// yields `None` — it means UIKit is not expressing a preference, so whatever
+/// the window already carries is the better answer.
+///
+/// MAIN THREAD ONLY, like all of UIKit. That is why this is polled from the
+/// display tick rather than from a watcher thread, which is the opposite of the
+/// Linux backends: there the probe is a blocking D-Bus round trip and MUST be
+/// threaded, here it is one message send and must NOT be.
+#[cfg(target_os = "ios")]
+unsafe fn probe_user_interface_style() -> Option<azul_core::window::WindowTheme> {
+    let traits: *mut Object = msg_send![class!(UITraitCollection), currentTraitCollection];
+    if traits.is_null() {
+        return None;
+    }
+    let style: i64 = msg_send![traits, userInterfaceStyle];
+    match style {
+        1 => Some(azul_core::window::WindowTheme::LightMode),
+        2 => Some(azul_core::window::WindowTheme::DarkMode),
+        _ => None,
+    }
+}
+
+/// Adopt the device appearance into `common`, returning whether it changed.
+///
+/// iOS did not read the setting AT ALL — the window is built with
+/// `SystemStyle::default()`, so an app launched on a dark-mode device rendered
+/// light and stayed light. This is therefore the initial read as much as the
+/// change notification; the display tick runs it every frame and it returns
+/// `false` whenever the theme already matches, so a steady state costs one
+/// message send.
+#[cfg(target_os = "ios")]
+unsafe fn adopt_device_appearance(
+    common: &mut crate::desktop::shell2::common::event::CommonWindowState,
+) -> bool {
+    let Some(theme) = probe_user_interface_style() else {
+        return false;
+    };
+    if common.current_window_state.theme == theme {
+        return false;
+    }
+    // The diff pipeline compares against previous_window_state to decide a
+    // ThemeChanged event fired; without this snapshot no callback runs.
+    common.previous_window_state = Some(common.current_window_state.clone());
+    common.current_window_state.theme = theme;
+    true
 }
 
 /// Construct a `CADisplayLink` that fires `display_tick:` on the shared
