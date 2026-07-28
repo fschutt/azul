@@ -58,7 +58,11 @@ jobs:
     runs-on: ${{ matrix.runner }}
     # The whole web-base pipeline is experimental; a broken arch must never fail
     # the run (and website iteration doesn't depend on it at all).
-    continue-on-error: true
+    # NOT continue-on-error. docker/Dockerfile says in-repo that this build
+    # cannot currently succeed (remill's cmake needs find_package(XED CONFIG),
+    # and nothing here sets VCPKG_ROOT/CMAKE_TOOLCHAIN_FILE or installs
+    # cxx-common). That is a known, unfixed bug — so it should show as a red X,
+    # not as two green ticks over a build that never worked.
     strategy:
       fail-fast: false
       matrix:
@@ -119,7 +123,11 @@ jobs:
     needs: build
     if: github.event_name == 'push' || github.event.inputs.push_image == 'true'
     runs-on: ubuntu-22.04
-    continue-on-error: true
+    # NOT continue-on-error. docker/Dockerfile says in-repo that this build
+    # cannot currently succeed (remill's cmake needs find_package(XED CONFIG),
+    # and nothing here sets VCPKG_ROOT/CMAKE_TOOLCHAIN_FILE or installs
+    # cxx-common). That is a known, unfixed bug — so it should show as a red X,
+    # not as two green ticks over a build that never worked.
     steps:
       - name: Log in to GHCR
         uses: docker/login-action@v3

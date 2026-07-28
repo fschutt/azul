@@ -212,45 +212,21 @@ jobs:
           cargo check -p azul-layout
           cargo check -p azul-dll --no-default-features --features "link-static,logging,ico,tga,hdr,webp,pnm,gif,png,tiff,bmp,a11y"
 
-      - name: Check no std::time::Instant::now() in WASM-compatible crates
-        run: |
-          # azul-css, azul-core, and azul-layout must not call std::time::Instant::now()
-          # because it panics on WASM targets. Uses in comments and #[cfg(feature = "std")]
-          # blocks are allowed, but direct calls in non-gated code are forbidden.
-          #
-          # This is a simple grep-based check. It looks for Instant::now() in actual code
-          # (not comments) and verifies a #[cfg] gate exists within 10 lines above.
-          FOUND=0
-          for dir in css/src core/src layout/src; do
-            # Find Instant::now() calls, skip lines that are doc-comments or line-comments
-            while IFS= read -r line; do
-              [ -z "$line" ] && continue
-              FILE=$(echo "$line" | cut -d: -f1)
-              LNO=$(echo "$line" | cut -d: -f2)
-              CODE=$(echo "$line" | cut -d: -f3-)
-              # Skip if the code portion is a comment (starts with // or /// or *)
-              TRIMMED=$(echo "$CODE" | sed 's/^[[:space:]]*//')
-              case "$TRIMMED" in
-                //*) continue ;;
-                \**) continue ;;
-              esac
-              # Check 30 lines above for a cfg gate (covers impl blocks)
-              START=$((LNO > 30 ? LNO - 30 : 1))
-              CONTEXT=$(sed -n "${START},${LNO}p" "$FILE")
-              if ! echo "$CONTEXT" | grep -q '#\[cfg'; then
-                echo "ERROR: Ungated std::time::Instant::now() at ${FILE}:${LNO}"
-                echo "  $CODE"
-                FOUND=1
-              fi
-            done < <(grep -rn 'std::time::Instant::now()' "$dir" --include='*.rs' || true)
-          done
-          if [ "$FOUND" -eq 1 ]; then
-            echo ""
-            echo "std::time::Instant::now() panics on WASM. Use #[cfg(feature = \"std\")] gate"
-            echo "or remove the call entirely."
-            exit 1
-          fi
-          echo "OK: No ungated std::time::Instant::now() found in WASM-compatible crates."
+      # Replaces an inline grep that saw 15 call sites where a correct pattern
+      # sees 75: it matched only the fully-qualified `std::time::Instant::now()`,
+      # missing `use std::time::Instant;` + `Instant::now()` and the aliased
+      # `StdInstant::now()` form, and it accepted ANY `#[cfg` within 30 lines —
+      # #[cfg(test)], #[cfg(target_os = "windows")], #[cfg(feature = "svg")] all
+      # counted, none of which excludes wasm.
+      #
+      # This is KNOWN to over-report: it cannot yet see a #[cfg] attached to a
+      # parent `mod` declaration, so `pub mod e2e;` (#[cfg(feature =
+      # "e2e-server")] at layout/src/lib.rs:387) and probe get flagged. It is
+      # wired anyway and RED ON PURPOSE. An over-reporting check is noise you can
+      # tune; the under-reporting one it replaces was a bug that would ship.
+      # Teaching it parent-mod cfgs is tracked in #35 — the red X is the reminder.
+      - name: Check no std Instant::now() in WASM-compatible crates
+        run: bash scripts/check_wasm_instant.sh
 
   # Check that the crate compiles with various feature combinations
   # This catches issues like missing Copy/Clone derives on stub types
@@ -4842,7 +4818,9 @@ jobs:
     name: Sanitizers (C examples)
     if: github.event_name != 'workflow_dispatch' || github.event.inputs.run_mode == 'ci' || github.event.inputs.run_mode == 'deploy' || github.event.inputs.run_mode == 'website'
     runs-on: ubuntu-22.04
-    continue-on-error: true
+    # NOT continue-on-error. A sanitizer finding is exactly the thing that must
+    # be visible: a red X on a named job, not a row in a table nobody opens. If
+    # this goes red, that is the gate working — fix the race or the leak.
     env:
       AZ_BACKEND: headless
     steps:
