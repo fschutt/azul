@@ -2012,6 +2012,96 @@ impl Runner {
                 self.unsupported("InjectNativeGesture", "no platform gesture source")
             }
 
+            // Accessibility action, i.e. what a screen reader asks for.
+            //
+            // PORT of the DLL's arm, which routes through
+            // `PlatformWindow::dispatch_accessibility_actions`: apply the action
+            // to the managers, THEN dispatch the synthetic events it mapped to.
+            // Doing only the first half is the exact bug the DLL shipped once —
+            // AT-SPI `do_action` was accepted, decoded to the right node, and
+            // then invoked no callback at all — so this host does both halves or
+            // the port is worthless.
+            //
+            // Not `unsupported`: nothing here needs a platform. The whole action
+            // path lives in `LayoutWindow`, which this host owns.
+            CallbackChange::PerformAccessibilityAction {
+                dom_id,
+                node_id,
+                action,
+            } => {
+                use azul_core::events::{
+                    EventData, EventFilter, EventSource, EventType, FocusEventFilter,
+                    HoverEventFilter, KeyModifiers, MouseButton, MouseEventData, SyntheticEvent,
+                };
+
+                let affected = self.layout_window.process_accessibility_action(
+                    *dom_id,
+                    *node_id,
+                    action.clone(),
+                    Instant::now(),
+                );
+
+                // NOT gated on `affected.is_empty()`. Focus / Blur / the
+                // Scroll* family / SetTextSelection all mutate manager state and
+                // map to NO callback, so their affected map is empty while the
+                // screen is genuinely stale — which is why every platform
+                // backend calls `request_redraw()` unconditionally after a
+                // batch. `ShouldReRenderCurrentWindow` is this host's equivalent.
+                {
+                    let timestamp = self.now();
+                    let mut events = Vec::new();
+                    for (node, (filters, _needs_relayout)) in &affected {
+                        // Synthetic pointer events carry the node's centre so a
+                        // callback reading the cursor position sees an in-bounds
+                        // point (same choice the DLL makes).
+                        let centre = self
+                            .layout_window
+                            .get_node_layout_rect(*node)
+                            .map_or(LogicalPosition { x: 0.0, y: 0.0 }, |r| LogicalPosition {
+                                x: r.origin.x + r.size.width / 2.0,
+                                y: r.origin.y + r.size.height / 2.0,
+                            });
+                        let mouse_data = || {
+                            EventData::Mouse(MouseEventData {
+                                position: centre,
+                                button: MouseButton::Left,
+                                buttons: 0,
+                                modifiers: KeyModifiers::default(),
+                            })
+                        };
+                        for f in filters {
+                            let (event_type, data) = match f {
+                                EventFilter::Hover(HoverEventFilter::MouseUp)
+                                | EventFilter::Focus(FocusEventFilter::MouseUp) => {
+                                    (EventType::MouseUp, mouse_data())
+                                }
+                                EventFilter::Hover(HoverEventFilter::MouseDown)
+                                | EventFilter::Focus(FocusEventFilter::MouseDown) => {
+                                    (EventType::MouseDown, mouse_data())
+                                }
+                                _ => continue,
+                            };
+                            events.push(SyntheticEvent::new(
+                                event_type,
+                                EventSource::Synthetic,
+                                *node,
+                                timestamp.clone(),
+                                data,
+                            ));
+                        }
+                    }
+
+                    // The action already moved focus / scroll / cursor state, so
+                    // the frame is stale even when it mapped to no callback.
+                    let mut result = ProcessEventResult::ShouldReRenderCurrentWindow;
+                    if !events.is_empty() {
+                        let (r, _update, _) = self.dispatch_events_propagated(&events);
+                        result = result.max(r);
+                    }
+                    result
+                }
+            }
+
             // === Timers ===
             //
             // Port of the DLL's four arms. There, `lw.timers.insert(..)` records

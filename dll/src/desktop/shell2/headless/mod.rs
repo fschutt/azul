@@ -75,6 +75,7 @@ use crate::desktop::wr_translate2::{AsyncHitTester, WrRenderApi};
 use crate::desktop::shell2::common::event::HitTestNode;
 
 use crate::desktop::shell2::common::{
+    accessibility::A11yActionQueue,
     debug_server::{self, LogCategory},
     event::{self, CommonWindowState, PlatformWindow},
     WindowError,
@@ -835,6 +836,17 @@ pub struct HeadlessWindow {
     /// Condvar + mutex used to block the event loop until work arrives.
     wake_condvar: Arc<Condvar>,
     wake_mutex: Arc<Mutex<WakeState>>,
+    /// Accessibility actions waiting to be applied.
+    ///
+    /// Named to match the four desktop backends' `accessibility_adapter`
+    /// because it fills the same slot in the frame loop: headless has no OS
+    /// assistive technology to talk to, so instead of an `accesskit` adapter
+    /// this is a plain injectable queue. That is not a lesser thing here — it
+    /// is the ONLY way a11y behaviour is testable at all, since headless is
+    /// the backend the E2E corpus runs on. Fed by
+    /// [`HeadlessWindow::inject_accessibility_action`], drained by
+    /// [`HeadlessWindow::process_accessibility_actions`].
+    pub accessibility_adapter: A11yActionQueue,
 }
 
 /// Timer poll interval — how often the loop re-checks when timers are
@@ -909,6 +921,7 @@ impl HeadlessWindow {
             font_registry,
             wake_condvar,
             wake_mutex,
+            accessibility_adapter: A11yActionQueue::new(),
         })
     }
 
@@ -1136,6 +1149,62 @@ impl HeadlessWindow {
         self.wake();
     }
 
+    /// Queue an accessibility action as if a screen reader had requested it.
+    ///
+    /// This is headless's substitute for AT-SPI `do_action` / UIA `Invoke` /
+    /// `NSAccessibility` press: the four desktop backends receive an
+    /// `accesskit::ActionRequest` on a bus and decode it to exactly this
+    /// triple, then hand it to `process_accessibility_actions()`. There is no
+    /// bus here, so the triple is the ingress.
+    ///
+    /// It exists so accessibility behaviour is *observable* — before it, no
+    /// backend could be driven through `LayoutWindow::process_accessibility_action`
+    /// from a test, which is why "screen-reader activation invokes no callback"
+    /// could ship and stay shipped.
+    ///
+    /// The action is applied on the next loop iteration (or on the next
+    /// explicit `process_accessibility_actions()` call), NOT synchronously —
+    /// same as every real adapter, whose actions arrive off-loop and are
+    /// drained by the frame pump.
+    pub fn inject_accessibility_action(
+        &mut self,
+        dom_id: azul_core::dom::DomId,
+        node_id: azul_core::dom::NodeId,
+        action: azul_core::dom::AccessibilityAction,
+    ) {
+        self.accessibility_adapter.push(dom_id, node_id, action);
+        self.wake();
+    }
+
+    /// Drain queued accessibility actions, apply them, and dispatch the
+    /// callbacks they map to.
+    ///
+    /// Mirrors `Win32Window::process_accessibility_actions` /
+    /// `X11Window::process_accessibility_actions` exactly: poll the action
+    /// source, route each through `LayoutWindow::process_accessibility_action`,
+    /// mark the display list dirty for a non-empty affected set, dispatch the
+    /// mapped callbacks and honour the `Update` they return. The shared body
+    /// lives in `PlatformWindow::dispatch_accessibility_actions` so all seven
+    /// backends cannot drift apart.
+    #[cfg(feature = "a11y")]
+    pub fn process_accessibility_actions(&mut self) {
+        let mut actions = Vec::new();
+        while let Some(action) = self.accessibility_adapter.poll_action() {
+            actions.push(action);
+        }
+        if actions.is_empty() {
+            return;
+        }
+        self.dispatch_accessibility_actions(actions);
+        // UNCONDITIONAL, exactly like the four desktop backends. Half the
+        // actions (Focus, Blur, ScrollUp/Down/Left/Right, SetScrollOffset,
+        // ScrollIntoView, SetTextSelection) change manager state and return an
+        // EMPTY affected-node map, because they map to no callback. Gating the
+        // redraw on that map would mean a screen reader could move focus or
+        // scroll the view and the window would never repaint it.
+        self.request_redraw();
+    }
+
     /// Simulate a window resize. Updates `current_window_state.size` to the
     /// new logical dimensions and tags the next `regenerate_layout()` call
     /// with `RelayoutReason::Resize` so the user's `LayoutCallback` sees
@@ -1217,6 +1286,17 @@ impl HeadlessWindow {
         hit_scrollbar: bool,
     ) -> ScrollResult {
         azul_core::window::process_system_scroll(delta, hit_scrollbar)
+    }
+
+    /// Ask for another frame.
+    ///
+    /// The headless analogue of `XSendEvent(Expose)` / `InvalidateRect` /
+    /// `setNeedsDisplay`: there is no compositor that could handle a
+    /// repaint-only update in the CPU path (see the note in `run()`), so a
+    /// redraw request is a full regeneration request plus a loop wake-up.
+    pub fn request_redraw(&mut self) {
+        self.common.frame_needs_regeneration = true;
+        self.wake();
     }
 
     /// Signal the condvar so the blocking loop wakes up.
@@ -1674,6 +1754,16 @@ impl HeadlessWindow {
                     );
                 }
             }
+
+            // ── Phase 1b: Apply queued accessibility actions ─────
+            // The same slot `run.rs` gives the four desktop backends: actions
+            // arrive off-loop (there, from an accesskit bus; here, from
+            // `inject_accessibility_action`) and are drained by the frame pump
+            // after input and before timers. Without this call the queue would
+            // fill and nothing would ever read it — which is exactly the state
+            // headless a11y was in.
+            #[cfg(feature = "a11y")]
+            self.process_accessibility_actions();
 
             // ── Phase 2: Tick timers and threads ─────────────────
             // Use the shared PlatformWindow trait method to invoke

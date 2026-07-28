@@ -25,6 +25,53 @@ use azul_css::AzString;
 
 use crate::{solver3::layout_tree::LayoutNodeHot, window::DomLayoutResult};
 
+/// Is this DOM node exposed to assistive technology?
+///
+/// ONE definition, deliberately. It used to be an inline condition inside
+/// [`A11yManager::update_tree`], which is fine while accesskit is the only
+/// consumer — but accesskit ships no UIKit and no Android backend, so the iOS
+/// and Android bridges have to build their element lists themselves, and the
+/// E2E `accessibility_action` op has to decide whether the node a test is
+/// activating is one a screen reader could ever reach. Three consumers guessing
+/// separately is three different answers to "can a screen reader see this?".
+///
+/// Included: anything carrying explicit `AccessibilityInfo`, anything
+/// contenteditable, anything focusable, and every node type that is not pure
+/// metadata (`<head>`, `<meta>`, `<script>`, …) or a pseudo-element.
+#[must_use]
+pub fn is_exposed_to_accessibility(node_data: &NodeData) -> bool {
+    node_data.get_accessibility_info().is_some()
+        || node_data.is_contenteditable()
+        || node_data.is_focusable()
+        || !matches!(
+            node_data.node_type,
+            NodeType::Head
+                | NodeType::Meta
+                | NodeType::Link
+                | NodeType::Script
+                | NodeType::Style
+                | NodeType::Base
+                | NodeType::Before
+                | NodeType::After
+                | NodeType::Marker
+                | NodeType::Placeholder
+                | NodeType::Source
+                | NodeType::Track
+                | NodeType::Param
+                | NodeType::Col
+                | NodeType::ColGroup
+                | NodeType::Wbr
+                | NodeType::Rp
+                | NodeType::Rtc
+                | NodeType::Bdo
+                | NodeType::Bdi
+                | NodeType::Data
+                | NodeType::Map
+                | NodeType::Area
+                | NodeType::VirtualView
+        )
+}
+
 /// Cursor/selection info passed to the a11y tree builder.
 /// Used to set `text_selection` on contenteditable nodes so screen readers
 /// can announce the cursor position and selection range.
@@ -120,22 +167,10 @@ impl A11yManager {
             for (dom_idx, node_data) in node_data_slice.iter().enumerate() {
                 let a11y_info = node_data.get_accessibility_info();
 
-                // Include every node that has a meaningful role.
-                // The only types we skip are metadata (Head, Meta, Script, Style, etc.)
-                // and pseudo-elements that don't represent real content.
-                let should_create_node = a11y_info.is_some()
-                    || node_data.is_contenteditable()
-                    || node_data.is_focusable()
-                    || !matches!(node_data.node_type,
-                        NodeType::Head | NodeType::Meta | NodeType::Link
-                        | NodeType::Script | NodeType::Style | NodeType::Base
-                        | NodeType::Before | NodeType::After | NodeType::Marker
-                        | NodeType::Placeholder | NodeType::Source | NodeType::Track
-                        | NodeType::Param | NodeType::Col | NodeType::ColGroup
-                        | NodeType::Wbr | NodeType::Rp | NodeType::Rtc
-                        | NodeType::Bdo | NodeType::Bdi | NodeType::Data
-                        | NodeType::Map | NodeType::Area | NodeType::VirtualView
-                    );
+                // Include every node that has a meaningful role — see
+                // `is_exposed_to_accessibility`, which is the single definition
+                // shared with every other a11y surface.
+                let should_create_node = is_exposed_to_accessibility(node_data);
 
                 if !should_create_node {
                     continue;

@@ -3,6 +3,7 @@
 //!
 //! # Submodules
 //!
+//! - **accessibility** — cross-platform accessibility action queue (headless / iOS / Android)
 //! - **compositor** — GPU/software compositor selection and rendering context
 //! - **cpu_compositor** — CPU-only fallback compositor
 //! - **dlopen** — Runtime dynamic library loading
@@ -18,6 +19,7 @@ pub mod error;
 pub mod gl_loader;
 
 // Unified cross-platform modules
+pub mod accessibility;
 pub mod capability_pump;
 pub mod debug_server;
 #[cfg(feature = "e2e-test")]
