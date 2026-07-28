@@ -475,6 +475,16 @@ pub struct WaylandPopup {
     viewport: Option<*mut defines::wp_viewport>,
     /// Whether the menu DOM has already been rendered into the buffer.
     rendered: bool,
+    /// Set when the popup's content changed and it must paint again.
+    ///
+    /// `rendered` alone was a ONE-SHOT latch: `render_if_ready` returned early
+    /// forever once the first frame was drawn, so a popup could never repaint.
+    /// That is not academic — popups DO receive pointer input (see
+    /// `pointer_over_popup`, and the hover resolve that maps popup-surface
+    /// coordinates to a menu-item node), so the hover highlight was computed on
+    /// every motion event and then never drawn. Same for a selected state, a
+    /// scroll inside the popup, or a submenu opening.
+    needs_repaint: bool,
     /// Shared CPU rendering backend (the menu is painted via the headless CPU
     /// path, same as the X11/Wayland CPU fallback — popups never use WebRender).
     #[cfg(feature = "cpurender")]
@@ -2744,7 +2754,13 @@ impl WaylandWindow {
         if self.pointer_over_popup && self.active_popup.is_some() {
             if let Some(popup) = self.active_popup.as_mut() {
                 popup.set_cursor_pos(logical_pos);
+                // The cursor moved inside the popup, so whatever it highlights
+                // changed. Without this the new hover state is computed and never
+                // drawn — the popup painted exactly once and could not repaint.
+                popup.request_repaint();
             }
+        }
+        if self.pointer_over_popup && self.active_popup.is_some() {
             return;
         }
 
@@ -5797,6 +5813,7 @@ impl WaylandPopup {
             preferred_scale_120: parent.preferred_scale_120,
             viewport: None,
             rendered: false,
+            needs_repaint: false,
             #[cfg(feature = "cpurender")]
             cpu_backend: crate::desktop::shell2::headless::CpuBackend::new(),
             cpu_hit_tester: azul_layout::headless::CpuHitTester::new(),
@@ -5858,8 +5875,21 @@ impl WaylandPopup {
     /// Must run AFTER the compositor has configured the popup (`is_configured`),
     /// per xdg-shell (a buffer may only be attached once the surface is
     /// configured). Renders once; a popup menu's content is static.
+    /// Mark the popup as needing another paint.
+    ///
+    /// Call this whenever anything the popup DRAWS changes — hover, selection,
+    /// a scroll inside it, a submenu opening. Without a caller this flag is just
+    /// a different kind of silence, so if you add popup state, add the call.
+    pub fn request_repaint(&mut self) {
+        self.needs_repaint = true;
+    }
+
     fn render_if_ready(&mut self) {
-        if !self.is_open || self.rendered || !self.is_configured() {
+        if !self.is_open || !self.is_configured() {
+            return;
+        }
+        // Paint the first frame, and thereafter only when something asked.
+        if self.rendered && !self.needs_repaint {
             return;
         }
         if self.surface.is_null() || self.shm.is_null() {
@@ -6014,6 +6044,7 @@ impl WaylandPopup {
         }
 
         self.rendered = true;
+        self.needs_repaint = false;
     }
 
     /// Build the LayoutWindow (lazily) and run a layout pass for the menu DOM.
