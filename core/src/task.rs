@@ -1176,8 +1176,8 @@ mod tests {
     /// A frozen clock must advance ONLY by what a scenario asks for.
     ///
     /// Offsetting alone left `Instant::now()` as `StdInstant::now() + offset`, so
-    /// real time still flowed and elapsed time was (what the scenario asked for)
-    /// + (what the machine happened to spend). Under the 8-wide E2E runner that
+    /// real time still flowed: elapsed time was what the scenario asked for PLUS
+    /// whatever the machine happened to spend. Under the 8-wide E2E runner that
     /// second term is large and varies per run — enough to flip an assertion on a
     /// blinking caret's phase while the same scenario passes in isolation.
     #[test]
