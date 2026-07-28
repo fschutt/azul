@@ -5692,6 +5692,56 @@ fn eval_assert_state_machines_idle(
 ///   comment above) — never a silent pass.
 #[cfg(feature = "std")]
 #[allow(clippy::too_many_lines)]
+const KNOWN_MANAGERS: &[&str] = &[
+    "scroll",
+    "hover",
+    "focus",
+    "gesture",
+    "selection",
+    "text_edit",
+    "virtual_view",
+    "undo_redo",
+    "gpu_state",
+    "text_input",
+    "permission",
+];
+
+const UNOBSERVABLE_MANAGERS: &[(&str, &str)] = &[
+    (
+        "scroll_into_view",
+        "stateless — free functions that take options and return ScrollAdjustments, retaining \
+         nothing between calls",
+    ),
+    (
+        "drag_drop",
+        "no LayoutWindow field exists; the live drag lives in gesture_drag_manager, which IS \
+         covered",
+    ),
+    (
+        "changeset",
+        "not a manager — a text changeset is recorded in TextInputManager, which IS covered",
+    ),
+    (
+        "clipboard",
+        "the manager exposes no fields and holds no node-keyed state",
+    ),
+    ("file_drop", "no observable state, same as clipboard"),
+    (
+        "gamepad",
+        "no observable state, and no host device exists in a headless run",
+    ),
+    ("biometric", "host capability with no headless backend"),
+    ("geolocation", "host capability with no headless backend"),
+    ("keyring", "host capability with no headless backend"),
+    ("sensors", "host capability with no headless backend"),
+    (
+        "a11y",
+        "HAS state (A11yManager.tree) and IS a LayoutWindow field, so this one is a real gap, \
+         not an impossibility: proving a tree node still maps to a live DOM node needs an \
+         A11yNodeId -> NodeId walk that does not exist here yet",
+    ),
+];
+
 fn eval_assert_manager_invariants(
     params: &serde_json::Value,
     callback_info: &azul_layout::callbacks::CallbackInfo,
@@ -5699,19 +5749,6 @@ fn eval_assert_manager_invariants(
     if let Some(bad) = reject_unknown_params("assert_manager_invariants", params, &["managers", "cross", "min_checked"]) {
         return bad;
     }
-    const KNOWN_MANAGERS: &[&str] = &[
-        "scroll",
-        "hover",
-        "focus",
-        "gesture",
-        "selection",
-        "text_edit",
-        "virtual_view",
-        "undo_redo",
-        "gpu_state",
-        "text_input",
-        "permission",
-    ];
     const KNOWN_CROSS: &[&str] = &["X2", "X3", "X5", "X6", "X9", "X10"];
     /// Invariants the plan lists that this crate CANNOT check. Requesting one is
     /// a hard failure, so no test can go green on an assertion nobody wrote.
@@ -5738,6 +5775,15 @@ fn eval_assert_manager_invariants(
              retained anywhere",
         ),
     ];
+
+    /// Managers this assertion does NOT check, each with the reason. Recorded
+    /// rather than omitted: gpu_state was simply absent from KNOWN_MANAGERS, and
+    /// that silence is exactly how the scrollbar-fade latch stayed invisible to
+    /// every invariant in this file. A reader comparing this list against
+    /// layout/src/managers/ must be able to account for all 22.
+    ///
+    /// Naming one of these in a scenario is a hard failure with its reason
+    /// attached, so nobody can go green believing they asserted something here.
 
     let list = |key: &str, default: &[&str]| -> Result<Vec<String>, String> {
         match params.get(key) {
@@ -5766,6 +5812,12 @@ fn eval_assert_manager_invariants(
     };
 
     for m in &managers {
+        if let Some((_, why)) = UNOBSERVABLE_MANAGERS.iter().find(|(n, _)| n == m) {
+            return AssertionResult::fail(format!(
+                "assert_manager_invariants: manager '{m}' is NOT checked here and will not be \
+                 silently passed — {why}"
+            ));
+        }
         if !KNOWN_MANAGERS.contains(&m.as_str()) {
             return AssertionResult::fail(format!(
                 "assert_manager_invariants: manager '{m}' has no key surface this assertion can \
@@ -14148,3 +14200,75 @@ struct DebugTimerData {
 
 // Re-export log categories for convenience
 pub use LogCategory::*;
+
+#[cfg(test)]
+mod e2e_manager_accounting {
+    use super::{KNOWN_MANAGERS, UNOBSERVABLE_MANAGERS};
+
+    /// Every module in `layout/src/managers/` must be either CHECKED by
+    /// `assert_manager_invariants` or explicitly recorded as unobservable, with a
+    /// reason.
+    ///
+    /// This is the gate, not the lists themselves. `gpu_state` was simply absent
+    /// from `KNOWN_MANAGERS`, so no invariant could see it and the scrollbar-fade
+    /// latch stayed invisible to every assertion in this file — caught eventually,
+    /// and only incidentally, by a hard-coded field read somewhere else. Absence
+    /// is silent; that is the whole problem. Adding a manager module now breaks
+    /// this test until somebody classifies it, which is the only way "we forgot
+    /// one" becomes impossible rather than merely unlikely.
+    #[test]
+    fn every_manager_module_is_either_checked_or_declared_unobservable() {
+        let dir = concat!(env!("CARGO_MANIFEST_DIR"), "/src/managers");
+        let mut modules: Vec<String> = std::fs::read_dir(dir)
+            .unwrap_or_else(|e| panic!("cannot read {dir}: {e}"))
+            .filter_map(Result::ok)
+            .filter_map(|e| {
+                let name = e.file_name().to_string_lossy().into_owned();
+                let stem = name.strip_suffix(".rs")?.to_string();
+                // `mod.rs` is the module root, not a manager.
+                (stem != "mod").then_some(stem)
+            })
+            .collect();
+        modules.sort();
+        assert!(
+            !modules.is_empty(),
+            "found no manager modules under {dir} — this test would pass vacuously",
+        );
+
+        // `scroll_state` and `focus_cursor` are the FILE names; the assertion
+        // addresses them as "scroll" and "focus", which is what a scenario writes.
+        fn alias(m: &str) -> &str {
+            match m {
+                "scroll_state" => "scroll",
+                "focus_cursor" => "focus",
+                other => other,
+            }
+        }
+
+        let unclassified: Vec<&String> = modules
+            .iter()
+            .filter(|m| {
+                let a = alias(m);
+                !KNOWN_MANAGERS.contains(&a)
+                    && !UNOBSERVABLE_MANAGERS.iter().any(|(n, _)| *n == a)
+            })
+            .collect();
+
+        assert!(
+            unclassified.is_empty(),
+            "these manager modules are neither checked by assert_manager_invariants nor listed in \
+             UNOBSERVABLE_MANAGERS: {unclassified:?}.\nAdd a real invariant, or record why it has \
+             none. Do not leave it out — a manager nothing asserts on can latch forever and no \
+             test will notice.",
+        );
+
+        // The reverse direction: a name nobody can request is dead weight that
+        // reads as coverage.
+        for (name, _) in UNOBSERVABLE_MANAGERS {
+            assert!(
+                modules.iter().any(|m| alias(m) == *name),
+                "UNOBSERVABLE_MANAGERS lists '{name}', which is not a module under {dir}",
+            );
+        }
+    }
+}
