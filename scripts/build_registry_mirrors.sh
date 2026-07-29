@@ -242,6 +242,24 @@ PY
     echo "::error::[nuget] $(basename "$nupkg") is $id $ver but this release is $V — 'dotnet add package $id --version $V' could not resolve"
     return 1
   fi
+  # ...and the same check for the ID, which was missing. The version was
+  # validated against the release; the id was taken from the nupkg and used to
+  # name the flat-container directory, whatever it happened to be. So the deploy
+  # published `flatcontainer/azul/`, printed "package id azul", and went green,
+  # while the site tells every C# user to run `dotnet add package Azul.Net`.
+  # Live result: /ui/nuget/flatcontainer/azul/index.json is 200 and
+  # /ui/nuget/flatcontainer/azul.net/index.json is 404, so the documented
+  # command fails with NU1101 "no packages exist with this id".
+  #
+  # Root cause of the wrong id: the csproj is staged from the `dll-share`
+  # codegen artifact, and a stale one predates `<PackageId>Azul.Net</PackageId>`
+  # — with no PackageId, MSBuild defaults the id to the project file name,
+  # `Azul`. Nothing compared the id it produced to the id it advertises.
+  local doc_id="azul.net"
+  if [ "$lid" != "$doc_id" ]; then
+    echo "::error::[nuget] $(basename "$nupkg") has package id '$id', but the site documents 'dotnet add package Azul.Net' (expected '$doc_id'). Hosting it under flatcontainer/$lid/ would 404 that command. If the id changed on purpose, update the docs, scripts/verify_install_commands.sh (DEFAULT_NUGET_ID) and this check together; if not, the staged csproj is stale and is missing <PackageId>."
+    return 1
+  fi
   local base="$SITE/ui/nuget"
   mkdir -p "$base/flatcontainer/$lid/$lver"
   cp "$nupkg" "$base/flatcontainer/$lid/$lver/$lid.$lver.nupkg"

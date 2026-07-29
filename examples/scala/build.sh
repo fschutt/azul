@@ -56,6 +56,8 @@ resolve_cmd() {
 }
 
 SCALAC="$(resolve_cmd scalac || true)"
+# Populated by find_scala_jar so the failure diagnostic can show the search path.
+declare -a SEARCHED=()
 
 find_scala_jar() {
     # $1: artifact directory name, $2: jar basename prefix
@@ -68,7 +70,36 @@ find_scala_jar() {
                      readlink "$scalac_bin" | sed "s|^\([^/]\)|$(pwd)/\1|")
     done
     root=$(dirname "$(dirname "$scalac_bin")")
-    find "$root" "$HOME/.cache/coursier" "$HOME/.ivy2" -name "$2*.jar" \
+    # Coursier's cache is NOT $HOME/.cache/coursier on every platform, and those
+    # two Linux/XDG paths were the whole search list besides $root. On
+    # windows-2022 that made this the SECOND failure in a row for the same
+    # example: once `scalac` resolved (see resolve_cmd above, it lands on
+    # /c/Users/runneradmin/cs/bin/scalac.bat), the jars still came back empty
+    # because coursier put them under %LOCALAPPDATA%\Coursier\cache, which
+    # nothing here looked at. Search every documented location; missing ones
+    # cost nothing because `find` is already silenced.
+    #
+    #   Linux/XDG   $HOME/.cache/coursier
+    #   macOS       $HOME/Library/Caches/Coursier
+    #   Windows     $LOCALAPPDATA/Coursier/cache  (git-bash sees it as a path)
+    #   COURSIER_CACHE overrides all of the above when set.
+    local -a search=("$root")
+    [ -n "${COURSIER_CACHE:-}" ] && search+=("$COURSIER_CACHE")
+    search+=("$HOME/.cache/coursier" "$HOME/.ivy2" "$HOME/.m2/repository")
+    search+=("$HOME/Library/Caches/Coursier")
+    [ -n "${LOCALAPPDATA:-}" ] && search+=("$LOCALAPPDATA/Coursier/cache")
+    search+=("$HOME/AppData/Local/Coursier/cache")
+    # `cs` also keeps an "artifacts" tree next to its launcher on Windows.
+    search+=("$(dirname "$scalac_bin")/../artifacts")
+
+    SEARCHED=("${search[@]}")
+    local -a existing=()
+    local d
+    for d in "${search[@]}"; do
+        [ -d "$d" ] && existing+=("$d")
+    done
+    [ ${#existing[@]} -gt 0 ] || return 1
+    find "${existing[@]}" -name "$2*.jar" \
         -not -name "*-sources.jar" -not -name "*-javadoc.jar" \
         2>/dev/null | sort -V | tail -1
 }
@@ -85,7 +116,15 @@ for var in SCALA_LIB SCALA3_LIB; do
     if [ -z "$val" ] || [ ! -f "$val" ]; then
         echo "$var could not be located (got: '${val:-<empty>}')." >&2
         echo "scalac: ${SCALAC:-<not on PATH>}" >&2
-        echo "Set $var explicitly to the jar path." >&2
+        # Print WHERE we looked. Twice now this example has failed on CI with a
+        # message that named the missing variable but not the search path, which
+        # is the one fact needed to tell "toolchain absent" from "jars are
+        # somewhere else" — and on Windows it was the latter both times.
+        echo "searched:" >&2
+        for d in "${SEARCHED[@]:-}"; do
+            [ -n "$d" ] && echo "  $d $([ -d "$d" ] && echo '(exists)' || echo '(absent)')" >&2
+        done
+        echo "Set $var explicitly to the jar path, or COURSIER_CACHE to the cache root." >&2
         exit 1
     fi
 done
