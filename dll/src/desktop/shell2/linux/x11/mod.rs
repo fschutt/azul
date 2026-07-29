@@ -4710,6 +4710,25 @@ impl Drop for X11Window {
         // closed display, crashing on exit (the exit-time GL crash). Assigning
         // None drops the old RenderMode (running its GL teardown) while the
         // window + display are still alive, fixing the teardown ordering.
+        //
+        // `common.gl_context_ptr` has to go FIRST, and while the context is
+        // still current: its Drop runs `glDeleteProgram` for the SVG/FXAA/
+        // brush shaders (`azul_core::gl::GlContextPtrInner::drop`), which are
+        // real GL calls, and it is a field of `self.common` so it would
+        // otherwise drop after this whole body.
+        //
+        // On X11 that ordering is currently survivable rather than correct:
+        // this backend's `GlContext::drop` destroys the surface and context
+        // but does NOT call `eglTerminate`, so the driver stays loaded and the
+        // late `glDeleteProgram` dispatches into a live library. Wayland's
+        // does call `eglTerminate`, and there the same code jumped into freed
+        // memory — a hard SIGSEGV on every exit. Fixed here too so the two
+        // backends do not differ on whether a latent bug happens to be fatal.
+        if let RenderMode::Gpu(ref gl_context, _) = self.render_mode {
+            gl_context.make_current();
+        }
+        self.common.gl_context_ptr = OptionGlContextPtr::None;
+
         self.render_mode = RenderMode::None;
         self.close();
     }

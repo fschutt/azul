@@ -5144,6 +5144,55 @@ extern "C" fn frame_done_callback(
 
 impl Drop for WaylandWindow {
     fn drop(&mut self) {
+        // FIRST, before any wl_proxy_destroy below.
+        //
+        // `Drop::drop`'s BODY runs before the struct's FIELDS drop, so
+        // `render_mode` — and everything hanging off it — used to be released
+        // *after* this body had already destroyed `self.surface` and called
+        // `wl_display_disconnect`. Both variants then touched freed objects:
+        //
+        //   * `RenderMode::Gpu` holds a `GlContext` whose Drop does
+        //     eglDestroySurface / eglDestroyContext / eglTerminate and then
+        //     `wl_egl_window_destroy`. The EGLSurface and the wl_egl_window
+        //     both wrap `self.surface`, and eglTerminate wants the wl_display
+        //     still connected. Under nvidia this faulted inside
+        //     libnvidia-egl-wayland.so.1 — the reported teardown SIGSEGV.
+        //
+        //   * `RenderMode::Cpu` holds a `CpuFallbackState` whose Drop calls
+        //     `wl_buffer_destroy` and `wl_shm_pool_destroy` on proxies of a
+        //     display that has already been disconnected. Same defect, second
+        //     code path, and it was never in the bug report because the crash
+        //     only reproduced on the GPU backend.
+        //
+        // Replacing (rather than `ManuallyDrop`/`Option::take` gymnastics)
+        // drops the old value at the end of this statement, while the surface
+        // and display are both still alive. `Cpu(None)` owns nothing, so the
+        // second drop at end of scope is a no-op.
+        //
+        // Do NOT try to solve this by walking `listener_proxies` here — that
+        // Vec overlaps proxies the blocks below already destroy, and doing
+        // both double-frees.
+        // Order matters twice over, so do it explicitly:
+        //
+        //   1. `common.gl_context_ptr`'s Drop is not bookkeeping — it runs
+        //      `glDeleteProgram` for the SVG, multicolor, FXAA and brush
+        //      shaders (`azul_core::gl::GlContextPtrInner::drop`). Those are
+        //      real GL calls and need a live, CURRENT context. It is a field
+        //      of `self.common`, so it used to run after everything below,
+        //      dispatching through function pointers into a library
+        //      eglTerminate had already torn down — the crash landed in
+        //      `?? ()` one frame under `delete_program`.
+        //   2. Only then may the EGL context itself go.
+        if let RenderMode::Gpu(ref gl_context, _) = self.render_mode {
+            gl_context.make_current();
+        }
+        self.common.gl_context_ptr = OptionGlContextPtr::None;
+
+        drop(std::mem::replace(
+            &mut self.render_mode,
+            RenderMode::Cpu(None),
+        ));
+
         // Close all timerfd's
         for (_timer_id, fd) in std::mem::take(&mut self.timer_fds) {
             unsafe {
