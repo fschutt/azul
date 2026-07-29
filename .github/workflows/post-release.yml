@@ -1,0 +1,258 @@
+# POST-RELEASE WATCHDOG.
+#
+# Everything in rust.yml verifies the WORKING TREE, or at best a STAGED tree just
+# before it is published. A user gets the PUBLISHED ARTIFACT, from the live host,
+# with their own resolution and their own toolchain. azul has shipped through that
+# gap more than once:
+#
+#   * the demo APKs on the release page could never install — the manifest's
+#     launcher activity `com.azul.app.AzulActivity` is a Java class and CI built
+#     with AZ_ANDROID_NO_JAVA=1, so every published APK had no classes.dex. Five
+#     stacked cannot-fail layers hid it, and the build script's own `adb` path
+#     launches `android.app.NativeActivity` DIRECTLY, bypassing the launcher entry
+#     — the one code path a phone uses was the one nothing exercised.
+#   * `gem install azul --source https://azul.rs/ui/gems` returned 404 and
+#     `dotnet add package azul` rejected the nupkg (published under `Azul.Net`,
+#     requested as `azul`) — both behind a GREEN deploy, because every check
+#     asserted that files EXIST, never that the documented command WORKS.
+#
+# This workflow closes that gap AFTER the fact. A green deploy that shipped a
+# broken artifact turns this run RED while the site stays up, which is the point:
+# it reports, it does not gate.
+#
+#   - push to master: verifies the version currently named in api.json.
+#   - daily (cron): verifies the LIVE site against today's ecosystem. A new pip,
+#     a new NuGet client, an expired index — none of those touch this repo, and
+#     this is the only job that would notice.
+#   - workflow_dispatch: optionally for an explicit version.
+#
+# Modelled on printpdf's post-release.yml, which exists for the same reason (its
+# 0.11.0 shipped uninstallable because CI resolved dependencies fresh while
+# consumers had lockfiles).
+name: Post-release checks
+
+on:
+  push:
+    branches: [master]
+  schedule:
+    # Daily. Failures surface in the Actions tab and in GitHub's failure emails.
+    - cron: "17 6 * * *"
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "azul version to verify (default: the version in api.json)"
+        required: false
+      base_url:
+        description: "Base URL to verify against (default: https://azul.rs)"
+        required: false
+
+permissions:
+  contents: read
+
+concurrency:
+  # Deliberately NOT the same group as rust.yml. A release run must never cancel
+  # its own watchdog, and a watchdog must never cancel a release.
+  group: post-release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  resolve:
+    name: Resolve version + confirm the site is live
+    runs-on: ubuntu-22.04
+    timeout-minutes: 10
+    outputs:
+      version: ${{ steps.v.outputs.version }}
+      base_url: ${{ steps.v.outputs.base_url }}
+    steps:
+      - uses: actions/checkout@v7
+      - id: v
+        shell: bash
+        run: |
+          set -euo pipefail
+          BASE="${{ github.event.inputs.base_url }}"
+          [ -n "$BASE" ] || BASE="https://azul.rs"
+
+          VERSION="${{ github.event.inputs.version }}"
+          if [ -z "$VERSION" ]; then
+            # api.json is the source of truth: its single top-level key IS the
+            # version. Read it rather than duplicating the number in this file,
+            # so the watchdog cannot drift from what is actually published.
+            VERSION=$(python3 -c 'import json;print(next(iter(json.load(open("api.json")))))')
+          fi
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "base_url=$BASE"   >> "$GITHUB_OUTPUT"
+          echo "::notice::verifying azul $VERSION against $BASE"
+
+          # The release page must be LIVE. A 404 here means every job below would
+          # fail for the same uninteresting reason, so say it once, clearly.
+          code=$(curl -sS -o /dev/null -w '%{http_code}' "$BASE/releases" || echo 000)
+          [ "$code" = "200" ] \
+            || { echo "::error::$BASE/releases returned $code — the site is not serving a release page"; exit 1; }
+
+  # The documented install command for each channel, run against the LIVE host in
+  # a container whose only reason to exist is that ecosystem's client. A fresh
+  # container cannot pass by picking up an azul left behind by an earlier job.
+  channels:
+    name: "install: ${{ matrix.channel }}"
+    needs: resolve
+    runs-on: ubuntu-22.04
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { channel: pypi,  image: "python:3.12-bookworm" }
+          - { channel: npm,   image: "node:22-bookworm" }
+          - { channel: gems,  image: "ruby:3.3-bookworm" }
+          - { channel: nuget, image: "mcr.microsoft.com/dotnet/sdk:8.0" }
+          - { channel: apt,   image: "debian:bookworm" }
+    container:
+      image: ${{ matrix.image }}
+    steps:
+      - uses: actions/checkout@v7
+      - name: "Run the documented command for ${{ matrix.channel }}"
+        shell: bash
+        run: |
+          set -euo pipefail
+          bash scripts/verify_install_commands.sh \
+            "${{ matrix.channel }}" \
+            "${{ needs.resolve.outputs.base_url }}" \
+            "${{ needs.resolve.outputs.version }}"
+
+  # Python gets an extra step because installing is not importing: the historical
+  # failures here were SIGILL on import and a SIGSEGV on the first `del`, both of
+  # which a successful `pip install` reports as fine.
+  python_import:
+    name: "python: install, import, construct, teardown"
+    needs: resolve
+    runs-on: ubuntu-22.04
+    timeout-minutes: 20
+    container:
+      image: "python:3.12-bookworm"
+    steps:
+      - name: Install from the live index and exercise the object lifecycle
+        shell: bash
+        run: |
+          set -euo pipefail
+          BASE="${{ needs.resolve.outputs.base_url }}"
+          # `--target` rather than a venv: it is isolated, needs no python3-venv,
+          # and sidesteps Debian's externally-managed-environment refusal.
+          python3 -m pip install --target /tmp/azul-site --no-cache-dir \
+            azul --index-url "$BASE/ui"
+
+          # Written to a file rather than passed with -c: an inline script at
+          # column 0 would terminate this YAML block scalar.
+          cat > /tmp/smoke.py <<'PYEOF'
+          import azul
+          n = len([x for x in dir(azul) if x[:1].isupper()])
+          assert n > 100, f"only {n} classes exported - loaded but empty"
+          c = azul.ColorU(255, 0, 0, 255)
+          del c
+          print(f"import OK: {n} classes, construct+teardown clean")
+          PYEOF
+          sed -i 's/^          //' /tmp/smoke.py
+
+          # `ulimit -v` is not caution for its own sake: an unguarded import of a
+          # broken build OOM'd hard enough to lock a developer machine once.
+          ( ulimit -v 4000000
+            PYTHONPATH=/tmp/azul-site python3 /tmp/smoke.py )
+
+  # The release page must LIST what it claims to ship. An artifact that is
+  # deliberately absent (unsigned iOS builds when no Apple signing cert is
+  # configured) must be listed as UNAVAILABLE rather than silently missing —
+  # "not built" and "not shipped in this configuration" have to be
+  # distinguishable by looking.
+  artifacts:
+    name: Release page lists the expected artifacts
+    needs: resolve
+    runs-on: ubuntu-22.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+      - shell: bash
+        run: |
+          set -euo pipefail
+          BASE="${{ needs.resolve.outputs.base_url }}"
+          VERSION="${{ needs.resolve.outputs.version }}"
+          page=$(mktemp)
+          curl -sS --fail "$BASE/releases" -o "$page"
+
+          missing=0
+          for artifact in \
+            "azul-${VERSION}-linux-x86_64" \
+            "azul-${VERSION}-windows-x86_64" \
+            "azul-${VERSION}-macos"; do
+            if grep -qi "$artifact" "$page"; then
+              echo "  listed: $artifact"
+            else
+              echo "::error::$artifact is not listed on $BASE/releases"
+              missing=1
+            fi
+          done
+
+          # An artifact may legitimately not exist — but then it must SAY so.
+          # Silence is the failure mode this check exists for.
+          if grep -qi 'ios' "$page"; then
+            grep -qiE 'ios[^<]*(unavailable|not available)' "$page" \
+              || echo "::notice::iOS artifacts are listed as present — verify they are actually signed"
+          fi
+          exit "$missing"
+
+  # An APK that exists is not an APK that installs. This launches the LAUNCHER
+  # activity, NOT `android.app.NativeActivity` — launching the latter directly is
+  # exactly the bypass that let an APK with no classes.dex look healthy for months.
+  apk_install:
+    name: "android: install the published APK and launch it"
+    needs: resolve
+    runs-on: ubuntu-22.04
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: "17"
+      - name: Download the published APK
+        shell: bash
+        run: |
+          set -euo pipefail
+          BASE="${{ needs.resolve.outputs.base_url }}"
+          # If no APK is published this job must say so rather than pass quietly.
+          curl -sS --fail "$BASE/ui/mobile-apps/azul-self-test-android.apk" \
+            -o /tmp/azul.apk \
+            || { echo "::error::no published APK at $BASE/ui/mobile-apps/"; exit 1; }
+          ls -l /tmp/azul.apk
+      - name: Static checks the phone performs before it will run anything
+        shell: bash
+        run: |
+          set -euo pipefail
+          BT="$ANDROID_SDK_ROOT/build-tools/34.0.0"
+          "$BT/apksigner" verify --verbose /tmp/azul.apk \
+            || { echo "::error::published APK is not validly signed"; exit 1; }
+          unzip -l /tmp/azul.apk | grep -q 'classes\.dex' \
+            || { echo "::error::published APK has no classes.dex — its launcher activity is a Java class, so it cannot start"; exit 1; }
+          "$BT/aapt2" dump badging /tmp/azul.apk | tee /tmp/badging.txt | grep -q launchable-activity \
+            || { echo "::error::published APK declares no launchable activity"; exit 1; }
+      - name: Install on an emulator and start the launcher activity
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 30
+          arch: x86_64
+          disable-animations: true
+          script: |
+            set -euo pipefail
+            adb install -r /tmp/azul.apk
+            ACT=$(grep -oE "launchable-activity: name='[^']+'" /tmp/badging.txt | head -1 | sed "s/.*name='//;s/'//")
+            PKG=$(grep -oE "package: name='[^']+'" /tmp/badging.txt | head -1 | sed "s/.*name='//;s/'//")
+            echo "launching $PKG/$ACT"
+            adb logcat -c
+            adb shell am start -W -n "$PKG/$ACT"
+            sleep 8
+            # A crash on launch is the failure this whole job exists to catch.
+            if adb logcat -d | grep -E "FATAL EXCEPTION|ClassNotFoundException|E AndroidRuntime"; then
+              echo "::error::the published APK crashed on launch"
+              exit 1
+            fi
+            adb shell pidof "$PKG" >/dev/null \
+              || { echo "::error::$PKG is not running 8s after launch"; exit 1; }
+            echo "APK installed, launched via its LAUNCHER activity, and still alive"

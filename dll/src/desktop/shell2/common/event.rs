@@ -996,9 +996,11 @@ impl CommonWindowState {
     /// `Renderer::deinit(self)` is NOT optional and is NOT a `Drop`. Its own
     /// comment says why:
     ///
-    ///     //Note: this is a fake frame, only needed because texture deletion is
-    ///     // require to happen inside a frame
-    ///     self.device.begin_frame();
+    /// ```text
+    /// //Note: this is a fake frame, only needed because texture deletion is
+    /// // require to happen inside a frame
+    /// self.device.begin_frame();
+    /// ```
     ///
     /// azul never called it — `grep -rn '\.deinit()'` over dll/, layout/ and
     /// core/ returned nothing — so every window dropped its `Renderer`
