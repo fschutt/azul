@@ -451,7 +451,7 @@ fn a_mount_callback_asking_for_refresh_gets_another_layout_pass() {
 fn a_theme_switch_changes_the_theme_and_requests_a_frame() {
     use azul_core::window::WindowTheme;
 
-    let counters = Counters::default();
+    let counters = Counters::new();
     let mut window = make_window(counters);
     window
         .regenerate_layout()
@@ -486,7 +486,7 @@ fn a_theme_switch_changes_the_theme_and_requests_a_frame() {
 /// would request a full relayout every frame forever.
 #[test]
 fn re_asserting_the_current_theme_costs_nothing() {
-    let counters = Counters::default();
+    let counters = Counters::new();
     let mut window = make_window(counters);
     window
         .regenerate_layout()

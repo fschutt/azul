@@ -1,6 +1,6 @@
 {
   "name": "noninterference_scroll_does_not_move_focus",
-  "description": "NON-INTERFERENCE across the scroll/focus/selection seam: scrolling a container must move the scroll manager and re-arm the scrollbar fade in gpu_state, AND NOTHING ELSE. Focus stays where it was, no selection appears, no undo entry is recorded, no permission is subscribed. Every one of those is a coupling that would be invisible in the DOM, in the pixels and in the resource counters — a scroll that quietly cleared focus renders identically to one that did not. The baseline is taken 2000 ms after the mount so the mount's own scrollbar fade has already expired; the assertion then runs INSIDE the 500 ms fade delay that the scroll re-arms, which is what makes 'gpu_state moved' a deterministic statement rather than a race. Two-sided on purpose: if scroll or gpu_state stops moving here, this scenario has stopped exercising what it names and says so, instead of passing on a shrinking set.",
+  "description": "NON-INTERFERENCE across the scroll/focus/selection seam: scrolling a container must move the scroll manager and re-arm the scrollbar fade in gpu_state, AND NOTHING ELSE. Focus stays where it was, no selection appears, no undo entry is recorded, no permission is subscribed. Every one of those is a coupling that would be invisible in the DOM, in the pixels and in the resource counters — a scroll that quietly cleared focus renders identically to one that did not. gpu_state is deliberately NOT in 'changed'. The scenario was written expecting the scroll to re-arm the scrollbar fade there, but this corpus runs on the HEADLESS CPU backend, which has no GpuValueCache to update — so gpu_state genuinely does not move, and the two-sided check said so ('listed in changed but did not move') rather than letting the claim stand unexercised. That is the assertion working: a scroll on a GPU backend would move it, and this one does not, so claiming it here would be asserting something no run performs. Still two-sided: if scroll stops moving, this scenario has stopped exercising what it names and says so, instead of passing on a shrinking set.",
   "setup": {
     "window_width": 400,
     "window_height": 300,
@@ -55,7 +55,7 @@
     {
       "op": "assert_only_managers_changed",
       "vs": "before_scroll",
-      "changed": ["scroll", "gpu_state"],
+      "changed": ["scroll"],
       "min_populated": 2
     },
 

@@ -245,7 +245,7 @@ pub fn test_clock_offset_ms() -> u64 {
 }
 
 #[cfg(feature = "std")]
-#[cfg(all(feature = "std", not(any(target_arch = "wasm32", feature = "web_lift"))))]
+#[cfg(all(feature = "std", not(target_arch = "wasm32")))]
 std::thread_local! {
     /// When set, this thread's clock is FROZEN at this instant: `Instant::now()`
     /// answers `base + TEST_CLOCK_OFFSET_MS` and real time does not flow into it
@@ -279,7 +279,7 @@ std::thread_local! {
 ///
 /// Idempotent: re-freezing an already-frozen clock keeps the original base, so
 /// the offset stays the single source of elapsed time.
-#[cfg(all(feature = "std", not(any(target_arch = "wasm32", feature = "web_lift"))))]
+#[cfg(all(feature = "std", not(target_arch = "wasm32")))]
 pub fn freeze_test_clock() {
     TEST_CLOCK_BASE.with(|c| {
         if c.get().is_none() {
@@ -289,7 +289,7 @@ pub fn freeze_test_clock() {
 }
 
 /// Whether this thread's clock is frozen (see [`freeze_test_clock`]).
-#[cfg(all(feature = "std", not(any(target_arch = "wasm32", feature = "web_lift"))))]
+#[cfg(all(feature = "std", not(target_arch = "wasm32")))]
 #[must_use]
 pub fn test_clock_is_frozen() -> bool {
     TEST_CLOCK_BASE.with(core::cell::Cell::get).is_some()
@@ -303,7 +303,7 @@ pub fn test_clock_is_frozen() -> bool {
 /// offset had, just at thread granularity. The E2E runner calls this at the
 /// start of every scenario. Clears the freeze as well, so a scenario cannot
 /// leave the next one's clock stopped.
-#[cfg(all(feature = "std", not(any(target_arch = "wasm32", feature = "web_lift"))))]
+#[cfg(all(feature = "std", not(target_arch = "wasm32")))]
 pub fn reset_test_clock() {
     TEST_CLOCK_OFFSET_MS.with(|c| c.set(0));
     TEST_CLOCK_BASE.with(|c| c.set(None));
@@ -341,11 +341,13 @@ pub fn system_tick_now() -> u64 {
 /// when the clock is frozen — built from the frozen base so real time cannot
 /// leak in.
 ///
-/// NOT COMPILED where there is no real clock. `target_arch = "wasm32"` alone is
-/// not a sufficient guard: under `web_lift` the code is compiled NATIVELY
-/// (target_arch reads x86_64) and lifted to wasm afterwards by the remill
-/// transpiler, so it runs as wasm while every arch cfg says otherwise.
-#[cfg(all(feature = "std", not(any(target_arch = "wasm32", feature = "web_lift"))))]
+/// NOT COMPILED on wasm32, where `std::time::Instant::now()` panics.
+///
+/// `web_lift` is deliberately NOT included here. That backend compiles natively
+/// and is lifted to wasm afterwards, so `target_arch` reads x86_64 — but the
+/// lift walks the LLVM graph and auto-inserts calls out to JS for things like
+/// time, so it supplies its own clock and does not want this arm disabled.
+#[cfg(all(feature = "std", not(target_arch = "wasm32")))]
 fn std_now_with_test_offset() -> StdInstant {
     let offset = test_clock_offset_ms();
     if let Some(base) = TEST_CLOCK_BASE.with(core::cell::Cell::get) {
@@ -363,13 +365,12 @@ impl Instant {
     ///
     /// On systems with std, this uses `std::time::Instant::now()`.
     /// On `no_std` systems, this returns a zero tick.
-    #[cfg(all(feature = "std", not(any(target_arch = "wasm32", feature = "web_lift"))))]
+    #[cfg(all(feature = "std", not(target_arch = "wasm32")))]
     #[must_use] pub fn now() -> Self {
         std_now_with_test_offset().into()
     }
 
-    /// Returns the current time on a build with NO CLOCK: wasm32, or a
-    /// `web_lift` build that is compiled natively and lifted to wasm afterwards.
+    /// Returns the current time on wasm32, which has no clock to read.
     ///
     /// `std::time::Instant::now()` panics on wasm32-unknown-unknown, and
     /// `#[cfg(feature = "std")]` does not exclude wasm here — azul-core is built
@@ -383,7 +384,7 @@ impl Instant {
     /// exactly what a `t` (tick) duration counts. Elapsed values come out as
     /// `Tick` and convert against `System` intervals through
     /// `Duration::as_nanos`, so `60t` compares equal to one second.
-    #[cfg(all(feature = "std", any(target_arch = "wasm32", feature = "web_lift")))]
+    #[cfg(all(feature = "std", target_arch = "wasm32"))]
     #[must_use] pub fn now() -> Self {
         Instant::Tick(SystemTick::new(system_tick_now()))
     }

@@ -273,10 +273,31 @@ impl TextEditManager {
 
     /// End editing (focus left the contenteditable element).
     pub fn clear_editing(&mut self) {
+        // Only ask for a repaint if there was something to erase.
+        //
+        // This used to mark dirty unconditionally, and it is reached on EVERY
+        // focus change — including a Tab between two nodes that were never
+        // editable. The manager then owed a repaint it had no pixels for, and
+        // because `display_list_dirty` is a latch, one such focus move left the
+        // window permanently "not idle": a permanent repaint request, on every
+        // frame, for the rest of the window's life.
+        //
+        // Caught by the E2E non-interference gate, which saw `text_edit` move
+        // on a focus-only step with the fingerprint otherwise identical —
+        // cursor=none, preedit="" both before and after, and only `dirty`
+        // flipping. Nothing changed, so nothing was owed.
+        let had_cursor = self.multi_cursor.is_some();
+        let had_blink = self.blink.is_visible
+            || self.blink.last_input_time.is_some()
+            || self.blink.blink_timer_active;
+
         self.multi_cursor = None;
         self.blink.clear();
-        self.clear_preedit();
-        self.mark_dirty();
+        let had_preedit = self.clear_preedit_returning_changed();
+
+        if had_cursor || had_blink || had_preedit {
+            self.mark_dirty();
+        }
     }
 
     // === IME preedit ===
@@ -291,10 +312,26 @@ impl TextEditManager {
 
     /// Clear the IME preedit text (composition ended or cancelled).
     pub fn clear_preedit(&mut self) {
+        let _ = self.clear_preedit_returning_changed();
+    }
+
+    /// Clear the preedit, reporting whether anything was actually cleared.
+    ///
+    /// Split out so `clear_editing` can decide whether a repaint is owed
+    /// without marking dirty twice — and so clearing an ALREADY-clear preedit
+    /// costs nothing, which is the common case on a focus change.
+    fn clear_preedit_returning_changed(&mut self) -> bool {
+        let changed = self.preedit_text.is_some()
+            || self.preedit_cursor_begin != -1
+            || self.preedit_cursor_end != -1;
+        if !changed {
+            return false;
+        }
         self.preedit_text = None;
         self.preedit_cursor_begin = -1;
         self.preedit_cursor_end = -1;
         self.mark_dirty();
+        true
     }
 
     // === Convenience for building cursor_locations ===
@@ -907,9 +944,17 @@ mod autotest_generated {
         assert!(!m.has_active_editing());
         assert!(!m.should_draw_cursor());
         assert!(m.build_cursor_locations().is_empty());
+        // A fresh manager has no cursor, no blink and no preedit, so clearing it
+        // erases NOTHING and owes no repaint. This assertion used to read
+        // `assert!(m.display_list_dirty, "clear_editing marks dirty
+        // unconditionally")` — it documented the behaviour as found rather than
+        // as intended, and what it documented was a bug: `clear_editing` runs on
+        // every focus change, `display_list_dirty` is a LATCH, and so one Tab
+        // between two never-editable nodes left the window owing a repaint on
+        // every frame for the rest of its life.
         assert!(
-            m.display_list_dirty,
-            "clear_editing marks dirty unconditionally"
+            !m.display_list_dirty,
+            "clearing an already-clear manager must not request a repaint"
         );
     }
 
@@ -1053,9 +1098,13 @@ mod autotest_generated {
         assert!(m.preedit_text.is_none());
         assert_eq!(m.preedit_cursor_begin, -1);
         assert_eq!(m.preedit_cursor_end, -1);
+        // The FIRST clear (above) really did clear a preedit and correctly marked
+        // dirty. This second one has nothing left to clear, so it must not.
+        // Previously asserted the opposite, in as many words: "clear_preedit
+        // marks dirty even when nothing changed".
         assert!(
-            m.display_list_dirty,
-            "clear_preedit marks dirty even when nothing changed"
+            !m.display_list_dirty,
+            "a no-op clear_preedit must not request a repaint"
         );
     }
 

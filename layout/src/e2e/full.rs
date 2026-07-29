@@ -6001,6 +6001,10 @@ const KNOWN_MANAGERS: &[&str] = &[
 
 const UNOBSERVABLE_MANAGERS: &[(&str, &str)] = &[
     (
+        "a11y_snapshot",
+        "pure projection — `A11ySnapshot::build()` is called on demand from `LayoutWindow::build_a11y_snapshot(&self)` and the result is handed straight to the platform bridge; nothing is stored on the window between calls. There is no state that could latch, so there is no invariant to assert. The a11y state that CAN latch lives in `a11y_manager`, which is checked",
+    ),
+    (
         "scroll_into_view",
         "stateless — free functions that take options and return ScrollAdjustments, retaining \
          nothing between calls",
@@ -7038,6 +7042,10 @@ fn fingerprinted_managers() -> Vec<&'static str> {
 fn not_fingerprintable() -> Vec<(&'static str, &'static str)> {
     #[allow(unused_mut)]
     let mut reasons: Vec<(&'static str, &'static str)> = alloc::vec![
+    (
+        "a11y_snapshot",
+        "pure projection, rebuilt from the DOM on every call and never stored — see the matching entry in UNOBSERVABLE_MANAGERS. Fingerprinting it would hash a value that is recomputed rather than remembered, so it would report a change on every frame and mean nothing",
+    ),
     (
         "scroll_into_view",
         "stateless — free functions that compute ScrollAdjustments, write them into ScrollManager \
