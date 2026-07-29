@@ -423,6 +423,20 @@ pub fn hint_purge_allocator() {
             malloc_zone_pressure_relief(core::ptr::null_mut(), 0);
         }
     }
+    // glibc's equivalent of malloc_zone_pressure_relief. Without this the
+    // Linux default-allocator path was the "no-op" the doc comment describes,
+    // so a purge-then-measure sequence could never show pages coming back.
+    #[cfg(all(
+        target_os = "linux",
+        target_env = "gnu",
+        not(miri),
+        not(any(feature = "allocator_mimalloc", feature = "allocator_jemalloc"))
+    ))]
+    {
+        unsafe {
+            libc::malloc_trim(0);
+        }
+    }
 }
 
 /// Sample the process's "real" memory footprint (not peak).
@@ -481,7 +495,28 @@ pub fn current_rss_bytes() -> (u64, u64) {
             }
         }
     }
-    #[cfg(not(target_os = "macos"))]
+    // The doc comment above has always promised a `/proc/self/statm` fallback
+    // on Linux. Until 2026-07-29 this arm returned (0, 0) for every non-macOS
+    // target, so `sample_peak_rss` silently fell back to ru_maxrss (peak-only,
+    // never decreases) and every allocator-purge measurement on Linux read as
+    // "no memory was returned".
+    #[cfg(all(target_os = "linux", not(miri)))]
+    {
+        // statm fields are in pages: size resident shared text lib data dt.
+        let Ok(statm) = std::fs::read_to_string("/proc/self/statm") else {
+            return (0, 0);
+        };
+        let mut it = statm.split_ascii_whitespace();
+        let size: u64 = it.next().and_then(|v| v.parse().ok()).unwrap_or(0);
+        let resident: u64 = it.next().and_then(|v| v.parse().ok()).unwrap_or(0);
+        let page = unsafe { libc::sysconf(libc::_SC_PAGESIZE) };
+        let page = if page > 0 { page as u64 } else { 4096 };
+        (
+            resident.saturating_mul(page),
+            size.saturating_mul(page),
+        )
+    }
+    #[cfg(not(any(target_os = "macos", all(target_os = "linux", not(miri)))))]
     { (0, 0) }
 }
 
@@ -492,7 +527,24 @@ pub fn current_rss_bytes() -> (u64, u64) {
 /// for thread stacks, GL buffers, file-mapped fonts, etc. are NOT counted.
 /// A leak that shows up here points to a genuine heap retention (an Arc
 /// chain never dropped, a Vec never shrunk, a `Box<T>` forgotten).
-/// Returns 0 on non-macOS.
+///
+/// - **macOS**: `mstats().bytes_used`.
+/// - **Linux/glibc**: `mallinfo2().uordblks` — the same quantity, total
+///   bytes currently handed out by malloc. Resolved with `dlsym` rather
+///   than linked directly, because `mallinfo2` is glibc 2.33+ and a hard
+///   link reference would break the build on older distros for the sake of
+///   an opt-in diagnostic. Falls back to the `c_int`-based `mallinfo()`,
+///   which is exact below 2 GiB of live heap.
+/// - Everything else: 0.
+///
+/// CAVEAT (Linux): glibc accounts the **main arena only**. Allocations made
+/// on other threads' arenas — and azul spawns font scout/builder threads —
+/// are invisible here. A rising number is proof of a leak; a flat one is
+/// not proof of its absence. Cross-check with [`current_rss_bytes`].
+///
+/// This returned 0 on every non-macOS target until 2026-07-29, which is the
+/// only reason `dll/tests/leak_regression.rs` is `cfg(target_os = "macos")`:
+/// the leak was never macOS-specific, the *instrument* was.
 #[cfg(feature = "probe")]
 pub fn malloc_heap_bytes() -> u64 {
     #[cfg(target_os = "macos")]
@@ -510,7 +562,38 @@ pub fn malloc_heap_bytes() -> u64 {
         }
         unsafe { mstats().bytes_used as u64 }
     }
-    #[cfg(not(target_os = "macos"))]
+    #[cfg(all(target_os = "linux", target_env = "gnu", not(miri)))]
+    {
+        type Mallinfo2Fn = unsafe extern "C" fn() -> libc::mallinfo2;
+        static MALLINFO2: std::sync::OnceLock<Option<Mallinfo2Fn>> =
+            std::sync::OnceLock::new();
+        let resolved = MALLINFO2.get_or_init(|| unsafe {
+            // RTLD_DEFAULT is NULL on glibc; the libc crate doesn't define
+            // the constant for linux-gnu, so spell it out.
+            let sym = libc::dlsym(
+                core::ptr::null_mut(),
+                b"mallinfo2\0".as_ptr().cast::<core::ffi::c_char>(),
+            );
+            if sym.is_null() {
+                None
+            } else {
+                Some(core::mem::transmute::<
+                    *mut core::ffi::c_void,
+                    Mallinfo2Fn,
+                >(sym))
+            }
+        });
+        return match resolved {
+            Some(mallinfo2) => unsafe { mallinfo2().uordblks as u64 },
+            // Pre-2.33 glibc. `uordblks` is a signed int that wraps past
+            // 2 GiB; clamp rather than report a negative byte count.
+            None => unsafe { libc::mallinfo().uordblks.max(0) as u64 },
+        };
+    }
+    #[cfg(not(any(
+        target_os = "macos",
+        all(target_os = "linux", target_env = "gnu", not(miri))
+    )))]
     { 0 }
 }
 
@@ -1286,20 +1369,64 @@ mod autotest_generated {
     // malloc_heap_bytes / detail_enabled (both cfg worlds)
     // ---------------------------------------------------------------
 
+    /// Platforms where `malloc_heap_bytes` is expected to return a real
+    /// figure. This used to be macOS alone, which is exactly why the FFI leak
+    /// regression could only ever be measured there.
+    const HEAP_BYTES_IS_REAL: bool = cfg!(all(
+        feature = "probe",
+        any(
+            target_os = "macos",
+            all(target_os = "linux", target_env = "gnu")
+        ),
+        not(miri)
+    ));
+
     #[test]
-    fn malloc_heap_bytes_is_zero_off_macos_and_deterministic() {
-        let a = malloc_heap_bytes();
-        let b = malloc_heap_bytes();
-        if cfg!(all(feature = "probe", target_os = "macos")) {
-            // Only the macOS `mstats()` path returns a real figure; both reads
-            // are live samples so they need not be equal.
-            let _ = (a, b);
-        } else {
-            // Documented: "Returns 0 on non-macOS" (and the no-probe stub is
-            // `const fn -> 0`).
-            assert_eq!(a, 0);
-            assert_eq!(b, 0);
+    fn malloc_heap_bytes_actually_tracks_live_heap() {
+        if !HEAP_BYTES_IS_REAL {
+            // Unsupported target (or the `probe` feature is off, where the
+            // stub is a `const fn -> 0`). Say so by measurement, not by faith.
+            assert_eq!(malloc_heap_bytes(), 0);
+            assert_eq!(malloc_heap_bytes(), 0);
+            return;
         }
+
+        // A probe that returns a plausible constant is worse than one that
+        // returns nothing, because it reads as evidence. Prove it MOVES, and
+        // moves in the right direction by roughly the right amount.
+        //
+        // 8 MiB: far above allocator bookkeeping noise, and above glibc's
+        // MMAP_THRESHOLD only if that has been tuned up — so ask for it as
+        // many smaller blocks that are certain to come from the heap proper
+        // rather than a fresh mmap that `uordblks` would not count.
+        const BLOCK: usize = 64 * 1024;
+        const BLOCKS: usize = 128;
+        const TOTAL: u64 = (BLOCK * BLOCKS) as u64;
+
+        let before = malloc_heap_bytes();
+        assert!(before > 0, "a live process holds a non-zero heap");
+
+        let mut ballast: Vec<Vec<u8>> = Vec::with_capacity(BLOCKS);
+        for _ in 0..BLOCKS {
+            // Touch it: a Vec that is never written may not be committed.
+            ballast.push(vec![0xAB_u8; BLOCK]);
+        }
+        let during = malloc_heap_bytes();
+
+        drop(ballast);
+        let after = malloc_heap_bytes();
+
+        assert!(
+            during >= before + TOTAL / 2,
+            "allocating {TOTAL} B moved the probe by only {} B \
+             (before={before}, during={during}) — it is not measuring the heap",
+            during.saturating_sub(before),
+        );
+        assert!(
+            after < during - TOTAL / 2,
+            "freeing {TOTAL} B left the probe at {after} B (during={during}) — \
+             it does not see frees, so it cannot distinguish a leak from churn",
+        );
     }
 
     #[test]
