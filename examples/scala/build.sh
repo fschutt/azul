@@ -38,10 +38,30 @@ JNA_JAR="${JNA_JAR:-$HOME/.m2/repository/net/java/dev/jna/jna/5.14.0/jna-5.14.0.
 # one machine it was written on: on Windows and Linux CI, scalac exists and
 # works but both jars resolved to paths that do not exist, so the build died
 # on a missing classpath entry rather than on anything about the example.
+# git-bash's `command -v` does NOT apply PATHEXT, so a coursier-installed
+# `scalac.bat` is invisible to a bare lookup even though it is on PATH and
+# runnable. On windows-2022 coursier logged "Wrote scala / Wrote scalac", the
+# e2e matrix's own `have()` helper (which DOES try the extensions) agreed the
+# toolchain was present, and then this script looked for a bare `scalac`,
+# found nothing, and reported "<not on PATH>". Probe and invocation disagreed,
+# so scala — a REQUIRED shipped binding — reported FAILS and blocked the
+# release on a lookup convention rather than on a missing tool or a real bug.
+resolve_cmd() {
+    local c="$1" p ext
+    if p=$(command -v "$c" 2>/dev/null); then printf '%s\n' "$p"; return 0; fi
+    for ext in exe bat cmd com; do
+        if p=$(command -v "$c.$ext" 2>/dev/null); then printf '%s\n' "$p"; return 0; fi
+    done
+    return 1
+}
+
+SCALAC="$(resolve_cmd scalac || true)"
+
 find_scala_jar() {
     # $1: artifact directory name, $2: jar basename prefix
     local scalac_bin root
-    scalac_bin=$(command -v scalac 2>/dev/null) || return 1
+    scalac_bin="$SCALAC"
+    [ -n "$scalac_bin" ] || return 1
     # Resolve symlinks (Homebrew, coursier and asdf all shim scalac).
     while [ -L "$scalac_bin" ]; do
         scalac_bin=$(cd "$(dirname "$scalac_bin")" && \
@@ -64,7 +84,7 @@ for var in SCALA_LIB SCALA3_LIB; do
     eval "val=\${$var}"
     if [ -z "$val" ] || [ ! -f "$val" ]; then
         echo "$var could not be located (got: '${val:-<empty>}')." >&2
-        echo "scalac: $(command -v scalac || echo '<not on PATH>')" >&2
+        echo "scalac: ${SCALAC:-<not on PATH>}" >&2
         echo "Set $var explicitly to the jar path." >&2
         exit 1
     fi
@@ -80,7 +100,7 @@ for jar in "$JNA_JAR" "$SCALA_LIB" "$SCALA3_LIB"; do
 done
 
 echo "[scala] compiling HelloWorld.scala"
-scalac -cp "$JAVA_CLASSES:$JNA_JAR" HelloWorld.scala -d HelloWorld.jar
+"$SCALAC" -cp "$JAVA_CLASSES:$JNA_JAR" HelloWorld.scala -d HelloWorld.jar
 
 # -XstartOnFirstThread is a macOS-only JVM flag (needed there for libazul's
 # NSApplication loop). HotSpot on Linux/Windows rejects it outright with

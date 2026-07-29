@@ -2641,6 +2641,19 @@ jobs:
       # `command -v zig`, so when the action works this is a no-op.
       - name: Ensure zig is actually on PATH
         if: matrix.family.key == 'scripting'
+        # continue-on-error, like the 15 toolchain-setup steps above it. This is
+        # a TOOLCHAIN INSTALL, and a toolchain that cannot be installed must
+        # produce a SKIP row, not a red job: on macos-14 the direct-install
+        # fallback failed with "Unable to locate executable file: zig" and took
+        # the whole e2e_native leg down with it — and e2e_native BLOCKS the
+        # deploy, so an upstream zig mirror outage blocked a release.
+        #
+        # This does NOT weaken the gate. zig is in WINDOWS_NONGATING_LANGS but
+        # REQUIRED on linux/macOS, so a SKIP here still fails --gate-shipped on
+        # those two. The difference is that it now fails as "zig SKIPped, and
+        # zig is required here" in the language board — a diagnosis — instead of
+        # as a dead step 40 lines up with the board never printed at all.
+        continue-on-error: true
         shell: bash
         run: |
           set -euo pipefail
@@ -5513,9 +5526,63 @@ jobs:
           #   (d) nothing ever grepped stats/sanitizers.txt for FAIL.
           # The table looked like a result and could not report one.
           san_failed=0
+          # The instrumented libazul.so references __tsan_memcpy / __tsan_memset /
+          # __tsan_memmove. Those are LLVM compiler-rt symbols added in LLVM 16,
+          # emitted because rustc instrumented the memory intrinsics — and
+          # ubuntu-22.04's clang is 14, whose compiler-rt predates them. So the
+          # link failed with three undefined references even though the guard
+          # above correctly confirmed the .so WAS instrumented (46 __tsan_*
+          # symbols). Nothing was wrong with either half; they were built by two
+          # different LLVMs (rustc here is a 1.99 nightly).
+          #
+          # Chasing a system clang that happens to match a nightly's LLVM is a
+          # losing game — it would re-break on the next toolchain bump. The
+          # runtime that matches the instrumentation in libazul.so by
+          # construction is the one Rust ships, so link THAT and let it satisfy
+          # both sides. TSan's ABI is backwards compatible, so clang-14's older
+          # entry points resolve against a newer runtime fine.
+          tsan_rt=""
+          find_tsan_rt() {
+            local sysroot
+            sysroot=$(rustc +nightly --print sysroot 2>/dev/null) || return 1
+            tsan_rt=$(find "$sysroot" -name 'librustc*_rt.tsan.a' 2>/dev/null | head -1)
+            [ -n "$tsan_rt" ]
+          }
+
           run_san() { # <example> <label> <san-flags> [libdir] [timeout-secs]
             local ex="$1" label="$2" flags="$3"
             local libdir="${4:-target/debug}" secs="${5:-30}"
+            local link_flags="$flags" extra=""
+            case "$flags" in
+              *thread*)
+                if ! find_tsan_rt; then
+                  echo "::error::cannot find Rust's TSan runtime (librustc*_rt.tsan.a) in the nightly sysroot — the C link would fail on __tsan_memcpy against the system clang's older compiler-rt"
+                  emit "$ex" "$label" "build-fail (no rust tsan runtime)"
+                  san_failed=1
+                  return
+                fi
+                echo "linking Rust's TSan runtime: $tsan_rt"
+                # Instrument the C file, but do NOT let clang add its own
+                # runtime at link time — two TSan runtimes in one image is a
+                # duplicate-symbol error, and clang's is the mismatched one.
+                link_flags="-fno-sanitize=thread"
+                extra="$tsan_rt -lpthread -ldl -lrt -lm"
+                if ! clang -g -O1 $flags -fno-omit-frame-pointer -I target/codegen \
+                     -c "examples/c/$ex.c" -o "/tmp/$ex-san.o" 2>/tmp/cc.log; then
+                  emit "$ex" "$label" "build-fail (compile)"
+                  cat /tmp/cc.log >&2 || true
+                  san_failed=1
+                  return
+                fi
+                if ! clang -g $link_flags "/tmp/$ex-san.o" \
+                     -L "$libdir" -lazul $extra -o "/tmp/$ex-san" 2>/tmp/cc.log; then
+                  emit "$ex" "$label" "build-fail (link)"
+                  cat /tmp/cc.log >&2 || true
+                  san_failed=1
+                  return
+                fi
+                ;;
+              *)
             if ! clang -g -O1 $flags -fno-omit-frame-pointer -I target/codegen \
                  "examples/c/$ex.c" -L "$libdir" -lazul -o "/tmp/$ex-san" 2>/tmp/cc.log; then
               emit "$ex" "$label" "build-fail"
@@ -5523,6 +5590,8 @@ jobs:
               san_failed=1
               return
             fi
+                ;;
+            esac
             local rc=0
             # halt_on_error=1 for TSan too: a data race must change the exit code,
             # or the row is decoration.
