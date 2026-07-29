@@ -3654,13 +3654,17 @@ jobs:
     # is instrumentation, NOT a gate.
     # ffi_safety_tests GATES THE RELEASE. It was absent from this list, so a
     # deploy could ship a DLL whose FFI surface had failed its own safety and
-    # leak checks — and it has been failing: leak_regression measures
-    # ~7.6 KiB leaked per regenerate_layout resize iteration against a 4096 B
-    # budget, consistently across runs (7654 B, 7735 B), ~3.7 MiB over 500
-    # iterations. That is a steady leak in the C ABI path, not noise.
+    # leak checks.
     #
-    # Consequence, stated deliberately: until that leak is fixed the site does
-    # not deploy. That is the intended trade — we do not ship an FFI surface
+    # It was added (8cf087c8f) while leak_regression was red at ~7.6 KiB/iter,
+    # deliberately blocking the deploy until that was resolved. It has since
+    # been: there was no leak. The test sampled the heap at two different
+    # points of a ~1.5 MiB four-phase oscillation and divided by the iteration
+    # count — see the module docs in dll/tests/leak_regression.rs. Measured
+    # phase-matched, the rate is 2-25 B/iter and the budget is now 256.
+    #
+    # The gate stays regardless of that outcome. It should have been here from
+    # the start, and the reason is unchanged: we do not ship an FFI surface
     # whose own safety tests are red.
     needs: [test_lib, test_heavy, build_binaries, cross_build_binaries, build_rust9x, build_linux_packages, build_website_skeleton, coverage, build_demos, docs_pdf, build_mobile, build_mobile_apps, build_mobile_apps_android, e2e_native, e2e_headless, ffi_safety_tests, pypi, npm, rubygems, nuget, maven-central]
     runs-on: ubuntu-22.04
