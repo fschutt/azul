@@ -42,8 +42,8 @@
 //! What the test does now: warm up over FULL cycles so every size's caches
 //! are populated, then sample three times at matched points in the cycle
 //! and take the rate from the SECOND window, where anything one-time has
-//! already cancelled. Measured that way the leak is 13 B/iter of malloc
-//! heap and 49 B/iter of RSS — zero, to the resolution of either
+//! already cancelled. Measured that way the leak is 2-25 B/iter of malloc
+//! heap and 0-49 B/iter of RSS — zero, to the resolution of either
 //! instrument. The per-iteration budget went 4096 -> 256 accordingly.
 //!
 //! The lesson is the recurring one in this repo: the check was wrong about
@@ -130,10 +130,10 @@ const WARMUP_CYCLES: u32 = 8;
 /// used to make (see the sampling comment in the body); the budget had been
 /// set to accommodate the bug in the ruler.
 ///
-/// Measured steady-state on Linux/glibc with phase-matched sampling: **2
-/// bytes/iter** across 500 iterations. 256 leaves two orders of magnitude of
-/// headroom over that and still fails a leak 30× smaller than the one this
-/// file was written for.
+/// Measured steady-state on Linux/glibc with phase-matched sampling: **2 to
+/// 25 bytes/iter** across 500 iterations, over five runs. 256 leaves an order
+/// of magnitude of headroom over the worst of those and still fails a leak
+/// 30x smaller than the one this file was written for.
 const MAX_BYTES_PER_ITER: u64 = 256;
 
 /// Budget for the FIRST measured window, which may still carry one-time costs
@@ -142,7 +142,7 @@ const MAX_BYTES_PER_ITER: u64 = 256;
 /// happens once is not a leak — but bounded, because "one-time" cannot mean
 /// "still growing after 40 warmup frames and 500 measured ones".
 ///
-/// Measured: 73 bytes/iter.
+/// Measured: 18 to 73 bytes/iter over five runs.
 const MAX_FIRST_WINDOW_BYTES_PER_ITER: u64 = 1024;
 
 /// Steady-state RSS budget, per iteration.
