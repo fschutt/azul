@@ -4855,6 +4855,40 @@ impl WaylandWindow {
             );
             return;
         }
+
+        // `AZ_EXIT_SUCCESS_AFTER_FRAME_RENDER=1` exits 0 as soon as one frame has
+        // genuinely reached the compositor. Placed HERE, after the
+        // `surface_committed` guard, because that is the strongest evidence
+        // Wayland offers: a buffer was attached, damaged and committed. Anything
+        // earlier would report success for a frame that produced no buffer, which
+        // is the exact false green this variable exists to remove.
+        //
+        // Until now only windows and headless honoured it — despite a comment in
+        // headless/mod.rs claiming "windows, macos, x11 and wayland have honoured
+        // this for a while", which was simply untrue. That gap is why there is no
+        // non-interactive way to ask a real compositor "did it render?": the
+        // process just keeps running, and a harness can only time out, which is
+        // indistinguishable from a hang. (I hit exactly that while testing this
+        // backend by hand.) With this in place a CI job can run weston/sway
+        // headless and assert exit 0 — a real present-path test on the backend
+        // where most of the redraw bugs lived. See #56.
+        if std::env::var("AZ_EXIT_SUCCESS_AFTER_FRAME_RENDER").is_ok() {
+            log_info!(
+                LogCategory::Rendering,
+                "[Wayland] AZ_EXIT_SUCCESS_AFTER_FRAME_RENDER: a buffer was committed to the \
+                 compositor, requesting close",
+            );
+            // Request the close, do NOT call `self.close()` here.
+            //
+            // Closing mid-frame tears the GL device down while WebRender still
+            // holds live resources, and webrender/core/src/device/gl.rs:1020
+            // asserts `thread::panicking() || self.refcount == 0` — so the direct
+            // call turned a successful render into SIGSEGV (verified: exit 139).
+            // The run loop already honours this flag at run.rs:1388 and closes at
+            // a point where teardown is safe.
+            self.common.current_window_state.flags.close_requested = true;
+            return;
+        }
         // KNOWN-SUBOPTIMAL, deliberately left visible here rather than only in a
         // tracker: this requests the frame callback AFTER the present and then
         // commits a SECOND time to schedule it. On the GPU path eglSwapBuffers has

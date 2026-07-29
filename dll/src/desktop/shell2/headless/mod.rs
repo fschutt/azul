@@ -1443,8 +1443,15 @@ impl HeadlessWindow {
         // `AZ_EXIT_SUCCESS_AFTER_FRAME_RENDER=1` closes the window as soon as
         // one frame exists, so the process exits 0 having PROVEN it rendered.
         //
-        // windows, macos, x11 and wayland have honoured this for a while;
-        // headless did not, and that silently defeated the ASan gate. The CI
+        // This comment used to claim "windows, macos, x11 and wayland have
+        // honoured this for a while". Only WINDOWS did. macos, x11 and wayland
+        // never had it, so there was no non-interactive way to ask a real
+        // compositor whether it rendered — the process just kept running and a
+        // harness could only time out, which reads the same as a hang. wayland
+        // has it now (see linux/wayland/mod.rs, after the surface_committed
+        // guard); x11 and macos still do not — #56.
+        //
+        // headless did not honour it either, and that silently defeated the ASan gate. The CI
         // step sets AZ_BACKEND=headless plus this variable and then runs
         // `timeout 30 ./hello-world-asan || [ $? -eq 124 ]` — so the process
         // ALWAYS ran to the 30s wall, was killed with rc 124, and the `|| [ $? -eq

@@ -144,14 +144,29 @@ BETA_LANGS=( python odin nim racket red d crystal v swift julia )
 #   * lisp    — SBCL is present but quicklisp is not bootstrapped (~/quicklisp/
 #               setup.lisp missing / unloadable), so the load fails at setup.
 #   * zig     — mlugg/setup-zig is best-effort and zig is not reliably on PATH.
-# The DLL + C ABI for all three are validated by the SAME bindings passing on
+#   * ocaml   — the workflow's "Set up OCaml" step is `if: matrix.os !=
+#               'windows-2022'` (setup-ocaml does not support it), so ocaml is
+#               DELIBERATELY never installed on this runner. Requiring it here
+#               was unsatisfiable by construction: the job could not pass, ever.
+#   * pascal  — there is NO fpc setup step anywhere in the workflow. pascal
+#               relies on the runner preinstalling Free Pascal, which ubuntu and
+#               macOS images do and windows-2022 does not.
+# The DLL + C ABI for all five are validated by the SAME bindings passing on
 # macOS/Linux, where they DO gate — so excluding them on Windows only cannot
 # hide a genuine binding regression (that would also fail on macOS/Linux).
-WINDOWS_NONGATING_LANGS=( haskell lisp zig )
+WINDOWS_NONGATING_LANGS=( haskell lisp zig ocaml pascal )
 
-# REQUIRED_LANGS: SHIPPED bindings whose toolchain is provisioned on EVERY runner
-# we use, so a SKIP from them means the CI environment broke — not that the
-# binding legitimately cannot run here.
+# REQUIRED_LANGS: SHIPPED bindings whose toolchain is provisioned on the runner
+# we are CURRENTLY on, so a SKIP from them means the CI environment broke — not
+# that the binding legitimately cannot run here.
+#
+# The original wording said "provisioned on EVERY runner we use", and that was
+# not true for three of the entries: ocaml is deliberately not installed on
+# windows (its setup step is `if: matrix.os != 'windows-2022'`) and pascal has no
+# setup step at all. Membership was audited for "does a skip mean the toolchain
+# is missing" but NOT for "is the toolchain actually provisioned here", so the
+# windows job became unsatisfiable and blocked a release. Per-OS exclusion is why
+# WINDOWS_NONGATING_LANGS exists; those two now use it.
 #
 # This is the mirror image of WINDOWS_NONGATING_LANGS, and it exists because the
 # exception mechanism was previously wired only in the permissive direction:
