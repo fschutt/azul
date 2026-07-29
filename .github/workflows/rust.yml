@@ -2627,6 +2627,42 @@ jobs:
         with:
           version: "0.14.1"
 
+      # Fallback: install zig ourselves if the action did not put it on PATH.
+      #
+      # mlugg/setup-zig@v1 reports SUCCESS while leaving zig unreachable — the
+      # runner then logs "Unable to locate executable file: zig", the language
+      # board reports `zig(SKIP) — zig not installed`, and since zig is a
+      # REQUIRED shipped binding the whole job fails and blocks the release. The
+      # runner also warns that this action is among those "forced to run on
+      # Node.js 24" now that Node 20 is deprecated, which is the likely reason
+      # its PATH export does not take effect.
+      #
+      # Downloading it directly removes the dependency on that export. Guarded on
+      # `command -v zig`, so when the action works this is a no-op.
+      - name: Ensure zig is actually on PATH
+        if: matrix.family.key == 'scripting'
+        shell: bash
+        run: |
+          set -euo pipefail
+          if command -v zig >/dev/null 2>&1; then
+            echo "zig already on PATH: $(command -v zig) ($(zig version))"
+            exit 0
+          fi
+          echo "::warning::setup-zig did not put zig on PATH — installing directly"
+          VER=0.14.1
+          case "${{ matrix.os }}" in
+            windows-2022) PKG="zig-windows-x86_64-$VER"; EXT=zip ;;
+            macos-14)     PKG="zig-macos-aarch64-$VER";  EXT=tar.xz ;;
+            *)            PKG="zig-linux-x86_64-$VER";   EXT=tar.xz ;;
+          esac
+          URL="https://ziglang.org/download/$VER/$PKG.$EXT"
+          cd "$RUNNER_TEMP"
+          curl -fsSL --retry 3 --retry-delay 5 -o "zig.$EXT" "$URL" \
+            || { echo "::error::could not download $URL"; exit 1; }
+          if [ "$EXT" = "zip" ]; then unzip -q "zig.$EXT"; else tar -xJf "zig.$EXT"; fi
+          echo "$RUNNER_TEMP/$PKG" >> "$GITHUB_PATH"
+          "$RUNNER_TEMP/$PKG/zig" version
+
       # Go on macOS: ubuntu/windows runners preinstall go, macOS does not.
       - name: Set up Go (macOS)
         if: matrix.family.key == 'scripting' && matrix.os == 'macos-14'
