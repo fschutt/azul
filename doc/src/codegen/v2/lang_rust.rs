@@ -3171,6 +3171,12 @@ impl RustGenerator {
         traits: &TypeTraits,
         ir: &CodegenIR,
         config: &CodegenConfig,
+        // Option mirrors already receive `impl Default` (returning `None`) from
+        // `generate_option_convenience_methods`. Emitting a second one from the
+        // declared derive list is E0119, which is how `AzOptionWtEvent` broke
+        // every azul-dll job. The caller decides, because only it has the
+        // enum_def needed for the structural Some/None test.
+        suppress_default: bool,
     ) {
         if !matches!(config.cabi_functions, CAbiFunctionMode::InternalBindings { .. }) {
             return;
@@ -3273,7 +3279,7 @@ impl RustGenerator {
             builder.blank();
         }
 
-        if traits.is_default {
+        if traits.is_default && !suppress_default {
             builder.line(&format!("impl Default for {name} {{"));
             builder.indent();
             builder.line(&format!("fn default() -> {name} {{"));
@@ -3310,6 +3316,8 @@ impl RustGenerator {
             &struct_def.traits,
             ir,
             config,
+            // Structs never go through the Option template.
+            false,
         );
 
         // Clone impl calling C-ABI function
@@ -3377,12 +3385,27 @@ impl RustGenerator {
 
         let name = config.apply_prefix(&enum_def.name);
 
+        // Same structural test `generate_option_convenience_methods` uses to
+        // decide a type is an Option: Some + None variants, with Some carrying
+        // exactly one field. Matching on the SHAPE rather than on a name prefix
+        // keeps the two emitters from disagreeing about what an Option is.
+        let is_option_mirror = {
+            let some = enum_def.variants.iter().find(|v| v.name == "Some");
+            let has_none = enum_def.variants.iter().any(|v| v.name == "None");
+            has_none
+                && matches!(
+                    some.map(|v| &v.kind),
+                    Some(EnumVariantKind::Tuple(types)) if types.len() == 1
+                )
+        };
+
         self.generate_capi_derived_trait_impls(
             builder,
             &enum_def.name,
             &enum_def.traits,
             ir,
             config,
+            is_option_mirror,
         );
 
         // Clone impl calling C-ABI function
