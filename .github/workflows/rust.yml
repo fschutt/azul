@@ -128,10 +128,22 @@ jobs:
         uses: actions/cache@v6
         with:
           path: target/codegen
-          key: codegen-${{ env.CACHE_BUST }}-${{ runner.os }}-${{ hashFiles('Cargo.lock') }}-${{ hashFiles('doc/src/**/*.rs', 'doc/Cargo.toml', 'api.json') }}
-          restore-keys: |
-            codegen-${{ env.CACHE_BUST }}-${{ runner.os }}-${{ hashFiles('Cargo.lock') }}-
-            codegen-${{ env.CACHE_BUST }}-${{ runner.os }}-
+          # `v2` orphans every entry written before the restore-keys removal —
+          # at least one of them holds a stale target/codegen saved under a key
+          # that says it is current, and nothing else would evict it.
+          key: codegen-v2-${{ env.CACHE_BUST }}-${{ runner.os }}-${{ hashFiles('Cargo.lock') }}-${{ hashFiles('doc/src/**/*.rs', 'doc/Cargo.toml', 'api.json') }}
+          # NO restore-keys, deliberately. They are prefix matches, so a changed
+          # api.json missed the exact key but still restored the PREVIOUS
+          # target/codegen. That stale tree then got saved under the NEW exact
+          # key by any job whose post-cache step ran without codegen having
+          # completed (a cancelled run is enough — and pushes cancel runs).
+          # From then on every job got an exact hit, skipped `codegen all`, and
+          # compiled against bindings for a program that no longer existed:
+          # E0512, AzCssDuration 32 bits vs CssDuration 64, after `unit` was
+          # added to the real type AND to api.json.
+          # A partial restore is useful for compilation artifacts, where stale
+          # objects are a head start. It is never useful for GENERATED SOURCE:
+          # either the bytes are exactly right or they must be regenerated.
 
       - name: Generate DLL API bindings
         if: steps.codegen-cache.outputs.cache-hit != 'true'
@@ -274,10 +286,22 @@ jobs:
         uses: actions/cache@v6
         with:
           path: target/codegen
-          key: codegen-${{ env.CACHE_BUST }}-${{ runner.os }}-${{ hashFiles('Cargo.lock') }}-${{ hashFiles('doc/src/**/*.rs', 'doc/Cargo.toml', 'api.json') }}
-          restore-keys: |
-            codegen-${{ env.CACHE_BUST }}-${{ runner.os }}-${{ hashFiles('Cargo.lock') }}-
-            codegen-${{ env.CACHE_BUST }}-${{ runner.os }}-
+          # `v2` orphans every entry written before the restore-keys removal —
+          # at least one of them holds a stale target/codegen saved under a key
+          # that says it is current, and nothing else would evict it.
+          key: codegen-v2-${{ env.CACHE_BUST }}-${{ runner.os }}-${{ hashFiles('Cargo.lock') }}-${{ hashFiles('doc/src/**/*.rs', 'doc/Cargo.toml', 'api.json') }}
+          # NO restore-keys, deliberately. They are prefix matches, so a changed
+          # api.json missed the exact key but still restored the PREVIOUS
+          # target/codegen. That stale tree then got saved under the NEW exact
+          # key by any job whose post-cache step ran without codegen having
+          # completed (a cancelled run is enough — and pushes cancel runs).
+          # From then on every job got an exact hit, skipped `codegen all`, and
+          # compiled against bindings for a program that no longer existed:
+          # E0512, AzCssDuration 32 bits vs CssDuration 64, after `unit` was
+          # added to the real type AND to api.json.
+          # A partial restore is useful for compilation artifacts, where stale
+          # objects are a head start. It is never useful for GENERATED SOURCE:
+          # either the bytes are exactly right or they must be regenerated.
 
       - name: Generate DLL API bindings
         if: steps.codegen-cache.outputs.cache-hit != 'true'
@@ -385,10 +409,22 @@ jobs:
         uses: actions/cache@v6
         with:
           path: target/codegen
-          key: codegen-${{ env.CACHE_BUST }}-${{ runner.os }}-${{ hashFiles('Cargo.lock') }}-${{ hashFiles('doc/src/**/*.rs', 'doc/Cargo.toml', 'api.json') }}
-          restore-keys: |
-            codegen-${{ env.CACHE_BUST }}-${{ runner.os }}-${{ hashFiles('Cargo.lock') }}-
-            codegen-${{ env.CACHE_BUST }}-${{ runner.os }}-
+          # `v2` orphans every entry written before the restore-keys removal —
+          # at least one of them holds a stale target/codegen saved under a key
+          # that says it is current, and nothing else would evict it.
+          key: codegen-v2-${{ env.CACHE_BUST }}-${{ runner.os }}-${{ hashFiles('Cargo.lock') }}-${{ hashFiles('doc/src/**/*.rs', 'doc/Cargo.toml', 'api.json') }}
+          # NO restore-keys, deliberately. They are prefix matches, so a changed
+          # api.json missed the exact key but still restored the PREVIOUS
+          # target/codegen. That stale tree then got saved under the NEW exact
+          # key by any job whose post-cache step ran without codegen having
+          # completed (a cancelled run is enough — and pushes cancel runs).
+          # From then on every job got an exact hit, skipped `codegen all`, and
+          # compiled against bindings for a program that no longer existed:
+          # E0512, AzCssDuration 32 bits vs CssDuration 64, after `unit` was
+          # added to the real type AND to api.json.
+          # A partial restore is useful for compilation artifacts, where stale
+          # objects are a head start. It is never useful for GENERATED SOURCE:
+          # either the bytes are exactly right or they must be regenerated.
 
       - name: Generate DLL API bindings
         if: steps.codegen-cache.outputs.cache-hit != 'true'
@@ -546,10 +582,22 @@ jobs:
         uses: actions/cache@v6
         with:
           path: target/codegen
-          key: codegen-${{ env.CACHE_BUST }}-${{ runner.os }}-${{ hashFiles('Cargo.lock') }}-${{ hashFiles('doc/src/**/*.rs', 'doc/Cargo.toml', 'api.json') }}
-          restore-keys: |
-            codegen-${{ env.CACHE_BUST }}-${{ runner.os }}-${{ hashFiles('Cargo.lock') }}-
-            codegen-${{ env.CACHE_BUST }}-${{ runner.os }}-
+          # `v2` orphans every entry written before the restore-keys removal —
+          # at least one of them holds a stale target/codegen saved under a key
+          # that says it is current, and nothing else would evict it.
+          key: codegen-v2-${{ env.CACHE_BUST }}-${{ runner.os }}-${{ hashFiles('Cargo.lock') }}-${{ hashFiles('doc/src/**/*.rs', 'doc/Cargo.toml', 'api.json') }}
+          # NO restore-keys, deliberately. They are prefix matches, so a changed
+          # api.json missed the exact key but still restored the PREVIOUS
+          # target/codegen. That stale tree then got saved under the NEW exact
+          # key by any job whose post-cache step ran without codegen having
+          # completed (a cancelled run is enough — and pushes cancel runs).
+          # From then on every job got an exact hit, skipped `codegen all`, and
+          # compiled against bindings for a program that no longer existed:
+          # E0512, AzCssDuration 32 bits vs CssDuration 64, after `unit` was
+          # added to the real type AND to api.json.
+          # A partial restore is useful for compilation artifacts, where stale
+          # objects are a head start. It is never useful for GENERATED SOURCE:
+          # either the bytes are exactly right or they must be regenerated.
 
       - name: Generate DLL API bindings
         if: steps.cache-valid.outputs.skip != 'true' && steps.codegen-cache.outputs.cache-hit != 'true'
@@ -897,10 +945,22 @@ jobs:
         uses: actions/cache@v6
         with:
           path: target/codegen
-          key: codegen-${{ env.CACHE_BUST }}-${{ runner.os }}-${{ hashFiles('Cargo.lock') }}-${{ hashFiles('doc/src/**/*.rs', 'doc/Cargo.toml', 'api.json') }}
-          restore-keys: |
-            codegen-${{ env.CACHE_BUST }}-${{ runner.os }}-${{ hashFiles('Cargo.lock') }}-
-            codegen-${{ env.CACHE_BUST }}-${{ runner.os }}-
+          # `v2` orphans every entry written before the restore-keys removal —
+          # at least one of them holds a stale target/codegen saved under a key
+          # that says it is current, and nothing else would evict it.
+          key: codegen-v2-${{ env.CACHE_BUST }}-${{ runner.os }}-${{ hashFiles('Cargo.lock') }}-${{ hashFiles('doc/src/**/*.rs', 'doc/Cargo.toml', 'api.json') }}
+          # NO restore-keys, deliberately. They are prefix matches, so a changed
+          # api.json missed the exact key but still restored the PREVIOUS
+          # target/codegen. That stale tree then got saved under the NEW exact
+          # key by any job whose post-cache step ran without codegen having
+          # completed (a cancelled run is enough — and pushes cancel runs).
+          # From then on every job got an exact hit, skipped `codegen all`, and
+          # compiled against bindings for a program that no longer existed:
+          # E0512, AzCssDuration 32 bits vs CssDuration 64, after `unit` was
+          # added to the real type AND to api.json.
+          # A partial restore is useful for compilation artifacts, where stale
+          # objects are a head start. It is never useful for GENERATED SOURCE:
+          # either the bytes are exactly right or they must be regenerated.
 
       - name: Generate DLL API bindings
         if: steps.codegen-cache.outputs.cache-hit != 'true'
@@ -1027,10 +1087,22 @@ jobs:
         uses: actions/cache@v6
         with:
           path: target/codegen
-          key: codegen-${{ env.CACHE_BUST }}-${{ runner.os }}-${{ hashFiles('Cargo.lock') }}-${{ hashFiles('doc/src/**/*.rs', 'doc/Cargo.toml', 'api.json') }}
-          restore-keys: |
-            codegen-${{ env.CACHE_BUST }}-${{ runner.os }}-${{ hashFiles('Cargo.lock') }}-
-            codegen-${{ env.CACHE_BUST }}-${{ runner.os }}-
+          # `v2` orphans every entry written before the restore-keys removal —
+          # at least one of them holds a stale target/codegen saved under a key
+          # that says it is current, and nothing else would evict it.
+          key: codegen-v2-${{ env.CACHE_BUST }}-${{ runner.os }}-${{ hashFiles('Cargo.lock') }}-${{ hashFiles('doc/src/**/*.rs', 'doc/Cargo.toml', 'api.json') }}
+          # NO restore-keys, deliberately. They are prefix matches, so a changed
+          # api.json missed the exact key but still restored the PREVIOUS
+          # target/codegen. That stale tree then got saved under the NEW exact
+          # key by any job whose post-cache step ran without codegen having
+          # completed (a cancelled run is enough — and pushes cancel runs).
+          # From then on every job got an exact hit, skipped `codegen all`, and
+          # compiled against bindings for a program that no longer existed:
+          # E0512, AzCssDuration 32 bits vs CssDuration 64, after `unit` was
+          # added to the real type AND to api.json.
+          # A partial restore is useful for compilation artifacts, where stale
+          # objects are a head start. It is never useful for GENERATED SOURCE:
+          # either the bytes are exactly right or they must be regenerated.
 
       - name: Generate DLL API bindings
         if: steps.codegen-cache.outputs.cache-hit != 'true'
@@ -1218,10 +1290,22 @@ jobs:
         uses: actions/cache@v6
         with:
           path: target/codegen
-          key: codegen-${{ env.CACHE_BUST }}-${{ runner.os }}-${{ hashFiles('Cargo.lock') }}-${{ hashFiles('doc/src/**/*.rs', 'doc/Cargo.toml', 'api.json') }}
-          restore-keys: |
-            codegen-${{ env.CACHE_BUST }}-${{ runner.os }}-${{ hashFiles('Cargo.lock') }}-
-            codegen-${{ env.CACHE_BUST }}-${{ runner.os }}-
+          # `v2` orphans every entry written before the restore-keys removal —
+          # at least one of them holds a stale target/codegen saved under a key
+          # that says it is current, and nothing else would evict it.
+          key: codegen-v2-${{ env.CACHE_BUST }}-${{ runner.os }}-${{ hashFiles('Cargo.lock') }}-${{ hashFiles('doc/src/**/*.rs', 'doc/Cargo.toml', 'api.json') }}
+          # NO restore-keys, deliberately. They are prefix matches, so a changed
+          # api.json missed the exact key but still restored the PREVIOUS
+          # target/codegen. That stale tree then got saved under the NEW exact
+          # key by any job whose post-cache step ran without codegen having
+          # completed (a cancelled run is enough — and pushes cancel runs).
+          # From then on every job got an exact hit, skipped `codegen all`, and
+          # compiled against bindings for a program that no longer existed:
+          # E0512, AzCssDuration 32 bits vs CssDuration 64, after `unit` was
+          # added to the real type AND to api.json.
+          # A partial restore is useful for compilation artifacts, where stale
+          # objects are a head start. It is never useful for GENERATED SOURCE:
+          # either the bytes are exactly right or they must be regenerated.
 
       - name: Generate DLL API bindings (azul.h)
         if: steps.codegen-cache.outputs.cache-hit != 'true'
@@ -1284,10 +1368,22 @@ jobs:
         uses: actions/cache@v6
         with:
           path: target/codegen
-          key: codegen-${{ env.CACHE_BUST }}-${{ runner.os }}-${{ hashFiles('Cargo.lock') }}-${{ hashFiles('doc/src/**/*.rs', 'doc/Cargo.toml', 'api.json') }}
-          restore-keys: |
-            codegen-${{ env.CACHE_BUST }}-${{ runner.os }}-${{ hashFiles('Cargo.lock') }}-
-            codegen-${{ env.CACHE_BUST }}-${{ runner.os }}-
+          # `v2` orphans every entry written before the restore-keys removal —
+          # at least one of them holds a stale target/codegen saved under a key
+          # that says it is current, and nothing else would evict it.
+          key: codegen-v2-${{ env.CACHE_BUST }}-${{ runner.os }}-${{ hashFiles('Cargo.lock') }}-${{ hashFiles('doc/src/**/*.rs', 'doc/Cargo.toml', 'api.json') }}
+          # NO restore-keys, deliberately. They are prefix matches, so a changed
+          # api.json missed the exact key but still restored the PREVIOUS
+          # target/codegen. That stale tree then got saved under the NEW exact
+          # key by any job whose post-cache step ran without codegen having
+          # completed (a cancelled run is enough — and pushes cancel runs).
+          # From then on every job got an exact hit, skipped `codegen all`, and
+          # compiled against bindings for a program that no longer existed:
+          # E0512, AzCssDuration 32 bits vs CssDuration 64, after `unit` was
+          # added to the real type AND to api.json.
+          # A partial restore is useful for compilation artifacts, where stale
+          # objects are a head start. It is never useful for GENERATED SOURCE:
+          # either the bytes are exactly right or they must be regenerated.
 
       - name: Generate DLL API bindings (azul.h / azul20.hpp)
         if: steps.codegen-cache.outputs.cache-hit != 'true'
@@ -1410,10 +1506,22 @@ jobs:
         uses: actions/cache@v6
         with:
           path: target/codegen
-          key: codegen-${{ env.CACHE_BUST }}-${{ runner.os }}-${{ hashFiles('Cargo.lock') }}-${{ hashFiles('doc/src/**/*.rs', 'doc/Cargo.toml', 'api.json') }}
-          restore-keys: |
-            codegen-${{ env.CACHE_BUST }}-${{ runner.os }}-${{ hashFiles('Cargo.lock') }}-
-            codegen-${{ env.CACHE_BUST }}-${{ runner.os }}-
+          # `v2` orphans every entry written before the restore-keys removal —
+          # at least one of them holds a stale target/codegen saved under a key
+          # that says it is current, and nothing else would evict it.
+          key: codegen-v2-${{ env.CACHE_BUST }}-${{ runner.os }}-${{ hashFiles('Cargo.lock') }}-${{ hashFiles('doc/src/**/*.rs', 'doc/Cargo.toml', 'api.json') }}
+          # NO restore-keys, deliberately. They are prefix matches, so a changed
+          # api.json missed the exact key but still restored the PREVIOUS
+          # target/codegen. That stale tree then got saved under the NEW exact
+          # key by any job whose post-cache step ran without codegen having
+          # completed (a cancelled run is enough — and pushes cancel runs).
+          # From then on every job got an exact hit, skipped `codegen all`, and
+          # compiled against bindings for a program that no longer existed:
+          # E0512, AzCssDuration 32 bits vs CssDuration 64, after `unit` was
+          # added to the real type AND to api.json.
+          # A partial restore is useful for compilation artifacts, where stale
+          # objects are a head start. It is never useful for GENERATED SOURCE:
+          # either the bytes are exactly right or they must be regenerated.
 
       - name: Generate DLL API bindings
         if: steps.cache-valid.outputs.skip != 'true' && steps.codegen-cache.outputs.cache-hit != 'true'
@@ -1958,10 +2066,22 @@ jobs:
         uses: actions/cache@v6
         with:
           path: target/codegen
-          key: codegen-${{ env.CACHE_BUST }}-${{ runner.os }}-${{ hashFiles('Cargo.lock') }}-${{ hashFiles('doc/src/**/*.rs', 'doc/Cargo.toml', 'api.json') }}
-          restore-keys: |
-            codegen-${{ env.CACHE_BUST }}-${{ runner.os }}-${{ hashFiles('Cargo.lock') }}-
-            codegen-${{ env.CACHE_BUST }}-${{ runner.os }}-
+          # `v2` orphans every entry written before the restore-keys removal —
+          # at least one of them holds a stale target/codegen saved under a key
+          # that says it is current, and nothing else would evict it.
+          key: codegen-v2-${{ env.CACHE_BUST }}-${{ runner.os }}-${{ hashFiles('Cargo.lock') }}-${{ hashFiles('doc/src/**/*.rs', 'doc/Cargo.toml', 'api.json') }}
+          # NO restore-keys, deliberately. They are prefix matches, so a changed
+          # api.json missed the exact key but still restored the PREVIOUS
+          # target/codegen. That stale tree then got saved under the NEW exact
+          # key by any job whose post-cache step ran without codegen having
+          # completed (a cancelled run is enough — and pushes cancel runs).
+          # From then on every job got an exact hit, skipped `codegen all`, and
+          # compiled against bindings for a program that no longer existed:
+          # E0512, AzCssDuration 32 bits vs CssDuration 64, after `unit` was
+          # added to the real type AND to api.json.
+          # A partial restore is useful for compilation artifacts, where stale
+          # objects are a head start. It is never useful for GENERATED SOURCE:
+          # either the bytes are exactly right or they must be regenerated.
 
       - name: Generate DLL API bindings
         if: steps.codegen-cache.outputs.cache-hit != 'true'
@@ -2131,10 +2251,22 @@ jobs:
         uses: actions/cache@v6
         with:
           path: target/codegen
-          key: codegen-${{ env.CACHE_BUST }}-${{ runner.os }}-${{ hashFiles('Cargo.lock') }}-${{ hashFiles('doc/src/**/*.rs', 'doc/Cargo.toml', 'api.json') }}
-          restore-keys: |
-            codegen-${{ env.CACHE_BUST }}-${{ runner.os }}-${{ hashFiles('Cargo.lock') }}-
-            codegen-${{ env.CACHE_BUST }}-${{ runner.os }}-
+          # `v2` orphans every entry written before the restore-keys removal —
+          # at least one of them holds a stale target/codegen saved under a key
+          # that says it is current, and nothing else would evict it.
+          key: codegen-v2-${{ env.CACHE_BUST }}-${{ runner.os }}-${{ hashFiles('Cargo.lock') }}-${{ hashFiles('doc/src/**/*.rs', 'doc/Cargo.toml', 'api.json') }}
+          # NO restore-keys, deliberately. They are prefix matches, so a changed
+          # api.json missed the exact key but still restored the PREVIOUS
+          # target/codegen. That stale tree then got saved under the NEW exact
+          # key by any job whose post-cache step ran without codegen having
+          # completed (a cancelled run is enough — and pushes cancel runs).
+          # From then on every job got an exact hit, skipped `codegen all`, and
+          # compiled against bindings for a program that no longer existed:
+          # E0512, AzCssDuration 32 bits vs CssDuration 64, after `unit` was
+          # added to the real type AND to api.json.
+          # A partial restore is useful for compilation artifacts, where stale
+          # objects are a head start. It is never useful for GENERATED SOURCE:
+          # either the bytes are exactly right or they must be regenerated.
 
       - name: Generate DLL API bindings
         if: steps.cache-valid.outputs.skip != 'true' && steps.codegen-cache.outputs.cache-hit != 'true'
@@ -2694,10 +2826,22 @@ jobs:
         uses: actions/cache@v6
         with:
           path: target/codegen
-          key: codegen-${{ env.CACHE_BUST }}-${{ runner.os }}-${{ hashFiles('Cargo.lock') }}-${{ hashFiles('doc/src/**/*.rs', 'doc/Cargo.toml', 'api.json') }}
-          restore-keys: |
-            codegen-${{ env.CACHE_BUST }}-${{ runner.os }}-${{ hashFiles('Cargo.lock') }}-
-            codegen-${{ env.CACHE_BUST }}-${{ runner.os }}-
+          # `v2` orphans every entry written before the restore-keys removal —
+          # at least one of them holds a stale target/codegen saved under a key
+          # that says it is current, and nothing else would evict it.
+          key: codegen-v2-${{ env.CACHE_BUST }}-${{ runner.os }}-${{ hashFiles('Cargo.lock') }}-${{ hashFiles('doc/src/**/*.rs', 'doc/Cargo.toml', 'api.json') }}
+          # NO restore-keys, deliberately. They are prefix matches, so a changed
+          # api.json missed the exact key but still restored the PREVIOUS
+          # target/codegen. That stale tree then got saved under the NEW exact
+          # key by any job whose post-cache step ran without codegen having
+          # completed (a cancelled run is enough — and pushes cancel runs).
+          # From then on every job got an exact hit, skipped `codegen all`, and
+          # compiled against bindings for a program that no longer existed:
+          # E0512, AzCssDuration 32 bits vs CssDuration 64, after `unit` was
+          # added to the real type AND to api.json.
+          # A partial restore is useful for compilation artifacts, where stale
+          # objects are a head start. It is never useful for GENERATED SOURCE:
+          # either the bytes are exactly right or they must be regenerated.
 
       - name: Generate DLL API bindings
         if: steps.cache-valid.outputs.skip != 'true' && steps.codegen-cache.outputs.cache-hit != 'true'
@@ -2836,10 +2980,22 @@ jobs:
         uses: actions/cache@v6
         with:
           path: target/codegen
-          key: codegen-${{ env.CACHE_BUST }}-${{ runner.os }}-${{ hashFiles('Cargo.lock') }}-${{ hashFiles('doc/src/**/*.rs', 'doc/Cargo.toml', 'api.json') }}
-          restore-keys: |
-            codegen-${{ env.CACHE_BUST }}-${{ runner.os }}-${{ hashFiles('Cargo.lock') }}-
-            codegen-${{ env.CACHE_BUST }}-${{ runner.os }}-
+          # `v2` orphans every entry written before the restore-keys removal —
+          # at least one of them holds a stale target/codegen saved under a key
+          # that says it is current, and nothing else would evict it.
+          key: codegen-v2-${{ env.CACHE_BUST }}-${{ runner.os }}-${{ hashFiles('Cargo.lock') }}-${{ hashFiles('doc/src/**/*.rs', 'doc/Cargo.toml', 'api.json') }}
+          # NO restore-keys, deliberately. They are prefix matches, so a changed
+          # api.json missed the exact key but still restored the PREVIOUS
+          # target/codegen. That stale tree then got saved under the NEW exact
+          # key by any job whose post-cache step ran without codegen having
+          # completed (a cancelled run is enough — and pushes cancel runs).
+          # From then on every job got an exact hit, skipped `codegen all`, and
+          # compiled against bindings for a program that no longer existed:
+          # E0512, AzCssDuration 32 bits vs CssDuration 64, after `unit` was
+          # added to the real type AND to api.json.
+          # A partial restore is useful for compilation artifacts, where stale
+          # objects are a head start. It is never useful for GENERATED SOURCE:
+          # either the bytes are exactly right or they must be regenerated.
 
       - name: Generate DLL API bindings
         if: steps.codegen-cache.outputs.cache-hit != 'true'
@@ -2932,10 +3088,22 @@ jobs:
         uses: actions/cache@v6
         with:
           path: target/codegen
-          key: codegen-${{ env.CACHE_BUST }}-${{ runner.os }}-${{ hashFiles('Cargo.lock') }}-${{ hashFiles('doc/src/**/*.rs', 'doc/Cargo.toml', 'api.json') }}
-          restore-keys: |
-            codegen-${{ env.CACHE_BUST }}-${{ runner.os }}-${{ hashFiles('Cargo.lock') }}-
-            codegen-${{ env.CACHE_BUST }}-${{ runner.os }}-
+          # `v2` orphans every entry written before the restore-keys removal —
+          # at least one of them holds a stale target/codegen saved under a key
+          # that says it is current, and nothing else would evict it.
+          key: codegen-v2-${{ env.CACHE_BUST }}-${{ runner.os }}-${{ hashFiles('Cargo.lock') }}-${{ hashFiles('doc/src/**/*.rs', 'doc/Cargo.toml', 'api.json') }}
+          # NO restore-keys, deliberately. They are prefix matches, so a changed
+          # api.json missed the exact key but still restored the PREVIOUS
+          # target/codegen. That stale tree then got saved under the NEW exact
+          # key by any job whose post-cache step ran without codegen having
+          # completed (a cancelled run is enough — and pushes cancel runs).
+          # From then on every job got an exact hit, skipped `codegen all`, and
+          # compiled against bindings for a program that no longer existed:
+          # E0512, AzCssDuration 32 bits vs CssDuration 64, after `unit` was
+          # added to the real type AND to api.json.
+          # A partial restore is useful for compilation artifacts, where stale
+          # objects are a head start. It is never useful for GENERATED SOURCE:
+          # either the bytes are exactly right or they must be regenerated.
 
       - name: Generate DLL API bindings
         if: steps.codegen-cache.outputs.cache-hit != 'true'
@@ -3259,10 +3427,22 @@ jobs:
         uses: actions/cache@v6
         with:
           path: target/codegen
-          key: codegen-${{ env.CACHE_BUST }}-${{ runner.os }}-${{ hashFiles('Cargo.lock') }}-${{ hashFiles('doc/src/**/*.rs', 'doc/Cargo.toml', 'api.json') }}
-          restore-keys: |
-            codegen-${{ env.CACHE_BUST }}-${{ runner.os }}-${{ hashFiles('Cargo.lock') }}-
-            codegen-${{ env.CACHE_BUST }}-${{ runner.os }}-
+          # `v2` orphans every entry written before the restore-keys removal —
+          # at least one of them holds a stale target/codegen saved under a key
+          # that says it is current, and nothing else would evict it.
+          key: codegen-v2-${{ env.CACHE_BUST }}-${{ runner.os }}-${{ hashFiles('Cargo.lock') }}-${{ hashFiles('doc/src/**/*.rs', 'doc/Cargo.toml', 'api.json') }}
+          # NO restore-keys, deliberately. They are prefix matches, so a changed
+          # api.json missed the exact key but still restored the PREVIOUS
+          # target/codegen. That stale tree then got saved under the NEW exact
+          # key by any job whose post-cache step ran without codegen having
+          # completed (a cancelled run is enough — and pushes cancel runs).
+          # From then on every job got an exact hit, skipped `codegen all`, and
+          # compiled against bindings for a program that no longer existed:
+          # E0512, AzCssDuration 32 bits vs CssDuration 64, after `unit` was
+          # added to the real type AND to api.json.
+          # A partial restore is useful for compilation artifacts, where stale
+          # objects are a head start. It is never useful for GENERATED SOURCE:
+          # either the bytes are exactly right or they must be regenerated.
 
       - name: Generate codegen and NFPM config
         run: |
@@ -4953,10 +5133,22 @@ jobs:
         uses: actions/cache@v6
         with:
           path: target/codegen
-          key: codegen-${{ env.CACHE_BUST }}-${{ runner.os }}-${{ hashFiles('Cargo.lock') }}-${{ hashFiles('doc/src/**/*.rs', 'doc/Cargo.toml', 'api.json') }}
-          restore-keys: |
-            codegen-${{ env.CACHE_BUST }}-${{ runner.os }}-${{ hashFiles('Cargo.lock') }}-
-            codegen-${{ env.CACHE_BUST }}-${{ runner.os }}-
+          # `v2` orphans every entry written before the restore-keys removal —
+          # at least one of them holds a stale target/codegen saved under a key
+          # that says it is current, and nothing else would evict it.
+          key: codegen-v2-${{ env.CACHE_BUST }}-${{ runner.os }}-${{ hashFiles('Cargo.lock') }}-${{ hashFiles('doc/src/**/*.rs', 'doc/Cargo.toml', 'api.json') }}
+          # NO restore-keys, deliberately. They are prefix matches, so a changed
+          # api.json missed the exact key but still restored the PREVIOUS
+          # target/codegen. That stale tree then got saved under the NEW exact
+          # key by any job whose post-cache step ran without codegen having
+          # completed (a cancelled run is enough — and pushes cancel runs).
+          # From then on every job got an exact hit, skipped `codegen all`, and
+          # compiled against bindings for a program that no longer existed:
+          # E0512, AzCssDuration 32 bits vs CssDuration 64, after `unit` was
+          # added to the real type AND to api.json.
+          # A partial restore is useful for compilation artifacts, where stale
+          # objects are a head start. It is never useful for GENERATED SOURCE:
+          # either the bytes are exactly right or they must be regenerated.
 
       - name: Generate DLL API bindings
         if: steps.codegen-cache.outputs.cache-hit != 'true'
@@ -5047,10 +5239,22 @@ jobs:
         uses: actions/cache@v6
         with:
           path: target/codegen
-          key: codegen-${{ env.CACHE_BUST }}-${{ runner.os }}-${{ hashFiles('Cargo.lock') }}-${{ hashFiles('doc/src/**/*.rs', 'doc/Cargo.toml', 'api.json') }}
-          restore-keys: |
-            codegen-${{ env.CACHE_BUST }}-${{ runner.os }}-${{ hashFiles('Cargo.lock') }}-
-            codegen-${{ env.CACHE_BUST }}-${{ runner.os }}-
+          # `v2` orphans every entry written before the restore-keys removal —
+          # at least one of them holds a stale target/codegen saved under a key
+          # that says it is current, and nothing else would evict it.
+          key: codegen-v2-${{ env.CACHE_BUST }}-${{ runner.os }}-${{ hashFiles('Cargo.lock') }}-${{ hashFiles('doc/src/**/*.rs', 'doc/Cargo.toml', 'api.json') }}
+          # NO restore-keys, deliberately. They are prefix matches, so a changed
+          # api.json missed the exact key but still restored the PREVIOUS
+          # target/codegen. That stale tree then got saved under the NEW exact
+          # key by any job whose post-cache step ran without codegen having
+          # completed (a cancelled run is enough — and pushes cancel runs).
+          # From then on every job got an exact hit, skipped `codegen all`, and
+          # compiled against bindings for a program that no longer existed:
+          # E0512, AzCssDuration 32 bits vs CssDuration 64, after `unit` was
+          # added to the real type AND to api.json.
+          # A partial restore is useful for compilation artifacts, where stale
+          # objects are a head start. It is never useful for GENERATED SOURCE:
+          # either the bytes are exactly right or they must be regenerated.
 
       - name: Generate DLL API bindings
         if: steps.codegen-cache.outputs.cache-hit != 'true'
@@ -5114,10 +5318,22 @@ jobs:
         uses: actions/cache@v6
         with:
           path: target/codegen
-          key: codegen-${{ env.CACHE_BUST }}-${{ runner.os }}-${{ hashFiles('Cargo.lock') }}-${{ hashFiles('doc/src/**/*.rs', 'doc/Cargo.toml', 'api.json') }}
-          restore-keys: |
-            codegen-${{ env.CACHE_BUST }}-${{ runner.os }}-${{ hashFiles('Cargo.lock') }}-
-            codegen-${{ env.CACHE_BUST }}-${{ runner.os }}-
+          # `v2` orphans every entry written before the restore-keys removal —
+          # at least one of them holds a stale target/codegen saved under a key
+          # that says it is current, and nothing else would evict it.
+          key: codegen-v2-${{ env.CACHE_BUST }}-${{ runner.os }}-${{ hashFiles('Cargo.lock') }}-${{ hashFiles('doc/src/**/*.rs', 'doc/Cargo.toml', 'api.json') }}
+          # NO restore-keys, deliberately. They are prefix matches, so a changed
+          # api.json missed the exact key but still restored the PREVIOUS
+          # target/codegen. That stale tree then got saved under the NEW exact
+          # key by any job whose post-cache step ran without codegen having
+          # completed (a cancelled run is enough — and pushes cancel runs).
+          # From then on every job got an exact hit, skipped `codegen all`, and
+          # compiled against bindings for a program that no longer existed:
+          # E0512, AzCssDuration 32 bits vs CssDuration 64, after `unit` was
+          # added to the real type AND to api.json.
+          # A partial restore is useful for compilation artifacts, where stale
+          # objects are a head start. It is never useful for GENERATED SOURCE:
+          # either the bytes are exactly right or they must be regenerated.
 
       - name: Generate DLL API bindings
         if: steps.codegen-cache.outputs.cache-hit != 'true'
@@ -5223,10 +5439,22 @@ jobs:
         uses: actions/cache@v6
         with:
           path: target/codegen
-          key: codegen-${{ env.CACHE_BUST }}-${{ runner.os }}-${{ hashFiles('Cargo.lock') }}-${{ hashFiles('doc/src/**/*.rs', 'doc/Cargo.toml', 'api.json') }}
-          restore-keys: |
-            codegen-${{ env.CACHE_BUST }}-${{ runner.os }}-${{ hashFiles('Cargo.lock') }}-
-            codegen-${{ env.CACHE_BUST }}-${{ runner.os }}-
+          # `v2` orphans every entry written before the restore-keys removal —
+          # at least one of them holds a stale target/codegen saved under a key
+          # that says it is current, and nothing else would evict it.
+          key: codegen-v2-${{ env.CACHE_BUST }}-${{ runner.os }}-${{ hashFiles('Cargo.lock') }}-${{ hashFiles('doc/src/**/*.rs', 'doc/Cargo.toml', 'api.json') }}
+          # NO restore-keys, deliberately. They are prefix matches, so a changed
+          # api.json missed the exact key but still restored the PREVIOUS
+          # target/codegen. That stale tree then got saved under the NEW exact
+          # key by any job whose post-cache step ran without codegen having
+          # completed (a cancelled run is enough — and pushes cancel runs).
+          # From then on every job got an exact hit, skipped `codegen all`, and
+          # compiled against bindings for a program that no longer existed:
+          # E0512, AzCssDuration 32 bits vs CssDuration 64, after `unit` was
+          # added to the real type AND to api.json.
+          # A partial restore is useful for compilation artifacts, where stale
+          # objects are a head start. It is never useful for GENERATED SOURCE:
+          # either the bytes are exactly right or they must be regenerated.
       - name: Generate DLL API bindings
         if: steps.codegen-cache.outputs.cache-hit != 'true'
         continue-on-error: true
@@ -5564,10 +5792,22 @@ jobs:
         uses: actions/cache@v6
         with:
           path: target/codegen
-          key: codegen-${{ env.CACHE_BUST }}-${{ runner.os }}-${{ hashFiles('Cargo.lock') }}-${{ hashFiles('doc/src/**/*.rs', 'doc/Cargo.toml', 'api.json') }}
-          restore-keys: |
-            codegen-${{ env.CACHE_BUST }}-${{ runner.os }}-${{ hashFiles('Cargo.lock') }}-
-            codegen-${{ env.CACHE_BUST }}-${{ runner.os }}-
+          # `v2` orphans every entry written before the restore-keys removal —
+          # at least one of them holds a stale target/codegen saved under a key
+          # that says it is current, and nothing else would evict it.
+          key: codegen-v2-${{ env.CACHE_BUST }}-${{ runner.os }}-${{ hashFiles('Cargo.lock') }}-${{ hashFiles('doc/src/**/*.rs', 'doc/Cargo.toml', 'api.json') }}
+          # NO restore-keys, deliberately. They are prefix matches, so a changed
+          # api.json missed the exact key but still restored the PREVIOUS
+          # target/codegen. That stale tree then got saved under the NEW exact
+          # key by any job whose post-cache step ran without codegen having
+          # completed (a cancelled run is enough — and pushes cancel runs).
+          # From then on every job got an exact hit, skipped `codegen all`, and
+          # compiled against bindings for a program that no longer existed:
+          # E0512, AzCssDuration 32 bits vs CssDuration 64, after `unit` was
+          # added to the real type AND to api.json.
+          # A partial restore is useful for compilation artifacts, where stale
+          # objects are a head start. It is never useful for GENERATED SOURCE:
+          # either the bytes are exactly right or they must be regenerated.
 
       - name: Generate Python binding source (codegen)
         if: steps.codegen-cache.outputs.cache-hit != 'true'
@@ -5695,10 +5935,22 @@ jobs:
         uses: actions/cache@v6
         with:
           path: target/codegen
-          key: codegen-${{ env.CACHE_BUST }}-${{ runner.os }}-${{ hashFiles('Cargo.lock') }}-${{ hashFiles('doc/src/**/*.rs', 'doc/Cargo.toml', 'api.json') }}
-          restore-keys: |
-            codegen-${{ env.CACHE_BUST }}-${{ runner.os }}-${{ hashFiles('Cargo.lock') }}-
-            codegen-${{ env.CACHE_BUST }}-${{ runner.os }}-
+          # `v2` orphans every entry written before the restore-keys removal —
+          # at least one of them holds a stale target/codegen saved under a key
+          # that says it is current, and nothing else would evict it.
+          key: codegen-v2-${{ env.CACHE_BUST }}-${{ runner.os }}-${{ hashFiles('Cargo.lock') }}-${{ hashFiles('doc/src/**/*.rs', 'doc/Cargo.toml', 'api.json') }}
+          # NO restore-keys, deliberately. They are prefix matches, so a changed
+          # api.json missed the exact key but still restored the PREVIOUS
+          # target/codegen. That stale tree then got saved under the NEW exact
+          # key by any job whose post-cache step ran without codegen having
+          # completed (a cancelled run is enough — and pushes cancel runs).
+          # From then on every job got an exact hit, skipped `codegen all`, and
+          # compiled against bindings for a program that no longer existed:
+          # E0512, AzCssDuration 32 bits vs CssDuration 64, after `unit` was
+          # added to the real type AND to api.json.
+          # A partial restore is useful for compilation artifacts, where stale
+          # objects are a head start. It is never useful for GENERATED SOURCE:
+          # either the bytes are exactly right or they must be regenerated.
 
       - name: Generate bindings (codegen)
         if: steps.codegen-cache.outputs.cache-hit != 'true'
@@ -6329,10 +6581,22 @@ jobs:
         uses: actions/cache@v6
         with:
           path: target/codegen
-          key: codegen-${{ env.CACHE_BUST }}-${{ runner.os }}-${{ hashFiles('Cargo.lock') }}-${{ hashFiles('doc/src/**/*.rs', 'doc/Cargo.toml', 'api.json') }}
-          restore-keys: |
-            codegen-${{ env.CACHE_BUST }}-${{ runner.os }}-${{ hashFiles('Cargo.lock') }}-
-            codegen-${{ env.CACHE_BUST }}-${{ runner.os }}-
+          # `v2` orphans every entry written before the restore-keys removal —
+          # at least one of them holds a stale target/codegen saved under a key
+          # that says it is current, and nothing else would evict it.
+          key: codegen-v2-${{ env.CACHE_BUST }}-${{ runner.os }}-${{ hashFiles('Cargo.lock') }}-${{ hashFiles('doc/src/**/*.rs', 'doc/Cargo.toml', 'api.json') }}
+          # NO restore-keys, deliberately. They are prefix matches, so a changed
+          # api.json missed the exact key but still restored the PREVIOUS
+          # target/codegen. That stale tree then got saved under the NEW exact
+          # key by any job whose post-cache step ran without codegen having
+          # completed (a cancelled run is enough — and pushes cancel runs).
+          # From then on every job got an exact hit, skipped `codegen all`, and
+          # compiled against bindings for a program that no longer existed:
+          # E0512, AzCssDuration 32 bits vs CssDuration 64, after `unit` was
+          # added to the real type AND to api.json.
+          # A partial restore is useful for compilation artifacts, where stale
+          # objects are a head start. It is never useful for GENERATED SOURCE:
+          # either the bytes are exactly right or they must be regenerated.
 
       - name: Generate bindings (codegen)
         if: steps.codegen-cache.outputs.cache-hit != 'true'
