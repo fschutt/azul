@@ -5452,6 +5452,36 @@ jobs:
         run: cargo run -r -p azul-doc codegen all
       - name: Build azul-dll (debug)
         run: cargo build -p azul-dll --features build-dll
+
+      # ThreadSanitizer needs the RUST side instrumented. Without this step the
+      # TSan row was not a weak check, it was an actively wrong one — see the
+      # long comment on the ThreadSan invocation below.
+      - name: Install nightly (for -Zsanitizer)
+        run: rustup toolchain install nightly --component rust-src
+      - name: Build azul-dll with ThreadSanitizer instrumentation
+        run: |
+          set -euo pipefail
+          RUSTFLAGS="-Zsanitizer=thread" cargo +nightly build \
+            -Zbuild-std=std,panic_abort \
+            --target x86_64-unknown-linux-gnu \
+            -p azul-dll --features build-dll
+
+          # Prove the instrumentation landed. An instrumented cdylib references
+          # __tsan_* (33 such symbols in a 30-line reproduction); an
+          # uninstrumented one references exactly zero. Without this check, any
+          # future change that quietly drops the RUSTFLAGS — or points the TSan
+          # run back at target/debug — restores the false-positive regime with a
+          # green tick, which is how this cost a release once already.
+          SO=target/x86_64-unknown-linux-gnu/debug/libazul.so
+          n=$(nm -D "$SO" | grep -c '__tsan' || true)
+          echo "libazul.so references $n __tsan_* symbols"
+          [ "$n" -gt 0 ] || {
+            echo "::error::$SO has no __tsan_* symbols — it is NOT instrumented."
+            echo "::error::Running TSan against it cannot see Rust's futex-based"
+            echo "::error::Mutex and will report races in correct code."
+            exit 1
+          }
+
       - name: Run sanitizers + summary
         shell: bash
         run: |
@@ -5483,10 +5513,11 @@ jobs:
           #   (d) nothing ever grepped stats/sanitizers.txt for FAIL.
           # The table looked like a result and could not report one.
           san_failed=0
-          run_san() { # <example> <label> <san-flags>
+          run_san() { # <example> <label> <san-flags> [libdir] [timeout-secs]
             local ex="$1" label="$2" flags="$3"
+            local libdir="${4:-target/debug}" secs="${5:-30}"
             if ! clang -g -O1 $flags -fno-omit-frame-pointer -I target/codegen \
-                 "examples/c/$ex.c" -L target/debug -lazul -o "/tmp/$ex-san" 2>/tmp/cc.log; then
+                 "examples/c/$ex.c" -L "$libdir" -lazul -o "/tmp/$ex-san" 2>/tmp/cc.log; then
               emit "$ex" "$label" "build-fail"
               cat /tmp/cc.log >&2 || true
               san_failed=1
@@ -5499,22 +5530,56 @@ jobs:
             # once a frame exists, so 0 now means "it ran and rendered" and 124
             # means "it hung" — which is a failure, not a pass.
             ASAN_OPTIONS=detect_leaks=0:abort_on_error=1 UBSAN_OPTIONS=halt_on_error=1 \
-            TSAN_OPTIONS=halt_on_error=1 LD_LIBRARY_PATH=target/debug \
+            TSAN_OPTIONS=halt_on_error=1 LD_LIBRARY_PATH="$libdir" \
             AZ_BACKEND=headless AZ_EXIT_SUCCESS_AFTER_FRAME_RENDER=1 \
-              timeout 30 "/tmp/$ex-san" || rc=$?
+              timeout "$secs" "/tmp/$ex-san" || rc=$?
             if [ "$rc" -eq 0 ]; then
               emit "$ex" "$label" "pass"
             elif [ "$rc" -eq 124 ]; then
-              emit "$ex" "$label" "FAIL timeout(124) - no frame rendered in 30s"
+              emit "$ex" "$label" "FAIL timeout(124) - no frame rendered in ${secs}s"
               san_failed=1
             else
               emit "$ex" "$label" "FAIL rc=$rc"
               san_failed=1
             fi
           }
+          # ASan/UBSan run against the ordinary uninstrumented build. That is
+          # weaker than instrumenting Rust too — only accesses reaching an
+          # intercepted libc call are checked — but unlike the TSan case it is
+          # not WRONG: ASan's redzones and quarantine come from the intercepted
+          # allocator, so heap-buffer-overflow and use-after-free on malloc'd
+          # memory are still caught, and nothing produces a false positive.
           run_san hello-world "ASan+UBSan" "-fsanitize=address,undefined"
           run_san async       "ASan+UBSan" "-fsanitize=address,undefined"
-          run_san async       "ThreadSan"  "-fsanitize=thread"
+
+          # ThreadSan runs against the INSTRUMENTED libazul.so, not target/debug.
+          #
+          # Sanitizing only the C file and linking an uninstrumented Rust library
+          # does not produce a weaker TSan run. It produces a wrong one, and it
+          # was reporting a data race between rust-fontconfig's scout and builder
+          # threads for exactly this reason.
+          #
+          # Since Rust 1.62, std::sync::Mutex on Linux is a raw futex — NOT
+          # pthread_mutex_lock. TSan has an interceptor for the latter and none
+          # for the former, so in uninstrumented code it sees no synchronization
+          # whatsoever. What it DOES still see, via libc interceptors, is memcpy
+          # and realloc. So for any Mutex-protected Vec whose element is large
+          # enough that pop/sort compile to real memcpy calls (FcBuildJob is 72
+          # bytes), TSan observes the accesses, observes none of the locking, and
+          # reports a race in correct code. Small elements inline to plain loads
+          # and are invisible, which is why only this one structure ever tripped.
+          #
+          # Reproduced from first principles: a 30-line cdylib with ONE
+          # std::sync::Mutex<Vec<[72 bytes]>>, one thread pushing+sorting and one
+          # popping, every access under the lock. Built uninstrumented it
+          # reproduces the CI report frame for frame — Vec::pop vs
+          # MergeState::merge_down on a realloc'd block. Built with
+          # -Zsanitizer=thread -Zbuild-std, same source and same harness, it
+          # exits 0.
+          #
+          # 600s, not 30: TSan costs 5-15x runtime.
+          run_san async "ThreadSan" "-fsanitize=thread" \
+            "target/x86_64-unknown-linux-gnu/debug" 600
 
           if [ "$san_failed" -ne 0 ]; then
             echo "::error::a sanitizer run failed or did not render - see the table above and stats/sanitizers.txt"
