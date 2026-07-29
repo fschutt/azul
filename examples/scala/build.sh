@@ -16,15 +16,59 @@ set -euo pipefail
 
 cd "$(dirname "$0")"
 
-JAVA_HOME_GUESS="/opt/homebrew/Cellar/openjdk@17/17.0.19/libexec/openjdk.jdk/Contents/Home"
-if [ -d "$JAVA_HOME_GUESS" ]; then
-    export JAVA_HOME="$JAVA_HOME_GUESS"
-    export PATH="$JAVA_HOME/bin:$PATH"
+# Only fall back to a hardcoded JDK when one is not already usable. A
+# Homebrew Cellar path is a macOS-developer convenience, not a location any
+# other machine has, so it must never take priority over the JDK the
+# environment already provides (CI installs one via setup-java).
+if [ -z "${JAVA_HOME:-}" ] && ! command -v javac >/dev/null 2>&1; then
+    for guess in /opt/homebrew/Cellar/openjdk@17/*/libexec/openjdk.jdk/Contents/Home \
+                 /usr/lib/jvm/java-17-openjdk*; do
+        if [ -d "$guess" ]; then
+            export JAVA_HOME="$guess"
+            export PATH="$JAVA_HOME/bin:$PATH"
+            break
+        fi
+    done
 fi
 
 JNA_JAR="${JNA_JAR:-$HOME/.m2/repository/net/java/dev/jna/jna/5.14.0/jna-5.14.0.jar}"
-SCALA_LIB="${SCALA_LIB:-/opt/homebrew/Cellar/scala/3.8.3/libexec/maven2/org/scala-lang/scala-library/3.8.3/scala-library-3.8.3.jar}"
-SCALA3_LIB="${SCALA3_LIB:-/opt/homebrew/Cellar/scala/3.8.3/libexec/maven2/org/scala-lang/scala3-library_3/3.8.3/scala3-library_3-3.8.3.jar}"
+# Locate the Scala jars relative to the `scalac` that is ACTUALLY on PATH,
+# rather than assuming a macOS Homebrew Cellar prefix and a pinned 3.8.3.
+# The old hardcoded defaults meant this script could only ever work on the
+# one machine it was written on: on Windows and Linux CI, scalac exists and
+# works but both jars resolved to paths that do not exist, so the build died
+# on a missing classpath entry rather than on anything about the example.
+find_scala_jar() {
+    # $1: artifact directory name, $2: jar basename prefix
+    local scalac_bin root
+    scalac_bin=$(command -v scalac 2>/dev/null) || return 1
+    # Resolve symlinks (Homebrew, coursier and asdf all shim scalac).
+    while [ -L "$scalac_bin" ]; do
+        scalac_bin=$(cd "$(dirname "$scalac_bin")" && \
+                     readlink "$scalac_bin" | sed "s|^\([^/]\)|$(pwd)/\1|")
+    done
+    root=$(dirname "$(dirname "$scalac_bin")")
+    find "$root" "$HOME/.cache/coursier" "$HOME/.ivy2" -name "$2*.jar" \
+        -not -name "*-sources.jar" -not -name "*-javadoc.jar" \
+        2>/dev/null | sort -V | tail -1
+}
+
+# `|| true`: under `set -e` a failing command substitution inside an
+# assignment aborts the script INSTANTLY and silently, swallowing the
+# diagnostic below — which is the exact confusing failure this rewrite exists
+# to remove. Let the emptiness flow through to the check instead.
+SCALA_LIB="${SCALA_LIB:-$(find_scala_jar scala-library scala-library || true)}"
+SCALA3_LIB="${SCALA3_LIB:-$(find_scala_jar scala3-library scala3-library_3 || true)}"
+
+for var in SCALA_LIB SCALA3_LIB; do
+    eval "val=\${$var}"
+    if [ -z "$val" ] || [ ! -f "$val" ]; then
+        echo "$var could not be located (got: '${val:-<empty>}')." >&2
+        echo "scalac: $(command -v scalac || echo '<not on PATH>')" >&2
+        echo "Set $var explicitly to the jar path." >&2
+        exit 1
+    fi
+done
 JAVA_CLASSES="${JAVA_CLASSES:-../java/target/classes}"
 
 if [ ! -d "$JAVA_CLASSES" ]; then
