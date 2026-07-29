@@ -1032,6 +1032,12 @@ mod jni_bridge {
         NativeGestureEvent,
     };
     use azul_core::geom::LogicalPosition;
+    // A nested `mod` does NOT inherit the file's `use` items, and this one
+    // was missing the reason type entirely — `inject()` below has always
+    // referred to a `RelayoutReason` that is not in scope here. It surfaced
+    // only now because android is the one target that compiles this file and
+    // nothing had forced it to resolve.
+    use azul_core::callbacks::RelayoutReason;
 
     /// SAFETY: `native_ptr` is the AndroidWindow address handed to the
     /// Java side by `android_main`. We are the only Rust thread mutating
@@ -1091,7 +1097,7 @@ mod jni_bridge {
             w.common.previous_window_state = Some(w.common.current_window_state.clone());
             w.common.current_window_state.theme = theme;
             w.common
-                .request_regeneration(azul_core::callbacks::RelayoutReason::ThemeChange);
+                .request_regeneration(RelayoutReason::ThemeChange);
         });
     }
 
