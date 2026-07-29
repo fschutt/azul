@@ -52,13 +52,13 @@ gleam = "0.15.1"
 azul-css = { path = "css" }
 azul-core = { path = "core" }
 azul-layout = { path = "layout" }
-# printpdf now comes from crates.io (0.12.2 — requires azul-css/core 0.0.12 +
-# azul-layout 0.0.12, all published). The azul-* path patches above redirect
+# printpdf now comes from crates.io (0.12.x — requires azul-css/core 0.0.13 +
+# azul-layout 0.0.13, all published). The azul-* path patches above redirect
 # printpdf's azul deps to this one workspace copy, so there is a single
 # azul-layout and NO printpdf git patch is needed. (dll/ pins printpdf 0.12.2.)
 # rust-fontconfig: use crates.io (the vendored copy was a labelled REVERT; its
 # only functional delta was a web_lift-only hashbrown workaround). core/ and
-# layout/ pin `>=4.4.7, <4.5`; the lock is on 4.4.8.
+# layout/ pin `>=4.4.7, <4.5`; the lock is on 4.4.9.
 #
 # That pin is why 4.4.8 is a PATCH release despite adding public API: printpdf
 # 0.12.2 declares the same `>=4.4.7, <4.5` range, so a 4.5.0 would satisfy
