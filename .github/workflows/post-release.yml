@@ -63,6 +63,11 @@ jobs:
     outputs:
       version: ${{ steps.v.outputs.version }}
       base_url: ${{ steps.v.outputs.base_url }}
+      # The URL the release listing actually lives at, after resolving the
+      # HTML redirect stub at /releases. Downstream jobs must use this rather
+      # than re-deriving /releases, which is how the artifacts check ended up
+      # grepping a redirect page for artifact names.
+      releases_url: ${{ steps.v.outputs.releases_url }}
     steps:
       - uses: actions/checkout@v7
       - id: v
@@ -85,9 +90,41 @@ jobs:
 
           # The release page must be LIVE. A 404 here means every job below would
           # fail for the same uninteresting reason, so say it once, clearly.
-          code=$(curl -sS -o /dev/null -w '%{http_code}' "$BASE/releases" || echo 000)
-          [ "$code" = "200" ] \
-            || { echo "::error::$BASE/releases returned $code — the site is not serving a release page"; exit 1; }
+          #
+          # `$BASE/releases` is NOT the release page. It is a 416-byte stub that
+          # redirects to /ui/releases — and not with a 3xx, which `curl -L`
+          # would follow, but with an HTML `<meta http-equiv="refresh">` plus a
+          # `location.replace()`, which nothing on the curl side follows. This
+          # check asked for `/releases`, got HTTP 200 on the stub, and concluded
+          # the site was serving a release page. The artifacts job then grepped
+          # those 416 bytes for artifact names and reported all three missing.
+          #
+          # HTTP 200 is not "a page exists". Resolve the redirect, then require
+          # the result to actually look like a release page.
+          page=$(mktemp)
+          curl -sSL -o "$page" "$BASE/releases" \
+            || { echo "::error::$BASE/releases is unreachable"; exit 1; }
+
+          target=$(grep -oiE 'http-equiv="refresh"[^>]*url=[^"'"'"']+' "$page" \
+                   | sed 's/.*[Uu][Rr][Ll]=//' | head -1)
+          if [ -n "$target" ]; then
+            case "$target" in
+              http*) : ;;
+              /*)    target="${BASE}${target}" ;;
+              *)     target="${BASE}/${target}" ;;
+            esac
+            echo "::notice::$BASE/releases is a redirect stub -> $target"
+            curl -sSL -o "$page" "$target" \
+              || { echo "::error::redirect target $target is unreachable"; exit 1; }
+          fi
+          echo "releases_url=${target:-$BASE/releases}" >> "$GITHUB_OUTPUT"
+
+          bytes=$(wc -c < "$page")
+          if ! grep -qi 'release' "$page" || [ "$bytes" -le 2048 ]; then
+            echo "::error::the resolved release page is $bytes bytes and does not mention releases — still a stub or an error page, not the release listing"
+            exit 1
+          fi
+          echo "::notice::release page resolved, $bytes bytes"
 
   # The documented install command for each channel, run against the LIVE host in
   # a container whose only reason to exist is that ecosystem's client. A fresh
@@ -174,8 +211,31 @@ jobs:
           set -euo pipefail
           BASE="${{ needs.resolve.outputs.base_url }}"
           VERSION="${{ needs.resolve.outputs.version }}"
+          # The resolved listing URL from `resolve`, NOT "$BASE/releases" —
+          # that one is an HTML redirect stub and grepping it for artifact
+          # names is why this job reported all three missing.
+          RELEASES="${{ needs.resolve.outputs.releases_url }}"
           page=$(mktemp)
-          curl -sS --fail "$BASE/releases" -o "$page"
+          curl -sSL --fail "$RELEASES" -o "$page"
+          echo "checking $RELEASES ($(wc -c < "$page") bytes) for azul $VERSION"
+
+          # The listing is an index of versions; each links to a per-version
+          # page that carries the actual download names. Follow the link for
+          # VERSION if there is one, and append it to what we search, so this
+          # works whether the artifacts are listed inline or one level down.
+          sub=$(grep -oE 'href="[^"]*releases/'"$VERSION"'[^"]*"' "$page" \
+                | head -1 | sed 's/^href="//;s/"$//')
+          if [ -n "$sub" ]; then
+            case "$sub" in
+              http*) : ;;
+              /*)    sub="${BASE}${sub}" ;;
+              *)     sub="${BASE}/${sub}" ;;
+            esac
+            echo "::notice::following per-version page $sub"
+            curl -sSL "$sub" >> "$page" || true
+          else
+            echo "::notice::no per-version link for $VERSION; searching the index itself"
+          fi
 
           missing=0
           for artifact in \
@@ -185,10 +245,22 @@ jobs:
             if grep -qi "$artifact" "$page"; then
               echo "  listed: $artifact"
             else
-              echo "::error::$artifact is not listed on $BASE/releases"
+              echo "::error::$artifact is not listed on $RELEASES"
               missing=1
             fi
           done
+
+          # Distinguish "the page is wrong" from "the release is not published".
+          # Both used to produce the same three lines, and the first one wasted
+          # a day: the page was a redirect stub and nothing was wrong with the
+          # release at all.
+          if [ "$missing" -ne 0 ]; then
+            if grep -q "$VERSION" "$page"; then
+              echo "::error::the page names $VERSION but lists none of its download artifacts — the release page rendered without its downloads"
+            else
+              echo "::error::the page does not mention $VERSION at all — either the deploy for this version has not run, or api.json is ahead of the site"
+            fi
+          fi
 
           # An artifact may legitimately not exist — but then it must SAY so.
           # Silence is the failure mode this check exists for.
