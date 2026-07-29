@@ -9314,8 +9314,14 @@ mod autotest_generated {
 
     #[test]
     fn duration_to_millis_tick_boundaries() {
+        // A TICK IS A FRAME, not a millisecond. At the nominal 60 Hz that is
+        // 1000/60 = 16.67 ms, floored to 16. This test asserted 1 ms per tick,
+        // which is the bug the tick unit was introduced to remove: every timer
+        // built in ticks asked the OS to wake ~16x more often than it could
+        // possibly fire, and the gesture thresholds compared frame counts
+        // against millisecond limits.
         assert_eq!(duration_to_millis(tick_dur(0)), 0);
-        assert_eq!(duration_to_millis(tick_dur(1)), 1);
+        assert_eq!(duration_to_millis(tick_dur(1)), 16);
         assert_eq!(duration_to_millis(tick_dur(u64::MAX)), u64::MAX);
     }
 
@@ -10129,12 +10135,16 @@ mod autotest_generated {
             TimerId { id: 3 },
             Timer::default().with_interval(tick_dur(9_000)),
         );
+        // The intervals are in TICKS and the function answers MILLISECONDS, so
+        // the expected values convert at the nominal frame rate: 2000 ticks is
+        // 2000 * 1000 / 60 = 33_333 ms. They read 2_000 and 1_000 while a tick
+        // was assumed to be a millisecond.
         let cb = azul_core::task::GetSystemTimeCallback { cb: time_tick_0 };
-        assert_eq!(w.time_until_next_timer_ms(&cb), Some(2_000));
+        assert_eq!(w.time_until_next_timer_ms(&cb), Some(33_333));
 
         // At tick 1000 the 2000-tick timer is 1000 ticks away.
         let cb = azul_core::task::GetSystemTimeCallback { cb: time_tick_1000 };
-        assert_eq!(w.time_until_next_timer_ms(&cb), Some(1_000));
+        assert_eq!(w.time_until_next_timer_ms(&cb), Some(16_666));
 
         // Far past every deadline: overdue => 0.
         let cb = azul_core::task::GetSystemTimeCallback { cb: time_tick_max };

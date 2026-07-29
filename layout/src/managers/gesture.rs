@@ -1695,8 +1695,27 @@ mod touch_session_tests {
     use super::*;
     use azul_core::task::{Instant as TestInstant, SystemTick};
 
+    /// A timestamp `n` MILLISECONDS from the origin.
+    ///
+    /// This used to build `Tick(n)` while every caller named its argument
+    /// `hold_ms` / `gap_ms`. That was harmless only while a tick was assumed to
+    /// be one millisecond; once `duration_to_millis` started converting ticks at
+    /// the real frame rate (~16.67 ms), every gesture threshold in this module —
+    /// double-click window, long-press time, swipe velocity — was being compared
+    /// against a duration 16x longer than the test meant, and six tests failed.
+    ///
+    /// These tests are about gesture SEMANTICS, not about the tick/ms constant,
+    /// so they express time in the same unit the thresholds use.
+    /// `duration_to_millis_*` still pins the conversion itself.
     fn ts(n: u64) -> CoreInstant {
-        TestInstant::Tick(SystemTick::new(n))
+        // `Instant::System` wraps a real std Instant, so "n ms from the origin"
+        // needs a STABLE origin — a fresh `now()` per call would make ts(0) and
+        // ts(20) differ by however long the test took, not by 20 ms. One
+        // process-wide base keeps every difference exact.
+        use std::sync::OnceLock;
+        static BASE: OnceLock<std::time::Instant> = OnceLock::new();
+        let base = *BASE.get_or_init(std::time::Instant::now);
+        (base + core::time::Duration::from_millis(n)).into()
     }
 
     fn pos(x: f32, y: f32) -> LogicalPosition {
@@ -1770,8 +1789,17 @@ mod autotest_generated {
     // ---------------------------------------------------------------- helpers
 
     /// Tick-based instant: 1 tick == 1 ms for `duration_to_millis`.
+    /// A timestamp `n` MILLISECONDS from the origin — see the note on the other
+    /// `ts` in this file.
     fn ts(n: u64) -> CoreInstant {
-        CoreInstant::Tick(SystemTick::new(n))
+        // `Instant::System` wraps a real std Instant, so "n ms from the origin"
+        // needs a STABLE origin — a fresh `now()` per call would make ts(0) and
+        // ts(20) differ by however long the test took, not by 20 ms. One
+        // process-wide base keeps every difference exact.
+        use std::sync::OnceLock;
+        static BASE: OnceLock<std::time::Instant> = OnceLock::new();
+        let base = *BASE.get_or_init(std::time::Instant::now);
+        (base + core::time::Duration::from_millis(n)).into()
     }
 
     fn pos(x: f32, y: f32) -> LogicalPosition {
@@ -1987,9 +2015,15 @@ mod autotest_generated {
     #[cfg(feature = "std")]
     #[test]
     fn duration_ms_with_mismatched_instant_kinds_is_zero() {
+        // Both variants are named EXPLICITLY. This used to lean on `sample()`
+        // happening to produce a Tick, so when `ts()` moved to System the
+        // "mismatch" quietly became System-vs-System and the test asserted
+        // nothing — it measured 4997 ms and expected 0. An invariant about
+        // mismatched kinds must construct both kinds itself.
         let mut first = sample(0.0, 0.0, 0);
         first.timestamp = CoreInstant::now(); // System variant
-        let last = sample(0.0, 0.0, 5_000); // Tick variant
+        let mut last = sample(0.0, 0.0, 5_000);
+        last.timestamp = CoreInstant::Tick(SystemTick::new(5_000)); // Tick variant
         let s = InputSession {
             samples: vec![first, last],
             ended: false,
