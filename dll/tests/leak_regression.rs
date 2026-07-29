@@ -129,10 +129,24 @@ const WARMUP_CYCLES: u32 = 8;
 const MAX_WARMUP_ITERATIONS: u32 = 4000;
 
 /// Growth across one warmup block below which the heap counts as settled.
-/// Two consecutive blocks under this ends warmup. Deliberately generous:
-/// the point is to leave the lazily-filling caches behind, not to reach zero,
-/// and the steady-state windows afterwards do the precise work.
-const WARMUP_SETTLED_BYTES: u64 = 256 * 1024;
+///
+/// DERIVED, not chosen. It was a hand-picked 256 KiB, and that made the test
+/// self-contradictory: a warmup block is `SIZES.len() * WARMUP_CYCLES` = 32
+/// iterations, so 256 KiB/block is 8192 B/iter — eight times looser than the
+/// 1024 B/iter the first-window assertion demands immediately afterwards.
+/// Linux CI duly reported "warmup: 416 iterations, settled" and then failed
+/// with first_window = 1253 B/iter. Warmup was doing exactly what it was told;
+/// it was told the wrong thing.
+///
+/// Tying it to `MAX_FIRST_WINDOW_BYTES_PER_ITER` means the criterion for
+/// "warm" is by construction at least as strict as the first thing asserted
+/// about the warm state, and the two cannot drift apart again.
+const WARMUP_SETTLED_BYTES: u64 =
+    MAX_FIRST_WINDOW_BYTES_PER_ITER * (SIZES_LEN as u64) * (WARMUP_CYCLES as u64);
+
+/// `SIZES.len()`, as a const so `WARMUP_SETTLED_BYTES` can be computed at
+/// compile time. Asserted against the real array in the measurement body.
+const SIZES_LEN: usize = 4;
 
 /// Per-iteration steady-state heap-growth budget.
 ///
@@ -313,6 +327,15 @@ fn measure(iterations: u32, deliberate_leak_bytes: usize) -> Measurement {
         (280.0, 360.0),
     ];
 
+    // `SIZES_LEN` feeds WARMUP_SETTLED_BYTES at compile time; if someone adds a
+    // fifth size the derived threshold would silently be wrong.
+    assert_eq!(
+        SIZES.len(),
+        SIZES_LEN,
+        "SIZES_LEN is out of sync with SIZES — WARMUP_SETTLED_BYTES is derived \
+         from it and would be computed for the wrong block size"
+    );
+
     let run_iterations = |window: &mut HeadlessWindow, n: u32| {
         for i in 0..n {
             let (w, h) = SIZES[(i as usize) % SIZES.len()];
@@ -396,15 +419,27 @@ fn measure(iterations: u32, deliberate_leak_bytes: usize) -> Measurement {
         let mut prev = azul_layout::probe::malloc_heap_bytes();
         let mut settled = 0_u32;
         let mut done = 0_u32;
+        // Starts at u64::MAX so the very first block cannot satisfy the
+        // minimum on its own — settling always needs two blocks of evidence.
+        let mut prev_growth = u64::MAX;
         while done < MAX_WARMUP_ITERATIONS && settled < 2 {
             run_iterations(&mut window, block);
             done += block;
             let now = azul_layout::probe::malloc_heap_bytes();
-            if now.saturating_sub(prev) < WARMUP_SETTLED_BYTES {
+            let growth = now.saturating_sub(prev);
+            // Same insight as the steady-state windows: a one-off allocator
+            // zone reservation lands in exactly ONE block. Requiring two
+            // consecutive blocks to be individually quiet would let a
+            // regularly-stepping allocator (macOS reserves in 1 MiB chunks)
+            // reset the counter forever and run to the cap. Take the minimum of
+            // the last two blocks instead — a step is cancelled by the quiet
+            // block beside it, while a still-filling cache has no quiet block.
+            if growth.min(prev_growth) < WARMUP_SETTLED_BYTES {
                 settled += 1;
             } else {
                 settled = 0;
             }
+            prev_growth = growth;
             prev = now;
         }
         eprintln!(
