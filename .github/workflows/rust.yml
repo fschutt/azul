@@ -2649,19 +2649,48 @@ jobs:
             exit 0
           fi
           echo "::warning::setup-zig did not put zig on PATH — installing directly"
-          VER=0.14.1
-          case "${{ matrix.os }}" in
-            windows-2022) PKG="zig-windows-x86_64-$VER"; EXT=zip ;;
-            macos-14)     PKG="zig-macos-aarch64-$VER";  EXT=tar.xz ;;
-            *)            PKG="zig-linux-x86_64-$VER";   EXT=tar.xz ;;
-          esac
-          URL="https://ziglang.org/download/$VER/$PKG.$EXT"
-          cd "$RUNNER_TEMP"
-          curl -fsSL --retry 3 --retry-delay 5 -o "zig.$EXT" "$URL" \
-            || { echo "::error::could not download $URL"; exit 1; }
-          if [ "$EXT" = "zip" ]; then unzip -q "zig.$EXT"; else tar -xJf "zig.$EXT"; fi
-          echo "$RUNNER_TEMP/$PKG" >> "$GITHUB_PATH"
-          "$RUNNER_TEMP/$PKG/zig" version
+          # The URL is read from ziglang.org's OWN index rather than assembled
+          # from a guessed naming scheme. 0.14.x renamed the archives from
+          # `zig-<os>-<arch>-<ver>` to `zig-<arch>-<os>-<ver>`, and the first
+          # version of this step 404'd on exactly that. Extraction goes through
+          # python's stdlib because `unzip` is not guaranteed on the Windows
+          # runner and tar's flags differ across the three OSes.
+          # Written to a file and de-indented: a heredoc piped straight to
+          # python keeps the YAML indentation and python rejects it.
+          cat > "$RUNNER_TEMP/get_zig.py" <<'PYEOF'
+          import json, sys, tarfile, urllib.request, zipfile, platform, os, pathlib
+          tmp = pathlib.Path(sys.argv[1])
+          ver = "0.14.1"
+          osname = {"Linux": "linux", "Darwin": "macos", "Windows": "windows"}[platform.system()]
+          arch = {"x86_64": "x86_64", "AMD64": "x86_64", "arm64": "aarch64",
+                  "aarch64": "aarch64"}[platform.machine()]
+          key = f"{arch}-{osname}"
+          idx = json.load(urllib.request.urlopen("https://ziglang.org/download/index.json", timeout=60))
+          entry = idx.get(ver, {}).get(key)
+          if not entry:
+              sys.exit(f"::error::ziglang.org index has no {ver} build for {key}")
+          url = entry["tarball"]
+          print(f"downloading {url}")
+          archive = tmp / os.path.basename(url)
+          urllib.request.urlretrieve(url, archive)
+          if archive.suffix == ".zip":
+              with zipfile.ZipFile(archive) as z:
+                  z.extractall(tmp)
+          else:
+              with tarfile.open(archive) as t:
+                  t.extractall(tmp)
+          root = archive.name
+          for suf in (".tar.xz", ".zip"):
+              root = root[: -len(suf)] if root.endswith(suf) else root
+          bindir = tmp / root
+          if not bindir.is_dir():
+              sys.exit(f"::error::expected {bindir} after extraction")
+          with open(os.environ["GITHUB_PATH"], "a") as f:
+              f.write(str(bindir) + "\n")
+          print(f"added {bindir} to GITHUB_PATH")
+          PYEOF
+          sed -i 's/^          //' "$RUNNER_TEMP/get_zig.py"
+          python3 "$RUNNER_TEMP/get_zig.py" "$RUNNER_TEMP"
 
       # Go on macOS: ubuntu/windows runners preinstall go, macOS does not.
       - name: Set up Go (macOS)
