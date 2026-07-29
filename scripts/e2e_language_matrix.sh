@@ -458,7 +458,35 @@ _timeout() {
 }
 
 # skip <lang> <note>
-skip() { record "$1" "SKIP" "$2"; }
+# skip <lang> <reason>
+#
+# For a REQUIRED language a SKIP fails the whole gate, so it must be
+# self-diagnosing. Three times in one day a required binding reported
+# "not installed" while its setup step had reported SUCCESS —
+#   * scalac: coursier logged "Wrote scala / Wrote scalac", but git-bash's
+#     `command -v` does not apply PATHEXT, so `scalac.bat` was invisible;
+#   * dune:   opam installed it into a switch that needs `eval $(opam env)`;
+#   * zig:    mlugg/setup-zig succeeded and the cause is still unknown.
+# Each cost an hour of log archaeology and blocked a release. The diagnostic
+# below turns the next occurrence into a ten-second read: it says exactly what
+# was probed, whether anything by that name exists, and what PATH held.
+skip() {
+  local lang="$1" reason="$2"
+  if requires_works "$lang"; then
+    {
+      echo "::group::REQUIRED binding '$lang' skipped — environment diagnostic"
+      echo "reason: $reason"
+      echo "IS_WINDOWS=${IS_WINDOWS:-0}"
+      local probe
+      for probe in "$lang" dune ocaml opam zig scalac scala fpc; do
+        printf '  command -v %-8s -> %s\n' "$probe" "$(command -v "$probe" 2>/dev/null || echo '(not found)')"
+      done
+      echo "PATH=$PATH"
+      echo "::endgroup::"
+    } >&2
+  fi
+  record "$lang" "SKIP" "$reason"
+}
 
 # -----------------------------------------------------------------------------
 # jvm_classes_lock / jvm_classes_unlock: serialize access to
@@ -558,7 +586,24 @@ finish() {
 }
 
 # have <tool>: command -v wrapper (silent).
-have() { command -v "$1" >/dev/null 2>&1; }
+# have <cmd> -> 0 iff <cmd> is runnable.
+#
+# On Windows a launcher is frequently `<cmd>.bat` / `<cmd>.cmd` / `<cmd>.exe`
+# rather than a bare name, and git-bash's `command -v` does NOT apply PATHEXT.
+# That made a toolchain that WAS installed look absent: coursier logged
+# "Wrote scala / Wrote scalac", the probe still answered no, scala reported
+# SKIP, and because scala is a REQUIRED shipped binding the whole windows job
+# failed — blocking a release on a detection bug rather than a missing tool.
+have() {
+  command -v "$1" >/dev/null 2>&1 && return 0
+  if [ "${IS_WINDOWS:-0}" = 1 ]; then
+    local ext
+    for ext in exe bat cmd com; do
+      command -v "$1.$ext" >/dev/null 2>&1 && return 0
+    done
+  fi
+  return 1
+}
 
 # =============================================================================
 # PER-LANGUAGE TOOLCHAIN INSTALL / CLEANUP
@@ -1583,8 +1628,17 @@ lang_red() {
 # (CI: ocaml/setup-ocaml, then `opam install dune ctypes ctypes-foreign`).
 # README recipe: `dune exec ./hello_world.exe`. Needs azul.ml/.mli + dune files.
 lang_ocaml() {
+  # opam installs into a SWITCH that is not on PATH until its env is evaluated.
+  # setup-ocaml and `opam install dune ctypes` both succeed and opam itself
+  # prints "To update the current shell environment, run: eval $(opam env)" —
+  # but this script runs in its own shell, so `have dune` answered no and ocaml
+  # reported SKIP. Since ocaml is a REQUIRED shipped binding that failed the
+  # whole job, on all three OSes, for a toolchain that was fully installed.
+  if have opam && ! have dune; then
+    eval "$(opam env 2>/dev/null)" || true
+  fi
   if ! have dune || ! have ocaml; then
-    skip ocaml "dune/ocaml not installed (ocaml/setup-ocaml + opam ctypes)"; return
+    skip ocaml "dune/ocaml not installed (ocaml/setup-ocaml + opam ctypes; opam env evaluated)"; return
   fi
   local f; f="$(log_path ocaml)"
   (
