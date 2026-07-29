@@ -311,7 +311,13 @@ pub fn default_renderer_options(
             a: bg.a as f32 / 255.0,
         },
         enable_multithreading: false,
-        debug_flags: wr_translate_debug_flags(&options.window_state.debug_state),
+        // AZ_OVERLAY is merged in, so the webrender verbs (overdraw, profiler,
+        // primitives, ...) can be switched on from the environment exactly like
+        // the hit-test overlay — without a rebuild, and in release builds too.
+        // The window's own DebugState still wins where it asked for something.
+        debug_flags: wr_translate_debug_flags(&merge_overlay_env(
+            options.window_state.debug_state,
+        )),
         // Shader precaching: use EMPTY to avoid blocking startup with full compilation.
         // Shaders will be compiled on-demand when first needed by the renderer.
         // When a disk cache is present, shaders are loaded via glProgramBinary
@@ -392,6 +398,31 @@ impl webrender::api::ExternalImageHandler for Compositor {
         // Single-threaded renderer, nothing to unlock
         // Textures are managed by the global cache with refcounting
     }
+}
+
+/// OR the `AZ_OVERLAY` environment verbs into a window's `DebugState`.
+///
+/// Read once per process — see `compositor2::show_hit_test_overlay` for the same
+/// reasoning. Union rather than override: a program that deliberately enabled a
+/// flag keeps it, and the environment can only add.
+fn merge_overlay_env(mut state: DebugState) -> DebugState {
+    static ENV: std::sync::OnceLock<DebugState> = std::sync::OnceLock::new();
+    let env = ENV.get_or_init(DebugState::from_az_overlay_env);
+
+    macro_rules! or_in {
+        ($($f:ident),* $(,)?) => { $( state.$f = state.$f || env.$f; )* };
+    }
+    or_in!(
+        profiler_dbg, render_target_dbg, texture_cache_dbg, gpu_time_queries,
+        gpu_sample_queries, disable_batching, epochs, echo_driver_messages,
+        show_overdraw, gpu_cache_dbg, texture_cache_dbg_clear_evicted,
+        picture_caching_dbg, primitive_dbg, zoom_dbg, small_screen,
+        disable_opaque_pass, disable_alpha_pass, disable_clip_masks,
+        disable_text_prims, disable_gradient_prims, obscure_images,
+        glyph_flashing, smart_profiler, invalidation_dbg,
+        tile_cache_logging_dbg, profiler_capture, force_picture_invalidation,
+    );
+    state
 }
 
 pub fn wr_translate_debug_flags(new_flags: &DebugState) -> WrDebugFlags {

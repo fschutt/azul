@@ -606,9 +606,21 @@ impl CursorPosition {
 
 /// Toggles webrender debug flags (will make stuff appear on
 /// the screen that you might not want to - used for debugging purposes)
+///
+/// Every field here maps onto a `webrender::DebugFlags` bit except
+/// `show_hit_test_areas`, which is azul's own overlay. Populate it from the
+/// environment with [`DebugState::from_az_overlay_env`] — see that function for
+/// the verb list and why the hit-test overlay is no longer `debug_assertions`-only.
 #[derive(Default, Debug, Copy, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
 #[repr(C)]
 pub struct DebugState {
+    /// Paint a translucent red rectangle over every hit-test area.
+    ///
+    /// azul's own overlay, not a webrender flag: the compositor draws it while
+    /// emitting `DisplayListItem::HitTestArea`, so it shows exactly the regions
+    /// the hit tester will actually consider — which is the question you have
+    /// when a click does nothing, or lands on the wrong node.
+    pub show_hit_test_areas: bool,
     pub profiler_dbg: bool,
     pub render_target_dbg: bool,
     pub texture_cache_dbg: bool,
@@ -636,6 +648,100 @@ pub struct DebugState {
     pub tile_cache_logging_dbg: bool,
     pub profiler_capture: bool,
     pub force_picture_invalidation: bool,
+}
+
+impl DebugState {
+    /// Build a `DebugState` from the `AZ_OVERLAY` environment variable.
+    ///
+    /// `AZ_OVERLAY` is a comma-separated list of verbs, e.g.
+    ///
+    /// ```text
+    /// AZ_OVERLAY=hit-test
+    /// AZ_OVERLAY=hit-test,overdraw,profiler
+    /// AZ_OVERLAY=list          # print the verbs and exit-code nothing
+    /// ```
+    ///
+    /// WHY THIS EXISTS: the hit-test overlay used to be `#[cfg(debug_assertions)]`
+    /// in the compositor, so a debug build painted every hit-test area red and a
+    /// release build painted none, with no way to ask for either. That is a
+    /// debug/release divergence in VISUAL OUTPUT — running hello-world showed a
+    /// red window and the reasonable first guess was "this linked the wrong
+    /// DLL". It was not. An overlay you cannot turn on when you need it, and
+    /// cannot turn off when you do not, is worse than no overlay.
+    ///
+    /// Available in RELEASE builds too, deliberately: the moment you need to see
+    /// hit-test regions or overdraw is usually on the build a user is running.
+    ///
+    /// Unknown verbs are reported and ignored rather than fatal — a typo in a
+    /// debugging aid must not stop the app you are trying to debug.
+    #[must_use]
+    pub fn from_az_overlay_env() -> Self {
+        match std::env::var("AZ_OVERLAY") {
+            Ok(v) => Self::from_overlay_spec(&v),
+            Err(_) => Self::default(),
+        }
+    }
+
+    /// The parser behind [`DebugState::from_az_overlay_env`], separated so it is
+    /// testable without touching the process environment.
+    #[must_use]
+    pub fn from_overlay_spec(spec: &str) -> Self {
+        let mut s = Self::default();
+        for raw in spec.split(',') {
+            let verb = raw.trim().to_ascii_lowercase();
+            if verb.is_empty() {
+                continue;
+            }
+            match verb.as_str() {
+                // azul's own overlay.
+                "hit-test" | "hittest" => s.show_hit_test_areas = true,
+                // webrender flags, named for what they SHOW rather than for the
+                // flag constant, because the constant names are not obvious.
+                "profiler" => s.profiler_dbg = true,
+                "smart-profiler" => s.smart_profiler = true,
+                "overdraw" => s.show_overdraw = true,
+                "render-targets" => s.render_target_dbg = true,
+                "texture-cache" => s.texture_cache_dbg = true,
+                "gpu-cache" => s.gpu_cache_dbg = true,
+                "picture-caching" => s.picture_caching_dbg = true,
+                "primitives" => s.primitive_dbg = true,
+                "invalidation" => s.invalidation_dbg = true,
+                "epochs" => s.epochs = true,
+                "zoom" => s.zoom_dbg = true,
+                "glyph-flashing" => s.glyph_flashing = true,
+                "obscure-images" => s.obscure_images = true,
+                "gpu-time" => s.gpu_time_queries = true,
+                "gpu-samples" => s.gpu_sample_queries = true,
+                "echo-driver" => s.echo_driver_messages = true,
+                // Diagnostic switches that DISABLE a stage — for bisecting which
+                // stage is responsible for a visual artefact.
+                "no-batching" => s.disable_batching = true,
+                "no-opaque-pass" => s.disable_opaque_pass = true,
+                "no-alpha-pass" => s.disable_alpha_pass = true,
+                "no-clip-masks" => s.disable_clip_masks = true,
+                "no-text" => s.disable_text_prims = true,
+                "no-gradients" => s.disable_gradient_prims = true,
+                "all" => {
+                    s.show_hit_test_areas = true;
+                    s.profiler_dbg = true;
+                    s.show_overdraw = true;
+                    s.primitive_dbg = true;
+                }
+                other => {
+                    // Not fatal: a typo in a debugging aid must not stop the app.
+                    #[cfg(feature = "std")]
+                    eprintln!(
+                        "[azul] AZ_OVERLAY: unknown verb {other:?}. Known: hit-test, profiler, \
+                         smart-profiler, overdraw, render-targets, texture-cache, gpu-cache, \
+                         picture-caching, primitives, invalidation, epochs, zoom, glyph-flashing, \
+                         obscure-images, gpu-time, gpu-samples, echo-driver, no-batching, \
+                         no-opaque-pass, no-alpha-pass, no-clip-masks, no-text, no-gradients, all"
+                    );
+                }
+            }
+        }
+        s
+    }
 }
 
 #[derive(Debug, Default, Clone, PartialEq)]

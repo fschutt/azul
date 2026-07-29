@@ -161,6 +161,18 @@ fn push_text_decoration_rect(
 /// Translate an Azul DisplayList to WebRender DisplayList and resources
 /// Returns (resources, display_list, nested_pipelines) tuple that can be added to a transaction
 /// by caller. nested_pipelines contains all child virtualized view pipelines that were recursively built.
+/// Whether `AZ_OVERLAY=hit-test` asked for the hit-test overlay.
+///
+/// Read ONCE per process: the environment cannot change under a running app,
+/// and this is consulted for every `HitTestArea` in every display list, so a
+/// `getenv` per item would be a real cost in a large DOM.
+fn show_hit_test_overlay() -> bool {
+    static ON: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    *ON.get_or_init(|| {
+        azul_core::window::DebugState::from_az_overlay_env().show_hit_test_areas
+    })
+}
+
 pub fn translate_displaylist_to_wr(
     display_list: &DisplayList,
     pipeline_id: PipelineId,
@@ -1054,9 +1066,18 @@ pub fn translate_displaylist_to_wr(
             DisplayListItem::HitTestArea { bounds, tag } => {
                 let rect = resolve_rect(bounds, dpi_scale, current_offset!());
 
-                // DEBUG: Draw a semi-transparent red rectangle to visualize hit-test areas
-                #[cfg(debug_assertions)]
-                {
+                // Draw a translucent red rectangle over the hit-test area when
+                // `AZ_OVERLAY=hit-test` is set.
+                //
+                // This used to be `#[cfg(debug_assertions)]`: a debug build
+                // painted EVERY hit-test area red and a release build painted
+                // none, with no way to ask for either. That is a debug/release
+                // divergence in visual output, and it misleads — running
+                // hello-world showed a red window and the first hypothesis was
+                // "this linked the wrong DLL". Now it is a runtime switch, and
+                // it works in release too, because the build you need to inspect
+                // hit regions on is usually the one a user is running.
+                if show_hit_test_overlay() {
                     let debug_color = ColorF::new(1.0, 0.0, 0.0, 0.3); // Red with 30% opacity
                     let debug_info = CommonItemProperties {
                         clip_rect: rect,

@@ -20279,6 +20279,9 @@
                         ],
                         "struct_fields": [
                             {
+                                "show_hit_test_areas": {
+                                    "type": "bool"
+                                },
                                 "profiler_dbg": {
                                     "type": "bool"
                                 },
