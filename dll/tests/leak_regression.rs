@@ -122,6 +122,18 @@ const WARMUP_ITERATIONS: u32 = 10;
 /// baseline is taken and get populated during the measured window.
 const WARMUP_CYCLES: u32 = 8;
 
+/// Hard cap on adaptive warmup, so a genuine unbounded leak cannot turn
+/// "warm up until the heap settles" into an infinite loop. If this is hit the
+/// measurement still runs and says so — a leak large enough to prevent
+/// settling will be caught by the steady-state assertion anyway.
+const MAX_WARMUP_ITERATIONS: u32 = 4000;
+
+/// Growth across one warmup block below which the heap counts as settled.
+/// Two consecutive blocks under this ends warmup. Deliberately generous:
+/// the point is to leave the lazily-filling caches behind, not to reach zero,
+/// and the steady-state windows afterwards do the precise work.
+const WARMUP_SETTLED_BYTES: u64 = 256 * 1024;
+
 /// Per-iteration steady-state heap-growth budget.
 ///
 /// 4096 until 2026-07-29, justified as "headroom for macOS libc malloc's own
@@ -157,17 +169,33 @@ const MAX_FIRST_WINDOW_BYTES_PER_ITER: u64 = 1024;
 /// catch a leak that hides from the primary instrument, not to measure.
 const MAX_RSS_BYTES_PER_ITER: u64 = 1024;
 
-/// Absolute cap on the heap at the end of the run — the test must not
-/// exit holding more than this many bytes regardless of per-iter rate.
+/// Absolute cap on the heap at the end of the run — a blunt backstop for
+/// non-linear growth, regardless of per-iter rate.
 ///
-/// This is the "did the user's 100+ MiB bug come back?" guard. The
-/// pre-fix build reliably ended the 500-iter scenario around ~93 MiB
-/// of mstats heap; the post-fix build finishes around ~20 MiB. 40 MiB
-/// gives 2× headroom over the post-fix steady state and leaves a
-/// clear gap before the pre-fix regression zone, so a real leak
-/// returning to the old rate would trip both this check and the
-/// per-iter rate check.
-const MAX_FINAL_HEAP_BYTES: u64 = 40 * 1024 * 1024;
+/// Was 40 MiB, justified as "the post-fix build finishes around ~20 MiB, so
+/// this gives 2x headroom and leaves a clear gap before the ~93 MiB pre-fix
+/// regression zone". **That ~20 MiB does not reproduce.** Measured now, warm,
+/// the run ends at ~90 MiB on Linux/glibc debug and ~70 MiB on macOS — inside
+/// the range the old comment labelled "the leak is back".
+///
+/// It is not back, and the rate data is what says so rather than this number:
+/// after warmup the heap is FLAT — 92279 -> 92281 -> 92282 -> 92285 KiB across
+/// 1500 iterations, 1 B/iter, with RSS unchanged to the kilobyte. The pre-fix
+/// bug was ~13 KiB retained per call and unbounded; at 1 B/iter it would take
+/// about 13000 calls to produce what it used to produce in one.
+///
+/// The old figure was almost certainly taken before the caches finished
+/// filling — the same mistake, in a different place, as the 7.6 KiB/iter
+/// "leak" this file was rewritten to stop reporting. Warmup now terminates on
+/// a settled heap instead of a fixed 8 cycles, so `final_heap` is the warm
+/// working set, which is a different quantity from the one 40 MiB was chosen
+/// against.
+///
+/// So this cap is now what it can honestly be: an absurdity threshold on the
+/// warm working set, ~2.8x the largest measured value. The discrimination is
+/// done by the three-window rate assertions above, which are 50x more
+/// sensitive to the original bug than this check ever was.
+const MAX_FINAL_HEAP_BYTES: u64 = 256 * 1024 * 1024;
 
 /// Layout callback that returns a body with [`STRESS_DOM_CHILDREN`]
 /// child divs. `extern "C"` because `LayoutCallbackType` is a C-ABI
@@ -301,7 +329,28 @@ fn measure(iterations: u32, deliberate_leak_bytes: usize) -> Measurement {
             if deliberate_leak_bytes > 0 {
                 // Well under glibc's 128 KiB MMAP_THRESHOLD, so this comes
                 // from the heap proper and `mallinfo2` accounts for it.
-                let leaked = vec![0xAB_u8; deliberate_leak_bytes];
+                //
+                // The fill must be INCOMPRESSIBLE. This was `vec![0xAB; n]`,
+                // and on macOS that made the RSS control fail: a constant byte
+                // pattern is exactly what the macOS memory compressor exists
+                // to squash, so 256 KiB/iter of written pages moved measured
+                // RSS by only 87 KiB/iter — a third of what was written. The
+                // control read that as "RSS cannot resolve this leak" when
+                // what actually happened is that the pages stopped being
+                // resident in the form they were written. Linux has no
+                // compressor in that path, which is why it passed there.
+                //
+                // A cheap xorshift keeps every page distinct and unsquashable,
+                // so `resident_size` has to move by the full amount on both
+                // platforms.
+                let mut leaked = vec![0_u8; deliberate_leak_bytes];
+                let mut x: u32 = 0x9E37_79B9 ^ i;
+                for chunk in leaked.chunks_mut(4) {
+                    x ^= x << 13;
+                    x ^= x >> 17;
+                    x ^= x << 5;
+                    chunk.copy_from_slice(&x.to_ne_bytes()[..chunk.len()]);
+                }
                 core::mem::forget(leaked);
             }
         }
@@ -313,7 +362,48 @@ fn measure(iterations: u32, deliberate_leak_bytes: usize) -> Measurement {
     // populated the first time that size is laid out. Both effects are
     // one-time; sampling before they have happened and again after charges
     // them to the iteration count as if they were a per-frame rate.
-    run_iterations(&mut window, WARMUP_CYCLES * SIZES.len() as u32);
+    //
+    // WARM UP UNTIL IT IS ACTUALLY WARM, rather than for a fixed 8 cycles.
+    // A constant cannot know how long a cache takes to fill, and this one was
+    // wrong: 8 cycles is 32 iterations, against a 500-iteration measurement
+    // window. Measured here, roughly 64 MiB is still arriving across the first
+    // ~500 post-warmup iterations and then stops dead — the first window read
+    // 131712 B/iter against a 1024 budget while steady state was 1 B/iter.
+    // That assertion could not have passed on either platform; on macOS it was
+    // simply unreachable, because the steady-state assertion above it failed
+    // first and hid it.
+    //
+    // So: run in whole cycles (never a partial one — a partial cycle would
+    // desynchronise every later sample from the size oscillation) until the
+    // heap stops growing across two consecutive blocks, or the cap is hit.
+    // Terminating on the measurement instead of on a guess also makes this
+    // FASTER than a fixed warmup large enough to be safe.
+    if deliberate_leak_bytes == 0 {
+        let block = SIZES.len() as u32 * WARMUP_CYCLES;
+        let mut prev = azul_layout::probe::malloc_heap_bytes();
+        let mut settled = 0_u32;
+        let mut done = 0_u32;
+        while done < MAX_WARMUP_ITERATIONS && settled < 2 {
+            run_iterations(&mut window, block);
+            done += block;
+            let now = azul_layout::probe::malloc_heap_bytes();
+            if now.saturating_sub(prev) < WARMUP_SETTLED_BYTES {
+                settled += 1;
+            } else {
+                settled = 0;
+            }
+            prev = now;
+        }
+        eprintln!(
+            "[leak_regression] warmup: {done} iterations, {}",
+            if settled >= 2 { "settled" } else { "HIT THE CAP — first-window budget may not hold" },
+        );
+    } else {
+        // A deliberate leak never settles by construction, so adaptive warmup
+        // would always run to the cap and waste minutes. The controls do not
+        // need a settled cache; they need the leak to be visible.
+        run_iterations(&mut window, WARMUP_CYCLES * SIZES.len() as u32);
+    }
 
     // Every sample below is taken at the SAME point in the size cycle (a
     // multiple of SIZES.len() iterations apart), so the ~1.5 MiB oscillation
@@ -325,9 +415,27 @@ fn measure(iterations: u32, deliberate_leak_bytes: usize) -> Measurement {
         )
     };
 
+    // THREE steady-state windows, not two. A leak is growth that does not
+    // stop, so the test should require growth that does not stop.
+    //
+    // With two windows this reported 2097 B/iter on macOS against a 256 B
+    // budget, and the second instrument said what was really going on: RSS
+    // moved by exactly 0 bytes, 34897 KiB before and 34897 KiB after. The
+    // "growth" was 1 MiB — 1048576 / 500 = 2097.15 — arriving in one step.
+    // That is macOS's allocator reserving a zone, not 500 iterations each
+    // retaining 2 KiB, and no amount of raising the budget distinguishes the
+    // two. glibc's finer-grained accounting is why Linux measured 2-25 B/iter
+    // for the identical workload.
+    //
+    // A one-off chunk lands in exactly one window. A real leak lands in every
+    // one. So take the MINIMUM rate across the two steady-state windows: an
+    // allocator step is cancelled by the quiet window beside it, while a
+    // genuine leak has no quiet window to be cancelled by.
     let (baseline, baseline_rss) = sample();
     run_iterations(&mut window, iterations);
     let (mid, mid_rss) = sample();
+    run_iterations(&mut window, iterations);
+    let (second, second_rss) = sample();
     run_iterations(&mut window, iterations);
     let (final_heap, final_rss) = sample();
 
@@ -338,23 +446,36 @@ fn measure(iterations: u32, deliberate_leak_bytes: usize) -> Measurement {
     // number until this function was parameterised, and the negative control
     // below caught the difference on its first run — it leaked 4096 B/iter and
     // measured 836, exactly the 100/500 ratio.
-    let growth = final_heap.saturating_sub(mid);
-    let per_iter = growth / u64::from(iterations);
-    let first_window_per_iter = mid.saturating_sub(baseline) / u64::from(iterations);
-    let rss_per_iter = final_rss.saturating_sub(mid_rss) / u64::from(iterations);
+    let n = u64::from(iterations);
+    let first_window_per_iter = mid.saturating_sub(baseline) / n;
+    let window_a = second.saturating_sub(mid) / n;
+    let window_b = final_heap.saturating_sub(second) / n;
+    let per_iter = window_a.min(window_b);
+
+    // Same treatment for RSS: the minimum of the two steady windows, so a
+    // one-off mapping cannot masquerade as a rate here either.
+    let rss_a = second_rss.saturating_sub(mid_rss) / n;
+    let rss_b = final_rss.saturating_sub(second_rss) / n;
+    let rss_per_iter = rss_a.min(rss_b);
 
     eprintln!(
-        "[leak_regression] heap: baseline={} KiB mid={} KiB final={} KiB  \
-         first_window={} B/iter  steady_state={} B/iter  |  \
-         rss: {} KiB -> {} KiB -> {} KiB  steady_state={} B/iter",
+        "[leak_regression] heap: baseline={} KiB -> {} -> {} -> {} KiB  \
+         first_window={} B/iter  steady={}/{} B/iter (min {})  |  \
+         rss: {} KiB -> {} -> {} -> {} KiB  steady={}/{} B/iter (min {})",
         baseline / 1024,
         mid / 1024,
+        second / 1024,
         final_heap / 1024,
         first_window_per_iter,
+        window_a,
+        window_b,
         per_iter,
         baseline_rss / 1024,
         mid_rss / 1024,
+        second_rss / 1024,
         final_rss / 1024,
+        rss_a,
+        rss_b,
         rss_per_iter,
     );
 
@@ -373,10 +494,13 @@ fn regenerate_layout_does_not_leak_under_resize_stress() {
     assert!(
         m.per_iter < MAX_BYTES_PER_ITER,
         "regenerate_layout resize loop leaked {} bytes/iter (>{} allowed) in \
-         STEADY STATE, across {} iterations measured at a matched point in the \
-         size cycle after {} warmup cycles. One-time costs cannot produce this; \
-         something is retained per call. This is the rust-fontconfig \
-         build_queue-accumulation leak or an equivalent regression.",
+         STEADY STATE — and this is the MINIMUM of two consecutive {}-iteration \
+         windows, each sampled at a matched point in the size cycle after {} \
+         warmup cycles. Neither one-time costs nor a single allocator-zone \
+         expansion can produce that: a one-off lands in one window and is \
+         cancelled by the other. Growth in BOTH means something is retained per \
+         call. This is the rust-fontconfig build_queue-accumulation leak or an \
+         equivalent regression.",
         m.per_iter,
         MAX_BYTES_PER_ITER,
         STRESS_ITERATIONS,
