@@ -327,14 +327,14 @@ static SYSTEM_TICK: core::sync::atomic::AtomicU64 = core::sync::atomic::AtomicU6
 /// that have no wall clock. Cheap enough to call unconditionally.
 #[cfg(feature = "std")]
 pub fn advance_system_tick() {
-    SYSTEM_TICK.fetch_add(1, core::sync::atomic::Ordering::Relaxed);
+    SYSTEM_TICK.fetch_add(1, Ordering::Relaxed);
 }
 
 /// The current frame counter.
 #[cfg(feature = "std")]
 #[must_use]
 pub fn system_tick_now() -> u64 {
-    SYSTEM_TICK.load(core::sync::atomic::Ordering::Relaxed)
+    SYSTEM_TICK.load(Ordering::Relaxed)
 }
 
 /// `std::time::Instant::now()` shifted by the injectable test-clock offset, or —
@@ -344,7 +344,7 @@ pub fn system_tick_now() -> u64 {
 /// NOT COMPILED on wasm32, where `std::time::Instant::now()` panics.
 ///
 /// `web_lift` is deliberately NOT included here. That backend compiles natively
-/// and is lifted to wasm afterwards, so `target_arch` reads x86_64 — but the
+/// and is lifted to wasm afterwards, so `target_arch` reads `x86_64` — but the
 /// lift walks the LLVM graph and auto-inserts calls out to JS for things like
 /// time, so it supplies its own clock and does not want this arm disabled.
 #[cfg(all(feature = "std", not(target_arch = "wasm32")))]

@@ -3816,7 +3816,7 @@ impl LayoutWindow {
     /// Build the platform-neutral accessibility snapshot.
     ///
     /// The counterpart of [`Self::update_a11y_tree`] for the two shells
-    /// `accesskit` has no backend for: iOS (UIKit) and Android
+    /// `accesskit` has no backend for: iOS (`UIKit`) and Android
     /// (`AccessibilityNodeProvider`). Both need the same information the
     /// accesskit tree carries — label, value, role, bounds, supported actions,
     /// parent/child links — expressed in Azul's own types, because neither can
@@ -5486,7 +5486,7 @@ impl LayoutWindow {
         dom_id: DomId,
         node_id: NodeId,
         action: AccessibilityAction,
-        now: azul_core::task::Instant,
+        now: Instant,
     ) -> BTreeMap<DomNodeId, (Vec<EventFilter>, bool)> {
         use crate::managers::text_input::TextInputSource;
 
@@ -5547,7 +5547,7 @@ impl LayoutWindow {
                 }
 
                 // Optionally scroll into view
-                self.scroll_to_node_if_needed(dom_id, node_id, now.clone());
+                self.scroll_to_node_if_needed(dom_id, node_id, now);
             }
             AccessibilityAction::Blur => {
                 self.focus_manager.clear_focus();
@@ -5566,7 +5566,7 @@ impl LayoutWindow {
 
             // Scroll actions
             AccessibilityAction::ScrollIntoView => {
-                self.scroll_to_node_if_needed(dom_id, node_id, now.clone());
+                self.scroll_to_node_if_needed(dom_id, node_id, now);
             }
             AccessibilityAction::ScrollLeft |
             AccessibilityAction::ScrollRight |
@@ -5600,7 +5600,7 @@ impl LayoutWindow {
                     LogicalPosition { x: dx, y: dy },
                     std::time::Duration::from_millis(250).into(),
                     EasingFunction::EaseOut,
-                    now.clone(),
+                    now,
                 );
             }
             AccessibilityAction::SetScrollOffset(pos) => {
@@ -5610,7 +5610,7 @@ impl LayoutWindow {
                     pos,
                     std::time::Duration::from_millis(0).into(),
                     EasingFunction::Linear,
-                    now.clone(),
+                    now,
                 );
             }
             AccessibilityAction::ScrollToPoint(pos) => {
@@ -5620,7 +5620,7 @@ impl LayoutWindow {
                     pos,
                     std::time::Duration::from_millis(300).into(),
                     EasingFunction::EaseInOut,
-                    now.clone(),
+                    now,
                 );
             }
 
@@ -6999,7 +6999,7 @@ impl LayoutWindow {
         &mut self,
         dom_id: DomId,
         node_id: NodeId,
-        now: azul_core::task::Instant,
+        now: Instant,
     ) {
         // 1. Get target node bounds
         let Some(target_bounds) = self.get_node_bounds(dom_id, node_id) else {
@@ -7066,7 +7066,7 @@ impl LayoutWindow {
             LogicalPosition { x: scroll_x, y: scroll_y },
             std::time::Duration::from_millis(300).into(),
             EasingFunction::EaseOut,
-            now.clone(),
+            now,
         );
     }
 
@@ -7087,7 +7087,7 @@ impl LayoutWindow {
         &mut self,
         dom_id: DomId,
         node_id: NodeId,
-        now: azul_core::task::Instant,
+        now: Instant,
     ) {
         // Get the cursor from multi_cursor
         let Some(cursor) = self.text_edit_manager.get_primary_cursor() else {
@@ -7181,7 +7181,7 @@ impl LayoutWindow {
             },
             std::time::Duration::from_millis(200).into(),
             EasingFunction::EaseOut,
-            now.clone(),
+            now,
         );
     }
 

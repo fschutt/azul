@@ -1091,7 +1091,7 @@ mod jni_bridge {
             w.common.previous_window_state = Some(w.common.current_window_state.clone());
             w.common.current_window_state.theme = theme;
             w.common
-                .request_regeneration(RelayoutReason::ThemeChange);
+                .request_regeneration(azul_core::callbacks::RelayoutReason::ThemeChange);
         });
     }
 

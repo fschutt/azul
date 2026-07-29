@@ -180,7 +180,7 @@ pub enum CallbackChange {
     ///
     /// The PRIMARY ingress for an a11y action is the per-backend
     /// `process_accessibility_actions()` frame pump, which reads its own OS
-    /// adapter (AT-SPI / UIA / NSAccessibility / UIKit / Android). This variant
+    /// adapter (AT-SPI / UIA / `NSAccessibility` / `UIKit` / Android). This variant
     /// is the second door, for a caller that only holds a `CallbackInfo`: the
     /// E2E `accessibility_action` op. Both doors end in the same
     /// `LayoutWindow::process_accessibility_action` + synthetic-event dispatch,

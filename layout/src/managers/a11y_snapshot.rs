@@ -50,7 +50,16 @@ use crate::{
 };
 
 /// One node as assistive technology sees it.
-#[derive(Debug, Clone, PartialEq)]
+///
+/// `clippy::struct_excessive_bools` is allowed rather than satisfied. The four
+/// flags are INDEPENDENT platform a11y states — a node can be focusable and
+/// editable and disabled at the same time — and each maps 1:1 onto a flag the
+/// bridges hand to `UIAccessibilityTraits` / `AccessibilityNodeInfo`. Folding
+/// them into an enum would make illegal what the platforms consider normal, and
+/// a bitflags newtype would only move the same four bits behind accessors this
+/// struct exists to expose.
+#[allow(clippy::struct_excessive_bools)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct A11yElement {
     /// The DOM node this element stands for.
     pub dom_id: DomId,
@@ -68,11 +77,11 @@ pub struct A11yElement {
     /// Element purpose.
     pub role: AccessibilityRole,
     /// Absolute bounds in LOGICAL units, padding/border inset, clipped to the
-    /// window. Logical because the two consumers disagree about pixels: UIKit
+    /// window. Logical because the two consumers disagree about pixels: `UIKit`
     /// works in points (== logical), Android in physical pixels. Each bridge
     /// scales; neither has to un-scale.
     pub bounds: LogicalRect,
-    /// Actions this element accepts. Drives the UIKit traits / Android action
+    /// Actions this element accepts. Drives the `UIKit` traits / Android action
     /// list, and is what [`A11ySnapshot::supports`] checks before a platform
     /// action is forwarded to the engine.
     pub actions: Vec<AccessibilityAction>,
@@ -97,7 +106,7 @@ impl A11yElement {
 }
 
 /// A whole window's worth of [`A11yElement`]s, index-addressed.
-#[derive(Debug, Clone, Default, PartialEq)]
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct A11ySnapshot {
     /// Window title, i.e. the root container's label.
     pub title: String,
@@ -116,6 +125,17 @@ impl A11ySnapshot {
     /// Mirrors the three passes of `A11yManager::update_tree` (create, link,
     /// attach) so the two surfaces expose the same nodes with the same parents.
     #[must_use]
+    // `too_many_lines` and `cognitive_complexity` are allowed, not satisfied.
+    // This is a single linear projection: walk every DOM node once and emit one
+    // flat element per node. The length is the number of a11y attributes a node
+    // has, not nested control flow, and the obvious split — a helper per
+    // attribute group — would take eight parameters each and read worse than the
+    // straight line it replaced.
+    //
+    // Worth revisiting when this file gains test coverage: it currently has
+    // none, which is the real reason not to refactor it blind today. Tracked on
+    // the deferred-items task.
+    #[allow(clippy::too_many_lines, clippy::cognitive_complexity)]
     pub fn build(
         layout_results: &BTreeMap<DomId, DomLayoutResult>,
         scroll_manager: &ScrollManager,
@@ -285,7 +305,7 @@ impl A11ySnapshot {
 
     /// Element at `index`, or `None` when the index is stale (the snapshot was
     /// rebuilt under the platform's feet). Returning `None` rather than
-    /// panicking matters: `index` comes straight from UIKit / Android, i.e.
+    /// panicking matters: `index` comes straight from `UIKit` / Android, i.e.
     /// from another process's idea of what the tree looks like.
     #[must_use]
     pub fn element(&self, index: usize) -> Option<&A11yElement> {
@@ -307,12 +327,12 @@ impl A11ySnapshot {
     }
 
     #[must_use]
-    pub fn is_empty(&self) -> bool {
+    pub const fn is_empty(&self) -> bool {
         self.elements.is_empty()
     }
 
     #[must_use]
-    pub fn len(&self) -> usize {
+    pub const fn len(&self) -> usize {
         self.elements.len()
     }
 }
@@ -320,7 +340,7 @@ impl A11ySnapshot {
 /// Absolute, padding/border-inset, viewport-clipped bounds in logical units.
 ///
 /// Same geometry `A11yManager::build_node` computes for accesskit, minus the
-/// HiDPI multiply — see [`A11yElement::bounds`] for why the scale stays with
+/// `HiDPI` multiply — see [`A11yElement::bounds`] for why the scale stays with
 /// the platform. A node with no layout (display:none, never laid out) gets a
 /// zero rect, which every platform reads as "nothing to highlight".
 fn element_bounds(
@@ -482,10 +502,10 @@ fn supported_actions(
 /// Fallback role for a node with no explicit `AccessibilityInfo`.
 ///
 /// Deliberately small: only the roles the mobile platforms announce
-/// differently. Everything else is `Grouping`, which both UIKit and Android
+/// differently. Everything else is `Grouping`, which both `UIKit` and Android
 /// read as "a plain container" — the honest answer for a bare `<div>`, and
 /// better than claiming a role the node does not have.
-fn node_type_to_role(node_type: &NodeType) -> AccessibilityRole {
+const fn node_type_to_role(node_type: &NodeType) -> AccessibilityRole {
     match node_type {
         NodeType::Button => AccessibilityRole::PushButton,
         NodeType::A => AccessibilityRole::Link,

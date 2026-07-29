@@ -29,7 +29,7 @@ use crate::{solver3::layout_tree::LayoutNodeHot, window::DomLayoutResult};
 ///
 /// ONE definition, deliberately. It used to be an inline condition inside
 /// [`A11yManager::update_tree`], which is fine while accesskit is the only
-/// consumer — but accesskit ships no UIKit and no Android backend, so the iOS
+/// consumer — but accesskit ships no `UIKit` and no Android backend, so the iOS
 /// and Android bridges have to build their element lists themselves, and the
 /// E2E `accessibility_action` op has to decide whether the node a test is
 /// activating is one a screen reader could ever reach. Three consumers guessing

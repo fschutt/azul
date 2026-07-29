@@ -2839,11 +2839,26 @@ mod api_json_declared_derives {
             }
             newest(std::path::Path::new(emitter_dir))
         };
+        // MTIME IS ONLY MEANINGFUL LOCALLY.
+        //
+        // In CI the artifact is restored by actions/cache, which preserves the
+        // mtime it had when it was SAVED, while the checkout stamps every source
+        // file with the current time. So a cache hit always looks "older than
+        // its sources" and this guard fired on a perfectly current artifact —
+        // it took the whole lint job down on its first run after the cache fix.
+        //
+        // CI does not need the guard anyway: the workflow runs
+        // `azul-doc codegen all` in the step BEFORE this one, so the ordering is
+        // guaranteed by construction. Locally there is no such guarantee, which
+        // is exactly where a stale artifact produced a confident wrong verdict
+        // (36 "missing" derives against a build eight hours out of date).
         let generated_mtime = std::fs::metadata(gen).and_then(|m| m.modified()).ok();
-        let is_stale = match (newest_emitter_mtime, generated_mtime) {
-            (Some(emitter), Some(generated)) => emitter > generated,
-            _ => false,
-        };
+        let in_ci = std::env::var_os("CI").is_some();
+        let is_stale = !in_ci
+            && match (newest_emitter_mtime, generated_mtime) {
+                (Some(emitter), Some(generated)) => emitter > generated,
+                _ => false,
+            };
         if is_stale {
             panic!(
                 "{gen} is OLDER than the codegen sources that produce it, so this test would \

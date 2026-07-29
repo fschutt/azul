@@ -690,7 +690,27 @@ fn load_app_specific_stylesheet() -> Option<Css> {
 /// thread. It is affordable there: one `objc_msgSend` pair and a short string
 /// read, no IPC and no subprocess.
 pub(crate) fn probe_effective_appearance() -> Option<Theme> {
-    let lib = ObjcLib::load()?;
+    // Loaded ONCE, not per poll. `ObjcLib::load()` dlopens libobjc + AppKit and
+    // its Drop dlcloses them, so calling it from a 500 ms poll would open and
+    // close AppKit twice a second on the main thread forever. The handles are
+    // process-lifetime anyway — `discover()` already holds one for the duration
+    // of the call — so keeping one alive costs nothing and removes the churn.
+    //
+    // Thread-local rather than a global: this is main-thread-only (AppKit), and
+    // `ObjcLib` holds raw handles that are not worth proving Sync for.
+    std::thread_local! {
+        static LIB: Option<ObjcLib> = ObjcLib::load();
+    }
+
+    LIB.with(|lib| {
+        let lib = lib.as_ref()?;
+        probe_with(lib)
+    })
+}
+
+/// The appearance read itself, split out so the cached handle can be borrowed.
+#[allow(clippy::unnecessary_wraps)]
+fn probe_with(lib: &ObjcLib) -> Option<Theme> {
     unsafe {
         let app = lib.send_id(lib.cls(b"NSApplication\0"), lib.sel(b"sharedApplication\0"));
         if app.is_null() {
@@ -700,7 +720,7 @@ pub(crate) fn probe_effective_appearance() -> Option<Theme> {
         if appearance.is_null() {
             return None;
         }
-        let name = nsstring_to_string(&lib, lib.send_id(appearance, lib.sel(b"name\0")))?;
+        let name = nsstring_to_string(lib, lib.send_id(appearance, lib.sel(b"name\0")))?;
         Some(if name.contains("Dark") {
             Theme::Dark
         } else {

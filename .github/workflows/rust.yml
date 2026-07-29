@@ -3064,7 +3064,9 @@ jobs:
     name: Mobile demo apps (Android)
     timeout-minutes: 60
     if: github.event_name != 'workflow_dispatch' || github.event.inputs.run_mode == 'ci' || github.event.inputs.run_mode == 'deploy' || github.event.inputs.run_mode == 'website'
-    continue-on-error: true
+    # NOT continue-on-error. It was, and that is how a BROKEN APK reached the
+    # release page: this job is in deploy_pages' `needs`, so with the flag on it
+    # satisfied that dependency no matter what it produced.
     runs-on: ubuntu-22.04
     steps:
       - uses: actions/checkout@v7
@@ -3108,26 +3110,57 @@ jobs:
       - name: Generate DLL API bindings
         if: steps.codegen-cache.outputs.cache-hit != 'true'
         run: cargo run -r -p azul-doc codegen all
-      - name: Build cdylib demos as APKs (best-effort)
+      # Every "cannot fail" was removed here, and there were FIVE stacked on top
+      # of each other: `set +e`, a `|| continue` that downgraded a failed build
+      # to a ::warning::, a `[ -f "$APK" ] && cp` whose `&&` short-circuits to
+      # exit 0 when nothing was produced, `ls || true`, and the job's own
+      # continue-on-error. A missing APK, an unsigned APK and a successful build
+      # were indistinguishable in the log AND in the exit code.
+      #
+      # AZ_ANDROID_NO_JAVA=1 is gone, and it is the reason the published APKs
+      # could never work. The manifest's launcher activity is
+      # `com.azul.app.AzulActivity`, a JAVA class; skipping javac/d8 ships an
+      # APK with no classes.dex and android:hasCode="false", so tapping the icon
+      # raises ClassNotFoundException. It looked fine to anyone testing through
+      # scripts/build-android.sh's own adb path, because that launches
+      # `android.app.NativeActivity` directly and never resolves the launcher
+      # entry. This runner has JDK 17 (actions/setup-java above), so there is
+      # nothing to skip for.
+      - name: Build cdylib demos as APKs
         shell: bash
         env:
           ANDROID_NDK_HOME: ${{ steps.ndk.outputs.ndk-path }}
         run: |
-          set +e
+          set -euo pipefail
           NDKBIN="$ANDROID_NDK_HOME/toolchains/llvm/prebuilt/linux-x86_64/bin"
           # API 24 (Android 7.0): build.rs links camera2ndk/mediandk; AAudio is dlopen'd.
           export CARGO_TARGET_AARCH64_LINUX_ANDROID_LINKER="$NDKBIN/aarch64-linux-android24-clang"
           export CARGO_TARGET_AARCH64_LINUX_ANDROID_AR="$NDKBIN/llvm-ar"
+          BT="$ANDROID_SDK_ROOT/build-tools/34.0.0"
           mkdir -p mobile-apps
           for demo in azul-maps azul-paint azul-widgets azul-self-test; do
             echo "=== Android APK: $demo ==="
-            AZ_ANDROID_NO_DEPLOY=1 AZ_ANDROID_NO_JAVA=1 \
-              bash scripts/build-android.sh aarch64-linux-android "$demo" "com.azul.${demo//-/_}" "$demo" \
-              || { echo "::warning::$demo failed to build an APK — skipping"; continue; }
+            AZ_ANDROID_NO_DEPLOY=1 \
+              bash scripts/build-android.sh aarch64-linux-android "$demo" "com.azul.${demo//-/_}" "$demo"
             APK="target/android-bundle/${demo}-arm64-v8a/aligned.apk"
-            [ -f "$APK" ] && cp "$APK" "mobile-apps/${demo}-android.apk"
+            [ -f "$APK" ] || { echo "::error::$demo produced no APK at $APK"; exit 1; }
+
+            # An APK that exists is not an APK that installs. Prove all three
+            # things a phone checks before it will run one.
+            "$BT/apksigner" verify --verbose "$APK" \
+              || { echo "::error::$demo APK is not validly signed"; exit 1; }
+            if ! unzip -l "$APK" | grep -q 'classes\.dex'; then
+              echo "::error::$demo APK has no classes.dex — the launcher activity"
+              echo "::error::com.azul.app.AzulActivity is a Java class, so this APK"
+              echo "::error::cannot start. This is the AZ_ANDROID_NO_JAVA regression."
+              exit 1
+            fi
+            "$BT/aapt2" dump badging "$APK" | grep -q "launchable-activity" \
+              || { echo "::error::$demo APK declares no launchable activity"; exit 1; }
+
+            cp "$APK" "mobile-apps/${demo}-android.apk"
           done
-          ls -l mobile-apps || true
+          ls -l mobile-apps
       - name: Upload mobile demo apps (Android)
         uses: actions/upload-artifact@v7
         with:
