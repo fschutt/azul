@@ -208,7 +208,11 @@ impl AndroidWindow {
         self.accessibility_adapter.update_snapshot(snapshot, scale);
         self.common.a11y_dirty = false;
     }
-    pub fn close(&mut self) { self.is_open = false; }
+    pub fn close(&mut self) {
+        // See CommonWindowState::deinit_renderer — webrender requires it.
+        self.common.deinit_renderer();
+        self.is_open = false;
+    }
 
     /// Run a full layout regeneration pass and CPU-render the resulting
     /// display list. Mirrors `HeadlessWindow::regenerate_layout()`; the

@@ -830,6 +830,10 @@ impl WaylandWindow {
         self.common.current_window_state.flags.close_requested
     }
     pub fn close(&mut self) {
+        // WebRender's Renderer must be deinit()'d, not dropped — texture
+        // deletion has to happen inside a frame. Never doing so crashed debug
+        // builds on close and leaked GPU resources in release.
+        self.common.deinit_renderer();
         if let Some(doc_id) = self.common.document_id {
             crate::desktop::gl_texture_integration::remove_document_textures(&doc_id);
         }

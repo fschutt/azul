@@ -936,6 +936,10 @@ impl HeadlessWindow {
 
     /// Close the window.
     pub fn close(&mut self) {
+        // WebRender's Renderer must be deinit()'d, not dropped — texture
+        // deletion has to happen inside a frame. Never doing so crashed debug
+        // builds on close and leaked GPU resources in release.
+        self.common.deinit_renderer();
         self.is_open = false;
     }
 

@@ -991,6 +991,32 @@ impl CommonWindowState {
     /// regeneration. That is exactly what the old two-field code did by simply
     /// not touching `next_relayout_reason`, and losing it would mean a plain
     /// redraw request arriving after a resize could downgrade the resize.
+    /// Release the WebRender renderer the way WebRender requires.
+    ///
+    /// `Renderer::deinit(self)` is NOT optional and is NOT a `Drop`. Its own
+    /// comment says why:
+    ///
+    ///     //Note: this is a fake frame, only needed because texture deletion is
+    ///     // require to happen inside a frame
+    ///     self.device.begin_frame();
+    ///
+    /// azul never called it — `grep -rn '\.deinit()'` over dll/, layout/ and
+    /// core/ returned nothing — so every window dropped its `Renderer`
+    /// implicitly and released textures and depth targets outside a frame. In a
+    /// DEBUG build that trips `SharedDepthTarget::drop`'s
+    /// `debug_assert!(thread::panicking() || self.refcount == 0)`
+    /// (webrender/core/src/device/gl.rs:1019) and the process dies; that
+    /// assertion is `#[cfg(debug_assertions)]`, so a release build stays quiet
+    /// and leaks instead.
+    ///
+    /// Idempotent: takes the renderer out, so a second call is a no-op. Safe to
+    /// call from both `close()` and `Drop`.
+    pub fn deinit_renderer(&mut self) {
+        if let Some(renderer) = self.renderer.take() {
+            renderer.deinit();
+        }
+    }
+
     pub fn request_regeneration(&mut self, reason: azul_core::callbacks::RelayoutReason) {
         self.regen.request.raise();
         if reason != azul_core::callbacks::RelayoutReason::RefreshDom {

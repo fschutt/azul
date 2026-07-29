@@ -4598,6 +4598,10 @@ impl Win32Window {
     }
 
     pub fn close(&mut self) {
+        // WebRender's Renderer must be deinit()'d, not dropped — texture
+        // deletion has to happen inside a frame. Never doing so crashed debug
+        // builds on close and leaked GPU resources in release.
+        self.common.deinit_renderer();
         // Close the window by posting WM_CLOSE
         unsafe {
             const WM_CLOSE: u32 = 0x0010;

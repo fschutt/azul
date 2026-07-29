@@ -1166,6 +1166,10 @@ impl X11Window {
 
     /// Destroy the X11 window, free the ARGB colormap, and close the display.
     pub fn close(&mut self) {
+        // WebRender's Renderer must be deinit()'d, not dropped — texture
+        // deletion has to happen inside a frame. Never doing so crashed debug
+        // builds on close and leaked GPU resources in release.
+        self.common.deinit_renderer();
         if self.is_open {
             self.is_open = false;
             if let Some(doc_id) = self.common.document_id {
