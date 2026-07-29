@@ -245,6 +245,7 @@ pub fn test_clock_offset_ms() -> u64 {
 }
 
 #[cfg(feature = "std")]
+#[cfg(all(feature = "std", not(any(target_arch = "wasm32", feature = "web_lift"))))]
 std::thread_local! {
     /// When set, this thread's clock is FROZEN at this instant: `Instant::now()`
     /// answers `base + TEST_CLOCK_OFFSET_MS` and real time does not flow into it
@@ -278,7 +279,7 @@ std::thread_local! {
 ///
 /// Idempotent: re-freezing an already-frozen clock keeps the original base, so
 /// the offset stays the single source of elapsed time.
-#[cfg(feature = "std")]
+#[cfg(all(feature = "std", not(any(target_arch = "wasm32", feature = "web_lift"))))]
 pub fn freeze_test_clock() {
     TEST_CLOCK_BASE.with(|c| {
         if c.get().is_none() {
@@ -288,7 +289,7 @@ pub fn freeze_test_clock() {
 }
 
 /// Whether this thread's clock is frozen (see [`freeze_test_clock`]).
-#[cfg(feature = "std")]
+#[cfg(all(feature = "std", not(any(target_arch = "wasm32", feature = "web_lift"))))]
 #[must_use]
 pub fn test_clock_is_frozen() -> bool {
     TEST_CLOCK_BASE.with(core::cell::Cell::get).is_some()
@@ -302,16 +303,49 @@ pub fn test_clock_is_frozen() -> bool {
 /// offset had, just at thread granularity. The E2E runner calls this at the
 /// start of every scenario. Clears the freeze as well, so a scenario cannot
 /// leave the next one's clock stopped.
-#[cfg(feature = "std")]
+#[cfg(all(feature = "std", not(any(target_arch = "wasm32", feature = "web_lift"))))]
 pub fn reset_test_clock() {
     TEST_CLOCK_OFFSET_MS.with(|c| c.set(0));
     TEST_CLOCK_BASE.with(|c| c.set(None));
 }
 
+/// Monotonic frame counter, and the ONLY clock a wasm build has.
+///
+/// `std::time::Instant::now()` PANICS on wasm32-unknown-unknown, and
+/// `#[cfg(feature = "std")]` does not exclude wasm here: azul-core is built with
+/// `default = ["std"]` for the web target, so every `std` path is compiled in.
+///
+/// Answering `Tick(0)` forever would stop the panic and freeze every animation
+/// instead — a silent stall, which is worse than a loud crash. So the web build
+/// gets a real monotonic source: the browser drives redraw, each produced DOM
+/// patch is one frame, and one frame is exactly what a `t` (tick) duration
+/// counts. `AzStartup_buildPatch` calls [`advance_system_tick`] once per patch.
+#[cfg(feature = "std")]
+static SYSTEM_TICK: core::sync::atomic::AtomicU64 = core::sync::atomic::AtomicU64::new(0);
+
+/// Advance the frame counter by one. Called once per produced frame by backends
+/// that have no wall clock. Cheap enough to call unconditionally.
+#[cfg(feature = "std")]
+pub fn advance_system_tick() {
+    SYSTEM_TICK.fetch_add(1, core::sync::atomic::Ordering::Relaxed);
+}
+
+/// The current frame counter.
+#[cfg(feature = "std")]
+#[must_use]
+pub fn system_tick_now() -> u64 {
+    SYSTEM_TICK.load(core::sync::atomic::Ordering::Relaxed)
+}
+
 /// `std::time::Instant::now()` shifted by the injectable test-clock offset, or —
 /// when the clock is frozen — built from the frozen base so real time cannot
 /// leak in.
-#[cfg(feature = "std")]
+///
+/// NOT COMPILED where there is no real clock. `target_arch = "wasm32"` alone is
+/// not a sufficient guard: under `web_lift` the code is compiled NATIVELY
+/// (target_arch reads x86_64) and lifted to wasm afterwards by the remill
+/// transpiler, so it runs as wasm while every arch cfg says otherwise.
+#[cfg(all(feature = "std", not(any(target_arch = "wasm32", feature = "web_lift"))))]
 fn std_now_with_test_offset() -> StdInstant {
     let offset = test_clock_offset_ms();
     if let Some(base) = TEST_CLOCK_BASE.with(core::cell::Cell::get) {
@@ -329,9 +363,29 @@ impl Instant {
     ///
     /// On systems with std, this uses `std::time::Instant::now()`.
     /// On `no_std` systems, this returns a zero tick.
-    #[cfg(feature = "std")]
+    #[cfg(all(feature = "std", not(any(target_arch = "wasm32", feature = "web_lift"))))]
     #[must_use] pub fn now() -> Self {
         std_now_with_test_offset().into()
+    }
+
+    /// Returns the current time on a build with NO CLOCK: wasm32, or a
+    /// `web_lift` build that is compiled natively and lifted to wasm afterwards.
+    ///
+    /// `std::time::Instant::now()` panics on wasm32-unknown-unknown, and
+    /// `#[cfg(feature = "std")]` does not exclude wasm here — azul-core is built
+    /// with `default = ["std"]` for the web target, so the std path is compiled
+    /// in and would trap on the first frame.
+    ///
+    /// This deliberately does NOT answer a constant `Tick(0)`. That stops the
+    /// panic and freezes every animation instead, which is a silent stall — the
+    /// worse failure of the two. The browser drives redraw and each produced DOM
+    /// patch is one frame, so the frame counter IS the clock, and a frame is
+    /// exactly what a `t` (tick) duration counts. Elapsed values come out as
+    /// `Tick` and convert against `System` intervals through
+    /// `Duration::as_nanos`, so `60t` compares equal to one second.
+    #[cfg(all(feature = "std", any(target_arch = "wasm32", feature = "web_lift")))]
+    #[must_use] pub fn now() -> Self {
+        Instant::Tick(SystemTick::new(system_tick_now()))
     }
 
     /// Returns the current system time (no_std fallback).

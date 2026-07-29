@@ -2188,6 +2188,23 @@ pub unsafe extern "C" fn AzStartup_buildPatch(
     payload_ptr: u32,
     payload_len: u32,
 ) -> u32 {
+    // THE WEB BUILD'S ONLY CLOCK.
+    //
+    // `std::time::Instant::now()` panics on wasm32, so `azul_core::task::Instant`
+    // answers `Tick(system_tick_now())` there instead. That is only a clock if
+    // something advances it — a constant tick would freeze every timer and
+    // animation, which is a silent stall and worse than the panic it replaced.
+    //
+    // A produced DOM patch is exactly one frame: the browser drives redraw and
+    // azul hands back a type/length/value patch per frame. So a frame is the
+    // tick, which is also precisely what a CSS `t` duration counts.
+    //
+    // Advanced BEFORE the early returns below on purpose. Those reject a
+    // malformed request, not a frame that did not happen, and skipping the
+    // increment there would stall time whenever the JS side passed a short
+    // buffer.
+    azul_core::task::advance_system_tick();
+
     if out_buf == 0 {
         return 0;
     }

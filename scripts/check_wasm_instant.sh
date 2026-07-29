@@ -217,17 +217,67 @@ crate_root() {
 #          CI job (see SCOPE); rejected outright under STRICT_WASM_CFG=1.
 # ---------------------------------------------------------------------------
 EXCL_KIND=""
+# ---------------------------------------------------------------------------
+# in_test_module FILE LINE
+#
+# True when LINE sits inside a `#[cfg(test)]` module. Such code is compiled into
+# NO artifact — not the wasm one, not any other — so a std clock call there can
+# never trap at runtime. Reporting it would leave this gate permanently red on a
+# finding nobody can act on, and a gate that cries wolf stops being read.
+#
+# The module extent is found by counting braces from the `mod ... {` line, so
+# this does not assume the test module is last in the file.
+# ---------------------------------------------------------------------------
+in_test_module() {
+  awk -v target="$2" '
+    /^[[:space:]]*#\[cfg\(test\)\]/ { pend = 1; next }
+    pend && /mod[[:space:]]+[A-Za-z_][A-Za-z0-9_]*[[:space:]]*\{/ {
+      pend = 0; depth = 0
+      for (i = 1; i <= length($0); i++) {
+        c = substr($0, i, 1)
+        if (c == "{") depth++
+        else if (c == "}") depth--
+      }
+      start = NR
+      if (depth <= 0) next
+      for (n = NR + 1; (getline line) > 0; n++) {
+        for (i = 1; i <= length(line); i++) {
+          c = substr(line, i, 1)
+          if (c == "{") depth++
+          else if (c == "}") depth--
+        }
+        if (depth <= 0) { if (target > start && target <= n) { found = 1 } ; break }
+      }
+      if (target > start && depth > 0) found = 1
+      next
+    }
+    # Other attributes and doc comments may sit between the cfg and the mod
+    # (`#[cfg(test)] / #[allow(...)] / mod tests {` is the real shape in
+    # core/src/task.rs), so they must not clear the pending flag.
+    pend && /^[[:space:]]*(#\[|\/\/)/ { next }
+    pend && /[^[:space:]]/ { pend = 0 }
+    END { exit(found ? 0 : 1) }
+  ' "$1"
+}
+
 excludes_wasm() {
   local text="$1" feats="$2" bare stripped prev feat
   EXCL_KIND=""
   # Collapse whitespace so `feature = "std"` and `feature="std"` are one shape.
   bare=$(printf '%s' "$text" | tr -d '[:space:]')
 
-  # `not(<atom>)` groups removed -> what is left is the POSITIVE part.
+  # `not(...)` groups removed -> what is left is the POSITIVE part.
+  # One level of NESTING is handled (`not(any(a,b))`, `not(all(a,b))`) before the
+  # flat form, because the real guard for a clockless build is
+  # `not(any(target_arch = "wasm32", feature = "web_lift"))` — the arch alone is
+  # not enough, since a `web_lift` build compiles natively and is lifted to wasm
+  # afterwards. Without the nested pass, `[^()]*` cannot span the inner parens,
+  # nothing is stripped, and the leftover `target_arch="wasm32"` reads as a
+  # POSITIVE wasm selector — so the checker condemned the very cfg that fixes it.
   stripped="$bare"
   while :; do
     prev="$stripped"
-    stripped=$(printf '%s' "$stripped" | sed 's/not([^()]*)//g')
+    stripped=$(printf '%s' "$stripped" | sed -E 's/not\((any|all)\([^()]*\)\)//g; s/not\([^()]*\)//g')
     [ "$stripped" = "$prev" ] && break
   done
 
@@ -237,8 +287,11 @@ excludes_wasm() {
   esac
 
   # Negated wasm predicate: the item is compiled everywhere except wasm.
-  case "$bare" in
-    *'not(target_family="wasm")'*|*'not(target_arch="wasm'*) EXCL_KIND=wasm; return 0 ;;
+  # Collect every negated group, INCLUDING one level of nesting, and look for a
+  # wasm predicate inside it.
+  negated=$(printf '%s' "$bare" | grep -oE 'not\((any|all)\([^()]*\)\)|not\([^()]*\)' | tr '\n' ' ')
+  case "$negated" in
+    *'target_family="wasm"'*|*'target_arch="wasm'*) EXCL_KIND=wasm; return 0 ;;
   esac
 
   # A std-implying feature, positively required. This is the weak form.
@@ -441,6 +494,7 @@ for dir in "${DIRS[@]}"; do
         continue
       fi
 
+      if in_test_module "$file" "$lno"; then continue; fi
       echo "ERROR: std Instant::now() not gated away from wasm at ${file}:${lno}"
       echo "    $trimmed"
       found=1
