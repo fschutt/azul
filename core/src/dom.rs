@@ -5882,7 +5882,13 @@ impl Dom {
         }
     }
     #[must_use] pub const fn node_count(&self) -> usize {
-        self.estimated_total_children + 1
+        // `saturating_add`, not `+`. `estimated_total_children` is a PUBLIC
+        // field, so a caller can put `usize::MAX` in it. With `+` that is a
+        // panic in debug and a silent wrap to **0** in release — and 0 is the
+        // worst available answer, because it reads as "this DOM is empty" and
+        // every caller believes it. Saturating gives the same result for every
+        // sane value and a defined, obviously-wrong-way-up one otherwise.
+        self.estimated_total_children.saturating_add(1)
     }
 
     /// Push a parsed `Css` onto this Dom subtree's `.css` list (the
@@ -8283,17 +8289,23 @@ mod autotest_generated {
         assert_eq!(d.node_count(), 1, "node_count is safe again after fixup");
     }
 
-    // `node_count()` is `estimated_total_children + 1` with no checked add. Because
-    // `estimated_total_children` is a public field, a corrupted usize::MAX makes it
-    // overflow — a debug-build panic (and a silent wrap to 0 in release). Only
-    // meaningful when overflow checks are on.
-    #[cfg(debug_assertions)]
+    // `estimated_total_children` is a public field, so `usize::MAX` is
+    // reachable. This used to be `#[cfg(debug_assertions)] #[should_panic]`,
+    // pinning "panics in debug, wraps to 0 in release" — i.e. pinning a
+    // divergence where the release answer was the dangerous one (0 reads as
+    // "empty DOM"). `node_count` saturates now, so assert the SAME defined
+    // answer in both configurations, and assert it is not the empty-DOM value.
     #[test]
-    #[should_panic(expected = "overflow")]
-    fn dom_node_count_overflows_on_a_corrupted_max_estimate() {
+    fn dom_node_count_saturates_on_a_corrupted_max_estimate() {
         let mut d = Dom::create_div();
         d.estimated_total_children = usize::MAX;
-        let _ = d.node_count();
+        assert_eq!(d.node_count(), usize::MAX);
+        assert_ne!(
+            d.node_count(),
+            0,
+            "wrapping to 0 would claim an empty DOM — the one answer callers \
+             act on without checking"
+        );
     }
 
     #[test]

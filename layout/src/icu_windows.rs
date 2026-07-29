@@ -1148,15 +1148,29 @@ mod autotest_generated {
         assert_eq!(ar.get_plural_category(i64::MAX), PluralCategory::Few);
     }
 
-    // The CLDR rules for ar/ru/pl/sl/lt/lv/ro/mt compute `n.abs()`, which panics on
-    // i64::MIN. Debug-only: with overflow checks off `abs()` wraps to i64::MIN and
-    // the category is merely wrong, so no panic is available to assert on.
+    // Was `#[cfg(debug_assertions)] #[should_panic(expected = "overflow")]`,
+    // pinning the divergence rather than the behaviour: `n.abs()` panicked in
+    // debug and wrapped back to i64::MIN in release, so the modulo ran on a
+    // negative number and produced the wrong plural form silently. Note which
+    // half of that the old test asserted — the half that crashes — while the
+    // half that ships a wrong word to users had "no panic available to assert
+    // on" and so was asserted not at all.
+    //
+    // `plural_for` uses `unsigned_abs` now. Same answer in both builds, for
+    // every language whose rules take a magnitude.
     #[test]
-    #[cfg(debug_assertions)]
-    #[should_panic(expected = "overflow")]
-    fn plural_i64_min_overflows_for_abs_based_languages() {
-        let mut l = IcuLocalizer::new("ru-RU");
-        let _c = l.get_plural_category(i64::MIN);
+    fn plural_i64_min_is_total_for_abs_based_languages() {
+        for tag in ["ru-RU", "ar", "pl", "sl", "lt", "lv", "ro", "mt"] {
+            let mut l = IcuLocalizer::new(tag);
+            // i64::MIN is -9223372036854775808; |n| % 100 == 8.
+            let at_min = l.get_plural_category(i64::MIN);
+            let at_eight = l.get_plural_category(8);
+            assert_eq!(
+                at_min, at_eight,
+                "{tag}: i64::MIN must land in the same category as 8 — the \
+                 CLDR rules only look at |n| % 100, which is 8 for both",
+            );
+        }
     }
 
     #[test]

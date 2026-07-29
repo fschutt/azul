@@ -199,10 +199,20 @@ pub(crate) fn decimal_string(integer_part: i64, decimal_places: i16) -> alloc::s
 ))]
 pub(crate) fn plural_for(n: i64, lang: &str) -> PluralCategory {
     let lang = lang.split(['-', '_']).next().unwrap_or(lang);
+    // NOT `n.abs()`. The CLDR rules below take |n| % 10 and |n| % 100, and
+    // `i64::MIN.abs()` is not representable: it panics in a debug build and
+    // wraps straight back to i64::MIN in release. The modulo then runs on a
+    // NEGATIVE number and silently returns the wrong plural form — a wrong
+    // word on screen, in release only, with no diagnostic anywhere.
+    // `unsigned_abs` is total, so both builds agree.
+    // Reduced mod 100 up front: every use below is `abs_n % 100` (a no-op) or
+    // `abs_n % 10`, and 100 is a multiple of 10, so `(|n| % 100) % 10` is
+    // exactly `|n| % 10`. Reducing first is what keeps the cast to i64 total.
+    let abs_n = (n.unsigned_abs() % 100) as i64;
     match lang {
         // Arabic: six categories
         "ar" | "arz" | "ckb" => {
-            let n100 = n.abs() % 100;
+            let n100 = abs_n % 100;
             if n == 0 {
                 PluralCategory::Zero
             } else if n == 1 {
@@ -228,8 +238,8 @@ pub(crate) fn plural_for(n: i64, lang: &str) -> PluralCategory {
         },
         // East Slavic (Russian, Ukrainian, Belarusian, Serbian, Croatian, Bosnian)
         "ru" | "uk" | "be" | "sr" | "hr" | "bs" | "sh" => {
-            let n10 = n.abs() % 10;
-            let n100 = n.abs() % 100;
+            let n10 = abs_n % 10;
+            let n100 = abs_n % 100;
             if n10 == 1 && n100 != 11 {
                 PluralCategory::One
             } else if (2..=4).contains(&n10) && !(12..=14).contains(&n100) {
@@ -240,8 +250,8 @@ pub(crate) fn plural_for(n: i64, lang: &str) -> PluralCategory {
         }
         // Polish
         "pl" => {
-            let n10 = n.abs() % 10;
-            let n100 = n.abs() % 100;
+            let n10 = abs_n % 10;
+            let n100 = abs_n % 100;
             if n == 1 {
                 PluralCategory::One
             } else if (2..=4).contains(&n10) && !(12..=14).contains(&n100) {
@@ -262,7 +272,7 @@ pub(crate) fn plural_for(n: i64, lang: &str) -> PluralCategory {
         }
         // Slovenian
         "sl" => {
-            let n100 = n.abs() % 100;
+            let n100 = abs_n % 100;
             if n100 == 1 {
                 PluralCategory::One
             } else if n100 == 2 {
@@ -275,8 +285,8 @@ pub(crate) fn plural_for(n: i64, lang: &str) -> PluralCategory {
         }
         // Lithuanian
         "lt" => {
-            let n10 = n.abs() % 10;
-            let n100 = n.abs() % 100;
+            let n10 = abs_n % 10;
+            let n100 = abs_n % 100;
             if n10 == 1 && !(11..=19).contains(&n100) {
                 PluralCategory::One
             } else if (2..=9).contains(&n10) && !(11..=19).contains(&n100) {
@@ -287,8 +297,8 @@ pub(crate) fn plural_for(n: i64, lang: &str) -> PluralCategory {
         }
         // Latvian
         "lv" => {
-            let n10 = n.abs() % 10;
-            let n100 = n.abs() % 100;
+            let n10 = abs_n % 10;
+            let n100 = abs_n % 100;
             if n == 0 {
                 PluralCategory::Zero
             } else if n10 == 1 && n100 != 11 {
@@ -299,7 +309,7 @@ pub(crate) fn plural_for(n: i64, lang: &str) -> PluralCategory {
         }
         // Romanian
         "ro" | "mo" => {
-            let n100 = n.abs() % 100;
+            let n100 = abs_n % 100;
             if n == 1 {
                 PluralCategory::One
             } else if n == 0 || (1..=19).contains(&n100) {
@@ -310,7 +320,7 @@ pub(crate) fn plural_for(n: i64, lang: &str) -> PluralCategory {
         }
         // Maltese
         "mt" => {
-            let n100 = n.abs() % 100;
+            let n100 = abs_n % 100;
             if n == 1 {
                 PluralCategory::One
             } else if n == 0 || (2..=10).contains(&n100) {

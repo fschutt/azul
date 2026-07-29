@@ -1014,10 +1014,27 @@ struct SharedDepthTarget {
     refcount: usize,
 }
 
-#[cfg(debug_assertions)]
 impl Drop for SharedDepthTarget {
     fn drop(&mut self) {
-        debug_assert!(thread::panicking() || self.refcount == 0);
+        // This whole impl used to be `#[cfg(debug_assertions)]`, so the check
+        // did not merely weaken in release — it did not exist. A depth target
+        // dropped with a live refcount aborted the process on shutdown in a
+        // debug build and leaked the RBO in silence in a release one. Two
+        // different products from one bug, and the configuration that shipped
+        // to users was the one that said nothing.
+        //
+        // Report in both, abort in neither: shutdown is the worst possible
+        // moment to panic, and the debug abort was masking the leak rather
+        // than fixing it. The leak itself is tracked separately (azul never
+        // calls `Renderer::deinit()`); this makes it observable wherever it
+        // happens instead of only where it is fatal.
+        if self.refcount != 0 && !thread::panicking() {
+            warn!(
+                "SharedDepthTarget for RBO {:?} dropped with refcount {} \
+                 (expected 0) — the depth renderbuffer is leaked",
+                self.rbo_id, self.refcount,
+            );
+        }
     }
 }
 

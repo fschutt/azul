@@ -123,8 +123,13 @@ pub fn render_initial_page(
     // 1. Run layout callback → Dom (recursive tree with CSS attached)
     let dom = call_layout(app_data, layout_callback, window_state, fc_cache, active_route);
 
-    // Debug log (only in debug builds to avoid polluting production stderr)
-    if cfg!(debug_assertions) {
+    // Was `if cfg!(debug_assertions)` around a raw eprintln walk, justified as
+    // "only in debug builds to avoid polluting production stderr". That made
+    // the two profiles do different amounts of WORK — this walks the entire
+    // DOM — and put the diagnostic out of reach precisely where you would want
+    // it, on a deployed server. `log::debug!` is off by default and turns on
+    // with AZ_LOG=debug, in either profile. Same behaviour, opt-in either way.
+    if log::log_enabled!(log::Level::Debug) {
         let mut debug_counter = 0;
         debug_print_dom(&dom, 0, &mut debug_counter);
     }
@@ -134,10 +139,10 @@ pub fn render_initial_page(
     //    and produces computed styles per node.
     let styled_dom = StyledDom::create_from_dom(dom);
 
-    if cfg!(debug_assertions) {
-        let node_count = styled_dom.node_data.as_ref().len();
-        eprintln!("[azul-web] StyledDom cascade complete: {} nodes", node_count);
-    }
+    log::debug!(
+        "[azul-web] StyledDom cascade complete: {} nodes",
+        styled_dom.node_data.as_ref().len(),
+    );
 
     // 3. Walk the StyledDom: generate HTML structure + CSS rules from computed styles.
     //    The walk also collects every callback fn-pointer it sees, deduped by
@@ -163,13 +168,11 @@ pub fn render_initial_page(
     // Render the flat StyledDom arena into HTML, reading computed styles from the cache
     let body_html = ctx.render_styled_dom(&styled_dom);
 
-    if cfg!(debug_assertions) {
-        eprintln!(
-            "[azul-web] Rendered {} nodes, {} with callbacks, {} CSS rules, {} images, {} fonts",
-            ctx.node_counter, ctx.callback_count, ctx.css_rules.len(),
-            ctx.images.len(), ctx.fonts.len(),
-        );
-    }
+    log::debug!(
+        "[azul-web] Rendered {} nodes, {} with callbacks, {} CSS rules, {} images, {} fonts",
+        ctx.node_counter, ctx.callback_count, ctx.css_rules.len(),
+        ctx.images.len(), ctx.fonts.len(),
+    );
 
     // 4. Generate preload hints + loader JS now that the walk has populated
     //    `ctx.callbacks`. The preload hints list every discovered callback's

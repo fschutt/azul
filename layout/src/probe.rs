@@ -433,8 +433,15 @@ pub fn hint_purge_allocator() {
         not(any(feature = "allocator_mimalloc", feature = "allocator_jemalloc"))
     ))]
     {
+        // Declared here rather than via `libc::malloc_trim`: this function is
+        // NOT gated on the `probe` feature (that is what pulls in libc), and
+        // the macOS arm above declares `malloc_zone_pressure_relief` the same
+        // way for the same reason.
+        extern "C" {
+            fn malloc_trim(pad: usize) -> core::ffi::c_int;
+        }
         unsafe {
-            libc::malloc_trim(0);
+            malloc_trim(0);
         }
     }
 }
