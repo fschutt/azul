@@ -3980,24 +3980,44 @@ fn split_memory_matches(
     weight: FcWeight,
     italic: bool,
     oblique: bool,
-) -> (Vec<rust_fontconfig::CssFallbackGroup>, Vec<String>) {
+) -> (
+    Vec<rust_fontconfig::CssFallbackGroup>,
+    Vec<String>,
+    Vec<rust_fontconfig::CssFallbackGroup>,
+) {
+    use crate::text3::cache::MemoryFontTier;
+
     let mut groups = Vec::new();
     let mut disk = Vec::new();
+    let mut fallback = Vec::new();
     for family in font_families {
         let norm = rust_fontconfig::utils::normalize_family_name(family);
-        if let Some(face) = memory_families
-            .get(&norm)
-            .and_then(|faces| pick_memory_face(faces, weight, italic, oblique))
+        let faces = memory_families.get(&norm);
+
+        // A primary face IS the family: it wins outright, disk never consulted.
+        if let Some(face) =
+            faces.and_then(|f| pick_memory_face(f, weight, italic, oblique, MemoryFontTier::Primary))
         {
             groups.push(rust_fontconfig::CssFallbackGroup {
                 css_name: family.clone(),
                 fonts: vec![face.font_match.clone()],
             });
-        } else {
-            disk.push(family.clone());
+            continue;
+        }
+
+        // Otherwise the disk gets first refusal, and a fallback face - if the
+        // caller registered one - waits behind whatever the disk turns up.
+        disk.push(family.clone());
+        if let Some(face) = faces
+            .and_then(|f| pick_memory_face(f, weight, italic, oblique, MemoryFontTier::Fallback))
+        {
+            fallback.push(rust_fontconfig::CssFallbackGroup {
+                css_name: family.clone(),
+                fonts: vec![face.font_match.clone()],
+            });
         }
     }
-    (groups, disk)
+    (groups, disk, fallback)
 }
 
 /// Choose the registered in-memory face that best matches a CSS
@@ -4014,7 +4034,10 @@ fn pick_memory_face(
     weight: FcWeight,
     italic: bool,
     oblique: bool,
+    tier: crate::text3::cache::MemoryFontTier,
 ) -> Option<&crate::text3::cache::MemoryFace> {
+    let faces: Vec<&crate::text3::cache::MemoryFace> =
+        faces.iter().filter(|f| f.tier == tier).collect();
     if faces.is_empty() {
         return None;
     }
@@ -4023,10 +4046,11 @@ fn pick_memory_face(
     // family with only an upright face still resolves for `font-style: italic`.
     let slant_pool: Vec<&crate::text3::cache::MemoryFace> = faces
         .iter()
+        .copied()
         .filter(|f| (f.italic || f.oblique) == want_slanted)
         .collect();
     let pool: Vec<&crate::text3::cache::MemoryFace> = if slant_pool.is_empty() {
-        faces.iter().collect()
+        faces.clone()
     } else {
         slant_pool
     };
@@ -4120,7 +4144,7 @@ fn pick_memory_face(
         // MEMORY FONTS FIRST (see `split_memory_matches`): a family
         // registered by name into the cache's in-memory table wins over
         // anything on disk, exactly as CSS says.
-        let (mem_groups, disk_families) =
+        let (mem_groups, disk_families, mem_fallbacks) =
             split_memory_matches(&font_families, memory_families, weight, is_italic, is_oblique);
 
         // Registry-aware resolve: scout-on-demand path when available.
@@ -4160,6 +4184,10 @@ fn pick_memory_face(
             merged.append(&mut chain.css_fallbacks);
             chain.css_fallbacks = merged;
         }
+        // Fallback-tier faces go on the END: the disk has already had its turn,
+        // so on a desktop these sit harmlessly behind the installed fonts, and
+        // on a target with nothing installed they are what is left.
+        chain.css_fallbacks.extend(mem_fallbacks);
 
         // A family that produced no group matched NOTHING — record it (see
         // `ResolvedFontChains::unresolved_families`).
@@ -4404,7 +4432,7 @@ pub fn resolve_font_chains_fast(
         // (production always has a live registry, so it always took this
         // path). Match memory families by name here, in CSS order, and only
         // hand the remaining families to the disk probe.
-        let (mut css_fallbacks, disk_families) =
+        let (mut css_fallbacks, disk_families, mem_fallbacks) =
             split_memory_matches(&font_families, memory_families, weight, is_italic, is_oblique);
 
         let request = vec![(disk_families.clone(), codepoints.clone())];
@@ -4440,6 +4468,10 @@ pub fn resolve_font_chains_fast(
             css_fallbacks.append(&mut chain.css_fallbacks);
             chain.css_fallbacks = css_fallbacks;
         }
+        // Fallback-tier faces go on the END: the disk has already had its turn,
+        // so on a desktop these sit harmlessly behind the installed fonts, and
+        // on a target with nothing installed they are what is left.
+        chain.css_fallbacks.extend(mem_fallbacks);
 
         // A family that produced no group matched NOTHING. Record it — a
         // silently-unmatched family is the root cause of "every font-family
@@ -8123,5 +8155,103 @@ mod autotest_generated {
                 assert!(!stack.is_empty(), "an empty font stack is never recorded");
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod memory_font_tier_tests {
+    use super::*;
+    use crate::text3::cache::{MemoryFace, MemoryFontTier};
+
+    fn face(tier: MemoryFontTier) -> MemoryFace {
+        MemoryFace {
+            tier,
+            font_match: rust_fontconfig::FontMatch {
+                id: rust_fontconfig::FontId::new(),
+                unicode_ranges: Vec::new(),
+                fallbacks: Vec::new(),
+            },
+            weight: FcWeight::Normal,
+            italic: false,
+            oblique: false,
+            stretch: rust_fontconfig::FcStretch::Normal,
+            weight_axis: None,
+        }
+    }
+
+    fn split(
+        stack: &[&str],
+        registered: &[(&str, MemoryFontTier)],
+    ) -> (Vec<String>, Vec<String>, Vec<String>) {
+        let mut memory_families: HashMap<String, Vec<MemoryFace>> = HashMap::new();
+        for (family, tier) in registered {
+            memory_families
+                .entry(rust_fontconfig::utils::normalize_family_name(family))
+                .or_default()
+                .push(face(*tier));
+        }
+        let families: Vec<String> = stack.iter().map(|s| (*s).to_string()).collect();
+        let (primary, disk, fallback) =
+            split_memory_matches(&families, &memory_families, FcWeight::Normal, false, false);
+        (
+            primary.into_iter().map(|g| g.css_name).collect(),
+            disk,
+            fallback.into_iter().map(|g| g.css_name).collect(),
+        )
+    }
+
+    /// A primary face is the family: the disk is never asked about it.
+    #[test]
+    fn a_primary_face_takes_the_family_from_the_disk() {
+        let (primary, disk, fallback) =
+            split(&["Helvetica"], &[("Helvetica", MemoryFontTier::Primary)]);
+        assert_eq!(primary, ["Helvetica"]);
+        assert!(disk.is_empty());
+        assert!(fallback.is_empty());
+    }
+
+    /// A fallback face does NOT take the family - the disk still gets asked, and
+    /// the face only waits behind whatever the disk turns up. This is what lets
+    /// printpdf offer the 14 standard PDF fonts for `sans-serif` without those
+    /// Win-1252 subsets displacing the system's Unicode faces on a desktop.
+    #[test]
+    fn a_fallback_face_leaves_the_family_to_the_disk() {
+        let (primary, disk, fallback) =
+            split(&["sans-serif"], &[("sans-serif", MemoryFontTier::Fallback)]);
+        assert!(primary.is_empty());
+        assert_eq!(disk, ["sans-serif"], "the disk must still get first refusal");
+        assert_eq!(fallback, ["sans-serif"]);
+    }
+
+    /// With nothing installed - wasm - the disk probe comes back empty and the
+    /// fallback face is what is left, which is the whole point of the tier.
+    #[test]
+    fn both_tiers_can_appear_in_one_stack() {
+        let (primary, disk, fallback) = split(
+            &["Helvetica", "Arial", "sans-serif"],
+            &[
+                ("Helvetica", MemoryFontTier::Primary),
+                ("sans-serif", MemoryFontTier::Fallback),
+            ],
+        );
+        assert_eq!(primary, ["Helvetica"]);
+        assert_eq!(disk, ["Arial", "sans-serif"]);
+        assert_eq!(fallback, ["sans-serif"]);
+    }
+
+    /// Registering both tiers for one family must not make it ambiguous: the
+    /// primary face wins and the fallback is not also offered.
+    #[test]
+    fn primary_beats_fallback_for_the_same_family() {
+        let (primary, disk, fallback) = split(
+            &["Helvetica"],
+            &[
+                ("Helvetica", MemoryFontTier::Fallback),
+                ("Helvetica", MemoryFontTier::Primary),
+            ],
+        );
+        assert_eq!(primary, ["Helvetica"]);
+        assert!(disk.is_empty());
+        assert!(fallback.is_empty());
     }
 }

@@ -763,6 +763,27 @@ impl FontContext {
     }
 }
 
+/// How a registered in-memory face ranks against fonts on disk.
+///
+/// The distinction exists because "register a font by name" means two different
+/// things. A font the caller explicitly supplied for a family *is* that family
+/// and must beat anything installed, exactly as CSS says. A font offered as a
+/// stand-in for a generic family - the 14 standard PDF fonts answering
+/// `sans-serif`, say - must not, or a Win-1252 subset would displace the
+/// system's full Unicode faces on every desktop.
+///
+/// Without the second tier the choice is all-or-nothing: claim `sans-serif` and
+/// wreck desktop, or leave it alone and have nothing at all on a target with no
+/// fonts on disk, such as wasm.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum MemoryFontTier {
+    /// Wins over anything on disk. The right tier for a font the caller named.
+    Primary,
+    /// Used only after disk resolution has had its turn. The right tier for a
+    /// last-resort face standing in for a generic family.
+    Fallback,
+}
+
 /// One in-memory face registered under a family name, with the style attributes
 /// needed to choose the right face for a CSS `(weight, italic/oblique)` query.
 ///
@@ -774,6 +795,8 @@ impl FontContext {
 /// pick the closest one (see `getters::split_memory_matches`).
 #[derive(Debug, Clone)]
 pub struct MemoryFace {
+    /// Whether this face outranks the disk or only backstops it.
+    pub tier: MemoryFontTier,
     /// The `FontMatch` the resolver emits when this face is chosen.
     pub font_match: rust_fontconfig::FontMatch,
     /// OS/2 weight of this face (static fonts). For a variable font this is the
@@ -934,6 +957,25 @@ impl<T: ParsedFontTrait> FontManager<T> {
         bytes: &[u8],
         coverage: Vec<UnicodeRange>,
     ) -> FontId {
+        self.register_named_font_in_tier(family, bytes, coverage, MemoryFontTier::Primary)
+    }
+
+    /// Register an in-memory face under `family` at an explicit
+    /// [`MemoryFontTier`].
+    ///
+    /// [`Self::register_named_font`] is this with [`MemoryFontTier::Primary`].
+    /// Use [`MemoryFontTier::Fallback`] to offer a face for a family without
+    /// displacing whatever is installed - a caller that ships stand-in fonts for
+    /// `serif`/`sans-serif`/`monospace` wants the system's faces to win on a
+    /// desktop and its own to be there on wasm, and that is the tier that does
+    /// both.
+    pub fn register_named_font_in_tier(
+        &mut self,
+        family: &str,
+        bytes: &[u8],
+        coverage: Vec<UnicodeRange>,
+        tier: MemoryFontTier,
+    ) -> FontId {
         let norm = rust_fontconfig::utils::normalize_family_name(family);
 
         // Variable fonts: expand into one STATIC instance per weight bucket so the
@@ -944,7 +986,7 @@ impl<T: ParsedFontTrait> FontManager<T> {
         // bakeable variable font (baking failed / no glyf variations).
         if let Some((min, def, max)) = crate::font::parsed::read_wght_axis(bytes, 0) {
             if let Some(id) =
-                self.register_variable_instances(&norm, family, bytes, &coverage, min, def, max)
+                self.register_variable_instances(&norm, family, bytes, &coverage, min, def, max, tier)
             {
                 return id;
             }
@@ -980,7 +1022,7 @@ impl<T: ParsedFontTrait> FontManager<T> {
             .into_iter()
             .find(|(id, _)| self.fc_cache.is_memory_font(id))
         {
-            self.index_memory_face(&norm, id, ranges, &style);
+            self.index_memory_face(&norm, id, ranges, &style, tier);
             id
         } else {
             let pattern = rust_fontconfig::FcPattern {
@@ -1004,7 +1046,7 @@ impl<T: ParsedFontTrait> FontManager<T> {
                     id: family.to_string(),
                 },
             );
-            self.index_memory_face(&norm, id, coverage, &style);
+            self.index_memory_face(&norm, id, coverage, &style, tier);
             id
         };
         id
@@ -1018,8 +1060,10 @@ impl<T: ParsedFontTrait> FontManager<T> {
         id: FontId,
         unicode_ranges: Vec<UnicodeRange>,
         style: &FaceStyle,
+        tier: MemoryFontTier,
     ) {
         let face = MemoryFace {
+            tier,
             font_match: rust_fontconfig::FontMatch {
                 id,
                 unicode_ranges,
@@ -1059,6 +1103,7 @@ impl<T: ParsedFontTrait> FontManager<T> {
         min: f32,
         def: f32,
         max: f32,
+        tier: MemoryFontTier,
     ) -> Option<FontId> {
         let base = parse_face_style(bytes, family);
         let hash = {
@@ -1072,7 +1117,7 @@ impl<T: ParsedFontTrait> FontManager<T> {
         // Same VF already baked under another spelling: re-index, don't re-bake.
         if let Some(cached) = self.vf_bake_cache.get(&hash).cloned() {
             for (id, style) in &cached {
-                self.index_memory_face(norm, *id, coverage.to_vec(), style);
+                self.index_memory_face(norm, *id, coverage.to_vec(), style, tier);
             }
             return cached
                 .iter()
@@ -1120,7 +1165,7 @@ impl<T: ParsedFontTrait> FontManager<T> {
                     id: family.to_string(),
                 },
             );
-            self.index_memory_face(norm, id, coverage.to_vec(), &style);
+            self.index_memory_face(norm, id, coverage.to_vec(), &style, tier);
             baked.push((id, style));
         }
 
