@@ -674,19 +674,17 @@ impl DebugState {
     ///
     /// Unknown verbs are reported and ignored rather than fatal — a typo in a
     /// debugging aid must not stop the app you are trying to debug.
-    /// Reading the environment needs std; on no_std there is no environment to
+    /// Reading the environment needs std; on `no_std` there is no environment to
     /// read, so the overlay is simply off. `from_overlay_spec` stays available
-    /// everywhere, so a no_std embedder can still enable overlays explicitly.
+    /// everywhere, so a `no_std` embedder can still enable overlays explicitly.
     #[cfg(feature = "std")]
     #[must_use]
     pub fn from_az_overlay_env() -> Self {
-        match std::env::var("AZ_OVERLAY") {
-            Ok(v) => Self::from_overlay_spec(v.as_str()),
-            Err(_) => Self::default(),
-        }
+        std::env::var("AZ_OVERLAY")
+            .map_or_else(|_| Self::default(), |v| Self::from_overlay_spec(v.as_str()))
     }
 
-    /// no_std: there is no environment, so no overlay.
+    /// `no_std`: there is no environment, so no overlay.
     #[cfg(not(feature = "std"))]
     #[must_use]
     pub fn from_az_overlay_env() -> Self {
