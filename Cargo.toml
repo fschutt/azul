@@ -55,7 +55,7 @@ azul-layout = { path = "layout" }
 # printpdf now comes from crates.io (0.12.x — requires azul-css/core 0.0.13 +
 # azul-layout 0.0.13, all published). The azul-* path patches above redirect
 # printpdf's azul deps to this one workspace copy, so there is a single
-# azul-layout and NO printpdf git patch is needed. (dll/ pins printpdf 0.12.2.)
+# azul-layout and NO printpdf git patch is needed. (dll/ pins printpdf 0.12.5.)
 # rust-fontconfig: use crates.io (the vendored copy was a labelled REVERT; its
 # only functional delta was a web_lift-only hashbrown workaround). core/ and
 # layout/ pin `>=4.4.7, <4.5`; the lock is on 4.4.9.
