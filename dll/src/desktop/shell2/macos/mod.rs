@@ -6036,6 +6036,15 @@ impl MacOSWindow {
             display_list_needs_rebuild
         };
 
+        // Read these BEFORE taking the mutable borrow below. `regeneration_pending()`
+        // is an `&self` method on CommonWindowState, so calling it while
+        // `self.common.layout_window` is mutably borrowed is E0502 — which is
+        // exactly what the log statement further down did. Reading a flag for a
+        // log message must not dictate borrow structure, so the values are
+        // captured here and the log uses the locals.
+        let regen_pending_at_entry = self.common.regeneration_pending();
+        let display_list_initialized_at_entry = self.common.display_list_initialized;
+
         // Get layout_window
         let layout_window = self
             .common.layout_window
@@ -6213,7 +6222,7 @@ impl MacOSWindow {
 
         // Build transaction: full rebuild if display list changed, lightweight otherwise
         log_trace!(LogCategory::Rendering, "[RENDER] display_list_needs_rebuild={} frame_needs_regen={} initialized={}",
-            display_list_needs_rebuild, self.common.regeneration_pending(), self.common.display_list_initialized);
+            display_list_needs_rebuild, regen_pending_at_entry, display_list_initialized_at_entry);
         if display_list_needs_rebuild {
             // Full rebuild: fonts, images, display lists, everything
             crate::desktop::wr_translate2::build_webrender_transaction(
