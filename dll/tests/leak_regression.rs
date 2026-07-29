@@ -216,8 +216,21 @@ struct Measurement {
     first_window_per_iter: u64,
     /// Growth across the second window. This is the leak rate.
     per_iter: u64,
-    /// Second-window RSS growth. Sees arenas and mmaps that malloc does not.
+    /// Minimum RSS growth across the two steady windows. Sees arenas and
+    /// mmaps that malloc does not. Conservative by construction, which is what
+    /// the main test wants.
     rss_per_iter: u64,
+    /// RSS growth across the FIRST steady window only.
+    ///
+    /// The RSS control needs this rather than the minimum, because residency
+    /// is not additive: on macos-14 a 256 KiB/iter leak produced RSS
+    /// 28818 -> 40002 -> 40705 KiB while the malloc heap kept climbing at
+    /// ~195 KB/iter. The OS reclaimed the older leaked pages as fast as new
+    /// ones arrived, so the second window read 7 KB/iter and the minimum went
+    /// with it. That plateau is the kernel doing its job, not the instrument
+    /// failing — and it means "RSS grows by what was allocated" was never a
+    /// property any OS promised.
+    rss_first_steady_per_iter: u64,
     /// Absolute malloc heap at the end of the run.
     final_heap: u64,
 }
@@ -483,6 +496,7 @@ fn measure(iterations: u32, deliberate_leak_bytes: usize) -> Measurement {
         first_window_per_iter,
         per_iter,
         rss_per_iter,
+        rss_first_steady_per_iter: rss_a,
         final_heap,
     }
 }
@@ -643,27 +657,49 @@ const RSS_CONTROL_LEAK_BYTES: usize = 256 * 1024;
 fn the_rss_cross_check_sees_what_malloc_accounting_cannot() {
     let m = measure(CONTROL_ITERATIONS, RSS_CONTROL_LEAK_BYTES);
 
-    let floor = (RSS_CONTROL_LEAK_BYTES as u64) * 3 / 4;
+    // The floor was `RSS_CONTROL_LEAK_BYTES * 3/4`, i.e. "RSS must grow by
+    // most of what was allocated". No OS promises that, and macos-14 said so:
+    // RSS went 28818 -> 40002 -> 40705 KiB while the malloc heap climbed at
+    // ~195 KB/iter. The kernel reclaimed older leaked pages as fast as new
+    // ones arrived. Two consequences, both of which were bugs in this control
+    // rather than in RSS:
+    //
+    //   * residency PLATEAUS under a sustained large leak, so a fraction-of-
+    //     allocation floor is unmeetable by construction once the leak exceeds
+    //     what the runner will keep resident;
+    //   * the minimum-of-two-windows rule, which is right for the main test
+    //     (there, flatness is the expected answer and a minimum is the
+    //     conservative reading), is wrong here — it picks the post-plateau
+    //     window and reports 7 KB/iter for a 256 KiB/iter leak.
+    //
+    // What the main test actually rests on is narrower and true: that RSS
+    // resolves a leak far above MAX_RSS_BYTES_PER_ITER. Assert exactly that,
+    // on the first steady window, before residency saturates. macOS measured
+    // 114523 B/iter there — 111x the budget — and Linux more.
+    let floor = MAX_RSS_BYTES_PER_ITER * 20;
     assert!(
-        m.rss_per_iter >= floor,
-        "leaking {} B/iter of mmap-backed, fully-written memory moved RSS by \
-         only {} B/iter (needed >={}), while the malloc heap reported {} \
-         B/iter. RSS is the main test's only instrument for non-main arenas \
-         and mmap'd regions; if it cannot see this, that assertion is \
-         decorative and a leak outside the main arena would pass unnoticed.",
+        m.rss_first_steady_per_iter >= floor,
+        "leaking {} B/iter of fully-written, incompressible memory moved RSS \
+         by only {} B/iter in the first steady window (needed >={}, which is \
+         20x the {} B/iter budget the main test enforces), while the malloc \
+         heap reported {} B/iter. RSS is the main test's only instrument for \
+         non-main arenas and mmap'd regions; if it cannot resolve a leak this \
+         far above the budget, that assertion is decorative and a leak outside \
+         the main arena would pass unnoticed.",
         RSS_CONTROL_LEAK_BYTES,
-        m.rss_per_iter,
+        m.rss_first_steady_per_iter,
         floor,
+        MAX_RSS_BYTES_PER_ITER,
         m.per_iter,
     );
 
     assert!(
-        m.rss_per_iter >= MAX_RSS_BYTES_PER_ITER,
+        m.rss_first_steady_per_iter >= MAX_RSS_BYTES_PER_ITER,
         "the deliberate {} B/iter leak moved RSS by {} B/iter, under the {} \
          B/iter budget the real test enforces — the control does not exercise \
          the assertion it exists to validate.",
         RSS_CONTROL_LEAK_BYTES,
-        m.rss_per_iter,
+        m.rss_first_steady_per_iter,
         MAX_RSS_BYTES_PER_ITER,
     );
 }

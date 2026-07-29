@@ -469,8 +469,15 @@ pub fn generate_transmuted_fn_body(
 
         // Transmute result back to local type
         // The From/Into traits handle conversion between wrapper types
+        // `unsafe { ... }`, not a bare transmute. Under edition 2024's
+        // `unsafe_op_in_unsafe_fn` an unsafe operation in the body of an
+        // `unsafe fn` needs its own block, and this one line is emitted 6370
+        // times — the single largest contributor to azul-dll's 32705 warnings,
+        // enough that GitHub truncates the build log and hides whatever else
+        // the step had to say. The sibling emitters in lang_rust.rs already
+        // wrap theirs; this one did not.
         lines.push(format!(
-            "    core::mem::transmute::<{ext}, {local}>(__result)",
+            "    unsafe {{ core::mem::transmute::<{ext}, {local}>(__result) }}",
             ext = return_external,
             local = return_type
         ));

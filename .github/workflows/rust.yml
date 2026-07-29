@@ -5425,7 +5425,10 @@ jobs:
   sanitizers:
     name: Sanitizers (C examples)
     if: github.event_name != 'workflow_dispatch' || github.event.inputs.run_mode == 'ci' || github.event.inputs.run_mode == 'deploy' || github.event.inputs.run_mode == 'website'
-    runs-on: ubuntu-22.04
+    # ubuntu-24.04, not 22.04: clang 18 vs clang 14. See tsan_preflight below —
+    # rustc's TSan instrumentation emits __tsan_memcpy, which only exists in
+    # LLVM 17+ compiler-rt.
+    runs-on: ubuntu-24.04
     # NOT continue-on-error. A sanitizer finding is exactly the thing that must
     # be visible: a red X on a named job, not a row in a table nobody opens. If
     # this goes red, that is the gate working — fix the race or the leak.
@@ -5526,63 +5529,41 @@ jobs:
           #   (d) nothing ever grepped stats/sanitizers.txt for FAIL.
           # The table looked like a result and could not report one.
           san_failed=0
-          # The instrumented libazul.so references __tsan_memcpy / __tsan_memset /
-          # __tsan_memmove. Those are LLVM compiler-rt symbols added in LLVM 16,
-          # emitted because rustc instrumented the memory intrinsics — and
-          # ubuntu-22.04's clang is 14, whose compiler-rt predates them. So the
-          # link failed with three undefined references even though the guard
-          # above correctly confirmed the .so WAS instrumented (46 __tsan_*
-          # symbols). Nothing was wrong with either half; they were built by two
-          # different LLVMs (rustc here is a 1.99 nightly).
+          # WHY THE CLANG VERSION MATTERS HERE. The instrumented libazul.so
+          # references __tsan_memcpy / __tsan_memset / __tsan_memmove — LLVM
+          # compiler-rt symbols added in LLVM 17, emitted because rustc
+          # instrumented the memory intrinsics. ubuntu-22.04's clang is 14,
+          # whose runtime predates them, so the link died on three undefined
+          # references while the guard above correctly reported the .so WAS
+          # instrumented (46 __tsan_* symbols). Two different LLVMs; rustc here
+          # is a 1.99 nightly. This job runs on ubuntu-24.04 (clang 18) for
+          # exactly that reason.
           #
-          # Chasing a system clang that happens to match a nightly's LLVM is a
-          # losing game — it would re-break on the next toolchain bump. The
-          # runtime that matches the instrumentation in libazul.so by
-          # construction is the one Rust ships, so link THAT and let it satisfy
-          # both sides. TSan's ABI is backwards compatible, so clang-14's older
-          # entry points resolve against a newer runtime fine.
-          tsan_rt=""
-          find_tsan_rt() {
-            local sysroot
-            sysroot=$(rustc +nightly --print sysroot 2>/dev/null) || return 1
-            tsan_rt=$(find "$sysroot" -name 'librustc*_rt.tsan.a' 2>/dev/null | head -1)
-            [ -n "$tsan_rt" ]
+          # An earlier attempt linked Rust's own librustc-nightly_rt.tsan.a by
+          # hand with -fno-sanitize=thread to dodge the version question. It
+          # linked, and then SEGFAULTED at startup: dropping -fsanitize=thread
+          # from the link also drops the PIE/link-order/whole-archive setup that
+          # TSan's shadow-memory init depends on, so the instrumented .so called
+          # into a runtime that had never initialised. Do not hand-roll this
+          # link; let clang do it, and keep clang new enough.
+          tsan_preflight() {
+            local rt
+            rt=$(clang -print-file-name=libclang_rt.tsan.a 2>/dev/null || true)
+            if [ ! -f "$rt" ]; then
+              rt=$(find "$(dirname "$(readlink -f "$(command -v clang)")")/.." \
+                   -name 'libclang_rt.tsan*.a' 2>/dev/null | head -1)
+            fi
+            if [ -z "$rt" ] || [ ! -f "$rt" ]; then
+              echo "::error::cannot locate clang's TSan runtime — $(clang --version | head -1)"
+              return 1
+            fi
+            if ! nm -g "$rt" 2>/dev/null | grep -q 'T __tsan_memcpy'; then
+              echo "::error::$(clang --version | head -1) ships a TSan runtime WITHOUT __tsan_memcpy (added in LLVM 17). rustc ($(rustc +nightly --version)) instruments memory intrinsics and emits it, so the C link will fail on three undefined references. Move this job to a newer runner image or install a newer clang."
+              return 1
+            fi
+            echo "clang TSan runtime OK ($(clang --version | head -1)): $rt"
           }
 
-          run_san() { # <example> <label> <san-flags> [libdir] [timeout-secs]
-            local ex="$1" label="$2" flags="$3"
-            local libdir="${4:-target/debug}" secs="${5:-30}"
-            local link_flags="$flags" extra=""
-            case "$flags" in
-              *thread*)
-                if ! find_tsan_rt; then
-                  echo "::error::cannot find Rust's TSan runtime (librustc*_rt.tsan.a) in the nightly sysroot — the C link would fail on __tsan_memcpy against the system clang's older compiler-rt"
-                  emit "$ex" "$label" "build-fail (no rust tsan runtime)"
-                  san_failed=1
-                  return
-                fi
-                echo "linking Rust's TSan runtime: $tsan_rt"
-                # Instrument the C file, but do NOT let clang add its own
-                # runtime at link time — two TSan runtimes in one image is a
-                # duplicate-symbol error, and clang's is the mismatched one.
-                link_flags="-fno-sanitize=thread"
-                extra="$tsan_rt -lpthread -ldl -lrt -lm"
-                if ! clang -g -O1 $flags -fno-omit-frame-pointer -I target/codegen \
-                     -c "examples/c/$ex.c" -o "/tmp/$ex-san.o" 2>/tmp/cc.log; then
-                  emit "$ex" "$label" "build-fail (compile)"
-                  cat /tmp/cc.log >&2 || true
-                  san_failed=1
-                  return
-                fi
-                if ! clang -g $link_flags "/tmp/$ex-san.o" \
-                     -L "$libdir" -lazul $extra -o "/tmp/$ex-san" 2>/tmp/cc.log; then
-                  emit "$ex" "$label" "build-fail (link)"
-                  cat /tmp/cc.log >&2 || true
-                  san_failed=1
-                  return
-                fi
-                ;;
-              *)
             if ! clang -g -O1 $flags -fno-omit-frame-pointer -I target/codegen \
                  "examples/c/$ex.c" -L "$libdir" -lazul -o "/tmp/$ex-san" 2>/tmp/cc.log; then
               emit "$ex" "$label" "build-fail"
@@ -5590,8 +5571,6 @@ jobs:
               san_failed=1
               return
             fi
-                ;;
-            esac
             local rc=0
             # halt_on_error=1 for TSan too: a data race must change the exit code,
             # or the row is decoration.
@@ -5647,8 +5626,13 @@ jobs:
           # exits 0.
           #
           # 600s, not 30: TSan costs 5-15x runtime.
-          run_san async "ThreadSan" "-fsanitize=thread" \
-            "target/x86_64-unknown-linux-gnu/debug" 600
+          if tsan_preflight; then
+            run_san async "ThreadSan" "-fsanitize=thread" \
+              "target/x86_64-unknown-linux-gnu/debug" 600
+          else
+            emit async "ThreadSan" "FAIL clang/rustc TSan runtime version skew"
+            san_failed=1
+          fi
 
           if [ "$san_failed" -ne 0 ]; then
             echo "::error::a sanitizer run failed or did not render - see the table above and stats/sanitizers.txt"

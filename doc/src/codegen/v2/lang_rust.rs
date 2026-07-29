@@ -41,6 +41,70 @@ impl LanguageGenerator for RustGenerator {
         // The structure is: pub mod __dll_api_inner { pub mod dll { ... } }
         builder.line("pub mod __dll_api_inner {");
         builder.indent();
+        // Lints that a UNIFORM EMITTER cannot avoid, suppressed at the
+        // generated module so that real warnings in this file stay visible.
+        // azul-dll produced 32705 warnings before this; GitHub truncates the
+        // build-log step at that volume, which hides whatever else the step had
+        // to say — including genuine errors.
+        //
+        // Each of these is an artifact of generating one shape for every type,
+        // not of anything the author of api.json did wrong:
+        //
+        //   trivial_casts / trivial_numeric_casts (8038) — the accessor shape is
+        //     `&*(self as *const AzX as *const <real path>)`, which is only a
+        //     no-op for the subset of types where the wrapper and the real type
+        //     coincide. The emitter cannot know which those are per-type, and
+        //     writing two shapes to dodge a style lint would make the generator
+        //     harder to reason about than the lint is worth.
+        //   unused_qualifications (829) — every path is fully qualified on
+        //     purpose: this file is `include!`d into azul-dll, so an unqualified
+        //     name would resolve against whatever the host module imported.
+        //   unreachable_pub (310) — `pub` on items inside a private module,
+        //     which is exactly how this module is structured.
+        //   non_upper_case_globals (253) — constant names come from api.json and
+        //     must match the C ABI spelling, not Rust convention.
+        //   variant_size_differences (234) — FFI enum layout is dictated by
+        //     api.json; the generator has no freedom to box a large variant.
+        //   elided_lifetimes_in_paths (59), let_underscore_drop (51),
+        //   missing_copy_implementations / missing_debug_implementations (127).
+        //
+        // Deliberately NOT allowed, so they keep reporting: private_interfaces,
+        // dead_code, unknown_lints, and anything unsafe-related.
+        builder.line("#![allow(");
+        builder.line("    trivial_casts,");
+        builder.line("    trivial_numeric_casts,");
+        builder.line("    unused_qualifications,");
+        builder.line("    unreachable_pub,");
+        builder.line("    non_upper_case_globals,");
+        builder.line("    variant_size_differences,");
+        builder.line("    elided_lifetimes_in_paths,");
+        builder.line("    let_underscore_drop,");
+        builder.line("    missing_copy_implementations,");
+        builder.line("    missing_debug_implementations,");
+        // unsafe_op_in_unsafe_fn (17199 — the single largest category, and the
+        // one that was truncating the log). Allowed here after some hesitation,
+        // because it is an UNSAFETY lint and those should normally stay loud.
+        //
+        // The reasoning: every function in this module is an `extern "C"` ABI
+        // shim whose body is unsafe in its entirety — a transmute, a raw-pointer
+        // deref, a Vec::from_raw_parts, or a call through a function pointer
+        // supplied by the caller. The lint asks the author to delimit WHICH part
+        // is unsafe, which is useful in hand-written code where an unsafe fn
+        // contains mostly safe logic. Here the answer is always "all of it", so
+        // the lint reports 17199 times and distinguishes nothing.
+        //
+        // The alternative is to wrap every generated body in `unsafe { }`, which
+        // would satisfy the lint but nest inside the blocks the emitters already
+        // produce and trade 17199 of these for a comparable pile of
+        // `unused_unsafe`. Fixing the ONE emitter that was easy to fix
+        // (transmute_helpers, 6370 sites) is done and stays done.
+        //
+        // What actually reviews unsafety in this file is not this lint: it is
+        // the ffi_safety_tests job, the ASan/UBSan/TSan runs over the C
+        // examples, and the Miri leg — all of which exercise the generated ABI
+        // rather than reading it.
+        builder.line("    unsafe_op_in_unsafe_fn,");
+        builder.line(")]");
         builder.line("pub mod dll {");
         builder.indent();
 
@@ -1606,7 +1670,11 @@ impl RustGenerator {
                     builder.line("unsafe {");
                     builder.indent();
                     builder.line(&format!(
-                        "let _ = alloc::vec::Vec::from_raw_parts(v.ptr as *mut {}, v.len, v.cap);",
+                        // `drop(...)`, not `let _ = ...`. Reconstructing the Vec
+                        // in order to drop it IS the point of this destructor,
+                        // so say so — and `let _ =` on a value with a Drop impl
+                        // is a lint warning emitted once per vec type.
+                        "drop(alloc::vec::Vec::from_raw_parts(v.ptr as *mut {}, v.len, v.cap));",
                         prefixed_inner
                     ));
                     builder.dedent();
