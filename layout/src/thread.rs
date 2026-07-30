@@ -650,6 +650,15 @@ impl Drop for ThreadInner {
     }
 }
 
+/// How long `default_thread_destructor_fn` waits for a worker to acknowledge
+/// `TerminateThread` before detaching it: 200 steps x 10ms = 2s.
+///
+/// Module scope rather than inside the function because clippy's
+/// `items_after_statements` is denied here — an item declared mid-body reads as
+/// if it were scoped to that point when it is not.
+#[cfg(feature = "std")]
+const THREAD_TERMINATE_GRACE_STEPS: u32 = 200;
+
 // Default callback implementations for std
 #[cfg(feature = "std")]
 extern "C" fn default_thread_destructor_fn(thread: *mut ThreadInner) {
@@ -680,10 +689,9 @@ extern "C" fn default_thread_destructor_fn(thread: *mut ThreadInner) {
         //
         // Spin on a sleep rather than `Instant`: this file is compiled for wasm
         // and the clockless targets, where the strict `Instant` gate is 0.
-        const GRACE_STEPS: u32 = 200; // 200 x 10ms = 2s
         let mut finished = thread.dropcheck.strong_count() == 0;
         let mut waited = 0_u32;
-        while !finished && waited < GRACE_STEPS {
+        while !finished && waited < THREAD_TERMINATE_GRACE_STEPS {
             thread::sleep(core::time::Duration::from_millis(10));
             waited += 1;
             finished = thread.dropcheck.strong_count() == 0;
@@ -701,7 +709,7 @@ extern "C" fn default_thread_destructor_fn(thread: *mut ThreadInner) {
                  that worker is blocking on something it cannot be interrupted \
                  from (a device read, or a channel other than its terminate \
                  channel).",
-                GRACE_STEPS * 10,
+                THREAD_TERMINATE_GRACE_STEPS * 10,
             );
             drop(thread_handle);
         }
