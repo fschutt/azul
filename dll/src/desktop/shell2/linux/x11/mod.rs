@@ -4258,7 +4258,7 @@ impl X11Window {
                 self.send_wm_state_change(1, b"_NET_WM_STATE_FULLSCREEN\0", None);
             },
             WindowFrame::Minimized => unsafe {
-                (self.xlib.XUnmapWindow)(self.display, self.window);
+                self.send_wm_iconify();
             },
             WindowFrame::Normal => {} // Already in normal state
         }
@@ -4364,7 +4364,7 @@ impl X11Window {
             use azul_core::window::WindowFrame;
             match current.flags.frame {
                 WindowFrame::Minimized => unsafe {
-                    (self.xlib.XUnmapWindow)(self.display, self.window);
+                    self.send_wm_iconify();
                 },
                 WindowFrame::Maximized => unsafe {
                     self.send_wm_state_change(
@@ -4997,6 +4997,36 @@ impl X11Window {
     /// `action`: 0 = remove, 1 = add.
     /// `atom1_name`: null-terminated atom name (e.g. `b"_NET_WM_STATE_ABOVE\0"`).
     /// `atom2_name`: optional second atom (used for maximize vert+horz).
+    /// ICCCM 4.1.4: iconify (minimize) by sending a `WM_CHANGE_STATE`
+    /// ClientMessage (IconicState) to the root window. `XUnmapWindow`ing a
+    /// top-level means WITHDRAWN, not iconic — the WM forgets the window
+    /// entirely (no taskbar entry, no Alt-Tab), leaving the user nothing to
+    /// restore. Restore stays `XMapWindow` (mapping an iconic window
+    /// normalizes it, ICCCM).
+    unsafe fn send_wm_iconify(&self) {
+        let screen = (self.xlib.XDefaultScreen)(self.display);
+        let root = (self.xlib.XRootWindow)(self.display, screen);
+
+        let mut event: defines::XClientMessageEvent = std::mem::zeroed();
+        event.type_ = defines::ClientMessage;
+        event.window = self.window;
+        event.message_type = (self.xlib.XInternAtom)(
+            self.display,
+            b"WM_CHANGE_STATE\0".as_ptr() as *const c_char,
+            0,
+        );
+        event.format = 32;
+        event.data.l[0] = 3; // IconicState (ICCCM)
+
+        (self.xlib.XSendEvent)(
+            self.display,
+            root,
+            0,
+            defines::SubstructureNotifyMask | defines::SubstructureRedirectMask,
+            &mut event as *mut _ as *mut defines::XEvent,
+        );
+    }
+
     unsafe fn send_wm_state_change(
         &self,
         action: std::os::raw::c_long,
