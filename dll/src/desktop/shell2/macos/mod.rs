@@ -2073,8 +2073,10 @@ impl GLView {
     pub unsafe fn set_window_ptr(&self, window_ptr: *mut std::ffi::c_void) {
         *self.ivars().window_ptr.borrow_mut() = Some(window_ptr);
 
-        // Start the timer tick loop - this will invoke timer callbacks every 16ms
-        // and reschedule itself via performSelector:withObject:afterDelay:
+        // One-shot initial tickTimers: kick (performSelector:afterDelay: fires
+        // ONCE — it does not reschedule). It drains timers/threads registered
+        // during window creation; ongoing ticking is driven by the repeating
+        // NSTimers that start_timer / start_thread_poll_timer create.
         use objc2::sel;
         let delay: f64 = TIMER_INTERVAL_60FPS;
         let _: () = msg_send![self, performSelector: sel!(tickTimers:), withObject: std::ptr::null::<NSObject>(), afterDelay: delay];
@@ -2094,8 +2096,10 @@ impl CPUView {
     pub unsafe fn set_window_ptr(&self, window_ptr: *mut std::ffi::c_void) {
         *self.ivars().window_ptr.borrow_mut() = Some(window_ptr);
 
-        // Start the timer tick loop - this will invoke timer callbacks every 16ms
-        // and reschedule itself via performSelector:withObject:afterDelay:
+        // One-shot initial tickTimers: kick (performSelector:afterDelay: fires
+        // ONCE — it does not reschedule). It drains timers/threads registered
+        // during window creation; ongoing ticking is driven by the repeating
+        // NSTimers that start_timer / start_thread_poll_timer create.
         use objc2::sel;
         let delay: f64 = TIMER_INTERVAL_60FPS;
         let _: () = msg_send![self, performSelector: sel!(tickTimers:), withObject: std::ptr::null::<NSObject>(), afterDelay: delay];
@@ -5865,9 +5869,14 @@ impl MacOSWindow {
         let window_ptr = self as *mut MacOSWindow as *mut std::ffi::c_void;
         let delegate_ptr = &*self.window_delegate as *const WindowDelegate;
         (*delegate_ptr).set_window_ptr(window_ptr);
-        // Also set the CPUView's back pointer (if using CPU backend)
+        // Also set the CPUView's back pointer (if using CPU backend).
+        // Must go through set_window_ptr: the raw ivar write it replaces
+        // skipped the initial tickTimers: kick that set_window_ptr schedules
+        // (GLView got it via setup_gl_view_back_pointer, CPU windows did not),
+        // so the first timer/thread pass never ran on CPU windows until an
+        // NSTimer was created for some other reason.
         if let Some(ref cpu_view) = self.cpu_view {
-            *cpu_view.ivars().window_ptr.borrow_mut() = Some(window_ptr);
+            cpu_view.set_window_ptr(window_ptr);
         }
         log_trace!(
             LogCategory::Platform,
