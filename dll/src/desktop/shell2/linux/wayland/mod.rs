@@ -2158,7 +2158,28 @@ impl WaylandWindow {
                 .as_ref()
                 .map(|lw| !lw.threads.is_empty())
                 .unwrap_or(false);
-            let timeout_ms: i32 = if has_threads { 16 } else { -1 };
+            // NEVER block indefinitely once this window is on its way out.
+            //
+            // `-1` sleeps until the compositor sends something. After the window
+            // has been closed there is no reason for it to send anything ever
+            // again, so the loop parked here and the process hung on exit —
+            // until a user CLICKED the window, which produced an event, woke the
+            // poll, and let teardown finish. That is the whole bug: exiting was
+            // waiting on input that only arrives if someone happens to provide
+            // it. It reproduced about 1 run in 2 locally, which is exactly what
+            // "depends on whether a stray event turns up" looks like.
+            //
+            // While closing, poll with 0 so the iteration completes and the run
+            // loop reaches its `get_all_window_ids()` check and unregisters.
+            let closing = !self.is_open
+                || self.common.current_window_state.flags.close_requested;
+            let timeout_ms: i32 = if closing {
+                0
+            } else if has_threads {
+                16
+            } else {
+                -1
+            };
 
             let result = libc::poll(
                 pollfds.as_mut_ptr(),
