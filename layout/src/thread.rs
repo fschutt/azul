@@ -657,7 +657,54 @@ extern "C" fn default_thread_destructor_fn(thread: *mut ThreadInner) {
 
     if let Some(thread_handle) = thread.thread_handle.take() {
         drop(thread.sender.send(ThreadSendMsg::TerminateThread));
-        drop(thread_handle.join()); // ignore the result, don't panic
+
+        // BOUNDED wait, then DETACH. This was an unconditional
+        // `thread_handle.join()`, which hangs forever whenever the worker does
+        // not observe `TerminateThread` — and a worker blocked in a device read
+        // (v4l2, ALSA) or on a different channel never does.
+        //
+        // Measured on the published 0.2.0 azul-self-test-linux: after the
+        // window closed and the Wayland display was disconnected, the main
+        // thread sat in `pthread_join` on an unnamed worker while 22 other
+        // threads idled. `App::run()` never returned, so the process never
+        // reached `std::process::exit()` in main and had to be killed. The demo
+        // advertises "exits on its own (~4s)".
+        //
+        // `dropcheck` already tells us what we need: the worker holds an Arc
+        // whose Weak lives here, so `strong_count() == 0` means it has actually
+        // finished and the join will return immediately. If it has not finished
+        // within the grace period we DROP the handle instead, which detaches the
+        // thread. A detached thread cannot block `process::exit`, and shutting
+        // down is precisely when refusing to wait is correct: the alternative on
+        // display is a hang, which users read as a crash.
+        //
+        // Spin on a sleep rather than `Instant`: this file is compiled for wasm
+        // and the clockless targets, where the strict `Instant` gate is 0.
+        const GRACE_STEPS: u32 = 200; // 200 x 10ms = 2s
+        let mut finished = thread.dropcheck.strong_count() == 0;
+        let mut waited = 0_u32;
+        while !finished && waited < GRACE_STEPS {
+            thread::sleep(core::time::Duration::from_millis(10));
+            waited += 1;
+            finished = thread.dropcheck.strong_count() == 0;
+        }
+
+        if finished {
+            drop(thread_handle.join()); // returns immediately; ignore the result
+        } else {
+            // Detached. Say so — a silently leaked worker is how a "why is this
+            // slow to exit" question becomes unanswerable.
+            eprintln!(
+                "[azul][thread] a background thread did not acknowledge \
+                 TerminateThread within {}ms and was DETACHED rather than \
+                 joined. It will be torn down by process exit. If this recurs, \
+                 that worker is blocking on something it cannot be interrupted \
+                 from (a device read, or a channel other than its terminate \
+                 channel).",
+                GRACE_STEPS * 10,
+            );
+            drop(thread_handle);
+        }
     }
 }
 
