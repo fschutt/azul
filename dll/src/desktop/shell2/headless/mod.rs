@@ -287,17 +287,31 @@ impl CpuBackend {
         use azul_core::dom::DomId;
         use azul_layout::cpurender;
 
+        // Every early return below must leave `last_frame_damage` /
+        // `last_present_damage` describing THIS call ("nothing changed"), not
+        // whatever the previous call recorded. The platform blit paths read
+        // `last_present_damage` after every render_frame — with the fields
+        // left stale, a call that rendered nothing (window minimised to 0×0,
+        // no layout result yet, allocation failure) made the caller re-blit
+        // the PREVIOUS frame's damage rects out of the retained pixmap.
+
         // Get the layout result from layout results
         let dom_id = DomId { inner: 0 };
         let result = match layout_window.layout_results.get(&dom_id) {
             Some(result) => result,
-            None => return Vec::new(),
+            None => {
+                self.last_frame_damage = FrameDamage::None;
+                self.last_present_damage = FrameDamage::None;
+                return Vec::new();
+            }
         };
         let display_list = &result.display_list;
 
         let pixel_w = (width * dpi_factor).ceil() as u32;
         let pixel_h = (height * dpi_factor).ceil() as u32;
         if pixel_w == 0 || pixel_h == 0 {
+            self.last_frame_damage = FrameDamage::None;
+            self.last_present_damage = FrameDamage::None;
             return Vec::new();
         }
 
@@ -578,7 +592,13 @@ impl CpuBackend {
             }
             None => match cpurender::AzulPixmap::new(pixel_w, pixel_h) {
                 Some(mut p) => { p.fill(255, 255, 255, 255); p }
-                None => return Vec::new(),
+                None => {
+                    // Same contract as the early returns at the top: a call
+                    // that produced no frame must not leave stale damage.
+                    self.last_frame_damage = FrameDamage::None;
+                    self.last_present_damage = FrameDamage::None;
+                    return Vec::new();
+                }
             },
         };
 
