@@ -2820,6 +2820,21 @@ unsafe extern "system" fn window_proc(
         }
 
         WM_PAINT => {
+            // Retire the update region FIRST. "The DefWindowProc function
+            // validates the update region" (MSDN WM_PAINT) — and it validates
+            // it AS IT STANDS at call time. This call used to sit at the END
+            // of this arm, AFTER the render: any InvalidateRect raised DURING
+            // the render (scrollbar-fade next-frame request, the deferred
+            // first-frame request_redraw when layout wasn't ready, a
+            // callback-driven repaint) was part of the update region by then
+            // and was validated away one line later — the requested WM_PAINT
+            // never arrived, freezing the fade mid-animation and leaving a
+            // not-ready first frame with no repaint scheduled (window could
+            // stay hidden until the next input event). Validating first means
+            // invalidations raised by the render below stay pending and
+            // generate the next WM_PAINT.
+            let def_result = (window.win32.user32.DefWindowProcW)(hwnd, msg, wparam, lparam);
+
             // Determine if layout needs regeneration (DOM changed).
             // Captured BEFORE either branch renders: a callback inside the render
             // can raise a new regeneration request, and only what we saw here may
@@ -2857,7 +2872,10 @@ unsafe extern "system" fn window_proc(
                     log_error!(LogCategory::Rendering, "Render error: {:?}", e);
                 }
             }
-            (window.win32.user32.DefWindowProcW)(hwnd, msg, wparam, lparam)
+            // Update region already validated by the DefWindowProc call ABOVE
+            // (before the render) — calling it again here would swallow any
+            // repaint the render just requested.
+            def_result
         }
 
         WM_SIZE => {
