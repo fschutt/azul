@@ -2191,7 +2191,43 @@ impl WaylandWindow {
             if result > 0 {
                 // Check Wayland display fd
                 if pollfds[0].revents & libc::POLLIN != 0 {
-                    (self.wayland.wl_display_dispatch_queue)(self.display, self.event_queue);
+                    // Drain the socket with the canonical NON-BLOCKING triple —
+                    // prepare_read_queue (dispatching anything already queued),
+                    // read_events, dispatch_queue_pending — the same sequence
+                    // poll_event uses.
+                    //
+                    // NOT wl_display_dispatch_queue: that call returns only once
+                    // an event lands on THIS queue, and POLLIN does not promise
+                    // that. The readable bytes can belong entirely to a
+                    // different queue — the display's own delete_id bookkeeping
+                    // queue (libwayland ≥ 1.5), an open menu popup's queue, or
+                    // (GPU mode) the EGL implementation's internal queues. In
+                    // that case dispatch_queue consumes them and then goes back
+                    // to sleep in ITS OWN internal poll on the display fd
+                    // ALONE. Our timerfds, the key-repeat fd and the 16 ms
+                    // thread tick are not in that poll, so the window froze
+                    // whole — no repaint, no timers, no key repeat — until the
+                    // compositor happened to send an event for this queue,
+                    // i.e. until the user supplied more input. That is the
+                    // reported "key press freezes the screen, scrolling
+                    // revives it": a key press is the one input you give with
+                    // the pointer parked, so nothing follows it to wake the
+                    // stuck dispatch.
+                    while (self.wayland.wl_display_prepare_read_queue)(
+                        self.display,
+                        self.event_queue,
+                    ) != 0
+                    {
+                        (self.wayland.wl_display_dispatch_queue_pending)(
+                            self.display,
+                            self.event_queue,
+                        );
+                    }
+                    (self.wayland.wl_display_read_events)(self.display);
+                    (self.wayland.wl_display_dispatch_queue_pending)(
+                        self.display,
+                        self.event_queue,
+                    );
                 }
 
                 // Check timerfd's - if any fired, invoke timer callbacks
