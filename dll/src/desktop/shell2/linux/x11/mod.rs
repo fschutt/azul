@@ -1213,7 +1213,34 @@ impl X11Window {
                 }
                 // Only close a display we OWN; child windows share a parent's.
                 if self.owns_display {
-                    (self.xlib.XCloseDisplay)(self.display);
+                    // …but never while a LIVE child still uses this connection:
+                    // XCloseDisplay here left every surviving child (a dialog
+                    // whose parent was closed first) calling into a freed
+                    // Display — use-after-free — and even without the free,
+                    // nobody would drain a connection whose owner is gone
+                    // (children skip draining by design). Hand the connection
+                    // to the first surviving X11 window on the same display:
+                    // it becomes the drainer AND the eventual closer. (During
+                    // Drop, self is already unregistered, so the scan cannot
+                    // find self.)
+                    let mut handed_over = false;
+                    for wid in super::registry::get_all_window_ids() {
+                        if wid == self.window as u64 {
+                            continue;
+                        }
+                        if let Some(wptr) = super::registry::get_window(wid) {
+                            if let super::LinuxWindow::X11(w) = &mut *wptr {
+                                if w.display == self.display && w.is_open {
+                                    w.owns_display = true;
+                                    handed_over = true;
+                                    break;
+                                }
+                            }
+                        }
+                    }
+                    if !handed_over {
+                        (self.xlib.XCloseDisplay)(self.display);
+                    }
                 }
             }
         }
