@@ -3601,6 +3601,28 @@ impl MacOSWindow {
             "[MacOSWindow::new] Content view configured"
         );
 
+        // Make the render view the window's first responder. Keyboard events
+        // (keyDown:/keyUp:/flagsChanged:) are delivered to the FIRST RESPONDER
+        // — unlike mouse/scroll events, which are hit-tested to the view under
+        // the pointer — and acceptsFirstResponder only makes the view
+        // ELIGIBLE; nothing in AppKit guarantees a custom NSView outside the
+        // key-view loop is ever assigned. setInitialFirstResponder covers the
+        // first orderFront (including the is_visible=false → shown-later
+        // path), makeFirstResponder covers the window immediately.
+        unsafe {
+            let responder: *const NSResponder = if let Some(ref gl) = gl_view {
+                Retained::as_ptr(gl) as *const NSResponder
+            } else if let Some(ref cpu) = cpu_view {
+                Retained::as_ptr(cpu) as *const NSResponder
+            } else {
+                std::ptr::null()
+            };
+            if !responder.is_null() {
+                window.setInitialFirstResponder(Some(&*(responder as *const NSView)));
+                let _accepted = window.makeFirstResponder(Some(&*responder));
+            }
+        }
+
         // DO NOT show the window yet - we will show it after the first frame
         // is ready to prevent white flash
         log_trace!(
