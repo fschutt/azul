@@ -156,6 +156,14 @@ pub struct BorderBoxRect(pub LogicalRect);
 #[derive(Debug, Copy, Clone, Default, PartialEq, PartialOrd, Eq, Ord, Hash)]
 pub struct WindowLogicalRect(pub LogicalRect);
 
+/// Anything at or below this is the unassigned-position sentinel, not geometry.
+///
+/// The sentinel is exactly `f32::MIN`; the threshold is deliberately a little
+/// looser so a sentinel that has been through one offset addition (which barely
+/// moves a value of that magnitude) is still recognised.
+const UNASSIGNED_POSITION_LIMIT: f32 = f32::MIN / 2.0;
+
+
 impl WindowLogicalRect {
     #[inline]
     #[must_use] pub const fn new(origin: LogicalPosition, size: LogicalSize) -> Self {
@@ -1262,8 +1270,48 @@ impl DisplayListBuilder {
         }
     }
 
-    /// Push an item and record its node mapping
+    /// Push an item and record its node mapping.
+    ///
+    /// Drops items whose geometry is still the UNASSIGNED-POSITION SENTINEL.
+    ///
+    /// `calculated_positions` seeds entries with `f32::MIN`, and an inline text
+    /// node's own box position is never assigned — see the comment on
+    /// `paint_text_selection`, which anchors to the IFC root precisely because
+    /// "the node's OWN box position is never assigned (stays the `f32::MIN`
+    /// sentinel)". That workaround is local to one caller; the other thirteen
+    /// readers of `calculated_positions` get the raw sentinel.
+    ///
+    /// The published 0.2.0 azul-self-test-linux display list carried 24 of
+    /// them, e.g.
+    ///
+    ///     Border      { bounds: WindowLogicalRect(624x0 @ (-3.4028235e38, -3.4028235e38)) }
+    ///     HitTestArea { bounds: WindowLogicalRect(624x0 @ (-3.4028235e38, -3.4028235e38)) }
+    ///
+    /// A `Border` at -3.4e38 is merely invisible. A `HitTestArea` there is
+    /// ACTIVELY WRONG: it is a live hit-test rectangle at a coordinate no
+    /// pointer can reach, and any arithmetic on it (offsetting into a parent
+    /// space, unioning a bounding box) produces infinities that then propagate
+    /// into rects that ARE on screen.
+    ///
+    /// Dropping is right rather than clamping to the origin: the item has no
+    /// position, and inventing (0,0) would put a phantom border and a live
+    /// hit target in the top-left corner of the window. An item nobody can
+    /// see and nobody can click is exactly what an unpositioned node should
+    /// contribute.
     fn push_item(&mut self, item: DisplayListItem) {
+        if let Some(b) = item.bounds() {
+            let unassigned = |v: f32| !v.is_finite() || v <= UNASSIGNED_POSITION_LIMIT;
+            if unassigned(b.origin.x) || unassigned(b.origin.y) {
+                #[cfg(debug_assertions)]
+                eprintln!(
+                    "[azul][displaylist] dropping {item:?} at an unassigned \
+                     position ({}, {}) — its layout node never received a \
+                     computed position",
+                    b.origin.x, b.origin.y,
+                );
+                return;
+            }
+        }
         self.items.push(item);
         self.node_mapping.push(self.current_node);
     }
@@ -7469,8 +7517,26 @@ mod autotest_generated {
         b.push_conic_gradient(LogicalRect::zero(), ConicGradient::default(), BorderRadius::default());
 
         let dl = b.build();
-        assert_eq!(dl.items.len(), 17);
+        // 17 until push_item started dropping items at the unassigned-position
+        // sentinel. Two pushes above use NaN / f32::MIN ORIGINS — the NaN
+        // stacking context and the f32::MIN clip — and those are exactly what
+        // the drop exists to remove, so they no longer reach the list. The
+        // point of this test is that extreme arguments do not PANIC and do not
+        // desync the node mapping; both still hold.
+        assert_eq!(
+            dl.items.len(),
+            15,
+            "expected the NaN-origin stacking context and the f32::MIN-origin \
+             clip to be dropped as unassigned positions; everything else is \
+             real geometry and must survive"
+        );
         assert_eq!(dl.items.len(), dl.node_mapping.len());
+        // The mapping must stay in lockstep — dropping an item without dropping
+        // its node entry would misattribute every later item to the wrong node.
+        assert!(
+            !dl.items.is_empty(),
+            "the drop must not swallow well-formed items"
+        );
     }
 
     // ---------------------------------------------------------------------
