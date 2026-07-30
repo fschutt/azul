@@ -2107,6 +2107,47 @@ impl WaylandWindow {
             return Ok(()); // Events were processed
         }
 
+        // Render anything still OWED before parking in poll().
+        //
+        // A frame request can be raised at a moment when it cannot be acted on,
+        // and on Wayland the raise alone schedules nothing:
+        //   * the CPU present found BOTH shm buffers still held by the
+        //     compositor and skipped the attach. The wl_buffer.release that
+        //     later frees a slot only flips the slot's `busy` flag — its
+        //     listener user-data IS the bare bool, it cannot re-run the frame;
+        //   * the first CPU frame ran before the lazy shm allocation existed;
+        //   * a redraw was requested while the frame-callback latch was armed,
+        //     and the `done` that cleared the latch was dispatched later in
+        //     the same batch, after the request had already been swallowed.
+        // In all of these the needs_redraw / regeneration request is still
+        // raised, but nothing was committed and no frame callback was armed,
+        // so a `-1` poll below would sleep ON TOP OF work it owes until the
+        // user happens to supply another input event — the "type once, then
+        // the screen only updates when you scroll" freeze. X11 has the same
+        // guard at the top of its poll_event (regeneration / vview /
+        // needs_redraw gate before render_and_present).
+        //
+        // generate_frame_if_needed() re-checks the frame-callback latch, so
+        // this cannot over-render: with a fresh `done` outstanding it returns
+        // immediately and the retry rides on frame_done_callback instead.
+        let closing_now = !self.is_open
+            || self.common.current_window_state.flags.close_requested;
+        if self.configured && !closing_now {
+            let vview_pending = self
+                .common
+                .layout_window
+                .as_ref()
+                .map(|lw| !lw.pending_virtual_view_updates.is_empty())
+                .unwrap_or(false);
+            if self.common.regeneration_pending()
+                || self.common.relayout_only_pending()
+                || self.needs_redraw.pending()
+                || vview_pending
+            {
+                self.generate_frame_if_needed();
+            }
+        }
+
         // Get the display fd
         let display_fd = unsafe { (self.wayland.wl_display_get_fd)(self.display) };
 
@@ -2191,7 +2232,63 @@ impl WaylandWindow {
             if result > 0 {
                 // Check Wayland display fd
                 if pollfds[0].revents & libc::POLLIN != 0 {
-                    (self.wayland.wl_display_dispatch_queue)(self.display, self.event_queue);
+                    // Drain the socket with the canonical NON-BLOCKING triple —
+                    // prepare_read_queue (dispatching anything already queued),
+                    // read_events, dispatch_queue_pending — the same sequence
+                    // poll_event uses.
+                    //
+                    // NOT wl_display_dispatch_queue: that call returns only once
+                    // an event lands on THIS queue, and POLLIN does not promise
+                    // that. The readable bytes can belong entirely to a
+                    // different queue — the display's own delete_id bookkeeping
+                    // queue (libwayland ≥ 1.5), an open menu popup's queue, or
+                    // (GPU mode) the EGL implementation's internal queues. In
+                    // that case dispatch_queue consumes them and then goes back
+                    // to sleep in ITS OWN internal poll on the display fd
+                    // ALONE. Our timerfds, the key-repeat fd and the 16 ms
+                    // thread tick are not in that poll, so the window froze
+                    // whole — no repaint, no timers, no key repeat — until the
+                    // compositor happened to send an event for this queue,
+                    // i.e. until the user supplied more input. That is the
+                    // reported "key press freezes the screen, scrolling
+                    // revives it": a key press is the one input you give with
+                    // the pointer parked, so nothing follows it to wake the
+                    // stuck dispatch.
+                    while (self.wayland.wl_display_prepare_read_queue)(
+                        self.display,
+                        self.event_queue,
+                    ) != 0
+                    {
+                        (self.wayland.wl_display_dispatch_queue_pending)(
+                            self.display,
+                            self.event_queue,
+                        );
+                    }
+                    (self.wayland.wl_display_read_events)(self.display);
+                    (self.wayland.wl_display_dispatch_queue_pending)(
+                        self.display,
+                        self.event_queue,
+                    );
+                }
+
+                // A dead compositor connection reports POLLERR/POLLHUP (or
+                // POLLNVAL) and can never become POLLIN-readable again — but
+                // poll() keeps returning immediately, so ignoring it turned a
+                // compositor crash/logout into this loop spinning at 100% CPU
+                // dispatching nothing, forever. Treat it as a close request:
+                // the run loop honours the flag, unregisters the window and
+                // tears it down.
+                if pollfds[0].revents
+                    & (libc::POLLERR | libc::POLLHUP | libc::POLLNVAL)
+                    != 0
+                {
+                    log_error!(
+                        LogCategory::Platform,
+                        "[Wayland] display connection lost (revents {:#x}) — closing window",
+                        pollfds[0].revents,
+                    );
+                    self.common.current_window_state.flags.close_requested = true;
+                    return Ok(());
                 }
 
                 // Check timerfd's - if any fired, invoke timer callbacks
@@ -3217,6 +3314,18 @@ impl WaylandWindow {
         if self.key_repeat_fd < 0 || self.key_repeat_rate_ms == 0 {
             return;
         }
+        // Already armed for THIS key: leave the timer alone and let
+        // it_interval drive. The repeat replay goes through handle_key(state=1),
+        // which lands back here — re-arming would reset it_value (the initial
+        // delay) on every replayed press, so the timer never got past its
+        // first period and "repeat" fired at the DELAY cadence (~600 ms per
+        // character on KDE defaults) instead of the advertised rate. A real
+        // re-press of the same key always passes through a release first,
+        // which disarms (key_repeat_keycode = None), so it still re-arms with
+        // the full initial delay; a different key held re-arms below.
+        if self.key_repeat_keycode == Some(keycode) {
+            return;
+        }
         self.key_repeat_keycode = Some(keycode);
         let delay = self.key_repeat_delay_ms.max(1) as i64;
         let interval = self.key_repeat_rate_ms.max(1) as i64;
@@ -4138,9 +4247,23 @@ impl WaylandWindow {
     /// After sending the transaction, renders via WebRender and swaps buffers.
     /// Sets up Wayland frame callback for VSync.
     pub fn generate_frame_if_needed(&mut self) {
+        // Queued VirtualView re-renders count as work owed. They are queued
+        // OUT-OF-BAND by background writebacks (`trigger_all_virtual_view_
+        // rerender` — e.g. the MapWidget's tile-fetch worker delivering a
+        // tile) and are only ever drained inside this function; a gate that
+        // ignores them leaves the queue sitting until some unrelated event
+        // happens to repaint, and the async-loaded tiles never appear. X11's
+        // poll_event gate names `vview_pending` for exactly this reason.
+        let vview_pending = self
+            .common
+            .layout_window
+            .as_ref()
+            .map(|lw| !lw.pending_virtual_view_updates.is_empty())
+            .unwrap_or(false);
         let needs_work = self.common.regeneration_pending()
             || self.common.relayout_only_pending()
-            || self.needs_redraw.pending();
+            || self.needs_redraw.pending()
+            || vview_pending;
         if !needs_work {
             return;
         }
@@ -4181,6 +4304,21 @@ impl WaylandWindow {
         // `should_present == false` skip, an empty CPU damage list, and a missing
         // renderer.
         let mut surface_committed = false;
+
+        // Did this frame RENDER to completion and simply find nothing changed
+        // on screen (empty damage diff / zero GPU draw calls)? Such a frame has
+        // fully satisfied the requests it saw even though it committed no
+        // buffer, and they must be retired below exactly as X11 does at the end
+        // of render_and_present. Leaving them raised looked harmless but
+        // wasn't: the FIRST visually-inert regeneration (e.g. the AzMaps
+        // startup frame re-rendering identical tile placeholders after
+        // AfterMount re-raised the request) left `regeneration_pending` stuck,
+        // so EVERY subsequent frame — every hover, every caret tick — took the
+        // full regenerate_layout() path (rebuild the DOM, re-run layout)
+        // instead of the lightweight one, forever. Stays `false` on the paths
+        // that could NOT render/present (lazy shm alloc, both buffers held,
+        // missing renderer), which genuinely still owe a frame.
+        let mut frame_visually_complete = false;
 
         // CRITICAL: Make OpenGL context current BEFORE generate_frame
         // The image callbacks (RenderImageCallback) need the GL context to be current
@@ -4526,6 +4664,9 @@ impl WaylandWindow {
                         // resynchronize, and drop the stale damage region.
                         self.gpu_last_render_presented = false;
                         let _ = gl_context.wr_damage.take();
+                        // Zero draw calls = the scene is visually unchanged;
+                        // the requests this frame saw are satisfied.
+                        frame_visually_complete = true;
                     }
 
                     self.common.display_list_initialized = true;
@@ -4595,6 +4736,9 @@ impl WaylandWindow {
                         lw.refresh_scrollbar_gpu_cache_for_cpu_frame();
                     }
 
+                    // The both-buffers-held skip below re-raises needs_redraw
+                    // deliberately; it must NOT count as "visually complete".
+                    let mut present_skipped_buffers_held = false;
                     let rendered = if let Some(ref layout_window) = self.common.layout_window {
                         let dom_id = DomId { inner: 0 };
                         // render_frame looks up the layout result itself; we only
@@ -4738,8 +4882,14 @@ impl WaylandWindow {
                                             // diff as "unchanged", so force a
                                             // full copy+present then or this
                                             // frame would never reach screen.
+                                            // (The wake for that retry is the
+                                            // pre-park gate in
+                                            // wait_for_events: the release
+                                            // event itself can only flip the
+                                            // slot's busy flag.)
                                             self.needs_redraw.raise();
                                             self.os_present_requested = true;
+                                            present_skipped_buffers_held = true;
                                         }
                                     }
                                 }
@@ -4759,6 +4909,11 @@ impl WaylandWindow {
                             self.needs_redraw.raise();
                         }
                     }
+
+                    // Rendered to completion without a buffer-availability
+                    // skip: even if the damage diff came back empty (nothing
+                    // to attach below), this frame has DONE the work it saw.
+                    frame_visually_complete = rendered && !present_skipped_buffers_held;
                 }
 
                 #[cfg(not(feature = "cpurender"))]
@@ -4872,12 +5027,30 @@ impl WaylandWindow {
         // for, no `done` ever arrived and the gate at the top of this function
         // blocked every subsequent frame.
         if !surface_committed {
-            log_warn!(
-                LogCategory::Rendering,
-                "[Wayland] frame produced no buffer commit (lazy CPU alloc, empty damage, GPU \
-                 skip, or no renderer) — not arming the frame callback, so the next frame is \
-                 not blocked waiting for a `done` that cannot come",
-            );
+            if frame_visually_complete {
+                // The frame RENDERED and found nothing changed on screen: the
+                // requests it observed are satisfied — retire them (by epoch,
+                // so anything raised during the render survives), exactly as
+                // the committing path below does. Skipping this looked safe
+                // and was not: one visually-inert regeneration left
+                // `regeneration_pending` raised forever, and every subsequent
+                // frame took the full regenerate_layout() path.
+                self.common.clear_regeneration_unless_reraised(regen_epoch_seen);
+                self.needs_redraw.retire_unless_reraised(redraw_epoch_seen);
+                log_debug!(
+                    LogCategory::Rendering,
+                    "[Wayland] frame rendered with no visual change — nothing committed, \
+                     requests retired, frame callback not armed",
+                );
+            } else {
+                log_warn!(
+                    LogCategory::Rendering,
+                    "[Wayland] frame produced no buffer commit (lazy CPU alloc, both shm \
+                     buffers held, or no renderer) — requests stay raised; not arming the \
+                     frame callback, so the next frame is not blocked waiting for a `done` \
+                     that cannot come",
+                );
+            }
             return;
         }
 
@@ -5154,10 +5327,19 @@ extern "C" fn frame_done_callback(
     // that raised it alone) sat here until some unrelated event happened to
     // redraw the window. `request_relayout_only` now also raises the ordinary
     // regeneration request, and this gate names it explicitly so the intent
-    // survives the next reader.
+    // survives the next reader. Queued VirtualView re-renders (background
+    // tile-fetch writebacks) are work owed for the same reason — they are
+    // drained only inside generate_frame_if_needed.
+    let vview_pending = window
+        .common
+        .layout_window
+        .as_ref()
+        .map(|lw| !lw.pending_virtual_view_updates.is_empty())
+        .unwrap_or(false);
     if window.common.regeneration_pending()
         || window.common.relayout_only_pending()
         || window.needs_redraw.pending()
+        || vview_pending
     {
         window.generate_frame_if_needed();
     }
