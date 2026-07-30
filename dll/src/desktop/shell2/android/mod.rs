@@ -661,7 +661,14 @@ fn drain_input(app: &AndroidApp, window: &mut AndroidWindow) {
                 let mut first_pointer = true;
 
                 for p in m.pointers() {
-                    let pos = LogicalPosition::new(p.raw_x() / dpi, p.raw_y() / dpi);
+                    // Window-relative coordinates (AMotionEvent_getX/getY), NOT
+                    // raw_x/raw_y: raw is DISPLAY-relative, so in split-screen /
+                    // freeform / pop-up multi-window the window's offset shifted
+                    // every touch and hit tests landed on the wrong node. The
+                    // surface we render into lives in window space; getX/getY is
+                    // the matching input space (they only coincide when the
+                    // window sits at the display origin).
+                    let pos = LogicalPosition::new(p.x() / dpi, p.y() / dpi);
                     if first_pointer {
                         mouse_pos = pos;
                         first_pointer = false;
