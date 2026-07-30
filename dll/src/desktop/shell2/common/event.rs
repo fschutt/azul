@@ -1474,6 +1474,7 @@ pub trait PlatformWindow {
 
         for _pass in 1..MAX_LIFECYCLE_REGEN_PASSES {
             if !self.dispatch_pending_lifecycle_events() {
+                self.refill_a11y_tree_after_regeneration();
                 return Ok(result);
             }
             result = self.regenerate_layout_once()?;
@@ -1486,8 +1487,40 @@ pub trait PlatformWindow {
                 lw.frame_report.hit_depth_cap = true;
             }
         }
+        self.refill_a11y_tree_after_regeneration();
         Ok(result)
     }
+
+    /// Rebuild the accessibility tree into `a11y_manager.last_tree_update`
+    /// after a DOM regeneration, so the per-backend push paths have something
+    /// to push.
+    ///
+    /// The push side has existed on every desktop backend for a while: the
+    /// x11/wayland/windows post-layout tails and all four
+    /// `flush_a11y_tree_update` overrides `take()` the slot and hand it to
+    /// their accesskit adapter. But the FILL side —
+    /// [`azul_layout::window::LayoutWindow::update_a11y_tree`], whose own doc
+    /// says "called after full layout AND after display-list-only
+    /// regeneration" — was only ever called from macOS's `a11y_dirty`-gated
+    /// tick. On the other backends the slot stayed `None` after the initial
+    /// adapter activation, every `take()` came back empty, and the tree the
+    /// screen reader saw stayed frozen at the FIRST state forever, no matter
+    /// how often the DOM was rebuilt. Filling it here — in the one shared
+    /// regeneration path every backend's frame code calls — is what makes the
+    /// existing drains actually carry updates.
+    ///
+    /// Cost: one pass over the exposed nodes per DOM rebuild (the same cost
+    /// macOS already paid per rebuild via its dirty-gated tick).
+    #[cfg(feature = "a11y")]
+    fn refill_a11y_tree_after_regeneration(&mut self) {
+        if let Some(lw) = self.get_layout_window_mut() {
+            lw.update_a11y_tree();
+        }
+    }
+
+    /// No-op without the `a11y` feature (there is no tree to rebuild).
+    #[cfg(not(feature = "a11y"))]
+    fn refill_a11y_tree_after_regeneration(&mut self) {}
 
     /// Ask for the DOM to be rebuilt before the next frame, saying WHY.
     ///
