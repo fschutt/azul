@@ -113,7 +113,9 @@ impl TooltipWindow {
     /// Show tooltip with text at the given position
     ///
     /// If tooltip is already visible, updates text and position.
-    /// Position is in logical coordinates (macOS AppKit uses points, not pixels).
+    /// Position is in GLOBAL screen points with a TOP-LEFT origin (y-down,
+    /// anchored to the primary screen's top edge) — the caller
+    /// (`MacOSWindow::show_tooltip`) converts from window-local coordinates.
     pub fn show(
         &mut self,
         text: &str,
@@ -143,14 +145,18 @@ impl TooltipWindow {
         );
         unsafe { self.text_field.setFrame(text_field_frame) };
 
-        // Get screen height for Y-axis flipping
-        // macOS uses bottom-left origin, so we need to flip Y
-        let screen_height =
-            if let Some(main_screen) = unsafe { objc2_app_kit::NSScreen::mainScreen(self.mtm) } {
-                unsafe { main_screen.frame() }.size.height
-            } else {
-                FALLBACK_SCREEN_HEIGHT
-            };
+        // Get the PRIMARY screen height for Y-axis flipping. Global window
+        // coordinates are anchored to the bottom-left of the PRIMARY screen
+        // (NSScreen.screens[0] — MWA-B9); mainScreen() is the screen of the
+        // KEY window, which is a different screen on multi-monitor setups and
+        // put the tooltip at the wrong height there.
+        let screen_height = unsafe {
+            objc2_app_kit::NSScreen::screens(self.mtm)
+                .iter()
+                .next()
+                .map(|s| s.frame().size.height)
+        }
+        .unwrap_or(FALLBACK_SCREEN_HEIGHT);
 
         // Use logical coordinates directly — macOS AppKit works in points, not pixels
         let screen_x = position.x as f64;

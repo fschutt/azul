@@ -5523,8 +5523,34 @@ impl MacOSWindow {
                 .unwrap_or(1.0)
         });
 
+        // `position` is WINDOW-logical (top-left origin) — the ShowTooltip
+        // contract (`get_cursor_relative_to_viewport`). The tooltip panel is a
+        // separate NSPanel positioned in GLOBAL coordinates, so convert:
+        // window-local top-down → window bottom-up → screen bottom-up
+        // (convertRectToScreen) → global top-down against the PRIMARY screen
+        // height (MWA-B9). Previously the window-local point was handed over
+        // unconverted and read as global: the tooltip appeared at the
+        // window-relative offset measured from the SCREEN's top-left corner.
+        let global_top_down = {
+            let content_h = self
+                .window
+                .contentView()
+                .map(|cv| cv.bounds().size.height)
+                .unwrap_or(0.0);
+            let window_rect = NSRect::new(
+                NSPoint::new(position.x as f64, content_h - position.y as f64),
+                NSSize::new(0.0, 0.0),
+            );
+            let screen_rect = self.window.convertRectToScreen(window_rect);
+            let primary_h = primary_screen_height().unwrap_or(0.0);
+            azul_core::geom::LogicalPosition::new(
+                screen_rect.origin.x as f32,
+                (primary_h - screen_rect.origin.y) as f32,
+            )
+        };
+
         if let Some(ref mut tooltip) = self.tooltip {
-            tooltip.show(text, position, dpi_factor)?;
+            tooltip.show(text, global_top_down, dpi_factor)?;
         }
 
         Ok(())
