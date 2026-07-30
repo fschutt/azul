@@ -5230,17 +5230,29 @@ impl Win32Window {
                 if !himc.is_null() {
                     use dlopen::{CFS_RECT, COMPOSITIONFORM, POINT, RECT};
 
+                    // rect is LOGICAL (cursor rect from layout);
+                    // COMPOSITIONFORM takes CLIENT-AREA coordinates in
+                    // PHYSICAL px — unscaled, the IME candidate window
+                    // drifted toward the top-left of the caret on any
+                    // scaled monitor (off by 1.5x/2x the caret offset).
+                    let hf = self
+                        .common
+                        .current_window_state
+                        .size
+                        .get_hidpi_factor()
+                        .inner
+                        .get();
                     let mut comp_form = COMPOSITIONFORM {
                         dwStyle: CFS_RECT,
                         ptCurrentPos: POINT {
-                            x: rect.origin.x as i32,
-                            y: rect.origin.y as i32,
+                            x: libm::roundf(rect.origin.x * hf) as i32,
+                            y: libm::roundf(rect.origin.y * hf) as i32,
                         },
                         rcArea: RECT {
-                            left: rect.origin.x as i32,
-                            top: rect.origin.y as i32,
-                            right: (rect.origin.x + rect.size.width) as i32,
-                            bottom: (rect.origin.y + rect.size.height) as i32,
+                            left: libm::roundf(rect.origin.x * hf) as i32,
+                            top: libm::roundf(rect.origin.y * hf) as i32,
+                            right: libm::roundf((rect.origin.x + rect.size.width) * hf) as i32,
+                            bottom: libm::roundf((rect.origin.y + rect.size.height) * hf) as i32,
                         },
                     };
 
