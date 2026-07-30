@@ -660,6 +660,18 @@ fn drain_input(app: &AndroidApp, window: &mut AndroidWindow) {
                 let mut touch_points: Vec<azul_core::window::TouchPoint> = Vec::new();
                 let mut first_pointer = true;
 
+                // ACTION_POINTER_UP still lists the LIFTING finger in
+                // pointers() — the classic index-vs-id trap's sibling. Keep it
+                // out of touch_state or the lifted finger stays "touching"
+                // until the next MOVE happens to rebuild the list.
+                // MotionEvent::pointer_index() identifies which pointer the
+                // action is about (only meaningful for the Down/Up family).
+                let lifted_index = if matches!(m.action(), MotionAction::PointerUp) {
+                    Some(m.pointer_index())
+                } else {
+                    None
+                };
+
                 for p in m.pointers() {
                     // Window-relative coordinates (AMotionEvent_getX/getY), NOT
                     // raw_x/raw_y: raw is DISPLAY-relative, so in split-screen /
@@ -674,17 +686,22 @@ fn drain_input(app: &AndroidApp, window: &mut AndroidWindow) {
                         first_pointer = false;
                     }
 
-                    let pressure = p.pressure();
-                    let force = if pressure > 0.0 && pressure <= 1.0 {
-                        pressure
-                    } else {
-                        0.5 // TouchPoint sentinel for "pressure not available"
-                    };
-                    touch_points.push(azul_core::window::TouchPoint {
-                        id: p.pointer_id() as u64,
-                        position: pos,
-                        force,
-                    });
+                    // The finger this PointerUp is about is lifting — it still
+                    // appears in pointers(), but it is no longer touching.
+                    // (Stylus lift is handled separately below via the action.)
+                    if Some(p.pointer_index()) != lifted_index {
+                        let pressure = p.pressure();
+                        let force = if pressure > 0.0 && pressure <= 1.0 {
+                            pressure
+                        } else {
+                            0.5 // TouchPoint sentinel for "pressure not available"
+                        };
+                        touch_points.push(azul_core::window::TouchPoint {
+                            id: p.pointer_id() as u64,
+                            position: pos,
+                            force,
+                        });
+                    }
 
                     let tool = p.tool_type();
                     if matches!(tool, ToolType::Stylus | ToolType::Eraser) {
