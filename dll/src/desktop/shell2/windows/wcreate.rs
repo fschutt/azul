@@ -567,6 +567,37 @@ pub fn get_client_rect(hwnd: HWND, win32: &Win32Libraries) -> Result<(u32, u32),
     }
 }
 
+/// Resize a window so its CLIENT area is `client_w` × `client_h` PHYSICAL px.
+///
+/// `CreateWindowExW`/`SetWindowPos` size the OUTER frame; callers holding a
+/// client size (azul's logical `size.dimensions` × DPI scale) must add the
+/// frame delta or the client area comes out smaller by the border + title
+/// bar. The delta is measured from the live window (`GetWindowRect` −
+/// `GetClientRect`) so it is correct for any style/DPI without needing
+/// `AdjustWindowRectExForDpi`; for `WS_POPUP` (no frame) it is zero.
+pub fn set_client_size(
+    hwnd: HWND,
+    client_w: i32,
+    client_h: i32,
+    win32: &Win32Libraries,
+) -> Result<(), WindowError> {
+    let (frame_w, frame_h) = unsafe {
+        let mut wr = RECT::default();
+        let mut cr = RECT::default();
+        if (win32.user32.GetWindowRect)(hwnd, &mut wr) == 0
+            || (win32.user32.GetClientRect)(hwnd, &mut cr) == 0
+        {
+            (0, 0)
+        } else {
+            (
+                (wr.right - wr.left) - (cr.right - cr.left),
+                (wr.bottom - wr.top) - (cr.bottom - cr.top),
+            )
+        }
+    };
+    set_window_size(hwnd, client_w + frame_w, client_h + frame_h, win32)
+}
+
 /// Resize a window to specific dimensions
 pub fn set_window_size(
     hwnd: HWND,

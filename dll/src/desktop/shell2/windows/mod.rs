@@ -280,6 +280,28 @@ impl Win32Window {
         let mut options = options;
         options.window_state.size.dpi = dpi;
 
+        // The HWND was created with the requested LOGICAL client size passed
+        // raw to CreateWindowExW — which interprets it as the OUTER frame
+        // size in PHYSICAL px, so the client area came out smaller by the
+        // frame border (and by the whole DPI factor on scaled monitors). Now
+        // that the real per-monitor DPI is known, resize so the CLIENT area
+        // matches the requested logical size; get_client_rect below reads
+        // back the corrected size for everything downstream. size_to_content
+        // keeps its 1×1 placeholder and is sized after the first layout.
+        if !options.size_to_content {
+            let want_w = libm::roundf(options.window_state.size.dimensions.width * dpi_factor)
+                .max(1.0) as i32;
+            let want_h = libm::roundf(options.window_state.size.dimensions.height * dpi_factor)
+                .max(1.0) as i32;
+            if let Err(e) = wcreate::set_client_size(hwnd, want_w, want_h, &win32) {
+                log_warn!(
+                    LogCategory::Window,
+                    "[Win32] initial client-size correction failed: {:?}",
+                    e
+                );
+            }
+        }
+
         // Initialize OpenGL context + WebRender (if hardware rendering requested)
         let mut gl_functions = GlFunctions::initialize();
 
@@ -675,18 +697,22 @@ impl Win32Window {
                         let root_size = dom_result
                             .layout_tree
                             .get_content_size(dom_result.layout_tree.root);
-                        let w = libm::roundf(root_size.width).max(1.0) as i32;
-                        let h = libm::roundf(root_size.height).max(1.0) as i32;
+                        // root_size is LOGICAL; the OS sizes the OUTER frame
+                        // in PHYSICAL px — scale by DPI and fit the CLIENT
+                        // area (set_client_size adds the frame delta), or the
+                        // content gets clipped by frame + DPI factor.
+                        let w = libm::roundf(root_size.width * dpi_factor).max(1.0) as i32;
+                        let h = libm::roundf(root_size.height * dpi_factor).max(1.0) as i32;
                         log_trace!(
                             LogCategory::Window,
-                            "[Win32] size_to_content: resizing window to {}x{}",
+                            "[Win32] size_to_content: resizing client area to {}x{}px",
                             w,
                             h
                         );
-                        if let Err(e) = wcreate::set_window_size(result.hwnd, w, h, &result.win32) {
+                        if let Err(e) = wcreate::set_client_size(result.hwnd, w, h, &result.win32) {
                             log_warn!(
                                 LogCategory::Window,
-                                "[Win32] size_to_content set_window_size failed: {:?}",
+                                "[Win32] size_to_content set_client_size failed: {:?}",
                                 e
                             );
                         }
@@ -1812,17 +1838,30 @@ impl Win32Window {
 
         // Size changed?
         if previous.size.dimensions != current.size.dimensions {
-            let width = current.size.dimensions.width as i32;
-            let height = current.size.dimensions.height as i32;
+            // dimensions are the LOGICAL CLIENT-AREA size; SetWindowPos takes
+            // the OUTER frame size in PHYSICAL px. Scale by the window DPI and
+            // add the current frame delta (outer − client, same trick as the
+            // WM_GETMINMAXINFO arm) — passing the raw logical values shrank
+            // the client by the frame border on every programmatic resize,
+            // and by the whole DPI factor on scaled monitors.
+            let hf = current.size.get_hidpi_factor().inner.get();
+            let client_w = libm::roundf(current.size.dimensions.width * hf) as i32;
+            let client_h = libm::roundf(current.size.dimensions.height * hf) as i32;
             unsafe {
                 use dlopen::constants::{SWP_NOMOVE, SWP_NOZORDER};
+                let mut wr: dlopen::RECT = std::mem::zeroed();
+                let mut cr: dlopen::RECT = std::mem::zeroed();
+                (self.win32.user32.GetWindowRect)(self.hwnd, &mut wr);
+                (self.win32.user32.GetClientRect)(self.hwnd, &mut cr);
+                let frame_w = (wr.right - wr.left) - (cr.right - cr.left);
+                let frame_h = (wr.bottom - wr.top) - (cr.bottom - cr.top);
                 (self.win32.user32.SetWindowPos)(
                     self.hwnd,
                     std::ptr::null_mut(),
                     0,
                     0,
-                    width,
-                    height,
+                    client_w + frame_w,
+                    client_h + frame_h,
                     SWP_NOMOVE | SWP_NOZORDER,
                 );
             }
@@ -2820,6 +2859,21 @@ unsafe extern "system" fn window_proc(
         }
 
         WM_PAINT => {
+            // Retire the update region FIRST. "The DefWindowProc function
+            // validates the update region" (MSDN WM_PAINT) — and it validates
+            // it AS IT STANDS at call time. This call used to sit at the END
+            // of this arm, AFTER the render: any InvalidateRect raised DURING
+            // the render (scrollbar-fade next-frame request, the deferred
+            // first-frame request_redraw when layout wasn't ready, a
+            // callback-driven repaint) was part of the update region by then
+            // and was validated away one line later — the requested WM_PAINT
+            // never arrived, freezing the fade mid-animation and leaving a
+            // not-ready first frame with no repaint scheduled (window could
+            // stay hidden until the next input event). Validating first means
+            // invalidations raised by the render below stay pending and
+            // generate the next WM_PAINT.
+            let def_result = (window.win32.user32.DefWindowProcW)(hwnd, msg, wparam, lparam);
+
             // Determine if layout needs regeneration (DOM changed).
             // Captured BEFORE either branch renders: a callback inside the render
             // can raise a new regeneration request, and only what we saw here may
@@ -2857,7 +2911,10 @@ unsafe extern "system" fn window_proc(
                     log_error!(LogCategory::Rendering, "Render error: {:?}", e);
                 }
             }
-            (window.win32.user32.DefWindowProcW)(hwnd, msg, wparam, lparam)
+            // Update region already validated by the DefWindowProc call ABOVE
+            // (before the render) — calling it again here would swallow any
+            // repaint the render just requested.
+            def_result
         }
 
         WM_SIZE => {
@@ -3722,7 +3779,16 @@ unsafe extern "system" fn window_proc(
 
                     if let Some((_dom_id, _node_id, start_timer)) =
                         layout_window.scroll_manager.record_scroll_from_hit_test(
-                            if horizontal { scroll_amount * 20.0 } else { 0.0 },
+                            // MWA-C-scroll: WM_MOUSEHWHEEL positive = wheel
+                            // tilted RIGHT (MSDN), but azul's raw-delta
+                            // chokepoint uses the X11 convention where
+                            // button 6 / LEFT = +1 and button 7 / RIGHT = −1
+                            // (Wayland negates its positive-right axis value
+                            // the same way). Vertical already matches
+                            // (positive = rotated away = up = +1); horizontal
+                            // must be NEGATED or tilt-wheel / trackpad
+                            // horizontal scrolling runs backwards.
+                            if horizontal { -scroll_amount * 20.0 } else { 0.0 },
                             if horizontal { 0.0 } else { scroll_amount * 20.0 },
                             ScrollInputSource::WheelDiscrete,
                             &layout_window.hover_manager,
@@ -3861,7 +3927,18 @@ unsafe extern "system" fn window_proc(
             0
         }
 
-        WM_CHAR | WM_SYSCHAR => {
+        WM_SYSCHAR => {
+            // Alt+key (WM_SYSKEYDOWN → TranslateMessage). This is NOT text:
+            // feeding it into record_text_input made Alt+X type an 'x' into
+            // the focused field, and returning 0 without DefWindowProc ALSO
+            // ate the system-menu / menu-mnemonic handling (Alt+Space,
+            // Alt+F for a native HMENU menu bar). AltGr characters on
+            // international layouts arrive as plain WM_CHAR (AltGr =
+            // Ctrl+Alt clears the sys flag), so text input is unaffected.
+            (window.win32.user32.DefWindowProcW)(hwnd, msg, wparam, lparam)
+        }
+
+        WM_CHAR => {
             // Character input - for text input
             let char_code = wparam as u32;
 
@@ -4269,13 +4346,23 @@ unsafe extern "system" fn window_proc(
             // Update DPI in window state
             window.common.current_window_state.size.dpi = new_dpi;
 
-            // Get suggested size from lParam (RECT*)
+            // Get suggested size from lParam (RECT*). Per MSDN this is "a
+            // suggested size and position of the current window scaled for
+            // the new DPI" — an OUTER window rect (frame included, screen
+            // coords), to be applied verbatim via SetWindowPos.
             if lparam != 0 {
                 let rect = unsafe { &*(lparam as *const dlopen::RECT) };
                 let width = rect.right - rect.left;
                 let height = rect.bottom - rect.top;
 
-                // Update window size to suggested dimensions
+                // Update window size to suggested dimensions. SetWindowPos
+                // dispatches WM_SIZE synchronously, and THAT handler derives
+                // size.dimensions from the actual CLIENT rect with the new
+                // DPI (stored above). Do NOT overwrite dimensions from this
+                // rect afterwards: it is the frame-inclusive WINDOW size, and
+                // treating it as the client size inflated the logical layout
+                // by the title bar + borders after every monitor change —
+                // oversized layout, clipped bottom/right, offset hit tests.
                 unsafe {
                     (window.win32.user32.SetWindowPos)(
                         hwnd,
@@ -4287,13 +4374,17 @@ unsafe extern "system" fn window_proc(
                         0x0004 | 0x0002, // SWP_NOZORDER | SWP_NOACTIVATE
                     );
                 }
+            }
 
-                // Update logical size with new DPI
-                use azul_core::geom::PhysicalSizeU32;
-                let physical_size = PhysicalSizeU32::new(width as u32, height as u32);
-                let hidpi_factor = new_dpi as f32 / 96.0;
-                let logical_size = physical_size.to_logical(hidpi_factor);
-                window.common.current_window_state.size.dimensions = logical_size;
+            // Belt-and-braces: if the suggested rect happened to equal the
+            // current geometry (or lparam was 0), SetWindowPos dispatched no
+            // WM_SIZE — re-derive the logical size from the ACTUAL client
+            // rect under the new DPI so dimensions are consistent either way
+            // (same physical client / new scale = different logical size).
+            if let Ok((w, h)) = wcreate::get_client_rect(hwnd, &window.win32) {
+                let physical_size = azul_core::geom::PhysicalSizeU32::new(w, h);
+                window.common.current_window_state.size.dimensions =
+                    physical_size.to_logical(new_dpi as f32 / 96.0);
             }
 
             // DPI change requires a full relayout, tagged `Resize` — the enum's
@@ -4859,10 +4950,14 @@ impl PlatformWindow for Win32Window {
     }
 
     fn stop_timer(&mut self, timer_id: usize) {
-        // Stop Win32 timer
-        if let Some(win32_timer_id) = self.timers.remove(&timer_id) {
+        // Stop Win32 timer. KillTimer must be passed the SAME nIDEvent given
+        // to SetTimer for window timers — for hwnd != NULL, SetTimer's return
+        // value is only documented as "a nonzero integer", NOT the timer id,
+        // so killing by the stored return value relied on an implementation
+        // detail (a mismatch leaves the timer firing forever).
+        if self.timers.remove(&timer_id).is_some() {
             unsafe {
-                (self.win32.user32.KillTimer)(self.hwnd, win32_timer_id);
+                (self.win32.user32.KillTimer)(self.hwnd, timer_id);
             };
         }
 
@@ -4891,9 +4986,11 @@ impl PlatformWindow for Win32Window {
     }
 
     fn stop_thread_poll_timer(&mut self) {
-        if let Some(timer_id) = self.thread_timer_running.take() {
+        // Same nIDEvent contract as stop_timer: kill by the id we registered
+        // (THREAD_POLL_TIMER_ID), not by SetTimer's return value.
+        if self.thread_timer_running.take().is_some() {
             unsafe {
-                (self.win32.user32.KillTimer)(self.hwnd, timer_id);
+                (self.win32.user32.KillTimer)(self.hwnd, Self::THREAD_POLL_TIMER_ID);
             };
         }
     }
@@ -5104,9 +5201,12 @@ fn position_window_on_monitor(
             )
         }
         WindowPosition::Uninitialized => {
-            // No explicit position - center on target monitor
-            let window_width = size.dimensions.width as isize;
-            let window_height = size.dimensions.height as isize;
+            // No explicit position - center on target monitor.
+            // Monitor geometry is PHYSICAL px; dimensions are LOGICAL —
+            // scale, or centering drifts right/down on scaled monitors.
+            let hf = size.get_hidpi_factor().inner.get();
+            let window_width = libm::roundf(size.dimensions.width * hf) as isize;
+            let window_height = libm::roundf(size.dimensions.height * hf) as isize;
 
             let center_x =
                 target_monitor.position.x + (target_monitor.size.width - window_width) / 2;
@@ -5158,17 +5258,29 @@ impl Win32Window {
                 if !himc.is_null() {
                     use dlopen::{CFS_RECT, COMPOSITIONFORM, POINT, RECT};
 
+                    // rect is LOGICAL (cursor rect from layout);
+                    // COMPOSITIONFORM takes CLIENT-AREA coordinates in
+                    // PHYSICAL px — unscaled, the IME candidate window
+                    // drifted toward the top-left of the caret on any
+                    // scaled monitor (off by 1.5x/2x the caret offset).
+                    let hf = self
+                        .common
+                        .current_window_state
+                        .size
+                        .get_hidpi_factor()
+                        .inner
+                        .get();
                     let mut comp_form = COMPOSITIONFORM {
                         dwStyle: CFS_RECT,
                         ptCurrentPos: POINT {
-                            x: rect.origin.x as i32,
-                            y: rect.origin.y as i32,
+                            x: libm::roundf(rect.origin.x * hf) as i32,
+                            y: libm::roundf(rect.origin.y * hf) as i32,
                         },
                         rcArea: RECT {
-                            left: rect.origin.x as i32,
-                            top: rect.origin.y as i32,
-                            right: (rect.origin.x + rect.size.width) as i32,
-                            bottom: (rect.origin.y + rect.size.height) as i32,
+                            left: libm::roundf(rect.origin.x * hf) as i32,
+                            top: libm::roundf(rect.origin.y * hf) as i32,
+                            right: libm::roundf((rect.origin.x + rect.size.width) * hf) as i32,
+                            bottom: libm::roundf((rect.origin.y + rect.size.height) * hf) as i32,
                         },
                     };
 
