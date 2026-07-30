@@ -508,18 +508,31 @@ pub fn android_main(app: AndroidApp) {
 
         // Regenerate layout when something invalidated the frame (init,
         // resize, input). Populates cpu_backend.last_frame.
+        let mut frame_dirty = false;
         if window.common.regeneration_pending() {
-            if let Err(e) = window.regenerate_layout() {
-                log_error!(
-                    LogCategory::Layout,
-                    "[Android] regenerate_layout failed: {}",
-                    e
-                );
+            match window.regenerate_layout() {
+                Ok(_) => frame_dirty = true,
+                Err(e) => {
+                    log_error!(
+                        LogCategory::Layout,
+                        "[Android] regenerate_layout failed: {}",
+                        e
+                    );
+                }
             }
         }
 
-        // After draining events + relayout, present a frame.
-        let _ = render_frame(&mut window);
+        // Present ONLY when this iteration produced a frame. The loop wakes
+        // every 16 ms for timers, and presenting unconditionally locked,
+        // full-copied (~10 MB at 1080p RGBA) and unlockAndPost'ed an
+        // identical buffer on every wake — keeping SurfaceFlinger compositing
+        // at 60 Hz while the app sat idle. Everything that changes what is on
+        // screen funnels through request_regeneration (input, timers, thread
+        // writebacks, a11y, InitWindow, RedrawNeeded), so a clean iteration
+        // has nothing new to post.
+        if frame_dirty {
+            let _ = render_frame(&mut window);
+        }
     }
 
     log_info!(LogCategory::EventLoop, "[Android] android_main exiting cleanly");
@@ -583,6 +596,13 @@ fn handle_poll_event(app: &AndroidApp, window: &mut AndroidWindow, event: PollEv
             }
             MainEvent::InputAvailable => {
                 drain_input(app, window);
+            }
+            MainEvent::RedrawNeeded { .. } => {
+                // The system needs the window's content re-posted (resume,
+                // compositor state loss). Presents are gated on regeneration,
+                // so raise the request — the regenerate takes the incremental
+                // "nothing changed" path and the blit re-posts the pixmap.
+                window.common.request_regeneration(RelayoutReason::RefreshDom);
             }
             MainEvent::Destroy => {
                 window.close();
