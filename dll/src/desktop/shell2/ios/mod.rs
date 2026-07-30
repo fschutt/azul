@@ -520,7 +520,7 @@ fn handle_touch(this: &Object, touches: *mut Object, phase: u8) {
         }
     }
 
-    // Ask the view to redraw — drawRect: will pick up the new layout.
+    // Ask the view to redraw — displayLayer: will pick up the new layout.
     let view = this as *const Object as *mut Object;
     let _: () = unsafe { msg_send![view, setNeedsDisplay] };
 }
@@ -563,7 +563,7 @@ extern "C" fn touches_cancelled(
 /// shift, etc. We re-read `[this bounds]`, refresh
 /// `current_window_state.size.dimensions`, and flag a relayout. The
 /// CADisplayLink will pick up the pending regeneration on its next
-/// tick and call `present()` → `drawRect:` → `regenerate_layout`.
+/// tick and call `present()` → `displayLayer:` → `regenerate_layout`.
 extern "C" fn layout_subviews(this: &Object, _cmd: Sel) {
     use objc::sel;
     // Call super so UIView's own layout (autoresizing masks, constraints)
@@ -597,8 +597,7 @@ extern "C" fn layout_subviews(this: &Object, _cmd: Sel) {
                 // differ from the UIScreen bounds used at construction,
                 // e.g. iPad multitasking).
                 let reason = if window.common.regeneration_pending()
-                    && window.common.regeneration_reason()
-                        == azul_core::callbacks::RelayoutReason::Initial
+                    && window.common.regeneration_reason() == RelayoutReason::Initial
                 {
                     RelayoutReason::RefreshDom
                 } else {
@@ -1415,7 +1414,7 @@ impl IOSWindow {
 
     /// Run a full layout regeneration pass and CPU-render the resulting
     /// display list. Mirrors `AndroidWindow::regenerate_layout()`. Called
-    /// from the `drawRect:` handler when a regeneration is pending
+    /// from the `displayLayer:` handler when a regeneration is pending
     /// (Sprint C-iOS wires that).
     pub fn regenerate_layout_inner(
         &mut self,
@@ -1478,7 +1477,7 @@ impl IOSWindow {
         // MapWidget's first tile fetch never starts).
 
         // CPU-render the frame — populates `self.cpu_backend.last_frame`,
-        // ready for `drawRect:` to blit into the layer (Sprint C-iOS).
+        // ready for `displayLayer:` to blit into the layer (Sprint C-iOS).
         #[cfg(feature = "cpurender")]
         {
             let ws = &self.common.current_window_state;
