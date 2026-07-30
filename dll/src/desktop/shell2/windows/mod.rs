@@ -1812,17 +1812,30 @@ impl Win32Window {
 
         // Size changed?
         if previous.size.dimensions != current.size.dimensions {
-            let width = current.size.dimensions.width as i32;
-            let height = current.size.dimensions.height as i32;
+            // dimensions are the LOGICAL CLIENT-AREA size; SetWindowPos takes
+            // the OUTER frame size in PHYSICAL px. Scale by the window DPI and
+            // add the current frame delta (outer − client, same trick as the
+            // WM_GETMINMAXINFO arm) — passing the raw logical values shrank
+            // the client by the frame border on every programmatic resize,
+            // and by the whole DPI factor on scaled monitors.
+            let hf = current.size.get_hidpi_factor().inner.get();
+            let client_w = libm::roundf(current.size.dimensions.width * hf) as i32;
+            let client_h = libm::roundf(current.size.dimensions.height * hf) as i32;
             unsafe {
                 use dlopen::constants::{SWP_NOMOVE, SWP_NOZORDER};
+                let mut wr: dlopen::RECT = std::mem::zeroed();
+                let mut cr: dlopen::RECT = std::mem::zeroed();
+                (self.win32.user32.GetWindowRect)(self.hwnd, &mut wr);
+                (self.win32.user32.GetClientRect)(self.hwnd, &mut cr);
+                let frame_w = (wr.right - wr.left) - (cr.right - cr.left);
+                let frame_h = (wr.bottom - wr.top) - (cr.bottom - cr.top);
                 (self.win32.user32.SetWindowPos)(
                     self.hwnd,
                     std::ptr::null_mut(),
                     0,
                     0,
-                    width,
-                    height,
+                    client_w + frame_w,
+                    client_h + frame_h,
                     SWP_NOMOVE | SWP_NOZORDER,
                 );
             }
