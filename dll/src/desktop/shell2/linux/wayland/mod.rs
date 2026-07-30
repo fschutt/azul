@@ -4273,6 +4273,21 @@ impl WaylandWindow {
         // renderer.
         let mut surface_committed = false;
 
+        // Did this frame RENDER to completion and simply find nothing changed
+        // on screen (empty damage diff / zero GPU draw calls)? Such a frame has
+        // fully satisfied the requests it saw even though it committed no
+        // buffer, and they must be retired below exactly as X11 does at the end
+        // of render_and_present. Leaving them raised looked harmless but
+        // wasn't: the FIRST visually-inert regeneration (e.g. the AzMaps
+        // startup frame re-rendering identical tile placeholders after
+        // AfterMount re-raised the request) left `regeneration_pending` stuck,
+        // so EVERY subsequent frame — every hover, every caret tick — took the
+        // full regenerate_layout() path (rebuild the DOM, re-run layout)
+        // instead of the lightweight one, forever. Stays `false` on the paths
+        // that could NOT render/present (lazy shm alloc, both buffers held,
+        // missing renderer), which genuinely still owe a frame.
+        let mut frame_visually_complete = false;
+
         // CRITICAL: Make OpenGL context current BEFORE generate_frame
         // The image callbacks (RenderImageCallback) need the GL context to be current
         // to allocate textures and draw to them
@@ -4617,6 +4632,9 @@ impl WaylandWindow {
                         // resynchronize, and drop the stale damage region.
                         self.gpu_last_render_presented = false;
                         let _ = gl_context.wr_damage.take();
+                        // Zero draw calls = the scene is visually unchanged;
+                        // the requests this frame saw are satisfied.
+                        frame_visually_complete = true;
                     }
 
                     self.common.display_list_initialized = true;
@@ -4686,6 +4704,9 @@ impl WaylandWindow {
                         lw.refresh_scrollbar_gpu_cache_for_cpu_frame();
                     }
 
+                    // The both-buffers-held skip below re-raises needs_redraw
+                    // deliberately; it must NOT count as "visually complete".
+                    let mut present_skipped_buffers_held = false;
                     let rendered = if let Some(ref layout_window) = self.common.layout_window {
                         let dom_id = DomId { inner: 0 };
                         // render_frame looks up the layout result itself; we only
@@ -4829,8 +4850,14 @@ impl WaylandWindow {
                                             // diff as "unchanged", so force a
                                             // full copy+present then or this
                                             // frame would never reach screen.
+                                            // (The wake for that retry is the
+                                            // pre-park gate in
+                                            // wait_for_events: the release
+                                            // event itself can only flip the
+                                            // slot's busy flag.)
                                             self.needs_redraw.raise();
                                             self.os_present_requested = true;
+                                            present_skipped_buffers_held = true;
                                         }
                                     }
                                 }
@@ -4850,6 +4877,11 @@ impl WaylandWindow {
                             self.needs_redraw.raise();
                         }
                     }
+
+                    // Rendered to completion without a buffer-availability
+                    // skip: even if the damage diff came back empty (nothing
+                    // to attach below), this frame has DONE the work it saw.
+                    frame_visually_complete = rendered && !present_skipped_buffers_held;
                 }
 
                 #[cfg(not(feature = "cpurender"))]
@@ -4963,12 +4995,30 @@ impl WaylandWindow {
         // for, no `done` ever arrived and the gate at the top of this function
         // blocked every subsequent frame.
         if !surface_committed {
-            log_warn!(
-                LogCategory::Rendering,
-                "[Wayland] frame produced no buffer commit (lazy CPU alloc, empty damage, GPU \
-                 skip, or no renderer) — not arming the frame callback, so the next frame is \
-                 not blocked waiting for a `done` that cannot come",
-            );
+            if frame_visually_complete {
+                // The frame RENDERED and found nothing changed on screen: the
+                // requests it observed are satisfied — retire them (by epoch,
+                // so anything raised during the render survives), exactly as
+                // the committing path below does. Skipping this looked safe
+                // and was not: one visually-inert regeneration left
+                // `regeneration_pending` raised forever, and every subsequent
+                // frame took the full regenerate_layout() path.
+                self.common.clear_regeneration_unless_reraised(regen_epoch_seen);
+                self.needs_redraw.retire_unless_reraised(redraw_epoch_seen);
+                log_debug!(
+                    LogCategory::Rendering,
+                    "[Wayland] frame rendered with no visual change — nothing committed, \
+                     requests retired, frame callback not armed",
+                );
+            } else {
+                log_warn!(
+                    LogCategory::Rendering,
+                    "[Wayland] frame produced no buffer commit (lazy CPU alloc, both shm \
+                     buffers held, or no renderer) — requests stay raised; not arming the \
+                     frame callback, so the next frame is not blocked waiting for a `done` \
+                     that cannot come",
+                );
+            }
             return;
         }
 
