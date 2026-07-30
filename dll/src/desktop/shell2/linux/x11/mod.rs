@@ -5007,87 +5007,27 @@ impl X11Window {
 
     /// Set the window to always be on top (X11 implementation using _NET_WM_STATE_ABOVE)
     fn set_is_top_level(&mut self, is_top_level: bool) {
+        // EWMH: state changes on a MAPPED window MUST be requested via a
+        // _NET_WM_STATE ClientMessage to the root window — both call sites
+        // (apply_initial_window_state, sync_window_state) run post-map. The
+        // previous implementation edited the property directly, which a WM is
+        // free to ignore once the window is mapped, and violated the Xlib
+        // format=32 contract twice while doing it: XChangeProperty data must
+        // be an array of C `long`s (Xlib packs them to 32 bits on the wire),
+        // and XGetWindowProperty RETURNS format-32 data "as an array of longs
+        // … padded in the upper 4 bytes" (XGetWindowProperty(3)). Reading the
+        // property as u32 interleaved every real atom with a 0 pad word, and
+        // writing the filtered u32 Vec back made Xlib read `len` longs out of
+        // a `len`-u32 buffer — so CLEARING always-on-top could corrupt
+        // _NET_WM_STATE and silently drop unrelated states (maximized,
+        // fullscreen). The existing ClientMessage sender handles both add
+        // (action 1) and remove (action 0); use it.
         unsafe {
-            // Get _NET_WM_STATE atom
-            let net_wm_state =
-                (self.xlib.XInternAtom)(self.display, b"_NET_WM_STATE\0".as_ptr() as *const c_char, 0);
-
-            // Get _NET_WM_STATE_ABOVE atom
-            let net_wm_state_above = (self.xlib.XInternAtom)(
-                self.display,
-                b"_NET_WM_STATE_ABOVE\0".as_ptr() as *const c_char,
-                0,
+            self.send_wm_state_change(
+                if is_top_level { 1 } else { 0 },
+                b"_NET_WM_STATE_ABOVE\0",
+                None,
             );
-
-            if is_top_level {
-                // Add _NET_WM_STATE_ABOVE to window properties
-                // Convert to u32 for X11 protocol compliance (format=32 means 32-bit values)
-                let atom_u32 = net_wm_state_above as u32;
-                (self.xlib.XChangeProperty)(
-                    self.display,
-                    self.window,
-                    net_wm_state,
-                    defines::XA_ATOM,
-                    32,
-                    defines::PropModeAppend,
-                    &atom_u32 as *const _ as *const u8,
-                    1,
-                );
-            } else {
-                // Remove _NET_WM_STATE_ABOVE from window properties
-                // First, get current state
-                let mut actual_type: Atom = 0;
-                let mut actual_format: i32 = 0;
-                let mut nitems: std::os::raw::c_ulong = 0;
-                let mut bytes_after: std::os::raw::c_ulong = 0;
-                let mut prop: *mut u8 = std::ptr::null_mut();
-
-                let result = (self.xlib.XGetWindowProperty)(
-                    self.display,
-                    self.window,
-                    net_wm_state,
-                    0,
-                    1024,
-                    0,
-                    defines::XA_ATOM,
-                    &mut actual_type,
-                    &mut actual_format,
-                    &mut nitems,
-                    &mut bytes_after,
-                    &mut prop,
-                );
-
-                if result == 0
-                    && !prop.is_null()
-                    && actual_type == defines::XA_ATOM
-                    && actual_format == 32
-                {
-                    // Read atoms as u32 (protocol uses 32-bit values even on 64-bit systems)
-                    let atoms = std::slice::from_raw_parts(prop as *const u32, nitems as usize);
-                    let net_wm_state_above_u32 = net_wm_state_above as u32;
-
-                    let mut new_atoms: Vec<u32> = atoms
-                        .iter()
-                        .filter(|&&atom| atom != net_wm_state_above_u32)
-                        .copied()
-                        .collect();
-
-                    // Replace property with filtered list
-                    (self.xlib.XChangeProperty)(
-                        self.display,
-                        self.window,
-                        net_wm_state,
-                        defines::XA_ATOM,
-                        32,
-                        defines::PropModeReplace,
-                        new_atoms.as_mut_ptr() as *const u8,
-                        new_atoms.len() as i32,
-                    );
-
-                    (self.xlib.XFree)(prop as *mut c_void);
-                }
-            }
-
             (self.xlib.XFlush)(self.display);
         }
     }
