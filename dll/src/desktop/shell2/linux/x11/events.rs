@@ -504,6 +504,16 @@ impl X11Window {
                 // MWA-B1: horizontal wheel RIGHT (X11 button 7).
                 return self.handle_scroll(-1.0, 0.0, position);
             }
+            4..=7 => {
+                // Wheel RELEASE: X11 delivers scroll as press+release PAIRS of
+                // buttons 4–7 (one pair per detent; XI2 emulation does the
+                // same). Only the press carries the scroll; the release must
+                // be swallowed. It used to fall through to Other(4..7) and run
+                // the whole button pipeline — state snapshot, an is_up
+                // input-sample for gesture detection, hit test and a state
+                // diff — once per detent, for an event that means nothing.
+                return ProcessEventResult::DoNothing;
+            }
             _ => MouseButton::Other(event.button as u8),
         };
 
