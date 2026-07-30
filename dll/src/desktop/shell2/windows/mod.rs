@@ -3927,7 +3927,18 @@ unsafe extern "system" fn window_proc(
             0
         }
 
-        WM_CHAR | WM_SYSCHAR => {
+        WM_SYSCHAR => {
+            // Alt+key (WM_SYSKEYDOWN → TranslateMessage). This is NOT text:
+            // feeding it into record_text_input made Alt+X type an 'x' into
+            // the focused field, and returning 0 without DefWindowProc ALSO
+            // ate the system-menu / menu-mnemonic handling (Alt+Space,
+            // Alt+F for a native HMENU menu bar). AltGr characters on
+            // international layouts arrive as plain WM_CHAR (AltGr =
+            // Ctrl+Alt clears the sys flag), so text input is unaffected.
+            (window.win32.user32.DefWindowProcW)(hwnd, msg, wparam, lparam)
+        }
+
+        WM_CHAR => {
             // Character input - for text input
             let char_code = wparam as u32;
 
