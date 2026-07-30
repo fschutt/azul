@@ -775,6 +775,7 @@ fn configure_dynamic_linking(target: &str) {
             );
             println!("cargo:rustc-link-search=native={}", dir.display());
             println!("cargo:rustc-link-lib=static=azul");
+            emit_static_system_deps(target);
             return;
         }
     }
@@ -784,6 +785,56 @@ fn configure_dynamic_linking(target: &str) {
     println!("cargo:warning=Could not find {} or {}", lib_filename(target), sname);
     println!("cargo:warning=Set AZ_DLL_PATH to the directory containing the library");
     println!("cargo:warning=Searched: {}", searched.join(", "));
+}
+
+/// System libraries a consumer must link ALONGSIDE the prebuilt `libazul.a`.
+///
+/// A static archive carries no link metadata. When azul is consumed as a Rust
+/// crate, cargo propagates every `#[link(kind = "framework")]` in its
+/// dependency graph to the final binary; when it is consumed as a prebuilt
+/// `.a` — which is exactly what the demo binaries do, via the static fallback
+/// above — none of that graph exists and the frameworks must be named here.
+///
+/// Skipping this is not a link error on every target, which is why it survived:
+/// a macOS **cdylib** resolves undefined symbols at load time, so
+/// `cargo build -p azul-dll` succeeds. An **executable** cannot, so all ten
+/// demos died with `Undefined symbols for architecture arm64` —
+/// `_AVCaptureDeviceTypeBuiltInWideAngleCamera`, `_AVMediaTypeVideo`,
+/// `_CFArrayCreate` … — while CI reported the job green and the release served
+/// binaries from 26 days earlier.
+fn emit_static_system_deps(target: &str) {
+    if target.contains("apple") {
+        // Camera (AVCaptureDevice*/AVMediaType*), the CoreMedia/CoreVideo
+        // sample-buffer path, CF types used throughout, and Security for the
+        // keyring backend.
+        for fw in [
+            "AVFoundation",
+            "CoreMedia",
+            "CoreVideo",
+            "CoreFoundation",
+            "CoreGraphics",
+            "CoreText",
+            "Security",
+            "IOKit",
+            "AppKit",
+            "Foundation",
+            "QuartzCore",
+            "Metal",
+        ] {
+            println!("cargo:rustc-link-lib=framework={fw}");
+        }
+        println!("cargo:rustc-link-lib=dylib=objc");
+    } else if target.contains("windows") {
+        for lib in ["user32", "gdi32", "shell32", "ole32", "opengl32", "dwmapi"] {
+            println!("cargo:rustc-link-lib=dylib={lib}");
+        }
+    } else if target.contains("linux") {
+        // The X11/Wayland/EGL entry points are dlopen'd at runtime, so only the
+        // libc-adjacent ones are needed at link time.
+        for lib in ["dl", "pthread", "m"] {
+            println!("cargo:rustc-link-lib=dylib={lib}");
+        }
+    }
 }
 
 // ── iOS setup ─────────────────────────────────────────────────────────
