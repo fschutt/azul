@@ -2681,12 +2681,45 @@ impl X11Window {
                 let new_logical =
                     LogicalSize::new(new_width as f32 / scale, new_height as f32 / scale);
 
+                // ICCCM: only a SYNTHETIC (WM-sent, send_event != 0)
+                // ConfigureNotify carries root-absolute x/y; a REAL one is
+                // relative to the PARENT — under a reparenting WM that is the
+                // frame window, so (ev.x, ev.y) is a small constant like
+                // (0, titlebar_height). Feeding that into window_state.position
+                // skewed every absolute-position consumer: XDND drop coords,
+                // popup/menu/tooltip placement (resolve_parent_origin), and
+                // the per-monitor DPI pick below. For real events, ask the
+                // server where (0,0) of this window is on the root instead.
+                let (abs_x, abs_y) = if ev.send_event != 0 {
+                    (ev.x, ev.y)
+                } else if let Some(translate) = self.xlib.XTranslateCoordinates {
+                    unsafe {
+                        let screen = (self.xlib.XDefaultScreen)(self.display);
+                        let root = (self.xlib.XRootWindow)(self.display, screen);
+                        let (mut rx, mut ry) = (0i32, 0i32);
+                        let mut child: Window = 0;
+                        (translate)(
+                            self.display,
+                            self.window,
+                            root,
+                            0,
+                            0,
+                            &mut rx,
+                            &mut ry,
+                            &mut child,
+                        );
+                        (rx, ry)
+                    }
+                } else {
+                    (ev.x, ev.y)
+                };
+
                 let old_context = self.dynamic_selector_context.clone();
                 let size_changed = self.common.current_window_state.size.get_physical_size()
                     != PhysicalSize::new(new_width, new_height);
                 let position_changed = match self.common.current_window_state.position {
                     azul_core::window::WindowPosition::Initialized(pos) => {
-                        pos.x != ev.x || pos.y != ev.y
+                        pos.x != abs_x || pos.y != abs_y
                     }
                     _ => true,
                 };
@@ -2729,15 +2762,15 @@ impl X11Window {
                 }
 
                 crate::plog_trace!(
-                    "[x11 ev] ConfigureNotify x={} y={} w={} h={} send_event={}",
-                    ev.x, ev.y, new_width, new_height, ev.send_event
+                    "[x11 ev] ConfigureNotify x={} y={} (abs {}/{}) w={} h={} send_event={}",
+                    ev.x, ev.y, abs_x, abs_y, new_width, new_height, ev.send_event
                 );
 
                 // F4: OS-reported geometry (source = Os) — acknowledge into both
                 // current and the sync baseline so it is not echoed back. See the
                 // main-loop handler + CommonWindowState::update_window_state.
                 let new_pos = azul_core::window::WindowPosition::Initialized(
-                    azul_core::geom::PhysicalPositionI32::new(ev.x, ev.y),
+                    azul_core::geom::PhysicalPositionI32::new(abs_x, abs_y),
                 );
                 let new_dims = new_logical;
                 self.common.update_window_state(
@@ -2753,15 +2786,13 @@ impl X11Window {
                 // MWA-C-a11y: keep AT-SPI's root window bounds in sync so
                 // screen-coordinate queries (magnifier tracking) resolve —
                 // set_root_window_bounds had zero callers, everything sat at
-                // (0,0). ConfigureNotify coords can be parent-relative for
-                // non-synthetic events on reparenting WMs; good enough as a
-                // best-effort update, and synthetic (WM-sent) events are
-                // root-absolute. NEEDS-RUNTIME-VERIFY under a reparenting WM.
+                // (0,0). abs_x/abs_y are root-absolute for BOTH synthetic and
+                // real ConfigureNotify (translated above).
                 #[cfg(feature = "a11y")]
                 if size_changed || position_changed {
                     self.accessibility_adapter.set_root_window_bounds(
-                        f64::from(ev.x),
-                        f64::from(ev.y),
+                        f64::from(abs_x),
+                        f64::from(abs_y),
                         f64::from(new_width),
                         f64::from(new_height),
                     );
@@ -2770,8 +2801,8 @@ impl X11Window {
                 if position_changed && !size_changed {
                     use azul_core::geom::LogicalPosition;
                     let window_center = LogicalPosition::new(
-                        ev.x as f32 + new_width as f32 / 2.0,
-                        ev.y as f32 + new_height as f32 / 2.0,
+                        abs_x as f32 + new_width as f32 / 2.0,
+                        abs_y as f32 + new_height as f32 / 2.0,
                     );
                     // Per-monitor DPI only applies when no global Xft.dpi is set
                     // (Xft.dpi is display-wide — moving monitors must not change it).
@@ -2906,11 +2937,33 @@ impl X11Window {
 
     /// Translate an XDND ROOT-relative coordinate to window-local logical pixels.
     ///
-    /// XDND `XdndPosition` reports the pointer in root-window coordinates. We
-    /// subtract the window's tracked top-left origin (maintained by
-    /// `ConfigureNotify`). This is approximate if the WM hasn't yet reported the
-    /// final position, but is correct for the steady-state hover/drop case.
+    /// XDND `XdndPosition` reports the pointer in root-window coordinates.
+    /// Ask the server directly (root → this window) — exact under any WM.
+    /// Fallback: subtract the tracked top-left origin, which is only as good
+    /// as the last ConfigureNotify.
     fn xdnd_root_to_local(&self, root_x: i32, root_y: i32) -> LogicalPosition {
+        if let Some(translate) = self.xlib.XTranslateCoordinates {
+            unsafe {
+                let screen = (self.xlib.XDefaultScreen)(self.display);
+                let root = (self.xlib.XRootWindow)(self.display, screen);
+                let (mut wx, mut wy) = (0i32, 0i32);
+                let mut child: Window = 0;
+                // Returns 0 only when the windows are on different screens.
+                if (translate)(
+                    self.display,
+                    root,
+                    self.window,
+                    root_x,
+                    root_y,
+                    &mut wx,
+                    &mut wy,
+                    &mut child,
+                ) != 0
+                {
+                    return self.to_logical_pos(wx as f32, wy as f32);
+                }
+            }
+        }
         let (ox, oy) = match self.common.current_window_state.position {
             azul_core::window::WindowPosition::Initialized(p) => (p.x, p.y),
             _ => (0, 0),
