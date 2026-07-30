@@ -4215,9 +4215,23 @@ impl WaylandWindow {
     /// After sending the transaction, renders via WebRender and swaps buffers.
     /// Sets up Wayland frame callback for VSync.
     pub fn generate_frame_if_needed(&mut self) {
+        // Queued VirtualView re-renders count as work owed. They are queued
+        // OUT-OF-BAND by background writebacks (`trigger_all_virtual_view_
+        // rerender` — e.g. the MapWidget's tile-fetch worker delivering a
+        // tile) and are only ever drained inside this function; a gate that
+        // ignores them leaves the queue sitting until some unrelated event
+        // happens to repaint, and the async-loaded tiles never appear. X11's
+        // poll_event gate names `vview_pending` for exactly this reason.
+        let vview_pending = self
+            .common
+            .layout_window
+            .as_ref()
+            .map(|lw| !lw.pending_virtual_view_updates.is_empty())
+            .unwrap_or(false);
         let needs_work = self.common.regeneration_pending()
             || self.common.relayout_only_pending()
-            || self.needs_redraw.pending();
+            || self.needs_redraw.pending()
+            || vview_pending;
         if !needs_work {
             return;
         }
@@ -5231,10 +5245,19 @@ extern "C" fn frame_done_callback(
     // that raised it alone) sat here until some unrelated event happened to
     // redraw the window. `request_relayout_only` now also raises the ordinary
     // regeneration request, and this gate names it explicitly so the intent
-    // survives the next reader.
+    // survives the next reader. Queued VirtualView re-renders (background
+    // tile-fetch writebacks) are work owed for the same reason — they are
+    // drained only inside generate_frame_if_needed.
+    let vview_pending = window
+        .common
+        .layout_window
+        .as_ref()
+        .map(|lw| !lw.pending_virtual_view_updates.is_empty())
+        .unwrap_or(false);
     if window.common.regeneration_pending()
         || window.common.relayout_only_pending()
         || window.needs_redraw.pending()
+        || vview_pending
     {
         window.generate_frame_if_needed();
     }
