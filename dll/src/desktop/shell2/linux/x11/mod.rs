@@ -1356,6 +1356,25 @@ impl X11Window {
             ));
         }
 
+        // Per-CLIENT XKB knob: without it the server synthesizes a KeyRelease
+        // for every auto-repeat KeyPress, so a held key arrives as
+        // Press,(Release,Press)*,Release — each synthetic Release fires
+        // VirtualKeyUp callbacks and empties pressed_virtual_keycodes, which
+        // is exactly the set handle_keyboard's repeat detection reads (it
+        // could never see a repeat that way). With detectable auto-repeat a
+        // held key is Press,Press,…,Release: a Release means the key was
+        // physically released, and the already-pressed heuristic works.
+        // Per connection, so the display OWNER sets it once; child windows
+        // share the connection. Best-effort: an unsupporting server keeps the
+        // old pairs (supported_rtrn is ignored — behaviour is then unchanged).
+        if owns_display {
+            if let Some(set_dar) = xlib.XkbSetDetectableAutoRepeat {
+                unsafe {
+                    (set_dar)(display, 1, std::ptr::null_mut());
+                }
+            }
+        }
+
         let screen = unsafe { (xlib.XDefaultScreen)(display) };
         let root = unsafe { (xlib.XRootWindow)(display, screen) };
 
