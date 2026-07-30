@@ -3821,6 +3821,24 @@ impl X11Window {
                 std::process::exit(0);
             }
 
+            // Re-arm for an active scrollbar fade (same as the GPU tail below)
+            // so the fade animation keeps getting frames on the CPU backend too.
+            let needs_fade_frame = self.common.layout_window.as_ref()
+                .map(|lw| lw.gpu_state_manager.scrollbar_fade_active)
+                .unwrap_or(false);
+            if needs_fade_frame {
+                self.request_redraw();
+            }
+
+            // Retire the redraw request THIS frame serviced. The CPU path used
+            // to return without ever retiring it (only the GPU tail did), so
+            // once raised it stayed pending forever and poll_event's gate
+            // called render_and_present on EVERY loop wake — a full
+            // damage-diff/render pass per mouse-motion event. Epoch-guarded,
+            // so the fade re-arm above and any request raised by a callback
+            // inside this render survive (mirrors the Wayland CPU tail).
+            self.needs_redraw.retire_unless_reraised(redraw_epoch_seen);
+
             return Ok(());
         }
 
