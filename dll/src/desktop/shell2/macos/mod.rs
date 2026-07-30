@@ -6060,6 +6060,22 @@ impl MacOSWindow {
             display_list_needs_rebuild
         };
 
+        // Push the a11y tree from THIS frame's relayout to the OS now.
+        // regenerate_layout_inner() raises a11y_dirty, but the only other flush
+        // site is process_event() — which runs per NSEvent in the MANUAL event
+        // loop only. Under NSApplication.run() (RunForever) it never executes,
+        // and VoiceOver-initiated actions arrive over the accessibility Mach
+        // port without generating any NSEvent, so after the initial tree the
+        // adapter's update_if_active → QueuedEvents::raise() (the
+        // NSAccessibility notification post) never ran again: screen readers
+        // saw the FIRST window state forever. The frame path is the one place
+        // every mode and backend passes through after a relayout.
+        #[cfg(feature = "a11y")]
+        if self.common.a11y_dirty {
+            self.update_accessibility();
+            self.common.a11y_dirty = false;
+        }
+
         // Read these BEFORE taking the mutable borrow below. `regeneration_pending()`
         // is an `&self` method on CommonWindowState, so calling it while
         // `self.common.layout_window` is mutably borrowed is E0502 — which is
