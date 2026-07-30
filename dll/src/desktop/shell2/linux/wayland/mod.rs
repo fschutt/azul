@@ -2271,6 +2271,26 @@ impl WaylandWindow {
                     );
                 }
 
+                // A dead compositor connection reports POLLERR/POLLHUP (or
+                // POLLNVAL) and can never become POLLIN-readable again — but
+                // poll() keeps returning immediately, so ignoring it turned a
+                // compositor crash/logout into this loop spinning at 100% CPU
+                // dispatching nothing, forever. Treat it as a close request:
+                // the run loop honours the flag, unregisters the window and
+                // tears it down.
+                if pollfds[0].revents
+                    & (libc::POLLERR | libc::POLLHUP | libc::POLLNVAL)
+                    != 0
+                {
+                    log_error!(
+                        LogCategory::Platform,
+                        "[Wayland] display connection lost (revents {:#x}) — closing window",
+                        pollfds[0].revents,
+                    );
+                    self.common.current_window_state.flags.close_requested = true;
+                    return Ok(());
+                }
+
                 // Check timerfd's - if any fired, invoke timer callbacks
                 for (i, &timer_id) in timer_ids.iter().enumerate() {
                     let pollfd_idx = i + 1; // +1 because display fd is at index 0
