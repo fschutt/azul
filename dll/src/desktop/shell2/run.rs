@@ -81,6 +81,39 @@ fn e2e_test_file() -> Option<String> {
     std::env::var("AZ_E2E").ok().filter(|s| !s.is_empty())
 }
 
+/// Report `AZ_*` knobs that this binary cannot honour.
+///
+/// A knob whose feature was compiled out is currently read by nobody and
+/// therefore does nothing, in silence. That is indistinguishable from "the
+/// feature ran and found nothing to do", and it costs real time: setting
+/// `AZ_E2E` on a `build-dll`-only library produced a normal-looking run with
+/// zero mention of e2e anywhere in the log, and the only way to discover why
+/// was to go read the cfg gates.
+///
+/// Called unconditionally at startup. Each entry names the variable, the
+/// feature that implements it, and how to get it back.
+pub(crate) fn warn_about_inert_env_knobs() {
+    // (variable, feature that implements it, what to build)
+    const GATED: &[(&str, &str, &str)] = &[
+        ("AZ_E2E", "debug-server", "cargo build -p azul-dll --features build-dll,debug-server"),
+        ("AZ_DEBUG", "debug-server", "cargo build -p azul-dll --features build-dll,debug-server"),
+    ];
+
+    #[cfg(not(feature = "debug-server"))]
+    for (var, feature, how) in GATED {
+        if std::env::var(var).map(|v| !v.is_empty()).unwrap_or(false) {
+            eprintln!(
+                "[azul] {var} is set but this build has no `{feature}` feature, so it \
+                 does NOTHING. Rebuild with: {how}"
+            );
+        }
+    }
+
+    // Referenced in both configurations so the list cannot rot behind a cfg.
+    #[cfg(feature = "debug-server")]
+    let _ = GATED;
+}
+
 /// Set up E2E test runner: read the JSON file, push a `RunE2eTests`
 /// event onto the queue, and spawn a background thread that waits for
 /// results, prints cargo-test-style output, and calls `exit()`.
@@ -451,6 +484,11 @@ pub fn run(
         let web_cfg = web_cfg.clone();
         return crate::web::run_web(app_data, config, fc_cache, font_registry, root_window, web_cfg);
     }
+
+    // Say so if an AZ_* knob was set that this build cannot honour, BEFORE any
+    // of it matters — the point is to reach the user in the first lines of
+    // output rather than have them infer it from an absence later.
+    warn_about_inert_env_knobs();
 
     // Headless mode — no native window, CPU rendering only
     if backend == super::AzBackend::Headless {
@@ -1251,6 +1289,10 @@ pub fn run(
     font_registry: Option<Arc<FcFontRegistry>>,
     root_window: WindowCreateOptions,
 ) -> Result<(), WindowError> {
+    // Same reasoning as the environment dump below, for the knobs this build
+    // cannot honour at all.
+    warn_about_inert_env_knobs();
+
     // Startup environment dump — the first thing to check when a Linux app
     // "just exits": which display server we'll try, and whether the session
     // env even points at one. Routes to stderr via the default logger.
