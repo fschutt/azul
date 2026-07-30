@@ -165,10 +165,21 @@ unsafe fn azul_ios_window<'a>() -> Option<&'a mut IOSWindow> {
 
 // ─── AzulView (UIView subclass) ───────────────────────────────────────
 
-extern "C" fn draw_rect(this: &Object, _cmd: Sel, _rect: CGRect) {
+extern "C" fn display_layer(_this: &Object, _cmd: Sel, layer: *mut Object) {
     // Sprint C iOS blit. Mirrors the Android render_frame() path:
     // regenerate layout if needed -> read cpu_backend.last_frame -> wrap
-    // the AzulPixmap bytes in a CGImage -> assign to `view.layer.contents`.
+    // the AzulPixmap bytes in a CGImage -> assign to `layer.contents`.
+    //
+    // This is the `displayLayer:` CALayerDelegate override, NOT `drawRect:`.
+    // UIView is its layer's delegate; because AzulView implements
+    // `displayLayer:`, Core Animation calls it instead of allocating a
+    // CGContext backing store — which is the ONLY arrangement under which a
+    // manual `layer.contents` assignment sticks. The previous implementation
+    // assigned `contents` inside `drawRect:`, and the view machinery replaces
+    // `contents` with its (empty, never-drawn-into) backing store as soon as
+    // `drawRect:` returns — so not one blitted frame ever reached the screen.
+    // `setNeedsDisplay` still schedules this exactly like it scheduled
+    // `drawRect:` (mark layer -> CA display pass -> delegate displayLayer:).
     let window = match unsafe { azul_ios_window() } {
         Some(w) => w,
         None => return,
@@ -197,7 +208,7 @@ extern "C" fn draw_rect(this: &Object, _cmd: Sel, _rect: CGRect) {
                 core::ptr::null_mut(),
                 bytes.as_ptr(),
                 bytes.len(),
-                None, // pixmap outlives this draw_rect call
+                None, // pixmap outlives this display_layer call
             );
             let image = CGImageCreate(
                 pw,
@@ -212,13 +223,15 @@ extern "C" fn draw_rect(this: &Object, _cmd: Sel, _rect: CGRect) {
                 false,
                 K_CG_RENDERING_INTENT_DEFAULT,
             );
-            let layer: *mut Object = msg_send![this, layer];
             let _: () = msg_send![layer, setContents: image];
             CGImageRelease(image);
             CGDataProviderRelease(provider);
             CGColorSpaceRelease(cs);
         }
     }
+    // `layer` is only touched on the cpurender path.
+    #[cfg(not(feature = "cpurender"))]
+    let _ = layer;
 }
 
 /// Shared body for the four UITouch responder selectors. `phase`
@@ -881,9 +894,17 @@ fn get_or_create_view_class() -> &'static Class {
         let superclass = class!(UIView);
         let mut decl = ClassDecl::new("AzulView", superclass).unwrap();
 
+        // `displayLayer:` (CALayerDelegate), deliberately NOT `drawRect:`.
+        // A view that implements `drawRect:` gets a CGContext backing store,
+        // and the view machinery assigns THAT to `layer.contents` right after
+        // `drawRect:` returns — clobbering any contents set manually inside
+        // it, which is exactly what the first version of this backend did
+        // (the screen stayed empty). Implementing `displayLayer:` instead
+        // makes Core Animation hand the display pass to us, no backing store
+        // is created, and the `layer.contents = CGImage` assignment sticks.
         decl.add_method(
-            sel!(drawRect:),
-            draw_rect as extern "C" fn(&Object, Sel, CGRect),
+            sel!(displayLayer:),
+            display_layer as extern "C" fn(&Object, Sel, *mut Object),
         );
         decl.add_method(
             sel!(touchesBegan:withEvent:),
