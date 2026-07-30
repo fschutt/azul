@@ -447,37 +447,48 @@ impl MacOSWindow {
             );
         }
 
+        // Determine scroll input source based on event phase and precision.
+        // Trackpad gestures have hasPreciseScrollingDeltas() == true.
+        // When the gesture ends (fingers lifted), we send TrackpadEnd
+        // so the scroll timer can trigger spring-back for rubber-banding.
+        let source = {
+            use azul_layout::managers::scroll_state::ScrollInputSource;
+            if has_precise {
+                let phase = unsafe { event.phase() };
+                let momentum_phase = unsafe { event.momentumPhase() };
+                if phase == objc2_app_kit::NSEventPhase::Ended
+                    || phase == objc2_app_kit::NSEventPhase::Cancelled
+                    || momentum_phase == objc2_app_kit::NSEventPhase::Ended
+                {
+                    ScrollInputSource::TrackpadEnd
+                } else {
+                    ScrollInputSource::TrackpadContinuous
+                }
+            } else {
+                ScrollInputSource::WheelDiscrete
+            }
+        };
+
         // Queue scroll input for the physics timer instead of directly setting offsets.
         // The timer will consume these via ScrollInputQueue and push CallbackChange::ScrollTo.
-        if delta_x.abs() > 0.01 || delta_y.abs() > 0.01 {
+        //
+        // TrackpadEnd must pass this gate even though the phase-Ended /
+        // momentum-Ended NSEvent carries a ZERO delta: it is the signal the
+        // physics timer needs to run rubber-band spring-back after an
+        // overshoot. Gating it behind the delta threshold dropped it on every
+        // gesture end (the Wayland backend sends the equivalent explicit
+        // 0-delta TrackpadEnd from wl_pointer.axis_stop for the same reason).
+        let is_trackpad_end = source
+            == azul_layout::managers::scroll_state::ScrollInputSource::TrackpadEnd;
+        if delta_x.abs() > 0.01 || delta_y.abs() > 0.01 || is_trackpad_end {
             let mut should_start_timer = false;
             let mut input_queue_clone = None;
 
             if let Some(layout_window) = self.get_layout_window_mut() {
                 use azul_core::task::Instant;
                 use azul_layout::managers::hover::InputPointId;
-                use azul_layout::managers::scroll_state::ScrollInputSource;
 
                 let now = Instant::from(std::time::Instant::now());
-
-                // Determine scroll input source based on event phase and precision.
-                // Trackpad gestures have hasPreciseScrollingDeltas() == true.
-                // When the gesture ends (fingers lifted), we send TrackpadEnd
-                // so the scroll timer can trigger spring-back for rubber-banding.
-                let source = if has_precise {
-                    let phase = unsafe { event.phase() };
-                    let momentum_phase = unsafe { event.momentumPhase() };
-                    if phase == objc2_app_kit::NSEventPhase::Ended
-                        || phase == objc2_app_kit::NSEventPhase::Cancelled
-                        || momentum_phase == objc2_app_kit::NSEventPhase::Ended
-                    {
-                        ScrollInputSource::TrackpadEnd
-                    } else {
-                        ScrollInputSource::TrackpadContinuous
-                    }
-                } else {
-                    ScrollInputSource::WheelDiscrete
-                };
 
                 if let Some((_dom_id, _node_id, start_timer)) =
                     layout_window.scroll_manager.record_scroll_from_hit_test(
@@ -1232,10 +1243,16 @@ impl MacOSWindow {
         // Build menu items recursively from Azul menu structure
         Self::recursive_build_nsmenu(&ns_menu, menu.items.as_slice(), &mtm, &mut self.menu_state);
 
-        // Show the menu at the specified position
+        // Show the menu at the specified position. `position` is azul-logical
+        // (top-left origin, y-down); popUpMenuPositioningItem:atLocation:inView:
+        // takes the point in the VIEW's coordinate system, which is BOTTOM-left
+        // origin (neither view overrides isFlipped) — flip y once, the inverse
+        // of macos_to_azul_coords. Unflipped, the menu opened vertically
+        // mirrored (right-click near the top popped the menu near the bottom).
+        let window_height = self.common.current_window_state.size.dimensions.height;
         let view_point = NSPoint {
             x: position.x as f64,
-            y: position.y as f64,
+            y: (window_height - position.y) as f64,
         };
 
         let view = if let Some(ref gl_view) = self.gl_view {

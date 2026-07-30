@@ -1080,7 +1080,11 @@ define_class!(
                     }
                     let needs_redraw = macos_window.process_timers_and_threads();
                     if needs_redraw || theme_changed {
-                        let _: () = msg_send![self, setNeedsDisplay: true];
+                        // request_redraw() (not a bare setNeedsDisplay) so the
+                        // redraw_requested flag survives to drawRect — timer-driven
+                        // scroll offsets are invisible to the "No visual changes"
+                        // early-return there otherwise.
+                        macos_window.request_redraw();
                     }
                 }
             }
@@ -1430,12 +1434,16 @@ define_class!(
             // CPU render on every drawRect that needs it (first frame, after
             // keyboard/mouse input, after timer callbacks).  In GPU mode drawRect
             // is only called from GLView which calls render_and_present itself.
+            // `redraw_requested` covers frames whose only change is invisible to
+            // the dirty flags — above all scroll offsets moved by the physics
+            // timer (request_redraw() raised it; render_and_present consumes it).
             if let Some(window_ptr) = *ivars.window_ptr.borrow() {
                 unsafe {
                     let macos_window = &mut *(window_ptr as *mut std::ffi::c_void as *mut MacOSWindow);
                     if !macos_window.common.display_list_initialized
                         || macos_window.common.regeneration_pending()
                         || macos_window.common.display_list_dirty
+                        || macos_window.redraw_requested
                     {
                         let _ = macos_window.render_and_present_in_draw_rect();
                     }
@@ -1734,6 +1742,10 @@ define_class!(
                     // CPU mode: run the full render pipeline (layout → cpurender → framebuffer)
                     // then request drawRect to blit to screen.
                     if needs_redraw || macos_window.common.regeneration_pending() {
+                        // Timer/thread changes (scroll physics ScrollTo above all)
+                        // must defeat the "No visual changes" early-return inside —
+                        // moved scroll offsets raise no flag that check can see.
+                        macos_window.redraw_requested = true;
                         let _ = macos_window.render_and_present_in_draw_rect();
                     }
                 }
@@ -2061,8 +2073,10 @@ impl GLView {
     pub unsafe fn set_window_ptr(&self, window_ptr: *mut std::ffi::c_void) {
         *self.ivars().window_ptr.borrow_mut() = Some(window_ptr);
 
-        // Start the timer tick loop - this will invoke timer callbacks every 16ms
-        // and reschedule itself via performSelector:withObject:afterDelay:
+        // One-shot initial tickTimers: kick (performSelector:afterDelay: fires
+        // ONCE — it does not reschedule). It drains timers/threads registered
+        // during window creation; ongoing ticking is driven by the repeating
+        // NSTimers that start_timer / start_thread_poll_timer create.
         use objc2::sel;
         let delay: f64 = TIMER_INTERVAL_60FPS;
         let _: () = msg_send![self, performSelector: sel!(tickTimers:), withObject: std::ptr::null::<NSObject>(), afterDelay: delay];
@@ -2082,8 +2096,10 @@ impl CPUView {
     pub unsafe fn set_window_ptr(&self, window_ptr: *mut std::ffi::c_void) {
         *self.ivars().window_ptr.borrow_mut() = Some(window_ptr);
 
-        // Start the timer tick loop - this will invoke timer callbacks every 16ms
-        // and reschedule itself via performSelector:withObject:afterDelay:
+        // One-shot initial tickTimers: kick (performSelector:afterDelay: fires
+        // ONCE — it does not reschedule). It drains timers/threads registered
+        // during window creation; ongoing ticking is driven by the repeating
+        // NSTimers that start_timer / start_thread_poll_timer create.
         use objc2::sel;
         let delay: f64 = TIMER_INTERVAL_60FPS;
         let _: () = msg_send![self, performSelector: sel!(tickTimers:), withObject: std::ptr::null::<NSObject>(), afterDelay: delay];
@@ -2707,6 +2723,17 @@ pub struct MacOSWindow {
     /// Whether the GL surface geometry changed (resize, move between screens)
     /// and `NSOpenGLContext::update()` needs to be called before the next frame.
     surface_needs_update: bool,
+    /// Set by `request_redraw()` (and the timer tick when timers/threads produced
+    /// changes), consumed by `render_and_present_in_draw_rect()`. Wheel/trackpad
+    /// scrolling moves offsets via the physics timer's `ScrollTo` →
+    /// `set_scroll_position`, which raises no flag visible to the frame path:
+    /// `scroll_manager.tick()` only reports EASING animations, so the
+    /// "No visual changes" early-return skipped every scroll frame (CPU render
+    /// and WebRender alike) and the window never visibly scrolled. This flag
+    /// carries "someone explicitly asked for a frame" across the asynchronous
+    /// setNeedsDisplay → drawRect gap; pure CVDisplayLink wakeups don't set it,
+    /// so the idle early-return optimization stays intact.
+    redraw_requested: bool,
 }
 
 // Implement PlatformWindow trait for cross-platform event processing
@@ -2836,6 +2863,19 @@ impl event::PlatformWindow for MacOSWindow {
             return; // No view at all
         };
 
+        // scheduledTimerWithTimeInterval: registers in the DEFAULT run-loop
+        // mode only — during live window resize and menu tracking the loop
+        // runs in NSEventTrackingRunLoopMode and the timer freezes (the
+        // scroll-physics timer and every animation timer stalled mid-resize).
+        // Re-register for the common modes, the same pattern as run.rs's
+        // RunForever drain timer; re-adding a timer to a mode it is already
+        // in (default is part of the common set) is a documented no-op.
+        unsafe {
+            let run_loop: *mut NSObject = msg_send![objc2::class!(NSRunLoop), currentRunLoop];
+            let mode = objc2_foundation::ns_string!("kCFRunLoopCommonModes");
+            let _: () = msg_send![&*run_loop, addTimer: &*timer_obj, forMode: mode];
+        }
+
         self.timers.insert(timer_id, timer_obj);
     }
 
@@ -2858,8 +2898,6 @@ impl event::PlatformWindow for MacOSWindow {
     // Thread Management (macOS/NSTimer Implementation)
 
     fn start_thread_poll_timer(&mut self) {
-        use block2::RcBlock;
-
         if self.thread_timer_running.is_some() {
             log_debug!(LogCategory::Timer, "[start_thread_poll_timer] Timer already running, skipping");
             return; // Already running
@@ -2867,20 +2905,49 @@ impl event::PlatformWindow for MacOSWindow {
 
         log_debug!(LogCategory::Timer, "[start_thread_poll_timer] Starting thread poll timer (16ms interval)");
 
-        // Create a timer that fires every 16ms (~60 FPS) to poll threads
-        let ns_window = self.window.clone();
-        let timer: Retained<NSTimer> = unsafe {
-            let interval: f64 = TIMER_INTERVAL_60FPS;
-            msg_send_id![
-                NSTimer::class(),
-                scheduledTimerWithTimeInterval: interval,
-                repeats: true,
-                block: &*RcBlock::new(move || {
-                    // Thread polling - request redraw to check threads
-                    let _: () = msg_send![&*ns_window, setViewsNeedDisplay: true];
-                })
-            ]
+        // Create a timer that fires every 16ms (~60 FPS) to poll threads.
+        //
+        // Target tickTimers: on the render view — the same dispatch start_timer
+        // uses. The previous block-based timer only called setViewsNeedDisplay:,
+        // which polls threads in GL mode as a drawRect side effect but is GATED
+        // OUT by CPUView's drawRect dirty-check: in CPU mode thread writebacks
+        // were never polled from this timer at all (a spawned thread's result
+        // only ever landed if some unrelated azul timer happened to be running).
+        // tickTimers: runs process_timers_and_threads() on both backends.
+        let interval: f64 = TIMER_INTERVAL_60FPS;
+        let timer: Retained<NSTimer> = if let Some(ref gl_view) = self.gl_view {
+            unsafe {
+                msg_send_id![
+                    NSTimer::class(),
+                    scheduledTimerWithTimeInterval: interval,
+                    target: &**gl_view,
+                    selector: objc2::sel!(tickTimers:),
+                    userInfo: std::ptr::null::<NSObject>(),
+                    repeats: true
+                ]
+            }
+        } else if let Some(ref cpu_view) = self.cpu_view {
+            unsafe {
+                msg_send_id![
+                    NSTimer::class(),
+                    scheduledTimerWithTimeInterval: interval,
+                    target: &**cpu_view,
+                    selector: objc2::sel!(tickTimers:),
+                    userInfo: std::ptr::null::<NSObject>(),
+                    repeats: true
+                ]
+            }
+        } else {
+            return; // No view at all
         };
+
+        // Keep polling during live resize / menu tracking (common modes; see
+        // the identical registration in start_timer).
+        unsafe {
+            let run_loop: *mut NSObject = msg_send![objc2::class!(NSRunLoop), currentRunLoop];
+            let mode = objc2_foundation::ns_string!("kCFRunLoopCommonModes");
+            let _: () = msg_send![&*run_loop, addTimer: &*timer, forMode: mode];
+        }
 
         self.thread_timer_running = Some(timer);
     }
@@ -3534,6 +3601,28 @@ impl MacOSWindow {
             "[MacOSWindow::new] Content view configured"
         );
 
+        // Make the render view the window's first responder. Keyboard events
+        // (keyDown:/keyUp:/flagsChanged:) are delivered to the FIRST RESPONDER
+        // — unlike mouse/scroll events, which are hit-tested to the view under
+        // the pointer — and acceptsFirstResponder only makes the view
+        // ELIGIBLE; nothing in AppKit guarantees a custom NSView outside the
+        // key-view loop is ever assigned. setInitialFirstResponder covers the
+        // first orderFront (including the is_visible=false → shown-later
+        // path), makeFirstResponder covers the window immediately.
+        unsafe {
+            let responder: *const NSResponder = if let Some(ref gl) = gl_view {
+                Retained::as_ptr(gl) as *const NSResponder
+            } else if let Some(ref cpu) = cpu_view {
+                Retained::as_ptr(cpu) as *const NSResponder
+            } else {
+                std::ptr::null()
+            };
+            if !responder.is_null() {
+                window.setInitialFirstResponder(Some(&*(responder as *const NSView)));
+                let _accepted = window.makeFirstResponder(Some(&*responder));
+            }
+        }
+
         // DO NOT show the window yet - we will show it after the first frame
         // is ready to prevent white flash
         log_trace!(
@@ -3999,6 +4088,7 @@ impl MacOSWindow {
             cg_functions,
             current_display_id: None, // Will be set after monitor detection
             surface_needs_update: true, // First frame always needs update
+            redraw_requested: true,     // First frame must not be skipped
         };
 
         // NOTE: Do NOT set the delegate pointer here!
@@ -4148,14 +4238,17 @@ impl MacOSWindow {
 
         // Read back the actual window position from the OS and store it
         // so that titlebar drag callbacks can compute correct new positions.
-        unsafe {
+        {
             let frame = window.window.frame();
-            // macOS uses bottom-left origin; we store top-left for consistency
-            // frame.origin is bottom-left, frame.origin.y + frame.size.height = top
-            if let Some(screen) = window.window.screen() {
-                let screen_frame = screen.frame();
+            // macOS uses bottom-left origin; we store top-left for consistency.
+            // frame.origin is in GLOBAL coords anchored to the PRIMARY screen's
+            // bottom-left (MWA-B9) — the flip must use the primary screen's
+            // height, same as window_did_move / sync_window_state, or the
+            // stored position is in a different convention when the window
+            // opens on a secondary monitor.
+            if let Some(primary_height) = primary_screen_height() {
                 let top_left_x = frame.origin.x as i32;
-                let top_left_y = (screen_frame.size.height - frame.origin.y - frame.size.height) as i32;
+                let top_left_y = (primary_height - frame.origin.y - frame.size.height) as i32;
                 let pos = azul_core::window::WindowPosition::Initialized(
                     azul_core::geom::PhysicalPositionI32::new(top_left_x, top_left_y),
                 );
@@ -4538,12 +4631,16 @@ impl MacOSWindow {
             match current.position {
                 WindowPosition::Initialized(pos) => {
                     // Our position stores top-left with y=0 at top of screen.
-                    // setFrameTopLeftPoint expects y in macOS screen coords (y=0 at bottom).
-                    // Convert: macos_y = screen_height - our_y
+                    // setFrameTopLeftPoint expects y in macOS GLOBAL coords
+                    // (y=0 at the bottom of the PRIMARY screen — MWA-B9: every
+                    // top-down↔bottom-up flip must use the primary screen's
+                    // height, never the current screen's; window_did_move
+                    // reads the position back with exactly this flip, and
+                    // using the current screen here mis-placed programmatic
+                    // moves on any secondary monitor).
                     unsafe {
-                        if let Some(screen) = self.window.screen() {
-                            let screen_height = screen.frame().size.height;
-                            let macos_y = screen_height - pos.y as f64;
+                        if let Some(primary_height) = primary_screen_height() {
+                            let macos_y = primary_height - pos.y as f64;
                             let origin = NSPoint::new(pos.x as f64, macos_y);
                             self.window.setFrameTopLeftPoint(origin);
                         }
@@ -5426,8 +5523,34 @@ impl MacOSWindow {
                 .unwrap_or(1.0)
         });
 
+        // `position` is WINDOW-logical (top-left origin) — the ShowTooltip
+        // contract (`get_cursor_relative_to_viewport`). The tooltip panel is a
+        // separate NSPanel positioned in GLOBAL coordinates, so convert:
+        // window-local top-down → window bottom-up → screen bottom-up
+        // (convertRectToScreen) → global top-down against the PRIMARY screen
+        // height (MWA-B9). Previously the window-local point was handed over
+        // unconverted and read as global: the tooltip appeared at the
+        // window-relative offset measured from the SCREEN's top-left corner.
+        let global_top_down = {
+            let content_h = self
+                .window
+                .contentView()
+                .map(|cv| cv.bounds().size.height)
+                .unwrap_or(0.0);
+            let window_rect = NSRect::new(
+                NSPoint::new(position.x as f64, content_h - position.y as f64),
+                NSSize::new(0.0, 0.0),
+            );
+            let screen_rect = self.window.convertRectToScreen(window_rect);
+            let primary_h = primary_screen_height().unwrap_or(0.0);
+            azul_core::geom::LogicalPosition::new(
+                screen_rect.origin.x as f32,
+                (primary_h - screen_rect.origin.y) as f32,
+            )
+        };
+
         if let Some(ref mut tooltip) = self.tooltip {
-            tooltip.show(text, position, dpi_factor)?;
+            tooltip.show(text, global_top_down, dpi_factor)?;
         }
 
         Ok(())
@@ -5547,10 +5670,16 @@ impl MacOSWindow {
             &mut self.menu_state,
         );
 
-        // Show the menu at the specified position
+        // Show the menu at the specified position. `position` is azul-logical
+        // (top-left origin, y-down); popUpMenuPositioningItem:atLocation:inView:
+        // takes the point in the VIEW's coordinate system, which is BOTTOM-left
+        // origin (neither view overrides isFlipped) — flip y once, the inverse
+        // of macos_to_azul_coords (same fix as the context-menu path in
+        // events.rs).
+        let window_height = self.common.current_window_state.size.dimensions.height;
         let view_point = NSPoint {
             x: position.x as f64,
-            y: position.y as f64,
+            y: (window_height - position.y) as f64,
         };
 
         let view = if let Some(ref gl_view) = self.gl_view {
@@ -5567,9 +5696,11 @@ impl MacOSWindow {
             );
 
             unsafe {
-                use objc2::{msg_send_id, rc::Retained, runtime::AnyObject, sel};
+                use objc2::{msg_send, runtime::AnyObject};
 
-                let _: () = msg_send_id![
+                // msg_send! (not msg_send_id!): the method returns BOOL, not an
+                // object — matches the identical call in events.rs.
+                let _: () = msg_send![
                     &ns_menu,
                     popUpMenuPositioningItem: Option::<&AnyObject>::None,
                     atLocation: view_point,
@@ -5801,9 +5932,14 @@ impl MacOSWindow {
         let window_ptr = self as *mut MacOSWindow as *mut std::ffi::c_void;
         let delegate_ptr = &*self.window_delegate as *const WindowDelegate;
         (*delegate_ptr).set_window_ptr(window_ptr);
-        // Also set the CPUView's back pointer (if using CPU backend)
+        // Also set the CPUView's back pointer (if using CPU backend).
+        // Must go through set_window_ptr: the raw ivar write it replaces
+        // skipped the initial tickTimers: kick that set_window_ptr schedules
+        // (GLView got it via setup_gl_view_back_pointer, CPU windows did not),
+        // so the first timer/thread pass never ran on CPU windows until an
+        // NSTimer was created for some other reason.
         if let Some(ref cpu_view) = self.cpu_view {
-            *cpu_view.ivars().window_ptr.borrow_mut() = Some(window_ptr);
+            cpu_view.set_window_ptr(window_ptr);
         }
         log_trace!(
             LogCategory::Platform,
@@ -6036,6 +6172,22 @@ impl MacOSWindow {
             display_list_needs_rebuild
         };
 
+        // Push the a11y tree from THIS frame's relayout to the OS now.
+        // regenerate_layout_inner() raises a11y_dirty, but the only other flush
+        // site is process_event() — which runs per NSEvent in the MANUAL event
+        // loop only. Under NSApplication.run() (RunForever) it never executes,
+        // and VoiceOver-initiated actions arrive over the accessibility Mach
+        // port without generating any NSEvent, so after the initial tree the
+        // adapter's update_if_active → QueuedEvents::raise() (the
+        // NSAccessibility notification post) never ran again: screen readers
+        // saw the FIRST window state forever. The frame path is the one place
+        // every mode and backend passes through after a relayout.
+        #[cfg(feature = "a11y")]
+        if self.common.a11y_dirty {
+            self.update_accessibility();
+            self.common.a11y_dirty = false;
+        }
+
         // Read these BEFORE taking the mutable borrow below. `regeneration_pending()`
         // is an `&self` method on CommonWindowState, so calling it while
         // `self.common.layout_window` is mutably borrowed is E0502 — which is
@@ -6077,9 +6229,18 @@ impl MacOSWindow {
 
         // Early-return optimization: if the display list is already initialized,
         // no rebuild is needed, no scroll animation is active, no scrollbar
-        // is fading, and no VirtualView updates are pending, skip the entire
-        // WebRender render cycle. This avoids GPU work when the CVDisplayLink
-        // fires but the UI is completely static.
+        // is fading, no VirtualView updates are pending AND nobody explicitly
+        // requested a frame, skip the entire WebRender render cycle. This avoids
+        // GPU work when the CVDisplayLink fires but the UI is completely static.
+        //
+        // `redraw_requested` is the piece that used to be missing: wheel /
+        // trackpad scrolling changes offsets via the physics timer
+        // (`set_scroll_position` — NOT an easing animation, so
+        // `scroll_manager.tick()` reports needs_repaint=false for it), and the
+        // request_redraw() that followed was already consumed into an
+        // asynchronous setNeedsDisplay. Every scroll frame therefore hit this
+        // early return and the window never visibly scrolled on macOS.
+        let redraw_was_requested = std::mem::take(&mut self.redraw_requested);
         let scrollbar_fade_active = layout_window.gpu_state_manager.scrollbar_fade_active;
         let has_virtual_view_updates = !layout_window.pending_virtual_view_updates.is_empty();
         if self.common.display_list_initialized
@@ -6087,6 +6248,7 @@ impl MacOSWindow {
             && !scroll_needs_repaint
             && !scrollbar_fade_active
             && !has_virtual_view_updates
+            && !redraw_was_requested
         {
             log_trace!(
                 LogCategory::Rendering,
@@ -6652,28 +6814,47 @@ impl MacOSWindow {
             "[request_redraw] Marking view as needing display"
         );
 
+        // Record that a frame was explicitly requested so the drawRect-side
+        // "No visual changes" early-return does not discard it (scroll offsets
+        // moved by the physics timer are otherwise invisible to that check).
+        self.redraw_requested = true;
+
         // If we have damage rects, use setNeedsDisplayInRect: for each one
         // so macOS only redraws the changed regions.
         if !self.gpu_damage_rects.is_empty() {
             let rects: Vec<_> = self.gpu_damage_rects.drain(..).collect();
-            for dr in &rects {
-                let ns_rect = NSRect::new(
-                    NSPoint::new(dr.origin.x as f64, dr.origin.y as f64),
-                    NSSize::new(dr.size.width as f64, dr.size.height as f64),
-                );
-                if let Some(ref gl_view) = self.gl_view {
+            // Resolve the target view once (when using materials, contentView
+            // is the effect view — invalidate the render view directly).
+            let content_view_fallback;
+            let view_ptr: Option<*const NSView> = if let Some(ref gl_view) = self.gl_view {
+                Some(Retained::as_ptr(gl_view) as *const NSView)
+            } else if let Some(ref cpu_view) = self.cpu_view {
+                Some(Retained::as_ptr(cpu_view) as *const NSView)
+            } else {
+                content_view_fallback = self.window.contentView();
+                content_view_fallback
+                    .as_deref()
+                    .map(|v| v as *const NSView)
+            };
+            if let Some(view_ptr) = view_ptr {
+                // The damage rects are azul-logical: points with a TOP-left
+                // origin (y-down). setNeedsDisplayInRect: takes the VIEW's own
+                // coordinate system, and neither GLView nor CPUView overrides
+                // isFlipped — view coordinates are BOTTOM-left origin, so y
+                // must be flipped exactly once (the same flip
+                // CPUView::update_framebuffer applies to CPU damage rects).
+                // Unflipped, the invalidated region was vertically mirrored.
+                let bounds_h = unsafe { (*view_ptr).bounds() }.size.height;
+                for dr in &rects {
+                    let ns_rect = NSRect::new(
+                        NSPoint::new(
+                            dr.origin.x as f64,
+                            bounds_h - (dr.origin.y as f64 + dr.size.height as f64),
+                        ),
+                        NSSize::new(dr.size.width as f64, dr.size.height as f64),
+                    );
                     unsafe {
-                        let view_ptr = Retained::as_ptr(gl_view) as *const NSView;
                         let _: () = objc2::msg_send![&*view_ptr, setNeedsDisplayInRect: ns_rect];
-                    }
-                } else if let Some(ref cpu_view) = self.cpu_view {
-                    unsafe {
-                        let view_ptr = Retained::as_ptr(cpu_view) as *const NSView;
-                        let _: () = objc2::msg_send![&*view_ptr, setNeedsDisplayInRect: ns_rect];
-                    }
-                } else if let Some(view) = unsafe { self.window.contentView() } {
-                    unsafe {
-                        let _: () = objc2::msg_send![&*view, setNeedsDisplayInRect: ns_rect];
                     }
                 }
             }
@@ -6797,10 +6978,9 @@ impl MacOSWindow {
             None => return,
         };
         let _ = self.apply_system_change(&SystemChange::UndoTextEdit { target });
-        unsafe {
-            use objc2::msg_send;
-            let _: () = msg_send![&*self.window, setViewsNeedDisplay: true];
-        }
+        // request_redraw (not a bare setViewsNeedDisplay) so the frame survives
+        // the drawRect-side early-return.
+        self.request_redraw();
     }
 
     /// Perform redo operation (called by NSResponder redo: selector)
@@ -6818,10 +6998,9 @@ impl MacOSWindow {
             None => return,
         };
         let _ = self.apply_system_change(&SystemChange::RedoTextEdit { target });
-        unsafe {
-            use objc2::msg_send;
-            let _: () = msg_send![&*self.window, setViewsNeedDisplay: true];
-        }
+        // request_redraw (not a bare setViewsNeedDisplay) so the frame survives
+        // the drawRect-side early-return.
+        self.request_redraw();
     }
 
     /// Check if undo is available (for menu validation)
