@@ -3740,7 +3740,16 @@ unsafe extern "system" fn window_proc(
 
                     if let Some((_dom_id, _node_id, start_timer)) =
                         layout_window.scroll_manager.record_scroll_from_hit_test(
-                            if horizontal { scroll_amount * 20.0 } else { 0.0 },
+                            // MWA-C-scroll: WM_MOUSEHWHEEL positive = wheel
+                            // tilted RIGHT (MSDN), but azul's raw-delta
+                            // chokepoint uses the X11 convention where
+                            // button 6 / LEFT = +1 and button 7 / RIGHT = −1
+                            // (Wayland negates its positive-right axis value
+                            // the same way). Vertical already matches
+                            // (positive = rotated away = up = +1); horizontal
+                            // must be NEGATED or tilt-wheel / trackpad
+                            // horizontal scrolling runs backwards.
+                            if horizontal { -scroll_amount * 20.0 } else { 0.0 },
                             if horizontal { 0.0 } else { scroll_amount * 20.0 },
                             ScrollInputSource::WheelDiscrete,
                             &layout_window.hover_manager,
