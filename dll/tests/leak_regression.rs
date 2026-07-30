@@ -495,7 +495,21 @@ fn measure(iterations: u32, deliberate_leak_bytes: usize) -> Measurement {
     // below caught the difference on its first run — it leaked 4096 B/iter and
     // measured 836, exactly the 100/500 ratio.
     let n = u64::from(iterations);
-    let first_window_per_iter = mid.saturating_sub(baseline) / n;
+    // Growth charged to the first window is growth that is STILL THERE later.
+    //
+    // macOS: baseline=97795 -> 98819 -> 97795 -> 97795 KiB. The heap took a
+    // 1 MiB zone and gave it back; 1048576/500 = 2097 B/iter, over the 1024
+    // budget, while the run ENDED at exactly the baseline — net growth zero
+    // bytes, RSS unmoved at 37473 KiB through all four samples. `mid - baseline`
+    // cannot tell a transient reservation from a cache still filling, because it
+    // only ever looks at one later sample.
+    //
+    // Taking the minimum of every later sample fixes that without weakening the
+    // check: a cache that is genuinely still filling holds the heap up, so every
+    // later sample is high and the minimum stays high. A blip is discounted the
+    // moment any subsequent sample comes back down.
+    let persisted = mid.min(second).min(final_heap);
+    let first_window_per_iter = persisted.saturating_sub(baseline) / n;
     let window_a = second.saturating_sub(mid) / n;
     let window_b = final_heap.saturating_sub(second) / n;
     let per_iter = window_a.min(window_b);
@@ -688,6 +702,43 @@ const RSS_CONTROL_LEAK_BYTES: usize = 256 * 1024;
 /// prove RSS sees things malloc cannot — glibc happens to account these too —
 /// only that RSS resolves a leak of this magnitude at all, which is the
 /// premise the main test's RSS budget rests on.
+/// The first-window rule, checked on the arithmetic rather than on the engine.
+///
+/// `first_window_per_iter` is `min(mid, second, final) - baseline`, and the
+/// reason is a specific macOS observation: the heap took a 1 MiB zone and gave
+/// it straight back (97795 -> 98819 -> 97795 -> 97795 KiB), which `mid -
+/// baseline` scored as 2097 B/iter of growth on a run whose net growth was zero
+/// bytes. A rule with no test is a rule that quietly stops holding, and this one
+/// is pure arithmetic, so it costs nothing to pin both directions.
+#[test]
+fn first_window_growth_ignores_a_transient_but_not_a_persistent_one() {
+    // Mirrors the production expression exactly.
+    let charge = |baseline: u64, mid: u64, second: u64, final_heap: u64, n: u64| {
+        mid.min(second).min(final_heap).saturating_sub(baseline) / n
+    };
+
+    // The macOS observation, in KiB*1024, 500 iterations: up 1 MiB, back down.
+    let transient = charge(97795 * 1024, 98819 * 1024, 97795 * 1024, 97795 * 1024, 500);
+    assert_eq!(
+        transient, 0,
+        "a 1 MiB reservation that is released again must not be charged as \
+         first-window growth — the run ended at exactly its baseline"
+    );
+
+    // A cache still filling: every later sample stays up.
+    let persistent = charge(10_000_000, 11_000_000, 11_500_000, 12_000_000, 500);
+    assert_eq!(
+        persistent, 2000,
+        "growth still present at every later sample must be charged in full — \
+         discounting it would blind the check to a slow fill, which is the only \
+         thing it exists to catch"
+    );
+
+    // The blip must not mask a real fill that happens alongside it.
+    let both = charge(10_000_000, 12_000_000, 11_000_000, 11_000_000, 500);
+    assert_eq!(both, 2000, "the persistent part still has to be charged");
+}
+
 #[test]
 fn the_rss_cross_check_sees_what_malloc_accounting_cannot() {
     let m = measure(CONTROL_ITERATIONS, RSS_CONTROL_LEAK_BYTES);
