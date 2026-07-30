@@ -280,6 +280,28 @@ impl Win32Window {
         let mut options = options;
         options.window_state.size.dpi = dpi;
 
+        // The HWND was created with the requested LOGICAL client size passed
+        // raw to CreateWindowExW — which interprets it as the OUTER frame
+        // size in PHYSICAL px, so the client area came out smaller by the
+        // frame border (and by the whole DPI factor on scaled monitors). Now
+        // that the real per-monitor DPI is known, resize so the CLIENT area
+        // matches the requested logical size; get_client_rect below reads
+        // back the corrected size for everything downstream. size_to_content
+        // keeps its 1×1 placeholder and is sized after the first layout.
+        if !options.size_to_content {
+            let want_w = libm::roundf(options.window_state.size.dimensions.width * dpi_factor)
+                .max(1.0) as i32;
+            let want_h = libm::roundf(options.window_state.size.dimensions.height * dpi_factor)
+                .max(1.0) as i32;
+            if let Err(e) = wcreate::set_client_size(hwnd, want_w, want_h, &win32) {
+                log_warn!(
+                    LogCategory::Window,
+                    "[Win32] initial client-size correction failed: {:?}",
+                    e
+                );
+            }
+        }
+
         // Initialize OpenGL context + WebRender (if hardware rendering requested)
         let mut gl_functions = GlFunctions::initialize();
 
@@ -675,18 +697,22 @@ impl Win32Window {
                         let root_size = dom_result
                             .layout_tree
                             .get_content_size(dom_result.layout_tree.root);
-                        let w = libm::roundf(root_size.width).max(1.0) as i32;
-                        let h = libm::roundf(root_size.height).max(1.0) as i32;
+                        // root_size is LOGICAL; the OS sizes the OUTER frame
+                        // in PHYSICAL px — scale by DPI and fit the CLIENT
+                        // area (set_client_size adds the frame delta), or the
+                        // content gets clipped by frame + DPI factor.
+                        let w = libm::roundf(root_size.width * dpi_factor).max(1.0) as i32;
+                        let h = libm::roundf(root_size.height * dpi_factor).max(1.0) as i32;
                         log_trace!(
                             LogCategory::Window,
-                            "[Win32] size_to_content: resizing window to {}x{}",
+                            "[Win32] size_to_content: resizing client area to {}x{}px",
                             w,
                             h
                         );
-                        if let Err(e) = wcreate::set_window_size(result.hwnd, w, h, &result.win32) {
+                        if let Err(e) = wcreate::set_client_size(result.hwnd, w, h, &result.win32) {
                             log_warn!(
                                 LogCategory::Window,
-                                "[Win32] size_to_content set_window_size failed: {:?}",
+                                "[Win32] size_to_content set_client_size failed: {:?}",
                                 e
                             );
                         }
@@ -5147,9 +5173,12 @@ fn position_window_on_monitor(
             )
         }
         WindowPosition::Uninitialized => {
-            // No explicit position - center on target monitor
-            let window_width = size.dimensions.width as isize;
-            let window_height = size.dimensions.height as isize;
+            // No explicit position - center on target monitor.
+            // Monitor geometry is PHYSICAL px; dimensions are LOGICAL —
+            // scale, or centering drifts right/down on scaled monitors.
+            let hf = size.get_hidpi_factor().inner.get();
+            let window_width = libm::roundf(size.dimensions.width * hf) as isize;
+            let window_height = libm::roundf(size.dimensions.height * hf) as isize;
 
             let center_x =
                 target_monitor.position.x + (target_monitor.size.width - window_width) / 2;
