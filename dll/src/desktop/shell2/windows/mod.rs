@@ -4376,6 +4376,17 @@ unsafe extern "system" fn window_proc(
                 }
             }
 
+            // Belt-and-braces: if the suggested rect happened to equal the
+            // current geometry (or lparam was 0), SetWindowPos dispatched no
+            // WM_SIZE — re-derive the logical size from the ACTUAL client
+            // rect under the new DPI so dimensions are consistent either way
+            // (same physical client / new scale = different logical size).
+            if let Ok((w, h)) = wcreate::get_client_rect(hwnd, &window.win32) {
+                let physical_size = azul_core::geom::PhysicalSizeU32::new(w, h);
+                window.common.current_window_state.size.dimensions =
+                    physical_size.to_logical(new_dpi as f32 / 96.0);
+            }
+
             // DPI change requires a full relayout, tagged `Resize` — the enum's
             // own definition covers "DPI scale change", and the X11 DPI path
             // already tags it that way. WM_DPICHANGED used to leave the tag
