@@ -5644,10 +5644,16 @@ impl MacOSWindow {
             &mut self.menu_state,
         );
 
-        // Show the menu at the specified position
+        // Show the menu at the specified position. `position` is azul-logical
+        // (top-left origin, y-down); popUpMenuPositioningItem:atLocation:inView:
+        // takes the point in the VIEW's coordinate system, which is BOTTOM-left
+        // origin (neither view overrides isFlipped) — flip y once, the inverse
+        // of macos_to_azul_coords (same fix as the context-menu path in
+        // events.rs).
+        let window_height = self.common.current_window_state.size.dimensions.height;
         let view_point = NSPoint {
             x: position.x as f64,
-            y: position.y as f64,
+            y: (window_height - position.y) as f64,
         };
 
         let view = if let Some(ref gl_view) = self.gl_view {
@@ -5664,9 +5670,11 @@ impl MacOSWindow {
             );
 
             unsafe {
-                use objc2::{msg_send_id, rc::Retained, runtime::AnyObject, sel};
+                use objc2::{msg_send, runtime::AnyObject};
 
-                let _: () = msg_send_id![
+                // msg_send! (not msg_send_id!): the method returns BOOL, not an
+                // object — matches the identical call in events.rs.
+                let _: () = msg_send![
                     &ns_menu,
                     popUpMenuPositioningItem: Option::<&AnyObject>::None,
                     atLocation: view_point,

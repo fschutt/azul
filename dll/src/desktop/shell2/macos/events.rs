@@ -1243,10 +1243,16 @@ impl MacOSWindow {
         // Build menu items recursively from Azul menu structure
         Self::recursive_build_nsmenu(&ns_menu, menu.items.as_slice(), &mtm, &mut self.menu_state);
 
-        // Show the menu at the specified position
+        // Show the menu at the specified position. `position` is azul-logical
+        // (top-left origin, y-down); popUpMenuPositioningItem:atLocation:inView:
+        // takes the point in the VIEW's coordinate system, which is BOTTOM-left
+        // origin (neither view overrides isFlipped) — flip y once, the inverse
+        // of macos_to_azul_coords. Unflipped, the menu opened vertically
+        // mirrored (right-click near the top popped the menu near the bottom).
+        let window_height = self.common.current_window_state.size.dimensions.height;
         let view_point = NSPoint {
             x: position.x as f64,
-            y: position.y as f64,
+            y: (window_height - position.y) as f64,
         };
 
         let view = if let Some(ref gl_view) = self.gl_view {
