@@ -186,6 +186,22 @@ unsafe fn azul_ios_window<'a>() -> Option<&'a mut IOSWindow> {
     AZUL_IOS_WINDOW.as_mut()
 }
 
+/// The `CADisplayLink` driving [`display_tick`]. Stored (retained) so the
+/// lifecycle hooks can pause it: a display link is NOT auto-paused when the
+/// app leaves the foreground — the process merely gets SUSPENDED a few
+/// seconds after `applicationDidEnterBackground:`, and until then the tick
+/// keeps rendering + committing frames nobody can see. Main-thread only,
+/// like every UIKit object here.
+static mut AZUL_IOS_DISPLAY_LINK: *mut Object = ptr::null_mut();
+
+/// Pause / resume the render tick. No-op before `install_display_link`.
+unsafe fn set_display_link_paused(paused: bool) {
+    let link = AZUL_IOS_DISPLAY_LINK;
+    if !link.is_null() {
+        let _: () = msg_send![link, setPaused: paused];
+    }
+}
+
 // ─── AzulView (UIView subclass) ───────────────────────────────────────
 
 extern "C" fn display_layer(_this: &Object, _cmd: Sel, layer: *mut Object) {
@@ -901,6 +917,12 @@ unsafe fn install_display_link(_view: *mut Object) {
     let mode: *mut Object =
         msg_send![class!(NSString), stringWithUTF8String: default_mode_cstr];
     let _: () = msg_send![link, addToRunLoop: main_loop forMode: mode];
+
+    // Keep a (retained) handle so the background/foreground lifecycle hooks
+    // can pause the tick — `displayLinkWithTarget:` returns an autoreleased
+    // object that only the run loop keeps alive otherwise.
+    let _: *mut Object = msg_send![link, retain];
+    AZUL_IOS_DISPLAY_LINK = link;
 }
 
 /// Attach UITap / UILongPress / UISwipe(×4) / UIPinch / UIRotation
@@ -1046,6 +1068,9 @@ extern "C" fn did_finish_launching(
 
 extern "C" fn app_did_become_active(_this: &Object, _cmd: Sel, _app: *mut Object) {
     log_info!(LogCategory::EventLoop, "[iOS] applicationDidBecomeActive:");
+    // Covers the resume path that skips willEnterForeground (first launch
+    // does both; unpausing twice is a harmless idempotent setter).
+    unsafe { set_display_link_paused(false) };
     if let Some(window) = unsafe { azul_ios_window() } {
         // Force a redraw so the layer contents are fresh after
         // returning from background.
@@ -1056,18 +1081,27 @@ extern "C" fn app_did_become_active(_this: &Object, _cmd: Sel, _app: *mut Object
 
 extern "C" fn app_will_resign_active(_this: &Object, _cmd: Sel, _app: *mut Object) {
     log_info!(LogCategory::EventLoop, "[iOS] applicationWillResignActive:");
-    // Could pause timers here; CADisplayLink already stops firing
-    // when the app is inactive so render-driven work pauses naturally.
+    // Deliberately does NOT pause the display link: resign-active also fires
+    // for transient overlays (control center, incoming-call banner, app
+    // switcher) where the app remains visible and animations should keep
+    // running. The pause happens in applicationDidEnterBackground:.
 }
 
 extern "C" fn app_did_enter_background(_this: &Object, _cmd: Sel, _app: *mut Object) {
     log_info!(LogCategory::EventLoop, "[iOS] applicationDidEnterBackground:");
+    // Stop the render tick. CADisplayLink is NOT auto-paused in the
+    // background — the process is merely suspended a few seconds from now,
+    // and until then every vsync would run layout/CPU-render/CA-commit for
+    // an invisible app (the earlier comment claiming the link "already stops
+    // firing when the app is inactive" was wrong on both counts).
     // iOS gives ~5 s of background time. Sprint M-iOS-life will use it
     // to checkpoint app_data / hand off to BGTaskScheduler.
+    unsafe { set_display_link_paused(true) };
 }
 
 extern "C" fn app_will_enter_foreground(_this: &Object, _cmd: Sel, _app: *mut Object) {
     log_info!(LogCategory::EventLoop, "[iOS] applicationWillEnterForeground:");
+    unsafe { set_display_link_paused(false) };
 }
 
 extern "C" fn app_will_terminate(_this: &Object, _cmd: Sel, _app: *mut Object) {
