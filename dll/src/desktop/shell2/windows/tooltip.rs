@@ -186,10 +186,20 @@ impl TooltipWindow {
             }
         }
 
-        // Convert position to physical coordinates
+        // Convert position to physical px, then to SCREEN coordinates:
+        // TTM_TRACKPOSITION takes screen coords, but `position` is
+        // window-local logical (see show_tooltip_from_callback) — without
+        // ClientToScreen the tooltip appeared near the desktop's top-left
+        // corner, offset only by the in-window node position.
         let physical_pos = position.to_physical(dpi_factor.inner.get());
-        let x = physical_pos.x as i32;
-        let y = physical_pos.y as i32;
+        let mut pt = super::dlopen::POINT {
+            x: physical_pos.x as i32,
+            y: physical_pos.y as i32,
+        };
+        unsafe {
+            (self.win32.user32.ClientToScreen)(self.hwnd_parent, &mut pt);
+        }
+        let (x, y) = (pt.x, pt.y);
 
         // Set tooltip position
         let pos_param = ((y as u32) << 16) | (x as u32 & 0xFFFF);
