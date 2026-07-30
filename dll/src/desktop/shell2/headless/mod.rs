@@ -1957,9 +1957,8 @@ impl HeadlessWindow {
                 );
             }
 
-            // Lock, clear `woken`, then wait.
+            // Lock, then wait — but only if no wake is already pending.
             let mut guard = self.wake_mutex.lock().unwrap();
-            guard.woken = false;
 
             // Threads count as a wake source for the TIMED wait, not just for
             // the no-wake-sources warning above: a background `Thread`'s
@@ -1971,7 +1970,17 @@ impl HeadlessWindow {
             // ran, and the window froze — the headless twin of the X11/Wayland
             // "threads have no fd in the poll set" 16 ms tick, which is
             // exactly how those backends solve the same problem.
-            if has_timers || self.thread_poll_timer_running {
+            if guard.woken {
+                // A wake arrived DURING this iteration's processing — e.g. a
+                // timer callback injected an event after Phase 1 had already
+                // drained the queue, or requested a redraw after Phase 2. The
+                // old sequence cleared `woken` unconditionally and then
+                // waited, erasing that wake: the queued work sat there until
+                // the next unrelated wake (or forever, with no timer armed).
+                // Consume the flag and loop again WITHOUT waiting, so the
+                // work the wake announced is serviced now.
+                guard.woken = false;
+            } else if has_timers || self.thread_poll_timer_running {
                 // Timers or threads active → poll at 60 Hz
                 let _r = self.wake_condvar.wait_timeout_while(
                     guard,
