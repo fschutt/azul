@@ -138,11 +138,19 @@ const MAX_WARMUP_ITERATIONS: u32 = 4000;
 /// with first_window = 1253 B/iter. Warmup was doing exactly what it was told;
 /// it was told the wrong thing.
 ///
-/// Tying it to `MAX_FIRST_WINDOW_BYTES_PER_ITER` means the criterion for
-/// "warm" is by construction at least as strict as the first thing asserted
-/// about the warm state, and the two cannot drift apart again.
+/// Derived from `MAX_BYTES_PER_ITER` — the TIGHTEST budget applied after
+/// warmup, not the loosest.
+///
+/// First attempt tied it to `MAX_FIRST_WINDOW_BYTES_PER_ITER` (1024), which
+/// fixed the first-window contradiction and left the same bug one level down:
+/// warmup was then free to stop at ~1024 B/iter and the steady-state check
+/// demands 256. macOS duly settled and reported steady=1179/917 B/iter.
+///
+/// "Warm" has to mean "quiet enough for EVERY assertion that follows", so it
+/// is the minimum of the post-warmup budgets that matters, and that is the
+/// steady-state one.
 const WARMUP_SETTLED_BYTES: u64 =
-    MAX_FIRST_WINDOW_BYTES_PER_ITER * (SIZES_LEN as u64) * (WARMUP_CYCLES as u64);
+    MAX_BYTES_PER_ITER * (SIZES_LEN as u64) * (WARMUP_CYCLES as u64);
 
 /// `SIZES.len()`, as a const so `WARMUP_SETTLED_BYTES` can be computed at
 /// compile time. Asserted against the real array in the measurement body.
@@ -443,8 +451,11 @@ fn measure(iterations: u32, deliberate_leak_bytes: usize) -> Measurement {
             prev = now;
         }
         eprintln!(
-            "[leak_regression] warmup: {done} iterations, {}",
-            if settled >= 2 { "settled" } else { "HIT THE CAP — first-window budget may not hold" },
+            "[leak_regression] warmup: {done} iterations, {} (last block {} B/iter, \
+             threshold {} B/iter)",
+            if settled >= 2 { "settled" } else { "HIT THE CAP — the budgets below may not hold" },
+            prev_growth.saturating_div(u64::from(block).max(1)),
+            WARMUP_SETTLED_BYTES / u64::from(block).max(1),
         );
     } else {
         // A deliberate leak never settles by construction, so adaptive warmup
