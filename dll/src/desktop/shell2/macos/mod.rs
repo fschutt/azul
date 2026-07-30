@@ -1080,7 +1080,11 @@ define_class!(
                     }
                     let needs_redraw = macos_window.process_timers_and_threads();
                     if needs_redraw || theme_changed {
-                        let _: () = msg_send![self, setNeedsDisplay: true];
+                        // request_redraw() (not a bare setNeedsDisplay) so the
+                        // redraw_requested flag survives to drawRect — timer-driven
+                        // scroll offsets are invisible to the "No visual changes"
+                        // early-return there otherwise.
+                        macos_window.request_redraw();
                     }
                 }
             }
@@ -1430,12 +1434,16 @@ define_class!(
             // CPU render on every drawRect that needs it (first frame, after
             // keyboard/mouse input, after timer callbacks).  In GPU mode drawRect
             // is only called from GLView which calls render_and_present itself.
+            // `redraw_requested` covers frames whose only change is invisible to
+            // the dirty flags — above all scroll offsets moved by the physics
+            // timer (request_redraw() raised it; render_and_present consumes it).
             if let Some(window_ptr) = *ivars.window_ptr.borrow() {
                 unsafe {
                     let macos_window = &mut *(window_ptr as *mut std::ffi::c_void as *mut MacOSWindow);
                     if !macos_window.common.display_list_initialized
                         || macos_window.common.regeneration_pending()
                         || macos_window.common.display_list_dirty
+                        || macos_window.redraw_requested
                     {
                         let _ = macos_window.render_and_present_in_draw_rect();
                     }
@@ -1734,6 +1742,10 @@ define_class!(
                     // CPU mode: run the full render pipeline (layout → cpurender → framebuffer)
                     // then request drawRect to blit to screen.
                     if needs_redraw || macos_window.common.regeneration_pending() {
+                        // Timer/thread changes (scroll physics ScrollTo above all)
+                        // must defeat the "No visual changes" early-return inside —
+                        // moved scroll offsets raise no flag that check can see.
+                        macos_window.redraw_requested = true;
                         let _ = macos_window.render_and_present_in_draw_rect();
                     }
                 }
@@ -2707,6 +2719,17 @@ pub struct MacOSWindow {
     /// Whether the GL surface geometry changed (resize, move between screens)
     /// and `NSOpenGLContext::update()` needs to be called before the next frame.
     surface_needs_update: bool,
+    /// Set by `request_redraw()` (and the timer tick when timers/threads produced
+    /// changes), consumed by `render_and_present_in_draw_rect()`. Wheel/trackpad
+    /// scrolling moves offsets via the physics timer's `ScrollTo` →
+    /// `set_scroll_position`, which raises no flag visible to the frame path:
+    /// `scroll_manager.tick()` only reports EASING animations, so the
+    /// "No visual changes" early-return skipped every scroll frame (CPU render
+    /// and WebRender alike) and the window never visibly scrolled. This flag
+    /// carries "someone explicitly asked for a frame" across the asynchronous
+    /// setNeedsDisplay → drawRect gap; pure CVDisplayLink wakeups don't set it,
+    /// so the idle early-return optimization stays intact.
+    redraw_requested: bool,
 }
 
 // Implement PlatformWindow trait for cross-platform event processing
@@ -3999,6 +4022,7 @@ impl MacOSWindow {
             cg_functions,
             current_display_id: None, // Will be set after monitor detection
             surface_needs_update: true, // First frame always needs update
+            redraw_requested: true,     // First frame must not be skipped
         };
 
         // NOTE: Do NOT set the delegate pointer here!
@@ -6077,9 +6101,18 @@ impl MacOSWindow {
 
         // Early-return optimization: if the display list is already initialized,
         // no rebuild is needed, no scroll animation is active, no scrollbar
-        // is fading, and no VirtualView updates are pending, skip the entire
-        // WebRender render cycle. This avoids GPU work when the CVDisplayLink
-        // fires but the UI is completely static.
+        // is fading, no VirtualView updates are pending AND nobody explicitly
+        // requested a frame, skip the entire WebRender render cycle. This avoids
+        // GPU work when the CVDisplayLink fires but the UI is completely static.
+        //
+        // `redraw_requested` is the piece that used to be missing: wheel /
+        // trackpad scrolling changes offsets via the physics timer
+        // (`set_scroll_position` — NOT an easing animation, so
+        // `scroll_manager.tick()` reports needs_repaint=false for it), and the
+        // request_redraw() that followed was already consumed into an
+        // asynchronous setNeedsDisplay. Every scroll frame therefore hit this
+        // early return and the window never visibly scrolled on macOS.
+        let redraw_was_requested = std::mem::take(&mut self.redraw_requested);
         let scrollbar_fade_active = layout_window.gpu_state_manager.scrollbar_fade_active;
         let has_virtual_view_updates = !layout_window.pending_virtual_view_updates.is_empty();
         if self.common.display_list_initialized
@@ -6087,6 +6120,7 @@ impl MacOSWindow {
             && !scroll_needs_repaint
             && !scrollbar_fade_active
             && !has_virtual_view_updates
+            && !redraw_was_requested
         {
             log_trace!(
                 LogCategory::Rendering,
@@ -6652,6 +6686,11 @@ impl MacOSWindow {
             "[request_redraw] Marking view as needing display"
         );
 
+        // Record that a frame was explicitly requested so the drawRect-side
+        // "No visual changes" early-return does not discard it (scroll offsets
+        // moved by the physics timer are otherwise invisible to that check).
+        self.redraw_requested = true;
+
         // If we have damage rects, use setNeedsDisplayInRect: for each one
         // so macOS only redraws the changed regions.
         if !self.gpu_damage_rects.is_empty() {
@@ -6797,10 +6836,9 @@ impl MacOSWindow {
             None => return,
         };
         let _ = self.apply_system_change(&SystemChange::UndoTextEdit { target });
-        unsafe {
-            use objc2::msg_send;
-            let _: () = msg_send![&*self.window, setViewsNeedDisplay: true];
-        }
+        // request_redraw (not a bare setViewsNeedDisplay) so the frame survives
+        // the drawRect-side early-return.
+        self.request_redraw();
     }
 
     /// Perform redo operation (called by NSResponder redo: selector)
@@ -6818,10 +6856,9 @@ impl MacOSWindow {
             None => return,
         };
         let _ = self.apply_system_change(&SystemChange::RedoTextEdit { target });
-        unsafe {
-            use objc2::msg_send;
-            let _: () = msg_send![&*self.window, setViewsNeedDisplay: true];
-        }
+        // request_redraw (not a bare setViewsNeedDisplay) so the frame survives
+        // the drawRect-side early-return.
+        self.request_redraw();
     }
 
     /// Check if undo is available (for menu validation)
