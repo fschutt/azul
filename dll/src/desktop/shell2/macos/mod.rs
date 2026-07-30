@@ -2859,6 +2859,19 @@ impl event::PlatformWindow for MacOSWindow {
             return; // No view at all
         };
 
+        // scheduledTimerWithTimeInterval: registers in the DEFAULT run-loop
+        // mode only — during live window resize and menu tracking the loop
+        // runs in NSEventTrackingRunLoopMode and the timer freezes (the
+        // scroll-physics timer and every animation timer stalled mid-resize).
+        // Re-register for the common modes, the same pattern as run.rs's
+        // RunForever drain timer; re-adding a timer to a mode it is already
+        // in (default is part of the common set) is a documented no-op.
+        unsafe {
+            let run_loop: *mut NSObject = msg_send![objc2::class!(NSRunLoop), currentRunLoop];
+            let mode = objc2_foundation::ns_string!("kCFRunLoopCommonModes");
+            let _: () = msg_send![&*run_loop, addTimer: &*timer_obj, forMode: mode];
+        }
+
         self.timers.insert(timer_id, timer_obj);
     }
 
@@ -2881,8 +2894,6 @@ impl event::PlatformWindow for MacOSWindow {
     // Thread Management (macOS/NSTimer Implementation)
 
     fn start_thread_poll_timer(&mut self) {
-        use block2::RcBlock;
-
         if self.thread_timer_running.is_some() {
             log_debug!(LogCategory::Timer, "[start_thread_poll_timer] Timer already running, skipping");
             return; // Already running
@@ -2890,20 +2901,49 @@ impl event::PlatformWindow for MacOSWindow {
 
         log_debug!(LogCategory::Timer, "[start_thread_poll_timer] Starting thread poll timer (16ms interval)");
 
-        // Create a timer that fires every 16ms (~60 FPS) to poll threads
-        let ns_window = self.window.clone();
-        let timer: Retained<NSTimer> = unsafe {
-            let interval: f64 = TIMER_INTERVAL_60FPS;
-            msg_send_id![
-                NSTimer::class(),
-                scheduledTimerWithTimeInterval: interval,
-                repeats: true,
-                block: &*RcBlock::new(move || {
-                    // Thread polling - request redraw to check threads
-                    let _: () = msg_send![&*ns_window, setViewsNeedDisplay: true];
-                })
-            ]
+        // Create a timer that fires every 16ms (~60 FPS) to poll threads.
+        //
+        // Target tickTimers: on the render view — the same dispatch start_timer
+        // uses. The previous block-based timer only called setViewsNeedDisplay:,
+        // which polls threads in GL mode as a drawRect side effect but is GATED
+        // OUT by CPUView's drawRect dirty-check: in CPU mode thread writebacks
+        // were never polled from this timer at all (a spawned thread's result
+        // only ever landed if some unrelated azul timer happened to be running).
+        // tickTimers: runs process_timers_and_threads() on both backends.
+        let interval: f64 = TIMER_INTERVAL_60FPS;
+        let timer: Retained<NSTimer> = if let Some(ref gl_view) = self.gl_view {
+            unsafe {
+                msg_send_id![
+                    NSTimer::class(),
+                    scheduledTimerWithTimeInterval: interval,
+                    target: &**gl_view,
+                    selector: objc2::sel!(tickTimers:),
+                    userInfo: std::ptr::null::<NSObject>(),
+                    repeats: true
+                ]
+            }
+        } else if let Some(ref cpu_view) = self.cpu_view {
+            unsafe {
+                msg_send_id![
+                    NSTimer::class(),
+                    scheduledTimerWithTimeInterval: interval,
+                    target: &**cpu_view,
+                    selector: objc2::sel!(tickTimers:),
+                    userInfo: std::ptr::null::<NSObject>(),
+                    repeats: true
+                ]
+            }
+        } else {
+            return; // No view at all
         };
+
+        // Keep polling during live resize / menu tracking (common modes; see
+        // the identical registration in start_timer).
+        unsafe {
+            let run_loop: *mut NSObject = msg_send![objc2::class!(NSRunLoop), currentRunLoop];
+            let mode = objc2_foundation::ns_string!("kCFRunLoopCommonModes");
+            let _: () = msg_send![&*run_loop, addTimer: &*timer, forMode: mode];
+        }
 
         self.thread_timer_running = Some(timer);
     }
