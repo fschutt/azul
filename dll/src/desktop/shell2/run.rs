@@ -1445,8 +1445,6 @@ pub fn run(
             break;
         }
 
-        let is_multi_window = window_ids.len() > 1;
-
         // Process events for all windows
         for wid in &window_ids {
             if let Some(win_ptr) = unsafe { registry::get_window(*wid) } {
@@ -1637,21 +1635,34 @@ pub fn run(
             }
         }
 
-        // Wait strategy based on number of windows
-        if !is_multi_window {
-            // Single window: Block on XNextEvent (efficient)
-            if let Some(win_ptr) = unsafe { registry::get_window(window_ids[0]) } {
-                let window = unsafe { &mut *win_ptr };
-                window.wait_for_events()?;
+        // Wait strategy based on the number of windows AS OF NOW — not the
+        // snapshot from the top of the iteration. The close pass and the
+        // pending-create pass above both change the set: deciding the wait on
+        // the stale `is_multi_window` meant a window created THIS iteration
+        // (context menu, dialog) left us blocking on only the ROOT window's
+        // connection + timerfds — the new window's events could not wake the
+        // loop until the root window happened to receive something.
+        let live_window_ids = registry::get_all_window_ids();
+        match live_window_ids.len() {
+            // Everything closed this iteration: skip the wait so the loop-top
+            // emptiness check exits instead of blocking on a dead set.
+            0 => {}
+            1 => {
+                // Single window: Block on XNextEvent (efficient)
+                if let Some(win_ptr) = unsafe { registry::get_window(live_window_ids[0]) } {
+                    let window = unsafe { &mut *win_ptr };
+                    window.wait_for_events()?;
+                }
             }
-        } else {
-            // Multi-window: poll ALL registered windows' connection fds,
-            // backend-aware. The old code fed the ROOT window's display
-            // pointer to XConnectionNumber — reading an Xlib struct offset
-            // from a wl_display* on Wayland (garbage fd; select() errored and
-            // KILLED the whole run loop the moment a second window existed) —
-            // and never woke for the other windows' connections either way.
-            wait_for_linux_window_activity()?;
+            _ => {
+                // Multi-window: poll ALL registered windows' connection fds,
+                // backend-aware. The old code fed the ROOT window's display
+                // pointer to XConnectionNumber — reading an Xlib struct offset
+                // from a wl_display* on Wayland (garbage fd; select() errored and
+                // KILLED the whole run loop the moment a second window existed) —
+                // and never woke for the other windows' connections either way.
+                wait_for_linux_window_activity()?;
+            }
         }
     }
 
