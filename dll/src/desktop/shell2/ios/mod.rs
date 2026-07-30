@@ -409,50 +409,61 @@ fn handle_touch(this: &Object, touches: *mut Object, phase: u8) {
         Some(window.common.current_window_state.clone());
 
     {
+        // Refresh TouchState FIRST — the mouse-button emulation below needs
+        // to know how many fingers REMAIN after this phase. On ended /
+        // cancelled UIKit hands us only the touches that ended in this phase
+        // — the rest are still active. Filter the existing list against the
+        // IDs UIKit just reported as ended, rather than clobbering it.
+        let remaining = {
+            let ts = &mut window.common.current_window_state.touch_state;
+            match phase {
+                0 | 1 => {
+                    // Began / moved → merge by ID. Replace existing entries
+                    // with the new sample; append new IDs.
+                    let mut existing: Vec<TouchPoint> =
+                        ts.touch_points.clone().into_library_owned_vec();
+                    for new_point in &points {
+                        if let Some(slot) =
+                            existing.iter_mut().find(|p| p.id == new_point.id)
+                        {
+                            *slot = *new_point;
+                        } else {
+                            existing.push(*new_point);
+                        }
+                    }
+                    ts.touch_points = TouchPointVec::from_vec(existing);
+                }
+                2 | 3 => {
+                    // Ended / cancelled → drop the reported IDs.
+                    let drop_ids: Vec<u64> =
+                        points.iter().map(|p| p.id).collect();
+                    let mut existing: Vec<TouchPoint> =
+                        ts.touch_points.clone().into_library_owned_vec();
+                    existing.retain(|p| !drop_ids.contains(&p.id));
+                    ts.touch_points = TouchPointVec::from_vec(existing);
+                }
+                _ => {}
+            }
+            ts.num_touches = ts.touch_points.len();
+            ts.num_touches
+        };
+
         let ms = &mut window.common.current_window_state.mouse_state;
         if let Some(p) = pos {
             ms.cursor_position = CursorPosition::InWindow(p);
         }
         match phase {
             0 => ms.left_down = true,
-            2 | 3 => ms.left_down = false,
+            // Only the LAST finger lifting releases the emulated left
+            // button. UIKit reports each ended finger in its own
+            // touchesEnded:/touchesCancelled: set, so clearing left_down
+            // unconditionally cut the remaining fingers' press short
+            // halfway through every multi-finger interaction (Android's
+            // PointerUp arm already gets this right by leaving left_down
+            // alone while the primary is still down).
+            2 | 3 if remaining == 0 => ms.left_down = false,
             _ => {}
         }
-
-        // Refresh TouchState. On ended / cancelled UIKit hands us only
-        // the touches that ended in this phase — the rest are still
-        // active. Filter the existing list against the IDs UIKit just
-        // reported as ended, rather than clobbering it.
-        let ts = &mut window.common.current_window_state.touch_state;
-        match phase {
-            0 | 1 => {
-                // Began / moved → merge by ID. Replace existing entries
-                // with the new sample; append new IDs.
-                let mut existing: Vec<TouchPoint> =
-                    ts.touch_points.clone().into_library_owned_vec();
-                for new_point in &points {
-                    if let Some(slot) =
-                        existing.iter_mut().find(|p| p.id == new_point.id)
-                    {
-                        *slot = *new_point;
-                    } else {
-                        existing.push(*new_point);
-                    }
-                }
-                ts.touch_points = TouchPointVec::from_vec(existing);
-            }
-            2 | 3 => {
-                // Ended / cancelled → drop the reported IDs.
-                let drop_ids: Vec<u64> =
-                    points.iter().map(|p| p.id).collect();
-                let mut existing: Vec<TouchPoint> =
-                    ts.touch_points.clone().into_library_owned_vec();
-                existing.retain(|p| !drop_ids.contains(&p.id));
-                ts.touch_points = TouchPointVec::from_vec(existing);
-            }
-            _ => {}
-        }
-        ts.num_touches = ts.touch_points.len();
     }
 
     if let Some(p) = pos {
