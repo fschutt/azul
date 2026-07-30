@@ -11,7 +11,21 @@ use azul::prelude::*;
 use azul::widgets::VideoWidget;
 use azul::video::{VideoConfig, VideoSource};
 use azul::url::Url;
-use azul::desktop::extra::video_codec::VideoStartupCheck;
+// NOTE: no `azul::desktop::...` import here. This demo depends on azul with
+// `default-features = false, features = ["link-dynamic"]`, which does NOT
+// enable `cabi_internal` — and `pub mod desktop` is gated on exactly that. So
+// `azul::desktop::extra::video_codec::VideoStartupCheck` does not exist for
+// this crate and never compiled. It failed with
+// "E0433: could not find `desktop` in `azul`" on every OS since 2026-07-04,
+// the failure was swallowed by `cargo build || echo ::warning::`, and the
+// release therefore kept shipping the pre-BBB binary — the one that renders a
+// "no signal" placeholder instead of streaming. It also predates the
+// chmod-+x fix, which is why azul-video-app-linux is the one demo tarball
+// without the executable bit while azul-widgets-linux has it.
+//
+// VideoStartupCheck is not in api.json, i.e. not public API. It was only ever
+// used for the startup diagnostic below, so the diagnostic drops the hardware
+// line rather than the demo reaching behind the public surface.
 
 /// Big Buck Bunny H.264/MP4, 360p, ~10s — fetched on the decode thread via a range request.
 const BBB_URL: &str =
@@ -102,12 +116,6 @@ extern "C" fn layout(mut data: RefAny, _info: LayoutCallbackInfo) -> Dom {
 }
 
 fn main() {
-    let check = VideoStartupCheck::run();
-    eprintln!(
-        "[azvideo] VK hardware H.264 decode: {} — {}",
-        if check.hw_decode_ready { "READY" } else { "not available" },
-        check.summary.as_str(),
-    );
     eprintln!("[azvideo] streaming (range request): {}", BBB_URL);
     eprintln!("[azvideo] click the timeline to scrub");
 
