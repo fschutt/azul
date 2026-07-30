@@ -3294,6 +3294,18 @@ impl WaylandWindow {
         if self.key_repeat_fd < 0 || self.key_repeat_rate_ms == 0 {
             return;
         }
+        // Already armed for THIS key: leave the timer alone and let
+        // it_interval drive. The repeat replay goes through handle_key(state=1),
+        // which lands back here — re-arming would reset it_value (the initial
+        // delay) on every replayed press, so the timer never got past its
+        // first period and "repeat" fired at the DELAY cadence (~600 ms per
+        // character on KDE defaults) instead of the advertised rate. A real
+        // re-press of the same key always passes through a release first,
+        // which disarms (key_repeat_keycode = None), so it still re-arms with
+        // the full initial delay; a different key held re-arms below.
+        if self.key_repeat_keycode == Some(keycode) {
+            return;
+        }
         self.key_repeat_keycode = Some(keycode);
         let delay = self.key_repeat_delay_ms.max(1) as i64;
         let interval = self.key_repeat_rate_ms.max(1) as i64;
