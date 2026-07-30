@@ -2107,6 +2107,47 @@ impl WaylandWindow {
             return Ok(()); // Events were processed
         }
 
+        // Render anything still OWED before parking in poll().
+        //
+        // A frame request can be raised at a moment when it cannot be acted on,
+        // and on Wayland the raise alone schedules nothing:
+        //   * the CPU present found BOTH shm buffers still held by the
+        //     compositor and skipped the attach. The wl_buffer.release that
+        //     later frees a slot only flips the slot's `busy` flag — its
+        //     listener user-data IS the bare bool, it cannot re-run the frame;
+        //   * the first CPU frame ran before the lazy shm allocation existed;
+        //   * a redraw was requested while the frame-callback latch was armed,
+        //     and the `done` that cleared the latch was dispatched later in
+        //     the same batch, after the request had already been swallowed.
+        // In all of these the needs_redraw / regeneration request is still
+        // raised, but nothing was committed and no frame callback was armed,
+        // so a `-1` poll below would sleep ON TOP OF work it owes until the
+        // user happens to supply another input event — the "type once, then
+        // the screen only updates when you scroll" freeze. X11 has the same
+        // guard at the top of its poll_event (regeneration / vview /
+        // needs_redraw gate before render_and_present).
+        //
+        // generate_frame_if_needed() re-checks the frame-callback latch, so
+        // this cannot over-render: with a fresh `done` outstanding it returns
+        // immediately and the retry rides on frame_done_callback instead.
+        let closing_now = !self.is_open
+            || self.common.current_window_state.flags.close_requested;
+        if self.configured && !closing_now {
+            let vview_pending = self
+                .common
+                .layout_window
+                .as_ref()
+                .map(|lw| !lw.pending_virtual_view_updates.is_empty())
+                .unwrap_or(false);
+            if self.common.regeneration_pending()
+                || self.common.relayout_only_pending()
+                || self.needs_redraw.pending()
+                || vview_pending
+            {
+                self.generate_frame_if_needed();
+            }
+        }
+
         // Get the display fd
         let display_fd = unsafe { (self.wayland.wl_display_get_fd)(self.display) };
 
