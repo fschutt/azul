@@ -148,6 +148,29 @@ const K_CG_IMAGE_ALPHA_PREMULTIPLIED_LAST: u32 = 1;
 const K_CG_BITMAP_BYTE_ORDER_DEFAULT: u32 = 0;
 const K_CG_RENDERING_INTENT_DEFAULT: u32 = 0;
 
+/// `CGDataProviderReleaseDataCallback` for the per-frame pixel copy handed to
+/// `CGDataProviderCreateWithData` in [`display_layer`].
+///
+/// Core Graphics does NOT copy the bytes: the provider references them for the
+/// lifetime of every `CGImage` built on it, and the layer retains that image
+/// until the NEXT contents assignment — QuartzCore reads the bytes
+/// asynchronously at the Core Animation commit at the end of the run-loop
+/// turn. So the buffer must be owned by the provider and freed here, when CG
+/// says it is done, not when the creating stack frame unwinds.
+#[cfg(feature = "cpurender")]
+extern "C" fn release_frame_pixels(_info: *mut c_void, data: *const u8, size: usize) {
+    // Reconstitute the Box<[u8]> leaked in display_layer and drop it.
+    // SAFETY: `data`/`size` are exactly the pointer + length of the boxed
+    // slice passed to CGDataProviderCreateWithData below; CG invokes this
+    // callback exactly once, when the last retain on the provider is gone.
+    unsafe {
+        drop(Box::from_raw(core::ptr::slice_from_raw_parts_mut(
+            data as *mut u8,
+            size,
+        )));
+    }
+}
+
 // ─── Global window pointer ────────────────────────────────────────────
 //
 // `extern "C"` Objective-C callbacks are static functions, so they reach
@@ -201,15 +224,35 @@ extern "C" fn display_layer(_this: &Object, _cmd: Sel, layer: *mut Object) {
         if pw == 0 || ph == 0 {
             return;
         }
-        let bytes = pixmap.data();
+        // Hand the provider its OWN copy of the frame. The old code passed a
+        // pointer into `cpu_backend.last_frame` with `release: None` ("pixmap
+        // outlives this call") — but the CGImage outlives the call: the layer
+        // retains it until the next contents assignment, and QuartzCore reads
+        // the provider bytes at the async CA commit. The very next
+        // `render_frame` may reallocate or drop that buffer first (it takes
+        // and replaces `last_frame` every pass), which is a use-after-free at
+        // commit time (ERROR_CGDataProvider_BufferIsNotReadable / torn
+        // frames). The copy is freed in `release_frame_pixels` when CG drops
+        // its last reference.
+        let owned: Box<[u8]> = Box::from(pixmap.data());
+        let len = owned.len();
+        let data_ptr = Box::into_raw(owned) as *mut u8;
         unsafe {
             let cs = CGColorSpaceCreateDeviceRGB();
             let provider = CGDataProviderCreateWithData(
                 core::ptr::null_mut(),
-                bytes.as_ptr(),
-                bytes.len(),
-                None, // pixmap outlives this display_layer call
+                data_ptr,
+                len,
+                Some(release_frame_pixels),
             );
+            if provider.is_null() {
+                // CG never took ownership — reclaim the copy ourselves.
+                drop(Box::from_raw(core::ptr::slice_from_raw_parts_mut(
+                    data_ptr, len,
+                )));
+                CGColorSpaceRelease(cs);
+                return;
+            }
             let image = CGImageCreate(
                 pw,
                 ph,
@@ -223,8 +266,10 @@ extern "C" fn display_layer(_this: &Object, _cmd: Sel, layer: *mut Object) {
                 false,
                 K_CG_RENDERING_INTENT_DEFAULT,
             );
-            let _: () = msg_send![layer, setContents: image];
-            CGImageRelease(image);
+            if !image.is_null() {
+                let _: () = msg_send![layer, setContents: image];
+                CGImageRelease(image);
+            }
             CGDataProviderRelease(provider);
             CGColorSpaceRelease(cs);
         }
