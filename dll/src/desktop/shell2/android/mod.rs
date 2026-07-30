@@ -538,6 +538,27 @@ pub fn android_main(app: AndroidApp) {
     log_info!(LogCategory::EventLoop, "[Android] android_main exiting cleanly");
 }
 
+/// The reason tag for a geometry/density-driven regeneration.
+///
+/// `Resize` is what every desktop backend tags window resizes with — it is the
+/// variant responsive layout callbacks branch on (see the enum's own doc) —
+/// and Android tagged them all `RefreshDom`, so a breakpoint-style layout
+/// could never distinguish a rotation from an app-state change. The one
+/// exception is the very first pass: `RegenerationState::pending_initial` is
+/// already queued as `Initial` and the user's layout callback must see THAT,
+/// so return the implicit `RefreshDom` (which `request_regeneration` never
+/// lets overwrite a more specific queued reason) while it is still pending.
+#[cfg(all(target_os = "android", feature = "android-activity"))]
+fn resize_reason(window: &AndroidWindow) -> RelayoutReason {
+    if window.common.regeneration_pending()
+        && window.common.regeneration_reason() == RelayoutReason::Initial
+    {
+        RelayoutReason::RefreshDom
+    } else {
+        RelayoutReason::Resize
+    }
+}
+
 #[cfg(all(target_os = "android", feature = "android-activity"))]
 fn handle_poll_event(app: &AndroidApp, window: &mut AndroidWindow, event: PollEvent<'_>) {
     match event {
@@ -571,7 +592,12 @@ fn handle_poll_event(app: &AndroidApp, window: &mut AndroidWindow, event: PollEv
                         window.common.current_window_state.size.dimensions.width = logical_w;
                         window.common.current_window_state.size.dimensions.height = logical_h;
                         window.native_window = Some(nw);
-                        window.common.request_regeneration(RelayoutReason::RefreshDom);
+                        // On the launch InitWindow this preserves the queued
+                        // `Initial`; on a re-attach (rotation recreates the
+                        // surface with new dimensions and does NOT deliver
+                        // WindowResized) it tags the pass `Resize`.
+                        let reason = resize_reason(window);
+                        window.common.request_regeneration(reason);
                     }
                 }
             }
@@ -592,7 +618,31 @@ fn handle_poll_event(app: &AndroidApp, window: &mut AndroidWindow, event: PollEv
                             (nw.height() as f32) / android_scale;
                     }
                 }
-                window.common.request_regeneration(RelayoutReason::RefreshDom);
+                let reason = resize_reason(window);
+                window.common.request_regeneration(reason);
+            }
+            MainEvent::ConfigChanged { .. } => {
+                // Density can change while running: fold/unfold, moving the
+                // app to an external display, the user's display-size setting.
+                // WindowResized alone misses pure-density changes (same
+                // surface size, different scale), which left every
+                // physical<->logical conversion — layout dpi, input scaling,
+                // a11y bounds — on the stale factor.
+                let density = app.config().density().filter(|&d| d > 0).unwrap_or(160);
+                let dpi = (((density as f32) * 96.0 / 160.0).round() as u32).max(1);
+                if window.common.current_window_state.size.dpi != dpi {
+                    let reason = resize_reason(window);
+                    window.common.current_window_state.size.dpi = dpi;
+                    #[cfg(feature = "ndk")]
+                    if let Some(nw) = window.native_window.as_ref() {
+                        let android_scale = (density as f32) / 160.0;
+                        window.common.current_window_state.size.dimensions.width =
+                            (nw.width() as f32) / android_scale;
+                        window.common.current_window_state.size.dimensions.height =
+                            (nw.height() as f32) / android_scale;
+                    }
+                    window.common.request_regeneration(reason);
+                }
             }
             MainEvent::InputAvailable => {
                 drain_input(app, window);
