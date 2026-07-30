@@ -93,25 +93,59 @@ fn e2e_test_file() -> Option<String> {
 /// Called unconditionally at startup. Each entry names the variable, the
 /// feature that implements it, and how to get it back.
 pub(crate) fn warn_about_inert_env_knobs() {
-    // (variable, feature that implements it, what to build)
-    const GATED: &[(&str, &str, &str)] = &[
-        ("AZ_E2E", "debug-server", "cargo build -p azul-dll --features build-dll,debug-server"),
-        ("AZ_DEBUG", "debug-server", "cargo build -p azul-dll --features build-dll,debug-server"),
+    // (variable, feature compiled in?, feature that implements it, what to
+    // build). `cfg!` — not a `#[cfg]` on the loop — so every row is evaluated
+    // in every configuration and the list cannot rot behind the gate it
+    // describes. Only knobs that are FULLY inert without their feature belong
+    // here; a knob that still does part of its job gets a targeted message at
+    // its own read site instead (e.g. AZ_BACKEND=web in compositor.rs).
+    let gated: &[(&str, bool, &str, &str)] = &[
+        (
+            "AZ_E2E",
+            cfg!(feature = "debug-server"),
+            "debug-server",
+            "cargo build -p azul-dll --features build-dll,debug-server",
+        ),
+        (
+            "AZ_DEBUG",
+            cfg!(feature = "debug-server"),
+            "debug-server",
+            "cargo build -p azul-dll --features build-dll,debug-server",
+        ),
+        // The deterministic resize/tick scenario runner (common/e2e_test.rs).
+        // Without `e2e-test` BOTH run.rs hooks are compiled out and the whole
+        // module does not exist — the app just opens its normal window.
+        (
+            "AZ_E2E_TEST",
+            cfg!(feature = "e2e-test"),
+            "e2e-test",
+            "cargo build -p azul-dll --features build-dll,e2e-test",
+        ),
+        // First-frame PNG snapshot (headless/mod.rs). Read only under
+        // `cpurender`; without it the run looks normal and no file appears.
+        (
+            "AZ_HEADLESS_SNAPSHOT_PATH",
+            cfg!(feature = "cpurender"),
+            "cpurender",
+            "cargo build -p azul-dll --features build-dll,cpurender",
+        ),
+        // Per-frame PNG dump out of CpuBackend::render_frame — same gate.
+        (
+            "AZ_DUMP_FRAME_DIR",
+            cfg!(feature = "cpurender"),
+            "cpurender",
+            "cargo build -p azul-dll --features build-dll,cpurender",
+        ),
     ];
 
-    #[cfg(not(feature = "debug-server"))]
-    for (var, feature, how) in GATED {
-        if std::env::var(var).map(|v| !v.is_empty()).unwrap_or(false) {
+    for (var, compiled, feature, how) in gated {
+        if !compiled && std::env::var(var).map(|v| !v.is_empty()).unwrap_or(false) {
             eprintln!(
                 "[azul] {var} is set but this build has no `{feature}` feature, so it \
                  does NOTHING. Rebuild with: {how}"
             );
         }
     }
-
-    // Referenced in both configurations so the list cannot rot behind a cfg.
-    #[cfg(feature = "debug-server")]
-    let _ = GATED;
 }
 
 /// Set up E2E test runner: read the JSON file, push a `RunE2eTests`

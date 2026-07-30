@@ -131,6 +131,23 @@ impl AzBackend {
                             );
                         }
                     }
+                    // `web://…` selects the HTTP backend, which only exists
+                    // behind the `web` feature. Without it the value fell
+                    // through to the generic "unrecognized" warning below —
+                    // technically true, actively misleading: the value IS
+                    // recognized, the backend is compiled out. Same
+                    // say-so-when-inert contract as
+                    // `run::warn_about_inert_env_knobs`, at the read site
+                    // because only the `web…` values of AZ_BACKEND are inert.
+                    #[cfg(not(feature = "web"))]
+                    if val.to_lowercase().starts_with("web") {
+                        eprintln!(
+                            "[azul] AZ_BACKEND={val} requests the web backend, but this build \
+                             has no `web` feature, so it does NOTHING (falling back to the \
+                             default backend). Rebuild with: cargo build -p azul-dll \
+                             --features build-dll,web"
+                        );
+                    }
                     log_warn!(
                         LogCategory::Rendering,
                         "Unrecognized AZ_BACKEND value {:?}, falling back to default",
