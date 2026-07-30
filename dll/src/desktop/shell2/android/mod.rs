@@ -508,21 +508,55 @@ pub fn android_main(app: AndroidApp) {
 
         // Regenerate layout when something invalidated the frame (init,
         // resize, input). Populates cpu_backend.last_frame.
+        let mut frame_dirty = false;
         if window.common.regeneration_pending() {
-            if let Err(e) = window.regenerate_layout() {
-                log_error!(
-                    LogCategory::Layout,
-                    "[Android] regenerate_layout failed: {}",
-                    e
-                );
+            match window.regenerate_layout() {
+                Ok(_) => frame_dirty = true,
+                Err(e) => {
+                    log_error!(
+                        LogCategory::Layout,
+                        "[Android] regenerate_layout failed: {}",
+                        e
+                    );
+                }
             }
         }
 
-        // After draining events + relayout, present a frame.
-        let _ = render_frame(&mut window);
+        // Present ONLY when this iteration produced a frame. The loop wakes
+        // every 16 ms for timers, and presenting unconditionally locked,
+        // full-copied (~10 MB at 1080p RGBA) and unlockAndPost'ed an
+        // identical buffer on every wake — keeping SurfaceFlinger compositing
+        // at 60 Hz while the app sat idle. Everything that changes what is on
+        // screen funnels through request_regeneration (input, timers, thread
+        // writebacks, a11y, InitWindow, RedrawNeeded), so a clean iteration
+        // has nothing new to post.
+        if frame_dirty {
+            let _ = render_frame(&mut window);
+        }
     }
 
     log_info!(LogCategory::EventLoop, "[Android] android_main exiting cleanly");
+}
+
+/// The reason tag for a geometry/density-driven regeneration.
+///
+/// `Resize` is what every desktop backend tags window resizes with — it is the
+/// variant responsive layout callbacks branch on (see the enum's own doc) —
+/// and Android tagged them all `RefreshDom`, so a breakpoint-style layout
+/// could never distinguish a rotation from an app-state change. The one
+/// exception is the very first pass: `RegenerationState::pending_initial` is
+/// already queued as `Initial` and the user's layout callback must see THAT,
+/// so return the implicit `RefreshDom` (which `request_regeneration` never
+/// lets overwrite a more specific queued reason) while it is still pending.
+#[cfg(all(target_os = "android", feature = "android-activity"))]
+fn resize_reason(window: &AndroidWindow) -> RelayoutReason {
+    if window.common.regeneration_pending()
+        && window.common.regeneration_reason() == RelayoutReason::Initial
+    {
+        RelayoutReason::RefreshDom
+    } else {
+        RelayoutReason::Resize
+    }
 }
 
 #[cfg(all(target_os = "android", feature = "android-activity"))]
@@ -558,7 +592,12 @@ fn handle_poll_event(app: &AndroidApp, window: &mut AndroidWindow, event: PollEv
                         window.common.current_window_state.size.dimensions.width = logical_w;
                         window.common.current_window_state.size.dimensions.height = logical_h;
                         window.native_window = Some(nw);
-                        window.common.request_regeneration(RelayoutReason::RefreshDom);
+                        // On the launch InitWindow this preserves the queued
+                        // `Initial`; on a re-attach (rotation recreates the
+                        // surface with new dimensions and does NOT deliver
+                        // WindowResized) it tags the pass `Resize`.
+                        let reason = resize_reason(window);
+                        window.common.request_regeneration(reason);
                     }
                 }
             }
@@ -579,10 +618,41 @@ fn handle_poll_event(app: &AndroidApp, window: &mut AndroidWindow, event: PollEv
                             (nw.height() as f32) / android_scale;
                     }
                 }
-                window.common.request_regeneration(RelayoutReason::RefreshDom);
+                let reason = resize_reason(window);
+                window.common.request_regeneration(reason);
+            }
+            MainEvent::ConfigChanged { .. } => {
+                // Density can change while running: fold/unfold, moving the
+                // app to an external display, the user's display-size setting.
+                // WindowResized alone misses pure-density changes (same
+                // surface size, different scale), which left every
+                // physical<->logical conversion — layout dpi, input scaling,
+                // a11y bounds — on the stale factor.
+                let density = app.config().density().filter(|&d| d > 0).unwrap_or(160);
+                let dpi = (((density as f32) * 96.0 / 160.0).round() as u32).max(1);
+                if window.common.current_window_state.size.dpi != dpi {
+                    let reason = resize_reason(window);
+                    window.common.current_window_state.size.dpi = dpi;
+                    #[cfg(feature = "ndk")]
+                    if let Some(nw) = window.native_window.as_ref() {
+                        let android_scale = (density as f32) / 160.0;
+                        window.common.current_window_state.size.dimensions.width =
+                            (nw.width() as f32) / android_scale;
+                        window.common.current_window_state.size.dimensions.height =
+                            (nw.height() as f32) / android_scale;
+                    }
+                    window.common.request_regeneration(reason);
+                }
             }
             MainEvent::InputAvailable => {
                 drain_input(app, window);
+            }
+            MainEvent::RedrawNeeded { .. } => {
+                // The system needs the window's content re-posted (resume,
+                // compositor state loss). Presents are gated on regeneration,
+                // so raise the request — the regenerate takes the incremental
+                // "nothing changed" path and the blit re-posts the pixmap.
+                window.common.request_regeneration(RelayoutReason::RefreshDom);
             }
             MainEvent::Destroy => {
                 window.close();
@@ -660,24 +730,48 @@ fn drain_input(app: &AndroidApp, window: &mut AndroidWindow) {
                 let mut touch_points: Vec<azul_core::window::TouchPoint> = Vec::new();
                 let mut first_pointer = true;
 
+                // ACTION_POINTER_UP still lists the LIFTING finger in
+                // pointers() — the classic index-vs-id trap's sibling. Keep it
+                // out of touch_state or the lifted finger stays "touching"
+                // until the next MOVE happens to rebuild the list.
+                // MotionEvent::pointer_index() identifies which pointer the
+                // action is about (only meaningful for the Down/Up family).
+                let lifted_index = if matches!(m.action(), MotionAction::PointerUp) {
+                    Some(m.pointer_index())
+                } else {
+                    None
+                };
+
                 for p in m.pointers() {
-                    let pos = LogicalPosition::new(p.raw_x() / dpi, p.raw_y() / dpi);
+                    // Window-relative coordinates (AMotionEvent_getX/getY), NOT
+                    // raw_x/raw_y: raw is DISPLAY-relative, so in split-screen /
+                    // freeform / pop-up multi-window the window's offset shifted
+                    // every touch and hit tests landed on the wrong node. The
+                    // surface we render into lives in window space; getX/getY is
+                    // the matching input space (they only coincide when the
+                    // window sits at the display origin).
+                    let pos = LogicalPosition::new(p.x() / dpi, p.y() / dpi);
                     if first_pointer {
                         mouse_pos = pos;
                         first_pointer = false;
                     }
 
-                    let pressure = p.pressure();
-                    let force = if pressure > 0.0 && pressure <= 1.0 {
-                        pressure
-                    } else {
-                        0.5 // TouchPoint sentinel for "pressure not available"
-                    };
-                    touch_points.push(azul_core::window::TouchPoint {
-                        id: p.pointer_id() as u64,
-                        position: pos,
-                        force,
-                    });
+                    // The finger this PointerUp is about is lifting — it still
+                    // appears in pointers(), but it is no longer touching.
+                    // (Stylus lift is handled separately below via the action.)
+                    if Some(p.pointer_index()) != lifted_index {
+                        let pressure = p.pressure();
+                        let force = if pressure > 0.0 && pressure <= 1.0 {
+                            pressure
+                        } else {
+                            0.5 // TouchPoint sentinel for "pressure not available"
+                        };
+                        touch_points.push(azul_core::window::TouchPoint {
+                            id: p.pointer_id() as u64,
+                            position: pos,
+                            force,
+                        });
+                    }
 
                     let tool = p.tool_type();
                     if matches!(tool, ToolType::Stylus | ToolType::Eraser) {
@@ -889,13 +983,22 @@ fn render_frame(window: &mut AndroidWindow) -> Result<(), WindowError> {
     let ph = pixmap.height() as i32;
     if pw <= 0 || ph <= 0 { return Ok(()); }
 
-    // Tell the surface we want RGBA8 of this exact size. Returns an
-    // io::Error if Android can't satisfy — surface is gone or surfaceflinger
-    // rejected the format; we just skip the frame.
-    let _ = nw.set_buffers_geometry(
+    // Tell the surface we want RGBA8 of this exact size. If Android can't
+    // satisfy (surface gone, surfaceflinger rejected the format) SKIP the
+    // frame: locking anyway hands us a buffer whose format/geometry does not
+    // match the bytes we are about to write, and the old `let _ =` swallow
+    // then blitted RGBA rows into it regardless.
+    if let Err(e) = nw.set_buffers_geometry(
         pw, ph,
         Some(ndk::hardware_buffer_format::HardwareBufferFormat::R8G8B8A8_UNORM),
-    );
+    ) {
+        log_debug!(
+            LogCategory::Rendering,
+            "[Android] setBuffersGeometry({}x{} RGBA8) failed: {}; skipping frame",
+            pw, ph, e,
+        );
+        return Ok(());
+    }
 
     let mut guard = match nw.lock(None) {
         Ok(g) => g,
@@ -905,14 +1008,53 @@ fn render_frame(window: &mut AndroidWindow) -> Result<(), WindowError> {
         }
     };
 
+    // The locked buffer's REAL format. `lines()` derives its bytes-per-pixel
+    // from this, so a producer that ignored the RGBA8 request (legacy fixed-
+    // format surfaces) would make the copy below reinterpret RGBA bytes as
+    // 565/etc. — garbage on every pixel. There is no "unlock without post"
+    // in the NDK (ANativeWindow_unlockAndPost is the only unlock), so on a
+    // mismatch present a deterministic cleared frame instead of the buffer's
+    // undefined contents.
+    {
+        use ndk::hardware_buffer_format::HardwareBufferFormat as Hbf;
+        let format = guard.format();
+        if !matches!(format, Hbf::R8G8B8A8_UNORM | Hbf::R8G8B8X8_UNORM) {
+            log_debug!(
+                LogCategory::Rendering,
+                "[Android] lock returned non-RGBA8 buffer format {:?}; clearing frame",
+                format,
+            );
+            if let Some(bytes) = guard.bytes() {
+                // SAFETY: writing initialised bytes into MaybeUninit is sound.
+                unsafe {
+                    core::ptr::write_bytes(bytes.as_mut_ptr().cast::<u8>(), 0, bytes.len());
+                }
+            }
+            return Ok(()); // guard drop unlockAndPosts the cleared buffer
+        }
+    }
+
     // Per-line blit. `lines()` returns one mutable slice per scanline,
     // trimmed to the visible width — exactly what we need for an RGBA→RGBA
     // copy where stride may exceed width.
+    //
+    // Any part of the buffer the pixmap does not cover MUST still be written:
+    // ANativeWindow_lock hands back a dequeued buffer with UNDEFINED contents
+    // (typically a stale frame from several swaps ago — Android does not
+    // guarantee back-buffer preservation), so rows/columns we skip would show
+    // garbage. Normally geometry matches the pixmap exactly and the fills
+    // below are no-ops; they only run if the buffer disagrees with the
+    // geometry we just set.
     let src = pixmap.data();
     let src_stride = (pw as usize) * 4;
     if let Some(lines) = guard.lines() {
         for (y, line) in lines.enumerate() {
-            if y >= ph as usize { break; }
+            let dst_ptr = line.as_mut_ptr().cast::<u8>();
+            if y >= ph as usize {
+                // SAFETY: in-bounds write of initialised bytes.
+                unsafe { core::ptr::write_bytes(dst_ptr, 0, line.len()) };
+                continue;
+            }
             let src_off = y * src_stride;
             let end = (src_off + src_stride).min(src.len());
             let src_row = &src[src_off..end];
@@ -920,8 +1062,10 @@ fn render_frame(window: &mut AndroidWindow) -> Result<(), WindowError> {
             // SAFETY: line is &mut [MaybeUninit<u8>]; writing initialised
             // bytes is sound. We never read line before writing it.
             unsafe {
-                let dst_ptr = line.as_mut_ptr().cast::<u8>();
                 core::ptr::copy_nonoverlapping(src_row.as_ptr(), dst_ptr, n);
+                if n < line.len() {
+                    core::ptr::write_bytes(dst_ptr.add(n), 0, line.len() - n);
+                }
             }
         }
     }

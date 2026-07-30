@@ -148,6 +148,29 @@ const K_CG_IMAGE_ALPHA_PREMULTIPLIED_LAST: u32 = 1;
 const K_CG_BITMAP_BYTE_ORDER_DEFAULT: u32 = 0;
 const K_CG_RENDERING_INTENT_DEFAULT: u32 = 0;
 
+/// `CGDataProviderReleaseDataCallback` for the per-frame pixel copy handed to
+/// `CGDataProviderCreateWithData` in [`display_layer`].
+///
+/// Core Graphics does NOT copy the bytes: the provider references them for the
+/// lifetime of every `CGImage` built on it, and the layer retains that image
+/// until the NEXT contents assignment — QuartzCore reads the bytes
+/// asynchronously at the Core Animation commit at the end of the run-loop
+/// turn. So the buffer must be owned by the provider and freed here, when CG
+/// says it is done, not when the creating stack frame unwinds.
+#[cfg(feature = "cpurender")]
+extern "C" fn release_frame_pixels(_info: *mut c_void, data: *const u8, size: usize) {
+    // Reconstitute the Box<[u8]> leaked in display_layer and drop it.
+    // SAFETY: `data`/`size` are exactly the pointer + length of the boxed
+    // slice passed to CGDataProviderCreateWithData below; CG invokes this
+    // callback exactly once, when the last retain on the provider is gone.
+    unsafe {
+        drop(Box::from_raw(core::ptr::slice_from_raw_parts_mut(
+            data as *mut u8,
+            size,
+        )));
+    }
+}
+
 // ─── Global window pointer ────────────────────────────────────────────
 //
 // `extern "C"` Objective-C callbacks are static functions, so they reach
@@ -163,12 +186,39 @@ unsafe fn azul_ios_window<'a>() -> Option<&'a mut IOSWindow> {
     AZUL_IOS_WINDOW.as_mut()
 }
 
+/// The `CADisplayLink` driving [`display_tick`]. Stored (retained) so the
+/// lifecycle hooks can pause it: a display link is NOT auto-paused when the
+/// app leaves the foreground — the process merely gets SUSPENDED a few
+/// seconds after `applicationDidEnterBackground:`, and until then the tick
+/// keeps rendering + committing frames nobody can see. Main-thread only,
+/// like every UIKit object here.
+static mut AZUL_IOS_DISPLAY_LINK: *mut Object = ptr::null_mut();
+
+/// Pause / resume the render tick. No-op before `install_display_link`.
+unsafe fn set_display_link_paused(paused: bool) {
+    let link = AZUL_IOS_DISPLAY_LINK;
+    if !link.is_null() {
+        let _: () = msg_send![link, setPaused: paused];
+    }
+}
+
 // ─── AzulView (UIView subclass) ───────────────────────────────────────
 
-extern "C" fn draw_rect(this: &Object, _cmd: Sel, _rect: CGRect) {
+extern "C" fn display_layer(_this: &Object, _cmd: Sel, layer: *mut Object) {
     // Sprint C iOS blit. Mirrors the Android render_frame() path:
     // regenerate layout if needed -> read cpu_backend.last_frame -> wrap
-    // the AzulPixmap bytes in a CGImage -> assign to `view.layer.contents`.
+    // the AzulPixmap bytes in a CGImage -> assign to `layer.contents`.
+    //
+    // This is the `displayLayer:` CALayerDelegate override, NOT `drawRect:`.
+    // UIView is its layer's delegate; because AzulView implements
+    // `displayLayer:`, Core Animation calls it instead of allocating a
+    // CGContext backing store — which is the ONLY arrangement under which a
+    // manual `layer.contents` assignment sticks. The previous implementation
+    // assigned `contents` inside `drawRect:`, and the view machinery replaces
+    // `contents` with its (empty, never-drawn-into) backing store as soon as
+    // `drawRect:` returns — so not one blitted frame ever reached the screen.
+    // `setNeedsDisplay` still schedules this exactly like it scheduled
+    // `drawRect:` (mark layer -> CA display pass -> delegate displayLayer:).
     let window = match unsafe { azul_ios_window() } {
         Some(w) => w,
         None => return,
@@ -190,15 +240,35 @@ extern "C" fn draw_rect(this: &Object, _cmd: Sel, _rect: CGRect) {
         if pw == 0 || ph == 0 {
             return;
         }
-        let bytes = pixmap.data();
+        // Hand the provider its OWN copy of the frame. The old code passed a
+        // pointer into `cpu_backend.last_frame` with `release: None` ("pixmap
+        // outlives this call") — but the CGImage outlives the call: the layer
+        // retains it until the next contents assignment, and QuartzCore reads
+        // the provider bytes at the async CA commit. The very next
+        // `render_frame` may reallocate or drop that buffer first (it takes
+        // and replaces `last_frame` every pass), which is a use-after-free at
+        // commit time (ERROR_CGDataProvider_BufferIsNotReadable / torn
+        // frames). The copy is freed in `release_frame_pixels` when CG drops
+        // its last reference.
+        let owned: Box<[u8]> = Box::from(pixmap.data());
+        let len = owned.len();
+        let data_ptr = Box::into_raw(owned) as *mut u8;
         unsafe {
             let cs = CGColorSpaceCreateDeviceRGB();
             let provider = CGDataProviderCreateWithData(
                 core::ptr::null_mut(),
-                bytes.as_ptr(),
-                bytes.len(),
-                None, // pixmap outlives this draw_rect call
+                data_ptr,
+                len,
+                Some(release_frame_pixels),
             );
+            if provider.is_null() {
+                // CG never took ownership — reclaim the copy ourselves.
+                drop(Box::from_raw(core::ptr::slice_from_raw_parts_mut(
+                    data_ptr, len,
+                )));
+                CGColorSpaceRelease(cs);
+                return;
+            }
             let image = CGImageCreate(
                 pw,
                 ph,
@@ -212,13 +282,17 @@ extern "C" fn draw_rect(this: &Object, _cmd: Sel, _rect: CGRect) {
                 false,
                 K_CG_RENDERING_INTENT_DEFAULT,
             );
-            let layer: *mut Object = msg_send![this, layer];
-            let _: () = msg_send![layer, setContents: image];
-            CGImageRelease(image);
+            if !image.is_null() {
+                let _: () = msg_send![layer, setContents: image];
+                CGImageRelease(image);
+            }
             CGDataProviderRelease(provider);
             CGColorSpaceRelease(cs);
         }
     }
+    // `layer` is only touched on the cpurender path.
+    #[cfg(not(feature = "cpurender"))]
+    let _ = layer;
 }
 
 /// Shared body for the four UITouch responder selectors. `phase`
@@ -351,50 +425,61 @@ fn handle_touch(this: &Object, touches: *mut Object, phase: u8) {
         Some(window.common.current_window_state.clone());
 
     {
+        // Refresh TouchState FIRST — the mouse-button emulation below needs
+        // to know how many fingers REMAIN after this phase. On ended /
+        // cancelled UIKit hands us only the touches that ended in this phase
+        // — the rest are still active. Filter the existing list against the
+        // IDs UIKit just reported as ended, rather than clobbering it.
+        let remaining = {
+            let ts = &mut window.common.current_window_state.touch_state;
+            match phase {
+                0 | 1 => {
+                    // Began / moved → merge by ID. Replace existing entries
+                    // with the new sample; append new IDs.
+                    let mut existing: Vec<TouchPoint> =
+                        ts.touch_points.clone().into_library_owned_vec();
+                    for new_point in &points {
+                        if let Some(slot) =
+                            existing.iter_mut().find(|p| p.id == new_point.id)
+                        {
+                            *slot = *new_point;
+                        } else {
+                            existing.push(*new_point);
+                        }
+                    }
+                    ts.touch_points = TouchPointVec::from_vec(existing);
+                }
+                2 | 3 => {
+                    // Ended / cancelled → drop the reported IDs.
+                    let drop_ids: Vec<u64> =
+                        points.iter().map(|p| p.id).collect();
+                    let mut existing: Vec<TouchPoint> =
+                        ts.touch_points.clone().into_library_owned_vec();
+                    existing.retain(|p| !drop_ids.contains(&p.id));
+                    ts.touch_points = TouchPointVec::from_vec(existing);
+                }
+                _ => {}
+            }
+            ts.num_touches = ts.touch_points.len();
+            ts.num_touches
+        };
+
         let ms = &mut window.common.current_window_state.mouse_state;
         if let Some(p) = pos {
             ms.cursor_position = CursorPosition::InWindow(p);
         }
         match phase {
             0 => ms.left_down = true,
-            2 | 3 => ms.left_down = false,
+            // Only the LAST finger lifting releases the emulated left
+            // button. UIKit reports each ended finger in its own
+            // touchesEnded:/touchesCancelled: set, so clearing left_down
+            // unconditionally cut the remaining fingers' press short
+            // halfway through every multi-finger interaction (Android's
+            // PointerUp arm already gets this right by leaving left_down
+            // alone while the primary is still down).
+            2 | 3 if remaining == 0 => ms.left_down = false,
             _ => {}
         }
-
-        // Refresh TouchState. On ended / cancelled UIKit hands us only
-        // the touches that ended in this phase — the rest are still
-        // active. Filter the existing list against the IDs UIKit just
-        // reported as ended, rather than clobbering it.
-        let ts = &mut window.common.current_window_state.touch_state;
-        match phase {
-            0 | 1 => {
-                // Began / moved → merge by ID. Replace existing entries
-                // with the new sample; append new IDs.
-                let mut existing: Vec<TouchPoint> =
-                    ts.touch_points.clone().into_library_owned_vec();
-                for new_point in &points {
-                    if let Some(slot) =
-                        existing.iter_mut().find(|p| p.id == new_point.id)
-                    {
-                        *slot = *new_point;
-                    } else {
-                        existing.push(*new_point);
-                    }
-                }
-                ts.touch_points = TouchPointVec::from_vec(existing);
-            }
-            2 | 3 => {
-                // Ended / cancelled → drop the reported IDs.
-                let drop_ids: Vec<u64> =
-                    points.iter().map(|p| p.id).collect();
-                let mut existing: Vec<TouchPoint> =
-                    ts.touch_points.clone().into_library_owned_vec();
-                existing.retain(|p| !drop_ids.contains(&p.id));
-                ts.touch_points = TouchPointVec::from_vec(existing);
-            }
-            _ => {}
-        }
-        ts.num_touches = ts.touch_points.len();
     }
 
     if let Some(p) = pos {
@@ -435,7 +520,7 @@ fn handle_touch(this: &Object, touches: *mut Object, phase: u8) {
         }
     }
 
-    // Ask the view to redraw — drawRect: will pick up the new layout.
+    // Ask the view to redraw — displayLayer: will pick up the new layout.
     let view = this as *const Object as *mut Object;
     let _: () = unsafe { msg_send![view, setNeedsDisplay] };
 }
@@ -478,7 +563,7 @@ extern "C" fn touches_cancelled(
 /// shift, etc. We re-read `[this bounds]`, refresh
 /// `current_window_state.size.dimensions`, and flag a relayout. The
 /// CADisplayLink will pick up the pending regeneration on its next
-/// tick and call `present()` → `drawRect:` → `regenerate_layout`.
+/// tick and call `present()` → `displayLayer:` → `regenerate_layout`.
 extern "C" fn layout_subviews(this: &Object, _cmd: Sel) {
     use objc::sel;
     // Call super so UIView's own layout (autoresizing masks, constraints)
@@ -504,7 +589,21 @@ extern "C" fn layout_subviews(this: &Object, _cmd: Sel) {
                 );
                 dims.width = w;
                 dims.height = h;
-                window.common.request_regeneration(RelayoutReason::RefreshDom);
+                // `Resize` is the tag every desktop backend gives geometry
+                // changes — the variant responsive layout callbacks branch
+                // on; `RefreshDom` hid every rotation / split-view resize
+                // from them. Preserve a still-pending `Initial` for the
+                // launch pass (the first layoutSubviews can legitimately
+                // differ from the UIScreen bounds used at construction,
+                // e.g. iPad multitasking).
+                let reason = if window.common.regeneration_pending()
+                    && window.common.regeneration_reason() == RelayoutReason::Initial
+                {
+                    RelayoutReason::RefreshDom
+                } else {
+                    RelayoutReason::Resize
+                };
+                window.common.request_regeneration(reason);
             }
         }
         // Safe-area insets (notch / Dynamic Island / home indicator / rounded
@@ -832,6 +931,12 @@ unsafe fn install_display_link(_view: *mut Object) {
     let mode: *mut Object =
         msg_send![class!(NSString), stringWithUTF8String: default_mode_cstr];
     let _: () = msg_send![link, addToRunLoop: main_loop forMode: mode];
+
+    // Keep a (retained) handle so the background/foreground lifecycle hooks
+    // can pause the tick — `displayLinkWithTarget:` returns an autoreleased
+    // object that only the run loop keeps alive otherwise.
+    let _: *mut Object = msg_send![link, retain];
+    AZUL_IOS_DISPLAY_LINK = link;
 }
 
 /// Attach UITap / UILongPress / UISwipe(×4) / UIPinch / UIRotation
@@ -881,9 +986,17 @@ fn get_or_create_view_class() -> &'static Class {
         let superclass = class!(UIView);
         let mut decl = ClassDecl::new("AzulView", superclass).unwrap();
 
+        // `displayLayer:` (CALayerDelegate), deliberately NOT `drawRect:`.
+        // A view that implements `drawRect:` gets a CGContext backing store,
+        // and the view machinery assigns THAT to `layer.contents` right after
+        // `drawRect:` returns — clobbering any contents set manually inside
+        // it, which is exactly what the first version of this backend did
+        // (the screen stayed empty). Implementing `displayLayer:` instead
+        // makes Core Animation hand the display pass to us, no backing store
+        // is created, and the `layer.contents = CGImage` assignment sticks.
         decl.add_method(
-            sel!(drawRect:),
-            draw_rect as extern "C" fn(&Object, Sel, CGRect),
+            sel!(displayLayer:),
+            display_layer as extern "C" fn(&Object, Sel, *mut Object),
         );
         decl.add_method(
             sel!(touchesBegan:withEvent:),
@@ -969,6 +1082,9 @@ extern "C" fn did_finish_launching(
 
 extern "C" fn app_did_become_active(_this: &Object, _cmd: Sel, _app: *mut Object) {
     log_info!(LogCategory::EventLoop, "[iOS] applicationDidBecomeActive:");
+    // Covers the resume path that skips willEnterForeground (first launch
+    // does both; unpausing twice is a harmless idempotent setter).
+    unsafe { set_display_link_paused(false) };
     if let Some(window) = unsafe { azul_ios_window() } {
         // Force a redraw so the layer contents are fresh after
         // returning from background.
@@ -979,18 +1095,27 @@ extern "C" fn app_did_become_active(_this: &Object, _cmd: Sel, _app: *mut Object
 
 extern "C" fn app_will_resign_active(_this: &Object, _cmd: Sel, _app: *mut Object) {
     log_info!(LogCategory::EventLoop, "[iOS] applicationWillResignActive:");
-    // Could pause timers here; CADisplayLink already stops firing
-    // when the app is inactive so render-driven work pauses naturally.
+    // Deliberately does NOT pause the display link: resign-active also fires
+    // for transient overlays (control center, incoming-call banner, app
+    // switcher) where the app remains visible and animations should keep
+    // running. The pause happens in applicationDidEnterBackground:.
 }
 
 extern "C" fn app_did_enter_background(_this: &Object, _cmd: Sel, _app: *mut Object) {
     log_info!(LogCategory::EventLoop, "[iOS] applicationDidEnterBackground:");
+    // Stop the render tick. CADisplayLink is NOT auto-paused in the
+    // background — the process is merely suspended a few seconds from now,
+    // and until then every vsync would run layout/CPU-render/CA-commit for
+    // an invisible app (the earlier comment claiming the link "already stops
+    // firing when the app is inactive" was wrong on both counts).
     // iOS gives ~5 s of background time. Sprint M-iOS-life will use it
     // to checkpoint app_data / hand off to BGTaskScheduler.
+    unsafe { set_display_link_paused(true) };
 }
 
 extern "C" fn app_will_enter_foreground(_this: &Object, _cmd: Sel, _app: *mut Object) {
     log_info!(LogCategory::EventLoop, "[iOS] applicationWillEnterForeground:");
+    unsafe { set_display_link_paused(false) };
 }
 
 extern "C" fn app_will_terminate(_this: &Object, _cmd: Sel, _app: *mut Object) {
@@ -1289,7 +1414,7 @@ impl IOSWindow {
 
     /// Run a full layout regeneration pass and CPU-render the resulting
     /// display list. Mirrors `AndroidWindow::regenerate_layout()`. Called
-    /// from the `drawRect:` handler when a regeneration is pending
+    /// from the `displayLayer:` handler when a regeneration is pending
     /// (Sprint C-iOS wires that).
     pub fn regenerate_layout_inner(
         &mut self,
@@ -1352,7 +1477,7 @@ impl IOSWindow {
         // MapWidget's first tile fetch never starts).
 
         // CPU-render the frame — populates `self.cpu_backend.last_frame`,
-        // ready for `drawRect:` to blit into the layer (Sprint C-iOS).
+        // ready for `displayLayer:` to blit into the layer (Sprint C-iOS).
         #[cfg(feature = "cpurender")]
         {
             let ws = &self.common.current_window_state;
