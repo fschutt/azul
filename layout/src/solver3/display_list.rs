@@ -1299,6 +1299,32 @@ impl DisplayListBuilder {
     /// see and nobody can click is exactly what an unpositioned node should
     /// contribute.
     fn push_item(&mut self, item: DisplayListItem) {
+        // A TextLayout carrying `FontHash::invalid()` (0) describes text in a
+        // font that does not exist. Verified before dropping it, because
+        // "harmless metadata" is a claim that has to be checked:
+        //   * compositor2.rs   — explicit no-op, "handled elsewhere (via
+        //                        PushCachedTextRuns)"; the GPU path never draws it
+        //   * cpurender/raster — "TextLayout is metadata for PDF/accessibility -
+        //                        skip in CPU rendering"
+        //   * hit-testing      — uses separate HitTestArea items
+        //   * selection        — uses get_selection_rects on the inline layout,
+        //                        not display-list items
+        //   * scan_used_fonts  — reads font_hash (fixed separately: 0 was being
+        //                        turned into a phantom FontKey and marked live)
+        //   * PDF export       — cannot render text in a font it cannot resolve
+        // So nothing draws, hits, or selects it, and the one consumer that read
+        // it was harmed by doing so.
+        if let DisplayListItem::TextLayout { font_hash, .. } = &item {
+            if font_hash.font_hash == 0 {
+                #[cfg(debug_assertions)]
+                eprintln!(
+                    "[azul][displaylist] dropping a TextLayout with \
+                     FontHash::invalid() — its font never resolved, so no \
+                     renderer would have drawn it"
+                );
+                return;
+            }
+        }
         if let Some(b) = item.bounds() {
             let unassigned = |v: f32| !v.is_finite() || v <= UNASSIGNED_POSITION_LIMIT;
             if unassigned(b.origin.x) || unassigned(b.origin.y) {

@@ -2598,6 +2598,17 @@ impl LayoutWindow {
                     DisplayListItem::TextLayout { font_hash, .. } => font_hash.font_hash,
                     _ => continue,
                 };
+                // 0 is `FontHash::invalid()` — "invalid/unknown font", per its
+                // own doc comment. Synthesising a FontKey from it produced
+                // `FontKey { namespace: IdNamespace(1), key: 0 }` (the `ns == 0`
+                // guard below rewrites the namespace to 1) and inserted that
+                // phantom into the USED-FONTS set that callers diff for
+                // resource GC. A font that does not exist was thereby marked
+                // live. The published 0.2.0 display list carried 8 items with
+                // this hash.
+                if hash == 0 {
+                    continue;
+                }
                 // Deterministic FontKey from hash (same algorithm as wr_translate2)
                 let ns = (hash >> 32) as u32;
                 let ns = if ns == 0 { 1 } else { ns };
