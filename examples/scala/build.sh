@@ -59,6 +59,47 @@ SCALAC="$(resolve_cmd scalac || true)"
 # Populated by find_scala_jar so the failure diagnostic can show the search path.
 declare -a SEARCHED=()
 
+# The JVM classpath is NOT portable, and this script assumed it was.
+#
+# On Windows the separator is ';', not ':', and java.exe cannot read the MSYS
+# '/c/Users/...' form that git-bash hands out — it needs 'C:/Users/...'. With
+# ':' and MSYS paths the whole classpath collapses into one nonsense entry, and
+# the symptom is not a classpath error but:
+#
+#     Error: Could not find or load main class com.azul.HelloWorld
+#     Caused by: java.lang.ClassNotFoundException: com.azul.HelloWorld
+#
+# which reads like the jar was never built. It was; scalac had just compiled it
+# successfully one line above.
+#
+# `lang_java()` in scripts/e2e_language_matrix.sh already does exactly this —
+# CPSEP plus `cygpath -m` — which is why the java example passes on windows-2022
+# while this one did not. Same treatment here.
+CPSEP=":"
+case "$(uname -s 2>/dev/null)" in
+    MINGW*|MSYS*|CYGWIN*) CPSEP=";" ;;
+esac
+
+# `cygpath -m` yields the mixed form (C:/...) the JVM accepts; a no-op elsewhere.
+native_path() {
+    if [ "$CPSEP" = ";" ]; then
+        cygpath -m "$1" 2>/dev/null || printf '%s\n' "$1"
+    else
+        printf '%s\n' "$1"
+    fi
+}
+
+# join_cp <path>... -> classpath string in the platform's spelling
+join_cp() {
+    local out="" p
+    for p in "$@"; do
+        [ -n "$p" ] || continue
+        p="$(native_path "$p")"
+        if [ -z "$out" ]; then out="$p"; else out="${out}${CPSEP}${p}"; fi
+    done
+    printf '%s\n' "$out"
+}
+
 find_scala_jar() {
     # $1: artifact directory name, $2: jar basename prefix
     local scalac_bin root
@@ -139,7 +180,7 @@ for jar in "$JNA_JAR" "$SCALA_LIB" "$SCALA3_LIB"; do
 done
 
 echo "[scala] compiling HelloWorld.scala"
-"$SCALAC" -cp "$JAVA_CLASSES:$JNA_JAR" HelloWorld.scala -d HelloWorld.jar
+"$SCALAC" -cp "$(join_cp "$JAVA_CLASSES" "$JNA_JAR")" HelloWorld.scala -d HelloWorld.jar
 
 # -XstartOnFirstThread is a macOS-only JVM flag (needed there for libazul's
 # NSApplication loop). HotSpot on Linux/Windows rejects it outright with
@@ -151,5 +192,5 @@ if [ "$(uname -s)" = "Darwin" ]; then
 fi
 echo "[scala] running (DYLD_LIBRARY_PATH=. ${FIRST_THREAD[*]})"
 exec java "${FIRST_THREAD[@]}" -Djna.library.path=. \
-    -cp "HelloWorld.jar:$JAVA_CLASSES:$JNA_JAR:$SCALA_LIB:$SCALA3_LIB" \
+    -cp "$(join_cp HelloWorld.jar "$JAVA_CLASSES" "$JNA_JAR" "$SCALA_LIB" "$SCALA3_LIB")" \
     com.azul.HelloWorld
