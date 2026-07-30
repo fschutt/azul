@@ -1852,6 +1852,30 @@ impl HeadlessWindow {
                 }
             }
 
+            // ── Phase 2b: Honour `flags.close_requested` ─────────
+            // `CallbackChange::CloseWindow` — the cross-platform "quit" API a
+            // callback or timer uses — does not close anything itself: it sets
+            // `flags.close_requested` and relies on the shell's loop to consume
+            // it. Every desktop backend does (the Linux run loop's
+            // `close_requested() → close()` check, Windows' WM_PAINT/WndProc
+            // checks, macOS's sync_window_state) — headless did NOT, so an app
+            // whose exit path is `window.close()` from a callback kept its loop
+            // alive forever: the flag was set, `DoNothing` came back, and
+            // `while self.is_open()` never terminated. With an active timer the
+            // loop even kept polling at 60 Hz, which is exactly the
+            // "self-test never exits after the last window closes" hang.
+            // Checked here — after events (Phase 1), a11y actions (Phase 1b)
+            // and timers/threads (Phase 2), the three places a callback can
+            // run — so a close requested anywhere this iteration exits before
+            // the condvar wait instead of after a wake that may never come.
+            if self.common.current_window_state.flags.close_requested {
+                log_info!(
+                    LogCategory::EventLoop,
+                    "[Headless] close_requested by callback — closing window"
+                );
+                self.close();
+            }
+
             // ── Phase 3: Spawn sub-HeadlessWindows for pending creates ─
             while let Some(pending_create) = self.pending_window_creates.pop() {
                 log_debug!(
@@ -1883,6 +1907,12 @@ impl HeadlessWindow {
             children.retain_mut(|child| {
                 while let Some(ev) = child.poll_event() {
                     if let HeadlessEvent::Close = ev { child.close(); }
+                }
+                // Same close_requested contract as the parent window above: a
+                // callback that closes a child popup/dialog sets the flag and
+                // the loop must consume it.
+                if child.common.current_window_state.flags.close_requested {
+                    child.close();
                 }
                 child.pending_window_creates.clear();
                 child.is_open()
