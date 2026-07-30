@@ -2112,9 +2112,17 @@ jobs:
           # object file for LTO"). The engine is already optimized inside the .a;
           # only the thin demo glue is built here, so LTO buys nothing anyway.
           CARGO_PROFILE_RELEASE_LTO: "off"
+          # `gh release download/view` for the reuse fingerprint check below.
+          # Read-only; the workflow's top-level permissions already allow it.
+          GH_TOKEN: ${{ github.token }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
         shell: bash
         run: |
-          set +e
+          # NOT `set +e`. This step used to opt out of error checking wholesale,
+          # which is what allowed ten consecutive link failures to reach the end
+          # of the loop and report success. Failures are collected explicitly
+          # below and turned into one actionable error.
+          set -uo pipefail
           # Keep ONLY the static archive so build.rs's probe_dir finds no dylib
           # and falls through to `rustc-link-lib=static=azul` (self-contained).
           rm -f libazul-prebuilt/libazul.so libazul-prebuilt/libazuldbg.so \
@@ -2123,10 +2131,91 @@ jobs:
                 libazul-prebuilt/azul.dll.lib libazul-prebuilt/azul.so \
                 libazul-prebuilt/azul.pyd 2>/dev/null
           echo "Linking against static lib(s):"; ls -la libazul-prebuilt/
+          # A DEMO THAT DOES NOT BUILD IS A FAILURE, NOT A WARNING.
+          #
+          # This was `cargo build ... || echo "::warning::... — skipping"`, and
+          # with `if-no-files-found: ignore` on the upload and a `[skip]` in the
+          # staging loop, that made three independent cannot-fail layers. On
+          # 2026-07-30 the macos-14 leg reported SUCCESS having built ZERO of
+          # ten demos (every one a link error), the upload ignored the empty
+          # directory, and the release kept serving binaries from 2026-07-04.
+          # 21 of 75 published assets were 26 days stale and nothing said so.
+          #
+          # There is exactly ONE legitimate reason not to ship a fresh binary:
+          # nothing that feeds it changed since the one already published. That
+          # case must be RECOGNISED and NAMED, not inferred from an absent file.
+          # Everything else is red.
+          #
+          # The fingerprint is the last commit touching this demo's own crate
+          # plus the engine it links, compared against the manifest published
+          # alongside the previous release. Coarse on purpose: it can only ever
+          # cause an UNNECESSARY rebuild, never a missed one.
+          ENGINE_PATHS="core layout css dll api.json Cargo.toml Cargo.lock"
+          prev_manifest=""
+          if gh release download "${AZUL_VERSION}" --repo "$GITHUB_REPOSITORY" \
+               --pattern "demo-build-manifest-${{ matrix.os_suffix }}.json" --dir /tmp --clobber 2>/dev/null; then
+            prev_manifest="/tmp/demo-build-manifest-${{ matrix.os_suffix }}.json"
+            echo "found previous demo manifest:"; cat "$prev_manifest"
+          else
+            echo "::notice::no demo-build-manifest-${{ matrix.os_suffix }}.json on release ${AZUL_VERSION} — every demo will be rebuilt (first run with fingerprinting, or the previous run predates it)"
+          fi
+
+          : > /tmp/demo-manifest-lines
+          failed=()
+          reused=()
+          built=()
           for demo in azul-paint azul-widgets azul-maps azul-vault azul-gamepad azul-camera-app azul-screenshare-app azul-video-app azul-meet azul-self-test; do
-            echo "=== Building $demo on ${{ matrix.os }} ==="
-            cargo build --release -p "$demo" || echo "::warning::$demo failed to build on ${{ matrix.os }} (likely missing platform deps) — skipping"
+            demo_dir=""
+            for cand in "examples/$demo" "demos/$demo" "$demo"; do
+              [ -d "$cand" ] && { demo_dir="$cand"; break; }
+            done
+            fp=$(git log -1 --format=%H -- $demo_dir $ENGINE_PATHS 2>/dev/null || echo "")
+            [ -n "$fp" ] || fp="unknown-$(git rev-parse HEAD)"
+
+            prev_fp=""
+            if [ -n "$prev_manifest" ]; then
+              prev_fp=$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1])).get(sys.argv[2],""))' "$prev_manifest" "$demo" 2>/dev/null || echo "")
+            fi
+
+            # Reuse only if BOTH the fingerprint matches AND the published asset
+            # actually exists. A manifest entry for a file nobody can download
+            # is not a cache hit, it is a hole.
+            asset="${demo}-${{ matrix.os_suffix }}${{ matrix.bin_ext }}"
+            if [ -n "$prev_fp" ] && [ "$prev_fp" = "$fp" ] \
+               && gh release view "${AZUL_VERSION}" --repo "$GITHUB_REPOSITORY" \
+                    --json assets -q '.assets[].name' 2>/dev/null | grep -qx "${asset}.tar.gz\|${asset}"; then
+              echo "::notice::[$demo] REUSING the published binary from release ${AZUL_VERSION} — no source change under '$demo_dir' or the engine since commit ${fp:0:12}"
+              reused+=("$demo")
+              echo "$demo=$fp" >> /tmp/demo-manifest-lines
+              continue
+            fi
+
+            if [ -n "$prev_fp" ]; then
+              echo "=== Building $demo on ${{ matrix.os }} (source changed: ${prev_fp:0:12} -> ${fp:0:12}) ==="
+            else
+              echo "=== Building $demo on ${{ matrix.os }} (no published fingerprint) ==="
+            fi
+            if cargo build --release -p "$demo"; then
+              built+=("$demo")
+              echo "$demo=$fp" >> /tmp/demo-manifest-lines
+            else
+              echo "::error::[$demo] FAILED TO BUILD on ${{ matrix.os }}. This used to be a warning, which is how 26-day-old binaries stayed on the release page behind a green job. Fix the build or, if this demo genuinely cannot be built on this OS, exclude it explicitly from the list rather than letting it fail silently."
+              failed+=("$demo")
+            fi
           done
+
+          echo "=== demo build summary (${{ matrix.os }}) ==="
+          echo "  built:  ${built[*]:-none}"
+          echo "  reused: ${reused[*]:-none}"
+          echo "  FAILED: ${failed[*]:-none}"
+          if [ ${#failed[@]} -gt 0 ]; then
+            echo "::error::${#failed[@]} demo(s) failed to build on ${{ matrix.os }}: ${failed[*]}"
+            exit 1
+          fi
+          if [ ${#built[@]} -eq 0 ] && [ ${#reused[@]} -eq 0 ]; then
+            echo "::error::no demo was built OR reused on ${{ matrix.os }} — the job produced nothing and must not report success"
+            exit 1
+          fi
 
       # Collect whatever built into a staging dir, renamed <demo>-<os>[.exe].
       # Missing binaries (failed builds) are simply skipped.
@@ -2149,11 +2238,25 @@ jobs:
               strip "$dst" 2>/dev/null || strip -S "$dst" 2>/dev/null || true
               after=$(wc -c < "$dst" 2>/dev/null || echo 0)
               echo "  [OK] staged ${demo}-${{ matrix.os_suffix }}${{ matrix.bin_ext }} ($before -> $after bytes)"
+            elif grep -q "^${demo}=" /tmp/demo-manifest-lines 2>/dev/null \
+                 && ! grep -q "^${demo}=BUILT" /tmp/demo-manifest-lines 2>/dev/null; then
+              # Recorded in the manifest but not rebuilt => a deliberate reuse,
+              # already announced with its reason by the build step.
+              echo "  [reuse] $demo — published binary kept (source unchanged)"
             else
-              echo "  [skip] $src not found (build absent or failed)"
+              # The build step exits non-zero on any failure, so reaching here
+              # means it claimed success and produced nothing. That contradiction
+              # is what let 26-day-old binaries ship behind a green job.
+              echo "::error::$src is missing although the build step reported success for $demo — refusing to stage a partial demo set"
+              missing_staged=1
             fi
           done
           ls -la demos-staging/ || echo "No demos staged"
+          [ "${missing_staged:-0}" = 0 ] || exit 1
+
+          # Manifest for the NEXT run's reuse decision. Written even when every
+          # demo was reused, so the fingerprints stay current.
+          python3 -c 'import json,sys; out=sys.argv[1]; e=dict(l.strip().split("=",1) for l in open("/tmp/demo-manifest-lines") if "=" in l); json.dump(e, open(out,"w"), indent=2, sort_keys=True); print("wrote", out, len(e), "fingerprints")' "demos-staging/demo-build-manifest-${{ matrix.os_suffix }}.json"
 
       - name: Upload demo binaries
         uses: actions/upload-artifact@v7
@@ -2161,7 +2264,12 @@ jobs:
           name: ${{ matrix.artifact_name }}
           path: demos-staging/*
           retention-days: 30
-          if-no-files-found: ignore
+          # `ignore` was the third cannot-fail layer: an empty demos-staging/
+          # uploaded nothing and reported success, so the release simply kept
+          # the previous run's binaries with no indication anything was wrong.
+          # The staging step now exits non-zero if a demo is unaccountably
+          # absent, but this is the backstop for "the directory is empty".
+          if-no-files-found: error
 
   # ---------------------------------------------------------------------------
   # Native AZ_E2E click/counter test — producer + family consumers.
@@ -4225,6 +4333,24 @@ jobs:
           # start at all. These files are executables by construction (the
           # build_demos job stages nothing else), so mark them as such — for every
           # OS, not just the one that was noticed.
+          # The per-OS demo fingerprint manifests are DATA, not executables, and
+          # build_demos reads them back off the GitHub Release to decide whether
+          # a demo can be reused. Pull them out of demos/ before the chmod and
+          # before the large-asset tarring (which would rename them
+          # <name>.json.tar.gz and make the read-back pattern miss), and upload
+          # them to the Release verbatim.
+          mkdir -p /tmp/demo-manifests
+          find "$RELEASE_DIR/demos" -maxdepth 1 -name 'demo-build-manifest-*.json' \
+            -exec mv {} /tmp/demo-manifests/ \; 2>/dev/null || true
+          if ls /tmp/demo-manifests/*.json >/dev/null 2>&1; then
+            echo "uploading demo fingerprint manifests to the ${AZUL_VERSION} release:"
+            ls -la /tmp/demo-manifests/
+            gh release upload "${AZUL_VERSION}" /tmp/demo-manifests/*.json --clobber \
+              || echo "::warning::could not upload the demo manifests — the next run will rebuild every demo instead of reusing (correct, just slower)"
+          else
+            echo "::notice::no demo fingerprint manifests in this run"
+          fi
+
           chmod +x "$RELEASE_DIR/demos/"* 2>/dev/null || true
           # Same round-trip, same flattened mode: the shared libraries land 0644
           # too. dlopen() does not require the bit, so nothing was broken by it,
