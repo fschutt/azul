@@ -4928,10 +4928,14 @@ impl PlatformWindow for Win32Window {
     }
 
     fn stop_timer(&mut self, timer_id: usize) {
-        // Stop Win32 timer
-        if let Some(win32_timer_id) = self.timers.remove(&timer_id) {
+        // Stop Win32 timer. KillTimer must be passed the SAME nIDEvent given
+        // to SetTimer for window timers — for hwnd != NULL, SetTimer's return
+        // value is only documented as "a nonzero integer", NOT the timer id,
+        // so killing by the stored return value relied on an implementation
+        // detail (a mismatch leaves the timer firing forever).
+        if self.timers.remove(&timer_id).is_some() {
             unsafe {
-                (self.win32.user32.KillTimer)(self.hwnd, win32_timer_id);
+                (self.win32.user32.KillTimer)(self.hwnd, timer_id);
             };
         }
 
@@ -4960,9 +4964,11 @@ impl PlatformWindow for Win32Window {
     }
 
     fn stop_thread_poll_timer(&mut self) {
-        if let Some(timer_id) = self.thread_timer_running.take() {
+        // Same nIDEvent contract as stop_timer: kill by the id we registered
+        // (THREAD_POLL_TIMER_ID), not by SetTimer's return value.
+        if self.thread_timer_running.take().is_some() {
             unsafe {
-                (self.win32.user32.KillTimer)(self.hwnd, timer_id);
+                (self.win32.user32.KillTimer)(self.hwnd, Self::THREAD_POLL_TIMER_ID);
             };
         }
     }
