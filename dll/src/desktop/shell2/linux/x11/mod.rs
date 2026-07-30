@@ -1013,26 +1013,40 @@ impl X11Window {
             while unsafe { (self.xlib.XPending)(self.display) } > 0 {
                 let mut event: XEvent = unsafe { std::mem::zeroed() };
                 unsafe { (self.xlib.XNextEvent)(self.display, &mut event) };
-
-                let target = unsafe { event.any.window } as u64;
-                // self.window is an XID (c_ulong) = u32 on 32-bit targets, so
-                // widen it to match `target: u64` (no-op on 64-bit).
-                if target == self.window as u64 {
-                    self.handle_event(&mut event);
-                } else if let Some(wptr) = unsafe { super::registry::get_window(target) } {
-                    // Dispatch to the child window that owns this X window.
-                    match unsafe { &mut *wptr } {
-                        super::LinuxWindow::X11(child) => child.handle_event(&mut event),
-                        _ => self.handle_event(&mut event),
-                    };
-                } else {
-                    // Unknown/just-closed target — handle on self so it isn't lost.
-                    self.handle_event(&mut event);
-                }
+                self.dispatch_shared_display_event(&mut event);
             }
         }
 
         None
+    }
+
+    /// Route one dequeued event to the window that owns `XAnyEvent.window`.
+    ///
+    /// The display OWNER drains the shared connection for its child windows
+    /// too (menus/dialogs reuse the parent's display — the option-(b) shared
+    /// pump), so EVERY dequeue site must dispatch by target. wait_for_events
+    /// used to call handle_event directly, so a child's event dequeued there
+    /// — e.g. the first click on a just-opened menu, dequeued in the same
+    /// run-loop iteration that created it — was processed as the PARENT's:
+    /// menu-local coordinates hit-tested against the parent DOM. Unknown
+    /// targets (just-closed windows, the tooltip helper window) are handled
+    /// on self so nothing is lost.
+    fn dispatch_shared_display_event(&mut self, event: &mut XEvent) {
+        let target = unsafe { event.any.window } as u64;
+        // self.window is an XID (c_ulong) = u32 on 32-bit targets, so
+        // widen it to match `target: u64` (no-op on 64-bit).
+        if target == self.window as u64 {
+            self.handle_event(event);
+        } else if let Some(wptr) = unsafe { super::registry::get_window(target) } {
+            // Dispatch to the child window that owns this X window.
+            match unsafe { &mut *wptr } {
+                super::LinuxWindow::X11(child) => child.handle_event(event),
+                _ => self.handle_event(event),
+            };
+        } else {
+            // Unknown/just-closed target — handle on self so it isn't lost.
+            self.handle_event(event);
+        }
     }
 
     /// Swap buffers (GPU) or flush (CPU) to present the current frame.
@@ -2349,12 +2363,13 @@ impl X11Window {
             // so the connection fd can be NOT readable even while events sit in
             // Xlib's internal queue — dequeue via XPending rather than one event
             // per poll() wake (which leaves the rest queued until unrelated fd
-            // activity). (X11 API audit, finding 10.)
+            // activity). (X11 API audit, finding 10.) Route by target window —
+            // children share this display (see dispatch_shared_display_event).
             if (self.xlib.XPending)(self.display) > 0 {
                 while (self.xlib.XPending)(self.display) > 0 {
                     let mut event: XEvent = mem::zeroed();
                     (self.xlib.XNextEvent)(self.display, &mut event);
-                    self.handle_event(&mut event);
+                    self.dispatch_shared_display_event(&mut event);
                 }
                 return Ok(());
             }
@@ -2416,11 +2431,12 @@ impl X11Window {
                 // Check X11 connection
                 if pollfds[0].revents & libc::POLLIN != 0 {
                     // Drain fully — a single poll() wake can carry many queued
-                    // events; processing one would leave the rest stuck.
+                    // events; processing one would leave the rest stuck. Route
+                    // by target window — children share this display.
                     while (self.xlib.XPending)(self.display) > 0 {
                         let mut event: XEvent = mem::zeroed();
                         (self.xlib.XNextEvent)(self.display, &mut event);
-                        self.handle_event(&mut event);
+                        self.dispatch_shared_display_event(&mut event);
                     }
                 }
 
