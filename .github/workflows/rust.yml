@@ -2702,7 +2702,25 @@ jobs:
               f.write(str(bindir) + "\n")
           print(f"added {bindir} to GITHUB_PATH")
           PYEOF
-          sed -i 's/^          //' "$RUNNER_TEMP/get_zig.py"
+          # NOT `sed -i`. This step runs on the e2e_native matrix, which
+          # includes macos-14, and BSD sed requires an explicit backup suffix
+          # after -i. Given `sed -i 's/^ *//' file` it takes the SCRIPT as the
+          # suffix, is left with no file operand, and dies with
+          #
+          #     sed: -I or -i may not be used with stdin
+          #
+          # So this fallback has never once worked on macOS. It is the fallback
+          # for mlugg/setup-zig reporting success while leaving zig unreachable,
+          # and in this run all five zig mirrors failed (503s, 404s and a
+          # 4-minute timeout), so the fallback was the only path to a zig — and
+          # it died on a one-character portability bug. zig is REQUIRED on
+          # macOS, so the language board reported `zig(SKIP)` and
+          # --gate-shipped blocked the deploy.
+          #
+          # Write to a new file and move it: portable across GNU and BSD, no
+          # in-place editing at all.
+          sed 's/^          //' "$RUNNER_TEMP/get_zig.py" > "$RUNNER_TEMP/get_zig.dedent.py"
+          mv "$RUNNER_TEMP/get_zig.dedent.py" "$RUNNER_TEMP/get_zig.py"
           python3 "$RUNNER_TEMP/get_zig.py" "$RUNNER_TEMP"
 
       # Go on macOS: ubuntu/windows runners preinstall go, macOS does not.
