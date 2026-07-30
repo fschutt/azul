@@ -589,7 +589,22 @@ extern "C" fn layout_subviews(this: &Object, _cmd: Sel) {
                 );
                 dims.width = w;
                 dims.height = h;
-                window.common.request_regeneration(RelayoutReason::RefreshDom);
+                // `Resize` is the tag every desktop backend gives geometry
+                // changes — the variant responsive layout callbacks branch
+                // on; `RefreshDom` hid every rotation / split-view resize
+                // from them. Preserve a still-pending `Initial` for the
+                // launch pass (the first layoutSubviews can legitimately
+                // differ from the UIScreen bounds used at construction,
+                // e.g. iPad multitasking).
+                let reason = if window.common.regeneration_pending()
+                    && window.common.regeneration_reason()
+                        == azul_core::callbacks::RelayoutReason::Initial
+                {
+                    RelayoutReason::RefreshDom
+                } else {
+                    RelayoutReason::Resize
+                };
+                window.common.request_regeneration(reason);
             }
         }
         // Safe-area insets (notch / Dynamic Island / home indicator / rounded
