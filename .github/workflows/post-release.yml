@@ -223,8 +223,15 @@ jobs:
           # page that carries the actual download names. Follow the link for
           # VERSION if there is one, and append it to what we search, so this
           # works whether the artifacts are listed inline or one level down.
-          sub=$(grep -oE 'href="[^"]*releases/'"$VERSION"'[^"]*"' "$page" \
+          # NOTE the singular/plural split, which is easy to get wrong and was:
+          # the INDEX is /ui/releases, the per-version page with the actual
+          # download names is /ui/release/<version>/. Match either spelling in a
+          # discovered link, and fall back to constructing the singular form
+          # directly, because the index's "Downloads & release notes" card
+          # currently links back to the index itself.
+          sub=$(grep -oE 'href="[^"]*releases?/'"$VERSION"'[^"]*"' "$page" \
                 | head -1 | sed 's/^href="//;s/"$//')
+          [ -n "$sub" ] || sub="$BASE/ui/release/$VERSION/"
           if [ -n "$sub" ]; then
             case "$sub" in
               http*) : ;;
@@ -237,11 +244,25 @@ jobs:
             echo "::notice::no per-version link for $VERSION; searching the index itself"
           fi
 
+          # THE NAMES BELOW MUST BE ONES THE RELEASE ACTUALLY PUBLISHES.
+          # They used to be azul-<V>-linux-x86_64 / -windows-x86_64 / -macos,
+          # and no such asset has ever existed — the check invented a naming
+          # convention, then reported the invention missing. Verified against
+          # `gh release view 0.2.0` and the live /ui/release/0.2.0/ page: the
+          # per-platform shared libraries ship as libazul.so / azul.dll /
+          # libazul.dylib, alongside the .deb and .rpm packages.
+          #
+          # One shared library per desktop OS is the right thing to assert here:
+          # it is what every non-package-manager consumer downloads, and if a
+          # platform's build silently stopped being published this is the check
+          # that would notice.
           missing=0
           for artifact in \
-            "azul-${VERSION}-linux-x86_64" \
-            "azul-${VERSION}-windows-x86_64" \
-            "azul-${VERSION}-macos"; do
+            "libazul.so" \
+            "azul.dll" \
+            "libazul.dylib" \
+            "azul_${VERSION}_amd64.deb" \
+            "azul-${VERSION}-1.x86_64.rpm"; do
             if grep -qi "$artifact" "$page"; then
               echo "  listed: $artifact"
             else
@@ -286,13 +307,32 @@ jobs:
           java-version: "17"
       - name: Download the published APK
         shell: bash
+        env:
+          # `gh release download` needs both; the workflow's top-level
+          # `permissions: contents: read` already covers reading a release.
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
         run: |
           set -euo pipefail
           BASE="${{ needs.resolve.outputs.base_url }}"
-          # If no APK is published this job must say so rather than pass quietly.
-          curl -sS --fail "$BASE/ui/mobile-apps/azul-self-test-android.apk" \
-            -o /tmp/azul.apk \
-            || { echo "::error::no published APK at $BASE/ui/mobile-apps/"; exit 1; }
+          VERSION="${{ needs.resolve.outputs.version }}"
+          # The APKs are NOT on the site, by design. deploy_pages offloads every
+          # large asset to the GitHub Release and deletes it from the Pages
+          # artifact ("trimming LARGE assets from the Pages artifact") because
+          # GitHub caps a Pages artifact at 1 GB and four ~38 MB APKs plus the
+          # static libs blew through it. This check asked for
+          # $BASE/ui/mobile-apps/azul-self-test-android.apk, which the deploy
+          # had just deleted on purpose — so it could never pass, and reported
+          # "no published APK" about four APKs that were published.
+          #
+          # Ask the GitHub Release, which is where they are.
+          if ! gh release download "$VERSION" --repo "$GH_REPO" \
+               --pattern 'azul-self-test-android.apk' --dir /tmp --clobber 2>/tmp/dl.log; then
+            cat /tmp/dl.log >&2 || true
+            echo "::error::no azul-self-test-android.apk on the $VERSION GitHub Release (deploy_pages offloads APKs there; they are deliberately absent from $BASE)"
+            exit 1
+          fi
+          mv /tmp/azul-self-test-android.apk /tmp/azul.apk
           ls -l /tmp/azul.apk
       - name: Static checks the phone performs before it will run anything
         shell: bash
