@@ -4296,13 +4296,23 @@ unsafe extern "system" fn window_proc(
             // Update DPI in window state
             window.common.current_window_state.size.dpi = new_dpi;
 
-            // Get suggested size from lParam (RECT*)
+            // Get suggested size from lParam (RECT*). Per MSDN this is "a
+            // suggested size and position of the current window scaled for
+            // the new DPI" — an OUTER window rect (frame included, screen
+            // coords), to be applied verbatim via SetWindowPos.
             if lparam != 0 {
                 let rect = unsafe { &*(lparam as *const dlopen::RECT) };
                 let width = rect.right - rect.left;
                 let height = rect.bottom - rect.top;
 
-                // Update window size to suggested dimensions
+                // Update window size to suggested dimensions. SetWindowPos
+                // dispatches WM_SIZE synchronously, and THAT handler derives
+                // size.dimensions from the actual CLIENT rect with the new
+                // DPI (stored above). Do NOT overwrite dimensions from this
+                // rect afterwards: it is the frame-inclusive WINDOW size, and
+                // treating it as the client size inflated the logical layout
+                // by the title bar + borders after every monitor change —
+                // oversized layout, clipped bottom/right, offset hit tests.
                 unsafe {
                     (window.win32.user32.SetWindowPos)(
                         hwnd,
@@ -4314,13 +4324,6 @@ unsafe extern "system" fn window_proc(
                         0x0004 | 0x0002, // SWP_NOZORDER | SWP_NOACTIVATE
                     );
                 }
-
-                // Update logical size with new DPI
-                use azul_core::geom::PhysicalSizeU32;
-                let physical_size = PhysicalSizeU32::new(width as u32, height as u32);
-                let hidpi_factor = new_dpi as f32 / 96.0;
-                let logical_size = physical_size.to_logical(hidpi_factor);
-                window.common.current_window_state.size.dimensions = logical_size;
             }
 
             // DPI change requires a full relayout, tagged `Resize` — the enum's
