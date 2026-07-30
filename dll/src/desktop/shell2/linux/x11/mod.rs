@@ -2523,12 +2523,33 @@ impl X11Window {
                 // request ping-ponged and the frame never actually painted
                 // (resize/timer/caret repaints appeared frozen). This now
                 // matches poll_event's Expose arm.
+                let (count, synthetic) = {
+                    let ex = unsafe { &event.expose };
+                    (ex.count, ex.send_event != 0)
+                };
                 self.needs_redraw.raise();
-                // OS-driven repaint: the exposed area's on-screen content is
-                // undefined — the next present must push the full frame.
-                self.os_present_requested = true;
-                if let Err(e) = self.render_and_present() {
-                    log_warn!(LogCategory::Rendering, "[X11] handle_event Expose render failed: {:?}", e);
+                // Only a REAL (server-generated, send_event == 0) Expose means
+                // the on-screen content is undefined and the next present must
+                // push the FULL retained frame. Our own wake-up Exposes
+                // (request_redraw → XSendEvent; the server delivers those with
+                // send_event = True) used to set this too, so EVERY internally
+                // requested repaint — caret blink, hover, scrollbar fade —
+                // forced a full-window swizzle + XPutImage (≈8 MB convert +
+                // 8 MB socket write per tick at 1080p), and the CPU
+                // partial-present machinery never engaged on the idle path.
+                if !synthetic {
+                    self.os_present_requested = true;
+                }
+                // Coalesce an Expose series: the server delivers the sub-rects
+                // oldest-first with `count` = number of Exposes still to come.
+                // Render once on the final one (count == 0) instead of running
+                // a full render_and_present per sub-rect. needs_redraw stays
+                // raised in between, so even a (protocol-impossible) missing
+                // final event is mopped up by poll_event's gate.
+                if count == 0 {
+                    if let Err(e) = self.render_and_present() {
+                        log_warn!(LogCategory::Rendering, "[X11] handle_event Expose render failed: {:?}", e);
+                    }
                 }
                 ProcessEventResult::DoNothing
             }
