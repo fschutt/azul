@@ -6711,24 +6711,38 @@ impl MacOSWindow {
         // so macOS only redraws the changed regions.
         if !self.gpu_damage_rects.is_empty() {
             let rects: Vec<_> = self.gpu_damage_rects.drain(..).collect();
-            for dr in &rects {
-                let ns_rect = NSRect::new(
-                    NSPoint::new(dr.origin.x as f64, dr.origin.y as f64),
-                    NSSize::new(dr.size.width as f64, dr.size.height as f64),
-                );
-                if let Some(ref gl_view) = self.gl_view {
+            // Resolve the target view once (when using materials, contentView
+            // is the effect view — invalidate the render view directly).
+            let content_view_fallback;
+            let view_ptr: Option<*const NSView> = if let Some(ref gl_view) = self.gl_view {
+                Some(Retained::as_ptr(gl_view) as *const NSView)
+            } else if let Some(ref cpu_view) = self.cpu_view {
+                Some(Retained::as_ptr(cpu_view) as *const NSView)
+            } else {
+                content_view_fallback = self.window.contentView();
+                content_view_fallback
+                    .as_deref()
+                    .map(|v| v as *const NSView)
+            };
+            if let Some(view_ptr) = view_ptr {
+                // The damage rects are azul-logical: points with a TOP-left
+                // origin (y-down). setNeedsDisplayInRect: takes the VIEW's own
+                // coordinate system, and neither GLView nor CPUView overrides
+                // isFlipped — view coordinates are BOTTOM-left origin, so y
+                // must be flipped exactly once (the same flip
+                // CPUView::update_framebuffer applies to CPU damage rects).
+                // Unflipped, the invalidated region was vertically mirrored.
+                let bounds_h = unsafe { (*view_ptr).bounds() }.size.height;
+                for dr in &rects {
+                    let ns_rect = NSRect::new(
+                        NSPoint::new(
+                            dr.origin.x as f64,
+                            bounds_h - (dr.origin.y as f64 + dr.size.height as f64),
+                        ),
+                        NSSize::new(dr.size.width as f64, dr.size.height as f64),
+                    );
                     unsafe {
-                        let view_ptr = Retained::as_ptr(gl_view) as *const NSView;
                         let _: () = objc2::msg_send![&*view_ptr, setNeedsDisplayInRect: ns_rect];
-                    }
-                } else if let Some(ref cpu_view) = self.cpu_view {
-                    unsafe {
-                        let view_ptr = Retained::as_ptr(cpu_view) as *const NSView;
-                        let _: () = objc2::msg_send![&*view_ptr, setNeedsDisplayInRect: ns_rect];
-                    }
-                } else if let Some(view) = unsafe { self.window.contentView() } {
-                    unsafe {
-                        let _: () = objc2::msg_send![&*view, setNeedsDisplayInRect: ns_rect];
                     }
                 }
             }
