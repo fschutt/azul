@@ -1961,8 +1961,18 @@ impl HeadlessWindow {
             let mut guard = self.wake_mutex.lock().unwrap();
             guard.woken = false;
 
-            if has_timers {
-                // Timers active → poll at 60 Hz
+            // Threads count as a wake source for the TIMED wait, not just for
+            // the no-wake-sources warning above: a background `Thread`'s
+            // completion is only ever OBSERVED by polling (`run_all_threads`
+            // inside `process_timers_and_threads`) — the worker has no handle
+            // to this condvar, so it cannot signal it. With threads in flight
+            // and no timers armed, the old `has_timers`-only split blocked
+            // indefinitely: the fetch worker finished, its writeback never
+            // ran, and the window froze — the headless twin of the X11/Wayland
+            // "threads have no fd in the poll set" 16 ms tick, which is
+            // exactly how those backends solve the same problem.
+            if has_timers || self.thread_poll_timer_running {
+                // Timers or threads active → poll at 60 Hz
                 let _r = self.wake_condvar.wait_timeout_while(
                     guard,
                     Duration::from_millis(TIMER_POLL_MS),
