@@ -1169,6 +1169,16 @@ impl X11Window {
         // WebRender's Renderer must be deinit()'d, not dropped — texture
         // deletion has to happen inside a frame. Never doing so crashed debug
         // builds on close and leaked GPU resources in release.
+        //
+        // deinit() issues real GL calls, so OUR context must be current: with
+        // several windows open, whichever window rendered last left ITS
+        // context current, and deinit would then delete textures/programs in
+        // the wrong context (cross-context corruption + leaking the real
+        // resources). No-op when render_mode is already None (the Drop path
+        // deinits the renderer itself, before tearing the context down).
+        if let RenderMode::Gpu(ref gl_context, _) = self.render_mode {
+            gl_context.make_current();
+        }
         self.common.deinit_renderer();
         if self.is_open {
             self.is_open = false;
@@ -4766,6 +4776,17 @@ impl Drop for X11Window {
         if let RenderMode::Gpu(ref gl_context, _) = self.render_mode {
             gl_context.make_current();
         }
+
+        // WebRender's Renderer::deinit BEFORE the context teardown below: it
+        // issues real GL calls (texture/shader deletion) and needs the live,
+        // CURRENT context. It used to run inside close() at the END of this
+        // body — but the WM_DELETE path never calls close() itself (the run
+        // loop drops the window on !is_open), so on every WM-close the deinit
+        // dispatched GL through a context `render_mode = None` had already
+        // destroyed. deinit_renderer() takes the renderer out, so the later
+        // close() call is a no-op — nothing runs twice.
+        self.common.deinit_renderer();
+
         self.common.gl_context_ptr = OptionGlContextPtr::None;
 
         self.render_mode = RenderMode::None;
