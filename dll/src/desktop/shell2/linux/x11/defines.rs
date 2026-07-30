@@ -765,6 +765,18 @@ pub type XFreeCursor = unsafe extern "C" fn(*mut Display, Cursor) -> c_int;
 pub type XUndefineCursor = unsafe extern "C" fn(*mut Display, Window) -> c_int;
 pub type XkbSetDetectableAutoRepeat =
     unsafe extern "C" fn(*mut Display, c_int, *mut c_int) -> c_int;
+/// XTranslateCoordinates(display, src_w, dest_w, src_x, src_y,
+///   dest_x_return, dest_y_return, child_return) -> Bool (0 = different screens).
+pub type XTranslateCoordinates = unsafe extern "C" fn(
+    *mut Display,
+    Window,
+    Window,
+    c_int,
+    c_int,
+    *mut c_int,
+    *mut c_int,
+    *mut Window,
+) -> c_int;
 
 // X11 Standard Cursor Font Constants (from cursorfont.h)
 pub const XC_left_ptr: c_uint = 68;

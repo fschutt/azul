@@ -141,6 +141,14 @@ pub struct Xlib {
     /// Optional: present in every real libX11, but loaded leniently so a
     /// stripped/stub library degrades to the monitor-scale DPI fallback.
     pub XResourceManagerString: Option<XResourceManagerString>,
+    /// Optional (lenient, same rationale): per-client XKB knob that stops the
+    /// server synthesizing a KeyRelease for every auto-repeat KeyPress, so a
+    /// held key is Press,Press,… instead of Press,(Release,Press)*,Release.
+    pub XkbSetDetectableAutoRepeat: Option<XkbSetDetectableAutoRepeat>,
+    /// Optional (lenient): translate coordinates between windows — the only
+    /// reliable absolute window position under a reparenting WM (ConfigureNotify
+    /// x/y are parent-relative for non-synthetic events).
+    pub XTranslateCoordinates: Option<XTranslateCoordinates>,
     pub XUnmapWindow: XUnmapWindow,
     pub XCreateFontCursor: XCreateFontCursor,
     pub XDefineCursor: XDefineCursor,
@@ -223,6 +231,13 @@ impl Xlib {
             XResizeWindow: load_symbol!(lib, _, "XResizeWindow"),
             XResourceManagerString: unsafe {
                 lib.get_symbol::<XResourceManagerString>("XResourceManagerString").ok()
+            },
+            XkbSetDetectableAutoRepeat: unsafe {
+                lib.get_symbol::<XkbSetDetectableAutoRepeat>("XkbSetDetectableAutoRepeat")
+                    .ok()
+            },
+            XTranslateCoordinates: unsafe {
+                lib.get_symbol::<XTranslateCoordinates>("XTranslateCoordinates").ok()
             },
             XUnmapWindow: load_symbol!(lib, _, "XUnmapWindow"),
             XCreateFontCursor: load_symbol!(lib, _, "XCreateFontCursor"),

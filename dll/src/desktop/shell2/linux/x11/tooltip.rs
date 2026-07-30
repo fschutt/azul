@@ -133,6 +133,18 @@ impl TooltipWindow {
             // Resize and reposition window
             (self.xlib.XMoveResizeWindow)(self.display, self.window, x, y, text_width, text_height);
 
+            // Map BEFORE drawing. X11 discards output drawn to an unviewable
+            // window, and this window selects no ExposureMask (nobody would
+            // repaint it) — so the old draw-then-map order showed an EMPTY
+            // yellow box on the first show(); text only appeared from the
+            // second show() on (window already mapped). XSync so the map has
+            // been processed by the server before the draw below.
+            if !self.is_visible {
+                (self.xlib.XMapWindow)(self.display, self.window);
+                (self.xlib.XSync)(self.display, 0);
+                self.is_visible = true;
+            }
+
             // Clear window
             (self.xlib.XClearWindow)(self.display, self.window);
 
@@ -147,12 +159,6 @@ impl TooltipWindow {
                 c_text.as_ptr(),
                 c_text.to_bytes().len() as i32,
             );
-
-            // Show window if not already visible
-            if !self.is_visible {
-                (self.xlib.XMapWindow)(self.display, self.window);
-                self.is_visible = true;
-            }
 
             // Flush changes to display
             (self.xlib.XFlush)(self.display);

@@ -504,6 +504,16 @@ impl X11Window {
                 // MWA-B1: horizontal wheel RIGHT (X11 button 7).
                 return self.handle_scroll(-1.0, 0.0, position);
             }
+            4..=7 => {
+                // Wheel RELEASE: X11 delivers scroll as press+release PAIRS of
+                // buttons 4–7 (one pair per detent; XI2 emulation does the
+                // same). Only the press carries the scroll; the release must
+                // be swallowed. It used to fall through to Other(4..7) and run
+                // the whole button pipeline — state snapshot, an is_up
+                // input-sample for gesture detection, hit test and a state
+                // diff — once per detent, for an event that means nothing.
+                return ProcessEventResult::DoNothing;
+            }
             _ => MouseButton::Other(event.button as u8),
         };
 
@@ -767,7 +777,14 @@ impl X11Window {
         // XIM preedit callbacks (e.g. when the IM updates the composition in
         // response to this keystroke), so after the lookup we drain any new
         // preedit state into text_edit_manager.
-        let (char_str, keysym) = if let Some(ime) = &self.ime_manager {
+        //
+        // KeyPress ONLY: the Xmb/Xwc/Xutf8LookupString family is defined
+        // solely for KeyPress events — "it is essential that the client pass
+        // only KeyPress events…; their behavior when a client passes a
+        // KeyRelease event is undefined" (XmbLookupString(3)). KeyRelease
+        // takes the core-XLookupString branch below, which is defined for
+        // both and recovers the keysym for the pressed-keys bookkeeping.
+        let (char_str, keysym) = if let (true, Some(ime)) = (is_down, self.ime_manager.as_ref()) {
             let result = ime.lookup_string(event);
             if let Some((preedit, caret)) = ime.drain_preedit() {
                 if let Some(ref mut lw) = self.common.layout_window {
@@ -791,7 +808,7 @@ impl X11Window {
             }
             result
         } else {
-            // Fallback for when IME is not available
+            // No IME available, or a KeyRelease (see above): core lookup.
             let mut keysym: KeySym = 0;
             let mut buffer = [0; 32];
             let count = unsafe {

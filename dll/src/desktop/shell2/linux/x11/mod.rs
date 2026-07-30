@@ -1013,26 +1013,40 @@ impl X11Window {
             while unsafe { (self.xlib.XPending)(self.display) } > 0 {
                 let mut event: XEvent = unsafe { std::mem::zeroed() };
                 unsafe { (self.xlib.XNextEvent)(self.display, &mut event) };
-
-                let target = unsafe { event.any.window } as u64;
-                // self.window is an XID (c_ulong) = u32 on 32-bit targets, so
-                // widen it to match `target: u64` (no-op on 64-bit).
-                if target == self.window as u64 {
-                    self.handle_event(&mut event);
-                } else if let Some(wptr) = unsafe { super::registry::get_window(target) } {
-                    // Dispatch to the child window that owns this X window.
-                    match unsafe { &mut *wptr } {
-                        super::LinuxWindow::X11(child) => child.handle_event(&mut event),
-                        _ => self.handle_event(&mut event),
-                    };
-                } else {
-                    // Unknown/just-closed target — handle on self so it isn't lost.
-                    self.handle_event(&mut event);
-                }
+                self.dispatch_shared_display_event(&mut event);
             }
         }
 
         None
+    }
+
+    /// Route one dequeued event to the window that owns `XAnyEvent.window`.
+    ///
+    /// The display OWNER drains the shared connection for its child windows
+    /// too (menus/dialogs reuse the parent's display — the option-(b) shared
+    /// pump), so EVERY dequeue site must dispatch by target. wait_for_events
+    /// used to call handle_event directly, so a child's event dequeued there
+    /// — e.g. the first click on a just-opened menu, dequeued in the same
+    /// run-loop iteration that created it — was processed as the PARENT's:
+    /// menu-local coordinates hit-tested against the parent DOM. Unknown
+    /// targets (just-closed windows, the tooltip helper window) are handled
+    /// on self so nothing is lost.
+    fn dispatch_shared_display_event(&mut self, event: &mut XEvent) {
+        let target = unsafe { event.any.window } as u64;
+        // self.window is an XID (c_ulong) = u32 on 32-bit targets, so
+        // widen it to match `target: u64` (no-op on 64-bit).
+        if target == self.window as u64 {
+            self.handle_event(event);
+        } else if let Some(wptr) = unsafe { super::registry::get_window(target) } {
+            // Dispatch to the child window that owns this X window.
+            match unsafe { &mut *wptr } {
+                super::LinuxWindow::X11(child) => child.handle_event(event),
+                _ => self.handle_event(event),
+            };
+        } else {
+            // Unknown/just-closed target — handle on self so it isn't lost.
+            self.handle_event(event);
+        }
     }
 
     /// Swap buffers (GPU) or flush (CPU) to present the current frame.
@@ -1169,6 +1183,16 @@ impl X11Window {
         // WebRender's Renderer must be deinit()'d, not dropped — texture
         // deletion has to happen inside a frame. Never doing so crashed debug
         // builds on close and leaked GPU resources in release.
+        //
+        // deinit() issues real GL calls, so OUR context must be current: with
+        // several windows open, whichever window rendered last left ITS
+        // context current, and deinit would then delete textures/programs in
+        // the wrong context (cross-context corruption + leaking the real
+        // resources). No-op when render_mode is already None (the Drop path
+        // deinits the renderer itself, before tearing the context down).
+        if let RenderMode::Gpu(ref gl_context, _) = self.render_mode {
+            gl_context.make_current();
+        }
         self.common.deinit_renderer();
         if self.is_open {
             self.is_open = false;
@@ -1189,7 +1213,34 @@ impl X11Window {
                 }
                 // Only close a display we OWN; child windows share a parent's.
                 if self.owns_display {
-                    (self.xlib.XCloseDisplay)(self.display);
+                    // …but never while a LIVE child still uses this connection:
+                    // XCloseDisplay here left every surviving child (a dialog
+                    // whose parent was closed first) calling into a freed
+                    // Display — use-after-free — and even without the free,
+                    // nobody would drain a connection whose owner is gone
+                    // (children skip draining by design). Hand the connection
+                    // to the first surviving X11 window on the same display:
+                    // it becomes the drainer AND the eventual closer. (During
+                    // Drop, self is already unregistered, so the scan cannot
+                    // find self.)
+                    let mut handed_over = false;
+                    for wid in super::registry::get_all_window_ids() {
+                        if wid == self.window as u64 {
+                            continue;
+                        }
+                        if let Some(wptr) = super::registry::get_window(wid) {
+                            if let super::LinuxWindow::X11(w) = &mut *wptr {
+                                if w.display == self.display && w.is_open {
+                                    w.owns_display = true;
+                                    handed_over = true;
+                                    break;
+                                }
+                            }
+                        }
+                    }
+                    if !handed_over {
+                        (self.xlib.XCloseDisplay)(self.display);
+                    }
                 }
             }
         }
@@ -1344,6 +1395,25 @@ impl X11Window {
             return Err(WindowError::PlatformError(
                 "Failed to open X display".into(),
             ));
+        }
+
+        // Per-CLIENT XKB knob: without it the server synthesizes a KeyRelease
+        // for every auto-repeat KeyPress, so a held key arrives as
+        // Press,(Release,Press)*,Release — each synthetic Release fires
+        // VirtualKeyUp callbacks and empties pressed_virtual_keycodes, which
+        // is exactly the set handle_keyboard's repeat detection reads (it
+        // could never see a repeat that way). With detectable auto-repeat a
+        // held key is Press,Press,…,Release: a Release means the key was
+        // physically released, and the already-pressed heuristic works.
+        // Per connection, so the display OWNER sets it once; child windows
+        // share the connection. Best-effort: an unsupporting server keeps the
+        // old pairs (supported_rtrn is ignored — behaviour is then unchanged).
+        if owns_display {
+            if let Some(set_dar) = xlib.XkbSetDetectableAutoRepeat {
+                unsafe {
+                    (set_dar)(display, 1, std::ptr::null_mut());
+                }
+            }
         }
 
         let screen = unsafe { (xlib.XDefaultScreen)(display) };
@@ -2320,12 +2390,13 @@ impl X11Window {
             // so the connection fd can be NOT readable even while events sit in
             // Xlib's internal queue — dequeue via XPending rather than one event
             // per poll() wake (which leaves the rest queued until unrelated fd
-            // activity). (X11 API audit, finding 10.)
+            // activity). (X11 API audit, finding 10.) Route by target window —
+            // children share this display (see dispatch_shared_display_event).
             if (self.xlib.XPending)(self.display) > 0 {
                 while (self.xlib.XPending)(self.display) > 0 {
                     let mut event: XEvent = mem::zeroed();
                     (self.xlib.XNextEvent)(self.display, &mut event);
-                    self.handle_event(&mut event);
+                    self.dispatch_shared_display_event(&mut event);
                 }
                 return Ok(());
             }
@@ -2387,11 +2458,12 @@ impl X11Window {
                 // Check X11 connection
                 if pollfds[0].revents & libc::POLLIN != 0 {
                     // Drain fully — a single poll() wake can carry many queued
-                    // events; processing one would leave the rest stuck.
+                    // events; processing one would leave the rest stuck. Route
+                    // by target window — children share this display.
                     while (self.xlib.XPending)(self.display) > 0 {
                         let mut event: XEvent = mem::zeroed();
                         (self.xlib.XNextEvent)(self.display, &mut event);
-                        self.handle_event(&mut event);
+                        self.dispatch_shared_display_event(&mut event);
                     }
                 }
 
@@ -2523,12 +2595,33 @@ impl X11Window {
                 // request ping-ponged and the frame never actually painted
                 // (resize/timer/caret repaints appeared frozen). This now
                 // matches poll_event's Expose arm.
+                let (count, synthetic) = {
+                    let ex = unsafe { &event.expose };
+                    (ex.count, ex.send_event != 0)
+                };
                 self.needs_redraw.raise();
-                // OS-driven repaint: the exposed area's on-screen content is
-                // undefined — the next present must push the full frame.
-                self.os_present_requested = true;
-                if let Err(e) = self.render_and_present() {
-                    log_warn!(LogCategory::Rendering, "[X11] handle_event Expose render failed: {:?}", e);
+                // Only a REAL (server-generated, send_event == 0) Expose means
+                // the on-screen content is undefined and the next present must
+                // push the FULL retained frame. Our own wake-up Exposes
+                // (request_redraw → XSendEvent; the server delivers those with
+                // send_event = True) used to set this too, so EVERY internally
+                // requested repaint — caret blink, hover, scrollbar fade —
+                // forced a full-window swizzle + XPutImage (≈8 MB convert +
+                // 8 MB socket write per tick at 1080p), and the CPU
+                // partial-present machinery never engaged on the idle path.
+                if !synthetic {
+                    self.os_present_requested = true;
+                }
+                // Coalesce an Expose series: the server delivers the sub-rects
+                // oldest-first with `count` = number of Exposes still to come.
+                // Render once on the final one (count == 0) instead of running
+                // a full render_and_present per sub-rect. needs_redraw stays
+                // raised in between, so even a (protocol-impossible) missing
+                // final event is mopped up by poll_event's gate.
+                if count == 0 {
+                    if let Err(e) = self.render_and_present() {
+                        log_warn!(LogCategory::Rendering, "[X11] handle_event Expose render failed: {:?}", e);
+                    }
                 }
                 ProcessEventResult::DoNothing
             }
@@ -2631,12 +2724,45 @@ impl X11Window {
                 let new_logical =
                     LogicalSize::new(new_width as f32 / scale, new_height as f32 / scale);
 
+                // ICCCM: only a SYNTHETIC (WM-sent, send_event != 0)
+                // ConfigureNotify carries root-absolute x/y; a REAL one is
+                // relative to the PARENT — under a reparenting WM that is the
+                // frame window, so (ev.x, ev.y) is a small constant like
+                // (0, titlebar_height). Feeding that into window_state.position
+                // skewed every absolute-position consumer: XDND drop coords,
+                // popup/menu/tooltip placement (resolve_parent_origin), and
+                // the per-monitor DPI pick below. For real events, ask the
+                // server where (0,0) of this window is on the root instead.
+                let (abs_x, abs_y) = if ev.send_event != 0 {
+                    (ev.x, ev.y)
+                } else if let Some(translate) = self.xlib.XTranslateCoordinates {
+                    unsafe {
+                        let screen = (self.xlib.XDefaultScreen)(self.display);
+                        let root = (self.xlib.XRootWindow)(self.display, screen);
+                        let (mut rx, mut ry) = (0i32, 0i32);
+                        let mut child: Window = 0;
+                        (translate)(
+                            self.display,
+                            self.window,
+                            root,
+                            0,
+                            0,
+                            &mut rx,
+                            &mut ry,
+                            &mut child,
+                        );
+                        (rx, ry)
+                    }
+                } else {
+                    (ev.x, ev.y)
+                };
+
                 let old_context = self.dynamic_selector_context.clone();
                 let size_changed = self.common.current_window_state.size.get_physical_size()
                     != PhysicalSize::new(new_width, new_height);
                 let position_changed = match self.common.current_window_state.position {
                     azul_core::window::WindowPosition::Initialized(pos) => {
-                        pos.x != ev.x || pos.y != ev.y
+                        pos.x != abs_x || pos.y != abs_y
                     }
                     _ => true,
                 };
@@ -2679,15 +2805,15 @@ impl X11Window {
                 }
 
                 crate::plog_trace!(
-                    "[x11 ev] ConfigureNotify x={} y={} w={} h={} send_event={}",
-                    ev.x, ev.y, new_width, new_height, ev.send_event
+                    "[x11 ev] ConfigureNotify x={} y={} (abs {}/{}) w={} h={} send_event={}",
+                    ev.x, ev.y, abs_x, abs_y, new_width, new_height, ev.send_event
                 );
 
                 // F4: OS-reported geometry (source = Os) — acknowledge into both
                 // current and the sync baseline so it is not echoed back. See the
                 // main-loop handler + CommonWindowState::update_window_state.
                 let new_pos = azul_core::window::WindowPosition::Initialized(
-                    azul_core::geom::PhysicalPositionI32::new(ev.x, ev.y),
+                    azul_core::geom::PhysicalPositionI32::new(abs_x, abs_y),
                 );
                 let new_dims = new_logical;
                 self.common.update_window_state(
@@ -2703,15 +2829,13 @@ impl X11Window {
                 // MWA-C-a11y: keep AT-SPI's root window bounds in sync so
                 // screen-coordinate queries (magnifier tracking) resolve —
                 // set_root_window_bounds had zero callers, everything sat at
-                // (0,0). ConfigureNotify coords can be parent-relative for
-                // non-synthetic events on reparenting WMs; good enough as a
-                // best-effort update, and synthetic (WM-sent) events are
-                // root-absolute. NEEDS-RUNTIME-VERIFY under a reparenting WM.
+                // (0,0). abs_x/abs_y are root-absolute for BOTH synthetic and
+                // real ConfigureNotify (translated above).
                 #[cfg(feature = "a11y")]
                 if size_changed || position_changed {
                     self.accessibility_adapter.set_root_window_bounds(
-                        f64::from(ev.x),
-                        f64::from(ev.y),
+                        f64::from(abs_x),
+                        f64::from(abs_y),
                         f64::from(new_width),
                         f64::from(new_height),
                     );
@@ -2720,8 +2844,8 @@ impl X11Window {
                 if position_changed && !size_changed {
                     use azul_core::geom::LogicalPosition;
                     let window_center = LogicalPosition::new(
-                        ev.x as f32 + new_width as f32 / 2.0,
-                        ev.y as f32 + new_height as f32 / 2.0,
+                        abs_x as f32 + new_width as f32 / 2.0,
+                        abs_y as f32 + new_height as f32 / 2.0,
                     );
                     // Per-monitor DPI only applies when no global Xft.dpi is set
                     // (Xft.dpi is display-wide — moving monitors must not change it).
@@ -2856,11 +2980,33 @@ impl X11Window {
 
     /// Translate an XDND ROOT-relative coordinate to window-local logical pixels.
     ///
-    /// XDND `XdndPosition` reports the pointer in root-window coordinates. We
-    /// subtract the window's tracked top-left origin (maintained by
-    /// `ConfigureNotify`). This is approximate if the WM hasn't yet reported the
-    /// final position, but is correct for the steady-state hover/drop case.
+    /// XDND `XdndPosition` reports the pointer in root-window coordinates.
+    /// Ask the server directly (root → this window) — exact under any WM.
+    /// Fallback: subtract the tracked top-left origin, which is only as good
+    /// as the last ConfigureNotify.
     fn xdnd_root_to_local(&self, root_x: i32, root_y: i32) -> LogicalPosition {
+        if let Some(translate) = self.xlib.XTranslateCoordinates {
+            unsafe {
+                let screen = (self.xlib.XDefaultScreen)(self.display);
+                let root = (self.xlib.XRootWindow)(self.display, screen);
+                let (mut wx, mut wy) = (0i32, 0i32);
+                let mut child: Window = 0;
+                // Returns 0 only when the windows are on different screens.
+                if (translate)(
+                    self.display,
+                    root,
+                    self.window,
+                    root_x,
+                    root_y,
+                    &mut wx,
+                    &mut wy,
+                    &mut child,
+                ) != 0
+                {
+                    return self.to_logical_pos(wx as f32, wy as f32);
+                }
+            }
+        }
         let (ox, oy) = match self.common.current_window_state.position {
             azul_core::window::WindowPosition::Initialized(p) => (p.x, p.y),
             _ => (0, 0),
@@ -3821,6 +3967,24 @@ impl X11Window {
                 std::process::exit(0);
             }
 
+            // Re-arm for an active scrollbar fade (same as the GPU tail below)
+            // so the fade animation keeps getting frames on the CPU backend too.
+            let needs_fade_frame = self.common.layout_window.as_ref()
+                .map(|lw| lw.gpu_state_manager.scrollbar_fade_active)
+                .unwrap_or(false);
+            if needs_fade_frame {
+                self.request_redraw();
+            }
+
+            // Retire the redraw request THIS frame serviced. The CPU path used
+            // to return without ever retiring it (only the GPU tail did), so
+            // once raised it stayed pending forever and poll_event's gate
+            // called render_and_present on EVERY loop wake — a full
+            // damage-diff/render pass per mouse-motion event. Epoch-guarded,
+            // so the fade re-arm above and any request raised by a callback
+            // inside this render survive (mirrors the Wayland CPU tail).
+            self.needs_redraw.retire_unless_reraised(redraw_epoch_seen);
+
             return Ok(());
         }
 
@@ -4094,7 +4258,7 @@ impl X11Window {
                 self.send_wm_state_change(1, b"_NET_WM_STATE_FULLSCREEN\0", None);
             },
             WindowFrame::Minimized => unsafe {
-                (self.xlib.XUnmapWindow)(self.display, self.window);
+                self.send_wm_iconify();
             },
             WindowFrame::Normal => {} // Already in normal state
         }
@@ -4200,7 +4364,7 @@ impl X11Window {
             use azul_core::window::WindowFrame;
             match current.flags.frame {
                 WindowFrame::Minimized => unsafe {
-                    (self.xlib.XUnmapWindow)(self.display, self.window);
+                    self.send_wm_iconify();
                 },
                 WindowFrame::Maximized => unsafe {
                     self.send_wm_state_change(
@@ -4727,6 +4891,17 @@ impl Drop for X11Window {
         if let RenderMode::Gpu(ref gl_context, _) = self.render_mode {
             gl_context.make_current();
         }
+
+        // WebRender's Renderer::deinit BEFORE the context teardown below: it
+        // issues real GL calls (texture/shader deletion) and needs the live,
+        // CURRENT context. It used to run inside close() at the END of this
+        // body — but the WM_DELETE path never calls close() itself (the run
+        // loop drops the window on !is_open), so on every WM-close the deinit
+        // dispatched GL through a context `render_mode = None` had already
+        // destroyed. deinit_renderer() takes the renderer out, so the later
+        // close() call is a no-op — nothing runs twice.
+        self.common.deinit_renderer();
+
         self.common.gl_context_ptr = OptionGlContextPtr::None;
 
         self.render_mode = RenderMode::None;
@@ -4822,6 +4997,36 @@ impl X11Window {
     /// `action`: 0 = remove, 1 = add.
     /// `atom1_name`: null-terminated atom name (e.g. `b"_NET_WM_STATE_ABOVE\0"`).
     /// `atom2_name`: optional second atom (used for maximize vert+horz).
+    /// ICCCM 4.1.4: iconify (minimize) by sending a `WM_CHANGE_STATE`
+    /// ClientMessage (IconicState) to the root window. `XUnmapWindow`ing a
+    /// top-level means WITHDRAWN, not iconic — the WM forgets the window
+    /// entirely (no taskbar entry, no Alt-Tab), leaving the user nothing to
+    /// restore. Restore stays `XMapWindow` (mapping an iconic window
+    /// normalizes it, ICCCM).
+    unsafe fn send_wm_iconify(&self) {
+        let screen = (self.xlib.XDefaultScreen)(self.display);
+        let root = (self.xlib.XRootWindow)(self.display, screen);
+
+        let mut event: defines::XClientMessageEvent = std::mem::zeroed();
+        event.type_ = defines::ClientMessage;
+        event.window = self.window;
+        event.message_type = (self.xlib.XInternAtom)(
+            self.display,
+            b"WM_CHANGE_STATE\0".as_ptr() as *const c_char,
+            0,
+        );
+        event.format = 32;
+        event.data.l[0] = 3; // IconicState (ICCCM)
+
+        (self.xlib.XSendEvent)(
+            self.display,
+            root,
+            0,
+            defines::SubstructureNotifyMask | defines::SubstructureRedirectMask,
+            &mut event as *mut _ as *mut defines::XEvent,
+        );
+    }
+
     unsafe fn send_wm_state_change(
         &self,
         action: std::os::raw::c_long,
@@ -4928,87 +5133,27 @@ impl X11Window {
 
     /// Set the window to always be on top (X11 implementation using _NET_WM_STATE_ABOVE)
     fn set_is_top_level(&mut self, is_top_level: bool) {
+        // EWMH: state changes on a MAPPED window MUST be requested via a
+        // _NET_WM_STATE ClientMessage to the root window — both call sites
+        // (apply_initial_window_state, sync_window_state) run post-map. The
+        // previous implementation edited the property directly, which a WM is
+        // free to ignore once the window is mapped, and violated the Xlib
+        // format=32 contract twice while doing it: XChangeProperty data must
+        // be an array of C `long`s (Xlib packs them to 32 bits on the wire),
+        // and XGetWindowProperty RETURNS format-32 data "as an array of longs
+        // … padded in the upper 4 bytes" (XGetWindowProperty(3)). Reading the
+        // property as u32 interleaved every real atom with a 0 pad word, and
+        // writing the filtered u32 Vec back made Xlib read `len` longs out of
+        // a `len`-u32 buffer — so CLEARING always-on-top could corrupt
+        // _NET_WM_STATE and silently drop unrelated states (maximized,
+        // fullscreen). The existing ClientMessage sender handles both add
+        // (action 1) and remove (action 0); use it.
         unsafe {
-            // Get _NET_WM_STATE atom
-            let net_wm_state =
-                (self.xlib.XInternAtom)(self.display, b"_NET_WM_STATE\0".as_ptr() as *const c_char, 0);
-
-            // Get _NET_WM_STATE_ABOVE atom
-            let net_wm_state_above = (self.xlib.XInternAtom)(
-                self.display,
-                b"_NET_WM_STATE_ABOVE\0".as_ptr() as *const c_char,
-                0,
+            self.send_wm_state_change(
+                if is_top_level { 1 } else { 0 },
+                b"_NET_WM_STATE_ABOVE\0",
+                None,
             );
-
-            if is_top_level {
-                // Add _NET_WM_STATE_ABOVE to window properties
-                // Convert to u32 for X11 protocol compliance (format=32 means 32-bit values)
-                let atom_u32 = net_wm_state_above as u32;
-                (self.xlib.XChangeProperty)(
-                    self.display,
-                    self.window,
-                    net_wm_state,
-                    defines::XA_ATOM,
-                    32,
-                    defines::PropModeAppend,
-                    &atom_u32 as *const _ as *const u8,
-                    1,
-                );
-            } else {
-                // Remove _NET_WM_STATE_ABOVE from window properties
-                // First, get current state
-                let mut actual_type: Atom = 0;
-                let mut actual_format: i32 = 0;
-                let mut nitems: std::os::raw::c_ulong = 0;
-                let mut bytes_after: std::os::raw::c_ulong = 0;
-                let mut prop: *mut u8 = std::ptr::null_mut();
-
-                let result = (self.xlib.XGetWindowProperty)(
-                    self.display,
-                    self.window,
-                    net_wm_state,
-                    0,
-                    1024,
-                    0,
-                    defines::XA_ATOM,
-                    &mut actual_type,
-                    &mut actual_format,
-                    &mut nitems,
-                    &mut bytes_after,
-                    &mut prop,
-                );
-
-                if result == 0
-                    && !prop.is_null()
-                    && actual_type == defines::XA_ATOM
-                    && actual_format == 32
-                {
-                    // Read atoms as u32 (protocol uses 32-bit values even on 64-bit systems)
-                    let atoms = std::slice::from_raw_parts(prop as *const u32, nitems as usize);
-                    let net_wm_state_above_u32 = net_wm_state_above as u32;
-
-                    let mut new_atoms: Vec<u32> = atoms
-                        .iter()
-                        .filter(|&&atom| atom != net_wm_state_above_u32)
-                        .copied()
-                        .collect();
-
-                    // Replace property with filtered list
-                    (self.xlib.XChangeProperty)(
-                        self.display,
-                        self.window,
-                        net_wm_state,
-                        defines::XA_ATOM,
-                        32,
-                        defines::PropModeReplace,
-                        new_atoms.as_mut_ptr() as *const u8,
-                        new_atoms.len() as i32,
-                    );
-
-                    (self.xlib.XFree)(prop as *mut c_void);
-                }
-            }
-
             (self.xlib.XFlush)(self.display);
         }
     }
