@@ -4216,14 +4216,17 @@ impl MacOSWindow {
 
         // Read back the actual window position from the OS and store it
         // so that titlebar drag callbacks can compute correct new positions.
-        unsafe {
+        {
             let frame = window.window.frame();
-            // macOS uses bottom-left origin; we store top-left for consistency
-            // frame.origin is bottom-left, frame.origin.y + frame.size.height = top
-            if let Some(screen) = window.window.screen() {
-                let screen_frame = screen.frame();
+            // macOS uses bottom-left origin; we store top-left for consistency.
+            // frame.origin is in GLOBAL coords anchored to the PRIMARY screen's
+            // bottom-left (MWA-B9) — the flip must use the primary screen's
+            // height, same as window_did_move / sync_window_state, or the
+            // stored position is in a different convention when the window
+            // opens on a secondary monitor.
+            if let Some(primary_height) = primary_screen_height() {
                 let top_left_x = frame.origin.x as i32;
-                let top_left_y = (screen_frame.size.height - frame.origin.y - frame.size.height) as i32;
+                let top_left_y = (primary_height - frame.origin.y - frame.size.height) as i32;
                 let pos = azul_core::window::WindowPosition::Initialized(
                     azul_core::geom::PhysicalPositionI32::new(top_left_x, top_left_y),
                 );
@@ -4606,12 +4609,16 @@ impl MacOSWindow {
             match current.position {
                 WindowPosition::Initialized(pos) => {
                     // Our position stores top-left with y=0 at top of screen.
-                    // setFrameTopLeftPoint expects y in macOS screen coords (y=0 at bottom).
-                    // Convert: macos_y = screen_height - our_y
+                    // setFrameTopLeftPoint expects y in macOS GLOBAL coords
+                    // (y=0 at the bottom of the PRIMARY screen — MWA-B9: every
+                    // top-down↔bottom-up flip must use the primary screen's
+                    // height, never the current screen's; window_did_move
+                    // reads the position back with exactly this flip, and
+                    // using the current screen here mis-placed programmatic
+                    // moves on any secondary monitor).
                     unsafe {
-                        if let Some(screen) = self.window.screen() {
-                            let screen_height = screen.frame().size.height;
-                            let macos_y = screen_height - pos.y as f64;
+                        if let Some(primary_height) = primary_screen_height() {
+                            let macos_y = primary_height - pos.y as f64;
                             let origin = NSPoint::new(pos.x as f64, macos_y);
                             self.window.setFrameTopLeftPoint(origin);
                         }
