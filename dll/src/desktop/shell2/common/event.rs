@@ -1475,6 +1475,7 @@ pub trait PlatformWindow {
         for _pass in 1..MAX_LIFECYCLE_REGEN_PASSES {
             if !self.dispatch_pending_lifecycle_events() {
                 self.refill_a11y_tree_after_regeneration();
+                self.flush_a11y_tree_update();
                 return Ok(result);
             }
             result = self.regenerate_layout_once()?;
@@ -1488,6 +1489,7 @@ pub trait PlatformWindow {
             }
         }
         self.refill_a11y_tree_after_regeneration();
+        self.flush_a11y_tree_update();
         Ok(result)
     }
 
@@ -1511,6 +1513,11 @@ pub trait PlatformWindow {
     ///
     /// Cost: one pass over the exposed nodes per DOM rebuild (the same cost
     /// macOS already paid per rebuild via its dirty-gated tick).
+    ///
+    /// The caller follows this with [`Self::flush_a11y_tree_update`] so a
+    /// TIMER-driven rebuild reaches the adapter immediately too — without
+    /// that, a regeneration with no subsequent input event left the update
+    /// parked until the next `process_window_events` pass happened to flush.
     #[cfg(feature = "a11y")]
     fn refill_a11y_tree_after_regeneration(&mut self) {
         if let Some(lw) = self.get_layout_window_mut() {
