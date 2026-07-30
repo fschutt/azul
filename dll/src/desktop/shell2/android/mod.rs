@@ -896,13 +896,22 @@ fn render_frame(window: &mut AndroidWindow) -> Result<(), WindowError> {
     let ph = pixmap.height() as i32;
     if pw <= 0 || ph <= 0 { return Ok(()); }
 
-    // Tell the surface we want RGBA8 of this exact size. Returns an
-    // io::Error if Android can't satisfy — surface is gone or surfaceflinger
-    // rejected the format; we just skip the frame.
-    let _ = nw.set_buffers_geometry(
+    // Tell the surface we want RGBA8 of this exact size. If Android can't
+    // satisfy (surface gone, surfaceflinger rejected the format) SKIP the
+    // frame: locking anyway hands us a buffer whose format/geometry does not
+    // match the bytes we are about to write, and the old `let _ =` swallow
+    // then blitted RGBA rows into it regardless.
+    if let Err(e) = nw.set_buffers_geometry(
         pw, ph,
         Some(ndk::hardware_buffer_format::HardwareBufferFormat::R8G8B8A8_UNORM),
-    );
+    ) {
+        log_debug!(
+            LogCategory::Rendering,
+            "[Android] setBuffersGeometry({}x{} RGBA8) failed: {}; skipping frame",
+            pw, ph, e,
+        );
+        return Ok(());
+    }
 
     let mut guard = match nw.lock(None) {
         Ok(g) => g,
@@ -912,14 +921,53 @@ fn render_frame(window: &mut AndroidWindow) -> Result<(), WindowError> {
         }
     };
 
+    // The locked buffer's REAL format. `lines()` derives its bytes-per-pixel
+    // from this, so a producer that ignored the RGBA8 request (legacy fixed-
+    // format surfaces) would make the copy below reinterpret RGBA bytes as
+    // 565/etc. — garbage on every pixel. There is no "unlock without post"
+    // in the NDK (ANativeWindow_unlockAndPost is the only unlock), so on a
+    // mismatch present a deterministic cleared frame instead of the buffer's
+    // undefined contents.
+    {
+        use ndk::hardware_buffer_format::HardwareBufferFormat as Hbf;
+        let format = guard.format();
+        if !matches!(format, Hbf::R8G8B8A8_UNORM | Hbf::R8G8B8X8_UNORM) {
+            log_debug!(
+                LogCategory::Rendering,
+                "[Android] lock returned non-RGBA8 buffer format {:?}; clearing frame",
+                format,
+            );
+            if let Some(bytes) = guard.bytes() {
+                // SAFETY: writing initialised bytes into MaybeUninit is sound.
+                unsafe {
+                    core::ptr::write_bytes(bytes.as_mut_ptr().cast::<u8>(), 0, bytes.len());
+                }
+            }
+            return Ok(()); // guard drop unlockAndPosts the cleared buffer
+        }
+    }
+
     // Per-line blit. `lines()` returns one mutable slice per scanline,
     // trimmed to the visible width — exactly what we need for an RGBA→RGBA
     // copy where stride may exceed width.
+    //
+    // Any part of the buffer the pixmap does not cover MUST still be written:
+    // ANativeWindow_lock hands back a dequeued buffer with UNDEFINED contents
+    // (typically a stale frame from several swaps ago — Android does not
+    // guarantee back-buffer preservation), so rows/columns we skip would show
+    // garbage. Normally geometry matches the pixmap exactly and the fills
+    // below are no-ops; they only run if the buffer disagrees with the
+    // geometry we just set.
     let src = pixmap.data();
     let src_stride = (pw as usize) * 4;
     if let Some(lines) = guard.lines() {
         for (y, line) in lines.enumerate() {
-            if y >= ph as usize { break; }
+            let dst_ptr = line.as_mut_ptr().cast::<u8>();
+            if y >= ph as usize {
+                // SAFETY: in-bounds write of initialised bytes.
+                unsafe { core::ptr::write_bytes(dst_ptr, 0, line.len()) };
+                continue;
+            }
             let src_off = y * src_stride;
             let end = (src_off + src_stride).min(src.len());
             let src_row = &src[src_off..end];
@@ -927,8 +975,10 @@ fn render_frame(window: &mut AndroidWindow) -> Result<(), WindowError> {
             // SAFETY: line is &mut [MaybeUninit<u8>]; writing initialised
             // bytes is sound. We never read line before writing it.
             unsafe {
-                let dst_ptr = line.as_mut_ptr().cast::<u8>();
                 core::ptr::copy_nonoverlapping(src_row.as_ptr(), dst_ptr, n);
+                if n < line.len() {
+                    core::ptr::write_bytes(dst_ptr.add(n), 0, line.len() - n);
+                }
             }
         }
     }
