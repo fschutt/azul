@@ -93,25 +93,59 @@ fn e2e_test_file() -> Option<String> {
 /// Called unconditionally at startup. Each entry names the variable, the
 /// feature that implements it, and how to get it back.
 pub(crate) fn warn_about_inert_env_knobs() {
-    // (variable, feature that implements it, what to build)
-    const GATED: &[(&str, &str, &str)] = &[
-        ("AZ_E2E", "debug-server", "cargo build -p azul-dll --features build-dll,debug-server"),
-        ("AZ_DEBUG", "debug-server", "cargo build -p azul-dll --features build-dll,debug-server"),
+    // (variable, feature compiled in?, feature that implements it, what to
+    // build). `cfg!` — not a `#[cfg]` on the loop — so every row is evaluated
+    // in every configuration and the list cannot rot behind the gate it
+    // describes. Only knobs that are FULLY inert without their feature belong
+    // here; a knob that still does part of its job gets a targeted message at
+    // its own read site instead (e.g. AZ_BACKEND=web in compositor.rs).
+    let gated: &[(&str, bool, &str, &str)] = &[
+        (
+            "AZ_E2E",
+            cfg!(feature = "debug-server"),
+            "debug-server",
+            "cargo build -p azul-dll --features build-dll,debug-server",
+        ),
+        (
+            "AZ_DEBUG",
+            cfg!(feature = "debug-server"),
+            "debug-server",
+            "cargo build -p azul-dll --features build-dll,debug-server",
+        ),
+        // The deterministic resize/tick scenario runner (common/e2e_test.rs).
+        // Without `e2e-test` BOTH run.rs hooks are compiled out and the whole
+        // module does not exist — the app just opens its normal window.
+        (
+            "AZ_E2E_TEST",
+            cfg!(feature = "e2e-test"),
+            "e2e-test",
+            "cargo build -p azul-dll --features build-dll,e2e-test",
+        ),
+        // First-frame PNG snapshot (headless/mod.rs). Read only under
+        // `cpurender`; without it the run looks normal and no file appears.
+        (
+            "AZ_HEADLESS_SNAPSHOT_PATH",
+            cfg!(feature = "cpurender"),
+            "cpurender",
+            "cargo build -p azul-dll --features build-dll,cpurender",
+        ),
+        // Per-frame PNG dump out of CpuBackend::render_frame — same gate.
+        (
+            "AZ_DUMP_FRAME_DIR",
+            cfg!(feature = "cpurender"),
+            "cpurender",
+            "cargo build -p azul-dll --features build-dll,cpurender",
+        ),
     ];
 
-    #[cfg(not(feature = "debug-server"))]
-    for (var, feature, how) in GATED {
-        if std::env::var(var).map(|v| !v.is_empty()).unwrap_or(false) {
+    for (var, compiled, feature, how) in gated {
+        if !compiled && std::env::var(var).map(|v| !v.is_empty()).unwrap_or(false) {
             eprintln!(
                 "[azul] {var} is set but this build has no `{feature}` feature, so it \
                  does NOTHING. Rebuild with: {how}"
             );
         }
     }
-
-    // Referenced in both configurations so the list cannot rot behind a cfg.
-    #[cfg(feature = "debug-server")]
-    let _ = GATED;
 }
 
 /// Set up E2E test runner: read the JSON file, push a `RunE2eTests`
@@ -1411,8 +1445,6 @@ pub fn run(
             break;
         }
 
-        let is_multi_window = window_ids.len() > 1;
-
         // Process events for all windows
         for wid in &window_ids {
             if let Some(win_ptr) = unsafe { registry::get_window(*wid) } {
@@ -1603,21 +1635,34 @@ pub fn run(
             }
         }
 
-        // Wait strategy based on number of windows
-        if !is_multi_window {
-            // Single window: Block on XNextEvent (efficient)
-            if let Some(win_ptr) = unsafe { registry::get_window(window_ids[0]) } {
-                let window = unsafe { &mut *win_ptr };
-                window.wait_for_events()?;
+        // Wait strategy based on the number of windows AS OF NOW — not the
+        // snapshot from the top of the iteration. The close pass and the
+        // pending-create pass above both change the set: deciding the wait on
+        // the stale `is_multi_window` meant a window created THIS iteration
+        // (context menu, dialog) left us blocking on only the ROOT window's
+        // connection + timerfds — the new window's events could not wake the
+        // loop until the root window happened to receive something.
+        let live_window_ids = registry::get_all_window_ids();
+        match live_window_ids.len() {
+            // Everything closed this iteration: skip the wait so the loop-top
+            // emptiness check exits instead of blocking on a dead set.
+            0 => {}
+            1 => {
+                // Single window: Block on XNextEvent (efficient)
+                if let Some(win_ptr) = unsafe { registry::get_window(live_window_ids[0]) } {
+                    let window = unsafe { &mut *win_ptr };
+                    window.wait_for_events()?;
+                }
             }
-        } else {
-            // Multi-window: poll ALL registered windows' connection fds,
-            // backend-aware. The old code fed the ROOT window's display
-            // pointer to XConnectionNumber — reading an Xlib struct offset
-            // from a wl_display* on Wayland (garbage fd; select() errored and
-            // KILLED the whole run loop the moment a second window existed) —
-            // and never woke for the other windows' connections either way.
-            wait_for_linux_window_activity()?;
+            _ => {
+                // Multi-window: poll ALL registered windows' connection fds,
+                // backend-aware. The old code fed the ROOT window's display
+                // pointer to XConnectionNumber — reading an Xlib struct offset
+                // from a wl_display* on Wayland (garbage fd; select() errored and
+                // KILLED the whole run loop the moment a second window existed) —
+                // and never woke for the other windows' connections either way.
+                wait_for_linux_window_activity()?;
+            }
         }
     }
 

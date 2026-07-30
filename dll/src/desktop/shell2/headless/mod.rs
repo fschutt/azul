@@ -287,17 +287,31 @@ impl CpuBackend {
         use azul_core::dom::DomId;
         use azul_layout::cpurender;
 
+        // Every early return below must leave `last_frame_damage` /
+        // `last_present_damage` describing THIS call ("nothing changed"), not
+        // whatever the previous call recorded. The platform blit paths read
+        // `last_present_damage` after every render_frame — with the fields
+        // left stale, a call that rendered nothing (window minimised to 0×0,
+        // no layout result yet, allocation failure) made the caller re-blit
+        // the PREVIOUS frame's damage rects out of the retained pixmap.
+
         // Get the layout result from layout results
         let dom_id = DomId { inner: 0 };
         let result = match layout_window.layout_results.get(&dom_id) {
             Some(result) => result,
-            None => return Vec::new(),
+            None => {
+                self.last_frame_damage = FrameDamage::None;
+                self.last_present_damage = FrameDamage::None;
+                return Vec::new();
+            }
         };
         let display_list = &result.display_list;
 
         let pixel_w = (width * dpi_factor).ceil() as u32;
         let pixel_h = (height * dpi_factor).ceil() as u32;
         if pixel_w == 0 || pixel_h == 0 {
+            self.last_frame_damage = FrameDamage::None;
+            self.last_present_damage = FrameDamage::None;
             return Vec::new();
         }
 
@@ -578,7 +592,13 @@ impl CpuBackend {
             }
             None => match cpurender::AzulPixmap::new(pixel_w, pixel_h) {
                 Some(mut p) => { p.fill(255, 255, 255, 255); p }
-                None => return Vec::new(),
+                None => {
+                    // Same contract as the early returns at the top: a call
+                    // that produced no frame must not leave stale damage.
+                    self.last_frame_damage = FrameDamage::None;
+                    self.last_present_damage = FrameDamage::None;
+                    return Vec::new();
+                }
             },
         };
 
@@ -1852,6 +1872,30 @@ impl HeadlessWindow {
                 }
             }
 
+            // ── Phase 2b: Honour `flags.close_requested` ─────────
+            // `CallbackChange::CloseWindow` — the cross-platform "quit" API a
+            // callback or timer uses — does not close anything itself: it sets
+            // `flags.close_requested` and relies on the shell's loop to consume
+            // it. Every desktop backend does (the Linux run loop's
+            // `close_requested() → close()` check, Windows' WM_PAINT/WndProc
+            // checks, macOS's sync_window_state) — headless did NOT, so an app
+            // whose exit path is `window.close()` from a callback kept its loop
+            // alive forever: the flag was set, `DoNothing` came back, and
+            // `while self.is_open()` never terminated. With an active timer the
+            // loop even kept polling at 60 Hz, which is exactly the
+            // "self-test never exits after the last window closes" hang.
+            // Checked here — after events (Phase 1), a11y actions (Phase 1b)
+            // and timers/threads (Phase 2), the three places a callback can
+            // run — so a close requested anywhere this iteration exits before
+            // the condvar wait instead of after a wake that may never come.
+            if self.common.current_window_state.flags.close_requested {
+                log_info!(
+                    LogCategory::EventLoop,
+                    "[Headless] close_requested by callback — closing window"
+                );
+                self.close();
+            }
+
             // ── Phase 3: Spawn sub-HeadlessWindows for pending creates ─
             while let Some(pending_create) = self.pending_window_creates.pop() {
                 log_debug!(
@@ -1884,6 +1928,12 @@ impl HeadlessWindow {
                 while let Some(ev) = child.poll_event() {
                     if let HeadlessEvent::Close = ev { child.close(); }
                 }
+                // Same close_requested contract as the parent window above: a
+                // callback that closes a child popup/dialog sets the flag and
+                // the loop must consume it.
+                if child.common.current_window_state.flags.close_requested {
+                    child.close();
+                }
                 child.pending_window_creates.clear();
                 child.is_open()
             });
@@ -1907,12 +1957,31 @@ impl HeadlessWindow {
                 );
             }
 
-            // Lock, clear `woken`, then wait.
+            // Lock, then wait — but only if no wake is already pending.
             let mut guard = self.wake_mutex.lock().unwrap();
-            guard.woken = false;
 
-            if has_timers {
-                // Timers active → poll at 60 Hz
+            // Threads count as a wake source for the TIMED wait, not just for
+            // the no-wake-sources warning above: a background `Thread`'s
+            // completion is only ever OBSERVED by polling (`run_all_threads`
+            // inside `process_timers_and_threads`) — the worker has no handle
+            // to this condvar, so it cannot signal it. With threads in flight
+            // and no timers armed, the old `has_timers`-only split blocked
+            // indefinitely: the fetch worker finished, its writeback never
+            // ran, and the window froze — the headless twin of the X11/Wayland
+            // "threads have no fd in the poll set" 16 ms tick, which is
+            // exactly how those backends solve the same problem.
+            if guard.woken {
+                // A wake arrived DURING this iteration's processing — e.g. a
+                // timer callback injected an event after Phase 1 had already
+                // drained the queue, or requested a redraw after Phase 2. The
+                // old sequence cleared `woken` unconditionally and then
+                // waited, erasing that wake: the queued work sat there until
+                // the next unrelated wake (or forever, with no timer armed).
+                // Consume the flag and loop again WITHOUT waiting, so the
+                // work the wake announced is serviced now.
+                guard.woken = false;
+            } else if has_timers || self.thread_poll_timer_running {
+                // Timers or threads active → poll at 60 Hz
                 let _r = self.wake_condvar.wait_timeout_while(
                     guard,
                     Duration::from_millis(TIMER_POLL_MS),
