@@ -1176,10 +1176,20 @@ impl CommonWindowState {
 
         // CPU path: layout-based hit tester
         if let Some(ref cpu_ht) = self.cpu_hit_tester {
-            let layout_results = unsafe { &(*layout_results_ptr).layout_results };
-            let nodes = cpu_ht.hit_test(position);
+            // SAFETY: neither layout_results nor scroll_manager is modified by
+            // hit testing
+            let lw = unsafe { &*layout_results_ptr };
+            let resolve = |d: azul_core::dom::DomId, n: azul_core::dom::NodeId| {
+                lw.scroll_manager.get_current_offset(d, n)
+            };
+            let nodes = cpu_ht.hit_test_scrolled(position, &resolve);
             return crate::desktop::wr_translate2::convert_cpu_hit_test_to_full(
-                &nodes, focused_node, layout_results, position,
+                cpu_ht,
+                &nodes,
+                focused_node,
+                &lw.layout_results,
+                position,
+                &resolve,
             );
         }
 

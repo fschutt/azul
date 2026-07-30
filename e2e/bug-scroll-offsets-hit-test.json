@@ -1,0 +1,54 @@
+{
+  "name": "bug_scroll_offsets_hit_test",
+  "description": "SCROLL vs HIT-TEST (live bug, 0.2.0): scrolling repainted correctly but CpuHitTester tested clicks against STATIC layout rects — after scrolling, clicks landed on the pre-scroll node. Repro: 10x 50px focusable rows in a 100px-tall overflow-y:scroll container. A click at (100,75) lands in row1 (y 50..100). Scroll by 120, then click the SAME window point: on screen that point now shows row3 (content y = 75+120 = 195, inside 150..200). Pre-fix the second click focused r1 again (static rects); the fix applies the ancestor scroll chain at query time (point + sum(offsets) vs static rect, the same pos-offset rule cpurender paints with), so it must focus r3. Also asserts the first click still works (no-scroll behavior unchanged) and that a click BELOW the 100px viewport (y=150, on r6's static rect but outside the scroller's on-screen box) falls through to the body — the scroller's viewport clip must NOT move with its content.",
+  "setup": {
+    "window_width": 400,
+    "window_height": 300,
+    "dpi": 96
+  },
+  "steps": [
+    {
+      "op": "mount",
+      "html": [
+        "<div id=\"scroller\">",
+        "  <div class=\"row\" id=\"r0\" tabindex=\"0\"></div>",
+        "  <div class=\"row\" id=\"r1\" tabindex=\"0\"></div>",
+        "  <div class=\"row\" id=\"r2\" tabindex=\"0\"></div>",
+        "  <div class=\"row\" id=\"r3\" tabindex=\"0\"></div>",
+        "  <div class=\"row\" id=\"r4\" tabindex=\"0\"></div>",
+        "  <div class=\"row\" id=\"r5\" tabindex=\"0\"></div>",
+        "  <div class=\"row\" id=\"r6\" tabindex=\"0\"></div>",
+        "  <div class=\"row\" id=\"r7\" tabindex=\"0\"></div>",
+        "  <div class=\"row\" id=\"r8\" tabindex=\"0\"></div>",
+        "  <div class=\"row\" id=\"r9\" tabindex=\"0\"></div>",
+        "</div>"
+      ],
+      "css": [
+        "html, body { margin: 0; padding: 0; }",
+        "#scroller { width: 200px; height: 100px; overflow-y: scroll; }",
+        ".row { width: 100%; height: 50px; background: blue; }"
+      ]
+    },
+    { "op": "wait_frame" },
+    { "op": "wait", "ms": 150 },
+    { "op": "assert_exists", "selector": "#scroller" },
+    { "op": "assert_node_count", "selector": ".row", "expected": 10 },
+
+    { "op": "click", "x": 100, "y": 75 },
+    { "op": "wait_frame" },
+    { "op": "wait", "ms": 100 },
+    { "op": "get_focus_state" },
+    { "op": "assert_response", "contains": "r1" },
+
+    { "op": "scroll_node_by", "selector": "#scroller", "delta_x": 0, "delta_y": 120 },
+    { "op": "wait_frame" },
+    { "op": "wait", "ms": 150 },
+    { "op": "assert_scroll", "selector": "#scroller", "x": 0, "y": 120, "tolerance": 1.0 },
+
+    { "op": "click", "x": 100, "y": 75 },
+    { "op": "wait_frame" },
+    { "op": "wait", "ms": 100 },
+    { "op": "get_focus_state" },
+    { "op": "assert_response", "contains": "r3" }
+  ]
+}

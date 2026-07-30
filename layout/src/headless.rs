@@ -49,6 +49,21 @@ pub struct CpuHitTester {
     /// Cached hit test results from the last layout.
     /// Maps `DomId` -> list of (`NodeId`, positioned rect) sorted by paint order.
     node_rects: BTreeMap<DomId, Vec<HitTestEntry>>,
+    /// Interned ancestor-scroll-frame chains. Index 0 is always the empty
+    /// chain. Entry / clip `chain` values index into this. A node's on-screen
+    /// position is its static layout position minus the sum of the current
+    /// scroll offsets of every frame in its chain — the same
+    /// `pos - scroll_offset` rule `cpurender::raster` paints with, so pixels
+    /// and pointer targets cannot disagree.
+    chains: Vec<Vec<(DomId, NodeId)>>,
+    /// Every node that got a `PushScrollFrame` (from
+    /// `DomLayoutResult::scroll_ids`, the same set the display list uses),
+    /// translated into window space, with the chain of its STRICT scroll
+    /// ancestors (a container's own viewport box does not move when it
+    /// scrolls — only its content does).
+    scroll_containers: Vec<ScrollContainerEntry>,
+    /// `VirtualView` child-DOM placements in window space (static coords).
+    dom_placements: BTreeMap<DomId, LogicalRect>,
 }
 
 /// A single entry in the CPU hit test acceleration structure.
@@ -56,12 +71,50 @@ pub struct CpuHitTester {
 struct HitTestEntry {
     /// The DOM node that this entry corresponds to.
     node_id: NodeId,
-    /// Absolute position and size of this node in logical pixels.
+    /// Static (unscrolled) position and size of this node in logical pixels,
+    /// window space (VirtualView placement already applied).
     rect: LogicalRect,
-    /// Clip rect (intersection of all ancestor overflow clips).
-    clip: Option<LogicalRect>,
+    /// Ancestor scroll frames whose offsets shift this node on screen
+    /// (index into [`CpuHitTester::chains`]).
+    chain: u32,
+    /// Clip boxes from `overflow`-clipping ancestors and the VirtualView
+    /// composite bounds. Each clip carries the chain of ITS owner's strict
+    /// scroll ancestors — a clip box inside a scrolled frame moves with that
+    /// frame, while the clipping container's own scroll does not move its
+    /// viewport. Axis-only clips (`overflow-x`/`overflow-y` independent) are
+    /// stored with the unclipped axis widened to [`CLIP_UNBOUNDED`].
+    clips: Vec<(LogicalRect, u32)>,
     /// Whether this node is pointer-events: none
     pointer_events_none: bool,
+}
+
+/// A scroll container (`PushScrollFrame` owner) for wheel-target resolution.
+#[derive(Debug, Clone)]
+struct ScrollContainerEntry {
+    dom_id: DomId,
+    node_id: NodeId,
+    /// Index of this node in its DOM's layout tree (for content-size lookup).
+    layout_idx: usize,
+    scroll_id: u64,
+    /// Static viewport box, window space (placement-translated).
+    rect: LogicalRect,
+    /// Chain of STRICT scroll ancestors (index into [`CpuHitTester::chains`]).
+    chain: u32,
+}
+
+/// Intern a chain into the table, returning its index.
+fn intern_chain(
+    chains: &mut Vec<Vec<(DomId, NodeId)>>,
+    lookup: &mut std::collections::HashMap<Vec<(DomId, NodeId)>, u32>,
+    v: Vec<(DomId, NodeId)>,
+) -> u32 {
+    if let Some(&i) = lookup.get(&v) {
+        return i;
+    }
+    let i = chains.len() as u32;
+    chains.push(v.clone());
+    lookup.insert(v, i);
+    i
 }
 
 impl Default for CpuHitTester {
@@ -72,10 +125,31 @@ impl Default for CpuHitTester {
 
 impl CpuHitTester {
     /// Create a new empty hit tester.
-    #[must_use] pub const fn new() -> Self {
+    #[must_use] pub fn new() -> Self {
         Self {
             node_rects: BTreeMap::new(),
+            chains: vec![Vec::new()],
+            scroll_containers: Vec::new(),
+            dom_placements: BTreeMap::new(),
         }
+    }
+
+    /// Sum the current scroll offsets along an interned chain.
+    fn chain_sum(
+        &self,
+        chain: u32,
+        resolve_scroll: &dyn Fn(DomId, NodeId) -> Option<LogicalPosition>,
+    ) -> LogicalPosition {
+        let mut sum = LogicalPosition::zero();
+        if let Some(elems) = self.chains.get(chain as usize) {
+            for (d, n) in elems {
+                if let Some(o) = resolve_scroll(*d, *n) {
+                    sum.x += o.x;
+                    sum.y += o.y;
+                }
+            }
+        }
+        sum
     }
 
     /// Sum of `HitTestEntry` counts across all `DomIds` (for leak probes).
@@ -93,6 +167,10 @@ impl CpuHitTester {
         layout_results: &BTreeMap<DomId, DomLayoutResult>,
     ) {
         self.node_rects.clear();
+        self.chains.clear();
+        self.chains.push(Vec::new()); // chain 0 = empty
+        self.scroll_containers.clear();
+        self.dom_placements.clear();
 
         // VirtualView / iframe child DOMs lay out in CHILD-LOCAL coordinates
         // (origin 0,0) but live on screen at the host VirtualView item's
@@ -105,42 +183,91 @@ impl CpuHitTester {
         // Resolve placements iteratively so nested VirtualViews accumulate
         // their host offsets (a child's own VirtualView item is in that
         // child's local space).
-        let mut placements: BTreeMap<DomId, LogicalRect> = BTreeMap::new();
+        // Placements also carry the host-side scroll-frame chain active at the
+        // `VirtualView` item: if the host scrolls, the child viewport (and all
+        // of the child's content) moves on screen with it. The chain is read
+        // off the host display list by tracking `PushScrollFrame` /
+        // `PopScrollFrame` nesting around the `VirtualView` item — the same
+        // nesting the renderer applies when it composites the child.
+        struct Placement {
+            rect: LogicalRect,
+            chain: Vec<(DomId, NodeId)>,
+        }
+        let mut placements: BTreeMap<DomId, Placement> = BTreeMap::new();
         for _ in 0..4 {
             // bounded depth; each pass resolves one nesting level
             let mut changed = false;
             for (host_dom, lr) in layout_results {
-                let host_offset = if host_dom.inner == 0 {
-                    Some(LogicalPosition::zero())
+                let (host_offset, host_chain) = if host_dom.inner == 0 {
+                    (LogicalPosition::zero(), Vec::new())
+                } else if let Some(p) = placements.get(host_dom) {
+                    (p.rect.origin, p.chain.clone())
                 } else {
-                    placements.get(host_dom).map(|r| r.origin)
+                    continue;
                 };
-                let Some(host_offset) = host_offset else { continue };
+                let base_depth = host_chain.len();
+                let mut stack = host_chain;
                 for item in &lr.display_list.items {
-                    if let crate::solver3::display_list::DisplayListItem::VirtualView {
-                        child_dom_id,
-                        bounds,
-                        ..
-                    } = item
-                    {
-                        let b = *bounds.inner();
-                        let absolute = LogicalRect {
-                            origin: LogicalPosition {
-                                x: b.origin.x + host_offset.x,
-                                y: b.origin.y + host_offset.y,
-                            },
-                            size: b.size,
-                        };
-                        if placements.get(child_dom_id) != Some(&absolute) {
-                            placements.insert(*child_dom_id, absolute);
-                            changed = true;
+                    use crate::solver3::display_list::DisplayListItem as I;
+                    match item {
+                        I::PushScrollFrame { scroll_id, .. } => {
+                            // `scroll_id` is the owning node's layout index by
+                            // construction (`get_scroll_id`); the reverse map
+                            // is authoritative, the index a safe fallback.
+                            let nid = lr
+                                .scroll_id_to_node_id
+                                .get(scroll_id)
+                                .copied()
+                                .unwrap_or_else(|| NodeId::new(*scroll_id as usize));
+                            stack.push((*host_dom, nid));
                         }
+                        I::PopScrollFrame => {
+                            // Never pop below the host's own chain.
+                            if stack.len() > base_depth {
+                                stack.pop();
+                            }
+                        }
+                        I::VirtualView {
+                            child_dom_id,
+                            bounds,
+                            ..
+                        } => {
+                            let b = *bounds.inner();
+                            let absolute = LogicalRect {
+                                origin: LogicalPosition {
+                                    x: b.origin.x + host_offset.x,
+                                    y: b.origin.y + host_offset.y,
+                                },
+                                size: b.size,
+                            };
+                            let differs = placements.get(child_dom_id).is_none_or(|p| {
+                                p.rect != absolute || p.chain != stack
+                            });
+                            if differs {
+                                placements.insert(
+                                    *child_dom_id,
+                                    Placement {
+                                        rect: absolute,
+                                        chain: stack.clone(),
+                                    },
+                                );
+                                changed = true;
+                            }
+                        }
+                        _ => {}
                     }
                 }
             }
             if !changed {
                 break;
             }
+        }
+
+        let mut chain_lookup: std::collections::HashMap<Vec<(DomId, NodeId)>, u32> =
+            std::collections::HashMap::new();
+        chain_lookup.insert(Vec::new(), 0);
+        for (dom_id, p) in &placements {
+            self.dom_placements.insert(*dom_id, p.rect);
         }
 
         for (dom_id, layout_result) in layout_results {
@@ -151,7 +278,83 @@ impl CpuHitTester {
             let styled_dom = &layout_result.styled_dom;
 
             // Child DOM: shift into window space + clip to the composite rect.
-            let (offset, dom_clip) = placements.get(dom_id).map_or_else(|| (LogicalPosition::zero(), None), |b| (b.origin, Some(*b)));
+            let (offset, dom_clip, base_chain_vec) = placements.get(dom_id).map_or_else(
+                || (LogicalPosition::zero(), None, Vec::new()),
+                |p| (p.rect.origin, Some(p.rect), p.chain.clone()),
+            );
+            let base_chain = intern_chain(&mut self.chains, &mut chain_lookup, base_chain_vec);
+            let dom_clip_entry = dom_clip.map(|r| (r, base_chain));
+
+            // Resolve each layout node's ancestor scroll-frame chain.
+            // `chain(n) = chain(parent) (+ parent, if parent owns a scroll
+            // frame)` — a scroll container shifts its CONTENT, not itself.
+            // `scroll_ids` (layout index → scroll id) is the exact set of
+            // nodes the display-list builder emitted `PushScrollFrame` for.
+            let scroll_ids = &layout_result.scroll_ids;
+            let mut chain_of: Vec<u32> = vec![u32::MAX; nodes.len()];
+            let mut path: Vec<usize> = Vec::new();
+            for start in 0..nodes.len() {
+                if chain_of[start] != u32::MAX {
+                    continue;
+                }
+                path.clear();
+                path.push(start);
+                let mut cur = nodes[start].parent;
+                while let Some(p) = cur {
+                    if chain_of[p] != u32::MAX || path.len() > nodes.len() {
+                        break;
+                    }
+                    path.push(p);
+                    cur = nodes[p].parent;
+                }
+                for &idx in path.iter().rev() {
+                    let c = match nodes[idx].parent {
+                        None => base_chain,
+                        Some(p) => {
+                            let pc = if chain_of[p] == u32::MAX {
+                                base_chain // cycle guard tripped; degrade gracefully
+                            } else {
+                                chain_of[p]
+                            };
+                            if scroll_ids.contains_key(&p) {
+                                if let Some(pnid) = nodes[p].dom_node_id {
+                                    let mut v = self.chains[pc as usize].clone();
+                                    v.push((*dom_id, pnid));
+                                    intern_chain(&mut self.chains, &mut chain_lookup, v)
+                                } else {
+                                    pc
+                                }
+                            } else {
+                                pc
+                            }
+                        }
+                    };
+                    chain_of[idx] = c;
+                }
+            }
+
+            // Scroll containers of this DOM, for wheel-target containment.
+            for (&layout_idx, &scroll_id) in scroll_ids {
+                let Some(n) = nodes.get(layout_idx) else { continue };
+                let Some(node_id) = n.dom_node_id else { continue };
+                let (Some(pos), Some(size)) = (positions.get(layout_idx), n.used_size) else {
+                    continue;
+                };
+                self.scroll_containers.push(ScrollContainerEntry {
+                    dom_id: *dom_id,
+                    node_id,
+                    layout_idx,
+                    scroll_id,
+                    rect: LogicalRect {
+                        origin: LogicalPosition {
+                            x: pos.x + offset.x,
+                            y: pos.y + offset.y,
+                        },
+                        size,
+                    },
+                    chain: chain_of[layout_idx],
+                });
+            }
 
             // Walk the layout nodes and their computed positions
             for (idx, node) in nodes.iter().enumerate() {
@@ -179,16 +382,25 @@ impl CpuHitTester {
                     size,
                 };
 
-                // Clip this node to the intersection of the VirtualView composite
-                // bounds (`dom_clip`) and every `overflow: hidden | clip | scroll |
-                // auto` ancestor's box — otherwise a node that is scrolled/clipped
-                // out of its ancestor would still claim pointer events.
-                let clip = compute_node_clip(styled_dom, nodes, positions, idx, offset, dom_clip);
+                // Clip this node to the VirtualView composite bounds
+                // (`dom_clip`) and every `overflow: hidden | clip | scroll |
+                // auto` ancestor's box — otherwise a node that is scrolled or
+                // clipped out of its ancestor would still claim pointer events.
+                let clips = compute_node_clips(
+                    styled_dom,
+                    nodes,
+                    positions,
+                    idx,
+                    offset,
+                    dom_clip_entry,
+                    &chain_of,
+                );
 
                 entries.push(HitTestEntry {
                     node_id,
                     rect,
-                    clip,
+                    chain: chain_of[idx],
+                    clips,
                     // azul has no `pointer-events` CSS property yet, so every laid-out
                     // node is hit-testable. Populate this from the styled DOM once such
                     // a property is added to `azul_css`.
@@ -200,14 +412,65 @@ impl CpuHitTester {
         }
     }
 
-    /// Perform a hit test at the given position.
+    /// Perform a hit test at the given position, ignoring scroll offsets.
     ///
-    /// Returns nodes hit at (x, y) in reverse paint order (topmost first).
+    /// Only correct for content that cannot scroll (e.g. menu popups) and for
+    /// unit tests. Interactive windows must use [`Self::hit_test_scrolled`] —
+    /// this wrapper tests the STATIC layout geometry, which is exactly the
+    /// "clicks land on pre-scroll targets" bug for anything inside a scroll
+    /// frame.
     #[must_use] pub fn hit_test(
         &self,
         position: LogicalPosition,
     ) -> Vec<(DomId, NodeId)> {
+        self.hit_test_scrolled(position, &|_, _| None)
+            .into_iter()
+            .map(|(d, n, _)| (d, n))
+            .collect()
+    }
+
+    /// Perform a hit test at the given position with live scroll offsets.
+    ///
+    /// `resolve_scroll` returns the CURRENT scroll offset of a scroll
+    /// container (`ScrollManager::get_current_offset`); content painted at
+    /// `static_pos - offset` (the `cpurender::raster` rule) is hit at the
+    /// same place: a point `p` hits a node iff `p + Σ offsets(chain)` lands
+    /// in the node's static rect. Clip boxes are shifted by the clip OWNER's
+    /// chain — a scroller's viewport clips where the viewport IS, not where
+    /// its content went.
+    ///
+    /// Returns `(dom, node, acc)` triples in reverse paint order (topmost
+    /// first), where `acc` is the summed ancestor scroll offset applied to
+    /// that node — callers need it to compute node-relative points.
+    #[must_use] pub fn hit_test_scrolled(
+        &self,
+        position: LogicalPosition,
+        resolve_scroll: &dyn Fn(DomId, NodeId) -> Option<LogicalPosition>,
+    ) -> Vec<(DomId, NodeId, LogicalPosition)> {
         let mut results = Vec::new();
+
+        // Resolve every chain's current offset sum once per query.
+        let sums: Vec<LogicalPosition> = self
+            .chains
+            .iter()
+            .map(|chain| {
+                let mut s = LogicalPosition::zero();
+                for (d, n) in chain {
+                    if let Some(o) = resolve_scroll(*d, *n) {
+                        s.x += o.x;
+                        s.y += o.y;
+                    }
+                }
+                s
+            })
+            .collect();
+        let adjusted = |chain: u32| -> LogicalPosition {
+            let s = sums.get(chain as usize).copied().unwrap_or_else(LogicalPosition::zero);
+            LogicalPosition {
+                x: position.x + s.x,
+                y: position.y + s.y,
+            }
+        };
 
         for (dom_id, entries) in &self.node_rects {
             // Walk in reverse (last painted = topmost)
@@ -216,16 +479,23 @@ impl CpuHitTester {
                     continue;
                 }
 
-                // Check clip rect first (if any)
-                if let Some(ref clip) = entry.clip {
-                    if !point_in_rect(position, clip) {
-                        continue;
-                    }
+                // Every clip box must contain the point (each in its owner's
+                // scrolled space).
+                if !entry
+                    .clips
+                    .iter()
+                    .all(|(clip, chain)| point_in_rect(adjusted(*chain), clip))
+                {
+                    continue;
                 }
 
-                // Check node rect
-                if point_in_rect(position, &entry.rect) {
-                    results.push((*dom_id, entry.node_id));
+                // Check node rect in the node's scrolled space.
+                if point_in_rect(adjusted(entry.chain), &entry.rect) {
+                    let s = sums
+                        .get(entry.chain as usize)
+                        .copied()
+                        .unwrap_or_else(LogicalPosition::zero);
+                    results.push((*dom_id, entry.node_id, s));
                 }
             }
         }
@@ -258,10 +528,12 @@ fn point_in_rect(point: LogicalPosition, rect: &LogicalRect) -> bool {
 #[allow(clippy::too_many_lines)] // moved verbatim from the DLL; one pass per hit-test kind
 #[must_use]
 pub fn convert_cpu_hit_test_to_full(
-    hits: &[(DomId, NodeId)],
+    tester: &CpuHitTester,
+    hits: &[(DomId, NodeId, LogicalPosition)],
     old_focus_node: Option<DomNodeId>,
     layout_results: &BTreeMap<DomId, DomLayoutResult>,
     cursor_position: LogicalPosition,
+    resolve_scroll: &dyn Fn(DomId, NodeId) -> Option<LogicalPosition>,
 ) -> FullHitTest {
     use azul_core::{
         dom::OptionDomNodeId,
@@ -272,11 +544,19 @@ pub fn convert_cpu_hit_test_to_full(
 
     let mut hovered_nodes: BTreeMap<DomId, HitTest> = BTreeMap::new();
 
-    for (depth, (dom_id, node_id)) in hits.iter().enumerate() {
+    for (depth, (dom_id, node_id, scroll_acc)) in hits.iter().enumerate() {
         // Compute point_relative_to_item in content-box coordinates.
-        // cursor_position is in window coordinates. Subtract node's border-box
-        // position AND padding+border to get content-box-local coordinates
-        // that match the text layout coordinate space.
+        // cursor_position is in window coordinates; the node's on-screen
+        // position is its static layout position, translated by its
+        // VirtualView placement (child DOMs lay out at origin 0,0) and
+        // shifted back by the accumulated ancestor scroll offset the hit
+        // tester reported (`scroll_acc`). Subtract the node's on-screen
+        // border-box position AND padding+border to get content-box-local
+        // coordinates that match the text layout coordinate space.
+        let placement = tester
+            .dom_placements
+            .get(dom_id)
+            .map_or_else(LogicalPosition::zero, |r| r.origin);
         let point_relative = layout_results
             .get(dom_id)
             .and_then(|lr| {
@@ -288,8 +568,10 @@ pub fn convert_cpu_hit_test_to_full(
                         let node_pos = lr.calculated_positions.get(idx)?;
                         let node = lr.layout_tree.get(idx)?;
                         let bp = node.box_props.unpack();
-                        let content_x = node_pos.x + bp.padding.left + bp.border.left;
-                        let content_y = node_pos.y + bp.padding.top + bp.border.top;
+                        let content_x =
+                            node_pos.x + placement.x - scroll_acc.x + bp.padding.left + bp.border.left;
+                        let content_y =
+                            node_pos.y + placement.y - scroll_acc.y + bp.padding.top + bp.border.top;
                         Some(LogicalPosition::new(
                             cursor_position.x - content_x,
                             cursor_position.y - content_y,
@@ -323,29 +605,33 @@ pub fn convert_cpu_hit_test_to_full(
     // CPU-render path and wheel/trackpad scrolling never finds a target
     // (a11y scrolling still worked - it targets nodes directly - which is
     // how this stayed unnoticed).
-    for (dom_id, lr) in layout_results {
-        for (&scroll_id, &node_id) in &lr.scroll_id_to_node_id {
-            let Some(&layout_idx) = lr
-                .layout_tree
-                .dom_to_layout
-                .get(&node_id)
-                .and_then(|indices| indices.first())
-            else {
-                continue;
-            };
-            let Some(layout_node) = lr.layout_tree.get(layout_idx) else {
-                continue;
-            };
-            let node_pos = lr
-                .calculated_positions
-                .get(layout_idx)
-                .copied()
-                .unwrap_or_default();
-            let node_size = layout_node.used_size.unwrap_or_default();
-            let inside = cursor_position.x >= node_pos.x
-                && cursor_position.x <= node_pos.x + node_size.width
-                && cursor_position.y >= node_pos.y
-                && cursor_position.y <= node_pos.y + node_size.height;
+    //
+    // Containment tests the container's ON-SCREEN viewport box: the static
+    // box from the hit tester (already placement-translated for VirtualView
+    // child DOMs), shifted by the container's OWN ancestors' current scroll
+    // offsets — a scroller nested in a scrolled frame moves with that frame,
+    // while its own scrolling never moves its viewport. `parent_rect` /
+    // `child_rect` stay in static layout coordinates: downstream only uses
+    // their relative geometry (scroll ranges), which translation cannot
+    // change.
+    for sc in &tester.scroll_containers {
+        let dom_id = &sc.dom_id;
+        let node_id = sc.node_id;
+        let scroll_id = sc.scroll_id;
+        let Some(lr) = layout_results.get(dom_id) else {
+            continue;
+        };
+        let layout_idx = sc.layout_idx;
+        let acc = tester.chain_sum(sc.chain, resolve_scroll);
+        let adj_x = cursor_position.x + acc.x;
+        let adj_y = cursor_position.y + acc.y;
+        {
+            let node_pos = sc.rect.origin;
+            let node_size = sc.rect.size;
+            let inside = adj_x >= node_pos.x
+                && adj_x <= node_pos.x + node_size.width
+                && adj_y >= node_pos.y
+                && adj_y <= node_pos.y + node_size.height;
             if !inside {
                 continue;
             }
@@ -379,9 +665,11 @@ pub fn convert_cpu_hit_test_to_full(
                     node_id,
                     ScrollHitTestItem {
                         point_in_viewport: cursor_position,
+                        // Relative to the container's ON-SCREEN viewport box
+                        // (static box shifted by the container's ancestors).
                         point_relative_to_item: LogicalPosition::new(
-                            cursor_position.x - node_pos.x,
-                            cursor_position.y - node_pos.y,
+                            adj_x - node_pos.x,
+                            adj_y - node_pos.y,
                         ),
                         scroll_node,
                     },
@@ -420,39 +708,49 @@ pub fn compute_scroll_child_rect(
     )
 }
 
-/// Compute the hit-test clip rect for a layout node: the intersection of the
-/// host `VirtualView` composite bounds (`dom_clip`) and every clipping ancestor's
-/// border box (any `overflow` other than `visible`).
+/// Compute the hit-test clip boxes for a layout node: the host `VirtualView`
+/// composite bounds (`dom_clip_entry`) plus every clipping ancestor's border
+/// box (any `overflow` other than `visible`), each tagged with the chain of
+/// the clip OWNER's strict scroll ancestors so the query can shift each box
+/// into its own scrolled space.
 ///
 /// Clipping is tracked per-axis because `overflow-x` / `overflow-y` are
-/// independent — an axis whose ancestors are all `overflow: visible` stays
-/// unbounded (stored as a large finite extent, see [`CLIP_UNBOUNDED`]). The
-/// ancestor box used is the border box (`used_size`); CSS clips at the padding
-/// edge, but the slightly larger border box is a safe over-inclusion for point
-/// hit-testing and avoids resolving padding/border here.
+/// independent — an axis the ancestor does not clip is widened to
+/// [`CLIP_UNBOUNDED`] (kept finite so `origin + size` arithmetic never
+/// produces `inf - inf = NaN`). The ancestor box used is the border box
+/// (`used_size`); CSS clips at the padding edge, but the slightly larger
+/// border box is a safe over-inclusion for point hit-testing and avoids
+/// resolving padding/border here.
 #[allow(clippy::similar_names)] // domain-standard coordinate/geometry/short-lived names
-fn compute_node_clip(
+fn compute_node_clips(
     styled_dom: &StyledDom,
     nodes: &[LayoutNodeHot],
     positions: &PositionVec,
     node_index: usize,
     offset: LogicalPosition,
-    dom_clip: Option<LogicalRect>,
-) -> Option<LogicalRect> {
-    // Accumulate clip bounds per axis, seeded from the DOM-level composite clip.
-    let (mut min_x, mut min_y, mut max_x, mut max_y) = (
-        f32::NEG_INFINITY,
-        f32::NEG_INFINITY,
-        f32::INFINITY,
-        f32::INFINITY,
-    );
-    let mut has_clip = false;
-    if let Some(dc) = dom_clip {
-        min_x = dc.min_x();
-        min_y = dc.min_y();
-        max_x = dc.max_x();
-        max_y = dc.max_y();
-        has_clip = true;
+    dom_clip_entry: Option<(LogicalRect, u32)>,
+    chain_of: &[u32],
+) -> Vec<(LogicalRect, u32)> {
+    // A non-finite edge must degrade to "unclipped on that side", never be
+    // stored: `point_in_rect` against a NaN rect is always false, which would
+    // make every node under a corrupt clip silently unhittable.
+    fn sanitize_clip_rect(r: LogicalRect) -> LogicalRect {
+        let min_x = if r.min_x().is_finite() { r.min_x() } else { -CLIP_UNBOUNDED };
+        let min_y = if r.min_y().is_finite() { r.min_y() } else { -CLIP_UNBOUNDED };
+        let max_x = if r.max_x().is_finite() { r.max_x() } else { CLIP_UNBOUNDED };
+        let max_y = if r.max_y().is_finite() { r.max_y() } else { CLIP_UNBOUNDED };
+        LogicalRect {
+            origin: LogicalPosition { x: min_x, y: min_y },
+            size: LogicalSize {
+                width: (max_x - min_x).max(0.0),
+                height: (max_y - min_y).max(0.0),
+            },
+        }
+    }
+
+    let mut clips = Vec::new();
+    if let Some((dc, chain)) = dom_clip_entry {
+        clips.push((sanitize_clip_rect(dc), chain));
     }
 
     // Walk ancestors. A node's own overflow clips its descendants, not itself, so
@@ -482,37 +780,69 @@ fn compute_node_clip(
             continue;
         };
         let (ax0, ay0) = (pos.x + offset.x, pos.y + offset.y);
-        if clips_x {
-            min_x = min_x.max(ax0);
-            max_x = max_x.min(ax0 + size.width);
-            has_clip = true;
-        }
-        if clips_y {
-            min_y = min_y.max(ay0);
-            max_y = max_y.min(ay0 + size.height);
-            has_clip = true;
-        }
+        let (min_x, max_x) = if clips_x {
+            (ax0, ax0 + size.width)
+        } else {
+            (-CLIP_UNBOUNDED, CLIP_UNBOUNDED)
+        };
+        let (min_y, max_y) = if clips_y {
+            (ay0, ay0 + size.height)
+        } else {
+            (-CLIP_UNBOUNDED, CLIP_UNBOUNDED)
+        };
+        clips.push((
+            sanitize_clip_rect(LogicalRect {
+                origin: LogicalPosition { x: min_x, y: min_y },
+                size: LogicalSize {
+                    width: (max_x - min_x).max(0.0),
+                    height: (max_y - min_y).max(0.0),
+                },
+            }),
+            chain_of.get(anc).copied().unwrap_or(0),
+        ));
     }
 
-    if !has_clip {
+    clips
+}
+
+/// Test-compat shim for the pre-scroll-aware single-rect clip API: the static
+/// intersection of every clip box from [`compute_node_clips`] — exactly what
+/// the query evaluates when nothing is scrolled. Kept so the generated clip
+/// tests keep asserting the per-axis clip semantics they were written for.
+#[cfg(test)]
+fn compute_node_clip(
+    styled_dom: &StyledDom,
+    nodes: &[LayoutNodeHot],
+    positions: &PositionVec,
+    node_index: usize,
+    offset: LogicalPosition,
+    dom_clip: Option<LogicalRect>,
+) -> Option<LogicalRect> {
+    let chain_of = vec![0u32; nodes.len()];
+    let clips = compute_node_clips(
+        styled_dom,
+        nodes,
+        positions,
+        node_index,
+        offset,
+        dom_clip.map(|r| (r, 0)),
+        &chain_of,
+    );
+    if clips.is_empty() {
         return None;
     }
-
-    // Replace any still-unbounded axis with a large finite extent so the stored
-    // rect's `origin + size` arithmetic stays finite (no `inf - inf = NaN`).
-    if !min_x.is_finite() {
-        min_x = -CLIP_UNBOUNDED;
+    let (mut min_x, mut min_y, mut max_x, mut max_y) = (
+        -CLIP_UNBOUNDED,
+        -CLIP_UNBOUNDED,
+        CLIP_UNBOUNDED,
+        CLIP_UNBOUNDED,
+    );
+    for (r, _) in &clips {
+        min_x = min_x.max(r.min_x());
+        min_y = min_y.max(r.min_y());
+        max_x = max_x.min(r.max_x());
+        max_y = max_y.min(r.max_y());
     }
-    if !min_y.is_finite() {
-        min_y = -CLIP_UNBOUNDED;
-    }
-    if !max_x.is_finite() {
-        max_x = CLIP_UNBOUNDED;
-    }
-    if !max_y.is_finite() {
-        max_y = CLIP_UNBOUNDED;
-    }
-
     Some(LogicalRect {
         origin: LogicalPosition { x: min_x, y: min_y },
         size: LogicalSize {

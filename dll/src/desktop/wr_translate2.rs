@@ -656,16 +656,20 @@ pub fn wr_translate_scrollbar_hit_id(
 /// headless E2E runner resolve "which node did the pointer land on" through the
 /// SAME code. Keeping a second copy here is how the two hosts would drift.
 pub fn convert_cpu_hit_test_to_full(
-    hits: &[(DomId, NodeId)],
+    tester: &azul_layout::headless::CpuHitTester,
+    hits: &[(DomId, NodeId, azul_core::geom::LogicalPosition)],
     old_focus_node: Option<DomNodeId>,
     layout_results: &BTreeMap<DomId, DomLayoutResult>,
     cursor_position: azul_core::geom::LogicalPosition,
+    resolve_scroll: &dyn Fn(DomId, NodeId) -> Option<azul_core::geom::LogicalPosition>,
 ) -> FullHitTest {
     azul_layout::headless::convert_cpu_hit_test_to_full(
+        tester,
         hits,
         old_focus_node,
         layout_results,
         cursor_position,
+        resolve_scroll,
     )
 }
 

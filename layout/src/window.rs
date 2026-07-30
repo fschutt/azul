@@ -2493,14 +2493,53 @@ impl LayoutWindow {
 
         // Search the display list for a HitTestArea with matching tag
         // Note: tag is now (u64, u16) tuple where tag.0 is the TagId.inner
+        let mut rect = None;
         for item in &layout_result.display_list.items {
             if let DisplayListItem::HitTestArea { bounds, tag } = item {
                 if tag.0 == tag_id && bounds.0.size.width > 0.0 && bounds.0.size.height > 0.0 {
-                    return Some(bounds.0);
+                    rect = Some(bounds.0);
+                    break;
                 }
             }
         }
-        None
+        let mut rect = rect?;
+
+        // The display list stores CONTENT coordinates for items inside scroll
+        // frames; the compositor shifts them by the current scroll offsets at
+        // paint time (`pos - offset`, see `cpurender::raster`). Apply the same
+        // shift here so callers get the node's ON-SCREEN bounds — a menu
+        // opened for (or a synthetic click aimed at) a node after scrolling
+        // must not use the pre-scroll position.
+        let nodes = &layout_result.layout_tree.nodes;
+        if let Some(&idx) = layout_result
+            .layout_tree
+            .dom_to_layout
+            .get(&nid)
+            .and_then(|indices| indices.first())
+        {
+            let mut cur = nodes.get(idx).and_then(|n| n.parent);
+            let mut guard = 0usize;
+            while let Some(anc) = cur {
+                guard += 1;
+                if guard > nodes.len() {
+                    break;
+                }
+                let Some(anc_node) = nodes.get(anc) else { break };
+                if layout_result.scroll_ids.contains_key(&anc) {
+                    if let Some(anc_nid) = anc_node.dom_node_id {
+                        if let Some(off) = self
+                            .scroll_manager
+                            .get_current_offset(node_id.dom, anc_nid)
+                        {
+                            rect.origin.x -= off.x;
+                            rect.origin.y -= off.y;
+                        }
+                    }
+                }
+                cur = anc_node.parent;
+            }
+        }
+        Some(rect)
     }
 
     /// Get the parent of a node

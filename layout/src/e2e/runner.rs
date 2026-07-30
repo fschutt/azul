@@ -283,13 +283,21 @@ impl Runner {
         use azul_layout::managers::hover::InputPointId;
 
         let focused_node = self.layout_window.focus_manager.get_focused_node().copied();
-        let hits = self.cpu_hit_tester.hit_test(position);
-        let hit_test = azul_layout::headless::convert_cpu_hit_test_to_full(
-            &hits,
-            focused_node,
-            &self.layout_window.layout_results,
-            position,
-        );
+        let hit_test = {
+            let scroll_manager = &self.layout_window.scroll_manager;
+            let resolve = |d: azul_core::dom::DomId, n: azul_core::dom::NodeId| {
+                scroll_manager.get_current_offset(d, n)
+            };
+            let hits = self.cpu_hit_tester.hit_test_scrolled(position, &resolve);
+            azul_layout::headless::convert_cpu_hit_test_to_full(
+                &self.cpu_hit_tester,
+                &hits,
+                focused_node,
+                &self.layout_window.layout_results,
+                position,
+                &resolve,
+            )
+        };
         self.layout_window
             .hover_manager
             .push_hit_test(InputPointId::Mouse, hit_test);
@@ -318,13 +326,23 @@ impl Runner {
             self.window_state.touch_state.touch_points.as_ref().to_vec();
 
         for point in &new_points {
-            let hits = self.cpu_hit_tester.hit_test(point.position);
-            let hit_test = azul_layout::headless::convert_cpu_hit_test_to_full(
-                &hits,
-                focused_node,
-                &self.layout_window.layout_results,
-                point.position,
-            );
+            let hit_test = {
+                let scroll_manager = &self.layout_window.scroll_manager;
+                let resolve = |d: azul_core::dom::DomId, n: azul_core::dom::NodeId| {
+                    scroll_manager.get_current_offset(d, n)
+                };
+                let hits = self
+                    .cpu_hit_tester
+                    .hit_test_scrolled(point.position, &resolve);
+                azul_layout::headless::convert_cpu_hit_test_to_full(
+                    &self.cpu_hit_tester,
+                    &hits,
+                    focused_node,
+                    &self.layout_window.layout_results,
+                    point.position,
+                    &resolve,
+                )
+            };
             self.layout_window
                 .hover_manager
                 .push_hit_test(InputPointId::Touch(point.id), hit_test);
