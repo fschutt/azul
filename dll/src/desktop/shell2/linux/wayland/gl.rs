@@ -111,6 +111,13 @@ impl GlContext {
         );
 
         if unsafe { (egl.eglBindAPI)(EGL_OPENGL_API) } == 0 {
+            // ContextCreationFailed carries no payload, so name the stage +
+            // EGL error here or the CPU-fallback log downstream has no cause.
+            crate::plog_warn!(
+                "[EGL] eglBindAPI(EGL_OPENGL_API) failed (EGL error 0x{:04x}) — \
+                 GL context unavailable, this window will fall back to CPU rendering",
+                unsafe { (egl.eglGetError)() }
+            );
             return Err(WindowError::ContextCreationFailed);
         }
 
@@ -147,6 +154,15 @@ impl GlContext {
         } == 0
             || num_config == 0
         {
+            // The common "no matching framebuffer config" case — say which it
+            // was, ContextCreationFailed alone names neither stage nor reason.
+            crate::plog_warn!(
+                "[EGL] eglChooseConfig found no usable config (num_config={}, EGL \
+                 error 0x{:04x}) — GL context unavailable, this window will fall \
+                 back to CPU rendering",
+                num_config,
+                unsafe { (egl.eglGetError)() }
+            );
             return Err(WindowError::ContextCreationFailed);
         }
 

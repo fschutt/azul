@@ -1738,17 +1738,24 @@ impl WaylandWindow {
                     };
                     // Detect a software rasteriser; under Auto, prefer cpurender.
                     gl_context.make_current();
-                    let is_software = matches!(
-                        crate::desktop::shell2::common::compositor::query_gpu_info(
-                            &gl_functions.functions,
-                        ),
-                        GpuCheckResult::Blacklisted { .. }
-                    );
+                    // Keep the blacklist detail — the X11 twin prints the
+                    // renderer string, and "software GL" alone doesn't say
+                    // WHICH driver was rejected or why.
+                    let software_info = match crate::desktop::shell2::common::compositor::query_gpu_info(
+                        &gl_functions.functions,
+                    ) {
+                        GpuCheckResult::Blacklisted { info, reason } => Some((info, reason)),
+                        _ => None,
+                    };
+                    let is_software = software_info.is_some();
                     if is_software && !force_gpu {
+                        let (info, reason) = software_info.unwrap_or_default();
                         log_info!(
                             LogCategory::Rendering,
-                            "[Wayland] software GL (llvmpipe/swrast) detected -> CPU rendering \
-                             (cpurender is faster; set AZ_BACKEND=gpu to override)"
+                            "[Wayland] software GL detected ({:?}: {}) -> CPU rendering \
+                             (cpurender is faster; set AZ_BACKEND=gpu to override)",
+                            info,
+                            reason
                         );
                         drop(gl_context);
                         RenderMode::Cpu(Some(CpuFallbackState::new(
