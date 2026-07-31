@@ -207,14 +207,24 @@ impl VideoEncoder {
         if !encode_engine_compiled() {
             // The handle OPENS (is_open() == true) but encode() only counts
             // frames and returns empty chunks — announce once instead of
-            // letting the caller discover an empty bitstream.
+            // letting the caller discover an empty bitstream. NOTE: encode has
+            // its own reasons (gpu-video ENCODE is not wired at all on
+            // Linux/Windows, in any build — unlike decode).
             static STUB_ONCE: std::sync::Once = std::sync::Once::new();
             STUB_ONCE.call_once(|| {
+                let reason = if cfg!(any(target_os = "macos", target_os = "ios")) {
+                    "this build has no `libloading` feature, so the VideoToolbox \
+                     backend is compiled out"
+                } else if cfg!(target_os = "android") {
+                    "the MediaCodec backend is not implemented yet"
+                } else {
+                    "gpu-video ENCODE is not wired yet on Linux/Windows (decode only)"
+                };
                 eprintln!(
                     "[azul][video] VideoEncoder::open: hardware video encode is not \
-                     wired on this build ({}) — encode() will return EMPTY chunks. For \
-                     recording to MP4 use ScreenRecorder (software x264 via gstreamer)",
-                    engine_missing_reason()
+                     wired on this build ({reason}) — encode() will return EMPTY \
+                     chunks. For recording to MP4 use ScreenRecorder (software x264 \
+                     via gstreamer)"
                 );
             });
         } else if h265 {
