@@ -2505,16 +2505,25 @@ mod tests {
         let mut window = make_window_with(&state, harness_layout_box);
         window.regenerate_layout().expect("initial layout");
 
-        let n: u32 = 200;
-        let start = std::time::Instant::now();
-        for _ in 0..n {
-            window.regenerate_layout().expect("no-op relayout");
+        // Measure in BATCHES and judge the FASTEST one: a wall-clock average
+        // under a parallel test run measures the scheduler, not the layout
+        // engine (this test flaked at ~3ms/relayout with the suite saturating
+        // every core while the isolated cost was a steady ~1ms). The batch
+        // MINIMUM is load-immune — a real caching regression raises the
+        // minimum too, so the budget still bites.
+        let batches: u32 = 5;
+        let per_batch: u32 = 40;
+        let mut best = std::time::Duration::MAX;
+        for _ in 0..batches {
+            let start = std::time::Instant::now();
+            for _ in 0..per_batch {
+                window.regenerate_layout().expect("no-op relayout");
+            }
+            best = best.min(start.elapsed() / per_batch);
         }
-        let elapsed = start.elapsed();
-        let per = elapsed / n;
         println!(
-            "[perf] {} no-op relayouts: total={:?} per={:?}",
-            n, elapsed, per
+            "[perf] {} x {} no-op relayouts: fastest batch per={:?}",
+            batches, per_batch, best
         );
 
         // PERF BUDGET: a no-op relayout of a trivial DOM should be cheap
@@ -2522,10 +2531,11 @@ mod tests {
         // and every frame fully re-lays-out + re-renders, this blows past it.
         // A slow UI — especially scrolling at this cost per frame — is unusable.
         assert!(
-            per < std::time::Duration::from_millis(2),
-            "no-op relayout too slow: {:?}/relayout (budget 2ms) — incremental \
-             caching is not working; this is unusable for scrolling",
-            per
+            best < std::time::Duration::from_millis(2),
+            "no-op relayout too slow: {:?}/relayout (budget 2ms, best of {} batches) — \
+             incremental caching is not working; this is unusable for scrolling",
+            best,
+            batches
         );
     }
 

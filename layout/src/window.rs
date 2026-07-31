@@ -846,6 +846,11 @@ pub struct LayoutWindow {
     /// commit handshake) or dropped-with-warning at the next re-render if the
     /// app rejected it.
     pub pending_document_edit: Option<crate::managers::changeset::DocumentChangeset>,
+    /// Resume point of an ACKED structural edit, waiting for the app's
+    /// re-render to land so the caret can be re-established against the NEW
+    /// generation (resolved + cleared at the tail of
+    /// `layout_and_generate_display_list`).
+    pending_caret_restore: Option<crate::managers::changeset::EditResumePoint>,
     /// Undo/Redo manager for text editing operations
     pub undo_redo_manager: crate::managers::undo_redo::UndoRedoManager,
     /// Cached text layout constraints for each node
@@ -1034,6 +1039,7 @@ impl LayoutWindow {
             currently_dragging_thumb: None,
             text_input_manager: crate::managers::text_input::TextInputManager::new(),
             pending_document_edit: None,
+            pending_caret_restore: None,
             undo_redo_manager: crate::managers::undo_redo::UndoRedoManager::new(),
             text_constraints_cache: TextConstraintsCache {
                 constraints: BTreeMap::new(),
@@ -1204,6 +1210,14 @@ impl LayoutWindow {
                     let styled_dom = &lr.styled_dom;
                     self.content_overlay.gc_converged_text(dom_id, styled_dom);
                 }
+            }
+        }
+
+        // A4: an ACKED structural edit's caret lands now, against the NEW
+        // generation (host by stable key, block by path, offset clamped).
+        if result.is_ok() {
+            if let Some(resume) = self.pending_caret_restore.take() {
+                self.restore_caret_from_resume_point(&resume);
             }
         }
 
@@ -1474,15 +1488,109 @@ impl LayoutWindow {
     }
 
     /// The commit handshake: the app (or the provided apply-helper) confirms
-    /// it applied structural edit `id` to its model. Clears the pending edit
-    /// and returns true iff the ids matched.
+    /// it applied structural edit `id` to its model. Clears the pending edit,
+    /// stashes its resume point for caret restoration after the app's
+    /// re-render lands (resolved at the tail of
+    /// `layout_and_generate_display_list`), and returns true iff the ids
+    /// matched.
     pub fn mark_document_edit_applied(&mut self, id: u64) -> bool {
         if self.pending_document_edit.as_ref().is_some_and(|c| c.id == id) {
-            self.pending_document_edit = None;
+            if let Some(edit) = self.pending_document_edit.take() {
+                self.pending_caret_restore = Some(edit.resume);
+            }
             true
         } else {
             false
         }
+    }
+
+    /// Resolve a stashed [`crate::managers::changeset::EditResumePoint`]
+    /// against the CURRENT (post-swap) generation and place the caret there:
+    /// host by `contenteditable_key`, block by child-index path, offset
+    /// clamped. Divergence (the app transformed the tree differently) falls
+    /// back to the host start; a missing host leaves the caret alone. Never
+    /// panics — the fallback is a first-class path.
+    fn restore_caret_from_resume_point(
+        &mut self,
+        resume: &crate::managers::changeset::EditResumePoint,
+    ) {
+        use azul_core::selection::{
+            CursorAffinity, GraphemeClusterId, MultiCursorState, TextCursor,
+        };
+
+        let Some((dom_id, host)) = self.find_host_by_contenteditable_key(resume.contenteditable_key)
+        else {
+            return;
+        };
+        let Some(lr) = self.layout_results.get(&dom_id) else {
+            return;
+        };
+        let hierarchy = lr.styled_dom.node_hierarchy.as_container();
+
+        // Walk the child-index path; any miss falls back to the host itself.
+        let mut target = host;
+        'walk: for &idx in resume.block_path.as_ref() {
+            let mut child = hierarchy.get(target).and_then(|n| n.first_child_id(target));
+            let mut i: u32 = 0;
+            while let Some(c) = child {
+                if i == idx {
+                    target = c;
+                    continue 'walk;
+                }
+                i += 1;
+                child = hierarchy.get(c).and_then(|n| n.next_sibling_id());
+            }
+            target = host;
+            break;
+        }
+
+        let text_len = crate::overlay::ResolvedContent {
+            overlay: Some(&self.content_overlay),
+            styled_dom: &lr.styled_dom,
+            dom_id,
+        }
+        .text_for_node(target)
+        .map_or(0, |s| s.len());
+        let offset = (resume.text_offset as usize).min(text_len) as u32;
+
+        let cursor = TextCursor {
+            cluster_id: GraphemeClusterId {
+                source_run: 0,
+                start_byte_in_run: offset,
+            },
+            affinity: CursorAffinity::Leading,
+        };
+        let dom_node = DomNodeId {
+            dom: dom_id,
+            node: NodeHierarchyItemId::from_crate_internal(Some(target)),
+        };
+        self.text_edit_manager.multi_cursor = Some(MultiCursorState::new_with_cursor(
+            cursor,
+            dom_node,
+            resume.contenteditable_key,
+        ));
+    }
+
+    /// Find the contenteditable host with the given stable key in ANY
+    /// current-generation DOM.
+    fn find_host_by_contenteditable_key(&self, key: u64) -> Option<(DomId, NodeId)> {
+        for (dom_id, lr) in &self.layout_results {
+            let node_data = lr.styled_dom.node_data.as_ref();
+            let hierarchy = lr.styled_dom.node_hierarchy.as_ref();
+            let container = lr.styled_dom.node_data.as_container();
+            for i in 0..container.len() {
+                let nid = NodeId::new(i);
+                if container
+                    .get(nid)
+                    .is_some_and(azul_core::dom::NodeData::is_contenteditable)
+                    && azul_core::diff::calculate_contenteditable_key(node_data, hierarchy, nid)
+                        == key
+                {
+                    return Some((*dom_id, nid));
+                }
+            }
+        }
+        None
     }
 
     /// The overlay-merged export reader (the "save/print sees what you see"
@@ -8882,6 +8990,10 @@ impl LayoutWindow {
             // and a changeset still pending AT a reconcile means the app
             // re-rendered without acking it — a rejected edit.
             pending_document_edit,
+            // Deliberately generation-STABLE (host key + child-index path) —
+            // that is its whole point; resolved against the new tree at the
+            // layout tail, nothing to remap here.
+            pending_caret_restore: _,
         } = self;
 
         if let Some(rejected) = pending_document_edit.take() {

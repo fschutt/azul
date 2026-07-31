@@ -320,6 +320,10 @@ pub mod glyph_cache;
 /// Default keyboard actions (copy, paste, select-all, undo, etc.).
 #[cfg(feature = "text_layout")]
 pub mod default_actions;
+/// Apply structural `DocumentOperation`s to a plain XML tree — the Path-2
+/// helper for apps without their own document model (the PDF editor).
+#[cfg(all(feature = "text_layout", feature = "xml"))]
+pub mod document_edit;
 /// Event determination: maps raw input to DOM node callbacks.
 #[cfg(feature = "text_layout")]
 pub mod event_determination;
