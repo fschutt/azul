@@ -1296,10 +1296,10 @@ mod autotest_generated {
             },
             calculated_positions,
             viewport: LogicalRect::zero(),
-            display_list: DisplayList {
+            display_list: std::sync::Arc::new(DisplayList {
                 items,
                 ..Default::default()
-            },
+            }),
             scroll_ids: HashMap::new(),
             scroll_id_to_node_id: HashMap::new(),
         }

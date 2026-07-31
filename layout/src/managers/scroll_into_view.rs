@@ -635,7 +635,7 @@ mod autotest_generated {
             layout_tree: empty_layout_tree(),
             calculated_positions: Vec::new(),
             viewport: LogicalRect::zero(),
-            display_list: DisplayList::default(),
+            display_list: std::sync::Arc::new(DisplayList::default()),
             scroll_ids: HashMap::new(),
             scroll_id_to_node_id: HashMap::new(),
         }

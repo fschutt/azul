@@ -244,7 +244,7 @@ impl ContentEditableHarness {
     }
 
     /// Clone the current display list for damage comparison
-    fn clone_display_list(&self) -> azul_layout::solver3::display_list::DisplayList {
+    fn clone_display_list(&self) -> std::sync::Arc<azul_layout::solver3::display_list::DisplayList> {
         let lw = self.layout_window.as_ref().unwrap();
         let dom_id = DomId { inner: 0 };
         lw.layout_results.get(&dom_id).unwrap().display_list.clone()

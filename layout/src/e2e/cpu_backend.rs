@@ -38,7 +38,7 @@ pub(super) struct CpuBackend {
     /// Glyph cache — persists across frames for text rendering.
     pub(super) glyph_cache: azul_layout::glyph_cache::GlyphCache,
     /// Previous display list for damage-rect computation.
-    pub(super) previous_display_list: Option<DisplayList>,
+    pub(super) previous_display_list: Option<Arc<DisplayList>>,
     /// PAINT damage of the most recent `render_frame` — the region actually
     /// re-rasterised.
     pub(super) last_frame_damage: FrameDamage,
@@ -206,7 +206,7 @@ impl CpuBackend {
             .layout_results
             .iter()
             .filter(|(id, _)| id.inner != dom_id.inner)
-            .map(|(id, r)| (*id, Arc::new(r.display_list.clone())))
+            .map(|(id, r)| (*id, r.display_list.clone()))
             .collect();
         let vview_damage = cpurender::compute_virtual_view_damage(
             display_list,

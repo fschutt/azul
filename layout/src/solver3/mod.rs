@@ -416,7 +416,7 @@ pub fn layout_document<T: ParsedFontTrait + Sync + 'static>(
     content_overlay: Option<&crate::overlay::ContentOverlay>,
     system_style: Option<std::sync::Arc<azul_css::system::SystemStyle>>,
     get_system_time_fn: azul_core::task::GetSystemTimeCallback,
-) -> Result<DisplayList> {
+) -> Result<std::sync::Arc<DisplayList>> {
     use crate::window::LayoutWindow;
 
     // Secondary mapping: anonymous wrappers (dom_node_id == None)
@@ -704,7 +704,7 @@ pub fn layout_document<T: ParsedFontTrait + Sync + 'static>(
         };
 
         if SKIP_DISPLAY_LIST.load(core::sync::atomic::Ordering::Relaxed) {
-            return Ok(DisplayList::default());
+            return Ok(std::sync::Arc::new(DisplayList::default()));
         }
         return generate_display_list(
             &mut ctx,
@@ -716,7 +716,8 @@ pub fn layout_document<T: ParsedFontTrait + Sync + 'static>(
             renderer_resources,
             id_namespace,
             dom_id,
-        );
+        )
+        .map(std::sync::Arc::new);
     }
 
     { let _ = (0xDD00_0003u32); }
@@ -1049,6 +1050,11 @@ pub fn layout_document<T: ParsedFontTrait + Sync + 'static>(
     let root_subtree_hash = new_tree
         .cold(new_tree.root)
         .map_or(layout_tree::SubtreeHash(0), |c| c.subtree_hash);
+    // The DL is shared, not copied: one allocation serves the cache slot, the
+    // caller's `DomLayoutResult`, and any virtual-view snapshot maps. Rare
+    // post-build patches (`patch_node_image` / `patch_text_glyphs` / the
+    // virtual-view placeholder swap) go through `Arc::make_mut`.
+    let display_list = std::sync::Arc::new(display_list);
     cache.cached_display_list = Some((root_subtree_hash, viewport, display_list.clone()));
 
     cache.tree = Some(*new_tree); // [g56] unbox the heap LayoutTree back into the cache
@@ -2245,7 +2251,11 @@ mod autotest_generated {
             StyledDom::create(&mut dom, css)
         }
 
-        fn run(cache: &mut LayoutCache, dom: &StyledDom, viewport: LogicalRect) -> Result<DisplayList> {
+        fn run(
+            cache: &mut LayoutCache,
+            dom: &StyledDom,
+            viewport: LogicalRect,
+        ) -> Result<std::sync::Arc<DisplayList>> {
             let mut text_cache = TextLayoutCache::new();
             let font_manager: FontManager<FontRef> =
                 FontManager::new(rust_fontconfig::FcFontCache::default())

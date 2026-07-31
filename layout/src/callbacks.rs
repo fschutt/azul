@@ -3257,12 +3257,25 @@ impl CallbackInfo {
         // (scrollbar visibility fading) that the GPU path animates dynamically.
         let gpu_cache = layout_window.gpu_state_manager
             .get_cache(dom_id);
+        // Virtual-view child DOMs (map tiles, embedded views) render through
+        // their OWN display lists composited at the placeholder's position —
+        // without them a screenshot showed grey placeholders where the live
+        // window showed tiles (the long-standing e2e-screenshot gap).
+        let vview_dls: std::collections::BTreeMap<DomId, std::sync::Arc<crate::solver3::display_list::DisplayList>> =
+            layout_window
+                .layout_results
+                .iter()
+                .filter(|(id, _)| id.inner != dom_id.inner)
+                .map(|(id, r)| (*id, r.display_list.clone()))
+                .collect();
+
         let render_state = CpuRenderState::from_gpu_cache(
             gpu_cache,
             dom_id,
             &scroll_offsets,
         )
-        .with_system_style(layout_window.system_style.clone());
+        .with_system_style(layout_window.system_style.clone())
+        .with_virtual_view_display_lists(vview_dls);
 
         let opts = RenderOptions {
             width,

@@ -596,7 +596,14 @@ pub struct DomLayoutResult {
     /// The viewport used for this layout
     pub viewport: LogicalRect,
     /// The generated display list for this DOM.
-    pub display_list: DisplayList,
+    ///
+    /// Shared, not owned: the same allocation sits in the solver's
+    /// structural-identity cache and in per-frame virtual-view snapshot maps.
+    /// The DL is immutable after build except for two in-place patches
+    /// (`patch_node_image`, `patch_text_glyphs`) and the virtual-view
+    /// placeholder swap — those go through `Arc::make_mut`, which copies only
+    /// if another holder is still alive.
+    pub display_list: std::sync::Arc<DisplayList>,
     /// Stable scroll IDs computed from `node_data_hash`
     /// Maps layout node index -> external scroll ID
     pub scroll_ids: HashMap<usize, u64>,
@@ -2489,7 +2496,7 @@ impl LayoutWindow {
                         layout_tree: tree,
                         calculated_positions: self.layout_cache.calculated_positions.clone(),
                         viewport,
-                        display_list: DisplayList::default(),
+                        display_list: std::sync::Arc::new(DisplayList::default()),
                         scroll_ids: self.layout_cache.scroll_ids.clone(),
                         scroll_id_to_node_id: self.layout_cache.scroll_id_to_node_id.clone(),
                     },
@@ -2686,8 +2693,12 @@ impl LayoutWindow {
                 // Replace the VirtualViewPlaceholder with the real VirtualView item.
                 // The placeholder was emitted by generate_display_list() at the
                 // correct position (outside any scroll frame, inside the parent clip).
+                // make_mut: on a structural cache hit the Arc is shared with the
+                // solver's DL cache — the swap must not leak into the cached copy
+                // (placeholder emission is the cached baseline).
+                let dl_mut = std::sync::Arc::make_mut(&mut display_list);
                 let mut replaced = false;
-                for item in &mut display_list.items {
+                for item in &mut dl_mut.items {
                     if let solver3::display_list::DisplayListItem::VirtualViewPlaceholder {
                         node_id: ref placeholder_nid,
                         bounds: ref placeholder_bounds,
@@ -2715,7 +2726,7 @@ impl LayoutWindow {
 
                 if !replaced {
                     // Fallback: if no placeholder found (shouldn't happen), append at end
-                    display_list
+                    dl_mut
                         .items
                         .push(solver3::display_list::DisplayListItem::VirtualView {
                             child_dom_id,
@@ -3050,7 +3061,8 @@ impl LayoutWindow {
                 // geometry, only the ImageRef changes. The backend's DL diff
                 // sees the identity change and damages exactly those bounds.
                 if let Some(lr) = self.layout_results.get_mut(&dom_id) {
-                    lr.display_list.patch_node_image(node_id, &image);
+                    std::sync::Arc::make_mut(&mut lr.display_list)
+                        .patch_node_image(node_id, &image);
                 }
             }
             ContentDirtyTier::Relayout => {
@@ -3178,7 +3190,7 @@ impl LayoutWindow {
         renderer_resources: &RendererResources,
         system_callbacks: &ExternalSystemCallbacks,
         debug_messages: &mut Option<Vec<LayoutDebugMessage>>,
-    ) -> Result<DisplayList, solver3::LayoutError> {
+    ) -> Result<std::sync::Arc<DisplayList>, solver3::LayoutError> {
         // Create a temporary FullWindowState with the new size
         let mut window_state = FullWindowState::default();
         window_state.size.dimensions = new_size;
@@ -3193,11 +3205,11 @@ impl LayoutWindow {
             debug_messages,
         )?;
 
-        // Retrieve the display list from the layout result
-        // We need to take ownership of the display list, so we replace it with an empty one
+        // Return a shared handle to the display list; the stored
+        // DomLayoutResult keeps the same allocation (no clone, no hollowing).
         self.layout_results
-            .get_mut(&dom_id)
-            .map(|result| std::mem::take(&mut result.display_list))
+            .get(&dom_id)
+            .map(|result| result.display_list.clone())
             .ok_or(solver3::LayoutError::InvalidTree)
     }
 
@@ -7831,7 +7843,7 @@ impl LayoutWindow {
                     }
                 }
                 if let Some(layout_result) = self.layout_results.get_mut(&dom_id) {
-                    layout_result.display_list = display_list;
+                    layout_result.display_list = std::sync::Arc::new(display_list);
                 }
                 // The repaint `TextEditManager::mark_dirty` asked for has now
                 // been delivered — this is the display-list-only path that
@@ -9620,7 +9632,7 @@ mod autotest_generated {
             },
             calculated_positions: Vec::new(),
             viewport: LogicalRect::zero(),
-            display_list: DisplayList::default(),
+            display_list: std::sync::Arc::new(DisplayList::default()),
             scroll_ids: HashMap::new(),
             scroll_id_to_node_id: HashMap::new(),
         }

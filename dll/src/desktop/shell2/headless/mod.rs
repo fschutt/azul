@@ -193,7 +193,7 @@ pub struct CpuBackend {
     pub glyph_cache: azul_layout::glyph_cache::GlyphCache,
     /// Previous display list for damage rect computation.
     #[cfg(feature = "cpurender")]
-    pub previous_display_list: Option<azul_layout::solver3::display_list::DisplayList>,
+    pub previous_display_list: Option<std::sync::Arc<azul_layout::solver3::display_list::DisplayList>>,
     /// PAINT damage of the most recent `render_frame` — the region actually
     /// re-rasterised (for scroll this is just the thin exposed strip). This is the
     /// "pixels repainted" metric. Recorded so the headless test harness can assert
@@ -438,7 +438,7 @@ impl CpuBackend {
                 .layout_results
                 .iter()
                 .filter(|(id, _)| id.inner != dom_id.inner)
-                .map(|(id, r)| (*id, std::sync::Arc::new(r.display_list.clone())))
+                .map(|(id, r)| (*id, r.display_list.clone()))
                 .collect();
         let vview_damage = cpurender::compute_virtual_view_damage(
             display_list, &vview_dls, &self.previous_vview_dls,

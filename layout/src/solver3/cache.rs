@@ -380,7 +380,8 @@ pub struct LayoutCache {
     /// display-list generation entirely. Cleared whenever
     /// `mark_dirty` fires on any node (since the root's upstream
     /// invalidation chain clears its ancestors).
-    pub cached_display_list: Option<(SubtreeHash, LogicalRect, super::display_list::DisplayList)>,
+    pub cached_display_list:
+        Option<(SubtreeHash, LogicalRect, std::sync::Arc<super::display_list::DisplayList>)>,
     /// Raw pointer of the `StyledDom` from the previous layout pass. When the
     /// same `&StyledDom` reference is passed again AND the viewport is unchanged,
     /// skip reconcile entirely and return the cached display list (saves ~0.8 ms).
@@ -3282,7 +3283,7 @@ mod autotest_generated {
         cache.cached_display_list = Some((
             SubtreeHash(1),
             LogicalRect::new(pos(0.0, 0.0), size(10.0, 10.0)),
-            DisplayList::default(),
+            std::sync::Arc::new(DisplayList::default()),
         ));
 
         let r = cache.memory_report();
@@ -3317,7 +3318,7 @@ mod autotest_generated {
         cache.cached_display_list = Some((
             SubtreeHash(9),
             LogicalRect::new(pos(0.0, 0.0), size(1.0, 1.0)),
-            DisplayList::default(),
+            std::sync::Arc::new(DisplayList::default()),
         ));
         cache.prev_dom_ptr = 0xDEAD_BEEF;
         cache.counters.insert((0, "c".to_string()), 1);

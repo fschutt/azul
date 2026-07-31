@@ -252,7 +252,7 @@ fn maps_render_paints_header_pixels() {
         BTreeMap::new();
     for (id, r) in lw.layout_results.iter() {
         if *id != DomId::ROOT_ID {
-            vview_dls.insert(*id, Arc::new(r.display_list.clone()));
+            vview_dls.insert(*id, r.display_list.clone());
         }
     }
     println!("vview child DLs: {:?}", vview_dls.keys().collect::<Vec<_>>());
