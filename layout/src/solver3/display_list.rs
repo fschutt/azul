@@ -2991,7 +2991,18 @@ where
                 })
             }
             #[cfg(not(feature = "cpurender"))]
-            Some(azul_core::dom::SvgNodeData::Path(_)) => false,
+            Some(azul_core::dom::SvgNodeData::Path(_)) => {
+                // The DOM asked for an SVG clip mask; without `cpurender` the
+                // clip silently does not clip. Say so once.
+                static ANNOUNCE: std::sync::Once = std::sync::Once::new();
+                ANNOUNCE.call_once(|| {
+                    eprintln!(
+                        "[azul][svg] an SVG clip-path is present, but this build has \
+                         no `cpurender` feature — SVG clips will NOT clip"
+                    );
+                });
+                false
+            }
             // Other SvgNodeData variants (shapes, gradients, etc.) don't produce clip masks
             Some(_) => false,
             None => false,
@@ -4816,6 +4827,16 @@ fn get_image_ref_for_image_source(
             }
             #[cfg(not(all(feature = "std", feature = "image_decoding")))]
             {
+                // The document handed us encoded image bytes and this build
+                // cannot decode them — the image just vanishes. Say so once.
+                static ANNOUNCE: std::sync::Once = std::sync::Once::new();
+                ANNOUNCE.call_once(|| {
+                    eprintln!(
+                        "[azul][image] encoded image data present, but this build \
+                         lacks the `image_decoding` (+`std`) feature — images from \
+                         encoded bytes will NOT appear"
+                    );
+                });
                 let _ = bytes;
                 None
             }
@@ -4831,6 +4852,15 @@ fn get_image_ref_for_image_source(
             }
             #[cfg(not(feature = "cpurender"))]
             {
+                // Inline SVG images rasterize through the CPU renderer; without
+                // it they silently vanish from the frame. Say so once.
+                static ANNOUNCE: std::sync::Once = std::sync::Once::new();
+                ANNOUNCE.call_once(|| {
+                    eprintln!(
+                        "[azul][svg] an SVG image source is present, but this build \
+                         has no `cpurender` feature — SVG images will NOT appear"
+                    );
+                });
                 let _ = (svg, target_size);
                 None
             }

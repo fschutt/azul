@@ -1024,6 +1024,16 @@ pub fn svg_string_to_dom(svg: &str) -> Option<Dom> {
 
 #[cfg(not(feature = "xml"))]
 fn svg_string_to_dom(_svg: &str) -> Option<Dom> {
+    // A tile/page SVG arrived and this build cannot turn it into a DOM — the
+    // caller sees a permanent None, indistinguishable from a bad SVG.
+    static ANNOUNCE: std::sync::Once = std::sync::Once::new();
+    ANNOUNCE.call_once(|| {
+        eprintln!(
+            "[azul][svg] svg_string_to_dom called, but this build has no `xml` \
+             feature — SVG-to-DOM always returns None. Rebuild azul-layout with \
+             the `xml` feature"
+        );
+    });
     None
 }
 
