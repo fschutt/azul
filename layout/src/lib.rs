@@ -405,6 +405,21 @@ pub use solver3::display_list::DisplayList as DisplayList3;
 pub use solver3::layout_document;
 #[cfg(feature = "text_layout")]
 pub use solver3::paged_layout::layout_document_paged;
+/// The analysis-returning paged entries + the precalculation-only path
+/// (document editors: page count / page-of-node WITHOUT materializing pages).
+#[cfg(feature = "text_layout")]
+pub use solver3::paged_layout::{
+    compute_document_pagination, layout_document_paged_v2, PagedLayoutResult,
+};
+/// Standalone page-break analysis (typed breaks, spans, policy, lazy pages).
+#[cfg(feature = "text_layout")]
+pub use solver3::{
+    display_list::paginate_single_page,
+    page_breaks::{
+        compute_page_breaks, compute_page_breaks_from_display_list, page_of_y, page_spans,
+        BreakKind, BreakPolicy, PageBreak, PageBreakInput, PageConstraints, PaginationInfo,
+    },
+};
 #[cfg(feature = "text_layout")]
 pub use solver3::{LayoutContext, LayoutError, Result as LayoutResult3};
 #[cfg(feature = "text_layout")]

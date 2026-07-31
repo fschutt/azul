@@ -109,6 +109,22 @@ where
     )
 }
 
+/// The full result of a paged layout: the analysis alongside the pages.
+///
+/// `pages[i].node_mapping` carries the per-item source `NodeId`s of page `i`
+/// (paged hit-testing / diagnostics); `breaks` is the same analysis a
+/// document editor gets from [`compute_document_pagination`] without
+/// materializing any page.
+#[derive(Debug)]
+pub struct PagedLayoutResult {
+    /// One display list per page.
+    pub pages: Vec<DisplayList>,
+    /// The break analysis the pages were sliced by (empty for continuous media).
+    pub breaks: Vec<crate::solver3::page_breaks::PageBreak>,
+    /// Total document-space content height of the un-sliced document.
+    pub total_content_height: f32,
+}
+
 /// Layout a document with integrated pagination and custom page configuration.
 ///
 /// This function is the same as `layout_document_paged` but allows you to
@@ -121,14 +137,14 @@ where
 // page_config is a small owned config struct passed once per paged-layout invocation by the
 // dll PDF backend and the test suite; taking it by value keeps that one-shot API ergonomic.
 #[allow(clippy::needless_pass_by_value)]
-#[allow(clippy::too_many_lines)] // large but cohesive: single-purpose layout/render/parse routine (one branch per case)
+#[allow(clippy::too_many_arguments)]
 /// # Errors
 ///
 /// Returns a `LayoutError` if paged layout fails.
 pub fn layout_document_paged_with_config<T, F>(
     cache: &mut LayoutCache,
     text_cache: &mut TextLayoutCache,
-    mut fragmentation_context: FragmentationContext,
+    fragmentation_context: FragmentationContext,
     new_dom: &StyledDom,
     viewport: LogicalRect,
     font_manager: &mut crate::font_traits::FontManager<T>,
@@ -151,9 +167,108 @@ where
         usize,
     ) -> std::result::Result<T, crate::text3::cache::LayoutError>,
 {
+    // Thin wrapper over the analysis-returning entry so printpdf 0.12.x
+    // compiles unchanged; migrate to `layout_document_paged_v2` to get the
+    // break analysis alongside the pages.
+    layout_document_paged_v2(
+        cache,
+        text_cache,
+        fragmentation_context,
+        new_dom,
+        viewport,
+        font_manager,
+        scroll_offsets,
+        debug_messages,
+        gpu_value_cache,
+        renderer_resources,
+        id_namespace,
+        dom_id,
+        font_loader,
+        page_config,
+        image_cache,
+        get_system_time_fn,
+        print_timing,
+    )
+    .map(|r| r.pages)
+}
+
+/// [`layout_document_paged_with_config`], returning the break ANALYSIS
+/// alongside the pages (the document-editor/printpdf-diagnostics upgrade).
+#[cfg(feature = "text_layout")]
+#[allow(clippy::too_many_arguments)]
+/// # Errors
+///
+/// Returns a `LayoutError` if paged layout fails.
+pub fn layout_document_paged_v2<T, F>(
+    cache: &mut LayoutCache,
+    text_cache: &mut TextLayoutCache,
+    fragmentation_context: FragmentationContext,
+    new_dom: &StyledDom,
+    viewport: LogicalRect,
+    font_manager: &mut crate::font_traits::FontManager<T>,
+    scroll_offsets: &BTreeMap<NodeId, ScrollPosition>,
+    debug_messages: &mut Option<Vec<LayoutDebugMessage>>,
+    gpu_value_cache: Option<&azul_core::gpu::GpuValueCache>,
+    renderer_resources: &RendererResources,
+    id_namespace: azul_core::resources::IdNamespace,
+    dom_id: DomId,
+    font_loader: F,
+    page_config: FakePageConfig,
+    image_cache: &azul_core::resources::ImageCache,
+    get_system_time_fn: azul_core::task::GetSystemTimeCallback,
+    print_timing: bool,
+) -> Result<PagedLayoutResult>
+where
+    T: ParsedFontTrait + Sync + 'static,
+    F: Fn(
+        std::sync::Arc<rust_fontconfig::FontBytes>,
+        usize,
+    ) -> std::result::Result<T, crate::text3::cache::LayoutError>,
+{
+    layout_document_paged_impl(
+        cache, text_cache, fragmentation_context, new_dom, viewport, font_manager,
+        scroll_offsets, debug_messages, gpu_value_cache, renderer_resources,
+        id_namespace, dom_id, font_loader, page_config, image_cache,
+        get_system_time_fn, print_timing, true,
+    )
+}
+
+#[cfg(feature = "text_layout")]
+#[allow(clippy::needless_pass_by_value)]
+#[allow(clippy::too_many_arguments)]
+#[allow(clippy::too_many_lines)] // large but cohesive: single-purpose layout/render/parse routine (one branch per case)
+fn layout_document_paged_impl<T, F>(
+    cache: &mut LayoutCache,
+    text_cache: &mut TextLayoutCache,
+    mut fragmentation_context: FragmentationContext,
+    new_dom: &StyledDom,
+    viewport: LogicalRect,
+    font_manager: &mut crate::font_traits::FontManager<T>,
+    scroll_offsets: &BTreeMap<NodeId, ScrollPosition>,
+    debug_messages: &mut Option<Vec<LayoutDebugMessage>>,
+    gpu_value_cache: Option<&azul_core::gpu::GpuValueCache>,
+    renderer_resources: &RendererResources,
+    id_namespace: azul_core::resources::IdNamespace,
+    dom_id: DomId,
+    font_loader: F,
+    page_config: FakePageConfig,
+    image_cache: &azul_core::resources::ImageCache,
+    get_system_time_fn: azul_core::task::GetSystemTimeCallback,
+    print_timing: bool,
+    materialize_pages: bool,
+) -> Result<PagedLayoutResult>
+where
+    T: ParsedFontTrait + Sync + 'static,
+    F: Fn(
+        std::sync::Arc<rust_fontconfig::FontBytes>,
+        usize,
+    ) -> std::result::Result<T, crate::text3::cache::LayoutError>,
+{
     use crate::solver3::display_list::{
-        generate_display_list, paginate_display_list_with_slicer_and_breaks, SlicerConfig,
+        calculate_display_list_height, generate_display_list, paginate_display_list_with_breaks,
+        SlicerConfig,
     };
+    use crate::solver3::page_breaks;
 
     // Font Resolution And Loading
     {
@@ -242,7 +357,12 @@ where
             dom_id,
         )?;
         cache.cache_map = std::mem::take(&mut ctx.cache_map);
-        return Ok(vec![display_list]);
+        let total_content_height = calculate_display_list_height(&display_list);
+        return Ok(PagedLayoutResult {
+            pages: vec![display_list],
+            breaks: Vec::new(),
+            total_content_height,
+        });
     }
 
     // Paged Layout
@@ -353,12 +473,24 @@ where
         table_headers: crate::solver3::pagination::TableHeaderTracker::default(),
     };
 
-    // Step 3: Paginate with CSS break property support
-    let pages = paginate_display_list_with_slicer_and_breaks(
-        full_display_list,
-        &slicer_config,
-        renderer_resources,
-    )?;
+    // Step 3: Analyze the breaks, THEN paginate against them — the analysis
+    // is part of the result (document editors consume it without the pages).
+    let constraints = page_breaks::PageConstraints::from_slicer_config(&slicer_config);
+    let breaks =
+        page_breaks::compute_page_breaks_from_display_list(&full_display_list, &constraints);
+    let total_content_height = calculate_display_list_height(&full_display_list);
+
+    let pages = if materialize_pages {
+        paginate_display_list_with_breaks(
+            full_display_list,
+            &slicer_config,
+            &breaks,
+            renderer_resources,
+        )?
+    } else {
+        // Precalculation-only: the analysis IS the result; no page is sliced.
+        Vec::new()
+    };
 
     if let Some(msgs) = ctx.debug_messages {
         msgs.push(LayoutDebugMessage::info(format!(
@@ -369,7 +501,80 @@ where
 
     cache.cache_map = std::mem::take(&mut ctx.cache_map);
 
-    Ok(pages)
+    Ok(PagedLayoutResult {
+        pages,
+        breaks,
+        total_content_height,
+    })
+}
+
+/// The PRECALCULATION-ONLY path (the document-editor requirement): full
+/// layout + display-list generation + break analysis, but NO per-page
+/// display list is ever materialized. Pair with
+/// [`crate::solver3::display_list::paginate_single_page`] to materialize
+/// only visible pages, and [`crate::solver3::page_breaks::page_of_y`] to map
+/// a node's Y to its page.
+#[cfg(feature = "text_layout")]
+#[allow(clippy::needless_pass_by_value)]
+#[allow(clippy::too_many_arguments)]
+/// # Errors
+///
+/// Returns a `LayoutError` if layout fails.
+pub fn compute_document_pagination<T, F>(
+    cache: &mut LayoutCache,
+    text_cache: &mut TextLayoutCache,
+    fragmentation_context: FragmentationContext,
+    new_dom: &StyledDom,
+    viewport: LogicalRect,
+    font_manager: &mut crate::font_traits::FontManager<T>,
+    scroll_offsets: &BTreeMap<NodeId, ScrollPosition>,
+    debug_messages: &mut Option<Vec<LayoutDebugMessage>>,
+    gpu_value_cache: Option<&azul_core::gpu::GpuValueCache>,
+    renderer_resources: &RendererResources,
+    id_namespace: azul_core::resources::IdNamespace,
+    dom_id: DomId,
+    font_loader: F,
+    page_config: FakePageConfig,
+    image_cache: &azul_core::resources::ImageCache,
+    get_system_time_fn: azul_core::task::GetSystemTimeCallback,
+) -> Result<crate::solver3::page_breaks::PaginationInfo>
+where
+    T: ParsedFontTrait + Sync + 'static,
+    F: Fn(
+        std::sync::Arc<rust_fontconfig::FontBytes>,
+        usize,
+    ) -> std::result::Result<T, crate::text3::cache::LayoutError>,
+{
+    use crate::solver3::page_breaks;
+
+    let result = layout_document_paged_impl(
+        cache,
+        text_cache,
+        fragmentation_context,
+        new_dom,
+        viewport,
+        font_manager,
+        scroll_offsets,
+        debug_messages,
+        gpu_value_cache,
+        renderer_resources,
+        id_namespace,
+        dom_id,
+        font_loader,
+        page_config,
+        image_cache,
+        get_system_time_fn,
+        false,
+        false, // NO page is materialized — the acceptance criterion of this entry
+    )?;
+    let page_count = page_breaks::page_spans(&result.breaks, result.total_content_height)
+        .len()
+        .max(1);
+    Ok(page_breaks::PaginationInfo {
+        page_count,
+        breaks: result.breaks,
+        total_content_height: result.total_content_height,
+    })
 }
 
 /// Internal helper: Perform layout with a fragmentation context (layout only, no display list)

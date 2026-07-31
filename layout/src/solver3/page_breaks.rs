@@ -98,6 +98,87 @@ impl PageConstraints {
 /// duplicate would produce a zero-height page.
 const MERGE_WINDOW_PX: f32 = 1.0;
 
+/// Break-awareness policy. ALL flags off (the default) reproduces the plain
+/// forced ∪ interval algorithm exactly — that is how this type can ship ahead
+/// of the behaviors it gates (each lands in its own stage and flips on in
+/// printpdf with a changelog entry, never silently).
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct BreakPolicy {
+    /// Honor `break-inside: avoid` (push boxes below the break intact).
+    pub honor_break_inside: bool,
+    /// Honor `widows` / `orphans` line constraints.
+    pub widows_orphans: bool,
+    /// Never tear a line box across pages (snap to line boundaries).
+    pub atomic_lines: bool,
+    /// Never tear a table row across pages.
+    pub atomic_table_rows: bool,
+    /// Repeat `<thead>` on continuation pages.
+    pub repeat_table_headers: bool,
+    /// Upper bound on how far a break may be pushed UP to satisfy
+    /// avoid-rules, as a fraction of the page height (guards pathological
+    /// cascades; beyond it the plain candidate snap applies).
+    pub max_push_distance: f32,
+}
+
+impl Default for BreakPolicy {
+    fn default() -> Self {
+        Self {
+            honor_break_inside: false,
+            widows_orphans: false,
+            atomic_lines: false,
+            atomic_table_rows: false,
+            repeat_table_headers: false,
+            max_push_distance: 0.33,
+        }
+    }
+}
+
+/// The richer inputs break-awareness needs (geometry beyond the display
+/// list: box rects and break properties). The display-list-only path stays
+/// available via [`compute_page_breaks_from_display_list`].
+pub struct PageBreakInput<'a> {
+    /// Item geometry + forced break positions.
+    pub display_list: &'a DisplayList,
+    /// Box rects + line boxes (break candidates / avoid ranges).
+    pub layout_tree: &'a crate::solver3::layout_tree::LayoutTree,
+    /// Break properties (`break-inside`, `widows`, `orphans`, …).
+    pub styled_dom: &'a azul_core::styled_dom::StyledDom,
+}
+
+/// Compute page breaks with break-awareness `policy`. With the default
+/// (all-off) policy this is exactly [`compute_page_breaks_from_display_list`];
+/// the policy-gated behaviors land stage by stage on top of this signature.
+#[must_use]
+pub fn compute_page_breaks(
+    input: &PageBreakInput,
+    constraints: &PageConstraints,
+    policy: &BreakPolicy,
+) -> Vec<PageBreak> {
+    // Break-awareness (candidates, avoid-ranges, widows/orphans, header
+    // repetition) consumes `input.layout_tree` / `input.styled_dom` here as
+    // each policy flag gains its implementation.
+    let _ = policy;
+    compute_page_breaks_from_display_list(input.display_list, constraints)
+}
+
+/// Which page a document-space Y coordinate lands on, given the break list
+/// (page 0 = before the first break). The document-editor query: "what page
+/// is this node on?" WITHOUT materializing any per-page display list.
+#[must_use]
+pub fn page_of_y(breaks: &[PageBreak], y: f32) -> usize {
+    breaks.iter().take_while(|b| b.y <= y).count()
+}
+
+/// Precomputed pagination facts for a document — everything a viewer needs
+/// to draw page chrome and schedule lazy page materialization, with NO
+/// per-page display list generated.
+#[derive(Debug, Clone, PartialEq)]
+pub struct PaginationInfo {
+    pub breaks: Vec<PageBreak>,
+    pub page_count: usize,
+    pub total_content_height: f32,
+}
+
 /// Compute page breaks for a display list: CSS-forced breaks
 /// (`DisplayList::forced_page_breaks`) plus regular interval breaks wherever
 /// the page runs full.
@@ -382,6 +463,42 @@ mod tests {
         let c = PageConstraints::from_slicer_config(&cfg);
         assert_eq!(c.first_page_content_height, 800.0);
         assert_eq!(c.normal_page_content_height, 720.0);
+    }
+
+    #[test]
+    fn page_of_y_counts_breaks_at_or_below_y() {
+        let b = |y: f32, kind: BreakKind| PageBreak {
+            y,
+            kind,
+            causing_node: None,
+        };
+        let breaks = [
+            b(100.0, BreakKind::Interval),
+            b(180.0, BreakKind::Forced),
+            b(280.0, BreakKind::Interval),
+        ];
+        assert_eq!(page_of_y(&breaks, 0.0), 0);
+        assert_eq!(page_of_y(&breaks, 99.9), 0);
+        // A break at EXACTLY y sends the content to the next page
+        // ("content at or below y belongs to the next page").
+        assert_eq!(page_of_y(&breaks, 100.0), 1);
+        assert_eq!(page_of_y(&breaks, 179.0), 1);
+        assert_eq!(page_of_y(&breaks, 200.0), 2);
+        assert_eq!(page_of_y(&breaks, 9999.0), 3);
+        assert_eq!(page_of_y(&[], 50.0), 0, "no breaks: everything is page 0");
+    }
+
+    #[test]
+    fn default_break_policy_is_all_off() {
+        let p = BreakPolicy::default();
+        assert!(
+            !p.honor_break_inside
+                && !p.widows_orphans
+                && !p.atomic_lines
+                && !p.atomic_table_rows
+                && !p.repeat_table_headers,
+            "defaults-off is the bug-compat contract B2 ships under"
+        );
     }
 
     #[test]

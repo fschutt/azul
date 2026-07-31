@@ -5777,7 +5777,6 @@ pub fn paginate_display_list_with_slicer_and_breaks(
 /// [`paginate_display_list_with_slicer_and_breaks`], which computes the breaks
 /// itself and delegates here. Lets embedders analyze pagination once and
 /// materialize pages separately.
-#[allow(clippy::too_many_lines)] // large but cohesive: single-purpose layout/render/parse routine (one branch per case)
 /// # Errors
 ///
 /// Returns a `LayoutError` if paginating the display list fails.
@@ -5786,6 +5785,44 @@ pub fn paginate_display_list_with_breaks(
     config: &SlicerConfig,
     breaks: &[page_breaks::PageBreak],
     renderer_resources: &RendererResources,
+) -> Result<Vec<DisplayList>> {
+    paginate_pages_impl(full_display_list, config, breaks, renderer_resources, None)
+}
+
+/// Materialize ONE page of a paginated document — the lazy-viewer entry: a
+/// document editor computes breaks once (`compute_page_breaks*`), then
+/// materializes only the visible pages. Headers/footers still show the
+/// correct "page N of TOTAL" because the total comes from `breaks`, not from
+/// how many pages were materialized.
+///
+/// Returns an empty display list when `page_index` is out of range.
+/// # Errors
+///
+/// Returns a `LayoutError` if paginating the display list fails.
+pub fn paginate_single_page(
+    full_display_list: DisplayList,
+    config: &SlicerConfig,
+    breaks: &[page_breaks::PageBreak],
+    renderer_resources: &RendererResources,
+    page_index: usize,
+) -> Result<DisplayList> {
+    let mut pages = paginate_pages_impl(
+        full_display_list,
+        config,
+        breaks,
+        renderer_resources,
+        Some(page_index),
+    )?;
+    Ok(pages.pop().unwrap_or_default())
+}
+
+#[allow(clippy::too_many_lines)] // large but cohesive: single-purpose layout/render/parse routine (one branch per case)
+fn paginate_pages_impl(
+    full_display_list: DisplayList,
+    config: &SlicerConfig,
+    breaks: &[page_breaks::PageBreak],
+    renderer_resources: &RendererResources,
+    only_page: Option<usize>,
 ) -> Result<Vec<DisplayList>> {
     if config.page_content_height <= 0.0 || config.page_content_height >= f32::MAX {
         return Ok(vec![full_display_list]);
@@ -5806,9 +5843,14 @@ pub fn paginate_display_list_with_breaks(
     let num_pages = page_spans.len();
 
     // Create per-page display lists by slicing the master list
-    let mut pages: Vec<DisplayList> = Vec::with_capacity(num_pages);
+    let mut pages: Vec<DisplayList> = Vec::with_capacity(num_pages.min(only_page.map_or(usize::MAX, |_| 1)));
 
     for (page_idx, &(content_start_y, content_end_y)) in page_spans.iter().enumerate() {
+        // Lazy single-page materialization: skip every other span. PageInfo
+        // below still receives the TRUE total (num_pages).
+        if only_page.is_some_and(|p| p != page_idx) {
+            continue;
+        }
         // Generate page info for header/footer content
         let page_info = PageInfo::new(page_idx + 1, num_pages);
 
@@ -8315,6 +8357,41 @@ mod autotest_generated {
             assert_eq!(pages.len(), 1, "page height {h} => no slicing");
             assert_eq!(pages[0].items.len(), 1);
         }
+    }
+
+    #[test]
+    fn paginate_single_page_matches_the_full_pagination_page_for_page() {
+        let rr = RendererResources::default();
+        let mut dl = list_of(vec![DisplayListItem::Rect {
+            bounds: rect(0.0, 0.0, 10.0, 250.0).into(),
+            color: opaque(),
+            border_radius: BorderRadius::default(),
+        }]);
+        dl.forced_page_breaks = vec![50.0];
+        let cfg = SlicerConfig::simple(100.0);
+        let constraints = page_breaks::PageConstraints::from_slicer_config(&cfg);
+        let breaks = page_breaks::compute_page_breaks_from_display_list(&dl, &constraints);
+
+        let all = paginate_display_list_with_breaks(dl.clone(), &cfg, &breaks, &rr)
+            .expect("full pagination");
+        assert_eq!(all.len(), 4);
+        for (idx, expected_page) in all.iter().enumerate() {
+            let single = paginate_single_page(dl.clone(), &cfg, &breaks, &rr, idx)
+                .expect("single page");
+            assert_eq!(
+                single.items.len(),
+                expected_page.items.len(),
+                "page {idx}: lazy materialization must produce the same page"
+            );
+            let bounds = |p: &DisplayList| {
+                p.items.iter().find_map(DisplayListItem::bounds)
+            };
+            assert_eq!(bounds(&single), bounds(expected_page), "page {idx} geometry");
+        }
+
+        // Out of range: empty, not a panic and not page 0.
+        let oob = paginate_single_page(dl, &cfg, &breaks, &rr, 99).expect("oob");
+        assert!(oob.items.is_empty());
     }
 
     #[test]
