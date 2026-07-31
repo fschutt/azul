@@ -5577,6 +5577,7 @@ fn offset_rect_y(bounds: LogicalRect, offset_y: f32) -> LogicalRect {
 
 use azul_css::props::layout::fragmentation::{BreakInside, PageBreak};
 
+use crate::solver3::page_breaks;
 use crate::solver3::pagination::{
     HeaderFooterConfig, MarginBoxContent, PageInfo, TableHeaderInfo, TableHeaderTracker,
 };
@@ -5690,49 +5691,52 @@ pub fn paginate_display_list_with_slicer_and_breaks(
         return Ok(vec![full_display_list]);
     }
 
-    // Calculate base header/footer space (used for pages that show headers/footers)
-    let base_header_space = if config.header_footer.show_header {
-        config.header_footer.header_height
-    } else {
-        0.0
-    };
-    let base_footer_space = if config.header_footer.show_footer {
-        config.header_footer.footer_height
-    } else {
-        0.0
-    };
-
-    // Calculate effective heights for different page types
-    let normal_page_content_height =
-        config.page_content_height - base_header_space - base_footer_space;
-    let first_page_content_height = if config.header_footer.skip_first_page {
-        // First page has full height when skipping headers/footers
-        config.page_content_height
-    } else {
-        normal_page_content_height
-    };
-
     // Step 1: Calculate page break positions based on CSS properties
-    //
-    // Instead of using regular intervals, we calculate where page breaks
-    // should occur based on:
-    //
-    // - break-before: always → force break before this item
-    // - break-after: always → force break after this item
-    // - break-inside: avoid → don't break inside this item (push to next page if needed)
+    // (forced break-before/after positions + regular interval breaks).
+    let constraints = page_breaks::PageConstraints::from_slicer_config(config);
+    let breaks =
+        page_breaks::compute_page_breaks_from_display_list(&full_display_list, &constraints);
 
-    let page_breaks = calculate_page_break_positions(
-        &full_display_list,
-        first_page_content_height,
-        normal_page_content_height,
-    );
+    paginate_display_list_with_breaks(full_display_list, config, &breaks, renderer_resources)
+}
 
-    let num_pages = page_breaks.len();
+/// Paginate against a PRE-COMPUTED break analysis (see
+/// [`page_breaks::compute_page_breaks_from_display_list`]) — the sibling of
+/// [`paginate_display_list_with_slicer_and_breaks`], which computes the breaks
+/// itself and delegates here. Lets embedders analyze pagination once and
+/// materialize pages separately.
+#[allow(clippy::too_many_lines)] // large but cohesive: single-purpose layout/render/parse routine (one branch per case)
+/// # Errors
+///
+/// Returns a `LayoutError` if paginating the display list fails.
+pub fn paginate_display_list_with_breaks(
+    full_display_list: DisplayList,
+    config: &SlicerConfig,
+    breaks: &[page_breaks::PageBreak],
+    renderer_resources: &RendererResources,
+) -> Result<Vec<DisplayList>> {
+    if config.page_content_height <= 0.0 || config.page_content_height >= f32::MAX {
+        return Ok(vec![full_display_list]);
+    }
+
+    let total_height = calculate_display_list_height(&full_display_list);
+    let mut page_spans = page_breaks::page_spans(breaks, total_height);
+    if page_spans.is_empty() {
+        // An empty/zero-height document still produces one page tall enough
+        // for the first page, so headers/footers render on it.
+        let constraints = page_breaks::PageConstraints::from_slicer_config(config);
+        page_spans.push((
+            0.0,
+            total_height.max(constraints.first_page_content_height),
+        ));
+    }
+
+    let num_pages = page_spans.len();
 
     // Create per-page display lists by slicing the master list
     let mut pages: Vec<DisplayList> = Vec::with_capacity(num_pages);
 
-    for (page_idx, &(content_start_y, content_end_y)) in page_breaks.iter().enumerate() {
+    for (page_idx, &(content_start_y, content_end_y)) in page_spans.iter().enumerate() {
         // Generate page info for header/footer content
         let page_info = PageInfo::new(page_idx + 1, num_pages);
 
@@ -5897,9 +5901,10 @@ pub fn paginate_display_list_with_slicer_and_breaks(
 ///
 /// Returns a vector of (`start_y`, `end_y`) tuples representing each page's content bounds.
 ///
-/// This function uses the `forced_page_breaks` from the `DisplayList` to insert
-/// page breaks at positions specified by CSS `break-before: always` and `break-after: always`.
-/// Regular page breaks still occur at normal intervals when no forced break is present.
+/// Shim over [`page_breaks::compute_page_breaks_from_display_list`] +
+/// [`page_breaks::page_spans`], kept so the pre-extraction tests keep pinning
+/// the observable spans through the same signature.
+#[cfg(test)]
 fn calculate_page_break_positions(
     display_list: &DisplayList,
     first_page_height: f32,
@@ -5911,50 +5916,16 @@ fn calculate_page_break_positions(
         return vec![(0.0, total_height.max(first_page_height))];
     }
 
-    // Collect all potential break points: forced breaks + regular interval breaks
-    let mut break_points: Vec<f32> = Vec::new();
-
-    // Add forced page breaks from the display list (from CSS break-before/break-after)
-    for &forced_break_y in &display_list.forced_page_breaks {
-        if forced_break_y > 0.0 && forced_break_y < total_height {
-            break_points.push(forced_break_y);
-        }
+    let constraints = page_breaks::PageConstraints {
+        first_page_content_height: first_page_height,
+        normal_page_content_height: normal_page_height,
+    };
+    let breaks = page_breaks::compute_page_breaks_from_display_list(display_list, &constraints);
+    let mut spans = page_breaks::page_spans(&breaks, total_height);
+    if spans.is_empty() {
+        spans.push((0.0, total_height.max(first_page_height)));
     }
-
-    // Generate regular interval break points
-    let mut y = first_page_height;
-    #[allow(clippy::while_float)] // intentional bounded float loop (angle-wrap / pixel-step); an integer counter would be artificial
-    while y < total_height {
-        break_points.push(y);
-        y += normal_page_height;
-    }
-
-    // Sort and deduplicate break points
-    break_points.sort_by(|a, b| a.partial_cmp(b).unwrap());
-    break_points.dedup_by(|a, b| (*a - *b).abs() < 1.0); // Merge breaks within 1px
-
-    // Convert break points to page ranges
-    let mut page_breaks: Vec<(f32, f32)> = Vec::new();
-    let mut page_start = 0.0f32;
-
-    for break_y in break_points {
-        if break_y > page_start {
-            page_breaks.push((page_start, break_y));
-            page_start = break_y;
-        }
-    }
-
-    // Add final page if there's remaining content
-    if page_start < total_height {
-        page_breaks.push((page_start, total_height));
-    }
-
-    // Ensure at least one page
-    if page_breaks.is_empty() {
-        page_breaks.push((0.0, total_height.max(first_page_height)));
-    }
-
-    page_breaks
+    spans
 }
 
 /// Text alignment for generated header/footer text.
@@ -6356,7 +6327,7 @@ fn generate_text_display_items(
 }
 
 /// Calculate the total height of a display list (max Y + height of all items).
-fn calculate_display_list_height(display_list: &DisplayList) -> f32 {
+pub(crate) fn calculate_display_list_height(display_list: &DisplayList) -> f32 {
     let mut max_bottom = 0.0f32;
 
     for item in &display_list.items {
@@ -8214,17 +8185,21 @@ mod autotest_generated {
         );
 
         // A forced break within 1px of a regular break is merged, not duplicated
-        // (a duplicate would emit a zero-height page).
+        // (a duplicate would emit a zero-height page) — and the FORCED break's
+        // position wins the merge (CSS Fragmentation: forced breaks always
+        // apply; before the page_breaks extraction the interval break at 100.0
+        // silently swallowed the author's break at 100.5).
         dl.forced_page_breaks = vec![100.5];
         let pages = calculate_page_break_positions(&dl, 100.0, 100.0);
-        assert_eq!(pages, vec![(0.0, 100.0), (100.0, 200.0), (200.0, 250.0)]);
+        assert_eq!(pages, vec![(0.0, 100.5), (100.5, 200.0), (200.0, 250.0)]);
         assert!(pages.iter().all(|(s, e)| e > s), "no zero-height pages");
     }
 
     #[test]
     fn page_breaks_ignore_out_of_range_and_nan_forced_breaks() {
-        // A NaN forced break MUST be filtered before the sort — the sort uses
-        // `partial_cmp().unwrap()` and would panic on a NaN.
+        // A NaN forced break is filtered by the range check (NaN fails both
+        // comparisons); the sort itself is total_cmp since the page_breaks
+        // extraction, so even an unfiltered NaN could no longer panic.
         let mut dl = list_of(vec![DisplayListItem::Rect {
             bounds: rect(0.0, 0.0, 10.0, 250.0).into(),
             color: opaque(),
