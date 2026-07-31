@@ -28,7 +28,25 @@ pub fn start() {}
 pub fn poll() {
     let dir = match fs::read_dir("/sys/bus/iio/devices") {
         Ok(d) => d,
-        Err(_) => return, // no iio subsystem -> no motion sensors on this host
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
+            // No iio subsystem -> no motion sensors on this host. Normal on
+            // desktops; staying quiet here is correct.
+            return;
+        }
+        Err(e) => {
+            // The subsystem EXISTS but cannot be read (EACCES etc.) — an IMU
+            // may be present and silently unreadable. This runs per frame, so
+            // say it once.
+            static UNREADABLE: std::sync::Once = std::sync::Once::new();
+            UNREADABLE.call_once(|| {
+                crate::plog_warn!(
+                    "[sensors] /sys/bus/iio/devices exists but cannot be read ({}) — \
+                     motion sensors will report nothing",
+                    e
+                );
+            });
+            return;
+        }
     };
     let now_ms = now_ms();
     for entry in dir.flatten() {
