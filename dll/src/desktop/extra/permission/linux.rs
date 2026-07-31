@@ -168,7 +168,17 @@ fn portal_access_blocking(capability: Capability) -> PermissionState {
         .deserialize::<(u32, HashMap<String, zbus::zvariant::OwnedValue>)>()
     {
         Ok((code, _results)) => code,
-        Err(_) => return PermissionState::NotDetermined,
+        Err(e) => {
+            // The one previously-unlogged exit in this file: a malformed
+            // portal Response reported NotDetermined with no trace.
+            crate::plog_warn!(
+                "[permission] linux: malformed portal Response for {:?} ({}) — \
+                 reporting NotDetermined",
+                capability,
+                e
+            );
+            return PermissionState::NotDetermined;
+        }
     };
     match response_code {
         RESPONSE_SUCCESS => PermissionState::Granted(PermissionQuality::Full),
