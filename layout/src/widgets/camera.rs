@@ -198,6 +198,29 @@ extern "C" fn camera_worker(mut init: RefAny, mut sender: ThreadSender, _recv: T
         }
     }
 
+    // Reaching here means a CameraWidget is on screen and about to show the
+    // colour-cycle TEST PATTERN instead of the camera — say why, once. The
+    // dll-side [camera]/[dlopen] lines (if any) carry the detailed cause.
+    {
+        static TEST_PATTERN_ANNOUNCE: std::sync::Once = std::sync::Once::new();
+        let have_backend = camera_backend().is_some();
+        TEST_PATTERN_ANNOUNCE.call_once(|| {
+            if have_backend {
+                eprintln!(
+                    "[azul][camera] the platform camera backend failed to open (device \
+                     missing/busy, no permission, or libv4l2 unavailable — see lines \
+                     above) — showing the colour-cycle TEST PATTERN instead of the \
+                     camera"
+                );
+            } else {
+                eprintln!(
+                    "[azul][camera] no camera backend is registered in this build/OS — \
+                     showing the colour-cycle TEST PATTERN instead of the camera"
+                );
+            }
+        });
+    }
+
     let px = (w as usize) * (h as usize);
     let mut tick: u32 = 0;
     loop {

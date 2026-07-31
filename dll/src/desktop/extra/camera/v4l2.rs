@@ -257,7 +257,15 @@ struct V4l2Cam {
 pub fn open(index: u32, width: u32, height: u32) -> u64 {
     let f = match v4l2() {
         Some(f) => f,
-        None => return 0,
+        None => {
+            // The dlopen layer already logged the loader error; name the
+            // consequence at the capability level.
+            crate::plog_warn!(
+                "[camera] libv4l2 is not loadable — camera capture unavailable, the \
+                 widget will show its test pattern"
+            );
+            return 0;
+        }
     };
     let width = if width == 0 { 640 } else { width };
     let height = if height == 0 { 480 } else { height };
@@ -267,11 +275,28 @@ pub fn open(index: u32, width: u32, height: u32) -> u64 {
         let path = format!("/dev/video{}\0", index);
         let fd = (f.open)(path.as_ptr() as *const c_char, O_RDWR | O_NONBLOCK);
         if fd < 0 {
+            let err = std::io::Error::last_os_error();
+            crate::plog_warn!(
+                "[camera] open /dev/video{} failed: {} (device absent, busy, or the \
+                 user lacks `video`-group permission) — the widget will show its test \
+                 pattern",
+                index,
+                err
+            );
             return 0;
         }
 
-        // Tear-down helper for the error paths below.
-        let fail = |fd: c_int| -> u64 {
+        // Tear-down helper for the error paths below. Every caller hands the
+        // stage that failed so the fallback to the test pattern names its
+        // cause — these exits were previously fully silent.
+        let fail = |fd: c_int, stage: &str| -> u64 {
+            crate::plog_warn!(
+                "[camera] /dev/video{}: {} failed ({}) — the widget will show its \
+                 test pattern",
+                index,
+                stage,
+                std::io::Error::last_os_error()
+            );
             (f.close)(fd);
             0
         };
@@ -279,7 +304,7 @@ pub fn open(index: u32, width: u32, height: u32) -> u64 {
         // VIDIOC_QUERYCAP - require a streaming-capable capture device.
         let mut cap: v4l2_capability = core::mem::zeroed();
         if (f.ioctl)(fd, vidioc_querycap(), &mut cap as *mut _ as *mut c_void) < 0 {
-            return fail(fd);
+            return fail(fd, "VIDIOC_QUERYCAP");
         }
         // device_caps is per-node on modern kernels; fall back to capabilities.
         let caps = if cap.device_caps != 0 {
@@ -288,7 +313,7 @@ pub fn open(index: u32, width: u32, height: u32) -> u64 {
             cap.capabilities
         };
         if caps & V4L2_CAP_VIDEO_CAPTURE == 0 || caps & V4L2_CAP_STREAMING == 0 {
-            return fail(fd);
+            return fail(fd, "capability check (not a streaming capture device)");
         }
 
         // VIDIOC_S_FMT - ask libv4l2 for packed RGB24 at our resolution.
@@ -299,11 +324,11 @@ pub fn open(index: u32, width: u32, height: u32) -> u64 {
         fmt.pix.pixelformat = V4L2_PIX_FMT_RGB24;
         fmt.pix.field = V4L2_FIELD_NONE;
         if (f.ioctl)(fd, vidioc_s_fmt(), &mut fmt as *mut _ as *mut c_void) < 0 {
-            return fail(fd);
+            return fail(fd, "VIDIOC_S_FMT (RGB24)");
         }
         if fmt.pix.pixelformat != V4L2_PIX_FMT_RGB24 {
             // libv4l2 couldn't deliver RGB24 - bail (worker uses test pattern).
-            return fail(fd);
+            return fail(fd, "RGB24 negotiation (libv4l2 could not convert the device's native format)");
         }
         // The driver may adjust the resolution; honor what it returned.
         let width = fmt.pix.width;
@@ -321,7 +346,7 @@ pub fn open(index: u32, width: u32, height: u32) -> u64 {
         req.type_ = V4L2_BUF_TYPE_VIDEO_CAPTURE;
         req.memory = V4L2_MEMORY_MMAP;
         if (f.ioctl)(fd, vidioc_reqbufs(), &mut req as *mut _ as *mut c_void) < 0 || req.count == 0 {
-            return fail(fd);
+            return fail(fd, "VIDIOC_REQBUFS");
         }
 
         // Query + mmap each buffer, then queue it.
@@ -333,7 +358,7 @@ pub fn open(index: u32, width: u32, height: u32) -> u64 {
             buf.memory = V4L2_MEMORY_MMAP;
             if (f.ioctl)(fd, vidioc_querybuf(), &mut buf as *mut _ as *mut c_void) < 0 {
                 free_buffers(f, fd, &buffers);
-                return fail(fd);
+                return fail(fd, "VIDIOC_QUERYBUF");
             }
             let ptr = (f.mmap)(
                 core::ptr::null_mut(),
@@ -345,7 +370,7 @@ pub fn open(index: u32, width: u32, height: u32) -> u64 {
             );
             if ptr as isize == MAP_FAILED || ptr.is_null() {
                 free_buffers(f, fd, &buffers);
-                return fail(fd);
+                return fail(fd, "mmap of capture buffer");
             }
             buffers.push(MmapBuf {
                 ptr,
@@ -354,7 +379,7 @@ pub fn open(index: u32, width: u32, height: u32) -> u64 {
             // Queue the buffer so the device can fill it.
             if (f.ioctl)(fd, vidioc_qbuf(), &mut buf as *mut _ as *mut c_void) < 0 {
                 free_buffers(f, fd, &buffers);
-                return fail(fd);
+                return fail(fd, "VIDIOC_QBUF");
             }
         }
 
@@ -362,7 +387,7 @@ pub fn open(index: u32, width: u32, height: u32) -> u64 {
         let mut ty: c_int = V4L2_BUF_TYPE_VIDEO_CAPTURE as c_int;
         if (f.ioctl)(fd, vidioc_streamon(), &mut ty as *mut _ as *mut c_void) < 0 {
             free_buffers(f, fd, &buffers);
-            return fail(fd);
+            return fail(fd, "VIDIOC_STREAMON");
         }
 
         Box::into_raw(Box::new(V4l2Cam {
