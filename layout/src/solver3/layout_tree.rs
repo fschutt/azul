@@ -2078,9 +2078,41 @@ impl LayoutTreeBuilder {
         let hierarchy = styled_dom.node_hierarchy.as_container();
 
         for entry in pending {
-            let crate::overlay::StructuralPreview::Split { node, at, .. } = &entry.preview
-            else {
-                continue;
+            let (node, at) = match &entry.preview {
+                crate::overlay::StructuralPreview::Split { node, at, .. } => (node, at),
+                crate::overlay::StructuralPreview::Remove { parent, start, end }
+                | crate::overlay::StructuralPreview::Replace {
+                    parent, start, end, ..
+                } => {
+                    // Removal side renders NOW: the range's layout children
+                    // detach from the tree (unreachable from the root, so
+                    // never positioned nor painted). Replace's PENDING
+                    // content is the staged follow-up — it needs the styled
+                    // materialization of a raw `Dom` fragment; until then a
+                    // Replace previews as its removal half.
+                    self.apply_range_suppression_preview(
+                        *parent,
+                        *start,
+                        *end,
+                        &ordinal_map(&hierarchy, *parent),
+                    );
+                    continue;
+                }
+                crate::overlay::StructuralPreview::Merge { first, second } => {
+                    // Backspace-at-start UX: `second` disappears from its
+                    // parent, its layout children move (subtrees wholesale)
+                    // onto the END of `first` — the inverse mechanics of the
+                    // element split above.
+                    self.apply_merge_preview(*first, *second);
+                    continue;
+                }
+                crate::overlay::StructuralPreview::Insert { .. } => {
+                    // Staged: rendering a pending `Dom` needs a styled
+                    // sub-mount (fragment styling against the retained author
+                    // css). Resolvers already expose it (children_for_node);
+                    // the box tree does not materialize it yet.
+                    continue;
+                }
             };
             let Some(indices) = self.dom_to_layout.get(node) else {
                 continue;
@@ -2095,19 +2127,14 @@ impl LayoutTreeBuilder {
             // paragraphs. Children before `at.child_index` stay in part 1;
             // the rest MOVE (wholesale, subtrees intact) to the preview part.
             let Some(byte) = at.text_byte.into_option() else {
-                // DOM ordinal per direct child of the split node — layout
-                // children route to a part by their DOM position.
-                let mut ordinal_of = BTreeMap::new();
-                let mut c = hierarchy.get(*node).and_then(|h| h.first_child_id(*node));
-                let mut ord: u32 = 0;
-                while let Some(cc) = c {
-                    ordinal_of.insert(cc, ord);
-                    ord += 1;
-                    c = hierarchy
-                        .get(cc)
-                        .and_then(azul_core::styled_dom::NodeHierarchyItem::next_sibling_id);
-                }
-                self.apply_element_split_preview(idx, *node, at.child_index, &ordinal_of);
+                // Child-boundary split: layout children route to a part by
+                // their DOM position.
+                self.apply_element_split_preview(
+                    idx,
+                    *node,
+                    at.child_index,
+                    &ordinal_map(&hierarchy, *node),
+                );
                 continue;
             };
             // v1 gate: plain-text IFC roots — every layout child must be
@@ -2239,6 +2266,74 @@ impl LayoutTreeBuilder {
         self.dom_to_layout.entry(dom_node).or_default().push(part2_idx);
     }
 
+    /// Remove/Replace preview: detach the layout children of `parent_dom`
+    /// whose DOM ordinal falls in `[start, end)`. Detached subtrees stay in
+    /// the node arena but are unreachable from the root — never positioned,
+    /// never painted (the same fate as any orphaned builder node).
+    fn apply_range_suppression_preview(
+        &mut self,
+        parent_dom: NodeId,
+        start: u32,
+        end: u32,
+        ordinal_of: &BTreeMap<NodeId, u32>,
+    ) {
+        let Some(indices) = self.dom_to_layout.get(&parent_dom) else {
+            return;
+        };
+        if indices.len() != 1 {
+            return; // exotic mapping (already part-split); staged
+        }
+        let idx = indices[0];
+        let before = self.nodes[idx].children.len();
+        let nodes = &self.nodes;
+        let kept: Vec<usize> = self.nodes[idx]
+            .children
+            .iter()
+            .copied()
+            .filter(|&c| {
+                nodes[c]
+                    .dom_node_id
+                    .and_then(|d| ordinal_of.get(&d).copied())
+                    // Anonymous / unmapped children are kept: suppressing a
+                    // wrapper whose contents straddle the range would drop
+                    // too much. (Mixed content = staged follow-up.)
+                    .is_none_or(|o| o < start || o >= end)
+            })
+            .collect();
+        if kept.len() != before {
+            self.nodes[idx].children = kept;
+            self.nodes[idx].inline_layout_result = None;
+            self.nodes[idx].dirty_flag = DirtyFlag::Layout;
+        }
+    }
+
+    /// Merge preview: `second_dom` disappears from its parent; its layout
+    /// children move (subtrees wholesale) onto the END of `first_dom`.
+    fn apply_merge_preview(&mut self, first_dom: NodeId, second_dom: NodeId) {
+        // Unmapped or exotic multi-part mappings are staged.
+        let ((Some(&[first_idx]), Some(&[second_idx]))) = (
+            self.dom_to_layout.get(&first_dom).map(Vec::as_slice),
+            self.dom_to_layout.get(&second_dom).map(Vec::as_slice),
+        ) else {
+            return;
+        };
+
+        let moved = core::mem::take(&mut self.nodes[second_idx].children);
+        for &m in &moved {
+            self.nodes[m].parent = Some(first_idx);
+            self.nodes[m].dirty_flag = DirtyFlag::Layout;
+        }
+        self.nodes[first_idx].children.extend(moved);
+        self.nodes[first_idx].inline_layout_result = None;
+        self.nodes[first_idx].dirty_flag = DirtyFlag::Layout;
+
+        // Detach `second` itself from its parent (unreachable = unpainted).
+        if let Some(p) = self.nodes[second_idx].parent {
+            self.nodes[p].children.retain(|&c| c != second_idx);
+            self.nodes[p].dirty_flag = DirtyFlag::Layout;
+        }
+    }
+
     pub fn clone_node_from_old(&mut self, old_node: &LayoutNode, parent: Option<usize>) -> usize {
         let index = self.nodes.len();
         let mut new_node = old_node.clone();
@@ -2304,6 +2399,25 @@ impl LayoutTreeBuilder {
             subtree_needs_intrinsic: Vec::new(),
         }
     }
+}
+
+/// DOM ordinal per direct child of `parent` — the coordinate structural
+/// previews use to route layout children (`NodePosition.child_index` space).
+fn ordinal_map(
+    hierarchy: &azul_core::id::NodeDataContainerRef<'_, azul_core::styled_dom::NodeHierarchyItem>,
+    parent: NodeId,
+) -> BTreeMap<NodeId, u32> {
+    let mut ordinal_of = BTreeMap::new();
+    let mut c = hierarchy.get(parent).and_then(|h| h.first_child_id(parent));
+    let mut ord: u32 = 0;
+    while let Some(cc) = c {
+        ordinal_of.insert(cc, ord);
+        ord += 1;
+        c = hierarchy
+            .get(cc)
+            .and_then(azul_core::styled_dom::NodeHierarchyItem::next_sibling_id);
+    }
+    ordinal_of
 }
 
 // +spec:display-property:697082 - outer display type determines principal box's role in flow layout (block vs inline)

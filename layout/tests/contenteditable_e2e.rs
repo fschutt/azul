@@ -1275,4 +1275,148 @@ mod structural_roundtrip {
             );
         }
     }
+
+    /// An app-recorded `RemoveChildren` renders its removal side pre-apply:
+    /// the range's layout children DETACH (unreachable → unpainted), pixels
+    /// change, and the parent's layout child count drops.
+    #[test]
+    fn app_recorded_remove_children_previews_suppressed() {
+        use azul_layout::managers::changeset::{
+            DocOpRemoveChildren, DocumentChangeset, EditResumePoint,
+        };
+
+        let mut model = Dom::create_div()
+            .with_ids_and_classes(cls("editor").into())
+            .with_contenteditable(true)
+            .with_tab_index(TabIndex::Auto);
+        let mut ul = Dom::create_ul();
+        ul.add_child(Dom::create_li_with_text("alpha"));
+        ul.add_child(Dom::create_li_with_text("beta"));
+        ul.add_child(Dom::create_li_with_text("gamma"));
+        model.add_child(ul);
+
+        let mut h = ContentEditableHarness::new(400.0, 300.0);
+        h.layout_dom(render_dom(&model), CSS);
+        let before = h.render();
+
+        let dom_id = DomId { inner: 0 };
+        let ul_node = NodeId::new(2);
+        let target = DomNodeId {
+            dom: dom_id,
+            node: NodeHierarchyItemId::from_crate_internal(Some(ul_node)),
+        };
+
+        // Remove "beta" (child range [1, 2)).
+        let changeset = DocumentChangeset::new(
+            target,
+            DocumentOperation::RemoveChildren(DocOpRemoveChildren {
+                parent: target,
+                start: 1,
+                end: 2,
+            }),
+            EditResumePoint {
+                anchor_key: 0,
+                node_path: vec![0u32].into(),
+                position: NodePosition::before_child(1),
+            },
+            azul_core::task::Instant::now(),
+        );
+        {
+            let lw = h.layout_window.as_mut().unwrap();
+            lw.record_document_edit(changeset);
+        }
+
+        h.layout_dom(render_dom(&model), CSS);
+        {
+            let lw = h.layout_window.as_ref().unwrap();
+            let lr = lw.layout_results.get(&dom_id).unwrap();
+            let idx = lr.layout_tree.dom_to_layout.get(&ul_node).unwrap()[0];
+            assert_eq!(
+                lr.layout_tree.children(idx).len(),
+                2,
+                "the removed child's layout node detached from the preview tree"
+            );
+        }
+        let preview = h.render();
+        assert!(
+            pixel_diff_count(&before, &preview, 2) > 0,
+            "the removal PREVIEW must be VISIBLE before the app applies"
+        );
+    }
+
+    /// An app-recorded `MergeNodes` previews: the second block disappears
+    /// from its parent and its children surface at the end of the first —
+    /// the Backspace-at-start UX, visible before the app applies.
+    #[test]
+    fn app_recorded_merge_previews_children_moved() {
+        use azul_layout::managers::changeset::{
+            DocOpMergeNodes, DocumentChangeset, EditResumePoint,
+        };
+
+        let mut model = Dom::create_div()
+            .with_ids_and_classes(cls("editor").into())
+            .with_contenteditable(true)
+            .with_tab_index(TabIndex::Auto);
+        let mut p1 = Dom::create_p();
+        p1.add_child(Dom::create_text("hello"));
+        let mut p2 = Dom::create_p();
+        p2.add_child(Dom::create_text("world"));
+        model.add_child(p1);
+        model.add_child(p2);
+
+        let mut h = ContentEditableHarness::new(400.0, 300.0);
+        h.layout_dom(render_dom(&model), CSS);
+        let before = h.render();
+
+        let dom_id = DomId { inner: 0 };
+        // body=0, editor=1, p1=2, text=3, p2=4, text=5.
+        let (p1_node, p2_node) = (NodeId::new(2), NodeId::new(4));
+        let mk = |n: NodeId| DomNodeId {
+            dom: dom_id,
+            node: NodeHierarchyItemId::from_crate_internal(Some(n)),
+        };
+
+        let changeset = DocumentChangeset::new(
+            mk(p2_node),
+            DocumentOperation::MergeNodes(DocOpMergeNodes {
+                first: mk(p1_node),
+                second: mk(p2_node),
+                join: NodePosition::in_text_child(0, 5),
+            }),
+            EditResumePoint {
+                anchor_key: 0,
+                node_path: vec![0u32].into(),
+                position: NodePosition::in_text_child(0, 5),
+            },
+            azul_core::task::Instant::now(),
+        );
+        {
+            let lw = h.layout_window.as_mut().unwrap();
+            lw.record_document_edit(changeset);
+        }
+
+        h.layout_dom(render_dom(&model), CSS);
+        {
+            let lw = h.layout_window.as_ref().unwrap();
+            let lr = lw.layout_results.get(&dom_id).unwrap();
+            let p1_idx = lr.layout_tree.dom_to_layout.get(&p1_node).unwrap()[0];
+            assert_eq!(
+                lr.layout_tree.children(p1_idx).len(),
+                2,
+                "p2's text child moved onto p1 in the preview tree"
+            );
+            // p2's layout node is detached from the editor's children.
+            let editor_idx = lr.layout_tree.dom_to_layout.get(&NodeId::new(1)).unwrap()[0];
+            let p2_idx = lr.layout_tree.dom_to_layout.get(&p2_node).unwrap()[0];
+            assert!(
+                !lr.layout_tree.children(editor_idx).contains(&p2_idx),
+                "the merged-away block detached from its parent"
+            );
+        }
+        let preview = h.render();
+        assert!(
+            pixel_diff_count(&before, &preview, 2) > 0,
+            "the merge PREVIEW must be VISIBLE before the app applies"
+        );
+    }
 }
