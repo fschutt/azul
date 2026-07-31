@@ -1396,6 +1396,20 @@ impl Runner {
                 let _ = self.layout_window.mark_document_edit_applied(*id);
                 ProcessEventResult::DoNothing
             }
+            CallbackChange::MarkDocumentEditAppliedWithInverse { id, inverse } => {
+                let _ = self
+                    .layout_window
+                    .mark_document_edit_applied_with_inverse(*id, inverse.clone());
+                ProcessEventResult::DoNothing
+            }
+            CallbackChange::UndoStructuralEdit => {
+                let _ = self.layout_window.undo_structural_edit();
+                ProcessEventResult::DoNothing
+            }
+            CallbackChange::RedoStructuralEdit => {
+                let _ = self.layout_window.redo_structural_edit();
+                ProcessEventResult::DoNothing
+            }
 
             CallbackChange::ChangeNodeImage { dom_id, node_id, image, update_type: _ } => {
                 // The content chokepoint: overlay write + journal + in-place DL

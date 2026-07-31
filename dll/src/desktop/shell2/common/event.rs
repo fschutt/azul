@@ -2126,6 +2126,27 @@ pub trait PlatformWindow {
                 ProcessEventResult::DoNothing
             }
 
+            CallbackChange::MarkDocumentEditAppliedWithInverse { id, inverse } => {
+                if let Some(lw) = self.get_layout_window_mut() {
+                    let _ = lw.mark_document_edit_applied_with_inverse(*id, inverse.clone());
+                }
+                ProcessEventResult::DoNothing
+            }
+
+            CallbackChange::UndoStructuralEdit => {
+                if let Some(lw) = self.get_layout_window_mut() {
+                    let _ = lw.undo_structural_edit();
+                }
+                ProcessEventResult::DoNothing
+            }
+
+            CallbackChange::RedoStructuralEdit => {
+                if let Some(lw) = self.get_layout_window_mut() {
+                    let _ = lw.redo_structural_edit();
+                }
+                ProcessEventResult::DoNothing
+            }
+
             CallbackChange::ChangeNodeImage { dom_id, node_id, image, update_type: _ } => {
                 // The ONE content chokepoint: overlay write + journal + in-place
                 // display-list patch (paint tier — the DL diff sees the ImageRef

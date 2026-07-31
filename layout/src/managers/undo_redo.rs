@@ -187,6 +187,25 @@ pub struct ContentSnapshot {
 /// lookup misses fall back to the plain-text restore).
 const MAX_CONTENT_SNAPSHOTS: usize = 64;
 
+/// A recorded STRUCTURAL edit (Enter split / merge / …) — the tree-shaped
+/// undo entry. Undoing never mutates: it re-RECORDS `inverse` as a fresh
+/// `DocumentChangeset` through the same record→app-apply loop the original
+/// edit took (`LayoutWindow::undo_structural_edit`).
+#[derive(Debug, Clone)]
+pub struct StructuralUndoEntry {
+    /// The operation the app applied.
+    pub op: super::changeset::DocumentOperation,
+    /// The operation that undoes it (as returned by
+    /// `document_edit::apply_document_operation` or supplied by the app).
+    pub inverse: super::changeset::DocumentOperation,
+    /// The resume point of the APPLIED edit (caret after redo).
+    pub resume_after: super::changeset::EditResumePoint,
+}
+
+/// Maximum retained structural undo/redo entries (whole-document scope, so a
+/// flat cap — not per-node like text).
+pub const MAX_STRUCTURAL_HISTORY: usize = 64;
+
 /// Manager for undo/redo operations across all text nodes
 #[derive(Debug, Clone, Default)]
 pub struct UndoRedoManager {
@@ -196,14 +215,63 @@ pub struct UndoRedoManager {
     /// Styled-content snapshots keyed by `TextChangeset.id` (see
     /// [`ContentSnapshot`]); FIFO-capped at [`MAX_CONTENT_SNAPSHOTS`].
     pub content_snapshots: Vec<(super::changeset::ChangesetId, ContentSnapshot)>,
+    /// Structural undo stack (most recent at back). Document-scoped: block
+    /// splits/merges cross node boundaries, so per-node stacks cannot hold
+    /// them.
+    pub structural_undo: VecDeque<StructuralUndoEntry>,
+    /// Structural redo stack (most recent at back).
+    pub structural_redo: VecDeque<StructuralUndoEntry>,
 }
 
 impl UndoRedoManager {
+    /// Push an APPLIED structural edit. Clears the redo stack (a fresh user
+    /// edit invalidates redo, same rule as text).
+    pub fn push_structural(&mut self, entry: StructuralUndoEntry) {
+        self.structural_redo.clear();
+        self.structural_undo.push_back(entry);
+        if self.structural_undo.len() > MAX_STRUCTURAL_HISTORY {
+            self.structural_undo.pop_front();
+        }
+    }
+
+    /// Pop the newest structural edit for undoing; the caller re-records its
+    /// `inverse` and must push the SWAPPED entry onto [`Self::structural_redo`]
+    /// (see `redo_structural`).
+    pub fn pop_structural_undo(&mut self) -> Option<StructuralUndoEntry> {
+        self.structural_undo.pop_back()
+    }
+
+    /// Move an undone entry onto the redo stack (op/inverse roles swap at
+    /// USE time, not storage time — the entry stays as recorded).
+    pub fn push_structural_redo(&mut self, entry: StructuralUndoEntry) {
+        self.structural_redo.push_back(entry);
+        if self.structural_redo.len() > MAX_STRUCTURAL_HISTORY {
+            self.structural_redo.pop_front();
+        }
+    }
+
+    /// Pop the newest redoable structural edit; the caller re-records its
+    /// `op` and pushes the entry back onto the undo stack WITHOUT clearing
+    /// redo (`push_structural` would — a redo is not a fresh edit).
+    pub fn pop_structural_redo(&mut self) -> Option<StructuralUndoEntry> {
+        self.structural_redo.pop_back()
+    }
+
+    /// Re-push after a redo (bypasses the redo-clearing of `push_structural`).
+    pub fn push_structural_undo_after_redo(&mut self, entry: StructuralUndoEntry) {
+        self.structural_undo.push_back(entry);
+        if self.structural_undo.len() > MAX_STRUCTURAL_HISTORY {
+            self.structural_undo.pop_front();
+        }
+    }
+
     /// Create a new empty undo/redo manager
     #[must_use] pub const fn new() -> Self {
         Self {
             node_stacks: Vec::new(),
             content_snapshots: Vec::new(),
+            structural_undo: VecDeque::new(),
+            structural_redo: VecDeque::new(),
         }
     }
 
@@ -552,6 +620,74 @@ mod undo_redo_tests {
         mgr.reinstate_undo(redone);
         assert!(mgr.can_undo(NodeId::new(3)));
         assert!(mgr.can_redo(NodeId::new(3)), "redo stack preserved");
+    }
+}
+
+#[cfg(test)]
+mod structural_history_tests {
+    use super::*;
+    use crate::managers::changeset::{
+        DocOpDeleteBlock, DocOpSplitBlock, DocumentOperation, EditResumePoint,
+    };
+    use azul_core::dom::{DomId, DomNodeId};
+    use azul_core::selection::{CursorAffinity, GraphemeClusterId, TextCursor};
+    use azul_core::styled_dom::NodeHierarchyItemId;
+
+    fn entry(tag: u32) -> StructuralUndoEntry {
+        let node = DomNodeId {
+            dom: DomId { inner: 0 },
+            node: NodeHierarchyItemId::from_crate_internal(None),
+        };
+        StructuralUndoEntry {
+            op: DocumentOperation::SplitBlock(DocOpSplitBlock {
+                block: node,
+                at: TextCursor {
+                    cluster_id: GraphemeClusterId {
+                        source_run: 0,
+                        start_byte_in_run: tag,
+                    },
+                    affinity: CursorAffinity::Leading,
+                },
+            }),
+            inverse: DocumentOperation::DeleteBlock(DocOpDeleteBlock { block: node }),
+            resume_after: EditResumePoint {
+                contenteditable_key: u64::from(tag),
+                block_path: vec![1].into(),
+                text_offset: 0,
+            },
+        }
+    }
+
+    #[test]
+    fn fresh_edit_clears_redo_but_redo_repush_does_not() {
+        let mut m = UndoRedoManager::new();
+        m.push_structural(entry(1));
+        let undone = m.pop_structural_undo().expect("undo");
+        m.push_structural_redo(undone);
+        assert_eq!(m.structural_redo.len(), 1);
+
+        // Redo: pop redo, re-push onto undo WITHOUT clearing redo.
+        let redone = m.pop_structural_redo().expect("redo");
+        m.push_structural_undo_after_redo(redone);
+        assert_eq!(m.structural_undo.len(), 1);
+
+        // A FRESH edit invalidates redo (the text rule):
+        m.pop_structural_undo().map(|e| m.push_structural_redo(e));
+        assert_eq!(m.structural_redo.len(), 1);
+        m.push_structural(entry(2));
+        assert!(m.structural_redo.is_empty(), "fresh edit clears redo");
+    }
+
+    #[test]
+    fn structural_history_is_capped() {
+        let mut m = UndoRedoManager::new();
+        for i in 0..(MAX_STRUCTURAL_HISTORY as u32 + 10) {
+            m.push_structural(entry(i));
+        }
+        assert_eq!(m.structural_undo.len(), MAX_STRUCTURAL_HISTORY);
+        // The OLDEST entries were dropped (FIFO at the front).
+        let front = m.structural_undo.front().expect("front");
+        assert_eq!(front.resume_after.contenteditable_key, 10);
     }
 }
 

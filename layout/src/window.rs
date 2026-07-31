@@ -632,6 +632,14 @@ pub struct TextConstraintsCache {
 /// This allows us to perform lightweight relayout without rebuilding the entire DOM.
 pub use crate::overlay::DirtyTextNode;
 
+/// How the NEXT `mark_document_edit_applied_with_inverse` routes structural
+/// history (set by undo/redo re-records; `None` = fresh user edit).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum StructuralAckKind {
+    Undo,
+    Redo,
+}
+
 /// Result of applying a text changeset
 #[derive(Debug)]
 pub struct TextChangesetResult {
@@ -851,6 +859,10 @@ pub struct LayoutWindow {
     /// generation (resolved + cleared at the tail of
     /// `layout_and_generate_display_list`).
     pending_caret_restore: Option<crate::managers::changeset::EditResumePoint>,
+    /// Set by `undo_structural_edit`/`redo_structural_edit` so the ack of
+    /// their re-recorded changeset routes history correctly instead of
+    /// pushing a fresh undo entry (which would loop).
+    structural_history_suppression: Option<StructuralAckKind>,
     /// Undo/Redo manager for text editing operations
     pub undo_redo_manager: crate::managers::undo_redo::UndoRedoManager,
     /// Cached text layout constraints for each node
@@ -1040,6 +1052,7 @@ impl LayoutWindow {
             text_input_manager: crate::managers::text_input::TextInputManager::new(),
             pending_document_edit: None,
             pending_caret_restore: None,
+            structural_history_suppression: None,
             undo_redo_manager: crate::managers::undo_redo::UndoRedoManager::new(),
             text_constraints_cache: TextConstraintsCache {
                 constraints: BTreeMap::new(),
@@ -1502,6 +1515,119 @@ impl LayoutWindow {
         } else {
             false
         }
+    }
+
+    /// [`Self::mark_document_edit_applied`] + structural-undo recording: the
+    /// applier hands back the INVERSE operation (only IT knows it — e.g. a
+    /// delete's serialized fragment), and the edit becomes undoable.
+    pub fn mark_document_edit_applied_with_inverse(
+        &mut self,
+        id: u64,
+        inverse: crate::managers::changeset::DocumentOperation,
+    ) -> bool {
+        let Some(edit) = self
+            .pending_document_edit
+            .take_if(|c| c.id == id)
+        else {
+            return false;
+        };
+        self.pending_caret_restore = Some(edit.resume.clone());
+        let entry = crate::managers::undo_redo::StructuralUndoEntry {
+            op: edit.operation,
+            inverse,
+            resume_after: edit.resume,
+        };
+        match self.structural_history_suppression.take() {
+            // The ack of an UNDO re-record: the entry already moved to redo.
+            Some(StructuralAckKind::Undo) => {}
+            // The ack of a REDO re-record: back onto undo WITHOUT clearing redo.
+            Some(StructuralAckKind::Redo) => {
+                self.undo_redo_manager.push_structural_undo_after_redo(entry);
+            }
+            // A fresh user edit.
+            None => self.undo_redo_manager.push_structural(entry),
+        }
+        true
+    }
+
+    /// Undo the newest structural edit: re-RECORD its inverse as a fresh
+    /// changeset through the same record→app-apply loop (nothing mutates
+    /// here). Returns the new changeset's id, or None with an empty stack /
+    /// no resolvable resume.
+    pub fn undo_structural_edit(&mut self) -> Option<u64> {
+        use crate::managers::changeset::DocumentChangeset;
+        let entry = self.undo_redo_manager.pop_structural_undo()?;
+        let resume = Self::resume_for_inverse(&entry.op, &entry.inverse, &entry.resume_after)?;
+        let changeset = DocumentChangeset::new(
+            self.focus_manager
+                .get_focused_node()
+                .copied()
+                .unwrap_or(DomNodeId {
+                    dom: DomId::ROOT_ID,
+                    node: NodeHierarchyItemId::from_crate_internal(None),
+                }),
+            entry.inverse.clone(),
+            resume,
+            azul_core::task::Instant::now(),
+        );
+        let id = self.record_document_edit(changeset);
+        self.undo_redo_manager.push_structural_redo(entry);
+        self.structural_history_suppression = Some(StructuralAckKind::Undo);
+        Some(id)
+    }
+
+    /// Redo the newest undone structural edit (re-records its `op`).
+    pub fn redo_structural_edit(&mut self) -> Option<u64> {
+        use crate::managers::changeset::DocumentChangeset;
+        let entry = self.undo_redo_manager.pop_structural_redo()?;
+        let changeset = DocumentChangeset::new(
+            self.focus_manager
+                .get_focused_node()
+                .copied()
+                .unwrap_or(DomNodeId {
+                    dom: DomId::ROOT_ID,
+                    node: NodeHierarchyItemId::from_crate_internal(None),
+                }),
+            entry.op.clone(),
+            entry.resume_after.clone(),
+            azul_core::task::Instant::now(),
+        );
+        let id = self.record_document_edit(changeset);
+        self.undo_redo_manager.push_structural_undo_after_redo(entry);
+        self.structural_history_suppression = Some(StructuralAckKind::Redo);
+        Some(id)
+    }
+
+    /// The mechanical resume point for re-recording `inverse` of an applied
+    /// `op` (the applier derives indices from the resume, so the pair must
+    /// agree): split@[i+1] ↔ merge@[i] (offset = the split byte);
+    /// insert@[i] ↔ delete@[i].
+    fn resume_for_inverse(
+        op: &crate::managers::changeset::DocumentOperation,
+        inverse: &crate::managers::changeset::DocumentOperation,
+        resume_after: &crate::managers::changeset::EditResumePoint,
+    ) -> Option<crate::managers::changeset::EditResumePoint> {
+        use crate::managers::changeset::{DocumentOperation as Op, EditResumePoint};
+        let after_index = resume_after.block_path.as_ref().first().copied().unwrap_or(0);
+        let (index, offset) = match (op, inverse) {
+            // Undo a split: merge the two halves; caret at the old split byte.
+            (Op::SplitBlock(s), Op::MergeBlocks(_)) => (
+                after_index.saturating_sub(1),
+                s.at.cluster_id.start_byte_in_run,
+            ),
+            // Undo a merge: split the survivor at the join point.
+            (Op::MergeBlocks(_), Op::SplitBlock(_)) => {
+                (after_index + 1, 0)
+            }
+            (Op::InsertBlock(_), Op::DeleteBlock(_))
+            | (Op::DeleteBlock(_), Op::InsertBlock(_)) => (after_index, 0),
+            _ => return None,
+        };
+        Some(EditResumePoint {
+            contenteditable_key: resume_after.contenteditable_key,
+            block_path: vec![index].into(),
+            text_offset: offset,
+        })
     }
 
     /// Resolve a stashed [`crate::managers::changeset::EditResumePoint`]
@@ -8994,6 +9120,8 @@ impl LayoutWindow {
             // that is its whole point; resolved against the new tree at the
             // layout tail, nothing to remap here.
             pending_caret_restore: _,
+            // A plain routing flag, no NodeIds.
+            structural_history_suppression: _,
         } = self;
 
         if let Some(rejected) = pending_document_edit.take() {

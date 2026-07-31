@@ -243,6 +243,16 @@ pub enum CallbackChange {
     },
     /// The commit handshake: the app confirms it applied structural edit `id`.
     MarkDocumentEditApplied { id: u64 },
+    /// The handshake WITH the applier's inverse operation — the edit becomes
+    /// structurally undoable.
+    MarkDocumentEditAppliedWithInverse {
+        id: u64,
+        inverse: crate::managers::changeset::DocumentOperation,
+    },
+    /// Undo the newest structural edit (re-records its inverse for the app).
+    UndoStructuralEdit,
+    /// Redo the newest undone structural edit.
+    RedoStructuralEdit,
     /// Re-render an image callback (for resize/animation)
     /// This triggers re-invocation of the `RenderImageCallback`
     UpdateImageCallback { dom_id: DomId, node_id: NodeId },
@@ -1513,6 +1523,28 @@ impl CallbackInfo {
     /// `document_edit::apply_document_operation` users).
     pub fn mark_document_edit_applied(&mut self, id: u64) {
         self.push_change(CallbackChange::MarkDocumentEditApplied { id });
+    }
+
+    /// The handshake carrying the applier's INVERSE operation (from
+    /// `document_edit::AppliedEdit::inverse`) — makes the edit structurally
+    /// undoable (Ctrl+Z re-records the inverse through the same loop).
+    pub fn mark_document_edit_applied_with_inverse(
+        &mut self,
+        id: u64,
+        inverse: crate::managers::changeset::DocumentOperation,
+    ) {
+        self.push_change(CallbackChange::MarkDocumentEditAppliedWithInverse { id, inverse });
+    }
+
+    /// Undo the newest structural edit: a NEW changeset (the inverse) is
+    /// recorded for the app to apply — nothing mutates here.
+    pub fn undo_structural_edit(&mut self) {
+        self.push_change(CallbackChange::UndoStructuralEdit);
+    }
+
+    /// Redo the newest undone structural edit.
+    pub fn redo_structural_edit(&mut self) {
+        self.push_change(CallbackChange::RedoStructuralEdit);
     }
 
     /// The pending structural edit, if any (inspect in a callback before
