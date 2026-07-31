@@ -450,7 +450,6 @@ pub struct WaylandPopup {
     pub renderer: Option<WrRenderer>,
     pub hit_tester: Option<AsyncHitTester>,
     pub document_id: Option<DocumentId>,
-    pub image_cache: ImageCache,
     pub renderer_resources: RendererResources,
     gl_context_ptr: OptionGlContextPtr,
     new_frame_ready: Arc<(Mutex<bool>, Condvar)>,
@@ -966,7 +965,6 @@ impl PlatformWindow for WaylandWindow {
                 display: self.display as *mut c_void,
             }),
             gl_context_ptr: &self.common.gl_context_ptr,
-            image_cache: &mut self.common.image_cache,
             fc_cache_clone: (*self.common.fc_cache).clone(),
             system_style: self.common.system_style.clone(),
             previous_window_state: &self.common.previous_window_state,
@@ -1362,7 +1360,6 @@ impl WaylandWindow {
                 hit_tester: None,
                 cpu_hit_tester: Some(azul_layout::headless::CpuHitTester::new()),
                 document_id: None,
-                image_cache: ImageCache::default(),
                 renderer_resources: RendererResources::default(),
                 gl_context_ptr: None.into(),
                 id_namespace: None,
@@ -3734,7 +3731,6 @@ impl WaylandWindow {
             &self.resources.app_data,
             &self.common.current_window_state,
             &mut self.common.renderer_resources,
-            &self.common.image_cache,
             &self.common.gl_context_ptr,
             &self.common.fc_cache,
             &self.resources.font_registry,
@@ -4731,16 +4727,11 @@ impl WaylandWindow {
                         }
                     }
 
-                    // Resolve RenderImageCallback <img> nodes (e.g. the AzulPaint
-                    // canvas) into CPU images — the renderer can't invoke callbacks
-                    // itself. gl=None forces the callback's CPU branch. Cheap when
-                    // content is unchanged (callbacks cache by their own revision).
+                    // Shared per-frame content preparation (journal clock, image
+                    // callbacks through the content chokepoint, scrollbar cache).
+                    // The logic lives in LayoutWindow so no backend can skip a piece.
                     if let Some(lw) = self.common.layout_window.as_mut() {
-                        lw.invoke_cpu_image_callbacks(&azul_core::gl::OptionGlContextPtr::None);
-                        // MWA-C-gpu_state: per-frame scrollbar thumb/fade cache
-                        // refresh (WR builders do this every frame; the CPU
-                        // branch refreshed only on full relayout).
-                        lw.refresh_scrollbar_gpu_cache_for_cpu_frame();
+                        lw.prepare_frame_cpu();
                     }
 
                     // The both-buffers-held skip below re-raises needs_redraw
@@ -6125,7 +6116,6 @@ impl WaylandPopup {
             renderer: None,
             hit_tester: None,
             document_id: None,
-            image_cache: ImageCache::default(),
             renderer_resources: RendererResources::default(),
             gl_context_ptr: OptionGlContextPtr::None,
             new_frame_ready: Arc::new((Mutex::new(false), Condvar::new())),
@@ -6290,9 +6280,10 @@ impl WaylandPopup {
             #[cfg(feature = "cpurender")]
             {
                 if laid_out {
-                    // MWA-C-gpu_state: per-frame scrollbar thumb/fade cache refresh.
+                    // Shared per-frame content preparation (journal clock, image
+                    // callbacks through the content chokepoint, scrollbar cache).
                     if let Some(lw) = self.layout_window.as_mut() {
-                        lw.refresh_scrollbar_gpu_cache_for_cpu_frame();
+                        lw.prepare_frame_cpu();
                     }
                     if let Some(ref layout_window) = self.layout_window {
                         self.cpu_backend.render_frame(
@@ -6415,7 +6406,6 @@ impl WaylandPopup {
             &resources.app_data,
             &self.current_window_state,
             &mut self.renderer_resources,
-            &self.image_cache,
             &self.gl_context_ptr,
             &self.fc_cache,
             &resources.font_registry,

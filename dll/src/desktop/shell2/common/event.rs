@@ -667,8 +667,6 @@ pub struct InvokeSingleCallbackBorrows<'a> {
     pub window_handle: RawWindowHandle,
     /// OpenGL context pointer
     pub gl_context_ptr: &'a OptionGlContextPtr,
-    /// Mutable image cache
-    pub image_cache: &'a mut ImageCache,
     /// Cloned font cache (FcFontCache doesn't support &mut access)
     pub fc_cache_clone: FcFontCache,
     /// System style (Arc, cheap to clone)
@@ -919,8 +917,11 @@ pub struct CommonWindowState {
     pub current_window_state: FullWindowState,
     /// Window state from previous frame (for diff detection)
     pub previous_window_state: Option<FullWindowState>,
-    /// Image cache for texture management
-    pub image_cache: ImageCache,
+    // NOTE: there is deliberately NO `image_cache` here. The css-id image map
+    // has a single owner — `LayoutWindow::image_cache` — and a single writer,
+    // `LayoutWindow::apply_content_change` (the shell copy used to be mirrored
+    // at two mutation points and read by a different relayout path than the
+    // one the layout used: the two could disagree).
     /// Renderer resources (GPU textures, etc.)
     pub renderer_resources: RendererResources,
     /// Shared font cache (shared across windows)
@@ -1235,9 +1236,6 @@ macro_rules! impl_platform_window_getters {
         fn set_previous_window_state(&mut self, state: FullWindowState) {
             self.$field.previous_window_state = Some(state);
         }
-        fn get_image_cache_mut(&mut self) -> &mut ImageCache {
-            &mut self.$field.image_cache
-        }
         fn get_renderer_resources_mut(&mut self) -> &mut RendererResources {
             &mut self.$field.renderer_resources
         }
@@ -1374,9 +1372,6 @@ pub trait PlatformWindow {
     fn set_previous_window_state(&mut self, state: FullWindowState);
 
     // Resource Access
-
-    /// Get mutable access to image cache
-    fn get_image_cache_mut(&mut self) -> &mut ImageCache;
 
     /// Get mutable access to renderer resources
     fn get_renderer_resources_mut(&mut self) -> &mut RendererResources;
@@ -2115,23 +2110,22 @@ pub trait PlatformWindow {
             }
 
             CallbackChange::ChangeNodeImage { dom_id, node_id, image, update_type: _ } => {
+                // The ONE content chokepoint: overlay write + journal + in-place
+                // display-list patch (paint tier — the DL diff sees the ImageRef
+                // identity change) or incremental-cache reset (relayout tier,
+                // when the intrinsic size changed). The StyledDom is NEVER
+                // mutated and the DL is NEVER rebuilt for a same-size swap.
                 if let Some(lw) = self.get_layout_window_mut() {
-                    if let Some(layout_result) = lw.layout_results.get_mut(dom_id) {
-                        let idx = node_id.index();
-                        if idx < layout_result.styled_dom.node_data.as_ref().len() {
-                            layout_result.styled_dom.node_data.as_container_mut()[*node_id]
-                                .set_node_type(azul_core::dom::NodeType::Image(azul_css::css::BoxOrStatic::heap(image.clone())));
-                        }
-                    }
-                    // Rebuild the display list from the mutated styled DOM.
-                    // Without this the stored display list still carries the
-                    // OLD image item: the CPU diff sees "nothing changed" and
-                    // skips, and the GPU image-only txn re-sends the old
-                    // scene — a per-frame ChangeNodeImage (camera/capture
-                    // tile) stays frozen on its placeholder forever.
-                    lw.regenerate_display_list_for_dom(*dom_id);
+                    lw.apply_content_change(azul_layout::overlay::ContentChange::Image {
+                        dom_id: *dom_id,
+                        node_id: *node_id,
+                        image: image.clone(),
+                    })
+                    .tier
+                    .to_process_event_result()
+                } else {
+                    ProcessEventResult::DoNothing
                 }
-                ProcessEventResult::ShouldUpdateDisplayListCurrentWindow
             }
 
             CallbackChange::UpdateImageCallback { dom_id: _, node_id: _ } => {
@@ -2328,24 +2322,34 @@ pub trait PlatformWindow {
             // === Image/Font Cache ===
 
             CallbackChange::AddImageToCache { id, image } => {
-                self.get_image_cache_mut().add_css_image_id(id.clone(), image.clone());
-                // Mirror into the LayoutWindow's cache so callbacks can
-                // snapshot "all registered images right now"
-                // (CallbackInfo::get_image_cache_clone) without reaching into
-                // the shell. ImageRef is refcounted — this shares the decoded
-                // pixels, it does not copy them.
+                // Single authority: the LayoutWindow's ImageCache (the shell
+                // copy and its mirroring are deleted). The chokepoint returns
+                // the DL-rebuild tier — the old handler returned `DoNothing`,
+                // so a css-id registration only became visible on the next
+                // UNRELATED relayout.
                 if let Some(lw) = self.get_layout_window_mut() {
-                    lw.image_cache.add_css_image_id(id.clone(), image.clone());
+                    lw.apply_content_change(azul_layout::overlay::ContentChange::ImageById {
+                        id: id.clone(),
+                        image: Some(image.clone()),
+                    })
+                    .tier
+                    .to_process_event_result()
+                } else {
+                    ProcessEventResult::DoNothing
                 }
-                ProcessEventResult::DoNothing
             }
 
             CallbackChange::RemoveImageFromCache { id } => {
-                self.get_image_cache_mut().delete_css_image_id(id);
                 if let Some(lw) = self.get_layout_window_mut() {
-                    lw.image_cache.delete_css_image_id(id);
+                    lw.apply_content_change(azul_layout::overlay::ContentChange::ImageById {
+                        id: id.clone(),
+                        image: None,
+                    })
+                    .tier
+                    .to_process_event_result()
+                } else {
+                    ProcessEventResult::DoNothing
                 }
-                ProcessEventResult::DoNothing
             }
 
             CallbackChange::ReloadSystemFonts => {

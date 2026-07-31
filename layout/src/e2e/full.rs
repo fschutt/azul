@@ -2298,6 +2298,40 @@ pub enum DebugEvent {
         /// CSS property value (e.g. "100px", "red")
         value: String,
     },
+    /// Swap an image node's content to a synthesized solid-color raster
+    /// (travels the REAL path: `CallbackChange::ChangeNodeImage` → the
+    /// content chokepoint `LayoutWindow::apply_content_change`). Target must
+    /// be a `NodeType::Image` node (e.g. a mounted `<img>`), matching the
+    /// validate-loudly discipline of `add_timer`.
+    SetNodeImage {
+        /// Node ID of the image node to swap
+        node_id: u64,
+        /// Pixel width of the synthesized image
+        width: u32,
+        /// Pixel height of the synthesized image
+        height: u32,
+        /// CSS color name/hex for the solid fill (e.g. "red", "#00ff00")
+        color: String,
+    },
+    /// Register a synthesized solid-color image under a CSS id
+    /// (`background-image: url("<css_id>")`) — travels
+    /// `CallbackChange::AddImageToCache` → the content chokepoint, whose
+    /// returned dirty tier makes the registration visible NOW.
+    AddImageToCache {
+        /// The CSS id to register the image under
+        css_id: String,
+        /// Pixel width of the synthesized image
+        width: u32,
+        /// Pixel height of the synthesized image
+        height: u32,
+        /// CSS color name/hex for the solid fill
+        color: String,
+    },
+    /// Remove a CSS-id image registration (the inverse of `add_image_to_cache`).
+    RemoveImageFromCache {
+        /// The CSS id to remove
+        css_id: String,
+    },
     /// Resolve function pointers to symbol names (via dladdr)
     ResolveFunctionPointers {
         /// List of function pointer addresses (as decimal strings)
@@ -3456,6 +3490,36 @@ pub fn send_ok(
 
 /// Send an error response to a debug request
 #[cfg(feature = "std")]
+/// Synthesize a solid-color RGBA raster image for the image ops
+/// (`set_node_image` / `add_image_to_cache`) — JSON cannot carry an ImageRef,
+/// so the op smuggles `{width, height, color}` in, same discipline as
+/// `add_timer` supplying the fn pointer JSON cannot express.
+fn synthesize_solid_image(
+    width: u32,
+    height: u32,
+    color: &str,
+) -> Result<azul_core::resources::ImageRef, String> {
+    use azul_core::resources::{ImageRef, RawImage, RawImageData, RawImageFormat};
+
+    let col = azul_css::props::basic::color::parse_css_color(color)
+        .map_err(|e| format!("Invalid color '{color}': {e:?}"))?;
+    let w = width.max(1) as usize;
+    let h = height.max(1) as usize;
+    let mut pixels = Vec::with_capacity(w * h * 4);
+    for _ in 0..(w * h) {
+        pixels.extend_from_slice(&[col.r, col.g, col.b, col.a]);
+    }
+    ImageRef::new_rawimage(RawImage {
+        pixels: RawImageData::U8(pixels.into()),
+        width: w,
+        height: h,
+        premultiplied_alpha: false,
+        data_format: RawImageFormat::RGBA8,
+        tag: b"e2e-solid-image".to_vec().into(),
+    })
+    .ok_or_else(|| "ImageRef::new_rawimage returned None".to_string())
+}
+
 pub fn send_err(request: &DebugRequest, message: impl Into<String>) {
     // Clear logs to prevent memory buildup
     let _ = take_logs();
@@ -15032,6 +15096,68 @@ pub fn process_debug_event(
                     Err(e) => send_err(request, e),
                 }
             }
+        }
+
+        DebugEvent::SetNodeImage { node_id, width, height, color } => {
+            use azul_core::dom::NodeType;
+            use azul_core::id::NodeId;
+
+            let dom_id = ROOT_DOM_ID;
+            let target_node_id = NodeId::new(*node_id as usize);
+
+            // Validate loudly (add_timer discipline): the target must exist
+            // AND be an image node — a silent no-op here would let a scenario
+            // "pass" without exercising anything.
+            let layout_window = callback_info.get_layout_window();
+            let is_image_node = layout_window
+                .layout_results
+                .get(&dom_id)
+                .and_then(|lr| {
+                    lr.styled_dom
+                        .node_data
+                        .as_container()
+                        .get(target_node_id)
+                        .map(|n| matches!(n.get_node_type(), NodeType::Image(_)))
+                });
+
+            match is_image_node {
+                None => send_err(request, format!("Node {node_id} not found")),
+                Some(false) => send_err(
+                    request,
+                    format!("Node {node_id} is not a NodeType::Image node"),
+                ),
+                Some(true) => match synthesize_solid_image(*width, *height, color) {
+                    Ok(image) => {
+                        callback_info.change_node_image(
+                            dom_id,
+                            target_node_id,
+                            image,
+                            azul_core::resources::UpdateImageType::Content,
+                        );
+                        // NO needs_update: ChangeNodeImage goes through the
+                        // content chokepoint, whose tier drives the repaint —
+                        // RefreshDom would rebuild the DOM and hide the very
+                        // paint-only path this op exists to exercise.
+                        send_ok(request, None, None);
+                    }
+                    Err(e) => send_err(request, e),
+                },
+            }
+        }
+
+        DebugEvent::AddImageToCache { css_id, width, height, color } => {
+            match synthesize_solid_image(*width, *height, color) {
+                Ok(image) => {
+                    callback_info.add_image_to_cache(css_id.clone().into(), image);
+                    send_ok(request, None, None);
+                }
+                Err(e) => send_err(request, e),
+            }
+        }
+
+        DebugEvent::RemoveImageFromCache { css_id } => {
+            callback_info.remove_image_from_cache(css_id.clone().into());
+            send_ok(request, None, None);
         }
 
         DebugEvent::ResolveFunctionPointers { addresses } => {

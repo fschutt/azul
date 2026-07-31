@@ -741,8 +741,7 @@ impl CpuBackend {
         let render_state =
             cpurender::CpuRenderState::from_gpu_cache(gpu_cache, dom_id, render_offsets)
                 .with_system_style(layout_window.system_style.clone())
-                .with_virtual_view_display_lists(vview_dls)
-                .with_image_callback_results(layout_window.cpu_image_callback_results.clone());
+                .with_virtual_view_display_lists(vview_dls);
 
         if is_incremental && !all_damage.is_empty() {
             // Incremental: render only damaged regions
@@ -908,7 +907,6 @@ impl HeadlessWindow {
                 layout_window: Some(layout_window),
                 current_window_state: full_window_state,
                 previous_window_state: None,
-                image_cache: ImageCache::default(),
                 renderer_resources: RendererResources::default(),
                 fc_cache,
                 gl_context_ptr: OptionGlContextPtr::None,
@@ -995,7 +993,6 @@ impl HeadlessWindow {
             &self.common.app_data,
             &self.common.current_window_state,
             &mut self.common.renderer_resources,
-            &self.common.image_cache,
             &self.common.gl_context_ptr,
             &self.common.fc_cache,
             &self.font_registry,
@@ -1055,7 +1052,13 @@ impl HeadlessWindow {
             // for snapshot rendering, and the wall-clock fade advancing
             // BETWEEN two renders broke the fast-scroll-vs-full-render
             // pixel-identity golden tests (the two frames must share cache
-            // state to be comparable).
+            // state to be comparable). Content preparation (image callbacks
+            // through the chokepoint + journal clock) still runs: a canvas
+            // is content, not animation — without it every callback image
+            // rendered as the announced grey placeholder on headless.
+            if let Some(lw) = self.common.layout_window.as_mut() {
+                lw.prepare_frame_content();
+            }
             if let Some(lw) = self.common.layout_window.as_ref() {
                 self.cpu_backend.render_frame(
                     lw,
@@ -1134,6 +1137,10 @@ impl HeadlessWindow {
             let width = ws.size.dimensions.width;
             let height = ws.size.dimensions.height;
             let dpi = ws.size.dpi as f32 / 96.0;
+            // Content preparation only — see the fade-refresh note above.
+            if let Some(lw) = self.common.layout_window.as_mut() {
+                lw.prepare_frame_content();
+            }
             if let Some(lw) = self.common.layout_window.as_ref() {
                 self.cpu_backend.render_frame(
                     lw,
@@ -2044,7 +2051,6 @@ impl PlatformWindow for HeadlessWindow {
             layout_window,
             window_handle: RawWindowHandle::Unsupported,
             gl_context_ptr: &self.common.gl_context_ptr,
-            image_cache: &mut self.common.image_cache,
             fc_cache_clone: (*self.common.fc_cache).clone(),
             system_style: self.common.system_style.clone(),
             previous_window_state: &self.common.previous_window_state,

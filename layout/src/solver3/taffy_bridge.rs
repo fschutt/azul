@@ -3662,6 +3662,7 @@ mod autotest_generated {
                     dirty_text_overrides: BTreeMap::new(),
                     cache_map: cache::LayoutCacheMap::default(),
                     image_cache: &self.image_cache,
+                    content_overlay: None,
                     system_style: None,
                     get_system_time_fn: azul_core::task::GetSystemTimeCallback {
                         cb: azul_core::task::get_system_time_libstd,

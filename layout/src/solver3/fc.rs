@@ -7720,9 +7720,10 @@ fn collect_and_measure_inline_content_impl<T: ParsedFontTrait>(
                 source_node_id: Some(dom_id),
             }));
             child_map.insert(shape_content_index, child_index);
-        } else if let NodeType::Image(image_ref) =
-            ctx.styled_dom.node_data.as_container()[dom_id].get_node_type()
-        {
+        } else if matches!(
+            ctx.styled_dom.node_data.as_container()[dom_id].get_node_type(),
+            NodeType::Image(_)
+        ) {
             // +spec:replaced-elements:31a782 - replaced elements (img) not rendered purely by CSS box concepts
             // Images are replaced elements - they have intrinsic dimensions
             // and CSS width/height can constrain them
@@ -7779,7 +7780,12 @@ fn collect_and_measure_inline_content_impl<T: ParsedFontTrait>(
             };
             
             content.push(InlineContent::Image(InlineImage {
-                source: ImageSource::Ref(image_ref.as_ref().clone()),
+                // Snapshot the NODE, not the ImageRef: paint resolves the live
+                // content (overlay→DOM) at display-list build, so a runtime
+                // image swap repaints without rebuilding this IFC. (The old
+                // `Ref` snapshot froze the ImageRef here — inline `<img>`
+                // swaps stayed invisible until an unrelated full relayout.)
+                source: ImageSource::Node(dom_id),
                 intrinsic_size: crate::text3::cache::Size {
                     width: intrinsic_size.max_content_width,
                     height: intrinsic_size.max_content_height,

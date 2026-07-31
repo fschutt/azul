@@ -381,8 +381,7 @@ impl CpuBackend {
         let render_state =
             cpurender::CpuRenderState::from_gpu_cache(gpu_cache, dom_id, render_offsets)
                 .with_system_style(layout_window.system_style.clone())
-                .with_virtual_view_display_lists(vview_dls)
-                .with_image_callback_results(layout_window.cpu_image_callback_results.clone());
+                .with_virtual_view_display_lists(vview_dls);
 
         if is_incremental && !all_damage.is_empty() {
             drop(cpurender::render_display_list_damaged(

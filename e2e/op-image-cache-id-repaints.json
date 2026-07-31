@@ -1,0 +1,47 @@
+{
+  "name": "op_image_cache_id_repaints",
+  "description": "O1 CONTENT-OVERLAY INVARIANT (css-id arm): registering an image under a CSS id that a mounted node's background-image: url(...) already references must take effect NOW — not 'on the next unrelated relayout'. This pins the AddImageToCache DoNothing bug: the handler returned DoNothing, so a css-id registration became visible only when something else happened to relayout; RemoveImageFromCache likewise. After O1 the chokepoint computes which nodes resolve the id (reverse index) and returns the correct dirty tier. Before O1 this scenario is RED twice over: the headless runner declares AddImageToCache 'unsupported' (hard failure), and even the DLL path repainted nothing. LIVENESS on add, LIVENESS on remove (back to the plain background), soundness both ways.",
+  "setup": {
+    "window_width": 400,
+    "window_height": 300,
+    "dpi": 96
+  },
+  "steps": [
+    {
+      "op": "mount",
+      "html": [
+        "<div id=\"root\">",
+        "  <div id=\"imgbox\"></div>",
+        "  <p id=\"t\">label</p>",
+        "</div>"
+      ],
+      "css": [
+        "body    { font-size: 24px; color: black; }",
+        "#root   { display: flex; flex-direction: column; }",
+        "#imgbox { width: 80px; height: 60px; background: blue; background-image: url(\"e2e-live-img\"); }",
+        "#t      { font-size: 20px; color: black; }"
+      ]
+    },
+    { "op": "wait_frame" },
+    { "op": "wait", "ms": 150 },
+    { "op": "assert_exists", "selector": "#imgbox" },
+
+    { "op": "reset_frame_counters" },
+    { "op": "snapshot_frame", "as": "before_add" },
+    { "op": "add_image_to_cache", "css_id": "e2e-live-img", "width": 16, "height": 16, "color": "red" },
+    { "op": "wait_frame" },
+    { "op": "wait", "ms": 200 },
+    { "op": "get_frame_report" },
+    { "op": "capture_damage_png", "path": "target/e2e/op_image_cache_id_repaints.png" },
+
+    { "op": "assert_changed", "vs": "before_add", "min_damage_rects": 1 },
+    { "op": "assert_damage_covers_changes", "vs": "before_add" },
+
+    { "op": "snapshot_frame", "as": "after_add" },
+    { "op": "remove_image_from_cache", "css_id": "e2e-live-img" },
+    { "op": "wait_frame" },
+    { "op": "wait", "ms": 200 },
+    { "op": "assert_changed", "vs": "after_add", "min_damage_rects": 1 },
+    { "op": "assert_damage_covers_changes", "vs": "after_add" }
+  ]
+}

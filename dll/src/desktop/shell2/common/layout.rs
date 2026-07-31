@@ -163,7 +163,6 @@ pub fn regenerate_layout(
     app_data: &Arc<RefCell<RefAny>>,
     current_window_state: &FullWindowState,
     renderer_resources: &mut RendererResources,
-    image_cache: &ImageCache,
     gl_context_ptr: &OptionGlContextPtr,
     fc_cache: &Arc<FcFontCache>,
     font_registry: &Option<Arc<FcFontRegistry>>,
@@ -224,9 +223,16 @@ pub fn regenerate_layout(
         "[regenerate_layout] Calling layout_callback"
     );
 
-    // Create reference data container (syntax sugar to reduce parameter count)
+    // Create reference data container (syntax sugar to reduce parameter count).
+    // The image cache is the LayoutWindow's own (single authority); a snapshot
+    // of the refcounted-handle map (shares pixels; ImageCache itself has no
+    // Clone per the double-free audit) sidesteps the borrow against the
+    // &mut layout_window used below.
+    let image_cache_snapshot = ImageCache {
+        image_id_map: layout_window.image_cache.image_id_map.clone(),
+    };
     let layout_ref_data = LayoutCallbackInfoRefData {
-        image_cache,
+        image_cache: &image_cache_snapshot,
         gl_context: gl_context_ptr,
         system_fonts: &layout_window.font_manager.fc_cache,
         system_style: system_style.clone(),

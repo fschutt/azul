@@ -438,7 +438,17 @@ impl<'a, 'b, 'c, T: ParsedFontTrait> IntrinsicSizeCalculator<'a, 'b, 'c, T> {
             // +spec:display-property:f9cede - replaced elements derive intrinsic size from natural dimensions
             // +spec:writing-modes:b18121 - stretch fit inline size from available space, calculate block size via aspect ratio
             if let NodeType::Image(image_ref) = node_data.get_node_type() {
-                let size = image_ref.get_size();
+                // Overlay→DOM: a runtime-swapped image's intrinsic size must
+                // drive layout (the DOM is immutable; live content is in the
+                // overlay). Produced callback frames are deliberately NOT
+                // consulted — `image_for_layout` keeps the DOM's declared
+                // (sizeless) callback so a per-frame producer cannot resize
+                // the box it draws into.
+                let size = self
+                    .ctx
+                    .resolved_content()
+                    .image_for_layout(dom_id)
+                    .map_or_else(|| image_ref.get_size(), |img| img.get_size());
                 // +spec:containing-block:1da6dc - use initial CB inline size for replaced elements with aspect ratio but no intrinsic size
                 // Per css-sizing-3 §5.1: "use an inline size matching the corresponding dimension
                 // of the initial containing block and calculate the other dimension using the aspect ratio"
@@ -2373,6 +2383,7 @@ mod autotest_generated {
                 dirty_text_overrides: BTreeMap::new(),
                 cache_map: crate::solver3::cache::LayoutCacheMap::default(),
                 image_cache: &self.image_cache,
+                content_overlay: None,
                 system_style: None,
                 get_system_time_fn: azul_core::task::GetSystemTimeCallback {
                     cb: azul_core::task::get_system_time_libstd,

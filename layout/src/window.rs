@@ -747,15 +747,20 @@ pub struct LayoutWindow {
     pub text_cache: TextLayoutCache,
     /// Font manager for loading and caching fonts
     pub font_manager: FontManager<FontRef>,
-    /// Cache to store decoded images
+    /// Cache to store decoded images (css-id → `ImageRef`). SINGLE authority —
+    /// the shell keeps no copy; mutations go through
+    /// [`Self::apply_content_change`] (`ContentChange::ImageById`).
     pub image_cache: ImageCache,
-    /// CPU-backend resolution of `RenderImageCallback` images: the produced
-    /// image for each callback-image node, keyed by the ORIGINAL callback
-    /// image's hash. Populated by [`LayoutWindow::invoke_cpu_image_callbacks`]
-    /// before each CPU `render_frame`; consumed by cpurender (which otherwise
-    /// draws a grey placeholder for `DecodedImage::Callback`). Empty on the GPU
-    /// path (`WebRender` invokes callbacks itself via `process_image_callback_updates`).
-    pub cpu_image_callback_results: BTreeMap<ImageRefHash, ImageRef>,
+    /// The content overlay: quickly-mutable content (swapped node images,
+    /// produced callback frames) layered over the immutable DOM. Readers go
+    /// overlay→DOM via [`crate::overlay::ResolvedContent`]; the ONLY writer is
+    /// [`Self::apply_content_change`].
+    pub content_overlay: crate::overlay::ContentOverlay,
+    /// Frame-scoped journal of applied content changes (what the RENDERER may
+    /// still need: old images for backends compositing a not-fully-redrawn
+    /// buffer, retention = swapchain depth). Fed by the same chokepoint;
+    /// user-intent history lives in [`Self::undo_redo_manager`] instead.
+    pub content_journal: crate::overlay::ContentJournal,
     /// Cached layout results for all DOMs (root + virtualized views)
     pub layout_results: BTreeMap<DomId, DomLayoutResult>,
     /// Scroll state manager for all nodes across all DOMs
@@ -998,7 +1003,8 @@ impl LayoutWindow {
             text_cache: TextLayoutCache::new(),
             font_manager,
             image_cache: ImageCache::default(),
-            cpu_image_callback_results: BTreeMap::new(),
+            content_overlay: crate::overlay::ContentOverlay::default(),
+            content_journal: crate::overlay::ContentJournal::default(),
             layout_results: BTreeMap::new(),
             scroll_manager: ScrollManager::new(),
             gesture_drag_manager: crate::managers::gesture::GestureAndDragManager::new(),
@@ -1275,6 +1281,7 @@ impl LayoutWindow {
             Vec::new(),
             None,
             &self.image_cache,
+            Some(&self.content_overlay),
             self.system_style.clone(),
             external.get_system_time_fn,
         );
@@ -1676,6 +1683,7 @@ impl LayoutWindow {
                 cursor_locations,
                 self.text_edit_manager.preedit_text.clone(),
                 &self.image_cache,
+                Some(&self.content_overlay),
                 self.system_style.clone(),
                 system_callbacks.get_system_time_fn,
             )?
@@ -2002,33 +2010,196 @@ impl LayoutWindow {
             .collect()
     }
 
-    /// Invoke every `RenderImageCallback` image once and cache the produced
-    /// image, keyed by the ORIGINAL callback image's hash.
+    /// Shared per-frame content preparation for CPU-presented frames.
     ///
-    /// The CPU renderer (`cpurender`) cannot invoke image callbacks itself — it
-    /// draws a grey placeholder for `DecodedImage::Callback` (e.g. the `AzulPaint`
-    /// canvas: an `<img>` whose data is a callback). The GPU path handles this
-    /// in `process_image_callback_updates` (producing `WebRender` textures); this
-    /// is the CPU equivalent, producing images that `render_frame` blits via
-    /// [`crate::cpurender`]'s image path.
+    /// EVERY host (the 7 platform backends, the headless/E2E runner, popup
+    /// surfaces) calls this exactly once before `render_frame`. The logic
+    /// lives HERE so a backend cannot get it wrong or skip a piece of it:
+    /// backends never see content state — they blit what this prepared.
+    ///
+    /// 1. advances the content-journal frame clock (retires entries older than
+    ///    the swapchain depth),
+    /// 2. invokes every `RenderImageCallback` and funnels produced frames
+    ///    through [`Self::apply_content_change`] (which patches the display
+    ///    list in place — damage falls out of `ImageRef` identity in the
+    ///    backend's display-list diff),
+    /// 3. refreshes the scrollbar GPU-value cache for CPU rasterization.
+    ///
+    /// Returns [`Self::refresh_scrollbar_gpu_cache_for_cpu_frame`]'s result
+    /// (whether a scrollbar thumb/fade value moved this frame) for hosts that
+    /// feed it into their damage decision.
+    pub fn prepare_frame_cpu(&mut self) -> bool {
+        self.prepare_frame_content();
+        self.refresh_scrollbar_gpu_cache_for_cpu_frame()
+    }
+
+    /// The CONTENT half of [`Self::prepare_frame_cpu`]: journal frame clock +
+    /// `RenderImageCallback` invocation through the chokepoint, WITHOUT the
+    /// scrollbar-fade cache refresh. For hosts that deliberately freeze
+    /// animation state between renders (the DLL headless backend's golden
+    /// tests require two consecutive renders to share cache state) but must
+    /// still resolve callback content — a canvas is content, not animation.
+    pub fn prepare_frame_content(&mut self) {
+        self.content_journal.begin_frame();
+        self.invoke_image_callbacks_into_overlay(&OptionGlContextPtr::None);
+    }
+
+    /// THE single entry for content mutations: validates, writes the overlay
+    /// arm, journals, patches display lists (paint tier) or invalidates layout
+    /// (relayout tier), and returns what the frame loop must do. NO OTHER PATH
+    /// may write content state — `ChangeNodeImage`/`AddImageToCache`/… handlers
+    /// are one-line delegations to this.
+    pub fn apply_content_change(
+        &mut self,
+        change: crate::overlay::ContentChange,
+    ) -> crate::overlay::ContentChangeResult {
+        use crate::overlay::{AppliedChange, ContentChange, ContentChangeResult, ContentDirtyTier};
+
+        match change {
+            ContentChange::Image {
+                dom_id,
+                node_id,
+                image,
+            } => self.apply_image_change(dom_id, node_id, image, false),
+            ContentChange::ImageCallbackResult {
+                dom_id,
+                node_id,
+                image,
+            } => self.apply_image_change(dom_id, node_id, image, true),
+            ContentChange::ImageById { id, image } => {
+                let old = self.image_cache.get_css_image_id(&id).cloned();
+                let removed = image.is_none();
+                match image {
+                    Some(new_image) => {
+                        if old.as_ref().map(ImageRef::get_hash) == Some(new_image.get_hash()) {
+                            return ContentChangeResult {
+                                tier: ContentDirtyTier::Unchanged,
+                            };
+                        }
+                        self.image_cache.add_css_image_id(id.clone(), new_image);
+                    }
+                    None => {
+                        if old.is_none() {
+                            return ContentChangeResult {
+                                tier: ContentDirtyTier::Unchanged,
+                            };
+                        }
+                        self.image_cache.delete_css_image_id(&id);
+                    }
+                }
+                self.content_journal
+                    .record(AppliedChange::ImageById { id, old, removed });
+                // css-id images resolve at display-list build time
+                // (`background-image: url(...)`), so a registration change
+                // must rebuild the DL — the old handler returned `DoNothing`
+                // and the registration took effect "sometime later".
+                ContentChangeResult {
+                    tier: ContentDirtyTier::RebuildDisplayList,
+                }
+            }
+        }
+    }
+
+    /// The node-image arm of [`Self::apply_content_change`].
+    fn apply_image_change(
+        &mut self,
+        dom_id: DomId,
+        node_id: NodeId,
+        image: ImageRef,
+        from_callback: bool,
+    ) -> crate::overlay::ContentChangeResult {
+        use crate::overlay::{AppliedChange, ContentChangeResult, ContentDirtyTier, ResolvedContent};
+
+        // Current EFFECTIVE image (overlay → DOM). Unknown DOM: no-op.
+        let Some(lr) = self.layout_results.get(&dom_id) else {
+            return ContentChangeResult {
+                tier: ContentDirtyTier::Unchanged,
+            };
+        };
+        let old = ResolvedContent {
+            overlay: Some(&self.content_overlay),
+            styled_dom: &lr.styled_dom,
+            dom_id,
+        }
+        .image_for_paint(node_id);
+
+        if old.as_ref().map(ImageRef::get_hash) == Some(image.get_hash()) {
+            return ContentChangeResult {
+                tier: ContentDirtyTier::Unchanged,
+            };
+        }
+
+        // Tier: produced callback frames are always paint content (the box is
+        // CSS-determined). App-driven swaps repaint when the intrinsic size is
+        // unchanged and relayout when it differs (stale intrinsics otherwise).
+        let tier = if from_callback {
+            ContentDirtyTier::Paint
+        } else {
+            match old.as_ref() {
+                Some(old_ref)
+                    if !old_ref.is_callback() && old_ref.get_size() == image.get_size() =>
+                {
+                    ContentDirtyTier::Paint
+                }
+                // Swapping ONTO a callback node keeps the CSS-determined box.
+                Some(old_ref) if old_ref.is_callback() => ContentDirtyTier::Paint,
+                _ => ContentDirtyTier::Relayout,
+            }
+        };
+
+        self.content_overlay.set_image(dom_id, node_id, image.clone());
+        self.content_journal.record(AppliedChange::Image {
+            dom_id,
+            node_id,
+            old,
+            new_hash: image.get_hash(),
+        });
+
+        match tier {
+            ContentDirtyTier::Paint => {
+                // Patch the stored display list in place: the item keeps its
+                // geometry, only the ImageRef changes. The backend's DL diff
+                // sees the identity change and damages exactly those bounds.
+                if let Some(lr) = self.layout_results.get_mut(&dom_id) {
+                    lr.display_list.patch_node_image(node_id, &image);
+                }
+            }
+            ContentDirtyTier::Relayout => {
+                // Intrinsic size changed: the incremental cache would reuse
+                // stale measurements (the DOM fingerprint cannot see overlay
+                // changes), so drop it — the relayout re-reads the image
+                // through the resolver.
+                self.layout_cache.reset_incremental();
+            }
+            _ => {}
+        }
+
+        ContentChangeResult { tier }
+    }
+
+    /// Invoke every `RenderImageCallback` image and funnel each produced frame
+    /// through the content chokepoint (overlay + journal + in-place display
+    /// list patch). Damage then falls out of `ImageRef` identity in the
+    /// backend's display-list diff — there is NO side map for the rasterizer
+    /// to consult (the old `cpu_image_callback_results` mechanism, which the
+    /// damage diff never saw: a canvas could not repaint itself on CPU).
     ///
     /// Pass the backend's GL context. In CPU render mode it is effectively
-    /// `None`/unusable, so a callback like `AzulPaint`'s `render_canvas` takes its
-    /// CPU branch and returns a raw `RawImage`. The result is stored in
-    /// [`Self::cpu_image_callback_results`] and threaded into `CpuRenderState`.
+    /// `None`/unusable, so a callback like `AzulPaint`'s `render_canvas` takes
+    /// its CPU branch and returns a raw `RawImage`.
     ///
-    /// No-op (clears the cache) when there are no callback images, so normal
-    /// apps pay nothing.
-    pub fn invoke_cpu_image_callbacks(&mut self, gl_context: &OptionGlContextPtr) {
+    /// No-op when there are no callback images, so normal apps pay nothing.
+    fn invoke_image_callbacks_into_overlay(&mut self, gl_context: &OptionGlContextPtr) {
         use azul_core::resources::DecodedImage;
 
         // Phase 1: collect every callback-image node + its laid-out size.
+        // The DECLARED callback comes from the immutable DOM — the overlay
+        // holds produced frames, never the producer.
         let hidpi_factor = self.current_window_state.size.get_hidpi_factor();
-        let mut to_invoke: Vec<(DomId, NodeId, ImageRefHash, HidpiAdjustedBounds, ImageRef)> =
-            Vec::new();
+        let mut to_invoke: Vec<(DomId, NodeId, HidpiAdjustedBounds, ImageRef)> = Vec::new();
         for (dom_id, lr) in &self.layout_results {
             let node_data_container = lr.styled_dom.node_data.as_container();
-            for (idx, node) in lr.layout_tree.nodes.iter().enumerate() {
+            for node in &lr.layout_tree.nodes {
                 let Some(node_dom_id) = node.dom_node_id else {
                     continue;
                 };
@@ -2039,7 +2210,6 @@ impl LayoutWindow {
                     if !matches!(image_ref.get_data(), DecodedImage::Callback(_)) {
                         continue;
                     }
-                    let _ = idx;
                     let size = node.used_size.unwrap_or_default();
                     let bounds = HidpiAdjustedBounds {
                         logical_size: size,
@@ -2048,7 +2218,6 @@ impl LayoutWindow {
                     to_invoke.push((
                         *dom_id,
                         node_dom_id,
-                        image_ref.get_hash(),
                         bounds,
                         // NodeType::Image wraps the ImageRef in BoxOrStatic; deref
                         // to clone the inner ImageRef (cheap, refcounted).
@@ -2059,17 +2228,14 @@ impl LayoutWindow {
         }
 
         if to_invoke.is_empty() {
-            self.cpu_image_callback_results.clear();
             return;
         }
 
-        // Phase 2: invoke each callback, collecting the produced image by the
-        // ORIGINAL callback image's hash (so cpurender can look it up from the
-        // unchanged display-list `Image` item). Results go into a local map so
-        // the immutable borrows of image_cache/fc_cache don't conflict with the
-        // mutable store at the end.
-        let mut results: BTreeMap<ImageRefHash, ImageRef> = BTreeMap::new();
-        for (dom_id, node_id, hash, bounds, image_ref) in to_invoke {
+        // Phase 2: invoke each callback. Produced images go into a local list
+        // so the immutable borrows of image_cache/fc_cache don't conflict with
+        // the chokepoint application below.
+        let mut produced_frames: Vec<(DomId, NodeId, ImageRef)> = Vec::new();
+        for (dom_id, node_id, bounds, image_ref) in to_invoke {
             let domnode_id = DomNodeId {
                 dom: dom_id,
                 node: NodeHierarchyItemId::from_crate_internal(Some(node_id)),
@@ -2091,10 +2257,20 @@ impl LayoutWindow {
                 _ => None,
             };
             if let Some(img) = produced {
-                results.insert(hash, img);
+                produced_frames.push((dom_id, node_id, img));
             }
         }
-        self.cpu_image_callback_results = results;
+
+        // Phase 3: the chokepoint. A callback returning its internally-cached
+        // frame (same ImageRef id) is a no-op inside apply_content_change, so
+        // steady-state canvases produce no damage.
+        for (dom_id, node_id, image) in produced_frames {
+            let _ = self.apply_content_change(crate::overlay::ContentChange::ImageCallbackResult {
+                dom_id,
+                node_id,
+                image,
+            });
+        }
     }
 
     /// Handle a window resize by updating the cached layout.
@@ -6718,6 +6894,7 @@ impl LayoutWindow {
             preedit_text: self.text_edit_manager.preedit_text.clone(),
             cache_map,
             image_cache: &self.image_cache,
+            content_overlay: Some(&self.content_overlay),
             system_style: self.system_style.clone(),
             get_system_time_fn: azul_core::task::GetSystemTimeCallback {
                 cb: azul_core::task::get_system_time_libstd,
@@ -8047,173 +8224,6 @@ impl LayoutWindow {
         })
     }
 
-    /// Process image callback updates from callback changes
-    ///
-    /// This function re-invokes image callbacks for nodes that requested updates
-    /// (typically from timer callbacks or resize events). It returns the updated
-    /// textures along with their metadata for the rendering pipeline to process.
-    ///
-    /// # Arguments
-    ///
-    /// * `image_callbacks_changed` - Map of `DomId` -> Set of `NodeIds` that need re-rendering
-    /// * `gl_context` - OpenGL context pointer for rendering
-    ///
-    /// # Returns
-    ///
-    /// Vector of (`DomId`, `NodeId`, Texture) tuples for textures that were updated
-    #[allow(clippy::cast_possible_truncation)] // bounded layout/render numeric cast
-    #[allow(clippy::too_many_lines)] // large but cohesive: single-purpose layout/render/parse routine (one branch per case)
-    pub fn process_image_callback_updates(
-        &mut self,
-        image_callbacks_changed: &BTreeMap<DomId, FastBTreeSet<NodeId>>,
-        gl_context: &OptionGlContextPtr,
-    ) -> Vec<(DomId, NodeId, azul_core::gl::Texture)> {
-        use crate::callbacks::{RenderImageCallback, RenderImageCallbackInfo};
-        use std::panic;
-
-        let mut updated_textures = Vec::new();
-
-        for (dom_id, node_ids) in image_callbacks_changed {
-            let Some(layout_result) = self.layout_results.get_mut(dom_id) else {
-                continue;
-            };
-
-            for node_id in node_ids {
-                // Get the node data - store container ref to extend lifetime
-                let node_data_container = layout_result.styled_dom.node_data.as_container();
-                let Some(node_data) = node_data_container.get(*node_id) else {
-                    continue;
-                };
-
-                // Check if this is an Image node with a callback
-                let has_callback = matches!(node_data.get_node_type(), NodeType::Image(img_ref)
-                    if img_ref.get_image_callback().is_some());
-
-                if !has_callback {
-                    continue;
-                }
-
-                // Get layout indices for this DOM node (can have multiple due to text splitting,
-                // etc.)
-                let layout_indices = match layout_result.layout_tree.dom_to_layout.get(node_id) {
-                    Some(indices) if !indices.is_empty() => indices,
-                    _ => continue,
-                };
-
-                // Use the first layout index (primary node)
-                let layout_index = layout_indices[0];
-
-                // Get the position from calculated_positions
-                let position = match layout_result.calculated_positions.get(layout_index) {
-                    Some(pos) => *pos,
-                    None => continue,
-                };
-
-                // Get the layout node to determine size
-                let Some(layout_node) = layout_result.layout_tree.get(layout_index) else {
-                    continue;
-                };
-
-                // Get the size from the layout node (used_size is the computed size from layout)
-                let (width, height) = match layout_node.used_size {
-                    Some(size) => (size.width, size.height),
-                    None => continue, // Node hasn't been laid out yet
-                };
-
-                let callback_domnode_id = DomNodeId {
-                    dom: *dom_id,
-                    node: NodeHierarchyItemId::from_crate_internal(Some(
-                        *node_id,
-                    )),
-                };
-
-                let bounds = HidpiAdjustedBounds::from_bounds(
-                    azul_css::props::basic::LayoutSize {
-                        width: width as isize,
-                        height: height as isize,
-                    },
-                    self.current_window_state.size.get_hidpi_factor(),
-                );
-
-                // Create callback info
-                let mut gl_callback_info = RenderImageCallbackInfo::new(
-                    callback_domnode_id,
-                    bounds,
-                    gl_context,
-                    &self.image_cache,
-                    &self.font_manager.fc_cache,
-                );
-
-                // Invoke the callback
-                let new_image_ref = {
-                    let mut node_data_mut = layout_result.styled_dom.node_data.as_container_mut();
-                    match node_data_mut.get_mut(*node_id) {
-                        Some(nd) => {
-                            match &mut nd.node_type {
-                                NodeType::Image(ref mut img_ref) => {
-                                    // Try get_image_callback_mut first (requires exclusive access)
-                                    let callback_result = img_ref.as_mut().get_image_callback_mut();
-                                    
-                                    if callback_result.is_none() {
-                                        // The ImageRef has multiple copies (Arc refcount > 1),
-                                        // so get_image_callback_mut returns None. Fall back to
-                                        // read-only access + clone to invoke the callback.
-                                        match img_ref.get_data() {
-                                            azul_core::resources::DecodedImage::Callback(core_callback) => {
-                                                if core_callback.callback.cb == 0 {
-                                                    None
-                                                } else {
-                                                    let callback = RenderImageCallback::from_core(&core_callback.callback);
-                                                    let refany_clone = core_callback.refany.clone();
-                                                    let result = panic::catch_unwind(panic::AssertUnwindSafe(|| {
-                                                        (callback.cb)(refany_clone, gl_callback_info)
-                                                    }));
-                                                    result.ok()
-                                                }
-                                            }
-                                            _ => None,
-                                        }
-                                    } else {
-                                        callback_result.map(|core_callback| {
-                                            // Convert from CoreImageCallback (cb: usize) to
-                                            // RenderImageCallback (cb: fn pointer)
-                                            let callback =
-                                                RenderImageCallback::from_core(&core_callback.callback);
-                                            (callback.cb)(
-                                                core_callback.refany.clone(),
-                                                gl_callback_info,
-                                            )
-                                        })
-                                    }
-                                }
-                                _ => None,
-                            }
-                        }
-                        None => None,
-                    }
-                };
-
-                // Reset GL state after callback
-                #[cfg(feature = "gl_context_loader")]
-                if let Some(gl) = gl_context.as_ref() {
-                    use gl_context_loader::gl;
-                    gl.bind_framebuffer(gl::FRAMEBUFFER, 0);
-                    gl.disable(gl::FRAMEBUFFER_SRGB);
-                    gl.disable(gl::MULTISAMPLE);
-                }
-
-                // Extract the texture from the returned ImageRef
-                if let Some(image_ref) = new_image_ref {
-                    if let Some(azul_core::resources::DecodedImage::Gl(texture)) = image_ref.into_inner() {
-                        updated_textures.push((*dom_id, *node_id, texture));
-                    }
-                }
-            }
-        }
-
-        updated_textures
-    }
-
     /// Check if a scrolled node is a `VirtualView` that needs re-invocation. If so,
     /// queue it in `pending_virtual_view_updates` for processing before the next frame.
     ///
@@ -8495,6 +8505,8 @@ impl LayoutWindow {
             pending_virtual_view_updates,
             gl_texture_cache,
             currently_dragging_thumb,
+            content_overlay,
+            content_journal,
 
             // --- EXEMPT: not keyed by NodeId ---------------------------------
             // Rebuilt wholesale by the very layout pass that triggered this remap:
@@ -8507,7 +8519,6 @@ impl LayoutWindow {
             text_cache: _,
             font_manager: _,
             image_cache: _,
-            cpu_image_callback_results: _,
             renderer_resources: _,
             // Derived per frame from the CURRENT StyledDom (a11y tree is rebuilt
             // from scratch in `A11yManager::build_tree_update`), so it cannot go stale:
@@ -8571,6 +8582,11 @@ impl LayoutWindow {
         // Window-owned caches (same contract: absent from `map` == unmounted).
         crate::managers::remap_dom_keys(&mut text_constraints_cache.constraints, dom, map);
         crate::managers::remap_dom_keys(dirty_text_nodes, dom, map);
+        content_overlay.remap_node_ids(dom, map);
+        // The journal's old-image entries are keyed by pre-swap NodeIds and a
+        // generation swap repaints everything anyway — drop this DOM's history
+        // rather than remapping it.
+        content_journal.clear_dom(dom);
 
         if let Some(pending) = pending_virtual_view_updates.remove(&dom) {
             let remapped: BTreeMap<NodeId, _> = pending

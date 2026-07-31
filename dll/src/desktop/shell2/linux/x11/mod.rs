@@ -1911,7 +1911,6 @@ impl X11Window {
                 },
                 document_id,
                 id_namespace,
-                image_cache: ImageCache::default(),
                 renderer_resources: RendererResources::default(),
                 gl_context_ptr,
                 fc_cache: resources.fc_cache.clone(),
@@ -3475,7 +3474,6 @@ impl X11Window {
             &self.common.app_data,
             &self.common.current_window_state,
             &mut self.common.renderer_resources,
-            &self.common.image_cache,
             &self.common.gl_context_ptr,
             &self.common.fc_cache,
             &self.resources.font_registry,
@@ -3745,15 +3743,11 @@ impl X11Window {
                         }
                     }
 
-                    // Resolve RenderImageCallback <img> nodes into CPU images (the
-                    // renderer can't invoke callbacks; e.g. the AzulPaint canvas).
-                    // gl=None forces the callback's CPU branch.
+                    // Shared per-frame content preparation (journal clock, image
+                    // callbacks through the content chokepoint, scrollbar cache).
+                    // The logic lives in LayoutWindow so no backend can skip a piece.
                     if let Some(lw) = self.common.layout_window.as_mut() {
-                        lw.invoke_cpu_image_callbacks(&azul_core::gl::OptionGlContextPtr::None);
-                        // MWA-C-gpu_state: per-frame scrollbar thumb/fade cache
-                        // refresh (WR builders do this every frame; the CPU
-                        // branch refreshed only on full relayout).
-                        lw.refresh_scrollbar_gpu_cache_for_cpu_frame();
+                        lw.prepare_frame_cpu();
                     }
 
                     if let Some(ref layout_window) = self.common.layout_window {
@@ -4635,7 +4629,6 @@ impl PlatformWindow for X11Window {
                 display: self.display as *mut c_void,
             }),
             gl_context_ptr: &self.common.gl_context_ptr,
-            image_cache: &mut self.common.image_cache,
             fc_cache_clone: (*self.common.fc_cache).clone(),
             system_style: self.common.system_style.clone(),
             previous_window_state: &self.common.previous_window_state,

@@ -2765,7 +2765,6 @@ impl event::PlatformWindow for MacOSWindow {
             layout_window,
             window_handle,
             gl_context_ptr: &self.common.gl_context_ptr,
-            image_cache: &mut self.common.image_cache,
             fc_cache_clone: (*self.common.fc_cache).clone(),
             system_style: self.common.system_style.clone(),
             previous_window_state: &self.common.previous_window_state,
@@ -3918,7 +3917,6 @@ impl MacOSWindow {
         };
 
         // Initialize resource caches
-        let image_cache = ImageCache::default();
         let renderer_resources = RendererResources::default();
 
         // Initialize LayoutWindow with shared fc_cache or build a new one
@@ -4048,7 +4046,6 @@ impl MacOSWindow {
                 current_window_state,
                 last_hovered_node: None,
                 layout_window: Some(layout_window),
-                image_cache,
                 renderer_resources,
                 render_api: wr_render_api,
                 renderer: wr_renderer,
@@ -4320,7 +4317,6 @@ impl MacOSWindow {
             &self.common.app_data,
             &self.common.current_window_state,
             &mut self.common.renderer_resources,
-            &self.common.image_cache,
             &self.common.gl_context_ptr,
             &self.common.fc_cache,
             &self.font_registry,
@@ -6305,15 +6301,10 @@ impl MacOSWindow {
                 let dpi = ws.size.dpi as f32 / BASE_DPI;
 
                 if width > 0.0 && height > 0.0 {
-                    // Resolve RenderImageCallback <img> nodes into CPU images (the
-                    // renderer can't invoke callbacks; e.g. the AzulPaint canvas).
-                    // gl=None forces the callback's CPU branch.
-                    layout_window
-                        .invoke_cpu_image_callbacks(&azul_core::gl::OptionGlContextPtr::None);
-                    // MWA-C-gpu_state: per-frame scrollbar thumb/fade cache
-                    // refresh (WR builders do this every frame; the CPU
-                    // branch refreshed only on full relayout).
-                    layout_window.refresh_scrollbar_gpu_cache_for_cpu_frame();
+                    // Shared per-frame content preparation (journal clock, image
+                    // callbacks through the content chokepoint, scrollbar cache).
+                    // The logic lives in LayoutWindow so no backend can skip a piece.
+                    layout_window.prepare_frame_cpu();
 
                     // Shared CPU renderer (same path as headless + X11 + Wayland):
                     // damage diff + scroll-offset feed + thin-strip scroll-shift with
@@ -6391,7 +6382,6 @@ impl MacOSWindow {
                 &mut txn,
                 layout_window,
                 self.common.render_api.as_mut().unwrap(),
-                &self.common.image_cache,
                 &self.common.gl_context_ptr,
             )
             .map_err(|e| {

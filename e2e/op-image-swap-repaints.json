@@ -1,0 +1,50 @@
+{
+  "name": "op_image_swap_repaints",
+  "description": "O1 CONTENT-OVERLAY INVARIANT (node-image arm): swapping ONE image node's content must repaint that image — as a PAINT-ONLY change (no DOM regeneration, bounded relayouts) with correctly-scoped damage. This is the class that shipped as 'camera/video/canvas updates invisible on CPU': the write path parked new content where the display-list diff never looked. mount creates the <img> (NodeType::Image with a placeholder), set_node_image routes CallbackChange::ChangeNodeImage through LayoutWindow::apply_content_change (the ONE write chokepoint) — the display list re-resolves the node's image through ResolvedContent (overlay-first), so damage falls out of ImageRef identity. LIVENESS: assert_changed (damage non-empty AND pixels differ). SOUNDNESS: assert_damage_covers_changes. TIER: assert_work_bounded with max_dom_regens 0 — an image swap that regenerates the DOM is the old set_node_type mutation sneaking back.",
+  "setup": {
+    "window_width": 400,
+    "window_height": 300,
+    "dpi": 96
+  },
+  "steps": [
+    {
+      "op": "mount",
+      "html": [
+        "<div id=\"root\">",
+        "  <img id=\"pic\"/>",
+        "  <p id=\"t\">label</p>",
+        "</div>"
+      ],
+      "css": [
+        "body  { font-size: 24px; color: black; }",
+        "#root { display: flex; flex-direction: column; }",
+        "#pic  { width: 80px; height: 60px; }",
+        "#t    { font-size: 20px; color: black; }"
+      ]
+    },
+    { "op": "wait_frame" },
+    { "op": "wait", "ms": 150 },
+    { "op": "assert_exists", "selector": "#pic" },
+
+    { "op": "reset_frame_counters" },
+    { "op": "snapshot_frame", "as": "before_swap" },
+    { "op": "snapshot_managers", "as": "managers_before" },
+    { "op": "set_node_image", "node_id": 5, "width": 80, "height": 60, "color": "red" },
+    { "op": "wait_frame" },
+    { "op": "wait", "ms": 200 },
+    { "op": "get_frame_report" },
+    { "op": "capture_damage_png", "path": "target/e2e/op_image_swap_repaints.png" },
+
+    { "op": "assert_changed", "vs": "before_swap", "min_damage_rects": 1 },
+    { "op": "assert_damage_covers_changes", "vs": "before_swap" },
+    { "op": "assert_work_bounded", "max_relayouts": 2, "max_dom_regens": 0 },
+    { "op": "assert_only_managers_changed", "vs": "managers_before", "changed": [], "min_populated": 1 },
+
+    { "op": "snapshot_frame", "as": "after_swap" },
+    { "op": "set_node_image", "node_id": 5, "width": 80, "height": 60, "color": "lime" },
+    { "op": "wait_frame" },
+    { "op": "wait", "ms": 200 },
+    { "op": "assert_changed", "vs": "after_swap", "min_damage_rects": 1 },
+    { "op": "assert_damage_covers_changes", "vs": "after_swap" }
+  ]
+}

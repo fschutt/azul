@@ -226,6 +226,7 @@ where
             dirty_text_overrides: BTreeMap::new(),
             cache_map: std::mem::take(&mut cache.cache_map),
             image_cache,
+            content_overlay: None,
             system_style: None,
             get_system_time_fn,
         };
@@ -293,6 +294,7 @@ where
         dirty_text_overrides: BTreeMap::new(),
         cache_map: std::mem::take(&mut cache.cache_map),
         image_cache,
+        content_overlay: None,
         system_style: None,
         get_system_time_fn,
     };
@@ -411,6 +413,7 @@ fn compute_layout_with_fragmentation<T: ParsedFontTrait + Sync + 'static>(
         dirty_text_overrides: BTreeMap::new(),
         cache_map: cache::LayoutCacheMap::default(),
         image_cache,
+        content_overlay: None,
         system_style: None,
         get_system_time_fn,
     };
@@ -468,6 +471,7 @@ fn compute_layout_with_fragmentation<T: ParsedFontTrait + Sync + 'static>(
         dirty_text_overrides: BTreeMap::new(),
         cache_map,
         image_cache,
+        content_overlay: None,
         system_style: None,
         get_system_time_fn,
     };

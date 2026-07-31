@@ -227,6 +227,11 @@ pub struct LayoutContext<'a, T: ParsedFontTrait> {
     pub cache_map: cache::LayoutCacheMap,
     /// Image cache for resolving `background-image: url(...)` references.
     pub image_cache: &'a azul_core::resources::ImageCache,
+    /// Content overlay for resolving quickly-mutable node content (swapped
+    /// images, produced callback frames): readers resolve overlay→DOM via
+    /// [`crate::overlay::ResolvedContent`]. `None` outside a live window
+    /// (standalone paged/PDF layout, unit tests) — the DOM is then authoritative.
+    pub content_overlay: Option<&'a crate::overlay::ContentOverlay>,
     /// System style containing colors, fonts, metrics, and theme information.
     /// Used for selection colors, caret styling, and other system-themed elements.
     pub system_style: Option<std::sync::Arc<azul_css::system::SystemStyle>>,
@@ -251,6 +256,18 @@ pub struct LayoutContext<'a, T: ParsedFontTrait> {
 }
 
 impl<T: ParsedFontTrait> LayoutContext<'_, T> {
+    /// The one overlay→DOM content read order for this context's DOM.
+    /// Layout (intrinsic sizing) and display-list build resolve node content
+    /// exclusively through this — never via `NodeType::Image` directly.
+    #[must_use]
+    pub fn resolved_content(&self) -> crate::overlay::ResolvedContent<'_> {
+        crate::overlay::ResolvedContent {
+            overlay: self.content_overlay,
+            styled_dom: self.styled_dom,
+            dom_id: self.styled_dom.dom_id,
+        }
+    }
+
     /// Internal method - called by `debug_log`! macro after checking `debug_messages.is_some()`
     #[inline]
     pub fn debug_log_inner(&mut self, message: String) {
@@ -401,6 +418,7 @@ pub fn layout_document<T: ParsedFontTrait + Sync + 'static>(
     cursor_locations: Vec<(DomId, NodeId, TextCursor)>,
     preedit_text: Option<String>,
     image_cache: &azul_core::resources::ImageCache,
+    content_overlay: Option<&crate::overlay::ContentOverlay>,
     system_style: Option<std::sync::Arc<azul_css::system::SystemStyle>>,
     get_system_time_fn: azul_core::task::GetSystemTimeCallback,
 ) -> Result<DisplayList> {
@@ -465,6 +483,7 @@ pub fn layout_document<T: ParsedFontTrait + Sync + 'static>(
         dirty_text_overrides: BTreeMap::new(),
         cache_map: cache::LayoutCacheMap::default(), // temp context doesn't need real cache
         image_cache,
+        content_overlay,
         system_style: system_style.clone(),
         get_system_time_fn,
     };
@@ -662,6 +681,7 @@ pub fn layout_document<T: ParsedFontTrait + Sync + 'static>(
         dirty_text_overrides: BTreeMap::new(),
         cache_map, // Moved from LayoutCache; will be moved back after layout
         image_cache,
+        content_overlay,
         system_style,
         get_system_time_fn,
     };
@@ -2005,6 +2025,7 @@ mod autotest_generated {
                     dirty_text_overrides: BTreeMap::new(),
                     cache_map: cache::LayoutCacheMap::default(),
                     image_cache: &self.image_cache,
+                    content_overlay: None,
                     system_style: None,
                     get_system_time_fn: azul_core::task::GetSystemTimeCallback {
                         cb: azul_core::task::get_system_time_libstd,
@@ -2258,6 +2279,7 @@ mod autotest_generated {
                 Vec::new(),
                 None,
                 &image_cache,
+                None,
                 None,
                 azul_core::task::GetSystemTimeCallback {
                     cb: azul_core::task::get_system_time_libstd,

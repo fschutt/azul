@@ -2697,6 +2697,14 @@ pub(crate) struct TextRunInfo<'a> {
 pub enum ImageSource {
     /// Direct reference to decoded image (from DOM `NodeType::Image`)
     Ref(ImageRef),
+    /// The image content of a DOM node, resolved LIVE at paint time through
+    /// the content overlay (overlay→DOM). Identity is the NODE, not the
+    /// pixels — swapping the node's image repaints without invalidating the
+    /// IFC this item is cached in. This is what `fc.rs` snapshots for
+    /// `NodeType::Image` inline items (the old `Ref` snapshot froze the
+    /// ImageRef at IFC-build time, so inline image swaps were invisible
+    /// until a full relayout).
+    Node(NodeId),
     /// CSS url reference (from background-image, needs `ImageCache` lookup)
     Url(String),
     /// Raw image data
@@ -2711,6 +2719,7 @@ impl PartialEq for ImageSource {
     fn eq(&self, other: &Self) -> bool {
         match (self, other) {
             (Self::Ref(a), Self::Ref(b)) => a.get_hash() == b.get_hash(),
+            (Self::Node(a), Self::Node(b)) => a == b,
             (Self::Url(a), Self::Url(b)) => a == b,
             (Self::Data(a), Self::Data(b)) => Arc::ptr_eq(a, b),
             (Self::Svg(a), Self::Svg(b)) => Arc::ptr_eq(a, b),
@@ -2729,6 +2738,7 @@ impl Hash for ImageSource {
         discriminant(self).hash(state);
         match self {
             Self::Ref(r) => r.get_hash().hash(state),
+            Self::Node(n) => n.hash(state),
             Self::Url(s) => s.hash(state),
             Self::Data(d) => (Arc::as_ptr(d).cast::<u8>() as usize).hash(state),
             Self::Svg(s) => (Arc::as_ptr(s).cast::<u8>() as usize).hash(state),
@@ -2751,6 +2761,7 @@ impl Ord for ImageSource {
         const fn variant_index(s: &ImageSource) -> u8 {
             match s {
                 ImageSource::Ref(_) => 0,
+                ImageSource::Node(_) => 5,
                 ImageSource::Url(_) => 1,
                 ImageSource::Data(_) => 2,
                 ImageSource::Svg(_) => 3,
@@ -2759,6 +2770,7 @@ impl Ord for ImageSource {
         }
         match (self, other) {
             (Self::Ref(a), Self::Ref(b)) => a.get_hash().cmp(&b.get_hash()),
+            (Self::Node(a), Self::Node(b)) => a.cmp(b),
             (Self::Url(a), Self::Url(b)) => a.cmp(b),
             (Self::Data(a), Self::Data(b)) => {
                 (Arc::as_ptr(a).cast::<u8>() as usize).cmp(&(Arc::as_ptr(b).cast::<u8>() as usize))

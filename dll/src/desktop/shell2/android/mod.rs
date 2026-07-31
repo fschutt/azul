@@ -128,7 +128,6 @@ impl AndroidWindow {
                 layout_window: Some(layout_window),
                 current_window_state: full_window_state,
                 previous_window_state: None,
-                image_cache: ImageCache::default(),
                 renderer_resources: RendererResources::default(),
                 fc_cache,
                 gl_context_ptr: azul_core::gl::OptionGlContextPtr::None,
@@ -248,7 +247,6 @@ impl AndroidWindow {
             &self.common.app_data,
             &self.common.current_window_state,
             &mut self.common.renderer_resources,
-            &self.common.image_cache,
             &self.common.gl_context_ptr,
             &self.common.fc_cache,
             &self.font_registry,
@@ -287,11 +285,12 @@ impl AndroidWindow {
             let width = ws.size.dimensions.width;
             let height = ws.size.dimensions.height;
             let dpi = ws.size.dpi as f32 / 96.0;
-            // MWA-C-gpu_state: per-frame scrollbar thumb/fade cache refresh
-            // (WR builders do this every frame; the CPU path refreshed only
-            // on full relayout).
+            // Shared per-frame content preparation (journal clock, image
+            // callbacks through the content chokepoint, scrollbar cache).
+            // Before this, image callbacks were NEVER invoked on this host —
+            // every callback image rendered as the announced grey placeholder.
             if let Some(lw) = self.common.layout_window.as_mut() {
-                lw.refresh_scrollbar_gpu_cache_for_cpu_frame();
+                lw.prepare_frame_cpu();
             }
             if let Some(lw) = self.common.layout_window.as_ref() {
                 self.cpu_backend.render_frame(
@@ -349,7 +348,6 @@ impl PlatformWindow for AndroidWindow {
                 a_native_window: std::ptr::null_mut(),
             }),
             gl_context_ptr: &self.common.gl_context_ptr,
-            image_cache: &mut self.common.image_cache,
             fc_cache_clone: (*self.common.fc_cache).clone(),
             system_style: self.common.system_style.clone(),
             previous_window_state: &self.common.previous_window_state,

@@ -15,7 +15,7 @@
 use azul_core::resources::UpdateImageType;
 use azul_core::callbacks::Update;
 use azul_core::gl::gl::{RGBA, TEXTURE_2D, UNSIGNED_BYTE};
-use azul_core::gl::{GlContextPtr, OptionU8VecRef, Texture, U8VecRef};
+use azul_core::gl::{GlContextPtr, OptionU8VecRef, U8VecRef};
 use azul_core::geom::PhysicalSizeU32;
 use azul_core::refany::RefAny;
 use azul_core::resources::ImageRef;
@@ -72,21 +72,22 @@ pub fn invoke_on_frame(
     }
 }
 
-/// Present `frame` for a video-ish widget and return the (stable) GL texture
-/// id to store back in the widget's state.
+/// Present `frame` for a video-ish widget.
 ///
-/// - First frame (`current_id` is `None`): allocate a GL texture, upload, wrap
-///   in an external-texture `ImageRef`, and install it on the widget's node
-///   **once** via `change_node_image` (the node is found via
-///   `get_node_id_of_root_dataset(dataset)`). Returns `Some(new_id)`.
-/// - Every frame after: re-upload into the same texture id + recomposite
-///   (`update_all_image_callbacks` -> `ShouldReRenderCurrentWindow`) - no
-///   relayout, no display-list rebuild, since the external texture's wr key
-///   (= the `ImageRef` data pointer) stays stable. Returns `current_id`.
-/// - No GL context (cpurender): installs the frame as a **raw RGBA
-///   `ImageRef`** on the node every frame (same per-frame `new_rawimage` the
-///   `VideoWidget` CPU path uses) - heavier than the GL re-upload (new image
-///   resource per frame) but the tile shows live frames on both renderers.
+/// ONE path on every backend: install the frame as a raw RGBA `ImageRef` on
+/// the widget's node via `change_node_image` → the content chokepoint
+/// (`LayoutWindow::apply_content_change`), which patches the display list in
+/// place and lets damage fall out of `ImageRef` identity. The widget never
+/// branches on the renderer — that branch was the shipped bug: a CPU-rendered
+/// window can still EXPOSE a GL context, so the widget took the GL path and
+/// sent texture-only updates (`update_all_image_callbacks` → ReRender) that
+/// the CPU rasterizer never saw; camera/screenshare tiles froze on their
+/// placeholder. On GPU backends the WebRender translator re-uploads the
+/// changed raster `ImageRef` — the backend decides texture vs raster, the
+/// widget cannot know or care.
+///
+/// `current_id` is passed through unchanged (widgets store it; the GL texture
+/// pool it used to name is gone).
 pub fn present_frame(
     info: &mut CallbackInfo,
     dataset: RefAny,
@@ -95,53 +96,21 @@ pub fn present_frame(
 ) -> Option<u32> {
     use azul_core::resources::{RawImage, RawImageData, RawImageFormat};
 
-    let Some(gl) = info.get_gl_context().into_option() else {
-        // CPU renderer: swap the node's image content for this frame.
-        if let Some(img) = ImageRef::new_rawimage(RawImage {
-            pixels: RawImageData::U8(frame.bytes.clone()),
-            width: frame.width as usize,
-            height: frame.height as usize,
-            premultiplied_alpha: false,
-            data_format: RawImageFormat::RGBA8,
-            tag: b"azul-capture-frame".to_vec().into(),
-        }) {
-            if let Some(node) = info.get_node_id_of_root_dataset(dataset) {
-                if let Some(nid) = node.node.into_crate_internal() {
-                    info.change_node_image(node.dom, nid, img, UpdateImageType::Content);
-                }
-            }
-        }
-        return current_id;
-    };
-
-    if let Some(id) = current_id {
-        upload_rgba(&gl, id, frame);
-        info.update_all_image_callbacks();
-        Some(id)
-    } else {
-        let tex = Texture::allocate_rgba8(
-            gl.clone(),
-            PhysicalSizeU32 {
-                width: frame.width,
-                height: frame.height,
-            },
-            ColorU {
-                r: 0,
-                g: 0,
-                b: 0,
-                a: 0,
-            },
-        );
-        let id = tex.texture_id;
-        upload_rgba(&gl, id, frame);
-        let image = ImageRef::new_gltexture(tex);
+    if let Some(img) = ImageRef::new_rawimage(RawImage {
+        pixels: RawImageData::U8(frame.bytes.clone()),
+        width: frame.width as usize,
+        height: frame.height as usize,
+        premultiplied_alpha: false,
+        data_format: RawImageFormat::RGBA8,
+        tag: b"azul-capture-frame".to_vec().into(),
+    }) {
         if let Some(node) = info.get_node_id_of_root_dataset(dataset) {
             if let Some(nid) = node.node.into_crate_internal() {
-                info.change_node_image(node.dom, nid, image, UpdateImageType::Content);
+                info.change_node_image(node.dom, nid, img, UpdateImageType::Content);
             }
         }
-        Some(id)
     }
+    current_id
 }
 
 /// Upload tightly-packed RGBA8 pixels into the GL texture `texture_id`.
@@ -1046,11 +1015,16 @@ mod autotest_generated {
     }
 
     // ==================================================================
-    // present_frame — GL
+    // present_frame — with a GL context PRESENT (the trap case)
+    //
+    // A CPU-rendered window can still EXPOSE a GL context. The old code
+    // branched on it inside the WIDGET and sent texture-only updates the CPU
+    // rasterizer never saw (frozen camera tiles). The contract now: ONE path,
+    // no GL calls, always a raw-image ChangeNodeImage through the chokepoint.
     // ==================================================================
 
     #[test]
-    fn present_frame_with_gl_first_frame_allocates_uploads_and_installs_once() {
+    fn present_frame_with_gl_still_installs_a_raw_image_and_touches_no_gl() {
         let ds = RefAny::new(CamState::default());
         let styled = dom_with_datasets(Some(ds.clone()), None);
 
@@ -1060,68 +1034,38 @@ mod autotest_generated {
             })
         });
 
-        assert_eq!(
-            id,
-            Some(RECORDED_TEXTURE_ID),
-            "the first frame must hand back the texture name the driver allocated"
+        assert_eq!(id, None, "current_id passes through unchanged (no texture pool)");
+        assert!(
+            log.is_empty(),
+            "the widget must not branch on the GL context — no GL call is ever made: {log:?}"
         );
 
-        // Installed exactly once, as an external GL texture, on the dataset's node.
         let installs = image_installs(&changes);
-        assert_eq!(installs.len(), 1, "the node's image is installed ONCE");
+        assert_eq!(installs.len(), 1, "exactly one ChangeNodeImage per frame");
         assert_eq!(installs[0].1, 1);
         assert_eq!(installs[0].3, UpdateImageType::Content);
         match installs[0].2.get_data() {
-            DecodedImage::Gl(texture) => {
-                assert_eq!(texture.texture_id, RECORDED_TEXTURE_ID);
+            DecodedImage::Raw((descriptor, _)) => {
                 assert_eq!(
-                    (texture.size.width, texture.size.height),
+                    (descriptor.width, descriptor.height),
                     (4, 4),
-                    "the external texture must be sized like the frame"
+                    "the installed raw image must be sized like the frame"
                 );
             }
-            other => panic!("the GL path must install an external texture, got {other:?}"),
+            other => panic!("a RAW image must be installed on every backend, got {other:?}"),
         }
         assert_eq!(
             recomposites(&changes),
             0,
-            "the install itself rebuilds the display list; no extra recomposite needed"
-        );
-
-        // One texture allocated, and the pixels really were uploaded into it.
-        assert_eq!(
-            log.iter()
-                .filter(|c| matches!(c, GlCall::GenTextures { .. }))
-                .count(),
-            1,
-            "exactly one texture may be allocated for the first frame"
-        );
-        assert_eq!(
-            log.last(),
-            Some(&GlCall::TexImage2d {
-                target: TEXTURE_2D,
-                level: 0,
-                internal_format: RGBA as i32,
-                width: 4,
-                height: 4,
-                border: 0,
-                format: RGBA,
-                ty: UNSIGNED_BYTE,
-                has_pixels: true,
-            }),
-            "the last GL call must be the pixel upload, not the empty allocation"
-        );
-        assert!(
-            log.contains(&GlCall::BindTexture {
-                target: TEXTURE_2D,
-                texture: RECORDED_TEXTURE_ID,
-            }),
-            "the upload must target the freshly allocated texture: {log:?}"
+            "no texture-only recomposite: the chokepoint's paint tier drives the repaint"
         );
     }
 
     #[test]
-    fn present_frame_with_gl_later_frames_reupload_into_the_same_texture() {
+    fn present_frame_with_gl_steady_state_reinstalls_the_frame_not_a_texture() {
+        // Re-installing per frame is CORRECT now: the chokepoint patches the
+        // display list in place (no rebuild), and the ImageRef identity change
+        // is exactly what makes the CPU diff damage the tile.
         let ds = RefAny::new(CamState::default());
         let styled = dom_with_datasets(Some(ds.clone()), None);
 
@@ -1131,38 +1075,14 @@ mod autotest_generated {
             })
         });
 
-        assert_eq!(id, Some(RECORDED_TEXTURE_ID), "the texture id must stay stable");
-        assert!(
-            image_installs(&changes).is_empty(),
-            "steady-state frames must NOT re-install the node's image (that would \
-             rebuild the display list every frame): {changes:?}"
-        );
         assert_eq!(
-            recomposites(&changes),
-            1,
-            "a steady-state frame recomposites exactly once"
+            id,
+            Some(RECORDED_TEXTURE_ID),
+            "a stored id must survive the writeback unchanged"
         );
-        assert_eq!(
-            log,
-            vec![
-                GlCall::BindTexture {
-                    target: TEXTURE_2D,
-                    texture: RECORDED_TEXTURE_ID,
-                },
-                GlCall::TexImage2d {
-                    target: TEXTURE_2D,
-                    level: 0,
-                    internal_format: RGBA as i32,
-                    width: 4,
-                    height: 4,
-                    border: 0,
-                    format: RGBA,
-                    ty: UNSIGNED_BYTE,
-                    has_pixels: true,
-                },
-            ],
-            "a steady-state frame must be exactly one re-upload — no new texture"
-        );
+        assert!(log.is_empty(), "steady state makes no GL calls either: {log:?}");
+        assert_eq!(image_installs(&changes).len(), 1);
+        assert_eq!(recomposites(&changes), 0);
     }
 
     #[test]
@@ -1181,22 +1101,15 @@ mod autotest_generated {
                 id, current,
                 "a stored texture id must survive the writeback unchanged"
             );
-            assert_eq!(recomposites(&changes), 1);
-            assert!(
-                log.contains(&GlCall::BindTexture {
-                    target: TEXTURE_2D,
-                    texture: current.expect("current is Some"),
-                }),
-                "the id must be forwarded to glBindTexture verbatim: {log:?}"
-            );
+            assert!(log.is_empty(), "no GL call for id {current:?}: {log:?}");
+            assert_eq!(image_installs(&changes).len(), 1);
         }
     }
 
     #[test]
-    fn present_frame_with_gl_first_frame_without_a_matching_node_still_returns_the_id() {
-        // The node lookup fails (no dataset of that type), so the freshly created
-        // ImageRef — and with it the GL texture — is dropped again, yet the id is
-        // still handed back and will be re-uploaded into on every later frame.
+    fn present_frame_with_gl_without_a_matching_node_installs_nothing() {
+        // The node lookup fails (no dataset of that type): nothing is
+        // installed, nothing is allocated, and the id still passes through.
         let styled = dom_with_datasets(Some(RefAny::new(OtherState::default())), None);
         let search = RefAny::new(CamState::default());
 
@@ -1206,18 +1119,12 @@ mod autotest_generated {
             })
         });
 
-        assert_eq!(id, Some(RECORDED_TEXTURE_ID));
+        assert_eq!(id, None);
         assert!(
             changes.is_empty(),
             "nothing may be installed when no node owns the dataset: {changes:?}"
         );
-        assert_eq!(
-            log.iter()
-                .filter(|c| matches!(c, GlCall::GenTextures { .. }))
-                .count(),
-            1,
-            "a texture is allocated even though it can never be shown"
-        );
+        assert!(log.is_empty(), "and no GL resource may leak: {log:?}");
     }
 
     // ==================================================================

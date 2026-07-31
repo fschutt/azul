@@ -794,14 +794,6 @@ pub struct CpuRenderState {
     /// item's `bounds.origin`, clipped to `bounds`). Empty for non-window renders.
     pub virtual_view_display_lists:
         std::collections::BTreeMap<azul_core::dom::DomId, std::sync::Arc<DisplayList>>,
-    /// Resolved images for `DecodedImage::Callback` `<img>` nodes, keyed by the
-    /// callback image's hash. The CPU renderer can't invoke `RenderImageCallback`s
-    /// itself (it would draw a grey placeholder); the backend pre-invokes them
-    /// via [`crate::window::LayoutWindow::invoke_cpu_image_callbacks`] and passes
-    /// the produced images here, where the `DisplayListItem::Image` arm looks
-    /// them up by hash. Empty when there are no callback images.
-    pub image_callback_results:
-        std::collections::BTreeMap<azul_core::resources::ImageRefHash, ImageRef>,
 }
 
 impl CpuRenderState {
@@ -812,20 +804,7 @@ impl CpuRenderState {
             opacities: HashMap::new(),
             system_style: None,
             virtual_view_display_lists: std::collections::BTreeMap::new(),
-            image_callback_results: std::collections::BTreeMap::new(),
         }
-    }
-
-    /// Provide the resolved `RenderImageCallback` images (see the field doc).
-    #[must_use] pub fn with_image_callback_results(
-        mut self,
-        results: std::collections::BTreeMap<
-            azul_core::resources::ImageRefHash,
-            ImageRef,
-        >,
-    ) -> Self {
-        self.image_callback_results = results;
-        self
     }
 
     /// Provide the nested `VirtualView` child DOM display lists so the CPU
@@ -861,7 +840,6 @@ impl CpuRenderState {
             opacities,
             system_style: None,
             virtual_view_display_lists: std::collections::BTreeMap::new(),
-            image_callback_results: std::collections::BTreeMap::new(),
         }
     }
 }
@@ -1581,16 +1559,17 @@ pub fn render_single_item(
         }
         DisplayListItem::Image { bounds, image, .. } => {
             let clip = *clip_stack.last().unwrap();
-            // A `DecodedImage::Callback` `<img>` (e.g. the AzulPaint canvas) can't
-            // be rasterised here — the renderer can't run the callback. The backend
-            // pre-invoked it into `image_callback_results`; swap in the produced
-            // image (keyed by the callback image's hash). Falls back to `image`
-            // (→ grey placeholder) only if no result was produced.
-            let resolved = render_state.image_callback_results.get(&image.get_hash());
+            // The DL item carries the LIVE ImageRef: produced callback frames
+            // are patched into the display list by the content chokepoint
+            // (`LayoutWindow::apply_content_change`) during the shared
+            // per-frame `prepare_frame_cpu` — there is no side map to consult.
+            // A `DecodedImage::Callback` reaching this point means a host
+            // skipped `prepare_frame_cpu`; `render_image` paints the announced
+            // grey placeholder for it.
             render_image(
                 pixmap,
                 &scroll_rect(bounds.inner()),
-                resolved.unwrap_or(image),
+                image,
                 clip,
                 dpi_factor,
             );
@@ -2993,16 +2972,20 @@ fn render_image(
         }
         DecodedImage::Callback(_) => {
             // A RenderImageCallback image reached the CPU rasterizer without
-            // ever having been invoked — this render path has no callback
-            // invoker (headless/e2e/android/ios gap; invoker redesign is a
-            // separate effort). The user sees a flat grey tile that is
-            // indistinguishable from "still loading", so say so once.
+            // having been invoked. Since the content chokepoint landed, EVERY
+            // host invokes callbacks in `LayoutWindow::prepare_frame_cpu` /
+            // `prepare_frame_content` and the produced frame is patched into
+            // the display list — so reaching this arm means a host skipped
+            // frame preparation (a bug), or the callback hasn't produced a
+            // frame yet. Grey is indistinguishable from "still loading", so
+            // say so once.
             static CALLBACK_PLACEHOLDER: std::sync::Once = std::sync::Once::new();
             CALLBACK_PLACEHOLDER.call_once(|| {
                 eprintln!(
                     "[azul][cpurender] a RenderImageCallback image was composited as a \
-                     flat grey placeholder: this render path never invokes render-image \
-                     callbacks, so the callback's content CANNOT appear (logged once)"
+                     flat grey placeholder: the frame was rendered without content \
+                     preparation (LayoutWindow::prepare_frame_cpu), so the callback's \
+                     content cannot appear (logged once)"
                 );
             });
             let gray = Rgba8::new(200, 200, 200, 255);
@@ -3350,6 +3333,7 @@ pub fn render_component_preview(
         Vec::new(),
         None, // preedit_text: not needed for headless preview rendering
         &azul_core::resources::ImageCache::default(),
+        None, // content overlay: no live window in headless preview
         system_style.clone(),
         get_system_time_fn,
     )
@@ -5191,7 +5175,6 @@ mod autotest_generated {
         assert!(state.opacities.is_empty());
         assert!(state.system_style.is_none());
         assert!(state.virtual_view_display_lists.is_empty());
-        assert!(state.image_callback_results.is_empty());
     }
 
     #[test]
@@ -5202,14 +5185,8 @@ mod autotest_generated {
         let mut lists = std::collections::BTreeMap::new();
         lists.insert(DomId { inner: 9 }, std::sync::Arc::new(DisplayList::default()));
 
-        let img = r8_image(1, 1, vec![255]);
-        let hash = img.get_hash();
-        let mut results = std::collections::BTreeMap::new();
-        results.insert(hash, img);
-
         let state = CpuRenderState::new(offsets)
             .with_virtual_view_display_lists(lists)
-            .with_image_callback_results(results)
             .with_system_style(Some(std::sync::Arc::new(
                 azul_css::system::SystemStyle::default(),
             )));
@@ -5217,8 +5194,6 @@ mod autotest_generated {
         assert_eq!(state.scroll_offsets.get(&1), Some(&(3.0, 4.0)));
         assert_eq!(state.virtual_view_display_lists.len(), 1);
         assert!(state.virtual_view_display_lists.contains_key(&DomId { inner: 9 }));
-        assert_eq!(state.image_callback_results.len(), 1);
-        assert!(state.image_callback_results.contains_key(&hash));
         assert!(state.system_style.is_some());
 
         // with_system_style(None) must clear it again.
@@ -5229,10 +5204,8 @@ mod autotest_generated {
     #[test]
     fn cpu_render_state_builders_accept_empty_collections() {
         let state = CpuRenderState::new(ScrollOffsetMap::new())
-            .with_virtual_view_display_lists(std::collections::BTreeMap::new())
-            .with_image_callback_results(std::collections::BTreeMap::new());
+            .with_virtual_view_display_lists(std::collections::BTreeMap::new());
         assert!(state.virtual_view_display_lists.is_empty());
-        assert!(state.image_callback_results.is_empty());
     }
 
     #[test]

@@ -1389,18 +1389,17 @@ impl Runner {
             }
 
             CallbackChange::ChangeNodeImage { dom_id, node_id, image, update_type: _ } => {
-                let lw = &mut self.layout_window;
-                if let Some(layout_result) = lw.layout_results.get_mut(dom_id) {
-                    let idx = node_id.index();
-                    if idx < layout_result.styled_dom.node_data.as_ref().len() {
-                        layout_result.styled_dom.node_data.as_container_mut()[*node_id]
-                            .set_node_type(azul_core::dom::NodeType::Image(
-                                azul_css::css::BoxOrStatic::heap(image.clone()),
-                            ));
-                    }
-                }
-                lw.regenerate_display_list_for_dom(*dom_id);
-                ProcessEventResult::ShouldUpdateDisplayListCurrentWindow
+                // The content chokepoint: overlay write + journal + in-place DL
+                // patch (paint tier) or incremental-cache reset (relayout
+                // tier). The StyledDom is NEVER mutated.
+                let result = self.layout_window.apply_content_change(
+                    crate::overlay::ContentChange::Image {
+                        dom_id: *dom_id,
+                        node_id: *node_id,
+                        image: image.clone(),
+                    },
+                );
+                result.tier.to_process_event_result()
             }
 
             CallbackChange::ChangeNodeImageMask { dom_id, node_id, mask } => {
@@ -2229,14 +2228,28 @@ impl Runner {
                 self.unsupported("HideTooltip", "tooltips are a second platform window")
             }
 
-            // No app-level image cache: the runner lays out against
-            // `RendererResources` alone, so an image registered here would be
-            // invisible to the layout that is supposed to display it.
-            CallbackChange::AddImageToCache { .. } => {
-                self.unsupported("AddImageToCache", "no app-level ImageCache")
+            // css-id registrations go through the content chokepoint into the
+            // LayoutWindow's OWN ImageCache (the single authority) — the DL
+            // build resolves `background-image: url(...)` against it, so the
+            // returned tier makes the change visible NOW (the old handler was
+            // `unsupported`, and the DLL's was `DoNothing`).
+            CallbackChange::AddImageToCache { id, image } => {
+                let result = self.layout_window.apply_content_change(
+                    crate::overlay::ContentChange::ImageById {
+                        id: id.clone(),
+                        image: Some(image.clone()),
+                    },
+                );
+                result.tier.to_process_event_result()
             }
-            CallbackChange::RemoveImageFromCache { .. } => {
-                self.unsupported("RemoveImageFromCache", "no app-level ImageCache")
+            CallbackChange::RemoveImageFromCache { id } => {
+                let result = self.layout_window.apply_content_change(
+                    crate::overlay::ContentChange::ImageById {
+                        id: id.clone(),
+                        image: None,
+                    },
+                );
+                result.tier.to_process_event_result()
             }
 
             // No app data / undo manager: the runner's `RefAny` app data is `()`,
@@ -2434,7 +2447,13 @@ impl Runner {
         // NO SCROLLBAR FADE WAS OBSERVABLE IN E2E AT ALL. The `full.rs:5285`
         // leak check for "an idle scrollbar'd window re-presenting forever"
         // could not fire either.
-        let gpu_cache_moved = self.layout_window.refresh_scrollbar_gpu_cache_for_cpu_frame();
+        //
+        // `prepare_frame_cpu` is the shared per-frame content preparation
+        // (journal frame clock + RenderImageCallback invocation through the
+        // content chokepoint + that scrollbar refresh). Before it existed this
+        // host never invoked image callbacks at all — every callback image
+        // rendered as the announced grey placeholder in E2E.
+        let gpu_cache_moved = self.layout_window.prepare_frame_cpu();
 
         let width = self.window_state.size.dimensions.width;
         let height = self.window_state.size.dimensions.height;

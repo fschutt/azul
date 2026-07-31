@@ -2590,7 +2590,6 @@ pub fn build_webrender_transaction(
     txn: &mut WrTransaction,
     layout_window: &mut LayoutWindow,
     render_api: &mut WrRenderApi,
-    image_cache: &ImageCache,
     gl_context: &azul_core::gl::OptionGlContextPtr,
 ) -> Result<(), &'static str> {
     log_debug!(
