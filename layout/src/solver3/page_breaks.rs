@@ -471,6 +471,59 @@ fn snap_break_up(
     y
 }
 
+/// Incremental re-break after an edit: recompute (always — correctness under
+/// ANY input change, and the break pass is cheap next to the relayout that
+/// preceded it), then NORMALIZE against the previous run — every fresh break
+/// that matches a previous break within the merge window returns the
+/// PREVIOUS value bit-for-bit. Unchanged pages therefore compare value-equal
+/// against the old spans, which is the signal a paged viewer uses to keep
+/// its cached page surfaces.
+///
+/// `dirty_y_start` (the topmost document-space Y whose content changed — the
+/// editing IFC root's top, see `LayoutWindow::take_pagination_dirty_from`)
+/// is a DEBUG contract: breaks above it must come out identical, and a
+/// mismatch there means the caller under-reported the dirty region — the
+/// fresh value wins (correctness over reuse).
+#[must_use]
+pub fn recompute_page_breaks_from(
+    prev: &[PageBreak],
+    input: &PageBreakInput,
+    constraints: &PageConstraints,
+    policy: &BreakPolicy,
+    dirty_y_start: f32,
+) -> Vec<PageBreak> {
+    let fresh = compute_page_breaks(input, constraints, policy);
+
+    let mut out: Vec<PageBreak> = Vec::with_capacity(fresh.len());
+    let mut prev_iter = prev.iter().peekable();
+    for fb in fresh {
+        while prev_iter
+            .peek()
+            .is_some_and(|pb| pb.y < fb.y - MERGE_WINDOW_PX)
+        {
+            prev_iter.next();
+        }
+        match prev_iter.peek() {
+            Some(pb) if (pb.y - fb.y).abs() < MERGE_WINDOW_PX => {
+                // Value-identical reuse — above the dirty bound this is the
+                // guaranteed case; below it, it means the page converged.
+                out.push(**pb);
+                prev_iter.next();
+            }
+            _ => {
+                debug_assert!(
+                    fb.y >= dirty_y_start - MERGE_WINDOW_PX,
+                    "a break above dirty_y_start changed ({} < {dirty_y_start}) — \
+                     the caller under-reported the dirty region",
+                    fb.y
+                );
+                out.push(fb);
+            }
+        }
+    }
+    out
+}
+
 /// Which page a document-space Y coordinate lands on, given the break list
 /// (page 0 = before the first break). The document-editor query: "what page
 /// is this node on?" WITHOUT materializing any per-page display list.
@@ -984,6 +1037,45 @@ mod tests {
         );
         assert_eq!(breaks[0].y, 84.0, "{breaks:?}");
         assert!(matches!(breaks[0].kind, BreakKind::Avoided { .. }));
+    }
+
+    #[test]
+    fn recompute_reuses_previous_values_where_pages_converge() {
+        // A 1000-tall document, page 100: breaks at 100..900.
+        let (styled, dl) = avoid_fixture(vec![(rect_item(0.0, 1000.0), None)]);
+        let input = PageBreakInput {
+            display_list: &dl,
+            layout_tree: None,
+            styled_dom: &styled,
+        };
+        let c = constraints(100.0, 100.0);
+        let policy = BreakPolicy::default();
+        let prev = compute_page_breaks(&input, &c, &policy);
+        assert_eq!(prev.len(), 9);
+
+        // Edit on "page 3" (dirty from 250) that does NOT move any break:
+        // the result must be VALUE-identical to prev — every span reusable.
+        let again = recompute_page_breaks_from(&prev, &input, &c, &policy, 250.0);
+        assert_eq!(again, prev, "no break moved → full value reuse");
+
+        // A forced break appears at 450 (content change at 450): breaks
+        // above stay value-identical, the region re-flows from the forced
+        // break, and positions that happen to coincide again converge.
+        let mut dl2 = dl.clone();
+        dl2.forced_page_breaks = vec![450.0];
+        let input2 = PageBreakInput {
+            display_list: &dl2,
+            layout_tree: None,
+            styled_dom: &styled,
+        };
+        let re = recompute_page_breaks_from(&prev, &input2, &c, &policy, 450.0);
+        assert_eq!(&re[..4], &prev[..4], "breaks above the change are reused");
+        assert_eq!(re[4].y, 450.0, "{re:?}");
+        assert!(matches!(re[4].kind, BreakKind::Forced));
+        // The PLAIN algorithm keeps interval positions fixed (500, 600, …),
+        // so every break below the insertion converges with prev and comes
+        // back as prev's VALUES — the reuse signal a paged viewer caches on.
+        assert_eq!(&re[5..], &prev[4..], "converged tail is value-reused");
     }
 
     #[test]

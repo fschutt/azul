@@ -863,6 +863,11 @@ pub struct LayoutWindow {
     /// their re-recorded changeset routes history correctly instead of
     /// pushing a fresh undo entry (which would loop).
     structural_history_suppression: Option<StructuralAckKind>,
+    /// Topmost document-space Y whose content changed since the embedder's
+    /// paged view last consumed it (fed by text edits; drained via
+    /// [`Self::take_pagination_dirty_from`] into
+    /// `page_breaks::recompute_page_breaks_from`).
+    pagination_dirty_from: Option<f32>,
     /// Undo/Redo manager for text editing operations
     pub undo_redo_manager: crate::managers::undo_redo::UndoRedoManager,
     /// Cached text layout constraints for each node
@@ -1053,6 +1058,7 @@ impl LayoutWindow {
             pending_document_edit: None,
             pending_caret_restore: None,
             structural_history_suppression: None,
+            pagination_dirty_from: None,
             undo_redo_manager: crate::managers::undo_redo::UndoRedoManager::new(),
             text_constraints_cache: TextConstraintsCache {
                 constraints: BTreeMap::new(),
@@ -1275,6 +1281,14 @@ impl LayoutWindow {
         &self,
     ) -> Option<&crate::managers::changeset::DocumentChangeset> {
         self.pending_document_edit.as_ref()
+    }
+
+    /// Drain the topmost document-space Y whose content changed since the
+    /// last drain — the `dirty_y_start` for
+    /// `page_breaks::recompute_page_breaks_from` in an embedder's paged view.
+    /// `None` = nothing changed = every previous page span is still valid.
+    pub fn take_pagination_dirty_from(&mut self) -> Option<f32> {
+        self.pagination_dirty_from.take()
     }
 
     /// Editing state of the focused node for the default-action decision
@@ -7135,6 +7149,22 @@ impl LayoutWindow {
     ) {
         use crate::solver3::layout_tree::CachedInlineLayout;
 
+        // B4: record the topmost changed document Y for the embedder's paged
+        // view (drained by take_pagination_dirty_from → incremental re-break).
+        if let Some(lr) = self.layout_results.get(&dom_id) {
+            if let Some(&layout_idx) = lr
+                .layout_tree
+                .dom_to_layout
+                .get(&node_id)
+                .and_then(|v| v.first())
+            {
+                if let Some(pos) = solver3::pos_get(&lr.calculated_positions, layout_idx) {
+                    self.pagination_dirty_from =
+                        Some(self.pagination_dirty_from.map_or(pos.y, |p| p.min(pos.y)));
+                }
+            }
+        }
+
         // 1. Store the new content in dirty_text_nodes for tracking
         let cursor = self.text_edit_manager.get_primary_cursor();
         self.content_overlay.set_text(
@@ -9122,6 +9152,8 @@ impl LayoutWindow {
             pending_caret_restore: _,
             // A plain routing flag, no NodeIds.
             structural_history_suppression: _,
+            // A document-space Y, no NodeIds.
+            pagination_dirty_from: _,
         } = self;
 
         if let Some(rejected) = pending_document_edit.take() {
