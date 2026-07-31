@@ -4246,11 +4246,34 @@ where
         // This prevents empty TextLayout items with 0x0 bounds at various Y positions
         // from affecting pagination height calculations
         if layout_bounds.width > 0.0 || layout_bounds.height > 0.0 {
+            // The item-level font is the layout's PRIMARY font: the first
+            // shaped glyph that resolved one. This used to be a hardcoded
+            // `FontHash::from_hash(0)` placeholder ("will be updated per
+            // glyph run" — nothing ever did), so every TextLayout shipped
+            // `font_hash: 0`, and once `push_item` began dropping hash-0
+            // TextLayouts as unresolved, ALL of them vanished — text
+            // disappeared from the PDF export and a11y metadata. Per-glyph
+            // consumers still read each glyph's own hash; staying at 0 here
+            // is now reserved for a layout in which NO glyph resolved, which
+            // is exactly the case the drop guard exists for.
+            let mut primary: Option<(u64, f32)> = None;
+            for positioned in &layout.items {
+                let glyphs = match &positioned.item {
+                    ShapedItem::Cluster(c) => &c.glyphs,
+                    ShapedItem::CombinedBlock { glyphs, .. } => glyphs,
+                    _ => continue,
+                };
+                if let Some(g) = glyphs.iter().find(|g| g.font_hash != 0) {
+                    primary = Some((g.font_hash, g.style.font_size_px));
+                    break;
+                }
+            }
+            let (primary_hash, primary_size) = primary.unwrap_or((0, 12.0));
             builder.push_text_layout(
                 Arc::new(layout.clone()),
                 actual_bounds,
-                FontHash::from_hash(0), // Will be updated per glyph run
-                12.0,                   // Default font size, will be updated per glyph run
+                FontHash::from_hash(primary_hash),
+                primary_size,
                 ColorU {
                     r: 0,
                     g: 0,
