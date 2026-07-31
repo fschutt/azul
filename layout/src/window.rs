@@ -7433,7 +7433,17 @@ impl LayoutWindow {
         _action: azul_core::dom::AccessibilityAction,
         _now: azul_core::task::Instant,
     ) -> BTreeMap<DomNodeId, (Vec<azul_core::events::EventFilter>, bool)> {
-        // No-op when accessibility is disabled
+        // No-op when accessibility is disabled. Reaching here means a REAL
+        // screen-reader action arrived and was accepted-then-discarded — for
+        // the a11y user the app simply doesn't react. Say so once.
+        static ANNOUNCE: std::sync::Once = std::sync::Once::new();
+        ANNOUNCE.call_once(|| {
+            eprintln!(
+                "[azul][a11y] an accessibility action arrived, but this build has no \
+                 `a11y` feature — screen-reader actions are DISCARDED. Rebuild \
+                 azul-layout with the `a11y` feature"
+            );
+        });
         BTreeMap::new()
     }
 
