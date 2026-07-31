@@ -45,7 +45,14 @@ impl CpalSink {
                     }
                     Err(_) => out.iter_mut().for_each(|s| *s = 0.0),
                 },
-                |_e: cpal::StreamError| {},
+                |e: cpal::StreamError| {
+                    // Was a no-op: a device unplug mid-playback silently
+                    // stopped audio with no line anywhere.
+                    crate::plog_warn!(
+                        "[audio] cpal output stream error: {} — playback may have stopped",
+                        e
+                    );
+                },
                 None,
             )
             .ok()?;

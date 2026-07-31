@@ -2359,6 +2359,16 @@ pub fn svg_parse(
 /// unaffected — only the raster output is unavailable.
 #[cfg(not(feature = "cpurender"))]
 pub fn svg_render(_s: &ParsedSvg, _options: SvgRenderOptions) -> Option<RawImage> {
+    // The caller asked for pixels and can NEVER get any from this build —
+    // a permanent None is otherwise indistinguishable from a bad SVG.
+    static ANNOUNCE: std::sync::Once = std::sync::Once::new();
+    ANNOUNCE.call_once(|| {
+        eprintln!(
+            "[azul][svg] svg_render called, but this build has no `cpurender` \
+             feature — SVG rasterization always returns None (parsing/layout are \
+             unaffected). Rebuild azul-layout with the `cpurender` feature"
+        );
+    });
     None
 }
 

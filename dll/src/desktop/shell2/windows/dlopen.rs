@@ -755,6 +755,45 @@ impl Win32Libraries {
             })
         });
 
+        // Each optional group above silently disables a whole user-visible
+        // capability when absent (the call sites just `return` on None). Say
+        // which capability is gone, once per process — load() runs per window.
+        {
+            static ANNOUNCE_OPTIONAL: std::sync::Once = std::sync::Once::new();
+            let pointer_missing = user32.GetPointerType.is_none()
+                || user32.GetPointerPenInfo.is_none()
+                || user32.GetPointerTouchInfo.is_none();
+            let shell32_missing = shell32.is_none();
+            let imm32_missing = imm32.is_none();
+            let kernel32_missing = kernel32.is_none();
+            ANNOUNCE_OPTIONAL.call_once(|| {
+                if pointer_missing {
+                    crate::plog_warn!(
+                        "[Win32] GetPointer* APIs unavailable (pre-Windows 8 user32?) — \
+                         pen/touch input will NOT work (mouse unaffected)"
+                    );
+                }
+                if shell32_missing {
+                    crate::plog_warn!(
+                        "[Win32] shell32.dll drag-and-drop symbols unavailable — file \
+                         drag-and-drop onto windows is disabled"
+                    );
+                }
+                if imm32_missing {
+                    crate::plog_warn!(
+                        "[Win32] imm32.dll IME symbols unavailable — input-method \
+                         composition (CJK text entry) is disabled"
+                    );
+                }
+                if kernel32_missing {
+                    crate::plog_warn!(
+                        "[Win32] kernel32 SetThreadExecutionState unavailable — \
+                         screensaver/sleep suppression is disabled"
+                    );
+                }
+            });
+        }
+
         // Try to load function pointers from dwmapi.dll (optional - for Windows 11 transparency)
         let dwmapi = DynamicLibrary::load("dwmapi.dll").ok();
         let dwmapi_funcs = if let Some(ref dll) = dwmapi {

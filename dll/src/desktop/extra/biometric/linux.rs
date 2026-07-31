@@ -21,13 +21,52 @@ pub fn probe_availability() -> BiometricKind {
 
 fn probe() -> Option<BiometricKind> {
     use zbus::blocking::{Connection, Proxy};
-    let conn = Connection::system().ok()?;
-    let mgr = Proxy::new(&conn, SVC, MGR_PATH, MGR_IFACE).ok()?;
+    // Every failure below collapses into NotAvailable (and the OnceLock in
+    // mod.rs caches that for the whole process), so each step names itself —
+    // otherwise "no system bus" and "no reader" are indistinguishable.
+    let conn = Connection::system()
+        .map_err(|e| {
+            crate::plog_warn!(
+                "[biometric] no D-Bus system bus ({}) — reporting NotAvailable \
+                 (cached for the process lifetime)",
+                e
+            )
+        })
+        .ok()?;
+    let mgr = Proxy::new(&conn, SVC, MGR_PATH, MGR_IFACE)
+        .map_err(|e| {
+            crate::plog_warn!(
+                "[biometric] fprintd Manager proxy failed ({}) — is fprintd \
+                 installed? Reporting NotAvailable (cached)",
+                e
+            )
+        })
+        .ok()?;
     // GetDefaultDevice errors (NoSuchDevice) when no reader -> NotAvailable.
-    let dev_path: zbus::zvariant::OwnedObjectPath = mgr.call("GetDefaultDevice", &()).ok()?;
+    let dev_path: zbus::zvariant::OwnedObjectPath = mgr
+        .call("GetDefaultDevice", &())
+        .map_err(|e| {
+            crate::plog_info!(
+                "[biometric] fprintd GetDefaultDevice: {} — no fingerprint reader, \
+                 reporting NotAvailable (cached)",
+                e
+            )
+        })
+        .ok()?;
     let dev = Proxy::new(&conn, SVC, dev_path.as_str(), DEV_IFACE).ok()?;
     // "" = the calling user (no polkit). Empty list -> no enrolled finger.
-    let enrolled: Vec<String> = dev.call("ListEnrolledFingers", &"").unwrap_or_default();
+    // A polkit/D-Bus ERROR must not read like "no fingers enrolled".
+    let enrolled: Vec<String> = match dev.call("ListEnrolledFingers", &"") {
+        Ok(v) => v,
+        Err(e) => {
+            crate::plog_warn!(
+                "[biometric] ListEnrolledFingers failed ({}) — treating as no \
+                 enrolled fingers, reporting NotAvailable (cached)",
+                e
+            );
+            Vec::new()
+        }
+    };
     Some(if enrolled.is_empty() {
         BiometricKind::NotAvailable
     } else {
@@ -59,18 +98,29 @@ fn run_verify() -> Option<BiometricResult> {
     // Claim ("" = current user). Subscribe to VerifyStatus BEFORE VerifyStart
     // to avoid missing a fast match.
     let claimed: Result<(), _> = dev.call("Claim", &"");
-    if claimed.is_err() {
+    if let Err(e) = &claimed {
+        crate::plog_warn!(
+            "[biometric] fprintd Claim failed ({}) — reader busy/already claimed, \
+             reporting Unavailable",
+            e
+        );
         return Some(BiometricResult::Unavailable); // busy / already claimed
     }
     let signals = match dev.receive_signal("VerifyStatus") {
         Ok(s) => s,
-        Err(_) => {
+        Err(e) => {
+            crate::plog_warn!(
+                "[biometric] subscribing to VerifyStatus failed ({}) — reporting \
+                 Error",
+                e
+            );
             let _: Result<(), _> = dev.call("Release", &());
             return Some(BiometricResult::Error);
         }
     };
     let started: Result<(), _> = dev.call("VerifyStart", &"any"); // any enrolled finger
-    if started.is_err() {
+    if let Err(e) = &started {
+        crate::plog_warn!("[biometric] VerifyStart failed ({}) — reporting Error", e);
         let _: Result<(), _> = dev.call("Release", &());
         return Some(BiometricResult::Error);
     }

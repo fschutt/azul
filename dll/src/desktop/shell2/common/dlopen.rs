@@ -51,10 +51,20 @@ pub fn load_first_available<L: DynamicLibrary>(names: &[&str]) -> Result<L, DlEr
         }
     }
 
+    // `errors` holds the real per-candidate dlerror strings ("cannot open
+    // shared object file" vs "wrong ELF class" vs "undefined symbol" need
+    // completely different fixes). They used to be collected and then thrown
+    // away, leaving only the generic install hint — carry them in the
+    // suggestion so every caller that prints the DlError names the actual OS
+    // reason.
     Err(DlError::LibraryNotFound {
         name: names.first().unwrap_or(&"<unknown>").to_string(),
         tried: names.iter().map(|s| s.to_string()).collect(),
-        suggestion: format!("Install the required system libraries. Tried: {:?}", names),
+        suggestion: format!(
+            "Install the required system libraries. Tried: {:?} — loader errors: [{}]",
+            names,
+            errors.join("; ")
+        ),
     })
 }
 

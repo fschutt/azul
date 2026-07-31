@@ -69,18 +69,22 @@ impl AlsaPcm {
         unsafe {
             let mut pcm: *mut c_void = core::ptr::null_mut();
             let name = b"default\0";
-            if (f.open)(
+            let rc = (f.open)(
                 &mut pcm,
                 name.as_ptr() as *const c_char,
                 SND_PCM_STREAM_PLAYBACK,
                 0,
-            ) < 0
-                || pcm.is_null()
-            {
+            );
+            if rc < 0 || pcm.is_null() {
+                crate::plog_warn!(
+                    "[audio] snd_pcm_open(\"default\", PLAYBACK) failed (rc={}) — no \
+                     ALSA output device, audio playback unavailable",
+                    rc
+                );
                 return None;
             }
             // FLOAT_LE interleaved, allow resample, ~100 ms latency.
-            if (f.set_params)(
+            let rc = (f.set_params)(
                 pcm,
                 SND_PCM_FORMAT_FLOAT_LE,
                 SND_PCM_ACCESS_RW_INTERLEAVED,
@@ -88,8 +92,15 @@ impl AlsaPcm {
                 rate,
                 1,
                 100_000,
-            ) < 0
-            {
+            );
+            if rc < 0 {
+                crate::plog_warn!(
+                    "[audio] snd_pcm_set_params({} Hz x{} f32) rejected (rc={}) — \
+                     audio playback unavailable",
+                    rate,
+                    channels,
+                    rc
+                );
                 (f.close)(pcm);
                 return None;
             }
@@ -152,17 +163,21 @@ impl AlsaCapture {
         unsafe {
             let mut pcm: *mut c_void = core::ptr::null_mut();
             let name = b"default\0";
-            if (f.open)(
+            let rc = (f.open)(
                 &mut pcm,
                 name.as_ptr() as *const c_char,
                 SND_PCM_STREAM_CAPTURE,
                 0,
-            ) < 0
-                || pcm.is_null()
-            {
+            );
+            if rc < 0 || pcm.is_null() {
+                crate::plog_warn!(
+                    "[audio] snd_pcm_open(\"default\", CAPTURE) failed (rc={}) — no \
+                     ALSA input device, microphone capture unavailable",
+                    rc
+                );
                 return None;
             }
-            if (f.set_params)(
+            let rc = (f.set_params)(
                 pcm,
                 SND_PCM_FORMAT_FLOAT_LE,
                 SND_PCM_ACCESS_RW_INTERLEAVED,
@@ -170,8 +185,15 @@ impl AlsaCapture {
                 rate,
                 1,
                 100_000,
-            ) < 0
-            {
+            );
+            if rc < 0 {
+                crate::plog_warn!(
+                    "[audio] snd_pcm_set_params({} Hz x{} f32, CAPTURE) rejected \
+                     (rc={}) — microphone capture unavailable",
+                    rate,
+                    channels,
+                    rc
+                );
                 (f.close)(pcm);
                 return None;
             }

@@ -2991,7 +2991,26 @@ fn render_image(
 
             (rgba, w, h)
         }
-        DecodedImage::NullImage { .. } | DecodedImage::Callback(_) => {
+        DecodedImage::Callback(_) => {
+            // A RenderImageCallback image reached the CPU rasterizer without
+            // ever having been invoked — this render path has no callback
+            // invoker (headless/e2e/android/ios gap; invoker redesign is a
+            // separate effort). The user sees a flat grey tile that is
+            // indistinguishable from "still loading", so say so once.
+            static CALLBACK_PLACEHOLDER: std::sync::Once = std::sync::Once::new();
+            CALLBACK_PLACEHOLDER.call_once(|| {
+                eprintln!(
+                    "[azul][cpurender] a RenderImageCallback image was composited as a \
+                     flat grey placeholder: this render path never invokes render-image \
+                     callbacks, so the callback's content CANNOT appear (logged once)"
+                );
+            });
+            let gray = Rgba8::new(200, 200, 200, 255);
+            let mut path = build_rect_path(&rect);
+            agg_fill_path(pixmap, &mut path, &gray, FillingRule::NonZero);
+            return;
+        }
+        DecodedImage::NullImage { .. } => {
             let gray = Rgba8::new(200, 200, 200, 255);
             let mut path = build_rect_path(&rect);
             agg_fill_path(pixmap, &mut path, &gray, FillingRule::NonZero);

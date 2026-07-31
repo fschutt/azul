@@ -136,6 +136,19 @@ pub(crate) fn warn_about_inert_env_knobs() {
             "cpurender",
             "cargo build -p azul-dll --features build-dll,cpurender",
         ),
+        // Layout profiling (azul-layout's `probe` feature, normally forced on
+        // by the DLL's _internal_deps). Without it `AZ_PROFILE=heap,...`
+        // silently reports heap=0 / writes no JSONL at all (layout/src/probe.rs
+        // no-op stubs); only the `cpu` mode prints its own "probe unavailable"
+        // line. `Probe::enabled()` is the compile-time truth for whether the
+        // real imp was built (probe on, not wasm, not web_lift) — the dll has
+        // no `probe` feature of its own, so `cfg!` can't express this row.
+        (
+            "AZ_PROFILE",
+            azul_layout::probe::Probe::enabled(),
+            "probe",
+            "cargo build -p azul-dll --features build-dll,azul-layout/probe",
+        ),
     ];
 
     for (var, compiled, feature, how) in gated {

@@ -298,8 +298,21 @@ impl HttpRequestConfig {
     }
 
     /// Stub: `http` feature disabled.
+    ///
+    /// The Result-returning siblings self-describe via
+    /// `HttpError::other("http feature not enabled")`; a bare `false` is the
+    /// one answer here that reads exactly like "server down", so say the
+    /// truth once. (The `const fn` free-function twin below cannot log.)
     #[cfg(not(feature = "http"))]
     #[must_use] pub fn is_url_reachable(_url: AzString) -> bool {
+        static ANNOUNCE: std::sync::Once = std::sync::Once::new();
+        ANNOUNCE.call_once(|| {
+            eprintln!(
+                "[azul][http] is_url_reachable called, but this build has no `http` \
+                 feature — it ALWAYS returns false (this is not a network result). \
+                 Rebuild azul-layout with the `http` feature"
+            );
+        });
         false
     }
 }

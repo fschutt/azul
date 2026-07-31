@@ -72,7 +72,14 @@ mod imp {
 
         let conn = match zbus::blocking::Connection::system() {
             Ok(c) => c,
-            Err(_) => return,
+            Err(e) => {
+                crate::plog_warn!(
+                    "[geolocation] no D-Bus system bus ({}) — GeoClue2 unreachable, \
+                     no location fixes will arrive",
+                    e
+                );
+                return;
+            }
         };
         let manager = match zbus::blocking::Proxy::new(
             &conn,
@@ -81,11 +88,25 @@ mod imp {
             "org.freedesktop.GeoClue2.Manager",
         ) {
             Ok(p) => p,
-            Err(_) => return,
+            Err(e) => {
+                crate::plog_warn!(
+                    "[geolocation] GeoClue2 Manager proxy failed ({}) — is GeoClue2 \
+                     installed? No location fixes will arrive",
+                    e
+                );
+                return;
+            }
         };
         let client_path: zbus::zvariant::OwnedObjectPath = match manager.call("GetClient", &()) {
             Ok(p) => p,
-            Err(_) => return,
+            Err(e) => {
+                crate::plog_warn!(
+                    "[geolocation] GeoClue2 GetClient failed ({}) — no location fixes \
+                     will arrive",
+                    e
+                );
+                return;
+            }
         };
         let client = match zbus::blocking::Proxy::new(
             &conn,
@@ -94,7 +115,14 @@ mod imp {
             "org.freedesktop.GeoClue2.Client",
         ) {
             Ok(p) => p,
-            Err(_) => return,
+            Err(e) => {
+                crate::plog_warn!(
+                    "[geolocation] GeoClue2 Client proxy failed ({}) — no location \
+                     fixes will arrive",
+                    e
+                );
+                return;
+            }
         };
 
         let _ = client.set_property("DesktopId", "org.azul.app");
@@ -121,7 +149,17 @@ mod imp {
                         PermissionQuality::Reduced
                     }),
                 ),
-                Err(_) => push_async_result(Capability::Geolocation, PermissionState::Denied),
+                Err(e) => {
+                    // The zbus error text is the ONE line that says why GeoClue
+                    // refused (classically: an unregistered DesktopId, or the
+                    // agent denied the app). Denied alone hides that.
+                    crate::plog_warn!(
+                        "[geolocation] GeoClue2 Start refused ({}) — reporting \
+                         permission Denied, no location fixes will arrive",
+                        e
+                    );
+                    push_async_result(Capability::Geolocation, PermissionState::Denied);
+                }
             }
         }
         if started.is_err() {
@@ -130,7 +168,14 @@ mod imp {
 
         let signals = match client.receive_signal("LocationUpdated") {
             Ok(s) => s,
-            Err(_) => return,
+            Err(e) => {
+                crate::plog_warn!(
+                    "[geolocation] subscribing to LocationUpdated failed ({}) — no \
+                     location fixes will arrive",
+                    e
+                );
+                return;
+            }
         };
         for msg in signals {
             if stop.load(Ordering::Relaxed) {

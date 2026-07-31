@@ -62,15 +62,24 @@ pub fn poll() {
             // log shows "initialising gilrs" with no following line, the abort is
             // inside Gilrs::new (a gilrs/libudev issue), not azul code.
             crate::plog_info!("[gamepad] initialising gilrs (libudev/evdev enumeration)");
-            *slot = Gilrs::new().ok();
-            match slot.as_ref() {
-                Some(g) => crate::plog_info!(
+            // Keep the gilrs::Error — udev missing, permission denied and
+            // no-device look identical without it.
+            *slot = match Gilrs::new() {
+                Ok(g) => Some(g),
+                Err(e) => {
+                    crate::plog_warn!(
+                        "[gamepad] gilrs failed to initialise ({}) — gamepad input \
+                         unavailable",
+                        e
+                    );
+                    None
+                }
+            };
+            if let Some(g) = slot.as_ref() {
+                crate::plog_info!(
                     "[gamepad] gilrs initialised; {} pad(s) present",
                     g.gamepads().count()
-                ),
-                None => crate::plog_warn!(
-                    "[gamepad] gilrs failed to initialise — gamepad input unavailable"
-                ),
+                );
             }
         }
         let Some(gilrs) = slot.as_mut() else {

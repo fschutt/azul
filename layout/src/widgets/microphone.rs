@@ -228,6 +228,29 @@ extern "C" fn mic_worker(mut init: RefAny, mut sender: ThreadSender, _recv: Thre
         }
     }
 
+    // Reaching here means a MicrophoneWidget is live and about to feed a
+    // synthetic 440 Hz TEST TONE instead of the microphone — the most
+    // misleading fallback in the tree if unannounced. Say why, once.
+    {
+        static TEST_TONE_ANNOUNCE: std::sync::Once = std::sync::Once::new();
+        let have_backend = mic_backend().is_some();
+        TEST_TONE_ANNOUNCE.call_once(|| {
+            if have_backend {
+                eprintln!(
+                    "[azul][microphone] the platform microphone backend failed to open \
+                     (device missing/busy or libasound unavailable — see lines above) \
+                     — feeding a synthetic 440 Hz TEST TONE instead of the microphone"
+                );
+            } else {
+                eprintln!(
+                    "[azul][microphone] no microphone backend is registered in this \
+                     build/OS — feeding a synthetic 440 Hz TEST TONE instead of the \
+                     microphone"
+                );
+            }
+        });
+    }
+
     let frames_per_chunk = (rate as usize / 50).max(1); // ~20 ms
     let step = 2.0 * core::f32::consts::PI * 440.0 / rate as f32;
     let mut phase: f32 = 0.0;

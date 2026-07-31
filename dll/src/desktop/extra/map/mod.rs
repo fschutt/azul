@@ -213,6 +213,16 @@ pub fn map_widget_dom(
     }
     #[cfg(not(feature = "map-tiles"))]
     {
+        // The widget renders its placeholder DOM and NO tile will ever load —
+        // indistinguishable from a slow network unless we say so.
+        static ANNOUNCE: std::sync::Once = std::sync::Once::new();
+        ANNOUNCE.call_once(|| {
+            eprintln!(
+                "[azul][map] MapWidget: this build has no `map-tiles` feature — no \
+                 tile fetch worker exists, the map shows its placeholder forever. \
+                 Rebuild with: cargo build -p azul-dll --features build-dll,map-tiles"
+            );
+        });
         widget.dom()
     }
 }

@@ -218,7 +218,20 @@ static VT: OnceLock<Option<VtLib>> = OnceLock::new();
 impl VtLib {
     fn get() -> Option<&'static VtLib> {
         VT.get_or_init(|| unsafe {
-            let open = |p: &str| libloading::Library::new(p).ok();
+            // dlopen failures must be as loud as the missing-symbol paths
+            // below — otherwise "framework not loadable" silently degrades to
+            // the no-frames stub.
+            let open = |p: &str| match libloading::Library::new(p) {
+                Ok(l) => Some(l),
+                Err(e) => {
+                    crate::plog_warn!(
+                        "[video] VideoToolbox backend disabled: dlopen {} failed: {}",
+                        p,
+                        e
+                    );
+                    None
+                }
+            };
             let vt = open("/System/Library/Frameworks/VideoToolbox.framework/VideoToolbox")?;
             let cm = open("/System/Library/Frameworks/CoreMedia.framework/CoreMedia")?;
             let cv = open("/System/Library/Frameworks/CoreVideo.framework/CoreVideo")?;

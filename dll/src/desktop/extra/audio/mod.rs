@@ -106,6 +106,37 @@ impl AudioSink {
         let android_sink = aaudio::AAudioSink::open(config.sample_rate, config.channels);
         #[cfg(all(any(target_os = "ios", target_os = "macos"), feature = "objc2-avf-audio"))]
         let ios_sink = avfoundation_sink::AvfSink::open(config.sample_rate, config.channels);
+
+        // A sink whose engine failed to open still returns a valid-looking
+        // handle (is_open() = true) and play() then counts + DISCARDS every
+        // frame. That must not be silent — it is indistinguishable from
+        // "playing but muted".
+        {
+            #[cfg(target_os = "linux")]
+            let engine_ok = pcm.is_some();
+            #[cfg(target_os = "windows")]
+            let engine_ok = sink.is_some();
+            #[cfg(target_os = "android")]
+            let engine_ok = android_sink.is_some();
+            #[cfg(all(any(target_os = "ios", target_os = "macos"), feature = "objc2-avf-audio"))]
+            let engine_ok = ios_sink.is_some();
+            #[cfg(not(any(
+                target_os = "linux",
+                target_os = "windows",
+                target_os = "android",
+                all(any(target_os = "ios", target_os = "macos"), feature = "objc2-avf-audio")
+            )))]
+            let engine_ok = false;
+            if !engine_ok {
+                crate::plog_warn!(
+                    "[audio] no playback engine opened for this sink (backend \
+                     unavailable or device open failed — see lines above) — the \
+                     handle reports is_open()=true but frames will be counted and \
+                     DISCARDED, no audio will play"
+                );
+            }
+        }
+
         let inner = Box::new(AudioSinkInner {
             config,
             frames_played: 0,

@@ -71,6 +71,9 @@ pub fn ensure_camera_backend() {
     {
         static DONE: std::sync::OnceLock<()> = std::sync::OnceLock::new();
         DONE.get_or_init(|| {
+            // Registration line for parity with the other arms — this was the
+            // only backend that registered without announcing itself.
+            crate::plog_info!("[camera] registering Android NDK Camera2 backend → RGBA");
             azul_layout::widgets::capture_common::register_camera_backend(
                 azul_layout::widgets::capture_common::CaptureVTable {
                     open: android::open,

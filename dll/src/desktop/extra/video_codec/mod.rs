@@ -77,6 +77,52 @@ fn backend() -> &'static str {
     }
 }
 
+/// Whether this build contains a real DECODE engine that `DecoderInner` can
+/// hold (Vulkan Video on x86_64 Linux/Windows behind `video-native`, or the
+/// dlopen'd VideoToolbox on Apple behind `libloading`). When this is false the
+/// handle still *opens* — `is_open()` is true — but `decode()` can never yield
+/// a frame, so `VideoDecoder::open` must say so.
+const fn decode_engine_compiled() -> bool {
+    cfg!(all(
+        feature = "video-native",
+        target_arch = "x86_64",
+        any(target_os = "linux", target_os = "windows")
+    )) || cfg!(all(any(target_os = "macos", target_os = "ios"), feature = "libloading"))
+}
+
+/// Whether this build contains a real ENCODE engine that `EncoderInner` can
+/// hold. Currently only VideoToolbox (Apple + `libloading`): gpu-video encode
+/// and MediaCodec are not wired, so on Linux/Windows/Android `encode()` is a
+/// counting stub in EVERY build and `VideoEncoder::open` must say so.
+const fn encode_engine_compiled() -> bool {
+    cfg!(all(any(target_os = "macos", target_os = "ios"), feature = "libloading"))
+}
+
+/// One line naming why a DECODE handle can never produce output on this build
+/// (feature compiled out / wrong target / backend not implemented). A handle
+/// that opens fine and then yields nothing forever is indistinguishable from
+/// "no data yet" — same say-so-when-inert contract as
+/// `shell2::run::warn_about_inert_env_knobs`.
+fn decode_engine_missing_reason() -> String {
+    if cfg!(target_os = "android") {
+        "the MediaCodec backend is not implemented yet".to_string()
+    } else if cfg!(any(target_os = "macos", target_os = "ios")) {
+        "this build has no `libloading` feature, so the VideoToolbox backend is \
+         compiled out"
+            .to_string()
+    } else if !cfg!(feature = "video-native") {
+        "this build has no `video-native` feature. Rebuild with: cargo build -p \
+         azul-dll --features build-dll,video-native"
+            .to_string()
+    } else {
+        format!(
+            "H.264 decode requires x86_64 linux/windows (this target: {}-{})",
+            std::env::consts::ARCH,
+            std::env::consts::OS
+        )
+    }
+}
+
 /// Engine-side encoder state. The stub records the params; the real backend
 /// (VideoToolbox / MediaCodec / gpu-video session) replaces this per platform.
 struct EncoderInner {
@@ -148,7 +194,47 @@ impl VideoEncoder {
     /// Returns an invalid handle (`is_open()` false) where no backend exists.
     pub fn open(width: u32, height: u32, h265: bool, bitrate_kbps: u32) -> VideoEncoder {
         if backend() == "none" {
+            static NONE_ONCE: std::sync::Once = std::sync::Once::new();
+            NONE_ONCE.call_once(|| {
+                eprintln!(
+                    "[azul][video] VideoEncoder::open: no native video backend on this \
+                     OS ({}) — handle is invalid (is_open() = false)",
+                    std::env::consts::OS
+                );
+            });
             return VideoEncoder::default();
+        }
+        if !encode_engine_compiled() {
+            // The handle OPENS (is_open() == true) but encode() only counts
+            // frames and returns empty chunks — announce once instead of
+            // letting the caller discover an empty bitstream. NOTE: encode has
+            // its own reasons (gpu-video ENCODE is not wired at all on
+            // Linux/Windows, in any build — unlike decode).
+            static STUB_ONCE: std::sync::Once = std::sync::Once::new();
+            STUB_ONCE.call_once(|| {
+                let reason = if cfg!(any(target_os = "macos", target_os = "ios")) {
+                    "this build has no `libloading` feature, so the VideoToolbox \
+                     backend is compiled out"
+                } else if cfg!(target_os = "android") {
+                    "the MediaCodec backend is not implemented yet"
+                } else {
+                    "gpu-video ENCODE is not wired yet on Linux/Windows (decode only)"
+                };
+                eprintln!(
+                    "[azul][video] VideoEncoder::open: hardware video encode is not \
+                     wired on this build ({reason}) — encode() will return EMPTY \
+                     chunks. For recording to MP4 use ScreenRecorder (software x264 \
+                     via gstreamer)"
+                );
+            });
+        } else if h265 {
+            static H265_ONCE: std::sync::Once = std::sync::Once::new();
+            H265_ONCE.call_once(|| {
+                eprintln!(
+                    "[azul][video] VideoEncoder::open: H.265 encode is not wired yet \
+                     (H.264 only) — this encoder will return EMPTY chunks"
+                );
+            });
         }
         let inner = Box::new(EncoderInner {
             width,
@@ -304,7 +390,15 @@ impl ScreenRecorder {
             .spawn();
         let mut child = match child {
             Ok(c) => c,
-            Err(_) => return ScreenRecorder::default(),
+            Err(e) => {
+                eprintln!(
+                    "[azul][video] ScreenRecorder::start: failed to spawn \
+                     gst-launch-1.0 ({e}) — recording DISABLED (handle invalid, \
+                     is_recording() = false). Install gstreamer with the x264enc + \
+                     mp4mux plugins"
+                );
+                return ScreenRecorder::default();
+            }
         };
         let stdin = child.stdin.take();
         let inner = Box::new(RecorderInner {
@@ -424,7 +518,37 @@ impl VideoDecoder {
     /// backend. Invalid handle where no backend exists.
     pub fn open(h265: bool) -> VideoDecoder {
         if backend() == "none" {
+            static NONE_ONCE: std::sync::Once = std::sync::Once::new();
+            NONE_ONCE.call_once(|| {
+                eprintln!(
+                    "[azul][video] VideoDecoder::open: no native video backend on this \
+                     OS ({}) — handle is invalid (is_open() = false)",
+                    std::env::consts::OS
+                );
+            });
             return VideoDecoder::default();
+        }
+        if !decode_engine_compiled() {
+            // The handle OPENS (is_open() == true) but decode() can never
+            // yield a frame — the engine struct member itself is compiled
+            // out. Say so once; a valid-looking handle that never produces
+            // output is the worst kind of silent.
+            static STUB_ONCE: std::sync::Once = std::sync::Once::new();
+            STUB_ONCE.call_once(|| {
+                eprintln!(
+                    "[azul][video] VideoDecoder::open: {} — the handle opens but \
+                     decode() will NEVER produce a frame",
+                    decode_engine_missing_reason()
+                );
+            });
+        } else if h265 {
+            static H265_ONCE: std::sync::Once = std::sync::Once::new();
+            H265_ONCE.call_once(|| {
+                eprintln!(
+                    "[azul][video] VideoDecoder::open: H.265 decode is not wired yet \
+                     (H.264 only) — this decoder will produce no frames"
+                );
+            });
         }
         let inner = Box::new(DecoderInner {
             h265,

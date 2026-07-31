@@ -135,7 +135,41 @@ fn schema() -> SecretSchema {
 
 fn lib() -> Option<&'static SecretLib> {
     static LIB: OnceLock<Option<SecretLib>> = OnceLock::new();
-    LIB.get_or_init(|| SecretLib::load().ok()).as_ref()
+    LIB.get_or_init(|| match SecretLib::load() {
+        Ok(l) => Some(l),
+        Err(e) => {
+            // SecretLib::load builds a full DlError (libraries tried + loader
+            // errors + install suggestion) — it was discarded by .ok() and
+            // every keyring call just reported Unavailable.
+            crate::plog_warn!(
+                "[keyring] libsecret/libglib not loadable ({}) — keyring \
+                 unavailable for this process",
+                e
+            );
+            None
+        }
+    })
+    .as_ref()
+}
+
+/// Log the GError message — the exact Secret Service / D-Bus reason ("no such
+/// secret service", "prompt dismissed", "collection locked") — before freeing
+/// it. It used to be freed unread at all three call sites, making a locked
+/// keyring indistinguishable from a missing daemon.
+unsafe fn warn_gerror_and_free(lib: &SecretLib, op: &str, err: *mut GError) {
+    let msg = if (*err).message.is_null() {
+        "<no message>".into()
+    } else {
+        CStr::from_ptr((*err).message).to_string_lossy().into_owned()
+    };
+    crate::plog_warn!(
+        "[keyring] {} failed: {} (domain={}, code={}) — reporting Unavailable",
+        op,
+        msg,
+        (*err).domain,
+        (*err).code
+    );
+    (lib.g_error_free)(err);
 }
 
 pub fn request(req: &KeyringRequest) {
@@ -170,7 +204,7 @@ fn handle(req: &KeyringRequest) -> KeyringResult {
                 ) != 0;
                 (lib.ht_unref)(ht);
                 if !err.is_null() {
-                    (lib.g_error_free)(err);
+                    warn_gerror_and_free(lib, "secret_password_storev_sync", err);
                     return KeyringResult::Unavailable;
                 }
                 if ok {
@@ -188,7 +222,7 @@ fn handle(req: &KeyringRequest) -> KeyringResult {
                 let p = (lib.lookupv)(&sch, ht, ptr::null_mut(), &mut err);
                 (lib.ht_unref)(ht);
                 if !err.is_null() {
-                    (lib.g_error_free)(err);
+                    warn_gerror_and_free(lib, "secret_password_lookupv_sync", err);
                     return KeyringResult::Unavailable;
                 }
                 if p.is_null() {
@@ -207,7 +241,7 @@ fn handle(req: &KeyringRequest) -> KeyringResult {
                 let _ = (lib.clearv)(&sch, ht, ptr::null_mut(), &mut err);
                 (lib.ht_unref)(ht);
                 if !err.is_null() {
-                    (lib.g_error_free)(err);
+                    warn_gerror_and_free(lib, "secret_password_clearv_sync", err);
                     return KeyringResult::Unavailable;
                 }
                 KeyringResult::Deleted // idempotent (no match also reports Deleted)

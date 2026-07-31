@@ -86,9 +86,25 @@ pub(crate) fn open_first_lib(names: &[&str]) -> Option<libloading::Library> {
     }
     #[cfg(not(miri))]
     {
-        names
-            .iter()
-            .find_map(|n| unsafe { libloading::Library::new(n).ok() })
+        let mut last_err: Option<libloading::Error> = None;
+        for n in names {
+            match unsafe { libloading::Library::new(n) } {
+                Ok(lib) => return Some(lib),
+                Err(e) => last_err = Some(e),
+            }
+        }
+        // Every backend behind this loader (libpipewire, libv4l2, libasound,
+        // libEGL, CoreAudio, …) degrades to a stub when the library is
+        // missing — say why, or the stub is indistinguishable from a working
+        // backend with no data. Call sites cache the None, so this fires
+        // once per subsystem in practice.
+        crate::plog_warn!(
+            "[dlopen] none of {:?} could be loaded (capability degrades to its \
+             stub) — last loader error: {}",
+            names,
+            last_err.map_or_else(|| "<no candidates>".to_string(), |e| e.to_string())
+        );
+        None
     }
 }
 

@@ -19,6 +19,22 @@ use azul_core::json::Json;
 use azul_css::U8Vec;
 use azul_layout::solver3::display_list::DisplayListItem;
 
+/// Say once per process that the `pdf` feature is compiled out. Every stub
+/// arm below returns an empty/none result that is byte-for-byte
+/// indistinguishable from "the document rendered to nothing" — the same
+/// silent-degradation trap as the video pipeline stub.
+#[cfg(not(feature = "pdf"))]
+fn announce_pdf_stub(what: &str) {
+    static ANNOUNCE: std::sync::Once = std::sync::Once::new();
+    ANNOUNCE.call_once(|| {
+        eprintln!(
+            "[azul][pdf] {what} called, but this build has no `pdf` feature — the \
+             whole PDF surface returns EMPTY results. Rebuild with: cargo build -p \
+             azul-dll --features build-dll,pdf"
+        );
+    });
+}
+
 /// Write a PDF from a JSON document model -> PDF bytes. The JSON is
 /// printpdf's `PdfDocument` serde schema as an [`azul_core::json::Json`]
 /// (the same model printpdf's wasm api uses). Returns empty bytes on a
@@ -33,6 +49,7 @@ pub fn pdf_write_json(json: &Json) -> U8Vec {
     }
     #[cfg(not(feature = "pdf"))]
     {
+        announce_pdf_stub("pdf_write_json");
         let _ = json;
         U8Vec::from_vec(Vec::new())
     }
@@ -47,6 +64,7 @@ pub fn pdf_read_json(bytes: &[u8]) -> Json {
     }
     #[cfg(not(feature = "pdf"))]
     {
+        announce_pdf_stub("pdf_read_json");
         let _ = bytes;
         Json::null()
     }
@@ -64,6 +82,7 @@ pub fn dom_to_pdf(dom: Dom, page_width_px: f32, page_height_px: f32) -> U8Vec {
     }
     #[cfg(not(feature = "pdf"))]
     {
+        announce_pdf_stub("dom_to_pdf");
         let _ = (dom, page_width_px, page_height_px);
         U8Vec::from_vec(Vec::new())
     }
@@ -142,6 +161,7 @@ impl Pdf {
         }
         #[cfg(not(feature = "pdf"))]
         {
+            announce_pdf_stub("Pdf::from_dom_in_callback");
             let _ = (callback_info, dom, page_width_px, page_height_px);
             U8Vec::from_vec(Vec::new())
         }
@@ -190,6 +210,7 @@ impl Pdf {
         }
         #[cfg(not(feature = "pdf"))]
         {
+            announce_pdf_stub("Pdf::from_styled_dom_with_resources");
             let _ = (
                 styled_dom,
                 page_width_px,
@@ -222,6 +243,7 @@ pub fn pdf_to_svg_pages(bytes: &[u8]) -> Vec<String> {
     }
     #[cfg(not(feature = "pdf"))]
     {
+        announce_pdf_stub("pdf_to_svg_pages");
         let _ = bytes;
         Vec::new()
     }
@@ -235,6 +257,15 @@ pub fn svg_page_to_dom(svg: &str) -> Option<Dom> {
     }
     #[cfg(not(all(feature = "pdf", feature = "xml")))]
     {
+        // Different gate than the arms above: needs BOTH `pdf` and `xml`.
+        static ANNOUNCE: std::sync::Once = std::sync::Once::new();
+        ANNOUNCE.call_once(|| {
+            eprintln!(
+                "[azul][pdf] svg_page_to_dom called, but this build lacks the `pdf` \
+                 and/or `xml` feature — it always returns None. Rebuild with: cargo \
+                 build -p azul-dll --features build-dll,pdf,xml"
+            );
+        });
         let _ = svg;
         None
     }

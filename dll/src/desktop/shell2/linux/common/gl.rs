@@ -48,6 +48,24 @@ impl GlFunctions {
             std::ptr::null_mut()
         });
 
+        // This function has no error path (the callers' "GL function loading
+        // failed → CPU fallback" branches can never fire), so a context whose
+        // symbols all resolved to null flows on and GL fails much later with
+        // no cause on record. Announce the degraded state here, where the two
+        // load sources (eglGetProcAddress + libGL) are still known.
+        if context.glCreateShader.is_null() || context.glGetString.is_null() {
+            crate::plog_warn!(
+                "[GL] core GL entry points did not resolve via eglGetProcAddress \
+                 (libGL.so.1 {}) — the GL context is unusable and rendering will \
+                 degrade downstream",
+                if opengl_lib.is_some() {
+                    "loaded, but also had no symbols"
+                } else {
+                    "did NOT load either"
+                },
+            );
+        }
+
         Ok(Self {
             _opengl_lib_handle: opengl_lib,
             functions: Rc::new(context),
