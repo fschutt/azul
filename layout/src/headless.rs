@@ -73,12 +73,12 @@ struct HitTestEntry {
     /// The DOM node that this entry corresponds to.
     node_id: NodeId,
     /// Static (unscrolled) position and size of this node in logical pixels,
-    /// window space (VirtualView placement already applied).
+    /// window space (`VirtualView` placement already applied).
     rect: LogicalRect,
     /// Ancestor scroll frames whose offsets shift this node on screen
     /// (index into [`CpuHitTester::chains`]).
     chain: u32,
-    /// Clip boxes from `overflow`-clipping ancestors and the VirtualView
+    /// Clip boxes from `overflow`-clipping ancestors and the `VirtualView`
     /// composite bounds. Each clip carries the chain of ITS owner's strict
     /// scroll ancestors — a clip box inside a scrolled frame moves with that
     /// frame, while the clipping container's own scroll does not move its
@@ -118,8 +118,9 @@ pub enum HitChainLink {
     Transform(DomId, NodeId),
 }
 
-/// Minimal 2D affine mirroring `agg_rust::trans_affine::TransAffine`
-/// (row-vector convention: `x' = x·sx + y·shx + tx; y' = x·shy + y·sy + ty`).
+/// Minimal 2D affine mirroring `agg_rust::trans_affine::TransAffine`.
+///
+/// Row-vector convention: `x' = x·sx + y·shx + tx; y' = x·shy + y·sy + ty`.
 /// Local copy because `agg-rust` is optional (svg/cpurender features) and
 /// hit-testing must exist in every configuration. The multiply/invert bodies
 /// are transcribed from agg so composition matches the raster EXACTLY.
@@ -146,7 +147,7 @@ impl ScreenMapAffine {
     /// The 2D-affine slice of a `ComputedTransform3D`, exactly the elements
     /// the CPU raster feeds `TransAffine::new_custom`
     /// (`m[0][0], m[0][1], m[1][0], m[1][1], m[3][0], m[3][1]`).
-    #[must_use] pub fn from_transform_3d(t: &azul_core::transform::ComputedTransform3D) -> Self {
+    #[must_use] pub const fn from_transform_3d(t: &azul_core::transform::ComputedTransform3D) -> Self {
         Self {
             sx: t.m[0][0],
             shy: t.m[0][1],
@@ -159,12 +160,12 @@ impl ScreenMapAffine {
 
     /// `self = self · m` (agg `multiply`).
     pub fn multiply(&mut self, m: &Self) {
-        let t0 = self.sx * m.sx + self.shy * m.shx;
-        let t2 = self.shx * m.sx + self.sy * m.shx;
-        let t4 = self.tx * m.sx + self.ty * m.shx + m.tx;
-        self.shy = self.sx * m.shy + self.shy * m.sy;
-        self.sy = self.shx * m.shy + self.sy * m.sy;
-        self.ty = self.tx * m.shy + self.ty * m.sy + m.ty;
+        let t0 = self.sx.mul_add(m.sx, self.shy * m.shx);
+        let t2 = self.shx.mul_add(m.sx, self.sy * m.shx);
+        let t4 = self.tx.mul_add(m.sx, self.ty * m.shx) + m.tx;
+        self.shy = self.sx.mul_add(m.shy, self.shy * m.sy);
+        self.sy = self.shx.mul_add(m.shy, self.sy * m.sy);
+        self.ty = self.tx.mul_add(m.shy, self.ty * m.sy) + m.ty;
         self.sx = t0;
         self.shx = t2;
         self.tx = t4;
@@ -182,24 +183,25 @@ impl ScreenMapAffine {
     /// leave a non-finite result; callers treat non-finite mapped points as
     /// misses, which matches "a zero-scale transform is unclickable".
     pub fn invert(&mut self) {
-        let d = 1.0 / (self.sx * self.sy - self.shy * self.shx);
+        let d = 1.0 / self.sx.mul_add(self.sy, -(self.shy * self.shx));
         let t0 = self.sy * d;
         self.sy = self.sx * d;
         self.shy = -self.shy * d;
         self.shx = -self.shx * d;
-        let t4 = -self.tx * t0 - self.ty * self.shx;
-        self.ty = -self.tx * self.shy - self.ty * self.sy;
+        let t4 = (-self.tx).mul_add(t0, -(self.ty * self.shx));
+        self.ty = (-self.tx).mul_add(self.shy, -(self.ty * self.sy));
         self.sx = t0;
         self.tx = t4;
     }
 
     #[must_use] pub fn apply(&self, p: LogicalPosition) -> LogicalPosition {
         LogicalPosition {
-            x: p.x * self.sx + p.y * self.shx + self.tx,
-            y: p.x * self.shy + p.y * self.sy + self.ty,
+            x: p.x.mul_add(self.sx, p.y * self.shx) + self.tx,
+            y: p.x.mul_add(self.shy, p.y * self.sy) + self.ty,
         }
     }
 
+    #[allow(clippy::float_cmp)] // exact equality is correct here: identity is a fast-path gate; a near-identity matrix must still be applied
     #[must_use] pub fn is_identity(&self) -> bool {
         self.sx == 1.0
             && self.shy == 0.0
@@ -287,9 +289,10 @@ fn resolve_chain(
     }
 }
 
-/// Map a node's STATIC rect to its ON-SCREEN axis-aligned bounds: walk the
-/// node's ancestors, accumulate scroll offsets and reference-frame
-/// transforms, and apply the raster's forward rule
+/// Map a node's STATIC rect to its ON-SCREEN axis-aligned bounds.
+///
+/// Walks the node's ancestors, accumulates scroll offsets and reference-frame
+/// transforms, and applies the raster's forward rule
 /// `screen = T_total(corner − scroll_total)` to all four corners (result is
 /// their AABB).
 ///
@@ -385,7 +388,7 @@ fn intern_chain(
     if let Some(&i) = lookup.get(&v) {
         return i;
     }
-    let i = chains.len() as u32;
+    let i = u32::try_from(chains.len()).unwrap_or(u32::MAX);
     chains.push(v.clone());
     lookup.insert(v, i);
     i
@@ -395,6 +398,200 @@ impl Default for CpuHitTester {
     fn default() -> Self {
         Self::new()
     }
+}
+
+/// Resolve each layout node's ancestor chain index into `chains`.
+///
+/// `chain(n) = chain(parent) (+ parent's links)` — an ancestor shifts its
+/// CONTENT, not itself. Scroll membership comes from `scroll_ids` (the exact
+/// set the display-list builder emitted `PushScrollFrame` for); transform
+/// membership from the GPU value cache's `css_transform_keys` via
+/// `has_transform` (the exact set it wrapped in `PushReferenceFrame`). A node
+/// with both nests the reference frame OUTSIDE the scroll frame, same as the
+/// builder.
+fn compute_node_chains(
+    layout_result: &DomLayoutResult,
+    dom_id: DomId,
+    base_chain: u32,
+    has_transform: &dyn Fn(NodeId) -> bool,
+    chains: &mut Vec<Vec<HitChainLink>>,
+    chain_lookup: &mut std::collections::HashMap<Vec<HitChainLink>, u32>,
+) -> Vec<u32> {
+    let nodes = &layout_result.layout_tree.nodes;
+    let scroll_ids = &layout_result.scroll_ids;
+    let mut chain_of: Vec<u32> = vec![u32::MAX; nodes.len()];
+    let mut path: Vec<usize> = Vec::new();
+    for start in 0..nodes.len() {
+        if chain_of[start] != u32::MAX {
+            continue;
+        }
+        path.clear();
+        path.push(start);
+        let mut cur = nodes[start].parent;
+        while let Some(p) = cur {
+            if chain_of[p] != u32::MAX || path.len() > nodes.len() {
+                break;
+            }
+            path.push(p);
+            cur = nodes[p].parent;
+        }
+        for &idx in path.iter().rev() {
+            let c = nodes[idx].parent.map_or(base_chain, |p| {
+                let pc = if chain_of[p] == u32::MAX {
+                    base_chain // cycle guard tripped; degrade gracefully
+                } else {
+                    chain_of[p]
+                };
+                let is_scroll = scroll_ids.contains_key(&p);
+                let pnid = nodes[p].dom_node_id;
+                let parent_transforms = pnid.is_some_and(has_transform);
+                match (pnid, is_scroll || parent_transforms) {
+                    (Some(pnid), true) => {
+                        let mut v = chains[pc as usize].clone();
+                        if parent_transforms {
+                            v.push(HitChainLink::Transform(dom_id, pnid));
+                        }
+                        if is_scroll {
+                            v.push(HitChainLink::Scroll(dom_id, pnid));
+                        }
+                        intern_chain(chains, chain_lookup, v)
+                    }
+                    _ => pc,
+                }
+            });
+            chain_of[idx] = c;
+        }
+    }
+    chain_of
+}
+
+/// A resolved `VirtualView` child-DOM placement.
+///
+/// The composite rect in window space plus the host-side chain (scroll
+/// frames AND reference frames) active at the `VirtualView` item.
+struct Placement {
+    rect: LogicalRect,
+    chain: Vec<HitChainLink>,
+}
+
+/// Resolve where each `VirtualView` / iframe child DOM lives on screen.
+///
+/// Child DOMs lay out in CHILD-LOCAL coordinates (origin 0,0) but live on
+/// screen at the host `VirtualView` item's bounds. Hit entries must be
+/// TRANSLATED there and CLIPPED to the composite bounds — otherwise the
+/// child's nodes claim pointer events across the whole window (live bug:
+/// azul-maps' tile grid ate every click on the header toolbar, so the
+/// buttons never fired; the same escape the renderer had before
+/// `intersect_clips()`).
+///
+/// Placements resolve iteratively so nested `VirtualView`s accumulate their
+/// host offsets (a child's own `VirtualView` item is in that child's local
+/// space). They also carry the host-side chain active at the `VirtualView`
+/// item: if the host scrolls or transforms, the child viewport (and all of
+/// the child's content) moves on screen with it. The chain is read off the
+/// host display list by tracking `PushScrollFrame`/`PopScrollFrame` and
+/// `PushReferenceFrame`/`PopReferenceFrame` nesting around the
+/// `VirtualView` item — the same nesting the renderer applies when it
+/// composites the child. Reference-frame owners come from
+/// `DisplayList::node_mapping` (item index → source node).
+fn resolve_virtual_view_placements(
+    layout_results: &BTreeMap<DomId, DomLayoutResult>,
+) -> BTreeMap<DomId, Placement> {
+    let mut placements: BTreeMap<DomId, Placement> = BTreeMap::new();
+    for _ in 0..4 {
+        // bounded depth; each pass resolves one nesting level
+        let mut changed = false;
+        for (host_dom, lr) in layout_results {
+            let (host_offset, host_chain) = if host_dom.inner == 0 {
+                (LogicalPosition::zero(), Vec::new())
+            } else if let Some(p) = placements.get(host_dom) {
+                (p.rect.origin, p.chain.clone())
+            } else {
+                continue;
+            };
+            let base_depth = host_chain.len();
+            let mut stack = host_chain;
+            for (item_idx, item) in lr.display_list.items.iter().enumerate() {
+                use crate::solver3::display_list::DisplayListItem as I;
+                match item {
+                    I::PushScrollFrame { scroll_id, .. } => {
+                        // `scroll_id` is the owning node's layout index by
+                        // construction (`get_scroll_id`); the reverse map
+                        // is authoritative, the index a safe fallback.
+                        let nid = lr
+                            .scroll_id_to_node_id
+                            .get(scroll_id)
+                            .copied()
+                            .unwrap_or_else(|| {
+                                NodeId::new(usize::try_from(*scroll_id).unwrap_or(usize::MAX))
+                            });
+                        stack.push(HitChainLink::Scroll(*host_dom, nid));
+                    }
+                    I::PopScrollFrame => {
+                        // Never pop below the host's own chain.
+                        if matches!(stack.last(), Some(HitChainLink::Scroll(..)))
+                            && stack.len() > base_depth
+                        {
+                            stack.pop();
+                        }
+                    }
+                    I::PushReferenceFrame { .. } => {
+                        // The owner node comes from node_mapping; a frame
+                        // with no source node (scrollbar thumbs) still
+                        // needs a stack entry for pop symmetry — use a
+                        // link that resolves to no transform.
+                        let nid = lr
+                            .display_list
+                            .node_mapping
+                            .get(item_idx)
+                            .copied()
+                            .flatten()
+                            .unwrap_or(NodeId::ZERO);
+                        stack.push(HitChainLink::Transform(*host_dom, nid));
+                    }
+                    I::PopReferenceFrame => {
+                        if matches!(stack.last(), Some(HitChainLink::Transform(..)))
+                            && stack.len() > base_depth
+                        {
+                            stack.pop();
+                        }
+                    }
+                    I::VirtualView {
+                        child_dom_id,
+                        bounds,
+                        ..
+                    } => {
+                        let b = *bounds.inner();
+                        let absolute = LogicalRect {
+                            origin: LogicalPosition {
+                                x: b.origin.x + host_offset.x,
+                                y: b.origin.y + host_offset.y,
+                            },
+                            size: b.size,
+                        };
+                        let differs = placements.get(child_dom_id).is_none_or(|p| {
+                            p.rect != absolute || p.chain != stack
+                        });
+                        if differs {
+                            placements.insert(
+                                *child_dom_id,
+                                Placement {
+                                    rect: absolute,
+                                    chain: stack.clone(),
+                                },
+                            );
+                            changed = true;
+                        }
+                    }
+                    _ => {}
+                }
+            }
+        }
+        if !changed {
+            break;
+        }
+    }
+    placements
 }
 
 impl CpuHitTester {
@@ -461,122 +658,7 @@ impl CpuHitTester {
         self.scroll_containers.clear();
         self.dom_placements.clear();
 
-        // VirtualView / iframe child DOMs lay out in CHILD-LOCAL coordinates
-        // (origin 0,0) but live on screen at the host VirtualView item's
-        // bounds. Hit entries must be TRANSLATED there and CLIPPED to the
-        // composite bounds — otherwise the child's nodes claim pointer events
-        // across the whole window (live bug: azul-maps' tile grid ate every
-        // click on the header toolbar, so the buttons never fired; the same
-        // escape the renderer had before intersect_clips()).
-        //
-        // Resolve placements iteratively so nested VirtualViews accumulate
-        // their host offsets (a child's own VirtualView item is in that
-        // child's local space).
-        // Placements also carry the host-side chain (scroll frames AND
-        // reference frames) active at the `VirtualView` item: if the host
-        // scrolls or transforms, the child viewport (and all of the child's
-        // content) moves on screen with it. The chain is read off the host
-        // display list by tracking `PushScrollFrame`/`PopScrollFrame` and
-        // `PushReferenceFrame`/`PopReferenceFrame` nesting around the
-        // `VirtualView` item — the same nesting the renderer applies when it
-        // composites the child. Reference-frame owners come from
-        // `DisplayList::node_mapping` (item index → source node).
-        struct Placement {
-            rect: LogicalRect,
-            chain: Vec<HitChainLink>,
-        }
-        let mut placements: BTreeMap<DomId, Placement> = BTreeMap::new();
-        for _ in 0..4 {
-            // bounded depth; each pass resolves one nesting level
-            let mut changed = false;
-            for (host_dom, lr) in layout_results {
-                let (host_offset, host_chain) = if host_dom.inner == 0 {
-                    (LogicalPosition::zero(), Vec::new())
-                } else if let Some(p) = placements.get(host_dom) {
-                    (p.rect.origin, p.chain.clone())
-                } else {
-                    continue;
-                };
-                let base_depth = host_chain.len();
-                let mut stack = host_chain;
-                for (item_idx, item) in lr.display_list.items.iter().enumerate() {
-                    use crate::solver3::display_list::DisplayListItem as I;
-                    match item {
-                        I::PushScrollFrame { scroll_id, .. } => {
-                            // `scroll_id` is the owning node's layout index by
-                            // construction (`get_scroll_id`); the reverse map
-                            // is authoritative, the index a safe fallback.
-                            let nid = lr
-                                .scroll_id_to_node_id
-                                .get(scroll_id)
-                                .copied()
-                                .unwrap_or_else(|| NodeId::new(*scroll_id as usize));
-                            stack.push(HitChainLink::Scroll(*host_dom, nid));
-                        }
-                        I::PopScrollFrame => {
-                            // Never pop below the host's own chain.
-                            if matches!(stack.last(), Some(HitChainLink::Scroll(..)))
-                                && stack.len() > base_depth
-                            {
-                                stack.pop();
-                            }
-                        }
-                        I::PushReferenceFrame { .. } => {
-                            // The owner node comes from node_mapping; a frame
-                            // with no source node (scrollbar thumbs) still
-                            // needs a stack entry for pop symmetry — use a
-                            // link that resolves to no transform.
-                            let nid = lr
-                                .display_list
-                                .node_mapping
-                                .get(item_idx)
-                                .copied()
-                                .flatten()
-                                .unwrap_or(NodeId::ZERO);
-                            stack.push(HitChainLink::Transform(*host_dom, nid));
-                        }
-                        I::PopReferenceFrame => {
-                            if matches!(stack.last(), Some(HitChainLink::Transform(..)))
-                                && stack.len() > base_depth
-                            {
-                                stack.pop();
-                            }
-                        }
-                        I::VirtualView {
-                            child_dom_id,
-                            bounds,
-                            ..
-                        } => {
-                            let b = *bounds.inner();
-                            let absolute = LogicalRect {
-                                origin: LogicalPosition {
-                                    x: b.origin.x + host_offset.x,
-                                    y: b.origin.y + host_offset.y,
-                                },
-                                size: b.size,
-                            };
-                            let differs = placements.get(child_dom_id).is_none_or(|p| {
-                                p.rect != absolute || p.chain != stack
-                            });
-                            if differs {
-                                placements.insert(
-                                    *child_dom_id,
-                                    Placement {
-                                        rect: absolute,
-                                        chain: stack.clone(),
-                                    },
-                                );
-                                changed = true;
-                            }
-                        }
-                        _ => {}
-                    }
-                }
-            }
-            if !changed {
-                break;
-            }
-        }
+        let placements = resolve_virtual_view_placements(layout_results);
 
         let mut chain_lookup: std::collections::HashMap<Vec<HitChainLink>, u32> =
             std::collections::HashMap::new();
@@ -600,66 +682,18 @@ impl CpuHitTester {
             let base_chain = intern_chain(&mut self.chains, &mut chain_lookup, base_chain_vec);
             let dom_clip_entry = dom_clip.map(|r| (r, base_chain));
 
-            // Resolve each layout node's ancestor chain.
-            // `chain(n) = chain(parent) (+ parent's links)` — an ancestor
-            // shifts its CONTENT, not itself. Scroll membership comes from
-            // `scroll_ids` (the exact set the display-list builder emitted
-            // `PushScrollFrame` for); transform membership from the GPU
-            // value cache's `css_transform_keys` (the exact set it wrapped
-            // in `PushReferenceFrame`). A node with both nests the reference
-            // frame OUTSIDE the scroll frame, same as the builder.
             let scroll_ids = &layout_result.scroll_ids;
             let transform_nodes = gpu
                 .and_then(|g| g.caches.get(dom_id))
                 .map(|c| &c.css_transform_keys);
-            let mut chain_of: Vec<u32> = vec![u32::MAX; nodes.len()];
-            let mut path: Vec<usize> = Vec::new();
-            for start in 0..nodes.len() {
-                if chain_of[start] != u32::MAX {
-                    continue;
-                }
-                path.clear();
-                path.push(start);
-                let mut cur = nodes[start].parent;
-                while let Some(p) = cur {
-                    if chain_of[p] != u32::MAX || path.len() > nodes.len() {
-                        break;
-                    }
-                    path.push(p);
-                    cur = nodes[p].parent;
-                }
-                for &idx in path.iter().rev() {
-                    let c = match nodes[idx].parent {
-                        None => base_chain,
-                        Some(p) => {
-                            let pc = if chain_of[p] == u32::MAX {
-                                base_chain // cycle guard tripped; degrade gracefully
-                            } else {
-                                chain_of[p]
-                            };
-                            let is_scroll = scroll_ids.contains_key(&p);
-                            let pnid = nodes[p].dom_node_id;
-                            let has_transform = pnid.is_some_and(|n| {
-                                transform_nodes.is_some_and(|t| t.contains_key(&n))
-                            });
-                            match (pnid, is_scroll || has_transform) {
-                                (Some(pnid), true) => {
-                                    let mut v = self.chains[pc as usize].clone();
-                                    if has_transform {
-                                        v.push(HitChainLink::Transform(*dom_id, pnid));
-                                    }
-                                    if is_scroll {
-                                        v.push(HitChainLink::Scroll(*dom_id, pnid));
-                                    }
-                                    intern_chain(&mut self.chains, &mut chain_lookup, v)
-                                }
-                                _ => pc,
-                            }
-                        }
-                    };
-                    chain_of[idx] = c;
-                }
-            }
+            let chain_of = compute_node_chains(
+                layout_result,
+                *dom_id,
+                base_chain,
+                &|n| transform_nodes.is_some_and(|t| t.contains_key(&n)),
+                &mut self.chains,
+                &mut chain_lookup,
+            );
 
             // Scroll containers of this DOM, for wheel-target containment.
             for (&layout_idx, &scroll_id) in scroll_ids {

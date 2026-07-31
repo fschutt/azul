@@ -260,7 +260,7 @@ extern "C" fn merge_screencap_state(mut new_data: RefAny, mut old_data: RefAny) 
         let new_guard = new_data.downcast_ref::<ScreenCaptureWidgetState>();
         let old_guard = old_data.downcast_mut::<ScreenCaptureWidgetState>();
         if let (Some(new_g), Some(mut old_g)) = (new_guard, old_guard) {
-            old_g.config = new_g.config.clone();
+            old_g.config = new_g.config;
             old_g.on_frame = new_g.on_frame.clone();
             true
         } else {

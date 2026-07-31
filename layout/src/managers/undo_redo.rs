@@ -188,7 +188,9 @@ pub struct ContentSnapshot {
 const MAX_CONTENT_SNAPSHOTS: usize = 64;
 
 /// A recorded STRUCTURAL edit (Enter split / merge / …) — the tree-shaped
-/// undo entry. Undoing never mutates: it re-RECORDS `inverse` as a fresh
+/// undo entry.
+///
+/// Undoing never mutates: it re-RECORDS `inverse` as a fresh
 /// `DocumentChangeset` through the same record→app-apply loop the original
 /// edit took (`LayoutWindow::undo_structural_edit`).
 #[derive(Debug, Clone)]
@@ -670,7 +672,7 @@ mod structural_history_tests {
         assert_eq!(m.structural_undo.len(), 1);
 
         // A FRESH edit invalidates redo (the text rule):
-        m.pop_structural_undo().map(|e| m.push_structural_redo(e));
+        if let Some(e) = m.pop_structural_undo() { m.push_structural_redo(e) }
         assert_eq!(m.structural_redo.len(), 1);
         m.push_structural(entry(2));
         assert!(m.structural_redo.is_empty(), "fresh edit clears redo");

@@ -46,7 +46,7 @@ pub struct AppliedEdit {
 }
 
 /// Why an apply failed. Failures leave the tree UNCHANGED.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum DocumentEditError {
     /// `host_path` did not resolve to a node in the tree.
     HostNotFound,
@@ -107,7 +107,7 @@ pub fn apply_document_operation(
             let first_index = resume_index as usize;
             apply_merge(host, first_index, merge)?
         }
-        DocumentOperation::InsertChildren(insert) => apply_insert(host, insert)?,
+        DocumentOperation::InsertChildren(insert) => apply_insert(host, insert),
         DocumentOperation::RemoveChildren(remove) => apply_remove(host, remove)?,
         DocumentOperation::ReplaceChildren(replace) => apply_replace(host, replace)?,
         DocumentOperation::WrapRange(wrap) => apply_wrap(host, wrap)?,
@@ -275,10 +275,7 @@ fn apply_merge(
 
 /// Insert the fragment's children under `host` at `insert.index`.
 /// Inverse: remove of exactly that range.
-fn apply_insert(
-    host: &mut Dom,
-    insert: &DocOpInsertChildren,
-) -> Result<DocumentOperation, DocumentEditError> {
+fn apply_insert(host: &mut Dom, insert: &DocOpInsertChildren) -> DocumentOperation {
     let mut host_children = take_children(host);
     let index = (insert.index as usize).min(host_children.len());
     let new_children = insert.content.children.as_ref().to_vec();
@@ -287,11 +284,11 @@ fn apply_insert(
         host_children.insert(index + offset, child);
     }
     host.children = host_children.into();
-    Ok(DocumentOperation::RemoveChildren(DocOpRemoveChildren {
+    DocumentOperation::RemoveChildren(DocOpRemoveChildren {
         parent: insert.parent,
-        start: index as u32,
-        end: (index + count) as u32,
-    }))
+        start: u32::try_from(index).unwrap_or(u32::MAX),
+        end: u32::try_from(index + count).unwrap_or(u32::MAX),
+    })
 }
 
 /// Remove `host.children[start..end)`. Inverse: insert of the removed
@@ -336,7 +333,7 @@ fn apply_replace(
     Ok(DocumentOperation::ReplaceChildren(DocOpReplaceChildren {
         parent: replace.parent,
         start: replace.start,
-        end: (start + count) as u32,
+        end: u32::try_from(start + count).unwrap_or(u32::MAX),
         content: fragment(removed),
     }))
 }
@@ -411,7 +408,7 @@ fn apply_wrap(
     Ok(DocumentOperation::UnwrapRange(
         crate::managers::changeset::DocOpUnwrapRange {
             node: wrap.node,
-            at: NodePosition::before_child(start_index as u32),
+            at: NodePosition::before_child(u32::try_from(start_index).unwrap_or(u32::MAX)),
         },
     ))
 }
@@ -419,6 +416,7 @@ fn apply_wrap(
 /// Remove the wrapper child at `at`, splicing its children into its place;
 /// text meeting at either seam coalesces (so wrap → unwrap round-trips to
 /// the original tree). Inverse: the wrap that re-covers the spliced range.
+#[allow(clippy::too_many_lines)] // large but cohesive: single-purpose splice + both-seam coalesce + exact inverse
 fn apply_unwrap(
     host: &mut Dom,
     unwrap: &crate::managers::changeset::DocOpUnwrapRange,
@@ -443,7 +441,7 @@ fn apply_unwrap(
 
     // Inverse range start: coalescing with a preceding text node moves the
     // start INTO it (at its pre-join byte length).
-    let mut start = NodePosition::before_child(index as u32);
+    let mut start = NodePosition::before_child(u32::try_from(index).unwrap_or(u32::MAX));
     if index > 0 {
         let coalesce_left = matches!(
             (
@@ -459,13 +457,16 @@ fn apply_unwrap(
                 first_spliced.root.get_node_type(),
             ) {
                 (NodeType::Text(a), NodeType::Text(b)) => (
-                    a.as_str().len() as u32,
+                    u32::try_from(a.as_str().len()).unwrap_or(u32::MAX),
                     format!("{}{}", a.as_str(), b.as_str()),
                 ),
                 _ => unreachable!("checked above"),
             };
             children[index - 1] = Dom::create_text(joined);
-            start = NodePosition::in_text_child((index - 1) as u32, prev_len);
+            start = NodePosition::in_text_child(
+                u32::try_from(index - 1).unwrap_or(u32::MAX),
+                prev_len,
+            );
         }
     }
 
@@ -482,18 +483,24 @@ fn apply_unwrap(
         let last = insert_at + spliced_count - 1;
         (
             Some(last),
-            NodePosition::before_child((last + 1) as u32),
+            NodePosition::before_child(u32::try_from(last + 1).unwrap_or(u32::MAX)),
         )
     } else if start.text_byte.into_option().is_some() {
         let holder = index - 1;
         let byte = match children[holder].root.get_node_type() {
-            NodeType::Text(t) => t.as_str().len() as u32,
+            NodeType::Text(t) => u32::try_from(t.as_str().len()).unwrap_or(u32::MAX),
             _ => 0,
         };
-        (Some(holder), NodePosition::in_text_child(holder as u32, byte))
+        (
+            Some(holder),
+            NodePosition::in_text_child(u32::try_from(holder).unwrap_or(u32::MAX), byte),
+        )
     } else {
         // Empty wrapper removed: nothing to coalesce, range is empty.
-        (None, NodePosition::before_child(index as u32))
+        (
+            None,
+            NodePosition::before_child(u32::try_from(index).unwrap_or(u32::MAX)),
+        )
     };
 
     // Right seam: the end-holder may coalesce with its follower (both text).
@@ -515,13 +522,16 @@ fn apply_unwrap(
                     following.root.get_node_type(),
                 ) {
                     (NodeType::Text(a), NodeType::Text(b)) => (
-                        a.as_str().len() as u32,
+                        u32::try_from(a.as_str().len()).unwrap_or(u32::MAX),
                         format!("{}{}", a.as_str(), b.as_str()),
                     ),
                     _ => unreachable!("checked above"),
                 };
                 children[holder] = Dom::create_text(joined);
-                end = NodePosition::in_text_child(holder as u32, seam_byte);
+                end = NodePosition::in_text_child(
+                    u32::try_from(holder).unwrap_or(u32::MAX),
+                    seam_byte,
+                );
             }
         }
     }

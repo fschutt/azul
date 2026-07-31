@@ -51,9 +51,11 @@ pub struct DirtyTextNode {
     pub needs_ancestor_relayout: bool,
 }
 
-/// Flatten inline content to the plain string it displays — the SAME
-/// flattening every consumer (a11y, convergence GC, exports) must share, or
-/// two of them will disagree about whether an edit "is" committed.
+/// Flatten inline content to the plain string it displays.
+///
+/// This is the SAME flattening every consumer (a11y, convergence GC,
+/// exports) must share, or two of them will disagree about whether an edit
+/// "is" committed.
 #[must_use]
 pub fn flatten_inline_content(content: &[InlineContent]) -> String {
     let mut result = String::new();
@@ -73,11 +75,12 @@ pub fn flatten_inline_content(content: &[InlineContent]) -> String {
     result
 }
 
-/// How many PRESENTED frames of history the journal keeps. A backend
-/// re-presenting a not-fully-redrawn buffer composed `k` frames ago may still
-/// sample the previous image of a node via [`ContentJournal::image_as_of`];
-/// `3` covers the deepest swapchain in the tree (triple buffering — wl_shm
-/// double-buffer needs 2).
+/// How many PRESENTED frames of history the journal keeps.
+///
+/// A backend re-presenting a not-fully-redrawn buffer composed `k` frames
+/// ago may still sample the previous image of a node via
+/// [`ContentJournal::image_as_of`]; `3` covers the deepest swapchain in the
+/// tree (triple buffering — `wl_shm` double-buffer needs 2).
 pub const JOURNAL_RETENTION_FRAMES: u64 = 3;
 
 /// A content mutation, as accepted by the chokepoint.
@@ -156,11 +159,10 @@ impl ContentDirtyTier {
     /// host consumes. Defined here — next to the tier — so a backend cannot
     /// invent its own interpretation:
     /// - `Paint`: the DL was already patched in place; a re-render picks it up
-    ///   (CPU: the DL diff sees the ImageRef identity change and damages those
+    ///   (CPU: the DL diff sees the `ImageRef` identity change and damages those
     ///   bounds; GPU: the translator re-reads the patched DL).
     /// - `RebuildDisplayList`: DL regeneration + re-render.
     /// - `Relayout`: incremental relayout (which rebuilds the DL).
-    #[must_use]
     pub const fn to_process_event_result(self) -> azul_core::events::ProcessEventResult {
         use azul_core::events::ProcessEventResult;
         match self {
@@ -192,11 +194,13 @@ impl OverlayPartId {
     }
 }
 
-/// A pending STRUCTURAL delta over the immutable DOM — what a mutable DOM
-/// would have done with `insertChild` / `removeChild` / `replaceChild` /
-/// split / merge, recorded here as a PREVIEW until the app's re-render
-/// lands. The preview never copies content: it references DOM nodes (by id)
-/// and pending subtrees (the changeset's own `Dom` payloads).
+/// A pending STRUCTURAL delta over the immutable DOM.
+///
+/// What a mutable DOM would have done with `insertChild` / `removeChild` /
+/// `replaceChild` / split / merge, recorded here as a PREVIEW until the
+/// app's re-render lands. The preview never copies content: it references
+/// DOM nodes (by id) and pending subtrees (the changeset's own `Dom`
+/// payloads).
 #[derive(Debug, Clone)]
 pub enum StructuralPreview {
     /// `node` renders as TWO parts split at the structural position.
@@ -437,26 +441,25 @@ impl ContentOverlay {
                 // Node gone in the new generation: nothing to converge to.
                 return false;
             };
-            let dom_text = match node.get_node_type() {
-                NodeType::Text(s) => s.as_str().to_string(),
+            let dom_text = if let NodeType::Text(s) = node.get_node_type() {
+                s.as_str().to_string()
+            } else {
                 // Non-text IFC roots (contenteditable hosts): compare against
                 // the concatenated text of DIRECT text children.
-                _ => {
-                    let hierarchy = styled_dom.node_hierarchy.as_container();
-                    let mut s = String::new();
-                    if let Some(n) = hierarchy.get(node_id) {
-                        let mut child = n.first_child_id(node_id);
-                        while let Some(c) = child {
-                            if let Some(cd) = node_data.get(c) {
-                                if let NodeType::Text(t) = cd.get_node_type() {
-                                    s.push_str(t.as_str());
-                                }
+                let hierarchy = styled_dom.node_hierarchy.as_container();
+                let mut s = String::new();
+                if let Some(n) = hierarchy.get(node_id) {
+                    let mut child = n.first_child_id(node_id);
+                    while let Some(c) = child {
+                        if let Some(cd) = node_data.get(c) {
+                            if let NodeType::Text(t) = cd.get_node_type() {
+                                s.push_str(t.as_str());
                             }
-                            child = hierarchy.get(c).and_then(|cn| cn.next_sibling_id());
                         }
+                        child = hierarchy.get(c).and_then(azul_core::styled_dom::NodeHierarchyItem::next_sibling_id);
                     }
-                    s
                 }
+                s
             };
             flatten_inline_content(&dirty.content) != dom_text
         });
@@ -487,7 +490,7 @@ impl NodeIdRemap for ContentOverlay {
 /// Constructed at the few pipeline entries that own both halves (display-list
 /// build / IFC build via `LayoutContext`, exports); everything downstream
 /// takes this instead of reaching into `StyledDom` for content.
-#[derive(Clone, Copy)]
+#[derive(Debug, Clone, Copy)]
 pub struct ResolvedContent<'a> {
     pub overlay: Option<&'a ContentOverlay>,
     pub styled_dom: &'a StyledDom,
@@ -549,7 +552,7 @@ impl ResolvedContent<'_> {
         let mut child = hierarchy.get(node_id).and_then(|n| n.first_child_id(node_id));
         while let Some(c) = child {
             out.push(ResolvedChild::Existing(c));
-            child = hierarchy.get(c).and_then(|n| n.next_sibling_id());
+            child = hierarchy.get(c).and_then(azul_core::styled_dom::NodeHierarchyItem::next_sibling_id);
         }
 
         let Some(overlay) = self.overlay else {
@@ -606,14 +609,13 @@ impl ResolvedContent<'_> {
                             .and_then(|n| n.first_child_id(*second));
                         while let Some(c) = sc {
                             out.push(ResolvedChild::Existing(c));
-                            sc = hierarchy.get(c).and_then(|n| n.next_sibling_id());
+                            sc = hierarchy.get(c).and_then(azul_core::styled_dom::NodeHierarchyItem::next_sibling_id);
                         }
                     }
                 }
                 // A split regroups the node's OWN content; its parent's child
                 // list is unchanged (the second part becomes real only when
                 // the app applies).
-                StructuralPreview::Split { .. } => {}
                 _ => {}
             }
         }

@@ -1493,11 +1493,11 @@ fn layout_bfc<T: ParsedFontTrait>(
                     main_pen += accumulated_top_margin + self_collapsed;
                     top_margin_resolved = true;
                     accumulated_top_margin = 0.0;
-                    seam_main = main_pen;
                 } else {
                     accumulated_top_margin = collapse_margins(parent_margin_top, self_collapsed);
-                    seam_main = main_pen;
                 }
+                // Both arms seat the seam at the (possibly advanced) pen.
+                seam_main = main_pen;
                 last_margin_bottom = self_collapsed;
             } else {
                 // Empty sibling: collapse with previous sibling's bottom margin
@@ -6943,13 +6943,11 @@ fn slice_inline_content_by_bytes(
                 let cut_to = (cut_to..=len)
                     .find(|&c| run.text.is_char_boundary(c))
                     .unwrap_or(len);
-                if cut_from == 0 && cut_to == len {
-                    out.push(InlineContent::Text(run));
-                } else {
+                if cut_from != 0 || cut_to != len {
                     run.text = run.text[cut_from..cut_to].to_string();
                     run.logical_start_byte = 0;
-                    out.push(InlineContent::Text(run));
                 }
+                out.push(InlineContent::Text(run));
             }
             other => {
                 if consumed >= start && consumed < end {

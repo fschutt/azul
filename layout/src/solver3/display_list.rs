@@ -5649,7 +5649,7 @@ fn offset_rect_y(bounds: LogicalRect, offset_y: f32) -> LogicalRect {
 
 use azul_css::props::layout::fragmentation::{BreakInside, PageBreak};
 
-use crate::solver3::page_breaks;
+use crate::solver3::page_breaks::{self, BreakPolicy};
 use crate::solver3::pagination::{
     HeaderFooterConfig, MarginBoxContent, PageInfo, TableHeaderInfo, TableHeaderTracker,
 };
@@ -5671,7 +5671,7 @@ pub struct SlicerConfig {
     /// Table headers that need repetition across pages
     pub table_headers: TableHeaderTracker,
     /// Break-awareness policy (all-off default = plain interval slicing).
-    pub break_policy: crate::solver3::page_breaks::BreakPolicy,
+    pub break_policy: BreakPolicy,
     /// MS-Word-style per-page setup (default + overrides + parity). `None`
     /// = every page uses `header_footer` / `page_content_height` uniformly.
     pub page_sequence: Option<crate::solver3::pagination::PageSequence>,
@@ -5687,7 +5687,7 @@ impl SlicerConfig {
             header_footer: HeaderFooterConfig::default(),
             page_width: DEFAULT_A4_WIDTH_PT, // Default A4 width in points
             table_headers: TableHeaderTracker::default(),
-            break_policy: crate::solver3::page_breaks::BreakPolicy::default(),
+            break_policy: BreakPolicy::default(),
             page_sequence: None,
         }
     }
@@ -5701,7 +5701,7 @@ impl SlicerConfig {
             header_footer: HeaderFooterConfig::default(),
             page_width: DEFAULT_A4_WIDTH_PT,
             table_headers: TableHeaderTracker::default(),
-            break_policy: crate::solver3::page_breaks::BreakPolicy::default(),
+            break_policy: BreakPolicy::default(),
             page_sequence: None,
         }
     }
@@ -5709,7 +5709,7 @@ impl SlicerConfig {
     /// Set the break-awareness policy.
     #[must_use] pub const fn with_break_policy(
         mut self,
-        policy: crate::solver3::page_breaks::BreakPolicy,
+        policy: BreakPolicy,
     ) -> Self {
         self.break_policy = policy;
         self
@@ -5791,10 +5791,11 @@ pub fn paginate_display_list_with_slicer_and_breaks(
 }
 
 /// Paginate against a PRE-COMPUTED break analysis (see
-/// [`page_breaks::compute_page_breaks_from_display_list`]) — the sibling of
-/// [`paginate_display_list_with_slicer_and_breaks`], which computes the breaks
-/// itself and delegates here. Lets embedders analyze pagination once and
-/// materialize pages separately.
+/// [`page_breaks::compute_page_breaks_from_display_list`]).
+///
+/// The sibling of [`paginate_display_list_with_slicer_and_breaks`], which
+/// computes the breaks itself and delegates here. Lets embedders analyze
+/// pagination once and materialize pages separately.
 /// # Errors
 ///
 /// Returns a `LayoutError` if paginating the display list fails.
@@ -5804,11 +5805,18 @@ pub fn paginate_display_list_with_breaks(
     breaks: &[page_breaks::PageBreakPosition],
     renderer_resources: &RendererResources,
 ) -> Result<Vec<DisplayList>> {
-    paginate_pages_impl(full_display_list, config, breaks, renderer_resources, None)
+    Ok(paginate_pages_impl(
+        full_display_list,
+        config,
+        breaks,
+        renderer_resources,
+        None,
+    ))
 }
 
-/// Materialize ONE page of a paginated document — the lazy-viewer entry: a
-/// document editor computes breaks once (`compute_page_breaks*`), then
+/// Materialize ONE page of a paginated document — the lazy-viewer entry.
+///
+/// A document editor computes breaks once (`compute_page_breaks*`), then
 /// materializes only the visible pages. Headers/footers still show the
 /// correct "page N of TOTAL" because the total comes from `breaks`, not from
 /// how many pages were materialized.
@@ -5830,7 +5838,7 @@ pub fn paginate_single_page(
         breaks,
         renderer_resources,
         Some(page_index),
-    )?;
+    );
     Ok(pages.pop().unwrap_or_default())
 }
 
@@ -5841,9 +5849,9 @@ fn paginate_pages_impl(
     breaks: &[page_breaks::PageBreakPosition],
     renderer_resources: &RendererResources,
     only_page: Option<usize>,
-) -> Result<Vec<DisplayList>> {
+) -> Vec<DisplayList> {
     if config.page_content_height <= 0.0 || config.page_content_height >= f32::MAX {
-        return Ok(vec![full_display_list]);
+        return vec![full_display_list];
     }
 
     let total_height = calculate_display_list_height(&full_display_list);
@@ -6034,7 +6042,7 @@ fn paginate_pages_impl(
         pages.push(DisplayList::default());
     }
 
-    Ok(pages)
+    pages
 }
 
 /// Calculate page break positions respecting CSS forced page breaks.

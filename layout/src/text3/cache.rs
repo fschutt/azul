@@ -2702,7 +2702,7 @@ pub enum ImageSource {
     /// pixels — swapping the node's image repaints without invalidating the
     /// IFC this item is cached in. This is what `fc.rs` snapshots for
     /// `NodeType::Image` inline items (the old `Ref` snapshot froze the
-    /// ImageRef at IFC-build time, so inline image swaps were invisible
+    /// `ImageRef` at IFC-build time, so inline image swaps were invisible
     /// until a full relayout).
     Node(NodeId),
     /// CSS url reference (from background-image, needs `ImageCache` lookup)

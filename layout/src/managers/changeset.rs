@@ -230,9 +230,11 @@ impl NodePosition {
     }
 }
 
-/// Split a node at a structural position (Enter in a contenteditable is ONE
-/// producer; splitting any container between children is the same op).
-#[derive(Debug, Clone)]
+/// Split a node at a structural position.
+///
+/// Enter in a contenteditable is ONE producer; splitting any container
+/// between children is the same op.
+#[derive(Debug, Clone, Copy)]
 #[repr(C)]
 pub struct DocOpSplitNode {
     /// The node being split.
@@ -242,11 +244,13 @@ pub struct DocOpSplitNode {
     pub at: NodePosition,
 }
 
-/// Merge two adjacent sibling nodes (Backspace at start / Delete at end are
-/// ONE producer; joining any two containers is the same op): `second`'s
-/// children are appended to `first`, `second` is removed. Subtrees are
-/// preserved wholesale; only adjacent TEXT children at the seam coalesce.
-#[derive(Debug, Clone)]
+/// Merge two adjacent sibling nodes.
+///
+/// Backspace at start / Delete at end are ONE producer; joining any two
+/// containers is the same op: `second`'s children are appended to `first`,
+/// `second` is removed. Subtrees are preserved wholesale; only adjacent TEXT
+/// children at the seam coalesce.
+#[derive(Debug, Clone, Copy)]
 #[repr(C)]
 pub struct DocOpMergeNodes {
     /// The surviving first node.
@@ -258,12 +262,13 @@ pub struct DocOpMergeNodes {
     pub join: NodePosition,
 }
 
-/// Wrap a contiguous CONTENT RANGE of a node in a new wrapper element — the
-/// toolbar bold/italic/link op, expressed structurally: everything between
-/// `start` and `end` moves INTO the wrapper (boundary TEXT children are cut
-/// at the range edges; element children move wholesale). Wrapping a word in
-/// `<strong>` and wrapping three paragraphs in a `<blockquote>` are the
-/// SAME operation.
+/// Wrap a contiguous CONTENT RANGE of a node in a new wrapper element.
+///
+/// The toolbar bold/italic/link op, expressed structurally: everything
+/// between `start` and `end` moves INTO the wrapper (boundary TEXT children
+/// are cut at the range edges; element children move wholesale). Wrapping a
+/// word in `<strong>` and wrapping three paragraphs in a `<blockquote>` are
+/// the SAME operation.
 #[derive(Debug, Clone)]
 #[repr(C)]
 pub struct DocOpWrapRange {
@@ -280,10 +285,11 @@ pub struct DocOpWrapRange {
     pub wrapper: azul_core::dom::Dom,
 }
 
-/// Remove the wrapper element that is a direct child of `node` at `at`,
-/// splicing its children into its place (adjacent text at both seams
-/// coalesces, so wrap → unwrap round-trips). The inverse of wrap.
-#[derive(Debug, Clone)]
+/// Remove a wrapper element, splicing its children into its place.
+///
+/// The wrapper is the direct child of `node` at `at`; adjacent text at both
+/// seams coalesces, so wrap → unwrap round-trips. The inverse of wrap.
+#[derive(Debug, Clone, Copy)]
 #[repr(C)]
 pub struct DocOpUnwrapRange {
     /// The node whose direct child is the wrapper.
@@ -293,9 +299,11 @@ pub struct DocOpUnwrapRange {
 }
 
 /// Insert node SUBTREES under `parent` at child `index` — the immutable-DOM
-/// analog of `.insertChild()`. The content is a [`azul_core::dom::Dom`]
-/// (the native tree apps already build), NOT a markup string: a paragraph,
-/// a list item, a whole table — any subtree, the same op.
+/// analog of `.insertChild()`.
+///
+/// The content is a [`azul_core::dom::Dom`] (the native tree apps already
+/// build), NOT a markup string: a paragraph, a list item, a whole table —
+/// any subtree, the same op.
 #[derive(Debug, Clone)]
 #[repr(C)]
 pub struct DocOpInsertChildren {
@@ -307,13 +315,13 @@ pub struct DocOpInsertChildren {
     /// `content.children`-siblings pattern: a `Dom` is one subtree — multiple
     /// siblings are inserted by wrapping in a fragment container is NOT
     /// required: the applier inserts exactly this one subtree. (Insert
-    /// several = several ops, or a ReplaceChildren.)
+    /// several = several ops, or a `ReplaceChildren`.)
     pub content: azul_core::dom::Dom,
 }
 
 /// Remove a RANGE of direct children of `parent` (with their subtrees) —
 /// the analog of `.removeChild()`, generalized to a contiguous range.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Copy)]
 #[repr(C)]
 pub struct DocOpRemoveChildren {
     pub parent: DomNodeId,
@@ -338,12 +346,13 @@ pub struct DocOpReplaceChildren {
 
 /// A structural document edit — the vocabulary `TextOperation` lacks
 /// (everything here crosses or creates block boundaries).
-/// A structural document edit — the tree-mutation vocabulary a MUTABLE DOM
-/// would express as methods (`insertChild` / `removeChild` / `replaceChild`
-/// / split / merge), expressed here as RECORDED INTENT because the DOM is
-/// immutable: azul delivers the operation, the app applies it to ITS model
-/// (or the `document_edit` helper applies it to a `Dom`), and the overlay
-/// previews it until the re-render lands.
+///
+/// The tree-mutation vocabulary a MUTABLE DOM would express as methods
+/// (`insertChild` / `removeChild` / `replaceChild` / split / merge),
+/// expressed here as RECORDED INTENT because the DOM is immutable: azul
+/// delivers the operation, the app applies it to ITS model (or the
+/// `document_edit` helper applies it to a `Dom`), and the overlay previews
+/// it until the re-render lands.
 ///
 /// Positions are STRUCTURAL ([`NodePosition`]: child index + byte only when
 /// the boundary child is text). Content payloads are node SUBTREES
@@ -369,11 +378,12 @@ pub enum DocumentOperation {
 }
 
 /// Where the caret/selection anchor should land after the app re-renders,
-/// expressed RE-RENDER-STABLY: `NodeId`s in the changeset refer to the
-/// current generation and die at the swap, so the resume point is defined
-/// against the POST-edit logical structure instead. Nothing here presumes
-/// text: the anchor is any stable node, the path is child indices, the
-/// position is structural.
+/// expressed RE-RENDER-STABLY.
+///
+/// `NodeId`s in the changeset refer to the current generation and die at the
+/// swap, so the resume point is defined against the POST-edit logical
+/// structure instead. Nothing here presumes text: the anchor is any stable
+/// node, the path is child indices, the position is structural.
 #[derive(Debug, Clone)]
 #[repr(C)]
 pub struct EditResumePoint {

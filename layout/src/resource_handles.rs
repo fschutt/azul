@@ -49,7 +49,7 @@ impl FontCacheSnapshot {
 
     /// Borrow the wrapped font manager, if any.
     #[cfg(feature = "text_layout")]
-    #[must_use] pub fn as_font_manager(&self) -> Option<&InnerFontManager> {
+    #[must_use] pub const fn as_font_manager(&self) -> Option<&InnerFontManager> {
         unsafe { self.ptr.cast::<InnerFontManager>().as_ref() }
     }
 
@@ -116,7 +116,7 @@ impl ImageCacheSnapshot {
     }
 
     /// Borrow the wrapped image cache, if any.
-    #[must_use] pub fn as_image_cache(&self) -> Option<&azul_core::resources::ImageCache> {
+    #[must_use] pub const fn as_image_cache(&self) -> Option<&azul_core::resources::ImageCache> {
         unsafe {
             self.ptr
                 .cast::<azul_core::resources::ImageCache>()
@@ -164,10 +164,11 @@ impl Drop for ImageCacheSnapshot {
 // callback (off-thread print jobs).
 unsafe impl Send for ImageCacheSnapshot {}
 
-/// Boxed pagination analysis (`page_breaks::PaginationInfo`) — the
-/// document-editor precalculation result over the ABI: page count, page of
-/// any Y, and every break position, WITHOUT any per-page display list having
-/// been materialized. Obtain via `Pdf::compute_pagination`.
+/// Boxed pagination analysis (`page_breaks::PaginationInfo`) over the ABI.
+///
+/// The document-editor precalculation result: page count, page of any Y, and
+/// every break position, WITHOUT any per-page display list having been
+/// materialized. Obtain via `Pdf::compute_pagination`.
 #[cfg(feature = "text_layout")]
 #[repr(C)]
 #[derive(Debug)]
@@ -191,7 +192,7 @@ impl PaginationSnapshot {
 
     /// Borrow the wrapped analysis, if any.
     #[must_use]
-    pub fn as_info(&self) -> Option<&crate::solver3::page_breaks::PaginationInfo> {
+    pub const fn as_info(&self) -> Option<&crate::solver3::page_breaks::PaginationInfo> {
         unsafe {
             self.ptr
                 .cast::<crate::solver3::page_breaks::PaginationInfo>()

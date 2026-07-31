@@ -480,7 +480,7 @@ where
         page_width,
         table_headers,
         break_policy: page_config.break_policy,
-        page_sequence: page_config.page_sequence.clone(),
+        page_sequence: page_config.page_sequence,
     };
 
     // Step 3: Analyze the breaks, THEN paginate against them — the analysis
@@ -534,8 +534,9 @@ where
     })
 }
 
-/// The PRECALCULATION-ONLY path (the document-editor requirement): full
-/// layout + display-list generation + break analysis, but NO per-page
+/// The PRECALCULATION-ONLY path (the document-editor requirement).
+///
+/// Full layout + display-list generation + break analysis, but NO per-page
 /// display list is ever materialized. Pair with
 /// [`crate::solver3::display_list::paginate_single_page`] to materialize
 /// only visible pages, and [`crate::solver3::page_breaks::page_of_y`] to map

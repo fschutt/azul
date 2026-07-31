@@ -320,8 +320,10 @@ pub mod glyph_cache;
 /// Default keyboard actions (copy, paste, select-all, undo, etc.).
 #[cfg(feature = "text_layout")]
 pub mod default_actions;
-/// Apply structural `DocumentOperation`s to a plain XML tree — the Path-2
-/// helper for apps without their own document model (the PDF editor).
+/// Apply structural `DocumentOperation`s to a plain XML tree.
+///
+/// The Path-2 helper for apps without their own document model (the PDF
+/// editor).
 #[cfg(all(feature = "text_layout", feature = "xml"))]
 pub mod document_edit;
 /// Event determination: maps raw input to DOM node callbacks.
@@ -373,8 +375,10 @@ pub mod timer;
 /// Scroll physics timer for momentum-based smooth scrolling.
 #[cfg(feature = "text_layout")]
 pub mod scroll_timer;
-/// Content overlay + journal: the single write chokepoint and overlay→DOM
-/// read order for quickly-mutable content (images now, text/structural next).
+/// Content overlay + journal for quickly-mutable content.
+///
+/// The single write chokepoint and overlay→DOM read order (images now,
+/// text/structural next).
 #[cfg(feature = "text_layout")]
 pub mod overlay;
 /// Window layout management: relayout, event processing, state sync.

@@ -603,7 +603,7 @@ pub struct DomLayoutResult {
     /// (`patch_node_image`, `patch_text_glyphs`) and the virtual-view
     /// placeholder swap — those go through `Arc::make_mut`, which copies only
     /// if another holder is still alive.
-    pub display_list: std::sync::Arc<DisplayList>,
+    pub display_list: Arc<DisplayList>,
     /// Stable scroll IDs computed from `node_data_hash`
     /// Maps layout node index -> external scroll ID
     pub scroll_ids: HashMap<usize, u64>,
@@ -1284,7 +1284,7 @@ impl LayoutWindow {
 
     /// The pending structural edit, if any (the app's callback inspects it).
     #[must_use]
-    pub fn get_pending_document_edit(
+    pub const fn get_pending_document_edit(
         &self,
     ) -> Option<&crate::managers::changeset::DocumentChangeset> {
         self.pending_document_edit.as_ref()
@@ -1294,7 +1294,7 @@ impl LayoutWindow {
     /// last drain — the `dirty_y_start` for
     /// `page_breaks::recompute_page_breaks_from` in an embedder's paged view.
     /// `None` = nothing changed = every previous page span is still valid.
-    pub fn take_pagination_dirty_from(&mut self) -> Option<f32> {
+    pub const fn take_pagination_dirty_from(&mut self) -> Option<f32> {
         self.pagination_dirty_from.take()
     }
 
@@ -1308,22 +1308,23 @@ impl LayoutWindow {
     ) -> Option<crate::default_actions::EditingQueryState> {
         let focus = focused_node?;
         let node_id = focus.node.into_crate_internal()?;
-        if self.find_contenteditable_host(focus.dom, node_id).is_none() {
-            return None;
-        }
+        self.find_contenteditable_host(focus.dom, node_id)?;
 
         // Caret at block start / end, judged against the CURRENT effective
         // content (overlay-first via get_text_before_textinput). Conservative
         // on multi-run content: a caret we cannot prove at the boundary keeps
         // Backspace/Delete on the plain per-IFC text path — safe fallback.
-        let (at_start, at_end) = match self.text_edit_manager.get_primary_cursor() {
-            Some(cursor) => {
+        let (at_start, at_end) =
+            self.text_edit_manager.get_primary_cursor().map_or((false, false), |cursor| {
                 let content = self.get_text_before_textinput(focus.dom, node_id);
                 let at_start = cursor.cluster_id.source_run == 0
                     && cursor.cluster_id.start_byte_in_run == 0;
                 let last_text = content.iter().enumerate().rev().find_map(|(i, c)| {
-                    if let crate::text3::cache::InlineContent::Text(run) = c {
-                        Some((i as u32, run.text.len() as u32))
+                    if let InlineContent::Text(run) = c {
+                        Some((
+                            u32::try_from(i).unwrap_or(u32::MAX),
+                            u32::try_from(run.text.len()).unwrap_or(u32::MAX),
+                        ))
                     } else {
                         None
                     }
@@ -1336,10 +1337,8 @@ impl LayoutWindow {
                     // No text at all: the caret is at both boundaries.
                     None => true,
                 };
-                (at_start && last_text.is_some() || at_start && last_text.is_none(), at_end)
-            }
-            None => (false, false),
-        };
+                (at_start, at_end)
+            });
 
         Some(crate::default_actions::EditingQueryState {
             is_contenteditable: true,
@@ -1360,7 +1359,7 @@ impl LayoutWindow {
             if node_data.get(nid).is_some_and(azul_core::dom::NodeData::is_contenteditable) {
                 return Some(nid);
             }
-            current = hierarchy.get(nid).and_then(|n| n.parent_id());
+            current = hierarchy.get(nid).and_then(azul_core::styled_dom::NodeHierarchyItem::parent_id);
         }
         None
     }
@@ -1437,7 +1436,7 @@ impl LayoutWindow {
             target,
             operation,
             resume,
-            azul_core::task::Instant::now(),
+            Instant::now(),
         );
 
         // O3: EVERY structural edit materializes a PREVIEW in the overlay —
@@ -1487,7 +1486,7 @@ impl LayoutWindow {
         // Walk the caret's node up to the DIRECT child of `node`.
         let mut direct_child = caret_node;
         if direct_child != node_id {
-            while let Some(parent) = hierarchy.get(direct_child).and_then(|n| n.parent_id()) {
+            while let Some(parent) = hierarchy.get(direct_child).and_then(azul_core::styled_dom::NodeHierarchyItem::parent_id) {
                 if parent == node_id {
                     break;
                 }
@@ -1501,10 +1500,10 @@ impl LayoutWindow {
 
         // Index of that direct child among ALL children.
         let mut index: u32 = 0;
-        let mut sib = hierarchy.get(direct_child).and_then(|n| n.previous_sibling_id());
+        let mut sib = hierarchy.get(direct_child).and_then(azul_core::styled_dom::NodeHierarchyItem::previous_sibling_id);
         while let Some(sn) = sib {
             index += 1;
-            sib = hierarchy.get(sn).and_then(|n| n.previous_sibling_id());
+            sib = hierarchy.get(sn).and_then(azul_core::styled_dom::NodeHierarchyItem::previous_sibling_id);
         }
 
         // Only a TEXT child carries a byte offset; anything else is a
@@ -1542,18 +1541,18 @@ impl LayoutWindow {
         while let Some(c) = child {
             count += 1;
             last_child = Some(c);
-            child = hierarchy.get(c).and_then(|n| n.next_sibling_id());
+            child = hierarchy.get(c).and_then(azul_core::styled_dom::NodeHierarchyItem::next_sibling_id);
         }
         let last_text_len = last_child.and_then(|c| {
             node_data.get(c).and_then(|n| match n.get_node_type() {
-                NodeType::Text(t) => Some(t.as_str().len() as u32),
+                NodeType::Text(t) => Some(u32::try_from(t.as_str().len()).unwrap_or(u32::MAX)),
                 _ => None,
             })
         });
-        match last_text_len {
-            Some(len) => NodePosition::in_text_child(count.saturating_sub(1), len),
-            None => NodePosition::before_child(count),
-        }
+        last_text_len.map_or_else(
+            || NodePosition::before_child(count),
+            |len| NodePosition::in_text_child(count.saturating_sub(1), len),
+        )
     }
 
     /// The previous/next SIBLING of a node (v1 block-adjacency; skips nothing).
@@ -1589,7 +1588,7 @@ impl LayoutWindow {
         let hierarchy_c = lr.styled_dom.node_hierarchy.as_container();
         let anchor = self
             .find_contenteditable_host(target.dom, node_id)
-            .or_else(|| hierarchy_c.get(node_id).and_then(|n| n.parent_id()))
+            .or_else(|| hierarchy_c.get(node_id).and_then(azul_core::styled_dom::NodeHierarchyItem::parent_id))
             .unwrap_or(node_id);
         let node_data = lr.styled_dom.node_data.as_ref();
         let hierarchy = lr.styled_dom.node_hierarchy.as_ref();
@@ -1600,13 +1599,13 @@ impl LayoutWindow {
         let mut current = node_id;
         while current != anchor {
             let mut index: u32 = 0;
-            let mut sib = hierarchy_c.get(current).and_then(|n| n.previous_sibling_id());
+            let mut sib = hierarchy_c.get(current).and_then(azul_core::styled_dom::NodeHierarchyItem::previous_sibling_id);
             while let Some(sn) = sib {
                 index += 1;
-                sib = hierarchy_c.get(sn).and_then(|n| n.previous_sibling_id());
+                sib = hierarchy_c.get(sn).and_then(azul_core::styled_dom::NodeHierarchyItem::previous_sibling_id);
             }
             path_rev.push(index);
-            match hierarchy_c.get(current).and_then(|n| n.parent_id()) {
+            match hierarchy_c.get(current).and_then(azul_core::styled_dom::NodeHierarchyItem::parent_id) {
                 Some(p) => current = p,
                 None => break,
             }
@@ -1735,7 +1734,7 @@ impl LayoutWindow {
                 }),
             entry.inverse.clone(),
             resume,
-            azul_core::task::Instant::now(),
+            Instant::now(),
         );
         let id = self.record_document_edit(changeset);
         self.undo_redo_manager.push_structural_redo(entry);
@@ -1757,7 +1756,7 @@ impl LayoutWindow {
                 }),
             entry.op.clone(),
             entry.resume_after.clone(),
-            azul_core::task::Instant::now(),
+            Instant::now(),
         );
         let id = self.record_document_edit(changeset);
         self.undo_redo_manager.push_structural_undo_after_redo(entry);
@@ -1845,7 +1844,7 @@ impl LayoutWindow {
                     return Some(c);
                 }
                 i += 1;
-                child = hierarchy.get(c).and_then(|h| h.next_sibling_id());
+                child = hierarchy.get(c).and_then(azul_core::styled_dom::NodeHierarchyItem::next_sibling_id);
             }
             None
         };
@@ -1853,20 +1852,23 @@ impl LayoutWindow {
         // Walk the child-index path; any miss falls back to the anchor.
         let mut target = anchor;
         for &idx in resume.node_path.as_ref() {
-            match nth_child(target, idx) {
-                Some(c) => target = c,
-                None => {
-                    target = anchor;
-                    break;
-                }
+            if let Some(c) = nth_child(target, idx) { target = c } else {
+                target = anchor;
+                break;
             }
         }
 
         // The structural position → a caret: inside a text child (byte,
         // clamped), else at the boundary child's start, else the target
         // itself.
-        let (caret_node, byte) = match resume.position.text_byte.into_option() {
-            Some(byte) => match nth_child(target, resume.position.child_index) {
+        let (caret_node, byte) = resume.position.text_byte.into_option().map_or_else(
+            || {
+                (
+                    nth_child(target, resume.position.child_index).unwrap_or(target),
+                    0,
+                )
+            },
+            |byte| match nth_child(target, resume.position.child_index) {
                 Some(c)
                     if node_data
                         .get(c)
@@ -1875,7 +1877,9 @@ impl LayoutWindow {
                     let len = node_data
                         .get(c)
                         .and_then(|n| match n.get_node_type() {
-                            NodeType::Text(t) => Some(t.as_str().len() as u32),
+                            NodeType::Text(t) => {
+                                Some(u32::try_from(t.as_str().len()).unwrap_or(u32::MAX))
+                            }
                             _ => None,
                         })
                         .unwrap_or(0);
@@ -1883,11 +1887,7 @@ impl LayoutWindow {
                 }
                 _ => (target, 0),
             },
-            None => (
-                nth_child(target, resume.position.child_index).unwrap_or(target),
-                0,
-            ),
-        };
+        );
 
         let cursor = TextCursor {
             cluster_id: GraphemeClusterId {
@@ -1979,7 +1979,7 @@ impl LayoutWindow {
                     {
                         out.push(c);
                     }
-                    child = hierarchy.get(c).and_then(|cn| cn.next_sibling_id());
+                    child = hierarchy.get(c).and_then(azul_core::styled_dom::NodeHierarchyItem::next_sibling_id);
                 }
             }
             out
@@ -2496,7 +2496,7 @@ impl LayoutWindow {
                         layout_tree: tree,
                         calculated_positions: self.layout_cache.calculated_positions.clone(),
                         viewport,
-                        display_list: std::sync::Arc::new(DisplayList::default()),
+                        display_list: Arc::new(DisplayList::default()),
                         scroll_ids: self.layout_cache.scroll_ids.clone(),
                         scroll_id_to_node_id: self.layout_cache.scroll_id_to_node_id.clone(),
                     },
@@ -2696,7 +2696,7 @@ impl LayoutWindow {
                 // make_mut: on a structural cache hit the Arc is shared with the
                 // solver's DL cache — the swap must not leak into the cached copy
                 // (placeholder emission is the cached baseline).
-                let dl_mut = std::sync::Arc::make_mut(&mut display_list);
+                let dl_mut = Arc::make_mut(&mut display_list);
                 let mut replaced = false;
                 for item in &mut dl_mut.items {
                     if let solver3::display_list::DisplayListItem::VirtualViewPlaceholder {
@@ -2883,67 +2883,18 @@ impl LayoutWindow {
                 dom_id,
                 node_id,
                 image,
-            } => self.apply_image_change(dom_id, node_id, image, false),
+            } => self.apply_image_change(dom_id, node_id, &image, false),
             ContentChange::ImageCallbackResult {
                 dom_id,
                 node_id,
                 image,
-            } => self.apply_image_change(dom_id, node_id, image, true),
+            } => self.apply_image_change(dom_id, node_id, &image, true),
             ContentChange::NodeCss {
                 dom_id,
                 node_id,
                 props,
                 override_only,
-            } => {
-                let Some(layout_result) = self.layout_results.get_mut(&dom_id) else {
-                    return ContentChangeResult {
-                        tier: ContentDirtyTier::Unchanged,
-                    };
-                };
-                if node_id.index() >= layout_result.styled_dom.node_data.as_ref().len() {
-                    return ContentChangeResult {
-                        tier: ContentDirtyTier::Unchanged,
-                    };
-                }
-                if !override_only {
-                    // Keep the node's inline vec in sync so the reconcile
-                    // fingerprint sees the change on the next generation.
-                    use azul_css::dynamic_selector::CssPropertyWithConditions;
-                    let with_conditions: Vec<CssPropertyWithConditions> = props
-                        .iter()
-                        .cloned()
-                        .map(CssPropertyWithConditions::simple)
-                        .collect();
-                    layout_result.styled_dom.node_data.as_container_mut()[node_id]
-                        .set_css_props(with_conditions.into());
-                }
-                // The property cache's single write site: the resolver
-                // consults user-overridden properties FIRST, so paint changes
-                // are visible on the next DL build.
-                let _ = layout_result
-                    .styled_dom
-                    .restyle_user_property(&node_id, &props);
-                if !override_only {
-                    // The full-write path rebuilds the DL inline (its historical
-                    // contract). The override channel deliberately does NOT —
-                    // it is the per-frame animation path, and the returned tier
-                    // already schedules the rebuild once per frame.
-                    self.regenerate_display_list_for_dom(dom_id);
-                }
-
-                // Paint-only properties must not charge a layout pass
-                // (a per-frame animated colour would re-layout the world).
-                let props_vec: azul_css::props::property::CssPropertyVec = props.into();
-                if crate::callbacks::css_properties_need_relayout(&props_vec) {
-                    ContentChangeResult {
-                        tier: ContentDirtyTier::Relayout,
-                    }
-                } else {
-                    ContentChangeResult {
-                        tier: ContentDirtyTier::RebuildDisplayList,
-                    }
-                }
-            }
+            } => self.apply_node_css_change(dom_id, node_id, props, override_only),
             ContentChange::ImageMask {
                 dom_id,
                 node_id,
@@ -2969,23 +2920,20 @@ impl LayoutWindow {
             ContentChange::ImageById { id, image } => {
                 let old = self.image_cache.get_css_image_id(&id).cloned();
                 let removed = image.is_none();
-                match image {
-                    Some(new_image) => {
-                        if old.as_ref().map(ImageRef::get_hash) == Some(new_image.get_hash()) {
-                            return ContentChangeResult {
-                                tier: ContentDirtyTier::Unchanged,
-                            };
-                        }
-                        self.image_cache.add_css_image_id(id.clone(), new_image);
+                if let Some(new_image) = image {
+                    if old.as_ref().map(ImageRef::get_hash) == Some(new_image.get_hash()) {
+                        return ContentChangeResult {
+                            tier: ContentDirtyTier::Unchanged,
+                        };
                     }
-                    None => {
-                        if old.is_none() {
-                            return ContentChangeResult {
-                                tier: ContentDirtyTier::Unchanged,
-                            };
-                        }
-                        self.image_cache.delete_css_image_id(&id);
+                    self.image_cache.add_css_image_id(id.clone(), new_image);
+                } else {
+                    if old.is_none() {
+                        return ContentChangeResult {
+                            tier: ContentDirtyTier::Unchanged,
+                        };
                     }
+                    self.image_cache.delete_css_image_id(&id);
                 }
                 self.content_journal
                     .record(AppliedChange::ImageById { id, old, removed });
@@ -3000,12 +2948,73 @@ impl LayoutWindow {
         }
     }
 
+    /// The node-CSS arm of [`Self::apply_content_change`].
+    fn apply_node_css_change(
+        &mut self,
+        dom_id: DomId,
+        node_id: NodeId,
+        props: Vec<azul_css::props::property::CssProperty>,
+        override_only: bool,
+    ) -> crate::overlay::ContentChangeResult {
+        use crate::overlay::{ContentChangeResult, ContentDirtyTier};
+
+        let Some(layout_result) = self.layout_results.get_mut(&dom_id) else {
+            return ContentChangeResult {
+                tier: ContentDirtyTier::Unchanged,
+            };
+        };
+        if node_id.index() >= layout_result.styled_dom.node_data.as_ref().len() {
+            return ContentChangeResult {
+                tier: ContentDirtyTier::Unchanged,
+            };
+        }
+        if !override_only {
+            // Keep the node's inline vec in sync so the reconcile
+            // fingerprint sees the change on the next generation.
+            use azul_css::dynamic_selector::CssPropertyWithConditions;
+            let with_conditions: Vec<CssPropertyWithConditions> = props
+                .iter()
+                .cloned()
+                .map(CssPropertyWithConditions::simple)
+                .collect();
+            layout_result.styled_dom.node_data.as_container_mut()[node_id]
+                .set_css_props(with_conditions.into());
+        }
+        // The property cache's single write site: the resolver
+        // consults user-overridden properties FIRST, so paint changes
+        // are visible on the next DL build. The returned restyle result is
+        // deliberately unused — the tier below already schedules the rebuild.
+        let _restyle_result = layout_result
+            .styled_dom
+            .restyle_user_property(&node_id, &props);
+        if !override_only {
+            // The full-write path rebuilds the DL inline (its historical
+            // contract). The override channel deliberately does NOT —
+            // it is the per-frame animation path, and the returned tier
+            // already schedules the rebuild once per frame.
+            self.regenerate_display_list_for_dom(dom_id);
+        }
+
+        // Paint-only properties must not charge a layout pass
+        // (a per-frame animated colour would re-layout the world).
+        let props_vec: azul_css::props::property::CssPropertyVec = props.into();
+        if crate::callbacks::css_properties_need_relayout(&props_vec) {
+            ContentChangeResult {
+                tier: ContentDirtyTier::Relayout,
+            }
+        } else {
+            ContentChangeResult {
+                tier: ContentDirtyTier::RebuildDisplayList,
+            }
+        }
+    }
+
     /// The node-image arm of [`Self::apply_content_change`].
     fn apply_image_change(
         &mut self,
         dom_id: DomId,
         node_id: NodeId,
-        image: ImageRef,
+        image: &ImageRef,
         from_callback: bool,
     ) -> crate::overlay::ContentChangeResult {
         use crate::overlay::{AppliedChange, ContentChangeResult, ContentDirtyTier, ResolvedContent};
@@ -3061,8 +3070,8 @@ impl LayoutWindow {
                 // geometry, only the ImageRef changes. The backend's DL diff
                 // sees the identity change and damages exactly those bounds.
                 if let Some(lr) = self.layout_results.get_mut(&dom_id) {
-                    std::sync::Arc::make_mut(&mut lr.display_list)
-                        .patch_node_image(node_id, &image);
+                    Arc::make_mut(&mut lr.display_list)
+                        .patch_node_image(node_id, image);
                 }
             }
             ContentDirtyTier::Relayout => {
@@ -3190,7 +3199,7 @@ impl LayoutWindow {
         renderer_resources: &RendererResources,
         system_callbacks: &ExternalSystemCallbacks,
         debug_messages: &mut Option<Vec<LayoutDebugMessage>>,
-    ) -> Result<std::sync::Arc<DisplayList>, solver3::LayoutError> {
+    ) -> Result<Arc<DisplayList>, solver3::LayoutError> {
         // Create a temporary FullWindowState with the new size
         let mut window_state = FullWindowState::default();
         window_state.size.dimensions = new_size;
@@ -7843,7 +7852,7 @@ impl LayoutWindow {
                     }
                 }
                 if let Some(layout_result) = self.layout_results.get_mut(&dom_id) {
-                    layout_result.display_list = std::sync::Arc::new(display_list);
+                    layout_result.display_list = Arc::new(display_list);
                 }
                 // The repaint `TextEditManager::mark_dirty` asked for has now
                 // been delivered — this is the display-list-only path that

@@ -255,7 +255,7 @@ impl<T: ParsedFontTrait> LayoutContext<'_, T> {
     /// Layout (intrinsic sizing) and display-list build resolve node content
     /// exclusively through this — never via `NodeType::Image` directly.
     #[must_use]
-    pub fn resolved_content(&self) -> crate::overlay::ResolvedContent<'_> {
+    pub const fn resolved_content(&self) -> crate::overlay::ResolvedContent<'_> {
         crate::overlay::ResolvedContent {
             overlay: self.content_overlay,
             styled_dom: self.styled_dom,

@@ -674,9 +674,10 @@ impl PageSetup {
     }
 }
 
-/// The document's page-setup SEQUENCE: one default + sparse overrides — the
-/// MS-Word model ("default = A4 portrait, 2cm footer, 1.5cm margins; page
-/// 345 is landscape"). Resolution precedence per page:
+/// The document's page-setup SEQUENCE: one default + sparse overrides.
+///
+/// The MS-Word model ("default = A4 portrait, 2cm footer, 1.5cm margins;
+/// page 345 is landscape"). Resolution precedence per page:
 /// explicit override > first-page setup > odd/even parity > default.
 ///
 /// pdf2html maps its HTML dataset annotations (e.g. `data-az-page-*` on
@@ -706,7 +707,7 @@ pub struct PageSequence {
 impl PageSequence {
     /// A uniform sequence (every page identical).
     #[must_use]
-    pub fn uniform(default: PageSetup) -> Self {
+    pub const fn uniform(default: PageSetup) -> Self {
         Self {
             default,
             overrides: std::collections::BTreeMap::new(),
@@ -765,9 +766,11 @@ impl PageSequence {
 }
 
 /// Capture every table's `<thead>` from the master display list so the
-/// slicer can repeat it on continuation pages — the REGISTRATION side the
-/// tracker always lacked (its `register_table_header` had zero production
-/// callers, so `repeat_table_headers` could never do anything).
+/// slicer can repeat it on continuation pages.
+///
+/// The REGISTRATION side the tracker always lacked (its
+/// `register_table_header` had zero production callers, so
+/// `repeat_table_headers` could never do anything).
 ///
 /// Detection is structural: `NodeType::THead` nodes and their owning
 /// `NodeType::Table` ancestor; geometry comes from the display list via
@@ -780,6 +783,16 @@ pub fn collect_table_headers(
 ) -> TableHeaderTracker {
     use azul_core::dom::{NodeId, NodeType};
     use std::collections::BTreeMap;
+
+    // Per table: bounds union; per (table with thead): thead item indices +
+    // thead bounds union.
+    struct Acc {
+        table_top: f32,
+        table_bottom: f32,
+        thead_top: f32,
+        thead_bottom: f32,
+        thead_items: Vec<usize>,
+    }
 
     let node_data = styled_dom.node_data.as_container();
     let hierarchy = styled_dom.node_hierarchy.as_container();
@@ -803,22 +816,13 @@ pub fn collect_table_headers(
                 }
                 _ => {}
             }
-            current = hierarchy.get(n).and_then(|h| h.parent_id());
+            current = hierarchy.get(n).and_then(azul_core::styled_dom::NodeHierarchyItem::parent_id);
         }
         let result = (table, thead);
         owner_cache.insert(node, result);
         result
     };
 
-    // Per table: bounds union; per (table with thead): thead item indices +
-    // thead bounds union.
-    struct Acc {
-        table_top: f32,
-        table_bottom: f32,
-        thead_top: f32,
-        thead_bottom: f32,
-        thead_items: Vec<usize>,
-    }
     let mut per_table: BTreeMap<NodeId, Acc> = BTreeMap::new();
 
     for (idx, item) in display_list.items.iter().enumerate() {
@@ -904,7 +908,7 @@ pub fn collect_table_row_ranges(
                 Some(NodeType::Table) => break, // rows don't escape their table
                 _ => {}
             }
-            current = hierarchy.get(n).and_then(|h| h.parent_id());
+            current = hierarchy.get(n).and_then(azul_core::styled_dom::NodeHierarchyItem::parent_id);
         }
         owner_cache.insert(node, row);
         row

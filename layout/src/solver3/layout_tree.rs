@@ -2059,7 +2059,7 @@ impl LayoutTreeBuilder {
     /// node with the SAME `dom_node_id` (the `dom_to_layout` multimap seat)
     /// and `AnonymousBoxType::SplitPreviewPart` shows `[at, ∞)` — a real
     /// layout identity like any anonymous box, NO DOM mutation, no stale
-    /// NodeIds. Runs as a post-pass just before `build()` on BOTH tree-build
+    /// `NodeIds`. Runs as a post-pass just before `build()` on BOTH tree-build
     /// paths (full + reconcile).
     ///
     /// v1 renders text-byte splits; element-children splits stay
@@ -2096,13 +2096,12 @@ impl LayoutTreeBuilder {
             // text-backed (or anonymous inline machinery). Element children
             // need per-part routing (the staged follow-up).
             let all_text_children = self.nodes[idx].children.iter().all(|&c| {
-                self.nodes.get(c).is_none_or(|n| match n.dom_node_id {
-                    None => true,
-                    Some(d) => node_data
-                        .get(d)
-                        .is_some_and(|nd| {
-                            matches!(nd.get_node_type(), azul_core::dom::NodeType::Text(_))
-                        }),
+                self.nodes.get(c).is_none_or(|n| {
+                    n.dom_node_id.is_none_or(|d| {
+                        node_data
+                            .get(d)
+                            .is_some_and(|nd| matches!(nd.get_node_type(), NodeType::Text(_)))
+                    })
                 })
             });
             if !all_text_children {
@@ -2119,12 +2118,12 @@ impl LayoutTreeBuilder {
                     break;
                 }
                 if let Some(nd) = node_data.get(c) {
-                    if let azul_core::dom::NodeType::Text(t) = nd.get_node_type() {
-                        flat_at += t.as_str().len() as u32;
+                    if let NodeType::Text(t) = nd.get_node_type() {
+                        flat_at += u32::try_from(t.as_str().len()).unwrap_or(u32::MAX);
                     }
                 }
                 i += 1;
-                child = hierarchy.get(c).and_then(|h| h.next_sibling_id());
+                child = hierarchy.get(c).and_then(azul_core::styled_dom::NodeHierarchyItem::next_sibling_id);
             }
             flat_at += byte;
 

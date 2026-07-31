@@ -147,6 +147,18 @@ jobs:
       image: ${{ matrix.image }}
     steps:
       - uses: actions/checkout@v7
+      # debian:bookworm ships without curl, and the verify script refuses to
+      # "pass" a check it cannot run. The documented apt instructions START
+      # with a curl command, so a user following them has curl by definition —
+      # installing it here reproduces the documented starting point rather
+      # than weakening the check.
+      - name: "Provide the tools the documented command assumes (apt)"
+        if: matrix.channel == 'apt'
+        shell: bash
+        run: |
+          set -euo pipefail
+          apt-get update -qq
+          apt-get install -y -qq curl ca-certificates gnupg >/dev/null
       - name: "Run the documented command for ${{ matrix.channel }}"
         shell: bash
         run: |

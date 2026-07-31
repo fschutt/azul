@@ -80,9 +80,9 @@ pub fn invoke_on_frame(
 /// place and lets damage fall out of `ImageRef` identity. The widget never
 /// branches on the renderer — that branch was the shipped bug: a CPU-rendered
 /// window can still EXPOSE a GL context, so the widget took the GL path and
-/// sent texture-only updates (`update_all_image_callbacks` → ReRender) that
+/// sent texture-only updates (`update_all_image_callbacks` → `ReRender`) that
 /// the CPU rasterizer never saw; camera/screenshare tiles froze on their
-/// placeholder. On GPU backends the WebRender translator re-uploads the
+/// placeholder. On GPU backends the `WebRender` translator re-uploads the
 /// changed raster `ImageRef` — the backend decides texture vs raster, the
 /// widget cannot know or care.
 ///

@@ -1945,8 +1945,8 @@ impl StyledDom {
     /// `StyledDom` clone to the consumer instead (e.g.
     /// `Pdf::from_styled_dom_with_resources`), which skips re-cascading
     /// entirely.
-    #[must_use] pub fn reconstruct_dom_subtree(&self, root: Option<NodeId>) -> crate::dom::Dom {
-        use crate::dom::{Dom, NodeData};
+    #[must_use] pub fn reconstruct_dom_subtree(&self, root: Option<NodeId>) -> Dom {
+        use crate::dom::NodeData;
 
         let hierarchy = self.node_hierarchy.as_container();
         let node_data = self.node_data.as_container();
@@ -1977,35 +1977,30 @@ impl StyledDom {
         )];
 
         while let Some((node, next_child)) = visit_stack.pop() {
-            match next_child {
-                Some(child) => {
-                    // Come back to `node` for the sibling AFTER `child`,
-                    // then descend into `child`.
-                    let sibling = hierarchy.get(child).and_then(|c| c.next_sibling_id());
-                    visit_stack.push((node, sibling));
-                    result_stack.push(make_dom(child));
-                    visit_stack.push((
-                        child,
-                        hierarchy.get(child).and_then(|c| c.first_child_id(child)),
-                    ));
-                }
-                None => {
-                    let finished = match result_stack.pop() {
-                        Some(f) => f,
-                        None => break,
-                    };
-                    match result_stack.last_mut() {
-                        Some(parent) => parent.add_child(finished),
-                        None => {
-                            let mut finished = finished;
-                            let author_css =
-                                self.get_css_property_cache().retained_author_css.clone();
-                            if !author_css.is_empty() {
-                                finished.css = vec![author_css].into();
-                            }
-                            return finished;
-                        }
+            if let Some(child) = next_child {
+                // Come back to `node` for the sibling AFTER `child`,
+                // then descend into `child`.
+                let sibling = hierarchy
+                    .get(child)
+                    .and_then(NodeHierarchyItem::next_sibling_id);
+                visit_stack.push((node, sibling));
+                result_stack.push(make_dom(child));
+                visit_stack.push((
+                    child,
+                    hierarchy.get(child).and_then(|c| c.first_child_id(child)),
+                ));
+            } else {
+                let Some(finished) = result_stack.pop() else { break };
+                if let Some(parent) = result_stack.last_mut() {
+                    parent.add_child(finished);
+                } else {
+                    let mut finished = finished;
+                    let author_css =
+                        self.get_css_property_cache().retained_author_css.clone();
+                    if !author_css.is_empty() {
+                        finished.css = vec![author_css].into();
                     }
+                    return finished;
                 }
             }
         }

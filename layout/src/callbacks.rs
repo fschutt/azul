@@ -3053,7 +3053,7 @@ impl CallbackInfo {
         // Core's ImageCache has no Clone (derive(Clone)+Drop double-free
         // audit); clone the refcounted-handle map explicitly.
         crate::resource_handles::ImageCacheSnapshot::from_image_cache(
-            azul_core::resources::ImageCache {
+            ImageCache {
                 image_id_map: self
                     .get_layout_window()
                     .image_cache
@@ -3261,7 +3261,7 @@ impl CallbackInfo {
         // their OWN display lists composited at the placeholder's position —
         // without them a screenshot showed grey placeholders where the live
         // window showed tiles (the long-standing e2e-screenshot gap).
-        let vview_dls: std::collections::BTreeMap<DomId, std::sync::Arc<crate::solver3::display_list::DisplayList>> =
+        let vview_dls: BTreeMap<DomId, Arc<crate::solver3::display_list::DisplayList>> =
             layout_window
                 .layout_results
                 .iter()

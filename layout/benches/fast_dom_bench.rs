@@ -171,7 +171,8 @@ fn main() {
             Vec::new(),
             None, // preedit_text
             &ImageCache::default(),
-            None,
+            None, // content_overlay
+            None, // system_style
             get_system_time_fn,
         ).expect("layout failed");
         let dl_items = display_list.items.len();

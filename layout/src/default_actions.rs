@@ -72,7 +72,8 @@ pub struct EditingQueryState {
     )
 }
 
-/// [`determine_keyboard_default_action`] with contenteditable awareness:
+/// [`determine_keyboard_default_action`] with contenteditable awareness.
+///
 /// Enter on a contenteditable focus records a structural SPLIT (Shift+Enter
 /// stays a soft line break through the text path); Backspace at block start /
 /// Delete at block end record structural MERGES. `editing: None` behaves

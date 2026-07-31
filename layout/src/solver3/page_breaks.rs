@@ -101,11 +101,14 @@ impl PageConstraints {
 /// duplicate would produce a zero-height page.
 const MERGE_WINDOW_PX: f32 = 1.0;
 
-/// Break-awareness policy. ALL flags off (the default) reproduces the plain
-/// forced ∪ interval algorithm exactly — that is how this type can ship ahead
-/// of the behaviors it gates (each lands in its own stage and flips on in
-/// printpdf with a changelog entry, never silently).
+/// Break-awareness policy.
+///
+/// ALL flags off (the default) reproduces the plain forced ∪ interval
+/// algorithm exactly — that is how this type can ship ahead of the behaviors
+/// it gates (each lands in its own stage and flips on in printpdf with a
+/// changelog entry, never silently).
 #[derive(Debug, Clone, Copy, PartialEq)]
+#[allow(clippy::struct_excessive_bools)] // independent feature flags; mirrors the C-ABI struct layout
 pub struct BreakPolicy {
     /// Honor `break-inside: avoid` (push boxes below the break intact).
     pub honor_break_inside: bool,
@@ -139,6 +142,7 @@ impl Default for BreakPolicy {
 /// The richer inputs break-awareness needs (geometry beyond the display
 /// list: box rects and break properties). The display-list-only path stays
 /// available via [`compute_page_breaks_from_display_list`].
+#[derive(Debug)]
 pub struct PageBreakInput<'a> {
     /// Item geometry + forced break positions.
     pub display_list: &'a DisplayList,
@@ -187,15 +191,16 @@ struct ParagraphLines {
 /// rule — an unbreakable box that cannot fit must still paginate).
 #[must_use]
 pub fn compute_page_breaks(
-    input: &PageBreakInput,
+    input: &PageBreakInput<'_>,
     constraints: &PageConstraints,
     policy: &BreakPolicy,
 ) -> Vec<PageBreakPosition> {
-    compute_page_breaks_impl(input, constraints, policy, None)
+    compute_page_breaks_impl(input, *constraints, policy, None)
 }
 
-/// [`compute_page_breaks`] with an MS-Word-style [`PageSequence`]: every
-/// page's content HEIGHT comes from `setup_for_page(index)` (default /
+/// [`compute_page_breaks`] with an MS-Word-style [`PageSequence`].
+///
+/// Every page's content HEIGHT comes from `setup_for_page(index)` (default /
 /// explicit override / different-first / odd-even parity), so "page 345 is
 /// landscape-height with a 2cm footer" flows straight into the break
 /// positions. Content WIDTH must be uniform for now (the fragmentainer
@@ -203,7 +208,7 @@ pub fn compute_page_breaks(
 /// the default width.
 #[must_use]
 pub fn compute_page_breaks_with_sequence(
-    input: &PageBreakInput,
+    input: &PageBreakInput<'_>,
     sequence: &crate::solver3::pagination::PageSequence,
     policy: &BreakPolicy,
 ) -> Vec<PageBreakPosition> {
@@ -213,13 +218,13 @@ pub fn compute_page_breaks_with_sequence(
         first_page_content_height: sequence.setup_for_page(0).content_height(),
         normal_page_content_height: default_h,
     };
-    compute_page_breaks_impl(input, &constraints, policy, Some(sequence))
+    compute_page_breaks_impl(input, constraints, policy, Some(sequence))
 }
 
 #[allow(clippy::too_many_lines)] // large but cohesive: single-purpose layout/render/parse routine (one branch per case)
 fn compute_page_breaks_impl(
-    input: &PageBreakInput,
-    constraints: &PageConstraints,
+    input: &PageBreakInput<'_>,
+    constraints: PageConstraints,
     policy: &BreakPolicy,
     sequence: Option<&crate::solver3::pagination::PageSequence>,
 ) -> Vec<PageBreakPosition> {
@@ -232,7 +237,7 @@ fn compute_page_breaks_impl(
         // only correct evaluator even with all avoid-rules off.
         || sequence.is_some();
     if !any_awareness {
-        return compute_page_breaks_from_display_list(input.display_list, constraints);
+        return compute_page_breaks_from_display_list(input.display_list, &constraints);
     }
 
     let total_height = calculate_display_list_height(input.display_list);
@@ -354,11 +359,16 @@ fn compute_page_breaks_impl(
         prev_end = adjusted;
         page_height = normal;
         page_index += 1;
-        if sequence.is_none() && !(normal > 0.0) {
+        // `!(x > 0.0)` semantics kept explicitly: a NaN height must also stop
+        // the loop, so test `<= 0.0 || is_nan` instead of the negation.
+        if sequence.is_none() && (normal <= 0.0 || normal.is_nan()) {
             break;
         }
-        if sequence.is_some() && !(page_height_floor(sequence, page_index, normal) > 0.0) {
-            break;
+        if sequence.is_some() {
+            let next_height = page_height_floor(sequence, page_index, normal);
+            if next_height <= 0.0 || next_height.is_nan() {
+                break;
+            }
         }
     }
 
@@ -390,8 +400,8 @@ fn page_height_floor(
 
 /// Collect the vertical ranges a break may not enter.
 fn collect_avoid_ranges(
-    input: &PageBreakInput,
-    constraints: &PageConstraints,
+    input: &PageBreakInput<'_>,
+    constraints: PageConstraints,
     policy: &BreakPolicy,
 ) -> Vec<AvoidRange> {
     use crate::solver3::getters::get_break_inside;
@@ -463,7 +473,7 @@ fn collect_avoid_ranges(
 }
 
 /// Group text-item rects per source node into line boxes for widows/orphans.
-fn collect_paragraph_lines(input: &PageBreakInput) -> Vec<ParagraphLines> {
+fn collect_paragraph_lines(input: &PageBreakInput<'_>) -> Vec<ParagraphLines> {
     use crate::solver3::getters::{get_orphans, get_widows};
 
     let mut per_node: std::collections::BTreeMap<NodeId, Vec<(f32, f32)>> =
@@ -545,8 +555,10 @@ fn snap_break_up(
                     continue;
                 }
                 // Lines fully above the break stay; the rest move to the next page.
-                let before = para.lines.iter().filter(|(_, b)| *b <= y + 0.5).count() as u32;
-                let after = para.lines.len() as u32 - before;
+                let total_lines = u32::try_from(para.lines.len()).unwrap_or(u32::MAX);
+                let before_count = para.lines.iter().filter(|(_, b)| *b <= y + 0.5).count();
+                let before = u32::try_from(before_count).unwrap_or(u32::MAX);
+                let after = total_lines - before;
                 if before > 0 && before < para.orphans {
                     // Too few lines kept: the whole paragraph moves.
                     if first_top >= floor {
@@ -555,7 +567,7 @@ fn snap_break_up(
                     }
                 } else if after > 0 && after < para.widows {
                     // Too few lines moved: push more lines over the break.
-                    let needed = para.lines.len() as u32 - para.widows;
+                    let needed = total_lines - para.widows;
                     let target = para
                         .lines
                         .get(needed as usize)
@@ -575,7 +587,9 @@ fn snap_break_up(
     y
 }
 
-/// Incremental re-break after an edit: recompute (always — correctness under
+/// Incremental re-break after an edit.
+///
+/// Recompute (always — correctness under
 /// ANY input change, and the break pass is cheap next to the relayout that
 /// preceded it), then NORMALIZE against the previous run — every fresh break
 /// that matches a previous break within the merge window returns the
@@ -591,7 +605,7 @@ fn snap_break_up(
 #[must_use]
 pub fn recompute_page_breaks_from(
     prev: &[PageBreakPosition],
-    input: &PageBreakInput,
+    input: &PageBreakInput<'_>,
     constraints: &PageConstraints,
     policy: &BreakPolicy,
     dirty_y_start: f32,
@@ -628,9 +642,11 @@ pub fn recompute_page_breaks_from(
     out
 }
 
-/// Which page a document-space Y coordinate lands on, given the break list
-/// (page 0 = before the first break). The document-editor query: "what page
-/// is this node on?" WITHOUT materializing any per-page display list.
+/// Which page a document-space Y coordinate lands on.
+///
+/// Given the break list (page 0 = before the first break). The
+/// document-editor query: "what page is this node on?" WITHOUT materializing
+/// any per-page display list.
 #[must_use]
 pub fn page_of_y(breaks: &[PageBreakPosition], y: f32) -> usize {
     breaks.iter().take_while(|b| b.y <= y).count()
@@ -664,9 +680,11 @@ pub fn compute_page_breaks_from_display_list(
     )
 }
 
-/// The display-list-independent core: forced break Y positions + page heights
-/// + total content height. Also the seat for later break-awareness stages,
-/// which add richer inputs without touching this contract.
+/// The display-list-independent pagination core.
+///
+/// Consumes forced break Y positions plus page heights plus total content
+/// height. Also the seat for later break-awareness stages, which add richer
+/// inputs without touching this contract.
 #[must_use]
 pub fn compute_page_breaks_from_positions(
     forced_breaks: &[f32],
@@ -705,7 +723,8 @@ pub fn compute_page_breaks_from_positions(
             kind: BreakKind::Interval,
             causing_node: None,
         });
-        if !(normal > 0.0) {
+        // `!(normal > 0.0)` semantics kept explicitly: NaN must also stop.
+        if normal <= 0.0 || normal.is_nan() {
             break;
         }
         y += normal;
@@ -794,7 +813,8 @@ mod tests {
             // Guard added ONLY to keep the reference terminating; the shipped
             // code hung here (defect 3), which the corpus below avoids by
             // never combining normal<=0 with the reference.
-            if !(normal_page_height > 0.0) {
+            // `!(x > 0.0)` semantics kept explicitly: NaN must also stop.
+            if normal_page_height <= 0.0 || normal_page_height.is_nan() {
                 break;
             }
             y += normal_page_height;

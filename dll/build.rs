@@ -825,7 +825,12 @@ fn emit_static_system_deps(target: &str) {
         }
         println!("cargo:rustc-link-lib=dylib=objc");
     } else if target.contains("windows") {
-        for lib in ["user32", "gdi32", "shell32", "ole32", "opengl32", "dwmapi"] {
+        // advapi32: CredReadW/CredWriteW/CredDeleteW/CredFree — the keyring
+        // backend (azul-vault). Its absence broke ALL ten demo links at once
+        // (LNK2019 against the prebuilt azul.lib) the moment keyring landed.
+        for lib in [
+            "user32", "gdi32", "shell32", "ole32", "opengl32", "dwmapi", "advapi32",
+        ] {
             println!("cargo:rustc-link-lib=dylib={lib}");
         }
     } else if target.contains("linux") {

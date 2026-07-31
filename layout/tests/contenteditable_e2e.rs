@@ -967,9 +967,11 @@ mod structural_roundtrip {
             let editing = lw.build_editing_query_state(focused).expect("editing state");
             assert!(editing.is_contenteditable);
 
-            let mut ks = KeyboardState::default();
-            ks.current_virtual_keycode = Some(VirtualKeyCode::Return).into();
-            ks.pressed_virtual_keycodes = vec![VirtualKeyCode::Return].into();
+            let ks = KeyboardState {
+                current_virtual_keycode: Some(VirtualKeyCode::Return).into(),
+                pressed_virtual_keycodes: vec![VirtualKeyCode::Return].into(),
+                ..Default::default()
+            };
             let action = azul_layout::default_actions::determine_keyboard_default_action_with_editing(
                 &ks,
                 focused,
