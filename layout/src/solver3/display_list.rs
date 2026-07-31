@@ -5672,6 +5672,9 @@ pub struct SlicerConfig {
     pub table_headers: TableHeaderTracker,
     /// Break-awareness policy (all-off default = plain interval slicing).
     pub break_policy: crate::solver3::page_breaks::BreakPolicy,
+    /// MS-Word-style per-page setup (default + overrides + parity). `None`
+    /// = every page uses `header_footer` / `page_content_height` uniformly.
+    pub page_sequence: Option<crate::solver3::pagination::PageSequence>,
 }
 
 impl SlicerConfig {
@@ -5685,6 +5688,7 @@ impl SlicerConfig {
             page_width: DEFAULT_A4_WIDTH_PT, // Default A4 width in points
             table_headers: TableHeaderTracker::default(),
             break_policy: crate::solver3::page_breaks::BreakPolicy::default(),
+            page_sequence: None,
         }
     }
 
@@ -5698,6 +5702,7 @@ impl SlicerConfig {
             page_width: DEFAULT_A4_WIDTH_PT,
             table_headers: TableHeaderTracker::default(),
             break_policy: crate::solver3::page_breaks::BreakPolicy::default(),
+            page_sequence: None,
         }
     }
 
@@ -5867,15 +5872,23 @@ fn paginate_pages_impl(
         // Generate page info for header/footer content
         let page_info = PageInfo::new(page_idx + 1, num_pages);
 
-        // Calculate per-page header/footer space
-        let skip_this_page = config.header_footer.skip_first_page && page_info.is_first;
-        let header_space = if config.header_footer.show_header && !skip_this_page {
-            config.header_footer.header_height
+        // Calculate per-page header/footer space. With a page SEQUENCE the
+        // decoration comes from THIS page's setup (override/first/parity/
+        // default) — the MS-Word model.
+        let hf = config
+            .page_sequence
+            .as_ref()
+            .map_or(&config.header_footer, |s| {
+                &s.setup_for_page(page_idx).header_footer
+            });
+        let skip_this_page = hf.skip_first_page && page_info.is_first;
+        let header_space = if hf.show_header && !skip_this_page {
+            hf.header_height
         } else {
             0.0
         };
-        let footer_space = if config.header_footer.show_footer && !skip_this_page {
-            config.header_footer.footer_height
+        let footer_space = if hf.show_footer && !skip_this_page {
+            hf.footer_height
         } else {
             0.0
         };
@@ -5886,8 +5899,8 @@ fn paginate_pages_impl(
         let mut page_node_mapping = Vec::new();
 
         // 1. Add header if enabled
-        if config.header_footer.show_header && !skip_this_page {
-            let header_text = config.header_footer.header_text(page_info);
+        if hf.show_header && !skip_this_page {
+            let header_text = hf.header_text(page_info);
             if !header_text.is_empty() {
                 let header_items = generate_text_display_items(
                     &header_text,
@@ -5895,11 +5908,11 @@ fn paginate_pages_impl(
                         origin: LogicalPosition { x: 0.0, y: 0.0 },
                         size: LogicalSize {
                             width: config.page_width,
-                            height: config.header_footer.header_height,
+                            height: hf.header_height,
                         },
                     },
-                    config.header_footer.font_size,
-                    config.header_footer.text_color,
+                    hf.font_size,
+                    hf.text_color,
                     TextAlignment::Center,
                     renderer_resources,
                 );
@@ -5980,10 +5993,10 @@ fn paginate_pages_impl(
         }
 
         // 5. Add footer if enabled
-        if config.header_footer.show_footer && !skip_this_page {
-            let footer_text = config.header_footer.footer_text(page_info);
+        if hf.show_footer && !skip_this_page {
+            let footer_text = hf.footer_text(page_info);
             if !footer_text.is_empty() {
-                let footer_y = config.page_content_height - config.header_footer.footer_height;
+                let footer_y = config.page_content_height - hf.footer_height;
                 let footer_items = generate_text_display_items(
                     &footer_text,
                     LogicalRect {
@@ -5993,11 +6006,11 @@ fn paginate_pages_impl(
                         },
                         size: LogicalSize {
                             width: config.page_width,
-                            height: config.header_footer.footer_height,
+                            height: hf.footer_height,
                         },
                     },
-                    config.header_footer.font_size,
-                    config.header_footer.text_color,
+                    hf.font_size,
+                    hf.text_color,
                     TextAlignment::Center,
                     renderer_resources,
                 );

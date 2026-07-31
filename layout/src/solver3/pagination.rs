@@ -356,6 +356,9 @@ pub struct FakePageConfig {
     /// Break-awareness policy for pagination (all-off default = plain
     /// interval slicing; printpdf flips the flags on with a changelog entry).
     pub break_policy: crate::solver3::page_breaks::BreakPolicy,
+    /// MS-Word-style per-page setup sequence (`None` = uniform pages from
+    /// the fields above).
+    pub page_sequence: Option<PageSequence>,
 }
 
 impl Default for FakePageConfig {
@@ -381,6 +384,7 @@ impl Default for FakePageConfig {
                 a: 255,
             },
             break_policy: crate::solver3::page_breaks::BreakPolicy::default(),
+            page_sequence: None,
         }
     }
 }

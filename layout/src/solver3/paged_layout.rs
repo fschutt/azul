@@ -480,23 +480,30 @@ where
         page_width,
         table_headers,
         break_policy: page_config.break_policy,
+        page_sequence: page_config.page_sequence.clone(),
     };
 
     // Step 3: Analyze the breaks, THEN paginate against them — the analysis
     // is part of the result (document editors consume it without the pages).
     // Break-awareness runs per `slicer_config.break_policy` (all-off default
     // = the plain interval algorithm).
-    let constraints = page_breaks::PageConstraints::from_slicer_config(&slicer_config);
-    let breaks = page_breaks::compute_page_breaks(
-        &page_breaks::PageBreakInput {
-            display_list: &full_display_list,
-            layout_tree: cache.tree.as_ref(),
-            styled_dom: new_dom,
-            table_headers: Some(&slicer_config.table_headers),
-        },
-        &constraints,
-        &slicer_config.break_policy,
-    );
+    let break_input = page_breaks::PageBreakInput {
+        display_list: &full_display_list,
+        layout_tree: cache.tree.as_ref(),
+        styled_dom: new_dom,
+        table_headers: Some(&slicer_config.table_headers),
+    };
+    let breaks = if let Some(sequence) = &slicer_config.page_sequence {
+        // MS-Word model: every page's height from ITS setup.
+        page_breaks::compute_page_breaks_with_sequence(
+            &break_input,
+            sequence,
+            &slicer_config.break_policy,
+        )
+    } else {
+        let constraints = page_breaks::PageConstraints::from_slicer_config(&slicer_config);
+        page_breaks::compute_page_breaks(&break_input, &constraints, &slicer_config.break_policy)
+    };
     let total_content_height = calculate_display_list_height(&full_display_list);
 
     let pages = if materialize_pages {

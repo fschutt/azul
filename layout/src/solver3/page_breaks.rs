@@ -186,17 +186,51 @@ struct ParagraphLines {
 /// never move. Boxes taller than the page are torn regardless (the monolith
 /// rule — an unbreakable box that cannot fit must still paginate).
 #[must_use]
-#[allow(clippy::too_many_lines)] // large but cohesive: single-purpose layout/render/parse routine (one branch per case)
 pub fn compute_page_breaks(
     input: &PageBreakInput,
     constraints: &PageConstraints,
     policy: &BreakPolicy,
 ) -> Vec<PageBreakPosition> {
+    compute_page_breaks_impl(input, constraints, policy, None)
+}
+
+/// [`compute_page_breaks`] with an MS-Word-style [`PageSequence`]: every
+/// page's content HEIGHT comes from `setup_for_page(index)` (default /
+/// explicit override / different-first / odd-even parity), so "page 345 is
+/// landscape-height with a 2cm footer" flows straight into the break
+/// positions. Content WIDTH must be uniform for now (the fragmentainer
+/// re-wrap stage) — a non-uniform sequence announces once and lays out at
+/// the default width.
+#[must_use]
+pub fn compute_page_breaks_with_sequence(
+    input: &PageBreakInput,
+    sequence: &crate::solver3::pagination::PageSequence,
+    policy: &BreakPolicy,
+) -> Vec<PageBreakPosition> {
+    let _ = sequence.has_uniform_width(); // announce the width degradation once
+    let default_h = sequence.default.content_height();
+    let constraints = PageConstraints {
+        first_page_content_height: sequence.setup_for_page(0).content_height(),
+        normal_page_content_height: default_h,
+    };
+    compute_page_breaks_impl(input, &constraints, policy, Some(sequence))
+}
+
+#[allow(clippy::too_many_lines)] // large but cohesive: single-purpose layout/render/parse routine (one branch per case)
+fn compute_page_breaks_impl(
+    input: &PageBreakInput,
+    constraints: &PageConstraints,
+    policy: &BreakPolicy,
+    sequence: Option<&crate::solver3::pagination::PageSequence>,
+) -> Vec<PageBreakPosition> {
     let any_awareness = policy.honor_break_inside
         || policy.atomic_lines
         || policy.widows_orphans
         || policy.atomic_table_rows
-        || policy.repeat_table_headers;
+        || policy.repeat_table_headers
+        // A page sequence varies heights per page — the forward pass is the
+        // only correct evaluator even with all avoid-rules off.
+        || sequence.is_some();
     if !any_awareness {
         return compute_page_breaks_from_display_list(input.display_list, constraints);
     }
@@ -262,9 +296,15 @@ pub fn compute_page_breaks(
     let mut breaks: Vec<PageBreakPosition> = Vec::new();
     let mut prev_end = 0.0_f32;
     let mut page_height = first;
+    let mut page_index: usize = 0;
     let mut forced_iter = forced.into_iter().peekable();
 
     loop {
+        // Per-page setup (MS-Word model): the sequence overrides the height
+        // for THIS page index (explicit / first / parity / default).
+        if let Some(seq) = sequence {
+            page_height = seq.setup_for_page(page_index).content_height();
+        }
         // A page STARTING inside a table shows that table's repeated thead —
         // its content area shrinks by the header stack's height.
         let reserve: f32 = reserved_tables
@@ -287,6 +327,7 @@ pub fn compute_page_breaks(
                     });
                     prev_end = fy;
                     page_height = normal;
+                    page_index += 1;
                 }
                 continue;
             }
@@ -312,7 +353,11 @@ pub fn compute_page_breaks(
         });
         prev_end = adjusted;
         page_height = normal;
-        if !(normal > 0.0) {
+        page_index += 1;
+        if sequence.is_none() && !(normal > 0.0) {
+            break;
+        }
+        if sequence.is_some() && !(page_height_floor(sequence, page_index, normal) > 0.0) {
             break;
         }
     }
@@ -330,6 +375,17 @@ pub fn compute_page_breaks(
     }
 
     breaks
+}
+
+/// Termination guard: the NEXT page's height (sequence-aware). A sequence
+/// page with non-positive content height would loop forever, same as the
+/// plain `normal <= 0` case.
+fn page_height_floor(
+    sequence: Option<&crate::solver3::pagination::PageSequence>,
+    page_index: usize,
+    normal: f32,
+) -> f32 {
+    sequence.map_or(normal, |s| s.setup_for_page(page_index).content_height())
 }
 
 /// Collect the vertical ranges a break may not enter.
@@ -1229,6 +1285,79 @@ mod tests {
         );
         assert_eq!(breaks[0].y, 100.0);
         assert!(matches!(breaks[0].kind, BreakKind::Interval));
+    }
+
+    #[test]
+    fn page_sequence_heights_flow_into_break_positions() {
+        use crate::solver3::pagination::{PageMargins, PageSequence, PageSetup};
+        use azul_core::geom::LogicalSize;
+
+        let setup = |h: f32| PageSetup {
+            page_size: LogicalSize::new(200.0, h),
+            margins: PageMargins::default(),
+            header_footer: Default::default(),
+        };
+
+        let (styled, dl) = avoid_fixture(vec![(rect_item(0.0, 500.0), None)]);
+        let input = PageBreakInput {
+            display_list: &dl,
+            layout_tree: None,
+            styled_dom: &styled,
+            table_headers: None,
+        };
+
+        // Default 100-high pages, but PAGE 2 (0-based index 1) is 150 high:
+        // breaks at 100, 250, 350, 450 (Word's "page 345 is different").
+        let mut seq = PageSequence::uniform(setup(100.0));
+        seq.overrides.insert(1, setup(150.0));
+        let breaks = compute_page_breaks_with_sequence(&input, &seq, &BreakPolicy::default());
+        assert_eq!(ys(&breaks), vec![100.0, 250.0, 350.0, 450.0], "{breaks:?}");
+
+        // Odd/even parity: 1-based odd pages 100 high, even pages 60 high:
+        // breaks 100, 160, 260, 320, 420, 480 (alternating).
+        let mut seq = PageSequence::uniform(setup(100.0));
+        seq.even_pages = Some(setup(60.0));
+        let breaks = compute_page_breaks_with_sequence(&input, &seq, &BreakPolicy::default());
+        assert_eq!(
+            ys(&breaks),
+            vec![100.0, 160.0, 260.0, 320.0, 420.0, 480.0],
+            "{breaks:?}"
+        );
+
+        // Different-first-page: first 40 high, rest 100: 40, 140, 240, …
+        let mut seq = PageSequence::uniform(setup(100.0));
+        seq.first_page = Some(setup(40.0));
+        let breaks = compute_page_breaks_with_sequence(&input, &seq, &BreakPolicy::default());
+        assert_eq!(ys(&breaks), vec![40.0, 140.0, 240.0, 340.0, 440.0], "{breaks:?}");
+
+        // Precedence: explicit override BEATS parity on the same index.
+        let mut seq = PageSequence::uniform(setup(100.0));
+        seq.even_pages = Some(setup(60.0));
+        seq.overrides.insert(1, setup(150.0)); // page 2 (even) overridden
+        let breaks = compute_page_breaks_with_sequence(&input, &seq, &BreakPolicy::default());
+        assert_eq!(breaks[1].y, 250.0, "override wins over parity: {breaks:?}");
+    }
+
+    #[test]
+    fn page_setup_content_height_subtracts_margins_and_decoration() {
+        use crate::solver3::pagination::{HeaderFooterConfig, PageMargins, PageSetup};
+        use azul_core::geom::LogicalSize;
+        let setup = PageSetup {
+            page_size: LogicalSize::new(210.0, 297.0),
+            margins: PageMargins {
+                top: 20.0,
+                right: 15.0,
+                bottom: 20.0,
+                left: 15.0,
+            },
+            header_footer: HeaderFooterConfig {
+                show_footer: true,
+                footer_height: 20.0,
+                ..Default::default()
+            },
+        };
+        assert_eq!(setup.content_height(), 297.0 - 40.0 - 20.0);
+        assert_eq!(setup.content_width(), 210.0 - 30.0);
     }
 
     #[test]
