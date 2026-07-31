@@ -148,6 +148,10 @@ pub struct PageBreakInput<'a> {
     pub layout_tree: Option<&'a crate::solver3::layout_tree::LayoutTree>,
     /// Break properties (`break-inside`, `widows`, `orphans`, …).
     pub styled_dom: &'a azul_core::styled_dom::StyledDom,
+    /// Registered table headers (`collect_table_headers`) — continuation
+    /// pages that start inside a table reserve the repeated thead's height.
+    /// `None` when `repeat_table_headers` is off.
+    pub table_headers: Option<&'a crate::solver3::pagination::TableHeaderTracker>,
 }
 
 /// A vertical range a break may not enter, with the Y to snap up to
@@ -188,8 +192,11 @@ pub fn compute_page_breaks(
     constraints: &PageConstraints,
     policy: &BreakPolicy,
 ) -> Vec<PageBreak> {
-    let any_awareness =
-        policy.honor_break_inside || policy.atomic_lines || policy.widows_orphans;
+    let any_awareness = policy.honor_break_inside
+        || policy.atomic_lines
+        || policy.widows_orphans
+        || policy.atomic_table_rows
+        || policy.repeat_table_headers;
     if !any_awareness {
         return compute_page_breaks_from_display_list(input.display_list, constraints);
     }
@@ -201,7 +208,40 @@ pub fn compute_page_breaks(
         return Vec::new();
     }
 
-    let avoid_ranges = collect_avoid_ranges(input, constraints, policy);
+    let mut avoid_ranges = collect_avoid_ranges(input, constraints, policy);
+    if policy.atomic_table_rows {
+        // A break may not slice a table row (monolith rule still applies:
+        // a row taller than the page tears).
+        let page_h = constraints.normal_page_content_height.max(1.0);
+        for (top, bottom) in crate::solver3::pagination::collect_table_row_ranges(
+            input.display_list,
+            input.styled_dom,
+        ) {
+            if bottom - top <= page_h {
+                avoid_ranges.push(AvoidRange {
+                    top,
+                    bottom,
+                    node: None,
+                });
+            }
+        }
+        avoid_ranges.sort_by(|a, b| a.top.total_cmp(&b.top));
+    }
+
+    // Tables whose continuation pages must reserve repeated-thead height.
+    let reserved_tables: Vec<(f32, f32, f32)> = if policy.repeat_table_headers {
+        input
+            .table_headers
+            .map(|t| {
+                t.tables
+                    .iter()
+                    .map(|info| (info.table_start_y, info.table_end_y, info.thead_height))
+                    .collect()
+            })
+            .unwrap_or_default()
+    } else {
+        Vec::new()
+    };
     let paragraphs = if policy.widows_orphans {
         collect_paragraph_lines(input)
     } else {
@@ -225,7 +265,15 @@ pub fn compute_page_breaks(
     let mut forced_iter = forced.into_iter().peekable();
 
     loop {
-        let naive = prev_end + page_height;
+        // A page STARTING inside a table shows that table's repeated thead —
+        // its content area shrinks by the header stack's height.
+        let reserve: f32 = reserved_tables
+            .iter()
+            .filter(|(start, end, _)| *start < prev_end && *end > prev_end)
+            .map(|(_, _, h)| *h)
+            .sum();
+        let effective_height = (page_height - reserve).max(MERGE_WINDOW_PX);
+        let naive = prev_end + effective_height;
 
         // A forced break before (or at) the naive position ends the page there.
         if let Some(&fy) = forced_iter.peek() {
@@ -910,6 +958,7 @@ mod tests {
                 display_list: dl,
                 layout_tree: None,
                 styled_dom: styled,
+                table_headers: None,
             },
             &constraints(first, normal),
             policy,
@@ -1031,12 +1080,155 @@ mod tests {
                 display_list: &dl,
                 layout_tree: None,
                 styled_dom: &styled,
+                table_headers: None,
             },
             &constraints(100.0, 100.0),
             &policy,
         );
         assert_eq!(breaks[0].y, 84.0, "{breaks:?}");
         assert!(matches!(breaks[0].kind, BreakKind::Avoided { .. }));
+    }
+
+    /// A synthetic table DOM + display list: div > table > (thead > tr,
+    /// tbody > tr×3), with one rect item per row (and one for the thead),
+    /// mapped to the right nodes.
+    fn table_fixture(
+        thead_h: f32,
+        row_h: f32,
+        rows: usize,
+    ) -> (StyledDom, DisplayList) {
+        use azul_core::dom::Dom;
+        let tag = azul_core::xml::tag_to_node_type;
+        let mut table = Dom::create_node(tag("table"));
+        let mut thead = Dom::create_node(tag("thead"));
+        thead.add_child(Dom::create_node(tag("tr")));
+        table.add_child(thead);
+        let mut tbody = Dom::create_node(tag("tbody"));
+        for _ in 0..rows {
+            tbody.add_child(Dom::create_node(tag("tr")));
+        }
+        table.add_child(tbody);
+        let mut root = Dom::create_div();
+        root.add_child(table);
+        let styled = StyledDom::create_from_dom(root);
+
+        // Locate node ids structurally: thead's tr + tbody's trs.
+        let container = styled.node_data.as_container();
+        let trs: Vec<NodeId> = (0..container.len())
+            .map(NodeId::new)
+            .filter(|n| {
+                matches!(
+                    container[*n].get_node_type(),
+                    azul_core::dom::NodeType::Tr
+                )
+            })
+            .collect();
+        assert_eq!(trs.len(), rows + 1, "thead tr + body trs");
+
+        let mut dl = DisplayList::default();
+        // thead row rect at the table top.
+        dl.items.push(rect_item(0.0, thead_h));
+        dl.node_mapping.push(Some(trs[0]));
+        // body rows stacked below.
+        for (i, tr) in trs[1..].iter().enumerate() {
+            dl.items
+                .push(rect_item(thead_h + i as f32 * row_h, row_h));
+            dl.node_mapping.push(Some(*tr));
+        }
+        (styled, dl)
+    }
+
+    #[test]
+    fn collect_table_headers_registers_the_thead_rebased() {
+        let (styled, dl) = table_fixture(20.0, 30.0, 3);
+        let tracker =
+            crate::solver3::pagination::collect_table_headers(&dl, &styled);
+        assert_eq!(tracker.tables.len(), 1, "one table registered");
+        let info = &tracker.tables[0];
+        assert_eq!(info.thead_height, 20.0);
+        assert_eq!(info.table_start_y, 0.0);
+        assert_eq!(info.table_end_y, 20.0 + 3.0 * 30.0);
+        // Items stored REBASED to thead-local Y.
+        let first = info.thead_items[0].bounds().expect("bounds");
+        assert_eq!(first.origin.y, 0.0);
+    }
+
+    #[test]
+    fn continuation_pages_inside_a_table_reserve_the_thead_height() {
+        // Table spans 0..320 (thead 20 + 10 rows × 30); page height 100.
+        let (styled, dl) = table_fixture(20.0, 30.0, 10);
+        let tracker =
+            crate::solver3::pagination::collect_table_headers(&dl, &styled);
+        let policy = BreakPolicy {
+            repeat_table_headers: true,
+            ..Default::default()
+        };
+        let breaks = compute_page_breaks(
+            &PageBreakInput {
+                display_list: &dl,
+                layout_tree: None,
+                styled_dom: &styled,
+                table_headers: Some(&tracker),
+            },
+            &constraints(100.0, 100.0),
+            &policy,
+        );
+        // Page 1 ends at 100 (starts OUTSIDE any table continuation). Every
+        // page STARTING inside the table reserves the 20px repeated thead:
+        // 100 + 80 = 180, then 260 (the table ends at 320; the page starting
+        // at 260 is still inside → 260 + 80 = 340 > 320 → last page).
+        assert_eq!(ys(&breaks), vec![100.0, 180.0, 260.0], "{breaks:?}");
+
+        // Control: flag off → plain 100/200/300.
+        let plain = compute_page_breaks(
+            &PageBreakInput {
+                display_list: &dl,
+                layout_tree: None,
+                styled_dom: &styled,
+                table_headers: Some(&tracker),
+            },
+            &constraints(100.0, 100.0),
+            &BreakPolicy::default(),
+        );
+        assert_eq!(ys(&plain), vec![100.0, 200.0, 300.0]);
+    }
+
+    #[test]
+    fn atomic_table_rows_snap_the_break_to_the_row_top() {
+        // Rows at 20..50, 50..80, 80..110, 110..140…: the naive break at 100
+        // slices the 80..110 row → snaps to 80.
+        let (styled, dl) = table_fixture(20.0, 30.0, 6);
+        let policy = BreakPolicy {
+            atomic_table_rows: true,
+            ..Default::default()
+        };
+        let breaks = compute_page_breaks(
+            &PageBreakInput {
+                display_list: &dl,
+                layout_tree: None,
+                styled_dom: &styled,
+                table_headers: None,
+            },
+            &constraints(100.0, 100.0),
+            &policy,
+        );
+        assert_eq!(breaks[0].y, 80.0, "{breaks:?}");
+        assert!(matches!(breaks[0].kind, BreakKind::Avoided { .. }));
+
+        // Monolith rule: a row TALLER than the page still tears.
+        let (styled, dl) = table_fixture(20.0, 300.0, 2);
+        let breaks = compute_page_breaks(
+            &PageBreakInput {
+                display_list: &dl,
+                layout_tree: None,
+                styled_dom: &styled,
+                table_headers: None,
+            },
+            &constraints(100.0, 100.0),
+            &policy,
+        );
+        assert_eq!(breaks[0].y, 100.0);
+        assert!(matches!(breaks[0].kind, BreakKind::Interval));
     }
 
     #[test]
@@ -1047,6 +1239,7 @@ mod tests {
             display_list: &dl,
             layout_tree: None,
             styled_dom: &styled,
+            table_headers: None,
         };
         let c = constraints(100.0, 100.0);
         let policy = BreakPolicy::default();
@@ -1067,6 +1260,7 @@ mod tests {
             display_list: &dl2,
             layout_tree: None,
             styled_dom: &styled,
+            table_headers: None,
         };
         let re = recompute_page_breaks_from(&prev, &input2, &c, &policy, 450.0);
         assert_eq!(&re[..4], &prev[..4], "breaks above the change are reused");

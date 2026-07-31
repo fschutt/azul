@@ -6065,7 +6065,7 @@ enum TextAlignment {
 
 /// Helper to offset all Y coordinates of a display item.
 #[allow(clippy::too_many_lines)] // large but cohesive: single-purpose layout/render/parse routine (one branch per case)
-fn offset_display_item_y(item: &DisplayListItem, y_offset: f32) -> DisplayListItem {
+pub(crate) fn offset_display_item_y(item: &DisplayListItem, y_offset: f32) -> DisplayListItem {
     if y_offset == 0.0 {
         return item.clone();
     }

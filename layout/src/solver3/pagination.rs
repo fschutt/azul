@@ -594,24 +594,200 @@ impl TableHeaderTracker {
     ) -> Vec<(f32, &[super::display_list::DisplayListItem], f32)> {
         let mut headers = Vec::new();
 
+        // Page 0 never repeats anything (the original thead is on it), and a
+        // degenerate/inverted page has no room for a header.
+        if page_index == 0 || page_bottom_y <= page_top_y {
+            return headers;
+        }
+
+        let mut stack_offset = 0.0_f32;
         for table in &self.tables {
-            // Check if this table spans into this page (but didn't start on this page)
+            // A CONTINUATION page for this table: it started strictly above
+            // this page and still has content on it.
             let table_starts_before_page = table.table_start_y < page_top_y;
             let table_continues_on_page = table.table_end_y > page_top_y;
 
             if table_starts_before_page && table_continues_on_page {
-                // This table needs its header repeated on this page
-                // The header should appear at the top of the page content area
+                // Multiple straddling tables STACK their repeated headers
+                // (offset 0 for all of them painted every header on top of
+                // the previous one).
                 headers.push((
-                    0.0, // Y offset from page top (header goes at very top)
+                    stack_offset,
                     table.thead_items.as_slice(),
                     table.thead_height,
                 ));
+                stack_offset += table.thead_height;
             }
         }
 
         headers
     }
+}
+
+/// Capture every table's `<thead>` from the master display list so the
+/// slicer can repeat it on continuation pages — the REGISTRATION side the
+/// tracker always lacked (its `register_table_header` had zero production
+/// callers, so `repeat_table_headers` could never do anything).
+///
+/// Detection is structural: `NodeType::THead` nodes and their owning
+/// `NodeType::Table` ancestor; geometry comes from the display list via
+/// `node_mapping` (thead items are stored REBASED to thead-local Y, which is
+/// what the paginate-time `offset_display_item_y(+page offset)` expects).
+#[must_use]
+pub fn collect_table_headers(
+    display_list: &super::display_list::DisplayList,
+    styled_dom: &azul_core::styled_dom::StyledDom,
+) -> TableHeaderTracker {
+    use azul_core::dom::{NodeId, NodeType};
+    use std::collections::BTreeMap;
+
+    let node_data = styled_dom.node_data.as_container();
+    let hierarchy = styled_dom.node_hierarchy.as_container();
+
+    // Memoized classification: which table / thead subtree (if any) a node
+    // belongs to.
+    let mut owner_cache: BTreeMap<NodeId, (Option<NodeId>, Option<NodeId>)> = BTreeMap::new();
+    let mut classify = |node: NodeId| -> (Option<NodeId>, Option<NodeId>) {
+        if let Some(hit) = owner_cache.get(&node) {
+            return *hit;
+        }
+        let mut table = None;
+        let mut thead = None;
+        let mut current = Some(node);
+        while let Some(n) = current {
+            match node_data.get(n).map(azul_core::dom::NodeData::get_node_type) {
+                Some(NodeType::THead) if thead.is_none() => thead = Some(n),
+                Some(NodeType::Table) => {
+                    table = Some(n);
+                    break; // the NEAREST table owns; don't escape nested tables
+                }
+                _ => {}
+            }
+            current = hierarchy.get(n).and_then(|h| h.parent_id());
+        }
+        let result = (table, thead);
+        owner_cache.insert(node, result);
+        result
+    };
+
+    // Per table: bounds union; per (table with thead): thead item indices +
+    // thead bounds union.
+    struct Acc {
+        table_top: f32,
+        table_bottom: f32,
+        thead_top: f32,
+        thead_bottom: f32,
+        thead_items: Vec<usize>,
+    }
+    let mut per_table: BTreeMap<NodeId, Acc> = BTreeMap::new();
+
+    for (idx, item) in display_list.items.iter().enumerate() {
+        let Some(node) = display_list.node_mapping.get(idx).copied().flatten() else {
+            continue;
+        };
+        let Some(bounds) = item.bounds() else { continue };
+        let (table, thead) = classify(node);
+        let Some(table) = table else { continue };
+        let acc = per_table.entry(table).or_insert(Acc {
+            table_top: f32::MAX,
+            table_bottom: f32::MIN,
+            thead_top: f32::MAX,
+            thead_bottom: f32::MIN,
+            thead_items: Vec::new(),
+        });
+        let top = bounds.origin.y;
+        let bottom = bounds.origin.y + bounds.size.height;
+        acc.table_top = acc.table_top.min(top);
+        acc.table_bottom = acc.table_bottom.max(bottom);
+        if thead.is_some() {
+            acc.thead_top = acc.thead_top.min(top);
+            acc.thead_bottom = acc.thead_bottom.max(bottom);
+            acc.thead_items.push(idx);
+        }
+    }
+
+    let mut tracker = TableHeaderTracker::default();
+    for (table_node, acc) in per_table {
+        if acc.thead_items.is_empty() || acc.table_bottom <= acc.table_top {
+            continue;
+        }
+        // Rebase the thead's items to thead-local Y (paginate re-offsets
+        // them to each continuation page's top).
+        let items: Vec<super::display_list::DisplayListItem> = acc
+            .thead_items
+            .iter()
+            .map(|&i| {
+                super::display_list::offset_display_item_y(
+                    &display_list.items[i],
+                    -acc.thead_top,
+                )
+            })
+            .collect();
+        tracker.register_table_header(TableHeaderInfo {
+            table_node_index: table_node.index(),
+            table_start_y: acc.table_top,
+            table_end_y: acc.table_bottom,
+            thead_height: (acc.thead_bottom - acc.thead_top).max(0.0),
+            thead_offset_y: acc.thead_top - acc.table_top,
+            thead_items: items,
+        });
+    }
+    tracker
+}
+
+/// The vertical ranges of every table ROW (`<tr>`), for
+/// `BreakPolicy::atomic_table_rows` (a break may not slice a row).
+#[must_use]
+pub fn collect_table_row_ranges(
+    display_list: &super::display_list::DisplayList,
+    styled_dom: &azul_core::styled_dom::StyledDom,
+) -> Vec<(f32, f32)> {
+    use azul_core::dom::{NodeId, NodeType};
+    use std::collections::BTreeMap;
+
+    let node_data = styled_dom.node_data.as_container();
+    let hierarchy = styled_dom.node_hierarchy.as_container();
+
+    let mut owner_cache: BTreeMap<NodeId, Option<NodeId>> = BTreeMap::new();
+    let mut owning_row = |node: NodeId| -> Option<NodeId> {
+        if let Some(hit) = owner_cache.get(&node) {
+            return *hit;
+        }
+        let mut row = None;
+        let mut current = Some(node);
+        while let Some(n) = current {
+            match node_data.get(n).map(azul_core::dom::NodeData::get_node_type) {
+                Some(NodeType::Tr) => {
+                    row = Some(n);
+                    break;
+                }
+                Some(NodeType::Table) => break, // rows don't escape their table
+                _ => {}
+            }
+            current = hierarchy.get(n).and_then(|h| h.parent_id());
+        }
+        owner_cache.insert(node, row);
+        row
+    };
+
+    let mut per_row: BTreeMap<NodeId, (f32, f32)> = BTreeMap::new();
+    for (idx, item) in display_list.items.iter().enumerate() {
+        let Some(node) = display_list.node_mapping.get(idx).copied().flatten() else {
+            continue;
+        };
+        let Some(bounds) = item.bounds() else { continue };
+        let Some(row) = owning_row(node) else { continue };
+        let top = bounds.origin.y;
+        let bottom = bounds.origin.y + bounds.size.height;
+        per_row
+            .entry(row)
+            .and_modify(|(t, b)| {
+                *t = t.min(top);
+                *b = b.max(bottom);
+            })
+            .or_insert((top, bottom));
+    }
+    per_row.into_values().filter(|(t, b)| b > t).collect()
 }
 
 #[cfg(test)]
@@ -1559,7 +1735,8 @@ mod autotest_generated {
     fn tracker_infinite_table_extent_repeats_forever_without_overflow() {
         let mut tracker = TableHeaderTracker::new();
         tracker.register_table_header(table(f32::NEG_INFINITY, f32::INFINITY, f32::INFINITY));
-        let headers = tracker.get_repeated_headers_for_page(usize::MAX, f32::MAX, f32::MAX);
+        // A page of positive extent somewhere inside the infinite table.
+        let headers = tracker.get_repeated_headers_for_page(usize::MAX, 100.0, 900.0);
         assert_eq!(headers.len(), 1);
         // The thead height is forwarded verbatim — no clamping, no NaN laundering.
         assert!(headers[0].2.is_infinite());
@@ -1575,32 +1752,34 @@ mod autotest_generated {
     }
 
     #[test]
-    fn tracker_page_index_is_ignored_by_the_current_implementation() {
-        // Documented reality check: `page_index` never enters the arithmetic, so a
-        // straddling table repeats identically for page 0 and page usize::MAX. If
-        // per-page logic is ever added, this test must be revisited.
+    fn tracker_page_zero_never_repeats_but_continuation_pages_do() {
+        // Page 0 carries the ORIGINAL thead — repeating it there would paint
+        // it twice. Continuation pages (any index >= 1 whose top the table
+        // straddles) repeat it.
         let mut tracker = TableHeaderTracker::new();
         tracker.register_table_header(table(0.0, 500.0, 20.0));
-        let a = tracker.get_repeated_headers_for_page(0, 100.0, 900.0);
-        let b = tracker.get_repeated_headers_for_page(usize::MAX, 100.0, 900.0);
-        assert_eq!(a.len(), b.len());
-        assert_eq!(a.len(), 1);
+        assert!(tracker.get_repeated_headers_for_page(0, 100.0, 900.0).is_empty());
+        assert_eq!(tracker.get_repeated_headers_for_page(1, 100.0, 900.0).len(), 1);
+        assert_eq!(
+            tracker
+                .get_repeated_headers_for_page(usize::MAX, 100.0, 900.0)
+                .len(),
+            1
+        );
     }
 
     #[test]
-    fn tracker_page_bottom_is_ignored_even_when_the_page_is_inverted() {
-        // `page_bottom_y` is unused: an inverted page (bottom above top) still
-        // yields a header. Pinned so the parameter's dead status is visible.
+    fn tracker_degenerate_and_inverted_pages_yield_no_headers() {
+        // An inverted page (bottom above top) or a zero-extent page has no
+        // room for a header — both parameters now gate.
         let mut tracker = TableHeaderTracker::new();
         tracker.register_table_header(table(0.0, 500.0, 20.0));
-        assert_eq!(
-            tracker.get_repeated_headers_for_page(1, 100.0, -900.0).len(),
-            1
-        );
-        assert_eq!(
-            tracker.get_repeated_headers_for_page(1, 100.0, 100.0).len(),
-            1
-        );
+        assert!(tracker
+            .get_repeated_headers_for_page(1, 100.0, -900.0)
+            .is_empty());
+        assert!(tracker
+            .get_repeated_headers_for_page(1, 100.0, 100.0)
+            .is_empty());
     }
 
     #[test]
@@ -1612,26 +1791,32 @@ mod autotest_generated {
         }
         let headers = tracker.get_repeated_headers_for_page(3, 100.0, 900.0);
         assert_eq!(headers.len(), 64);
+        // Multiple straddling tables STACK: each header's offset is the sum
+        // of the previous headers' heights (offset 0 for all painted every
+        // header on top of the previous one), in registration order.
+        let mut expected_offset = 0.0_f32;
         for (i, (offset, _, height)) in headers.iter().enumerate() {
-            assert_eq!(*offset, 0.0);
+            assert_eq!(*offset, expected_offset, "header {i} does not stack");
             #[allow(clippy::cast_precision_loss)]
             let expected = i as f32;
             assert_eq!(*height, expected, "headers came back out of order");
+            expected_offset += height;
         }
     }
 
     #[test]
     fn tracker_zero_height_page_returns_nothing() {
-        // A degenerate zero-extent page (top == bottom == 0) is the "zero" case:
-        // no table can both start before 0 and end after 0 unless it is negative.
+        // A degenerate zero-extent page has no room for a header, whether or
+        // not a table straddles its top.
         let mut tracker = TableHeaderTracker::new();
         tracker.register_table_header(table(0.0, 500.0, 20.0));
         assert!(tracker
-            .get_repeated_headers_for_page(0, 0.0, 0.0)
+            .get_repeated_headers_for_page(1, 0.0, 0.0)
             .is_empty());
-        // ...but a table with a negative start does straddle y=0.
         let mut tracker = TableHeaderTracker::new();
         tracker.register_table_header(table(-10.0, 500.0, 20.0));
-        assert_eq!(tracker.get_repeated_headers_for_page(0, 0.0, 0.0).len(), 1);
+        assert!(tracker
+            .get_repeated_headers_for_page(1, 0.0, 0.0)
+            .is_empty());
     }
 }

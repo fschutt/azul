@@ -464,13 +464,21 @@ where
         )));
     }
 
+    // B3c: with repeat_table_headers on, capture every table's thead from
+    // the master display list — the registration side the tracker lacked.
+    let table_headers = if page_config.break_policy.repeat_table_headers {
+        crate::solver3::pagination::collect_table_headers(&full_display_list, new_dom)
+    } else {
+        crate::solver3::pagination::TableHeaderTracker::default()
+    };
+
     let slicer_config = SlicerConfig {
         page_content_height,
         page_gap: 0.0,
         allow_clipping: true,
         header_footer,
         page_width,
-        table_headers: crate::solver3::pagination::TableHeaderTracker::default(),
+        table_headers,
         break_policy: page_config.break_policy,
     };
 
@@ -484,6 +492,7 @@ where
             display_list: &full_display_list,
             layout_tree: cache.tree.as_ref(),
             styled_dom: new_dom,
+            table_headers: Some(&slicer_config.table_headers),
         },
         &constraints,
         &slicer_config.break_policy,
