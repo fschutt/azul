@@ -1,0 +1,41 @@
+{
+  "name": "bug_transform_offsets_hit_test",
+  "description": "TRANSFORM vs HIT-TEST: CSS transforms move painted content (cpurender applies the reference-frame matrix from the GPU value cache), but hit-testing used STATIC layout rects — a translated button was clickable at its old position and dead at its visible one. Repro: #box is a 100x50 focusable child of a container translated by translate(120px, 80px). Its static rect is (0,0)-(100,50); on screen it paints at (120,80)-(220,130). A click at (160,105) (inside the VISIBLE box) must focus it; a click at (50,25) (its STATIC position, now empty background) must fall through to the body. The fix resolves ancestor reference-frame chains at query time via the same css_current_transform_values map the raster paints from, so pixels and pointer targets cannot disagree.",
+  "setup": {
+    "window_width": 400,
+    "window_height": 300,
+    "dpi": 96
+  },
+  "steps": [
+    {
+      "op": "mount",
+      "html": [
+        "<div id=\"mover\">",
+        "  <div id=\"box\" tabindex=\"0\"></div>",
+        "</div>",
+        "<div id=\"below\" tabindex=\"0\"></div>"
+      ],
+      "css": [
+        "html, body { margin: 0; padding: 0; }",
+        "#mover { width: 100px; height: 50px; transform: translate(120px, 80px); }",
+        "#box { width: 100px; height: 50px; background: red; }",
+        "#below { position: absolute; left: 0; top: 0; width: 100px; height: 50px; }"
+      ]
+    },
+    { "op": "wait_frame" },
+    { "op": "wait", "ms": 150 },
+    { "op": "assert_exists", "selector": "#box" },
+
+    { "op": "click", "x": 160, "y": 105 },
+    { "op": "wait_frame" },
+    { "op": "wait", "ms": 100 },
+    { "op": "get_focus_state" },
+    { "op": "assert_response", "contains": "box" },
+
+    { "op": "click", "x": 50, "y": 25 },
+    { "op": "wait_frame" },
+    { "op": "wait", "ms": 100 },
+    { "op": "get_focus_state" },
+    { "op": "assert_response", "contains": "below" }
+  ]
+}

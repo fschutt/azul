@@ -2505,39 +2505,32 @@ impl LayoutWindow {
         let mut rect = rect?;
 
         // The display list stores CONTENT coordinates for items inside scroll
-        // frames; the compositor shifts them by the current scroll offsets at
-        // paint time (`pos - offset`, see `cpurender::raster`). Apply the same
-        // shift here so callers get the node's ON-SCREEN bounds — a menu
-        // opened for (or a synthetic click aimed at) a node after scrolling
-        // must not use the pre-scroll position.
-        let nodes = &layout_result.layout_tree.nodes;
+        // frames; the compositor shifts them by the current scroll offsets
+        // and reference-frame transforms at paint time (see
+        // `cpurender::raster`). Apply the same mapping here so callers get
+        // the node's ON-SCREEN bounds — a menu opened for (or a synthetic
+        // click aimed at) a node after scrolling or under a CSS transform
+        // must not use the static layout position.
         if let Some(&idx) = layout_result
             .layout_tree
             .dom_to_layout
             .get(&nid)
             .and_then(|indices| indices.first())
         {
-            let mut cur = nodes.get(idx).and_then(|n| n.parent);
-            let mut guard = 0usize;
-            while let Some(anc) = cur {
-                guard += 1;
-                if guard > nodes.len() {
-                    break;
-                }
-                let Some(anc_node) = nodes.get(anc) else { break };
-                if layout_result.scroll_ids.contains_key(&anc) {
-                    if let Some(anc_nid) = anc_node.dom_node_id {
-                        if let Some(off) = self
-                            .scroll_manager
-                            .get_current_offset(node_id.dom, anc_nid)
-                        {
-                            rect.origin.x -= off.x;
-                            rect.origin.y -= off.y;
-                        }
-                    }
-                }
-                cur = anc_node.parent;
-            }
+            rect = crate::headless::node_rect_to_screen(
+                layout_result,
+                node_id.dom,
+                idx,
+                rect,
+                &|d, n| self.scroll_manager.get_current_offset(d, n),
+                &|d, n| {
+                    self.gpu_state_manager
+                        .caches
+                        .get(&d)
+                        .and_then(|c| c.css_current_transform_values.get(&n))
+                        .copied()
+                },
+            );
         }
         Some(rect)
     }
@@ -3880,6 +3873,7 @@ impl LayoutWindow {
         crate::managers::a11y_snapshot::A11ySnapshot::build(
             &self.layout_results,
             &self.scroll_manager,
+            &self.gpu_state_manager,
             self.focus_manager.get_focused_node().copied(),
             self.current_window_state.title.as_str(),
             self.current_window_state.size.dimensions,
@@ -6748,7 +6742,40 @@ impl LayoutWindow {
         self.layout_cache.cache_map = std::mem::take(&mut ctx.cache_map);
 
         match new_display_list {
-            Ok(display_list) => {
+            Ok(mut display_list) => {
+                // Re-point every VirtualViewPlaceholder at its EXISTING child
+                // DOM. `generate_display_list()` always emits placeholders;
+                // the placeholder → VirtualView swap used to live ONLY in
+                // `layout_and_generate_display_list`, so every
+                // display-list-only regeneration (caret blink every 500ms,
+                // ChangeNodeImage from camera/screenshare writebacks,
+                // set_css_property, selection drag, …) silently demoted every
+                // map/video VirtualView back to a placeholder — which
+                // composites NOTHING on both backends — until the next FULL
+                // relayout. The child DOM and its display list still exist in
+                // `layout_results`; only the pointer item was being lost.
+                for item in &mut display_list.items {
+                    if let solver3::display_list::DisplayListItem::VirtualViewPlaceholder {
+                        node_id: ref placeholder_nid,
+                        bounds: ref placeholder_bounds,
+                        clip_rect: ref placeholder_clip,
+                        ..
+                    } = item
+                    {
+                        if let Some(child_dom_id) = self
+                            .virtual_view_manager
+                            .get_nested_dom_id(dom_id, *placeholder_nid)
+                        {
+                            if self.layout_results.contains_key(&child_dom_id) {
+                                *item = solver3::display_list::DisplayListItem::VirtualView {
+                                    child_dom_id,
+                                    bounds: *placeholder_bounds,
+                                    clip_rect: *placeholder_clip,
+                                };
+                            }
+                        }
+                    }
+                }
                 if let Some(layout_result) = self.layout_results.get_mut(&dom_id) {
                     layout_result.display_list = display_list;
                 }

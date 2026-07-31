@@ -4370,7 +4370,7 @@ impl WaylandWindow {
                 self.common.cpu_hit_tester.as_mut(),
                 self.common.layout_window.as_ref(),
             ) {
-                cpu_ht.rebuild_from_layout(&lw.layout_results);
+                cpu_ht.rebuild_from_layout_with_gpu(&lw.layout_results, Some(&lw.gpu_state_manager));
             }
 
             // Send the full transaction (regenerate_layout only re-runs layout, doesn't
@@ -4720,7 +4720,7 @@ impl WaylandWindow {
                             self.common.cpu_hit_tester.as_mut(),
                             self.common.layout_window.as_ref(),
                         ) {
-                            cpu_ht.rebuild_from_layout(&lw.layout_results);
+                            cpu_ht.rebuild_from_layout_with_gpu(&lw.layout_results, Some(&lw.gpu_state_manager));
                         }
                     }
 
@@ -6425,7 +6425,7 @@ impl WaylandPopup {
                 // callback (mirrors the parent window's post-regenerate_layout
                 // rebuild at the CPU path). The popup has no WebRender hit-tester.
                 if let Some(lw) = self.layout_window.as_ref() {
-                    self.cpu_hit_tester.rebuild_from_layout(&lw.layout_results);
+                    self.cpu_hit_tester.rebuild_from_layout_with_gpu(&lw.layout_results, Some(&lw.gpu_state_manager));
                 }
                 self.layout_window
                     .as_ref()

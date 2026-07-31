@@ -3516,7 +3516,7 @@ impl X11Window {
             self.common.cpu_hit_tester.as_mut(),
             self.common.layout_window.as_ref(),
         ) {
-            cpu_ht.rebuild_from_layout(&lw.layout_results);
+            cpu_ht.rebuild_from_layout_with_gpu(&lw.layout_results, Some(&lw.gpu_state_manager));
         }
 
         // Drain lifecycle events (Mount / AfterMount / Unmount / Resize) produced
@@ -3720,7 +3720,7 @@ impl X11Window {
                             self.common.cpu_hit_tester.as_mut(),
                             self.common.layout_window.as_ref(),
                         ) {
-                            cpu_ht.rebuild_from_layout(&lw.layout_results);
+                            cpu_ht.rebuild_from_layout_with_gpu(&lw.layout_results, Some(&lw.gpu_state_manager));
                         }
                     }
 

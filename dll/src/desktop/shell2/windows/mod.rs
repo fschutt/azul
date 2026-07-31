@@ -903,7 +903,7 @@ impl Win32Window {
                         self.common.cpu_hit_tester.as_mut(),
                         self.common.layout_window.as_ref(),
                     ) {
-                        cpu_ht.rebuild_from_layout(&lw.layout_results);
+                        cpu_ht.rebuild_from_layout_with_gpu(&lw.layout_results, Some(&lw.gpu_state_manager));
                     }
                 }
 
@@ -1436,7 +1436,7 @@ impl Win32Window {
         if !matches!(self.render_mode, RenderMode::Gpu { .. }) {
             if let Some(ref mut cpu_ht) = self.common.cpu_hit_tester {
                 if let Some(lw) = self.common.layout_window.as_ref() {
-                    cpu_ht.rebuild_from_layout(&lw.layout_results);
+                    cpu_ht.rebuild_from_layout_with_gpu(&lw.layout_results, Some(&lw.gpu_state_manager));
                 }
             }
         }
@@ -1506,7 +1506,7 @@ impl Win32Window {
         if !matches!(self.render_mode, RenderMode::Gpu { .. }) {
             if let Some(ref mut cpu_ht) = self.common.cpu_hit_tester {
                 if let Some(lw) = self.common.layout_window.as_ref() {
-                    cpu_ht.rebuild_from_layout(&lw.layout_results);
+                    cpu_ht.rebuild_from_layout_with_gpu(&lw.layout_results, Some(&lw.gpu_state_manager));
                 }
             }
         }

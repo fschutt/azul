@@ -221,11 +221,26 @@ extern "C" fn video_widget_render(
         OptionDom::None
     } else {
         data.downcast_ref::<VideoWidgetState>().map_or(OptionDom::None, |s| {
-            s.current_frame.as_ref().map_or(OptionDom::None, |img| {
-                OptionDom::Some(
-                    Dom::create_image(img.clone()).with_css("width: 100%; height: 100%;"),
-                )
-            })
+            s.current_frame.as_ref().map_or_else(
+                || {
+                    // Poster / "no signal" placeholder. Returning None here
+                    // rendered NOTHING, so a decoder that never produced a
+                    // frame (missing video-native feature, non-x86_64 target,
+                    // Vulkan init failure, network stall) was
+                    // indistinguishable from a black video — the shipped
+                    // azul-video "black frame" bug. A dead pipeline must be
+                    // visibly dead.
+                    OptionDom::Some(Dom::create_div().with_css(
+                        "width: 100%; height: 100%; background: #2a2a30; \
+                         border: 1px solid #44444c;",
+                    ))
+                },
+                |img| {
+                    OptionDom::Some(
+                        Dom::create_image(img.clone()).with_css("width: 100%; height: 100%;"),
+                    )
+                },
+            )
         })
     };
     VirtualViewReturn {
@@ -440,35 +455,51 @@ extern "C" fn video_replay_worker(mut init: RefAny, mut sender: ThreadSender, _r
 /// Carry live state forward across relayout.
 #[allow(clippy::float_cmp)] // intentional exact compare: change-detection / identity fast-path / cache-key match
 extern "C" fn merge_video_state(mut new_data: RefAny, mut old_data: RefAny) -> RefAny {
-    {
-        let new_guard = new_data.downcast_mut::<VideoWidgetState>();
-        let old_guard = old_data.downcast_ref::<VideoWidgetState>();
-        if let (Some(mut new_g), Some(old_g)) = (new_guard, old_guard) {
-            new_g.started = old_g.started;
-            new_g.gl_texture_id = old_g.gl_texture_id;
-            new_g.frames = old_g.frames.clone();
-            new_g.decode_callback.clone_from(&old_g.decode_callback);
-            new_g.current_frame.clone_from(&old_g.current_frame);
-            new_g.thread_id = old_g.thread_id;
-            new_g.seek_sender.clone_from(&old_g.seek_sender);
+    // Return the OLD allocation, adopting config forward — the same rule
+    // `merge_map_tile_cache` documents. The decode worker holds a clone of
+    // the OLD RefAny (handed over at spawn) and writes every decoded frame
+    // into it; returning `new_data` re-pointed the DOM at a fresh allocation
+    // nobody wrote to, so the picture froze on whatever frame existed at
+    // merge time — the AzVideo demo hit it on the FIRST timeline click
+    // (its callback returns RefreshDom).
+    let merged_into_old = {
+        let new_guard = new_data.downcast_ref::<VideoWidgetState>();
+        let old_guard = old_data.downcast_mut::<VideoWidgetState>();
+        if let (Some(new_g), Some(mut old_g)) = (new_guard, old_guard) {
             // Scrubbing: a changed `config.timestamp` across this relayout → tell the
             // worker to seek. Cheap wall-clock reposition (the worker already has the
             // decoded frames), result comes back as an image swap — no re-decode here.
             if old_g.config.timestamp != new_g.config.timestamp {
-                if let Some(snd) = new_g.seek_sender.as_ref() {
+                if let Some(snd) = old_g.seek_sender.as_ref() {
                     drop(snd.send(ThreadSendMsg::Custom(RefAny::new(new_g.config.timestamp))));
                 }
             }
             // Input-source change → tell the worker to re-init the decode (it
             // re-resolves/demuxes/decodes the new source); the frame swaps in when ready.
             if old_g.config.source != new_g.config.source {
-                if let Some(snd) = new_g.seek_sender.as_ref() {
+                if let Some(snd) = old_g.seek_sender.as_ref() {
                     drop(snd.send(ThreadSendMsg::Custom(RefAny::new(new_g.config.source.clone()))));
                 }
             }
+            // Adopt the app-driven config; keep every worker-facing field
+            // (frames, current_frame, thread_id, seek_sender, started) in the
+            // allocation the worker actually writes to.
+            old_g.config = new_g.config.clone();
+            old_g.on_frame = new_g.on_frame.clone();
+            true
+        } else {
+            // Foreign / mismatched payloads (one side is not this widget's
+            // state): hand back the NEW payload untouched — there is no
+            // persistent allocation to preserve, and returning a
+            // wrong-typed old dataset would poison the node.
+            false
         }
+    };
+    if merged_into_old {
+        old_data
+    } else {
+        new_data
     }
-    new_data
 }
 
 // ============================================================================
@@ -1425,13 +1456,20 @@ mod autotest_generated {
     }
 
     #[test]
-    fn render_before_the_first_frame_emits_no_dom() {
+    fn render_before_the_first_frame_emits_the_no_signal_poster() {
+        // PIN FLIPPED (2026-07-31, deliberately): rendering NOTHING before
+        // the first frame made a dead decode pipeline (missing feature,
+        // unsupported target, Vulkan init failure, network stall)
+        // indistinguishable from a black video — the shipped azul-video
+        // "black frame" bug. A decoder that has produced no frame must be
+        // VISIBLY "no signal".
         let dataset = state(VideoConfig::default());
         let ret =
             with_virtual_view_info(800.0, 600.0, |info| video_widget_render(dataset.clone(), info));
         assert!(
-            rendered_nothing(&ret),
-            "no decoded frame yet -> nothing to show"
+            !rendered_nothing(&ret),
+            "no decoded frame yet -> a visible no-signal poster, NOT an \
+             invisible tile"
         );
     }
 

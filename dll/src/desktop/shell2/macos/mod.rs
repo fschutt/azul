@@ -4351,7 +4351,7 @@ impl MacOSWindow {
         if self.backend == RenderBackend::CPU {
             if let Some(ref mut cpu_ht) = self.common.cpu_hit_tester {
                 if let Some(lw) = self.common.layout_window.as_ref() {
-                    cpu_ht.rebuild_from_layout(&lw.layout_results);
+                    cpu_ht.rebuild_from_layout_with_gpu(&lw.layout_results, Some(&lw.gpu_state_manager));
                 }
             }
         }

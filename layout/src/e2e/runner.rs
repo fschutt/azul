@@ -266,7 +266,10 @@ impl Runner {
     ///   the `unsupported` refusal this replaced.
     fn rebuild_hit_tester(&mut self) {
         self.cpu_hit_tester
-            .rebuild_from_layout(&self.layout_window.layout_results);
+            .rebuild_from_layout_with_gpu(
+                &self.layout_window.layout_results,
+                Some(&self.layout_window.gpu_state_manager),
+            );
     }
 
     /// Port of `PlatformWindow::update_hit_test_at`
@@ -285,10 +288,19 @@ impl Runner {
         let focused_node = self.layout_window.focus_manager.get_focused_node().copied();
         let hit_test = {
             let scroll_manager = &self.layout_window.scroll_manager;
+            let gpu = &self.layout_window.gpu_state_manager;
             let resolve = |d: azul_core::dom::DomId, n: azul_core::dom::NodeId| {
                 scroll_manager.get_current_offset(d, n)
             };
-            let hits = self.cpu_hit_tester.hit_test_scrolled(position, &resolve);
+            let resolve_tf = |d: azul_core::dom::DomId, n: azul_core::dom::NodeId| {
+                gpu.caches
+                    .get(&d)
+                    .and_then(|c| c.css_current_transform_values.get(&n))
+                    .copied()
+            };
+            let hits = self
+                .cpu_hit_tester
+                .hit_test_scrolled(position, &resolve, &resolve_tf);
             azul_layout::headless::convert_cpu_hit_test_to_full(
                 &self.cpu_hit_tester,
                 &hits,
@@ -296,6 +308,7 @@ impl Runner {
                 &self.layout_window.layout_results,
                 position,
                 &resolve,
+                &resolve_tf,
             )
         };
         self.layout_window
@@ -328,12 +341,19 @@ impl Runner {
         for point in &new_points {
             let hit_test = {
                 let scroll_manager = &self.layout_window.scroll_manager;
+                let gpu = &self.layout_window.gpu_state_manager;
                 let resolve = |d: azul_core::dom::DomId, n: azul_core::dom::NodeId| {
                     scroll_manager.get_current_offset(d, n)
                 };
+                let resolve_tf = |d: azul_core::dom::DomId, n: azul_core::dom::NodeId| {
+                    gpu.caches
+                        .get(&d)
+                        .and_then(|c| c.css_current_transform_values.get(&n))
+                        .copied()
+                };
                 let hits = self
                     .cpu_hit_tester
-                    .hit_test_scrolled(point.position, &resolve);
+                    .hit_test_scrolled(point.position, &resolve, &resolve_tf);
                 azul_layout::headless::convert_cpu_hit_test_to_full(
                     &self.cpu_hit_tester,
                     &hits,
@@ -341,6 +361,7 @@ impl Runner {
                     &self.layout_window.layout_results,
                     point.position,
                     &resolve,
+                    &resolve_tf,
                 )
             };
             self.layout_window

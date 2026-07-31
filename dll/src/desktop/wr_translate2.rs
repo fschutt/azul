@@ -662,6 +662,10 @@ pub fn convert_cpu_hit_test_to_full(
     layout_results: &BTreeMap<DomId, DomLayoutResult>,
     cursor_position: azul_core::geom::LogicalPosition,
     resolve_scroll: &dyn Fn(DomId, NodeId) -> Option<azul_core::geom::LogicalPosition>,
+    resolve_transform: &dyn Fn(
+        DomId,
+        NodeId,
+    ) -> Option<azul_core::transform::ComputedTransform3D>,
 ) -> FullHitTest {
     azul_layout::headless::convert_cpu_hit_test_to_full(
         tester,
@@ -670,6 +674,7 @@ pub fn convert_cpu_hit_test_to_full(
         layout_results,
         cursor_position,
         resolve_scroll,
+        resolve_transform,
     )
 }
 

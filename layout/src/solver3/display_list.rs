@@ -933,7 +933,13 @@ impl DisplayListItem {
             (Self::Image { bounds: b1, image: i1, border_radius: br1 },
              Self::Image { bounds: b2, image: i2, border_radius: br2 }) => {
                 b1 == b2
-                    && std::ptr::eq(i1.data, i2.data) // pointer identity
+                    // Compare the never-reused ImageRef identity, NOT the data
+                    // pointer: `id` exists precisely because heap addresses
+                    // get reused (core/resources.rs), and pointer identity
+                    // also can't see "same image object, new pixels" swaps
+                    // (per-frame producers replacing an ImageRef with an
+                    // equal-address reallocation reported no damage).
+                    && i1.get_hash() == i2.get_hash()
                     && br1.top_left == br2.top_left && br1.top_right == br2.top_right
                     && br1.bottom_left == br2.bottom_left && br1.bottom_right == br2.bottom_right
             }

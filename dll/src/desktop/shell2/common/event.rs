@@ -1176,13 +1176,21 @@ impl CommonWindowState {
 
         // CPU path: layout-based hit tester
         if let Some(ref cpu_ht) = self.cpu_hit_tester {
-            // SAFETY: neither layout_results nor scroll_manager is modified by
+            // SAFETY: neither layout_results nor the managers are modified by
             // hit testing
             let lw = unsafe { &*layout_results_ptr };
             let resolve = |d: azul_core::dom::DomId, n: azul_core::dom::NodeId| {
                 lw.scroll_manager.get_current_offset(d, n)
             };
-            let nodes = cpu_ht.hit_test_scrolled(position, &resolve);
+            // Same map the CPU raster paints reference frames from.
+            let resolve_tf = |d: azul_core::dom::DomId, n: azul_core::dom::NodeId| {
+                lw.gpu_state_manager
+                    .caches
+                    .get(&d)
+                    .and_then(|c| c.css_current_transform_values.get(&n))
+                    .copied()
+            };
+            let nodes = cpu_ht.hit_test_scrolled(position, &resolve, &resolve_tf);
             return crate::desktop::wr_translate2::convert_cpu_hit_test_to_full(
                 cpu_ht,
                 &nodes,
@@ -1190,6 +1198,7 @@ impl CommonWindowState {
                 &lw.layout_results,
                 position,
                 &resolve,
+                &resolve_tf,
             );
         }
 

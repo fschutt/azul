@@ -1468,7 +1468,7 @@ impl IOSWindow {
         }
 
         if let Some(lw) = self.common.layout_window.as_ref() {
-            self.cpu_backend.hit_tester.rebuild_from_layout(&lw.layout_results);
+            self.cpu_backend.hit_tester.rebuild_from_layout_with_gpu(&lw.layout_results, Some(&lw.gpu_state_manager));
         }
 
         // Drain lifecycle events (Mount / AfterMount / Unmount) produced by this

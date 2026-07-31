@@ -254,15 +254,33 @@ extern "C" fn camera_writeback(
 /// Carry live state forward across relayout (config from the fresh build,
 /// thread / texture from the previous frame).
 extern "C" fn merge_camera_state(mut new_data: RefAny, mut old_data: RefAny) -> RefAny {
-    {
-        let new_guard = new_data.downcast_mut::<CameraWidgetState>();
-        let old_guard = old_data.downcast_ref::<CameraWidgetState>();
-        if let (Some(mut new_g), Some(old_g)) = (new_guard, old_guard) {
-            new_g.started = old_g.started;
-            new_g.gl_texture_id = old_g.gl_texture_id;
+    // Return the OLD allocation (the one live capture backends may hold a
+    // clone of), adopting config forward — the merge_map_tile_cache rule.
+    // Returning new_data re-points the DOM at a fresh allocation; today the
+    // frame writeback survives that only because present_frame finds its
+    // node by RefAny TYPE id, which also means two widgets of the same type
+    // collide. Keeping the persistent allocation makes dataset identity
+    // stable so that search can become an identity lookup.
+    let merged_into_old = {
+        let new_guard = new_data.downcast_ref::<CameraWidgetState>();
+        let old_guard = old_data.downcast_mut::<CameraWidgetState>();
+        if let (Some(new_g), Some(mut old_g)) = (new_guard, old_guard) {
+            old_g.config = new_g.config.clone();
+            old_g.on_frame = new_g.on_frame.clone();
+            true
+        } else {
+            // Foreign / mismatched payloads (one side is not this widget's
+            // state): hand back the NEW payload untouched — there is no
+            // persistent allocation to preserve, and returning a
+            // wrong-typed old dataset would poison the node.
+            false
         }
+    };
+    if merged_into_old {
+        old_data
+    } else {
+        new_data
     }
-    new_data
 }
 
 // ============================================================================

@@ -139,6 +139,7 @@ impl A11ySnapshot {
     pub fn build(
         layout_results: &BTreeMap<DomId, DomLayoutResult>,
         scroll_manager: &ScrollManager,
+        gpu_state: &crate::managers::gpu_state::GpuStateManager,
         focused_node: Option<DomNodeId>,
         title: &str,
         window_size: LogicalSize,
@@ -162,7 +163,14 @@ impl A11ySnapshot {
                 }
                 let node_id = NodeId::new(dom_idx);
 
-                let bounds = element_bounds(layout_result, node_id, window_size);
+                let bounds = element_bounds(
+                    layout_result,
+                    *dom_id,
+                    node_id,
+                    window_size,
+                    scroll_manager,
+                    gpu_state,
+                );
 
                 // Child text is the element's name when the node has no
                 // interactive children — same rule the accesskit builder uses,
@@ -345,8 +353,11 @@ impl A11ySnapshot {
 /// zero rect, which every platform reads as "nothing to highlight".
 fn element_bounds(
     layout_result: &DomLayoutResult,
+    dom_id: DomId,
     node_id: NodeId,
     window_size: LogicalSize,
+    scroll_manager: &ScrollManager,
+    gpu_state: &crate::managers::gpu_state::GpuStateManager,
 ) -> LogicalRect {
     let zero = LogicalRect {
         origin: LogicalPosition { x: 0.0, y: 0.0 },
@@ -381,11 +392,41 @@ fn element_bounds(
     let pad_right = bp.padding.right + bp.border.right;
     let pad_bottom = bp.padding.bottom + bp.border.bottom;
 
+    // Static padded rect in local space, THEN mapped to on-screen space
+    // (ancestor scroll offsets + reference-frame transforms — what the
+    // renderer actually painted), THEN clamped to the viewport. A screen
+    // reader must be told where the element IS, not where it was laid out
+    // before the user scrolled or an animation moved it.
+    let local = LogicalRect {
+        origin: LogicalPosition {
+            x: pos.x + pad_left,
+            y: pos.y + pad_top,
+        },
+        size: LogicalSize {
+            width: (size.width - pad_left - pad_right).max(0.0),
+            height: (size.height - pad_top - pad_bottom).max(0.0),
+        },
+    };
+    let on_screen = crate::headless::node_rect_to_screen(
+        layout_result,
+        dom_id,
+        layout_idx,
+        local,
+        &|d, n| scroll_manager.get_current_offset(d, n),
+        &|d, n| {
+            gpu_state
+                .caches
+                .get(&d)
+                .and_then(|c| c.css_current_transform_values.get(&n))
+                .copied()
+        },
+    );
+
     let clamp = |v: f32, max: f32| v.max(0.0).min(max);
-    let x0 = clamp(pos.x + pad_left, window_size.width);
-    let y0 = clamp(pos.y + pad_top, window_size.height);
-    let x1 = clamp(pos.x + size.width - pad_right, window_size.width);
-    let y1 = clamp(pos.y + size.height - pad_bottom, window_size.height);
+    let x0 = clamp(on_screen.origin.x, window_size.width);
+    let y0 = clamp(on_screen.origin.y, window_size.height);
+    let x1 = clamp(on_screen.origin.x + on_screen.size.width, window_size.width);
+    let y1 = clamp(on_screen.origin.y + on_screen.size.height, window_size.height);
 
     if x1 <= x0 || y1 <= y0 {
         return zero;

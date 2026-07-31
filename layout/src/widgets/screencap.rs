@@ -226,15 +226,33 @@ extern "C" fn screencap_writeback(
 
 /// Carry live state forward across relayout.
 extern "C" fn merge_screencap_state(mut new_data: RefAny, mut old_data: RefAny) -> RefAny {
-    {
-        let new_guard = new_data.downcast_mut::<ScreenCaptureWidgetState>();
-        let old_guard = old_data.downcast_ref::<ScreenCaptureWidgetState>();
-        if let (Some(mut new_g), Some(old_g)) = (new_guard, old_guard) {
-            new_g.started = old_g.started;
-            new_g.gl_texture_id = old_g.gl_texture_id;
+    // Return the OLD allocation (the one live capture backends may hold a
+    // clone of), adopting config forward — the merge_map_tile_cache rule.
+    // Returning new_data re-points the DOM at a fresh allocation; today the
+    // frame writeback survives that only because present_frame finds its
+    // node by RefAny TYPE id, which also means two widgets of the same type
+    // collide. Keeping the persistent allocation makes dataset identity
+    // stable so that search can become an identity lookup.
+    let merged_into_old = {
+        let new_guard = new_data.downcast_ref::<ScreenCaptureWidgetState>();
+        let old_guard = old_data.downcast_mut::<ScreenCaptureWidgetState>();
+        if let (Some(new_g), Some(mut old_g)) = (new_guard, old_guard) {
+            old_g.config = new_g.config.clone();
+            old_g.on_frame = new_g.on_frame.clone();
+            true
+        } else {
+            // Foreign / mismatched payloads (one side is not this widget's
+            // state): hand back the NEW payload untouched — there is no
+            // persistent allocation to preserve, and returning a
+            // wrong-typed old dataset would poison the node.
+            false
         }
+    };
+    if merged_into_old {
+        old_data
+    } else {
+        new_data
     }
-    new_data
 }
 
 // ============================================================================
@@ -1316,11 +1334,17 @@ mod autotest_generated {
     }
 
     #[test]
-    fn merge_returns_the_new_payload_itself_not_a_copy() {
-        let new_data = state(DEFAULT_CFG, false, None);
-        let mut kept = new_data.clone();
+    fn merge_returns_the_persistent_old_payload_not_a_copy() {
+        // PIN FLIPPED (2026-07-31, deliberately): merge used to return the
+        // NEW allocation, which orphaned the allocation live capture
+        // backends hold a clone of (the frame writeback then wrote into a
+        // dataset nobody rendered — the frozen-picture family). The rule is
+        // now the map widget's: adopt config forward, return the OLD
+        // (persistent) allocation.
+        let old_data = state(DEFAULT_CFG, true, Some(5));
+        let mut kept = old_data.clone();
 
-        let mut merged = merge_screencap_state(new_data, state(DEFAULT_CFG, true, Some(5)));
+        let mut merged = merge_screencap_state(state(DEFAULT_CFG, false, None), old_data);
         {
             let mut s = merged
                 .downcast_mut::<ScreenCaptureWidgetState>()
@@ -1329,11 +1353,15 @@ mod autotest_generated {
         }
 
         let (_, started, texture, _) = read_state(&mut kept);
-        assert!(started, "the merge must have written into the new payload");
+        assert!(
+            started,
+            "the persistent allocation keeps its worker-facing fields"
+        );
         assert_eq!(
             texture,
             Some(1),
-            "merge must hand back the same allocation it was given"
+            "merge must hand back the OLD allocation — the one live capture \
+             backends hold a clone of"
         );
     }
 

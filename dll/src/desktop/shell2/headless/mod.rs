@@ -1019,7 +1019,7 @@ impl HeadlessWindow {
 
         // Rebuild CPU hit-tester from new layout results
         if let Some(lw) = self.common.layout_window.as_ref() {
-            self.cpu_backend.hit_tester.rebuild_from_layout(&lw.layout_results);
+            self.cpu_backend.hit_tester.rebuild_from_layout_with_gpu(&lw.layout_results, Some(&lw.gpu_state_manager));
         }
 
         // Also rebuild the SHARED hit-tester that the common event-dispatch path
@@ -1031,7 +1031,7 @@ impl HeadlessWindow {
         // button's on_click) never fire — clicks silently do nothing in headless.
         if let Some(ref mut cpu_ht) = self.common.cpu_hit_tester {
             if let Some(lw) = self.common.layout_window.as_ref() {
-                cpu_ht.rebuild_from_layout(&lw.layout_results);
+                cpu_ht.rebuild_from_layout_with_gpu(&lw.layout_results, Some(&lw.gpu_state_manager));
             }
         }
 
@@ -1120,11 +1120,11 @@ impl HeadlessWindow {
 
         // Same finalize tail as regenerate_layout: hit-testers, CPU frame, damage.
         if let Some(lw) = self.common.layout_window.as_ref() {
-            self.cpu_backend.hit_tester.rebuild_from_layout(&lw.layout_results);
+            self.cpu_backend.hit_tester.rebuild_from_layout_with_gpu(&lw.layout_results, Some(&lw.gpu_state_manager));
         }
         if let Some(ref mut cpu_ht) = self.common.cpu_hit_tester {
             if let Some(lw) = self.common.layout_window.as_ref() {
-                cpu_ht.rebuild_from_layout(&lw.layout_results);
+                cpu_ht.rebuild_from_layout_with_gpu(&lw.layout_results, Some(&lw.gpu_state_manager));
             }
         }
 
