@@ -141,7 +141,7 @@ jobs:
           - { channel: pypi,  image: "python:3.12-bookworm" }
           - { channel: npm,   image: "node:22-bookworm" }
           - { channel: gems,  image: "ruby:3.3-bookworm" }
-          - { channel: nuget, image: "mcr.microsoft.com/dotnet/sdk:8.0" }
+          - { channel: nuget, image: "mcr.microsoft.com/dotnet/sdk:10.0" }
           - { channel: apt,   image: "debian:bookworm" }
     container:
       image: ${{ matrix.image }}
