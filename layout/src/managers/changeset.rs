@@ -187,30 +187,77 @@ pub use azul_core::events::SelectionDirection;
 // existing remap machinery (`NodeIdRemap` + `calculate_contenteditable_key`)
 // preserves caret/selection/undo across the resulting generation swap.
 
-use azul_core::selection::{TextCursor, TextSelection};
+use azul_core::selection::TextSelection;
 use azul_css::corety::U32Vec;
 use azul_core::window::StringPairVec;
 
-/// Split a block element at the caret (Enter in a contenteditable).
-#[derive(Debug, Clone)]
+/// A position INSIDE a node, expressed structurally: before direct child
+/// `child_index`, optionally at `text_byte` INSIDE that child when (and only
+/// when) it is a text node.
+///
+/// This is the vocabulary's split/join coordinate — deliberately NOT a text
+/// cursor: a `<ul>` splits between two `<li>`s (`text_byte: None`), a `<p>`
+/// splits mid-word (`text_byte: Some(5)` inside its text child), a `<div>`
+/// splits between arbitrary subtrees. Element children always move WHOLESALE
+/// to one side; only a text child is ever cut, and only at a char boundary.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[repr(C)]
-pub struct DocOpSplitBlock {
-    /// The block being split.
-    pub block: DomNodeId,
-    /// Caret position the split happens at.
-    pub at: TextCursor,
+pub struct NodePosition {
+    /// Index among the node's DIRECT children the position sits before /
+    /// inside.
+    pub child_index: u32,
+    /// Byte offset inside `children[child_index]` when that child is a TEXT
+    /// node and the position falls inside it. `None` = the position is
+    /// BETWEEN children (a pure structural boundary).
+    pub text_byte: azul_css::corety::OptionU32,
 }
 
-/// Merge two adjacent blocks (Backspace at block start / Delete at block end).
+impl NodePosition {
+    /// A pure structural boundary before child `child_index`.
+    #[must_use]
+    pub const fn before_child(child_index: u32) -> Self {
+        Self {
+            child_index,
+            text_byte: azul_css::corety::OptionU32::None,
+        }
+    }
+
+    /// A position inside the text child at `child_index`.
+    #[must_use]
+    pub const fn in_text_child(child_index: u32, text_byte: u32) -> Self {
+        Self {
+            child_index,
+            text_byte: azul_css::corety::OptionU32::Some(text_byte),
+        }
+    }
+}
+
+/// Split a node at a structural position (Enter in a contenteditable is ONE
+/// producer; splitting any container between children is the same op).
 #[derive(Debug, Clone)]
 #[repr(C)]
-pub struct DocOpMergeBlocks {
-    /// The surviving first block.
+pub struct DocOpSplitNode {
+    /// The node being split.
+    pub node: DomNodeId,
+    /// Where: children before the position stay, children after move to the
+    /// new sibling; a text child AT the position is cut at `text_byte`.
+    pub at: NodePosition,
+}
+
+/// Merge two adjacent sibling nodes (Backspace at start / Delete at end are
+/// ONE producer; joining any two containers is the same op): `second`'s
+/// children are appended to `first`, `second` is removed. Subtrees are
+/// preserved wholesale; only adjacent TEXT children at the seam coalesce.
+#[derive(Debug, Clone)]
+#[repr(C)]
+pub struct DocOpMergeNodes {
+    /// The surviving first node.
     pub first: DomNodeId,
-    /// The second block, whose inline content is appended to `first`.
+    /// The node whose children are appended to `first`.
     pub second: DomNodeId,
-    /// Where the caret lands after the join (end of `first`'s old content).
-    pub join_cursor: TextCursor,
+    /// The seam (where the caret lands): `first`'s old child count, with
+    /// `text_byte` set when the seam coalesces two text nodes.
+    pub join: NodePosition,
 }
 
 /// Wrap a text range in an inline element (bold / italic / link toolbar).
@@ -232,64 +279,100 @@ pub struct DocOpUnwrapRange {
     pub element: azul_css::css::NodeTypeTag,
 }
 
-/// Insert a block parsed from an XML fragment (paste-as-blocks, new `<p>`).
+/// Insert node SUBTREES under `parent` at child `index` — the immutable-DOM
+/// analog of `.insertChild()`. The content is a [`azul_core::dom::Dom`]
+/// (the native tree apps already build), NOT a markup string: a paragraph,
+/// a list item, a whole table — any subtree, the same op.
 #[derive(Debug, Clone)]
 #[repr(C)]
-pub struct DocOpInsertBlock {
-    /// Parent the new block is inserted under.
+pub struct DocOpInsertChildren {
+    /// Parent the new children are inserted under.
     pub parent: DomNodeId,
     /// Child index within `parent` (clamped by the applier).
     pub index: u32,
-    /// The content, as an XML fragment (keeps the FFI surface small and
-    /// reuses the XML parser on the applying side).
-    pub xml_fragment: AzString,
+    /// The subtree(s) to insert. `content.root` is the FIRST inserted child;
+    /// `content.children`-siblings pattern: a `Dom` is one subtree — multiple
+    /// siblings are inserted by wrapping in a fragment container is NOT
+    /// required: the applier inserts exactly this one subtree. (Insert
+    /// several = several ops, or a ReplaceChildren.)
+    pub content: azul_core::dom::Dom,
 }
 
-/// Delete a whole block element.
+/// Remove a RANGE of direct children of `parent` (with their subtrees) —
+/// the analog of `.removeChild()`, generalized to a contiguous range.
 #[derive(Debug, Clone)]
 #[repr(C)]
-pub struct DocOpDeleteBlock {
-    pub block: DomNodeId,
+pub struct DocOpRemoveChildren {
+    pub parent: DomNodeId,
+    /// `[start, end)` among `parent`'s direct children.
+    pub start: u32,
+    pub end: u32,
 }
 
-/// Replace a (possibly multi-block) range with an XML fragment
-/// (multi-block paste / delete-selection-spanning-blocks).
+/// Replace a range of direct children of `parent` with a subtree — the
+/// analog of `.replaceChild()`. `Insert` and `Remove` are its two
+/// degenerate forms; the three share one inverse algebra.
 #[derive(Debug, Clone)]
 #[repr(C)]
-pub struct DocOpReplaceRange {
-    pub range: TextSelection,
-    pub xml_fragment: AzString,
+pub struct DocOpReplaceChildren {
+    pub parent: DomNodeId,
+    /// `[start, end)` among `parent`'s direct children to replace.
+    pub start: u32,
+    pub end: u32,
+    /// The replacement subtree.
+    pub content: azul_core::dom::Dom,
 }
 
 /// A structural document edit — the vocabulary `TextOperation` lacks
 /// (everything here crosses or creates block boundaries).
+/// A structural document edit — the tree-mutation vocabulary a MUTABLE DOM
+/// would express as methods (`insertChild` / `removeChild` / `replaceChild`
+/// / split / merge), expressed here as RECORDED INTENT because the DOM is
+/// immutable: azul delivers the operation, the app applies it to ITS model
+/// (or the `document_edit` helper applies it to a `Dom`), and the overlay
+/// previews it until the re-render lands.
+///
+/// Positions are STRUCTURAL ([`NodePosition`]: child index + byte only when
+/// the boundary child is text). Content payloads are node SUBTREES
+/// ([`azul_core::dom::Dom`]), never markup strings. The two `*Range` ops are
+/// the deliberately text-specific pair (inline formatting).
 #[derive(Debug, Clone)]
 #[repr(C, u8)]
 pub enum DocumentOperation {
-    SplitBlock(DocOpSplitBlock),
-    MergeBlocks(DocOpMergeBlocks),
+    /// Split ANY node at a structural position.
+    SplitNode(DocOpSplitNode),
+    /// Merge two adjacent sibling nodes.
+    MergeNodes(DocOpMergeNodes),
+    /// Insert a subtree under a parent (`.insertChild`).
+    InsertChildren(DocOpInsertChildren),
+    /// Remove a range of direct children (`.removeChild`).
+    RemoveChildren(DocOpRemoveChildren),
+    /// Replace a range of direct children with a subtree (`.replaceChild`).
+    ReplaceChildren(DocOpReplaceChildren),
+    /// TEXT-SPECIFIC: wrap a text range in an inline element (bold/italic).
     WrapRange(DocOpWrapRange),
+    /// TEXT-SPECIFIC: remove an inline wrapper from a text range.
     UnwrapRange(DocOpUnwrapRange),
-    InsertBlock(DocOpInsertBlock),
-    DeleteBlock(DocOpDeleteBlock),
-    ReplaceRange(DocOpReplaceRange),
 }
 
-/// Where the caret should land after the app re-renders, expressed
-/// RE-RENDER-STABLY: `NodeId`s in the changeset refer to the current
-/// generation and die at the swap, so the resume point is defined against the
-/// POST-edit logical structure instead.
+/// Where the caret/selection anchor should land after the app re-renders,
+/// expressed RE-RENDER-STABLY: `NodeId`s in the changeset refer to the
+/// current generation and die at the swap, so the resume point is defined
+/// against the POST-edit logical structure instead. Nothing here presumes
+/// text: the anchor is any stable node, the path is child indices, the
+/// position is structural.
 #[derive(Debug, Clone)]
 #[repr(C)]
 pub struct EditResumePoint {
-    /// `calculate_contenteditable_key` of the editing host — the stable
-    /// anchor that survives regeneration.
-    pub contenteditable_key: u64,
-    /// Child-index path from the host to the target block, in the POST-edit
-    /// tree (e.g. after a split: the path to the NEW second block).
-    pub block_path: U32Vec,
-    /// Byte offset within that block's text.
-    pub text_offset: u32,
+    /// Stable key of the ANCHOR node (via `calculate_contenteditable_key`,
+    /// which works for any node: explicit key > css id > structural path).
+    pub anchor_key: u64,
+    /// Child-index path from the anchor to the target node, in the POST-edit
+    /// tree (e.g. after a split: the path to the NEW second part).
+    pub node_path: U32Vec,
+    /// Where inside the target node (child boundary, or byte in a text
+    /// child).
+    pub position: NodePosition,
 }
 
 /// A recorded structural edit: intent + resume point + identity for the
@@ -325,16 +408,16 @@ impl DocumentChangeset {
         }
     }
 
-    /// Whether this operation restructures blocks (vs inline-only wrap).
+    /// Whether this operation restructures the node tree (vs inline-only wrap).
     #[must_use]
     pub const fn changes_block_structure(&self) -> bool {
         matches!(
             self.operation,
-            DocumentOperation::SplitBlock(_)
-                | DocumentOperation::MergeBlocks(_)
-                | DocumentOperation::InsertBlock(_)
-                | DocumentOperation::DeleteBlock(_)
-                | DocumentOperation::ReplaceRange(_)
+            DocumentOperation::SplitNode(_)
+                | DocumentOperation::MergeNodes(_)
+                | DocumentOperation::InsertChildren(_)
+                | DocumentOperation::RemoveChildren(_)
+                | DocumentOperation::ReplaceChildren(_)
         )
     }
 }

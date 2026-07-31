@@ -178,6 +178,79 @@ pub struct ContentChangeResult {
     pub tier: ContentDirtyTier,
 }
 
+/// Identity of one overlay part — "NodeIdGen2": minted from a monotonic
+/// per-process counter, NEVER a real `NodeId` (a previewed part has no DOM
+/// node until the app's re-render creates one).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct OverlayPartId(pub u64);
+
+impl OverlayPartId {
+    fn mint() -> Self {
+        use std::sync::atomic::{AtomicU64, Ordering};
+        static NEXT: AtomicU64 = AtomicU64::new(1);
+        Self(NEXT.fetch_add(1, Ordering::Relaxed))
+    }
+}
+
+/// A pending STRUCTURAL delta over the immutable DOM — what a mutable DOM
+/// would have done with `insertChild` / `removeChild` / `replaceChild` /
+/// split / merge, recorded here as a PREVIEW until the app's re-render
+/// lands. The preview never copies content: it references DOM nodes (by id)
+/// and pending subtrees (the changeset's own `Dom` payloads).
+#[derive(Debug, Clone)]
+pub enum StructuralPreview {
+    /// `node` renders as TWO parts split at the structural position.
+    Split {
+        node: NodeId,
+        at: crate::managers::changeset::NodePosition,
+        part_ids: [OverlayPartId; 2],
+    },
+    /// `second` renders MERGED into `first` (its children appended; `second`
+    /// itself hidden).
+    Merge { first: NodeId, second: NodeId },
+    /// A pending subtree renders under `parent` at child `index`.
+    Insert {
+        parent: NodeId,
+        index: u32,
+        content: azul_core::dom::Dom,
+    },
+    /// `parent`'s children `[start, end)` render REMOVED.
+    Remove { parent: NodeId, start: u32, end: u32 },
+    /// `parent`'s children `[start, end)` render REPLACED by a pending
+    /// subtree.
+    Replace {
+        parent: NodeId,
+        start: u32,
+        end: u32,
+        content: azul_core::dom::Dom,
+    },
+}
+
+/// One entry in the pending-structure list: the changeset it anticipates
+/// (the commit handshake ties the two lifecycles) + the delta.
+#[derive(Debug, Clone)]
+pub struct PendingStructure {
+    pub changeset_id: u64,
+    pub preview: StructuralPreview,
+}
+
+/// One RESOLVED child in a node's adjusted child list — what a consumer
+/// iterating "the children of X as the user should see them" receives.
+#[derive(Debug, Clone)]
+pub enum ResolvedChild<'a> {
+    /// An existing DOM child, unchanged.
+    Existing(NodeId),
+    /// An existing DOM child that is part of a SPLIT: render only the given
+    /// byte range of its text (`None` end = to the end).
+    ExistingTextSlice {
+        node: NodeId,
+        start_byte: u32,
+        end_byte: Option<u32>,
+    },
+    /// A pending (not-yet-real) subtree from a recorded insert/replace.
+    Pending(&'a azul_core::dom::Dom),
+}
+
 /// The overlay proper. Fields are private on purpose: reads go through
 /// [`ResolvedContent`] / the accessors below, writes only through the
 /// chokepoint (`pub(crate)` mutators).
@@ -192,6 +265,11 @@ pub struct ContentOverlay {
     /// text mutation point, itself fed by `apply_text_changeset`); retired by
     /// [`Self::gc_converged_text`] when the app's regenerated DOM catches up.
     text: BTreeMap<(DomId, NodeId), DirtyTextNode>,
+    /// Structural arm: pending tree deltas (split/merge/insert/remove/
+    /// replace) previewed ahead of the app's re-render. Consumers resolve
+    /// via [`ResolvedContent::children_for_node`] /
+    /// [`Self::pending_structure`]; empty = the DOM is the whole truth.
+    pending_structure: BTreeMap<DomId, Vec<PendingStructure>>,
 }
 
 impl ContentOverlay {
@@ -227,7 +305,7 @@ impl ContentOverlay {
 
     #[must_use]
     pub fn is_empty(&self) -> bool {
-        self.images.is_empty() && self.text.is_empty()
+        self.images.is_empty() && self.text.is_empty() && self.pending_structure.is_empty()
     }
 
     pub(crate) fn set_image(
@@ -254,6 +332,91 @@ impl ContentOverlay {
         node_id: NodeId,
     ) -> Option<&mut DirtyTextNode> {
         self.text.get_mut(&(dom_id, node_id))
+    }
+
+    /// The pending structural deltas of `dom` (empty slice = none).
+    #[must_use]
+    pub fn pending_structure(&self, dom_id: DomId) -> &[PendingStructure] {
+        self.pending_structure
+            .get(&dom_id)
+            .map_or(&[], |v| v.as_slice())
+    }
+
+    /// Number of pending structural deltas across all DOMs (tests).
+    #[must_use]
+    pub fn pending_structure_len(&self) -> usize {
+        self.pending_structure.values().map(Vec::len).sum()
+    }
+
+    /// Materialize a recorded structural changeset as a PREVIEW — the
+    /// generic entry for EVERY operation kind (the recorded delta IS the
+    /// preview; nothing is copied except the changeset's own subtree
+    /// payloads, which are refcounted).
+    pub(crate) fn preview_structural_change(
+        &mut self,
+        dom_id: DomId,
+        changeset: &crate::managers::changeset::DocumentChangeset,
+    ) {
+        use crate::managers::changeset::DocumentOperation as Op;
+        let preview = match &changeset.operation {
+            Op::SplitNode(sp) => sp.node.node.into_crate_internal().map(|node| {
+                StructuralPreview::Split {
+                    node,
+                    at: sp.at,
+                    part_ids: [OverlayPartId::mint(), OverlayPartId::mint()],
+                }
+            }),
+            Op::MergeNodes(m) => match (
+                m.first.node.into_crate_internal(),
+                m.second.node.into_crate_internal(),
+            ) {
+                (Some(first), Some(second)) => {
+                    Some(StructuralPreview::Merge { first, second })
+                }
+                _ => None,
+            },
+            Op::InsertChildren(i) => i.parent.node.into_crate_internal().map(|parent| {
+                StructuralPreview::Insert {
+                    parent,
+                    index: i.index,
+                    content: i.content.clone(),
+                }
+            }),
+            Op::RemoveChildren(r) => r.parent.node.into_crate_internal().map(|parent| {
+                StructuralPreview::Remove {
+                    parent,
+                    start: r.start,
+                    end: r.end,
+                }
+            }),
+            Op::ReplaceChildren(r) => r.parent.node.into_crate_internal().map(|parent| {
+                StructuralPreview::Replace {
+                    parent,
+                    start: r.start,
+                    end: r.end,
+                    content: r.content.clone(),
+                }
+            }),
+            // The text-specific pair has no structural preview (formatting
+            // previews ride the text overlay instead).
+            Op::WrapRange(_) | Op::UnwrapRange(_) => None,
+        };
+        if let Some(preview) = preview {
+            self.pending_structure
+                .entry(dom_id)
+                .or_default()
+                .push(PendingStructure {
+                    changeset_id: changeset.id,
+                    preview,
+                });
+        }
+    }
+
+    /// Drop every pending structural delta of `dom` — called when a new
+    /// generation lands (the app either applied the changeset, so REAL nodes
+    /// exist, or rejected it, so the content reverts; both end the preview).
+    pub(crate) fn gc_splits(&mut self, dom_id: DomId) {
+        self.pending_structure.remove(&dom_id);
     }
 
     /// Convergence GC — the rule that closes the edit commit loop: after a
@@ -303,6 +466,7 @@ impl ContentOverlay {
     pub(crate) fn clear_dom(&mut self, dom_id: DomId) {
         self.images.retain(|(d, _), _| *d != dom_id);
         self.text.retain(|(d, _), _| *d != dom_id);
+        self.pending_structure.remove(&dom_id);
     }
 }
 
@@ -310,6 +474,10 @@ impl NodeIdRemap for ContentOverlay {
     fn remap_node_ids(&mut self, dom: DomId, map: &NodeIdMap) {
         crate::managers::remap_dom_keys(&mut self.images, dom, map);
         crate::managers::remap_dom_keys(&mut self.text, dom, map);
+        // Previews do NOT remap: a remap means a new generation landed,
+        // which ends every preview's life (gc at the layout tail); remapping
+        // would keep a preview alive over content that superseded it.
+        self.pending_structure.remove(&dom);
     }
 }
 
@@ -363,6 +531,113 @@ impl ResolvedContent<'_> {
             NodeType::Image(image_ref) => Some(image_ref.as_ref().clone()),
             _ => None,
         }
+    }
+
+    /// The children of `node_id` AS THE USER SHOULD SEE THEM: the immutable
+    /// DOM's child list with every pending structural delta applied on top —
+    /// the read side of the `.insertChild`-through-the-overlay design.
+    /// With no pending structure this is exactly the DOM's children.
+    ///
+    /// Split previews surface on the SPLIT NODE itself via
+    /// [`Self::split_positions_for_node`]; here a split node still occupies
+    /// one slot (its parts are an internal regrouping).
+    #[must_use]
+    pub fn children_for_node(&self, node_id: NodeId) -> Vec<ResolvedChild<'_>> {
+        let hierarchy = self.styled_dom.node_hierarchy.as_container();
+        let mut out: Vec<ResolvedChild<'_>> = Vec::new();
+        let mut child = hierarchy.get(node_id).and_then(|n| n.first_child_id(node_id));
+        while let Some(c) = child {
+            out.push(ResolvedChild::Existing(c));
+            child = hierarchy.get(c).and_then(|n| n.next_sibling_id());
+        }
+
+        let Some(overlay) = self.overlay else {
+            return out;
+        };
+        for pending in overlay.pending_structure(self.dom_id) {
+            match &pending.preview {
+                StructuralPreview::Insert {
+                    parent,
+                    index,
+                    content,
+                } if *parent == node_id => {
+                    let at = (*index as usize).min(out.len());
+                    for (offset, pending_child) in content.children.as_ref().iter().enumerate() {
+                        out.insert(at + offset, ResolvedChild::Pending(pending_child));
+                    }
+                }
+                StructuralPreview::Remove { parent, start, end } if *parent == node_id => {
+                    let s = (*start as usize).min(out.len());
+                    let e = (*end as usize).min(out.len());
+                    out.drain(s..e);
+                }
+                StructuralPreview::Replace {
+                    parent,
+                    start,
+                    end,
+                    content,
+                } if *parent == node_id => {
+                    let s = (*start as usize).min(out.len());
+                    let e = (*end as usize).min(out.len());
+                    let replacement: Vec<ResolvedChild<'_>> = content
+                        .children
+                        .as_ref()
+                        .iter()
+                        .map(ResolvedChild::Pending)
+                        .collect();
+                    out.splice(s..e, replacement);
+                }
+                StructuralPreview::Merge { first, second } => {
+                    // The merged-away node disappears from ITS parent's list;
+                    // its children surface under `first` (when iterating
+                    // first's children).
+                    if out
+                        .iter()
+                        .any(|c| matches!(c, ResolvedChild::Existing(n) if n == second))
+                    {
+                        out.retain(
+                            |c| !matches!(c, ResolvedChild::Existing(n) if n == second),
+                        );
+                    }
+                    if *first == node_id {
+                        let mut sc = hierarchy
+                            .get(*second)
+                            .and_then(|n| n.first_child_id(*second));
+                        while let Some(c) = sc {
+                            out.push(ResolvedChild::Existing(c));
+                            sc = hierarchy.get(c).and_then(|n| n.next_sibling_id());
+                        }
+                    }
+                }
+                // A split regroups the node's OWN content; its parent's child
+                // list is unchanged (the second part becomes real only when
+                // the app applies).
+                StructuralPreview::Split { .. } => {}
+                _ => {}
+            }
+        }
+        out
+    }
+
+    /// The pending SPLIT positions of `node_id` (usually 0 or 1) — a
+    /// part-aware consumer renders the node's children regrouped at these
+    /// structural positions.
+    #[must_use]
+    pub fn split_positions_for_node(
+        &self,
+        node_id: NodeId,
+    ) -> Vec<crate::managers::changeset::NodePosition> {
+        let Some(overlay) = self.overlay else {
+            return Vec::new();
+        };
+        overlay
+            .pending_structure(self.dom_id)
+            .iter()
+            .filter_map(|p| match &p.preview {
+                StructuralPreview::Split { node, at, .. } if *node == node_id => Some(*at),
+                _ => None,
+            })
+            .collect()
     }
 
     /// The text to READ for `node_id` (a11y, exports): the overlay's edited
@@ -579,6 +854,106 @@ mod tests {
             dom_id: dom0(),
         };
         assert!(resolved.image_for_paint(node).is_none());
+    }
+
+    #[test]
+    fn structural_previews_adjust_the_resolved_child_list() {
+        use crate::managers::changeset::{
+            DocOpInsertChildren, DocOpRemoveChildren, DocumentChangeset, DocumentOperation,
+            EditResumePoint, NodePosition,
+        };
+        use azul_core::dom::{Dom, DomNodeId};
+        use azul_core::styled_dom::NodeHierarchyItemId;
+        use azul_core::task::{Instant, SystemTick};
+
+        // DOM: div > [p, p] (nodes 1, 2 with their text children 3, 4… the
+        // exact ids come from creation order; resolve them dynamically).
+        let mut dom = Dom::create_div();
+        let mut p1 = Dom::create_p();
+        p1.add_child(Dom::create_text("one"));
+        let mut p2 = Dom::create_p();
+        p2.add_child(Dom::create_text("two"));
+        dom.add_child(p1);
+        dom.add_child(p2);
+        let styled = StyledDom::create_from_dom(dom);
+        let root = NodeId::new(0);
+
+        let dom_node = |n: NodeId| DomNodeId {
+            dom: dom0(),
+            node: NodeHierarchyItemId::from_crate_internal(Some(n)),
+        };
+        let resume = EditResumePoint {
+            anchor_key: 1,
+            node_path: vec![0].into(),
+            position: NodePosition::before_child(0),
+        };
+
+        let mut overlay = ContentOverlay::default();
+
+        // Baseline: with no pending structure the resolved children ARE the
+        // DOM children (two <p> elements).
+        let resolved = ResolvedContent {
+            overlay: Some(&overlay),
+            styled_dom: &styled,
+            dom_id: dom0(),
+        };
+        let base = resolved.children_for_node(root);
+        assert_eq!(base.len(), 2);
+        assert!(base
+            .iter()
+            .all(|c| matches!(c, ResolvedChild::Existing(_))));
+
+        // A recorded INSERT previews a PENDING subtree between them — the
+        // .insertChild made visible without any DOM mutation.
+        let mut ul = Dom::create_node(azul_core::xml::tag_to_node_type("ul"));
+        ul.add_child(Dom::create_p());
+        let insert_cs = DocumentChangeset::new(
+            dom_node(root),
+            DocumentOperation::InsertChildren(DocOpInsertChildren {
+                parent: dom_node(root),
+                index: 1,
+                content: {
+                    let mut frag = Dom::create_div();
+                    frag.add_child(ul);
+                    frag
+                },
+            }),
+            resume.clone(),
+            Instant::Tick(SystemTick::new(0)),
+        );
+        overlay.preview_structural_change(dom0(), &insert_cs);
+        let resolved = ResolvedContent {
+            overlay: Some(&overlay),
+            styled_dom: &styled,
+            dom_id: dom0(),
+        };
+        let with_insert = resolved.children_for_node(root);
+        assert_eq!(with_insert.len(), 3);
+        assert!(matches!(with_insert[1], ResolvedChild::Pending(_)));
+
+        // A recorded REMOVE previews children [0..1) gone.
+        let remove_cs = DocumentChangeset::new(
+            dom_node(root),
+            DocumentOperation::RemoveChildren(DocOpRemoveChildren {
+                parent: dom_node(root),
+                start: 0,
+                end: 1,
+            }),
+            resume,
+            Instant::Tick(SystemTick::new(0)),
+        );
+        overlay.preview_structural_change(dom0(), &remove_cs);
+        let resolved = ResolvedContent {
+            overlay: Some(&overlay),
+            styled_dom: &styled,
+            dom_id: dom0(),
+        };
+        let with_both = resolved.children_for_node(root);
+        assert_eq!(with_both.len(), 2, "insert(+1) then remove(-1): {with_both:?}");
+
+        // A new generation ends every preview.
+        overlay.gc_splits(dom0());
+        assert_eq!(overlay.pending_structure_len(), 0);
     }
 
     #[test]

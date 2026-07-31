@@ -1229,6 +1229,9 @@ impl LayoutWindow {
                     let styled_dom = &lr.styled_dom;
                     self.content_overlay.gc_converged_text(dom_id, styled_dom);
                 }
+                // A new generation ends every split preview (applied → real
+                // nodes exist; rejected → content reverts).
+                self.content_overlay.gc_splits(dom_id);
             }
         }
 
@@ -1369,50 +1372,56 @@ impl LayoutWindow {
         action: &azul_core::events::DefaultAction,
     ) -> Option<u64> {
         use crate::managers::changeset::{
-            DocOpMergeBlocks, DocOpSplitBlock, DocumentChangeset, DocumentOperation,
+            DocOpMergeNodes, DocOpSplitNode, DocumentChangeset, DocumentOperation,
         };
         use azul_core::events::DefaultAction;
 
         let (target, operation) = match action {
             DefaultAction::SplitBlockAtCursor { target } => {
-                let cursor = self.text_edit_manager.get_primary_cursor()?;
+                let node_id = target.node.into_crate_internal()?;
+                // The caret is ONE producer of a structural position: which
+                // direct child it sits in/before, and — only when that child
+                // is text — the byte inside it. Splitting a <ul> between
+                // <li>s, a <div> between subtrees, or a <p> mid-word is the
+                // SAME operation with a different position.
+                let at = self.caret_node_position(target.dom, node_id)?;
                 (
                     *target,
-                    DocumentOperation::SplitBlock(DocOpSplitBlock {
-                        block: *target,
-                        at: cursor,
+                    DocumentOperation::SplitNode(DocOpSplitNode {
+                        node: *target,
+                        at,
                     }),
                 )
             }
             DefaultAction::MergeWithPrevious { target } => {
                 let node_id = target.node.into_crate_internal()?;
                 let prev = self.block_sibling(target.dom, node_id, false)?;
-                let cursor = self.text_edit_manager.get_primary_cursor()?;
+                let join = self.merge_join_position(target.dom, prev);
                 (
                     *target,
-                    DocumentOperation::MergeBlocks(DocOpMergeBlocks {
+                    DocumentOperation::MergeNodes(DocOpMergeNodes {
                         first: DomNodeId {
                             dom: target.dom,
                             node: NodeHierarchyItemId::from_crate_internal(Some(prev)),
                         },
                         second: *target,
-                        join_cursor: cursor,
+                        join,
                     }),
                 )
             }
             DefaultAction::MergeWithNext { target } => {
                 let node_id = target.node.into_crate_internal()?;
                 let next = self.block_sibling(target.dom, node_id, true)?;
-                let cursor = self.text_edit_manager.get_primary_cursor()?;
+                let join = self.merge_join_position(target.dom, node_id);
                 (
                     *target,
-                    DocumentOperation::MergeBlocks(DocOpMergeBlocks {
+                    DocumentOperation::MergeNodes(DocOpMergeNodes {
                         first: *target,
                         second: DomNodeId {
                             dom: target.dom,
                             node: NodeHierarchyItemId::from_crate_internal(Some(next)),
                         },
-                        join_cursor: cursor,
+                        join,
                     }),
                 )
             }
@@ -1426,7 +1435,114 @@ impl LayoutWindow {
             resume,
             azul_core::task::Instant::now(),
         );
+
+        // O3: EVERY structural edit materializes a PREVIEW in the overlay —
+        // the immutable-DOM analog of insertChild/removeChild/split/merge
+        // becoming visible ahead of the app's re-render, with NO DOM
+        // mutation. The preview is the recorded DELTA itself (no content is
+        // copied); it dies when the next generation lands (gc at the layout
+        // tail) whether the app applied or rejected.
+        self.content_overlay
+            .preview_structural_change(target.dom, &changeset);
+
         Some(self.record_document_edit(changeset))
+    }
+
+    /// The caret expressed as a STRUCTURAL position inside `node`: the index
+    /// of the direct child the caret sits in (walking up from the caret's
+    /// node to the direct child), plus the byte inside it iff that child is
+    /// a text node. A caret on the node itself (no children / element-level
+    /// caret) yields `before_child(current index)` — a pure boundary.
+    fn caret_node_position(
+        &self,
+        dom_id: DomId,
+        node_id: NodeId,
+    ) -> Option<crate::managers::changeset::NodePosition> {
+        use crate::managers::changeset::NodePosition;
+        let lr = self.layout_results.get(&dom_id)?;
+        let hierarchy = lr.styled_dom.node_hierarchy.as_container();
+        let node_data = lr.styled_dom.node_data.as_container();
+
+        let cursor = self.text_edit_manager.get_primary_cursor()?;
+        // Which node does the caret live on? (initialize_editing puts it on
+        // the text child; element-level editing puts it on the node itself.)
+        let caret_node = self
+            .text_edit_manager
+            .multi_cursor
+            .as_ref()
+            .and_then(|mc| mc.node_id.node.into_crate_internal())
+            .unwrap_or(node_id);
+
+        // Walk the caret's node up to the DIRECT child of `node`.
+        let mut direct_child = caret_node;
+        if direct_child != node_id {
+            while let Some(parent) = hierarchy.get(direct_child).and_then(|n| n.parent_id()) {
+                if parent == node_id {
+                    break;
+                }
+                direct_child = parent;
+            }
+        }
+        if direct_child == node_id {
+            // Caret on the node itself: a pure boundary at child 0.
+            return Some(NodePosition::before_child(0));
+        }
+
+        // Index of that direct child among ALL children.
+        let mut index: u32 = 0;
+        let mut sib = hierarchy.get(direct_child).and_then(|n| n.previous_sibling_id());
+        while let Some(sn) = sib {
+            index += 1;
+            sib = hierarchy.get(sn).and_then(|n| n.previous_sibling_id());
+        }
+
+        // Only a TEXT child carries a byte offset; anything else is a
+        // boundary before/after it (after = caret at the child's end).
+        if node_data
+            .get(direct_child)
+            .is_some_and(|n| matches!(n.get_node_type(), NodeType::Text(_)))
+        {
+            Some(NodePosition::in_text_child(
+                index,
+                cursor.cluster_id.start_byte_in_run,
+            ))
+        } else {
+            Some(NodePosition::before_child(index))
+        }
+    }
+
+    /// The seam position for merging INTO `first`: its child count, with the
+    /// byte set when the seam will coalesce two text nodes (last child of
+    /// `first` is text) — that byte is where the caret lands.
+    fn merge_join_position(
+        &self,
+        dom_id: DomId,
+        first: NodeId,
+    ) -> crate::managers::changeset::NodePosition {
+        use crate::managers::changeset::NodePosition;
+        let Some(lr) = self.layout_results.get(&dom_id) else {
+            return NodePosition::before_child(0);
+        };
+        let hierarchy = lr.styled_dom.node_hierarchy.as_container();
+        let node_data = lr.styled_dom.node_data.as_container();
+        let mut count: u32 = 0;
+        let mut last_child: Option<NodeId> = None;
+        let mut child = hierarchy.get(first).and_then(|n| n.first_child_id(first));
+        while let Some(c) = child {
+            count += 1;
+            last_child = Some(c);
+            child = hierarchy.get(c).and_then(|n| n.next_sibling_id());
+        }
+        let last_text_len = last_child.and_then(|c| {
+            node_data.get(c).and_then(|n| match n.get_node_type() {
+                NodeType::Text(t) => Some(t.as_str().len() as u32),
+                _ => None,
+            })
+        });
+        match last_text_len {
+            Some(len) => NodePosition::in_text_child(count.saturating_sub(1), len),
+            None => NodePosition::before_child(count),
+        }
     }
 
     /// The previous/next SIBLING of a node (v1 block-adjacency; skips nothing).
@@ -1441,76 +1557,88 @@ impl LayoutWindow {
         }
     }
 
-    /// Compute the re-render-stable caret resume point for a structural edit:
-    /// host identity via `calculate_contenteditable_key`, block path in the
-    /// POST-edit tree, byte offset within that block.
+    /// Compute the re-render-stable resume point for a structural edit:
+    /// anchor identity via the stable node key, the CHILD-INDEX PATH from
+    /// the anchor to the affected node in the POST-edit tree, and the
+    /// structural position inside it. Nothing here presumes text — the
+    /// position carries a byte only when the edit's own position does.
     fn compute_edit_resume_point(
         &self,
         target: DomNodeId,
         operation: &crate::managers::changeset::DocumentOperation,
     ) -> Option<crate::managers::changeset::EditResumePoint> {
-        use crate::managers::changeset::{DocumentOperation, EditResumePoint};
+        use crate::managers::changeset::{DocumentOperation, EditResumePoint, NodePosition};
 
         let node_id = target.node.into_crate_internal()?;
-        let host = self.find_contenteditable_host(target.dom, node_id)?;
+        // Anchor: the contenteditable host when the edit happens inside one
+        // (keyboard editing), else the target's PARENT (programmatic
+        // structural edits anchor on the edited child list's owner). The key
+        // works for ANY node (explicit key > css id > structural).
         let lr = self.layout_results.get(&target.dom)?;
+        let hierarchy_c = lr.styled_dom.node_hierarchy.as_container();
+        let anchor = self
+            .find_contenteditable_host(target.dom, node_id)
+            .or_else(|| hierarchy_c.get(node_id).and_then(|n| n.parent_id()))
+            .unwrap_or(node_id);
         let node_data = lr.styled_dom.node_data.as_ref();
         let hierarchy = lr.styled_dom.node_hierarchy.as_ref();
-        let key = azul_core::diff::calculate_contenteditable_key(node_data, hierarchy, host);
+        let key = azul_core::diff::calculate_contenteditable_key(node_data, hierarchy, anchor);
 
-        // Child-index of `target`'s topmost-below-host ancestor within host.
-        let hierarchy_c = lr.styled_dom.node_hierarchy.as_container();
-        let mut below_host = node_id;
-        while let Some(parent) = hierarchy_c.get(below_host).and_then(|n| n.parent_id()) {
-            if parent == host {
-                break;
+        // Full child-index path anchor→target (multi-level).
+        let mut path_rev: Vec<u32> = Vec::new();
+        let mut current = node_id;
+        while current != anchor {
+            let mut index: u32 = 0;
+            let mut sib = hierarchy_c.get(current).and_then(|n| n.previous_sibling_id());
+            while let Some(sn) = sib {
+                index += 1;
+                sib = hierarchy_c.get(sn).and_then(|n| n.previous_sibling_id());
             }
-            below_host = parent;
+            path_rev.push(index);
+            match hierarchy_c.get(current).and_then(|n| n.parent_id()) {
+                Some(p) => current = p,
+                None => break,
+            }
         }
-        let mut index_in_host: u32 = 0;
-        let mut sib = hierarchy_c.get(below_host).and_then(|n| n.previous_sibling_id());
-        while let Some(s) = sib {
-            index_in_host += 1;
-            sib = hierarchy_c.get(s).and_then(|n| n.previous_sibling_id());
-        }
+        let mut node_path: Vec<u32> = path_rev.into_iter().rev().collect();
 
-        let (block_index, text_offset) = match operation {
-            // After a split the caret lands at offset 0 of the NEW second
-            // block — one index past the split block.
-            DocumentOperation::SplitBlock(_) => (index_in_host + 1, 0),
-            // After a merge the caret lands at the join point of the
-            // surviving block: the byte length of its pre-merge text.
-            DocumentOperation::MergeBlocks(m) => {
-                let first_node = m.first.node.into_crate_internal()?;
-                let first_index = if first_node == below_host {
-                    index_in_host
+        let position = match operation {
+            // After a split the resume names the NEW second node (last path
+            // index + 1), positioned at its start.
+            DocumentOperation::SplitNode(_) => {
+                if let Some(last) = node_path.last_mut() {
+                    *last += 1;
                 } else {
-                    index_in_host.saturating_sub(1)
-                };
-                let join = self
-                    .content_overlay
-                    .text_for_node(target.dom, first_node)
-                    .map(|d| crate::overlay::flatten_inline_content(&d.content).len())
-                    .or_else(|| {
-                        lr.styled_dom
-                            .node_data
-                            .as_container()
-                            .get(first_node)
-                            .and_then(|n| match n.get_node_type() {
-                                NodeType::Text(s) => Some(s.as_str().len()),
-                                _ => None,
-                            })
-                    })
-                    .unwrap_or(0);
-                (first_index, join as u32)
+                    node_path.push(1);
+                }
+                NodePosition::before_child(0)
             }
-            _ => (index_in_host, 0),
+            // After a merge the resume names the SURVIVOR, positioned at the
+            // seam (which the op already carries — byte iff text|text).
+            DocumentOperation::MergeNodes(m) => {
+                if let Some(first_node) = m.first.node.into_crate_internal() {
+                    if first_node != node_id {
+                        // Merging INTO the previous sibling: path names it.
+                        if let Some(last) = node_path.last_mut() {
+                            *last = last.saturating_sub(1);
+                        }
+                    }
+                }
+                m.join
+            }
+            // Insert/Remove/Replace anchor at the edited range's start.
+            DocumentOperation::InsertChildren(i) => NodePosition::before_child(i.index),
+            DocumentOperation::RemoveChildren(r) => NodePosition::before_child(r.start),
+            DocumentOperation::ReplaceChildren(r) => NodePosition::before_child(r.start),
+            DocumentOperation::WrapRange(_) | DocumentOperation::UnwrapRange(_) => {
+                NodePosition::before_child(0)
+            }
         };
 
         Some(EditResumePoint {
-            contenteditable_key: key,
-            block_path: vec![block_index].into(),
-            text_offset,
+            anchor_key: key,
+            node_path: node_path.into(),
+            position,
         })
     }
 
@@ -1614,41 +1742,51 @@ impl LayoutWindow {
 
     /// The mechanical resume point for re-recording `inverse` of an applied
     /// `op` (the applier derives indices from the resume, so the pair must
-    /// agree): split@[i+1] ↔ merge@[i] (offset = the split byte);
-    /// insert@[i] ↔ delete@[i].
+    /// agree): split@[i+1] ↔ merge@[i] (position = the seam);
+    /// insert ↔ remove ↔ replace anchor at the range start.
     fn resume_for_inverse(
         op: &crate::managers::changeset::DocumentOperation,
         inverse: &crate::managers::changeset::DocumentOperation,
         resume_after: &crate::managers::changeset::EditResumePoint,
     ) -> Option<crate::managers::changeset::EditResumePoint> {
-        use crate::managers::changeset::{DocumentOperation as Op, EditResumePoint};
-        let after_index = resume_after.block_path.as_ref().first().copied().unwrap_or(0);
-        let (index, offset) = match (op, inverse) {
-            // Undo a split: merge the two halves; caret at the old split byte.
-            (Op::SplitBlock(s), Op::MergeBlocks(_)) => (
-                after_index.saturating_sub(1),
-                s.at.cluster_id.start_byte_in_run,
-            ),
-            // Undo a merge: split the survivor at the join point.
-            (Op::MergeBlocks(_), Op::SplitBlock(_)) => {
-                (after_index + 1, 0)
+        use crate::managers::changeset::{DocumentOperation as Op, EditResumePoint, NodePosition};
+        let mut node_path: Vec<u32> = resume_after.node_path.as_ref().to_vec();
+        let last = node_path.last().copied().unwrap_or(0);
+        let position = match (op, inverse) {
+            // Undo a split: merge the two halves; caret at the old seam.
+            (Op::SplitNode(sp), Op::MergeNodes(_)) => {
+                if let Some(l) = node_path.last_mut() {
+                    *l = last.saturating_sub(1);
+                }
+                sp.at
             }
-            (Op::InsertBlock(_), Op::DeleteBlock(_))
-            | (Op::DeleteBlock(_), Op::InsertBlock(_)) => (after_index, 0),
+            // Undo a merge: split the survivor at the seam again.
+            (Op::MergeNodes(_), Op::SplitNode(_)) => {
+                if let Some(l) = node_path.last_mut() {
+                    *l = last + 1;
+                }
+                NodePosition::before_child(0)
+            }
+            (Op::InsertChildren(_), Op::RemoveChildren(r)) => NodePosition::before_child(r.start),
+            (Op::RemoveChildren(_), Op::InsertChildren(i)) => NodePosition::before_child(i.index),
+            (Op::ReplaceChildren(_), Op::ReplaceChildren(r)) => {
+                NodePosition::before_child(r.start)
+            }
             _ => return None,
         };
         Some(EditResumePoint {
-            contenteditable_key: resume_after.contenteditable_key,
-            block_path: vec![index].into(),
-            text_offset: offset,
+            anchor_key: resume_after.anchor_key,
+            node_path: node_path.into(),
+            position,
         })
     }
 
     /// Resolve a stashed [`crate::managers::changeset::EditResumePoint`]
     /// against the CURRENT (post-swap) generation and place the caret there:
-    /// host by `contenteditable_key`, block by child-index path, offset
-    /// clamped. Divergence (the app transformed the tree differently) falls
-    /// back to the host start; a missing host leaves the caret alone. Never
+    /// anchor by stable key, target by child-index path, then the structural
+    /// position (byte in a text child, or the boundary child's start).
+    /// Divergence (the app transformed the tree differently) falls back to
+    /// the anchor start; a missing anchor leaves the caret alone. Never
     /// panics — the fallback is a first-class path.
     fn restore_caret_from_resume_point(
         &mut self,
@@ -1658,7 +1796,7 @@ impl LayoutWindow {
             CursorAffinity, GraphemeClusterId, MultiCursorState, TextCursor,
         };
 
-        let Some((dom_id, host)) = self.find_host_by_contenteditable_key(resume.contenteditable_key)
+        let Some((dom_id, anchor)) = self.find_host_by_contenteditable_key(resume.anchor_key)
         else {
             return;
         };
@@ -1666,48 +1804,75 @@ impl LayoutWindow {
             return;
         };
         let hierarchy = lr.styled_dom.node_hierarchy.as_container();
+        let node_data = lr.styled_dom.node_data.as_container();
 
-        // Walk the child-index path; any miss falls back to the host itself.
-        let mut target = host;
-        'walk: for &idx in resume.block_path.as_ref() {
-            let mut child = hierarchy.get(target).and_then(|n| n.first_child_id(target));
+        let nth_child = |of: NodeId, n: u32| -> Option<NodeId> {
+            let mut child = hierarchy.get(of).and_then(|h| h.first_child_id(of));
             let mut i: u32 = 0;
             while let Some(c) = child {
-                if i == idx {
-                    target = c;
-                    continue 'walk;
+                if i == n {
+                    return Some(c);
                 }
                 i += 1;
-                child = hierarchy.get(c).and_then(|n| n.next_sibling_id());
+                child = hierarchy.get(c).and_then(|h| h.next_sibling_id());
             }
-            target = host;
-            break;
+            None
+        };
+
+        // Walk the child-index path; any miss falls back to the anchor.
+        let mut target = anchor;
+        for &idx in resume.node_path.as_ref() {
+            match nth_child(target, idx) {
+                Some(c) => target = c,
+                None => {
+                    target = anchor;
+                    break;
+                }
+            }
         }
 
-        let text_len = crate::overlay::ResolvedContent {
-            overlay: Some(&self.content_overlay),
-            styled_dom: &lr.styled_dom,
-            dom_id,
-        }
-        .text_for_node(target)
-        .map_or(0, |s| s.len());
-        let offset = (resume.text_offset as usize).min(text_len) as u32;
+        // The structural position → a caret: inside a text child (byte,
+        // clamped), else at the boundary child's start, else the target
+        // itself.
+        let (caret_node, byte) = match resume.position.text_byte.into_option() {
+            Some(byte) => match nth_child(target, resume.position.child_index) {
+                Some(c)
+                    if node_data
+                        .get(c)
+                        .is_some_and(|n| matches!(n.get_node_type(), NodeType::Text(_))) =>
+                {
+                    let len = node_data
+                        .get(c)
+                        .and_then(|n| match n.get_node_type() {
+                            NodeType::Text(t) => Some(t.as_str().len() as u32),
+                            _ => None,
+                        })
+                        .unwrap_or(0);
+                    (c, byte.min(len))
+                }
+                _ => (target, 0),
+            },
+            None => (
+                nth_child(target, resume.position.child_index).unwrap_or(target),
+                0,
+            ),
+        };
 
         let cursor = TextCursor {
             cluster_id: GraphemeClusterId {
                 source_run: 0,
-                start_byte_in_run: offset,
+                start_byte_in_run: byte,
             },
             affinity: CursorAffinity::Leading,
         };
         let dom_node = DomNodeId {
             dom: dom_id,
-            node: NodeHierarchyItemId::from_crate_internal(Some(target)),
+            node: NodeHierarchyItemId::from_crate_internal(Some(caret_node)),
         };
         self.text_edit_manager.multi_cursor = Some(MultiCursorState::new_with_cursor(
             cursor,
             dom_node,
-            resume.contenteditable_key,
+            resume.anchor_key,
         ));
     }
 

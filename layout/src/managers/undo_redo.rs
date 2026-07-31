@@ -627,7 +627,7 @@ mod undo_redo_tests {
 mod structural_history_tests {
     use super::*;
     use crate::managers::changeset::{
-        DocOpDeleteBlock, DocOpSplitBlock, DocumentOperation, EditResumePoint,
+        DocOpRemoveChildren, DocOpSplitNode, DocumentOperation, EditResumePoint, NodePosition,
     };
     use azul_core::dom::{DomId, DomNodeId};
     use azul_core::selection::{CursorAffinity, GraphemeClusterId, TextCursor};
@@ -639,21 +639,19 @@ mod structural_history_tests {
             node: NodeHierarchyItemId::from_crate_internal(None),
         };
         StructuralUndoEntry {
-            op: DocumentOperation::SplitBlock(DocOpSplitBlock {
-                block: node,
-                at: TextCursor {
-                    cluster_id: GraphemeClusterId {
-                        source_run: 0,
-                        start_byte_in_run: tag,
-                    },
-                    affinity: CursorAffinity::Leading,
-                },
+            op: DocumentOperation::SplitNode(DocOpSplitNode {
+                node,
+                at: NodePosition::in_text_child(0, tag),
             }),
-            inverse: DocumentOperation::DeleteBlock(DocOpDeleteBlock { block: node }),
+            inverse: DocumentOperation::RemoveChildren(DocOpRemoveChildren {
+                parent: node,
+                start: 0,
+                end: 1,
+            }),
             resume_after: EditResumePoint {
-                contenteditable_key: u64::from(tag),
-                block_path: vec![1].into(),
-                text_offset: 0,
+                anchor_key: u64::from(tag),
+                node_path: vec![1].into(),
+                position: NodePosition::before_child(0),
             },
         }
     }
@@ -687,7 +685,7 @@ mod structural_history_tests {
         assert_eq!(m.structural_undo.len(), MAX_STRUCTURAL_HISTORY);
         // The OLDEST entries were dropped (FIFO at the front).
         let front = m.structural_undo.front().expect("front");
-        assert_eq!(front.resume_after.contenteditable_key, 10);
+        assert_eq!(front.resume_after.anchor_key, 10);
     }
 }
 

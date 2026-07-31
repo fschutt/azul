@@ -858,58 +858,59 @@ fn contenteditable_overflow_wraps_at_end_not_start() {
 
 // =========================================================================
 // Full structural-edit round trip (the A-chain acceptance test):
-// RECORD (Enter → SplitBlockAtCursor → DocumentChangeset) →
-// APP-APPLY (document_edit on the app's XML tree) →
+// RECORD (Enter → SplitNode at a STRUCTURAL position → DocumentChangeset) →
+// APP-APPLY (document_edit on the app's native `Dom` model) →
 // ACK (mark_document_edit_applied_with_inverse) →
-// RE-RENDER (new generation from the tree) →
-// CARET RESTORE (host key + block path against the NEW generation) →
+// RE-RENDER (new generation from the model) →
+// CARET RESTORE (anchor key + node path against the NEW generation) →
 // STRUCTURAL UNDO (re-records the inverse through the same loop).
 // The StyledDom is never mutated in place — every generation is rebuilt
-// from the app's model, exactly like a real Path-2 app.
+// from the app's model, exactly like a real Path-2 app. The model is a
+// `Dom` tree (NOT markup): the same ops split a <ul> between <li>s.
 // =========================================================================
 
-#[cfg(feature = "xml")]
 mod structural_roundtrip {
     use super::*;
     use azul_core::selection::{CursorAffinity, GraphemeClusterId, TextCursor};
     use azul_core::window::{KeyboardState, VirtualKeyCode};
-    use azul_core::xml::{XmlNode, XmlNodeChild};
-    use azul_layout::managers::changeset::DocumentOperation;
+    use azul_layout::managers::changeset::{DocumentOperation, NodePosition};
 
-    /// Build the RENDERED Dom from the app's XML tree (editor div + <p> blocks).
-    fn dom_from_tree(tree: &[XmlNodeChild]) -> Dom {
-        let XmlNodeChild::Element(host) = &tree[0] else {
-            panic!("tree root must be the editor element")
-        };
+    /// The APP's model: the editor subtree as a native `Dom`.
+    fn editor_model() -> azul_core::dom::Dom {
         let mut editor = Dom::create_div()
             .with_ids_and_classes(cls("editor").into())
             .with_contenteditable(true)
             .with_tab_index(TabIndex::Auto);
-        for child in host.children.as_ref() {
-            let XmlNodeChild::Element(p) = child else { continue };
-            let mut block = Dom::create_p();
-            for pc in p.children.as_ref() {
-                if let XmlNodeChild::Text(t) = pc {
-                    block.add_child(Dom::create_text(t.as_str()));
-                }
-            }
-            editor.add_child(block);
-        }
+        let mut p = Dom::create_p();
+        p.add_child(Dom::create_text("hello world"));
+        editor.add_child(p);
+        editor
+    }
+
+    /// RENDER the model (the app's layout callback): body > model clone.
+    fn render_dom(model: &azul_core::dom::Dom) -> Dom {
         let mut root = Dom::create_body();
-        root.add_child(editor);
+        root.add_child(model.clone());
         root
     }
 
-    fn block_texts(tree: &[XmlNodeChild]) -> Vec<String> {
-        let XmlNodeChild::Element(host) = &tree[0] else {
-            panic!("host")
-        };
-        host.children
+    fn model_block_texts(model: &azul_core::dom::Dom) -> Vec<String> {
+        fn collect(node: &Dom, out: &mut String) {
+            if let NodeType::Text(t) = node.root.get_node_type() {
+                out.push_str(t.as_str());
+            }
+            for c in node.children.as_ref() {
+                collect(c, out);
+            }
+        }
+        model
+            .children
             .as_ref()
             .iter()
-            .filter_map(|c| match c {
-                XmlNodeChild::Element(e) => Some(e.get_text_content()),
-                XmlNodeChild::Text(_) => None,
+            .map(|c| {
+                let mut t = String::new();
+                collect(c, &mut t);
+                t
             })
             .collect()
     }
@@ -921,19 +922,16 @@ mod structural_roundtrip {
 
     #[test]
     fn enter_split_full_roundtrip_with_undo() {
-        // The APP's model: one paragraph.
-        let mut tree = azul_layout::xml::parse_xml_string(
-            "<div class=\"editor\"><p>hello world</p></div>",
-        )
-        .expect("parse app model");
+        // The APP's model: one paragraph inside the editor.
+        let mut model = editor_model();
 
         let mut h = ContentEditableHarness::new(400.0, 300.0);
-        h.layout_dom(dom_from_tree(&tree), CSS);
+        h.layout_dom(render_dom(&model), CSS);
         let before_split = h.render();
 
         let dom_id = DomId { inner: 0 };
 
-        // Locate the <p> (the block the caret lives in) and focus it.
+        // Locate the <p> (the node the caret lives in) and focus it.
         let p_node = {
             let lw = h.layout_window.as_ref().unwrap();
             let lr = lw.layout_results.get(&dom_id).unwrap();
@@ -945,7 +943,7 @@ mod structural_roundtrip {
         };
         h.focus_node(dom_id, p_node);
 
-        // Caret between "hello" and " world" (byte 5 of the single run).
+        // Caret between "hello" and " world" (byte 5 of the text child).
         {
             let lw = h.layout_window.as_mut().unwrap();
             let mc = lw.text_edit_manager.multi_cursor.as_mut().expect("cursor");
@@ -958,8 +956,8 @@ mod structural_roundtrip {
             });
         }
 
-        // ── RECORD: Enter in the contenteditable determines a SPLIT and
-        // recording stores the changeset (nothing mutates).
+        // ── RECORD: Enter determines a SPLIT; recording stores the changeset
+        // (nothing mutates) with a STRUCTURAL position (text child 0, byte 5).
         let focused = {
             let lw = h.layout_window.as_ref().unwrap();
             lw.focus_manager.get_focused_node().copied()
@@ -991,15 +989,38 @@ mod structural_roundtrip {
                 .expect("record");
             lw.get_pending_document_edit().expect("pending").clone()
         };
-        assert!(matches!(changeset.operation, DocumentOperation::SplitBlock(_)));
-        assert_eq!(changeset.resume.block_path.as_ref(), &[1u32]);
+        let DocumentOperation::SplitNode(ref sp) = changeset.operation else {
+            panic!("expected SplitNode, got {:?}", changeset.operation);
+        };
+        assert_eq!(
+            sp.at,
+            NodePosition::in_text_child(0, 5),
+            "the caret became a STRUCTURAL position"
+        );
+        // The resume names the NEW second node: path [<p index> + 1].
+        assert_eq!(changeset.resume.node_path.as_ref().last(), Some(&1u32));
 
-        // ── APP-APPLY on the app's XML tree (Path 2).
-        let applied =
-            azul_layout::document_edit::apply_document_operation(&mut tree, &[], &changeset)
-                .expect("apply split");
-        assert_eq!(block_texts(&tree), vec!["hello", " world"]);
-        assert!(matches!(applied.inverse, DocumentOperation::MergeBlocks(_)));
+        // ── The recorded delta previews as pending structure (no DOM
+        // mutation, no content copies).
+        {
+            let lw = h.layout_window.as_ref().unwrap();
+            assert_eq!(
+                lw.content_overlay.pending_structure(dom_id).len(),
+                1,
+                "the recorded split previews as pending structure"
+            );
+        }
+
+        // ── APP-APPLY on the app's native Dom model (Path 2). The host of
+        // the split is the EDITOR (the p's parent) = the model root: path [].
+        let applied = azul_layout::document_edit::apply_document_operation(
+            &mut model,
+            &[],
+            &changeset,
+        )
+        .expect("apply split");
+        assert_eq!(model_block_texts(&model), vec!["hello", " world"]);
+        assert!(matches!(applied.inverse, DocumentOperation::MergeNodes(_)));
 
         // ── ACK (with the inverse: the edit becomes undoable).
         {
@@ -1007,9 +1028,18 @@ mod structural_roundtrip {
             assert!(lw.mark_document_edit_applied_with_inverse(changeset.id, applied.inverse));
         }
 
-        // ── RE-RENDER the new generation from the app's model. The caret
-        // restore runs at the layout tail: second block, offset 0.
-        h.layout_dom(dom_from_tree(&tree), CSS);
+        // ── RE-RENDER the new generation from the app's model. The preview
+        // dies (real nodes exist now); the caret restore runs at the layout
+        // tail: second node, offset 0.
+        h.layout_dom(render_dom(&model), CSS);
+        {
+            let lw = h.layout_window.as_ref().unwrap();
+            assert_eq!(
+                lw.content_overlay.pending_structure_len(),
+                0,
+                "preview must be GC'd at the generation swap"
+            );
+        }
         let after_split = h.render();
         assert!(
             pixel_diff_count(&before_split, &after_split, 2) > 0,
@@ -1025,7 +1055,6 @@ mod structural_roundtrip {
             let caret_node = mc.node_id.node.into_crate_internal().expect("caret node");
             let lr = lw.layout_results.get(&dom_id).unwrap();
             let container = lr.styled_dom.node_data.as_container();
-            // The caret's block: walk up to the nearest P.
             let hierarchy = lr.styled_dom.node_hierarchy.as_container();
             let mut block = caret_node;
             while !matches!(container[block].get_node_type(), NodeType::P) {
@@ -1034,16 +1063,13 @@ mod structural_roundtrip {
                     None => break,
                 }
             }
-            let second_p = {
-                let ps: Vec<NodeId> = (0..container.len())
-                    .map(NodeId::new)
-                    .filter(|nid| matches!(container[*nid].get_node_type(), NodeType::P))
-                    .collect();
-                assert_eq!(ps.len(), 2, "two blocks after the split");
-                ps[1]
-            };
+            let ps: Vec<NodeId> = (0..container.len())
+                .map(NodeId::new)
+                .filter(|nid| matches!(container[*nid].get_node_type(), NodeType::P))
+                .collect();
+            assert_eq!(ps.len(), 2, "two blocks after the split");
             assert_eq!(
-                block, second_p,
+                block, ps[1],
                 "caret must land in the SECOND block after Enter"
             );
         }
@@ -1056,13 +1082,16 @@ mod structural_roundtrip {
         };
         assert!(matches!(
             undo_changeset.operation,
-            DocumentOperation::MergeBlocks(_)
+            DocumentOperation::MergeNodes(_)
         ));
-        let undone =
-            azul_layout::document_edit::apply_document_operation(&mut tree, &[], &undo_changeset)
-                .expect("apply merge");
+        let undone = azul_layout::document_edit::apply_document_operation(
+            &mut model,
+            &[],
+            &undo_changeset,
+        )
+        .expect("apply merge");
         assert_eq!(
-            block_texts(&tree),
+            model_block_texts(&model),
             vec!["hello world"],
             "undo restores the app model"
         );
@@ -1070,26 +1099,19 @@ mod structural_roundtrip {
             let lw = h.layout_window.as_mut().unwrap();
             assert!(lw.mark_document_edit_applied_with_inverse(undo_changeset.id, undone.inverse));
         }
-        h.layout_dom(dom_from_tree(&tree), CSS);
+        h.layout_dom(render_dom(&model), CSS);
         let after_undo = h.render();
         assert!(
             pixel_diff_count(&after_split, &after_undo, 2) > 0,
             "the merge must be visible"
         );
-        // Caret back at the join point (block 0, offset 5).
-        {
-            let lw = h.layout_window.as_ref().unwrap();
-            let mc = lw.text_edit_manager.multi_cursor.as_ref().expect("caret");
-            let primary = mc.selections.iter().find(|s| s.id == mc.primary_id)
-                .map(|s| s.selection.clone());
-            eprintln!("  [verify] post-undo caret: {primary:?}");
-        }
+
         // Redo: the split comes back through the same loop.
         {
             let lw = h.layout_window.as_mut().unwrap();
             lw.redo_structural_edit().expect("redo records");
             let redo_cs = lw.get_pending_document_edit().expect("pending split").clone();
-            assert!(matches!(redo_cs.operation, DocumentOperation::SplitBlock(_)));
+            assert!(matches!(redo_cs.operation, DocumentOperation::SplitNode(_)));
         }
     }
 }
