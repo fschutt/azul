@@ -5670,6 +5670,8 @@ pub struct SlicerConfig {
     pub page_width: f32,
     /// Table headers that need repetition across pages
     pub table_headers: TableHeaderTracker,
+    /// Break-awareness policy (all-off default = plain interval slicing).
+    pub break_policy: crate::solver3::page_breaks::BreakPolicy,
 }
 
 impl SlicerConfig {
@@ -5682,6 +5684,7 @@ impl SlicerConfig {
             header_footer: HeaderFooterConfig::default(),
             page_width: DEFAULT_A4_WIDTH_PT, // Default A4 width in points
             table_headers: TableHeaderTracker::default(),
+            break_policy: crate::solver3::page_breaks::BreakPolicy::default(),
         }
     }
 
@@ -5694,7 +5697,17 @@ impl SlicerConfig {
             header_footer: HeaderFooterConfig::default(),
             page_width: DEFAULT_A4_WIDTH_PT,
             table_headers: TableHeaderTracker::default(),
+            break_policy: crate::solver3::page_breaks::BreakPolicy::default(),
         }
+    }
+
+    /// Set the break-awareness policy.
+    #[must_use] pub const fn with_break_policy(
+        mut self,
+        policy: crate::solver3::page_breaks::BreakPolicy,
+    ) -> Self {
+        self.break_policy = policy;
+        self
     }
 
     /// Add header/footer configuration.

@@ -353,6 +353,9 @@ pub struct FakePageConfig {
     pub font_size: f32,
     /// Text color for header/footer
     pub text_color: ColorU,
+    /// Break-awareness policy for pagination (all-off default = plain
+    /// interval slicing; printpdf flips the flags on with a changelog entry).
+    pub break_policy: crate::solver3::page_breaks::BreakPolicy,
 }
 
 impl Default for FakePageConfig {
@@ -377,6 +380,7 @@ impl Default for FakePageConfig {
                 b: 0,
                 a: 255,
             },
+            break_policy: crate::solver3::page_breaks::BreakPolicy::default(),
         }
     }
 }

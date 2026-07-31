@@ -26,14 +26,17 @@ use crate::solver3::display_list::{
 };
 
 /// Why a page ends where it does.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-#[repr(u8)] // becomes #[repr(C, u8)] when a data-carrying variant lands (B3: Avoided)
+#[derive(Debug, Clone, Copy, PartialEq)]
+#[repr(C, u8)]
 pub enum BreakKind {
     /// A CSS `break-before/after: always` (or legacy `page-break-*`) forced
     /// this break.
     Forced,
     /// The page was simply full (regular interval break).
     Interval,
+    /// The page was full at `pushed_from`, but the break moved UP to honor an
+    /// avoid-rule (`break-inside: avoid`, line atomicity, widows/orphans).
+    Avoided { pushed_from: f32 },
 }
 
 /// One page boundary in document space.
@@ -139,26 +142,333 @@ impl Default for BreakPolicy {
 pub struct PageBreakInput<'a> {
     /// Item geometry + forced break positions.
     pub display_list: &'a DisplayList,
-    /// Box rects + line boxes (break candidates / avoid ranges).
-    pub layout_tree: &'a crate::solver3::layout_tree::LayoutTree,
+    /// Box rects + line boxes for future break-candidate stages. v1
+    /// break-awareness derives all geometry from the display list, so this
+    /// may be `None`.
+    pub layout_tree: Option<&'a crate::solver3::layout_tree::LayoutTree>,
     /// Break properties (`break-inside`, `widows`, `orphans`, …).
     pub styled_dom: &'a azul_core::styled_dom::StyledDom,
 }
 
+/// A vertical range a break may not enter, with the Y to snap up to
+/// (`top`) when one lands inside.
+#[derive(Debug, Clone, Copy)]
+struct AvoidRange {
+    top: f32,
+    bottom: f32,
+    /// The node that owns the range (diagnostics).
+    node: Option<NodeId>,
+}
+
+/// The line boxes of one paragraph (for widows/orphans), sorted by top.
+#[derive(Debug, Clone)]
+struct ParagraphLines {
+    node: NodeId,
+    /// `(top, bottom)` of each line, sorted by top, deduplicated.
+    lines: Vec<(f32, f32)>,
+    widows: u32,
+    orphans: u32,
+}
+
 /// Compute page breaks with break-awareness `policy`. With the default
-/// (all-off) policy this is exactly [`compute_page_breaks_from_display_list`];
-/// the policy-gated behaviors land stage by stage on top of this signature.
+/// (all-off) policy this is exactly [`compute_page_breaks_from_display_list`].
+///
+/// With flags on, interval breaks run as a single FORWARD pass (matching the
+/// slicer's "breaks only move up, content never moves" model): the naive
+/// break `prev + page_height` snaps UP out of avoid-ranges
+/// (`break-inside: avoid` boxes, atomic line boxes) and back for
+/// widows/orphans, bounded by `policy.max_push_distance` (beyond it the
+/// naive break stands — a bounded fallback, never a loop). Forced breaks
+/// never move. Boxes taller than the page are torn regardless (the monolith
+/// rule — an unbreakable box that cannot fit must still paginate).
 #[must_use]
+#[allow(clippy::too_many_lines)] // large but cohesive: single-purpose layout/render/parse routine (one branch per case)
 pub fn compute_page_breaks(
     input: &PageBreakInput,
     constraints: &PageConstraints,
     policy: &BreakPolicy,
 ) -> Vec<PageBreak> {
-    // Break-awareness (candidates, avoid-ranges, widows/orphans, header
-    // repetition) consumes `input.layout_tree` / `input.styled_dom` here as
-    // each policy flag gains its implementation.
-    let _ = policy;
-    compute_page_breaks_from_display_list(input.display_list, constraints)
+    let any_awareness =
+        policy.honor_break_inside || policy.atomic_lines || policy.widows_orphans;
+    if !any_awareness {
+        return compute_page_breaks_from_display_list(input.display_list, constraints);
+    }
+
+    let total_height = calculate_display_list_height(input.display_list);
+    let first = constraints.first_page_content_height;
+    let normal = constraints.normal_page_content_height;
+    if total_height <= 0.0 || first <= 0.0 {
+        return Vec::new();
+    }
+
+    let avoid_ranges = collect_avoid_ranges(input, constraints, policy);
+    let paragraphs = if policy.widows_orphans {
+        collect_paragraph_lines(input)
+    } else {
+        Vec::new()
+    };
+
+    // Forced breaks, ascending (they are hard walls the forward pass emits
+    // verbatim — CSS Fragmentation: forced always wins over avoid).
+    let mut forced: Vec<f32> = input
+        .display_list
+        .forced_page_breaks
+        .iter()
+        .copied()
+        .filter(|y| *y > 0.0 && *y < total_height)
+        .collect();
+    forced.sort_by(f32::total_cmp);
+
+    let mut breaks: Vec<PageBreak> = Vec::new();
+    let mut prev_end = 0.0_f32;
+    let mut page_height = first;
+    let mut forced_iter = forced.into_iter().peekable();
+
+    loop {
+        let naive = prev_end + page_height;
+
+        // A forced break before (or at) the naive position ends the page there.
+        if let Some(&fy) = forced_iter.peek() {
+            if fy <= naive + MERGE_WINDOW_PX {
+                forced_iter.next();
+                if fy > prev_end + MERGE_WINDOW_PX {
+                    breaks.push(PageBreak {
+                        y: fy,
+                        kind: BreakKind::Forced,
+                        causing_node: None,
+                    });
+                    prev_end = fy;
+                    page_height = normal;
+                }
+                continue;
+            }
+        }
+
+        if naive >= total_height {
+            break;
+        }
+
+        let max_push = (policy.max_push_distance.max(0.0)) * page_height;
+        let floor = (naive - max_push).max(prev_end + MERGE_WINDOW_PX);
+        let adjusted = snap_break_up(naive, floor, &avoid_ranges, &paragraphs, policy);
+
+        let kind = if (adjusted - naive).abs() < f32::EPSILON {
+            BreakKind::Interval
+        } else {
+            BreakKind::Avoided { pushed_from: naive }
+        };
+        breaks.push(PageBreak {
+            y: adjusted,
+            kind,
+            causing_node: None,
+        });
+        prev_end = adjusted;
+        page_height = normal;
+        if !(normal > 0.0) {
+            break;
+        }
+    }
+
+    // Any forced breaks past the last interval position still apply.
+    for fy in forced_iter {
+        if fy > prev_end + MERGE_WINDOW_PX {
+            breaks.push(PageBreak {
+                y: fy,
+                kind: BreakKind::Forced,
+                causing_node: None,
+            });
+            prev_end = fy;
+        }
+    }
+
+    breaks
+}
+
+/// Collect the vertical ranges a break may not enter.
+fn collect_avoid_ranges(
+    input: &PageBreakInput,
+    constraints: &PageConstraints,
+    policy: &BreakPolicy,
+) -> Vec<AvoidRange> {
+    use crate::solver3::getters::get_break_inside;
+    use azul_css::props::layout::fragmentation::BreakInside;
+
+    let mut ranges: Vec<AvoidRange> = Vec::new();
+    let page_height = constraints.normal_page_content_height.max(1.0);
+
+    if policy.honor_break_inside {
+        // Union the bounds of every display item a break-inside:avoid node
+        // produced (document-space Ys come from the DL — no positions map
+        // needed). One range per node.
+        let mut per_node: std::collections::BTreeMap<NodeId, (f32, f32)> =
+            std::collections::BTreeMap::new();
+        for (idx, item) in input.display_list.items.iter().enumerate() {
+            let Some(node) = input.display_list.node_mapping.get(idx).copied().flatten() else {
+                continue;
+            };
+            let Some(bounds) = item.bounds() else { continue };
+            if get_break_inside(input.styled_dom, Some(node)) != BreakInside::Avoid {
+                continue;
+            }
+            let top = bounds.origin.y;
+            let bottom = bounds.origin.y + bounds.size.height;
+            per_node
+                .entry(node)
+                .and_modify(|(t, b)| {
+                    *t = t.min(top);
+                    *b = b.max(bottom);
+                })
+                .or_insert((top, bottom));
+        }
+        for (node, (top, bottom)) in per_node {
+            // Monolith rule: a box taller than the page may be torn — an
+            // avoid-range that can never be satisfied would push forever.
+            if bottom - top > page_height {
+                continue;
+            }
+            ranges.push(AvoidRange {
+                top,
+                bottom,
+                node: Some(node),
+            });
+        }
+    }
+
+    if policy.atomic_lines {
+        // Every text item's rect is a line-box fragment; a break through one
+        // slices a line (the "baseline-sliced line" artifact). Snap to its top.
+        for item in &input.display_list.items {
+            if let crate::solver3::display_list::DisplayListItem::Text {
+                clip_rect, ..
+            } = item
+            {
+                let r = clip_rect.inner();
+                if r.size.height > 0.0 {
+                    ranges.push(AvoidRange {
+                        top: r.origin.y,
+                        bottom: r.origin.y + r.size.height,
+                        node: None,
+                    });
+                }
+            }
+        }
+    }
+
+    ranges.sort_by(|a, b| a.top.total_cmp(&b.top));
+    ranges
+}
+
+/// Group text-item rects per source node into line boxes for widows/orphans.
+fn collect_paragraph_lines(input: &PageBreakInput) -> Vec<ParagraphLines> {
+    use crate::solver3::getters::{get_orphans, get_widows};
+
+    let mut per_node: std::collections::BTreeMap<NodeId, Vec<(f32, f32)>> =
+        std::collections::BTreeMap::new();
+    for (idx, item) in input.display_list.items.iter().enumerate() {
+        let crate::solver3::display_list::DisplayListItem::Text { clip_rect, .. } = item else {
+            continue;
+        };
+        let Some(node) = input.display_list.node_mapping.get(idx).copied().flatten() else {
+            continue;
+        };
+        let r = clip_rect.inner();
+        if r.size.height <= 0.0 {
+            continue;
+        }
+        per_node
+            .entry(node)
+            .or_default()
+            .push((r.origin.y, r.origin.y + r.size.height));
+    }
+
+    per_node
+        .into_iter()
+        .filter_map(|(node, mut rects)| {
+            rects.sort_by(|a, b| a.0.total_cmp(&b.0));
+            // Merge run-rects sharing a line (tops within 0.5px).
+            let mut lines: Vec<(f32, f32)> = Vec::new();
+            for (top, bottom) in rects {
+                match lines.last_mut() {
+                    Some((lt, lb)) if (top - *lt).abs() < 0.5 => *lb = lb.max(bottom),
+                    _ => lines.push((top, bottom)),
+                }
+            }
+            if lines.len() < 2 {
+                return None; // single-line paragraphs have no widow/orphan case
+            }
+            Some(ParagraphLines {
+                node,
+                widows: get_widows(input.styled_dom, Some(node)).max(1),
+                orphans: get_orphans(input.styled_dom, Some(node)).max(1),
+                lines,
+            })
+        })
+        .collect()
+}
+
+/// Snap a naive break Y up out of avoid-ranges and widow/orphan violations.
+/// Iterates to a fixpoint (a snap can land inside ANOTHER range) but never
+/// below `floor` — beyond the push budget the current candidate stands.
+fn snap_break_up(
+    naive: f32,
+    floor: f32,
+    avoid_ranges: &[AvoidRange],
+    paragraphs: &[ParagraphLines],
+    policy: &BreakPolicy,
+) -> f32 {
+    let mut y = naive;
+    // Bounded iterations: each snap strictly decreases y and range/paragraph
+    // counts are finite; 32 covers any sane nesting without risking a loop.
+    for _ in 0..32 {
+        let mut moved = false;
+
+        for range in avoid_ranges {
+            // STRICTLY inside (a break AT an edge is fine).
+            if y > range.top + f32::EPSILON && y < range.bottom - f32::EPSILON {
+                let _ = range.node;
+                if range.top >= floor {
+                    y = range.top;
+                    moved = true;
+                } // else: budget exceeded — the naive break stands mid-range
+            }
+        }
+
+        if policy.widows_orphans {
+            for para in paragraphs {
+                let first_top = para.lines[0].0;
+                let last_bottom = para.lines[para.lines.len() - 1].1;
+                if y <= first_top || y >= last_bottom {
+                    continue;
+                }
+                // Lines fully above the break stay; the rest move to the next page.
+                let before = para.lines.iter().filter(|(_, b)| *b <= y + 0.5).count() as u32;
+                let after = para.lines.len() as u32 - before;
+                if before > 0 && before < para.orphans {
+                    // Too few lines kept: the whole paragraph moves.
+                    if first_top >= floor {
+                        y = first_top;
+                        moved = true;
+                    }
+                } else if after > 0 && after < para.widows {
+                    // Too few lines moved: push more lines over the break.
+                    let needed = para.lines.len() as u32 - para.widows;
+                    let target = para
+                        .lines
+                        .get(needed as usize)
+                        .map_or(first_top, |(t, _)| *t);
+                    if target < y && target >= floor {
+                        y = target;
+                        moved = true;
+                    }
+                }
+            }
+        }
+
+        if !moved {
+            break;
+        }
+    }
+    y
 }
 
 /// Which page a document-space Y coordinate lands on, given the break list
@@ -463,6 +773,217 @@ mod tests {
         let c = PageConstraints::from_slicer_config(&cfg);
         assert_eq!(c.first_page_content_height, 800.0);
         assert_eq!(c.normal_page_content_height, 720.0);
+    }
+
+    // ==================================================================
+    // B3: break-awareness (policy-gated)
+    // ==================================================================
+
+    use crate::solver3::display_list::{DisplayList, DisplayListItem};
+    use azul_core::geom::{LogicalPosition, LogicalRect, LogicalSize};
+    use azul_core::styled_dom::StyledDom;
+    use crate::solver3::display_list::BorderRadius as DlBorderRadius;
+    use azul_css::props::basic::ColorU;
+
+    fn rect(y: f32, h: f32) -> LogicalRect {
+        LogicalRect {
+            origin: LogicalPosition { x: 0.0, y },
+            size: LogicalSize {
+                width: 100.0,
+                height: h,
+            },
+        }
+    }
+
+    fn rect_item(y: f32, h: f32) -> DisplayListItem {
+        DisplayListItem::Rect {
+            bounds: rect(y, h).into(),
+            color: ColorU {
+                r: 0,
+                g: 0,
+                b: 0,
+                a: 255,
+            },
+            border_radius: DlBorderRadius::default(),
+        }
+    }
+
+    fn text_item(y: f32, h: f32) -> DisplayListItem {
+        DisplayListItem::Text {
+            glyphs: Vec::new(),
+            font_hash: crate::font_traits::FontHash::from_hash(1),
+            font_size_px: 12.0,
+            color: ColorU {
+                r: 0,
+                g: 0,
+                b: 0,
+                a: 255,
+            },
+            clip_rect: rect(y, h).into(),
+            source_node_index: None,
+        }
+    }
+
+    /// A DOM whose node 1 is `.avoid { break-inside: avoid; }`, plus a
+    /// display list of `(item, source node)` pairs.
+    fn avoid_fixture(items: Vec<(DisplayListItem, Option<usize>)>) -> (StyledDom, DisplayList) {
+        let mut dom = azul_core::dom::Dom::create_div();
+        dom.add_child(
+            azul_core::dom::Dom::create_div()
+                .with_ids_and_classes(vec![azul_core::dom::IdOrClass::Class("avoid".into())].into()),
+        );
+        let (css, _warnings) = azul_css::parser2::new_from_str(
+            ".avoid { break-inside: avoid; } p { widows: 2; orphans: 2; }",
+        );
+        let styled = StyledDom::create(&mut dom, css);
+
+        let mut dl = DisplayList::default();
+        for (item, node) in items {
+            dl.items.push(item);
+            dl.node_mapping.push(node.map(NodeId::new));
+        }
+        (styled, dl)
+    }
+
+    fn breaks_with(
+        styled: &StyledDom,
+        dl: &DisplayList,
+        policy: &BreakPolicy,
+        first: f32,
+        normal: f32,
+    ) -> Vec<PageBreak> {
+        compute_page_breaks(
+            &PageBreakInput {
+                display_list: dl,
+                layout_tree: None,
+                styled_dom: styled,
+            },
+            &constraints(first, normal),
+            policy,
+        )
+    }
+
+    #[test]
+    fn policy_off_is_byte_identical_to_the_plain_algorithm() {
+        let (styled, dl) = avoid_fixture(vec![
+            (rect_item(0.0, 250.0), None),
+            (rect_item(80.0, 60.0), Some(1)), // avoid-box straddling y=100
+        ]);
+        let plain = compute_page_breaks_from_display_list(&dl, &constraints(100.0, 100.0));
+        let off = breaks_with(&styled, &dl, &BreakPolicy::default(), 100.0, 100.0);
+        assert_eq!(plain, off);
+    }
+
+    #[test]
+    fn break_inside_avoid_box_is_pushed_intact() {
+        // Page 100; the avoid-box spans 80..140 — the naive break at 100 cuts
+        // it, so the break snaps UP to the box top (80).
+        let (styled, dl) = avoid_fixture(vec![
+            (rect_item(0.0, 250.0), None),
+            (rect_item(80.0, 60.0), Some(1)),
+        ]);
+        let policy = BreakPolicy {
+            honor_break_inside: true,
+            ..Default::default()
+        };
+        let breaks = breaks_with(&styled, &dl, &policy, 100.0, 100.0);
+        assert_eq!(
+            breaks[0].y, 80.0,
+            "the break must land at the avoid-box top, got {breaks:?}"
+        );
+        assert!(matches!(breaks[0].kind, BreakKind::Avoided { pushed_from } if (pushed_from - 100.0).abs() < 0.01));
+        // Following pages re-flow from the moved break.
+        assert_eq!(breaks[1].y, 180.0);
+    }
+
+    #[test]
+    fn taller_than_page_avoid_box_is_torn() {
+        // The avoid-box spans 0..180 with a 100 page: satisfying it is
+        // impossible (monolith rule) — the naive interval stands.
+        let (styled, dl) = avoid_fixture(vec![
+            (rect_item(0.0, 250.0), None),
+            (rect_item(0.0, 180.0), Some(1)),
+        ]);
+        let policy = BreakPolicy {
+            honor_break_inside: true,
+            ..Default::default()
+        };
+        let breaks = breaks_with(&styled, &dl, &policy, 100.0, 100.0);
+        assert_eq!(breaks[0].y, 100.0);
+        assert!(matches!(breaks[0].kind, BreakKind::Interval));
+    }
+
+    #[test]
+    fn forced_break_wins_over_avoid() {
+        // Forced break at 90 INSIDE the avoid-box: forced always applies
+        // (CSS Fragmentation §resolution), the avoid-range cannot move it.
+        let (styled, mut dl) = avoid_fixture(vec![
+            (rect_item(0.0, 250.0), None),
+            (rect_item(80.0, 60.0), Some(1)),
+        ]);
+        dl.forced_page_breaks = vec![90.0];
+        let policy = BreakPolicy {
+            honor_break_inside: true,
+            ..Default::default()
+        };
+        let breaks = breaks_with(&styled, &dl, &policy, 100.0, 100.0);
+        assert_eq!(breaks[0].y, 90.0);
+        assert!(matches!(breaks[0].kind, BreakKind::Forced));
+    }
+
+    #[test]
+    fn atomic_lines_never_slice_a_text_rect() {
+        // Lines at 90..106 and 106..122; page 100 cuts the first line — the
+        // break snaps to its top (90).
+        let (styled, dl) = avoid_fixture(vec![
+            (rect_item(0.0, 250.0), None),
+            (text_item(90.0, 16.0), None),
+            (text_item(106.0, 16.0), None),
+        ]);
+        let policy = BreakPolicy {
+            atomic_lines: true,
+            ..Default::default()
+        };
+        let breaks = breaks_with(&styled, &dl, &policy, 100.0, 100.0);
+        assert_eq!(breaks[0].y, 90.0, "{breaks:?}");
+        assert!(matches!(breaks[0].kind, BreakKind::Avoided { .. }));
+    }
+
+    #[test]
+    fn orphans_move_the_whole_paragraph() {
+        // Paragraph (node 1) with 3 lines at 84..100, 100..116, 116..132;
+        // orphans: 2 (from the p rule — attach the class to make it node 1).
+        // The naive break at 100 keeps ONE line — fewer than orphans — so the
+        // whole paragraph moves (break at its top, 84).
+        let mut dom = azul_core::dom::Dom::create_div();
+        dom.add_child(azul_core::dom::Dom::create_p());
+        let (css, _warnings) = azul_css::parser2::new_from_str("p { widows: 2; orphans: 2; }");
+        let styled = StyledDom::create(&mut dom, css);
+        let mut dl = DisplayList::default();
+        for (item, node) in [
+            (rect_item(0.0, 250.0), None),
+            (text_item(84.0, 16.0), Some(1)),
+            (text_item(100.0, 16.0), Some(1)),
+            (text_item(116.0, 16.0), Some(1)),
+        ] {
+            dl.items.push(item);
+            dl.node_mapping.push(node.map(NodeId::new));
+        }
+        let policy = BreakPolicy {
+            widows_orphans: true,
+            ..Default::default()
+        };
+        let breaks = compute_page_breaks(
+            &PageBreakInput {
+                display_list: &dl,
+                layout_tree: None,
+                styled_dom: &styled,
+            },
+            &constraints(100.0, 100.0),
+            &policy,
+        );
+        assert_eq!(breaks[0].y, 84.0, "{breaks:?}");
+        assert!(matches!(breaks[0].kind, BreakKind::Avoided { .. }));
     }
 
     #[test]

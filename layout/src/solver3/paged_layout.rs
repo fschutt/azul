@@ -471,13 +471,23 @@ where
         header_footer,
         page_width,
         table_headers: crate::solver3::pagination::TableHeaderTracker::default(),
+        break_policy: page_config.break_policy,
     };
 
     // Step 3: Analyze the breaks, THEN paginate against them — the analysis
     // is part of the result (document editors consume it without the pages).
+    // Break-awareness runs per `slicer_config.break_policy` (all-off default
+    // = the plain interval algorithm).
     let constraints = page_breaks::PageConstraints::from_slicer_config(&slicer_config);
-    let breaks =
-        page_breaks::compute_page_breaks_from_display_list(&full_display_list, &constraints);
+    let breaks = page_breaks::compute_page_breaks(
+        &page_breaks::PageBreakInput {
+            display_list: &full_display_list,
+            layout_tree: cache.tree.as_ref(),
+            styled_dom: new_dom,
+        },
+        &constraints,
+        &slicer_config.break_policy,
+    );
     let total_content_height = calculate_display_list_height(&full_display_list);
 
     let pages = if materialize_pages {
