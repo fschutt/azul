@@ -2194,101 +2194,52 @@ pub trait PlatformWindow {
 
             CallbackChange::ChangeNodeImageMask { dom_id, node_id, mask } => {
                 if let Some(lw) = self.get_layout_window_mut() {
-                    if let Some(layout_result) = lw.layout_results.get_mut(dom_id) {
-                        let idx = node_id.index();
-                        if idx < layout_result.styled_dom.node_data.as_ref().len() {
-                            layout_result.styled_dom.node_data.as_container_mut()[*node_id]
-                                .set_clip_mask(mask.clone());
-                        }
-                    }
-                    // Same as ChangeNodeImage above: the display list must be
-                    // rebuilt from the mutated styled DOM or the change is
-                    // invisible to both CPU diff and GPU txn.
-                    lw.regenerate_display_list_for_dom(*dom_id);
+                    lw.apply_content_change(azul_layout::overlay::ContentChange::ImageMask {
+                        dom_id: *dom_id,
+                        node_id: *node_id,
+                        mask: mask.clone(),
+                    })
+                    .tier
+                    .to_process_event_result()
+                } else {
+                    ProcessEventResult::DoNothing
                 }
-                ProcessEventResult::ShouldUpdateDisplayListCurrentWindow
             }
 
             CallbackChange::ChangeNodeCssProperties { dom_id, node_id, properties } => {
-                // Update StyledDom CSS properties
+                // The content chokepoint (one impl for this host AND the e2e
+                // runner): inline-vec sync + retained-cascade restyle + DL
+                // rebuild + the shared paint-vs-relayout tier.
                 if let Some(lw) = self.get_layout_window_mut() {
-                    if let Some(layout_result) = lw.layout_results.get_mut(dom_id) {
-                        let idx = node_id.index();
-                        if idx < layout_result.styled_dom.node_data.as_ref().len() {
-                            use azul_css::dynamic_selector::CssPropertyWithConditions;
-                            let new_props: Vec<CssPropertyWithConditions> = properties
-                                .as_ref()
-                                .iter()
-                                .map(|p| CssPropertyWithConditions::simple(p.clone()))
-                                .collect();
-                            layout_result.styled_dom.node_data.as_container_mut()[*node_id]
-                                .set_css_props(new_props.into());
-
-                            // STALE-SCREEN FIX: `set_css_props` only writes the
-                            // node's INLINE property vec. Layout and the display
-                            // list read the CSS PROPERTY CACHE, which still holds
-                            // the cascaded value — so the node kept its old paint
-                            // (blue stays blue), the display list came out
-                            // identical, the CPU diff reported no damage and the
-                            // screen went stale. Push the same properties through
-                            // the user-override channel (the one the resolver
-                            // consults FIRST — exactly what OverrideNodeCssProperties
-                            // below uses) so the cache actually changes.
-                            let props_slice: Vec<azul_css::props::property::CssProperty> =
-                                properties.as_ref().iter().cloned().collect();
-                            let _ = layout_result
-                                .styled_dom
-                                .restyle_user_property(node_id, &props_slice);
-                        }
-                    }
-                    // …and rebuild the display list from the restyled DOM, or the
-                    // stored one still carries the old paint.
-                    lw.regenerate_display_list_for_dom(*dom_id);
-                }
-                // A paint-only property (colour, background, opacity,
-                // transform, shadow, …) cannot move geometry, so it must not
-                // charge the window a layout pass. This arm used to answer
-                // ShouldIncrementalRelayout unconditionally, which re-laid-out
-                // the whole DOM for every animated colour and every :hover.
-                // The decision lives in azul-layout so this host and the
-                // headless E2E host cannot drift apart.
-                if azul_layout::callbacks::css_properties_need_relayout(properties) {
-                    ProcessEventResult::ShouldIncrementalRelayout
+                    lw.apply_content_change(azul_layout::overlay::ContentChange::NodeCss {
+                        dom_id: *dom_id,
+                        node_id: *node_id,
+                        props: properties.as_ref().to_vec(),
+                        override_only: false,
+                    })
+                    .tier
+                    .to_process_event_result()
                 } else {
-                    ProcessEventResult::ShouldUpdateDisplayListCurrentWindow
+                    ProcessEventResult::DoNothing
                 }
             }
 
             CallbackChange::OverrideNodeCssProperties { dom_id, node_id, properties } => {
-                // Fast-path override channel: writes land in
-                // CssPropertyCache::user_overridden_properties, which the
-                // property resolver consults first. Used by animation
-                // callbacks that want to change a handful of properties
-                // per frame without rebuilding the CSS cascade.
+                // Fast-path override channel (animation frames): cascade-only
+                // write, no inline-vec sync — same chokepoint, override_only.
                 if let Some(lw) = self.get_layout_window_mut() {
-                    if let Some(layout_result) = lw.layout_results.get_mut(dom_id) {
-                        let idx = node_id.index();
-                        if idx < layout_result.styled_dom.node_data.as_ref().len() {
-                            let props_slice: Vec<azul_css::props::property::CssProperty> =
-                                properties.as_ref().iter().cloned().collect();
-                            let _ = layout_result
-                                .styled_dom
-                                .restyle_user_property(node_id, &props_slice);
-                        }
-                    }
-                }
-                // Same rule as ChangeNodeCssProperties above: the override
-                // channel exists precisely so an animation can push a handful
-                // of properties per frame cheaply — charging it a layout pass
-                // for a colour defeats the point.
-                if azul_layout::callbacks::css_properties_need_relayout(properties) {
-                    ProcessEventResult::ShouldIncrementalRelayout
+                    lw.apply_content_change(azul_layout::overlay::ContentChange::NodeCss {
+                        dom_id: *dom_id,
+                        node_id: *node_id,
+                        props: properties.as_ref().to_vec(),
+                        override_only: true,
+                    })
+                    .tier
+                    .to_process_event_result()
                 } else {
-                    ProcessEventResult::ShouldUpdateDisplayListCurrentWindow
+                    ProcessEventResult::DoNothing
                 }
             }
-
-            // === Scroll ===
 
             CallbackChange::ScrollTo { dom_id, node_id, position, unclamped } => {
                 log_debug!(super::debug_server::LogCategory::EventLoop, "[SCROLL] ScrollTo dom={:?} node={:?} pos=({:.1},{:.1}) unclamped={}", dom_id, node_id, position.x, position.y, unclamped);

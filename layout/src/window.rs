@@ -2654,6 +2654,83 @@ impl LayoutWindow {
                 node_id,
                 image,
             } => self.apply_image_change(dom_id, node_id, image, true),
+            ContentChange::NodeCss {
+                dom_id,
+                node_id,
+                props,
+                override_only,
+            } => {
+                let Some(layout_result) = self.layout_results.get_mut(&dom_id) else {
+                    return ContentChangeResult {
+                        tier: ContentDirtyTier::Unchanged,
+                    };
+                };
+                if node_id.index() >= layout_result.styled_dom.node_data.as_ref().len() {
+                    return ContentChangeResult {
+                        tier: ContentDirtyTier::Unchanged,
+                    };
+                }
+                if !override_only {
+                    // Keep the node's inline vec in sync so the reconcile
+                    // fingerprint sees the change on the next generation.
+                    use azul_css::dynamic_selector::CssPropertyWithConditions;
+                    let with_conditions: Vec<CssPropertyWithConditions> = props
+                        .iter()
+                        .cloned()
+                        .map(CssPropertyWithConditions::simple)
+                        .collect();
+                    layout_result.styled_dom.node_data.as_container_mut()[node_id]
+                        .set_css_props(with_conditions.into());
+                }
+                // The property cache's single write site: the resolver
+                // consults user-overridden properties FIRST, so paint changes
+                // are visible on the next DL build.
+                let _ = layout_result
+                    .styled_dom
+                    .restyle_user_property(&node_id, &props);
+                if !override_only {
+                    // The full-write path rebuilds the DL inline (its historical
+                    // contract). The override channel deliberately does NOT —
+                    // it is the per-frame animation path, and the returned tier
+                    // already schedules the rebuild once per frame.
+                    self.regenerate_display_list_for_dom(dom_id);
+                }
+
+                // Paint-only properties must not charge a layout pass
+                // (a per-frame animated colour would re-layout the world).
+                let props_vec: azul_css::props::property::CssPropertyVec = props.into();
+                if crate::callbacks::css_properties_need_relayout(&props_vec) {
+                    ContentChangeResult {
+                        tier: ContentDirtyTier::Relayout,
+                    }
+                } else {
+                    ContentChangeResult {
+                        tier: ContentDirtyTier::RebuildDisplayList,
+                    }
+                }
+            }
+            ContentChange::ImageMask {
+                dom_id,
+                node_id,
+                mask,
+            } => {
+                let Some(layout_result) = self.layout_results.get_mut(&dom_id) else {
+                    return ContentChangeResult {
+                        tier: ContentDirtyTier::Unchanged,
+                    };
+                };
+                if node_id.index() >= layout_result.styled_dom.node_data.as_ref().len() {
+                    return ContentChangeResult {
+                        tier: ContentDirtyTier::Unchanged,
+                    };
+                }
+                layout_result.styled_dom.node_data.as_container_mut()[node_id]
+                    .set_clip_mask(mask);
+                self.regenerate_display_list_for_dom(dom_id);
+                ContentChangeResult {
+                    tier: ContentDirtyTier::RebuildDisplayList,
+                }
+            }
             ContentChange::ImageById { id, image } => {
                 let old = self.image_cache.get_css_image_id(&id).cloned();
                 let removed = image.is_none();

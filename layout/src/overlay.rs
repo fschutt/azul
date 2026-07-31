@@ -112,6 +112,26 @@ pub enum ContentChange {
         id: AzString,
         image: Option<ImageRef>,
     },
+    /// Restyle a node at runtime (animation frames, `:hover`-driven writes,
+    /// the css-override e2e op). Writes go through the retained cascade
+    /// (`restyle_user_property` — the property cache's single write site);
+    /// with `override_only` the node's inline vec is left alone (the
+    /// fast animation channel). Tier: paint-only properties rebuild the DL,
+    /// layout-affecting ones relayout — decided by
+    /// `callbacks::css_properties_need_relayout`, so hosts cannot drift.
+    NodeCss {
+        dom_id: DomId,
+        node_id: NodeId,
+        props: Vec<azul_css::props::property::CssProperty>,
+        override_only: bool,
+    },
+    /// Change a node's image mask (an attribute-slot write like css props —
+    /// fingerprinted by reconcile, not a content-identity mutation).
+    ImageMask {
+        dom_id: DomId,
+        node_id: NodeId,
+        mask: azul_core::resources::ImageMask,
+    },
 }
 
 /// What the frame loop must do after a content change — the ONLY thing
