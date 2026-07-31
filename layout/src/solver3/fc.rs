@@ -1481,6 +1481,7 @@ fn layout_bfc<T: ParsedFontTrait>(
             let self_collapsed = collapse_margins(child_margin_top, child_margin_bottom);
 
             // Then collapse with previous margin (sibling or parent)
+            let seam_main;
             if is_first_child {
                 is_first_child = false;
                 // Empty first child: its collapsed margin can escape with parent's
@@ -1492,16 +1493,36 @@ fn layout_bfc<T: ParsedFontTrait>(
                     main_pen += accumulated_top_margin + self_collapsed;
                     top_margin_resolved = true;
                     accumulated_top_margin = 0.0;
+                    seam_main = main_pen;
                 } else {
                     accumulated_top_margin = collapse_margins(parent_margin_top, self_collapsed);
+                    seam_main = main_pen;
                 }
                 last_margin_bottom = self_collapsed;
             } else {
                 // Empty sibling: collapse with previous sibling's bottom margin
                 last_margin_bottom = collapse_margins(last_margin_bottom, self_collapsed);
+                seam_main = main_pen + last_margin_bottom;
             }
 
-            // Skip positioning and pen advance (empty has no visual presence)
+            // A collapsed-through empty block still HAS a position — CSS 2.2
+            // §8.3.1 makes its top and bottom border edges coincide inside the
+            // collapsed seam, it does not remove the box. Omitting it from
+            // `output.positions` left the node AND its whole subtree at the
+            // POSITION_UNSET sentinel, so their Border/HitTestArea items were
+            // emitted at (f32::MIN, f32::MIN) and dropped by the display-list
+            // guard (the MicrophoneWidget/CameraWidget invisible-div pattern:
+            // an empty dataset-carrier div silently lost its hit area).
+            output.positions.insert(
+                child_index,
+                LogicalPosition::from_main_cross(
+                    seam_main,
+                    child_bp.margin.cross_start(writing_mode),
+                    writing_mode,
+                ),
+            );
+
+            // Skip pen advance (empty has no visual presence)
             continue;
         }
 

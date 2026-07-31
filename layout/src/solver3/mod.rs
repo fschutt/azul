@@ -2289,6 +2289,43 @@ mod autotest_generated {
             )
         }
 
+        /// Regression: an EMPTY, unstyled div (the MicrophoneWidget pattern —
+        /// zero height, auto width, only there to carry a dataset + AfterMount
+        /// callback) must still receive a computed position. It used to stay at
+        /// the `POSITION_UNSET` sentinel, and its Border/HitTestArea items were
+        /// emitted at (f32::MIN, f32::MIN) and dropped by the display-list
+        /// guard — harmless for paint, but the hit area silently vanished.
+        #[test]
+        fn an_empty_div_still_receives_a_position() {
+            // Text siblings force anonymous-box wrapping around the inline
+            // runs — the empty divs sit BETWEEN anonymous blocks, which is
+            // the arrangement that used to skip them.
+            let mut dom = Dom::create_body()
+                .with_child(Dom::create_text("azul-self-test"))
+                .with_child(Dom::create_text("probing platform APIs"))
+                .with_child(Dom::create_div())
+                .with_child(Dom::create_div());
+            let (css, _warnings) = azul_css::parser2::new_from_str("body { font-size: 14px; }");
+            let dom = StyledDom::create(&mut dom, css);
+
+            let mut cache = LayoutCache::default();
+            if run(&mut cache, &dom, rect(0.0, 0.0, 800.0, 600.0)).is_err() {
+                return; // font-less environment quirk — nothing to assert
+            }
+            let tree = cache.tree.as_ref().expect("tree must be cached");
+            for (idx, node) in tree.nodes.iter().enumerate() {
+                if node.dom_node_id.is_none() {
+                    continue;
+                }
+                assert!(
+                    super::pos_get(&cache.calculated_positions, idx).is_some(),
+                    "layout node {idx} (dom {:?}, {} children) never received a position",
+                    node.dom_node_id,
+                    tree.children(idx).len(),
+                );
+            }
+        }
+
         #[test]
         fn a_zero_sized_viewport_lays_out_without_panicking() {
             let dom = simple_dom();
