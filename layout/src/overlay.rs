@@ -397,8 +397,9 @@ impl ContentOverlay {
                     content: r.content.clone(),
                 }
             }),
-            // The text-specific pair has no structural preview (formatting
-            // previews ride the text overlay instead).
+            // Wrap/unwrap previews are staged with the render consumption
+            // (they restructure WITHIN a node — the child-list adjustment
+            // needs the part-aware renderer to matter visually).
             Op::WrapRange(_) | Op::UnwrapRange(_) => None,
         };
         if let Some(preview) = preview {
@@ -683,6 +684,16 @@ pub enum AppliedChange {
         old: Option<ImageRef>,
         removed: bool,
     },
+    /// Manager-mutated window state moved this frame (focus / text selection
+    /// / scroll positions). These live OUTSIDE the DOM by design — the
+    /// journal records THAT they changed (fingerprint transitions), so every
+    /// non-DOM mutation is at least auditable per frame, same clock as
+    /// content.
+    ManagerState {
+        focus_changed: bool,
+        selection_changed: bool,
+        scroll_changed: bool,
+    },
 }
 
 /// Frame-scoped record of applied content changes.
@@ -695,6 +706,9 @@ pub enum AppliedChange {
 pub struct ContentJournal {
     frame_seq: u64,
     entries: VecDeque<JournalEntry>,
+    /// Fingerprints of (focus, selection, scroll) as of the last frame —
+    /// the diff basis for [`Self::record_manager_state`].
+    last_manager_fingerprint: Option<[u64; 3]>,
 }
 
 impl ContentJournal {
@@ -717,6 +731,25 @@ impl ContentJournal {
         {
             self.entries.pop_front();
         }
+    }
+
+    /// Diff the manager-state fingerprints against last frame's and record
+    /// a [`AppliedChange::ManagerState`] entry when anything moved. Called
+    /// from the shared frame preparation (the same clock content uses).
+    pub(crate) fn record_manager_state(&mut self, fingerprint: [u64; 3]) {
+        if let Some(last) = self.last_manager_fingerprint {
+            let focus_changed = last[0] != fingerprint[0];
+            let selection_changed = last[1] != fingerprint[1];
+            let scroll_changed = last[2] != fingerprint[2];
+            if focus_changed || selection_changed || scroll_changed {
+                self.record(AppliedChange::ManagerState {
+                    focus_changed,
+                    selection_changed,
+                    scroll_changed,
+                });
+            }
+        }
+        self.last_manager_fingerprint = Some(fingerprint);
     }
 
     pub(crate) fn record(&mut self, change: AppliedChange) {
@@ -764,7 +797,7 @@ impl ContentJournal {
     pub(crate) fn clear_dom(&mut self, dom_id: DomId) {
         self.entries.retain(|e| match &e.change {
             AppliedChange::Image { dom_id: d, .. } => *d != dom_id,
-            AppliedChange::ImageById { .. } => true,
+            AppliedChange::ImageById { .. } | AppliedChange::ManagerState { .. } => true,
         });
     }
 }

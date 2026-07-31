@@ -52,8 +52,7 @@ pub enum DocumentEditError {
     HostNotFound,
     /// An index/range in the operation does not exist under the host.
     TargetNotFound,
-    /// The operation kind is recorded-only for now (Wrap/UnwrapRange — the
-    /// text-specific pair).
+    /// The operation kind cannot be applied (reserved).
     Unsupported(&'static str),
 }
 
@@ -111,12 +110,8 @@ pub fn apply_document_operation(
         DocumentOperation::InsertChildren(insert) => apply_insert(host, insert)?,
         DocumentOperation::RemoveChildren(remove) => apply_remove(host, remove)?,
         DocumentOperation::ReplaceChildren(replace) => apply_replace(host, replace)?,
-        DocumentOperation::WrapRange(_) => {
-            return Err(DocumentEditError::Unsupported("WrapRange"));
-        }
-        DocumentOperation::UnwrapRange(_) => {
-            return Err(DocumentEditError::Unsupported("UnwrapRange"));
-        }
+        DocumentOperation::WrapRange(wrap) => apply_wrap(host, wrap)?,
+        DocumentOperation::UnwrapRange(unwrap) => apply_unwrap(host, unwrap)?,
     };
 
     // Direct `children` mutation desyncs `estimated_total_children` (the
@@ -344,6 +339,202 @@ fn apply_replace(
         end: (start + count) as u32,
         content: fragment(removed),
     }))
+}
+
+/// Wrap `host.children` between `start` and `end` in the wrapper element:
+/// boundary TEXT children are cut at the range edges; everything covered
+/// moves INTO a new wrapper node inserted at the range start. Inverse: the
+/// unwrap at that position.
+///
+/// NOTE the host resolution difference: for wrap/unwrap `host_path` names
+/// the node whose CONTENT the range covers (the edit happens inside it),
+/// while split/merge name the PARENT (the edit adds/removes a sibling).
+fn apply_wrap(
+    host: &mut Dom,
+    wrap: &crate::managers::changeset::DocOpWrapRange,
+) -> Result<DocumentOperation, DocumentEditError> {
+    let mut children = take_children(host);
+    let len = children.len();
+
+    // END boundary first (so start-side splits don't shift its index):
+    // a byte inside a text child cuts it — the head stays IN the range,
+    // the tail is re-inserted after it, outside.
+    let mut end_exclusive = (wrap.end.child_index as usize).min(len);
+    if let Some(byte) = wrap.end.text_byte.into_option() {
+        if end_exclusive < children.len()
+            && matches!(
+                children[end_exclusive].root.get_node_type(),
+                NodeType::Text(_)
+            )
+        {
+            let tail = split_text_dom(&mut children[end_exclusive], byte as usize);
+            children.insert(end_exclusive + 1, tail);
+            end_exclusive += 1; // the head (now cut) is covered
+        }
+    }
+
+    // START boundary: a byte inside a text child cuts it — the head stays
+    // OUTSIDE, the tail begins the range (everything after shifts by one).
+    let mut start_index = (wrap.start.child_index as usize).min(children.len());
+    if let Some(byte) = wrap.start.text_byte.into_option() {
+        if start_index < children.len()
+            && matches!(
+                children[start_index].root.get_node_type(),
+                NodeType::Text(_)
+            )
+        {
+            let tail = split_text_dom(&mut children[start_index], byte as usize);
+            children.insert(start_index + 1, tail);
+            start_index += 1;
+            end_exclusive += 1;
+        }
+    }
+
+    if start_index > end_exclusive || end_exclusive > children.len() {
+        host.children = children.into();
+        return Err(DocumentEditError::TargetNotFound);
+    }
+
+    let covered: Vec<Dom> = children.drain(start_index..end_exclusive).collect();
+    let mut wrapper = Dom {
+        root: wrap.wrapper.root.clone(),
+        children: Vec::<Dom>::new().into(),
+        css: Vec::new().into(),
+        estimated_total_children: 0,
+    };
+    for c in covered {
+        wrapper.add_child(c);
+    }
+    children.insert(start_index, wrapper);
+    host.children = children.into();
+
+    Ok(DocumentOperation::UnwrapRange(
+        crate::managers::changeset::DocOpUnwrapRange {
+            node: wrap.node,
+            at: NodePosition::before_child(start_index as u32),
+        },
+    ))
+}
+
+/// Remove the wrapper child at `at`, splicing its children into its place;
+/// text meeting at either seam coalesces (so wrap → unwrap round-trips to
+/// the original tree). Inverse: the wrap that re-covers the spliced range.
+fn apply_unwrap(
+    host: &mut Dom,
+    unwrap: &crate::managers::changeset::DocOpUnwrapRange,
+) -> Result<DocumentOperation, DocumentEditError> {
+    let mut children = take_children(host);
+    let index = unwrap.at.child_index as usize;
+    if index >= children.len()
+        || matches!(children[index].root.get_node_type(), NodeType::Text(_))
+    {
+        host.children = children.into();
+        return Err(DocumentEditError::TargetNotFound);
+    }
+
+    let wrapper = children.remove(index);
+    let wrapper_shape = Dom {
+        root: wrapper.root.clone(),
+        children: Vec::<Dom>::new().into(),
+        css: Vec::new().into(),
+        estimated_total_children: 0,
+    };
+    let mut spliced: Vec<Dom> = wrapper.children.into_library_owned_vec();
+
+    // Inverse range start: coalescing with a preceding text node moves the
+    // start INTO it (at its pre-join byte length).
+    let mut start = NodePosition::before_child(index as u32);
+    if index > 0 {
+        let coalesce_left = matches!(
+            (
+                children.get(index - 1).map(|c| c.root.get_node_type()),
+                spliced.first().map(|c| c.root.get_node_type()),
+            ),
+            (Some(NodeType::Text(_)), Some(NodeType::Text(_)))
+        );
+        if coalesce_left {
+            let first_spliced = spliced.remove(0);
+            let (prev_len, joined) = match (
+                children[index - 1].root.get_node_type(),
+                first_spliced.root.get_node_type(),
+            ) {
+                (NodeType::Text(a), NodeType::Text(b)) => (
+                    a.as_str().len() as u32,
+                    format!("{}{}", a.as_str(), b.as_str()),
+                ),
+                _ => unreachable!("checked above"),
+            };
+            children[index - 1] = Dom::create_text(joined);
+            start = NodePosition::in_text_child((index - 1) as u32, prev_len);
+        }
+    }
+
+    // Splice the (remaining) children in.
+    let spliced_count = spliced.len();
+    let insert_at = index;
+    for (offset, c) in spliced.into_iter().enumerate() {
+        children.insert(insert_at + offset, c);
+    }
+
+    // The child that HOLDS the range end: the last spliced child, or — when
+    // everything was absorbed into the left text node — that joined node.
+    let (end_holder, mut end) = if spliced_count > 0 {
+        let last = insert_at + spliced_count - 1;
+        (
+            Some(last),
+            NodePosition::before_child((last + 1) as u32),
+        )
+    } else if start.text_byte.into_option().is_some() {
+        let holder = index - 1;
+        let byte = match children[holder].root.get_node_type() {
+            NodeType::Text(t) => t.as_str().len() as u32,
+            _ => 0,
+        };
+        (Some(holder), NodePosition::in_text_child(holder as u32, byte))
+    } else {
+        // Empty wrapper removed: nothing to coalesce, range is empty.
+        (None, NodePosition::before_child(index as u32))
+    };
+
+    // Right seam: the end-holder may coalesce with its follower (both text).
+    // The inverse's end byte is the holder's length BEFORE the join — the
+    // exact seam the original wrap cut.
+    if let Some(holder) = end_holder {
+        if holder + 1 < children.len() {
+            let both_text = matches!(
+                (
+                    children[holder].root.get_node_type(),
+                    children[holder + 1].root.get_node_type(),
+                ),
+                (NodeType::Text(_), NodeType::Text(_))
+            );
+            if both_text {
+                let following = children.remove(holder + 1);
+                let (seam_byte, joined) = match (
+                    children[holder].root.get_node_type(),
+                    following.root.get_node_type(),
+                ) {
+                    (NodeType::Text(a), NodeType::Text(b)) => (
+                        a.as_str().len() as u32,
+                        format!("{}{}", a.as_str(), b.as_str()),
+                    ),
+                    _ => unreachable!("checked above"),
+                };
+                children[holder] = Dom::create_text(joined);
+                end = NodePosition::in_text_child(holder as u32, seam_byte);
+            }
+        }
+    }
+
+    host.children = children.into();
+    Ok(DocumentOperation::WrapRange(
+        crate::managers::changeset::DocOpWrapRange {
+            node: unwrap.node,
+            start,
+            end,
+            wrapper: wrapper_shape,
+        },
+    ))
 }
 
 #[cfg(test)]
@@ -662,6 +853,76 @@ mod tests {
         let inv_cs = changeset(replaced.inverse, resume(0, NodePosition::before_child(0)));
         apply_document_operation(&mut host2, &[], &inv_cs).expect("inverse replace");
         assert_eq!(texts(&host2), vec!["old".to_string()]);
+    }
+
+    #[test]
+    fn wrap_mid_text_range_cuts_boundaries_and_unwrap_round_trips() {
+        // Bold "world" inside <p>"hello world extra"</p>: both boundaries cut
+        // the SAME text child; the wrapper takes exactly the covered bytes.
+        let mut host = p("hello world extra");
+        let wrapper = el("b");
+        let cs = changeset(
+            DocumentOperation::WrapRange(crate::managers::changeset::DocOpWrapRange {
+                node: any_node(),
+                start: NodePosition::in_text_child(0, 6),
+                end: NodePosition::in_text_child(0, 11),
+                wrapper: wrapper.clone(),
+            }),
+            resume(0, NodePosition::before_child(0)),
+        );
+        let applied = apply_document_operation(&mut host, &[], &cs).expect("wrap");
+
+        // Children now: ["hello ", <b>"world"</b>, " extra"].
+        let kids = host.children.as_ref();
+        assert_eq!(kids.len(), 3, "{:?}", texts(&host));
+        assert_eq!(texts(&host), ["hello ", "world", " extra"].map(String::from).to_vec());
+        assert!(matches!(
+            kids[1].root.get_node_type(),
+            NodeType::B | NodeType::Div | NodeType::Strong
+        ) || !matches!(kids[1].root.get_node_type(), NodeType::Text(_)));
+
+        // Unwrap (the inverse) restores ONE coalesced text child.
+        let DocumentOperation::UnwrapRange(ref uw) = applied.inverse else {
+            panic!("wrap inverse must be an unwrap");
+        };
+        assert_eq!(uw.at.child_index, 1);
+        let un_cs = changeset(applied.inverse, resume(0, NodePosition::before_child(0)));
+        let unwrapped = apply_document_operation(&mut host, &[], &un_cs).expect("unwrap");
+        assert_eq!(host.children.as_ref().len(), 1, "seams coalesced back");
+        assert_eq!(texts(&host), vec!["hello world extra".to_string()]);
+
+        // And the unwrap's inverse is the wrap over the same byte range.
+        match unwrapped.inverse {
+            DocumentOperation::WrapRange(w) => {
+                assert_eq!(w.start, NodePosition::in_text_child(0, 6));
+                assert_eq!(w.end, NodePosition::in_text_child(0, 11));
+            }
+            other => panic!("unwrap inverse must be the wrap, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn wrap_whole_elements_is_the_same_op_as_bolding_a_word() {
+        // Wrap paragraphs 2..4 of a div in a <blockquote> — pure structure,
+        // no text involved, subtrees move wholesale.
+        let mut host = Dom::create_div();
+        for t in ["one", "two", "three", "four"] {
+            host.add_child(p(t));
+        }
+        let cs = changeset(
+            DocumentOperation::WrapRange(crate::managers::changeset::DocOpWrapRange {
+                node: any_node(),
+                start: NodePosition::before_child(1),
+                end: NodePosition::before_child(3),
+                wrapper: el("blockquote"),
+            }),
+            resume(0, NodePosition::before_child(1)),
+        );
+        apply_document_operation(&mut host, &[], &cs).expect("wrap blocks");
+        let kids = host.children.as_ref();
+        assert_eq!(kids.len(), 3, "{:?}", texts(&host));
+        assert_eq!(kids[1].children.as_ref().len(), 2, "blockquote took [two, three]");
+        assert_eq!(texts(&host), ["one", "twothree", "four"].map(String::from).to_vec());
     }
 
     #[test]

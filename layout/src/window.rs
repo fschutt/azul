@@ -1630,8 +1630,9 @@ impl LayoutWindow {
             DocumentOperation::InsertChildren(i) => NodePosition::before_child(i.index),
             DocumentOperation::RemoveChildren(r) => NodePosition::before_child(r.start),
             DocumentOperation::ReplaceChildren(r) => NodePosition::before_child(r.start),
-            DocumentOperation::WrapRange(_) | DocumentOperation::UnwrapRange(_) => {
-                NodePosition::before_child(0)
+            DocumentOperation::WrapRange(w) => w.start,
+            DocumentOperation::UnwrapRange(u) => {
+                NodePosition::before_child(u.at.child_index)
             }
         };
 
@@ -1771,6 +1772,12 @@ impl LayoutWindow {
             (Op::RemoveChildren(_), Op::InsertChildren(i)) => NodePosition::before_child(i.index),
             (Op::ReplaceChildren(_), Op::ReplaceChildren(r)) => {
                 NodePosition::before_child(r.start)
+            }
+            (Op::WrapRange(w), Op::UnwrapRange(_)) => {
+                NodePosition::before_child(w.start.child_index)
+            }
+            (Op::UnwrapRange(u), Op::WrapRange(_)) => {
+                NodePosition::before_child(u.at.child_index)
             }
             _ => return None,
         };
@@ -2794,7 +2801,42 @@ impl LayoutWindow {
     /// still resolve callback content — a canvas is content, not animation.
     pub fn prepare_frame_content(&mut self) {
         self.content_journal.begin_frame();
+        // Journal manager-mutated state transitions (focus / selection /
+        // scroll): state that is deliberately NOT on the DOM must still be
+        // auditable per frame, on the same clock as content changes.
+        let fingerprint = self.manager_state_fingerprint();
+        self.content_journal.record_manager_state(fingerprint);
         self.invoke_image_callbacks_into_overlay(&OptionGlContextPtr::None);
+    }
+
+    /// `[focus, selection, scroll]` fingerprints for the journal diff.
+    fn manager_state_fingerprint(&self) -> [u64; 3] {
+        use std::hash::{Hash, Hasher};
+
+        let mut focus_h = std::collections::hash_map::DefaultHasher::new();
+        if let Some(f) = self.focus_manager.get_focused_node() {
+            f.dom.inner.hash(&mut focus_h);
+            f.node.into_crate_internal().map(|n| n.index()).hash(&mut focus_h);
+        }
+
+        let mut sel_h = std::collections::hash_map::DefaultHasher::new();
+        if let Some(mc) = self.text_edit_manager.multi_cursor.as_ref() {
+            // Debug formatting as the fingerprint basis: stable within a run,
+            // covers every field without requiring Hash on selection types.
+            format!("{mc:?}").hash(&mut sel_h);
+        }
+
+        let mut scroll_h = std::collections::hash_map::DefaultHasher::new();
+        for (dom_id, node_id) in self.scroll_manager.state_keys() {
+            dom_id.inner.hash(&mut scroll_h);
+            node_id.index().hash(&mut scroll_h);
+            if let Some(offset) = self.scroll_manager.get_current_offset(dom_id, node_id) {
+                offset.x.to_bits().hash(&mut scroll_h);
+                offset.y.to_bits().hash(&mut scroll_h);
+            }
+        }
+
+        [focus_h.finish(), sel_h.finish(), scroll_h.finish()]
     }
 
     /// THE single entry for content mutations: validates, writes the overlay

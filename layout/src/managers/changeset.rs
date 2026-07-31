@@ -187,9 +187,7 @@ pub use azul_core::events::SelectionDirection;
 // existing remap machinery (`NodeIdRemap` + `calculate_contenteditable_key`)
 // preserves caret/selection/undo across the resulting generation swap.
 
-use azul_core::selection::TextSelection;
 use azul_css::corety::U32Vec;
-use azul_core::window::StringPairVec;
 
 /// A position INSIDE a node, expressed structurally: before direct child
 /// `child_index`, optionally at `text_byte` INSIDE that child when (and only
@@ -260,23 +258,38 @@ pub struct DocOpMergeNodes {
     pub join: NodePosition,
 }
 
-/// Wrap a text range in an inline element (bold / italic / link toolbar).
+/// Wrap a contiguous CONTENT RANGE of a node in a new wrapper element — the
+/// toolbar bold/italic/link op, expressed structurally: everything between
+/// `start` and `end` moves INTO the wrapper (boundary TEXT children are cut
+/// at the range edges; element children move wholesale). Wrapping a word in
+/// `<strong>` and wrapping three paragraphs in a `<blockquote>` are the
+/// SAME operation.
 #[derive(Debug, Clone)]
 #[repr(C)]
 pub struct DocOpWrapRange {
-    pub range: TextSelection,
-    /// The wrapping element (e.g. `Strong`, `Em`, `A`).
-    pub element: azul_css::css::NodeTypeTag,
-    /// Attributes for the wrapper (e.g. `href` for a link).
-    pub attributes: StringPairVec,
+    /// The node whose children the range covers.
+    pub node: DomNodeId,
+    /// Range start (inclusive; byte inside a text child cuts it).
+    pub start: NodePosition,
+    /// Range end (exclusive at a child boundary; a byte inside a text child
+    /// includes that child's text up to the byte).
+    pub end: NodePosition,
+    /// The wrapper ELEMENT as a node payload: `wrapper.root` is the element
+    /// (its `NodeData` carries tag, classes and attributes — an `<a href>`
+    /// rides its dataset/attributes); `wrapper.children` is ignored.
+    pub wrapper: azul_core::dom::Dom,
 }
 
-/// Remove a wrapping inline element from a range (the inverse of wrap).
+/// Remove the wrapper element that is a direct child of `node` at `at`,
+/// splicing its children into its place (adjacent text at both seams
+/// coalesces, so wrap → unwrap round-trips). The inverse of wrap.
 #[derive(Debug, Clone)]
 #[repr(C)]
 pub struct DocOpUnwrapRange {
-    pub range: TextSelection,
-    pub element: azul_css::css::NodeTypeTag,
+    /// The node whose direct child is the wrapper.
+    pub node: DomNodeId,
+    /// Position of the wrapper child (`text_byte` is ignored).
+    pub at: NodePosition,
 }
 
 /// Insert node SUBTREES under `parent` at child `index` — the immutable-DOM
