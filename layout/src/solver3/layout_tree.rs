@@ -540,6 +540,12 @@ pub struct LayoutNode {
     /// Type of anonymous box (if applicable)
     /// (2 accesses)
     pub anonymous_type: Option<AnonymousBoxType>,
+    /// O3-render: when this node is one PART of a structural-split PREVIEW,
+    /// the flat byte range of the source node's inline content this part
+    /// displays (`u32::MAX` end = to the end). The IFC build slices its
+    /// collected content by this range. `None` = the node shows everything
+    /// (the universal case outside previews).
+    pub preview_byte_range: Option<(u32, u32)>,
     /// Multi-field fingerprint of this node's data (style, text, etc.)
     /// for granular change detection during reconciliation.
     /// (2 accesses — reconciliation only)
@@ -623,6 +629,11 @@ pub enum PseudoElement {
 pub enum AnonymousBoxType {
     /// Anonymous block box wrapping inline content
     InlineWrapper,
+    /// O3-render: the SECOND (or later) part of a structural-split preview —
+    /// a box with a real `dom_node_id` (the split node, via the
+    /// `dom_to_layout` multimap) that displays a byte-slice of its content.
+    /// Exists only between recording a split and the app's re-render.
+    SplitPreviewPart,
     /// Anonymous box for a list item marker (bullet or number)
     /// DEPRECATED: Use `PseudoElement::Marker` instead
     ListItemMarker,
@@ -710,6 +721,12 @@ pub struct LayoutNodeWarm {
 pub struct LayoutNodeCold {
     /// Type of anonymous box (if applicable)
     pub anonymous_type: Option<AnonymousBoxType>,
+    /// O3-render: when this node is one PART of a structural-split PREVIEW,
+    /// the flat byte range of the source node's inline content this part
+    /// displays (`u32::MAX` end = to the end). The IFC build slices its
+    /// collected content by this range. `None` = the node shows everything
+    /// (the universal case outside previews).
+    pub preview_byte_range: Option<(u32, u32)>,
     /// Multi-field fingerprint for granular change detection.
     pub node_data_fingerprint: NodeDataFingerprint,
     /// Hash of this node's data + all descendants.
@@ -753,6 +770,7 @@ impl LayoutNode {
             },
             LayoutNodeCold {
                 anonymous_type: self.anonymous_type,
+                preview_byte_range: self.preview_byte_range,
                 node_data_fingerprint: self.node_data_fingerprint,
                 subtree_hash: self.subtree_hash,
                 dirty_flag: self.dirty_flag,
@@ -960,6 +978,7 @@ impl LayoutTree {
             ifc_membership: warm.ifc_membership,
             containing_block_index: warm.containing_block_index,
             anonymous_type: cold.anonymous_type,
+            preview_byte_range: cold.preview_byte_range,
             node_data_fingerprint: cold.node_data_fingerprint,
             subtree_hash: cold.subtree_hash,
             dirty_flag: cold.dirty_flag,
@@ -1117,6 +1136,7 @@ pub fn generate_layout_tree<T: ParsedFontTrait>(
         .unwrap_or(NodeId::ZERO);
     let root_index =
         builder.process_node(ctx.styled_dom, root_id, None, ctx.debug_messages)?;
+    builder.apply_split_previews(ctx.content_overlay, ctx.styled_dom);
     let mut layout_tree = builder.build(root_index);
 
     // Pre-compute the STF (shrink-to-fit) subtree bitmap. This is static-DOM
@@ -1794,6 +1814,7 @@ impl LayoutTreeBuilder {
             containing_block_index: None,
             // ── COLD ──
             anonymous_type: Some(anon_type),
+            preview_byte_range: None,
             node_data_fingerprint: NodeDataFingerprint::default(),
             subtree_hash: SubtreeHash(0),
             dirty_flag: DirtyFlag::Layout,
@@ -1852,6 +1873,7 @@ impl LayoutTreeBuilder {
             containing_block_index: None,
             // ── COLD ──
             anonymous_type: None,
+            preview_byte_range: None,
             node_data_fingerprint: NodeDataFingerprint::default(),
             subtree_hash: SubtreeHash(0),
             dirty_flag: DirtyFlag::Layout,
@@ -2002,6 +2024,7 @@ impl LayoutTreeBuilder {
             containing_block_index: None,
             // ── COLD ──
             anonymous_type: None,
+            preview_byte_range: None,
             node_data_fingerprint: NodeDataFingerprint::compute(
                 &styled_dom.node_data.as_container()[dom_id],
                 styled_dom.styled_nodes.as_container().get(dom_id).map(|n| &n.styled_node_state),
@@ -2027,6 +2050,109 @@ impl LayoutTreeBuilder {
             }
         }
         index
+    }
+
+    /// O3-render: materialize pending SPLIT previews as layout nodes — the
+    /// "fake structural edit" becomes VISIBLE. For each recorded split whose
+    /// node is an IFC leaf (no layout children; the `<p>text…</p>` shape),
+    /// the node becomes part 1 (content byte range `[0, at)`), and a SECOND
+    /// node with the SAME `dom_node_id` (the `dom_to_layout` multimap seat)
+    /// and `AnonymousBoxType::SplitPreviewPart` shows `[at, ∞)` — a real
+    /// layout identity like any anonymous box, NO DOM mutation, no stale
+    /// NodeIds. Runs as a post-pass just before `build()` on BOTH tree-build
+    /// paths (full + reconcile).
+    ///
+    /// v1 renders text-byte splits; element-children splits stay
+    /// recorded-only (the child-routing per part is the staged follow-up).
+    pub fn apply_split_previews(
+        &mut self,
+        overlay: Option<&crate::overlay::ContentOverlay>,
+        styled_dom: &StyledDom,
+    ) {
+        let Some(overlay) = overlay else { return };
+        let pending = overlay.pending_structure(styled_dom.dom_id);
+        if pending.is_empty() {
+            return;
+        }
+        let node_data = styled_dom.node_data.as_container();
+        let hierarchy = styled_dom.node_hierarchy.as_container();
+
+        for entry in pending {
+            let crate::overlay::StructuralPreview::Split { node, at, .. } = &entry.preview
+            else {
+                continue;
+            };
+            let Some(byte) = at.text_byte.into_option() else {
+                continue; // v1: text-byte splits only
+            };
+            let Some(indices) = self.dom_to_layout.get(node) else {
+                continue;
+            };
+            if indices.len() != 1 {
+                continue; // already split (or exotic mapping)
+            }
+            let idx = indices[0];
+            // v1 gate: plain-text IFC roots — every layout child must be
+            // text-backed (or anonymous inline machinery). Element children
+            // need per-part routing (the staged follow-up).
+            let all_text_children = self.nodes[idx].children.iter().all(|&c| {
+                self.nodes.get(c).is_none_or(|n| match n.dom_node_id {
+                    None => true,
+                    Some(d) => node_data
+                        .get(d)
+                        .is_some_and(|nd| {
+                            matches!(nd.get_node_type(), azul_core::dom::NodeType::Text(_))
+                        }),
+                })
+            });
+            if !all_text_children {
+                continue;
+            }
+
+            // Flat byte offset of the split within the node's concatenated
+            // direct-text content (the same flattening fc collects).
+            let mut flat_at: u32 = 0;
+            let mut child = hierarchy.get(*node).and_then(|h| h.first_child_id(*node));
+            let mut i: u32 = 0;
+            while let Some(c) = child {
+                if i == at.child_index {
+                    break;
+                }
+                if let Some(nd) = node_data.get(c) {
+                    if let azul_core::dom::NodeType::Text(t) = nd.get_node_type() {
+                        flat_at += t.as_str().len() as u32;
+                    }
+                }
+                i += 1;
+                child = hierarchy.get(c).and_then(|h| h.next_sibling_id());
+            }
+            flat_at += byte;
+
+            self.nodes[idx].preview_byte_range = Some((0, flat_at));
+            self.nodes[idx].inline_layout_result = None;
+            self.nodes[idx].dirty_flag = DirtyFlag::Layout;
+
+            let part2_idx = self.nodes.len();
+            let mut part2 = self.nodes[idx].clone();
+            part2.children = Vec::new();
+            part2.preview_byte_range = Some((flat_at, u32::MAX));
+            part2.anonymous_type = Some(AnonymousBoxType::SplitPreviewPart);
+            part2.inline_layout_result = None;
+            part2.taffy_cache = TaffyCache::new();
+            part2.dirty_flag = DirtyFlag::Layout;
+            let parent = part2.parent;
+            self.nodes.push(part2);
+            if let Some(p) = parent {
+                let pos = self.nodes[p]
+                    .children
+                    .iter()
+                    .position(|&c| c == idx)
+                    .map_or(self.nodes[p].children.len(), |i| i + 1);
+                self.nodes[p].children.insert(pos, part2_idx);
+                self.nodes[p].dirty_flag = DirtyFlag::Layout;
+            }
+            self.dom_to_layout.entry(*node).or_default().push(part2_idx);
+        }
     }
 
     pub fn clone_node_from_old(&mut self, old_node: &LayoutNode, parent: Option<usize>) -> usize {

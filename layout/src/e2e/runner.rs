@@ -2552,11 +2552,17 @@ impl Runner {
             DefaultAction::SplitBlockAtCursor { .. }
             | DefaultAction::MergeWithPrevious { .. }
             | DefaultAction::MergeWithNext { .. } => {
-                // Same one-liner as the DLL shells: structural edits record.
-                let _ = self
+                // Same one-liner as the DLL shells: structural edits record;
+                // a materialized preview paints on the next relayout.
+                if self
                     .layout_window
-                    .record_structural_default_action(&action.action);
-                (ProcessEventResult::DoNothing, false)
+                    .record_structural_default_action(&action.action)
+                    .is_some()
+                {
+                    (ProcessEventResult::ShouldIncrementalRelayout, false)
+                } else {
+                    (ProcessEventResult::DoNothing, false)
+                }
             }
             _ => (ProcessEventResult::DoNothing, false),
         }

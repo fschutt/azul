@@ -1229,9 +1229,6 @@ impl LayoutWindow {
                     let styled_dom = &lr.styled_dom;
                     self.content_overlay.gc_converged_text(dom_id, styled_dom);
                 }
-                // A new generation ends every split preview (applied → real
-                // nodes exist; rejected → content reverts).
-                self.content_overlay.gc_splits(dom_id);
             }
         }
 
@@ -1442,8 +1439,15 @@ impl LayoutWindow {
         // mutation. The preview is the recorded DELTA itself (no content is
         // copied); it dies when the next generation lands (gc at the layout
         // tail) whether the app applied or rejected.
+        // One preview at a time (matching the one-pending-changeset model):
+        // recording replaces any previous preview.
+        self.content_overlay.gc_splits(target.dom);
         self.content_overlay
             .preview_structural_change(target.dom, &changeset);
+        // The preview becomes VISIBLE on the next relayout: the tree builder
+        // emits the part boxes; the incremental cache must not reuse the
+        // clean subtree that lacks them.
+        self.layout_cache.reset_incremental();
 
         Some(self.record_document_edit(changeset))
     }
@@ -1654,10 +1658,22 @@ impl LayoutWindow {
             if let Some(edit) = self.pending_document_edit.take() {
                 self.pending_caret_restore = Some(edit.resume);
             }
+            self.end_structural_previews();
             true
         } else {
             false
         }
+    }
+
+    /// End every structural PREVIEW (the app's re-render supersedes it) and
+    /// force the next relayout to rebuild without clean-subtree reuse — a
+    /// cached subtree could otherwise carry a stale preview part.
+    fn end_structural_previews(&mut self) {
+        let doms: Vec<DomId> = self.layout_results.keys().copied().collect();
+        for dom_id in doms {
+            self.content_overlay.gc_splits(dom_id);
+        }
+        self.layout_cache.reset_incremental();
     }
 
     /// [`Self::mark_document_edit_applied`] + structural-undo recording: the
@@ -1675,6 +1691,7 @@ impl LayoutWindow {
             return false;
         };
         self.pending_caret_restore = Some(edit.resume.clone());
+        self.end_structural_previews();
         let entry = crate::managers::undo_redo::StructuralUndoEntry {
             op: edit.operation,
             inverse,

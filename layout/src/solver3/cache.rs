@@ -900,6 +900,7 @@ pub fn reconcile_and_invalidate<T: ParsedFontTrait>(
         .collect();
     recon_result.layout_roots = final_layout_roots;
 
+    new_tree_builder.apply_split_previews(ctx.content_overlay, ctx.styled_dom);
     let new_tree = new_tree_builder.build(root_idx);
     // layout_document's step marker is stuck at 1 (post-`?` not reached), the
     // lifted `?` mis-discriminated this Ok as Err (niche-Result mis-lift).

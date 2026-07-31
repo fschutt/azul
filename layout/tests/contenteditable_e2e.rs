@@ -1011,6 +1011,41 @@ mod structural_roundtrip {
             );
         }
 
+        // ── O3-RENDER: the preview PAINTS before the app applies. A relayout
+        // (same model — the app has not applied anything) emits the part
+        // boxes: the P maps to TWO layout nodes (the dom_to_layout multimap),
+        // the second being the SplitPreviewPart, and pixels move.
+        h.layout_dom(render_dom(&model), CSS);
+        {
+            let lw = h.layout_window.as_ref().unwrap();
+            assert_eq!(
+                lw.content_overlay.pending_structure_len(),
+                1,
+                "the preview survives relayouts (it dies at ACK, not at layout)"
+            );
+            let lr = lw.layout_results.get(&dom_id).unwrap();
+            let indices = lr
+                .layout_tree
+                .dom_to_layout
+                .get(&p_node)
+                .expect("p in dom_to_layout");
+            assert_eq!(
+                indices.len(),
+                2,
+                "the split node occupies TWO layout slots (part 1 + preview part)"
+            );
+            let part2 = indices[1];
+            assert_eq!(
+                lr.layout_tree.cold(part2).and_then(|c| c.anonymous_type),
+                Some(azul_layout::solver3::layout_tree::AnonymousBoxType::SplitPreviewPart),
+            );
+        }
+        let preview_frame = h.render();
+        assert!(
+            pixel_diff_count(&before_split, &preview_frame, 2) > 0,
+            "the split PREVIEW must be VISIBLE before the app applies"
+        );
+
         // ── APP-APPLY on the app's native Dom model (Path 2). The host of
         // the split is the EDITOR (the p's parent) = the model root: path [].
         let applied = azul_layout::document_edit::apply_document_operation(
@@ -1028,18 +1063,19 @@ mod structural_roundtrip {
             assert!(lw.mark_document_edit_applied_with_inverse(changeset.id, applied.inverse));
         }
 
-        // ── RE-RENDER the new generation from the app's model. The preview
-        // dies (real nodes exist now); the caret restore runs at the layout
-        // tail: second node, offset 0.
-        h.layout_dom(render_dom(&model), CSS);
+        // ── The ACK ended the preview (the app's re-render supersedes it).
         {
             let lw = h.layout_window.as_ref().unwrap();
             assert_eq!(
                 lw.content_overlay.pending_structure_len(),
                 0,
-                "preview must be GC'd at the generation swap"
+                "the ACK ends the preview"
             );
         }
+
+        // ── RE-RENDER the new generation from the app's model; the caret
+        // restore runs at the layout tail: second node, offset 0.
+        h.layout_dom(render_dom(&model), CSS);
         let after_split = h.render();
         assert!(
             pixel_diff_count(&before_split, &after_split, 2) > 0,

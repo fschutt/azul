@@ -6879,7 +6879,65 @@ fn collect_and_measure_inline_content<T: ParsedFontTrait>(
         &mut content,
         &mut child_map,
     )?;
+
+    // O3-render: a split-preview PART displays only its byte slice of the
+    // node's content (both parts collect the same full content; the range
+    // partitions it — part 1 `[0, at)`, part 2 `[at, ∞)`).
+    if let Some((start, end)) = tree
+        .cold(ifc_root_index)
+        .and_then(|c| c.preview_byte_range)
+    {
+        content = slice_inline_content_by_bytes(content, start as usize, end as usize);
+    }
+
     Ok((content, child_map))
+}
+
+/// Byte-slice inline content (flat text bytes; Text runs cut at char
+/// boundaries, non-text items kept when their position falls inside the
+/// range) — the read-side twin of the structural split's partition rule.
+fn slice_inline_content_by_bytes(
+    content: Vec<InlineContent>,
+    start: usize,
+    end: usize,
+) -> Vec<InlineContent> {
+    let mut out = Vec::new();
+    let mut consumed = 0_usize;
+    for item in content {
+        match item {
+            InlineContent::Text(mut run) => {
+                let len = run.text.len();
+                let item_start = consumed;
+                let item_end = consumed + len;
+                consumed = item_end;
+                if item_end <= start || item_start >= end {
+                    continue;
+                }
+                let cut_from = start.saturating_sub(item_start).min(len);
+                let cut_to = (end - item_start).min(len);
+                let cut_from = (0..=cut_from)
+                    .rev()
+                    .find(|&c| run.text.is_char_boundary(c))
+                    .unwrap_or(0);
+                let cut_to = (cut_to..=len)
+                    .find(|&c| run.text.is_char_boundary(c))
+                    .unwrap_or(len);
+                if cut_from == 0 && cut_to == len {
+                    out.push(InlineContent::Text(run));
+                } else {
+                    run.text = run.text[cut_from..cut_to].to_string();
+                    run.logical_start_byte = 0;
+                    out.push(InlineContent::Text(run));
+                }
+            }
+            other => {
+                if consumed >= start && consumed < end {
+                    out.push(other);
+                }
+            }
+        }
+    }
+    out
 }
 
 #[allow(clippy::cast_possible_truncation)] // bounded graphics/coord/font/fixed-point/debug-marker cast

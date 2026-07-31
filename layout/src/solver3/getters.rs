@@ -6322,6 +6322,7 @@ mod autotest_generated {
             ifc_membership: None,
             containing_block_index: None,
             anonymous_type: None,
+            preview_byte_range: None,
             node_data_fingerprint: NodeDataFingerprint::default(),
             subtree_hash: SubtreeHash(0),
             dirty_flag: DirtyFlag::Layout,

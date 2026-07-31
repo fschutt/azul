@@ -5627,10 +5627,19 @@ pub trait PlatformWindow {
                                 // Structural edits: execution IS recording
                                 // (azul never mutates the DOM). The app reads
                                 // the changeset and applies it to its model.
+                                // A materialized PREVIEW paints on the next
+                                // relayout (O3-render), so charge one.
                                 if let Some(lw) = self.get_layout_window_mut() {
-                                    let _ = lw.record_structural_default_action(
-                                        &default_action_result.action,
-                                    );
+                                    if lw
+                                        .record_structural_default_action(
+                                            &default_action_result.action,
+                                        )
+                                        .is_some()
+                                    {
+                                        result = result.max(
+                                            ProcessEventResult::ShouldIncrementalRelayout,
+                                        );
+                                    }
                                 }
                             }
 
