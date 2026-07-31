@@ -164,6 +164,137 @@ impl Drop for ImageCacheSnapshot {
 // callback (off-thread print jobs).
 unsafe impl Send for ImageCacheSnapshot {}
 
+/// Boxed pagination analysis (`page_breaks::PaginationInfo`) — the
+/// document-editor precalculation result over the ABI: page count, page of
+/// any Y, and every break position, WITHOUT any per-page display list having
+/// been materialized. Obtain via `Pdf::compute_pagination`.
+#[cfg(feature = "text_layout")]
+#[repr(C)]
+#[derive(Debug)]
+pub struct PaginationSnapshot {
+    /// Boxed [`crate::solver3::page_breaks::PaginationInfo`] (opaque over the ABI).
+    pub ptr: *mut c_void,
+    /// Standard azul destructor latch (see [`FontCacheSnapshot::run_destructor`]).
+    pub run_destructor: bool,
+}
+
+#[cfg(feature = "text_layout")]
+impl PaginationSnapshot {
+    /// Wrap a pagination analysis into an ABI handle.
+    #[must_use]
+    pub fn from_info(info: crate::solver3::page_breaks::PaginationInfo) -> Self {
+        Self {
+            ptr: Box::into_raw(Box::new(info)).cast(),
+            run_destructor: true,
+        }
+    }
+
+    /// Borrow the wrapped analysis, if any.
+    #[must_use]
+    pub fn as_info(&self) -> Option<&crate::solver3::page_breaks::PaginationInfo> {
+        unsafe {
+            self.ptr
+                .cast::<crate::solver3::page_breaks::PaginationInfo>()
+                .as_ref()
+        }
+    }
+
+    /// An empty handle (0 pages — the failure value).
+    #[must_use]
+    pub const fn empty() -> Self {
+        Self {
+            ptr: core::ptr::null_mut(),
+            run_destructor: false,
+        }
+    }
+
+    /// Number of pages (0 for an empty/failed handle).
+    #[must_use]
+    pub fn page_count(&self) -> usize {
+        self.as_info().map_or(0, |i| i.page_count)
+    }
+
+    /// Total document-space content height.
+    #[must_use]
+    pub fn total_content_height(&self) -> f32 {
+        self.as_info().map_or(0.0, |i| i.total_content_height)
+    }
+
+    /// Number of page BREAKS (= `page_count - 1` for non-degenerate docs).
+    #[must_use]
+    pub fn break_count(&self) -> usize {
+        self.as_info().map_or(0, |i| i.breaks.len())
+    }
+
+    /// Document-space Y of break `index` (0.0 out of range).
+    #[must_use]
+    pub fn break_y(&self, index: usize) -> f32 {
+        self.as_info()
+            .and_then(|i| i.breaks.get(index))
+            .map_or(0.0, |b| b.y)
+    }
+
+    /// Whether break `index` was FORCED by CSS (`break-before/after`).
+    #[must_use]
+    pub fn break_is_forced(&self, index: usize) -> bool {
+        self.as_info()
+            .and_then(|i| i.breaks.get(index))
+            .is_some_and(|b| {
+                matches!(b.kind, crate::solver3::page_breaks::BreakKind::Forced)
+            })
+    }
+
+    /// Whether break `index` was MOVED by an avoid-rule (break-inside /
+    /// widows-orphans / atomic lines or rows).
+    #[must_use]
+    pub fn break_was_avoided(&self, index: usize) -> bool {
+        self.as_info()
+            .and_then(|i| i.breaks.get(index))
+            .is_some_and(|b| {
+                matches!(
+                    b.kind,
+                    crate::solver3::page_breaks::BreakKind::Avoided { .. }
+                )
+            })
+    }
+
+    /// Which page a document-space Y lands on ("what page is this node on?"
+    /// — the editor query that needs NO page to be materialized).
+    #[must_use]
+    pub fn page_of_y(&self, y: f32) -> usize {
+        self.as_info()
+            .map_or(0, |i| crate::solver3::page_breaks::page_of_y(&i.breaks, y))
+    }
+}
+
+#[cfg(feature = "text_layout")]
+impl Clone for PaginationSnapshot {
+    fn clone(&self) -> Self {
+        self.as_info()
+            .map_or_else(Self::empty, |i| Self::from_info(i.clone()))
+    }
+}
+
+#[cfg(feature = "text_layout")]
+impl Drop for PaginationSnapshot {
+    fn drop(&mut self) {
+        if self.run_destructor && !self.ptr.is_null() {
+            unsafe {
+                drop(Box::from_raw(
+                    self.ptr
+                        .cast::<crate::solver3::page_breaks::PaginationInfo>(),
+                ));
+            }
+            self.ptr = core::ptr::null_mut();
+            self.run_destructor = false;
+        }
+    }
+}
+
+// SAFETY: plain data (Ys + kinds), no interior mutability.
+#[cfg(feature = "text_layout")]
+unsafe impl Send for PaginationSnapshot {}
+
 #[cfg(test)]
 mod tests {
     use super::*;

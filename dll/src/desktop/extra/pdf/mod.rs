@@ -222,6 +222,62 @@ impl Pdf {
         }
     }
 
+    /// PRECALCULATION-ONLY pagination (the document-editor query): full
+    /// layout + break analysis at the given page size, but NO per-page
+    /// display list is ever materialized. The returned snapshot answers
+    /// page-count / page-of-Y / break positions; pair with the paged export
+    /// to materialize only what is visible. Empty handle without the `pdf`
+    /// feature or on failure.
+    pub fn compute_pagination(
+        &self,
+        styled_dom: azul_core::styled_dom::StyledDom,
+        page_width_px: f32,
+        page_height_px: f32,
+        font_cache: &azul_layout::resource_handles::FontCacheSnapshot,
+        image_cache: &azul_layout::resource_handles::ImageCacheSnapshot,
+    ) -> azul_layout::resource_handles::PaginationSnapshot {
+        #[cfg(feature = "pdf")]
+        {
+            let mut font_manager = match font_cache.as_font_manager() {
+                Some(fm) => fm.clone_shared(),
+                None => {
+                    let fc_cache = azul_layout::font::loading::build_font_cache();
+                    match azul_layout::font_traits::FontManager::new(fc_cache) {
+                        Ok(f) => f,
+                        Err(_) => {
+                            return azul_layout::resource_handles::PaginationSnapshot::empty()
+                        }
+                    }
+                }
+            };
+            let empty_images = azul_core::resources::ImageCache::default();
+            let images = image_cache.as_image_cache().unwrap_or(&empty_images);
+            engine::styled_dom_pagination(
+                &styled_dom,
+                page_width_px,
+                page_height_px,
+                &mut font_manager,
+                images,
+            )
+            .map_or_else(
+                azul_layout::resource_handles::PaginationSnapshot::empty,
+                azul_layout::resource_handles::PaginationSnapshot::from_info,
+            )
+        }
+        #[cfg(not(feature = "pdf"))]
+        {
+            announce_pdf_stub("Pdf::compute_pagination");
+            let _ = (
+                styled_dom,
+                page_width_px,
+                page_height_px,
+                font_cache,
+                image_cache,
+            );
+            azul_layout::resource_handles::PaginationSnapshot::empty()
+        }
+    }
+
     /// REVERSE path: PDF bytes -> one standalone SVG string per page.
     /// Empty without the `pdf` feature or on parse failure.
     pub fn to_svg_pages(&self, bytes: &[u8]) -> Vec<String> {
@@ -515,6 +571,62 @@ mod engine {
     /// (`CallbackInfo::get_styled_dom_clone`) and the PDF re-lays-out
     /// exactly the styled content the screen shows, with the resources it
     /// resolved.
+    /// The precalculation twin of [`styled_dom_to_bytes_with`]: same layout
+    /// pipeline, stops after the break analysis (no page is sliced).
+    pub fn styled_dom_pagination(
+        styled_dom: &azul_core::styled_dom::StyledDom,
+        page_w_px: f32,
+        page_h_px: f32,
+        font_manager: &mut azul_layout::font_traits::FontManager<azul_css::props::basic::FontRef>,
+        image_cache: &azul_core::resources::ImageCache,
+    ) -> Option<azul_layout::solver3::page_breaks::PaginationInfo> {
+        use azul_core::dom::DomId;
+        use azul_core::geom::{LogicalPosition, LogicalRect, LogicalSize};
+        use azul_core::resources::{IdNamespace, RendererResources};
+        use azul_layout::font_traits::TextLayoutCache;
+        use azul_layout::paged::FragmentationContext;
+        use azul_layout::solver3::paged_layout::compute_document_pagination;
+        use azul_layout::solver3::pagination::FakePageConfig;
+        use azul_layout::text3::default::PathLoader;
+        use std::collections::BTreeMap;
+
+        let content_size = LogicalSize::new(page_w_px, page_h_px);
+        let mut layout_cache = azul_layout::Solver3LayoutCache::default();
+        let mut text_cache = TextLayoutCache::new();
+        let fragmentation_context = FragmentationContext::new_paged(content_size);
+        let viewport = LogicalRect {
+            origin: LogicalPosition::zero(),
+            size: content_size,
+        };
+        let renderer_resources = RendererResources::default();
+        let mut debug_messages = None;
+        let loader = PathLoader::new();
+        let font_loader = |bytes, index| loader.load_font_shared(bytes, index);
+        let page_config = FakePageConfig::new();
+
+        compute_document_pagination(
+            &mut layout_cache,
+            &mut text_cache,
+            fragmentation_context,
+            styled_dom,
+            viewport,
+            font_manager,
+            &BTreeMap::new(),
+            &mut debug_messages,
+            None,
+            &renderer_resources,
+            IdNamespace(0),
+            DomId::ROOT_ID,
+            font_loader,
+            page_config,
+            image_cache,
+            azul_core::task::GetSystemTimeCallback {
+                cb: azul_core::task::get_system_time_libstd,
+            },
+        )
+        .ok()
+    }
+
     pub fn styled_dom_to_bytes_with(
         styled_dom: azul_core::styled_dom::StyledDom,
         page_w_px: f32,

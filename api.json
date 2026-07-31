@@ -105928,6 +105928,183 @@
                                     "type": "U8Vec"
                                 },
                                 "fn_body": "object.from_styled_dom_with_resources(styled_dom, page_width_px, page_height_px, &font_cache, &image_cache)"
+                            },
+                            "compute_pagination": {
+                                "doc": [
+                                    "PRECALCULATION-ONLY pagination: full layout + break analysis at the given",
+                                    "page size, but NO per-page display list is ever materialized. Same resource",
+                                    "snapshots as `from_styled_dom_with_resources`; runs off-thread fine. The",
+                                    "returned handle answers page-count / page-of-Y / break positions; an empty",
+                                    "handle (0 pages) signals failure or a build without the `pdf` feature."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    },
+                                    {
+                                        "styled_dom": "StyledDom"
+                                    },
+                                    {
+                                        "page_width_px": "f32"
+                                    },
+                                    {
+                                        "page_height_px": "f32"
+                                    },
+                                    {
+                                        "font_cache": "FontCacheSnapshot"
+                                    },
+                                    {
+                                        "image_cache": "ImageCacheSnapshot"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "PaginationSnapshot"
+                                },
+                                "fn_body": "object.compute_pagination(styled_dom, page_width_px, page_height_px, &font_cache, &image_cache)"
+                            }
+                        },
+                        "repr": "C"
+                    },
+                    "PaginationSnapshot": {
+                        "doc": [
+                            "Boxed pagination analysis: page count, page-of-Y and every break position",
+                            "computed WITHOUT materializing any per-page display list (the document-",
+                            "editor precalculation). Obtain via `Pdf.compute_pagination()`. An empty",
+                            "handle reports 0 pages."
+                        ],
+                        "external": "azul_layout::resource_handles::PaginationSnapshot",
+                        "custom_impls": [
+                            "Drop"
+                        ],
+                        "derive": [
+                            "Debug",
+                            "Clone"
+                        ],
+                        "struct_fields": [
+                            {
+                                "ptr": {
+                                    "type": "c_void",
+                                    "ref_kind": "mutptr"
+                                }
+                            },
+                            {
+                                "run_destructor": {
+                                    "type": "bool"
+                                }
+                            }
+                        ],
+                        "functions": {
+                            "page_count": {
+                                "doc": [
+                                    "Number of pages (0 for an empty handle)."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "usize"
+                                },
+                                "fn_body": "object.page_count()"
+                            },
+                            "total_content_height": {
+                                "doc": [
+                                    "Total document-space content height."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "f32"
+                                },
+                                "fn_body": "object.total_content_height()"
+                            },
+                            "break_count": {
+                                "doc": [
+                                    "Number of page breaks."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "usize"
+                                },
+                                "fn_body": "object.break_count()"
+                            },
+                            "break_y": {
+                                "doc": [
+                                    "Document-space Y of break `index` (0.0 out of range)."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    },
+                                    {
+                                        "index": "usize"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "f32"
+                                },
+                                "fn_body": "object.break_y(index)"
+                            },
+                            "break_is_forced": {
+                                "doc": [
+                                    "Whether break `index` was forced by CSS break-before/after."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    },
+                                    {
+                                        "index": "usize"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "bool"
+                                },
+                                "fn_body": "object.break_is_forced(index)"
+                            },
+                            "break_was_avoided": {
+                                "doc": [
+                                    "Whether break `index` was moved by an avoid-rule (break-inside,",
+                                    "widows/orphans, atomic lines or table rows)."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    },
+                                    {
+                                        "index": "usize"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "bool"
+                                },
+                                "fn_body": "object.break_was_avoided(index)"
+                            },
+                            "page_of_y": {
+                                "doc": [
+                                    "Which page a document-space Y lands on - 'what page is this",
+                                    "node on?' with NO page ever materialized."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    },
+                                    {
+                                        "y": "f32"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "usize"
+                                },
+                                "fn_body": "object.page_of_y(y)"
                             }
                         },
                         "repr": "C"

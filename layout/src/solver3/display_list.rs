@@ -5796,7 +5796,7 @@ pub fn paginate_display_list_with_slicer_and_breaks(
 pub fn paginate_display_list_with_breaks(
     full_display_list: DisplayList,
     config: &SlicerConfig,
-    breaks: &[page_breaks::PageBreak],
+    breaks: &[page_breaks::PageBreakPosition],
     renderer_resources: &RendererResources,
 ) -> Result<Vec<DisplayList>> {
     paginate_pages_impl(full_display_list, config, breaks, renderer_resources, None)
@@ -5815,7 +5815,7 @@ pub fn paginate_display_list_with_breaks(
 pub fn paginate_single_page(
     full_display_list: DisplayList,
     config: &SlicerConfig,
-    breaks: &[page_breaks::PageBreak],
+    breaks: &[page_breaks::PageBreakPosition],
     renderer_resources: &RendererResources,
     page_index: usize,
 ) -> Result<DisplayList> {
@@ -5833,7 +5833,7 @@ pub fn paginate_single_page(
 fn paginate_pages_impl(
     full_display_list: DisplayList,
     config: &SlicerConfig,
-    breaks: &[page_breaks::PageBreak],
+    breaks: &[page_breaks::PageBreakPosition],
     renderer_resources: &RendererResources,
     only_page: Option<usize>,
 ) -> Result<Vec<DisplayList>> {

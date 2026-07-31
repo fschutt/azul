@@ -41,7 +41,7 @@ pub enum BreakKind {
 
 /// One page boundary in document space.
 #[derive(Debug, Clone, Copy, PartialEq)]
-pub struct PageBreak {
+pub struct PageBreakPosition {
     /// Document-space Y where the page ENDS (content at or below `y` belongs
     /// to the next page).
     pub y: f32,
@@ -191,7 +191,7 @@ pub fn compute_page_breaks(
     input: &PageBreakInput,
     constraints: &PageConstraints,
     policy: &BreakPolicy,
-) -> Vec<PageBreak> {
+) -> Vec<PageBreakPosition> {
     let any_awareness = policy.honor_break_inside
         || policy.atomic_lines
         || policy.widows_orphans
@@ -259,7 +259,7 @@ pub fn compute_page_breaks(
         .collect();
     forced.sort_by(f32::total_cmp);
 
-    let mut breaks: Vec<PageBreak> = Vec::new();
+    let mut breaks: Vec<PageBreakPosition> = Vec::new();
     let mut prev_end = 0.0_f32;
     let mut page_height = first;
     let mut forced_iter = forced.into_iter().peekable();
@@ -280,7 +280,7 @@ pub fn compute_page_breaks(
             if fy <= naive + MERGE_WINDOW_PX {
                 forced_iter.next();
                 if fy > prev_end + MERGE_WINDOW_PX {
-                    breaks.push(PageBreak {
+                    breaks.push(PageBreakPosition {
                         y: fy,
                         kind: BreakKind::Forced,
                         causing_node: None,
@@ -305,7 +305,7 @@ pub fn compute_page_breaks(
         } else {
             BreakKind::Avoided { pushed_from: naive }
         };
-        breaks.push(PageBreak {
+        breaks.push(PageBreakPosition {
             y: adjusted,
             kind,
             causing_node: None,
@@ -320,7 +320,7 @@ pub fn compute_page_breaks(
     // Any forced breaks past the last interval position still apply.
     for fy in forced_iter {
         if fy > prev_end + MERGE_WINDOW_PX {
-            breaks.push(PageBreak {
+            breaks.push(PageBreakPosition {
                 y: fy,
                 kind: BreakKind::Forced,
                 causing_node: None,
@@ -534,15 +534,15 @@ fn snap_break_up(
 /// fresh value wins (correctness over reuse).
 #[must_use]
 pub fn recompute_page_breaks_from(
-    prev: &[PageBreak],
+    prev: &[PageBreakPosition],
     input: &PageBreakInput,
     constraints: &PageConstraints,
     policy: &BreakPolicy,
     dirty_y_start: f32,
-) -> Vec<PageBreak> {
+) -> Vec<PageBreakPosition> {
     let fresh = compute_page_breaks(input, constraints, policy);
 
-    let mut out: Vec<PageBreak> = Vec::with_capacity(fresh.len());
+    let mut out: Vec<PageBreakPosition> = Vec::with_capacity(fresh.len());
     let mut prev_iter = prev.iter().peekable();
     for fb in fresh {
         while prev_iter
@@ -576,7 +576,7 @@ pub fn recompute_page_breaks_from(
 /// (page 0 = before the first break). The document-editor query: "what page
 /// is this node on?" WITHOUT materializing any per-page display list.
 #[must_use]
-pub fn page_of_y(breaks: &[PageBreak], y: f32) -> usize {
+pub fn page_of_y(breaks: &[PageBreakPosition], y: f32) -> usize {
     breaks.iter().take_while(|b| b.y <= y).count()
 }
 
@@ -585,7 +585,7 @@ pub fn page_of_y(breaks: &[PageBreak], y: f32) -> usize {
 /// per-page display list generated.
 #[derive(Debug, Clone, PartialEq)]
 pub struct PaginationInfo {
-    pub breaks: Vec<PageBreak>,
+    pub breaks: Vec<PageBreakPosition>,
     pub page_count: usize,
     pub total_content_height: f32,
 }
@@ -600,7 +600,7 @@ pub struct PaginationInfo {
 pub fn compute_page_breaks_from_display_list(
     display_list: &DisplayList,
     constraints: &PageConstraints,
-) -> Vec<PageBreak> {
+) -> Vec<PageBreakPosition> {
     compute_page_breaks_from_positions(
         &display_list.forced_page_breaks,
         constraints,
@@ -616,7 +616,7 @@ pub fn compute_page_breaks_from_positions(
     forced_breaks: &[f32],
     constraints: &PageConstraints,
     total_height: f32,
-) -> Vec<PageBreak> {
+) -> Vec<PageBreakPosition> {
     let first = constraints.first_page_content_height;
     let normal = constraints.normal_page_content_height;
 
@@ -624,13 +624,13 @@ pub fn compute_page_breaks_from_positions(
         return Vec::new();
     }
 
-    let mut breaks: Vec<PageBreak> = Vec::new();
+    let mut breaks: Vec<PageBreakPosition> = Vec::new();
 
     // Forced breaks from CSS break-before/after: always.
     // The range check also filters NaN (both comparisons are false for NaN).
     for &forced_break_y in forced_breaks {
         if forced_break_y > 0.0 && forced_break_y < total_height {
-            breaks.push(PageBreak {
+            breaks.push(PageBreakPosition {
                 y: forced_break_y,
                 kind: BreakKind::Forced,
                 causing_node: None,
@@ -644,7 +644,7 @@ pub fn compute_page_breaks_from_positions(
     let mut y = first;
     #[allow(clippy::while_float)] // intentional bounded float loop; an integer counter would be artificial
     while y < total_height {
-        breaks.push(PageBreak {
+        breaks.push(PageBreakPosition {
             y,
             kind: BreakKind::Interval,
             causing_node: None,
@@ -660,7 +660,7 @@ pub fn compute_page_breaks_from_positions(
     // Merge breaks within the 1px window. A forced break replaces an interval
     // break in the same window (defect 2: forced breaks win); otherwise the
     // first break of a run is kept, matching the old positional dedup.
-    let mut merged: Vec<PageBreak> = Vec::with_capacity(breaks.len());
+    let mut merged: Vec<PageBreakPosition> = Vec::with_capacity(breaks.len());
     for b in breaks {
         match merged.last_mut() {
             Some(last) if (b.y - last.y).abs() < MERGE_WINDOW_PX => {
@@ -681,7 +681,7 @@ pub fn compute_page_breaks_from_positions(
 /// May return an empty vector when `total_height <= 0` and there are no
 /// breaks; pagination entry points map that to their single-page fallback.
 #[must_use]
-pub fn page_spans(breaks: &[PageBreak], total_height: f32) -> Vec<(f32, f32)> {
+pub fn page_spans(breaks: &[PageBreakPosition], total_height: f32) -> Vec<(f32, f32)> {
     let mut spans: Vec<(f32, f32)> = Vec::with_capacity(breaks.len() + 1);
     let mut page_start = 0.0f32;
 
@@ -710,7 +710,7 @@ mod tests {
         }
     }
 
-    fn ys(breaks: &[PageBreak]) -> Vec<f32> {
+    fn ys(breaks: &[PageBreakPosition]) -> Vec<f32> {
         breaks.iter().map(|b| b.y).collect()
     }
 
@@ -952,7 +952,7 @@ mod tests {
         policy: &BreakPolicy,
         first: f32,
         normal: f32,
-    ) -> Vec<PageBreak> {
+    ) -> Vec<PageBreakPosition> {
         compute_page_breaks(
             &PageBreakInput {
                 display_list: dl,
@@ -1274,7 +1274,7 @@ mod tests {
 
     #[test]
     fn page_of_y_counts_breaks_at_or_below_y() {
-        let b = |y: f32, kind: BreakKind| PageBreak {
+        let b = |y: f32, kind: BreakKind| PageBreakPosition {
             y,
             kind,
             causing_node: None,
@@ -1310,7 +1310,7 @@ mod tests {
 
     #[test]
     fn page_spans_skips_zero_height_pages_and_may_be_empty() {
-        let b = |y: f32| PageBreak {
+        let b = |y: f32| PageBreakPosition {
             y,
             kind: BreakKind::Interval,
             causing_node: None,

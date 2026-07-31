@@ -421,7 +421,7 @@ pub use solver3::{
     display_list::paginate_single_page,
     page_breaks::{
         compute_page_breaks, compute_page_breaks_from_display_list, page_of_y, page_spans,
-        BreakKind, BreakPolicy, PageBreak, PageBreakInput, PageConstraints, PaginationInfo,
+        BreakKind, BreakPolicy, PageBreakPosition, PageBreakInput, PageConstraints, PaginationInfo,
     },
 };
 #[cfg(feature = "text_layout")]

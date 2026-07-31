@@ -120,7 +120,7 @@ pub struct PagedLayoutResult {
     /// One display list per page.
     pub pages: Vec<DisplayList>,
     /// The break analysis the pages were sliced by (empty for continuous media).
-    pub breaks: Vec<crate::solver3::page_breaks::PageBreak>,
+    pub breaks: Vec<crate::solver3::page_breaks::PageBreakPosition>,
     /// Total document-space content height of the un-sliced document.
     pub total_content_height: f32,
 }

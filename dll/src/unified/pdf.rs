@@ -53,6 +53,17 @@ impl Pdf {
     ) -> U8Vec {
         U8Vec::from_vec(Vec::new())
     }
+    /// No PDF backend on wasm: returns an empty (0-page) handle.
+    pub fn compute_pagination(
+        &self,
+        _styled_dom: azul_core::styled_dom::StyledDom,
+        _page_width_px: f32,
+        _page_height_px: f32,
+        _font_cache: &azul_layout::resource_handles::FontCacheSnapshot,
+        _image_cache: &azul_layout::resource_handles::ImageCacheSnapshot,
+    ) -> azul_layout::resource_handles::PaginationSnapshot {
+        azul_layout::resource_handles::PaginationSnapshot::empty()
+    }
     /// No PDF backend on wasm: returns an empty byte vec.
     pub fn from_styled_dom_with_resources(
         &self,
