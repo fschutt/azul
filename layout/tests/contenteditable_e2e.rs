@@ -1152,4 +1152,127 @@ mod structural_roundtrip {
             assert!(matches!(redo_cs.operation, DocumentOperation::SplitNode(_)));
         }
     }
+
+    /// An APP-RECORDED child-boundary split (`NodePosition::before_child`,
+    /// no text byte) previews structurally: a `<ul>` splits BETWEEN `<li>`s
+    /// into two list boxes BEFORE the app applies — the `.insertChild`-class
+    /// generic op, not a text special case.
+    #[test]
+    fn app_recorded_element_split_previews_and_applies() {
+        use azul_layout::managers::changeset::{
+            DocOpSplitNode, DocumentChangeset, EditResumePoint,
+        };
+
+        // APP model: editor > ul > li x3.
+        let mut model = Dom::create_div()
+            .with_ids_and_classes(cls("editor").into())
+            .with_contenteditable(true)
+            .with_tab_index(TabIndex::Auto);
+        let mut ul = Dom::create_ul();
+        ul.add_child(Dom::create_li_with_text("alpha"));
+        ul.add_child(Dom::create_li_with_text("beta"));
+        ul.add_child(Dom::create_li_with_text("gamma"));
+        model.add_child(ul);
+
+        let mut h = ContentEditableHarness::new(400.0, 300.0);
+        h.layout_dom(render_dom(&model), CSS);
+        let before = h.render();
+
+        let dom_id = DomId { inner: 0 };
+        // body=0, editor=1, ul=2 (programmatic build: no whitespace nodes).
+        let ul_node = NodeId::new(2);
+        let target = DomNodeId {
+            dom: dom_id,
+            node: NodeHierarchyItemId::from_crate_internal(Some(ul_node)),
+        };
+
+        // The app records: split the UL before child 2 ("gamma" moves).
+        let changeset = DocumentChangeset::new(
+            target,
+            DocumentOperation::SplitNode(DocOpSplitNode {
+                node: target,
+                at: NodePosition::before_child(2),
+            }),
+            EditResumePoint {
+                // The split node is child 0 of the editor; the NEW second
+                // part lands at child index 1.
+                anchor_key: 0,
+                node_path: vec![1u32].into(),
+                position: NodePosition::before_child(0),
+            },
+            azul_core::task::Instant::now(),
+        );
+        let cs_id = {
+            let lw = h.layout_window.as_mut().unwrap();
+            lw.record_document_edit(changeset.clone())
+        };
+        assert_eq!(cs_id, changeset.id);
+
+        // Preview: relayout of the UNCHANGED model emits two UL part boxes.
+        h.layout_dom(render_dom(&model), CSS);
+        {
+            let lw = h.layout_window.as_ref().unwrap();
+            let lr = lw.layout_results.get(&dom_id).unwrap();
+            let indices = lr
+                .layout_tree
+                .dom_to_layout
+                .get(&ul_node)
+                .expect("ul in dom_to_layout");
+            assert_eq!(
+                indices.len(),
+                2,
+                "the element split occupies TWO layout slots (part 1 + preview part)"
+            );
+            let (part1, part2) = (indices[0], indices[1]);
+            assert_eq!(
+                lr.layout_tree.cold(part2).and_then(|c| c.anonymous_type),
+                Some(azul_layout::solver3::layout_tree::AnonymousBoxType::SplitPreviewPart),
+            );
+            assert_eq!(
+                lr.layout_tree.children(part1).len(),
+                2,
+                "alpha + beta stay in part 1"
+            );
+            assert_eq!(
+                lr.layout_tree.children(part2).len(),
+                1,
+                "gamma moves to the preview part"
+            );
+        }
+        let preview = h.render();
+        assert!(
+            pixel_diff_count(&before, &preview, 2) > 0,
+            "the element-split PREVIEW must be VISIBLE before the app applies"
+        );
+
+        // APP-APPLY on the model: host of the split is the EDITOR (path []).
+        let applied = azul_layout::document_edit::apply_document_operation(
+            &mut model,
+            &[],
+            &changeset,
+        )
+        .expect("apply element split");
+        assert!(matches!(applied.inverse, DocumentOperation::MergeNodes(_)));
+        {
+            let uls = model.children.as_ref();
+            assert_eq!(uls.len(), 2, "the model now holds TWO lists");
+            assert_eq!(uls[0].children.as_ref().len(), 2);
+            assert_eq!(uls[1].children.as_ref().len(), 1);
+        }
+
+        // ACK ends the preview; the re-rendered model shows the real split.
+        {
+            let lw = h.layout_window.as_mut().unwrap();
+            assert!(lw.mark_document_edit_applied(changeset.id));
+        }
+        h.layout_dom(render_dom(&model), CSS);
+        {
+            let lw = h.layout_window.as_ref().unwrap();
+            assert_eq!(
+                lw.content_overlay.pending_structure_len(),
+                0,
+                "the ACK retired the preview"
+            );
+        }
+    }
 }

@@ -1269,6 +1269,25 @@ impl LayoutWindow {
         changeset: crate::managers::changeset::DocumentChangeset,
     ) -> u64 {
         let id = changeset.id;
+
+        // O3: EVERY structural edit materializes a PREVIEW in the overlay —
+        // the immutable-DOM analog of insertChild/removeChild/split/merge
+        // becoming visible ahead of the app's re-render, with NO DOM
+        // mutation. The preview is the recorded DELTA itself (no content is
+        // copied); it dies at ACK / record-replace / remap, whether the app
+        // applied or rejected. One preview at a time (matching the
+        // one-pending-changeset model): recording replaces any previous
+        // preview. This lives HERE — not in the default-action recorder — so
+        // app-recorded changesets (CallbackInfo::record_document_edit)
+        // preview exactly like Enter/Backspace defaults.
+        self.content_overlay.gc_splits(changeset.target.dom);
+        self.content_overlay
+            .preview_structural_change(changeset.target.dom, &changeset);
+        // The preview becomes VISIBLE on the next relayout: the tree builder
+        // emits the part boxes; the incremental cache must not reuse the
+        // clean subtree that lacks them.
+        self.layout_cache.reset_incremental();
+
         if let Some(stale) = self.pending_document_edit.replace(changeset) {
             #[cfg(debug_assertions)]
             eprintln!(
@@ -1439,22 +1458,8 @@ impl LayoutWindow {
             Instant::now(),
         );
 
-        // O3: EVERY structural edit materializes a PREVIEW in the overlay —
-        // the immutable-DOM analog of insertChild/removeChild/split/merge
-        // becoming visible ahead of the app's re-render, with NO DOM
-        // mutation. The preview is the recorded DELTA itself (no content is
-        // copied); it dies when the next generation lands (gc at the layout
-        // tail) whether the app applied or rejected.
-        // One preview at a time (matching the one-pending-changeset model):
-        // recording replaces any previous preview.
-        self.content_overlay.gc_splits(target.dom);
-        self.content_overlay
-            .preview_structural_change(target.dom, &changeset);
-        // The preview becomes VISIBLE on the next relayout: the tree builder
-        // emits the part boxes; the incremental cache must not reuse the
-        // clean subtree that lacks them.
-        self.layout_cache.reset_incremental();
-
+        // The preview materializes inside record_document_edit — the shared
+        // chokepoint, so app-recorded changesets preview identically.
         Some(self.record_document_edit(changeset))
     }
 

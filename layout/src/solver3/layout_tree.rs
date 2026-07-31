@@ -2082,9 +2082,6 @@ impl LayoutTreeBuilder {
             else {
                 continue;
             };
-            let Some(byte) = at.text_byte.into_option() else {
-                continue; // v1: text-byte splits only
-            };
             let Some(indices) = self.dom_to_layout.get(node) else {
                 continue;
             };
@@ -2092,6 +2089,27 @@ impl LayoutTreeBuilder {
                 continue; // already split (or exotic mapping)
             }
             let idx = indices[0];
+
+            // Child-boundary split (no text byte): a container splits BETWEEN
+            // its children — a `<ul>` between `<li>`s, a section between
+            // paragraphs. Children before `at.child_index` stay in part 1;
+            // the rest MOVE (wholesale, subtrees intact) to the preview part.
+            let Some(byte) = at.text_byte.into_option() else {
+                // DOM ordinal per direct child of the split node — layout
+                // children route to a part by their DOM position.
+                let mut ordinal_of = BTreeMap::new();
+                let mut c = hierarchy.get(*node).and_then(|h| h.first_child_id(*node));
+                let mut ord: u32 = 0;
+                while let Some(cc) = c {
+                    ordinal_of.insert(cc, ord);
+                    ord += 1;
+                    c = hierarchy
+                        .get(cc)
+                        .and_then(azul_core::styled_dom::NodeHierarchyItem::next_sibling_id);
+                }
+                self.apply_element_split_preview(idx, *node, at.child_index, &ordinal_of);
+                continue;
+            };
             // v1 gate: plain-text IFC roots — every layout child must be
             // text-backed (or anonymous inline machinery). Element children
             // need per-part routing (the staged follow-up).
@@ -2152,6 +2170,73 @@ impl LayoutTreeBuilder {
             }
             self.dom_to_layout.entry(*node).or_default().push(part2_idx);
         }
+    }
+
+    /// Child-boundary split preview: partition `idx`'s layout children by DOM
+    /// ordinal — `< split_index` stays, the rest MOVE to a fresh
+    /// `SplitPreviewPart` sibling that shares `dom_node`'s id (the anon-box
+    /// model: rendering knows, callbacks stay blind). Subtrees move
+    /// wholesale; nothing is byte-sliced.
+    ///
+    /// Gate: every layout child must map to a real DOM child of `dom_node`.
+    /// Anonymous wrappers (mixed inline/block content) would need routing
+    /// through their wrapped runs — the staged follow-up, skipped here.
+    fn apply_element_split_preview(
+        &mut self,
+        idx: usize,
+        dom_node: NodeId,
+        split_index: u32,
+        ordinal_of: &BTreeMap<NodeId, u32>,
+    ) {
+        let children = self.nodes[idx].children.clone();
+        let all_mapped = children.iter().all(|&c| {
+            self.nodes
+                .get(c)
+                .and_then(|n| n.dom_node_id)
+                .is_some_and(|d| ordinal_of.contains_key(&d))
+        });
+        if !all_mapped {
+            return;
+        }
+
+        let (keep, moved): (Vec<usize>, Vec<usize>) = children.into_iter().partition(|&c| {
+            self.nodes[c]
+                .dom_node_id
+                .and_then(|d| ordinal_of.get(&d).copied())
+                .is_none_or(|o| o < split_index)
+        });
+        if moved.is_empty() {
+            return; // split at/after the end: nothing to preview
+        }
+
+        self.nodes[idx].children = keep;
+        self.nodes[idx].inline_layout_result = None;
+        self.nodes[idx].dirty_flag = DirtyFlag::Layout;
+
+        let part2_idx = self.nodes.len();
+        let mut part2 = self.nodes[idx].clone();
+        part2.children.clone_from(&moved);
+        part2.anonymous_type = Some(AnonymousBoxType::SplitPreviewPart);
+        part2.inline_layout_result = None;
+        part2.taffy_cache = TaffyCache::new();
+        part2.dirty_flag = DirtyFlag::Layout;
+        let parent = part2.parent;
+        self.nodes.push(part2);
+
+        for &m in &moved {
+            self.nodes[m].parent = Some(part2_idx);
+            self.nodes[m].dirty_flag = DirtyFlag::Layout;
+        }
+        if let Some(p) = parent {
+            let pos = self.nodes[p]
+                .children
+                .iter()
+                .position(|&c| c == idx)
+                .map_or(self.nodes[p].children.len(), |i| i + 1);
+            self.nodes[p].children.insert(pos, part2_idx);
+            self.nodes[p].dirty_flag = DirtyFlag::Layout;
+        }
+        self.dom_to_layout.entry(dom_node).or_default().push(part2_idx);
     }
 
     pub fn clone_node_from_old(&mut self, old_node: &LayoutNode, parent: Option<usize>) -> usize {
