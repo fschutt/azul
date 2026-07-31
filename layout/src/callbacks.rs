@@ -3023,13 +3023,12 @@ impl CallbackInfo {
     /// [`get_image_cache_clone`](Self::get_image_cache_clone) and the PDF
     /// lays out the same styled content with the same resources.
     #[must_use] pub fn get_styled_dom_clone(&self) -> StyledDom {
+        // Overlay-merged (A5.3): un-committed text edits are spliced in, so an
+        // export taken mid-typing contains what the user SEES, not the
+        // pre-edit DOM.
         self.get_layout_window()
-            .layout_results
-            .get(&DomId::ROOT_ID)
-            .map_or_else(
-                || StyledDom::create_from_dom(azul_core::dom::Dom::create_div()),
-                |lr| lr.styled_dom.clone(),
-            )
+            .styled_dom_with_edits(DomId::ROOT_ID)
+            .unwrap_or_else(|| StyledDom::create_from_dom(azul_core::dom::Dom::create_div()))
     }
 
     /// Reconstruct a plain [`Dom`](azul_core::dom::Dom) from a subtree of the
@@ -3047,16 +3046,19 @@ impl CallbackInfo {
     /// wrapping it in a print layout).
     #[must_use] pub fn get_dom_subtree(&self, node_id: DomNodeId) -> azul_core::dom::OptionDom {
         let lw = self.get_layout_window();
-        let Some(lr) = lw.layout_results.get(&node_id.dom) else {
-            return azul_core::dom::OptionDom::None;
-        };
         let Some(nid) = node_id.node.into_crate_internal() else {
             return azul_core::dom::OptionDom::None;
         };
-        if lr.styled_dom.node_data.as_container().get(nid).is_none() {
+        // Overlay-merged (A5.3): reconstruct from the DOM WITH un-committed
+        // text edits spliced in, so a subtree export reflects what the user
+        // sees. Costs a DOM clone; export paths are not per-frame.
+        let Some(merged) = lw.styled_dom_with_edits(node_id.dom) else {
+            return azul_core::dom::OptionDom::None;
+        };
+        if merged.node_data.as_container().get(nid).is_none() {
             return azul_core::dom::OptionDom::None;
         }
-        azul_core::dom::OptionDom::Some(lr.styled_dom.reconstruct_dom_subtree(Some(nid)))
+        azul_core::dom::OptionDom::Some(merged.reconstruct_dom_subtree(Some(nid)))
     }
 
     /// Enumerate every font the layout engine currently has loaded in its font
@@ -4368,7 +4370,10 @@ impl CallbackInfo {
         // missing node and an existing-but-empty one, so verify the node actually exists
         // (committed layout or a pending edit) before returning Some; otherwise None,
         // like the sibling selection/undo queries.
-        let exists = layout_window.dirty_text_nodes.contains_key(&(target.dom, node_id))
+        let exists = layout_window
+            .content_overlay
+            .text_for_node(target.dom, node_id)
+            .is_some()
             || layout_window
                 .layout_results
                 .get(&target.dom)

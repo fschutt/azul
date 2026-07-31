@@ -223,7 +223,6 @@ where
             cursor_is_visible: true,
             cursor_locations: Vec::new(),
             preedit_text: None,
-            dirty_text_overrides: BTreeMap::new(),
             cache_map: std::mem::take(&mut cache.cache_map),
             image_cache,
             content_overlay: None,
@@ -291,7 +290,6 @@ where
         cursor_is_visible: true, // Paged layout: cursor always visible
         cursor_locations: Vec::new(),   // Paged layout: no cursor
         preedit_text: None,
-        dirty_text_overrides: BTreeMap::new(),
         cache_map: std::mem::take(&mut cache.cache_map),
         image_cache,
         content_overlay: None,
@@ -410,7 +408,6 @@ fn compute_layout_with_fragmentation<T: ParsedFontTrait + Sync + 'static>(
         cursor_is_visible: true, // Paged layout: cursor always visible
         cursor_locations: Vec::new(),   // Paged layout: no cursor
         preedit_text: None,
-        dirty_text_overrides: BTreeMap::new(),
         cache_map: cache::LayoutCacheMap::default(),
         image_cache,
         content_overlay: None,
@@ -468,7 +465,6 @@ fn compute_layout_with_fragmentation<T: ParsedFontTrait + Sync + 'static>(
         cursor_is_visible: true, // Paged layout: cursor always visible
         cursor_locations: Vec::new(),   // Paged layout: no cursor
         preedit_text: None,
-        dirty_text_overrides: BTreeMap::new(),
         cache_map,
         image_cache,
         content_overlay: None,

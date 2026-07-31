@@ -2048,7 +2048,6 @@ mod autotest_generated {
                     cursor_is_visible: true,
                     cursor_locations: Vec::new(),
                     preedit_text: None,
-                    dirty_text_overrides: BTreeMap::new(),
                     cache_map: cache::LayoutCacheMap::default(),
                     image_cache: &self.image_cache,
                     content_overlay: None,

@@ -684,7 +684,11 @@ pub fn regenerate_layout(
     // so the display list shows the correct (edited) content.
     // This calls update_text_cache_after_edit for each dirty node, which
     // re-shapes the text and regenerates the inline layout result.
-    let dirty_entries: Vec<_> = layout_window.dirty_text_nodes.keys().cloned().collect();
+    let dirty_entries: Vec<_> = layout_window
+        .content_overlay
+        .iter_text()
+        .map(|(k, _)| *k)
+        .collect();
     for (dom_id, node_id) in dirty_entries {
         // update_text_cache_after_edit reads from dirty_text_nodes internally
         // (via get_text_before_textinput which checks dirty_text_nodes first)

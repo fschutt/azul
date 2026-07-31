@@ -525,7 +525,7 @@ fn breakdown_line(iter: u32, window: &HeadlessWindow) -> Option<String> {
         vv_states,
         gesture_sessions,
         gesture_long_press,
-        lw.dirty_text_nodes.len(),
+        lw.content_overlay.text_len(),
         lw.timers.len(),
         lw.threads.len(),
         azul_layout::probe::Probe::peek_len(),

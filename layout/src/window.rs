@@ -630,15 +630,7 @@ pub struct TextConstraintsCache {
 
 /// A text node that has been edited since the last full layout.
 /// This allows us to perform lightweight relayout without rebuilding the entire DOM.
-#[derive(Debug, Clone)]
-pub struct DirtyTextNode {
-    /// The new inline content (text + images) after editing
-    pub content: Vec<InlineContent>,
-    /// The new cursor position after editing
-    pub cursor: Option<TextCursor>,
-    /// Whether this edit requires ancestor relayout (e.g., text grew taller)
-    pub needs_ancestor_relayout: bool,
-}
+pub use crate::overlay::DirtyTextNode;
 
 /// Result of applying a text changeset
 #[derive(Debug)]
@@ -852,10 +844,6 @@ pub struct LayoutWindow {
     /// Cached text layout constraints for each node
     /// This allows us to re-layout text with the same constraints after edits
     pub text_constraints_cache: TextConstraintsCache,
-    /// Tracks which nodes have been edited since last full layout.
-    /// Key: (`DomId`, `NodeId` of IFC root)
-    /// Value: The edited inline content that should be used for relayout
-    pub dirty_text_nodes: BTreeMap<(DomId, NodeId), DirtyTextNode>,
     /// Pending `VirtualView` updates from callbacks (processed in next frame)
     /// Map of `DomId` -> Set of `NodeIds` that need re-rendering
     /// MWA-C-virtual_view: pending re-invocations now carry the QUEUE-TIME
@@ -1042,7 +1030,6 @@ impl LayoutWindow {
             text_constraints_cache: TextConstraintsCache {
                 constraints: BTreeMap::new(),
             },
-            dirty_text_nodes: BTreeMap::new(),
             pending_virtual_view_updates: BTreeMap::new(),
             pending_lifecycle_events: Vec::new(),
             pending_unmount_invocations: Vec::new(),
@@ -1195,6 +1182,23 @@ impl LayoutWindow {
             )));
         }
 
+        // CONVERGENCE GC (the rule that closes the edit commit loop): the new
+        // generation is installed in `layout_results` — every text-overlay
+        // entry whose flattened text the new DOM now equals has been committed
+        // by the app and is dropped; entries the app hasn't caught up with
+        // stay authoritative. Before this, overlay text was remapped forward
+        // FOREVER and DOM-reading exports silently saw pre-edit text.
+        if result.is_ok() {
+            let doms: Vec<DomId> = self.layout_results.keys().copied().collect();
+            for dom_id in doms {
+                if let Some(lr) = self.layout_results.get(&dom_id) {
+                    // Split borrow: overlay and layout_results are separate fields.
+                    let styled_dom = &lr.styled_dom;
+                    self.content_overlay.gc_converged_text(dom_id, styled_dom);
+                }
+            }
+        }
+
         // After successful layout, update the accessibility tree
         #[cfg(feature = "a11y")]
         if result.is_ok() {
@@ -1207,6 +1211,70 @@ impl LayoutWindow {
         }
 
         result
+    }
+
+    /// The overlay-merged export reader (the "save/print sees what you see"
+    /// rule): a clone of the DOM with every text-overlay entry spliced in,
+    /// so DOM-reading exports (PDF, serialization) reflect un-committed
+    /// edits instead of silently seeing pre-edit text.
+    #[must_use]
+    pub fn styled_dom_with_edits(&self, dom_id: DomId) -> Option<StyledDom> {
+        let lr = self.layout_results.get(&dom_id)?;
+        let mut dom = lr.styled_dom.clone();
+        for (&(d, node_id), dirty) in self.content_overlay.iter_text() {
+            if d != dom_id {
+                continue;
+            }
+            let text = crate::overlay::flatten_inline_content(&dirty.content);
+            Self::splice_text_into(&mut dom, node_id, &text);
+        }
+        Some(dom)
+    }
+
+    /// Splice edited text into a cloned DOM at `node_id` — the write-side
+    /// mirror of `ContentOverlay::gc_converged_text`'s comparison rule
+    /// (text node: replace; IFC host: first direct text child gets the
+    /// flattened text, remaining direct text children are cleared; v1
+    /// flattens rich inline markup).
+    fn splice_text_into(dom: &mut StyledDom, node_id: NodeId, text: &str) {
+        let is_text_node = dom
+            .node_data
+            .as_container()
+            .get(node_id)
+            .is_some_and(|n| matches!(n.get_node_type(), NodeType::Text(_)));
+
+        if is_text_node {
+            dom.node_data.as_container_mut()[node_id].set_node_type(NodeType::Text(
+                azul_css::css::BoxOrStatic::heap(text.into()),
+            ));
+            return;
+        }
+
+        let direct_text_children: Vec<NodeId> = {
+            let hierarchy = dom.node_hierarchy.as_container();
+            let node_data = dom.node_data.as_container();
+            let mut out = Vec::new();
+            if let Some(n) = hierarchy.get(node_id) {
+                let mut child = n.first_child_id(node_id);
+                while let Some(c) = child {
+                    if node_data
+                        .get(c)
+                        .is_some_and(|cd| matches!(cd.get_node_type(), NodeType::Text(_)))
+                    {
+                        out.push(c);
+                    }
+                    child = hierarchy.get(c).and_then(|cn| cn.next_sibling_id());
+                }
+            }
+            out
+        };
+        let mut container = dom.node_data.as_container_mut();
+        for (i, c) in direct_text_children.into_iter().enumerate() {
+            let replacement = if i == 0 { text } else { "" };
+            container[c].set_node_type(NodeType::Text(azul_css::css::BoxOrStatic::heap(
+                replacement.into(),
+            )));
+        }
     }
 
     /// Run the real layout solver for a single `StyledDom` + viewport
@@ -4002,13 +4070,14 @@ impl LayoutWindow {
             })
         });
 
-        // Build text overrides from dirty_text_nodes so the a11y tree
-        // reads the current (edited) text, not the stale StyledDom text.
+        // Text overrides for the a11y tree come straight from the content
+        // overlay (the ONE text-overlay home): current edited text, not the
+        // stale StyledDom text.
         let mut dirty_text_overrides: BTreeMap<(DomId, NodeId), String> = BTreeMap::new();
-        for (&(dom_id, node_id), dirty_node) in &self.dirty_text_nodes {
+        for (&(dom_id, node_id), dirty_node) in self.content_overlay.iter_text() {
             dirty_text_overrides.insert(
                 (dom_id, node_id),
-                self.extract_text_from_inline_content(&dirty_node.content),
+                crate::overlay::flatten_inline_content(&dirty_node.content),
             );
         }
 
@@ -4079,7 +4148,7 @@ impl LayoutWindow {
         let dom_id = dom_node_id.dom;
 
         // Get current text content (from dirty overrides or StyledDom)
-        let text_content = if let Some(dirty) = self.dirty_text_nodes.get(&(dom_id, node_id)) {
+        let text_content = if let Some(dirty) = self.content_overlay.text_for_node(dom_id, node_id) {
             self.extract_text_from_inline_content(&dirty.content)
         } else {
             // Fall back to StyledDom text
@@ -6350,8 +6419,7 @@ impl LayoutWindow {
         self.text_edit_manager.blink.reset_blink_on_input(now);
 
         // Check if any dirty text node needs ancestor relayout (text size changed)
-        let needs_relayout = self.dirty_text_nodes.values()
-            .any(|d| d.needs_ancestor_relayout);
+        let needs_relayout = self.content_overlay.any_text_needs_ancestor_relayout();
 
         // Return nodes that need dirty marking
         let dirty_nodes = self.determine_dirty_text_nodes(dom_id, node_id);
@@ -6425,7 +6493,7 @@ impl LayoutWindow {
         // content is in dirty_text_nodes, NOT in the StyledDom.
         // Without this check, every keystroke reads the ORIGINAL text instead of
         // the accumulated edits, causing bugs like double-input and wrong node affected.
-        if let Some(dirty_node) = self.dirty_text_nodes.get(&(dom_id, node_id)) {
+        if let Some(dirty_node) = self.content_overlay.text_for_node(dom_id, node_id) {
             return dirty_node.content.clone();
         }
 
@@ -6535,36 +6603,8 @@ impl LayoutWindow {
     // converting to an associated fn would break that API at every call site.
     #[allow(clippy::only_used_in_recursion)]
     pub fn extract_text_from_inline_content(&self, content: &[InlineContent]) -> String {
-        let mut result = String::new();
-
-        for item in content {
-            match item {
-                InlineContent::Text(text_run) => {
-                    result.push_str(&text_run.text);
-                }
-                InlineContent::Space(_) => {
-                    result.push(' ');
-                }
-                InlineContent::LineBreak(_) => {
-                    result.push('\n');
-                }
-                InlineContent::Tab { .. } => {
-                    result.push('\t');
-                }
-                InlineContent::Ruby { base, .. } => {
-                    // For Ruby annotations, include the base text
-                    result.push_str(&self.extract_text_from_inline_content(base));
-                }
-                InlineContent::Marker { run, .. } => {
-                    // Markers contribute their text
-                    result.push_str(&run.text);
-                }
-                // Images and shapes don't contribute to plain text
-                InlineContent::Image(_) | InlineContent::Shape(_) => {}
-            }
-        }
-
-        result
+        // The ONE shared flattening (a11y, convergence GC, exports all agree).
+        crate::overlay::flatten_inline_content(content)
     }
 
     /// Update the text cache after a text edit
@@ -6591,8 +6631,9 @@ impl LayoutWindow {
 
         // 1. Store the new content in dirty_text_nodes for tracking
         let cursor = self.text_edit_manager.get_primary_cursor();
-        self.dirty_text_nodes.insert(
-            (dom_id, node_id),
+        self.content_overlay.set_text(
+            dom_id,
+            node_id,
             DirtyTextNode {
                 content: new_inline_content.clone(),
                 cursor,
@@ -6752,7 +6793,7 @@ impl LayoutWindow {
             if let (Some(old), Some(new)) = (old_size, new_size) {
                 if (old.height - new.height).abs() > 0.5 || (old.width - new.width).abs() > 0.5 {
                     // Mark that ancestor relayout is needed
-                    if let Some(dirty_node) = self.dirty_text_nodes.get_mut(&(dom_id, node_id)) {
+                    if let Some(dirty_node) = self.content_overlay.text_for_node_mut(dom_id, node_id) {
                         dirty_node.needs_ancestor_relayout = true;
                     }
                 }
@@ -6828,7 +6869,7 @@ impl LayoutWindow {
     }
 
     pub fn reapply_dirty_text_node(&mut self, dom_id: DomId, node_id: NodeId) {
-        let content = match self.dirty_text_nodes.get(&(dom_id, node_id)) {
+        let content = match self.content_overlay.text_for_node(dom_id, node_id) {
             Some(dirty) => dirty.content.clone(),
             None => return,
         };
@@ -6899,7 +6940,6 @@ impl LayoutWindow {
             get_system_time_fn: azul_core::task::GetSystemTimeCallback {
                 cb: azul_core::task::get_system_time_libstd,
             },
-            dirty_text_overrides: BTreeMap::new(),
         };
 
         // Generate the new display list from the existing layout tree
@@ -8501,7 +8541,6 @@ impl LayoutWindow {
 
             // --- NODE-KEYED: plain caches owned directly by the window -------
             text_constraints_cache,
-            dirty_text_nodes,
             pending_virtual_view_updates,
             gl_texture_cache,
             currently_dragging_thumb,
@@ -8581,7 +8620,10 @@ impl LayoutWindow {
 
         // Window-owned caches (same contract: absent from `map` == unmounted).
         crate::managers::remap_dom_keys(&mut text_constraints_cache.constraints, dom, map);
-        crate::managers::remap_dom_keys(dirty_text_nodes, dom, map);
+        // Overlay (images + text) remaps with the managers; the CONVERGENCE GC
+        // for text (drop entries the new DOM committed) runs at the tail of
+        // `layout_and_generate_display_list`, where the new generation is
+        // already installed.
         content_overlay.remap_node_ids(dom, map);
         // The journal's old-image entries are keyed by pre-swap NodeIds and a
         // generation swap repaints everything anyway — drop this DOM's history

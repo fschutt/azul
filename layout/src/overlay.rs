@@ -30,11 +30,48 @@ use std::collections::{BTreeMap, VecDeque};
 use azul_core::{
     dom::{DomId, NodeId, NodeType},
     resources::{ImageRef, ImageRefHash},
+    selection::TextCursor,
     styled_dom::StyledDom,
 };
 use azul_css::AzString;
 
 use crate::managers::{NodeIdMap, NodeIdRemap};
+use crate::text3::cache::InlineContent;
+
+/// The text overlay entry: an IFC root's edited inline content, layered over
+/// the immutable DOM's (now stale) text until the app's next generation
+/// catches up ("optimistic state").
+#[derive(Debug, Clone)]
+pub struct DirtyTextNode {
+    /// The new inline content (text + images) after editing
+    pub content: Vec<InlineContent>,
+    /// The new cursor position after editing
+    pub cursor: Option<TextCursor>,
+    /// Whether this edit requires ancestor relayout (e.g., text grew taller)
+    pub needs_ancestor_relayout: bool,
+}
+
+/// Flatten inline content to the plain string it displays — the SAME
+/// flattening every consumer (a11y, convergence GC, exports) must share, or
+/// two of them will disagree about whether an edit "is" committed.
+#[must_use]
+pub fn flatten_inline_content(content: &[InlineContent]) -> String {
+    let mut result = String::new();
+    for item in content {
+        match item {
+            InlineContent::Text(text_run) => result.push_str(&text_run.text),
+            InlineContent::Space(_) => result.push(' '),
+            InlineContent::LineBreak(_) => result.push('\n'),
+            InlineContent::Tab { .. } => result.push('\t'),
+            InlineContent::Ruby { base, .. } => {
+                result.push_str(&flatten_inline_content(base));
+            }
+            InlineContent::Marker { run, .. } => result.push_str(&run.text),
+            InlineContent::Image(_) | InlineContent::Shape(_) => {}
+        }
+    }
+    result
+}
 
 /// How many PRESENTED frames of history the journal keeps. A backend
 /// re-presenting a not-fully-redrawn buffer composed `k` frames ago may still
@@ -129,6 +166,12 @@ pub struct ContentOverlay {
     /// Node-image arm: the currently-displayed image for a node, overriding
     /// the immutable DOM's `NodeType::Image` content.
     images: BTreeMap<(DomId, NodeId), ImageRef>,
+    /// Text arm: edited inline content per IFC root ("optimistic state"),
+    /// overriding the immutable DOM's text. Written only through
+    /// `LayoutWindow::update_text_cache_after_edit` (the documented single
+    /// text mutation point, itself fed by `apply_text_changeset`); retired by
+    /// [`Self::gc_converged_text`] when the app's regenerated DOM catches up.
+    text: BTreeMap<(DomId, NodeId), DirtyTextNode>,
 }
 
 impl ContentOverlay {
@@ -139,9 +182,32 @@ impl ContentOverlay {
         self.images.get(&(dom_id, node_id))
     }
 
+    /// The overlay's edited text entry for an IFC root, if any.
+    #[must_use]
+    pub fn text_for_node(&self, dom_id: DomId, node_id: NodeId) -> Option<&DirtyTextNode> {
+        self.text.get(&(dom_id, node_id))
+    }
+
+    /// Iterate all text-overlay entries (a11y snapshot, diagnostics).
+    pub fn iter_text(&self) -> impl Iterator<Item = (&(DomId, NodeId), &DirtyTextNode)> {
+        self.text.iter()
+    }
+
+    /// Number of text-overlay entries (manager fingerprints, tests).
+    #[must_use]
+    pub fn text_len(&self) -> usize {
+        self.text.len()
+    }
+
+    /// Whether ANY text entry needs an ancestor relayout.
+    #[must_use]
+    pub fn any_text_needs_ancestor_relayout(&self) -> bool {
+        self.text.values().any(|d| d.needs_ancestor_relayout)
+    }
+
     #[must_use]
     pub fn is_empty(&self) -> bool {
-        self.images.is_empty()
+        self.images.is_empty() && self.text.is_empty()
     }
 
     pub(crate) fn set_image(
@@ -153,16 +219,77 @@ impl ContentOverlay {
         self.images.insert((dom_id, node_id), image)
     }
 
+    pub(crate) fn set_text(
+        &mut self,
+        dom_id: DomId,
+        node_id: NodeId,
+        entry: DirtyTextNode,
+    ) -> Option<DirtyTextNode> {
+        self.text.insert((dom_id, node_id), entry)
+    }
+
+    pub(crate) fn text_for_node_mut(
+        &mut self,
+        dom_id: DomId,
+        node_id: NodeId,
+    ) -> Option<&mut DirtyTextNode> {
+        self.text.get_mut(&(dom_id, node_id))
+    }
+
+    /// Convergence GC — the rule that closes the edit commit loop: after a
+    /// generation swap (keys already remapped), an overlay text entry whose
+    /// flattened text EQUALS the new DOM's text at that node has been
+    /// committed by the app → drop it. Not equal → the app hasn't caught up;
+    /// the overlay stays authoritative. Before this rule, entries were
+    /// remapped forward FOREVER and DOM-reading exports silently saw pre-edit
+    /// text.
+    pub(crate) fn gc_converged_text(&mut self, dom_id: DomId, styled_dom: &StyledDom) {
+        let node_data = styled_dom.node_data.as_container();
+        self.text.retain(|&(d, node_id), dirty| {
+            if d != dom_id {
+                return true;
+            }
+            let Some(node) = node_data.get(node_id) else {
+                // Node gone in the new generation: nothing to converge to.
+                return false;
+            };
+            let dom_text = match node.get_node_type() {
+                NodeType::Text(s) => s.as_str().to_string(),
+                // Non-text IFC roots (contenteditable hosts): compare against
+                // the concatenated text of DIRECT text children.
+                _ => {
+                    let hierarchy = styled_dom.node_hierarchy.as_container();
+                    let mut s = String::new();
+                    if let Some(n) = hierarchy.get(node_id) {
+                        let mut child = n.first_child_id(node_id);
+                        while let Some(c) = child {
+                            if let Some(cd) = node_data.get(c) {
+                                if let NodeType::Text(t) = cd.get_node_type() {
+                                    s.push_str(t.as_str());
+                                }
+                            }
+                            child = hierarchy.get(c).and_then(|cn| cn.next_sibling_id());
+                        }
+                    }
+                    s
+                }
+            };
+            flatten_inline_content(&dirty.content) != dom_text
+        });
+    }
+
     /// Drop every overlay entry of `dom` (full DOM regeneration without a
     /// remap — the new generation's DOM is the authority again).
     pub(crate) fn clear_dom(&mut self, dom_id: DomId) {
         self.images.retain(|(d, _), _| *d != dom_id);
+        self.text.retain(|(d, _), _| *d != dom_id);
     }
 }
 
 impl NodeIdRemap for ContentOverlay {
     fn remap_node_ids(&mut self, dom: DomId, map: &NodeIdMap) {
         crate::managers::remap_dom_keys(&mut self.images, dom, map);
+        crate::managers::remap_dom_keys(&mut self.text, dom, map);
     }
 }
 
@@ -214,6 +341,23 @@ impl ResolvedContent<'_> {
         let node_data = self.styled_dom.node_data.as_container();
         match node_data.get(node_id)?.get_node_type() {
             NodeType::Image(image_ref) => Some(image_ref.as_ref().clone()),
+            _ => None,
+        }
+    }
+
+    /// The text to READ for `node_id` (a11y, exports): the overlay's edited
+    /// content flattened, falling back to the DOM's `NodeType::Text`.
+    /// `None` when the node has neither.
+    #[must_use]
+    pub fn text_for_node(&self, node_id: NodeId) -> Option<String> {
+        if let Some(overlay) = self.overlay {
+            if let Some(dirty) = overlay.text_for_node(self.dom_id, node_id) {
+                return Some(flatten_inline_content(&dirty.content));
+            }
+        }
+        let node_data = self.styled_dom.node_data.as_container();
+        match node_data.get(node_id)?.get_node_type() {
+            NodeType::Text(s) => Some(s.as_str().to_string()),
             _ => None,
         }
     }
@@ -415,6 +559,58 @@ mod tests {
             dom_id: dom0(),
         };
         assert!(resolved.image_for_paint(node).is_none());
+    }
+
+    #[test]
+    fn text_gc_drops_converged_entries_and_keeps_diverged_ones() {
+        use crate::text3::cache::{InlineContent, StyledRun};
+        use std::sync::Arc;
+
+        fn dirty(text: &str) -> DirtyTextNode {
+            DirtyTextNode {
+                content: vec![InlineContent::Text(StyledRun {
+                    text: text.to_string(),
+                    style: Arc::new(Default::default()),
+                    logical_start_byte: 0,
+                    source_node_id: None,
+                })],
+                cursor: None,
+                needs_ancestor_relayout: false,
+            }
+        }
+
+        // DOM: div > [text "committed"]
+        let mut dom = azul_core::dom::Dom::create_div();
+        dom.add_child(azul_core::dom::Dom::create_text("committed"));
+        let styled = StyledDom::create_from_dom(dom);
+        let text_node = NodeId::new(1);
+
+        let mut overlay = ContentOverlay::default();
+        // Entry keyed on the TEXT node whose edit the app has committed:
+        overlay.set_text(dom0(), text_node, dirty("committed"));
+        overlay.gc_converged_text(dom0(), &styled);
+        assert!(
+            overlay.text_for_node(dom0(), text_node).is_none(),
+            "app committed the edit → overlay entry retires (the commit loop closes)"
+        );
+
+        // Entry the app has NOT committed stays authoritative:
+        overlay.set_text(dom0(), text_node, dirty("still-editing"));
+        overlay.gc_converged_text(dom0(), &styled);
+        assert!(
+            overlay.text_for_node(dom0(), text_node).is_some(),
+            "un-committed edit must survive the generation swap"
+        );
+
+        // Entry keyed on the HOST (div): compares against concatenated direct
+        // text children.
+        overlay.clear_dom(dom0());
+        overlay.set_text(dom0(), NodeId::new(0), dirty("committed"));
+        overlay.gc_converged_text(dom0(), &styled);
+        assert!(
+            overlay.text_for_node(dom0(), NodeId::new(0)).is_none(),
+            "host-keyed entry converges against its direct text children"
+        );
     }
 
     #[test]
