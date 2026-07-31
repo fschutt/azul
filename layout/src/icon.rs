@@ -340,7 +340,18 @@ pub fn register_icons_from_zip(provider: &mut IconProviderHandle, pack_name: &st
 
 #[cfg(not(feature = "zip"))]
 pub fn register_icons_from_zip(_provider: &mut IconProviderHandle, _pack_name: &str, _zip_bytes: &[u8]) {
-    // ZIP support not enabled
+    // ZIP support not enabled — the caller explicitly handed us an icon pack
+    // and NOTHING got registered; every later lookup will just miss. Say so
+    // once (this gate is hit by DEFAULT builds: `zip` is not a default
+    // feature of azul-layout).
+    static ANNOUNCE: std::sync::Once = std::sync::Once::new();
+    ANNOUNCE.call_once(|| {
+        eprintln!(
+            "[azul][icons] register_icons_from_zip called, but this build has no \
+             `zip` feature — NO icons were registered from the pack. Rebuild \
+             azul-layout with the `zip` (+ `image_decoding`) features"
+        );
+    });
 }
 
 /// Register a font icon in a pack
@@ -400,6 +411,15 @@ fn load_images_from_zip(zip_bytes: &[u8]) -> Vec<(String, ImageRef, f32, f32)> {
 
 #[cfg(not(all(feature = "zip", feature = "image_decoding")))]
 fn load_images_from_zip(_zip_bytes: &[u8]) -> Vec<(String, ImageRef, f32, f32)> {
+    // Only reachable when `zip` is on but `image_decoding` is off (the
+    // zip-off case never calls this) — same silent-empty trap, so say so.
+    static ANNOUNCE: std::sync::Once = std::sync::Once::new();
+    ANNOUNCE.call_once(|| {
+        eprintln!(
+            "[azul][icons] icon ZIP was readable but this build has no \
+             `image_decoding` feature — 0 images decoded, NO icons registered"
+        );
+    });
     Vec::new()
 }
 
@@ -433,7 +453,15 @@ pub fn register_material_icons(provider: &mut IconProviderHandle, font: &FontRef
 
 #[cfg(not(feature = "icons"))]
 pub fn register_material_icons(_provider: &mut IconProviderHandle, _font: FontRef) {
-    // Icons feature not enabled
+    // Icons feature not enabled — the caller asked for 2234 Material Icons
+    // and got zero, silently. Say so once.
+    static ANNOUNCE: std::sync::Once = std::sync::Once::new();
+    ANNOUNCE.call_once(|| {
+        eprintln!(
+            "[azul][icons] register_material_icons called, but this build has no \
+             `icons` feature — NO Material Icons were registered"
+        );
+    });
 }
 
 /// Load the embedded Material Icons font and register all standard icons.
@@ -474,7 +502,16 @@ pub fn register_embedded_material_icons(
     _provider: &mut IconProviderHandle,
     _font_bytes: &[u8],
 ) -> bool {
-    // Icons or text_layout feature not enabled
+    // Icons or text_layout feature not enabled. Returning false is a weak
+    // signal callers routinely ignore — name the gate once.
+    static ANNOUNCE: std::sync::Once = std::sync::Once::new();
+    ANNOUNCE.call_once(|| {
+        eprintln!(
+            "[azul][icons] register_embedded_material_icons called, but this build \
+             lacks the `icons` and/or `text_layout` feature — NO icons registered \
+             (returning false)"
+        );
+    });
     false
 }
 
