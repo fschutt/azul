@@ -468,6 +468,13 @@ pub struct WaylandPopup {
 
     /// wl_shm handle (borrowed from the parent) for lazily creating the CPU buffer.
     shm: *mut defines::wl_shm,
+
+    /// Snapshot of the parent window's `ImageCache` id map, taken at popup
+    /// creation. The popup builds its own `LayoutWindow` lazily; without this
+    /// seed, `url("...")` / css-id images in popup menus resolve to nothing
+    /// (the popup's cache starts empty and nothing ever fills it).
+    parent_image_id_map:
+        std::collections::BTreeMap<azul_css::AzString, azul_core::resources::ImageRef>,
     /// wp_viewporter (borrowed from the parent) + the parent's preferred
     /// fractional scale ×120. When both are present the popup buffer is
     /// allocated at the exact physical size and mapped to logical via a
@@ -6131,6 +6138,12 @@ impl WaylandPopup {
             app_data: parent.common.app_data.clone(),
 
             shm: parent.shm,
+            parent_image_id_map: parent
+                .common
+                .layout_window
+                .as_ref()
+                .map(|lw| lw.image_cache.image_id_map.clone())
+                .unwrap_or_default(),
             viewporter: parent.viewporter,
             preferred_scale_120: parent.preferred_scale_120,
             viewport: None,
@@ -6380,6 +6393,11 @@ impl WaylandPopup {
             match LayoutWindow::new((*self.fc_cache).clone()) {
                 Ok(mut lw) => {
                     lw.routes = self.resources.config.routes.clone();
+                    // Seed with the parent window's image map so css-id /
+                    // url("...") images inside menu items actually resolve.
+                    lw.image_cache = azul_core::resources::ImageCache {
+                        image_id_map: self.parent_image_id_map.clone(),
+                    };
                     self.layout_window = Some(lw);
                 }
                 Err(e) => {
