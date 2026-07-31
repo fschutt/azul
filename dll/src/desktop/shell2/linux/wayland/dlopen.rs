@@ -309,10 +309,22 @@ impl Wayland {
                 .unwrap_or(std::ptr::null())
         };
 
-        let lib_cursor = load_first_available::<Library>(&[
+        let lib_cursor = match load_first_available::<Library>(&[
             "libwayland-cursor.so.0",
             "libwayland-cursor.so",
-        ]).ok();
+        ]) {
+            Ok(l) => Some(l),
+            Err(e) => {
+                // Without this line the ONLY symptom is that the mouse cursor
+                // silently stops changing shape (set_cursor bails on the None).
+                crate::plog_warn!(
+                    "[Wayland] libwayland-cursor could not be loaded ({}) — cursor \
+                     shapes will NOT change (arrow/text/resize cursors disabled)",
+                    e
+                );
+                None
+            }
+        };
 
         let wl = Rc::new(Self {
             wl_display_connect: load_symbol!(lib_client, _, "wl_display_connect"),

@@ -426,7 +426,16 @@ fn init_xinput2(
         }
         let xi = match dlopen::Xi::new() {
             Ok(x) => x,
-            Err(_) => return (None, 0, HashMap::new()),
+            Err(e) => {
+                // Only symptom otherwise: touchscreens and pens just don't
+                // work (mouse still does, via core events).
+                crate::plog_warn!(
+                    "[X11] libXi could not be loaded ({:?}) — XInput2 disabled, \
+                     touch/pen input will NOT work in this window",
+                    e
+                );
+                return (None, 0, HashMap::new());
+            }
         };
         let (mut maj, mut min) = (2i32, 2i32);
         (xi.XIQueryVersion)(display, &mut maj, &mut min);
@@ -1421,7 +1430,19 @@ impl X11Window {
 
         // Try to load XRender for ARGB visual detection (optional)
         // See: https://stackoverflow.com/a/9215724 (inspired by datenwolf/FTB)
-        let xrender = dlopen::Xrender::new().ok();
+        let xrender = match dlopen::Xrender::new() {
+            Ok(x) => Some(x),
+            Err(e) => {
+                // Only symptom otherwise: transparent windows silently render
+                // opaque (ARGB visual detection short-circuits on the None).
+                crate::plog_warn!(
+                    "[X11] libXrender could not be loaded ({:?}) — ARGB visual \
+                     detection disabled, transparent windows will render opaque",
+                    e
+                );
+                None
+            }
+        };
 
         let mut attributes: XSetWindowAttributes = unsafe { std::mem::zeroed() };
         let event_mask = ExposureMask
