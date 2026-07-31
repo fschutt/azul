@@ -44,14 +44,46 @@ use azul_core::{
 use crate::window::DomLayoutResult;
 use std::collections::BTreeMap;
 
-/// Determine the default action for a keyboard event based on the
-/// current key, focused element, and whether `prevent_default()` was called.
-#[allow(clippy::too_many_lines)] // large but cohesive: single-purpose layout/render/parse routine (one branch per case)
+/// Editing state of the focused node, as the caret sees it — built by the
+/// caller (`LayoutWindow::build_editing_query_state`) because the decision
+/// function itself deliberately cannot see cursors.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct EditingQueryState {
+    /// The focused node is inside a `contenteditable` host.
+    pub is_contenteditable: bool,
+    /// The caret sits at the very start of the block's text.
+    pub cursor_at_block_start: bool,
+    /// The caret sits at the very end of the block's text.
+    pub cursor_at_block_end: bool,
+}
+
 #[must_use] pub fn determine_keyboard_default_action(
     keyboard_state: &KeyboardState,
     focused_node: Option<DomNodeId>,
     layout_results: &BTreeMap<DomId, DomLayoutResult>,
     prevented: bool,
+) -> DefaultActionResult {
+    determine_keyboard_default_action_with_editing(
+        keyboard_state,
+        focused_node,
+        layout_results,
+        prevented,
+        None,
+    )
+}
+
+/// [`determine_keyboard_default_action`] with contenteditable awareness:
+/// Enter on a contenteditable focus records a structural SPLIT (Shift+Enter
+/// stays a soft line break through the text path); Backspace at block start /
+/// Delete at block end record structural MERGES. `editing: None` behaves
+/// exactly like the editing-blind variant.
+#[allow(clippy::too_many_lines)] // large but cohesive: single-purpose layout/render/parse routine (one branch per case)
+#[must_use] pub fn determine_keyboard_default_action_with_editing(
+    keyboard_state: &KeyboardState,
+    focused_node: Option<DomNodeId>,
+    layout_results: &BTreeMap<DomId, DomLayoutResult>,
+    prevented: bool,
+    editing: Option<&EditingQueryState>,
 ) -> DefaultActionResult {
     // If prevented, return early with no action
     if prevented {
@@ -84,7 +116,15 @@ use std::collections::BTreeMap;
 
         // Activation (Enter key)
         VirtualKeyCode::Return | VirtualKeyCode::NumpadEnter => {
-            focused_node.as_ref().map_or(DefaultAction::None, |focus| if is_element_activatable(focus, layout_results) {
+            focused_node.as_ref().map_or(DefaultAction::None, |focus| {
+                // Enter in a contenteditable host records a structural block
+                // SPLIT for the app to apply — the browser default. Shift+Enter
+                // deliberately falls through (a soft `InlineContent::LineBreak`
+                // via the existing per-IFC text path).
+                if !shift_down && editing.is_some_and(|e| e.is_contenteditable) {
+                    return DefaultAction::SplitBlockAtCursor { target: *focus };
+                }
+                if is_element_activatable(focus, layout_results) {
                     DefaultAction::ActivateFocusedElement {
                         target: *focus,
                     }
@@ -92,7 +132,30 @@ use std::collections::BTreeMap;
                     // Enter on non-activatable element - might submit form
                     // For now, no action (form handling could be added later)
                     DefaultAction::None
-                })
+                }
+            })
+        }
+
+        // Backspace at BLOCK START / Delete at BLOCK END in a contenteditable
+        // host: structural block merges. Anywhere else these keys keep flowing
+        // through the per-IFC text-edit path unchanged (this fn returns None).
+        VirtualKeyCode::Back => {
+            match (focused_node.as_ref(), editing) {
+                (Some(focus), Some(e))
+                    if e.is_contenteditable && e.cursor_at_block_start =>
+                {
+                    DefaultAction::MergeWithPrevious { target: *focus }
+                }
+                _ => DefaultAction::None,
+            }
+        }
+        VirtualKeyCode::Delete => {
+            match (focused_node.as_ref(), editing) {
+                (Some(focus), Some(e)) if e.is_contenteditable && e.cursor_at_block_end => {
+                    DefaultAction::MergeWithNext { target: *focus }
+                }
+                _ => DefaultAction::None,
+            }
         }
 
         // Activation (Space key) — or page-scroll when nothing activatable
@@ -333,6 +396,104 @@ mod tests {
 #[cfg(test)]
 #[allow(clippy::field_reassign_with_default)] // KeyboardState is built incrementally in the helpers
 mod autotest_generated {
+    // ==================================================================
+    // Structural-edit arms (A2): Enter splits, Backspace/Delete merge —
+    // ONLY with contenteditable editing state; the editing-blind wrapper
+    // must behave exactly as before.
+    // ==================================================================
+
+    #[test]
+    fn enter_on_contenteditable_records_a_split_not_activation() {
+        let layouts = std::collections::BTreeMap::new();
+        let focus = Some(dom_node(3));
+        let editing = super::EditingQueryState {
+            is_contenteditable: true,
+            cursor_at_block_start: false,
+            cursor_at_block_end: false,
+        };
+
+        let with = super::determine_keyboard_default_action_with_editing(
+            &kbd(VirtualKeyCode::Return, &[]),
+            focus,
+            &layouts,
+            false,
+            Some(&editing),
+        );
+        assert!(matches!(
+            with.action,
+            DefaultAction::SplitBlockAtCursor { .. }
+        ));
+
+        // Shift+Enter: soft break — NOT structural.
+        let shift = super::determine_keyboard_default_action_with_editing(
+            &kbd(VirtualKeyCode::Return, &[VirtualKeyCode::LShift]),
+            focus,
+            &layouts,
+            false,
+            Some(&editing),
+        );
+        assert!(!matches!(
+            shift.action,
+            DefaultAction::SplitBlockAtCursor { .. }
+        ));
+
+        // Editing-blind: the old behavior, byte for byte.
+        let without = super::determine_keyboard_default_action(
+            &kbd(VirtualKeyCode::Return, &[]),
+            focus,
+            &layouts,
+            false,
+        );
+        assert!(!matches!(
+            without.action,
+            DefaultAction::SplitBlockAtCursor { .. }
+        ));
+    }
+
+    #[test]
+    fn backspace_and_delete_merge_only_at_block_boundaries() {
+        let layouts = std::collections::BTreeMap::new();
+        let focus = Some(dom_node(3));
+
+        let at_start = super::EditingQueryState {
+            is_contenteditable: true,
+            cursor_at_block_start: true,
+            cursor_at_block_end: false,
+        };
+        let mid = super::EditingQueryState {
+            is_contenteditable: true,
+            cursor_at_block_start: false,
+            cursor_at_block_end: false,
+        };
+        let at_end = super::EditingQueryState {
+            is_contenteditable: true,
+            cursor_at_block_start: false,
+            cursor_at_block_end: true,
+        };
+
+        let r = |key, e: &super::EditingQueryState| {
+            super::determine_keyboard_default_action_with_editing(
+                &kbd(key, &[]),
+                focus,
+                &layouts,
+                false,
+                Some(e),
+            )
+            .action
+        };
+
+        assert!(matches!(
+            r(VirtualKeyCode::Back, &at_start),
+            DefaultAction::MergeWithPrevious { .. }
+        ));
+        assert!(matches!(r(VirtualKeyCode::Back, &mid), DefaultAction::None));
+        assert!(matches!(
+            r(VirtualKeyCode::Delete, &at_end),
+            DefaultAction::MergeWithNext { .. }
+        ));
+        assert!(matches!(r(VirtualKeyCode::Delete, &mid), DefaultAction::None));
+    }
+
     use std::collections::HashMap;
 
     use azul_core::{

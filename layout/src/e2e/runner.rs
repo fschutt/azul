@@ -1388,6 +1388,15 @@ impl Runner {
                 ProcessEventResult::ShouldIncrementalRelayout
             }
 
+            CallbackChange::RecordDocumentEdit { changeset } => {
+                self.layout_window.record_document_edit(changeset.clone());
+                ProcessEventResult::DoNothing
+            }
+            CallbackChange::MarkDocumentEditApplied { id } => {
+                let _ = self.layout_window.mark_document_edit_applied(*id);
+                ProcessEventResult::DoNothing
+            }
+
             CallbackChange::ChangeNodeImage { dom_id, node_id, image, update_type: _ } => {
                 // The content chokepoint: overlay write + journal + in-place DL
                 // patch (paint tier) or incremental-cache reset (relayout
@@ -2531,17 +2540,19 @@ impl Runner {
     fn run_keyboard_default_action(&mut self) -> (ProcessEventResult, bool) {
         use azul_core::events::DefaultAction;
         use azul_layout::default_actions::{
-            default_action_to_focus_target, determine_keyboard_default_action,
+            default_action_to_focus_target, determine_keyboard_default_action_with_editing,
         };
         use azul_layout::managers::focus_cursor::resolve_focus_target;
 
         let ks = self.window_state.keyboard_state.clone();
         let focused = self.layout_window.focus_manager.get_focused_node().copied();
-        let action = determine_keyboard_default_action(
+        let editing_state = self.layout_window.build_editing_query_state(focused);
+        let action = determine_keyboard_default_action_with_editing(
             &ks,
             focused,
             &self.layout_window.layout_results,
             false,
+            editing_state.as_ref(),
         );
         if !action.has_action() {
             return (ProcessEventResult::DoNothing, false);
@@ -2570,6 +2581,15 @@ impl Runner {
                     return (ProcessEventResult::DoNothing, false);
                 }
                 (self.set_focus(None, focused), true)
+            }
+            DefaultAction::SplitBlockAtCursor { .. }
+            | DefaultAction::MergeWithPrevious { .. }
+            | DefaultAction::MergeWithNext { .. } => {
+                // Same one-liner as the DLL shells: structural edits record.
+                let _ = self
+                    .layout_window
+                    .record_structural_default_action(&action.action);
+                (ProcessEventResult::DoNothing, false)
             }
             _ => (ProcessEventResult::DoNothing, false),
         }

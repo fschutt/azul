@@ -28,7 +28,7 @@ use azul_core::{
     task::Instant,
     window::CursorPosition,
 };
-use azul_css::AzString;
+use azul_css::{impl_option, impl_option_inner, AzString};
 
 use crate::managers::selection::ClipboardContent;
 
@@ -174,6 +174,177 @@ pub enum TextOperation {
 
 /// Re-export from events module
 pub use azul_core::events::SelectionDirection;
+
+// ============================================================================
+// Structural document changesets (`DocumentOperation`)
+// ============================================================================
+//
+// Azul NEVER applies these to `StyledDom` — the DOM is immutable. Azul
+// records intent (Enter → SplitBlock, Backspace-at-start → MergeBlocks, a
+// bold-toolbar → WrapRange) and delivers it; the APP applies it to its own
+// document model and regenerates, or uses the provided helper
+// (`crate::document_edit::apply_document_operation`) on its XML tree. The
+// existing remap machinery (`NodeIdRemap` + `calculate_contenteditable_key`)
+// preserves caret/selection/undo across the resulting generation swap.
+
+use azul_core::selection::{TextCursor, TextSelection};
+use azul_css::corety::U32Vec;
+use azul_core::window::StringPairVec;
+
+/// Split a block element at the caret (Enter in a contenteditable).
+#[derive(Debug, Clone)]
+#[repr(C)]
+pub struct DocOpSplitBlock {
+    /// The block being split.
+    pub block: DomNodeId,
+    /// Caret position the split happens at.
+    pub at: TextCursor,
+}
+
+/// Merge two adjacent blocks (Backspace at block start / Delete at block end).
+#[derive(Debug, Clone)]
+#[repr(C)]
+pub struct DocOpMergeBlocks {
+    /// The surviving first block.
+    pub first: DomNodeId,
+    /// The second block, whose inline content is appended to `first`.
+    pub second: DomNodeId,
+    /// Where the caret lands after the join (end of `first`'s old content).
+    pub join_cursor: TextCursor,
+}
+
+/// Wrap a text range in an inline element (bold / italic / link toolbar).
+#[derive(Debug, Clone)]
+#[repr(C)]
+pub struct DocOpWrapRange {
+    pub range: TextSelection,
+    /// The wrapping element (e.g. `Strong`, `Em`, `A`).
+    pub element: azul_css::css::NodeTypeTag,
+    /// Attributes for the wrapper (e.g. `href` for a link).
+    pub attributes: StringPairVec,
+}
+
+/// Remove a wrapping inline element from a range (the inverse of wrap).
+#[derive(Debug, Clone)]
+#[repr(C)]
+pub struct DocOpUnwrapRange {
+    pub range: TextSelection,
+    pub element: azul_css::css::NodeTypeTag,
+}
+
+/// Insert a block parsed from an XML fragment (paste-as-blocks, new `<p>`).
+#[derive(Debug, Clone)]
+#[repr(C)]
+pub struct DocOpInsertBlock {
+    /// Parent the new block is inserted under.
+    pub parent: DomNodeId,
+    /// Child index within `parent` (clamped by the applier).
+    pub index: u32,
+    /// The content, as an XML fragment (keeps the FFI surface small and
+    /// reuses the XML parser on the applying side).
+    pub xml_fragment: AzString,
+}
+
+/// Delete a whole block element.
+#[derive(Debug, Clone)]
+#[repr(C)]
+pub struct DocOpDeleteBlock {
+    pub block: DomNodeId,
+}
+
+/// Replace a (possibly multi-block) range with an XML fragment
+/// (multi-block paste / delete-selection-spanning-blocks).
+#[derive(Debug, Clone)]
+#[repr(C)]
+pub struct DocOpReplaceRange {
+    pub range: TextSelection,
+    pub xml_fragment: AzString,
+}
+
+/// A structural document edit — the vocabulary `TextOperation` lacks
+/// (everything here crosses or creates block boundaries).
+#[derive(Debug, Clone)]
+#[repr(C, u8)]
+pub enum DocumentOperation {
+    SplitBlock(DocOpSplitBlock),
+    MergeBlocks(DocOpMergeBlocks),
+    WrapRange(DocOpWrapRange),
+    UnwrapRange(DocOpUnwrapRange),
+    InsertBlock(DocOpInsertBlock),
+    DeleteBlock(DocOpDeleteBlock),
+    ReplaceRange(DocOpReplaceRange),
+}
+
+/// Where the caret should land after the app re-renders, expressed
+/// RE-RENDER-STABLY: `NodeId`s in the changeset refer to the current
+/// generation and die at the swap, so the resume point is defined against the
+/// POST-edit logical structure instead.
+#[derive(Debug, Clone)]
+#[repr(C)]
+pub struct EditResumePoint {
+    /// `calculate_contenteditable_key` of the editing host — the stable
+    /// anchor that survives regeneration.
+    pub contenteditable_key: u64,
+    /// Child-index path from the host to the target block, in the POST-edit
+    /// tree (e.g. after a split: the path to the NEW second block).
+    pub block_path: U32Vec,
+    /// Byte offset within that block's text.
+    pub text_offset: u32,
+}
+
+/// A recorded structural edit: intent + resume point + identity for the
+/// commit handshake (`LayoutWindow::mark_document_edit_applied`).
+#[derive(Debug, Clone)]
+#[repr(C)]
+pub struct DocumentChangeset {
+    /// Monotonic id — the commit-handshake token.
+    pub id: u64,
+    /// Primary affected node (the event target), CURRENT generation.
+    pub target: DomNodeId,
+    pub operation: DocumentOperation,
+    pub resume: EditResumePoint,
+    pub timestamp: Instant,
+}
+
+impl DocumentChangeset {
+    /// Create a changeset with a fresh monotonic id.
+    pub fn new(
+        target: DomNodeId,
+        operation: DocumentOperation,
+        resume: EditResumePoint,
+        timestamp: Instant,
+    ) -> Self {
+        use std::sync::atomic::{AtomicU64, Ordering};
+        static DOCUMENT_CHANGESET_ID: AtomicU64 = AtomicU64::new(1);
+        Self {
+            id: DOCUMENT_CHANGESET_ID.fetch_add(1, Ordering::Relaxed),
+            target,
+            operation,
+            resume,
+            timestamp,
+        }
+    }
+
+    /// Whether this operation restructures blocks (vs inline-only wrap).
+    #[must_use]
+    pub const fn changes_block_structure(&self) -> bool {
+        matches!(
+            self.operation,
+            DocumentOperation::SplitBlock(_)
+                | DocumentOperation::MergeBlocks(_)
+                | DocumentOperation::InsertBlock(_)
+                | DocumentOperation::DeleteBlock(_)
+                | DocumentOperation::ReplaceRange(_)
+        )
+    }
+}
+
+impl_option!(
+    DocumentChangeset,
+    OptionDocumentChangeset,
+    copy = false,
+    [Debug, Clone]
+);
 
 /// Type of cursor movement
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

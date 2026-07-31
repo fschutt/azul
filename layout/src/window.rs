@@ -839,6 +839,13 @@ pub struct LayoutWindow {
     currently_dragging_thumb: Option<ScrollbarDragState>,
     /// Text input manager - centralizes all text editing logic
     pub text_input_manager: crate::managers::text_input::TextInputManager,
+    /// The pending STRUCTURAL edit (Enter split / Backspace merge / wrap…),
+    /// recorded by the default-action layer and delivered to the app, which
+    /// applies it to ITS model and regenerates. Azul never applies it to the
+    /// `StyledDom`. Cleared by [`Self::mark_document_edit_applied`] (the
+    /// commit handshake) or dropped-with-warning at the next re-render if the
+    /// app rejected it.
+    pub pending_document_edit: Option<crate::managers::changeset::DocumentChangeset>,
     /// Undo/Redo manager for text editing operations
     pub undo_redo_manager: crate::managers::undo_redo::UndoRedoManager,
     /// Cached text layout constraints for each node
@@ -1026,6 +1033,7 @@ impl LayoutWindow {
             gl_texture_cache: GlTextureCache::default(),
             currently_dragging_thumb: None,
             text_input_manager: crate::managers::text_input::TextInputManager::new(),
+            pending_document_edit: None,
             undo_redo_manager: crate::managers::undo_redo::UndoRedoManager::new(),
             text_constraints_cache: TextConstraintsCache {
                 constraints: BTreeMap::new(),
@@ -1211,6 +1219,270 @@ impl LayoutWindow {
         }
 
         result
+    }
+
+    /// Record a structural document edit (the RECORD phase — nothing is
+    /// mutated). Replaces any previously-pending un-acked edit. Returns its
+    /// commit-handshake id.
+    pub fn record_document_edit(
+        &mut self,
+        changeset: crate::managers::changeset::DocumentChangeset,
+    ) -> u64 {
+        let id = changeset.id;
+        if let Some(stale) = self.pending_document_edit.replace(changeset) {
+            #[cfg(debug_assertions)]
+            eprintln!(
+                "[azul][document-edit] replacing un-acked structural edit #{} — the app \
+                 neither applied nor rejected it before the next was recorded",
+                stale.id
+            );
+            #[cfg(not(debug_assertions))]
+            let _ = stale;
+        }
+        id
+    }
+
+    /// The pending structural edit, if any (the app's callback inspects it).
+    #[must_use]
+    pub fn get_pending_document_edit(
+        &self,
+    ) -> Option<&crate::managers::changeset::DocumentChangeset> {
+        self.pending_document_edit.as_ref()
+    }
+
+    /// Editing state of the focused node for the default-action decision
+    /// (`determine_keyboard_default_action_with_editing`). `None` when the
+    /// focus is not inside a contenteditable host.
+    #[must_use]
+    pub fn build_editing_query_state(
+        &self,
+        focused_node: Option<DomNodeId>,
+    ) -> Option<crate::default_actions::EditingQueryState> {
+        let focus = focused_node?;
+        let node_id = focus.node.into_crate_internal()?;
+        if self.find_contenteditable_host(focus.dom, node_id).is_none() {
+            return None;
+        }
+
+        // Caret at block start / end, judged against the CURRENT effective
+        // content (overlay-first via get_text_before_textinput). Conservative
+        // on multi-run content: a caret we cannot prove at the boundary keeps
+        // Backspace/Delete on the plain per-IFC text path — safe fallback.
+        let (at_start, at_end) = match self.text_edit_manager.get_primary_cursor() {
+            Some(cursor) => {
+                let content = self.get_text_before_textinput(focus.dom, node_id);
+                let at_start = cursor.cluster_id.source_run == 0
+                    && cursor.cluster_id.start_byte_in_run == 0;
+                let last_text = content.iter().enumerate().rev().find_map(|(i, c)| {
+                    if let crate::text3::cache::InlineContent::Text(run) = c {
+                        Some((i as u32, run.text.len() as u32))
+                    } else {
+                        None
+                    }
+                });
+                let at_end = match last_text {
+                    Some((last_run, last_len)) => {
+                        cursor.cluster_id.source_run >= last_run
+                            && cursor.cluster_id.start_byte_in_run >= last_len
+                    }
+                    // No text at all: the caret is at both boundaries.
+                    None => true,
+                };
+                (at_start && last_text.is_some() || at_start && last_text.is_none(), at_end)
+            }
+            None => (false, false),
+        };
+
+        Some(crate::default_actions::EditingQueryState {
+            is_contenteditable: true,
+            cursor_at_block_start: at_start,
+            cursor_at_block_end: at_end,
+        })
+    }
+
+    /// The nearest self-or-ancestor node with `contenteditable` (the editing
+    /// host), if any.
+    #[must_use]
+    pub fn find_contenteditable_host(&self, dom_id: DomId, node_id: NodeId) -> Option<NodeId> {
+        let lr = self.layout_results.get(&dom_id)?;
+        let node_data = lr.styled_dom.node_data.as_container();
+        let hierarchy = lr.styled_dom.node_hierarchy.as_container();
+        let mut current = Some(node_id);
+        while let Some(nid) = current {
+            if node_data.get(nid).is_some_and(azul_core::dom::NodeData::is_contenteditable) {
+                return Some(nid);
+            }
+            current = hierarchy.get(nid).and_then(|n| n.parent_id());
+        }
+        None
+    }
+
+    /// EXECUTE a structural default action — which, for structural edits,
+    /// means RECORD, never mutate: builds the `DocumentChangeset` (with its
+    /// re-render-stable resume point) and stores it for the app. The one
+    /// implementation both the shells and the e2e runner call, so the record
+    /// semantics cannot drift per host. Returns the changeset id, or `None`
+    /// if the action wasn't structural / preconditions failed.
+    pub fn record_structural_default_action(
+        &mut self,
+        action: &azul_core::events::DefaultAction,
+    ) -> Option<u64> {
+        use crate::managers::changeset::{
+            DocOpMergeBlocks, DocOpSplitBlock, DocumentChangeset, DocumentOperation,
+        };
+        use azul_core::events::DefaultAction;
+
+        let (target, operation) = match action {
+            DefaultAction::SplitBlockAtCursor { target } => {
+                let cursor = self.text_edit_manager.get_primary_cursor()?;
+                (
+                    *target,
+                    DocumentOperation::SplitBlock(DocOpSplitBlock {
+                        block: *target,
+                        at: cursor,
+                    }),
+                )
+            }
+            DefaultAction::MergeWithPrevious { target } => {
+                let node_id = target.node.into_crate_internal()?;
+                let prev = self.block_sibling(target.dom, node_id, false)?;
+                let cursor = self.text_edit_manager.get_primary_cursor()?;
+                (
+                    *target,
+                    DocumentOperation::MergeBlocks(DocOpMergeBlocks {
+                        first: DomNodeId {
+                            dom: target.dom,
+                            node: NodeHierarchyItemId::from_crate_internal(Some(prev)),
+                        },
+                        second: *target,
+                        join_cursor: cursor,
+                    }),
+                )
+            }
+            DefaultAction::MergeWithNext { target } => {
+                let node_id = target.node.into_crate_internal()?;
+                let next = self.block_sibling(target.dom, node_id, true)?;
+                let cursor = self.text_edit_manager.get_primary_cursor()?;
+                (
+                    *target,
+                    DocumentOperation::MergeBlocks(DocOpMergeBlocks {
+                        first: *target,
+                        second: DomNodeId {
+                            dom: target.dom,
+                            node: NodeHierarchyItemId::from_crate_internal(Some(next)),
+                        },
+                        join_cursor: cursor,
+                    }),
+                )
+            }
+            _ => return None,
+        };
+
+        let resume = self.compute_edit_resume_point(target, &operation)?;
+        let changeset = DocumentChangeset::new(
+            target,
+            operation,
+            resume,
+            azul_core::task::Instant::now(),
+        );
+        Some(self.record_document_edit(changeset))
+    }
+
+    /// The previous/next SIBLING of a node (v1 block-adjacency; skips nothing).
+    fn block_sibling(&self, dom_id: DomId, node_id: NodeId, next: bool) -> Option<NodeId> {
+        let lr = self.layout_results.get(&dom_id)?;
+        let hierarchy = lr.styled_dom.node_hierarchy.as_container();
+        let item = hierarchy.get(node_id)?;
+        if next {
+            item.next_sibling_id()
+        } else {
+            item.previous_sibling_id()
+        }
+    }
+
+    /// Compute the re-render-stable caret resume point for a structural edit:
+    /// host identity via `calculate_contenteditable_key`, block path in the
+    /// POST-edit tree, byte offset within that block.
+    fn compute_edit_resume_point(
+        &self,
+        target: DomNodeId,
+        operation: &crate::managers::changeset::DocumentOperation,
+    ) -> Option<crate::managers::changeset::EditResumePoint> {
+        use crate::managers::changeset::{DocumentOperation, EditResumePoint};
+
+        let node_id = target.node.into_crate_internal()?;
+        let host = self.find_contenteditable_host(target.dom, node_id)?;
+        let lr = self.layout_results.get(&target.dom)?;
+        let node_data = lr.styled_dom.node_data.as_ref();
+        let hierarchy = lr.styled_dom.node_hierarchy.as_ref();
+        let key = azul_core::diff::calculate_contenteditable_key(node_data, hierarchy, host);
+
+        // Child-index of `target`'s topmost-below-host ancestor within host.
+        let hierarchy_c = lr.styled_dom.node_hierarchy.as_container();
+        let mut below_host = node_id;
+        while let Some(parent) = hierarchy_c.get(below_host).and_then(|n| n.parent_id()) {
+            if parent == host {
+                break;
+            }
+            below_host = parent;
+        }
+        let mut index_in_host: u32 = 0;
+        let mut sib = hierarchy_c.get(below_host).and_then(|n| n.previous_sibling_id());
+        while let Some(s) = sib {
+            index_in_host += 1;
+            sib = hierarchy_c.get(s).and_then(|n| n.previous_sibling_id());
+        }
+
+        let (block_index, text_offset) = match operation {
+            // After a split the caret lands at offset 0 of the NEW second
+            // block — one index past the split block.
+            DocumentOperation::SplitBlock(_) => (index_in_host + 1, 0),
+            // After a merge the caret lands at the join point of the
+            // surviving block: the byte length of its pre-merge text.
+            DocumentOperation::MergeBlocks(m) => {
+                let first_node = m.first.node.into_crate_internal()?;
+                let first_index = if first_node == below_host {
+                    index_in_host
+                } else {
+                    index_in_host.saturating_sub(1)
+                };
+                let join = self
+                    .content_overlay
+                    .text_for_node(target.dom, first_node)
+                    .map(|d| crate::overlay::flatten_inline_content(&d.content).len())
+                    .or_else(|| {
+                        lr.styled_dom
+                            .node_data
+                            .as_container()
+                            .get(first_node)
+                            .and_then(|n| match n.get_node_type() {
+                                NodeType::Text(s) => Some(s.as_str().len()),
+                                _ => None,
+                            })
+                    })
+                    .unwrap_or(0);
+                (first_index, join as u32)
+            }
+            _ => (index_in_host, 0),
+        };
+
+        Some(EditResumePoint {
+            contenteditable_key: key,
+            block_path: vec![block_index].into(),
+            text_offset,
+        })
+    }
+
+    /// The commit handshake: the app (or the provided apply-helper) confirms
+    /// it applied structural edit `id` to its model. Clears the pending edit
+    /// and returns true iff the ids matched.
+    pub fn mark_document_edit_applied(&mut self, id: u64) -> bool {
+        if self.pending_document_edit.as_ref().is_some_and(|c| c.id == id) {
+            self.pending_document_edit = None;
+            true
+        } else {
+            false
+        }
     }
 
     /// The overlay-merged export reader (the "save/print sees what you see"
@@ -8605,7 +8877,23 @@ impl LayoutWindow {
             // here would corrupt them.
             pending_lifecycle_events: _,
             pending_unmount_invocations: _,
+            // Handled below with drop-on-rejection semantics (A5.2), not remapped:
+            // its NodeIds are advisory (the resume point is generation-stable),
+            // and a changeset still pending AT a reconcile means the app
+            // re-rendered without acking it — a rejected edit.
+            pending_document_edit,
         } = self;
+
+        if let Some(rejected) = pending_document_edit.take() {
+            #[cfg(debug_assertions)]
+            eprintln!(
+                "[azul][document-edit] structural edit #{} dropped: the app re-rendered \
+                 without mark_document_edit_applied — treating the edit as rejected",
+                rejected.id
+            );
+            #[cfg(not(debug_assertions))]
+            let _ = rejected;
+        }
 
         scroll_manager.remap_node_ids(dom, map);
         gesture_drag_manager.remap_node_ids(dom, map);

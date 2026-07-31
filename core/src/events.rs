@@ -1015,6 +1015,22 @@ pub enum DefaultAction {
     },
     /// Select all text in the focused text input (Ctrl+A / Cmd+A)
     SelectAllText,
+    /// Enter in a contenteditable host: record a STRUCTURAL split-block
+    /// changeset for the app to apply to its model (azul never mutates the
+    /// DOM). Execution = `LayoutWindow::record_structural_default_action`.
+    SplitBlockAtCursor {
+        target: DomNodeId,
+    },
+    /// Backspace at block start in a contenteditable host: record a
+    /// merge-with-previous-block changeset (same record-only semantics).
+    MergeWithPrevious {
+        target: DomNodeId,
+    },
+    /// Delete at block end in a contenteditable host: record a
+    /// merge-with-next-block changeset (same record-only semantics).
+    MergeWithNext {
+        target: DomNodeId,
+    },
     /// No default action for this event
     None,
 }

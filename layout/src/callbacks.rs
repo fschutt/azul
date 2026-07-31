@@ -236,6 +236,13 @@ pub enum CallbackChange {
         image: ImageRef,
         update_type: UpdateImageType,
     },
+    /// Record a STRUCTURAL document edit (Enter split / merge / wrap…) for
+    /// the app to apply to ITS model — azul never mutates the `StyledDom`.
+    RecordDocumentEdit {
+        changeset: crate::managers::changeset::DocumentChangeset,
+    },
+    /// The commit handshake: the app confirms it applied structural edit `id`.
+    MarkDocumentEditApplied { id: u64 },
     /// Re-render an image callback (for resize/animation)
     /// This triggers re-invocation of the `RenderImageCallback`
     UpdateImageCallback { dom_id: DomId, node_id: NodeId },
@@ -1488,6 +1495,36 @@ impl CallbackInfo {
             node_id,
             options,
         });
+    }
+
+    /// Record a structural document edit programmatically (the bold/italic
+    /// toolbar path — keyboard defaults record through the default-action
+    /// layer instead). Applied after the callback returns; azul never applies
+    /// it to the `StyledDom`.
+    pub fn record_document_edit(
+        &mut self,
+        changeset: crate::managers::changeset::DocumentChangeset,
+    ) {
+        self.push_change(CallbackChange::RecordDocumentEdit { changeset });
+    }
+
+    /// The commit handshake: confirm structural edit `id` was applied to the
+    /// app's model (usually called for you by
+    /// `document_edit::apply_document_operation` users).
+    pub fn mark_document_edit_applied(&mut self, id: u64) {
+        self.push_change(CallbackChange::MarkDocumentEditApplied { id });
+    }
+
+    /// The pending structural edit, if any (inspect in a callback before
+    /// deciding to apply or `prevent_default`).
+    #[must_use]
+    pub fn get_document_edit_clone(
+        &self,
+    ) -> crate::managers::changeset::OptionDocumentChangeset {
+        self.get_layout_window()
+            .get_pending_document_edit()
+            .cloned()
+            .into()
     }
 
     /// Add an image to the image cache (applied after callback returns)

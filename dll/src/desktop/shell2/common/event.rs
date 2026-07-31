@@ -2109,6 +2109,23 @@ pub trait PlatformWindow {
                 ProcessEventResult::ShouldIncrementalRelayout
             }
 
+            CallbackChange::RecordDocumentEdit { changeset } => {
+                // RECORD phase only — nothing is mutated; the app reads the
+                // changeset (get_document_edit_clone), applies it to its own
+                // model and regenerates.
+                if let Some(lw) = self.get_layout_window_mut() {
+                    lw.record_document_edit(changeset.clone());
+                }
+                ProcessEventResult::DoNothing
+            }
+
+            CallbackChange::MarkDocumentEditApplied { id } => {
+                if let Some(lw) = self.get_layout_window_mut() {
+                    let _ = lw.mark_document_edit_applied(*id);
+                }
+                ProcessEventResult::DoNothing
+            }
+
             CallbackChange::ChangeNodeImage { dom_id, node_id, image, update_type: _ } => {
                 // The ONE content chokepoint: overlay write + journal + in-place
                 // display-list patch (paint tier — the DL diff sees the ImageRef
@@ -5587,8 +5604,15 @@ pub trait PlatformWindow {
                 let layout_results = self.get_layout_window().map(|lw| &lw.layout_results);
 
                 if let Some(layout_results) = layout_results {
-                    let default_action_result = azul_layout::default_actions::determine_keyboard_default_action(
+                    // Contenteditable awareness: Enter/Backspace/Delete at
+                    // block boundaries become STRUCTURAL edit records instead
+                    // of activation / plain text ops.
+                    let editing_state = self
+                        .get_layout_window()
+                        .and_then(|lw| lw.build_editing_query_state(focused_node));
+                    let default_action_result = azul_layout::default_actions::determine_keyboard_default_action_with_editing(
                         keyboard_state, focused_node, layout_results, prevent_default,
+                        editing_state.as_ref(),
                     );
 
                     if default_action_result.has_action() {
@@ -5623,6 +5647,19 @@ pub trait PlatformWindow {
 
                             DefaultAction::ActivateFocusedElement { target } => {
                                 synthetic_click_target = Some(*target);
+                            }
+
+                            DefaultAction::SplitBlockAtCursor { .. }
+                            | DefaultAction::MergeWithPrevious { .. }
+                            | DefaultAction::MergeWithNext { .. } => {
+                                // Structural edits: execution IS recording
+                                // (azul never mutates the DOM). The app reads
+                                // the changeset and applies it to its model.
+                                if let Some(lw) = self.get_layout_window_mut() {
+                                    let _ = lw.record_structural_default_action(
+                                        &default_action_result.action,
+                                    );
+                                }
                             }
 
                             DefaultAction::ScrollFocusedContainer { direction, amount } => {
