@@ -284,6 +284,12 @@ impl ContentOverlay {
         self.images.get(&(dom_id, node_id))
     }
 
+    /// Iterate all image-overlay entries (renderer registration: the WR/GL
+    /// backend walks produced callback frames to register external textures).
+    pub fn iter_images(&self) -> impl Iterator<Item = (&(DomId, NodeId), &ImageRef)> {
+        self.images.iter()
+    }
+
     /// The overlay's edited text entry for an IFC root, if any.
     #[must_use]
     pub fn text_for_node(&self, dom_id: DomId, node_id: NodeId) -> Option<&DirtyTextNode> {

@@ -2837,6 +2837,23 @@ impl LayoutWindow {
         self.invoke_image_callbacks_into_overlay(&OptionGlContextPtr::None);
     }
 
+    /// The GL/WR twin of [`Self::prepare_frame_content`]: same journal clock,
+    /// same manager fingerprints, but image callbacks get a REAL GL context so
+    /// they can return `DecodedImage::Gl` textures. Results flow through the
+    /// chokepoint exactly like on CPU (same-hash no-op, in-place DL patch on
+    /// identity change, relayout tier on size change); the renderer then
+    /// registers produced textures from the overlay via
+    /// `ContentOverlay::iter_images` — it never invokes callbacks itself.
+    ///
+    /// One call per submitted frame: the journal frame sequence and the WR
+    /// epoch advance in lockstep on this path.
+    pub fn prepare_frame_gl(&mut self, gl_context: &OptionGlContextPtr) {
+        self.content_journal.begin_frame();
+        let fingerprint = self.manager_state_fingerprint();
+        self.content_journal.record_manager_state(fingerprint);
+        self.invoke_image_callbacks_into_overlay(gl_context);
+    }
+
     /// `[focus, selection, scroll]` fingerprints for the journal diff.
     fn manager_state_fingerprint(&self) -> [u64; 3] {
         use std::hash::{Hash, Hasher};
