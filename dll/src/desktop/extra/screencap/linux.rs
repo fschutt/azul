@@ -156,6 +156,9 @@ impl Portal {
 
         let res: Result<zbus::zvariant::OwnedObjectPath, _> = self.proxy.call(method, args);
         if let Err(e) = &res {
+            // The D-Bus error text is the ONE line that says why the portal
+            // refused — it must not be visible only under AZ_SCREENCAP_DEBUG.
+            crate::plog_warn!("[screencap] portal {} call errored: {}", method, e);
             scd!("portal {} call errored: {}", method, e);
         }
         let _request_handle = res.ok()?;
@@ -201,7 +204,19 @@ impl Portal {
 fn portal_open_stream() -> Option<(OwnedFd, u32, zbus::blocking::Connection, String)> {
     use zbus::zvariant::Value;
 
-    let conn = zbus::blocking::Connection::session().ok()?;
+    let conn = match zbus::blocking::Connection::session() {
+        Ok(c) => c,
+        Err(e) => {
+            // Most likely real-world total failure (headless session, root,
+            // missing DBUS_SESSION_BUS_ADDRESS) — was completely silent.
+            crate::plog_warn!(
+                "[screencap] no D-Bus session bus ({}) — the ScreenCast portal is \
+                 unreachable, screen capture cannot start",
+                e
+            );
+            return None;
+        }
+    };
     let mut portal = Portal::new(&conn)?;
 
     // 1. CreateSession(a{sv}) -> request path; results carry session_handle.
@@ -265,9 +280,20 @@ fn portal_open_stream() -> Option<(OwnedFd, u32, zbus::blocking::Connection, Str
     )
     .ok()?;
     let empty: HashMap<&str, Value> = HashMap::new();
-    let fd: zbus::zvariant::OwnedFd = proxy
-        .call("OpenPipeWireRemote", &(session_path, empty))
-        .ok()?;
+    let fd: zbus::zvariant::OwnedFd = match proxy.call("OpenPipeWireRemote", &(session_path, empty))
+    {
+        Ok(fd) => fd,
+        Err(e) => {
+            // The portal GRANTED the stream and then refused the fd — without
+            // this line the grant log above is the last thing ever printed.
+            crate::plog_warn!(
+                "[screencap] OpenPipeWireRemote failed after the portal granted the \
+                 stream ({}) — screen capture cannot start",
+                e
+            );
+            return None;
+        }
+    };
 
     crate::plog_info!("[screencap] portal granted node {} (fd ready)", node_id);
     Some((fd.into(), node_id, conn, session_handle))
@@ -888,12 +914,26 @@ pub fn open(_index: u32, _width: u32, _height: u32) -> u64 {
     scd!("open() called — starting portal handshake");
     // 1. Portal handshake (may block on the user's share dialog).
     let Some((fd, node_id, dbus, session_path)) = portal_open_stream() else {
+        // This is THE line a user needs when the widget shows the test
+        // pattern — it must not be gated on AZ_SCREENCAP_DEBUG.
+        crate::plog_warn!(
+            "[screencap] xdg-desktop-portal ScreenCast handshake FAILED — falling \
+             back to the test pattern (details above; set AZ_SCREENCAP_DEBUG=1 for \
+             the full trace)"
+        );
         scd!("portal handshake FAILED — falling back to test pattern");
         return 0;
     };
     scd!("portal OK: node={} session={}", node_id, session_path);
     // 2. PipeWire.
-    let Some(pw) = PwLib::load() else { scd!("libpipewire load FAILED"); return 0 };
+    let Some(pw) = PwLib::load() else {
+        crate::plog_warn!(
+            "[screencap] libpipewire-0.3 could not be loaded — screen capture \
+             unavailable, falling back to the test pattern"
+        );
+        scd!("libpipewire load FAILED");
+        return 0;
+    };
     scd!("libpipewire loaded");
 
     let shared = Arc::new(Shared {
@@ -905,6 +945,17 @@ pub fn open(_index: u32, _width: u32, _height: u32) -> u64 {
     // hand out dmabuf, so this is the path that actually works on a real
     // desktop; if it can't initialize we offer shared-memory formats only.
     let egl = EglBackend::init();
+    if egl.is_none() {
+        // On GNOME/KDE the compositor usually delivers ONLY dmabuf frames;
+        // without EGL every one of them is dropped and the stream stays
+        // black — a fact that was previously visible only in scd!.
+        crate::plog_warn!(
+            "[screencap] EGL dmabuf importer unavailable (libEGL/libGLESv2 or \
+             extensions missing) — offering shared-memory formats only; if the \
+             compositor insists on dmabuf, no frames will arrive (set \
+             AZ_SCREENCAP_DEBUG=1 for the EGL trace)"
+        );
+    }
     scd!(
         "egl backend: {}",
         if egl.is_some() { "ready" } else { "unavailable (shmem only)" }
@@ -916,15 +967,18 @@ pub fn open(_index: u32, _width: u32, _height: u32) -> u64 {
         let name = CString::new("azul-screencap").unwrap();
         let thread_loop = (pw.pw_thread_loop_new)(name.as_ptr(), std::ptr::null());
         if thread_loop.is_null() {
+            crate::plog_warn!("[screencap] pw_thread_loop_new failed — falling back to the test pattern");
             return 0;
         }
         let loop_ = (pw.pw_thread_loop_get_loop)(thread_loop);
         let context = (pw.pw_context_new)(loop_, std::ptr::null_mut(), 0);
         if context.is_null() {
+            crate::plog_warn!("[screencap] pw_context_new failed — falling back to the test pattern");
             (pw.pw_thread_loop_destroy)(thread_loop);
             return 0;
         }
         if (pw.pw_thread_loop_start)(thread_loop) != 0 {
+            crate::plog_warn!("[screencap] pw_thread_loop_start failed — falling back to the test pattern");
             (pw.pw_context_destroy)(context);
             (pw.pw_thread_loop_destroy)(thread_loop);
             return 0;
@@ -965,6 +1019,7 @@ pub fn open(_index: u32, _width: u32, _height: u32) -> u64 {
         let stream_name = CString::new("azul-screen").unwrap();
         let stream = (pw.pw_stream_new)(core, stream_name.as_ptr(), props);
         if stream.is_null() {
+            crate::plog_warn!("[screencap] pw_stream_new failed — falling back to the test pattern");
             (pw.pw_thread_loop_unlock)(thread_loop);
             (pw.pw_core_disconnect)(core);
             (pw.pw_thread_loop_stop)(thread_loop);
@@ -1086,7 +1141,19 @@ pub fn read(handle: u64, out: &mut Vec<u8>) -> (u32, u32) {
     }
     if slot.data.is_empty() || slot.width == 0 {
         // No frame yet (still negotiating): brief blank frame keeps the
-        // worker polling without tripping its EOS handling.
+        // worker polling without tripping its EOS handling. If the stream
+        // NEVER produces a frame this branch repeats forever — say so once
+        // instead of blanking silently for the rest of the session.
+        static NO_FRAME_YET: std::sync::Once = std::sync::Once::new();
+        NO_FRAME_YET.call_once(|| {
+            crate::plog_warn!(
+                "[screencap] no frame within 2s of the first read — delivering blank \
+                 frames while the stream negotiates. If this persists, the compositor \
+                 granted the stream but is not delivering (e.g. dmabuf-only formats \
+                 with the EGL importer unavailable); set AZ_SCREENCAP_DEBUG=1 for the \
+                 negotiation trace"
+            );
+        });
         out.clear();
         out.resize(4, 0);
         return (1, 1);

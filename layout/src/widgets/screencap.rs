@@ -173,6 +173,29 @@ extern "C" fn screencap_worker(_init: RefAny, mut sender: ThreadSender, _recv: T
         }
     }
 
+    // Reaching here means a ScreenCaptureWidget is on screen and about to show
+    // the TEST PATTERN instead of the screen — say why, once. The dll-side
+    // [screencap] lines (if any) carry the detailed cause right above.
+    {
+        static TEST_PATTERN_ANNOUNCE: std::sync::Once = std::sync::Once::new();
+        let have_backend = screen_backend().is_some();
+        TEST_PATTERN_ANNOUNCE.call_once(|| {
+            if have_backend {
+                eprintln!(
+                    "[azul][screencap] the platform screen-capture backend failed to \
+                     open (see [screencap] lines above for the cause) — showing the \
+                     moving-band TEST PATTERN instead of the screen"
+                );
+            } else {
+                eprintln!(
+                    "[azul][screencap] no screen-capture backend is registered in this \
+                     build/OS — showing the moving-band TEST PATTERN instead of the \
+                     screen"
+                );
+            }
+        });
+    }
+
     let (w, h) = (DEFAULT_W as usize, DEFAULT_H as usize);
     let mut tick: u32 = 0;
     loop {
