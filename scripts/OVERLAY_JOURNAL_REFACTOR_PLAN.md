@@ -227,3 +227,24 @@ round-trip.
   it — decide when rewiring §5.8.
 - Whether `OverlayPartId` should fold into `az_children`-style iteration for a11y ordering or stay
   a parallel dimension — prototype in O3.
+
+## Amendment (2026-07-31, review): structural edits are TREE ops, not text ops
+
+§6's original sketch (`OverlayPart { content: Vec<InlineContent>, source_range: (byte, byte) }`)
+and the A1 vocabulary (`SplitBlock { at: TextCursor }`, `xml_fragment` payloads) were
+text-specific shortcuts and were REPLACED during implementation:
+
+- The split/join coordinate is **`NodePosition { child_index, text_byte: Option }`** —
+  element children move wholesale, only a text child is ever cut. A `<ul>` splits
+  between `<li>`s with the same op that splits a `<p>` mid-word.
+- Content payloads are **native `Dom` subtrees with fragment semantics** (root
+  ignored, children inserted), never markup strings. The op set is
+  `SplitNode / MergeNodes / InsertChildren / RemoveChildren / ReplaceChildren`
+  (+ the explicitly text-specific `Wrap/UnwrapRange`), closing its own inverse
+  algebra.
+- The overlay preview stores the **recorded delta itself** (`StructuralPreview`),
+  no copied content; `ResolvedContent::children_for_node` yields the ADJUSTED
+  child list (`Existing | ExistingTextSlice | Pending`) — the immutable-DOM
+  equivalent of `.insertChild()` becoming visible before the app's re-render.
+- `EditResumePoint` = `{ anchor_key (any stable node), node_path, position }`.
+- The apply helper (`document_edit.rs`) operates on `Dom`, not XML.
