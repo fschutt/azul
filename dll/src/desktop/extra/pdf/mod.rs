@@ -112,6 +112,95 @@ impl Pdf {
         dom_to_pdf(dom, page_width_px, page_height_px)
     }
 
+    /// Like [`Pdf::from_dom`], but called from INSIDE a running app's
+    /// callback: reuses the window's live font manager and image cache
+    /// instead of building fresh ones, so the PDF resolves exactly the fonts
+    /// (same fallback chains, same embedded/in-memory fonts) and images the
+    /// screen did. This is the path for print-preview parity — `from_dom`
+    /// standalone can legitimately pick different system fonts than the
+    /// window and knows nothing about app-registered images.
+    pub fn from_dom_in_callback(
+        &self,
+        callback_info: &azul_layout::callbacks::CallbackInfo,
+        dom: Dom,
+        page_width_px: f32,
+        page_height_px: f32,
+    ) -> U8Vec {
+        #[cfg(feature = "pdf")]
+        {
+            let lw = callback_info.get_layout_window();
+            // Share-derived: parsed fonts/registry are shared handles, chain
+            // caches copied — the window's resolution state, not a re-scan.
+            let mut font_manager = lw.font_manager.clone_shared();
+            U8Vec::from_vec(engine::dom_to_bytes_with(
+                dom,
+                page_width_px,
+                page_height_px,
+                &mut font_manager,
+                &lw.image_cache,
+            ))
+        }
+        #[cfg(not(feature = "pdf"))]
+        {
+            let _ = (callback_info, dom, page_width_px, page_height_px);
+            U8Vec::from_vec(Vec::new())
+        }
+    }
+
+    /// The fully TYPED export path: an already-styled DOM plus resource
+    /// snapshots, no JSON / base64 / re-decode round-trips.
+    ///
+    /// Take the three inputs from a callback —
+    /// `CallbackInfo::get_styled_dom_clone()` (cascade state as on screen),
+    /// `CallbackInfo::get_font_cache_clone()` (shared parsed-font pool) and
+    /// `CallbackInfo::get_image_cache_clone()` (refcounted decoded images) —
+    /// and the produced PDF is the window's content re-laid-out at page
+    /// size. All three snapshots stay valid after the callback returns, so
+    /// this can run on a worker thread. Empty handles fall back to fresh
+    /// system resources (the `from_dom` behavior).
+    pub fn from_styled_dom_with_resources(
+        &self,
+        styled_dom: azul_core::styled_dom::StyledDom,
+        page_width_px: f32,
+        page_height_px: f32,
+        font_cache: &azul_layout::resource_handles::FontCacheSnapshot,
+        image_cache: &azul_layout::resource_handles::ImageCacheSnapshot,
+    ) -> U8Vec {
+        #[cfg(feature = "pdf")]
+        {
+            let mut font_manager = match font_cache.as_font_manager() {
+                Some(fm) => fm.clone_shared(),
+                None => {
+                    let fc_cache = azul_layout::font::loading::build_font_cache();
+                    match azul_layout::font_traits::FontManager::new(fc_cache) {
+                        Ok(f) => f,
+                        Err(_) => return U8Vec::from_vec(Vec::new()),
+                    }
+                }
+            };
+            let empty_images = azul_core::resources::ImageCache::default();
+            let images = image_cache.as_image_cache().unwrap_or(&empty_images);
+            U8Vec::from_vec(engine::styled_dom_to_bytes_with(
+                styled_dom,
+                page_width_px,
+                page_height_px,
+                &mut font_manager,
+                images,
+            ))
+        }
+        #[cfg(not(feature = "pdf"))]
+        {
+            let _ = (
+                styled_dom,
+                page_width_px,
+                page_height_px,
+                font_cache,
+                image_cache,
+            );
+            U8Vec::from_vec(Vec::new())
+        }
+    }
+
     /// REVERSE path: PDF bytes -> one standalone SVG string per page.
     /// Empty without the `pdf` feature or on parse failure.
     pub fn to_svg_pages(&self, bytes: &[u8]) -> Vec<String> {
@@ -341,34 +430,78 @@ mod engine {
         ops
     }
 
+    /// Headless `dom -> paged PDF bytes` with a FRESH font manager and an
+    /// empty image cache. Standalone conversions (no running window) get the
+    /// system fonts via `build_font_cache`; a callback that wants the PDF to
+    /// match the window pixel-for-pixel should use
+    /// [`dom_to_bytes_with`] via [`super::Pdf::from_dom_in_callback`], which
+    /// shares the WINDOW's font manager and image cache instead.
+    pub fn dom_to_bytes(dom: Dom, page_w_px: f32, page_h_px: f32) -> Vec<u8> {
+        use azul_layout::font::loading::build_font_cache;
+        use azul_layout::font_traits::FontManager;
+
+        let fc_cache = build_font_cache();
+        let mut font_manager = match FontManager::new(fc_cache) {
+            Ok(f) => f,
+            Err(_) => return Vec::new(),
+        };
+        dom_to_bytes_with(
+            dom,
+            page_w_px,
+            page_h_px,
+            &mut font_manager,
+            &azul_core::resources::ImageCache::default(),
+        )
+    }
+
     /// Headless `dom -> paged PDF bytes`. Lays out `styled_dom` at
     /// `page_w_px` x `page_h_px` (logical px) via Azul's paged layout (one
     /// DisplayList per sheet), walks each page's display list into printpdf
     /// ops, and saves the multi-page document to bytes. No window, no file I/O.
-    /// Empty on font-manager / layout failure. Headless layout context mirrors
-    /// `layout/tests/*` (build_font_cache + FontManager + paged layout).
-    pub fn dom_to_bytes(dom: Dom, page_w_px: f32, page_h_px: f32) -> Vec<u8> {
+    /// Empty on layout failure.
+    ///
+    /// `font_manager` / `image_cache` are the resolution context: pass the
+    /// window's own (see [`super::Pdf::from_dom_in_callback`]) and the PDF
+    /// resolves exactly the fonts and images the screen did — the print
+    /// preview cannot drift from the window.
+    pub fn dom_to_bytes_with(
+        dom: Dom,
+        page_w_px: f32,
+        page_h_px: f32,
+        font_manager: &mut azul_layout::font_traits::FontManager<azul_css::props::basic::FontRef>,
+        image_cache: &azul_core::resources::ImageCache,
+    ) -> Vec<u8> {
+        // Dom -> StyledDom (CSS cascade), the same conversion the window does
+        // each frame. Done here so callers pass a Dom (what they build) rather
+        // than a StyledDom (which has no public constructor).
+        let styled_dom = azul_core::styled_dom::StyledDom::create_from_dom(dom);
+        styled_dom_to_bytes_with(styled_dom, page_w_px, page_h_px, font_manager, image_cache)
+    }
+
+    /// Like [`dom_to_bytes_with`], but takes an ALREADY-STYLED DOM — the
+    /// cascade state is used as-is. This is the print-parity entry: a
+    /// callback clones the window's live `StyledDom`
+    /// (`CallbackInfo::get_styled_dom_clone`) and the PDF re-lays-out
+    /// exactly the styled content the screen shows, with the resources it
+    /// resolved.
+    pub fn styled_dom_to_bytes_with(
+        styled_dom: azul_core::styled_dom::StyledDom,
+        page_w_px: f32,
+        page_h_px: f32,
+        font_manager: &mut azul_layout::font_traits::FontManager<azul_css::props::basic::FontRef>,
+        image_cache: &azul_core::resources::ImageCache,
+    ) -> Vec<u8> {
         use azul_core::dom::DomId;
         use azul_core::geom::{LogicalPosition, LogicalRect, LogicalSize};
-        use azul_core::resources::{IdNamespace, ImageCache, RendererResources};
-        use azul_layout::font::loading::build_font_cache;
-        use azul_layout::font_traits::{FontManager, TextLayoutCache};
+        use azul_core::resources::{IdNamespace, RendererResources};
+        use azul_layout::font_traits::TextLayoutCache;
         use azul_layout::paged::FragmentationContext;
         use azul_layout::solver3::paged_layout::layout_document_paged_with_config;
         use azul_layout::solver3::pagination::FakePageConfig;
         use azul_layout::text3::default::PathLoader;
         use std::collections::BTreeMap;
 
-        // Dom -> StyledDom (CSS cascade), the same conversion the window does
-        // each frame. Done here so callers pass a Dom (what they build) rather
-        // than a StyledDom (which has no public constructor).
-        let styled_dom = azul_core::styled_dom::StyledDom::create_from_dom(dom);
         let content_size = LogicalSize::new(page_w_px, page_h_px);
-        let fc_cache = build_font_cache();
-        let mut font_manager = match FontManager::new(fc_cache) {
-            Ok(f) => f,
-            Err(_) => return Vec::new(),
-        };
         let mut layout_cache = azul_layout::Solver3LayoutCache::default();
         let mut text_cache = TextLayoutCache::new();
         let fragmentation_context = FragmentationContext::new_paged(content_size);
@@ -388,7 +521,7 @@ mod engine {
             fragmentation_context,
             &styled_dom,
             viewport,
-            &mut font_manager,
+            font_manager,
             &BTreeMap::new(),
             &mut debug_messages,
             None,
@@ -397,7 +530,7 @@ mod engine {
             DomId::ROOT_ID,
             font_loader,
             page_config,
-            &ImageCache::default(),
+            image_cache,
             azul_core::task::GetSystemTimeCallback {
                 cb: azul_core::task::get_system_time_libstd,
             },

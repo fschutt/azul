@@ -2957,19 +2957,107 @@ impl CallbackInfo {
     // used" from a callback (e.g. a printpdf consumer correlating
     // `DisplayListItem::Text.font_hash` glyph runs with the loaded font bytes).
     //
-    // IMAGE GAP (deferred): there is no analogous `get_loaded_image_*` here yet.
-    // Unlike fonts (whose cache lives in `LayoutWindow.font_manager`, reachable
-    // via `get_layout_window()`), the live image cache with the actual
-    // `ImageRef` bytes is owned by the windowing shell (`common.image_cache`)
-    // and is only passed *by reference* into the layout pass - it is not stored
-    // on the `LayoutWindow` (its `image_cache` field is initialised empty and
-    // never populated) and is not part of `CallbackInfoRefData`. Exposing image
-    // bytes here therefore requires threading `&ImageCache` into
-    // `CallbackInfoRefData` and through `invoke_single_callback` /
-    // `run_single_timer` / `run_all_threads` and all their per-platform callers
-    // (macOS / Wayland / X11 / Windows). `RendererResources.currently_registered_images`
-    // is reachable via `get_renderer_resources()` but only carries the WebRender
-    // key + `ImageDescriptor`, not the pixel bytes.
+    // IMAGES: the windowing shell owns the live image cache
+    // (`common.image_cache`), but its two mutation points
+    // (`CallbackChange::AddImageToCache` / `RemoveImageFromCache`, handled in
+    // `dll shell2/common/event.rs`) MIRROR every change into
+    // `LayoutWindow.image_cache`, so the cache reachable from here always
+    // holds "all registered images right now" — `ImageRef` is refcounted, the
+    // mirror shares decoded pixels rather than copying them. That is what
+    // makes `get_image_cache_clone()` below possible without threading
+    // `&ImageCache` through every `CallbackInfoRefData` construction site.
+
+    /// Snapshot of the app's registered images (`css id -> ImageRef`) as an
+    /// ABI handle ([`crate::resource_handles::ImageCacheSnapshot`]).
+    ///
+    /// `ImageRef`s are refcounted: decoded pixel data is SHARED with the
+    /// running app, never copied or re-decoded. The handle stays valid after
+    /// the callback returns, so an export job (e.g.
+    /// `Pdf::from_styled_dom_with_resources`) can run off-thread.
+    ///
+    /// Images embedded DIRECTLY in the DOM (an `ImageRef` on an image node)
+    /// do NOT need this snapshot — they travel with the DOM clone itself
+    /// (`get_styled_dom_clone` / `get_dom_subtree` clone the refcounted
+    /// handles). This snapshot covers the INDIRECT case: images registered
+    /// by css id and resolved through the cache at layout time.
+    #[must_use] pub fn get_image_cache_clone(&self) -> crate::resource_handles::ImageCacheSnapshot {
+        // Core's ImageCache has no Clone (derive(Clone)+Drop double-free
+        // audit); clone the refcounted-handle map explicitly.
+        crate::resource_handles::ImageCacheSnapshot::from_image_cache(
+            azul_core::resources::ImageCache {
+                image_id_map: self
+                    .get_layout_window()
+                    .image_cache
+                    .image_id_map
+                    .clone(),
+            },
+        )
+    }
+
+    /// Snapshot of the window's font resolution state (shared parsed-font
+    /// pool, resolved fallback chains, embedded/in-memory fonts) as an ABI
+    /// handle ([`crate::resource_handles::FontCacheSnapshot`]).
+    ///
+    /// Consumers lay text out with EXACTLY the fonts the screen resolved —
+    /// same fallback chains, no re-discovery, no re-parse from disk.
+    ///
+    /// Fonts embedded DIRECTLY in the DOM (`FontStack::Ref`, e.g. icon
+    /// fonts) are covered twice over: the window's layout already interned
+    /// them into the manager's `embedded_fonts` (shared by this snapshot),
+    /// and the DOM clone carries the `FontRef` handles anyway. The snapshot
+    /// is what preserves the INDIRECT state: family-name resolution,
+    /// fallback chains and the parsed system faces backing them.
+    #[cfg(feature = "text_layout")]
+    #[must_use] pub fn get_font_cache_clone(&self) -> crate::resource_handles::FontCacheSnapshot {
+        crate::resource_handles::FontCacheSnapshot::from_font_manager(
+            self.get_layout_window().font_manager.clone_shared(),
+        )
+    }
+
+    /// Clone of the CURRENT fully-styled root DOM — CSS cascade already
+    /// applied, exactly what is on screen right now.
+    ///
+    /// This is the parity input for typed exporters: hand it to
+    /// `Pdf::from_styled_dom_with_resources` together with
+    /// [`get_font_cache_clone`](Self::get_font_cache_clone) /
+    /// [`get_image_cache_clone`](Self::get_image_cache_clone) and the PDF
+    /// lays out the same styled content with the same resources.
+    #[must_use] pub fn get_styled_dom_clone(&self) -> StyledDom {
+        self.get_layout_window()
+            .layout_results
+            .get(&DomId::ROOT_ID)
+            .map_or_else(
+                || StyledDom::create_from_dom(azul_core::dom::Dom::create_div()),
+                |lr| lr.styled_dom.clone(),
+            )
+    }
+
+    /// Reconstruct a plain [`Dom`](azul_core::dom::Dom) from a subtree of the
+    /// running UI, cloning each node's `NodeData` (refcounted handles inside,
+    /// so images/callbacks are shared, not copied). The cascade's retained
+    /// author CSS is re-attached to the returned root, so re-styling the
+    /// reconstruction reproduces the on-screen cascade.
+    ///
+    /// Returns `None` if the node does not exist. For a NON-root subtree the
+    /// attached stylesheets are an approximation (selectors that depended on
+    /// ancestors outside the subtree may match differently); when exact
+    /// parity matters, use
+    /// [`get_styled_dom_clone`](Self::get_styled_dom_clone) instead. This
+    /// getter is for re-composing a subtree into a new document (e.g.
+    /// wrapping it in a print layout).
+    #[must_use] pub fn get_dom_subtree(&self, node_id: DomNodeId) -> azul_core::dom::OptionDom {
+        let lw = self.get_layout_window();
+        let Some(lr) = lw.layout_results.get(&node_id.dom) else {
+            return azul_core::dom::OptionDom::None;
+        };
+        let Some(nid) = node_id.node.into_crate_internal() else {
+            return azul_core::dom::OptionDom::None;
+        };
+        if lr.styled_dom.node_data.as_container().get(nid).is_none() {
+            return azul_core::dom::OptionDom::None;
+        }
+        azul_core::dom::OptionDom::Some(lr.styled_dom.reconstruct_dom_subtree(Some(nid)))
+    }
 
     /// Enumerate every font the layout engine currently has loaded in its font
     /// cache.

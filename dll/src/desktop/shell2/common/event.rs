@@ -2320,11 +2320,22 @@ pub trait PlatformWindow {
 
             CallbackChange::AddImageToCache { id, image } => {
                 self.get_image_cache_mut().add_css_image_id(id.clone(), image.clone());
+                // Mirror into the LayoutWindow's cache so callbacks can
+                // snapshot "all registered images right now"
+                // (CallbackInfo::get_image_cache_clone) without reaching into
+                // the shell. ImageRef is refcounted — this shares the decoded
+                // pixels, it does not copy them.
+                if let Some(lw) = self.get_layout_window_mut() {
+                    lw.image_cache.add_css_image_id(id.clone(), image.clone());
+                }
                 ProcessEventResult::DoNothing
             }
 
             CallbackChange::RemoveImageFromCache { id } => {
                 self.get_image_cache_mut().delete_css_image_id(id);
+                if let Some(lw) = self.get_layout_window_mut() {
+                    lw.image_cache.delete_css_image_id(id);
+                }
                 ProcessEventResult::DoNothing
             }
 

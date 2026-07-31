@@ -915,6 +915,35 @@ pub struct FontManager<T> {
 }
 
 impl<T: ParsedFontTrait> FontManager<T> {
+    /// A second manager sharing this one's font pool.
+    ///
+    /// `fc_cache`, `parsed_fonts` and `registry` are shared handles — a font
+    /// parsed through either manager is visible to both — and the resolved
+    /// chain/name caches are copied. Use this to lay out the same content
+    /// OUTSIDE the window pipeline (e.g. DOM→PDF from a callback) with
+    /// exactly the fonts the window resolved on screen: same fallback
+    /// chains, same embedded fonts, no re-parse from disk.
+    #[must_use] pub fn clone_shared(&self) -> Self {
+        Self {
+            fc_cache: self.fc_cache.clone(),
+            parsed_fonts: Arc::clone(&self.parsed_fonts),
+            font_chain_cache: self.font_chain_cache.clone(),
+            embedded_fonts: Mutex::new(
+                self.embedded_fonts
+                    .lock()
+                    .map(|m| m.clone())
+                    .unwrap_or_default(),
+            ),
+            font_hash_to_families: self.font_hash_to_families.clone(),
+            registry: self.registry.clone(),
+            // Deliberately reset: the sig gates a chain-resolver skip that is
+            // only valid against THIS manager's font_chain_cache history.
+            last_resolved_font_stacks_sig: None,
+            memory_families: self.memory_families.clone(),
+            vf_bake_cache: self.vf_bake_cache.clone(),
+        }
+    }
+
     /// # Errors
     ///
     /// Returns a `LayoutError` if the font cache cannot be initialized.

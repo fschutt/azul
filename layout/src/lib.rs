@@ -156,6 +156,7 @@ pub const unsafe fn az_mark(_addr: u32, _val: u32) {}
 
 /// Font traits available regardless of text layout feature.
 pub mod font_traits;
+pub mod resource_handles;
 /// Optional probe instrumentation. With the `probe` feature off this
 /// is a tiny module of no-op stubs and pays zero cost.
 pub mod probe;

@@ -1927,6 +1927,93 @@ impl StyledDom {
         map
     }
 
+    /// Reconstruct a plain [`Dom`](crate::dom::Dom) from a subtree of this
+    /// styled DOM by cloning each node's [`NodeData`](crate::dom::NodeData)
+    /// (ids/classes, inline CSS, callbacks, dataset — `RefAny`/`ImageRef`
+    /// fields are refcounted handles, so nothing heavy is copied).
+    ///
+    /// `root`: the subtree root, or `None` for the DOM's root node.
+    ///
+    /// The returned `Dom` CARRIES THE STYLESHEETS: the cascade retains the
+    /// author CSS (`CssPropertyCache::retained_author_css`), and it is
+    /// re-attached to the returned root's `css` field — re-styling the
+    /// reconstruction reproduces the on-screen cascade. For a NON-root
+    /// subtree this is an approximation: selectors that depended on
+    /// ancestors OUTSIDE the subtree (descendant combinators through cut-off
+    /// parents, `:nth-child` against removed siblings) may match differently
+    /// in the new document. When exact pixel parity matters, hand the whole
+    /// `StyledDom` clone to the consumer instead (e.g.
+    /// `Pdf::from_styled_dom_with_resources`), which skips re-cascading
+    /// entirely.
+    #[must_use] pub fn reconstruct_dom_subtree(&self, root: Option<NodeId>) -> crate::dom::Dom {
+        use crate::dom::{Dom, NodeData};
+
+        let hierarchy = self.node_hierarchy.as_container();
+        let node_data = self.node_data.as_container();
+        let root_id = root.unwrap_or(NodeId::ZERO);
+
+        let make_dom = |id: NodeId| -> Dom {
+            Dom {
+                root: node_data
+                    .get(id)
+                    .cloned()
+                    .unwrap_or_else(NodeData::create_div),
+                children: Vec::new().into(),
+                css: Vec::new().into(),
+                estimated_total_children: 0,
+            }
+        };
+
+        // Iterative post-order: a node is folded into its parent via
+        // `add_child` (which maintains `estimated_total_children`) once all
+        // of its own children are assembled, so arbitrary depth cannot
+        // overflow the stack.
+        let mut result_stack: Vec<Dom> = vec![make_dom(root_id)];
+        let mut visit_stack: Vec<(NodeId, Option<NodeId>)> = vec![(
+            root_id,
+            hierarchy
+                .get(root_id)
+                .and_then(|n| n.first_child_id(root_id)),
+        )];
+
+        while let Some((node, next_child)) = visit_stack.pop() {
+            match next_child {
+                Some(child) => {
+                    // Come back to `node` for the sibling AFTER `child`,
+                    // then descend into `child`.
+                    let sibling = hierarchy.get(child).and_then(|c| c.next_sibling_id());
+                    visit_stack.push((node, sibling));
+                    result_stack.push(make_dom(child));
+                    visit_stack.push((
+                        child,
+                        hierarchy.get(child).and_then(|c| c.first_child_id(child)),
+                    ));
+                }
+                None => {
+                    let finished = match result_stack.pop() {
+                        Some(f) => f,
+                        None => break,
+                    };
+                    match result_stack.last_mut() {
+                        Some(parent) => parent.add_child(finished),
+                        None => {
+                            let mut finished = finished;
+                            let author_css =
+                                self.get_css_property_cache().retained_author_css.clone();
+                            if !author_css.is_empty() {
+                                finished.css = vec![author_css].into();
+                            }
+                            return finished;
+                        }
+                    }
+                }
+            }
+        }
+
+        // Unreachable for a well-formed hierarchy; degrade to an empty div.
+        Dom::create_div()
+    }
+
     /// Returns a HTML-formatted version of the DOM for easier debugging.
     ///
     /// For example, a DOM with a parent div containing a child div would return:

@@ -12380,6 +12380,72 @@
                                     }
                                 ],
                                 "fn_body": "object.process_text_selection_click(position, time_ms)"
+                            },
+                            "get_image_cache_clone": {
+                                "doc": [
+                                    "Snapshot of the app's registered images as an `ImageCacheSnapshot` handle.",
+                                    "Decoded pixels are shared (refcounted), never copied or re-decoded."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "ImageCacheSnapshot"
+                                },
+                                "fn_body": "object.get_image_cache_clone()"
+                            },
+                            "get_font_cache_clone": {
+                                "doc": [
+                                    "Snapshot of the window's font resolution state as a `FontCacheSnapshot` handle.",
+                                    "Consumers resolve exactly the fonts the screen resolved - no re-parse."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "FontCacheSnapshot"
+                                },
+                                "fn_body": "object.get_font_cache_clone()"
+                            },
+                            "get_styled_dom_clone": {
+                                "doc": [
+                                    "Clone of the CURRENT fully-styled root DOM - CSS cascade already applied,",
+                                    "exactly what is on screen. The parity input for `Pdf.from_styled_dom_with_resources()`."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "StyledDom"
+                                },
+                                "fn_body": "object.get_styled_dom_clone()"
+                            },
+                            "get_dom_subtree": {
+                                "doc": [
+                                    "Reconstruct a plain `Dom` from a subtree of the running UI (NodeData cloned,",
+                                    "refcounted handles shared). The cascade's retained author CSS is re-attached",
+                                    "to the returned root, so re-styling reproduces the on-screen cascade (for a",
+                                    "non-root subtree, ancestor-dependent selectors are approximated - use",
+                                    "`get_styled_dom_clone()` when exact parity matters)."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    },
+                                    {
+                                        "node_id": "DomNodeId"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "OptionDom"
+                                },
+                                "fn_body": "object.get_dom_subtree(node_id)"
                             }
                         },
                         "repr": "C"
@@ -68480,6 +68546,35 @@
                             }
                         },
                         "repr": "C"
+                    },
+                    "ImageCacheSnapshot": {
+                        "doc": [
+                            "Boxed snapshot of the app's registered images (css id -> ImageRef). Obtain via",
+                            "`CallbackInfo.get_image_cache_clone()`. ImageRefs are refcounted - decoded pixels",
+                            "are shared, never re-decoded. Valid after the callback returns (off-thread ok)."
+                        ],
+                        "external": "azul_layout::resource_handles::ImageCacheSnapshot",
+                        "custom_impls": [
+                            "Drop"
+                        ],
+                        "derive": [
+                            "Debug",
+                            "Clone"
+                        ],
+                        "struct_fields": [
+                            {
+                                "ptr": {
+                                    "type": "c_void",
+                                    "ref_kind": "mutptr"
+                                }
+                            },
+                            {
+                                "run_destructor": {
+                                    "type": "bool"
+                                }
+                            }
+                        ],
+                        "repr": "C"
                     }
                 }
             },
@@ -69248,6 +69343,36 @@
                                     "doc": [
                                         "Number of elements in the slice"
                                     ]
+                                }
+                            }
+                        ],
+                        "repr": "C"
+                    },
+                    "FontCacheSnapshot": {
+                        "doc": [
+                            "Boxed snapshot of a window's font resolution state (shared parsed-font pool,",
+                            "resolved fallback chains, embedded fonts). Obtain via",
+                            "`CallbackInfo.get_font_cache_clone()`; hand to `Pdf.from_styled_dom_with_resources()`.",
+                            "Cloning shares the pool (cheap); valid after the callback returns (off-thread ok)."
+                        ],
+                        "external": "azul_layout::resource_handles::FontCacheSnapshot",
+                        "custom_impls": [
+                            "Drop"
+                        ],
+                        "derive": [
+                            "Debug",
+                            "Clone"
+                        ],
+                        "struct_fields": [
+                            {
+                                "ptr": {
+                                    "type": "c_void",
+                                    "ref_kind": "mutptr"
+                                }
+                            },
+                            {
+                                "run_destructor": {
+                                    "type": "bool"
                                 }
                             }
                         ],
@@ -105741,6 +105866,68 @@
                                     "type": "U8Vec"
                                 },
                                 "fn_body": "object.from_dom(dom, page_width_px, page_height_px)"
+                            },
+                            "from_dom_in_callback": {
+                                "doc": [
+                                    "Like `from_dom`, but called from inside a running app's callback:",
+                                    "reuses the window's live font manager and image cache, so the PDF",
+                                    "resolves exactly the fonts and images the screen did (print-preview",
+                                    "parity). Empty without the `pdf` feature or on failure."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    },
+                                    {
+                                        "callback_info": "CallbackInfo"
+                                    },
+                                    {
+                                        "dom": "Dom"
+                                    },
+                                    {
+                                        "page_width_px": "f32"
+                                    },
+                                    {
+                                        "page_height_px": "f32"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "U8Vec"
+                                },
+                                "fn_body": "object.from_dom_in_callback(&callback_info, dom, page_width_px, page_height_px)"
+                            },
+                            "from_styled_dom_with_resources": {
+                                "doc": [
+                                    "Fully TYPED export: an already-styled DOM plus resource snapshots - no JSON,",
+                                    "no base64, no re-decode. Take the styled dom / fonts / images from a callback",
+                                    "(`get_styled_dom_clone` / `get_font_cache_clone` / `get_image_cache_clone`) and",
+                                    "the PDF is the window's content re-laid-out at page size. Runs off-thread fine.",
+                                    "Empty handles fall back to fresh system resources."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    },
+                                    {
+                                        "styled_dom": "StyledDom"
+                                    },
+                                    {
+                                        "page_width_px": "f32"
+                                    },
+                                    {
+                                        "page_height_px": "f32"
+                                    },
+                                    {
+                                        "font_cache": "FontCacheSnapshot"
+                                    },
+                                    {
+                                        "image_cache": "ImageCacheSnapshot"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "U8Vec"
+                                },
+                                "fn_body": "object.from_styled_dom_with_resources(styled_dom, page_width_px, page_height_px, &font_cache, &image_cache)"
                             }
                         },
                         "repr": "C"
