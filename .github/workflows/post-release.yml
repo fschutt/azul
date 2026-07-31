@@ -241,8 +241,12 @@ jobs:
           # discovered link, and fall back to constructing the singular form
           # directly, because the index's "Downloads & release notes" card
           # currently links back to the index itself.
+          # `|| true`: under pipefail a no-match grep would kill the script
+          # HERE, before any verdict — the fallback below is the intended
+          # no-match path (this exact silent death shipped: exit 1 with zero
+          # error output right after the "checking" line).
           sub=$(grep -oE 'href="[^"]*releases?/'"$VERSION"'[^"]*"' "$page" \
-                | head -1 | sed 's/^href="//;s/"$//')
+                | head -1 | sed 's/^href="//;s/"$//' || true)
           [ -n "$sub" ] || sub="$BASE/ui/release/$VERSION/"
           if [ -n "$sub" ]; then
             case "$sub" in
