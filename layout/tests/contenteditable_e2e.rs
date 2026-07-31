@@ -855,3 +855,241 @@ fn contenteditable_overflow_wraps_at_end_not_start() {
     eprintln!("  [verify] PASS: Line 0 has {} chars, total {} lines",
         line_0_chars, items_per_line.len());
 }
+
+// =========================================================================
+// Full structural-edit round trip (the A-chain acceptance test):
+// RECORD (Enter → SplitBlockAtCursor → DocumentChangeset) →
+// APP-APPLY (document_edit on the app's XML tree) →
+// ACK (mark_document_edit_applied_with_inverse) →
+// RE-RENDER (new generation from the tree) →
+// CARET RESTORE (host key + block path against the NEW generation) →
+// STRUCTURAL UNDO (re-records the inverse through the same loop).
+// The StyledDom is never mutated in place — every generation is rebuilt
+// from the app's model, exactly like a real Path-2 app.
+// =========================================================================
+
+#[cfg(feature = "xml")]
+mod structural_roundtrip {
+    use super::*;
+    use azul_core::selection::{CursorAffinity, GraphemeClusterId, TextCursor};
+    use azul_core::window::{KeyboardState, VirtualKeyCode};
+    use azul_core::xml::{XmlNode, XmlNodeChild};
+    use azul_layout::managers::changeset::DocumentOperation;
+
+    /// Build the RENDERED Dom from the app's XML tree (editor div + <p> blocks).
+    fn dom_from_tree(tree: &[XmlNodeChild]) -> Dom {
+        let XmlNodeChild::Element(host) = &tree[0] else {
+            panic!("tree root must be the editor element")
+        };
+        let mut editor = Dom::create_div()
+            .with_ids_and_classes(cls("editor").into())
+            .with_contenteditable(true)
+            .with_tab_index(TabIndex::Auto);
+        for child in host.children.as_ref() {
+            let XmlNodeChild::Element(p) = child else { continue };
+            let mut block = Dom::create_p();
+            for pc in p.children.as_ref() {
+                if let XmlNodeChild::Text(t) = pc {
+                    block.add_child(Dom::create_text(t.as_str()));
+                }
+            }
+            editor.add_child(block);
+        }
+        let mut root = Dom::create_body();
+        root.add_child(editor);
+        root
+    }
+
+    fn block_texts(tree: &[XmlNodeChild]) -> Vec<String> {
+        let XmlNodeChild::Element(host) = &tree[0] else {
+            panic!("host")
+        };
+        host.children
+            .as_ref()
+            .iter()
+            .filter_map(|c| match c {
+                XmlNodeChild::Element(e) => Some(e.get_text_content()),
+                XmlNodeChild::Text(_) => None,
+            })
+            .collect()
+    }
+
+    const CSS: &str = "
+        .editor { font-size: 16px; padding: 8px; }
+        p { margin: 0; }
+    ";
+
+    #[test]
+    fn enter_split_full_roundtrip_with_undo() {
+        // The APP's model: one paragraph.
+        let mut tree = azul_layout::xml::parse_xml_string(
+            "<div class=\"editor\"><p>hello world</p></div>",
+        )
+        .expect("parse app model");
+
+        let mut h = ContentEditableHarness::new(400.0, 300.0);
+        h.layout_dom(dom_from_tree(&tree), CSS);
+        let before_split = h.render();
+
+        let dom_id = DomId { inner: 0 };
+
+        // Locate the <p> (the block the caret lives in) and focus it.
+        let p_node = {
+            let lw = h.layout_window.as_ref().unwrap();
+            let lr = lw.layout_results.get(&dom_id).unwrap();
+            let container = lr.styled_dom.node_data.as_container();
+            (0..container.len())
+                .map(NodeId::new)
+                .find(|nid| matches!(container[*nid].get_node_type(), NodeType::P))
+                .expect("p node")
+        };
+        h.focus_node(dom_id, p_node);
+
+        // Caret between "hello" and " world" (byte 5 of the single run).
+        {
+            let lw = h.layout_window.as_mut().unwrap();
+            let mc = lw.text_edit_manager.multi_cursor.as_mut().expect("cursor");
+            mc.set_single_cursor(TextCursor {
+                cluster_id: GraphemeClusterId {
+                    source_run: 0,
+                    start_byte_in_run: 5,
+                },
+                affinity: CursorAffinity::Leading,
+            });
+        }
+
+        // ── RECORD: Enter in the contenteditable determines a SPLIT and
+        // recording stores the changeset (nothing mutates).
+        let focused = {
+            let lw = h.layout_window.as_ref().unwrap();
+            lw.focus_manager.get_focused_node().copied()
+        };
+        let changeset = {
+            let lw = h.layout_window.as_mut().unwrap();
+            let editing = lw.build_editing_query_state(focused).expect("editing state");
+            assert!(editing.is_contenteditable);
+
+            let mut ks = KeyboardState::default();
+            ks.current_virtual_keycode = Some(VirtualKeyCode::Return).into();
+            ks.pressed_virtual_keycodes = vec![VirtualKeyCode::Return].into();
+            let action = azul_layout::default_actions::determine_keyboard_default_action_with_editing(
+                &ks,
+                focused,
+                &lw.layout_results,
+                false,
+                Some(&editing),
+            );
+            assert!(
+                matches!(
+                    action.action,
+                    azul_core::events::DefaultAction::SplitBlockAtCursor { .. }
+                ),
+                "Enter in a contenteditable must determine a split, got {:?}",
+                action.action
+            );
+            lw.record_structural_default_action(&action.action)
+                .expect("record");
+            lw.get_pending_document_edit().expect("pending").clone()
+        };
+        assert!(matches!(changeset.operation, DocumentOperation::SplitBlock(_)));
+        assert_eq!(changeset.resume.block_path.as_ref(), &[1u32]);
+
+        // ── APP-APPLY on the app's XML tree (Path 2).
+        let applied =
+            azul_layout::document_edit::apply_document_operation(&mut tree, &[], &changeset)
+                .expect("apply split");
+        assert_eq!(block_texts(&tree), vec!["hello", " world"]);
+        assert!(matches!(applied.inverse, DocumentOperation::MergeBlocks(_)));
+
+        // ── ACK (with the inverse: the edit becomes undoable).
+        {
+            let lw = h.layout_window.as_mut().unwrap();
+            assert!(lw.mark_document_edit_applied_with_inverse(changeset.id, applied.inverse));
+        }
+
+        // ── RE-RENDER the new generation from the app's model. The caret
+        // restore runs at the layout tail: second block, offset 0.
+        h.layout_dom(dom_from_tree(&tree), CSS);
+        let after_split = h.render();
+        assert!(
+            pixel_diff_count(&before_split, &after_split, 2) > 0,
+            "the split must be visible"
+        );
+        {
+            let lw = h.layout_window.as_ref().unwrap();
+            let mc = lw
+                .text_edit_manager
+                .multi_cursor
+                .as_ref()
+                .expect("caret restored after the swap");
+            let caret_node = mc.node_id.node.into_crate_internal().expect("caret node");
+            let lr = lw.layout_results.get(&dom_id).unwrap();
+            let container = lr.styled_dom.node_data.as_container();
+            // The caret's block: walk up to the nearest P.
+            let hierarchy = lr.styled_dom.node_hierarchy.as_container();
+            let mut block = caret_node;
+            while !matches!(container[block].get_node_type(), NodeType::P) {
+                match hierarchy.get(block).and_then(|n| n.parent_id()) {
+                    Some(p) => block = p,
+                    None => break,
+                }
+            }
+            let second_p = {
+                let ps: Vec<NodeId> = (0..container.len())
+                    .map(NodeId::new)
+                    .filter(|nid| matches!(container[*nid].get_node_type(), NodeType::P))
+                    .collect();
+                assert_eq!(ps.len(), 2, "two blocks after the split");
+                ps[1]
+            };
+            assert_eq!(
+                block, second_p,
+                "caret must land in the SECOND block after Enter"
+            );
+        }
+
+        // ── STRUCTURAL UNDO: re-records the merge through the same loop.
+        let undo_changeset = {
+            let lw = h.layout_window.as_mut().unwrap();
+            lw.undo_structural_edit().expect("undo records");
+            lw.get_pending_document_edit().expect("pending merge").clone()
+        };
+        assert!(matches!(
+            undo_changeset.operation,
+            DocumentOperation::MergeBlocks(_)
+        ));
+        let undone =
+            azul_layout::document_edit::apply_document_operation(&mut tree, &[], &undo_changeset)
+                .expect("apply merge");
+        assert_eq!(
+            block_texts(&tree),
+            vec!["hello world"],
+            "undo restores the app model"
+        );
+        {
+            let lw = h.layout_window.as_mut().unwrap();
+            assert!(lw.mark_document_edit_applied_with_inverse(undo_changeset.id, undone.inverse));
+        }
+        h.layout_dom(dom_from_tree(&tree), CSS);
+        let after_undo = h.render();
+        assert!(
+            pixel_diff_count(&after_split, &after_undo, 2) > 0,
+            "the merge must be visible"
+        );
+        // Caret back at the join point (block 0, offset 5).
+        {
+            let lw = h.layout_window.as_ref().unwrap();
+            let mc = lw.text_edit_manager.multi_cursor.as_ref().expect("caret");
+            let primary = mc.selections.iter().find(|s| s.id == mc.primary_id)
+                .map(|s| s.selection.clone());
+            eprintln!("  [verify] post-undo caret: {primary:?}");
+        }
+        // Redo: the split comes back through the same loop.
+        {
+            let lw = h.layout_window.as_mut().unwrap();
+            lw.redo_structural_edit().expect("redo records");
+            let redo_cs = lw.get_pending_document_edit().expect("pending split").clone();
+            assert!(matches!(redo_cs.operation, DocumentOperation::SplitBlock(_)));
+        }
+    }
+}
