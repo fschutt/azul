@@ -845,6 +845,8 @@ mod linux {
 
     mod wayland {
         use std::process::Command;
+        use std::sync::Mutex;
+        use std::time::{Duration, Instant};
 
         use super::*;
 
@@ -854,17 +856,90 @@ mod linux {
         const DETECTION_CHAIN: &[DisplayProvider] =
             &[try_swaymsg, try_hyprctl, try_kscreen_doctor, try_wlr_randr];
 
+        /// Monitor topology changes on hotplug, not per frame — callers
+        /// (including per-second probe timers) must not pay four process
+        /// spawns per query.
+        const DISPLAY_CACHE_TTL: Duration = Duration::from_secs(15);
+
+        /// Hard deadline for one external detection tool. These run ON THE
+        /// UI THREAD; a tool that never exits (observed live: the fourth
+        /// per-tick detection call on KDE Wayland never returned) froze the
+        /// whole app — the window could no longer even close.
+        const DETECT_TOOL_TIMEOUT: Duration = Duration::from_secs(2);
+
+        static DISPLAY_CACHE: Mutex<Option<(Instant, Vec<DisplayInfo>)>> = Mutex::new(None);
+
+        /// Run an external detection tool with [`DETECT_TOOL_TIMEOUT`].
+        ///
+        /// `Command::output()` waits UNBOUNDED on the child; this variant
+        /// polls `try_wait` and kills the child at the deadline, so a wedged
+        /// compositor query can cost at most the timeout, never the app.
+        /// stdout is read only after exit — the tools emit small JSON, far
+        /// under the pipe buffer, so a full pipe cannot deadlock the child
+        /// before the kill fires.
+        fn run_detect_tool(mut cmd: Command) -> Result<String, ()> {
+            use std::process::Stdio;
+            let mut child = cmd
+                .stdout(Stdio::piped())
+                .stderr(Stdio::null())
+                .stdin(Stdio::null())
+                .spawn()
+                .map_err(|_| ())?;
+            let start = Instant::now();
+            loop {
+                match child.try_wait() {
+                    Ok(Some(status)) => {
+                        if !status.success() {
+                            return Err(());
+                        }
+                        let mut out = String::new();
+                        use std::io::Read;
+                        if let Some(mut stdout) = child.stdout.take() {
+                            let _ = stdout.read_to_string(&mut out);
+                        }
+                        return Ok(out);
+                    }
+                    Ok(None) => {
+                        if start.elapsed() > DETECT_TOOL_TIMEOUT {
+                            let _ = child.kill();
+                            let _ = child.wait(); // reap — no zombie
+                            return Err(());
+                        }
+                        std::thread::sleep(Duration::from_millis(10));
+                    }
+                    Err(_) => {
+                        let _ = child.kill();
+                        let _ = child.wait();
+                        return Err(());
+                    }
+                }
+            }
+        }
+
         pub fn get_displays() -> Vec<DisplayInfo> {
+            if let Ok(guard) = DISPLAY_CACHE.lock() {
+                if let Some((at, cached)) = guard.as_ref() {
+                    if at.elapsed() < DISPLAY_CACHE_TTL {
+                        return cached.clone();
+                    }
+                }
+            }
             // Try each detection method in order
+            let mut result = None;
             for provider in DETECTION_CHAIN {
                 if let Ok(displays) = provider() {
                     if !displays.is_empty() {
-                        return displays;
+                        result = Some(displays);
+                        break;
                     }
                 }
             }
             // If all providers fail, use fallback
-            fallback_display()
+            let displays = result.unwrap_or_else(fallback_display);
+            if let Ok(mut guard) = DISPLAY_CACHE.lock() {
+                *guard = Some((Instant::now(), displays.clone()));
+            }
+            displays
         }
 
         fn fallback_display() -> Vec<DisplayInfo> {
@@ -914,17 +989,9 @@ mod linux {
                 return Err(());
             }
 
-            let output = Command::new("swaymsg")
-                .arg("-t")
-                .arg("get_outputs")
-                .output()
-                .map_err(|_| ())?;
-
-            if !output.status.success() {
-                return Err(());
-            }
-
-            let stdout = String::from_utf8(output.stdout).map_err(|_| ())?;
+            let mut cmd = Command::new("swaymsg");
+            cmd.arg("-t").arg("get_outputs");
+            let stdout = run_detect_tool(cmd)?;
 
             #[cfg(feature = "desktop")]
             {
@@ -1001,17 +1068,9 @@ mod linux {
                 return Err(());
             }
 
-            let output = Command::new("hyprctl")
-                .arg("monitors")
-                .arg("-j")
-                .output()
-                .map_err(|_| ())?;
-
-            if !output.status.success() {
-                return Err(());
-            }
-
-            let stdout = String::from_utf8(output.stdout).map_err(|_| ())?;
+            let mut cmd = Command::new("hyprctl");
+            cmd.arg("monitors").arg("-j");
+            let stdout = run_detect_tool(cmd)?;
 
             #[cfg(feature = "desktop")]
             {
@@ -1076,17 +1135,9 @@ mod linux {
 
         // --- KDE/kscreen-doctor Implementation ---
         fn try_kscreen_doctor() -> Result<Vec<DisplayInfo>, ()> {
-            let output = Command::new("kscreen-doctor")
-                .arg("-o")
-                .arg("--json")
-                .output()
-                .map_err(|_| ())?;
-
-            if !output.status.success() {
-                return Err(());
-            }
-
-            let stdout = String::from_utf8(output.stdout).map_err(|_| ())?;
+            let mut cmd = Command::new("kscreen-doctor");
+            cmd.arg("-o").arg("--json");
+            let stdout = run_detect_tool(cmd)?;
 
             #[cfg(feature = "desktop")]
             {
@@ -1167,13 +1218,7 @@ mod linux {
 
         // --- wlroots/wlr-randr Implementation ---
         fn try_wlr_randr() -> Result<Vec<DisplayInfo>, ()> {
-            let output = Command::new("wlr-randr").output().map_err(|_| ())?;
-
-            if !output.status.success() {
-                return Err(());
-            }
-
-            let stdout = String::from_utf8(output.stdout).map_err(|_| ())?;
+            let stdout = run_detect_tool(Command::new("wlr-randr"))?;
 
             #[cfg(feature = "desktop")]
             {
