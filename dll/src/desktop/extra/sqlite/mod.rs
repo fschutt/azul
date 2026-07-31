@@ -57,6 +57,22 @@ impl Clone for Db {
     }
 }
 
+/// Say once per process that the `db-sqlite` feature is compiled out. The
+/// stub handle otherwise degrades silently: `open` hands back an invalid
+/// handle, `execute` returns 0 rows and `query` returns no rows — all
+/// plausible answers from a real empty database.
+#[cfg(not(feature = "db-sqlite"))]
+fn announce_db_stub(what: &str) {
+    static ANNOUNCE: std::sync::Once = std::sync::Once::new();
+    ANNOUNCE.call_once(|| {
+        eprintln!(
+            "[azul][sqlite] {what} called, but this build has no `db-sqlite` \
+             feature — every Db operation is a no-op (invalid handle, 0 rows). \
+             Rebuild with: cargo build -p azul-dll --features build-dll,db-sqlite"
+        );
+    });
+}
+
 impl Default for Db {
     fn default() -> Self {
         Db {
@@ -83,6 +99,7 @@ impl Db {
         }
         #[cfg(not(feature = "db-sqlite"))]
         {
+            announce_db_stub("Db::open");
             let _ = path;
             Db::default()
         }
@@ -104,6 +121,7 @@ impl Db {
         }
         #[cfg(not(feature = "db-sqlite"))]
         {
+            announce_db_stub("Db::execute");
             let _ = (sql, params);
             0
         }
@@ -118,6 +136,7 @@ impl Db {
         }
         #[cfg(not(feature = "db-sqlite"))]
         {
+            announce_db_stub("Db::query");
             let _ = (sql, params);
             empty_rows()
         }
