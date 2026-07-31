@@ -624,6 +624,142 @@ impl TableHeaderTracker {
     }
 }
 
+/// Page margins in logical px (CSS order).
+#[derive(Debug, Clone, Copy, PartialEq, Default)]
+pub struct PageMargins {
+    pub top: f32,
+    pub right: f32,
+    pub bottom: f32,
+    pub left: f32,
+}
+
+/// ONE page's complete setup — size (orientation = which side is longer),
+/// margins, and header/footer decoration. The MS-Word "page setup" unit.
+#[derive(Debug, Clone)]
+pub struct PageSetup {
+    /// Full page size INCLUDING margins (swap the sides for landscape).
+    pub page_size: azul_core::geom::LogicalSize,
+    pub margins: PageMargins,
+    /// Header/footer decoration for pages using this setup (heights count
+    /// against the content area; text/numbering render per page).
+    pub header_footer: HeaderFooterConfig,
+}
+
+impl PageSetup {
+    /// Content height = page height − vertical margins − active header/footer.
+    #[must_use]
+    pub fn content_height(&self) -> f32 {
+        let header = if self.header_footer.show_header {
+            self.header_footer.header_height
+        } else {
+            0.0
+        };
+        let footer = if self.header_footer.show_footer {
+            self.header_footer.footer_height
+        } else {
+            0.0
+        };
+        (self.page_size.height - self.margins.top - self.margins.bottom - header - footer)
+            .max(0.0)
+    }
+
+    /// Content width = page width − horizontal margins.
+    #[must_use]
+    pub fn content_width(&self) -> f32 {
+        (self.page_size.width - self.margins.left - self.margins.right).max(0.0)
+    }
+}
+
+/// The document's page-setup SEQUENCE: one default + sparse overrides — the
+/// MS-Word model ("default = A4 portrait, 2cm footer, 1.5cm margins; page
+/// 345 is landscape"). Resolution precedence per page:
+/// explicit override > first-page setup > odd/even parity > default.
+///
+/// pdf2html maps its HTML dataset annotations (e.g. `data-az-page-*` on
+/// section elements) + CSS onto this structure and hands it to the paged
+/// pipeline.
+///
+/// FRAGMENTAINER-FLOW STAGING: per-page HEIGHT differences are fully live
+/// (the break forward-pass consumes per-index content heights — same
+/// mechanism as the repeated-thead reserve). Per-page WIDTH differences
+/// (true landscape re-wrap) require laying out INTO the fragmentainer
+/// sequence with re-measure at boundaries — an engine stage; until then a
+/// non-uniform width falls back to the default width and says so once.
+#[derive(Debug, Clone)]
+pub struct PageSequence {
+    pub default: PageSetup,
+    /// Explicit per-page overrides (0-based page index). Strongest.
+    pub overrides: std::collections::BTreeMap<usize, PageSetup>,
+    /// Word's "different first page".
+    pub first_page: Option<PageSetup>,
+    /// Word's "different odd & even": odd = 0-based EVEN indices (page 1,
+    /// 3, … in 1-based speech) — stored by the 1-based convention users
+    /// think in: `odd_pages` applies to 1-based odd page numbers.
+    pub odd_pages: Option<PageSetup>,
+    pub even_pages: Option<PageSetup>,
+}
+
+impl PageSequence {
+    /// A uniform sequence (every page identical).
+    #[must_use]
+    pub fn uniform(default: PageSetup) -> Self {
+        Self {
+            default,
+            overrides: std::collections::BTreeMap::new(),
+            first_page: None,
+            odd_pages: None,
+            even_pages: None,
+        }
+    }
+
+    /// The setup for 0-based page `index`:
+    /// override > first > odd/even (1-based parity) > default.
+    #[must_use]
+    pub fn setup_for_page(&self, index: usize) -> &PageSetup {
+        if let Some(explicit) = self.overrides.get(&index) {
+            return explicit;
+        }
+        if index == 0 {
+            if let Some(first) = &self.first_page {
+                return first;
+            }
+        }
+        let one_based = index + 1;
+        if one_based % 2 == 1 {
+            if let Some(odd) = &self.odd_pages {
+                return odd;
+            }
+        } else if let Some(even) = &self.even_pages {
+            return even;
+        }
+        &self.default
+    }
+
+    /// Whether every page shares the default's content WIDTH (the
+    /// fragmentainer-flow precondition for the current single-measure
+    /// layout). Announces the degradation once when violated.
+    #[must_use]
+    pub fn has_uniform_width(&self) -> bool {
+        let w = self.default.content_width();
+        let all = self
+            .overrides
+            .values()
+            .chain(self.first_page.iter())
+            .chain(self.odd_pages.iter())
+            .chain(self.even_pages.iter())
+            .all(|s| (s.content_width() - w).abs() < 0.5);
+        if !all {
+            static ANNOUNCE: std::sync::Once = std::sync::Once::new();
+            ANNOUNCE.call_once(|| {
+                eprintln!(
+                    "[azul][pagination] this PageSequence varies the CONTENT WIDTH                      between pages (landscape override / different margins).                      Re-wrapping text per fragmentainer is not implemented yet —                      content lays out at the DEFAULT width on every page; page                      heights, margins and headers/footers still apply per page                      (announced once)."
+                );
+            });
+        }
+        all
+    }
+}
+
 /// Capture every table's `<thead>` from the master display list so the
 /// slicer can repeat it on continuation pages — the REGISTRATION side the
 /// tracker always lacked (its `register_table_header` had zero production
