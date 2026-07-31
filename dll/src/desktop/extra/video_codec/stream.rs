@@ -51,7 +51,27 @@ pub extern "C" fn video_decode_worker(init: RefAny, sender: ThreadSender, recv: 
         any(target_os = "linux", target_os = "windows")
     )))]
     {
-        // No Vulkan-Video decoder on this target: the widget keeps its placeholder.
+        // No Vulkan-Video decoder in this build: the widget keeps its placeholder
+        // FOREVER. Without this line that is indistinguishable from "still
+        // buffering", so name the exact gate once per process.
+        static ANNOUNCE: std::sync::Once = std::sync::Once::new();
+        ANNOUNCE.call_once(|| {
+            if !cfg!(feature = "video-native") {
+                eprintln!(
+                    "[azul][video] VideoWidget: this build has no `video-native` feature \
+                     — H.264 decode is compiled out, the widget will show its placeholder \
+                     forever. Rebuild with: cargo build -p azul-dll --features \
+                     build-dll,video-native"
+                );
+            } else {
+                eprintln!(
+                    "[azul][video] VideoWidget: H.264 decode requires x86_64 linux/windows \
+                     (this target: {}-{}) — the widget will show its placeholder forever",
+                    std::env::consts::ARCH,
+                    std::env::consts::OS,
+                );
+            }
+        });
         let _ = (init, sender, recv);
     }
 }
