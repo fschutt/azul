@@ -547,6 +547,62 @@ fn apply_unwrap(
     ))
 }
 
+/// Split a tree along a SPINE — the fragmentainer-flow cut.
+///
+/// `path` names, level by level, the child at which the document continues in
+/// the NEXT fragmentainer (page/section). At every spine level the node's
+/// shape (`NodeData`) is duplicated: children BEFORE the path index stay in
+/// the head, the path child itself splits recursively, children AFTER move to
+/// the tail. A `<section><ul>…` cut inside the `<ul>` yields two sections
+/// each holding a `<ul>` — exactly how CSS fragmentation clones box chains
+/// across fragmentainers (and how Word continues a list across a section
+/// break).
+///
+/// An empty `path` puts EVERYTHING in the tail (cut before the root's
+/// content); a path index past the child count puts the whole level in the
+/// head. Counts are re-synced on both results.
+#[must_use]
+pub fn split_dom_at_path(dom: &Dom, path: &[u32]) -> (Dom, Dom) {
+    fn shape_of(node: &Dom) -> Dom {
+        Dom {
+            root: node.root.clone(),
+            children: Vec::new().into(),
+            css: node.css.clone(),
+            estimated_total_children: 0,
+        }
+    }
+    fn rec(node: &Dom, path: &[u32]) -> (Dom, Dom) {
+        let mut head = shape_of(node);
+        let mut tail = shape_of(node);
+        let Some((&idx, rest)) = path.split_first() else {
+            tail.children = node.children.clone();
+            return (head, tail);
+        };
+        let children = node.children.as_ref();
+        let idx = idx as usize;
+        let mut head_children: Vec<Dom> = children[..idx.min(children.len())].to_vec();
+        let mut tail_children: Vec<Dom> = Vec::new();
+        if idx < children.len() {
+            if rest.is_empty() {
+                // The cut lands BEFORE this child: it belongs to the tail.
+                tail_children.push(children[idx].clone());
+            } else {
+                let (h, t) = rec(&children[idx], rest);
+                head_children.push(h);
+                tail_children.push(t);
+            }
+            tail_children.extend(children[idx + 1..].iter().cloned());
+        }
+        head.children = head_children.into();
+        tail.children = tail_children.into();
+        (head, tail)
+    }
+    let (mut head, mut tail) = rec(dom, path);
+    head.fixup_children_estimated();
+    tail.fixup_children_estimated();
+    (head, tail)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -967,5 +1023,55 @@ mod tests {
             apply_document_operation(&mut host, &[7, 7], &cs2).unwrap_err(),
             DocumentEditError::HostNotFound
         );
+    }
+
+    // ==================================================================
+    // split_dom_at_path — the fragmentainer spine cut
+    // ==================================================================
+
+    #[test]
+    fn spine_split_partitions_flat_children() {
+        let doc = fragment(vec![p("a"), p("b"), p("c")]);
+        let (head, tail) = split_dom_at_path(&doc, &[1]);
+        assert_eq!(head.children.as_ref().len(), 1, "a stays");
+        assert_eq!(tail.children.as_ref().len(), 2, "b + c flow on");
+        assert_eq!(head.estimated_total_children, head.children.as_ref().len() + 1);
+    }
+
+    #[test]
+    fn spine_split_clones_the_box_chain_at_depth() {
+        // section > ul > li,li,li — cut before the third li: BOTH results
+        // hold a section>ul chain (the CSS fragmentation box-chain clone).
+        let mut ul = el("ul");
+        ul.add_child(el("li"));
+        ul.add_child(el("li"));
+        ul.add_child(el("li"));
+        let mut section = el("section");
+        section.add_child(ul);
+        let doc = fragment(vec![section]);
+
+        let (head, tail) = split_dom_at_path(&doc, &[0, 0, 2]);
+        let head_ul = &head.children.as_ref()[0].children.as_ref()[0];
+        let tail_ul = &tail.children.as_ref()[0].children.as_ref()[0];
+        assert_eq!(head_ul.children.as_ref().len(), 2);
+        assert_eq!(tail_ul.children.as_ref().len(), 1);
+        assert_eq!(
+            head.children.as_ref()[0].root.get_node_type(),
+            tail.children.as_ref()[0].root.get_node_type(),
+            "the section shape duplicates across the cut"
+        );
+    }
+
+    #[test]
+    fn spine_split_edge_paths() {
+        let doc = fragment(vec![p("a"), p("b")]);
+        // Empty path: everything flows to the tail.
+        let (h, t) = split_dom_at_path(&doc, &[]);
+        assert_eq!(h.children.as_ref().len(), 0);
+        assert_eq!(t.children.as_ref().len(), 2);
+        // Past-the-end: everything stays in the head.
+        let (h, t) = split_dom_at_path(&doc, &[9]);
+        assert_eq!(h.children.as_ref().len(), 2);
+        assert_eq!(t.children.as_ref().len(), 0);
     }
 }

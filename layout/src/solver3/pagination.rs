@@ -763,6 +763,69 @@ impl PageSequence {
         }
         all
     }
+
+    /// Partition the page sequence into WIDTH SECTIONS — maximal runs of
+    /// consecutive pages sharing a content width. This is the fragmentainer
+    /// unit for width re-wrap: content lays out ONCE per section at that
+    /// section's width and is cut at the section boundary (the MS-Word model,
+    /// where page setup changes at section breaks).
+    ///
+    /// The last section is open-ended (`page_count: None`): once every
+    /// per-page override / parity variation has been passed, the width is
+    /// constant forever. `max_scan` bounds the scan (parity alternation
+    /// yields one section per page up to the bound — such sequences degrade
+    /// to per-page sections and remain correct, just not cheap).
+    #[must_use]
+    pub fn width_sections(&self, max_scan: usize) -> Vec<WidthSection> {
+        let mut out: Vec<WidthSection> = Vec::new();
+        // Past the largest explicit override AND the first page AND parity
+        // variation, the width can still alternate (odd/even) — only treat
+        // the run as final when parity widths agree with the default.
+        let parity_uniform = {
+            let w = self.default.content_width();
+            self.odd_pages
+                .iter()
+                .chain(self.even_pages.iter())
+                .all(|s| (s.content_width() - w).abs() < 0.5)
+        };
+        let last_override = self.overrides.keys().next_back().copied().unwrap_or(0);
+        for page in 0..max_scan.max(1) {
+            let w = self.setup_for_page(page).content_width();
+            match out.last_mut() {
+                Some(sec) if (sec.content_width - w).abs() < 0.5 => {
+                    if let Some(n) = sec.page_count.as_mut() {
+                        *n += 1;
+                    }
+                }
+                _ => out.push(WidthSection {
+                    first_page: page,
+                    page_count: Some(1),
+                    content_width: w,
+                }),
+            }
+            // Stable tail: no more overrides ahead, first-page passed, parity
+            // constant — the current section runs forever.
+            if page > last_override && page > 0 && parity_uniform {
+                if let Some(sec) = out.last_mut() {
+                    sec.page_count = None;
+                }
+                break;
+            }
+        }
+        out
+    }
+}
+
+/// A maximal run of consecutive pages sharing a content width — the
+/// fragmentainer unit for width re-wrap. See [`PageSequence::width_sections`].
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct WidthSection {
+    /// 0-based index of the first page of the run.
+    pub first_page: usize,
+    /// Number of pages in the run; `None` = open-ended (runs to the end of
+    /// the document).
+    pub page_count: Option<usize>,
+    pub content_width: f32,
 }
 
 /// Capture every table's `<thead>` from the master display list so the

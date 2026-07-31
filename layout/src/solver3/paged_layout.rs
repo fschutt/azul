@@ -838,6 +838,281 @@ fn compute_layout_with_fragmentation<T: ParsedFontTrait + Sync + 'static>(
     Ok(())
 }
 
+/// One width-section's pagination within a sectioned document.
+#[derive(Debug, Clone)]
+pub struct SectionPagination {
+    /// 0-based GLOBAL index of the section's first page.
+    pub first_page: usize,
+    /// The width this section's content was laid out (re-wrapped) against.
+    pub content_width: f32,
+    /// Pagination of the section's OWN content (Y coordinates are local to
+    /// the section's layout, page indices local to the section).
+    pub info: crate::solver3::page_breaks::PaginationInfo,
+}
+
+/// Result of [`compute_sectioned_pagination`]: per-width-section pagination.
+#[derive(Debug, Clone)]
+pub struct SectionedPaginationInfo {
+    pub sections: Vec<SectionPagination>,
+}
+
+impl SectionedPaginationInfo {
+    /// Total page count across all sections.
+    #[must_use]
+    pub fn page_count(&self) -> usize {
+        self.sections.iter().map(|s| s.info.page_count).sum::<usize>().max(1)
+    }
+}
+
+/// The child-index path (root → node) of the first block-level box whose top
+/// edge sits at/after `y` — the SPINE the fragmentainer cut runs along.
+///
+/// `document_edit::split_dom_at_path` consumes this path to cut the
+/// reconstructed document for the next section's re-wrap. Ties (equal Y)
+/// resolve to the SHALLOWEST node so the cut spine stays as high as possible.
+#[must_use]
+pub fn spine_path_at_y(
+    tree: &crate::solver3::layout_tree::LayoutTree,
+    positions: &crate::solver3::PositionVec,
+    styled_dom: &StyledDom,
+    y: f32,
+) -> Option<Vec<u32>> {
+    let hierarchy = styled_dom.node_hierarchy.as_container();
+    let depth_of = |mut n: NodeId| -> u32 {
+        let mut d = 0;
+        while let Some(p) = hierarchy.get(n).and_then(azul_core::styled_dom::NodeHierarchyItem::parent_id) {
+            d += 1;
+            n = p;
+        }
+        d
+    };
+
+    let mut best: Option<(f32, u32, NodeId)> = None;
+    for idx in 0..tree.nodes.len() {
+        let Some(node) = tree.get(idx) else { continue };
+        let Some(dom_id) = node.dom_node_id else { continue };
+        if !crate::solver3::layout_tree::is_block_level(styled_dom, dom_id) {
+            continue;
+        }
+        let Some(pos) = crate::solver3::pos_get(positions, idx) else {
+            continue;
+        };
+        if pos.y < y - 0.5 {
+            continue;
+        }
+        let d = depth_of(dom_id);
+        let better = match &best {
+            None => true,
+            Some((by, bd, _)) => pos.y < *by - 0.01 || ((pos.y - by).abs() <= 0.01 && d < *bd),
+        };
+        if better {
+            best = Some((pos.y, d, dom_id));
+        }
+    }
+
+    let (_, _, node) = best?;
+    // Child-index path root → node.
+    let mut path: Vec<u32> = Vec::new();
+    let mut cur = node;
+    while let Some(parent) = hierarchy.get(cur).and_then(azul_core::styled_dom::NodeHierarchyItem::parent_id) {
+        let mut i: u32 = 0;
+        let mut c = hierarchy.get(parent).and_then(|h| h.first_child_id(parent));
+        while let Some(cc) = c {
+            if cc == cur {
+                break;
+            }
+            i += 1;
+            c = hierarchy
+                .get(cc)
+                .and_then(azul_core::styled_dom::NodeHierarchyItem::next_sibling_id);
+        }
+        path.push(i);
+        cur = parent;
+    }
+    path.reverse();
+    Some(path)
+}
+
+/// Materialize the tail of a [`PageSequence`] starting at `first_page` as a
+/// standalone sequence (local page 0 = global `first_page`). Bounded
+/// override copying; parity/first-page variation collapses into explicit
+/// overrides so no offset arithmetic leaks into the break pass.
+#[must_use]
+fn materialize_sequence_tail(
+    seq: &crate::solver3::pagination::PageSequence,
+    first_page: usize,
+    scan: usize,
+) -> crate::solver3::pagination::PageSequence {
+    let mut out =
+        crate::solver3::pagination::PageSequence::uniform(seq.default.clone());
+    for local in 0..scan {
+        let setup = seq.setup_for_page(first_page + local);
+        // Geometry decides pagination; decoration differences don't need an
+        // override entry (the slicer reads decoration off the ORIGINAL
+        // sequence by global page index).
+        let differs = (setup.content_width() - out.default.content_width()).abs() >= 0.5
+            || (setup.content_height() - out.default.content_height()).abs() >= 0.5;
+        if differs {
+            out.overrides.insert(local, setup.clone());
+        }
+    }
+    out
+}
+
+/// Fragmentainer-flow pagination with PER-SECTION WIDTH RE-WRAP.
+///
+/// [`PageSequence::width_sections`] partitions pages into maximal
+/// equal-width runs (the MS-Word model: page setup changes at section
+/// breaks). Content lays out ONCE per section at that section's width; when
+/// a section's page budget fills, the document is CUT along the spine of
+/// the first block on the next page ([`spine_path_at_y`] +
+/// [`crate::document_edit::split_dom_at_path`]), the tail re-styles against
+/// the retained author css, and the flow continues in the next section at
+/// its width. This replaces the `has_uniform_width()` degradation for the
+/// document-pagination path.
+///
+/// Limits (staged): the cut is block-granular (a paragraph straddling a
+/// section boundary moves wholly to the next section rather than splitting
+/// mid-line — Word's behavior for section breaks); floats/positioned boxes
+/// do not carry across sections.
+///
+/// # Errors
+///
+/// Returns a `LayoutError` if any section's layout fails.
+#[cfg(feature = "text_layout")]
+#[allow(clippy::too_many_arguments)]
+pub fn compute_sectioned_pagination<T, F>(
+    styled_dom: &StyledDom,
+    page_height: f32,
+    font_manager: &mut crate::font_traits::FontManager<T>,
+    renderer_resources: &RendererResources,
+    id_namespace: azul_core::resources::IdNamespace,
+    dom_id: DomId,
+    font_loader: F,
+    page_config: &FakePageConfig,
+    sequence: &crate::solver3::pagination::PageSequence,
+    image_cache: &azul_core::resources::ImageCache,
+    get_system_time_fn: azul_core::task::GetSystemTimeCallback,
+) -> Result<SectionedPaginationInfo>
+where
+    T: ParsedFontTrait + Sync + 'static,
+    F: Fn(
+            std::sync::Arc<rust_fontconfig::FontBytes>,
+            usize,
+        ) -> std::result::Result<T, crate::text3::cache::LayoutError>
+        + Copy,
+{
+    use azul_core::geom::{LogicalPosition, LogicalRect, LogicalSize};
+
+    const SECTION_SCAN: usize = 512;
+    let sections = sequence.width_sections(SECTION_SCAN);
+
+    // Tails re-style against the ORIGINAL document's author css — a Dom
+    // reconstructed from a StyledDom carries it in `.css`, but `create`'s
+    // css parameter is the reliable non-lossy channel.
+    let author_css = styled_dom
+        .get_css_property_cache()
+        .retained_author_css
+        .clone();
+
+    let mut out = SectionedPaginationInfo { sections: Vec::new() };
+    // The working document: exact styled_dom for section 0; reconstructed +
+    // cut tails afterwards. The reconstruction happens lazily (only when a
+    // second section actually receives content).
+    let mut working: Option<azul_core::dom::Dom> = None;
+    let mut working_styled: Option<StyledDom> = None;
+
+    for (k, sec) in sections.iter().enumerate() {
+        let is_last = k + 1 == sections.len();
+        let section_styled: &StyledDom = working_styled.as_ref().map_or(styled_dom, |s| s);
+
+        let content_size = LogicalSize::new(sec.content_width, page_height);
+        let viewport = LogicalRect {
+            origin: LogicalPosition::zero(),
+            size: content_size,
+        };
+        let mut cache = LayoutCache::default();
+        let mut text_cache = TextLayoutCache::new();
+        let frag = FragmentationContext::new_paged(content_size);
+        let mut cfg = page_config.clone();
+        cfg.page_sequence = Some(materialize_sequence_tail(
+            sequence,
+            sec.first_page,
+            sec.page_count.unwrap_or(SECTION_SCAN).min(SECTION_SCAN),
+        ));
+
+        let info = compute_document_pagination(
+            &mut cache,
+            &mut text_cache,
+            frag,
+            section_styled,
+            viewport,
+            font_manager,
+            &BTreeMap::new(),
+            &mut None,
+            None,
+            renderer_resources,
+            id_namespace,
+            dom_id,
+            font_loader,
+            cfg,
+            image_cache,
+            get_system_time_fn,
+        )?;
+
+        let budget = sec.page_count.unwrap_or(usize::MAX);
+        if is_last || info.page_count <= budget {
+            // Content ends inside this section.
+            out.sections.push(SectionPagination {
+                first_page: sec.first_page,
+                content_width: sec.content_width,
+                info,
+            });
+            return Ok(out);
+        }
+
+        // Section overflows its page budget: cut at the end of its last page
+        // and flow the tail into the next section at ITS width.
+        let cut_y = info.breaks.get(budget - 1).map_or(info.total_content_height, |b| b.y);
+        let tree = cache.tree.as_ref().ok_or(LayoutError::InvalidTree)?;
+        let spine = spine_path_at_y(tree, &cache.calculated_positions, section_styled, cut_y);
+
+        let working_dom = working
+            .take()
+            .map_or_else(|| section_styled.reconstruct_dom_subtree(None), |d| d);
+        // No block starts after the cut: everything fits after all.
+        let Some(path) = &spine else {
+            out.sections.push(SectionPagination {
+                first_page: sec.first_page,
+                content_width: sec.content_width,
+                info,
+            });
+            return Ok(out);
+        };
+        // The head's pages come from `info` (trimmed below); only the tail
+        // flows on.
+        let (_head, tail) = crate::document_edit::split_dom_at_path(&working_dom, path);
+
+        let mut trimmed = info;
+        trimmed.page_count = budget;
+        trimmed.breaks.truncate(budget.saturating_sub(1));
+        trimmed.total_content_height = cut_y;
+        out.sections.push(SectionPagination {
+            first_page: sec.first_page,
+            content_width: sec.content_width,
+            info: trimmed,
+        });
+
+        // StyledDom::create consumes the Dom's node data — style a CLONE and
+        // keep the pristine tail as the working document for the next cut.
+        let mut style_me = tail.clone();
+        working_styled = Some(StyledDom::create(&mut style_me, author_css.clone()));
+        working = Some(tail);
+    }
+
+    Ok(out)
+}
+
 #[cfg(all(test, feature = "text_layout"))]
 #[allow(clippy::float_cmp)]
 mod autotest_generated {
@@ -1550,5 +1825,119 @@ mod autotest_generated {
                 "page size {frag:?} must still produce a layout tree"
             );
         }
+    }
+
+    // ==================================================================
+    // Sectioned pagination — fragmentainer WIDTH re-wrap
+    // ==================================================================
+
+    fn setup(w: f32, h: f32) -> crate::solver3::pagination::PageSetup {
+        crate::solver3::pagination::PageSetup {
+            page_size: LogicalSize::new(w, h),
+            margins: crate::solver3::pagination::PageMargins {
+                top: 0.0,
+                right: 0.0,
+                bottom: 0.0,
+                left: 0.0,
+            },
+            header_footer: Default::default(),
+        }
+    }
+
+    #[test]
+    fn width_sections_partition_by_content_width() {
+        use crate::solver3::pagination::PageSequence;
+        let mut seq = PageSequence::uniform(setup(600.0, 400.0));
+        seq.overrides.insert(0, setup(300.0, 400.0));
+        let sections = seq.width_sections(64);
+        assert_eq!(sections.len(), 2);
+        assert_eq!(sections[0].first_page, 0);
+        assert_eq!(sections[0].page_count, Some(1));
+        assert!((sections[0].content_width - 300.0).abs() < 0.5);
+        assert_eq!(sections[1].first_page, 1);
+        assert_eq!(sections[1].page_count, None, "tail is open-ended");
+        assert!((sections[1].content_width - 600.0).abs() < 0.5);
+
+        // Uniform sequence: one open-ended section.
+        let uni = PageSequence::uniform(setup(600.0, 400.0)).width_sections(64);
+        assert_eq!(uni.len(), 1);
+        assert_eq!(uni[0].page_count, None);
+    }
+
+    /// The re-wrap acceptance: content whose height DEPENDS on the page
+    /// width (aspect-ratio boxes — no fonts needed) paginates differently
+    /// once the tail re-measures at the wider section's width.
+    #[test]
+    fn sectioned_pagination_rewraps_the_tail_at_the_new_width() {
+        use crate::solver3::pagination::PageSequence;
+
+        fn aspect_doc(n: usize) -> StyledDom {
+            let children: Vec<Dom> = (0..n).map(|_| Dom::create_div()).collect();
+            let mut dom = Dom::create_body().with_children(children.into());
+            let css = azul_css::parser2::new_from_str(
+                "div { width: 100%; aspect-ratio: 2; background-color: red; }",
+            )
+            .0;
+            StyledDom::create(&mut dom, css)
+        }
+
+        let loader = PathLoader::new();
+        let font_loader = |bytes: std::sync::Arc<rust_fontconfig::FontBytes>, index: usize| {
+            loader.load_font_shared(bytes, index)
+        };
+        let mut font_manager: FontManager<TestFont> =
+            FontManager::new(rust_fontconfig::FcFontCache::default()).unwrap();
+        let rr = RendererResources::default();
+        let ic = ImageCache::default();
+
+        // Page 0: 300 wide → divs 150 tall. Later pages: 600 wide → 300 tall.
+        let mut seq = PageSequence::uniform(setup(600.0, 400.0));
+        seq.overrides.insert(0, setup(300.0, 400.0));
+
+        let sectioned = compute_sectioned_pagination(
+            &aspect_doc(8),
+            400.0,
+            &mut font_manager,
+            &rr,
+            IdNamespace(0),
+            DomId::ROOT_ID,
+            font_loader,
+            &FakePageConfig::new(),
+            &seq,
+            &ic,
+            time_fn(),
+        )
+        .expect("sectioned pagination");
+
+        assert_eq!(sectioned.sections.len(), 2, "narrow first page + wide tail");
+        assert!((sectioned.sections[1].content_width - 600.0).abs() < 0.5);
+
+        // The same document on a UNIFORM 300-wide sequence for comparison:
+        // its divs stay 150 tall everywhere.
+        let uniform = compute_sectioned_pagination(
+            &aspect_doc(8),
+            400.0,
+            &mut font_manager,
+            &rr,
+            IdNamespace(0),
+            DomId::ROOT_ID,
+            font_loader,
+            &FakePageConfig::new(),
+            &PageSequence::uniform(setup(300.0, 400.0)),
+            &ic,
+            time_fn(),
+        )
+        .expect("uniform pagination");
+        assert_eq!(uniform.sections.len(), 1);
+
+        // 600-wide divs are 300 tall → ~1/page; 300-wide divs are 150 tall
+        // → ~2/page. If the tail had NOT re-measured at 600, the totals
+        // would match — more pages proves the re-wrap happened.
+        assert!(
+            sectioned.page_count() > uniform.page_count(),
+            "sectioned={} uniform={}: the tail must RE-MEASURE at the wide width",
+            sectioned.page_count(),
+            uniform.page_count()
+        );
     }
 }
