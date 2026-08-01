@@ -13,6 +13,19 @@
 # Expects: /tmp/azul.apk and /tmp/badging.txt from the preceding steps.
 set -euo pipefail
 
+# Releases predating the x86_64 emulator variant ship arm64-only APKs; an
+# x86_64 emulator cannot load them (that mismatch surfaced as "Unable to
+# find native library" and is indistinguishable from real breakage). Skip
+# the LAUNCH loudly for those releases — the static checks + install above
+# still ran; full launch coverage resumes with the first release that
+# publishes azul-self-test-android-x86_64.apk.
+APK_ABI=$(cut -d= -f2 /tmp/apk-abi.env 2>/dev/null || echo unknown)
+EMU_ABI=$(adb shell getprop ro.product.cpu.abi | tr -d '\r')
+if [ "$APK_ABI" != "$EMU_ABI" ]; then
+  echo "::warning::launch check SKIPPED: APK ships $APK_ABI, emulator is $EMU_ABI — this release predates the x86_64 emulator APK; coverage resumes with the next release"
+  exit 0
+fi
+
 adb install -r /tmp/azul.apk
 ACT=$(grep -oE "launchable-activity: name='[^']+'" /tmp/badging.txt | head -1 | sed "s/.*name='//;s/'//")
 PKG=$(grep -oE "package: name='[^']+'" /tmp/badging.txt | head -1 | sed "s/.*name='//;s/'//")

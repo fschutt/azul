@@ -342,14 +342,22 @@ jobs:
           # "no published APK" about four APKs that were published.
           #
           # Ask the GitHub Release, which is where they are.
-          if ! gh release download "$VERSION" --repo "$GH_REPO" \
+          # Prefer the x86_64 emulator variant (shipped since the packaging
+          # fix); fall back to the arm64 phone APK for releases predating it.
+          if gh release download "$VERSION" --repo "$GH_REPO" \
+               --pattern 'azul-self-test-android-x86_64.apk' --dir /tmp --clobber 2>/dev/null; then
+            mv /tmp/azul-self-test-android-x86_64.apk /tmp/azul.apk
+            echo "abi=x86_64" > /tmp/apk-abi.env
+          elif gh release download "$VERSION" --repo "$GH_REPO" \
                --pattern 'azul-self-test-android.apk' --dir /tmp --clobber 2>/tmp/dl.log; then
+            mv /tmp/azul-self-test-android.apk /tmp/azul.apk
+            echo "abi=arm64-v8a" > /tmp/apk-abi.env
+          else
             cat /tmp/dl.log >&2 || true
-            echo "::error::no azul-self-test-android.apk on the $VERSION GitHub Release (deploy_pages offloads APKs there; they are deliberately absent from $BASE)"
+            echo "::error::no azul-self-test-android*.apk on the $VERSION GitHub Release (deploy_pages offloads APKs there; they are deliberately absent from $BASE)"
             exit 1
           fi
-          mv /tmp/azul-self-test-android.apk /tmp/azul.apk
-          ls -l /tmp/azul.apk
+          ls -l /tmp/azul.apk; cat /tmp/apk-abi.env
       - name: Static checks the phone performs before it will run anything
         shell: bash
         run: |

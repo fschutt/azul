@@ -138,7 +138,11 @@ echo "==> aapt2 link (compile manifest)"
     -o base.apk
 
 echo "==> add lib/$ABI/libazul.so to APK"
-( cd lib && zip -r ../base.apk "$ABI/" >/dev/null )
+# zip from BUILD_DIR so entries carry the FULL lib/<abi>/ prefix. `cd lib`
+# stripped it, shipping the .so at <abi>/... where Android never looks —
+# every published APK crashed on launch with "Unable to find native
+# library" while installing fine (install does not read native lib paths).
+zip -r base.apk "lib/$ABI/" >/dev/null
 
 # Ship classes.dex inside the APK (at the root, where Android expects it).
 if [[ -n "$DEX_FILE" ]]; then

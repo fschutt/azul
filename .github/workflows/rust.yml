@@ -3394,6 +3394,23 @@ jobs:
 
             cp "$APK" "mobile-apps/${demo}-android.apk"
           done
+
+          # x86_64 build of the SELF-TEST only: the post-release watchdog runs
+          # it on an x86_64 emulator (GitHub runners cannot virtualize arm64),
+          # and an arm64-only APK turns that launch check into "Unable to find
+          # native library". Phones stay served by the arm64 APKs above.
+          echo "=== Android APK (x86_64 emulator variant): azul-self-test ==="
+          export CARGO_TARGET_X86_64_LINUX_ANDROID_LINKER="$NDKBIN/x86_64-linux-android24-clang"
+          export CARGO_TARGET_X86_64_LINUX_ANDROID_AR="$NDKBIN/llvm-ar"
+          AZ_ANDROID_NO_DEPLOY=1 \
+            bash scripts/build-android.sh x86_64-linux-android azul-self-test com.azul.azul_self_test azul-self-test
+          APK="target/android-bundle/azul-self-test-x86_64/aligned.apk"
+          [ -f "$APK" ] || { echo "::error::x86_64 self-test produced no APK at $APK"; exit 1; }
+          "$BT/apksigner" verify --verbose "$APK" \
+            || { echo "::error::x86_64 self-test APK is not validly signed"; exit 1; }
+          unzip -l "$APK" | grep -q 'lib/x86_64/.*\.so' \
+            || { echo "::error::x86_64 self-test APK has no lib/x86_64/*.so — native libs at the wrong path load on no device"; exit 1; }
+          cp "$APK" "mobile-apps/azul-self-test-android-x86_64.apk"
           ls -l mobile-apps
       - name: Upload mobile demo apps (Android)
         uses: actions/upload-artifact@v7
