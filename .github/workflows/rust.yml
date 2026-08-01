@@ -6266,11 +6266,17 @@ jobs:
           CIBW_BUILD: "cp310-*"
           CIBW_SKIP: "*-musllinux* *_i686 pp*"
           # The manylinux image needs the native build deps + a Rust toolchain.
+          # --default-toolchain 1.88.0 --profile minimal + RUSTUP_TOOLCHAIN:
+          # the env override takes precedence over rust-toolchain.toml, so
+          # rustup never tries to sync the file's clippy/rustfmt components
+          # inside the container. Latest rustup (since ~2026-07) dies there
+          # with "detected conflict: 'bin/cargo-clippy'" — and a wheel build
+          # needs neither component.
           CIBW_BEFORE_ALL_LINUX: >
             yum install -y clang mesa-libGL-devel libX11-devel ||
             (apt-get update && apt-get install -y clang libgl1-mesa-dev libx11-dev libv4l-dev);
-            curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
-          CIBW_ENVIRONMENT_LINUX: 'PATH="$HOME/.cargo/bin:$PATH"'
+            curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --default-toolchain 1.88.0 --profile minimal
+          CIBW_ENVIRONMENT_LINUX: 'PATH="$HOME/.cargo/bin:$PATH" RUSTUP_TOOLCHAIN=1.88.0'
           # Install each built wheel into a fresh env and prove it actually
           # imports + tears down — the regressions THIS release fixed:
           #   import azul        -> abi3 dso_local Py* stub SIGILL / OOM (undefined-Py* fix)
