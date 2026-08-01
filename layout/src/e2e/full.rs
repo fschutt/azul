@@ -1719,8 +1719,21 @@ pub enum DebugEvent {
         button: MouseButton,
     },
     DoubleClick {
-        x: f32,
-        y: f32,
+        /// X position (optional if `selector` / `node_id` / `text` is given)
+        #[serde(default)]
+        x: Option<f32>,
+        /// Y position (optional if `selector` / `node_id` / `text` is given)
+        #[serde(default)]
+        y: Option<f32>,
+        /// CSS selector to find and double-click
+        #[serde(default)]
+        selector: Option<String>,
+        /// Direct node ID to double-click
+        #[serde(default)]
+        node_id: Option<u64>,
+        /// Text content to find and double-click
+        #[serde(default)]
+        text: Option<String>,
         #[serde(default)]
         button: MouseButton,
     },
@@ -4230,6 +4243,95 @@ fn eval_assert_dom(
         "assert_dom: {} check(s) passed ({} nodes)",
         checks, dom.node_count
     ))
+}
+
+/// Resolve a pointer-event target to a window position: an explicit `(x, y)`,
+/// the centre of a node id, the centre of the first node matching a CSS
+/// selector, or the centre of the first node whose text contains `text`.
+///
+/// Shared by the `click` and `double_click` ops so both accept the same
+/// targeting parameters (coordinate-only targeting is brittle against layout
+/// changes).
+#[cfg(feature = "std")]
+fn resolve_click_position(
+    callback_info: &azul_layout::callbacks::CallbackInfo,
+    x: Option<&f32>,
+    y: Option<&f32>,
+    node_id: Option<&u64>,
+    selector: Option<&String>,
+    text: Option<&String>,
+) -> Option<(f32, f32)> {
+    use azul_core::{dom::DomNodeId, id::NodeId};
+
+    let centre = |nid: usize| -> Option<(f32, f32)> {
+        callback_info
+            .get_node_hit_test_bounds(DomNodeId {
+                dom: ROOT_DOM_ID,
+                node: Some(NodeId::new(nid)).into(),
+            })
+            .map(|rect| {
+                (
+                    rect.origin.x + rect.size.width / 2.0,
+                    rect.origin.y + rect.size.height / 2.0,
+                )
+            })
+    };
+
+    if let (Some(x), Some(y)) = (x, y) {
+        return Some((*x, *y));
+    }
+    if let Some(nid) = node_id {
+        return centre(*nid as usize);
+    }
+
+    let layout_window = callback_info.get_layout_window();
+    let layout_result = layout_window.layout_results.get(&ROOT_DOM_ID)?;
+    let styled_dom = &layout_result.styled_dom;
+    let node_data = styled_dom.node_data.as_container();
+
+    if let Some(sel) = selector {
+        use azul_core::style::matches_html_element;
+        use azul_css::parser2::parse_css_path;
+
+        let css_path = parse_css_path(sel.as_str()).ok()?;
+        let node_hierarchy = styled_dom.node_hierarchy.as_container();
+        let cascade_info = styled_dom.cascade_info.as_container();
+        for i in 0..node_data.len() {
+            if matches_html_element(
+                &css_path,
+                NodeId::new(i),
+                &node_hierarchy,
+                &node_data,
+                &cascade_info,
+                None,
+            ) {
+                if let Some(pos) = centre(i) {
+                    return Some(pos);
+                }
+            }
+        }
+        return None;
+    }
+
+    if let Some(txt) = text {
+        let hierarchy = styled_dom.node_hierarchy.as_container();
+        for i in 0..node_data.len() {
+            let azul_core::dom::NodeType::Text(t) = node_data[NodeId::new(i)].get_node_type()
+            else {
+                continue;
+            };
+            if !t.as_str().contains(txt.as_str()) {
+                continue;
+            }
+            // Text nodes often have no hit-test bounds of their own.
+            let node_hier = &hierarchy[NodeId::new(i)];
+            let parent_idx = if node_hier.parent > 0 { node_hier.parent - 1 } else { i };
+            if let Some(pos) = centre(parent_idx).or_else(|| centre(i)) {
+                return Some(pos);
+            }
+        }
+    }
+    None
 }
 
 /// `assert_layout`: assert a layout property (`x`, `y`, `width`, `height`)
@@ -11746,7 +11848,31 @@ pub fn process_debug_event(
             }
         }
 
-        DebugEvent::DoubleClick { x, y, button } => {
+        DebugEvent::DoubleClick {
+            x,
+            y,
+            selector,
+            node_id,
+            text,
+            button,
+        } => {
+            // Same target resolution as `click`: explicit position, node id,
+            // CSS selector or text content. Coordinate-only double-clicks are
+            // brittle against layout changes, and the ribbon's collapse
+            // gesture is exactly the case that needs selector targeting.
+            let Some((x, y)) = resolve_click_position(
+                callback_info,
+                x.as_ref(),
+                y.as_ref(),
+                node_id.as_ref(),
+                selector.as_ref(),
+                text.as_ref(),
+            ) else {
+                send_err(request, "double_click: could not resolve a target position");
+                return true;
+            };
+            let (x, y) = (&x, &y);
+
             log(
                 LogLevel::Debug,
                 LogCategory::EventLoop,
@@ -11754,29 +11880,32 @@ pub fn process_debug_event(
                 None,
             );
 
-            // For double click, we set the position and rely on timing
-            // In practice, we just do a click for now
+            // A real double click is TWO complete press/release cycles at the
+            // same position: the gesture manager's `detect_double_click`
+            // requires two *ended* input sessions within its time+distance
+            // thresholds (layout/src/managers/gesture.rs). A single
+            // press/release only ever produces one session, so the previous
+            // "just do a click for now" implementation could never fire a
+            // `HoverEventFilter::DoubleClick` handler.
             let mut new_state = callback_info.get_current_window_state().clone();
             new_state.mouse_state.cursor_position =
                 azul_core::window::CursorPosition::InWindow(LogicalPosition { x: *x, y: *y });
-            match button {
-                MouseButton::Left => {
-                    new_state.mouse_state.left_down = true;
-                    callback_info.modify_window_state(new_state.clone());
-                    new_state.mouse_state.left_down = false;
+
+            let set_button_down = |state: &mut azul_layout::window_state::FullWindowState,
+                                   down: bool| {
+                match button {
+                    MouseButton::Left => state.mouse_state.left_down = down,
+                    MouseButton::Right => state.mouse_state.right_down = down,
+                    MouseButton::Middle => state.mouse_state.middle_down = down,
                 }
-                MouseButton::Right => {
-                    new_state.mouse_state.right_down = true;
-                    callback_info.modify_window_state(new_state.clone());
-                    new_state.mouse_state.right_down = false;
-                }
-                MouseButton::Middle => {
-                    new_state.mouse_state.middle_down = true;
-                    callback_info.modify_window_state(new_state.clone());
-                    new_state.mouse_state.middle_down = false;
-                }
+            };
+
+            for _ in 0..2 {
+                set_button_down(&mut new_state, true);
+                callback_info.modify_window_state(new_state.clone());
+                set_button_down(&mut new_state, false);
+                callback_info.modify_window_state(new_state.clone());
             }
-            callback_info.modify_window_state(new_state);
             // NO `needs_update` — see the note on `process_debug_event`.
 
             send_ok(request, None, None);

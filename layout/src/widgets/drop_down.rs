@@ -226,6 +226,12 @@ pub struct DropDown {
     pub selected: usize,
     /// Optional callback invoked when the user picks a different choice.
     pub on_choice_change: OptionDropDownOnChoiceChange,
+    /// Style of the clickable trigger wrapper.
+    pub wrapper_style: CssPropertyWithConditionsVec,
+    /// Style of the selected-choice label.
+    pub label_style: CssPropertyWithConditionsVec,
+    /// Style of the drop-down arrow icon.
+    pub arrow_style: CssPropertyWithConditionsVec,
 }
 
 impl Default for DropDown {
@@ -234,6 +240,11 @@ impl Default for DropDown {
             choices: StringVec::from_const_slice(&[]),
             selected: 0,
             on_choice_change: None.into(),
+            wrapper_style: CssPropertyWithConditionsVec::from_const_slice(DROPDOWN_WRAPPER_STYLE),
+            label_style: CssPropertyWithConditionsVec::from_const_slice(DROPDOWN_LABEL_STYLE),
+            arrow_style: CssPropertyWithConditionsVec::from_const_slice(
+                DROPDOWN_ARROW_ICON_STYLE,
+            ),
         }
     }
 }
@@ -243,8 +254,7 @@ impl DropDown {
     #[must_use] pub fn new(choices: StringVec) -> Self {
         Self {
             choices,
-            selected: 0,
-            on_choice_change: None.into(),
+            ..Self::default()
         }
     }
 
@@ -282,13 +292,18 @@ impl DropDown {
             .cloned()
             .unwrap_or_else(|| AzString::from_const_str(""));
 
+        // The full widget state travels into the focus callback; the style
+        // vecs are pulled out first so the rendered nodes use them directly.
+        let wrapper_style = self.wrapper_style.clone();
+        let label_style = self.label_style.clone();
+        let arrow_style = self.arrow_style.clone();
         let refany = RefAny::new(self);
 
         // Wrapper: focusable trigger that opens popup on focus
-        
+
 
         Dom::create_div()
-            .with_css_props(CssPropertyWithConditionsVec::from_const_slice(DROPDOWN_WRAPPER_STYLE))
+            .with_css_props(wrapper_style)
             .with_ids_and_classes(IdOrClassVec::from_const_slice(DROPDOWN_CLASS))
             .with_tab_index(TabIndex::Auto)
             .with_callbacks(
@@ -305,13 +320,13 @@ impl DropDown {
             .with_children(DomVec::from_vec(vec![
                 // Selected text label wrapped in <p> for proper block formatting
                 Dom::create_p()
-                    .with_css_props(CssPropertyWithConditionsVec::from_const_slice(DROPDOWN_LABEL_STYLE))
+                    .with_css_props(label_style)
                     .with_children(DomVec::from_vec(vec![
                         Dom::create_text(selected_text),
                     ])),
                 // Arrow icon (resolved via Material Icons)
                 Dom::create_icon(AzString::from_const_str("arrow_drop_down"))
-                    .with_css_props(CssPropertyWithConditionsVec::from_const_slice(DROPDOWN_ARROW_ICON_STYLE)),
+                    .with_css_props(arrow_style),
             ]))
     }
 }
@@ -546,7 +561,7 @@ mod autotest_generated {
 
     /// Renders `dd`, then hands back both the DOM *and* the very `RefAny` the
     /// widget registered on its own focus callback. Driving `on_dropdown_click`
-    /// with that `RefAny` is the real wiring — nothing is re-created by hand, so
+    /// with that `RefAny` is the real wiring - nothing is re-created by hand, so
     /// a mismatch between what `dom()` stores and what the handler expects
     /// cannot hide behind the fixture.
     fn rendered(dd: DropDown) -> (Dom, RefAny) {
@@ -606,7 +621,7 @@ mod autotest_generated {
 
     /// A `DomLayoutResult` carrying only a `styled_dom` plus (optionally) one
     /// forged hit-test area. The dropdown handler reaches exactly one geometry
-    /// query (`get_node_hit_test_bounds`), which reads the display list only —
+    /// query (`get_node_hit_test_bounds`), which reads the display list only -
     /// no real layout (and no font) is needed.
     fn layout_result(styled_dom: StyledDom, anchor: Option<(NodeId, LogicalRect)>) -> DomLayoutResult {
         let mut display_list = DisplayList::default();
@@ -639,7 +654,7 @@ mod autotest_generated {
     }
 
     /// Runs `f` with a callback environment over an empty `LayoutWindow` and no
-    /// hit node — the "nothing to anchor to" case.
+    /// hit node - the "nothing to anchor to" case.
     fn with_env<R>(f: impl FnOnce(&Env<'_>) -> R) -> R {
         with_env_cfg(None, f)
     }

@@ -1325,11 +1325,18 @@ pub fn render_single_item(
             styles,
             border_radius,
         } => {
+            // An unset border color paints NOTHING. This must stay fully
+            // transparent: the compact style cache encodes colors as one u32
+            // and cannot distinguish "unset" (raw 0) from explicit
+            // transparent black {0,0,0,0} — both arrive here as `None`, and
+            // both mean "no visible border". An opaque default would paint
+            // phantom black borders on every node that sets border
+            // width+style with a transparent color (e.g. hover-only borders).
             let default_color = ColorU {
                 r: 0,
                 g: 0,
                 b: 0,
-                a: 255,
+                a: 0,
             };
 
             let w_top = widths

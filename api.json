@@ -14485,6 +14485,25 @@
                             }
                         ],
                         "repr": "C"
+                    },
+                    "RibbonGalleryOnSelectCallbackType": {
+                        "external": "azul_layout::widgets::ribbon::RibbonGalleryOnSelectCallbackType",
+                        "callback_typedef": {
+                            "fn_args": [
+                                {
+                                    "type": "RefAny"
+                                },
+                                {
+                                    "type": "CallbackInfo"
+                                },
+                                {
+                                    "type": "usize"
+                                }
+                            ],
+                            "returns": {
+                                "type": "Update"
+                            }
+                        }
                     }
                 }
             },
@@ -23807,6 +23826,38 @@
                                     "doc": [
                                         "Number of elements in the slice"
                                     ]
+                                }
+                            }
+                        ],
+                        "repr": "C"
+                    },
+                    "RibbonGalleryOnSelectCallback": {
+                        "external": "azul_layout::widgets::ribbon::RibbonGalleryOnSelectCallback",
+                        "custom_impls": [
+                            "Clone",
+                            "Debug",
+                            "Eq",
+                            "Hash",
+                            "Ord",
+                            "PartialEq",
+                            "PartialOrd"
+                        ],
+                        "derive": [
+                            "Clone",
+                            "Debug",
+                            "Hash",
+                            "PartialEq",
+                            "Eq",
+                            "PartialOrd",
+                            "Ord"
+                        ],
+                        "struct_fields": [
+                            {
+                                "cb": {
+                                    "type": "RibbonGalleryOnSelectCallbackType"
+                                },
+                                "callable": {
+                                    "type": "OptionRefAny"
                                 }
                             }
                         ],
@@ -44089,6 +44140,12 @@
                                 "image": {
                                     "type": "OptionImageRef"
                                 },
+                                "icon": {
+                                    "type": "String"
+                                },
+                                "trailing_icon": {
+                                    "type": "String"
+                                },
                                 "button_type": {
                                     "type": "ButtonType"
                                 },
@@ -44099,6 +44156,12 @@
                                     "type": "CssPropertyWithConditionsVec"
                                 },
                                 "image_style": {
+                                    "type": "CssPropertyWithConditionsVec"
+                                },
+                                "icon_style": {
+                                    "type": "CssPropertyWithConditionsVec"
+                                },
+                                "trailing_icon_style": {
                                     "type": "CssPropertyWithConditionsVec"
                                 },
                                 "on_click": {
@@ -44228,6 +44291,68 @@
                                     }
                                 ],
                                 "fn_body": "object.set_image(image)"
+                            },
+                            "set_icon": {
+                                "doc": [
+                                    "Sets the leading icon name (empty string clears it)."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "refmut"
+                                    },
+                                    {
+                                        "icon": "String"
+                                    }
+                                ],
+                                "fn_body": "object.set_icon(icon)"
+                            },
+                            "with_icon": {
+                                "doc": [
+                                    "Builder method to set the leading icon name."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "value"
+                                    },
+                                    {
+                                        "icon": "String"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "Button"
+                                },
+                                "fn_body": "object.with_icon(icon)"
+                            },
+                            "set_trailing_icon": {
+                                "doc": [
+                                    "Sets the trailing icon name (empty string clears it)."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "refmut"
+                                    },
+                                    {
+                                        "icon": "String"
+                                    }
+                                ],
+                                "fn_body": "object.set_trailing_icon(icon)"
+                            },
+                            "with_trailing_icon": {
+                                "doc": [
+                                    "Builder method to set the trailing icon name."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "value"
+                                    },
+                                    {
+                                        "icon": "String"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "Button"
+                                },
+                                "fn_body": "object.with_trailing_icon(icon)"
                             }
                         },
                         "repr": "C"
@@ -45066,6 +45191,15 @@
                                 },
                                 "on_choice_change": {
                                     "type": "OptionDropDownOnChoiceChange"
+                                },
+                                "wrapper_style": {
+                                    "type": "CssPropertyWithConditionsVec"
+                                },
+                                "label_style": {
+                                    "type": "CssPropertyWithConditionsVec"
+                                },
+                                "arrow_style": {
+                                    "type": "CssPropertyWithConditionsVec"
                                 }
                             }
                         ],
@@ -47423,37 +47557,6 @@
                         ],
                         "repr": "C"
                     },
-                    "RibbonSection": {
-                        "external": "azul_layout::widgets::ribbon::RibbonSection",
-                        "derive": [
-                            "Debug",
-                            "Clone"
-                        ],
-                        "struct_fields": [
-                            {
-                                "title": {
-                                    "type": "String"
-                                },
-                                "content": {
-                                    "type": "Dom"
-                                }
-                            }
-                        ],
-                        "constructors": {
-                            "new": {
-                                "fn_args": [
-                                    {
-                                        "title": "String"
-                                    },
-                                    {
-                                        "content": "Dom"
-                                    }
-                                ],
-                                "fn_body": "azul_layout::widgets::ribbon::RibbonSection::new(title, content)"
-                            }
-                        },
-                        "repr": "C"
-                    },
                     "RibbonTab": {
                         "external": "azul_layout::widgets::ribbon::RibbonTab",
                         "derive": [
@@ -47465,13 +47568,16 @@
                                 "label": {
                                     "type": "String"
                                 },
-                                "sections": {
-                                    "type": "RibbonSectionVec"
+                                "groups": {
+                                    "type": "RibbonGroupVec"
                                 }
                             }
                         ],
                         "constructors": {
                             "new": {
+                                "doc": [
+                                    "Creates a new tab with the given label and no groups."
+                                ],
                                 "fn_args": [
                                     {
                                         "label": "String"
@@ -47481,30 +47587,36 @@
                             }
                         },
                         "functions": {
-                            "add_section": {
+                            "add_group": {
+                                "doc": [
+                                    "Appends a group to this tab."
+                                ],
                                 "fn_args": [
                                     {
                                         "self": "refmut"
                                     },
                                     {
-                                        "section": "RibbonSection"
+                                        "group": "RibbonGroup"
                                     }
                                 ],
-                                "fn_body": "object.add_section(section)"
+                                "fn_body": "object.add_group(group)"
                             },
-                            "with_section": {
+                            "with_group": {
+                                "doc": [
+                                    "Builder method: appends a group and returns `self`."
+                                ],
                                 "fn_args": [
                                     {
                                         "self": "value"
                                     },
                                     {
-                                        "section": "RibbonSection"
+                                        "group": "RibbonGroup"
                                     }
                                 ],
                                 "returns": {
                                     "type": "RibbonTab"
                                 },
-                                "fn_body": "object.with_section(section)"
+                                "fn_body": "object.with_group(group)"
                             }
                         },
                         "repr": "C"
@@ -47517,6 +47629,9 @@
                         ],
                         "struct_fields": [
                             {
+                                "app_button": {
+                                    "type": "OptionRibbonAppButton"
+                                },
                                 "tabs": {
                                     "type": "RibbonTabVec"
                                 },
@@ -47525,11 +47640,21 @@
                                 },
                                 "on_tab_click": {
                                     "type": "OptionRibbonOnTabClick"
+                                },
+                                "style": {
+                                    "type": "RibbonStyle"
+                                },
+                                "behavior": {
+                                    "type": "RibbonBehavior"
                                 }
                             }
                         ],
                         "constructors": {
                             "new": {
+                                "doc": [
+                                    "Creates a new ribbon with the given tabs, the first tab active and the",
+                                    "Word 2013 default style."
+                                ],
                                 "fn_args": [
                                     {
                                         "tabs": "RibbonTabVec"
@@ -47540,6 +47665,9 @@
                         },
                         "functions": {
                             "set_active_tab": {
+                                "doc": [
+                                    "Sets the active tab by index, clamping to the last valid tab."
+                                ],
                                 "fn_args": [
                                     {
                                         "self": "refmut"
@@ -47551,6 +47679,9 @@
                                 "fn_body": "object.set_active_tab(index)"
                             },
                             "set_on_tab_click": {
+                                "doc": [
+                                    "Registers a callback invoked when a tab is clicked."
+                                ],
                                 "fn_args": [
                                     {
                                         "self": "refmut"
@@ -47565,6 +47696,9 @@
                                 "fn_body": "object.set_on_tab_click(data, cb)"
                             },
                             "with_on_tab_click": {
+                                "doc": [
+                                    "Builder method: registers a tab-click callback and returns `self`."
+                                ],
                                 "fn_args": [
                                     {
                                         "self": "value"
@@ -47582,6 +47716,9 @@
                                 "fn_body": "object.with_on_tab_click(data, cb)"
                             },
                             "dom": {
+                                "doc": [
+                                    "Builds the ribbon DOM: the tab strip and the active tab's groups."
+                                ],
                                 "fn_args": [
                                     {
                                         "self": "value"
@@ -47591,6 +47728,116 @@
                                     "type": "Dom"
                                 },
                                 "fn_body": "object.dom()"
+                            },
+                            "set_app_button": {
+                                "doc": [
+                                    "Sets the application button (\"FILE\")."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "refmut"
+                                    },
+                                    {
+                                        "app_button": "RibbonAppButton"
+                                    }
+                                ],
+                                "fn_body": "object.set_app_button(app_button)"
+                            },
+                            "with_app_button": {
+                                "doc": [
+                                    "Builder method: sets the application button and returns `self`."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "value"
+                                    },
+                                    {
+                                        "app_button": "RibbonAppButton"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "Ribbon"
+                                },
+                                "fn_body": "object.with_app_button(app_button)"
+                            },
+                            "set_style": {
+                                "doc": [
+                                    "Replaces the whole style bundle."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "refmut"
+                                    },
+                                    {
+                                        "style": "RibbonStyle"
+                                    }
+                                ],
+                                "fn_body": "object.set_style(style)"
+                            },
+                            "with_style": {
+                                "doc": [
+                                    "Builder method: replaces the style bundle and returns `self`."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "value"
+                                    },
+                                    {
+                                        "style": "RibbonStyle"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "Ribbon"
+                                },
+                                "fn_body": "object.with_style(style)"
+                            },
+                            "with_active_tab": {
+                                "doc": [
+                                    "Builder method: sets the active tab (clamped) and returns `self`."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "value"
+                                    },
+                                    {
+                                        "index": "usize"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "Ribbon"
+                                },
+                                "fn_body": "object.with_active_tab(index)"
+                            },
+                            "set_behavior": {
+                                "doc": [
+                                    "Replaces the self-driven behavior set (collapse, peek, gallery)."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "refmut"
+                                    },
+                                    {
+                                        "behavior": "RibbonBehavior"
+                                    }
+                                ],
+                                "fn_body": "object.set_behavior(behavior)"
+                            },
+                            "with_behavior": {
+                                "doc": [
+                                    "Builder method: replaces the behavior set and returns `self`."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "value"
+                                    },
+                                    {
+                                        "behavior": "RibbonBehavior"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "Ribbon"
+                                },
+                                "fn_body": "object.with_behavior(behavior)"
                             }
                         },
                         "repr": "C"
@@ -47817,32 +48064,6 @@
                                 },
                                 "callback": {
                                     "type": "TreeViewOnNodeClickCallback"
-                                }
-                            }
-                        ],
-                        "repr": "C"
-                    },
-                    "RibbonSectionVecSlice": {
-                        "external": "azul_layout::widgets::ribbon::RibbonSectionVecSlice",
-                        "derive": [
-                            "Debug",
-                            "Clone",
-                            "Copy"
-                        ],
-                        "struct_fields": [
-                            {
-                                "ptr": {
-                                    "type": "RibbonSection",
-                                    "ref_kind": "constptr",
-                                    "doc": [
-                                        "Pointer to the slice data"
-                                    ]
-                                },
-                                "len": {
-                                    "type": "usize",
-                                    "doc": [
-                                        "Number of elements in the slice"
-                                    ]
                                 }
                             }
                         ],
@@ -51805,6 +52026,24 @@
                                 },
                                 "placeholder": {
                                     "type": "String"
+                                },
+                                "wrapper_style": {
+                                    "type": "CssPropertyWithConditionsVec"
+                                },
+                                "field_style": {
+                                    "type": "CssPropertyWithConditionsVec"
+                                },
+                                "text_style": {
+                                    "type": "CssPropertyWithConditionsVec"
+                                },
+                                "arrow_style": {
+                                    "type": "CssPropertyWithConditionsVec"
+                                },
+                                "option_style": {
+                                    "type": "CssPropertyWithConditionsVec"
+                                },
+                                "list_style": {
+                                    "type": "CssPropertyWithConditionsVec"
                                 }
                             }
                         ],
@@ -54075,6 +54314,1060 @@
                                 }
                             }
                         ],
+                        "repr": "C"
+                    },
+                    "RibbonGalleryOnSelect": {
+                        "external": "azul_layout::widgets::ribbon::RibbonGalleryOnSelect",
+                        "custom_impls": [
+                            "Clone",
+                            "Debug",
+                            "Eq",
+                            "Hash",
+                            "Ord",
+                            "PartialEq",
+                            "PartialOrd"
+                        ],
+                        "derive": [
+                            "Clone",
+                            "Debug",
+                            "Hash",
+                            "PartialEq",
+                            "Eq",
+                            "PartialOrd",
+                            "Ord"
+                        ],
+                        "struct_fields": [
+                            {
+                                "data": {
+                                    "type": "RefAny"
+                                },
+                                "callback": {
+                                    "type": "RibbonGalleryOnSelectCallback"
+                                }
+                            }
+                        ],
+                        "repr": "C"
+                    },
+                    "RibbonArrow": {
+                        "external": "azul_layout::widgets::ribbon::RibbonArrow",
+                        "derive": [
+                            "Debug",
+                            "Clone",
+                            "Copy",
+                            "PartialEq",
+                            "Eq",
+                            "PartialOrd",
+                            "Ord",
+                            "Hash",
+                            "Default"
+                        ],
+                        "enum_fields": [
+                            {
+                                "None": {},
+                                "Menu": {},
+                                "Split": {}
+                            }
+                        ],
+                        "repr": "C"
+                    },
+                    "RibbonGallery": {
+                        "external": "azul_layout::widgets::ribbon::RibbonGallery",
+                        "derive": [
+                            "Debug",
+                            "Clone"
+                        ],
+                        "struct_fields": [
+                            {
+                                "cells": {
+                                    "type": "RibbonGalleryCellVec"
+                                },
+                                "selected": {
+                                    "type": "usize"
+                                },
+                                "on_select": {
+                                    "type": "OptionRibbonGalleryOnSelect"
+                                }
+                            }
+                        ],
+                        "constructors": {
+                            "new": {
+                                "doc": [
+                                    "Creates a gallery from its cells; cell 0 is selected."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "cells": "RibbonGalleryCellVec"
+                                    }
+                                ],
+                                "fn_body": "azul_layout::widgets::ribbon::RibbonGallery::new(cells)"
+                            }
+                        },
+                        "functions": {
+                            "with_selected": {
+                                "doc": [
+                                    "Builder method: sets the selected cell index and returns `self`."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "value"
+                                    },
+                                    {
+                                        "selected": "usize"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "RibbonGallery"
+                                },
+                                "fn_body": "object.with_selected(selected)"
+                            },
+                            "set_on_select": {
+                                "doc": [
+                                    "Sets the cell-click callback."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "refmut"
+                                    },
+                                    {
+                                        "data": "RefAny"
+                                    },
+                                    {
+                                        "on_select": "RibbonGalleryOnSelectCallback"
+                                    }
+                                ],
+                                "fn_body": "object.set_on_select(data, on_select)"
+                            },
+                            "with_on_select": {
+                                "doc": [
+                                    "Builder method: sets the cell-click callback and returns `self`."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "value"
+                                    },
+                                    {
+                                        "data": "RefAny"
+                                    },
+                                    {
+                                        "on_select": "RibbonGalleryOnSelectCallback"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "RibbonGallery"
+                                },
+                                "fn_body": "object.with_on_select(data, on_select)"
+                            }
+                        },
+                        "repr": "C"
+                    },
+                    "RibbonRow": {
+                        "external": "azul_layout::widgets::ribbon::RibbonRow",
+                        "custom_impls": [
+                            "Default"
+                        ],
+                        "derive": [
+                            "Debug",
+                            "Clone"
+                        ],
+                        "struct_fields": [
+                            {
+                                "items": {
+                                    "type": "RibbonItemVec"
+                                }
+                            }
+                        ],
+                        "constructors": {
+                            "new": {
+                                "doc": [
+                                    "Creates an empty row."
+                                ],
+                                "fn_args": [],
+                                "fn_body": "azul_layout::widgets::ribbon::RibbonRow::new()"
+                            }
+                        },
+                        "functions": {
+                            "add_item": {
+                                "doc": [
+                                    "Appends an item to this row."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "refmut"
+                                    },
+                                    {
+                                        "item": "RibbonItem"
+                                    }
+                                ],
+                                "fn_body": "object.add_item(item)"
+                            },
+                            "with_item": {
+                                "doc": [
+                                    "Builder method: appends an item and returns `self`."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "value"
+                                    },
+                                    {
+                                        "item": "RibbonItem"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "RibbonRow"
+                                },
+                                "fn_body": "object.with_item(item)"
+                            }
+                        },
+                        "repr": "C"
+                    },
+                    "RibbonGalleryCell": {
+                        "external": "azul_layout::widgets::ribbon::RibbonGalleryCell",
+                        "derive": [
+                            "Debug",
+                            "Clone"
+                        ],
+                        "struct_fields": [
+                            {
+                                "preview": {
+                                    "type": "Dom"
+                                },
+                                "label": {
+                                    "type": "String"
+                                }
+                            }
+                        ],
+                        "constructors": {
+                            "new": {
+                                "doc": [
+                                    "Creates a cell from a preview subtree and a name label."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "preview": "Dom"
+                                    },
+                                    {
+                                        "label": "String"
+                                    }
+                                ],
+                                "fn_body": "azul_layout::widgets::ribbon::RibbonGalleryCell::new(preview, label)"
+                            }
+                        },
+                        "repr": "C"
+                    },
+                    "RibbonColumn": {
+                        "external": "azul_layout::widgets::ribbon::RibbonColumn",
+                        "custom_impls": [
+                            "Default"
+                        ],
+                        "derive": [
+                            "Debug",
+                            "Clone"
+                        ],
+                        "struct_fields": [
+                            {
+                                "items": {
+                                    "type": "RibbonItemVec"
+                                }
+                            }
+                        ],
+                        "constructors": {
+                            "new": {
+                                "doc": [
+                                    "Creates an empty column."
+                                ],
+                                "fn_args": [],
+                                "fn_body": "azul_layout::widgets::ribbon::RibbonColumn::new()"
+                            }
+                        },
+                        "functions": {
+                            "add_item": {
+                                "doc": [
+                                    "Appends an item to this column."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "refmut"
+                                    },
+                                    {
+                                        "item": "RibbonItem"
+                                    }
+                                ],
+                                "fn_body": "object.add_item(item)"
+                            },
+                            "with_item": {
+                                "doc": [
+                                    "Builder method: appends an item and returns `self`."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "value"
+                                    },
+                                    {
+                                        "item": "RibbonItem"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "RibbonColumn"
+                                },
+                                "fn_body": "object.with_item(item)"
+                            }
+                        },
+                        "repr": "C"
+                    },
+                    "RibbonItem": {
+                        "external": "azul_layout::widgets::ribbon::RibbonItem",
+                        "derive": [
+                            "Debug",
+                            "Clone"
+                        ],
+                        "enum_fields": [
+                            {
+                                "LargeButton": {
+                                    "type": "RibbonButton"
+                                },
+                                "SmallButton": {
+                                    "type": "RibbonButton"
+                                },
+                                "Column": {
+                                    "type": "RibbonColumn"
+                                },
+                                "Row": {
+                                    "type": "RibbonRow"
+                                },
+                                "Combo": {
+                                    "type": "ComboBox"
+                                },
+                                "Drop": {
+                                    "type": "DropDown"
+                                },
+                                "Check": {
+                                    "type": "CheckBox"
+                                },
+                                "Gallery": {
+                                    "type": "RibbonGallery"
+                                },
+                                "Separator": {},
+                                "Custom": {
+                                    "type": "Dom"
+                                }
+                            }
+                        ],
+                        "repr": "C, u8"
+                    },
+                    "RibbonGroup": {
+                        "external": "azul_layout::widgets::ribbon::RibbonGroup",
+                        "derive": [
+                            "Debug",
+                            "Clone"
+                        ],
+                        "struct_fields": [
+                            {
+                                "label": {
+                                    "type": "String"
+                                },
+                                "items": {
+                                    "type": "RibbonItemVec"
+                                },
+                                "launcher": {
+                                    "type": "OptionButtonOnClick"
+                                },
+                                "fills_space": {
+                                    "type": "bool"
+                                }
+                            }
+                        ],
+                        "constructors": {
+                            "new": {
+                                "doc": [
+                                    "Creates a new group with the given caption and no items."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "label": "String"
+                                    }
+                                ],
+                                "fn_body": "azul_layout::widgets::ribbon::RibbonGroup::new(label)"
+                            }
+                        },
+                        "functions": {
+                            "with_fills_space": {
+                                "doc": [
+                                    "Builder method: makes this group absorb the remaining ribbon width."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "value"
+                                    },
+                                    {
+                                        "fills_space": "bool"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "RibbonGroup"
+                                },
+                                "fn_body": "object.with_fills_space(fills_space)"
+                            },
+                            "add_item": {
+                                "doc": [
+                                    "Appends an item to this group."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "refmut"
+                                    },
+                                    {
+                                        "item": "RibbonItem"
+                                    }
+                                ],
+                                "fn_body": "object.add_item(item)"
+                            },
+                            "with_item": {
+                                "doc": [
+                                    "Builder method: appends an item and returns `self`."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "value"
+                                    },
+                                    {
+                                        "item": "RibbonItem"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "RibbonGroup"
+                                },
+                                "fn_body": "object.with_item(item)"
+                            },
+                            "set_launcher": {
+                                "doc": [
+                                    "Sets the dialog-box-launcher callback (renders the launcher button)."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "refmut"
+                                    },
+                                    {
+                                        "data": "RefAny"
+                                    },
+                                    {
+                                        "on_click": "ButtonOnClickCallback"
+                                    }
+                                ],
+                                "fn_body": "object.set_launcher(data, on_click)"
+                            },
+                            "with_launcher": {
+                                "doc": [
+                                    "Builder method: sets the launcher callback and returns `self`."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "value"
+                                    },
+                                    {
+                                        "data": "RefAny"
+                                    },
+                                    {
+                                        "on_click": "ButtonOnClickCallback"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "RibbonGroup"
+                                },
+                                "fn_body": "object.with_launcher(data, on_click)"
+                            }
+                        },
+                        "repr": "C"
+                    },
+                    "RibbonButton": {
+                        "external": "azul_layout::widgets::ribbon::RibbonButton",
+                        "derive": [
+                            "Debug",
+                            "Clone"
+                        ],
+                        "struct_fields": [
+                            {
+                                "icon": {
+                                    "type": "String"
+                                },
+                                "label": {
+                                    "type": "String"
+                                },
+                                "arrow": {
+                                    "type": "RibbonArrow"
+                                },
+                                "toggled": {
+                                    "type": "bool"
+                                },
+                                "on_click": {
+                                    "type": "OptionButtonOnClick"
+                                }
+                            }
+                        ],
+                        "constructors": {
+                            "new": {
+                                "doc": [
+                                    "Creates a plain button with an icon and a label (both may be empty)."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "icon": "String"
+                                    },
+                                    {
+                                        "label": "String"
+                                    }
+                                ],
+                                "fn_body": "azul_layout::widgets::ribbon::RibbonButton::new(icon, label)"
+                            }
+                        },
+                        "functions": {
+                            "with_arrow": {
+                                "doc": [
+                                    "Builder method: sets the arrow decoration and returns `self`."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "value"
+                                    },
+                                    {
+                                        "arrow": "RibbonArrow"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "RibbonButton"
+                                },
+                                "fn_body": "object.with_arrow(arrow)"
+                            },
+                            "with_toggled": {
+                                "doc": [
+                                    "Builder method: sets the toggled state and returns `self`."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "value"
+                                    },
+                                    {
+                                        "toggled": "bool"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "RibbonButton"
+                                },
+                                "fn_body": "object.with_toggled(toggled)"
+                            },
+                            "set_on_click": {
+                                "doc": [
+                                    "Sets the click callback."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "refmut"
+                                    },
+                                    {
+                                        "data": "RefAny"
+                                    },
+                                    {
+                                        "on_click": "ButtonOnClickCallback"
+                                    }
+                                ],
+                                "fn_body": "object.set_on_click(data, on_click)"
+                            },
+                            "with_on_click": {
+                                "doc": [
+                                    "Builder method: sets the click callback and returns `self`."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "value"
+                                    },
+                                    {
+                                        "data": "RefAny"
+                                    },
+                                    {
+                                        "on_click": "ButtonOnClickCallback"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "RibbonButton"
+                                },
+                                "fn_body": "object.with_on_click(data, on_click)"
+                            }
+                        },
+                        "repr": "C"
+                    },
+                    "RibbonStyle": {
+                        "external": "azul_layout::widgets::ribbon::RibbonStyle",
+                        "custom_impls": [
+                            "Default"
+                        ],
+                        "derive": [
+                            "Debug",
+                            "Clone",
+                            "PartialEq"
+                        ],
+                        "struct_fields": [
+                            {
+                                "theme": {
+                                    "type": "RibbonTheme"
+                                },
+                                "container_style": {
+                                    "type": "CssPropertyWithConditionsVec"
+                                },
+                                "tab_bar_style": {
+                                    "type": "CssPropertyWithConditionsVec"
+                                },
+                                "app_button_style": {
+                                    "type": "CssPropertyWithConditionsVec"
+                                },
+                                "tab_style": {
+                                    "type": "CssPropertyWithConditionsVec"
+                                },
+                                "tab_active_style": {
+                                    "type": "CssPropertyWithConditionsVec"
+                                },
+                                "tab_filler_style": {
+                                    "type": "CssPropertyWithConditionsVec"
+                                },
+                                "content_style": {
+                                    "type": "CssPropertyWithConditionsVec"
+                                },
+                                "group_style": {
+                                    "type": "CssPropertyWithConditionsVec"
+                                },
+                                "group_items_style": {
+                                    "type": "CssPropertyWithConditionsVec"
+                                },
+                                "group_footer_style": {
+                                    "type": "CssPropertyWithConditionsVec"
+                                },
+                                "group_label_style": {
+                                    "type": "CssPropertyWithConditionsVec"
+                                },
+                                "footer_spacer_style": {
+                                    "type": "CssPropertyWithConditionsVec"
+                                },
+                                "launcher_button_style": {
+                                    "type": "CssPropertyWithConditionsVec"
+                                },
+                                "launcher_icon_style": {
+                                    "type": "CssPropertyWithConditionsVec"
+                                },
+                                "column_style": {
+                                    "type": "CssPropertyWithConditionsVec"
+                                },
+                                "row_style": {
+                                    "type": "CssPropertyWithConditionsVec"
+                                },
+                                "separator_style": {
+                                    "type": "CssPropertyWithConditionsVec"
+                                },
+                                "large_button_style": {
+                                    "type": "CssPropertyWithConditionsVec"
+                                },
+                                "large_icon_style": {
+                                    "type": "CssPropertyWithConditionsVec"
+                                },
+                                "large_label_style": {
+                                    "type": "CssPropertyWithConditionsVec"
+                                },
+                                "small_button_style": {
+                                    "type": "CssPropertyWithConditionsVec"
+                                },
+                                "small_icon_style": {
+                                    "type": "CssPropertyWithConditionsVec"
+                                },
+                                "small_label_style": {
+                                    "type": "CssPropertyWithConditionsVec"
+                                },
+                                "arrow_icon_style": {
+                                    "type": "CssPropertyWithConditionsVec"
+                                },
+                                "checked_style": {
+                                    "type": "CssPropertyWithConditionsVec"
+                                },
+                                "gallery_frame_style": {
+                                    "type": "CssPropertyWithConditionsVec"
+                                },
+                                "gallery_strip_style": {
+                                    "type": "CssPropertyWithConditionsVec"
+                                },
+                                "gallery_cell_style": {
+                                    "type": "CssPropertyWithConditionsVec"
+                                },
+                                "gallery_cell_selected_style": {
+                                    "type": "CssPropertyWithConditionsVec"
+                                },
+                                "gallery_cell_label_style": {
+                                    "type": "CssPropertyWithConditionsVec"
+                                },
+                                "gallery_spinner_style": {
+                                    "type": "CssPropertyWithConditionsVec"
+                                },
+                                "gallery_wrapper_style": {
+                                    "type": "CssPropertyWithConditionsVec"
+                                },
+                                "gallery_panel_style": {
+                                    "type": "CssPropertyWithConditionsVec"
+                                },
+                                "gallery_spinner_button_style": {
+                                    "type": "CssPropertyWithConditionsVec"
+                                },
+                                "gallery_spinner_icon_style": {
+                                    "type": "CssPropertyWithConditionsVec"
+                                }
+                            }
+                        ],
+                        "constructors": {
+                            "word_2013": {
+                                "doc": [
+                                    "The Word 2013 look (white chrome, #2B579A accents) - the default."
+                                ],
+                                "fn_args": [],
+                                "fn_body": "azul_layout::widgets::ribbon::RibbonStyle::word_2013()"
+                            },
+                            "from_theme": {
+                                "doc": [
+                                    "Derives every part style from the given palette. This is the styling",
+                                    "override API: build a [`RibbonTheme`] (or start from a preset), then",
+                                    "replace individual `*_style` fields for finer control."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "theme": "RibbonTheme"
+                                    }
+                                ],
+                                "fn_body": "azul_layout::widgets::ribbon::RibbonStyle::from_theme(theme)"
+                            },
+                            "from_system": {
+                                "doc": [
+                                    "Derives the ribbon style from the OS theme (see",
+                                    "[`RibbonTheme::from_system`]). Pass `SystemStyle::detect()` for the",
+                                    "live system look, e.g. to render a \"system native\" ribbon."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "style": "SystemStyle"
+                                    }
+                                ],
+                                "fn_body": "azul_layout::widgets::ribbon::RibbonStyle::from_system(style)"
+                            }
+                        },
+                        "functions": {
+                            "styled_combo_box": {
+                                "doc": [
+                                    "Returns a [`ComboBox`] with this ribbon's field look injected through",
+                                    "the combobox's public style fields (flat 1px #ABABAB border, 22px",
+                                    "field, 12px text - the Word 2013 font-name/font-size pickers).",
+                                    "`width` is the total field width in px. Demonstrates (and exercises)",
+                                    "the widget style-injection API; tweak the returned combobox further by",
+                                    "replacing any of its `*_style` fields."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    },
+                                    {
+                                        "items": "StringVec"
+                                    },
+                                    {
+                                        "text": "String"
+                                    },
+                                    {
+                                        "width": "isize"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "ComboBox"
+                                },
+                                "fn_body": "object.styled_combo_box(items, text, width)"
+                            }
+                        },
+                        "repr": "C"
+                    },
+                    "RibbonAppButton": {
+                        "external": "azul_layout::widgets::ribbon::RibbonAppButton",
+                        "derive": [
+                            "Debug",
+                            "Clone"
+                        ],
+                        "struct_fields": [
+                            {
+                                "label": {
+                                    "type": "String"
+                                },
+                                "on_click": {
+                                    "type": "OptionButtonOnClick"
+                                }
+                            }
+                        ],
+                        "constructors": {
+                            "new": {
+                                "doc": [
+                                    "Creates an application button with the given label and no callback."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "label": "String"
+                                    }
+                                ],
+                                "fn_body": "azul_layout::widgets::ribbon::RibbonAppButton::new(label)"
+                            }
+                        },
+                        "functions": {
+                            "set_on_click": {
+                                "doc": [
+                                    "Sets the click callback."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "refmut"
+                                    },
+                                    {
+                                        "data": "RefAny"
+                                    },
+                                    {
+                                        "on_click": "ButtonOnClickCallback"
+                                    }
+                                ],
+                                "fn_body": "object.set_on_click(data, on_click)"
+                            },
+                            "with_on_click": {
+                                "doc": [
+                                    "Builder method: sets the click callback and returns `self`."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "value"
+                                    },
+                                    {
+                                        "data": "RefAny"
+                                    },
+                                    {
+                                        "on_click": "ButtonOnClickCallback"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "RibbonAppButton"
+                                },
+                                "fn_body": "object.with_on_click(data, on_click)"
+                            }
+                        },
+                        "repr": "C"
+                    },
+                    "RibbonItemVecSlice": {
+                        "external": "azul_layout::widgets::ribbon::RibbonItemVecSlice",
+                        "derive": [
+                            "Debug",
+                            "Clone",
+                            "Copy"
+                        ],
+                        "struct_fields": [
+                            {
+                                "ptr": {
+                                    "type": "RibbonItem",
+                                    "ref_kind": "constptr",
+                                    "doc": [
+                                        "Pointer to the slice data"
+                                    ]
+                                },
+                                "len": {
+                                    "type": "usize",
+                                    "doc": [
+                                        "Number of elements in the slice"
+                                    ]
+                                }
+                            }
+                        ],
+                        "repr": "C"
+                    },
+                    "RibbonGalleryCellVecSlice": {
+                        "external": "azul_layout::widgets::ribbon::RibbonGalleryCellVecSlice",
+                        "derive": [
+                            "Debug",
+                            "Clone",
+                            "Copy"
+                        ],
+                        "struct_fields": [
+                            {
+                                "ptr": {
+                                    "type": "RibbonGalleryCell",
+                                    "ref_kind": "constptr",
+                                    "doc": [
+                                        "Pointer to the slice data"
+                                    ]
+                                },
+                                "len": {
+                                    "type": "usize",
+                                    "doc": [
+                                        "Number of elements in the slice"
+                                    ]
+                                }
+                            }
+                        ],
+                        "repr": "C"
+                    },
+                    "RibbonGroupVecSlice": {
+                        "external": "azul_layout::widgets::ribbon::RibbonGroupVecSlice",
+                        "derive": [
+                            "Debug",
+                            "Clone",
+                            "Copy"
+                        ],
+                        "struct_fields": [
+                            {
+                                "ptr": {
+                                    "type": "RibbonGroup",
+                                    "ref_kind": "constptr",
+                                    "doc": [
+                                        "Pointer to the slice data"
+                                    ]
+                                },
+                                "len": {
+                                    "type": "usize",
+                                    "doc": [
+                                        "Number of elements in the slice"
+                                    ]
+                                }
+                            }
+                        ],
+                        "repr": "C"
+                    },
+                    "RibbonTheme": {
+                        "external": "azul_layout::widgets::ribbon::RibbonTheme",
+                        "custom_impls": [
+                            "Default"
+                        ],
+                        "derive": [
+                            "Debug",
+                            "Clone",
+                            "Copy",
+                            "PartialEq",
+                            "Eq",
+                            "PartialOrd",
+                            "Ord",
+                            "Hash"
+                        ],
+                        "struct_fields": [
+                            {
+                                "chrome_bg": {
+                                    "type": "ColorU"
+                                },
+                                "accent": {
+                                    "type": "ColorU"
+                                },
+                                "accent_hover": {
+                                    "type": "ColorU"
+                                },
+                                "accent_text": {
+                                    "type": "ColorU"
+                                },
+                                "text": {
+                                    "type": "ColorU"
+                                },
+                                "label": {
+                                    "type": "ColorU"
+                                },
+                                "icon": {
+                                    "type": "ColorU"
+                                },
+                                "border": {
+                                    "type": "ColorU"
+                                },
+                                "separator": {
+                                    "type": "ColorU"
+                                },
+                                "hover_bg": {
+                                    "type": "ColorU"
+                                },
+                                "hover_border": {
+                                    "type": "ColorU"
+                                },
+                                "pressed_bg": {
+                                    "type": "ColorU"
+                                },
+                                "checked_bg": {
+                                    "type": "ColorU"
+                                },
+                                "selected_bg": {
+                                    "type": "ColorU"
+                                },
+                                "field_border": {
+                                    "type": "ColorU"
+                                }
+                            }
+                        ],
+                        "constructors": {
+                            "word_2013": {
+                                "doc": [
+                                    "The Word 2013 palette: white chrome, #2B579A accents, #CDE6F7 hovers."
+                                ],
+                                "fn_args": [],
+                                "fn_body": "azul_layout::widgets::ribbon::RibbonTheme::word_2013()"
+                            },
+                            "from_system": {
+                                "doc": [
+                                    "Extracts a ribbon palette from the OS theme (accent color, selection",
+                                    "colors, separators). Colors the platform does not report fall back to",
+                                    "the Word 2013 palette. Pass `SystemStyle::detect()` for the live",
+                                    "system theme, or a preset `SystemStyle` for platform mockups."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "style": "SystemStyle"
+                                    }
+                                ],
+                                "fn_body": "azul_layout::widgets::ribbon::RibbonTheme::from_system(style)"
+                            }
+                        },
+                        "repr": "C"
+                    },
+                    "RibbonBehavior": {
+                        "external": "azul_layout::widgets::ribbon::RibbonBehavior",
+                        "custom_impls": [
+                            "Default"
+                        ],
+                        "derive": [
+                            "Debug",
+                            "Clone",
+                            "Copy",
+                            "PartialEq",
+                            "Eq",
+                            "PartialOrd",
+                            "Ord",
+                            "Hash"
+                        ],
+                        "struct_fields": [
+                            {
+                                "collapsible": {
+                                    "type": "bool"
+                                },
+                                "peek_on_hover": {
+                                    "type": "bool"
+                                },
+                                "auto_select_gallery": {
+                                    "type": "bool"
+                                },
+                                "expandable_gallery": {
+                                    "type": "bool"
+                                }
+                            }
+                        ],
+                        "constructors": {
+                            "word_2013": {
+                                "doc": [
+                                    "All Word behaviors enabled - the default."
+                                ],
+                                "fn_args": [],
+                                "fn_body": "azul_layout::widgets::ribbon::RibbonBehavior::word_2013()"
+                            },
+                            "inert": {
+                                "doc": [
+                                    "Every self-driven behavior off: the ribbon only forwards events to",
+                                    "the application callbacks and never patches its own chrome."
+                                ],
+                                "fn_args": [],
+                                "fn_body": "azul_layout::widgets::ribbon::RibbonBehavior::inert()"
+                            }
+                        },
                         "repr": "C"
                     }
                 }
@@ -90437,184 +91730,6 @@
                         },
                         "repr": "C"
                     },
-                    "RibbonSectionVec": {
-                        "external": "azul_layout::widgets::ribbon::RibbonSectionVec",
-                        "custom_impls": [
-                            "Clone",
-                            "Debug"
-                        ],
-                        "derive": [
-                            "Debug"
-                        ],
-                        "struct_fields": [
-                            {
-                                "ptr": {
-                                    "type": "RibbonSection",
-                                    "ref_kind": "constptr"
-                                },
-                                "len": {
-                                    "type": "usize"
-                                },
-                                "cap": {
-                                    "type": "usize"
-                                },
-                                "destructor": {
-                                    "type": "RibbonSectionVecDestructor"
-                                }
-                            }
-                        ],
-                        "functions": {
-                            "create": {
-                                "doc": [
-                                    "Creates an empty `RibbonSectionVec`"
-                                ],
-                                "fn_args": [],
-                                "returns": {
-                                    "type": "RibbonSectionVec"
-                                },
-                                "fn_body": "Self::new()"
-                            },
-                            "with_capacity": {
-                                "doc": [
-                                    "Creates a `RibbonSectionVec` with a given capacity"
-                                ],
-                                "fn_args": [
-                                    {
-                                        "cap": "usize"
-                                    }
-                                ],
-                                "returns": {
-                                    "type": "RibbonSectionVec"
-                                },
-                                "fn_body": "Self::with_capacity(cap)"
-                            },
-                            "len": {
-                                "doc": [
-                                    "Returns the number of elements in the Vec"
-                                ],
-                                "fn_args": [
-                                    {
-                                        "self": "ref"
-                                    }
-                                ],
-                                "returns": {
-                                    "type": "usize"
-                                },
-                                "fn_body": "ribbon_section_vec.len()"
-                            },
-                            "capacity": {
-                                "doc": [
-                                    "Returns the capacity of the Vec"
-                                ],
-                                "fn_args": [
-                                    {
-                                        "self": "ref"
-                                    }
-                                ],
-                                "returns": {
-                                    "type": "usize"
-                                },
-                                "fn_body": "ribbon_section_vec.capacity()"
-                            },
-                            "is_empty": {
-                                "doc": [
-                                    "Returns whether the Vec is empty"
-                                ],
-                                "fn_args": [
-                                    {
-                                        "self": "ref"
-                                    }
-                                ],
-                                "returns": {
-                                    "type": "bool"
-                                },
-                                "fn_body": "ribbon_section_vec.is_empty()"
-                            },
-                            "from_item": {
-                                "doc": [
-                                    "Creates a `RibbonSectionVec` containing a single element"
-                                ],
-                                "fn_args": [
-                                    {
-                                        "item": "RibbonSection"
-                                    }
-                                ],
-                                "returns": {
-                                    "type": "RibbonSectionVec"
-                                },
-                                "fn_body": "Self::from_item(item)"
-                            },
-                            "copy_from_ptr": {
-                                "doc": [
-                                    "Copies elements from a C array into a `RibbonSectionVec`. The array must be valid for `len` elements."
-                                ],
-                                "fn_args": [
-                                    {
-                                        "ptr": "*const RibbonSection"
-                                    },
-                                    {
-                                        "len": "usize"
-                                    }
-                                ],
-                                "returns": {
-                                    "type": "RibbonSectionVec"
-                                },
-                                "fn_body": "unsafe { Self::copy_from_ptr(ptr, len) }"
-                            },
-                            "c_get": {
-                                "doc": [
-                                    "Returns a copy of the element at the given index, or None if out of bounds. C-API compatible."
-                                ],
-                                "fn_args": [
-                                    {
-                                        "self": "ref"
-                                    },
-                                    {
-                                        "index": "usize"
-                                    }
-                                ],
-                                "returns": {
-                                    "type": "OptionRibbonSection"
-                                },
-                                "fn_body": "ribbon_section_vec.c_get(index).into()"
-                            },
-                            "as_c_slice": {
-                                "doc": [
-                                    "Returns a C-compatible slice of the entire Vec as a `RibbonSectionVecSlice`."
-                                ],
-                                "fn_args": [
-                                    {
-                                        "self": "ref"
-                                    }
-                                ],
-                                "returns": {
-                                    "type": "RibbonSectionVecSlice"
-                                },
-                                "fn_body": "ribbon_section_vec.as_c_slice()"
-                            },
-                            "as_c_slice_range": {
-                                "doc": [
-                                    "Returns a C-compatible slice of a range within the Vec. Range is clamped to valid bounds."
-                                ],
-                                "fn_args": [
-                                    {
-                                        "self": "ref"
-                                    },
-                                    {
-                                        "start": "usize"
-                                    },
-                                    {
-                                        "end": "usize"
-                                    }
-                                ],
-                                "returns": {
-                                    "type": "RibbonSectionVecSlice"
-                                },
-                                "fn_body": "ribbon_section_vec.as_c_slice_range(start, end)"
-                            }
-                        },
-                        "repr": "C"
-                    },
                     "RibbonTabVecDestructor": {
                         "external": "azul_layout::widgets::ribbon::RibbonTabVecDestructor",
                         "derive": [
@@ -90631,18 +91746,6 @@
                             }
                         ],
                         "repr": "C, u8"
-                    },
-                    "RibbonSectionVecDestructorType": {
-                        "external": "azul_layout::widgets::ribbon::RibbonSectionVecDestructorType",
-                        "callback_typedef": {
-                            "fn_args": [
-                                {
-                                    "type": "RibbonSectionVec",
-                                    "ref_kind": "mutptr"
-                                }
-                            ],
-                            "returns": null
-                        }
                     },
                     "RibbonTabVec": {
                         "external": "azul_layout::widgets::ribbon::RibbonTabVec",
@@ -90833,23 +91936,6 @@
                             ],
                             "returns": null
                         }
-                    },
-                    "RibbonSectionVecDestructor": {
-                        "external": "azul_layout::widgets::ribbon::RibbonSectionVecDestructor",
-                        "derive": [
-                            "Debug"
-                        ],
-                        "enum_fields": [
-                            {
-                                "DefaultRust": {},
-                                "NoDestructor": {},
-                                "External": {
-                                    "type": "RibbonSectionVecDestructorType"
-                                },
-                                "AlreadyDestroyed": {}
-                            }
-                        ],
-                        "repr": "C, u8"
                     },
                     "TreeViewNodeVec": {
                         "external": "azul_layout::widgets::tree_view::TreeViewNodeVec",
@@ -93372,6 +94458,628 @@
                             }
                         },
                         "repr": "C"
+                    },
+                    "RibbonGalleryCellVecDestructor": {
+                        "external": "azul_layout::widgets::ribbon::RibbonGalleryCellVecDestructor",
+                        "derive": [
+                            "Debug"
+                        ],
+                        "enum_fields": [
+                            {
+                                "DefaultRust": {},
+                                "NoDestructor": {},
+                                "External": {
+                                    "type": "RibbonGalleryCellVecDestructorType"
+                                },
+                                "AlreadyDestroyed": {}
+                            }
+                        ],
+                        "repr": "C, u8"
+                    },
+                    "RibbonItemVec": {
+                        "external": "azul_layout::widgets::ribbon::RibbonItemVec",
+                        "custom_impls": [
+                            "Clone",
+                            "Debug"
+                        ],
+                        "derive": [
+                            "Debug"
+                        ],
+                        "struct_fields": [
+                            {
+                                "ptr": {
+                                    "type": "RibbonItem",
+                                    "ref_kind": "constptr"
+                                },
+                                "len": {
+                                    "type": "usize"
+                                },
+                                "cap": {
+                                    "type": "usize"
+                                },
+                                "destructor": {
+                                    "type": "RibbonItemVecDestructor"
+                                }
+                            }
+                        ],
+                        "functions": {
+                            "create": {
+                                "doc": [
+                                    "Creates an empty `RibbonItemVec`"
+                                ],
+                                "fn_args": [],
+                                "returns": {
+                                    "type": "RibbonItemVec"
+                                },
+                                "fn_body": "Self::new()"
+                            },
+                            "with_capacity": {
+                                "doc": [
+                                    "Creates a `RibbonItemVec` with a given capacity"
+                                ],
+                                "fn_args": [
+                                    {
+                                        "cap": "usize"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "RibbonItemVec"
+                                },
+                                "fn_body": "Self::with_capacity(cap)"
+                            },
+                            "len": {
+                                "doc": [
+                                    "Returns the number of elements in the Vec"
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "usize"
+                                },
+                                "fn_body": "ribbon_item_vec.len()"
+                            },
+                            "capacity": {
+                                "doc": [
+                                    "Returns the capacity of the Vec"
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "usize"
+                                },
+                                "fn_body": "ribbon_item_vec.capacity()"
+                            },
+                            "is_empty": {
+                                "doc": [
+                                    "Returns whether the Vec is empty"
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "bool"
+                                },
+                                "fn_body": "ribbon_item_vec.is_empty()"
+                            },
+                            "from_item": {
+                                "doc": [
+                                    "Creates a `RibbonItemVec` containing a single element"
+                                ],
+                                "fn_args": [
+                                    {
+                                        "item": "RibbonItem"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "RibbonItemVec"
+                                },
+                                "fn_body": "Self::from_item(item)"
+                            },
+                            "copy_from_ptr": {
+                                "doc": [
+                                    "Copies elements from a C array into a `RibbonItemVec`. The array must be valid for `len` elements."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "ptr": "*const RibbonItem"
+                                    },
+                                    {
+                                        "len": "usize"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "RibbonItemVec"
+                                },
+                                "fn_body": "unsafe { Self::copy_from_ptr(ptr, len) }"
+                            },
+                            "c_get": {
+                                "doc": [
+                                    "Returns a copy of the element at the given index, or None if out of bounds. C-API compatible."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    },
+                                    {
+                                        "index": "usize"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "OptionRibbonItem"
+                                },
+                                "fn_body": "ribbon_item_vec.c_get(index).into()"
+                            },
+                            "as_c_slice": {
+                                "doc": [
+                                    "Returns a C-compatible slice of the entire Vec as a `RibbonItemVecSlice`."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "RibbonItemVecSlice"
+                                },
+                                "fn_body": "ribbon_item_vec.as_c_slice()"
+                            },
+                            "as_c_slice_range": {
+                                "doc": [
+                                    "Returns a C-compatible slice of a range within the Vec. Range is clamped to valid bounds."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    },
+                                    {
+                                        "start": "usize"
+                                    },
+                                    {
+                                        "end": "usize"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "RibbonItemVecSlice"
+                                },
+                                "fn_body": "ribbon_item_vec.as_c_slice_range(start, end)"
+                            }
+                        },
+                        "repr": "C"
+                    },
+                    "RibbonGalleryCellVec": {
+                        "external": "azul_layout::widgets::ribbon::RibbonGalleryCellVec",
+                        "custom_impls": [
+                            "Clone",
+                            "Debug"
+                        ],
+                        "derive": [
+                            "Debug"
+                        ],
+                        "struct_fields": [
+                            {
+                                "ptr": {
+                                    "type": "RibbonGalleryCell",
+                                    "ref_kind": "constptr"
+                                },
+                                "len": {
+                                    "type": "usize"
+                                },
+                                "cap": {
+                                    "type": "usize"
+                                },
+                                "destructor": {
+                                    "type": "RibbonGalleryCellVecDestructor"
+                                }
+                            }
+                        ],
+                        "functions": {
+                            "create": {
+                                "doc": [
+                                    "Creates an empty `RibbonGalleryCellVec`"
+                                ],
+                                "fn_args": [],
+                                "returns": {
+                                    "type": "RibbonGalleryCellVec"
+                                },
+                                "fn_body": "Self::new()"
+                            },
+                            "with_capacity": {
+                                "doc": [
+                                    "Creates a `RibbonGalleryCellVec` with a given capacity"
+                                ],
+                                "fn_args": [
+                                    {
+                                        "cap": "usize"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "RibbonGalleryCellVec"
+                                },
+                                "fn_body": "Self::with_capacity(cap)"
+                            },
+                            "len": {
+                                "doc": [
+                                    "Returns the number of elements in the Vec"
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "usize"
+                                },
+                                "fn_body": "ribbon_gallery_cell_vec.len()"
+                            },
+                            "capacity": {
+                                "doc": [
+                                    "Returns the capacity of the Vec"
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "usize"
+                                },
+                                "fn_body": "ribbon_gallery_cell_vec.capacity()"
+                            },
+                            "is_empty": {
+                                "doc": [
+                                    "Returns whether the Vec is empty"
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "bool"
+                                },
+                                "fn_body": "ribbon_gallery_cell_vec.is_empty()"
+                            },
+                            "c_get": {
+                                "doc": [
+                                    "Returns a copy of the element at the given index, or None if out of bounds. C-API compatible."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    },
+                                    {
+                                        "index": "usize"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "OptionRibbonGalleryCell"
+                                },
+                                "fn_body": "ribbon_gallery_cell_vec.c_get(index).into()"
+                            },
+                            "from_item": {
+                                "doc": [
+                                    "Creates a `RibbonGalleryCellVec` containing a single element"
+                                ],
+                                "fn_args": [
+                                    {
+                                        "item": "RibbonGalleryCell"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "RibbonGalleryCellVec"
+                                },
+                                "fn_body": "Self::from_item(item)"
+                            },
+                            "copy_from_ptr": {
+                                "doc": [
+                                    "Copies elements from a C array into a `RibbonGalleryCellVec`. The array must be valid for `len` elements."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "ptr": "*const RibbonGalleryCell"
+                                    },
+                                    {
+                                        "len": "usize"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "RibbonGalleryCellVec"
+                                },
+                                "fn_body": "unsafe { Self::copy_from_ptr(ptr, len) }"
+                            },
+                            "as_c_slice": {
+                                "doc": [
+                                    "Returns a C-compatible slice of the entire Vec as a `RibbonGalleryCellVecSlice`."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "RibbonGalleryCellVecSlice"
+                                },
+                                "fn_body": "ribbon_gallery_cell_vec.as_c_slice()"
+                            },
+                            "as_c_slice_range": {
+                                "doc": [
+                                    "Returns a C-compatible slice of a range within the Vec. Range is clamped to valid bounds."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    },
+                                    {
+                                        "start": "usize"
+                                    },
+                                    {
+                                        "end": "usize"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "RibbonGalleryCellVecSlice"
+                                },
+                                "fn_body": "ribbon_gallery_cell_vec.as_c_slice_range(start, end)"
+                            }
+                        },
+                        "repr": "C"
+                    },
+                    "RibbonItemVecDestructor": {
+                        "external": "azul_layout::widgets::ribbon::RibbonItemVecDestructor",
+                        "derive": [
+                            "Debug"
+                        ],
+                        "enum_fields": [
+                            {
+                                "DefaultRust": {},
+                                "NoDestructor": {},
+                                "External": {
+                                    "type": "RibbonItemVecDestructorType"
+                                },
+                                "AlreadyDestroyed": {}
+                            }
+                        ],
+                        "repr": "C, u8"
+                    },
+                    "RibbonGalleryCellVecDestructorType": {
+                        "external": "azul_layout::widgets::ribbon::RibbonGalleryCellVecDestructorType",
+                        "callback_typedef": {
+                            "fn_args": [
+                                {
+                                    "type": "RibbonGalleryCellVec",
+                                    "ref_kind": "mutptr"
+                                }
+                            ],
+                            "returns": null
+                        }
+                    },
+                    "RibbonItemVecDestructorType": {
+                        "external": "azul_layout::widgets::ribbon::RibbonItemVecDestructorType",
+                        "callback_typedef": {
+                            "fn_args": [
+                                {
+                                    "type": "RibbonItemVec",
+                                    "ref_kind": "mutptr"
+                                }
+                            ],
+                            "returns": null
+                        }
+                    },
+                    "RibbonGroupVec": {
+                        "external": "azul_layout::widgets::ribbon::RibbonGroupVec",
+                        "custom_impls": [
+                            "Clone",
+                            "Debug"
+                        ],
+                        "derive": [
+                            "Debug"
+                        ],
+                        "struct_fields": [
+                            {
+                                "ptr": {
+                                    "type": "RibbonGroup",
+                                    "ref_kind": "constptr"
+                                },
+                                "len": {
+                                    "type": "usize"
+                                },
+                                "cap": {
+                                    "type": "usize"
+                                },
+                                "destructor": {
+                                    "type": "RibbonGroupVecDestructor"
+                                }
+                            }
+                        ],
+                        "functions": {
+                            "create": {
+                                "doc": [
+                                    "Creates an empty `RibbonGroupVec`"
+                                ],
+                                "fn_args": [],
+                                "returns": {
+                                    "type": "RibbonGroupVec"
+                                },
+                                "fn_body": "Self::new()"
+                            },
+                            "with_capacity": {
+                                "doc": [
+                                    "Creates a `RibbonGroupVec` with a given capacity"
+                                ],
+                                "fn_args": [
+                                    {
+                                        "cap": "usize"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "RibbonGroupVec"
+                                },
+                                "fn_body": "Self::with_capacity(cap)"
+                            },
+                            "len": {
+                                "doc": [
+                                    "Returns the number of elements in the Vec"
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "usize"
+                                },
+                                "fn_body": "ribbon_group_vec.len()"
+                            },
+                            "capacity": {
+                                "doc": [
+                                    "Returns the capacity of the Vec"
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "usize"
+                                },
+                                "fn_body": "ribbon_group_vec.capacity()"
+                            },
+                            "is_empty": {
+                                "doc": [
+                                    "Returns whether the Vec is empty"
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "bool"
+                                },
+                                "fn_body": "ribbon_group_vec.is_empty()"
+                            },
+                            "from_item": {
+                                "doc": [
+                                    "Creates a `RibbonGroupVec` containing a single element"
+                                ],
+                                "fn_args": [
+                                    {
+                                        "item": "RibbonGroup"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "RibbonGroupVec"
+                                },
+                                "fn_body": "Self::from_item(item)"
+                            },
+                            "copy_from_ptr": {
+                                "doc": [
+                                    "Copies elements from a C array into a `RibbonGroupVec`. The array must be valid for `len` elements."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "ptr": "*const RibbonGroup"
+                                    },
+                                    {
+                                        "len": "usize"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "RibbonGroupVec"
+                                },
+                                "fn_body": "unsafe { Self::copy_from_ptr(ptr, len) }"
+                            },
+                            "c_get": {
+                                "doc": [
+                                    "Returns a copy of the element at the given index, or None if out of bounds. C-API compatible."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    },
+                                    {
+                                        "index": "usize"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "OptionRibbonGroup"
+                                },
+                                "fn_body": "ribbon_group_vec.c_get(index).into()"
+                            },
+                            "as_c_slice": {
+                                "doc": [
+                                    "Returns a C-compatible slice of the entire Vec as a `RibbonGroupVecSlice`."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "RibbonGroupVecSlice"
+                                },
+                                "fn_body": "ribbon_group_vec.as_c_slice()"
+                            },
+                            "as_c_slice_range": {
+                                "doc": [
+                                    "Returns a C-compatible slice of a range within the Vec. Range is clamped to valid bounds."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    },
+                                    {
+                                        "start": "usize"
+                                    },
+                                    {
+                                        "end": "usize"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "RibbonGroupVecSlice"
+                                },
+                                "fn_body": "ribbon_group_vec.as_c_slice_range(start, end)"
+                            }
+                        },
+                        "repr": "C"
+                    },
+                    "RibbonGroupVecDestructorType": {
+                        "external": "azul_layout::widgets::ribbon::RibbonGroupVecDestructorType",
+                        "callback_typedef": {
+                            "fn_args": [
+                                {
+                                    "type": "RibbonGroupVec",
+                                    "ref_kind": "mutptr"
+                                }
+                            ],
+                            "returns": null
+                        },
+                        "repr": "C"
+                    },
+                    "RibbonGroupVecDestructor": {
+                        "external": "azul_layout::widgets::ribbon::RibbonGroupVecDestructor",
+                        "derive": [
+                            "Debug"
+                        ],
+                        "enum_fields": [
+                            {
+                                "DefaultRust": {},
+                                "NoDestructor": {},
+                                "External": {
+                                    "type": "RibbonGroupVecDestructorType"
+                                },
+                                "AlreadyDestroyed": {}
+                            }
+                        ],
+                        "repr": "C, u8"
                     }
                 }
             },
@@ -97355,29 +99063,6 @@
                         ],
                         "repr": "C, u8"
                     },
-                    "OptionRibbonSection": {
-                        "external": "azul_layout::widgets::ribbon::OptionRibbonSection",
-                        "derive": [
-                            "Debug",
-                            "Clone"
-                        ],
-                        "enum_fields": [
-                            {
-                                "None": {
-                                    "doc": [
-                                        "No value"
-                                    ]
-                                },
-                                "Some": {
-                                    "type": "RibbonSection",
-                                    "doc": [
-                                        "Some value of type RibbonSection"
-                                    ]
-                                }
-                            }
-                        ],
-                        "repr": "C, u8"
-                    },
                     "OptionRoute": {
                         "external": "azul_core::resources::OptionRoute",
                         "derive": [
@@ -98575,6 +100260,121 @@
                                 "None": {},
                                 "Some": {
                                     "type": "FullWindowState"
+                                }
+                            }
+                        ],
+                        "repr": "C, u8"
+                    },
+                    "OptionRibbonGalleryOnSelect": {
+                        "external": "azul_layout::widgets::ribbon::OptionRibbonGalleryOnSelect",
+                        "custom_impls": [
+                            "Clone",
+                            "Debug",
+                            "Eq",
+                            "Hash",
+                            "Ord",
+                            "PartialEq",
+                            "PartialOrd"
+                        ],
+                        "derive": [
+                            "Clone",
+                            "Debug",
+                            "Hash",
+                            "PartialEq",
+                            "Eq",
+                            "PartialOrd",
+                            "Ord"
+                        ],
+                        "enum_fields": [
+                            {
+                                "None": {},
+                                "Some": {
+                                    "type": "RibbonGalleryOnSelect"
+                                }
+                            }
+                        ],
+                        "repr": "C, u8"
+                    },
+                    "OptionRibbonItem": {
+                        "external": "azul_layout::widgets::ribbon::OptionRibbonItem",
+                        "derive": [
+                            "Debug",
+                            "Clone"
+                        ],
+                        "enum_fields": [
+                            {
+                                "None": {
+                                    "doc": [
+                                        "No value"
+                                    ]
+                                },
+                                "Some": {
+                                    "type": "RibbonItem",
+                                    "doc": [
+                                        "Some value of type RibbonItem"
+                                    ]
+                                }
+                            }
+                        ],
+                        "repr": "C, u8"
+                    },
+                    "OptionRibbonGalleryCell": {
+                        "external": "azul_layout::widgets::ribbon::OptionRibbonGalleryCell",
+                        "derive": [
+                            "Debug",
+                            "Clone"
+                        ],
+                        "enum_fields": [
+                            {
+                                "None": {
+                                    "doc": [
+                                        "No value"
+                                    ]
+                                },
+                                "Some": {
+                                    "type": "RibbonGalleryCell",
+                                    "doc": [
+                                        "Some value of type RibbonGalleryCell"
+                                    ]
+                                }
+                            }
+                        ],
+                        "repr": "C, u8"
+                    },
+                    "OptionRibbonAppButton": {
+                        "external": "azul_layout::widgets::ribbon::OptionRibbonAppButton",
+                        "derive": [
+                            "Debug",
+                            "Clone"
+                        ],
+                        "enum_fields": [
+                            {
+                                "None": {},
+                                "Some": {
+                                    "type": "RibbonAppButton"
+                                }
+                            }
+                        ],
+                        "repr": "C, u8"
+                    },
+                    "OptionRibbonGroup": {
+                        "external": "azul_layout::widgets::ribbon::OptionRibbonGroup",
+                        "derive": [
+                            "Debug",
+                            "Clone"
+                        ],
+                        "enum_fields": [
+                            {
+                                "None": {
+                                    "doc": [
+                                        "No value"
+                                    ]
+                                },
+                                "Some": {
+                                    "type": "RibbonGroup",
+                                    "doc": [
+                                        "Some value of type RibbonGroup"
+                                    ]
                                 }
                             }
                         ],

@@ -1920,6 +1920,26 @@ impl StyledDom {
             }
         }
 
+        // The compact cache is a precomputed per-node array that the layout
+        // getters read on their FAST PATH (`get_display`, `get_width`, ...)
+        // BEFORE consulting `user_overridden_properties`. An override that
+        // changes geometry would therefore be written, reported as changed,
+        // and then ignored by layout — which is why a runtime
+        // `display: none -> flex` patch (combobox list, popover, ribbon
+        // gallery panel) left the node at zero size and invisible.
+        //
+        // Dropping the cache makes every getter fall through to the cascade
+        // path, which honours overrides. It is rebuilt by the next full
+        // cascade; overrides are user-interaction-rate, so this is not a
+        // per-frame cost. Only geometry-affecting overrides pay it — the
+        // animation channel (colour/opacity/transform) keeps the fast path.
+        if new_properties
+            .iter()
+            .any(|p| p.get_type().can_trigger_relayout())
+        {
+            self.get_css_property_cache_mut().compact_cache = None;
+        }
+
         if !changes.is_empty() {
             map.insert(*node_id, changes);
         }

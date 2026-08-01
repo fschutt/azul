@@ -246,6 +246,47 @@ impl Default for IconProviderHandle {
     }
 }
 
+impl IconProviderInner {
+    /// Resolves an icon SPEC to registered icon data.
+    ///
+    /// A spec is a comma-separated fallback list of entries, each either a
+    /// bare icon name (`"content_copy"`, searched across all packs in
+    /// registration order, first match wins) or a pack-qualified name
+    /// (`"material-icons:save"`, searched only in that pack). The first
+    /// entry that resolves wins, so markup can express per-platform
+    /// fallbacks: `<icon>ios:open_menu,kde:three-lines,menu</icon>`.
+    /// Icon names are case-insensitive; pack names are case-sensitive.
+    pub fn lookup_spec(&self, spec: &str) -> Option<RefAny> {
+        // Verbatim first: a registered name is always found as-is (names may
+        // legally contain ':', ',' or whitespace). The spec syntax below only
+        // applies when nothing is registered under the literal name.
+        let verbatim = spec.to_lowercase();
+        if let Some(data) = self.icons.values().find_map(|pack| pack.get(&verbatim)) {
+            return Some(data.clone());
+        }
+
+        for entry in spec.split(',') {
+            let entry = entry.trim();
+            if entry.is_empty() {
+                continue;
+            }
+            let (pack, name) = match entry.split_once(':') {
+                Some((p, n)) => (Some(p.trim()), n.trim()),
+                None => (None, entry),
+            };
+            let name_lower = name.to_lowercase();
+            let found = match pack {
+                Some(p) => self.icons.get(p).and_then(|pack| pack.get(&name_lower)),
+                None => self.icons.values().find_map(|pack| pack.get(&name_lower)),
+            };
+            if let Some(data) = found {
+                return Some(data.clone());
+            }
+        }
+        None
+    }
+}
+
 impl IconProviderHandle {
     /// Create a new empty icon provider with the default (no-op) resolver.
     /// 
@@ -326,15 +367,15 @@ impl IconProviderHandle {
         None
     }
 
-    /// Look up an icon across all packs (first match wins)
+    /// Look up an icon by spec (bare name, `pack:name`, or a comma-separated
+    /// fallback list of either form; first match wins).
     #[must_use] pub fn lookup(&self, icon_name: &str) -> Option<RefAny> {
-        self.lookup_with_pack(icon_name).map(|(_, data)| data.clone())
+        self.inner.lookup_spec(icon_name)
     }
 
-    /// Check if an icon exists in any pack
+    /// Check if an icon spec resolves in any pack
     #[must_use] pub fn has_icon(&self, icon_name: &str) -> bool {
-        let icon_name_lower = icon_name.to_lowercase();
-        self.inner.icons.values().any(|p| p.contains_key(&icon_name_lower))
+        self.inner.lookup_spec(icon_name).is_some()
     }
 
     /// List all pack names
@@ -421,37 +462,26 @@ impl SharedIconProvider {
             let Ok(guard) = self.inner.lock() else {
                 return StyledDom::default();
             };
-            
+
             let resolver = guard.resolver;
-            let icon_name_lower = icon_name.to_lowercase();
-            
-            let lookup_result = guard.icons.values()
-                .find_map(|pack| pack.get(&icon_name_lower).cloned());
-            
+            let lookup_result = guard.lookup_spec(icon_name);
+
             (resolver, lookup_result)
         };
-        
+
         resolver(lookup_result.into(), original_icon_dom, system_style)
     }
-    
-    /// Look up an icon across all packs
+
+    /// Look up an icon by spec (bare name, `pack:name`, or a comma-separated
+    /// fallback list of either form; first match wins)
     #[must_use] pub fn lookup(&self, icon_name: &str) -> Option<RefAny> {
-        let icon_name_lower = icon_name.to_lowercase();
-        self.inner.lock().ok().and_then(|guard| {
-            for pack in guard.icons.values() {
-                if let Some(data) = pack.get(&icon_name_lower) {
-                    return Some(data.clone());
-                }
-            }
-            None
-        })
+        self.inner.lock().ok().and_then(|guard| guard.lookup_spec(icon_name))
     }
-    
-    /// Check if an icon exists
+
+    /// Check if an icon spec resolves
     #[must_use] pub fn has_icon(&self, icon_name: &str) -> bool {
-        let icon_name_lower = icon_name.to_lowercase();
         self.inner.lock()
-            .map(|guard| guard.icons.values().any(|p| p.contains_key(&icon_name_lower)))
+            .map(|guard| guard.lookup_spec(icon_name).is_some())
             .unwrap_or(false)
     }
 }
@@ -462,8 +492,12 @@ impl SharedIconProvider {
 struct CollectedIcon {
     /// Index in the `node_data` array
     node_idx: usize,
-    /// The icon name
+    /// The icon spec (explicit name, or derived from the node's text children)
     icon_name: AzString,
+    /// Text children that supplied the spec (`<icon>name</icon>` markup form);
+    /// their text is cleared once the icon node is replaced so the raw spec
+    /// never renders next to the resolved icon.
+    text_children: Vec<usize>,
 }
 
 /// Replacement result after resolving an icon
@@ -472,22 +506,63 @@ struct IconReplacement {
     node_idx: usize,
     /// The resolved `StyledDom` (may be empty, single node, or multi-node tree)
     replacement: StyledDom,
+    /// Spec-supplying text children to clear after the swap
+    text_children: Vec<usize>,
 }
 
-/// Collect all Icon nodes from the `StyledDom`
+/// Collect all Icon nodes from the `StyledDom`.
+///
+/// An Icon node with an explicit non-empty name (`Dom::create_icon("x")`)
+/// uses that name directly. An Icon node with an EMPTY name — the markup
+/// form `<icon>content_copy</icon>`, where the tag itself carries no name —
+/// derives its spec from its direct text children, exactly like a ligature
+/// icon font turns glyph text into an icon. The arena is in DFS order, so a
+/// node's children always appear after the node itself.
 fn collect_icon_nodes(styled_dom: &StyledDom) -> Vec<CollectedIcon> {
-    let mut icons = Vec::new();
-    
+    use alloc::collections::BTreeMap;
+
+    let mut icons: Vec<CollectedIcon> = Vec::new();
+    let mut specs: Vec<String> = Vec::new();
+    // node_idx of un-named icon → position in `icons`
+    let mut unnamed_icon_pos: BTreeMap<usize, usize> = BTreeMap::new();
+
     let node_data = styled_dom.node_data.as_ref();
+    let hierarchy = styled_dom.node_hierarchy.as_ref();
+
     for (idx, node) in node_data.iter().enumerate() {
-        if let NodeType::Icon(icon_name) = node.get_node_type() {
-            icons.push(CollectedIcon {
-                node_idx: idx,
-                icon_name: icon_name.clone_self(),
-            });
+        match node.get_node_type() {
+            NodeType::Icon(icon_name) => {
+                if icon_name.as_ref().as_str().is_empty() {
+                    unnamed_icon_pos.insert(idx, icons.len());
+                }
+                icons.push(CollectedIcon {
+                    node_idx: idx,
+                    icon_name: icon_name.clone_self(),
+                    text_children: Vec::new(),
+                });
+                specs.push(String::new());
+            }
+            NodeType::Text(text) => {
+                let Some(parent) = hierarchy.get(idx).and_then(|h| h.parent_id()) else {
+                    continue;
+                };
+                let Some(&icon_pos) = unnamed_icon_pos.get(&parent.index()) else {
+                    continue;
+                };
+                specs[icon_pos].push_str(text.as_ref().as_str());
+                icons[icon_pos].text_children.push(idx);
+            }
+            _ => {}
         }
     }
-    
+
+    for &icon_pos in unnamed_icon_pos.values() {
+        let spec = specs[icon_pos].trim();
+        if !spec.is_empty() {
+            icons[icon_pos].icon_name = AzString::from(spec);
+        }
+    }
+
     icons
 }
 
@@ -553,6 +628,7 @@ fn resolve_collected_icons(
         IconReplacement {
             node_idx: icon.node_idx,
             replacement,
+            text_children: icon.text_children.clone(),
         }
     }).collect()
 }
@@ -669,6 +745,17 @@ pub fn resolve_icons_in_styled_dom(
                 replacement.node_idx,
                 &replacement.replacement
             );
+        }
+
+        // `<icon>name</icon>`: the spec text was consumed by the resolution —
+        // clear the contributing text children so the raw name never renders
+        // next to (or instead of) the resolved icon.
+        for &child_idx in &replacement.text_children {
+            if let Some(node) = styled_dom.node_data.as_mut().get_mut(child_idx) {
+                node.set_node_type(NodeType::Text(azul_css::css::BoxOrStatic::heap(
+                    AzString::from_const_str(""),
+                )));
+            }
         }
     }
 }
@@ -1049,14 +1136,12 @@ mod autotest_generated {
     }
 
     #[test]
-    fn lookup_garbage_and_leading_trailing_junk_returns_none() {
+    fn lookup_garbage_returns_none_but_spec_whitespace_is_tolerated() {
         let mut h = IconProviderHandle::new();
         h.register_icon("p", "home", RefAny::new(TestIconData { id: 1 }));
 
+        // Genuine garbage must never match 'home'.
         for junk in [
-            " home ",
-            "home ",
-            " home",
             "home;garbage",
             "home\0",
             "\0home",
@@ -1067,6 +1152,13 @@ mod autotest_generated {
         ] {
             assert!(h.lookup(junk).is_none(), "{junk:?} must not match 'home'");
             assert!(!h.has_icon(junk));
+        }
+
+        // Spec normalization: surrounding whitespace is trimmed per entry —
+        // `<icon> home </icon>` markup must resolve (ligature-font model).
+        for spec in [" home ", "home ", " home"] {
+            assert!(h.lookup(spec).is_some(), "{spec:?} must resolve via spec trim");
+            assert!(h.has_icon(spec));
         }
         assert!(h.lookup("home").is_some(), "positive control");
     }

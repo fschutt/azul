@@ -2066,7 +2066,15 @@ pub struct BorderInfo {
                     .map(|px| CssPropertyValue::Exact(LayoutBorderLeftWidth { inner: px })),
             };
 
-            // Border colors from compact cache
+            // Border colors from compact cache.
+            //
+            // SENTINEL COLLISION: the cache packs RGBA into one u32 and uses
+            // raw == 0 as "unset" — which is the same encoding as explicit
+            // transparent black {0,0,0,0}. Both therefore decode to `None`.
+            // That is safe ONLY because every consumer treats a missing
+            // border color as "paint nothing" (see the transparent
+            // `default_color` in cpurender/raster.rs); do not map `None`
+            // to any visible color downstream.
             let make_color = |raw: u32| -> Option<ColorU> {
                 if raw == 0 {
                     None
@@ -3436,7 +3444,18 @@ fn build_font_selector_stack(
         if matches!(family, StyleFontFamily::Ref(_)) {
             continue;
         }
-        if let StyleFontFamily::SystemType(system_type) = family {
+        // Both spellings of a system font expand to the platform fallback
+        // chain: the typed `SystemType(..)` variant AND the magic-string
+        // form `System("system:ui")` used by the widget style tables — no
+        // fontconfig database knows a family literally called "system:ui".
+        let system_type = match family {
+            StyleFontFamily::SystemType(s) => Some(*s),
+            StyleFontFamily::System(name) => {
+                azul_css::system::SystemFontType::from_css_str(name.as_str())
+            }
+            _ => None,
+        };
+        if let Some(system_type) = system_type {
             let current;
             let platform = if let Some(p) = platform { p } else {
                 current = azul_css::system::Platform::current();
@@ -7390,6 +7409,40 @@ mod autotest_generated {
         assert_eq!(stack[4].family, "monospace");
         assert_eq!(stack[4].weight, FcWeight::Normal);
         assert_eq!(stack[4].style, FontStyle::Normal);
+    }
+
+    #[test]
+    fn build_font_selector_stack_expands_the_system_magic_string_like_the_typed_variant() {
+        // "system:ui" as a plain family STRING (the widget const-table idiom)
+        // must expand to the same platform chain as SystemType(Ui) — no
+        // fontconfig database knows a family literally called "system:ui".
+        let typed = StyleFontFamilyVec::from_vec(vec![StyleFontFamily::SystemType(
+            azul_css::system::SystemFontType::Ui,
+        )]);
+        let magic = StyleFontFamilyVec::from_vec(vec![StyleFontFamily::System(
+            "system:ui".to_string().into(),
+        )]);
+
+        let typed_stack =
+            build_font_selector_stack(&typed, None, FcWeight::Normal, FontStyle::Normal);
+        let magic_stack =
+            build_font_selector_stack(&magic, None, FcWeight::Normal, FontStyle::Normal);
+
+        let typed_families: Vec<&str> = typed_stack.iter().map(|s| s.family.as_str()).collect();
+        let magic_families: Vec<&str> = magic_stack.iter().map(|s| s.family.as_str()).collect();
+        assert_eq!(magic_families, typed_families, "both spellings expand identically");
+        assert!(
+            !magic_families.iter().any(|f| *f == "system:ui"),
+            "the literal magic string must never reach fontconfig: {magic_families:?}"
+        );
+
+        // "system:ui:bold" carries the bold weight exactly like the variant.
+        let bold = StyleFontFamilyVec::from_vec(vec![StyleFontFamily::System(
+            "system:ui:bold".to_string().into(),
+        )]);
+        let bold_stack =
+            build_font_selector_stack(&bold, None, FcWeight::Normal, FontStyle::Normal);
+        assert_eq!(bold_stack[0].weight, FcWeight::Bold);
     }
 
     #[test]

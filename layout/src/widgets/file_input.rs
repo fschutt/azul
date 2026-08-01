@@ -188,10 +188,14 @@ impl FileInput {
         Button {
             label: button_label,
             image: self.image,
+            icon: AzString::from_const_str(""),
+            trailing_icon: AzString::from_const_str(""),
             button_type: crate::widgets::button::ButtonType::Default,
             container_style: self.container_style,
             label_style: self.label_style,
             image_style: self.image_style,
+            icon_style: CssPropertyWithConditionsVec::from_const_slice(&[]),
+            trailing_icon_style: CssPropertyWithConditionsVec::from_const_slice(&[]),
             on_click: Some(ButtonOnClick {
                 refany: RefAny::new(self.file_input_state),
                 callback: ButtonOnClickCallback {

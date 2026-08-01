@@ -1672,8 +1672,27 @@ impl<T: ParsedFontTrait> TaffyBridge<'_, '_, T> {
         // When the child has known_dimensions.width (from flex/grid layout), use that
         // instead of the parent's available_space — otherwise text centers/wraps in
         // the wrong width (e.g., 404px parent instead of 120px child).
+        //
+        // EPSILON GUARD: a flex/grid child that is NOT stretched (align-items:
+        // center/start) gets a definite width equal to its OWN max-content
+        // measurement. Re-wrapping the text at that exact width is the same
+        // single-line layout by definition — but f32 noise and px rounding
+        // between the MaxContent measure pass and this Definite pass can make
+        // `available` a hair smaller than the measured line, and the breaker
+        // then drops the last glyph onto a clipped second line ("Past|e",
+        // "Format|Painter" in the ribbon). If the definite width is within
+        // 1px of the node's own max-content, lay out as MaxContent.
         let available_width_type = if inputs.known_dimensions.width.is_some() {
-            crate::text3::cache::AvailableSpace::Definite(available_width)
+            let own_max_content = self
+                .tree
+                .warm(node_idx)
+                .and_then(|w| w.intrinsic_sizes)
+                .map_or(0.0, |i| i.max_content_width);
+            if own_max_content > 0.0 && (available_width - own_max_content).abs() <= 1.0 {
+                crate::text3::cache::AvailableSpace::MaxContent
+            } else {
+                crate::text3::cache::AvailableSpace::Definite(available_width)
+            }
         } else {
             match inputs.available_space.width {
                 AvailableSpace::Definite(w) => crate::text3::cache::AvailableSpace::Definite(w),

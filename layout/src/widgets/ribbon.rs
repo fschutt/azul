@@ -1,14 +1,49 @@
 //! Microsoft Office-style ribbon widget.
 //!
-//! A [`Ribbon`] organizes controls into a tabbed toolbar where each tab
-//! contains one or more [`RibbonSection`]s, each with a title and arbitrary
-//! content.  Unlike the simpler [`super::tabs`] widget, each tab is further
-//! subdivided into titled, visually separated sections — matching the ribbon
-//! pattern found in Office applications.
+//! Models the component hierarchy of the MS Ribbon (Office "Fluent" ribbon /
+//! RibbonX `customUI` markup / Windows Ribbon Framework):
+//!
+//! ```text
+//! Ribbon ─ app button ("FILE")            RibbonAppButton
+//!        ─ tabs                           RibbonTab
+//!            └─ groups                    RibbonGroup (label + dialog launcher)
+//!                 └─ items                RibbonItem
+//!                      ├─ LargeButton     RibbonButton (icon-over-label, full height)
+//!                      ├─ SmallButton     RibbonButton (16px icon row)
+//!                      ├─ Column / Row    RibbonColumn / RibbonRow (packing boxes)
+//!                      ├─ Combo           embeds [`super::combobox::ComboBox`]
+//!                      ├─ Drop            embeds [`super::drop_down::DropDown`]
+//!                      ├─ Check           embeds [`super::check_box::CheckBox`]
+//!                      ├─ Gallery         RibbonGallery (in-ribbon gallery + spinner)
+//!                      ├─ Separator       thin vertical rule
+//!                      └─ Custom          any user [`Dom`]
+//! ```
+//!
+//! Mapping from RibbonX elements: `button[size=large]` → `LargeButton`,
+//! `button`/`toggleButton` → `SmallButton` (+ `toggled`), `splitButton`/`menu`
+//! → `RibbonArrow::Split`/`Menu`, `box`/`buttonGroup` → `Row`/`Column`,
+//! `comboBox` → `Combo`, `dropDown` → `Drop`, `checkBox` → `Check`,
+//! `gallery` → `Gallery`, `separator` → `Separator`,
+//! `dialogBoxLauncher` → [`RibbonGroup::launcher`]. Contextual tabs, KeyTips,
+//! the backstage view and automatic size collapsing are out of scope.
+//!
+//! Buttons are not re-implemented: every ribbon button (including the group
+//! dialog launcher and the gallery spinner buttons) expands to the existing
+//! [`super::button::Button`] widget with ribbon part styles injected through
+//! `Button`'s public style fields. Embedded `Combo`/`Drop`/`Check` widgets
+//! render exactly as configured — restyle them via their own public
+//! `*_style` fields (see the ribbon example for a Word-2013 combobox).
+//!
+//! All visual parts of the ribbon itself are exposed on [`RibbonStyle`]
+//! (defaults = Word 2013 look, [`RibbonStyle::word_2013`]); replace any field
+//! to re-theme without touching widget code.
 
 use azul_core::{
     callbacks::{CoreCallback, CoreCallbackData, Update},
-    dom::{Dom, DomVec, EventFilter, HoverEventFilter, IdOrClass, IdOrClass::Class, IdOrClassVec},
+    dom::{
+        Dom, DomNodeId, DomVec, EventFilter, HoverEventFilter, IdOrClass, IdOrClass::Class,
+        IdOrClassVec,
+    },
     refany::RefAny,
 };
 #[allow(clippy::wildcard_imports)] // widget/render module pulls in the css property/value types it builds with
@@ -23,11 +58,19 @@ use azul_css::{
     *,
 };
 
-use azul_css::{impl_option, impl_vec, impl_vec_clone, impl_vec_debug, impl_vec_partialeq, impl_vec_mut};
+use azul_css::{impl_option, impl_vec, impl_vec_clone, impl_vec_debug, impl_vec_mut};
+use azul_css::system::SystemStyle;
 
 use crate::callbacks::{Callback, CallbackInfo};
 
-// -- Callback --
+use super::{
+    button::{Button, OptionButtonOnClick},
+    check_box::CheckBox,
+    combobox::ComboBox,
+    drop_down::DropDown,
+};
+
+// -- Callbacks --
 
 /// Callback signature invoked when a ribbon tab is clicked.
 pub type RibbonOnTabClickCallbackType = extern "C" fn(RefAny, CallbackInfo, usize) -> Update;
@@ -49,6 +92,27 @@ azul_core::impl_managed_callback! {
     extra_args:     [ tab_index: usize ],
 }
 
+/// Callback signature invoked when a gallery cell is clicked (cell index).
+pub type RibbonGalleryOnSelectCallbackType =
+    extern "C" fn(RefAny, CallbackInfo, usize) -> Update;
+impl_widget_callback!(
+    RibbonGalleryOnSelect, OptionRibbonGalleryOnSelect,
+    RibbonGalleryOnSelectCallback, RibbonGalleryOnSelectCallbackType
+);
+
+azul_core::impl_managed_callback! {
+    wrapper:        RibbonGalleryOnSelectCallback,
+    info_ty:        CallbackInfo,
+    return_ty:      Update,
+    default_ret:    Update::DoNothing,
+    invoker_static: RIBBON_GALLERY_ON_SELECT_INVOKER,
+    invoker_ty:     AzRibbonGalleryOnSelectCallbackInvoker,
+    thunk_fn:       az_ribbon_gallery_on_select_callback_thunk,
+    setter_fn:      AzApp_setRibbonGalleryOnSelectCallbackInvoker,
+    from_handle_fn: AzRibbonGalleryOnSelectCallback_createFromHostHandle,
+    extra_args:     [ cell_index: usize ],
+}
+
 // -- Font --
 
 const SYSTEM_UI_STR: AzString = AzString::from_const_str("system:ui");
@@ -56,167 +120,1473 @@ const SYSTEM_UI_FAMILIES: &[StyleFontFamily] = &[StyleFontFamily::System(SYSTEM_
 const SYSTEM_UI_FAMILY: StyleFontFamilyVec =
     StyleFontFamilyVec::from_const_slice(SYSTEM_UI_FAMILIES);
 
-// -- Colors --
+// -- Word 2013 palette (seeds RibbonTheme::word_2013) --
 
 const WHITE: ColorU = ColorU { r: 255, g: 255, b: 255, a: 255 };
-const LIGHT_GRAY: ColorU = ColorU { r: 240, g: 240, b: 240, a: 255 };
-const BORDER_GRAY: ColorU = ColorU { r: 200, g: 200, b: 200, a: 255 };
-const TEXT_GRAY: ColorU = ColorU { r: 100, g: 100, b: 100, a: 255 };
-const ACTIVE_BLUE: ColorU = ColorU { r: 0, g: 114, b: 198, a: 255 };
-const BG_WHITE: &[StyleBackgroundContent] = &[StyleBackgroundContent::Color(WHITE)];
-const BG_LIGHT_GRAY: &[StyleBackgroundContent] = &[StyleBackgroundContent::Color(LIGHT_GRAY)];
+const TRANSPARENT: ColorU = ColorU { r: 0, g: 0, b: 0, a: 0 };
+/// Office 2013 accent blue (#2B579A): FILE tab, active tab text.
+const W13_BLUE: ColorU = ColorU { r: 43, g: 87, b: 154, a: 255 };
+/// FILE tab hover fill (darker blue).
+const W13_BLUE_HOVER: ColorU = ColorU { r: 30, g: 62, b: 111, a: 255 };
+/// Regular control text (#444444).
+const W13_TEXT: ColorU = ColorU { r: 68, g: 68, b: 68, a: 255 };
+/// Group caption + secondary glyph gray (#676767).
+const W13_LABEL_GRAY: ColorU = ColorU { r: 103, g: 103, b: 103, a: 255 };
+/// Monochrome icon gray.
+const W13_ICON_GRAY: ColorU = ColorU { r: 80, g: 80, b: 80, a: 255 };
+/// Chrome border gray (#D4D4D4): tab underline, ribbon bottom border.
+const W13_BORDER: ColorU = ColorU { r: 212, g: 212, b: 212, a: 255 };
+/// Group/segment separator gray (#E1E1E1).
+const W13_SEP: ColorU = ColorU { r: 225, g: 225, b: 225, a: 255 };
+/// Hover fill (#CDE6F7).
+const W13_HOVER_BG: ColorU = ColorU { r: 205, g: 230, b: 247, a: 255 };
+/// Hover/checked border (#92C0E0).
+const W13_HOVER_BORDER: ColorU = ColorU { r: 146, g: 192, b: 224, a: 255 };
+/// Pressed fill (#B0D0EC).
+const W13_PRESSED_BG: ColorU = ColorU { r: 176, g: 208, b: 236, a: 255 };
+/// Toggled-on fill (#C6DDF0).
+const W13_CHECKED_BG: ColorU = ColorU { r: 198, g: 221, b: 240, a: 255 };
+/// Selected gallery cell fill (#EAF3FC).
+const W13_SELECTED_BG: ColorU = ColorU { r: 234, g: 243, b: 252, a: 255 };
+/// Flat editable-field border gray (#ABABAB).
+const W13_FIELD_BORDER: ColorU = ColorU { r: 171, g: 171, b: 171, a: 255 };
 
-static RIBBON_CONTAINER_STYLE: &[Cond] = &[
-    Cond::simple(P::const_display(LayoutDisplay::Flex)),
-    Cond::simple(P::const_flex_direction(LayoutFlexDirection::Column)),
-    Cond::simple(P::const_font_family(SYSTEM_UI_FAMILY)),
-    Cond::simple(P::const_font_size(StyleFontSize::const_px(12))),
-];
+// -- Theme --
 
-static TAB_BAR_STYLE: &[Cond] = &[
+/// Color palette from which a full [`RibbonStyle`] is derived via
+/// [`RibbonStyle::from_theme`]. All fields are plain colors, so themes are
+/// trivially constructible over FFI. Presets: [`RibbonTheme::word_2013`]
+/// (the default) and [`RibbonTheme::from_system`], which extracts the
+/// colors from the OS theme (accent color, selection color, separators).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[repr(C)]
+pub struct RibbonTheme {
+    /// Chrome background: tab bar and ribbon content.
+    pub chrome_bg: ColorU,
+    /// Accent: application button fill, active tab text.
+    pub accent: ColorU,
+    /// Application button hover fill.
+    pub accent_hover: ColorU,
+    /// Text on accent fills (application button label).
+    pub accent_text: ColorU,
+    /// Regular control text.
+    pub text: ColorU,
+    /// Group captions and secondary glyphs.
+    pub label: ColorU,
+    /// Monochrome icon glyphs.
+    pub icon: ColorU,
+    /// Chrome borders: tab underline, ribbon bottom border, gallery frame.
+    pub border: ColorU,
+    /// Group and segment separators.
+    pub separator: ColorU,
+    /// Hover fill on ribbon controls.
+    pub hover_bg: ColorU,
+    /// Hover and toggled-on border.
+    pub hover_border: ColorU,
+    /// Pressed fill.
+    pub pressed_bg: ColorU,
+    /// Toggled-on fill.
+    pub checked_bg: ColorU,
+    /// Selected gallery cell fill.
+    pub selected_bg: ColorU,
+    /// Editable field border (embedded comboboxes).
+    pub field_border: ColorU,
+}
+
+impl RibbonTheme {
+    /// The Word 2013 palette: white chrome, #2B579A accents, #CDE6F7 hovers.
+    #[must_use]
+    pub const fn word_2013() -> Self {
+        Self {
+            chrome_bg: WHITE,
+            accent: W13_BLUE,
+            accent_hover: W13_BLUE_HOVER,
+            accent_text: WHITE,
+            text: W13_TEXT,
+            label: W13_LABEL_GRAY,
+            icon: W13_ICON_GRAY,
+            border: W13_BORDER,
+            separator: W13_SEP,
+            hover_bg: W13_HOVER_BG,
+            hover_border: W13_HOVER_BORDER,
+            pressed_bg: W13_PRESSED_BG,
+            checked_bg: W13_CHECKED_BG,
+            selected_bg: W13_SELECTED_BG,
+            field_border: W13_FIELD_BORDER,
+        }
+    }
+
+    /// Extracts a ribbon palette from the OS theme (accent color, selection
+    /// colors, separators). Colors the platform does not report fall back to
+    /// the Word 2013 palette. Pass `SystemStyle::detect()` for the live
+    /// system theme, or a preset `SystemStyle` for platform mockups.
+    /// Takes the style by value (FFI constructor convention).
+    #[must_use]
+    pub fn from_system(style: SystemStyle) -> Self {
+        let d = Self::word_2013();
+        let c = &style.colors;
+        // Each ribbon field maps to ONE system color; a color the platform
+        // does not report falls back to that field's own Word 2013 value
+        // (never to another derived value). No color arithmetic on purpose:
+        // FFI-observable behavior stays trivial to reason about.
+        let accent = c.accent.into_option();
+        let selection = c.selection_background.into_option();
+        let separator = c.separator.into_option();
+        let inactive_selection = c.selection_background_inactive.into_option();
+        let secondary_text = c.secondary_text.into_option();
+        Self {
+            chrome_bg: c.window_background.into_option().unwrap_or(d.chrome_bg),
+            accent: accent.unwrap_or(d.accent),
+            accent_hover: selection.unwrap_or(d.accent_hover),
+            accent_text: c.accent_text.into_option().unwrap_or(d.accent_text),
+            text: c.text.into_option().unwrap_or(d.text),
+            label: secondary_text.unwrap_or(d.label),
+            icon: secondary_text.unwrap_or(d.icon),
+            border: separator.unwrap_or(d.border),
+            separator: separator.unwrap_or(d.separator),
+            hover_bg: inactive_selection.unwrap_or(d.hover_bg),
+            hover_border: accent.unwrap_or(d.hover_border),
+            pressed_bg: selection.unwrap_or(d.pressed_bg),
+            checked_bg: selection.unwrap_or(d.checked_bg),
+            selected_bg: inactive_selection.unwrap_or(d.selected_bg),
+            field_border: separator.unwrap_or(d.field_border),
+        }
+    }
+}
+
+impl Default for RibbonTheme {
+    fn default() -> Self {
+        Self::word_2013()
+    }
+}
+
+// -- Colorless const part styles (shared by every theme) --
+
+static GROUP_ITEMS_STYLE: &[Cond] = &[
     Cond::simple(P::const_display(LayoutDisplay::Flex)),
     Cond::simple(P::const_flex_direction(LayoutFlexDirection::Row)),
-    Cond::simple(P::const_background_content(StyleBackgroundContentVec::from_const_slice(BG_LIGHT_GRAY))),
-    Cond::simple(P::const_border_bottom_width(LayoutBorderBottomWidth::const_px(1))),
-    Cond::simple(P::const_border_bottom_style(StyleBorderBottomStyle { inner: BorderStyle::Solid })),
-    Cond::simple(P::const_border_bottom_color(StyleBorderBottomColor { inner: BORDER_GRAY })),
+    Cond::simple(P::const_flex_grow(LayoutFlexGrow::const_new(0))),
+    Cond::simple(P::const_height(LayoutHeight::const_px(68))),
+    Cond::simple(P::const_align_items(LayoutAlignItems::Start)),
+    Cond::simple(P::const_flex_shrink(LayoutFlexShrink { inner: FloatValue::const_new(0) })),
 ];
 
-static TAB_INACTIVE_STYLE: &[Cond] = &[
-    Cond::simple(P::const_padding_left(LayoutPaddingLeft::const_px(12))),
-    Cond::simple(P::const_padding_right(LayoutPaddingRight::const_px(12))),
-    Cond::simple(P::const_padding_top(LayoutPaddingTop::const_px(6))),
-    Cond::simple(P::const_padding_bottom(LayoutPaddingBottom::const_px(6))),
-    Cond::simple(P::const_cursor(StyleCursor::Pointer)),
-    Cond::simple(P::const_text_color(StyleTextColor { inner: TEXT_GRAY })),
+static GROUP_FOOTER_STYLE: &[Cond] = &[
+    Cond::simple(P::const_display(LayoutDisplay::Flex)),
+    Cond::simple(P::const_flex_direction(LayoutFlexDirection::Row)),
+    Cond::simple(P::const_flex_grow(LayoutFlexGrow::const_new(0))),
+    Cond::simple(P::const_height(LayoutHeight::const_px(18))),
+    Cond::simple(P::const_align_items(LayoutAlignItems::Center)),
+    Cond::simple(P::const_flex_shrink(LayoutFlexShrink { inner: FloatValue::const_new(0) })),
 ];
 
-static TAB_ACTIVE_STYLE: &[Cond] = &[
-    Cond::simple(P::const_padding_left(LayoutPaddingLeft::const_px(12))),
-    Cond::simple(P::const_padding_right(LayoutPaddingRight::const_px(12))),
-    Cond::simple(P::const_padding_top(LayoutPaddingTop::const_px(6))),
-    Cond::simple(P::const_padding_bottom(LayoutPaddingBottom::const_px(6))),
-    Cond::simple(P::const_cursor(StyleCursor::Pointer)),
-    Cond::simple(P::const_background_content(StyleBackgroundContentVec::from_const_slice(BG_WHITE))),
-    Cond::simple(P::const_border_bottom_width(LayoutBorderBottomWidth::const_px(2))),
-    Cond::simple(P::const_border_bottom_style(StyleBorderBottomStyle { inner: BorderStyle::Solid })),
-    Cond::simple(P::const_border_bottom_color(StyleBorderBottomColor { inner: ACTIVE_BLUE })),
+static FOOTER_SPACER_STYLE: &[Cond] = &[
+    Cond::simple(P::const_width(LayoutWidth::const_px(18))),
+    Cond::simple(P::const_flex_grow(LayoutFlexGrow::const_new(0))),
+    Cond::simple(P::const_flex_shrink(LayoutFlexShrink { inner: FloatValue::const_new(0) })),
 ];
 
-static SECTIONS_CONTAINER_STYLE: &[Cond] = &[
+static COLUMN_STYLE: &[Cond] = &[
+    Cond::simple(P::const_display(LayoutDisplay::Flex)),
+    Cond::simple(P::const_flex_direction(LayoutFlexDirection::Column)),
+    Cond::simple(P::const_flex_grow(LayoutFlexGrow::const_new(0))),
+    Cond::simple(P::const_align_items(LayoutAlignItems::Start)),
+    Cond::simple(P::const_flex_shrink(LayoutFlexShrink { inner: FloatValue::const_new(0) })),
+];
+
+static ROW_STYLE: &[Cond] = &[
+    Cond::simple(P::const_display(LayoutDisplay::Flex)),
+    Cond::simple(P::const_flex_direction(LayoutFlexDirection::Row)),
+    Cond::simple(P::const_flex_grow(LayoutFlexGrow::const_new(0))),
+    Cond::simple(P::const_align_items(LayoutAlignItems::Center)),
+    Cond::simple(P::const_margin_bottom(LayoutMarginBottom::const_px(5))),
+    Cond::simple(P::const_flex_shrink(LayoutFlexShrink { inner: FloatValue::const_new(0) })),
+];
+
+static GALLERY_STRIP_STYLE: &[Cond] = &[
     Cond::simple(P::const_display(LayoutDisplay::Flex)),
     Cond::simple(P::const_flex_direction(LayoutFlexDirection::Row)),
     Cond::simple(P::const_flex_grow(LayoutFlexGrow::const_new(1))),
-    Cond::simple(P::const_background_content(StyleBackgroundContentVec::from_const_slice(BG_WHITE))),
-    Cond::simple(P::const_padding_top(LayoutPaddingTop::const_px(4))),
-    Cond::simple(P::const_padding_bottom(LayoutPaddingBottom::const_px(4))),
-    Cond::simple(P::const_padding_left(LayoutPaddingLeft::const_px(4))),
-    Cond::simple(P::const_padding_right(LayoutPaddingRight::const_px(4))),
-    Cond::simple(P::const_border_bottom_width(LayoutBorderBottomWidth::const_px(1))),
-    Cond::simple(P::const_border_bottom_style(StyleBorderBottomStyle { inner: BorderStyle::Solid })),
-    Cond::simple(P::const_border_bottom_color(StyleBorderBottomColor { inner: BORDER_GRAY })),
+    Cond::simple(P::const_overflow_x(LayoutOverflow::Hidden)),
+    Cond::simple(P::const_overflow_y(LayoutOverflow::Hidden)),
 ];
 
-static SECTION_STYLE: &[Cond] = &[
-    Cond::simple(P::const_display(LayoutDisplay::Flex)),
-    Cond::simple(P::const_flex_direction(LayoutFlexDirection::Column)),
-    Cond::simple(P::const_padding_left(LayoutPaddingLeft::const_px(6))),
-    Cond::simple(P::const_padding_right(LayoutPaddingRight::const_px(6))),
-    Cond::simple(P::const_border_right_width(LayoutBorderRightWidth::const_px(1))),
-    Cond::simple(P::const_border_right_style(StyleBorderRightStyle { inner: BorderStyle::Solid })),
-    Cond::simple(P::const_border_right_color(StyleBorderRightColor { inner: BORDER_GRAY })),
-];
-
-static SECTION_CONTENT_STYLE: &[Cond] = &[
+static RIBBON_COMBO_TEXT_STYLE: &[Cond] = &[
     Cond::simple(P::const_flex_grow(LayoutFlexGrow::const_new(1))),
+    Cond::simple(P::const_text_align(StyleTextAlign::Left)),
+    Cond::simple(P::const_padding_right(LayoutPaddingRight::const_px(2))),
 ];
 
-static SECTION_TITLE_STYLE: &[Cond] = &[
-    Cond::simple(P::const_font_size(StyleFontSize::const_px(11))),
-    Cond::simple(P::const_text_color(StyleTextColor { inner: TEXT_GRAY })),
-    Cond::simple(P::const_text_align(StyleTextAlign::Center)),
-    Cond::simple(P::const_padding_top(LayoutPaddingTop::const_px(2))),
+// -- Theme -> property-list builders --
+//
+// Every themed ribbon part is built from `RibbonTheme` colors by the
+// functions below; `RibbonStyle::word_2013()` is just
+// `from_theme(&RibbonTheme::word_2013())`, so there is exactly one source
+// of truth for each part's property list.
+
+fn bg_vec(c: ColorU) -> StyleBackgroundContentVec {
+    StyleBackgroundContentVec::from_vec(vec![StyleBackgroundContent::Color(c)])
+}
+
+fn cond_bg(c: ColorU) -> Cond {
+    Cond::simple(P::const_background_content(bg_vec(c)))
+}
+
+fn cond_bg_hover(c: ColorU) -> Cond {
+    Cond::on_hover(P::const_background_content(bg_vec(c)))
+}
+
+fn cond_bg_active(c: ColorU) -> Cond {
+    Cond::on_active(P::const_background_content(bg_vec(c)))
+}
+
+fn cond_text_color(c: ColorU) -> Cond {
+    Cond::simple(P::const_text_color(StyleTextColor { inner: c }))
+}
+
+fn push_padding(v: &mut Vec<Cond>, top: isize, right: isize, bottom: isize, left: isize) {
+    v.push(Cond::simple(P::const_padding_top(LayoutPaddingTop::const_px(top))));
+    v.push(Cond::simple(P::const_padding_right(LayoutPaddingRight::const_px(right))));
+    v.push(Cond::simple(P::const_padding_bottom(LayoutPaddingBottom::const_px(bottom))));
+    v.push(Cond::simple(P::const_padding_left(LayoutPaddingLeft::const_px(left))));
+}
+
+/// 1px solid border on all four sides in the given color.
+fn push_box_border(v: &mut Vec<Cond>, c: ColorU) {
+    v.push(Cond::simple(P::const_border_top_width(LayoutBorderTopWidth::const_px(1))));
+    v.push(Cond::simple(P::const_border_left_width(LayoutBorderLeftWidth::const_px(1))));
+    v.push(Cond::simple(P::const_border_right_width(LayoutBorderRightWidth::const_px(1))));
+    v.push(Cond::simple(P::const_border_bottom_width(LayoutBorderBottomWidth::const_px(1))));
+    v.push(Cond::simple(P::const_border_top_style(StyleBorderTopStyle { inner: BorderStyle::Solid })));
+    v.push(Cond::simple(P::const_border_left_style(StyleBorderLeftStyle { inner: BorderStyle::Solid })));
+    v.push(Cond::simple(P::const_border_right_style(StyleBorderRightStyle { inner: BorderStyle::Solid })));
+    v.push(Cond::simple(P::const_border_bottom_style(StyleBorderBottomStyle { inner: BorderStyle::Solid })));
+    push_border_colors(v, c);
+}
+
+fn push_border_colors(v: &mut Vec<Cond>, c: ColorU) {
+    v.push(Cond::simple(P::const_border_top_color(StyleBorderTopColor { inner: c })));
+    v.push(Cond::simple(P::const_border_left_color(StyleBorderLeftColor { inner: c })));
+    v.push(Cond::simple(P::const_border_right_color(StyleBorderRightColor { inner: c })));
+    v.push(Cond::simple(P::const_border_bottom_color(StyleBorderBottomColor { inner: c })));
+}
+
+fn push_hover_border_colors(v: &mut Vec<Cond>, c: ColorU) {
+    v.push(Cond::on_hover(P::const_border_top_color(StyleBorderTopColor { inner: c })));
+    v.push(Cond::on_hover(P::const_border_left_color(StyleBorderLeftColor { inner: c })));
+    v.push(Cond::on_hover(P::const_border_right_color(StyleBorderRightColor { inner: c })));
+    v.push(Cond::on_hover(P::const_border_bottom_color(StyleBorderBottomColor { inner: c })));
+}
+
+/// Bottom border only (tab underline / ribbon bottom edge).
+fn push_bottom_border(v: &mut Vec<Cond>, c: ColorU) {
+    v.push(Cond::simple(P::const_border_bottom_width(LayoutBorderBottomWidth::const_px(1))));
+    v.push(Cond::simple(P::const_border_bottom_style(StyleBorderBottomStyle { inner: BorderStyle::Solid })));
+    v.push(Cond::simple(P::const_border_bottom_color(StyleBorderBottomColor { inner: c })));
+}
+
+/// Transparent-bordered, hover-highlighted button chassis shared by large
+/// and small ribbon buttons.
+fn push_button_chassis(v: &mut Vec<Cond>, t: &RibbonTheme) {
+    v.push(Cond::simple(P::const_cursor(StyleCursor::Default)));
+    v.push(cond_bg(TRANSPARENT));
+    push_box_border(v, TRANSPARENT);
+    v.push(cond_bg_hover(t.hover_bg));
+    push_hover_border_colors(v, t.hover_border);
+    v.push(cond_bg_active(t.pressed_bg));
+}
+
+fn theme_container(t: &RibbonTheme) -> CssPropertyWithConditionsVec {
+    let mut v = vec![
+        Cond::simple(P::const_display(LayoutDisplay::Flex)),
+        Cond::simple(P::const_flex_direction(LayoutFlexDirection::Column)),
+        Cond::simple(P::const_flex_grow(LayoutFlexGrow::const_new(0))),
+        Cond::simple(P::const_font_family(SYSTEM_UI_FAMILY)),
+        Cond::simple(P::const_font_size(StyleFontSize::const_px(12))),
+        cond_bg(t.chrome_bg),
+    ];
+    push_bottom_border(&mut v, t.border);
+    CssPropertyWithConditionsVec::from_vec(v)
+}
+
+fn theme_tab_bar(t: &RibbonTheme) -> CssPropertyWithConditionsVec {
+    CssPropertyWithConditionsVec::from_vec(vec![
+        Cond::simple(P::const_display(LayoutDisplay::Flex)),
+        Cond::simple(P::const_flex_direction(LayoutFlexDirection::Row)),
+        Cond::simple(P::const_flex_grow(LayoutFlexGrow::const_new(0))),
+        Cond::simple(P::const_height(LayoutHeight::const_px(26))),
+        cond_bg(t.chrome_bg),
+    ])
+}
+
+fn theme_app_button(t: &RibbonTheme) -> CssPropertyWithConditionsVec {
+    let mut v = Vec::with_capacity(12);
+    v.push(Cond::simple(P::const_flex_shrink(LayoutFlexShrink { inner: FloatValue::const_new(0) })));
+    push_padding(&mut v, 7, 17, 7, 17);
+    v.push(cond_bg(t.accent));
+    v.push(cond_text_color(t.accent_text));
+    v.push(Cond::simple(P::const_font_size(StyleFontSize::const_px(12))));
+    v.push(Cond::simple(P::const_cursor(StyleCursor::Pointer)));
+    v.push(Cond::simple(P::user_select(StyleUserSelect::None)));
+    v.push(cond_bg_hover(t.accent_hover));
+    CssPropertyWithConditionsVec::from_vec(v)
+}
+
+fn theme_tab(t: &RibbonTheme) -> CssPropertyWithConditionsVec {
+    let mut v = Vec::with_capacity(14);
+    v.push(Cond::simple(P::const_flex_shrink(LayoutFlexShrink { inner: FloatValue::const_new(0) })));
+    push_padding(&mut v, 7, 13, 6, 13);
+    v.push(Cond::simple(P::const_cursor(StyleCursor::Pointer)));
+    v.push(Cond::simple(P::user_select(StyleUserSelect::None)));
+    v.push(cond_text_color(t.text));
+    v.push(cond_bg(t.chrome_bg));
+    push_bottom_border(&mut v, t.border);
+    v.push(Cond::on_hover(P::const_text_color(StyleTextColor { inner: t.accent })));
+    CssPropertyWithConditionsVec::from_vec(v)
+}
+
+fn theme_tab_active(t: &RibbonTheme) -> CssPropertyWithConditionsVec {
+    let mut v = Vec::with_capacity(20);
+    v.push(Cond::simple(P::const_flex_shrink(LayoutFlexShrink { inner: FloatValue::const_new(0) })));
+    push_padding(&mut v, 6, 12, 6, 12);
+    v.push(Cond::simple(P::user_select(StyleUserSelect::None)));
+    v.push(cond_text_color(t.accent));
+    v.push(cond_bg(t.chrome_bg));
+    push_box_border(&mut v, t.border);
+    // Erase the underline below the active tab: the bottom border matches
+    // the chrome so the tab visually merges with the ribbon content.
+    v.push(Cond::simple(P::const_border_bottom_color(StyleBorderBottomColor {
+        inner: t.chrome_bg,
+    })));
+    CssPropertyWithConditionsVec::from_vec(v)
+}
+
+fn theme_tab_filler(t: &RibbonTheme) -> CssPropertyWithConditionsVec {
+    let mut v = vec![Cond::simple(P::const_flex_grow(LayoutFlexGrow::const_new(1)))];
+    push_bottom_border(&mut v, t.border);
+    CssPropertyWithConditionsVec::from_vec(v)
+}
+
+fn theme_content(t: &RibbonTheme) -> CssPropertyWithConditionsVec {
+    CssPropertyWithConditionsVec::from_vec(vec![
+        Cond::simple(P::const_display(LayoutDisplay::Flex)),
+        Cond::simple(P::const_flex_direction(LayoutFlexDirection::Row)),
+        Cond::simple(P::const_flex_grow(LayoutFlexGrow::const_new(0))),
+        Cond::simple(P::const_flex_shrink(LayoutFlexShrink { inner: FloatValue::const_new(0) })),
+        Cond::simple(P::const_height(LayoutHeight::const_px(92))),
+        cond_bg(t.chrome_bg),
+    ])
+}
+
+fn theme_group(t: &RibbonTheme) -> CssPropertyWithConditionsVec {
+    CssPropertyWithConditionsVec::from_vec(vec![
+        Cond::simple(P::const_display(LayoutDisplay::Flex)),
+        Cond::simple(P::const_flex_direction(LayoutFlexDirection::Column)),
+        Cond::simple(P::const_flex_grow(LayoutFlexGrow::const_new(0))),
+        Cond::simple(P::const_flex_shrink(LayoutFlexShrink { inner: FloatValue::const_new(0) })),
+        Cond::simple(P::const_padding_top(LayoutPaddingTop::const_px(3))),
+        Cond::simple(P::const_padding_left(LayoutPaddingLeft::const_px(2))),
+        Cond::simple(P::const_padding_right(LayoutPaddingRight::const_px(2))),
+        Cond::simple(P::const_border_right_width(LayoutBorderRightWidth::const_px(1))),
+        Cond::simple(P::const_border_right_style(StyleBorderRightStyle { inner: BorderStyle::Solid })),
+        Cond::simple(P::const_border_right_color(StyleBorderRightColor { inner: t.separator })),
+    ])
+}
+
+fn theme_group_label(t: &RibbonTheme) -> CssPropertyWithConditionsVec {
+    CssPropertyWithConditionsVec::from_vec(vec![
+        Cond::simple(P::const_flex_grow(LayoutFlexGrow::const_new(1))),
+        Cond::simple(P::const_text_align(StyleTextAlign::Center)),
+        Cond::simple(P::const_font_size(StyleFontSize::const_px(11))),
+        cond_text_color(t.label),
+        Cond::simple(P::user_select(StyleUserSelect::None)),
+    ])
+}
+
+fn theme_launcher_button(t: &RibbonTheme) -> CssPropertyWithConditionsVec {
+    let mut v = vec![
+        Cond::simple(P::const_display(LayoutDisplay::Flex)),
+        Cond::simple(P::const_flex_direction(LayoutFlexDirection::Row)),
+        Cond::simple(P::const_align_items(LayoutAlignItems::Center)),
+        Cond::simple(P::const_justify_content(LayoutJustifyContent::Center)),
+        Cond::simple(P::const_flex_grow(LayoutFlexGrow::const_new(0))),
+        Cond::simple(P::const_flex_shrink(LayoutFlexShrink { inner: FloatValue::const_new(0) })),
+        Cond::simple(P::const_width(LayoutWidth::const_px(16))),
+        Cond::simple(P::const_height(LayoutHeight::const_px(14))),
+    ];
+    push_padding(&mut v, 0, 0, 0, 0);
+    v.push(Cond::simple(P::const_cursor(StyleCursor::Default)));
+    v.push(cond_bg(TRANSPARENT));
+    push_box_border(&mut v, TRANSPARENT);
+    v.push(cond_bg_hover(t.hover_bg));
+    push_hover_border_colors(&mut v, t.hover_border);
+    CssPropertyWithConditionsVec::from_vec(v)
+}
+
+fn theme_launcher_icon(t: &RibbonTheme) -> CssPropertyWithConditionsVec {
+    CssPropertyWithConditionsVec::from_vec(vec![
+        Cond::simple(P::const_font_size(StyleFontSize::const_px(11))),
+        cond_text_color(t.label),
+        Cond::simple(P::const_flex_grow(LayoutFlexGrow::const_new(0))),
+        Cond::simple(P::user_select(StyleUserSelect::None)),
+    ])
+}
+
+fn theme_separator(t: &RibbonTheme) -> CssPropertyWithConditionsVec {
+    CssPropertyWithConditionsVec::from_vec(vec![
+        Cond::simple(P::const_width(LayoutWidth::const_px(1))),
+        Cond::simple(P::const_height(LayoutHeight::const_px(22))),
+        Cond::simple(P::const_flex_grow(LayoutFlexGrow::const_new(0))),
+        Cond::simple(P::const_flex_shrink(LayoutFlexShrink { inner: FloatValue::const_new(0) })),
+        Cond::simple(P::const_margin_left(LayoutMarginLeft::const_px(3))),
+        Cond::simple(P::const_margin_right(LayoutMarginRight::const_px(3))),
+        cond_bg(t.separator),
+    ])
+}
+
+fn theme_large_button(t: &RibbonTheme) -> CssPropertyWithConditionsVec {
+    let mut v = vec![
+        Cond::simple(P::const_display(LayoutDisplay::Flex)),
+        Cond::simple(P::const_flex_direction(LayoutFlexDirection::Column)),
+        Cond::simple(P::const_align_items(LayoutAlignItems::Center)),
+        Cond::simple(P::const_flex_grow(LayoutFlexGrow::const_new(0))),
+        Cond::simple(P::const_flex_shrink(LayoutFlexShrink { inner: FloatValue::const_new(0) })),
+        Cond::simple(P::const_height(LayoutHeight::const_px(66))),
+        Cond::simple(P::const_min_width(LayoutMinWidth::const_px(44))),
+    ];
+    push_padding(&mut v, 3, 7, 3, 7);
+    v.push(Cond::simple(P::const_margin_right(LayoutMarginRight::const_px(1))));
+    push_button_chassis(&mut v, t);
+    CssPropertyWithConditionsVec::from_vec(v)
+}
+
+fn theme_large_icon(t: &RibbonTheme) -> CssPropertyWithConditionsVec {
+    CssPropertyWithConditionsVec::from_vec(vec![
+        Cond::simple(P::const_font_size(StyleFontSize::const_px(32))),
+        cond_text_color(t.icon),
+        Cond::simple(P::const_flex_grow(LayoutFlexGrow::const_new(0))),
+        Cond::simple(P::user_select(StyleUserSelect::None)),
+    ])
+}
+
+fn theme_large_label(t: &RibbonTheme) -> CssPropertyWithConditionsVec {
+    CssPropertyWithConditionsVec::from_vec(vec![
+        Cond::simple(P::const_font_size(StyleFontSize::const_px(12))),
+        cond_text_color(t.text),
+        Cond::simple(P::const_text_align(StyleTextAlign::Center)),
+        Cond::simple(P::const_margin_top(LayoutMarginTop::const_px(3))),
+        Cond::simple(P::const_flex_grow(LayoutFlexGrow::const_new(0))),
+        Cond::simple(P::user_select(StyleUserSelect::None)),
+    ])
+}
+
+fn theme_small_button(t: &RibbonTheme) -> CssPropertyWithConditionsVec {
+    let mut v = vec![
+        Cond::simple(P::const_display(LayoutDisplay::Flex)),
+        Cond::simple(P::const_flex_direction(LayoutFlexDirection::Row)),
+        Cond::simple(P::const_align_items(LayoutAlignItems::Center)),
+        Cond::simple(P::const_flex_grow(LayoutFlexGrow::const_new(0))),
+        Cond::simple(P::const_flex_shrink(LayoutFlexShrink { inner: FloatValue::const_new(0) })),
+        Cond::simple(P::const_height(LayoutHeight::const_px(22))),
+    ];
+    push_padding(&mut v, 1, 3, 1, 3);
+    push_button_chassis(&mut v, t);
+    CssPropertyWithConditionsVec::from_vec(v)
+}
+
+fn theme_small_icon(t: &RibbonTheme) -> CssPropertyWithConditionsVec {
+    CssPropertyWithConditionsVec::from_vec(vec![
+        Cond::simple(P::const_font_size(StyleFontSize::const_px(16))),
+        cond_text_color(t.icon),
+        Cond::simple(P::const_flex_grow(LayoutFlexGrow::const_new(0))),
+        Cond::simple(P::user_select(StyleUserSelect::None)),
+    ])
+}
+
+fn theme_small_label(t: &RibbonTheme) -> CssPropertyWithConditionsVec {
+    CssPropertyWithConditionsVec::from_vec(vec![
+        Cond::simple(P::const_font_size(StyleFontSize::const_px(12))),
+        cond_text_color(t.text),
+        Cond::simple(P::const_margin_left(LayoutMarginLeft::const_px(5))),
+        Cond::simple(P::const_flex_grow(LayoutFlexGrow::const_new(0))),
+        Cond::simple(P::user_select(StyleUserSelect::None)),
+    ])
+}
+
+fn theme_arrow_icon(t: &RibbonTheme) -> CssPropertyWithConditionsVec {
+    CssPropertyWithConditionsVec::from_vec(vec![
+        Cond::simple(P::const_font_size(StyleFontSize::const_px(14))),
+        cond_text_color(t.label),
+        Cond::simple(P::const_flex_grow(LayoutFlexGrow::const_new(0))),
+        Cond::simple(P::user_select(StyleUserSelect::None)),
+    ])
+}
+
+/// Appended to a button's container style when [`RibbonButton::toggled`] is
+/// set. Inline properties resolve last-wins, so these override the base.
+fn theme_checked(t: &RibbonTheme) -> CssPropertyWithConditionsVec {
+    let mut v = vec![cond_bg(t.checked_bg)];
+    push_border_colors(&mut v, t.hover_border);
+    CssPropertyWithConditionsVec::from_vec(v)
+}
+
+fn theme_gallery_frame(t: &RibbonTheme) -> CssPropertyWithConditionsVec {
+    let mut v = vec![
+        Cond::simple(P::const_min_width(LayoutMinWidth::const_px(137))),
+        Cond::simple(P::const_display(LayoutDisplay::Flex)),
+        Cond::simple(P::const_flex_direction(LayoutFlexDirection::Row)),
+        Cond::simple(P::const_flex_grow(LayoutFlexGrow::const_new(1))),
+        Cond::simple(P::const_height(LayoutHeight::const_px(68))),
+        // The frame IS the gallery viewport (like Word): overflow hidden
+        // both clips partially-visible cells and zeroes the frame's
+        // automatic minimum size so it yields space to rigid groups.
+        // (taffy 0.10 only collapses the minimum for DIRECT scroll
+        // containers — see layout/tests/flex_intrinsic_text.rs.)
+        Cond::simple(P::const_overflow_x(LayoutOverflow::Hidden)),
+        Cond::simple(P::const_overflow_y(LayoutOverflow::Hidden)),
+        cond_bg(t.chrome_bg),
+    ];
+    push_box_border(&mut v, t.border);
+    CssPropertyWithConditionsVec::from_vec(v)
+}
+
+fn theme_gallery_cell(t: &RibbonTheme) -> CssPropertyWithConditionsVec {
+    let mut v = vec![
+        Cond::simple(P::const_display(LayoutDisplay::Flex)),
+        Cond::simple(P::const_flex_direction(LayoutFlexDirection::Column)),
+        Cond::simple(P::const_align_items(LayoutAlignItems::Center)),
+        Cond::simple(P::const_justify_content(LayoutJustifyContent::Center)),
+        Cond::simple(P::const_flex_grow(LayoutFlexGrow::const_new(0))),
+        Cond::simple(P::const_flex_shrink(LayoutFlexShrink { inner: FloatValue::const_new(0) })),
+        Cond::simple(P::const_width(LayoutWidth::const_px(120))),
+    ];
+    push_padding(&mut v, 2, 6, 2, 6);
+    v.push(Cond::simple(P::const_cursor(StyleCursor::Default)));
+    v.push(Cond::simple(P::user_select(StyleUserSelect::None)));
+    push_box_border(&mut v, TRANSPARENT);
+    // Cells are divided by a thin rule on their right edge.
+    v.push(Cond::simple(P::const_border_right_color(StyleBorderRightColor {
+        inner: t.separator,
+    })));
+    v.push(cond_bg_hover(t.hover_bg));
+    push_hover_border_colors(&mut v, t.hover_border);
+    CssPropertyWithConditionsVec::from_vec(v)
+}
+
+/// Appended to [`RibbonStyle::gallery_cell_style`] for the selected cell.
+fn theme_gallery_cell_selected(t: &RibbonTheme) -> CssPropertyWithConditionsVec {
+    let mut v = vec![cond_bg(t.selected_bg)];
+    push_border_colors(&mut v, t.hover_border);
+    CssPropertyWithConditionsVec::from_vec(v)
+}
+
+fn theme_gallery_cell_label(t: &RibbonTheme) -> CssPropertyWithConditionsVec {
+    CssPropertyWithConditionsVec::from_vec(vec![
+        Cond::simple(P::const_font_size(StyleFontSize::const_px(11))),
+        cond_text_color(t.text),
+        Cond::simple(P::const_margin_top(LayoutMarginTop::const_px(2))),
+        Cond::simple(P::const_flex_grow(LayoutFlexGrow::const_new(0))),
+        Cond::simple(P::user_select(StyleUserSelect::None)),
+    ])
+}
+
+fn theme_gallery_spinner(t: &RibbonTheme) -> CssPropertyWithConditionsVec {
+    CssPropertyWithConditionsVec::from_vec(vec![
+        Cond::simple(P::const_display(LayoutDisplay::Flex)),
+        Cond::simple(P::const_flex_direction(LayoutFlexDirection::Column)),
+        Cond::simple(P::const_flex_grow(LayoutFlexGrow::const_new(0))),
+        Cond::simple(P::const_flex_shrink(LayoutFlexShrink { inner: FloatValue::const_new(0) })),
+        Cond::simple(P::const_width(LayoutWidth::const_px(15))),
+        Cond::simple(P::const_border_left_width(LayoutBorderLeftWidth::const_px(1))),
+        Cond::simple(P::const_border_left_style(StyleBorderLeftStyle { inner: BorderStyle::Solid })),
+        Cond::simple(P::const_border_left_color(StyleBorderLeftColor { inner: t.separator })),
+    ])
+}
+
+/// The gallery wrapper is the positioning context for the expansion panel;
+/// it is otherwise transparent and behaves exactly like the bare frame.
+static GALLERY_WRAPPER_STYLE: &[Cond] = &[
+    Cond::simple(P::const_display(LayoutDisplay::Flex)),
+    Cond::simple(P::const_flex_direction(LayoutFlexDirection::Row)),
+    Cond::simple(P::const_position(LayoutPosition::Relative)),
+    Cond::simple(P::const_flex_grow(LayoutFlexGrow::const_new(1))),
+    Cond::simple(P::const_min_width(LayoutMinWidth::const_px(137))),
 ];
 
-/// Top-level ribbon widget containing multiple tabs.
+/// The "More" expansion panel: an absolutely-positioned wrapped grid of every
+/// gallery cell, hidden until the More button toggles its `display`.
+fn theme_gallery_panel(t: &RibbonTheme) -> CssPropertyWithConditionsVec {
+    let mut v = vec![
+        Cond::simple(P::const_display(LayoutDisplay::None)),
+        Cond::simple(P::const_position(LayoutPosition::Absolute)),
+        Cond::simple(P::const_top(LayoutTop::const_px(68))),
+        Cond::simple(P::const_left(LayoutLeft::const_px(0))),
+        Cond::simple(P::const_width(LayoutWidth::const_px(612))),
+        Cond::simple(P::const_flex_direction(LayoutFlexDirection::Row)),
+        Cond::simple(P::const_flex_wrap(LayoutFlexWrap::Wrap)),
+        cond_bg(t.chrome_bg),
+    ];
+    push_box_border(&mut v, t.border);
+    CssPropertyWithConditionsVec::from_vec(v)
+}
+
+fn theme_gallery_spinner_button(t: &RibbonTheme) -> CssPropertyWithConditionsVec {
+    let mut v = vec![
+        Cond::simple(P::const_display(LayoutDisplay::Flex)),
+        Cond::simple(P::const_flex_direction(LayoutFlexDirection::Row)),
+        Cond::simple(P::const_align_items(LayoutAlignItems::Center)),
+        Cond::simple(P::const_justify_content(LayoutJustifyContent::Center)),
+        Cond::simple(P::const_flex_grow(LayoutFlexGrow::const_new(1))),
+        Cond::simple(P::const_width(LayoutWidth::const_px(14))),
+    ];
+    push_padding(&mut v, 0, 0, 0, 0);
+    v.push(Cond::simple(P::const_cursor(StyleCursor::Default)));
+    v.push(cond_bg(TRANSPARENT));
+    v.push(Cond::simple(P::const_border_top_width(LayoutBorderTopWidth::const_px(0))));
+    v.push(Cond::simple(P::const_border_left_width(LayoutBorderLeftWidth::const_px(0))));
+    v.push(Cond::simple(P::const_border_right_width(LayoutBorderRightWidth::const_px(0))));
+    v.push(Cond::simple(P::const_border_bottom_width(LayoutBorderBottomWidth::const_px(0))));
+    v.push(cond_bg_hover(t.hover_bg));
+    CssPropertyWithConditionsVec::from_vec(v)
+}
+
+fn theme_gallery_spinner_icon(t: &RibbonTheme) -> CssPropertyWithConditionsVec {
+    CssPropertyWithConditionsVec::from_vec(vec![
+        Cond::simple(P::const_font_size(StyleFontSize::const_px(12))),
+        cond_text_color(t.label),
+        Cond::simple(P::const_flex_grow(LayoutFlexGrow::const_new(0))),
+        Cond::simple(P::user_select(StyleUserSelect::None)),
+    ])
+}
+
+/// Word-look combobox parts, injected by [`RibbonStyle::styled_combo_box`].
+fn theme_combo_wrapper_base(_t: &RibbonTheme) -> Vec<Cond> {
+    vec![
+        Cond::simple(P::const_display(LayoutDisplay::InlineBlock)),
+        Cond::simple(P::const_position(LayoutPosition::Relative)),
+        Cond::simple(P::const_flex_grow(LayoutFlexGrow::const_new(0))),
+        Cond::simple(P::const_flex_shrink(LayoutFlexShrink { inner: FloatValue::const_new(0) })),
+        Cond::simple(P::const_margin_right(LayoutMarginRight::const_px(2))),
+        Cond::simple(P::const_font_size(StyleFontSize::const_px(12))),
+        Cond::simple(P::const_font_family(SYSTEM_UI_FAMILY)),
+    ]
+}
+
+fn theme_combo_field(t: &RibbonTheme) -> CssPropertyWithConditionsVec {
+    let mut v = vec![
+        Cond::simple(P::const_display(LayoutDisplay::Flex)),
+        Cond::simple(P::const_flex_direction(LayoutFlexDirection::Row)),
+        Cond::simple(P::const_align_items(LayoutAlignItems::Center)),
+        Cond::simple(P::const_flex_grow(LayoutFlexGrow::const_new(0))),
+        Cond::simple(P::const_height(LayoutHeight::const_px(22))),
+    ];
+    push_padding(&mut v, 0, 2, 0, 5);
+    v.push(Cond::simple(P::const_cursor(StyleCursor::Text)));
+    v.push(cond_bg(t.chrome_bg));
+    v.push(cond_text_color(t.text));
+    push_box_border(&mut v, t.field_border);
+    v.push(Cond::on_focus(P::const_border_top_color(StyleBorderTopColor { inner: t.accent })));
+    v.push(Cond::on_focus(P::const_border_left_color(StyleBorderLeftColor { inner: t.accent })));
+    v.push(Cond::on_focus(P::const_border_right_color(StyleBorderRightColor { inner: t.accent })));
+    v.push(Cond::on_focus(P::const_border_bottom_color(StyleBorderBottomColor { inner: t.accent })));
+    CssPropertyWithConditionsVec::from_vec(v)
+}
+
+fn theme_combo_arrow(t: &RibbonTheme) -> CssPropertyWithConditionsVec {
+    CssPropertyWithConditionsVec::from_vec(vec![
+        Cond::simple(P::const_font_size(StyleFontSize::const_px(14))),
+        cond_text_color(t.label),
+        Cond::simple(P::const_flex_grow(LayoutFlexGrow::const_new(0))),
+        Cond::simple(P::user_select(StyleUserSelect::None)),
+    ])
+}
+
+// -- Classes --
+
+static CLS_RIBBON: &[IdOrClass] = &[Class(AzString::from_const_str("__azul-native-ribbon"))];
+static CLS_TAB_BAR: &[IdOrClass] =
+    &[Class(AzString::from_const_str("__azul-native-ribbon-tabbar"))];
+static CLS_APP_BUTTON: &[IdOrClass] =
+    &[Class(AzString::from_const_str("__azul-native-ribbon-appbutton"))];
+static CLS_TAB: &[IdOrClass] = &[Class(AzString::from_const_str("__azul-native-ribbon-tab"))];
+static CLS_TAB_ACTIVE: &[IdOrClass] = &[
+    Class(AzString::from_const_str("__azul-native-ribbon-tab")),
+    Class(AzString::from_const_str("__azul-native-ribbon-tab-active")),
+];
+static CLS_TAB_FILLER: &[IdOrClass] =
+    &[Class(AzString::from_const_str("__azul-native-ribbon-tab-filler"))];
+static CLS_CONTENT: &[IdOrClass] =
+    &[Class(AzString::from_const_str("__azul-native-ribbon-content"))];
+static CLS_GROUP: &[IdOrClass] =
+    &[Class(AzString::from_const_str("__azul-native-ribbon-group"))];
+static CLS_GROUP_ITEMS: &[IdOrClass] =
+    &[Class(AzString::from_const_str("__azul-native-ribbon-group-items"))];
+static CLS_GROUP_FOOTER: &[IdOrClass] =
+    &[Class(AzString::from_const_str("__azul-native-ribbon-group-footer"))];
+static CLS_GROUP_LABEL: &[IdOrClass] =
+    &[Class(AzString::from_const_str("__azul-native-ribbon-group-label"))];
+static CLS_FOOTER_SPACER: &[IdOrClass] =
+    &[Class(AzString::from_const_str("__azul-native-ribbon-footer-spacer"))];
+static CLS_COLUMN: &[IdOrClass] =
+    &[Class(AzString::from_const_str("__azul-native-ribbon-column"))];
+static CLS_ROW: &[IdOrClass] = &[Class(AzString::from_const_str("__azul-native-ribbon-row"))];
+static CLS_SEPARATOR: &[IdOrClass] =
+    &[Class(AzString::from_const_str("__azul-native-ribbon-separator"))];
+static CLS_GALLERY: &[IdOrClass] =
+    &[Class(AzString::from_const_str("__azul-native-ribbon-gallery"))];
+static CLS_GALLERY_STRIP: &[IdOrClass] =
+    &[Class(AzString::from_const_str("__azul-native-ribbon-gallery-strip"))];
+static CLS_GALLERY_CELL: &[IdOrClass] =
+    &[Class(AzString::from_const_str("__azul-native-ribbon-gallery-cell"))];
+static CLS_GALLERY_CELL_SELECTED: &[IdOrClass] = &[
+    Class(AzString::from_const_str("__azul-native-ribbon-gallery-cell")),
+    Class(AzString::from_const_str("__azul-native-ribbon-gallery-cell-selected")),
+];
+static CLS_GALLERY_MORE: &[IdOrClass] =
+    &[Class(AzString::from_const_str("__azul-native-ribbon-gallery-more"))];
+static CLS_GALLERY_WRAPPER: &[IdOrClass] =
+    &[Class(AzString::from_const_str("__azul-native-ribbon-gallery-wrapper"))];
+static CLS_GALLERY_PANEL: &[IdOrClass] =
+    &[Class(AzString::from_const_str("__azul-native-ribbon-gallery-panel"))];
+static CLS_GALLERY_SPINNER: &[IdOrClass] =
+    &[Class(AzString::from_const_str("__azul-native-ribbon-gallery-spinner"))];
+
+// -- Style bundle --
+
+/// Every visual part of the ribbon chrome as a replaceable property list.
+///
+/// The default ([`RibbonStyle::word_2013`]) reproduces the Word 2013 look:
+/// white chrome, #2B579A accents, #CDE6F7 hover fills. Each field is applied
+/// to exactly one DOM part; replace any of them to re-theme that part.
+/// Fields named `*_style` fully replace the part's style; [`Self::checked_style`]
+/// and [`Self::gallery_cell_selected_style`] are *appended* to the base button /
+/// cell style (inline CSS resolves last-wins, so appended properties override).
+#[derive(Debug, Clone, PartialEq)]
+#[repr(C)]
+pub struct RibbonStyle {
+    /// The palette this style bundle was derived from. Kept for
+    /// [`Self::styled_combo_box`] and for consumers deriving matching
+    /// custom parts.
+    pub theme: RibbonTheme,
+    /// Root container (vertical: tab bar over content).
+    pub container_style: CssPropertyWithConditionsVec,
+    /// The horizontal tab strip.
+    pub tab_bar_style: CssPropertyWithConditionsVec,
+    /// The blue application button ("FILE").
+    pub app_button_style: CssPropertyWithConditionsVec,
+    /// An inactive tab header.
+    pub tab_style: CssPropertyWithConditionsVec,
+    /// The active tab header.
+    pub tab_active_style: CssPropertyWithConditionsVec,
+    /// The filler segment after the last tab (carries the underline).
+    pub tab_filler_style: CssPropertyWithConditionsVec,
+    /// The content band below the tab strip (horizontal group list).
+    pub content_style: CssPropertyWithConditionsVec,
+    /// One group (vertical: items over footer), incl. the right separator.
+    pub group_style: CssPropertyWithConditionsVec,
+    /// The item area of a group.
+    pub group_items_style: CssPropertyWithConditionsVec,
+    /// The footer row of a group (label + dialog launcher).
+    pub group_footer_style: CssPropertyWithConditionsVec,
+    /// The centered group caption.
+    pub group_label_style: CssPropertyWithConditionsVec,
+    /// Invisible spacer balancing the launcher so the caption stays centered.
+    pub footer_spacer_style: CssPropertyWithConditionsVec,
+    /// Container style injected into the dialog-launcher [`Button`].
+    pub launcher_button_style: CssPropertyWithConditionsVec,
+    /// Icon style injected into the dialog-launcher [`Button`].
+    pub launcher_icon_style: CssPropertyWithConditionsVec,
+    /// A [`RibbonColumn`] packing box.
+    pub column_style: CssPropertyWithConditionsVec,
+    /// A [`RibbonRow`] packing box.
+    pub row_style: CssPropertyWithConditionsVec,
+    /// A [`RibbonItem::Separator`] rule.
+    pub separator_style: CssPropertyWithConditionsVec,
+    /// Container style injected into large-button [`Button`]s.
+    pub large_button_style: CssPropertyWithConditionsVec,
+    /// Icon style injected into large-button [`Button`]s.
+    pub large_icon_style: CssPropertyWithConditionsVec,
+    /// Label style injected into large-button [`Button`]s.
+    pub large_label_style: CssPropertyWithConditionsVec,
+    /// Container style injected into small-button [`Button`]s.
+    pub small_button_style: CssPropertyWithConditionsVec,
+    /// Icon style injected into small-button [`Button`]s.
+    pub small_icon_style: CssPropertyWithConditionsVec,
+    /// Label style injected into small-button [`Button`]s.
+    pub small_label_style: CssPropertyWithConditionsVec,
+    /// Style of the drop-down arrow glyph on Menu/Split buttons.
+    pub arrow_icon_style: CssPropertyWithConditionsVec,
+    /// APPENDED to the button container when [`RibbonButton::toggled`] is set.
+    pub checked_style: CssPropertyWithConditionsVec,
+    /// The gallery outer frame.
+    pub gallery_frame_style: CssPropertyWithConditionsVec,
+    /// The horizontal cell strip inside the gallery frame.
+    pub gallery_strip_style: CssPropertyWithConditionsVec,
+    /// One gallery cell.
+    pub gallery_cell_style: CssPropertyWithConditionsVec,
+    /// APPENDED to the selected gallery cell.
+    pub gallery_cell_selected_style: CssPropertyWithConditionsVec,
+    /// The name label under a gallery cell preview.
+    pub gallery_cell_label_style: CssPropertyWithConditionsVec,
+    /// The vertical spinner column on the gallery's right edge.
+    pub gallery_spinner_style: CssPropertyWithConditionsVec,
+    /// Positioning context wrapping the gallery frame + expansion panel.
+    pub gallery_wrapper_style: CssPropertyWithConditionsVec,
+    /// The expansion panel shown by the gallery's "More" button.
+    pub gallery_panel_style: CssPropertyWithConditionsVec,
+    /// Container style injected into the three spinner [`Button`]s.
+    pub gallery_spinner_button_style: CssPropertyWithConditionsVec,
+    /// Icon style injected into the three spinner [`Button`]s.
+    pub gallery_spinner_icon_style: CssPropertyWithConditionsVec,
+}
+
+impl RibbonStyle {
+    /// The Word 2013 look (white chrome, #2B579A accents) - the default.
+    #[must_use]
+    pub fn word_2013() -> Self {
+        Self::from_theme(RibbonTheme::word_2013())
+    }
+
+    /// Derives every part style from the given palette. This is the styling
+    /// override API: build a [`RibbonTheme`] (or start from a preset), then
+    /// replace individual `*_style` fields for finer control.
+    #[must_use]
+    pub fn from_theme(theme: RibbonTheme) -> Self {
+        let theme = &theme;
+        Self {
+            theme: *theme,
+            container_style: theme_container(theme),
+            tab_bar_style: theme_tab_bar(theme),
+            app_button_style: theme_app_button(theme),
+            tab_style: theme_tab(theme),
+            tab_active_style: theme_tab_active(theme),
+            tab_filler_style: theme_tab_filler(theme),
+            content_style: theme_content(theme),
+            group_style: theme_group(theme),
+            group_items_style: CssPropertyWithConditionsVec::from_const_slice(GROUP_ITEMS_STYLE),
+            group_footer_style: CssPropertyWithConditionsVec::from_const_slice(GROUP_FOOTER_STYLE),
+            group_label_style: theme_group_label(theme),
+            footer_spacer_style: CssPropertyWithConditionsVec::from_const_slice(FOOTER_SPACER_STYLE),
+            launcher_button_style: theme_launcher_button(theme),
+            launcher_icon_style: theme_launcher_icon(theme),
+            column_style: CssPropertyWithConditionsVec::from_const_slice(COLUMN_STYLE),
+            row_style: CssPropertyWithConditionsVec::from_const_slice(ROW_STYLE),
+            separator_style: theme_separator(theme),
+            large_button_style: theme_large_button(theme),
+            large_icon_style: theme_large_icon(theme),
+            large_label_style: theme_large_label(theme),
+            small_button_style: theme_small_button(theme),
+            small_icon_style: theme_small_icon(theme),
+            small_label_style: theme_small_label(theme),
+            arrow_icon_style: theme_arrow_icon(theme),
+            checked_style: theme_checked(theme),
+            gallery_frame_style: theme_gallery_frame(theme),
+            gallery_strip_style: CssPropertyWithConditionsVec::from_const_slice(GALLERY_STRIP_STYLE),
+            gallery_cell_style: theme_gallery_cell(theme),
+            gallery_cell_selected_style: theme_gallery_cell_selected(theme),
+            gallery_cell_label_style: theme_gallery_cell_label(theme),
+            gallery_spinner_style: theme_gallery_spinner(theme),
+            gallery_wrapper_style: CssPropertyWithConditionsVec::from_const_slice(
+                GALLERY_WRAPPER_STYLE,
+            ),
+            gallery_panel_style: theme_gallery_panel(theme),
+            gallery_spinner_button_style: theme_gallery_spinner_button(theme),
+            gallery_spinner_icon_style: theme_gallery_spinner_icon(theme),
+        }
+    }
+
+    /// Derives the ribbon style from the OS theme (see
+    /// [`RibbonTheme::from_system`]). Pass `SystemStyle::detect()` for the
+    /// live system look, e.g. to render a "system native" ribbon.
+    #[must_use]
+    pub fn from_system(style: SystemStyle) -> Self {
+        Self::from_theme(RibbonTheme::from_system(style))
+    }
+
+    /// Returns a [`ComboBox`] with this ribbon's field look injected through
+    /// the combobox's public style fields (flat 1px border, 22px field, 12px
+    /// text - the Word 2013 font-name/font-size pickers). `width` is the
+    /// total field width in px. Demonstrates (and exercises) the widget
+    /// style-injection API; tweak the returned combobox further by replacing
+    /// any of its `*_style` fields.
+    #[must_use]
+    pub fn styled_combo_box(&self, items: StringVec, text: AzString, width: isize) -> ComboBox {
+        let mut combo = ComboBox::new(items).with_text(text);
+        let mut wrapper: Vec<Cond> = theme_combo_wrapper_base(&self.theme);
+        wrapper.push(Cond::simple(P::const_width(LayoutWidth::const_px(width))));
+        combo.wrapper_style = CssPropertyWithConditionsVec::from_vec(wrapper);
+        combo.field_style = theme_combo_field(&self.theme);
+        combo.text_style =
+            CssPropertyWithConditionsVec::from_const_slice(RIBBON_COMBO_TEXT_STYLE);
+        combo.arrow_style = theme_combo_arrow(&self.theme);
+        combo
+    }
+}
+
+impl Default for RibbonStyle {
+    fn default() -> Self {
+        Self::word_2013()
+    }
+}
+
+// -- Data model --
+
+/// The interactive behaviors the ribbon performs BY ITSELF, without any
+/// application state. Each is the Word default and each can be turned off,
+/// in which case the corresponding event is still forwarded to the app
+/// callback (if any) but the ribbon does not touch its own chrome.
+///
+/// The state these behaviors need (collapsed / peeked / selected cell) lives
+/// in a private `RefAny` minted inside [`Ribbon::dom`] — the application's
+/// own data model is never involved.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[repr(C)]
+pub struct RibbonBehavior {
+    /// Double-clicking a tab header collapses the content band; double
+    /// clicking again restores it (Word: "Collapse the Ribbon").
+    pub collapsible: bool,
+    /// While collapsed, hovering a tab header peeks the content band and
+    /// leaving it hides the band again.
+    pub peek_on_hover: bool,
+    /// Clicking a gallery cell moves the selection highlight without waiting
+    /// for the app to re-render.
+    pub auto_select_gallery: bool,
+    /// The gallery's third spinner button ("More") toggles an expansion
+    /// panel showing every cell.
+    pub expandable_gallery: bool,
+}
+
+impl RibbonBehavior {
+    /// All Word behaviors enabled - the default.
+    #[must_use]
+    pub const fn word_2013() -> Self {
+        Self {
+            collapsible: true,
+            peek_on_hover: true,
+            auto_select_gallery: true,
+            expandable_gallery: true,
+        }
+    }
+
+    /// Every self-driven behavior off: the ribbon only forwards events to
+    /// the application callbacks and never patches its own chrome.
+    #[must_use]
+    pub const fn inert() -> Self {
+        Self {
+            collapsible: false,
+            peek_on_hover: false,
+            auto_select_gallery: false,
+            expandable_gallery: false,
+        }
+    }
+}
+
+impl Default for RibbonBehavior {
+    fn default() -> Self {
+        Self::word_2013()
+    }
+}
+
+/// Top-level ribbon widget: an optional application button, a tab strip and
+/// the active tab's groups.
 #[derive(Debug, Clone)]
 #[repr(C)]
 pub struct Ribbon {
+    /// Optional application button rendered before the first tab ("FILE").
+    pub app_button: OptionRibbonAppButton,
     /// Tabs displayed in the ribbon tab bar.
     pub tabs: RibbonTabVec,
     /// Index of the currently active tab.
     pub active_tab: usize,
-    /// Optional callback fired when a tab is clicked.
+    /// Optional callback fired when a tab is clicked (receives the tab index).
     pub on_tab_click: OptionRibbonOnTabClick,
+    /// All part styles (defaults to the Word 2013 look).
+    pub style: RibbonStyle,
+    /// Which interactions the ribbon handles by itself (defaults to Word).
+    pub behavior: RibbonBehavior,
 }
 
-/// A single tab within a [`Ribbon`], containing a label and sections.
+/// The application button at the far left of the tab strip ("FILE").
+#[derive(Debug, Clone)]
+#[repr(C)]
+pub struct RibbonAppButton {
+    /// Display label of the application button.
+    pub label: AzString,
+    /// Optional click callback.
+    pub on_click: OptionButtonOnClick,
+}
+
+/// A single tab within a [`Ribbon`], containing a label and groups.
 #[derive(Debug, Clone)]
 #[repr(C)]
 pub struct RibbonTab {
     /// Display label shown in the tab bar.
     pub label: AzString,
-    /// Sections rendered when this tab is active.
-    pub sections: RibbonSectionVec,
+    /// Groups rendered when this tab is active.
+    pub groups: RibbonGroupVec,
 }
 
-/// A titled section within a [`RibbonTab`], holding arbitrary content.
+/// A captioned group of controls within a [`RibbonTab`].
 #[derive(Debug, Clone)]
 #[repr(C)]
-pub struct RibbonSection {
-    /// Title displayed below the section content.
-    pub title: AzString,
-    /// Content DOM rendered inside this section.
-    pub content: Dom,
+pub struct RibbonGroup {
+    /// Caption shown centered under the group content.
+    pub label: AzString,
+    /// The controls of this group, laid out left-to-right.
+    pub items: RibbonItemVec,
+    /// Optional dialog-box-launcher callback; when set, a small launcher
+    /// button is rendered at the right end of the caption row.
+    pub launcher: OptionButtonOnClick,
+    /// When set, this group absorbs the remaining ribbon width (Word's
+    /// Styles gallery group stretches; the other groups are content-sized).
+    pub fills_space: bool,
 }
 
-impl_option!(RibbonSection, OptionRibbonSection, copy = false, [Debug, Clone]);
-impl_vec!(RibbonSection, RibbonSectionVec, RibbonSectionVecDestructor, RibbonSectionVecDestructorType, RibbonSectionVecSlice, OptionRibbonSection);
-impl_vec_clone!(RibbonSection, RibbonSectionVec, RibbonSectionVecDestructor);
-impl_vec_debug!(RibbonSection, RibbonSectionVec);
-impl_vec_mut!(RibbonSection, RibbonSectionVec);
+/// One control slot inside a [`RibbonGroup`].
+#[derive(Debug, Clone)]
+#[repr(C, u8)]
+pub enum RibbonItem {
+    /// Full-height button: icon over label (RibbonX `button[size=large]`).
+    LargeButton(RibbonButton),
+    /// One-row button: icon beside optional label (RibbonX `button`).
+    SmallButton(RibbonButton),
+    /// Vertical packing box (RibbonX `box[boxStyle=vertical]`).
+    Column(RibbonColumn),
+    /// Horizontal packing box (RibbonX `box`/`buttonGroup`).
+    Row(RibbonRow),
+    /// Embeds the existing [`ComboBox`] widget (RibbonX `comboBox`).
+    Combo(ComboBox),
+    /// Embeds the existing [`DropDown`] widget (RibbonX `dropDown`).
+    Drop(DropDown),
+    /// Embeds the existing [`CheckBox`] widget (RibbonX `checkBox`).
+    Check(CheckBox),
+    /// In-ribbon gallery with spinner column (RibbonX `gallery`).
+    Gallery(RibbonGallery),
+    /// Thin vertical rule (RibbonX `separator`).
+    Separator,
+    /// Arbitrary user content.
+    Custom(Dom),
+}
 
+/// Vertical stack of items (e.g. the Cut/Copy/Format-Painter column).
+#[derive(Debug, Clone)]
+#[repr(C)]
+pub struct RibbonColumn {
+    /// Items stacked top-to-bottom.
+    pub items: RibbonItemVec,
+}
+
+/// Horizontal cluster of items (e.g. the Bold/Italic/Underline row).
+#[derive(Debug, Clone)]
+#[repr(C)]
+pub struct RibbonRow {
+    /// Items packed left-to-right.
+    pub items: RibbonItemVec,
+}
+
+/// Declarative description of one ribbon button; expands to the existing
+/// [`Button`] widget with ribbon styles injected.
+#[derive(Debug, Clone)]
+#[repr(C)]
+pub struct RibbonButton {
+    /// Icon name resolved via the icon provider (Material Icons ships
+    /// builtin, e.g. "content_paste"). Empty string = no icon.
+    pub icon: AzString,
+    /// Button label. Empty string = icon-only button.
+    pub label: AzString,
+    /// Drop-down decoration: none, menu arrow or split-button arrow.
+    pub arrow: RibbonArrow,
+    /// Renders the button in the toggled-on state (RibbonX `toggleButton`).
+    pub toggled: bool,
+    /// Optional click callback (same family as [`Button::on_click`]).
+    pub on_click: OptionButtonOnClick,
+}
+
+/// Drop-down decoration of a [`RibbonButton`].
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Default)]
+#[repr(C)]
+pub enum RibbonArrow {
+    /// Plain button without an arrow.
+    #[default]
+    None,
+    /// The whole button opens a menu (RibbonX `menu`).
+    Menu,
+    /// Primary action + separate arrow region (RibbonX `splitButton`).
+    /// Rendered identically to `Menu`; the split behavior is the caller's.
+    Split,
+}
+
+/// In-ribbon gallery: a strip of preview cells plus a 3-button spinner column.
+#[derive(Debug, Clone)]
+#[repr(C)]
+pub struct RibbonGallery {
+    /// The visible cells.
+    pub cells: RibbonGalleryCellVec,
+    /// Index of the selected cell.
+    pub selected: usize,
+    /// Optional callback fired when a cell is clicked (receives cell index).
+    pub on_select: OptionRibbonGalleryOnSelect,
+}
+
+/// One gallery cell: an arbitrary preview [`Dom`] over a name label.
+#[derive(Debug, Clone)]
+#[repr(C)]
+pub struct RibbonGalleryCell {
+    /// Preview content rendered above the label (e.g. styled sample text).
+    pub preview: Dom,
+    /// Name label rendered under the preview.
+    pub label: AzString,
+}
+
+impl_option!(RibbonAppButton, OptionRibbonAppButton, copy = false, [Debug, Clone]);
 impl_option!(RibbonTab, OptionRibbonTab, copy = false, [Debug, Clone]);
+impl_option!(RibbonGroup, OptionRibbonGroup, copy = false, [Debug, Clone]);
+impl_option!(RibbonItem, OptionRibbonItem, copy = false, [Debug, Clone]);
+impl_option!(RibbonGalleryCell, OptionRibbonGalleryCell, copy = false, [Debug, Clone]);
+
 impl_vec!(RibbonTab, RibbonTabVec, RibbonTabVecDestructor, RibbonTabVecDestructorType, RibbonTabVecSlice, OptionRibbonTab);
 impl_vec_clone!(RibbonTab, RibbonTabVec, RibbonTabVecDestructor);
 impl_vec_debug!(RibbonTab, RibbonTabVec);
 impl_vec_mut!(RibbonTab, RibbonTabVec);
 
-impl RibbonTab {
-    /// Creates a new tab with the given label and no sections.
-    #[must_use] pub const fn new(label: AzString) -> Self {
-        Self { label, sections: RibbonSectionVec::from_const_slice(&[]) }
+impl_vec!(RibbonGroup, RibbonGroupVec, RibbonGroupVecDestructor, RibbonGroupVecDestructorType, RibbonGroupVecSlice, OptionRibbonGroup);
+impl_vec_clone!(RibbonGroup, RibbonGroupVec, RibbonGroupVecDestructor);
+impl_vec_debug!(RibbonGroup, RibbonGroupVec);
+impl_vec_mut!(RibbonGroup, RibbonGroupVec);
+
+impl_vec!(RibbonItem, RibbonItemVec, RibbonItemVecDestructor, RibbonItemVecDestructorType, RibbonItemVecSlice, OptionRibbonItem);
+impl_vec_clone!(RibbonItem, RibbonItemVec, RibbonItemVecDestructor);
+impl_vec_debug!(RibbonItem, RibbonItemVec);
+impl_vec_mut!(RibbonItem, RibbonItemVec);
+
+impl_vec!(RibbonGalleryCell, RibbonGalleryCellVec, RibbonGalleryCellVecDestructor, RibbonGalleryCellVecDestructorType, RibbonGalleryCellVecSlice, OptionRibbonGalleryCell);
+impl_vec_clone!(RibbonGalleryCell, RibbonGalleryCellVec, RibbonGalleryCellVecDestructor);
+impl_vec_debug!(RibbonGalleryCell, RibbonGalleryCellVec);
+impl_vec_mut!(RibbonGalleryCell, RibbonGalleryCellVec);
+
+// -- Constructors / builders --
+
+impl RibbonAppButton {
+    /// Creates an application button with the given label and no callback.
+    #[must_use]
+    pub fn new(label: AzString) -> Self {
+        Self { label, on_click: None.into() }
     }
 
-    /// Appends a section to this tab.
-    pub fn add_section(&mut self, section: RibbonSection) {
-        self.sections.push(section);
+    /// Sets the click callback.
+    pub fn set_on_click<C: Into<super::button::ButtonOnClickCallback>>(
+        &mut self,
+        data: RefAny,
+        on_click: C,
+    ) {
+        self.on_click = Some(super::button::ButtonOnClick {
+            refany: data,
+            callback: on_click.into(),
+        })
+        .into();
     }
 
-    /// Builder method: appends a section and returns `self`.
-    #[must_use] pub fn with_section(mut self, section: RibbonSection) -> Self {
-        self.add_section(section);
+    /// Builder method: sets the click callback and returns `self`.
+    #[must_use]
+    pub fn with_on_click<C: Into<super::button::ButtonOnClickCallback>>(
+        mut self,
+        data: RefAny,
+        on_click: C,
+    ) -> Self {
+        self.set_on_click(data, on_click);
         self
     }
 }
 
-impl RibbonSection {
-    /// Creates a new section with the given title and content DOM.
-    #[must_use] pub const fn new(title: AzString, content: Dom) -> Self {
-        Self { title, content }
+impl RibbonTab {
+    /// Creates a new tab with the given label and no groups.
+    #[must_use]
+    pub const fn new(label: AzString) -> Self {
+        Self { label, groups: RibbonGroupVec::from_const_slice(&[]) }
+    }
+
+    /// Appends a group to this tab.
+    pub fn add_group(&mut self, group: RibbonGroup) {
+        self.groups.push(group);
+    }
+
+    /// Builder method: appends a group and returns `self`.
+    #[must_use]
+    pub fn with_group(mut self, group: RibbonGroup) -> Self {
+        self.add_group(group);
+        self
+    }
+}
+
+impl RibbonGroup {
+    /// Creates a new group with the given caption and no items.
+    #[must_use]
+    pub const fn new(label: AzString) -> Self {
+        Self {
+            label,
+            items: RibbonItemVec::from_const_slice(&[]),
+            launcher: OptionButtonOnClick::None,
+            fills_space: false,
+        }
+    }
+
+    /// Builder method: makes this group absorb the remaining ribbon width.
+    #[must_use]
+    pub const fn with_fills_space(mut self, fills_space: bool) -> Self {
+        self.fills_space = fills_space;
+        self
+    }
+
+    /// Appends an item to this group.
+    pub fn add_item(&mut self, item: RibbonItem) {
+        self.items.push(item);
+    }
+
+    /// Builder method: appends an item and returns `self`.
+    #[must_use]
+    pub fn with_item(mut self, item: RibbonItem) -> Self {
+        self.add_item(item);
+        self
+    }
+
+    /// Sets the dialog-box-launcher callback (renders the launcher button).
+    pub fn set_launcher<C: Into<super::button::ButtonOnClickCallback>>(
+        &mut self,
+        data: RefAny,
+        on_click: C,
+    ) {
+        self.launcher = Some(super::button::ButtonOnClick {
+            refany: data,
+            callback: on_click.into(),
+        })
+        .into();
+    }
+
+    /// Builder method: sets the launcher callback and returns `self`.
+    #[must_use]
+    pub fn with_launcher<C: Into<super::button::ButtonOnClickCallback>>(
+        mut self,
+        data: RefAny,
+        on_click: C,
+    ) -> Self {
+        self.set_launcher(data, on_click);
+        self
+    }
+}
+
+impl RibbonColumn {
+    /// Creates an empty column.
+    #[must_use]
+    pub const fn new() -> Self {
+        Self { items: RibbonItemVec::from_const_slice(&[]) }
+    }
+
+    /// Appends an item to this column.
+    pub fn add_item(&mut self, item: RibbonItem) {
+        self.items.push(item);
+    }
+
+    /// Builder method: appends an item and returns `self`.
+    #[must_use]
+    pub fn with_item(mut self, item: RibbonItem) -> Self {
+        self.add_item(item);
+        self
+    }
+}
+
+impl Default for RibbonColumn {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl RibbonRow {
+    /// Creates an empty row.
+    #[must_use]
+    pub const fn new() -> Self {
+        Self { items: RibbonItemVec::from_const_slice(&[]) }
+    }
+
+    /// Appends an item to this row.
+    pub fn add_item(&mut self, item: RibbonItem) {
+        self.items.push(item);
+    }
+
+    /// Builder method: appends an item and returns `self`.
+    #[must_use]
+    pub fn with_item(mut self, item: RibbonItem) -> Self {
+        self.add_item(item);
+        self
+    }
+}
+
+impl Default for RibbonRow {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl RibbonButton {
+    /// Creates a plain button with an icon and a label (both may be empty).
+    #[must_use]
+    pub const fn new(icon: AzString, label: AzString) -> Self {
+        Self {
+            icon,
+            label,
+            arrow: RibbonArrow::None,
+            toggled: false,
+            on_click: OptionButtonOnClick::None,
+        }
+    }
+
+    /// Builder method: sets the arrow decoration and returns `self`.
+    #[must_use]
+    pub const fn with_arrow(mut self, arrow: RibbonArrow) -> Self {
+        self.arrow = arrow;
+        self
+    }
+
+    /// Builder method: sets the toggled state and returns `self`.
+    #[must_use]
+    pub const fn with_toggled(mut self, toggled: bool) -> Self {
+        self.toggled = toggled;
+        self
+    }
+
+    /// Sets the click callback.
+    pub fn set_on_click<C: Into<super::button::ButtonOnClickCallback>>(
+        &mut self,
+        data: RefAny,
+        on_click: C,
+    ) {
+        self.on_click = Some(super::button::ButtonOnClick {
+            refany: data,
+            callback: on_click.into(),
+        })
+        .into();
+    }
+
+    /// Builder method: sets the click callback and returns `self`.
+    #[must_use]
+    pub fn with_on_click<C: Into<super::button::ButtonOnClickCallback>>(
+        mut self,
+        data: RefAny,
+        on_click: C,
+    ) -> Self {
+        self.set_on_click(data, on_click);
+        self
+    }
+}
+
+impl RibbonGallery {
+    /// Creates a gallery from its cells; cell 0 is selected.
+    #[must_use]
+    pub fn new(cells: RibbonGalleryCellVec) -> Self {
+        Self { cells, selected: 0, on_select: None.into() }
+    }
+
+    /// Builder method: sets the selected cell index and returns `self`.
+    #[must_use]
+    pub const fn with_selected(mut self, selected: usize) -> Self {
+        self.selected = selected;
+        self
+    }
+
+    /// Sets the cell-click callback.
+    pub fn set_on_select<C: Into<RibbonGalleryOnSelectCallback>>(
+        &mut self,
+        data: RefAny,
+        on_select: C,
+    ) {
+        self.on_select = Some(RibbonGalleryOnSelect {
+            refany: data,
+            callback: on_select.into(),
+        })
+        .into();
+    }
+
+    /// Builder method: sets the cell-click callback and returns `self`.
+    #[must_use]
+    pub fn with_on_select<C: Into<RibbonGalleryOnSelectCallback>>(
+        mut self,
+        data: RefAny,
+        on_select: C,
+    ) -> Self {
+        self.set_on_select(data, on_select);
+        self
+    }
+}
+
+impl RibbonGalleryCell {
+    /// Creates a cell from a preview subtree and a name label.
+    #[must_use]
+    pub const fn new(preview: Dom, label: AzString) -> Self {
+        Self { preview, label }
     }
 }
 
 impl Ribbon {
-    /// Creates a new ribbon with the given tabs, defaulting to the first tab active.
-    #[must_use] pub fn new(tabs: RibbonTabVec) -> Self {
-        Self { tabs, active_tab: 0, on_tab_click: None.into() }
+    /// Creates a new ribbon with the given tabs, the first tab active and the
+    /// Word 2013 default style.
+    #[must_use]
+    pub fn new(tabs: RibbonTabVec) -> Self {
+        Self {
+            app_button: None.into(),
+            tabs,
+            active_tab: 0,
+            on_tab_click: None.into(),
+            style: RibbonStyle::word_2013(),
+            behavior: RibbonBehavior::word_2013(),
+        }
+    }
+
+    /// Sets the application button ("FILE").
+    pub fn set_app_button(&mut self, app_button: RibbonAppButton) {
+        self.app_button = Some(app_button).into();
+    }
+
+    /// Builder method: sets the application button and returns `self`.
+    #[must_use]
+    pub fn with_app_button(mut self, app_button: RibbonAppButton) -> Self {
+        self.set_app_button(app_button);
+        self
+    }
+
+    /// Replaces the whole style bundle.
+    pub fn set_style(&mut self, style: RibbonStyle) {
+        self.style = style;
+    }
+
+    /// Builder method: replaces the style bundle and returns `self`.
+    #[must_use]
+    pub fn with_style(mut self, style: RibbonStyle) -> Self {
+        self.set_style(style);
+        self
+    }
+
+    /// Replaces the self-driven behavior set (collapse, peek, gallery).
+    pub fn set_behavior(&mut self, behavior: RibbonBehavior) {
+        self.behavior = behavior;
+    }
+
+    /// Builder method: replaces the behavior set and returns `self`.
+    #[must_use]
+    pub fn with_behavior(mut self, behavior: RibbonBehavior) -> Self {
+        self.set_behavior(behavior);
+        self
     }
 
     /// Sets the active tab by index, clamping to the last valid tab.
     pub const fn set_active_tab(&mut self, index: usize) {
         let max = self.tabs.len().saturating_sub(1);
         self.active_tab = if index > max { max } else { index };
+    }
+
+    /// Builder method: sets the active tab (clamped) and returns `self`.
+    #[must_use]
+    pub const fn with_active_tab(mut self, index: usize) -> Self {
+        self.set_active_tab(index);
+        self
     }
 
     /// Registers a callback invoked when a tab is clicked.
@@ -233,62 +1603,416 @@ impl Ribbon {
         self
     }
 
-    /// Builds the ribbon DOM, rendering the tab bar and the active tab's sections.
-    #[must_use] pub fn dom(self) -> Dom {
-        let active_tab = self.active_tab;
-        let has_callback = self.on_tab_click.is_some();
+    /// Builds the ribbon DOM: the tab strip and the active tab's groups.
+    #[must_use]
+    pub fn dom(self) -> Dom {
+        let Ribbon { app_button, tabs, active_tab, on_tab_click, style, behavior } = self;
+        let has_callback = on_tab_click.is_some();
 
-        let tab_items: Vec<Dom> = self.tabs.as_slice().iter().enumerate().map(|(idx, tab)| {
-            let style = if idx == active_tab { TAB_ACTIVE_STYLE } else { TAB_INACTIVE_STYLE };
-            let mut d = Dom::create_text(tab.label.clone())
-                .with_css_props(CssPropertyWithConditionsVec::from_const_slice(style));
-            if has_callback {
+        let mut bar_children: Vec<Dom> = Vec::with_capacity(tabs.len() + 2);
+
+        if let Some(ab) = app_button.into_option() {
+            let mut d = Dom::create_text(ab.label)
+                .with_ids_and_classes(IdOrClassVec::from_const_slice(CLS_APP_BUTTON))
+                .with_css_props(style.app_button_style.clone());
+            if let Some(oc) = ab.on_click.into_option() {
                 d = d.with_callbacks(vec![CoreCallbackData {
+                    event: EventFilter::Hover(HoverEventFilter::MouseUp),
+                    callback: CoreCallback {
+                        cb: oc.callback.cb as *const () as usize,
+                        ctx: oc.callback.ctx,
+                    },
+                    refany: oc.refany,
+                }].into());
+            }
+            bar_children.push(d);
+        }
+
+        // Private chrome state shared by every tab header: the collapse and
+        // hover-peek behaviors are driven from here, so the application's own
+        // data model never has to model ribbon chrome.
+        let chrome = RefAny::new(RibbonChromeState { collapsed: false });
+
+        for (idx, tab) in tabs.as_slice().iter().enumerate() {
+            let (classes, part_style) = if idx == active_tab {
+                (CLS_TAB_ACTIVE, style.tab_active_style.clone())
+            } else {
+                (CLS_TAB, style.tab_style.clone())
+            };
+            let mut d = Dom::create_text(tab.label.clone())
+                .with_ids_and_classes(IdOrClassVec::from_const_slice(classes))
+                .with_css_props(part_style);
+
+            let mut cbs: Vec<CoreCallbackData> = Vec::with_capacity(4);
+            if has_callback {
+                cbs.push(CoreCallbackData {
                     event: EventFilter::Hover(HoverEventFilter::MouseUp),
                     callback: CoreCallback {
                         cb: on_ribbon_tab_click as usize,
                         ctx: azul_core::refany::OptionRefAny::None,
                     },
                     refany: RefAny::new(TabClickData {
-                        tab_idx: idx, on_tab_click: self.on_tab_click.clone(),
+                        tab_idx: idx, on_tab_click: on_tab_click.clone(),
+                    }),
+                });
+            }
+            if behavior.collapsible {
+                cbs.push(CoreCallbackData {
+                    event: EventFilter::Hover(HoverEventFilter::DoubleClick),
+                    callback: CoreCallback {
+                        cb: on_ribbon_tab_double_click as usize,
+                        ctx: azul_core::refany::OptionRefAny::None,
+                    },
+                    refany: chrome.clone(),
+                });
+                if behavior.peek_on_hover {
+                    cbs.push(CoreCallbackData {
+                        event: EventFilter::Hover(HoverEventFilter::MouseEnter),
+                        callback: CoreCallback {
+                            cb: on_ribbon_tab_peek_enter as usize,
+                            ctx: azul_core::refany::OptionRefAny::None,
+                        },
+                        refany: chrome.clone(),
+                    });
+                    cbs.push(CoreCallbackData {
+                        event: EventFilter::Hover(HoverEventFilter::MouseLeave),
+                        callback: CoreCallback {
+                            cb: on_ribbon_tab_peek_leave as usize,
+                            ctx: azul_core::refany::OptionRefAny::None,
+                        },
+                        refany: chrome.clone(),
+                    });
+                }
+            }
+            if !cbs.is_empty() {
+                d = d.with_callbacks(cbs.into());
+            }
+            bar_children.push(d);
+        }
+
+        bar_children.push(
+            Dom::create_div()
+                .with_ids_and_classes(IdOrClassVec::from_const_slice(CLS_TAB_FILLER))
+                .with_css_props(style.tab_filler_style.clone()),
+        );
+
+        let tab_bar = Dom::create_div()
+            .with_ids_and_classes(IdOrClassVec::from_const_slice(CLS_TAB_BAR))
+            .with_css_props(style.tab_bar_style.clone())
+            .with_children(DomVec::from_vec(bar_children));
+
+        let group_doms: Vec<Dom> = match tabs.into_library_owned_vec().into_iter().nth(active_tab) {
+            Some(active) => active
+                .groups
+                .into_library_owned_vec()
+                .into_iter()
+                .map(|g| group_dom(g, &style, behavior))
+                .collect(),
+            None => Vec::new(),
+        };
+
+        let content = Dom::create_div()
+            .with_ids_and_classes(IdOrClassVec::from_const_slice(CLS_CONTENT))
+            .with_css_props(style.content_style.clone())
+            .with_children(DomVec::from_vec(group_doms));
+
+        Dom::create_div()
+            .with_ids_and_classes(IdOrClassVec::from_const_slice(CLS_RIBBON))
+            .with_css_props(style.container_style.clone())
+            .with_children(DomVec::from_vec(vec![tab_bar, content]))
+    }
+}
+
+// -- DOM assembly helpers --
+
+/// `base` with `extra` appended (inline CSS resolves last-wins, so `extra`
+/// overrides `base` where they collide).
+fn merged_style(
+    base: &CssPropertyWithConditionsVec,
+    extra: &CssPropertyWithConditionsVec,
+) -> CssPropertyWithConditionsVec {
+    if extra.as_ref().is_empty() {
+        return base.clone();
+    }
+    let mut v: Vec<Cond> = base.as_ref().to_vec();
+    v.extend_from_slice(extra.as_ref());
+    CssPropertyWithConditionsVec::from_vec(v)
+}
+
+/// Expands ribbon button config to the existing [`Button`] widget with the
+/// given part styles injected through `Button`'s public style fields.
+fn styled_button(
+    icon: AzString,
+    label: AzString,
+    trailing_icon: AzString,
+    container_style: CssPropertyWithConditionsVec,
+    icon_style: CssPropertyWithConditionsVec,
+    label_style: CssPropertyWithConditionsVec,
+    trailing_icon_style: CssPropertyWithConditionsVec,
+    on_click: OptionButtonOnClick,
+) -> Dom {
+    let mut b = Button::create(label);
+    b.icon = icon;
+    b.trailing_icon = trailing_icon;
+    b.container_style = container_style;
+    b.icon_style = icon_style;
+    b.label_style = label_style;
+    b.trailing_icon_style = trailing_icon_style;
+    b.on_click = on_click;
+    b.dom()
+}
+
+fn expand_ribbon_button(rb: RibbonButton, large: bool, s: &RibbonStyle) -> Dom {
+    let base = if large { &s.large_button_style } else { &s.small_button_style };
+    let container = if rb.toggled {
+        merged_style(base, &s.checked_style)
+    } else {
+        base.clone()
+    };
+    let trailing = match rb.arrow {
+        RibbonArrow::None => AzString::from_const_str(""),
+        RibbonArrow::Menu | RibbonArrow::Split => AzString::from_const_str("arrow_drop_down"),
+    };
+    let (icon_style, label_style) = if large {
+        (s.large_icon_style.clone(), s.large_label_style.clone())
+    } else {
+        (s.small_icon_style.clone(), s.small_label_style.clone())
+    };
+    styled_button(
+        rb.icon,
+        rb.label,
+        trailing,
+        container,
+        icon_style,
+        label_style,
+        s.arrow_icon_style.clone(),
+        rb.on_click,
+    )
+}
+
+fn item_dom(item: RibbonItem, s: &RibbonStyle, b: RibbonBehavior) -> Dom {
+    match item {
+        RibbonItem::LargeButton(rb) => expand_ribbon_button(rb, true, s),
+        RibbonItem::SmallButton(rb) => expand_ribbon_button(rb, false, s),
+        RibbonItem::Column(col) => Dom::create_div()
+            .with_ids_and_classes(IdOrClassVec::from_const_slice(CLS_COLUMN))
+            .with_css_props(s.column_style.clone())
+            .with_children(DomVec::from_vec(
+                col.items
+                    .into_library_owned_vec()
+                    .into_iter()
+                    .map(|it| item_dom(it, s, b))
+                    .collect(),
+            )),
+        RibbonItem::Row(row) => Dom::create_div()
+            .with_ids_and_classes(IdOrClassVec::from_const_slice(CLS_ROW))
+            .with_css_props(s.row_style.clone())
+            .with_children(DomVec::from_vec(
+                row.items
+                    .into_library_owned_vec()
+                    .into_iter()
+                    .map(|it| item_dom(it, s, b))
+                    .collect(),
+            )),
+        RibbonItem::Combo(combo) => combo.dom(),
+        RibbonItem::Drop(drop) => drop.dom(),
+        RibbonItem::Check(check) => check.dom(),
+        RibbonItem::Gallery(gallery) => gallery_dom(gallery, s, b),
+        RibbonItem::Separator => Dom::create_div()
+            .with_ids_and_classes(IdOrClassVec::from_const_slice(CLS_SEPARATOR))
+            .with_css_props(s.separator_style.clone()),
+        RibbonItem::Custom(dom) => dom,
+    }
+}
+
+/// Appended to the group style when [`RibbonGroup::fills_space`] is set:
+/// the group absorbs leftover width AND yields it under pressure, down to
+/// an explicit floor. The explicit `min-width` is load-bearing — it
+/// replaces the flex automatic minimum size, which taffy 0.10 does not
+/// collapse across the nested group > items > gallery-frame chain (see
+/// layout/tests/flex_intrinsic_text.rs).
+static GROUP_FILL_STYLE: &[Cond] = &[
+    Cond::simple(P::const_flex_grow(LayoutFlexGrow::const_new(1))),
+    Cond::simple(P::const_flex_shrink(LayoutFlexShrink {
+        inner: FloatValue::const_new(1),
+    })),
+    Cond::simple(P::const_min_width(LayoutMinWidth::const_px(160))),
+];
+
+fn group_dom(group: RibbonGroup, s: &RibbonStyle, b: RibbonBehavior) -> Dom {
+    let RibbonGroup { label, items, launcher, fills_space } = group;
+
+    let item_doms: Vec<Dom> = items
+        .into_library_owned_vec()
+        .into_iter()
+        .map(|it| item_dom(it, s, b))
+        .collect();
+
+    let items_row = Dom::create_div()
+        .with_ids_and_classes(IdOrClassVec::from_const_slice(CLS_GROUP_ITEMS))
+        .with_css_props(s.group_items_style.clone())
+        .with_children(DomVec::from_vec(item_doms));
+
+    let has_launcher = launcher.is_some();
+    let mut footer_children: Vec<Dom> = Vec::with_capacity(3);
+    if has_launcher {
+        // Balances the launcher's width so the caption stays centered.
+        footer_children.push(
+            Dom::create_div()
+                .with_ids_and_classes(IdOrClassVec::from_const_slice(CLS_FOOTER_SPACER))
+                .with_css_props(s.footer_spacer_style.clone()),
+        );
+    }
+    footer_children.push(
+        Dom::create_text(label)
+            .with_ids_and_classes(IdOrClassVec::from_const_slice(CLS_GROUP_LABEL))
+            .with_css_props(s.group_label_style.clone()),
+    );
+    if let Some(l) = launcher.into_option() {
+        footer_children.push(styled_button(
+            AzString::from_const_str("south_east"),
+            AzString::from_const_str(""),
+            AzString::from_const_str(""),
+            s.launcher_button_style.clone(),
+            s.launcher_icon_style.clone(),
+            s.small_label_style.clone(),
+            s.arrow_icon_style.clone(),
+            Some(l).into(),
+        ));
+    }
+    let footer = Dom::create_div()
+        .with_ids_and_classes(IdOrClassVec::from_const_slice(CLS_GROUP_FOOTER))
+        .with_css_props(s.group_footer_style.clone())
+        .with_children(DomVec::from_vec(footer_children));
+
+    let group_style = if fills_space {
+        merged_style(
+            &s.group_style,
+            &CssPropertyWithConditionsVec::from_const_slice(GROUP_FILL_STYLE),
+        )
+    } else {
+        s.group_style.clone()
+    };
+
+    Dom::create_div()
+        .with_ids_and_classes(IdOrClassVec::from_const_slice(CLS_GROUP))
+        .with_css_props(group_style)
+        .with_children(DomVec::from_vec(vec![items_row, footer]))
+}
+
+fn gallery_dom(gallery: RibbonGallery, s: &RibbonStyle, b: RibbonBehavior) -> Dom {
+    let RibbonGallery { cells, selected, on_select } = gallery;
+    let has_callback = on_select.is_some();
+    let cells = cells.into_library_owned_vec();
+
+    // The cells are built twice: once for the in-ribbon strip and once for
+    // the expansion panel, so "More" can show every cell without a relayout.
+    let build_cells = |in_panel: bool| -> Vec<Dom> {
+        let mut out: Vec<Dom> = Vec::with_capacity(cells.len());
+        for (idx, cell) in cells.iter().enumerate() {
+            let (classes, cell_style) = if idx == selected {
+                (
+                    CLS_GALLERY_CELL_SELECTED,
+                    merged_style(&s.gallery_cell_style, &s.gallery_cell_selected_style),
+                )
+            } else {
+                (CLS_GALLERY_CELL, s.gallery_cell_style.clone())
+            };
+            let label = Dom::create_text(cell.label.clone())
+                .with_css_props(s.gallery_cell_label_style.clone());
+            let mut d = Dom::create_div()
+                .with_ids_and_classes(IdOrClassVec::from_const_slice(classes))
+                .with_css_props(cell_style)
+                .with_children(DomVec::from_vec(vec![cell.preview.clone(), label]));
+            if has_callback || b.auto_select_gallery {
+                d = d.with_callbacks(vec![CoreCallbackData {
+                    event: EventFilter::Hover(HoverEventFilter::MouseUp),
+                    callback: CoreCallback {
+                        cb: on_ribbon_gallery_cell_click as usize,
+                        ctx: azul_core::refany::OptionRefAny::None,
+                    },
+                    refany: RefAny::new(GalleryCellClickData {
+                        cell_idx: idx,
+                        on_select: on_select.clone(),
+                        auto_select: b.auto_select_gallery,
+                        in_panel,
+                        selected_style: s.gallery_cell_selected_style.clone(),
+                        base_style: s.gallery_cell_style.clone(),
                     }),
                 }].into());
             }
-            d
-        }).collect();
+            out.push(d);
+        }
+        out
+    };
 
-        let tab_bar = Dom::create_div()
-            .with_css_props(CssPropertyWithConditionsVec::from_const_slice(TAB_BAR_STYLE))
-            .with_children(DomVec::from_vec(tab_items));
+    let strip = Dom::create_div()
+        .with_ids_and_classes(IdOrClassVec::from_const_slice(CLS_GALLERY_STRIP))
+        .with_css_props(s.gallery_strip_style.clone())
+        .with_children(DomVec::from_vec(build_cells(false)));
 
-        let sections_dom = if let Some(active) = self.tabs.into_library_owned_vec().into_iter().nth(active_tab) {
-            let items: Vec<Dom> = active.sections.into_library_owned_vec().into_iter().map(|s| {
-                let content = Dom::create_div()
-                    .with_css_props(CssPropertyWithConditionsVec::from_const_slice(SECTION_CONTENT_STYLE))
-                    .with_children(DomVec::from_vec(vec![s.content]));
-                let title = Dom::create_text(s.title)
-                    .with_css_props(CssPropertyWithConditionsVec::from_const_slice(SECTION_TITLE_STYLE));
-                Dom::create_div()
-                    .with_css_props(CssPropertyWithConditionsVec::from_const_slice(SECTION_STYLE))
-                    .with_children(DomVec::from_vec(vec![content, title]))
-            }).collect();
-            Dom::create_div()
-                .with_css_props(CssPropertyWithConditionsVec::from_const_slice(SECTIONS_CONTAINER_STYLE))
-                .with_children(DomVec::from_vec(items))
-        } else {
-            Dom::create_div()
-                .with_css_props(CssPropertyWithConditionsVec::from_const_slice(SECTIONS_CONTAINER_STYLE))
-        };
+    // Spinner column: scroll-up, scroll-down, and the "More" button that
+    // toggles the expansion panel (Word's "More" chevron-over-bar).
+    let spinner_icons = ["expand_less", "expand_more", "arrow_drop_down"];
+    let spinner_buttons: Vec<Dom> = spinner_icons
+        .iter()
+        .enumerate()
+        .map(|(i, icon)| {
+            let mut btn = styled_button(
+                AzString::from(*icon),
+                AzString::from_const_str(""),
+                AzString::from_const_str(""),
+                s.gallery_spinner_button_style.clone(),
+                s.gallery_spinner_icon_style.clone(),
+                s.small_label_style.clone(),
+                s.arrow_icon_style.clone(),
+                OptionButtonOnClick::None,
+            );
+            // The third button is "More": it expands the panel.
+            if i == 2 && b.expandable_gallery {
+                btn = btn
+                    .with_ids_and_classes(IdOrClassVec::from_const_slice(CLS_GALLERY_MORE));
+                btn = btn.with_callbacks(vec![CoreCallbackData {
+                    event: EventFilter::Hover(HoverEventFilter::MouseUp),
+                    callback: CoreCallback {
+                        cb: on_ribbon_gallery_more_click as usize,
+                        ctx: azul_core::refany::OptionRefAny::None,
+                    },
+                    refany: RefAny::new(GalleryMoreData { open: false }),
+                }].into());
+            }
+            btn
+        })
+        .collect();
 
-        Dom::create_div()
-            .with_css_props(CssPropertyWithConditionsVec::from_const_slice(RIBBON_CONTAINER_STYLE))
-            .with_ids_and_classes({
-                const CLS: &[IdOrClass] = &[Class(AzString::from_const_str("__azul-native-ribbon"))];
-                IdOrClassVec::from_const_slice(CLS)
-            })
-            .with_children(DomVec::from_vec(vec![tab_bar, sections_dom]))
+    let spinner = Dom::create_div()
+        .with_ids_and_classes(IdOrClassVec::from_const_slice(CLS_GALLERY_SPINNER))
+        .with_css_props(s.gallery_spinner_style.clone())
+        .with_children(DomVec::from_vec(spinner_buttons));
+
+    let frame = Dom::create_div()
+        .with_ids_and_classes(IdOrClassVec::from_const_slice(CLS_GALLERY))
+        .with_css_props(s.gallery_frame_style.clone())
+        .with_children(DomVec::from_vec(vec![strip, spinner]));
+
+    if !b.expandable_gallery {
+        return frame;
     }
+
+    // The expansion panel is an absolutely-positioned wrapped grid of every
+    // cell, hidden until "More" is clicked (the popover/combobox pattern).
+    let panel = Dom::create_div()
+        .with_ids_and_classes(IdOrClassVec::from_const_slice(CLS_GALLERY_PANEL))
+        .with_css_props(s.gallery_panel_style.clone())
+        .with_children(DomVec::from_vec(build_cells(true)));
+
+    Dom::create_div()
+        .with_ids_and_classes(IdOrClassVec::from_const_slice(CLS_GALLERY_WRAPPER))
+        .with_css_props(s.gallery_wrapper_style.clone())
+        .with_children(DomVec::from_vec(vec![frame, panel]))
 }
+
+// -- Trampolines --
 
 struct TabClickData {
     tab_idx: usize,
@@ -308,12 +2032,175 @@ extern "C" fn on_ribbon_tab_click(mut refany: RefAny, info: CallbackInfo) -> Upd
     }
 }
 
+/// Private chrome state for the collapse / hover-peek behaviors. Lives in a
+/// `RefAny` minted inside [`Ribbon::dom`] and shared by every tab header, so
+/// the ribbon can drive its own chrome without any application state.
+struct RibbonChromeState {
+    collapsed: bool,
+}
+
+/// The content band is the tab bar's next sibling; from a tab header that is
+/// `parent(tab) -> next_sibling`.
+fn content_node_of_tab(info: &CallbackInfo, tab: DomNodeId) -> Option<DomNodeId> {
+    info.get_next_sibling(info.get_parent(tab)?)
+}
+
+fn set_content_visible(info: &mut CallbackInfo, content: DomNodeId, visible: bool) {
+    let display = if visible {
+        LayoutDisplay::Flex
+    } else {
+        LayoutDisplay::None
+    };
+    info.set_css_property(content, P::const_display(display));
+}
+
+/// Double-click on a tab header toggles the collapsed state of the content
+/// band (Word's "Collapse the Ribbon").
+extern "C" fn on_ribbon_tab_double_click(mut refany: RefAny, mut info: CallbackInfo) -> Update {
+    let hit = info.get_hit_node();
+    let Some(content) = content_node_of_tab(&info, hit) else {
+        return Update::DoNothing;
+    };
+    let Some(mut state) = refany.downcast_mut::<RibbonChromeState>() else {
+        return Update::DoNothing;
+    };
+    state.collapsed = !state.collapsed;
+    let collapsed = state.collapsed;
+    drop(state);
+    set_content_visible(&mut info, content, !collapsed);
+    Update::DoNothing
+}
+
+/// While collapsed, hovering a tab header peeks the content band.
+extern "C" fn on_ribbon_tab_peek_enter(mut refany: RefAny, mut info: CallbackInfo) -> Update {
+    let hit = info.get_hit_node();
+    let Some(content) = content_node_of_tab(&info, hit) else {
+        return Update::DoNothing;
+    };
+    let Some(state) = refany.downcast_ref::<RibbonChromeState>() else {
+        return Update::DoNothing;
+    };
+    let collapsed = state.collapsed;
+    drop(state);
+    if collapsed {
+        set_content_visible(&mut info, content, true);
+    }
+    Update::DoNothing
+}
+
+/// Leaving the tab header hides the peeked band again.
+extern "C" fn on_ribbon_tab_peek_leave(mut refany: RefAny, mut info: CallbackInfo) -> Update {
+    let hit = info.get_hit_node();
+    let Some(content) = content_node_of_tab(&info, hit) else {
+        return Update::DoNothing;
+    };
+    let Some(state) = refany.downcast_ref::<RibbonChromeState>() else {
+        return Update::DoNothing;
+    };
+    let collapsed = state.collapsed;
+    drop(state);
+    if collapsed {
+        set_content_visible(&mut info, content, false);
+    }
+    Update::DoNothing
+}
+
+/// Per-"More"-button state: whether the expansion panel is open.
+struct GalleryMoreData {
+    open: bool,
+}
+
+/// The "More" button toggles the expansion panel. The panel is the gallery
+/// wrapper's last child; the button sits in
+/// wrapper > frame > spinner > button, so the wrapper is 3 parents up.
+extern "C" fn on_ribbon_gallery_more_click(mut refany: RefAny, mut info: CallbackInfo) -> Update {
+    let hit = info.get_hit_node();
+    let Some(wrapper) = info
+        .get_parent(hit)
+        .and_then(|spinner| info.get_parent(spinner))
+        .and_then(|frame| info.get_parent(frame))
+    else {
+        return Update::DoNothing;
+    };
+    let Some(panel) = info.get_last_child(wrapper) else {
+        return Update::DoNothing;
+    };
+    let Some(mut data) = refany.downcast_mut::<GalleryMoreData>() else {
+        return Update::DoNothing;
+    };
+    data.open = !data.open;
+    let open = data.open;
+    drop(data);
+    let display = if open {
+        LayoutDisplay::Flex
+    } else {
+        LayoutDisplay::None
+    };
+    info.set_css_property(panel, P::const_display(display));
+    Update::DoNothing
+}
+
+struct GalleryCellClickData {
+    cell_idx: usize,
+    on_select: OptionRibbonGalleryOnSelect,
+    /// Move the selection highlight without an app relayout.
+    auto_select: bool,
+    /// Cells in the expansion panel also close the panel when picked.
+    in_panel: bool,
+    selected_style: CssPropertyWithConditionsVec,
+    base_style: CssPropertyWithConditionsVec,
+}
+
+extern "C" fn on_ribbon_gallery_cell_click(mut refany: RefAny, mut info: CallbackInfo) -> Update {
+    let hit = info.get_hit_node();
+    let Some(mut data) = refany.downcast_mut::<GalleryCellClickData>() else {
+        return Update::DoNothing;
+    };
+    let idx = data.cell_idx;
+    let auto_select = data.auto_select;
+    let in_panel = data.in_panel;
+    let selected_style = data.selected_style.clone();
+    let base_style = data.base_style.clone();
+    let user = data.on_select.clone();
+    drop(data);
+
+    // Default behavior: move the highlight to the clicked cell immediately,
+    // so the gallery feels live even if the app does not re-render.
+    if auto_select {
+        if let Some(strip) = info.get_parent(hit) {
+            let mut sibling = info.get_first_child(strip);
+            while let Some(cell) = sibling {
+                let style = if cell == hit { &selected_style } else { &base_style };
+                for prop in style.as_ref() {
+                    if prop.apply_if.as_ref().is_empty() {
+                        info.set_css_property(cell, prop.property.clone());
+                    }
+                }
+                sibling = info.get_next_sibling(cell);
+            }
+        }
+        // Picking from the expansion panel closes it (wrapper = panel parent).
+        if in_panel {
+            if let Some(panel) = info.get_parent(hit) {
+                info.set_css_property(panel, P::const_display(LayoutDisplay::None));
+            }
+        }
+    }
+
+    match user.into_option() {
+        Some(RibbonGalleryOnSelect { refany, callback }) => {
+            (callback.cb)(refany, info, idx)
+        }
+        None => Update::DoNothing,
+    }
+}
+
 impl From<Ribbon> for Dom {
     fn from(r: Ribbon) -> Self { r.dom() }
 }
 
 #[cfg(test)]
-mod autotest_generated {
+mod tests {
     use std::{
         collections::BTreeMap,
         sync::{Arc, Mutex},
@@ -345,23 +2232,6 @@ mod autotest_generated {
     // Helpers
     // ------------------------------------------------------------------
 
-    /// Pathological label/title inputs reused across the string tests: empty,
-    /// whitespace-only, interior NUL, emoji-with-ZWJ, RTL, stacked combining
-    /// marks, zero-width + BOM + RTL-override, and a 100k-char string.
-    fn nasty_strings() -> Vec<String> {
-        vec![
-            String::new(),
-            "   ".to_string(),
-            "a\u{0}b".to_string(),
-            "👨‍👩‍👧‍👦🇩🇪".to_string(),
-            "مرحبا שלום".to_string(),
-            "e\u{0301}\u{0327}\u{0301}".to_string(),
-            "\u{200b}\u{feff}\u{202e}rtl-override".to_string(),
-            "x".repeat(100_000),
-        ]
-    }
-
-    /// True if `node` carries the CSS class `name`.
     fn has_class(node: &Dom, name: &str) -> bool {
         node.root
             .get_ids_and_classes()
@@ -370,7 +2240,6 @@ mod autotest_generated {
             .any(|c| matches!(c, IdOrClass::Class(s) if s.as_str() == name))
     }
 
-    /// The text of a `NodeType::Text` node (`None` for any other node type).
     fn text_of(node: &Dom) -> Option<&str> {
         match node.root.get_node_type() {
             NodeType::Text(s) => Some(s.as_ref().as_str()),
@@ -378,8 +2247,13 @@ mod autotest_generated {
         }
     }
 
-    /// The node's inline style, flattened back to the property list that
-    /// `with_css_props` was handed.
+    fn icon_name_of(node: &Dom) -> Option<&str> {
+        match node.root.get_node_type() {
+            NodeType::Icon(s) => Some(s.as_ref().as_str()),
+            _ => None,
+        }
+    }
+
     fn inline_props(node: &Dom) -> Vec<CssProperty> {
         node.root
             .style
@@ -388,13 +2262,10 @@ mod autotest_generated {
             .collect()
     }
 
-    /// The property list of one of this module's `static &[Cond]` style tables.
-    fn style_props(style: &[Cond]) -> Vec<CssProperty> {
-        style.iter().map(|c| c.property.clone()).collect()
+    fn style_props(style: &CssPropertyWithConditionsVec) -> Vec<CssProperty> {
+        style.as_ref().iter().map(|c| c.property.clone()).collect()
     }
 
-    /// The true recursive descendant count of a `Dom` — what
-    /// `estimated_total_children` is documented to cache.
     fn recursive_descendants(node: &Dom) -> usize {
         node.children
             .as_ref()
@@ -403,75 +2274,58 @@ mod autotest_generated {
             .sum()
     }
 
-    /// `(tab bar, sections container)` of a rendered ribbon DOM.
+    /// `(tab bar, content)` of a rendered ribbon DOM.
     fn parts(dom: &Dom) -> (&Dom, &Dom) {
         let ch = dom.children.as_ref();
-        assert_eq!(ch.len(), 2, "a ribbon DOM is exactly [tab bar, sections]");
+        assert_eq!(ch.len(), 2, "a ribbon DOM is exactly [tab bar, content]");
         (&ch[0], &ch[1])
     }
 
-    /// `(content wrapper, title)` of the `n`-th rendered section.
-    fn section_parts(sections: &Dom, n: usize) -> (&Dom, &Dom) {
-        let sec = &sections.children.as_ref()[n];
-        let ch = sec.children.as_ref();
-        assert_eq!(ch.len(), 2, "a section is exactly [content, title]");
+    /// `(items row, footer)` of the `n`-th rendered group.
+    fn group_parts(content: &Dom, n: usize) -> (&Dom, &Dom) {
+        let group = &content.children.as_ref()[n];
+        let ch = group.children.as_ref();
+        assert_eq!(ch.len(), 2, "a group is exactly [items, footer]");
         (&ch[0], &ch[1])
     }
 
-    /// `n` tabs labelled `t0 … t{n-1}`, each with `sections_per_tab` sections
-    /// titled `t{i}s{j}` wrapping a text node `t{i}c{j}`.
-    fn tabs(n: usize, sections_per_tab: usize) -> RibbonTabVec {
+    fn tabs(n: usize) -> RibbonTabVec {
         let mut v = Vec::with_capacity(n);
         for i in 0..n {
-            let mut tab = RibbonTab::new(AzString::from(format!("t{i}")));
-            for j in 0..sections_per_tab {
-                tab.add_section(RibbonSection::new(
-                    AzString::from(format!("t{i}s{j}")),
-                    Dom::create_text(format!("t{i}c{j}")),
-                ));
-            }
-            v.push(tab);
+            v.push(RibbonTab::new(AzString::from(format!("t{i}"))));
         }
         RibbonTabVec::from_vec(v)
     }
 
-    /// A `RefAny` payload recording every tab index a user `on_tab_click` sees.
-    struct TabLog {
+    fn small_btn(icon: &str, label: &str) -> RibbonButton {
+        RibbonButton::new(AzString::from(icon), AzString::from(label))
+    }
+
+    struct IndexLog {
         seen: Vec<usize>,
     }
 
-    extern "C" fn record_tab(mut data: RefAny, _: CallbackInfo, index: usize) -> Update {
-        if let Some(mut log) = data.downcast_mut::<TabLog>() {
+    extern "C" fn record_index(mut data: RefAny, _: CallbackInfo, index: usize) -> Update {
+        if let Some(mut log) = data.downcast_mut::<IndexLog>() {
             log.seen.push(index);
         }
         Update::RefreshDom
     }
 
-    extern "C" fn tab_do_nothing(_: RefAny, _: CallbackInfo, _: usize) -> Update {
-        Update::DoNothing
-    }
-
-    extern "C" fn tab_refresh_all(_: RefAny, _: CallbackInfo, _: usize) -> Update {
-        Update::RefreshDomAllWindows
-    }
-
-    /// Forces the `fn`-item -> `fn`-pointer coercion the `Into` bound needs.
-    fn tab_cb(f: RibbonOnTabClickCallbackType) -> RibbonOnTabClickCallback {
-        f.into()
-    }
-
     fn log_indices(data: &mut RefAny) -> Vec<usize> {
-        data.downcast_ref::<TabLog>()
-            .expect("payload must still be a TabLog")
+        data.downcast_ref::<IndexLog>()
+            .expect("payload must still be an IndexLog")
             .seen
             .clone()
     }
 
-    /// Invokes `on_ribbon_tab_click` with `hit` as the hit node. The handler
-    /// never reads the DOM, so the `LayoutWindow` deliberately holds no layout
-    /// results at all — if it ever starts touching them, these tests notice.
-    /// Returns the `Update` plus every recorded `CallbackChange`.
-    fn run_click(hit: usize, data: RefAny) -> (Update, Vec<CallbackChange>) {
+    /// Invokes `cb` (a ribbon trampoline) with a minimal `CallbackInfo`. The
+    /// trampolines never read the DOM, so the `LayoutWindow` holds no layout
+    /// results - if they ever start touching them, these tests notice.
+    fn run_trampoline(
+        cb: extern "C" fn(RefAny, CallbackInfo) -> Update,
+        data: RefAny,
+    ) -> (Update, Vec<CallbackChange>) {
         let layout_window =
             LayoutWindow::new(FcFontCache::default()).expect("LayoutWindow::new failed");
 
@@ -507,771 +2361,815 @@ mod autotest_generated {
             &changes,
             DomNodeId {
                 dom: DomId::ROOT_ID,
-                node: NodeHierarchyItemId::from_crate_internal(Some(NodeId::new(hit))),
+                node: NodeHierarchyItemId::from_crate_internal(Some(NodeId::new(0))),
             },
             OptionLogicalPosition::None,
             OptionLogicalPosition::None,
         );
 
-        let update = on_ribbon_tab_click(data, info);
+        let update = cb(data, info);
         let recorded = core::mem::take(&mut *changes.lock().expect("change log poisoned"));
         (update, recorded)
     }
 
     // ------------------------------------------------------------------
-    // RibbonTab::new  (constructor: no_panic + invariants)
+    // Constructors and invariants
     // ------------------------------------------------------------------
 
     #[test]
-    fn tab_new_stores_label_verbatim_and_starts_section_less() {
-        for label in nasty_strings() {
-            let tab = RibbonTab::new(AzString::from(label.clone()));
-
-            assert_eq!(
-                tab.label.as_str(),
-                label.as_str(),
-                "the label must survive byte-for-byte"
-            );
-            assert!(tab.sections.is_empty(), "a fresh tab has no sections");
-            assert_eq!(tab.sections.len(), 0);
-            assert_eq!(
-                tab.sections.capacity(),
-                0,
-                "the const-slice-backed empty vec must report cap 0"
-            );
-            assert!(tab.sections.as_ref().is_empty());
+    fn ribbon_new_defaults_to_word_2013_with_tab_zero_active() {
+        for count in [0usize, 1, 2, 9] {
+            let r = Ribbon::new(tabs(count));
+            assert_eq!(r.tabs.len(), count);
+            assert_eq!(r.active_tab, 0);
+            assert!(r.on_tab_click.is_none());
+            assert!(r.app_button.is_none());
+            assert_eq!(r.style, RibbonStyle::word_2013());
         }
     }
 
     #[test]
-    fn tab_new_with_a_100k_char_label_keeps_every_byte() {
-        let huge = "ab".repeat(50_000);
-        let tab = RibbonTab::new(AzString::from(huge.clone()));
-        assert_eq!(tab.label.as_str().len(), 100_000);
-        assert_eq!(tab.label.as_str(), huge);
-    }
-
-    // ------------------------------------------------------------------
-    // RibbonTab::add_section / with_section
-    // ------------------------------------------------------------------
-
-    #[test]
-    fn add_section_grows_the_const_backed_vec_without_freeing_static_memory() {
-        // `RibbonTab::new` seeds `sections` from `from_const_slice(&[])`
-        // (destructor = NoDestructor, ptr = &'static). The very first `push`
-        // therefore has to take the "fresh allocation" branch rather than
-        // realloc'ing static memory. If it took the realloc path this test
-        // aborts inside the allocator.
-        let mut tab = RibbonTab::new(AzString::from("t"));
-        for i in 0..1000usize {
-            tab.add_section(RibbonSection::new(
-                AzString::from(format!("s{i}")),
-                Dom::create_text(format!("c{i}")),
-            ));
-            assert_eq!(tab.sections.len(), i + 1);
-            assert!(
-                tab.sections.capacity() >= tab.sections.len(),
-                "capacity must never fall below len"
-            );
-        }
-
-        for (i, s) in tab.sections.as_ref().iter().enumerate() {
-            assert_eq!(s.title.as_str(), format!("s{i}"), "push must append in order");
-        }
-
-        // ...and the grown buffer is now genuinely owned: cloning it must deep
-        // copy, so a drop of both halves cannot double-free.
-        let cloned = tab.clone();
-        assert_eq!(cloned.sections.len(), 1000);
-        assert_ne!(
-            cloned.sections.as_ptr(),
-            tab.sections.as_ptr(),
-            "a library-owned vec must deep-clone, not alias"
-        );
-        drop(cloned);
-        assert_eq!(tab.sections.as_ref()[999].title.as_str(), "s999");
-    }
-
-    #[test]
-    fn add_section_accepts_extreme_titles_and_deeply_nested_content() {
-        let mut deep = Dom::create_text("leaf");
-        for _ in 0..256 {
-            deep = Dom::create_div().with_child(deep);
-        }
-
-        let mut tab = RibbonTab::new(AzString::from(""));
-        tab.add_section(RibbonSection::new(AzString::from(""), Dom::create_div()));
-        tab.add_section(RibbonSection::new(
-            AzString::from("x".repeat(100_000)),
-            deep.clone(),
-        ));
-
-        assert_eq!(tab.sections.len(), 2);
-        assert_eq!(tab.sections.as_ref()[0].title.as_str(), "");
-        assert_eq!(tab.sections.as_ref()[1].title.as_str().len(), 100_000);
-        assert_eq!(tab.sections.as_ref()[1].content, deep);
-    }
-
-    #[test]
-    fn with_section_matches_add_section() {
-        let make = || RibbonSection::new(AzString::from("s"), Dom::create_text("c"));
-
-        let built = RibbonTab::new(AzString::from("t"))
-            .with_section(make())
-            .with_section(make());
-
-        let mut mutated = RibbonTab::new(AzString::from("t"));
-        mutated.add_section(make());
-        mutated.add_section(make());
-
-        assert_eq!(built.sections.len(), mutated.sections.len());
-        assert_eq!(built.label.as_str(), mutated.label.as_str());
-        for (a, b) in built.sections.as_ref().iter().zip(mutated.sections.as_ref()) {
-            assert_eq!(a.title.as_str(), b.title.as_str());
-            assert_eq!(a.content, b.content);
-        }
-        // the builder form must not disturb the label
-        assert_eq!(built.label.as_str(), "t");
-    }
-
-    // ------------------------------------------------------------------
-    // RibbonSection::new  (constructor: no_panic + invariants)
-    // ------------------------------------------------------------------
-
-    #[test]
-    fn section_new_stores_both_args_unchanged() {
-        let content = Dom::create_div()
-            .with_child(Dom::create_text("a"))
-            .with_child(Dom::create_text("b"));
-
-        for title in nasty_strings() {
-            let sec = RibbonSection::new(AzString::from(title.clone()), content.clone());
-            assert_eq!(sec.title.as_str(), title.as_str());
-            assert_eq!(sec.content, content, "content must be stored verbatim");
-        }
-    }
-
-    #[test]
-    fn section_new_accepts_an_empty_and_a_pathologically_deep_content_dom() {
-        let empty = RibbonSection::new(AzString::from("t"), Dom::create_div());
-        assert!(empty.content.children.as_ref().is_empty());
-        assert_eq!(empty.content.estimated_total_children, 0);
-
-        let mut deep = Dom::create_text("leaf");
-        for _ in 0..512 {
-            deep = Dom::create_div().with_child(deep);
-        }
-        let sec = RibbonSection::new(AzString::from("t"), deep);
-        assert_eq!(
-            sec.content.estimated_total_children,
-            recursive_descendants(&sec.content),
-            "the cached descendant count must survive the move into the section"
-        );
-    }
-
-    // ------------------------------------------------------------------
-    // Ribbon::new  (constructor: no_panic + invariants)
-    // ------------------------------------------------------------------
-
-    #[test]
-    fn ribbon_new_defaults_to_tab_zero_and_installs_no_callback() {
-        for count in [0usize, 1, 2, 7, 500] {
-            let r = Ribbon::new(tabs(count, 1));
-
-            assert_eq!(r.tabs.len(), count, "new must not drop or duplicate tabs");
-            assert_eq!(r.active_tab, 0, "a fresh ribbon starts on tab 0");
-            assert!(
-                r.on_tab_click.is_none(),
-                "Ribbon::new must not install a callback"
-            );
-            for (i, t) in r.tabs.as_ref().iter().enumerate() {
-                assert_eq!(t.label.as_str(), format!("t{i}"));
-                assert_eq!(t.sections.len(), 1);
-            }
-        }
-    }
-
-    #[test]
-    fn ribbon_new_on_an_empty_vec_leaves_a_zero_active_tab_that_dom_survives() {
-        // active_tab == 0 is *out of range* for a tab-less ribbon. That is the
-        // documented default; the invariant that matters is that `dom()` does
-        // not index with it.
-        let r = Ribbon::new(RibbonTabVec::from_vec(Vec::new()));
-        assert_eq!(r.active_tab, 0);
-        assert!(r.tabs.is_empty());
-
-        let dom = r.dom();
-        let (bar, sections) = parts(&dom);
-        assert!(bar.children.as_ref().is_empty());
-        assert!(sections.children.as_ref().is_empty());
-    }
-
-    // ------------------------------------------------------------------
-    // Ribbon::set_active_tab  (numeric: zero / min / max / overflow)
-    // ------------------------------------------------------------------
-
-    #[test]
-    fn set_active_tab_on_an_empty_ribbon_always_lands_on_zero() {
-        // `len().saturating_sub(1)` is 0 for an empty vec — the clamp must not
-        // underflow-panic in a debug build.
-        let mut r = Ribbon::new(RibbonTabVec::from_vec(Vec::new()));
-        for index in [0usize, 1, 2, usize::MAX / 2, usize::MAX - 1, usize::MAX] {
-            r.set_active_tab(index);
-            assert_eq!(r.active_tab, 0, "empty ribbon must clamp {index} to 0");
-        }
+    fn ribbon_style_default_is_word_2013() {
+        assert_eq!(RibbonStyle::default(), RibbonStyle::word_2013());
     }
 
     #[test]
     fn set_active_tab_clamps_to_the_last_valid_index() {
-        for count in [1usize, 2, 3, 8] {
-            let last = count - 1;
-            let mut r = Ribbon::new(tabs(count, 0));
+        let mut r = Ribbon::new(RibbonTabVec::from_vec(Vec::new()));
+        for index in [0usize, 1, usize::MAX / 2, usize::MAX] {
+            r.set_active_tab(index);
+            assert_eq!(r.active_tab, 0, "empty ribbon must clamp {index} to 0");
+        }
 
-            for index in 0..count {
-                r.set_active_tab(index);
-                assert_eq!(r.active_tab, index, "in-range index must pass through");
-            }
-            for index in [count, count + 1, count * 2, usize::MAX] {
-                r.set_active_tab(index);
-                assert_eq!(
-                    r.active_tab, last,
-                    "out-of-range {index} must clamp to the last tab"
-                );
-            }
+        let mut r = Ribbon::new(tabs(4));
+        for index in 0..4 {
+            r.set_active_tab(index);
+            assert_eq!(r.active_tab, index);
+        }
+        for index in [4usize, 5, usize::MAX - 1, usize::MAX] {
+            r.set_active_tab(index);
+            assert_eq!(r.active_tab, 3, "{index} must clamp to the last tab");
         }
     }
 
     #[test]
-    fn set_active_tab_at_usize_min_and_max_does_not_overflow() {
-        let mut r = Ribbon::new(tabs(3, 0));
+    fn group_and_tab_builders_append_in_order() {
+        let group = RibbonGroup::new(AzString::from("Font"))
+            .with_item(RibbonItem::SmallButton(small_btn("format_bold", "")))
+            .with_item(RibbonItem::Separator);
+        assert_eq!(group.items.len(), 2);
+        assert!(group.launcher.is_none());
 
-        r.set_active_tab(usize::MIN);
-        assert_eq!(r.active_tab, 0);
-
-        r.set_active_tab(usize::MAX);
-        assert_eq!(r.active_tab, 2);
-
-        // `usize::MAX` is also what a negative index looks like after the
-        // wrap-around a C / FFI caller would perform, so it must clamp too.
-        r.set_active_tab(-1i64 as usize);
-        assert_eq!(r.active_tab, 2);
-        r.set_active_tab(-3i32 as usize);
-        assert_eq!(r.active_tab, 2);
-    }
-
-    #[test]
-    fn set_active_tab_is_idempotent_and_never_touches_the_tabs() {
-        let mut r = Ribbon::new(tabs(4, 2));
-
-        for _ in 0..3 {
-            r.set_active_tab(usize::MAX);
-            assert_eq!(r.active_tab, 3);
-        }
-        for _ in 0..3 {
-            r.set_active_tab(1);
-            assert_eq!(r.active_tab, 1);
-        }
-
-        assert_eq!(r.tabs.len(), 4, "clamping must not resize the tab list");
-        for (i, t) in r.tabs.as_ref().iter().enumerate() {
-            assert_eq!(t.label.as_str(), format!("t{i}"));
-            assert_eq!(t.sections.len(), 2);
-        }
+        let tab = RibbonTab::new(AzString::from("HOME"))
+            .with_group(group.clone())
+            .with_group(RibbonGroup::new(AzString::from("Editing")));
+        assert_eq!(tab.groups.len(), 2);
+        assert_eq!(tab.groups.as_ref()[0].label.as_str(), "Font");
+        assert_eq!(tab.groups.as_ref()[1].label.as_str(), "Editing");
     }
 
     // ------------------------------------------------------------------
-    // Ribbon::set_on_tab_click / with_on_tab_click
+    // Tab bar
     // ------------------------------------------------------------------
 
     #[test]
-    fn set_on_tab_click_last_call_wins() {
-        let mut r = Ribbon::new(tabs(2, 0));
-
-        r.set_on_tab_click(RefAny::new(1u8), tab_cb(tab_do_nothing));
-        assert!(r.on_tab_click.is_some());
-        assert_eq!(
-            r.on_tab_click.as_ref().unwrap().callback,
-            tab_cb(tab_do_nothing)
-        );
-
-        // a second call must *replace*, not append / leak / panic
-        r.set_on_tab_click(RefAny::new(9i64), tab_cb(record_tab));
-        let set = r.on_tab_click.as_ref().expect("still Some");
-        assert_eq!(set.callback, tab_cb(record_tab));
-        assert_ne!(set.callback, tab_cb(tab_do_nothing));
-        assert_eq!(set.refany.get_type_id(), RefAny::new(0i64).get_type_id());
-
-        // ...and it leaves the rest of the widget alone
-        assert_eq!(r.tabs.len(), 2);
-        assert_eq!(r.active_tab, 0);
-    }
-
-    #[test]
-    fn set_on_tab_click_shares_rather_than_copies_the_caller_payload() {
-        let mut kept = RefAny::new(TabLog { seen: Vec::new() });
-        let mut r = Ribbon::new(tabs(1, 0));
-        r.set_on_tab_click(kept.clone(), tab_cb(record_tab));
-
-        // writing through the widget's handle is visible through the caller's
-        *r.on_tab_click
-            .as_mut()
-            .unwrap()
-            .refany
-            .downcast_mut::<TabLog>()
-            .expect("payload type preserved") = TabLog { seen: vec![42] };
-
-        assert_eq!(log_indices(&mut kept), vec![42]);
-    }
-
-    #[test]
-    fn with_on_tab_click_matches_set_on_tab_click() {
-        let built = Ribbon::new(tabs(3, 1)).with_on_tab_click(RefAny::new(7u32), tab_cb(record_tab));
-
-        let mut mutated = Ribbon::new(tabs(3, 1));
-        mutated.set_on_tab_click(RefAny::new(7u32), tab_cb(record_tab));
-
-        assert_eq!(
-            built.on_tab_click.as_ref().unwrap().callback,
-            mutated.on_tab_click.as_ref().unwrap().callback
-        );
-        // the builder form must not disturb the tabs or the active index
-        assert_eq!(built.tabs.len(), 3);
-        assert_eq!(built.active_tab, 0);
-    }
-
-    #[test]
-    fn with_on_tab_click_preserves_a_previously_clamped_active_tab() {
-        let mut r = Ribbon::new(tabs(4, 0));
-        r.set_active_tab(usize::MAX);
-        let r = r.with_on_tab_click(RefAny::new(0u8), tab_cb(record_tab));
-
-        assert_eq!(r.active_tab, 3, "installing a callback must not reset state");
-        assert!(r.on_tab_click.is_some());
-    }
-
-    // ------------------------------------------------------------------
-    // Ribbon::dom
-    // ------------------------------------------------------------------
-
-    #[test]
-    fn dom_of_an_empty_ribbon_is_a_classed_container_with_two_empty_children() {
+    fn dom_of_an_empty_ribbon_has_only_the_filler_in_the_bar() {
         let dom = Ribbon::new(RibbonTabVec::from_vec(Vec::new())).dom();
-
         assert!(has_class(&dom, "__azul-native-ribbon"));
-        assert_eq!(inline_props(&dom), style_props(RIBBON_CONTAINER_STYLE));
 
-        let (bar, sections) = parts(&dom);
-        assert_eq!(inline_props(bar), style_props(TAB_BAR_STYLE));
-        assert_eq!(
-            inline_props(sections),
-            style_props(SECTIONS_CONTAINER_STYLE)
-        );
-        assert!(bar.children.as_ref().is_empty());
-        assert!(sections.children.as_ref().is_empty());
-        assert_eq!(dom.estimated_total_children, 2);
+        let (bar, content) = parts(&dom);
+        assert!(has_class(bar, "__azul-native-ribbon-tabbar"));
+        assert_eq!(bar.children.as_ref().len(), 1, "empty ribbon bar = filler only");
+        assert!(has_class(&bar.children.as_ref()[0], "__azul-native-ribbon-tab-filler"));
+        assert!(content.children.as_ref().is_empty());
     }
 
     #[test]
-    fn dom_styles_exactly_the_active_tab() {
-        let count = 5usize;
-        for active in 0..count {
-            let mut r = Ribbon::new(tabs(count, 0));
-            r.set_active_tab(active);
-            let dom = r.dom();
-            let (bar, _) = parts(&dom);
-
-            assert_eq!(bar.children.as_ref().len(), count);
-            for (i, tab) in bar.children.as_ref().iter().enumerate() {
-                let expected = if i == active {
-                    style_props(TAB_ACTIVE_STYLE)
-                } else {
-                    style_props(TAB_INACTIVE_STYLE)
-                };
-                assert_eq!(inline_props(tab), expected, "tab {i} (active = {active})");
-                let want = format!("t{i}");
-                assert_eq!(text_of(tab), Some(want.as_str()));
-            }
-        }
-    }
-
-    #[test]
-    fn dom_with_an_out_of_range_active_tab_highlights_nothing_and_renders_no_sections() {
-        // `active_tab` is a public field, so it can hold a value `set_active_tab`
-        // would have clamped away. `dom()` must not index with it.
-        for active in [3usize, 4, usize::MAX / 2, usize::MAX - 1, usize::MAX] {
-            let mut r = Ribbon::new(tabs(3, 2));
-            r.active_tab = active;
-
-            let dom = r.dom();
-            let (bar, sections) = parts(&dom);
-
-            assert_eq!(bar.children.as_ref().len(), 3, "every tab is still shown");
-            for tab in bar.children.as_ref() {
-                assert_eq!(
-                    inline_props(tab),
-                    style_props(TAB_INACTIVE_STYLE),
-                    "no tab may be styled active when active_tab is out of range"
-                );
-            }
-            assert!(
-                sections.children.as_ref().is_empty(),
-                "an out-of-range active tab renders an empty section container"
-            );
-        }
-    }
-
-    #[test]
-    fn dom_survives_a_stale_active_tab_after_the_tab_list_shrinks() {
-        let mut r = Ribbon::new(tabs(3, 1));
-        r.set_active_tab(2);
-        // the public `tabs` field is swapped out from under the clamped index
-        r.tabs = tabs(1, 1);
-
+    fn dom_renders_app_button_tabs_and_filler_in_order() {
+        let r = Ribbon::new(tabs(3))
+            .with_app_button(RibbonAppButton::new(AzString::from("FILE")))
+            .with_active_tab(1);
         let dom = r.dom();
-        let (bar, sections) = parts(&dom);
-        assert_eq!(bar.children.as_ref().len(), 1);
-        assert!(sections.children.as_ref().is_empty());
-    }
+        let (bar, _) = parts(&dom);
+        let ch = bar.children.as_ref();
 
-    #[test]
-    fn dom_renders_only_the_active_tabs_sections_in_content_then_title_order() {
-        let mut r = Ribbon::new(tabs(3, 4));
-        r.set_active_tab(1);
-        let dom = r.dom();
-        let (_, sections) = parts(&dom);
-
-        assert_eq!(sections.children.as_ref().len(), 4);
-        for j in 0..4 {
-            let section = &sections.children.as_ref()[j];
-            assert_eq!(inline_props(section), style_props(SECTION_STYLE));
-
-            let (content, title) = section_parts(sections, j);
-            assert_eq!(inline_props(content), style_props(SECTION_CONTENT_STYLE));
-            assert_eq!(inline_props(title), style_props(SECTION_TITLE_STYLE));
-
-            // the title is rendered *after* the content, as documented
-            let want_title = format!("t1s{j}");
-            let want_content = format!("t1c{j}");
-            assert_eq!(text_of(title), Some(want_title.as_str()));
-            let inner = content.children.as_ref();
-            assert_eq!(inner.len(), 1, "the wrapper holds exactly the user content");
-            assert_eq!(text_of(&inner[0]), Some(want_content.as_str()));
-        }
-    }
-
-    #[test]
-    fn dom_round_trips_pathological_labels_and_titles_byte_for_byte() {
-        let strings = nasty_strings();
-        let mut v = Vec::new();
-        for s in &strings {
-            v.push(
-                RibbonTab::new(AzString::from(s.clone())).with_section(RibbonSection::new(
-                    AzString::from(s.clone()),
-                    Dom::create_text(s.clone()),
-                )),
-            );
-        }
-        let dom = Ribbon::new(RibbonTabVec::from_vec(v)).dom();
-        let (bar, sections) = parts(&dom);
-
-        assert_eq!(bar.children.as_ref().len(), strings.len());
-        for (i, s) in strings.iter().enumerate() {
+        assert_eq!(ch.len(), 5, "[app, t0, t1, t2, filler]");
+        assert!(has_class(&ch[0], "__azul-native-ribbon-appbutton"));
+        assert_eq!(text_of(&ch[0]), Some("FILE"));
+        for i in 0..3 {
+            assert_eq!(text_of(&ch[1 + i]), Some(format!("t{i}").as_str()));
+            assert!(has_class(&ch[1 + i], "__azul-native-ribbon-tab"));
             assert_eq!(
-                text_of(&bar.children.as_ref()[i]),
-                Some(s.as_str()),
-                "tab label {i} must survive the DOM round trip"
+                has_class(&ch[1 + i], "__azul-native-ribbon-tab-active"),
+                i == 1,
+                "only tab 1 is active"
             );
         }
+        assert!(has_class(&ch[4], "__azul-native-ribbon-tab-filler"));
 
-        // active_tab defaults to 0 -> only the first tab's section is rendered
-        assert_eq!(sections.children.as_ref().len(), 1);
-        let (content, title) = section_parts(sections, 0);
-        assert_eq!(text_of(title), Some(strings[0].as_str()));
-        assert_eq!(
-            text_of(&content.children.as_ref()[0]),
-            Some(strings[0].as_str())
-        );
+        // the active tab carries the active style, the others the plain style
+        let s = RibbonStyle::word_2013();
+        assert_eq!(inline_props(&ch[1]), style_props(&s.tab_style));
+        assert_eq!(inline_props(&ch[2]), style_props(&s.tab_active_style));
     }
 
     #[test]
-    fn dom_without_a_callback_attaches_no_callbacks_at_all() {
-        let dom = Ribbon::new(tabs(6, 2)).dom();
-        let (bar, sections) = parts(&dom);
+    fn dom_with_an_out_of_range_active_tab_highlights_nothing_and_renders_no_groups() {
+        let mut r = Ribbon::new(tabs(3));
+        r.active_tab = usize::MAX; // public field bypasses the clamp
+        let dom = r.dom();
+        let (bar, content) = parts(&dom);
+        for tab in &bar.children.as_ref()[..3] {
+            assert!(!has_class(tab, "__azul-native-ribbon-tab-active"));
+        }
+        assert!(content.children.as_ref().is_empty());
+    }
 
+    #[test]
+    fn dom_without_a_callback_attaches_no_user_tab_handler() {
+        let dom = Ribbon::new(tabs(4)).dom();
+        let (bar, _) = parts(&dom);
         for tab in bar.children.as_ref() {
             assert!(
-                tab.root.get_callbacks().as_ref().is_empty(),
-                "no user callback -> no MouseUp handler"
+                !tab.root
+                    .get_callbacks()
+                    .as_ref()
+                    .iter()
+                    .any(|c| c.event == EventFilter::Hover(HoverEventFilter::MouseUp)),
+                "no user callback -> no MouseUp handler (chrome handlers may still be present)"
             );
         }
-        for section in sections.children.as_ref() {
-            assert!(section.root.get_callbacks().as_ref().is_empty());
-        }
-        assert!(dom.root.get_callbacks().as_ref().is_empty());
     }
 
     #[test]
-    fn dom_gives_every_tab_one_mouseup_callback_carrying_its_own_index() {
-        let count = 64usize;
-        let dom = Ribbon::new(tabs(count, 1))
-            .with_on_tab_click(RefAny::new(TabLog { seen: Vec::new() }), tab_cb(record_tab))
+    fn dom_gives_every_tab_a_mouseup_callback_with_its_own_index() {
+        let dom = Ribbon::new(tabs(5))
+            .with_on_tab_click(RefAny::new(IndexLog { seen: Vec::new() }), record_index as RibbonOnTabClickCallbackType)
             .dom();
         let (bar, _) = parts(&dom);
-
-        assert_eq!(bar.children.as_ref().len(), count);
-        for (i, tab) in bar.children.as_ref().iter().enumerate() {
+        for (i, tab) in bar.children.as_ref()[..5].iter().enumerate() {
             let cbs = tab.root.get_callbacks();
-            assert_eq!(cbs.as_ref().len(), 1, "exactly one callback per tab");
-            assert_eq!(
-                cbs.as_ref()[0].event,
-                EventFilter::Hover(HoverEventFilter::MouseUp)
-            );
-            assert_eq!(cbs.as_ref()[0].callback.cb, on_ribbon_tab_click as usize);
-
-            let mut payload = cbs.as_ref()[0].refany.clone();
+            // Default behavior also attaches the collapse/peek chrome
+            // handlers; the USER callback is the MouseUp one.
+            let click = cbs
+                .as_ref()
+                .iter()
+                .find(|c| c.event == EventFilter::Hover(HoverEventFilter::MouseUp))
+                .expect("every tab has a MouseUp user handler");
+            let mut payload = click.refany.clone();
             let data = payload
                 .downcast_ref::<TabClickData>()
                 .expect("tab payload is a TabClickData");
-            assert_eq!(data.tab_idx, i, "each tab must know its own index");
-            assert!(data.on_tab_click.is_some());
+            assert_eq!(data.tab_idx, i);
         }
+        // the filler has no callback
+        assert!(bar.children.as_ref()[5].root.get_callbacks().as_ref().is_empty());
     }
 
     #[test]
-    fn dom_shares_the_user_payload_with_every_tab_and_keeps_the_caller_handle_alive() {
-        let mut kept = RefAny::new(TabLog { seen: Vec::new() });
-        let dom = Ribbon::new(tabs(3, 0))
-            .with_on_tab_click(kept.clone(), tab_cb(record_tab))
-            .dom();
+    fn app_button_callback_is_attached_directly() {
+        extern "C" fn noop(_: RefAny, _: CallbackInfo) -> Update {
+            Update::DoNothing
+        }
+        let ab = RibbonAppButton::new(AzString::from("FILE"))
+            .with_on_click(RefAny::new(0u8), noop as super::super::button::ButtonOnClickCallbackType);
+        let dom = Ribbon::new(tabs(1)).with_app_button(ab).dom();
         let (bar, _) = parts(&dom);
+        let cbs = bar.children.as_ref()[0].root.get_callbacks();
+        assert_eq!(cbs.as_ref().len(), 1);
+        assert_eq!(cbs.as_ref()[0].callback.cb, noop as usize);
+    }
 
-        // write through tab 2's copy of the shared payload...
-        let mut payload = bar.children.as_ref()[2].root.get_callbacks().as_ref()[0]
-            .refany
-            .clone();
-        {
-            let mut data = payload
-                .downcast_mut::<TabClickData>()
-                .expect("tab payload is a TabClickData");
-            data.on_tab_click
-                .as_mut()
-                .unwrap()
-                .refany
-                .downcast_mut::<TabLog>()
-                .expect("user payload type preserved")
-                .seen
-                .push(7);
+    // ------------------------------------------------------------------
+    // Trampolines
+    // ------------------------------------------------------------------
+
+    #[test]
+    fn tab_click_forwards_the_index_and_propagates_the_update() {
+        let mut log = RefAny::new(IndexLog { seen: Vec::new() });
+        for idx in [0usize, 7, usize::MAX] {
+            let data = RefAny::new(TabClickData {
+                tab_idx: idx,
+                on_tab_click: Some(RibbonOnTabClick {
+                    callback: (record_index as RibbonOnTabClickCallbackType).into(),
+                    refany: log.clone(),
+                })
+                .into(),
+            });
+            let (update, changes) = run_trampoline(on_ribbon_tab_click, data);
+            assert_eq!(update, Update::RefreshDom);
+            assert!(changes.is_empty());
         }
-
-        // ...and the caller's handle sees it (RefAny shares, it does not deep-copy)
-        assert_eq!(log_indices(&mut kept), vec![7]);
+        assert_eq!(log_indices(&mut log), vec![0, 7, usize::MAX]);
     }
 
     #[test]
-    fn dom_child_count_cache_stays_consistent_for_deeply_nested_content() {
-        let mut deep = Dom::create_text("leaf");
-        for _ in 0..128 {
-            deep = Dom::create_div().with_child(deep);
+    fn gallery_click_forwards_the_index_and_propagates_the_update() {
+        let mut log = RefAny::new(IndexLog { seen: Vec::new() });
+        let data = RefAny::new(GalleryCellClickData {
+            cell_idx: 3,
+            on_select: Some(RibbonGalleryOnSelect {
+                callback: (record_index as RibbonGalleryOnSelectCallbackType).into(),
+                refany: log.clone(),
+            })
+            .into(),
+            // The auto-select branch needs live layout results; this test
+            // drives the forwarding path only.
+            auto_select: false,
+            in_panel: false,
+            selected_style: CssPropertyWithConditionsVec::from_const_slice(&[]),
+            base_style: CssPropertyWithConditionsVec::from_const_slice(&[]),
+        });
+        let (update, changes) = run_trampoline(on_ribbon_gallery_cell_click, data);
+        assert_eq!(update, Update::RefreshDom);
+        assert!(changes.is_empty());
+        assert_eq!(log_indices(&mut log), vec![3]);
+    }
+
+    #[test]
+    fn trampolines_with_foreign_or_empty_payloads_are_noops() {
+        let (update, changes) = run_trampoline(on_ribbon_tab_click, RefAny::new(0xdead_u64));
+        assert_eq!(update, Update::DoNothing);
+        assert!(changes.is_empty());
+
+        let data = RefAny::new(GalleryCellClickData {
+            cell_idx: 0,
+            on_select: None.into(),
+            auto_select: false,
+            in_panel: false,
+            selected_style: CssPropertyWithConditionsVec::from_const_slice(&[]),
+            base_style: CssPropertyWithConditionsVec::from_const_slice(&[]),
+        });
+        let (update, _) = run_trampoline(on_ribbon_gallery_cell_click, data);
+        assert_eq!(update, Update::DoNothing);
+    }
+
+    // ------------------------------------------------------------------
+    // Groups
+    // ------------------------------------------------------------------
+
+    #[test]
+    fn group_renders_items_over_a_footer_with_the_caption() {
+        let tab = RibbonTab::new(AzString::from("HOME")).with_group(
+            RibbonGroup::new(AzString::from("Clipboard"))
+                .with_item(RibbonItem::SmallButton(small_btn("content_cut", "Cut"))),
+        );
+        let dom = Ribbon::new(RibbonTabVec::from_vec(vec![tab])).dom();
+        let (_, content) = parts(&dom);
+        assert_eq!(content.children.as_ref().len(), 1);
+        assert!(has_class(&content.children.as_ref()[0], "__azul-native-ribbon-group"));
+
+        let (items, footer) = group_parts(content, 0);
+        assert!(has_class(items, "__azul-native-ribbon-group-items"));
+        assert_eq!(items.children.as_ref().len(), 1);
+        assert!(has_class(footer, "__azul-native-ribbon-group-footer"));
+        // no launcher: the footer is exactly [caption]
+        assert_eq!(footer.children.as_ref().len(), 1);
+        assert_eq!(text_of(&footer.children.as_ref()[0]), Some("Clipboard"));
+    }
+
+    #[test]
+    fn group_with_launcher_renders_spacer_caption_launcher() {
+        extern "C" fn noop(_: RefAny, _: CallbackInfo) -> Update {
+            Update::DoNothing
+        }
+        let group = RibbonGroup::new(AzString::from("Font"))
+            .with_launcher(RefAny::new(0u8), noop as super::super::button::ButtonOnClickCallbackType);
+        let tab = RibbonTab::new(AzString::from("HOME")).with_group(group);
+        let dom = Ribbon::new(RibbonTabVec::from_vec(vec![tab])).dom();
+        let (_, content) = parts(&dom);
+        let (_, footer) = group_parts(content, 0);
+
+        let ch = footer.children.as_ref();
+        assert_eq!(ch.len(), 3, "[spacer, caption, launcher]");
+        assert!(has_class(&ch[0], "__azul-native-ribbon-footer-spacer"));
+        assert_eq!(text_of(&ch[1]), Some("Font"));
+        // the launcher is a real Button widget with the south_east icon
+        assert!(matches!(ch[2].root.get_node_type(), NodeType::Button));
+        assert_eq!(icon_name_of(&ch[2].children.as_ref()[0]), Some("south_east"));
+        assert_eq!(ch[2].root.get_callbacks().as_ref().len(), 1);
+    }
+
+    // ------------------------------------------------------------------
+    // Items
+    // ------------------------------------------------------------------
+
+    /// Renders one item into a throwaway single-group ribbon and returns the
+    /// rendered item node.
+    fn render_item(item: RibbonItem) -> Dom {
+        let tab = RibbonTab::new(AzString::from("t"))
+            .with_group(RibbonGroup::new(AzString::from("g")).with_item(item));
+        let dom = Ribbon::new(RibbonTabVec::from_vec(vec![tab])).dom();
+        let (_, content) = parts(&dom);
+        let (items, _) = group_parts(content, 0);
+        assert_eq!(items.children.as_ref().len(), 1);
+        items.children.as_ref()[0].clone()
+    }
+
+    #[test]
+    fn large_button_expands_to_a_button_widget_with_icon_label_and_arrow() {
+        let rb = RibbonButton::new(AzString::from("content_paste"), AzString::from("Paste"))
+            .with_arrow(RibbonArrow::Split);
+        let node = render_item(RibbonItem::LargeButton(rb));
+
+        assert!(matches!(node.root.get_node_type(), NodeType::Button));
+        assert!(has_class(&node, "__azul-native-button"), "reuses the Button widget");
+        let ch = node.children.as_ref();
+        assert_eq!(ch.len(), 3, "[icon, label, arrow]");
+        assert_eq!(icon_name_of(&ch[0]), Some("content_paste"));
+        assert_eq!(text_of(&ch[1]), Some("Paste"));
+        assert_eq!(icon_name_of(&ch[2]), Some("arrow_drop_down"));
+
+        let s = RibbonStyle::word_2013();
+        assert_eq!(inline_props(&node), style_props(&s.large_button_style));
+        assert_eq!(inline_props(&ch[0]), style_props(&s.large_icon_style));
+        assert_eq!(inline_props(&ch[1]), style_props(&s.large_label_style));
+        assert_eq!(inline_props(&ch[2]), style_props(&s.arrow_icon_style));
+    }
+
+    #[test]
+    fn icon_only_small_button_skips_the_empty_label() {
+        let node = render_item(RibbonItem::SmallButton(small_btn("format_bold", "")));
+        let ch = node.children.as_ref();
+        assert_eq!(ch.len(), 1, "icon only — no empty text node");
+        assert_eq!(icon_name_of(&ch[0]), Some("format_bold"));
+    }
+
+    #[test]
+    fn toggled_button_appends_the_checked_style_last() {
+        let rb = small_btn("format_align_left", "").with_toggled(true);
+        let node = render_item(RibbonItem::SmallButton(rb));
+
+        let s = RibbonStyle::word_2013();
+        let mut expected = style_props(&s.small_button_style);
+        expected.extend(style_props(&s.checked_style));
+        assert_eq!(
+            inline_props(&node),
+            expected,
+            "checked props must come last so they win (inline CSS is last-wins)"
+        );
+    }
+
+    #[test]
+    fn columns_and_rows_nest_items_recursively() {
+        let column = RibbonColumn::new()
+            .with_item(RibbonItem::SmallButton(small_btn("content_cut", "Cut")))
+            .with_item(RibbonItem::Row(
+                RibbonRow::new()
+                    .with_item(RibbonItem::SmallButton(small_btn("format_bold", "")))
+                    .with_item(RibbonItem::Separator),
+            ));
+        let node = render_item(RibbonItem::Column(column));
+
+        assert!(has_class(&node, "__azul-native-ribbon-column"));
+        let ch = node.children.as_ref();
+        assert_eq!(ch.len(), 2);
+        assert!(matches!(ch[0].root.get_node_type(), NodeType::Button));
+        assert!(has_class(&ch[1], "__azul-native-ribbon-row"));
+        let row_ch = ch[1].children.as_ref();
+        assert_eq!(row_ch.len(), 2);
+        assert!(has_class(&row_ch[1], "__azul-native-ribbon-separator"));
+    }
+
+    #[test]
+    fn embedded_widgets_render_with_their_own_classes() {
+        use azul_css::StringVec;
+
+        let combo = ComboBox::new(StringVec::from_vec(vec![AzString::from("Calibri")]));
+        let node = render_item(RibbonItem::Combo(combo));
+        assert!(has_class(&node, "__azul-native-combobox"));
+
+        let drop = DropDown::new(StringVec::from_vec(vec![AzString::from("11")]));
+        let node = render_item(RibbonItem::Drop(drop));
+        assert!(has_class(&node, "__azul-native-dropdown"));
+
+        let check = CheckBox::create(true);
+        let node = render_item(RibbonItem::Check(check));
+        assert!(has_class(&node, "__azul-native-checkbox-container"));
+    }
+
+    #[test]
+    fn custom_items_pass_through_verbatim() {
+        let custom = Dom::create_text("¶");
+        let node = render_item(RibbonItem::Custom(custom.clone()));
+        assert_eq!(node, custom);
+    }
+
+    // ------------------------------------------------------------------
+    // Gallery
+    // ------------------------------------------------------------------
+
+    fn gallery(cells: usize) -> RibbonGallery {
+        let v: Vec<RibbonGalleryCell> = (0..cells)
+            .map(|i| {
+                RibbonGalleryCell::new(
+                    Dom::create_text(format!("AaBbCc{i}")),
+                    AzString::from(format!("Style {i}")),
+                )
+            })
+            .collect();
+        RibbonGallery::new(RibbonGalleryCellVec::from_vec(v))
+    }
+
+    #[test]
+    fn gallery_renders_strip_cells_and_three_spinner_buttons() {
+        let wrapper = render_item(RibbonItem::Gallery(gallery(4).with_selected(2)));
+        assert!(has_class(&wrapper, "__azul-native-ribbon-gallery-wrapper"));
+        let node = &wrapper.children.as_ref()[0];
+        assert!(has_class(node, "__azul-native-ribbon-gallery"));
+
+        let ch = node.children.as_ref();
+        assert_eq!(ch.len(), 2, "[strip, spinner]");
+        let (strip, spinner) = (&ch[0], &ch[1]);
+
+        assert!(has_class(strip, "__azul-native-ribbon-gallery-strip"));
+        let cells = strip.children.as_ref();
+        assert_eq!(cells.len(), 4);
+        for (i, cell) in cells.iter().enumerate() {
+            assert!(has_class(cell, "__azul-native-ribbon-gallery-cell"));
+            assert_eq!(
+                has_class(cell, "__azul-native-ribbon-gallery-cell-selected"),
+                i == 2,
+                "only cell 2 is selected"
+            );
+            // [preview, label]
+            let cc = cell.children.as_ref();
+            assert_eq!(cc.len(), 2);
+            assert_eq!(text_of(&cc[0]), Some(format!("AaBbCc{i}").as_str()));
+            assert_eq!(text_of(&cc[1]), Some(format!("Style {i}").as_str()));
         }
 
-        let tab = RibbonTab::new(AzString::from("t"))
-            .with_section(RibbonSection::new(AzString::from("deep"), deep))
-            .with_section(RibbonSection::new(AzString::from(""), Dom::create_div()));
+        // selected cell style = base + selected extras appended
+        let s = RibbonStyle::word_2013();
+        let mut expected = style_props(&s.gallery_cell_style);
+        expected.extend(style_props(&s.gallery_cell_selected_style));
+        assert_eq!(inline_props(&cells[2]), expected);
 
-        let dom = Ribbon::new(RibbonTabVec::from_vec(vec![tab])).dom();
+        assert!(has_class(spinner, "__azul-native-ribbon-gallery-spinner"));
+        let buttons = spinner.children.as_ref();
+        assert_eq!(buttons.len(), 3);
+        let expected_icons = ["expand_less", "expand_more", "arrow_drop_down"];
+        for (b, expected_icon) in buttons.iter().zip(expected_icons) {
+            assert!(matches!(b.root.get_node_type(), NodeType::Button));
+            assert_eq!(icon_name_of(&b.children.as_ref()[0]), Some(expected_icon));
+        }
+    }
 
-        // a too-small cache makes `convert_dom_into_compact_dom` under-allocate
-        // its arenas and panic on an out-of-bounds write later
+    #[test]
+    fn gallery_cells_carry_their_own_index_in_the_click_payload() {
+        let g = gallery(2).with_on_select(
+            RefAny::new(IndexLog { seen: Vec::new() }),
+            record_index as RibbonGalleryOnSelectCallbackType,
+        );
+        let wrapper = render_item(RibbonItem::Gallery(g));
+        let frame = &wrapper.children.as_ref()[0];
+        for (i, cell) in frame.children.as_ref()[0].children.as_ref().iter().enumerate() {
+            let cbs = cell.root.get_callbacks();
+            assert_eq!(cbs.as_ref().len(), 1);
+            let mut payload = cbs.as_ref()[0].refany.clone();
+            let data = payload
+                .downcast_ref::<GalleryCellClickData>()
+                .expect("cell payload is a GalleryCellClickData");
+            assert_eq!(data.cell_idx, i);
+        }
+    }
+
+    // ------------------------------------------------------------------
+    // Style injection
+    // ------------------------------------------------------------------
+
+    #[test]
+    fn replacing_a_part_style_restyles_the_expanded_buttons() {
+        let injected = CssPropertyWithConditionsVec::from_vec(vec![Cond::simple(
+            P::const_font_size(StyleFontSize::const_px(99)),
+        )]);
+
+        let tab = RibbonTab::new(AzString::from("t")).with_group(
+            RibbonGroup::new(AzString::from("g"))
+                .with_item(RibbonItem::SmallButton(small_btn("format_bold", ""))),
+        );
+        let mut r = Ribbon::new(RibbonTabVec::from_vec(vec![tab]));
+        r.style.small_button_style = injected.clone();
+        let dom = r.dom();
+        let (_, content) = parts(&dom);
+        let (items, _) = group_parts(content, 0);
+
+        assert_eq!(
+            inline_props(&items.children.as_ref()[0]),
+            style_props(&injected),
+            "the injected style must reach the expanded Button verbatim"
+        );
+    }
+
+    // ------------------------------------------------------------------
+    // Whole-tree invariants
+    // ------------------------------------------------------------------
+
+    #[test]
+    fn estimated_child_count_cache_stays_consistent_for_a_full_ribbon() {
+        let tab = RibbonTab::new(AzString::from("HOME"))
+            .with_group(
+                RibbonGroup::new(AzString::from("Clipboard"))
+                    .with_item(RibbonItem::LargeButton(
+                        RibbonButton::new(AzString::from("content_paste"), AzString::from("Paste"))
+                            .with_arrow(RibbonArrow::Split),
+                    ))
+                    .with_item(RibbonItem::Column(
+                        RibbonColumn::new()
+                            .with_item(RibbonItem::SmallButton(small_btn("content_cut", "Cut")))
+                            .with_item(RibbonItem::SmallButton(small_btn("content_copy", "Copy"))),
+                    )),
+            )
+            .with_group(
+                RibbonGroup::new(AzString::from("Styles"))
+                    .with_item(RibbonItem::Gallery(gallery(6))),
+            );
+        let dom = Ribbon::new(RibbonTabVec::from_vec(vec![tab]))
+            .with_app_button(RibbonAppButton::new(AzString::from("FILE")))
+            .dom();
+
         assert_eq!(
             dom.estimated_total_children,
             recursive_descendants(&dom),
             "cached descendant count desynced from the real tree"
         );
-        assert_eq!(
-            dom.estimated_total_children,
-            dom.recompute_estimated_total_children()
-        );
-    }
-
-    #[test]
-    fn dom_with_many_tabs_and_sections_does_not_panic() {
-        let mut r = Ribbon::new(tabs(500, 20));
-        r.set_active_tab(499);
-        let dom = r.dom();
-        let (bar, sections) = parts(&dom);
-
-        assert_eq!(bar.children.as_ref().len(), 500);
-        assert_eq!(sections.children.as_ref().len(), 20);
-        assert_eq!(
-            inline_props(&bar.children.as_ref()[499]),
-            style_props(TAB_ACTIVE_STYLE)
-        );
-    }
-
-    #[test]
-    fn dom_of_a_tab_with_no_sections_yields_an_empty_but_styled_container() {
-        let dom = Ribbon::new(tabs(2, 0)).dom();
-        let (bar, sections) = parts(&dom);
-
-        assert_eq!(bar.children.as_ref().len(), 2);
-        assert!(sections.children.as_ref().is_empty());
-        assert_eq!(
-            inline_props(sections),
-            style_props(SECTIONS_CONTAINER_STYLE),
-            "the empty branch must still carry the container style"
-        );
     }
 
     #[test]
     fn from_ribbon_for_dom_matches_dom() {
-        // Only meaningful without a callback: every `dom()` call mints fresh
-        // per-tab `RefAny`s and two distinct `RefAny`s never compare equal.
-        assert_eq!(Dom::from(Ribbon::new(tabs(3, 2))), Ribbon::new(tabs(3, 2)).dom());
-        assert_eq!(
-            Dom::from(Ribbon::new(RibbonTabVec::from_vec(Vec::new()))),
-            Ribbon::new(RibbonTabVec::from_vec(Vec::new())).dom()
-        );
+        // Only meaningful without callbacks: every `dom()` call mints fresh
+        // per-tab RefAny payloads and two RefAnys never compare equal.
+        // Inert: the default behaviors mint a fresh chrome `RefAny` per call
+        // and two RefAnys never compare equal.
+        let inert = || Ribbon::new(tabs(3)).with_behavior(RibbonBehavior::inert());
+        assert_eq!(Dom::from(inert()), inert().dom());
     }
 
-    // ------------------------------------------------------------------
-    // on_ribbon_tab_click
-    // ------------------------------------------------------------------
-
     #[test]
-    fn tab_click_with_a_foreign_payload_is_a_noop() {
-        let (update, changes) = run_click(0, RefAny::new(0xdead_beef_u64));
+    fn styled_combo_box_injects_the_ribbon_field_look() {
+        use azul_css::StringVec;
 
-        assert_eq!(update, Update::DoNothing);
+        let s = RibbonStyle::word_2013();
+        let combo = s.styled_combo_box(
+            StringVec::from_vec(vec![AzString::from("Calibri")]),
+            AzString::from("Calibri (Body)"),
+            133,
+        );
+
+        let default = ComboBox::create();
+        assert_ne!(combo.wrapper_style, default.wrapper_style, "wrapper restyled");
+        assert_ne!(combo.field_style, default.field_style, "field restyled");
+        assert_eq!(combo.combo_state.inner.text.as_str(), "Calibri (Body)");
+
+        // the width is the LAST wrapper property, so it wins over any base width
+        let last = combo
+            .wrapper_style
+            .as_ref()
+            .last()
+            .expect("wrapper style is non-empty");
         assert!(
-            changes.is_empty(),
-            "a foreign payload must not touch the window"
+            matches!(&last.property, CssProperty::Width(_)),
+            "styled_combo_box must append the width last, got {:?}",
+            last.property
         );
     }
 
-    #[test]
-    fn tab_click_without_a_user_callback_is_a_noop() {
-        let data = RefAny::new(TabClickData {
-            tab_idx: 3,
-            on_tab_click: None.into(),
-        });
-
-        let (update, changes) = run_click(0, data);
-
-        assert_eq!(update, Update::DoNothing);
-        assert!(changes.is_empty(), "the handler never restyles by itself");
-    }
+    // ------------------------------------------------------------------
+    // Theming
+    // ------------------------------------------------------------------
 
     #[test]
-    fn tab_click_forwards_the_index_and_propagates_the_user_update() {
-        let mut log = RefAny::new(TabLog { seen: Vec::new() });
-        let data = RefAny::new(TabClickData {
-            tab_idx: 17,
-            on_tab_click: Some(RibbonOnTabClick {
-                callback: tab_cb(record_tab),
-                refany: log.clone(),
+    fn from_theme_recolors_the_accent_carrying_parts() {
+        let neon = ColorU { r: 255, g: 0, b: 128, a: 255 };
+        let mut theme = RibbonTheme::word_2013();
+        theme.accent = neon;
+
+        let s = RibbonStyle::from_theme(theme);
+        assert_eq!(s.theme, theme, "the style bundle records its palette");
+        assert_ne!(s, RibbonStyle::word_2013());
+
+        // The app button's fill is the accent color.
+        let app_bg = s
+            .app_button_style
+            .as_ref()
+            .iter()
+            .find_map(|c| match &c.property {
+                CssProperty::BackgroundContent(b) => b.get_property().cloned(),
+                _ => None,
             })
-            .into(),
-        });
+            .expect("app button declares a background");
+        assert_eq!(
+            app_bg.as_ref(),
+            &[StyleBackgroundContent::Color(neon)],
+            "the app button fill must follow the theme accent"
+        );
 
-        let (update, changes) = run_click(0, data.clone());
-
-        assert_eq!(update, Update::RefreshDom, "the user's Update must win");
-        assert!(changes.is_empty());
-        assert_eq!(log_indices(&mut log), vec![17]);
-
-        // the handler is stateless: a second click reports the same index again
-        let (update, _) = run_click(0, data);
-        assert_eq!(update, Update::RefreshDom);
-        assert_eq!(log_indices(&mut log), vec![17, 17]);
+        // The active tab's text is the accent color.
+        let active_text = s
+            .tab_active_style
+            .as_ref()
+            .iter()
+            .find_map(|c| match &c.property {
+                CssProperty::TextColor(t) => t.get_property().copied(),
+                _ => None,
+            })
+            .expect("active tab declares a text color");
+        assert_eq!(active_text.inner, neon);
     }
 
     #[test]
-    fn tab_click_forwards_extreme_indices_verbatim() {
-        let mut log = RefAny::new(TabLog { seen: Vec::new() });
-        let indices = [0usize, 1, usize::MAX / 2, usize::MAX - 1, usize::MAX];
-
-        for idx in indices {
-            let data = RefAny::new(TabClickData {
-                tab_idx: idx,
-                on_tab_click: Some(RibbonOnTabClick {
-                    callback: tab_cb(record_tab),
-                    refany: log.clone(),
-                })
-                .into(),
-            });
-            let (update, _) = run_click(0, data);
-            assert_eq!(update, Update::RefreshDom);
-        }
-
+    fn word_2013_is_exactly_from_theme_of_the_word_2013_palette() {
         assert_eq!(
-            log_indices(&mut log),
-            indices.to_vec(),
-            "indices must reach the user callback without clamping or wrapping"
+            RibbonStyle::word_2013(),
+            RibbonStyle::from_theme(RibbonTheme::word_2013()),
+            "one source of truth: the named preset is just from_theme"
         );
     }
 
     #[test]
-    fn tab_click_propagates_every_update_variant() {
-        for (cb, expected) in [
-            (tab_cb(tab_do_nothing), Update::DoNothing),
-            (tab_cb(tab_refresh_all), Update::RefreshDomAllWindows),
-        ] {
-            let data = RefAny::new(TabClickData {
-                tab_idx: 0,
-                on_tab_click: Some(RibbonOnTabClick {
-                    callback: cb,
-                    refany: RefAny::new(0u8),
-                })
-                .into(),
-            });
-            let (update, changes) = run_click(0, data);
-            assert_eq!(update, expected);
-            assert!(changes.is_empty());
+    fn from_system_with_no_reported_colors_falls_back_to_word_2013() {
+        // SystemStyle::default() may pre-fill platform colors; the fallback
+        // contract is about a system that reports NO colors at all.
+        let mut sys = SystemStyle::default();
+        sys.colors = azul_css::system::SystemColors::default();
+        assert_eq!(RibbonTheme::from_system(sys.clone()), RibbonTheme::word_2013());
+        assert_eq!(RibbonStyle::from_system(sys), RibbonStyle::word_2013());
+    }
+
+    #[test]
+    fn from_system_extracts_reported_colors_and_falls_back_for_the_rest() {
+        let reported = ColorU { r: 9, g: 99, b: 199, a: 255 };
+        let mut sys = SystemStyle::default();
+        sys.colors.accent = Some(reported).into();
+
+        let t = RibbonTheme::from_system(sys);
+        assert_eq!(t.accent, reported, "reported accent must be extracted");
+        assert_eq!(t.hover_border, reported, "hover border follows the accent");
+        assert_eq!(
+            t.text,
+            RibbonTheme::word_2013().text,
+            "unreported colors fall back to the Word 2013 palette"
+        );
+    }
+
+    // ------------------------------------------------------------------
+    // Behaviors
+    // ------------------------------------------------------------------
+
+    #[test]
+    fn default_behavior_is_word_2013_and_inert_disables_everything() {
+        assert_eq!(RibbonBehavior::default(), RibbonBehavior::word_2013());
+        let w = RibbonBehavior::word_2013();
+        assert!(w.collapsible && w.peek_on_hover && w.auto_select_gallery && w.expandable_gallery);
+        let i = RibbonBehavior::inert();
+        assert!(!i.collapsible && !i.peek_on_hover && !i.auto_select_gallery && !i.expandable_gallery);
+        assert_eq!(Ribbon::new(tabs(1)).behavior, RibbonBehavior::word_2013());
+    }
+
+    #[test]
+    fn collapsible_tabs_carry_double_click_and_peek_handlers() {
+        let dom = Ribbon::new(tabs(3)).dom();
+        let (bar, _) = parts(&dom);
+        for tab in &bar.children.as_ref()[..3] {
+            let events: Vec<EventFilter> = tab
+                .root
+                .get_callbacks()
+                .as_ref()
+                .iter()
+                .map(|c| c.event)
+                .collect();
+            assert!(
+                events.contains(&EventFilter::Hover(HoverEventFilter::DoubleClick)),
+                "a collapsible ribbon must listen for DoubleClick, got {events:?}"
+            );
+            assert!(events.contains(&EventFilter::Hover(HoverEventFilter::MouseEnter)));
+            assert!(events.contains(&EventFilter::Hover(HoverEventFilter::MouseLeave)));
         }
     }
 
     #[test]
-    fn tab_click_ignores_the_hit_node_entirely() {
-        // the handler is a pure forwarder — a hit node that does not exist in
-        // any layout result must behave exactly like a valid one.
-        let mut log = RefAny::new(TabLog { seen: Vec::new() });
-        for hit in [0usize, 1, 999, usize::MAX / 4] {
-            let data = RefAny::new(TabClickData {
-                tab_idx: 5,
-                on_tab_click: Some(RibbonOnTabClick {
-                    callback: tab_cb(record_tab),
-                    refany: log.clone(),
-                })
-                .into(),
-            });
-            let (update, changes) = run_click(hit, data);
-            assert_eq!(update, Update::RefreshDom);
-            assert!(changes.is_empty());
-        }
-        assert_eq!(log_indices(&mut log), vec![5, 5, 5, 5]);
-    }
-
-    #[test]
-    fn tab_click_from_a_real_dom_payload_reports_the_clicked_tab() {
-        let mut log = RefAny::new(TabLog { seen: Vec::new() });
-        let dom = Ribbon::new(tabs(4, 1))
-            .with_on_tab_click(log.clone(), tab_cb(record_tab))
+    fn inert_behavior_attaches_no_chrome_handlers() {
+        let dom = Ribbon::new(tabs(2))
+            .with_behavior(RibbonBehavior::inert())
             .dom();
         let (bar, _) = parts(&dom);
+        for tab in &bar.children.as_ref()[..2] {
+            assert!(
+                tab.root.get_callbacks().as_ref().is_empty(),
+                "an inert ribbon with no user callback must attach nothing"
+            );
+        }
+    }
 
-        for i in [3usize, 0, 2, 1] {
-            let payload = bar.children.as_ref()[i].root.get_callbacks().as_ref()[0]
-                .refany
-                .clone();
-            let (update, changes) = run_click(i, payload);
-            assert_eq!(update, Update::RefreshDom);
-            assert!(changes.is_empty());
+    #[test]
+    fn peek_can_be_disabled_while_collapse_stays_on() {
+        let behavior = RibbonBehavior {
+            peek_on_hover: false,
+            ..RibbonBehavior::word_2013()
+        };
+        let dom = Ribbon::new(tabs(1)).with_behavior(behavior).dom();
+        let (bar, _) = parts(&dom);
+        let events: Vec<EventFilter> = bar.children.as_ref()[0]
+            .root
+            .get_callbacks()
+            .as_ref()
+            .iter()
+            .map(|c| c.event)
+            .collect();
+        assert_eq!(events, vec![EventFilter::Hover(HoverEventFilter::DoubleClick)]);
+    }
+
+    #[test]
+    fn expandable_gallery_wraps_the_frame_and_adds_a_hidden_panel() {
+        let node = render_item(RibbonItem::Gallery(gallery(3)));
+        assert!(has_class(&node, "__azul-native-ribbon-gallery-wrapper"));
+
+        let ch = node.children.as_ref();
+        assert_eq!(ch.len(), 2, "[frame, panel]");
+        assert!(has_class(&ch[0], "__azul-native-ribbon-gallery"));
+        assert!(has_class(&ch[1], "__azul-native-ribbon-gallery-panel"));
+
+        // The panel holds EVERY cell and starts hidden.
+        assert_eq!(ch[1].children.as_ref().len(), 3);
+        let display = inline_props(&ch[1]).into_iter().find_map(|p| match p {
+            CssProperty::Display(d) => d.get_property().copied(),
+            _ => None,
+        });
+        assert_eq!(display, Some(LayoutDisplay::None), "the panel starts hidden");
+
+        // The third spinner button is the "More" toggle.
+        let spinner = &ch[0].children.as_ref()[1];
+        let more = &spinner.children.as_ref()[2];
+        assert_eq!(more.root.get_callbacks().as_ref().len(), 1);
+        assert_eq!(
+            more.root.get_callbacks().as_ref()[0].event,
+            EventFilter::Hover(HoverEventFilter::MouseUp)
+        );
+    }
+
+    #[test]
+    fn non_expandable_gallery_is_the_bare_frame() {
+        let tab = RibbonTab::new(AzString::from("t")).with_group(
+            RibbonGroup::new(AzString::from("g")).with_item(RibbonItem::Gallery(gallery(2))),
+        );
+        let behavior = RibbonBehavior {
+            expandable_gallery: false,
+            ..RibbonBehavior::word_2013()
+        };
+        let dom = Ribbon::new(RibbonTabVec::from_vec(vec![tab]))
+            .with_behavior(behavior)
+            .dom();
+        let (_, content) = parts(&dom);
+        let (items, _) = group_parts(content, 0);
+        let node = &items.children.as_ref()[0];
+        assert!(has_class(node, "__azul-native-ribbon-gallery"));
+        assert!(!has_class(node, "__azul-native-ribbon-gallery-wrapper"));
+    }
+
+    #[test]
+    fn auto_select_attaches_cell_handlers_even_without_a_user_callback() {
+        // Word moves the highlight on click regardless of the app; with
+        // auto_select off and no user callback, nothing is attached.
+        let node = render_item(RibbonItem::Gallery(gallery(2)));
+        let strip = &node.children.as_ref()[0].children.as_ref()[0];
+        for cell in strip.children.as_ref() {
+            assert_eq!(cell.root.get_callbacks().as_ref().len(), 1);
         }
 
-        assert_eq!(
-            log_indices(&mut log),
-            vec![3, 0, 2, 1],
-            "each tab's payload must report that tab's own index"
+        let tab = RibbonTab::new(AzString::from("t")).with_group(
+            RibbonGroup::new(AzString::from("g")).with_item(RibbonItem::Gallery(gallery(2))),
         );
+        let dom = Ribbon::new(RibbonTabVec::from_vec(vec![tab]))
+            .with_behavior(RibbonBehavior::inert())
+            .dom();
+        let (_, content) = parts(&dom);
+        let (items, _) = group_parts(content, 0);
+        let strip = &items.children.as_ref()[0].children.as_ref()[0];
+        for cell in strip.children.as_ref() {
+            assert!(cell.root.get_callbacks().as_ref().is_empty());
+        }
+    }
+
+    #[test]
+    fn styled_combo_box_follows_the_style_bundles_theme() {
+        let neon = ColorU { r: 1, g: 2, b: 3, a: 255 };
+        let mut theme = RibbonTheme::word_2013();
+        theme.field_border = neon;
+
+        let combo = RibbonStyle::from_theme(theme).styled_combo_box(
+            azul_css::StringVec::from_vec(vec![]),
+            AzString::from("x"),
+            50,
+        );
+        let border_color = combo
+            .field_style
+            .as_ref()
+            .iter()
+            .find_map(|c| match &c.property {
+                CssProperty::BorderTopColor(b) => b.get_property().copied(),
+                _ => None,
+            })
+            .expect("combo field declares a border color");
+        assert_eq!(border_color.inner, neon, "combo field border follows the theme");
     }
 }

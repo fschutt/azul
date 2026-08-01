@@ -617,16 +617,34 @@ fn layout_flex_grid<T: ParsedFontTrait>(
     };
     let effective_height = if has_explicit_height {
         explicit_height
-    } else if is_root {
-        root_border_box.as_ref().map(|s| s.height).or_else(|| {
-            if constraints.available_size.height.is_finite() {
-                Some(constraints.available_size.height + height_adjustment)
-            } else {
-                None
-            }
-        })
     } else {
-        None
+        if is_root {
+            match root_border_box.as_ref().map(|s| s.height) {
+                // An auto-height root's `used_size` is content-derived and is
+                // still ZERO here (children have not been laid out yet).
+                // Handing that to taffy as a DEFINITE main size makes a column
+                // flex container think it has -60px of free space, so every
+                // item with the default `flex-shrink: 1` collapses to 0 — a
+                // fixed-height toolbar under `body { display: flex;
+                // flex-direction: column }` simply vanished.
+                //
+                // CSS Flexbox §9.7: a container whose main size is INDEFINITE
+                // sizes items to their hypothetical main size and performs no
+                // shrinking. Leaving the dimension unknown is what makes taffy
+                // content-size the container.
+                Some(h) if h <= 0.0 => None,
+                Some(h) => Some(h),
+                None => {
+                    if constraints.available_size.height.is_finite() {
+                        Some(constraints.available_size.height + height_adjustment)
+                    } else {
+                        None
+                    }
+                }
+            }
+        } else {
+            None
+        }
     };
     let has_effective_width = effective_width.is_some();
     let has_effective_height = effective_height.is_some();

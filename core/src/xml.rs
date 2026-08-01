@@ -2607,6 +2607,14 @@ macro_rules! html_tag_node_types {
                         alloc::vec::Vec::new(),
                     ),
                 )),
+                // `<icon>content_copy</icon>` becomes an un-named `NodeType::Icon`;
+                // the icon SPEC is its text content, consumed by the icon
+                // resolution pass (`resolve_icons_in_styled_dom`) against the
+                // registered icon packs — exactly like a ligature icon font
+                // turns glyph text into an icon. The builders stay generic.
+                "icon" => NodeType::Icon(azul_css::css::BoxOrStatic::heap(
+                    azul_css::AzString::from_const_str(""),
+                )),
                 $($tag => NodeType::$variant,)*
                 _ => NodeType::Div,
             }
@@ -8020,6 +8028,37 @@ mod tests {
         }
 
         println!("Test passed: <img src=\"cat.jpg\"> -> NodeType::Image tagged \"cat.jpg\"");
+    }
+
+    #[test]
+    fn test_icon_tag_builds_an_unnamed_icon_with_its_spec_as_text_child() {
+        // `<icon>content_copy</icon>`: the DOM builders stay fully generic —
+        // an un-named Icon node whose text child carries the spec. The icon
+        // RESOLUTION pass (core::icon::resolve_icons_in_styled_dom) consumes
+        // the text, exactly like a ligature icon font consumes glyph text.
+        let text_form = XmlNode {
+            node_type: "icon".into(),
+            attributes: XmlAttributeMap::default(),
+            children: alloc::vec![XmlNodeChild::Text(" content_copy ".into())].into(),
+        };
+
+        let component_map = ComponentMap::default();
+        let dom = xml_node_to_dom_fast(&text_form, &component_map, false, 0)
+            .expect("xml_node_to_dom_fast for <icon>text</icon> should succeed");
+
+        match dom.root.get_node_type() {
+            NodeType::Icon(name) => assert_eq!(
+                name.as_ref().as_str(), "",
+                "the builder must NOT interpret the spec — that's the resolver's job"
+            ),
+            other => panic!("expected NodeType::Icon for <icon>, got {other:?}"),
+        }
+        let children = dom.children.as_ref();
+        assert_eq!(children.len(), 1, "the spec text child is preserved for the resolver");
+        match children[0].root.get_node_type() {
+            NodeType::Text(t) => assert_eq!(t.as_ref().as_str(), " content_copy "),
+            other => panic!("expected the spec as a text child, got {other:?}"),
+        }
     }
 
     #[test]

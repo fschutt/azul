@@ -76,6 +76,13 @@ pub struct Button {
     pub label: AzString,
     /// Optional image that is displayed next to the label
     pub image: OptionImageRef,
+    /// Optional leading icon name, resolved through the registered icon
+    /// provider (e.g. the builtin Material Icons pack: "content_copy").
+    /// An empty string means "no icon".
+    pub icon: AzString,
+    /// Optional trailing icon name (e.g. "arrow_drop_down" for menu/split
+    /// buttons). An empty string means "no trailing icon".
+    pub trailing_icon: AzString,
     /// The semantic type of this button (Primary, Success, Danger, etc.)
     pub button_type: ButtonType,
     /// Style for this button container
@@ -84,6 +91,10 @@ pub struct Button {
     pub label_style: CssPropertyWithConditionsVec,
     /// Style of the image
     pub image_style: CssPropertyWithConditionsVec,
+    /// Style of the leading icon
+    pub icon_style: CssPropertyWithConditionsVec,
+    /// Style of the trailing icon
+    pub trailing_icon_style: CssPropertyWithConditionsVec,
     /// Optional: Function to call when the button is clicked
     pub on_click: OptionButtonOnClick,
 }
@@ -280,6 +291,14 @@ fn build_button_container_style(button_type: ButtonType) -> Vec<CssPropertyWithC
     props
 }
 
+/// Default style for the optional leading/trailing icon nodes: a fixed-size,
+/// non-selectable glyph that does not flex.
+static BUTTON_ICON_DEFAULT_STYLE: &[CssPropertyWithConditions] = &[
+    CssPropertyWithConditions::simple(CssProperty::const_font_size(StyleFontSize::const_px(16))),
+    CssPropertyWithConditions::simple(CssProperty::const_flex_grow(LayoutFlexGrow::const_new(0))),
+    CssPropertyWithConditions::simple(CssProperty::user_select(StyleUserSelect::None)),
+];
+
 /// Build label style properties
 fn build_button_label_style() -> Vec<CssPropertyWithConditions> {
     // Use system UI font
@@ -311,11 +330,17 @@ impl Button {
         Self {
             label,
             image: None.into(),
+            icon: AzString::from_const_str(""),
+            trailing_icon: AzString::from_const_str(""),
             button_type,
             on_click: None.into(),
             container_style: CssPropertyWithConditionsVec::from_vec(container_style),
             label_style: CssPropertyWithConditionsVec::from_vec(label_style.clone()),
             image_style: CssPropertyWithConditionsVec::from_vec(label_style),
+            icon_style: CssPropertyWithConditionsVec::from_const_slice(BUTTON_ICON_DEFAULT_STYLE),
+            trailing_icon_style: CssPropertyWithConditionsVec::from_const_slice(
+                BUTTON_ICON_DEFAULT_STYLE,
+            ),
         }
     }
     
@@ -344,6 +369,34 @@ impl Button {
     #[inline]
     pub fn set_image(&mut self, image: ImageRef) {
         self.image = Some(image).into();
+    }
+
+    /// Sets the leading icon name (empty string clears it).
+    #[inline]
+    pub fn set_icon(&mut self, icon: AzString) {
+        self.icon = icon;
+    }
+
+    /// Builder method to set the leading icon name.
+    #[inline]
+    #[must_use]
+    pub fn with_icon(mut self, icon: AzString) -> Self {
+        self.set_icon(icon);
+        self
+    }
+
+    /// Sets the trailing icon name (empty string clears it).
+    #[inline]
+    pub fn set_trailing_icon(&mut self, icon: AzString) {
+        self.trailing_icon = icon;
+    }
+
+    /// Builder method to set the trailing icon name.
+    #[inline]
+    #[must_use]
+    pub fn with_trailing_icon(mut self, icon: AzString) -> Self {
+        self.set_trailing_icon(icon);
+        self
     }
 
     #[inline]
@@ -407,10 +460,20 @@ impl Button {
         // again — without them every Button click was a silent no-op on ALL backends, and the
         // web route-walk discovered 0 callbacks. The FIX-A ordering (container style before
         // ids/classes) is kept: builder-order is semantically neutral natively.)
-        let label_dom = Dom::create_text(self.label)
-            .with_css_props(self.label_style);
-
         let mut button = Dom::create_node(NodeType::Button);
+
+        let has_icon = !self.icon.as_str().is_empty();
+        let has_image = self.image.is_some();
+        let has_trailing_icon = !self.trailing_icon.as_str().is_empty();
+
+        // Child order: leading icon, image, label, trailing icon. In a
+        // row container that reads left-to-right; a column container (large
+        // ribbon-style buttons) stacks icon over label over arrow.
+        if has_icon {
+            button = button.with_child(
+                Dom::create_icon(self.icon).with_css_props(self.icon_style),
+            );
+        }
 
         // If an image was set via `set_image`, render it as the first child
         // (left of the label, since the container is a horizontal flex row).
@@ -420,8 +483,25 @@ impl Button {
             );
         }
 
+        // An empty label on an icon-only button is skipped entirely so the
+        // (zero-size but line-height-carrying) text node cannot disturb the
+        // icon centering. A button with no icon at all keeps its empty text
+        // node — an all-empty button should still render as an empty label.
+        let skip_label =
+            self.label.as_str().is_empty() && (has_icon || has_image || has_trailing_icon);
+        if !skip_label {
+            button = button.with_child(
+                Dom::create_text(self.label).with_css_props(self.label_style),
+            );
+        }
+
+        if has_trailing_icon {
+            button = button.with_child(
+                Dom::create_icon(self.trailing_icon).with_css_props(self.trailing_icon_style),
+            );
+        }
+
         button
-            .with_child(label_dom)
             .with_css_props(self.container_style)
             .with_ids_and_classes(IdOrClassVec::from_vec(classes))
             .with_callbacks(callbacks.into())
@@ -445,7 +525,7 @@ mod autotest_generated {
     // Helpers
     // ------------------------------------------------------------------
 
-    /// Every variant of `ButtonType` — the complete input domain of `class_name`,
+    /// Every variant of `ButtonType` - the complete input domain of `class_name`,
     /// `get_button_colors`, `get_button_text_color` and `build_button_container_style`.
     const ALL_TYPES: [ButtonType; 8] = [
         ButtonType::Default,
@@ -481,7 +561,7 @@ mod autotest_generated {
         v.as_ref().iter().map(|p| p.property.clone()).collect()
     }
 
-    /// The `f32` of a `PixelValue`, asserting it is an absolute `px` length — an
+    /// The `f32` of a `PixelValue`, asserting it is an absolute `px` length - an
     /// `em`/`%` slipping into the button geometry would resolve against the parent
     /// font/box instead of the intended fixed padding or font size.
     fn px(pv: &PixelValue) -> f32 {
@@ -535,7 +615,7 @@ mod autotest_generated {
         }
     }
 
-    /// The recursive descendant count — `Dom::estimated_total_children` is a *cached*
+    /// The recursive descendant count - `Dom::estimated_total_children` is a *cached*
     /// value that, if too small, makes `convert_dom_into_compact_dom` under-allocate
     /// its arenas and panic on out-of-bounds writes.
     fn count_descendants(dom: &Dom) -> usize {

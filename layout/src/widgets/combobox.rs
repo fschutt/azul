@@ -88,7 +88,7 @@ const SYSTEM_UI_FAMILY: StyleFontFamilyVec =
 
 // ---- layout (logical px) ----
 /// Fixed vertical offset of the list below the wrapper's top edge (a
-/// simplification — see the module-level `TODO2`; the field is ~26px tall).
+/// simplification - see the module-level `TODO2`; the field is ~26px tall).
 const LIST_OFFSET_Y: isize = 28;
 /// Minimum width of the field and the list.
 const MIN_WIDTH: isize = 160;
@@ -143,6 +143,20 @@ pub struct ComboBox {
     pub combo_state: ComboBoxStateWrapper,
     /// Greyed text shown in the field when no value has been typed/selected.
     pub placeholder: AzString,
+    /// Style of the outer wrapper (the `position: relative` context).
+    pub wrapper_style: CssPropertyWithConditionsVec,
+    /// Style of the clickable, focusable, editable input field.
+    pub field_style: CssPropertyWithConditionsVec,
+    /// Style of the text inside the field.
+    pub text_style: CssPropertyWithConditionsVec,
+    /// Style of the drop-down arrow icon on the right of the field.
+    pub arrow_style: CssPropertyWithConditionsVec,
+    /// Style of each option row inside the list panel.
+    pub option_style: CssPropertyWithConditionsVec,
+    /// Extra properties appended to the options-list panel style. The
+    /// open/close `display` toggle stays widget-managed; anything here wins
+    /// over the built-in panel style (inline properties resolve last-wins).
+    pub list_style: CssPropertyWithConditionsVec,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -303,7 +317,7 @@ static COMBOBOX_INPUT_STYLE: &[CssPropertyWithConditions] = &[
     )),
 ];
 
-/// The editable text inside the field — takes the remaining horizontal space.
+/// The editable text inside the field - takes the remaining horizontal space.
 static COMBOBOX_TEXT_STYLE: &[CssPropertyWithConditions] = &[
     CssPropertyWithConditions::simple(CssProperty::const_flex_grow(LayoutFlexGrow::const_new(1))),
     CssPropertyWithConditions::simple(CssProperty::const_text_align(StyleTextAlign::Left)),
@@ -426,6 +440,12 @@ impl ComboBox {
                 on_select: None.into(),
             },
             placeholder: AzString::from_const_str(""),
+            wrapper_style: CssPropertyWithConditionsVec::from_const_slice(COMBOBOX_WRAPPER_STYLE),
+            field_style: CssPropertyWithConditionsVec::from_const_slice(COMBOBOX_INPUT_STYLE),
+            text_style: CssPropertyWithConditionsVec::from_const_slice(COMBOBOX_TEXT_STYLE),
+            arrow_style: CssPropertyWithConditionsVec::from_const_slice(COMBOBOX_ARROW_STYLE),
+            option_style: CssPropertyWithConditionsVec::from_const_slice(COMBOBOX_OPTION_STYLE),
+            list_style: CssPropertyWithConditionsVec::from_const_slice(&[]),
         }
     }
 
@@ -525,18 +545,18 @@ impl ComboBox {
 
         let text_node = Dom::create_text(field_text)
             .with_ids_and_classes(IdOrClassVec::from_const_slice(COMBOBOX_TEXT_CLASS))
-            .with_css_props(CssPropertyWithConditionsVec::from_const_slice(COMBOBOX_TEXT_STYLE));
+            .with_css_props(self.text_style);
 
         let arrow = Dom::create_icon(AzString::from_const_str("arrow_drop_down"))
             .with_ids_and_classes(IdOrClassVec::from_const_slice(COMBOBOX_ARROW_CLASS))
-            .with_css_props(CssPropertyWithConditionsVec::from_const_slice(COMBOBOX_ARROW_STYLE));
+            .with_css_props(self.arrow_style);
 
         // The focusable, editable input field. Clicking it toggles the list
         // (Hover::MouseUp) and focuses it; typing edits the text node
         // (Focus::TextInput / VirtualKeyDown), mirroring text_input.
         let field = Dom::create_div()
             .with_ids_and_classes(IdOrClassVec::from_const_slice(COMBOBOX_INPUT_CLASS))
-            .with_css_props(CssPropertyWithConditionsVec::from_const_slice(COMBOBOX_INPUT_STYLE))
+            .with_css_props(self.field_style)
             .with_tab_index(TabIndex::Auto)
             .with_callbacks(
                 alloc::vec![
@@ -576,9 +596,7 @@ impl ComboBox {
             option_doms.push(
                 Dom::create_text(option.clone())
                     .with_ids_and_classes(IdOrClassVec::from_const_slice(COMBOBOX_OPTION_CLASS))
-                    .with_css_props(CssPropertyWithConditionsVec::from_const_slice(
-                        COMBOBOX_OPTION_STYLE,
-                    ))
+                    .with_css_props(self.option_style.clone())
                     .with_tab_index(TabIndex::Auto)
                     .with_callbacks(
                         alloc::vec![CoreCallbackData {
@@ -594,14 +612,24 @@ impl ComboBox {
             );
         }
 
+        // Widget-managed panel style (open/close display toggle) + caller
+        // extras appended last so they win (inline resolution is last-wins).
+        let list_style = if self.list_style.is_empty() {
+            build_list_style(open)
+        } else {
+            let mut merged = build_list_style(open).into_library_owned_vec();
+            merged.extend(self.list_style.as_ref().iter().cloned());
+            CssPropertyWithConditionsVec::from_vec(merged)
+        };
+
         let list = Dom::create_div()
             .with_ids_and_classes(IdOrClassVec::from_const_slice(COMBOBOX_LIST_CLASS))
-            .with_css_props(build_list_style(open))
+            .with_css_props(list_style)
             .with_children(DomVec::from_vec(option_doms));
 
         Dom::create_div()
             .with_ids_and_classes(IdOrClassVec::from_const_slice(COMBOBOX_WRAPPER_CLASS))
-            .with_css_props(CssPropertyWithConditionsVec::from_const_slice(COMBOBOX_WRAPPER_STYLE))
+            .with_css_props(self.wrapper_style)
             // children: [field, list] — the list is the field's next sibling.
             .with_children(DomVec::from_vec(alloc::vec![field, list]))
     }
@@ -641,7 +669,7 @@ extern "C" fn on_combobox_toggle(mut data: RefAny, mut info: CallbackInfo) -> Up
     Update::DoNothing
 }
 
-/// Field text-input handler — appends the typed character(s) to the editable
+/// Field text-input handler - appends the typed character(s) to the editable
 /// field text (mirroring `text_input`). Does NOT re-filter the list (see the
 /// module-level type-to-filter `TODO2`).
 extern "C" fn on_combobox_text_input(data: RefAny, info: CallbackInfo) -> Update {
@@ -670,7 +698,7 @@ fn on_combobox_text_input_inner(mut data: RefAny, mut info: CallbackInfo) -> Opt
     Some(Update::DoNothing)
 }
 
-/// Field key-down handler — implements backspace deletion (mirroring `text_input`).
+/// Field key-down handler - implements backspace deletion (mirroring `text_input`).
 extern "C" fn on_combobox_key_down(data: RefAny, info: CallbackInfo) -> Update {
     on_combobox_key_down_inner(data, info).unwrap_or(Update::DoNothing)
 }

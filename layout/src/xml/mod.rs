@@ -2092,6 +2092,100 @@ mod autotest_generated {
     // ------------------------------------------------------------------
 
     #[test]
+    fn icon_tag_yields_unnamed_icon_nodes_with_spec_text_children() {
+        use azul_core::dom::NodeType;
+
+        // The tokenizer stays fully generic: `<icon>spec</icon>` is an
+        // un-named Icon node with its spec preserved as a text child.
+        // The RESOLVER consumes the spec (see the resolution test below).
+        let fast = parse_xml_to_fast_dom(
+            "<html><body><icon> content_copy </icon><p>x</p></body></html>",
+        )
+        .expect("icon markup must parse");
+
+        let icon_names: Vec<&str> = nodes(&fast)
+            .iter()
+            .filter_map(|nd| match nd.get_node_type() {
+                NodeType::Icon(name) => Some(name.as_ref().as_str()),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(icon_names, vec![""], "the builder must not interpret the spec");
+
+        let spec_preserved = nodes(&fast).iter().any(|nd| {
+            matches!(nd.get_node_type(), NodeType::Text(t) if t.as_ref().as_str().trim() == "content_copy")
+        });
+        assert!(spec_preserved, "the spec text child must be preserved for the resolver");
+    }
+
+    #[test]
+    fn icon_resolution_consumes_the_spec_text_like_a_ligature_font() {
+        use azul_core::{
+            dom::NodeType,
+            icon::{resolve_icons_in_styled_dom, IconProviderHandle, SharedIconProvider},
+            refany::{OptionRefAny, RefAny},
+            styled_dom::StyledDom,
+        };
+        use azul_css::system::SystemStyle;
+
+        // Marker resolver: registered icons become a Text("RESOLVED") node,
+        // unregistered ones become Text("MISSING") — enough to observe both
+        // the spec-derived LOOKUP and the replacement without a real font.
+        extern "C" fn marker_resolver(
+            data: OptionRefAny,
+            original: &StyledDom,
+            _: &SystemStyle,
+        ) -> StyledDom {
+            let mut replacement = original.clone();
+            let marker = if data.is_some() { "RESOLVED" } else { "MISSING" };
+            if let Some(node) = replacement.node_data.as_mut().get_mut(0) {
+                node.set_node_type(NodeType::Text(azul_css::css::BoxOrStatic::heap(
+                    marker.into(),
+                )));
+            }
+            replacement
+        }
+
+        let mut provider = IconProviderHandle::with_resolver(marker_resolver);
+        provider.register_icon("testpack", "content_copy", RefAny::new(1u8));
+        let provider = SharedIconProvider::from_handle(provider);
+
+        // Both the bare-name spec and the pack-qualified fallback-list spec
+        // (`missing:x` first — must fall through to `testpack:content_copy`).
+        let mut styled = parse_xml_to_styled_dom(
+            "<html><body>\
+             <icon> content_copy </icon>\
+             <icon>missing:x, testpack:CONTENT_COPY</icon>\
+             <icon>unknown_icon</icon>\
+             </body></html>",
+        )
+        .expect("icon markup must cascade");
+
+        resolve_icons_in_styled_dom(&mut styled, &provider, &SystemStyle::default());
+
+        let texts: Vec<String> = styled
+            .node_data
+            .as_ref()
+            .iter()
+            .filter_map(|nd| match nd.get_node_type() {
+                NodeType::Text(t) => Some(t.as_ref().as_str().to_string()),
+                _ => None,
+            })
+            .collect();
+
+        let resolved = texts.iter().filter(|t| t.as_str() == "RESOLVED").count();
+        let missing = texts.iter().filter(|t| t.as_str() == "MISSING").count();
+        assert_eq!(resolved, 2, "bare + pack-qualified specs must both resolve: {texts:?}");
+        assert_eq!(missing, 1, "the unknown spec resolves to no data: {texts:?}");
+
+        // The spec text was consumed — it must not survive as renderable text.
+        assert!(
+            !texts.iter().any(|t| t.contains("content_copy") || t.contains("unknown_icon")),
+            "spec text children must be cleared after resolution: {texts:?}"
+        );
+    }
+
+    #[test]
     fn parse_xml_to_styled_dom_accepts_empty_and_whitespace_only_input() {
         for s in ["", "   ", "\t\n", "\u{FEFF}"] {
             let styled = parse_xml_to_styled_dom(s)

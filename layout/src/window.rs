@@ -3025,18 +3025,39 @@ impl LayoutWindow {
         let _restyle_result = layout_result
             .styled_dom
             .restyle_user_property(&node_id, &props);
-        if !override_only {
-            // The full-write path rebuilds the DL inline (its historical
-            // contract). The override channel deliberately does NOT —
-            // it is the per-frame animation path, and the returned tier
-            // already schedules the rebuild once per frame.
-            self.regenerate_display_list_for_dom(dom_id);
-        }
-
         // Paint-only properties must not charge a layout pass
         // (a per-frame animated colour would re-layout the world).
         let props_vec: azul_css::props::property::CssPropertyVec = props.into();
-        if crate::callbacks::css_properties_need_relayout(&props_vec) {
+        let needs_relayout = crate::callbacks::css_properties_need_relayout(&props_vec);
+
+        if !override_only {
+            if needs_relayout && dom_id == DomId::ROOT_ID {
+                // A geometry property (display, width, margin, ...) invalidates
+                // the stored layout: regenerating only the display list would
+                // paint from STALE rects, so a node toggled from
+                // `display: none` to `display: flex` would keep its zero-size
+                // box and stay invisible — the show/hide mechanism every
+                // widget uses (combobox list, popover, ribbon gallery panel).
+                //
+                // Relayout here rather than relying on the caller acting on
+                // the returned tier: this is the single content chokepoint,
+                // and it must leave `layout_results` consistent with the CSS
+                // it just wrote for EVERY consumer (host shells, the E2E
+                // runner, tests). Hosts that also relayout on the tier are
+                // idempotent. Child DOMs (iframe / VirtualView) keep the
+                // display-list-only path — re-running the root layout would
+                // discard them.
+                self.relayout_root_dom_in_place();
+            } else {
+                // The full-write path rebuilds the DL inline (its historical
+                // contract). The override channel deliberately does NOT —
+                // it is the per-frame animation path, and the returned tier
+                // already schedules the rebuild once per frame.
+                self.regenerate_display_list_for_dom(dom_id);
+            }
+        }
+
+        if needs_relayout {
             ContentChangeResult {
                 tier: ContentDirtyTier::Relayout,
             }
@@ -3044,6 +3065,37 @@ impl LayoutWindow {
             ContentChangeResult {
                 tier: ContentDirtyTier::RebuildDisplayList,
             }
+        }
+    }
+
+    /// Re-runs layout for the root DOM over its EXISTING `StyledDom` (no
+    /// layout-callback re-invocation, so runtime CSS patches survive) and
+    /// rebuilds its display list. Used by the content chokepoint when a
+    /// patched property changes geometry.
+    fn relayout_root_dom_in_place(&mut self) {
+        let Some(previous) = self.layout_results.remove(&DomId::ROOT_ID) else {
+            return;
+        };
+        let window_state = self.current_window_state.clone();
+        let system_callbacks = crate::callbacks::ExternalSystemCallbacks::rust_internal();
+        let mut debug_messages = None;
+        // `layout_and_generate_display_list` takes `&mut self` and a
+        // `&RendererResources`, so the field is moved out for the call and
+        // put back afterwards (no clone: RendererResources owns font/image
+        // GPU state and is deliberately move-only).
+        let renderer_resources = core::mem::take(&mut self.renderer_resources);
+        let result = self.layout_and_generate_display_list(
+            previous.styled_dom,
+            &window_state,
+            &renderer_resources,
+            &system_callbacks,
+            &mut debug_messages,
+        );
+        self.renderer_resources = renderer_resources;
+        if let Err(e) = result {
+            #[cfg(feature = "std")]
+            eprintln!("[azul][layout] relayout after a runtime CSS change failed: {e:?}");
+            let _ = e;
         }
     }
 
