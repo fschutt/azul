@@ -388,6 +388,11 @@ const OP_POLICY: &[(&str, Option<DenyReason>)] = &[
     ("click_node",                None),
     ("double_click",              None),
     ("scroll",                    None),
+    // Content-chokepoint image ops (overlay refactor O1): mutate through
+    // LayoutWindow::apply_content_change exactly like a callback would.
+    ("set_node_image",            None),
+    ("add_image_to_cache",        None),
+    ("remove_image_from_cache",   None),
     ("key_down",                  None),
     ("key_up",                    None),
     ("text_input",                None),

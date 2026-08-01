@@ -3307,7 +3307,8 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
         with:
           toolchain: 1.88.0
-          targets: aarch64-linux-android
+          # x86_64: the emulator-variant self-test APK (post-release watchdog).
+          targets: aarch64-linux-android, x86_64-linux-android
       - uses: actions/setup-java@v5
         with:
           distribution: temurin
