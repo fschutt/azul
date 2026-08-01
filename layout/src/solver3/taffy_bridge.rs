@@ -1673,22 +1673,24 @@ impl<T: ParsedFontTrait> TaffyBridge<'_, '_, T> {
         // instead of the parent's available_space — otherwise text centers/wraps in
         // the wrong width (e.g., 404px parent instead of 120px child).
         //
-        // EPSILON GUARD: a flex/grid child that is NOT stretched (align-items:
-        // center/start) gets a definite width equal to its OWN max-content
-        // measurement. Re-wrapping the text at that exact width is the same
-        // single-line layout by definition — but f32 noise and px rounding
-        // between the MaxContent measure pass and this Definite pass can make
-        // `available` a hair smaller than the measured line, and the breaker
-        // then drops the last glyph onto a clipped second line ("Past|e",
-        // "Format|Painter" in the ribbon). If the definite width is within
-        // 1px of the node's own max-content, lay out as MaxContent.
+        // When the container is at least as wide as the node's OWN max-content
+        // width, the content fits on one line BY DEFINITION, so laying it out
+        // in max-content mode is the correct result and a re-break cannot be.
+        // Taking that path also side-steps a sub-pixel disagreement between
+        // the intrinsic-measurement pass (`IntrinsicTextSizes::max_content_width`,
+        // a sum of shaped advances) and the line breaker, which otherwise drops
+        // the last word of a label whose container was sized FROM that very
+        // measurement ("Format Painter" rendered as "Format"). The epsilon is
+        // float-equality slack, not a layout tolerance: a container that is
+        // genuinely narrower still wraps.
+        const MAX_CONTENT_FIT_EPS: f32 = 0.5;
         let available_width_type = if inputs.known_dimensions.width.is_some() {
             let own_max_content = self
                 .tree
                 .warm(node_idx)
                 .and_then(|w| w.intrinsic_sizes)
                 .map_or(0.0, |i| i.max_content_width);
-            if own_max_content > 0.0 && (available_width - own_max_content).abs() <= 1.0 {
+            if own_max_content > 0.0 && available_width >= own_max_content - MAX_CONTENT_FIT_EPS {
                 crate::text3::cache::AvailableSpace::MaxContent
             } else {
                 crate::text3::cache::AvailableSpace::Definite(available_width)
