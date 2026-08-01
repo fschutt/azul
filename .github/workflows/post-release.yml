@@ -377,8 +377,11 @@ jobs:
           api-level: 30
           arch: x86_64
           disable-animations: true
+          # NOTE: the action runs this under /usr/bin/sh (dash) — `set -o
+          # pipefail` is a bashism dash rejects with exit 2 before running
+          # anything (the emulator had ALREADY booted when this bit).
           script: |
-            set -euo pipefail
+            set -eu
             adb install -r /tmp/azul.apk
             ACT=$(grep -oE "launchable-activity: name='[^']+'" /tmp/badging.txt | head -1 | sed "s/.*name='//;s/'//")
             PKG=$(grep -oE "package: name='[^']+'" /tmp/badging.txt | head -1 | sed "s/.*name='//;s/'//")
