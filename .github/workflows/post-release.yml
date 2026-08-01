@@ -361,6 +361,16 @@ jobs:
             || { echo "::error::published APK has no classes.dex — its launcher activity is a Java class, so it cannot start"; exit 1; }
           "$BT/aapt2" dump badging /tmp/azul.apk | tee /tmp/badging.txt | grep -q launchable-activity \
             || { echo "::error::published APK declares no launchable activity"; exit 1; }
+      # Without KVM the x86_64 emulator cannot boot on GitHub's runners —
+      # observed as ~30 consecutive `adb` exit-1 retries until the action
+      # gives up. This udev rule is the emulator-runner action's own
+      # documented prerequisite for hardware acceleration.
+      - name: Enable KVM group perms
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' \
+            | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
       - name: Install on an emulator and start the launcher activity
         uses: reactivecircus/android-emulator-runner@v2
         with:
