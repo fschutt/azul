@@ -629,7 +629,12 @@ mod autotest_generated {
             let tag = tag_of(&styled_dom, node);
             display_list.items.push(DisplayListItem::HitTestArea {
                 bounds: WindowLogicalRect::new(rect.origin, rect.size),
-                tag: (tag, 0),
+                // The tag TYPE matters: `get_node_hit_test_bounds` looks for a
+                // DOM-node area specifically, because `tag.0` is also used by
+                // text-run cursor areas with a colliding numbering scheme. A
+                // forged area must therefore carry the same type the display
+                // list builder stamps.
+                tag: (tag, azul_core::hit_test::TAG_TYPE_DOM_NODE),
             });
         }
 
