@@ -1419,4 +1419,168 @@ mod structural_roundtrip {
             "the merge PREVIEW must be VISIBLE before the app applies"
         );
     }
+
+    /// Mixed inline/block content: the split node's inline runs live inside
+    /// ANONYMOUS wrappers, so layout children are not 1:1 with DOM children.
+    /// A child-boundary split must route wrappers by their wrapped runs'
+    /// ordinals — wholesale when a wrapper sits on one side of the cut.
+    #[test]
+    fn element_split_routes_anonymous_wrappers_wholesale() {
+        use azul_layout::managers::changeset::{
+            DocOpSplitNode, DocumentChangeset, EditResumePoint,
+        };
+
+        // editor > div[ text, p, text ] — mixed content.
+        let mut model = Dom::create_div()
+            .with_ids_and_classes(cls("editor").into())
+            .with_contenteditable(true)
+            .with_tab_index(TabIndex::Auto);
+        // The host carries padding so the split is VISIBLE: two padded boxes
+        // occupy more height than one (an unstyled div splitting into two
+        // stacked unstyled divs is pixel-identical — the tree asserts below
+        // would still hold, but the render check would be vacuous).
+        let mut host = Dom::create_div().with_ids_and_classes(cls("host").into());
+        host.add_child(Dom::create_text("aaaa aaaa"));
+        let mut para = Dom::create_p();
+        para.add_child(Dom::create_text("bbbb bbbb"));
+        host.add_child(para);
+        host.add_child(Dom::create_text("cccc cccc"));
+        model.add_child(host);
+
+        let mut h = ContentEditableHarness::new(400.0, 300.0);
+        let css_padded = format!("{CSS} .host {{ padding: 8px; }}");
+        h.layout_dom(render_dom(&model), &css_padded);
+        let before = h.render();
+
+        let dom_id = DomId { inner: 0 };
+        // body=0, editor=1, host div=2.
+        let host_node = NodeId::new(2);
+        let target = DomNodeId {
+            dom: dom_id,
+            node: NodeHierarchyItemId::from_crate_internal(Some(host_node)),
+        };
+
+        // Split before DOM child 1 (the <p>): text stays, p + trailing text move.
+        let changeset = DocumentChangeset::new(
+            target,
+            DocumentOperation::SplitNode(DocOpSplitNode {
+                node: target,
+                at: NodePosition::before_child(1),
+            }),
+            EditResumePoint {
+                anchor_key: 0,
+                node_path: vec![1u32].into(),
+                position: NodePosition::before_child(0),
+            },
+            azul_core::task::Instant::now(),
+        );
+        {
+            let lw = h.layout_window.as_mut().unwrap();
+            lw.record_document_edit(changeset);
+        }
+
+        h.layout_dom(render_dom(&model), &css_padded);
+        {
+            let lw = h.layout_window.as_ref().unwrap();
+            let lr = lw.layout_results.get(&dom_id).unwrap();
+            let indices = lr.layout_tree.dom_to_layout.get(&host_node).unwrap();
+            assert_eq!(indices.len(), 2, "two layout slots (part 1 + preview part)");
+            let (p1, p2) = (indices[0], indices[1]);
+            // Ordinal conservation: everything renders exactly once.
+            let (n1, n2) = (
+                lr.layout_tree.children(p1).len(),
+                lr.layout_tree.children(p2).len(),
+            );
+            assert_eq!(
+                n1, 1,
+                "part 1 holds ONE child (the wrapper around the leading text run)"
+            );
+            assert_eq!(
+                n2, 2,
+                "part 2 holds TWO children (the p + the wrapper around the trailing run)"
+            );
+        }
+        let preview = h.render();
+        assert!(
+            pixel_diff_count(&before, &preview, 2) > 0,
+            "the mixed-content split preview must be VISIBLE"
+        );
+    }
+
+    /// Two ADJACENT inline runs share one anonymous wrapper; a split BETWEEN
+    /// them lands inside that wrapper — the wrapper itself must split, its
+    /// second half re-wrapping inside the preview part.
+    #[test]
+    fn element_split_splits_a_straddling_anonymous_wrapper() {
+        use azul_layout::managers::changeset::{
+            DocOpSplitNode, DocumentChangeset, EditResumePoint,
+        };
+
+        // editor > div[ text, text, p ] — the two texts share one wrapper.
+        let mut model = Dom::create_div()
+            .with_ids_and_classes(cls("editor").into())
+            .with_contenteditable(true)
+            .with_tab_index(TabIndex::Auto);
+        let mut host = Dom::create_div();
+        host.add_child(Dom::create_text("aaaa aaaa"));
+        host.add_child(Dom::create_text("bbbb bbbb"));
+        let mut para = Dom::create_p();
+        para.add_child(Dom::create_text("cccc cccc"));
+        host.add_child(para);
+        model.add_child(host);
+
+        let mut h = ContentEditableHarness::new(400.0, 300.0);
+        h.layout_dom(render_dom(&model), CSS);
+        let before = h.render();
+
+        let dom_id = DomId { inner: 0 };
+        let host_node = NodeId::new(2);
+        let target = DomNodeId {
+            dom: dom_id,
+            node: NodeHierarchyItemId::from_crate_internal(Some(host_node)),
+        };
+
+        // Split between the two text runs (before DOM child 1).
+        let changeset = DocumentChangeset::new(
+            target,
+            DocumentOperation::SplitNode(DocOpSplitNode {
+                node: target,
+                at: NodePosition::before_child(1),
+            }),
+            EditResumePoint {
+                anchor_key: 0,
+                node_path: vec![1u32].into(),
+                position: NodePosition::before_child(0),
+            },
+            azul_core::task::Instant::now(),
+        );
+        {
+            let lw = h.layout_window.as_mut().unwrap();
+            lw.record_document_edit(changeset);
+        }
+
+        h.layout_dom(render_dom(&model), CSS);
+        {
+            let lw = h.layout_window.as_ref().unwrap();
+            let lr = lw.layout_results.get(&dom_id).unwrap();
+            let indices = lr.layout_tree.dom_to_layout.get(&host_node).unwrap();
+            assert_eq!(indices.len(), 2, "two layout slots (part 1 + preview part)");
+            let (p1, p2) = (indices[0], indices[1]);
+            assert_eq!(
+                lr.layout_tree.children(p1).len(),
+                1,
+                "part 1: the first half of the split wrapper"
+            );
+            assert_eq!(
+                lr.layout_tree.children(p2).len(),
+                2,
+                "part 2: the wrapper's second half + the p"
+            );
+        }
+        let preview = h.render();
+        assert!(
+            pixel_diff_count(&before, &preview, 2) > 0,
+            "the straddling-wrapper split preview must be VISIBLE"
+        );
+    }
 }

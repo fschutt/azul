@@ -2205,9 +2205,13 @@ impl LayoutTreeBuilder {
     /// model: rendering knows, callbacks stay blind). Subtrees move
     /// wholesale; nothing is byte-sliced.
     ///
-    /// Gate: every layout child must map to a real DOM child of `dom_node`.
-    /// Anonymous wrappers (mixed inline/block content) would need routing
-    /// through their wrapped runs — the staged follow-up, skipped here.
+    /// Anonymous wrappers (mixed inline/block content puts inline runs inside
+    /// anonymous blocks, so layout children are NOT 1:1 with DOM children)
+    /// route through their wrapped runs' ordinals: a wrapper wholly on one
+    /// side moves wholesale; a wrapper STRADDLING the split point splits
+    /// itself — its second half becomes a fresh anonymous wrapper inside the
+    /// preview part, mirroring how the builder would have wrapped the
+    /// post-apply trees.
     fn apply_element_split_preview(
         &mut self,
         idx: usize,
@@ -2216,22 +2220,35 @@ impl LayoutTreeBuilder {
         ordinal_of: &BTreeMap<NodeId, u32>,
     ) {
         let children = self.nodes[idx].children.clone();
-        let all_mapped = children.iter().all(|&c| {
-            self.nodes
-                .get(c)
-                .and_then(|n| n.dom_node_id)
-                .is_some_and(|d| ordinal_of.contains_key(&d))
-        });
-        if !all_mapped {
-            return;
+        let mut keep: Vec<usize> = Vec::new();
+        let mut moved: Vec<usize> = Vec::new();
+        for c in children {
+            if let Some(d) = self.nodes[c].dom_node_id {
+                // A layout child mapping to something that is NOT a direct
+                // DOM child (unexpected) degrades to "stays" — part 1 keeps
+                // rendering it rather than dropping content from a preview.
+                match ordinal_of.get(&d) {
+                    Some(&o) if o >= split_index => moved.push(c),
+                    _ => keep.push(c),
+                }
+                continue;
+            }
+            // Anonymous wrapper: side = the ordinal span of its wrapped runs.
+            match self.wrapper_ordinal_span(c, ordinal_of) {
+                Some((_, hi)) if hi < split_index => keep.push(c),
+                Some((lo, _)) if lo >= split_index => moved.push(c),
+                Some(_) => {
+                    // Straddling: the wrapper itself splits at the boundary.
+                    keep.push(c);
+                    if let Some(second) = self.split_anonymous_wrapper(c, split_index, ordinal_of)
+                    {
+                        moved.push(second);
+                    }
+                }
+                // Empty / opaque wrapper (no mapped runs): keep in part 1.
+                None => keep.push(c),
+            }
         }
-
-        let (keep, moved): (Vec<usize>, Vec<usize>) = children.into_iter().partition(|&c| {
-            self.nodes[c]
-                .dom_node_id
-                .and_then(|d| ordinal_of.get(&d).copied())
-                .is_none_or(|o| o < split_index)
-        });
         if moved.is_empty() {
             return; // split at/after the end: nothing to preview
         }
@@ -2266,10 +2283,81 @@ impl LayoutTreeBuilder {
         self.dom_to_layout.entry(dom_node).or_default().push(part2_idx);
     }
 
+    /// The min/max DOM ordinal among an anonymous wrapper's DIRECT layout
+    /// children that map to real DOM children of the node being edited.
+    /// `None` = the wrapper wraps nothing addressable (empty, or generated
+    /// content only).
+    fn wrapper_ordinal_span(
+        &self,
+        wrapper: usize,
+        ordinal_of: &BTreeMap<NodeId, u32>,
+    ) -> Option<(u32, u32)> {
+        let mut span: Option<(u32, u32)> = None;
+        for &c in &self.nodes[wrapper].children {
+            let Some(o) = self.nodes[c]
+                .dom_node_id
+                .and_then(|d| ordinal_of.get(&d).copied())
+            else {
+                continue;
+            };
+            span = Some(match span {
+                None => (o, o),
+                Some((lo, hi)) => (lo.min(o), hi.max(o)),
+            });
+        }
+        span
+    }
+
+    /// Split a straddling anonymous wrapper at `split_index`: runs with
+    /// ordinal `>= split_index` move into a NEW wrapper of the same shape
+    /// (returned; the caller seats it in the preview part). Runs that map to
+    /// nothing stay in the first half. Returns `None` when nothing moves.
+    fn split_anonymous_wrapper(
+        &mut self,
+        wrapper: usize,
+        split_index: u32,
+        ordinal_of: &BTreeMap<NodeId, u32>,
+    ) -> Option<usize> {
+        let children = core::mem::take(&mut self.nodes[wrapper].children);
+        let (keep, moved): (Vec<usize>, Vec<usize>) = children.into_iter().partition(|&c| {
+            self.nodes[c]
+                .dom_node_id
+                .and_then(|d| ordinal_of.get(&d).copied())
+                .is_none_or(|o| o < split_index)
+        });
+        self.nodes[wrapper].children = keep;
+        self.nodes[wrapper].inline_layout_result = None;
+        self.nodes[wrapper].taffy_cache = TaffyCache::new();
+        self.nodes[wrapper].dirty_flag = DirtyFlag::Layout;
+        if moved.is_empty() {
+            return None;
+        }
+
+        let second_idx = self.nodes.len();
+        let mut second = self.nodes[wrapper].clone();
+        second.children = moved;
+        second.inline_layout_result = None;
+        second.taffy_cache = TaffyCache::new();
+        second.dirty_flag = DirtyFlag::Layout;
+        self.nodes.push(second);
+        let moved_children = self.nodes[second_idx].children.clone();
+        for m in moved_children {
+            self.nodes[m].parent = Some(second_idx);
+            self.nodes[m].dirty_flag = DirtyFlag::Layout;
+        }
+        // The caller re-parents `second_idx` into the preview part; anonymous
+        // wrappers have no dom_node_id, so dom_to_layout needs no entry.
+        Some(second_idx)
+    }
+
     /// Remove/Replace preview: detach the layout children of `parent_dom`
     /// whose DOM ordinal falls in `[start, end)`. Detached subtrees stay in
     /// the node arena but are unreachable from the root — never positioned,
     /// never painted (the same fate as any orphaned builder node).
+    ///
+    /// Anonymous wrappers route through their wrapped runs: wholly inside the
+    /// range → the wrapper detaches; straddling → only the wrapper's in-range
+    /// runs detach (the wrapper stays for the survivors).
     fn apply_range_suppression_preview(
         &mut self,
         parent_dom: NodeId,
@@ -2281,26 +2369,54 @@ impl LayoutTreeBuilder {
             return;
         };
         if indices.len() != 1 {
-            return; // exotic mapping (already part-split); staged
+            return; // exotic mapping (already part-split); one preview at a time
         }
         let idx = indices[0];
-        let before = self.nodes[idx].children.len();
-        let nodes = &self.nodes;
-        let kept: Vec<usize> = self.nodes[idx]
-            .children
-            .iter()
-            .copied()
-            .filter(|&c| {
-                nodes[c]
-                    .dom_node_id
-                    .and_then(|d| ordinal_of.get(&d).copied())
-                    // Anonymous / unmapped children are kept: suppressing a
-                    // wrapper whose contents straddle the range would drop
-                    // too much. (Mixed content = staged follow-up.)
-                    .is_none_or(|o| o < start || o >= end)
-            })
-            .collect();
-        if kept.len() != before {
+        let children = self.nodes[idx].children.clone();
+        let mut kept: Vec<usize> = Vec::new();
+        let mut changed = false;
+        for c in children {
+            if let Some(d) = self.nodes[c].dom_node_id {
+                let in_range = ordinal_of
+                    .get(&d)
+                    .is_some_and(|&o| o >= start && o < end);
+                if in_range {
+                    changed = true;
+                } else {
+                    kept.push(c);
+                }
+                continue;
+            }
+            match self.wrapper_ordinal_span(c, ordinal_of) {
+                Some((lo, hi)) if lo >= start && hi < end => changed = true, // wholly removed
+                Some((lo, hi)) if hi >= start && lo < end => {
+                    // Straddling: filter the wrapper's own runs in place.
+                    let before = self.nodes[c].children.len();
+                    let nodes = &self.nodes;
+                    let survivors: Vec<usize> = self.nodes[c]
+                        .children
+                        .iter()
+                        .copied()
+                        .filter(|&r| {
+                            nodes[r]
+                                .dom_node_id
+                                .and_then(|d| ordinal_of.get(&d).copied())
+                                .is_none_or(|o| o < start || o >= end)
+                        })
+                        .collect();
+                    if survivors.len() != before {
+                        self.nodes[c].children = survivors;
+                        self.nodes[c].inline_layout_result = None;
+                        self.nodes[c].taffy_cache = TaffyCache::new();
+                        self.nodes[c].dirty_flag = DirtyFlag::Layout;
+                        changed = true;
+                    }
+                    kept.push(c);
+                }
+                _ => kept.push(c), // wholly outside, or opaque: keep
+            }
+        }
+        if changed {
             self.nodes[idx].children = kept;
             self.nodes[idx].inline_layout_result = None;
             self.nodes[idx].dirty_flag = DirtyFlag::Layout;
