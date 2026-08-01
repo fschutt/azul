@@ -2286,7 +2286,13 @@ jobs:
 
           # Manifest for the NEXT run's reuse decision. Written even when every
           # demo was reused, so the fingerprints stay current.
-          python3 -c 'import json,sys; out=sys.argv[1]; e=dict(l.strip().split("=",1) for l in open("/tmp/demo-manifest-lines") if "=" in l); json.dump(e, open(out,"w"), indent=2, sort_keys=True); print("wrote", out, len(e), "fingerprints")' "demos-staging/demo-build-manifest-${{ matrix.os_suffix }}.json"
+          # cygpath: on windows-2022 this step runs in Git-bash but python3 is
+          # WINDOWS python — it cannot resolve Git-bash's /tmp. This line had
+          # never executed there (every prior run failed earlier), so the
+          # mismatch only surfaced once the demos finally all built.
+          manifest_lines="/tmp/demo-manifest-lines"
+          command -v cygpath >/dev/null 2>&1 && manifest_lines="$(cygpath -m "$manifest_lines")"
+          python3 -c 'import json,sys; out=sys.argv[1]; e=dict(l.strip().split("=",1) for l in open(sys.argv[2]) if "=" in l); json.dump(e, open(out,"w"), indent=2, sort_keys=True); print("wrote", out, len(e), "fingerprints")' "demos-staging/demo-build-manifest-${{ matrix.os_suffix }}.json" "$manifest_lines"
 
       - name: Upload demo binaries
         uses: actions/upload-artifact@v7
