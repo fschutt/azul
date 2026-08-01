@@ -377,23 +377,8 @@ jobs:
           api-level: 30
           arch: x86_64
           disable-animations: true
-          # NOTE: the action runs this under /usr/bin/sh (dash) — `set -o
-          # pipefail` is a bashism dash rejects with exit 2 before running
-          # anything (the emulator had ALREADY booted when this bit).
-          script: |
-            set -eu
-            adb install -r /tmp/azul.apk
-            ACT=$(grep -oE "launchable-activity: name='[^']+'" /tmp/badging.txt | head -1 | sed "s/.*name='//;s/'//")
-            PKG=$(grep -oE "package: name='[^']+'" /tmp/badging.txt | head -1 | sed "s/.*name='//;s/'//")
-            echo "launching $PKG/$ACT"
-            adb logcat -c
-            adb shell am start -W -n "$PKG/$ACT"
-            sleep 8
-            # A crash on launch is the failure this whole job exists to catch.
-            if adb logcat -d | grep -E "FATAL EXCEPTION|ClassNotFoundException|E AndroidRuntime"; then
-              echo "::error::the published APK crashed on launch"
-              exit 1
-            fi
-            adb shell pidof "$PKG" >/dev/null \
-              || { echo "::error::$PKG is not running 8s after launch"; exit 1; }
-            echo "APK installed, launched via its LAUNCHER activity, and still alive"
+          # ONE line: the action executes every `script:` line as a separate
+          # `/usr/bin/sh -c`, so multi-line scripts lose their variables
+          # between lines (PKG/ACT came out empty → `am start -n "/"`).
+          # The real flow lives in scripts/verify_apk_launch.sh (bash).
+          script: bash "$GITHUB_WORKSPACE/scripts/verify_apk_launch.sh"
