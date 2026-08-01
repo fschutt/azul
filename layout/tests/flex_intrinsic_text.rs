@@ -864,3 +864,332 @@ fn overflow_hidden_clips_hit_testing_not_just_painting() {
         "the visible side panel must be hit at {p:?}, got {hits:?}"
     );
 }
+
+/// Hit-test clipping must use the INNERMOST clip, not just the outermost.
+///
+/// The ribbon gallery nests two scroll containers: an `overflow: hidden`
+/// frame holding an `overflow: hidden` cell strip plus a spinner column
+/// beside it. If the overflowing cells are only clipped by the outer frame,
+/// their hit rects spill across the strip's edge and cover the spinner —
+/// which is exactly why clicking the gallery's "More" button dispatched to
+/// a gallery cell in the live app.
+#[test]
+fn nested_overflow_containers_clip_hit_testing_at_the_inner_edge() {
+    use azul_layout::headless::CpuHitTester;
+
+    const PROBE_CSS: &str = r#"
+        body { display: flex; flex-direction: row; }
+        .frame { display: flex; flex-direction: row; overflow: hidden;
+                 width: 300px; height: 60px; flex-grow: 0; flex-shrink: 0; }
+        .strip { display: flex; flex-direction: row; overflow: hidden;
+                 height: 60px; flex-grow: 1; }
+        .cell { width: 120px; height: 60px; flex-grow: 0; flex-shrink: 0; background: #ccc; }
+        .spinner { width: 100px; height: 60px; flex-grow: 0; flex-shrink: 0; background: #77c; }
+    "#;
+
+    let mut strip = Dom::create_div().with_ids_and_classes(class("strip"));
+    for _ in 0..6 {
+        strip = strip.with_child(Dom::create_div().with_ids_and_classes(class("cell")));
+    }
+    // frame > [strip, spinner] — the spinner sits INSIDE the outer clip but
+    // OUTSIDE the inner one.
+    let frame = Dom::create_div()
+        .with_ids_and_classes(class("frame"))
+        .with_child(strip)
+        .with_child(Dom::create_div().with_ids_and_classes(class("spinner")));
+    let dom = Dom::create_body().with_child(frame);
+
+    let lw = layout_dom(dom, PROBE_CSS, 600.0, 200.0);
+    // 0 body, 1 frame, 2 strip, 3..=8 cells, 9 spinner
+    let strip_rect = lw.get_node_layout_rect(node_id(2)).expect("strip rect");
+    let spinner = lw.get_node_layout_rect(node_id(9)).expect("spinner rect");
+    println!("strip = {strip_rect:?}\nspinner = {spinner:?}");
+
+    let mut tester = CpuHitTester::new();
+    tester.rebuild_from_layout(&lw.layout_results);
+
+    let p = azul_core::geom::LogicalPosition::new(
+        spinner.origin.x + spinner.size.width / 2.0,
+        spinner.origin.y + spinner.size.height / 2.0,
+    );
+    let hits = tester.hit_test(p);
+    println!("hits at {p:?}: {hits:?}");
+
+    let cell_hits: Vec<usize> = hits
+        .iter()
+        .map(|(_, n)| n.index())
+        .filter(|i| (3..=8).contains(i))
+        .collect();
+    assert!(
+        cell_hits.is_empty(),
+        "cells {cell_hits:?} clipped away by the INNER strip are still hit at {p:?} \
+         (over the spinner) — the inner clip was ignored"
+    );
+    assert!(
+        hits.iter().any(|(_, n)| n.index() == 9),
+        "the spinner must be hit at {p:?}, got {hits:?}"
+    );
+}
+
+/// `get_node_hit_test_bounds` must return the node's OWN area.
+///
+/// It resolves a node to its tag, then scans the display list for the first
+/// `HitTestArea` carrying that tag. With the full five-group ribbon (the
+/// live example, ~200 nodes) that lookup returned a *gallery cell's* rect
+/// for the gallery "More" button, so every selector-targeted synthetic
+/// click aimed at the button landed on the cell instead.
+#[test]
+fn hit_test_bounds_match_the_layout_rect_in_a_full_ribbon() {
+    use azul_core::dom::DomId as CoreDomId;
+    use azul_layout::widgets::ribbon::{
+        Ribbon, RibbonButton, RibbonColumn, RibbonGallery, RibbonGalleryCell, RibbonGroup,
+        RibbonItem, RibbonTab, RibbonTabVec,
+    };
+
+    let col = |labels: [&str; 3]| {
+        RibbonItem::Column(labels.into_iter().fold(RibbonColumn::new(), |c, l| {
+            c.with_item(RibbonItem::SmallButton(RibbonButton::new("content_cut".into(), l.into())))
+        }))
+    };
+    let cells: Vec<RibbonGalleryCell> = (0..8)
+        .map(|i| RibbonGalleryCell::new(Dom::create_text("AaBbCcDc"), format!("Style {i}").into()))
+        .collect();
+
+    let tab = RibbonTab::new("HOME".into())
+        .with_group(RibbonGroup::new("Clipboard".into()).with_item(col(["Cut", "Copy", "Format Painter"])))
+        .with_group(RibbonGroup::new("Font".into()).with_item(col(["Grow", "Shrink", "Clear"])))
+        .with_group(RibbonGroup::new("Paragraph".into()).with_item(col(["Bullets", "Numbering", "Sort"])))
+        .with_group(
+            RibbonGroup::new("Styles".into())
+                .with_item(RibbonItem::Gallery(RibbonGallery::new(cells.into())))
+                .with_fills_space(true),
+        )
+        .with_group(RibbonGroup::new("Editing".into()).with_item(col(["Find", "Replace", "Select"])));
+
+    // Match the live example: a mock title bar plus NINE tabs (each tab
+    // carries chrome callbacks, so each mints its own hit-test tag).
+    let mut tabs = vec![tab];
+    for label in ["INSERT", "DESIGN", "PAGE LAYOUT", "REFERENCES", "MAILINGS", "REVIEW",
+                  "VIEW", "ADD-INS"] {
+        tabs.push(RibbonTab::new(label.into()).with_group(
+            RibbonGroup::new("Preview".into()).with_item(RibbonItem::LargeButton(
+                RibbonButton::new("layers".into(), label.into()),
+            )),
+        ));
+    }
+    let title_bar = Dom::create_div()
+        .with_css("display: flex; flex-direction: row; align-items: center; height: 30px;")
+        .with_child(Dom::create_icon("save"))
+        .with_child(Dom::create_icon("undo"))
+        .with_child(Dom::create_text("Document1 - Word"))
+        .with_child(Dom::create_icon("close"));
+    let dom = Dom::create_body()
+        .with_child(title_bar)
+        .with_child(
+            Ribbon::new(RibbonTabVec::from_vec(tabs))
+                .with_app_button(azul_layout::widgets::ribbon::RibbonAppButton::new("FILE".into()))
+                .dom(),
+        );
+    let lw = layout_dom(dom, "", 1388.0, 260.0);
+    let result = lw.layout_results.get(&CoreDomId::ROOT_ID).expect("root");
+
+    let node_data = result.styled_dom.node_data.as_container();
+    let find_class = |name: &str| -> Option<usize> {
+        (0..node_data.len()).find(|i| {
+            node_data[NodeId::new(*i)]
+                .get_ids_and_classes()
+                .as_ref()
+                .iter()
+                .any(|c| matches!(c, IdOrClass::Class(s) if s.as_str() == name))
+        })
+    };
+
+    let more = find_class("__azul-native-ribbon-gallery-more").expect("More button");
+    let cell0 = find_class("__azul-native-ribbon-gallery-cell").expect("a gallery cell");
+
+    let layout_rect = lw.get_node_layout_rect(node_id(more)).expect("More layout rect");
+    let hit_bounds = lw.get_node_hit_test_bounds(node_id(more)).expect("More hit bounds");
+    let cell_rect = lw.get_node_layout_rect(node_id(cell0)).expect("cell layout rect");
+    println!("More(node {more}) layout = {layout_rect:?}");
+    println!("More(node {more}) hit    = {hit_bounds:?}");
+    println!("cell0(node {cell0}) layout = {cell_rect:?}");
+
+    assert!(
+        (layout_rect.origin.x - hit_bounds.origin.x).abs() < 1.0,
+        "hit-test bounds for the More button point at a different node: \
+         layout {layout_rect:?} vs hit {hit_bounds:?} (cell0 is {cell_rect:?})"
+    );
+
+    // (a) TAG-NAMESPACE COLLISION: `tag.0` holds a node's sequential TagId
+    //     for DOM-node areas but `(dom_id << 32) | node_index` for a text
+    //     run's cursor area — identical numbers for DomId(0). The bounds
+    //     lookup must match the tag TYPE too, or a node whose TagId equals
+    //     some other node's INDEX silently gets that node's text rect (the
+    //     live ribbon aimed clicks for node 199 at node 172's label).
+    {
+        use azul_core::hit_test::{TAG_TYPE_CURSOR, TAG_TYPE_DOM_NODE};
+        use azul_layout::solver3::display_list::DisplayListItem;
+
+        // Every tag id that a text-run (cursor) area carries.
+        let mut cursor_tags: Vec<u64> = Vec::new();
+        for item in &result.display_list.items {
+            if let DisplayListItem::HitTestArea { tag, .. } = item {
+                if tag.1 & TAG_TYPE_CURSOR != 0 {
+                    cursor_tags.push(tag.0);
+                }
+            }
+        }
+
+        // Check EVERY hit-testable node: its bounds must be its own rect.
+        let mut checked = 0usize;
+        let mut collisions = 0usize;
+        for mapping in result.styled_dom.tag_ids_to_node_ids.iter() {
+            let Some(nid) = mapping.node_id.into_crate_internal() else {
+                continue;
+            };
+            let tag = mapping.tag_id.inner;
+            if cursor_tags.contains(&tag) {
+                collisions += 1;
+            }
+            let (Some(layout), Some(hit)) = (
+                lw.get_node_layout_rect(node_id(nid.index())),
+                lw.get_node_hit_test_bounds(node_id(nid.index())),
+            ) else {
+                continue;
+            };
+            checked += 1;
+            assert!(
+                (layout.origin.x - hit.origin.x).abs() < 1.0
+                    && (layout.origin.y - hit.origin.y).abs() < 1.0,
+                "node {} (tag {tag}): hit bounds {hit:?} are not its layout rect {layout:?} \
+                 — the lookup crossed the DOM-node/cursor tag namespaces",
+                nid.index()
+            );
+        }
+        println!("checked {checked} hit-testable nodes, {collisions} tag collisions present");
+        assert!(checked > 20, "fixture got smaller: only {checked} nodes checked");
+        assert!(
+            collisions > 0,
+            "this fixture no longer contains a DOM-node/cursor tag collision, so it \
+             cannot catch the regression — extend it until one exists"
+        );
+        // Sanity: the More button still contributes exactly one DOM-node area.
+        let more_tag = result
+            .styled_dom
+            .tag_ids_to_node_ids
+            .iter()
+            .find(|m| m.node_id.into_crate_internal() == Some(NodeId::new(more)))
+            .expect("the More button is hit-testable")
+            .tag_id
+            .inner;
+        let dom_node_areas = result
+            .display_list
+            .items
+            .iter()
+            .filter(|i| {
+                matches!(i, DisplayListItem::HitTestArea { tag, .. }
+                    if tag.0 == more_tag && tag.1 == TAG_TYPE_DOM_NODE)
+            })
+            .count();
+        assert_eq!(dom_node_areas, 1);
+    }
+
+    // (b) Does the E2E selector path over-match? `.…-gallery-more` must
+    //     select exactly the More button, not every `.…-gallery-*` node.
+    {
+        use azul_core::style::matches_html_element;
+        use azul_css::parser2::parse_css_path;
+
+        let path = parse_css_path(".__azul-native-ribbon-gallery-more")
+            .expect("the class selector must parse");
+        let hierarchy = result.styled_dom.node_hierarchy.as_container();
+        let cascade = result.styled_dom.cascade_info.as_container();
+        let matched: Vec<usize> = (0..node_data.len())
+            .filter(|i| {
+                matches_html_element(
+                    &path,
+                    NodeId::new(*i),
+                    &hierarchy,
+                    &node_data,
+                    &cascade,
+                    None,
+                )
+            })
+            .collect();
+        println!("selector matched nodes: {matched:?} (More = {more})");
+        assert_eq!(
+            matched,
+            vec![more],
+            "`.__azul-native-ribbon-gallery-more` must match ONLY the More button"
+        );
+    }
+
+    // (c) Does a click at the More button's own centre reach it?
+    {
+        use azul_layout::headless::CpuHitTester;
+        let mut tester = CpuHitTester::new();
+        tester.rebuild_from_layout(&lw.layout_results);
+        let centre = azul_core::geom::LogicalPosition::new(
+            hit_bounds.origin.x + hit_bounds.size.width / 2.0,
+            hit_bounds.origin.y + hit_bounds.size.height / 2.0,
+        );
+        let hits = tester.hit_test(centre);
+        println!("hits at More centre {centre:?}: {hits:?}");
+        assert_eq!(
+            hits.first().map(|(_, n)| n.index()),
+            Some(more),
+            "a click at the More button's centre must reach it first, got {hits:?}"
+        );
+    }
+}
+
+/// ENGINE GAP: a viewport-conditional INLINE property is never applied.
+///
+/// `CssPropertyWithConditions` can carry any `DynamicSelector` — viewport
+/// width, media type, theme, OS — and `DynamicSelector::matches` implements
+/// all of them. But the production resolver (`CssPropertyCache::get_property`,
+/// plus the compact-cache fast paths) only ever tests PSEUDO-STATE conditions
+/// (`matches_pseudo_state`). The context-aware
+/// `get_property_with_context`, which does evaluate the rest, has no
+/// production caller.
+///
+/// So a widget written with `@media`-style inline conditions — the ribbon's
+/// touch layout — silently keeps its unconditional value at every viewport
+/// size. Fixing it means threading a `DynamicSelectorContext` (viewport,
+/// theme, OS) through property resolution and invalidating the compact cache
+/// on viewport change; that is a cascade-level change, so this test documents
+/// the gap rather than asserting today's behaviour.
+#[test]
+#[ignore = "engine gap: inline viewport conditions are not evaluated by the production cascade"]
+fn inline_viewport_conditions_are_applied() {
+    use azul_core::dom::{CssPropertyWithConditions, CssPropertyWithConditionsVec};
+    use azul_css::{
+        dynamic_selector::{DynamicSelector, MinMaxRange},
+        props::{layout::LayoutDisplay, property::CssProperty},
+    };
+
+    // display: none, and display: flex only at viewports <= 720px.
+    let mobile_only = CssPropertyWithConditionsVec::from_vec(vec![
+        CssPropertyWithConditions::simple(CssProperty::const_display(LayoutDisplay::None)),
+        CssPropertyWithConditions::with_conditions(
+            CssProperty::const_display(LayoutDisplay::Flex),
+            vec![DynamicSelector::ViewportWidth(MinMaxRange {
+                min: f32::NAN,
+                max: 720.0,
+            })]
+            .into(),
+        ),
+    ]);
+
+    let mut panel = Dom::create_div().with_child(Dom::create_text("touch"));
+    panel.root.set_css_props(mobile_only);
+    let dom = Dom::create_body().with_child(panel);
+
+    // 390px viewport: the conditional `display: flex` must win.
+    let lw = layout_dom(dom, "body { display: flex; }", 390.0, 600.0);
+    let rect = lw.get_node_layout_rect(node_id(1));
+    assert!(
+        rect.is_some_and(|r| r.size.height > 0.0),
+        "the mobile-only panel did not lay out at a 390px viewport: {rect:?}"
+    );
+}
