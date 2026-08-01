@@ -6638,6 +6638,7 @@ impl TextShapingCache {
         // Stage 5 bypass: scan items for min/max contributions.
         let word_break = constraints.word_break;
         let hyphens = constraints.hyphenation;
+        let scan_is_vertical = constraints.is_vertical();
 
         let mut total = 0.0f32;      // running width of the current line
         let mut max_line = 0.0f32;   // widest line between forced breaks = max-content
@@ -6658,37 +6659,13 @@ impl TextShapingCache {
                 cur_word = 0.0;
                 continue;
             }
-            // Must match get_item_measure() exactly: a cluster's inline advance
-            // INCLUDES per-glyph kerning. Omitting kerning here under-measures
-            // max-content, so a shrink-to-fit box (e.g. a flex item sized to its
-            // text's max-content) ends up narrower than the kerned text the line
-            // breaker lays out — the word then "overflows" its own box and, with
-            // overflow-wrap:normal, gets force-broken to its first cluster
-            // (the menubar "View" → "V" clip). Summing (advance + kerning) here,
-            // in the same order as the breaker, makes the box exactly fit.
-            let advance = match item {
-                ShapedItem::Cluster(c) => {
-                    let total_kerning: f32 = c.glyphs.iter().map(|g| g.kerning).sum();
-                    let mut a = c.advance + total_kerning;
-                    // Match position_line_items exactly: letter-spacing is added after
-                    // every non-cursive cluster and word-spacing on word separators.
-                    // Omitting them here under-measures a shrink-to-fit box, so the
-                    // laid-out (spaced) text overflows its own min/max-content width.
-                    if !is_cursive_script_cluster(c) {
-                        a += c.style.letter_spacing.resolve_px(c.style.font_size_px);
-                    }
-                    if is_word_separator(item) {
-                        a += c.style.word_spacing.resolve_px(c.style.font_size_px);
-                    }
-                    a
-                }
-                ShapedItem::CombinedBlock { bounds, .. }
-                | ShapedItem::Object { bounds, .. }
-                | ShapedItem::Tab { bounds, .. } => bounds.width,
-                ShapedItem::Break { .. } => 0.0,
-            };
-            let adv = advance.max(0.0);
-            total += adv;
+            // The scan MUST fold the same per-item measure, in the same order,
+            // onto the same running total as the line breaker - shared via
+            // fold_line_width / get_item_measure_with_spacing (kerning,
+            // letter-spacing, word-spacing included; see that function's doc
+            // for why any other grouping re-introduces the one-word-wrap bug).
+            let adv = get_item_measure_with_spacing(item, scan_is_vertical).max(0.0);
+            total = fold_line_width(total, item, scan_is_vertical);
 
             let (asc, desc) = get_item_vertical_metrics_approx(item);
             let h = (asc + desc).max(item.bounds().height);
@@ -9349,18 +9326,24 @@ pub fn break_one_line<T: ParsedFontTrait>(
             break;
         }
 
-        let unit_width: f32 = next_unit
+        // Fold the unit onto the line item-by-item in document order - the
+        // exact fold the intrinsic max-content scan uses - and compare on the
+        // ADDITION side. A per-unit subtotal or a subtract-based test
+        // (`unit <= available - current`) re-associates the f32 sum and can
+        // wrap a line that fits its own measured max-content by 1 ULP; this
+        // form is bit-identical to the measurement, so a box sized to its
+        // measurement never wraps. See fold_line_width.
+        let width_with_unit = next_unit
             .iter()
-            .map(|item| get_item_measure_with_spacing(item, is_vertical))
-            .sum();
-        let available_width = line_constraints.total_available - current_width;
+            .fold(current_width, |w, item| fold_line_width(w, item, is_vertical));
 
         // 2. Can the whole unit fit on the current line?
-        if unit_width <= available_width {
+        if width_with_unit <= line_constraints.total_available {
             line_items.extend_from_slice(&next_unit);
-            current_width += unit_width;
+            current_width = width_with_unit;
             cursor.consume(next_unit.len());
         } else {
+            let available_width = line_constraints.total_available - current_width;
             // 3. The unit overflows. Can we hyphenate it?
             if line_break != LineBreakStrictness::Anywhere {
                 if let Some(hyphenator) = hyphenator {
@@ -9399,15 +9382,16 @@ pub fn break_one_line<T: ParsedFontTrait>(
                         // overflow-wrap is anywhere/break-word.
                         let avail = line_constraints.total_available;
                         for item in &next_unit {
-                            let item_w = get_item_measure_with_spacing(item, is_vertical);
+                            // Same fold as the fit test and the intrinsic scan.
+                            let width_with_item = fold_line_width(current_width, item, is_vertical);
                             // Break BEFORE this item if adding it would overflow,
                             // but only if we already have at least one item on the
                             // line (must always make progress).
-                            if !line_items.is_empty() && avail > 0.0 && current_width + item_w > avail {
+                            if !line_items.is_empty() && avail > 0.0 && width_with_item > avail {
                                 break;
                             }
                             line_items.push(item.clone());
-                            current_width += item_w;
+                            current_width = width_with_item;
                             // When the container is zero-width (avail <= 0), the
                             // break-before check above is skipped (it requires
                             // avail > 0), so every item lands on this one line —
@@ -10751,6 +10735,25 @@ pub fn get_item_measure_with_spacing(item: &ShapedItem, is_vertical: bool) -> f3
     } else {
         base
     }
+}
+
+/// The single fold that BOTH the intrinsic-size scan and the line breaker use
+/// to accumulate a line's width.
+///
+/// f32 addition is not associative, so "measure a box at max-content, then lay
+/// its text out at exactly that width" only guarantees a single line when both
+/// passes fold the SAME per-item values in the SAME order onto the SAME running
+/// total. Any other grouping - per-word subtotals, or a subtract-based fit test
+/// like `unit <= available - current` - rounds differently by a few ULP, and a
+/// box sized from its own measurement then wraps its last word (the ribbon's
+/// "Format Painter" truncating to "Format").
+///
+/// Negative advances (pathological kerning) are clamped here so every consumer
+/// agrees that a cluster cannot rewind the caret.
+#[inline]
+#[must_use]
+pub fn fold_line_width(current: f32, item: &ShapedItem, is_vertical: bool) -> f32 {
+    current + get_item_measure_with_spacing(item, is_vertical).max(0.0)
 }
 
 /// Calculates the available horizontal segments for a line at a given vertical position,
