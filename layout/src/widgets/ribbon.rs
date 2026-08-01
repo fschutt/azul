@@ -48,7 +48,10 @@ use azul_core::{
 };
 #[allow(clippy::wildcard_imports)] // widget/render module pulls in the css property/value types it builds with
 use azul_css::{
-    dynamic_selector::{CssPropertyWithConditions as Cond, CssPropertyWithConditionsVec},
+    dynamic_selector::{
+        CssPropertyWithConditions as Cond, CssPropertyWithConditionsVec, DynamicSelector,
+        MinMaxRange,
+    },
     props::{
         basic::{color::ColorU, font::{StyleFontFamily, StyleFontFamilyVec}, *},
         layout::*,
@@ -59,7 +62,7 @@ use azul_css::{
 };
 
 use azul_css::{impl_option, impl_vec, impl_vec_clone, impl_vec_debug, impl_vec_mut};
-use azul_css::system::SystemStyle;
+use azul_css::system::{Handedness, SystemStyle};
 
 use crate::callbacks::{Callback, CallbackInfo};
 
@@ -319,6 +322,56 @@ static RIBBON_COMBO_TEXT_STYLE: &[Cond] = &[
     Cond::simple(P::const_padding_right(LayoutPaddingRight::const_px(2))),
 ];
 
+// -- Responsive (@media) conditions --
+//
+// The mobile ribbon keeps the SEMANTICS of the desktop one - the same tabs,
+// groups and items - and changes only presentation, so both chromes are
+// emitted once and the viewport decides which is visible. That is how a
+// responsive HTML page behaves, and it means no second widget tree, no
+// duplicated callbacks and no state to keep in sync.
+//
+// `MOBILE_MAX_PX` is the breakpoint: at or below it the touch chrome shows.
+
+/// Widest viewport that still gets the touch layout (a large phone in
+/// landscape is still a phone).
+pub const MOBILE_MAX_PX: f32 = 720.0;
+
+static COND_MOBILE: &[DynamicSelector] = &[DynamicSelector::ViewportWidth(MinMaxRange {
+    min: f32::NAN,
+    max: MOBILE_MAX_PX,
+})];
+
+static COND_DESKTOP: &[DynamicSelector] = &[DynamicSelector::ViewportWidth(MinMaxRange {
+    min: MOBILE_MAX_PX,
+    max: f32::NAN,
+})];
+
+/// `display: none` unless the viewport is a phone.
+fn only_on_mobile(prop: P) -> Cond {
+    Cond::with_single_condition(prop, COND_MOBILE)
+}
+
+/// `display: none` unless the viewport is a desktop.
+fn only_on_desktop(prop: P) -> Cond {
+    Cond::with_single_condition(prop, COND_DESKTOP)
+}
+
+/// Hidden by default, shown on phones.
+fn mobile_only_visibility(display: LayoutDisplay) -> [Cond; 2] {
+    [
+        Cond::simple(P::const_display(LayoutDisplay::None)),
+        only_on_mobile(P::const_display(display)),
+    ]
+}
+
+/// Visible by default, hidden on phones.
+fn desktop_only_visibility(display: LayoutDisplay) -> [Cond; 2] {
+    [
+        Cond::simple(P::const_display(display)),
+        only_on_mobile(P::const_display(LayoutDisplay::None)),
+    ]
+}
+
 // -- Theme -> property-list builders --
 //
 // Every themed ribbon part is built from `RibbonTheme` colors by the
@@ -425,6 +478,10 @@ fn theme_tab_bar(t: &RibbonTheme) -> CssPropertyWithConditionsVec {
     CssPropertyWithConditionsVec::from_vec(vec![
         cond_border_box(),
         Cond::simple(P::const_display(LayoutDisplay::Flex)),
+        // Replaced by the full-width mobile tab button on phones. The
+        // conditional MUST come after the unconditional value: inline
+        // properties resolve last-match-wins.
+        only_on_mobile(P::const_display(LayoutDisplay::None)),
         Cond::simple(P::const_flex_direction(LayoutFlexDirection::Row)),
         Cond::simple(P::const_flex_grow(LayoutFlexGrow::const_new(0))),
         Cond::simple(P::const_height(LayoutHeight::const_px(26))),
@@ -838,6 +895,149 @@ fn theme_combo_arrow(t: &RibbonTheme) -> CssPropertyWithConditionsVec {
     ])
 }
 
+// -- Mobile part styles --
+//
+// Touch targets follow the platform minimum (44px). The desktop tab strip
+// and the mobile tab button are mutually exclusive via the viewport
+// condition, so exactly one is ever visible.
+
+/// The full-width tab button that replaces the tab strip on phones. Shows the
+/// ACTIVE tab's label plus a chevron that opens the tab overlay; double
+/// tapping it collapses the ribbon exactly like double clicking a desktop tab.
+fn theme_mobile_tab_button(t: &RibbonTheme) -> CssPropertyWithConditionsVec {
+    let mut v: Vec<Cond> = mobile_only_visibility(LayoutDisplay::Flex).to_vec();
+    v.push(cond_border_box());
+    v.push(Cond::simple(P::const_flex_direction(LayoutFlexDirection::Row)));
+    v.push(Cond::simple(P::const_align_items(LayoutAlignItems::Center)));
+    v.push(Cond::simple(P::const_height(LayoutHeight::const_px(48))));
+    v.push(Cond::simple(P::const_width(LayoutWidth::Px(PixelValue::const_percent(100)))));
+    push_padding(&mut v, 0, 12, 0, 16);
+    v.push(Cond::simple(P::const_font_size(StyleFontSize::const_px(17))));
+    v.push(cond_text_color(t.accent));
+    v.push(cond_bg(t.chrome_bg));
+    push_bottom_border(&mut v, t.border);
+    v.push(Cond::simple(P::const_cursor(StyleCursor::Pointer)));
+    v.push(Cond::simple(P::user_select(StyleUserSelect::None)));
+    CssPropertyWithConditionsVec::from_vec(v)
+}
+
+/// The active tab's label inside the mobile tab button.
+fn theme_mobile_tab_label(_t: &RibbonTheme) -> CssPropertyWithConditionsVec {
+    CssPropertyWithConditionsVec::from_vec(vec![
+        Cond::simple(P::const_flex_grow(LayoutFlexGrow::const_new(1))),
+        Cond::simple(P::user_select(StyleUserSelect::None)),
+    ])
+}
+
+/// Chevron on the mobile tab button.
+fn theme_mobile_tab_arrow(t: &RibbonTheme) -> CssPropertyWithConditionsVec {
+    CssPropertyWithConditionsVec::from_vec(vec![
+        Cond::simple(P::const_font_size(StyleFontSize::const_px(24))),
+        cond_text_color(t.accent),
+        Cond::simple(P::const_flex_grow(LayoutFlexGrow::const_new(0))),
+        Cond::simple(P::user_select(StyleUserSelect::None)),
+    ])
+}
+
+/// Full-screen overlay listing every tab; opened by the mobile tab button.
+fn theme_mobile_tab_overlay(t: &RibbonTheme) -> CssPropertyWithConditionsVec {
+    let mut v = vec![
+        // Hidden until the button opens it (on ANY viewport: the overlay is
+        // only reachable through the mobile button).
+        Cond::simple(P::const_display(LayoutDisplay::None)),
+        cond_border_box(),
+        Cond::simple(P::const_position(LayoutPosition::Absolute)),
+        Cond::simple(P::const_top(LayoutTop::const_px(0))),
+        Cond::simple(P::const_left(LayoutLeft::const_px(0))),
+        Cond::simple(P::const_width(LayoutWidth::Px(PixelValue::const_percent(100)))),
+        Cond::simple(P::const_flex_direction(LayoutFlexDirection::Column)),
+        cond_bg(t.chrome_bg),
+    ];
+    push_box_border(&mut v, t.border);
+    CssPropertyWithConditionsVec::from_vec(v)
+}
+
+/// One row of the mobile tab overlay - a full-width 48px touch target.
+fn theme_mobile_tab_overlay_item(t: &RibbonTheme) -> CssPropertyWithConditionsVec {
+    let mut v = vec![
+        cond_border_box(),
+        Cond::simple(P::const_display(LayoutDisplay::Flex)),
+        Cond::simple(P::const_flex_direction(LayoutFlexDirection::Row)),
+        Cond::simple(P::const_align_items(LayoutAlignItems::Center)),
+        Cond::simple(P::const_height(LayoutHeight::const_px(48))),
+        Cond::simple(P::const_font_size(StyleFontSize::const_px(17))),
+        cond_text_color(t.text),
+        Cond::simple(P::const_cursor(StyleCursor::Pointer)),
+        Cond::simple(P::user_select(StyleUserSelect::None)),
+    ];
+    push_padding(&mut v, 0, 16, 0, 16);
+    push_bottom_border(&mut v, t.separator);
+    v.push(cond_bg_hover(t.hover_bg));
+    CssPropertyWithConditionsVec::from_vec(v)
+}
+
+/// The scrollable list of GROUP names shown beside the visible group on
+/// phones. Sits on the user's dominant-hand side (see [`Handedness`]).
+fn theme_mobile_group_list(t: &RibbonTheme, left_handed: bool) -> CssPropertyWithConditionsVec {
+    let mut v: Vec<Cond> = mobile_only_visibility(LayoutDisplay::Flex).to_vec();
+    v.push(cond_border_box());
+    v.push(Cond::simple(P::const_flex_direction(LayoutFlexDirection::Column)));
+    v.push(Cond::simple(P::const_width(LayoutWidth::const_px(116))));
+    v.push(Cond::simple(P::const_flex_grow(LayoutFlexGrow::const_new(0))));
+    v.push(Cond::simple(P::const_flex_shrink(LayoutFlexShrink {
+        inner: FloatValue::const_new(0),
+    })));
+    v.push(Cond::simple(P::const_overflow_y(LayoutOverflow::Scroll)));
+    v.push(Cond::simple(P::const_overflow_x(LayoutOverflow::Hidden)));
+    v.push(cond_bg(t.chrome_bg));
+    // The list hugs the dominant hand: a border on the side that faces the
+    // content, so the divider reads correctly whichever side it is on.
+    if left_handed {
+        v.push(Cond::simple(P::const_border_right_width(LayoutBorderRightWidth::const_px(1))));
+        v.push(Cond::simple(P::const_border_right_style(StyleBorderRightStyle {
+            inner: BorderStyle::Solid,
+        })));
+        v.push(Cond::simple(P::const_border_right_color(StyleBorderRightColor {
+            inner: t.separator,
+        })));
+    } else {
+        v.push(Cond::simple(P::const_border_left_width(LayoutBorderLeftWidth::const_px(1))));
+        v.push(Cond::simple(P::const_border_left_style(StyleBorderLeftStyle {
+            inner: BorderStyle::Solid,
+        })));
+        v.push(Cond::simple(P::const_border_left_color(StyleBorderLeftColor {
+            inner: t.separator,
+        })));
+    }
+    CssPropertyWithConditionsVec::from_vec(v)
+}
+
+/// One entry of the mobile group list.
+fn theme_mobile_group_list_item(t: &RibbonTheme) -> CssPropertyWithConditionsVec {
+    let mut v = vec![
+        cond_border_box(),
+        Cond::simple(P::const_display(LayoutDisplay::Flex)),
+        Cond::simple(P::const_align_items(LayoutAlignItems::Center)),
+        Cond::simple(P::const_height(LayoutHeight::const_px(44))),
+        Cond::simple(P::const_font_size(StyleFontSize::const_px(15))),
+        cond_text_color(t.text),
+        Cond::simple(P::const_cursor(StyleCursor::Pointer)),
+        Cond::simple(P::user_select(StyleUserSelect::None)),
+    ];
+    push_padding(&mut v, 0, 10, 0, 12);
+    push_bottom_border(&mut v, t.separator);
+    v.push(cond_bg_hover(t.hover_bg));
+    CssPropertyWithConditionsVec::from_vec(v)
+}
+
+/// The selected entry of the mobile group list (appended, last-wins).
+fn theme_mobile_group_list_item_selected(t: &RibbonTheme) -> CssPropertyWithConditionsVec {
+    CssPropertyWithConditionsVec::from_vec(vec![
+        cond_bg(t.selected_bg),
+        cond_text_color(t.accent),
+    ])
+}
+
 // -- Classes --
 
 static CLS_RIBBON: &[IdOrClass] = &[Class(AzString::from_const_str("__azul-native-ribbon"))];
@@ -884,6 +1084,18 @@ static CLS_GALLERY_CELL_SELECTED: &[IdOrClass] = &[
 const GALLERY_WRAPPER_CLASS: &str = "__azul-native-ribbon-gallery-wrapper";
 const GALLERY_CELL_CLASS: &str = "__azul-native-ribbon-gallery-cell";
 const RIBBON_TAB_CLASS: &str = "__azul-native-ribbon-tab";
+
+const MOBILE_TAB_BUTTON_CLASS: &str = "__azul-native-ribbon-mobile-tab";
+static CLS_MOBILE_TAB_BUTTON: &[IdOrClass] =
+    &[Class(AzString::from_const_str(MOBILE_TAB_BUTTON_CLASS))];
+static CLS_MOBILE_TAB_OVERLAY: &[IdOrClass] =
+    &[Class(AzString::from_const_str("__azul-native-ribbon-mobile-tab-overlay"))];
+static CLS_MOBILE_TAB_OVERLAY_ITEM: &[IdOrClass] =
+    &[Class(AzString::from_const_str("__azul-native-ribbon-mobile-tab-overlay-item"))];
+static CLS_MOBILE_GROUP_LIST: &[IdOrClass] =
+    &[Class(AzString::from_const_str("__azul-native-ribbon-mobile-group-list"))];
+static CLS_MOBILE_GROUP_LIST_ITEM: &[IdOrClass] =
+    &[Class(AzString::from_const_str("__azul-native-ribbon-mobile-group-list-item"))];
 
 static CLS_GALLERY_MORE: &[IdOrClass] =
     &[Class(AzString::from_const_str("__azul-native-ribbon-gallery-more"))];
@@ -977,6 +1189,22 @@ pub struct RibbonStyle {
     pub gallery_wrapper_style: CssPropertyWithConditionsVec,
     /// The expansion panel shown by the gallery's "More" button.
     pub gallery_panel_style: CssPropertyWithConditionsVec,
+    /// Full-width tab button shown INSTEAD of the tab strip on phones.
+    pub mobile_tab_button_style: CssPropertyWithConditionsVec,
+    /// Active-tab label inside the mobile tab button.
+    pub mobile_tab_label_style: CssPropertyWithConditionsVec,
+    /// Chevron on the mobile tab button.
+    pub mobile_tab_arrow_style: CssPropertyWithConditionsVec,
+    /// Full-screen tab picker opened by the mobile tab button.
+    pub mobile_tab_overlay_style: CssPropertyWithConditionsVec,
+    /// One row of the mobile tab picker.
+    pub mobile_tab_overlay_item_style: CssPropertyWithConditionsVec,
+    /// Scrollable group list shown beside the visible group on phones.
+    pub mobile_group_list_style: CssPropertyWithConditionsVec,
+    /// One entry of the mobile group list.
+    pub mobile_group_list_item_style: CssPropertyWithConditionsVec,
+    /// APPENDED to the selected mobile group-list entry.
+    pub mobile_group_list_item_selected_style: CssPropertyWithConditionsVec,
     /// Container style injected into the three spinner [`Button`]s.
     pub gallery_spinner_button_style: CssPropertyWithConditionsVec,
     /// Icon style injected into the three spinner [`Button`]s.
@@ -995,6 +1223,15 @@ impl RibbonStyle {
     /// replace individual `*_style` fields for finer control.
     #[must_use]
     pub fn from_theme(theme: RibbonTheme) -> Self {
+        Self::from_theme_handed(theme, Handedness::RightHanded)
+    }
+
+    /// [`Self::from_theme`] with an explicit hand: the mobile group list sits
+    /// on the dominant-hand side so the thumb reaches it. Independent of text
+    /// direction - see [`Handedness`].
+    #[must_use]
+    pub fn from_theme_handed(theme: RibbonTheme, handedness: Handedness) -> Self {
+        let left_handed = matches!(handedness, Handedness::LeftHanded);
         let theme = &theme;
         Self {
             theme: *theme,
@@ -1033,6 +1270,14 @@ impl RibbonStyle {
                 GALLERY_WRAPPER_STYLE,
             ),
             gallery_panel_style: theme_gallery_panel(theme),
+            mobile_tab_button_style: theme_mobile_tab_button(theme),
+            mobile_tab_label_style: theme_mobile_tab_label(theme),
+            mobile_tab_arrow_style: theme_mobile_tab_arrow(theme),
+            mobile_tab_overlay_style: theme_mobile_tab_overlay(theme),
+            mobile_tab_overlay_item_style: theme_mobile_tab_overlay_item(theme),
+            mobile_group_list_style: theme_mobile_group_list(theme, left_handed),
+            mobile_group_list_item_style: theme_mobile_group_list_item(theme),
+            mobile_group_list_item_selected_style: theme_mobile_group_list_item_selected(theme),
             gallery_spinner_button_style: theme_gallery_spinner_button(theme),
             gallery_spinner_icon_style: theme_gallery_spinner_icon(theme),
         }
@@ -1043,7 +1288,8 @@ impl RibbonStyle {
     /// live system look, e.g. to render a "system native" ribbon.
     #[must_use]
     pub fn from_system(style: SystemStyle) -> Self {
-        Self::from_theme(RibbonTheme::from_system(style))
+        let handedness = style.handedness;
+        Self::from_theme_handed(RibbonTheme::from_system(style), handedness)
     }
 
     /// Returns a [`ComboBox`] with this ribbon's field look injected through
@@ -1097,6 +1343,10 @@ pub struct RibbonBehavior {
     /// The gallery's third spinner button ("More") toggles an expansion
     /// panel showing every cell.
     pub expandable_gallery: bool,
+    /// On phones, tapping the tab button opens the full-screen tab picker.
+    /// With this off the button is inert and the application drives tab
+    /// switching itself.
+    pub mobile_tab_overlay: bool,
 }
 
 impl RibbonBehavior {
@@ -1108,6 +1358,7 @@ impl RibbonBehavior {
             peek_on_hover: true,
             auto_select_gallery: true,
             expandable_gallery: true,
+            mobile_tab_overlay: true,
         }
     }
 
@@ -1120,6 +1371,7 @@ impl RibbonBehavior {
             peek_on_hover: false,
             auto_select_gallery: false,
             expandable_gallery: false,
+            mobile_tab_overlay: false,
         }
     }
 }
@@ -1652,6 +1904,15 @@ impl Ribbon {
         let Ribbon { app_button, tabs, active_tab, on_tab_click, style, behavior } = self;
         let has_callback = on_tab_click.is_some();
 
+        // Labels are needed by both chromes; `tabs` is consumed below.
+        let tab_labels: Vec<AzString> =
+            tabs.as_slice().iter().map(|t| t.label.clone()).collect();
+        let group_labels: Vec<AzString> = tabs
+            .as_slice()
+            .get(active_tab)
+            .map(|t| t.groups.as_slice().iter().map(|g| g.label.clone()).collect())
+            .unwrap_or_default();
+
         let mut bar_children: Vec<Dom> = Vec::with_capacity(tabs.len() + 2);
 
         if let Some(ab) = app_button.into_option() {
@@ -1756,6 +2017,110 @@ impl Ribbon {
             None => Vec::new(),
         };
 
+        // ---- mobile chrome -------------------------------------------
+        // Same tabs and groups, touch presentation. Both chromes live in the
+        // tree and the viewport condition decides which is visible, so there
+        // is no second widget tree and no state to keep in sync.
+        let active_label = tab_labels
+            .get(active_tab)
+            .cloned()
+            .unwrap_or_else(|| AzString::from_const_str(""));
+
+        let mut mobile_tab_button = Dom::create_div()
+            .with_ids_and_classes(IdOrClassVec::from_const_slice(CLS_MOBILE_TAB_BUTTON))
+            .with_css_props(style.mobile_tab_button_style.clone())
+            .with_children(DomVec::from_vec(vec![
+                Dom::create_text(active_label)
+                    .with_css_props(style.mobile_tab_label_style.clone()),
+                Dom::create_icon(AzString::from_const_str("expand_more"))
+                    .with_css_props(style.mobile_tab_arrow_style.clone()),
+            ]));
+
+        let mut mobile_cbs: Vec<CoreCallbackData> = Vec::with_capacity(2);
+        if behavior.mobile_tab_overlay {
+            mobile_cbs.push(CoreCallbackData {
+                event: EventFilter::Hover(HoverEventFilter::MouseUp),
+                callback: CoreCallback {
+                    cb: on_ribbon_mobile_tab_click as usize,
+                    ctx: azul_core::refany::OptionRefAny::None,
+                },
+                refany: RefAny::new(MobileTabData { open: false }),
+            });
+        }
+        // Double tap collapses the band, exactly like a desktop double click.
+        if behavior.collapsible {
+            mobile_cbs.push(CoreCallbackData {
+                event: EventFilter::Hover(HoverEventFilter::DoubleClick),
+                callback: CoreCallback {
+                    cb: on_ribbon_tab_double_click as usize,
+                    ctx: azul_core::refany::OptionRefAny::None,
+                },
+                refany: chrome.clone(),
+            });
+        }
+        if !mobile_cbs.is_empty() {
+            mobile_tab_button = mobile_tab_button.with_callbacks(mobile_cbs.into());
+        }
+
+        // Full-screen tab picker, hidden until the button opens it.
+        let overlay_items: Vec<Dom> = tab_labels
+            .iter()
+            .enumerate()
+            .map(|(idx, label)| {
+                let mut item = Dom::create_div()
+                    .with_ids_and_classes(IdOrClassVec::from_const_slice(
+                        CLS_MOBILE_TAB_OVERLAY_ITEM,
+                    ))
+                    .with_css_props(style.mobile_tab_overlay_item_style.clone())
+                    .with_children(DomVec::from_vec(vec![Dom::create_text(label.clone())]));
+                if has_callback {
+                    item = item.with_callbacks(vec![CoreCallbackData {
+                        event: EventFilter::Hover(HoverEventFilter::MouseUp),
+                        callback: CoreCallback {
+                            cb: on_ribbon_tab_click as usize,
+                            ctx: azul_core::refany::OptionRefAny::None,
+                        },
+                        refany: RefAny::new(TabClickData {
+                            tab_idx: idx,
+                            on_tab_click: on_tab_click.clone(),
+                        }),
+                    }].into());
+                }
+                item
+            })
+            .collect();
+        let mobile_tab_overlay = Dom::create_div()
+            .with_ids_and_classes(IdOrClassVec::from_const_slice(CLS_MOBILE_TAB_OVERLAY))
+            .with_css_props(style.mobile_tab_overlay_style.clone())
+            .with_children(DomVec::from_vec(overlay_items));
+
+        // Group list: on phones ONE group is visible and the rest are a
+        // scrollable list on the dominant-hand side.
+        let group_list_items: Vec<Dom> = group_labels
+            .iter()
+            .enumerate()
+            .map(|(idx, label)| {
+                let item_style = if idx == 0 {
+                    merged_style(
+                        &style.mobile_group_list_item_style,
+                        &style.mobile_group_list_item_selected_style,
+                    )
+                } else {
+                    style.mobile_group_list_item_style.clone()
+                };
+                Dom::create_div()
+                    .with_ids_and_classes(IdOrClassVec::from_const_slice(
+                        CLS_MOBILE_GROUP_LIST_ITEM,
+                    ))
+                    .with_css_props(item_style)
+                    .with_children(DomVec::from_vec(vec![Dom::create_text(label.clone())]))
+            })
+            .collect();
+        let mobile_group_list = Dom::create_div()
+            .with_ids_and_classes(IdOrClassVec::from_const_slice(CLS_MOBILE_GROUP_LIST))
+            .with_css_props(style.mobile_group_list_style.clone())
+            .with_children(DomVec::from_vec(group_list_items));
+
         let content = Dom::create_div()
             .with_ids_and_classes(IdOrClassVec::from_const_slice(CLS_CONTENT))
             .with_css_props(style.content_style.clone())
@@ -1764,7 +2129,13 @@ impl Ribbon {
         Dom::create_div()
             .with_ids_and_classes(IdOrClassVec::from_const_slice(CLS_RIBBON))
             .with_css_props(style.container_style.clone())
-            .with_children(DomVec::from_vec(vec![tab_bar, content]))
+            .with_children(DomVec::from_vec(vec![
+                tab_bar,
+                mobile_tab_button,
+                mobile_tab_overlay,
+                mobile_group_list,
+                content,
+            ]))
     }
 }
 
@@ -2151,6 +2522,34 @@ extern "C" fn on_ribbon_tab_peek_leave(mut refany: RefAny, mut info: CallbackInf
     Update::DoNothing
 }
 
+/// Per-mobile-tab-button state: whether the tab overlay is open.
+struct MobileTabData {
+    open: bool,
+}
+
+/// The mobile tab button opens/closes the full-screen tab picker, which is
+/// its next sibling in the ribbon container.
+extern "C" fn on_ribbon_mobile_tab_click(mut refany: RefAny, mut info: CallbackInfo) -> Update {
+    let hit = info.get_hit_node();
+    let Some(button) = ancestor_with_class(&info, hit, MOBILE_TAB_BUTTON_CLASS) else {
+        return Update::DoNothing;
+    };
+    let Some(overlay) = info.get_next_sibling(button) else {
+        return Update::DoNothing;
+    };
+    let Some(mut data) = refany.downcast_mut::<MobileTabData>() else {
+        return Update::DoNothing;
+    };
+    data.open = !data.open;
+    let open = data.open;
+    drop(data);
+    info.set_css_property(
+        overlay,
+        P::const_display(if open { LayoutDisplay::Flex } else { LayoutDisplay::None }),
+    );
+    Update::DoNothing
+}
+
 /// Per-"More"-button state: whether the expansion panel is open.
 struct GalleryMoreData {
     open: bool,
@@ -2351,10 +2750,22 @@ mod tests {
     }
 
     /// `(tab bar, content)` of a rendered ribbon DOM.
+    ///
+    /// The root also carries the mobile chrome (tab button, tab overlay,
+    /// group list), which the viewport conditions hide on desktop - so the
+    /// parts are located by CLASS, not by index.
     fn parts(dom: &Dom) -> (&Dom, &Dom) {
-        let ch = dom.children.as_ref();
-        assert_eq!(ch.len(), 2, "a ribbon DOM is exactly [tab bar, content]");
-        (&ch[0], &ch[1])
+        let by_class = |name: &str| {
+            dom.children
+                .as_ref()
+                .iter()
+                .find(|c| has_class(c, name))
+                .unwrap_or_else(|| panic!("a ribbon DOM has a {name} child"))
+        };
+        (
+            by_class("__azul-native-ribbon-tabbar"),
+            by_class("__azul-native-ribbon-content"),
+        )
     }
 
     /// `(items row, footer)` of the `n`-th rendered group.
@@ -3100,8 +3511,10 @@ mod tests {
         assert_eq!(RibbonBehavior::default(), RibbonBehavior::word_2013());
         let w = RibbonBehavior::word_2013();
         assert!(w.collapsible && w.peek_on_hover && w.auto_select_gallery && w.expandable_gallery);
+        assert!(w.mobile_tab_overlay);
         let i = RibbonBehavior::inert();
         assert!(!i.collapsible && !i.peek_on_hover && !i.auto_select_gallery && !i.expandable_gallery);
+        assert!(!i.mobile_tab_overlay);
         assert_eq!(Ribbon::new(tabs(1)).behavior, RibbonBehavior::word_2013());
     }
 
@@ -3227,6 +3640,144 @@ mod tests {
         for cell in strip.children.as_ref() {
             assert!(cell.root.get_callbacks().as_ref().is_empty());
         }
+    }
+
+    // ------------------------------------------------------------------
+    // Responsive / mobile
+    // ------------------------------------------------------------------
+
+    /// Both chromes are emitted once and the VIEWPORT decides which shows,
+    /// so the mobile ribbon keeps the desktop semantics (same tabs, same
+    /// groups) without a second widget tree.
+    #[test]
+    fn mobile_chrome_is_emitted_alongside_the_desktop_chrome() {
+        let dom = Ribbon::new(tabs(3)).with_active_tab(1).dom();
+        let ch = dom.children.as_ref();
+
+        for class in [
+            "__azul-native-ribbon-tabbar",
+            "__azul-native-ribbon-mobile-tab",
+            "__azul-native-ribbon-mobile-tab-overlay",
+            "__azul-native-ribbon-mobile-group-list",
+            "__azul-native-ribbon-content",
+        ] {
+            assert!(
+                ch.iter().any(|c| has_class(c, class)),
+                "the ribbon must emit a {class} child"
+            );
+        }
+
+        // The mobile button shows the ACTIVE tab's label.
+        let btn = ch
+            .iter()
+            .find(|c| has_class(c, "__azul-native-ribbon-mobile-tab"))
+            .expect("mobile tab button");
+        assert_eq!(label_text(btn), Some("t1"));
+        assert_eq!(
+            icon_name_of(&btn.children.as_ref()[1]),
+            Some("expand_more"),
+            "the mobile tab button carries the picker chevron"
+        );
+
+        // The overlay lists every tab.
+        let overlay = ch
+            .iter()
+            .find(|c| has_class(c, "__azul-native-ribbon-mobile-tab-overlay"))
+            .expect("tab overlay");
+        assert_eq!(overlay.children.as_ref().len(), 3);
+    }
+
+    /// The breakpoint is expressed as a real viewport condition, and the
+    /// conditional value comes LAST so it wins (inline CSS is last-match).
+    #[test]
+    fn the_desktop_tab_strip_is_hidden_under_the_mobile_breakpoint() {
+        let s = RibbonStyle::word_2013();
+
+        let displays: Vec<(&LayoutDisplay, bool)> = s
+            .tab_bar_style
+            .as_ref()
+            .iter()
+            .filter_map(|c| match &c.property {
+                CssProperty::Display(d) => {
+                    d.get_property().map(|d| (d, !c.apply_if.as_ref().is_empty()))
+                }
+                _ => None,
+            })
+            .collect();
+        assert_eq!(
+            displays.len(),
+            2,
+            "the tab strip declares an unconditional and a mobile display"
+        );
+        assert_eq!(*displays[0].0, LayoutDisplay::Flex);
+        assert!(!displays[0].1, "the desktop value is unconditional");
+        assert_eq!(*displays[1].0, LayoutDisplay::None);
+        assert!(displays[1].1, "the mobile value is conditional and comes last");
+
+        // ...and the mobile button is the mirror image.
+        let mobile: Vec<(&LayoutDisplay, bool)> = s
+            .mobile_tab_button_style
+            .as_ref()
+            .iter()
+            .filter_map(|c| match &c.property {
+                CssProperty::Display(d) => {
+                    d.get_property().map(|d| (d, !c.apply_if.as_ref().is_empty()))
+                }
+                _ => None,
+            })
+            .collect();
+        assert_eq!(*mobile[0].0, LayoutDisplay::None);
+        assert_eq!(*mobile[1].0, LayoutDisplay::Flex);
+        assert!(mobile[1].1);
+    }
+
+    /// Handedness moves the mobile group list to the reachable side. It is
+    /// independent of text direction, so it is its own system setting.
+    #[test]
+    fn handedness_flips_the_mobile_group_list_divider() {
+        let right = RibbonStyle::from_theme_handed(RibbonTheme::word_2013(), Handedness::RightHanded);
+        let left = RibbonStyle::from_theme_handed(RibbonTheme::word_2013(), Handedness::LeftHanded);
+        assert_ne!(right.mobile_group_list_style, left.mobile_group_list_style);
+
+        let has = |s: &CssPropertyWithConditionsVec, want_left: bool| {
+            s.as_ref().iter().any(|c| {
+                if want_left {
+                    matches!(c.property, CssProperty::BorderLeftWidth(_))
+                } else {
+                    matches!(c.property, CssProperty::BorderRightWidth(_))
+                }
+            })
+        };
+        assert!(has(&right.mobile_group_list_style, true),
+            "a right-handed list sits at the right edge, so its divider is on its LEFT");
+        assert!(has(&left.mobile_group_list_style, false),
+            "a left-handed list sits at the left edge, so its divider is on its RIGHT");
+    }
+
+    #[test]
+    fn from_system_picks_up_the_system_handedness() {
+        let mut sys = SystemStyle::default();
+        sys.handedness = Handedness::LeftHanded;
+        let from_sys = RibbonStyle::from_system(sys.clone());
+        let expected = RibbonStyle::from_theme_handed(
+            RibbonTheme::from_system(sys),
+            Handedness::LeftHanded,
+        );
+        assert_eq!(from_sys.mobile_group_list_style, expected.mobile_group_list_style);
+    }
+
+    #[test]
+    fn inert_behavior_leaves_the_mobile_tab_button_without_a_toggle() {
+        let dom = Ribbon::new(tabs(2))
+            .with_behavior(RibbonBehavior::inert())
+            .dom();
+        let btn = dom
+            .children
+            .as_ref()
+            .iter()
+            .find(|c| has_class(c, "__azul-native-ribbon-mobile-tab"))
+            .expect("mobile tab button");
+        assert!(btn.root.get_callbacks().as_ref().is_empty());
     }
 
     #[test]

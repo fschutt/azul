@@ -38129,6 +38129,9 @@
                                 "accessibility": {
                                     "type": "AccessibilitySettings"
                                 },
+                                "handedness": {
+                                    "type": "Handedness"
+                                },
                                 "input": {
                                     "type": "InputMetrics"
                                 },
@@ -44067,6 +44070,27 @@
                                 "run_destructor": {
                                     "type": "bool"
                                 }
+                            }
+                        ],
+                        "repr": "C"
+                    },
+                    "Handedness": {
+                        "external": "azul_css::system::Handedness",
+                        "derive": [
+                            "Debug",
+                            "Copy",
+                            "Clone",
+                            "PartialEq",
+                            "Eq",
+                            "PartialOrd",
+                            "Ord",
+                            "Hash",
+                            "Default"
+                        ],
+                        "enum_fields": [
+                            {
+                                "RightHanded": {},
+                                "LeftHanded": {}
                             }
                         ],
                         "repr": "C"
@@ -55008,6 +55032,30 @@
                                 "gallery_panel_style": {
                                     "type": "CssPropertyWithConditionsVec"
                                 },
+                                "mobile_tab_button_style": {
+                                    "type": "CssPropertyWithConditionsVec"
+                                },
+                                "mobile_tab_label_style": {
+                                    "type": "CssPropertyWithConditionsVec"
+                                },
+                                "mobile_tab_arrow_style": {
+                                    "type": "CssPropertyWithConditionsVec"
+                                },
+                                "mobile_tab_overlay_style": {
+                                    "type": "CssPropertyWithConditionsVec"
+                                },
+                                "mobile_tab_overlay_item_style": {
+                                    "type": "CssPropertyWithConditionsVec"
+                                },
+                                "mobile_group_list_style": {
+                                    "type": "CssPropertyWithConditionsVec"
+                                },
+                                "mobile_group_list_item_style": {
+                                    "type": "CssPropertyWithConditionsVec"
+                                },
+                                "mobile_group_list_item_selected_style": {
+                                    "type": "CssPropertyWithConditionsVec"
+                                },
                                 "gallery_spinner_button_style": {
                                     "type": "CssPropertyWithConditionsVec"
                                 },
@@ -55049,6 +55097,22 @@
                                     }
                                 ],
                                 "fn_body": "azul_layout::widgets::ribbon::RibbonStyle::from_system(style)"
+                            },
+                            "from_theme_handed": {
+                                "doc": [
+                                    "[`Self::from_theme`] with an explicit hand: the mobile group list sits",
+                                    "on the dominant-hand side so the thumb reaches it. Independent of text",
+                                    "direction - see [`Handedness`]."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "theme": "RibbonTheme"
+                                    },
+                                    {
+                                        "handedness": "Handedness"
+                                    }
+                                ],
+                                "fn_body": "azul_layout::widgets::ribbon::RibbonStyle::from_theme_handed(theme, handedness)"
                             }
                         },
                         "functions": {
@@ -55347,6 +55411,9 @@
                                     "type": "bool"
                                 },
                                 "expandable_gallery": {
+                                    "type": "bool"
+                                },
+                                "mobile_tab_overlay": {
                                     "type": "bool"
                                 }
                             }

@@ -173,6 +173,14 @@ pub struct SystemStyle {
     pub prefers_high_contrast: BoolCondition,
     /// Detailed accessibility settings (superset of `prefers_reduced_motion` / `prefers_high_contrast`)
     pub accessibility: AccessibilitySettings,
+    /// Which hand the user operates the device with. Touch UIs put their
+    /// primary controls on that side so the thumb reaches them.
+    ///
+    /// This is INDEPENDENT of text direction: an Arabic left-hander reads
+    /// right-to-left but still reaches with the left hand, and a
+    /// left-handed English user reads left-to-right. Deriving one from the
+    /// other is a bug, so they are separate settings.
+    pub handedness: Handedness,
     /// Input interaction timing / distance thresholds from the OS
     pub input: InputMetrics,
     /// Text rendering / anti-aliasing hints from the OS
@@ -210,6 +218,7 @@ impl Default for SystemStyle {
             linux: LinuxCustomization::default(),
             platform: Platform::default(),
             focus_visuals: FocusVisuals::default(),
+            handedness: Handedness::default(),
             language: AzString::default(),
             app_specific_stylesheet: None,
             scrollbar: None,
@@ -280,9 +289,8 @@ pub struct IconStyleOptions {
 /// - Linux: Ubuntu Mono or `DejaVu` Sans Mono
 /// 
 /// Font variants (bold, italic) can be combined with the base type.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Default)]
 #[repr(C)]
-#[derive(Default)]
 pub enum SystemFontType {
     /// UI font for buttons, labels, menus (SF Pro, Segoe UI, Cantarell)
     #[default]
@@ -1842,8 +1850,8 @@ pub mod defaults {
     //! for testing and environments where system calls are not desired.
 
     use super::{
-        AccessibilitySettings, AnimationMetrics, AudioMetrics, FocusVisuals, InputMetrics,
-        LinuxCustomization, ScrollbarPreferences, TextRenderingHints, VisualHints,
+        AccessibilitySettings, AnimationMetrics, AudioMetrics, FocusVisuals, Handedness,
+        InputMetrics, LinuxCustomization, ScrollbarPreferences, TextRenderingHints, VisualHints,
     };
     use crate::{
         corety::{AzString, OptionF32, OptionString},
@@ -2045,6 +2053,7 @@ pub mod defaults {
             scroll_physics: ScrollPhysics::windows(),
             linux: LinuxCustomization::default(),
             focus_visuals: FocusVisuals::default(),
+            handedness: Handedness::default(),
             accessibility: AccessibilitySettings::default(),
             input: InputMetrics::default(),
             text_rendering: TextRenderingHints::default(),
@@ -2093,6 +2102,7 @@ pub mod defaults {
             scroll_physics: ScrollPhysics::windows(),
             linux: LinuxCustomization::default(),
             focus_visuals: FocusVisuals::default(),
+            handedness: Handedness::default(),
             accessibility: AccessibilitySettings::default(),
             input: InputMetrics::default(),
             text_rendering: TextRenderingHints::default(),
@@ -2141,6 +2151,7 @@ pub mod defaults {
             scroll_physics: ScrollPhysics::windows(),
             linux: LinuxCustomization::default(),
             focus_visuals: FocusVisuals::default(),
+            handedness: Handedness::default(),
             accessibility: AccessibilitySettings::default(),
             input: InputMetrics::default(),
             text_rendering: TextRenderingHints::default(),
@@ -2189,6 +2200,7 @@ pub mod defaults {
             scroll_physics: ScrollPhysics::windows(),
             linux: LinuxCustomization::default(),
             focus_visuals: FocusVisuals::default(),
+            handedness: Handedness::default(),
             accessibility: AccessibilitySettings::default(),
             input: InputMetrics::default(),
             text_rendering: TextRenderingHints::default(),
@@ -2240,6 +2252,7 @@ pub mod defaults {
             scroll_physics: ScrollPhysics::macos(),
             linux: LinuxCustomization::default(),
             focus_visuals: FocusVisuals::default(),
+            handedness: Handedness::default(),
             accessibility: AccessibilitySettings::default(),
             input: InputMetrics::default(),
             text_rendering: TextRenderingHints::default(),
@@ -2296,6 +2309,7 @@ pub mod defaults {
             scroll_physics: ScrollPhysics::macos(),
             linux: LinuxCustomization::default(),
             focus_visuals: FocusVisuals::default(),
+            handedness: Handedness::default(),
             accessibility: AccessibilitySettings::default(),
             input: InputMetrics::default(),
             text_rendering: TextRenderingHints::default(),
@@ -2343,6 +2357,7 @@ pub mod defaults {
             scroll_physics: ScrollPhysics::macos(),
             linux: LinuxCustomization::default(),
             focus_visuals: FocusVisuals::default(),
+            handedness: Handedness::default(),
             accessibility: AccessibilitySettings::default(),
             input: InputMetrics::default(),
             text_rendering: TextRenderingHints::default(),
@@ -2391,6 +2406,7 @@ pub mod defaults {
             scroll_physics: ScrollPhysics::default(),
             linux: LinuxCustomization::default(),
             focus_visuals: FocusVisuals::default(),
+            handedness: Handedness::default(),
             accessibility: AccessibilitySettings::default(),
             input: InputMetrics::default(),
             text_rendering: TextRenderingHints::default(),
@@ -2437,6 +2453,7 @@ pub mod defaults {
             scroll_physics: ScrollPhysics::default(),
             linux: LinuxCustomization::default(),
             focus_visuals: FocusVisuals::default(),
+            handedness: Handedness::default(),
             accessibility: AccessibilitySettings::default(),
             input: InputMetrics::default(),
             text_rendering: TextRenderingHints::default(),
@@ -2482,6 +2499,7 @@ pub mod defaults {
             scroll_physics: ScrollPhysics::default(),
             linux: LinuxCustomization::default(),
             focus_visuals: FocusVisuals::default(),
+            handedness: Handedness::default(),
             accessibility: AccessibilitySettings::default(),
             input: InputMetrics::default(),
             text_rendering: TextRenderingHints::default(),
@@ -2527,6 +2545,7 @@ pub mod defaults {
             scroll_physics: ScrollPhysics::default(),
             linux: LinuxCustomization::default(),
             focus_visuals: FocusVisuals::default(),
+            handedness: Handedness::default(),
             accessibility: AccessibilitySettings::default(),
             input: InputMetrics::default(),
             text_rendering: TextRenderingHints::default(),
@@ -2574,6 +2593,7 @@ pub mod defaults {
             scroll_physics: ScrollPhysics::android(),
             linux: LinuxCustomization::default(),
             focus_visuals: FocusVisuals::default(),
+            handedness: Handedness::default(),
             accessibility: AccessibilitySettings::default(),
             input: InputMetrics::default(),
             text_rendering: TextRenderingHints::default(),
@@ -2619,6 +2639,7 @@ pub mod defaults {
             scroll_physics: ScrollPhysics::android(),
             linux: LinuxCustomization::default(),
             focus_visuals: FocusVisuals::default(),
+            handedness: Handedness::default(),
             accessibility: AccessibilitySettings::default(),
             input: InputMetrics::default(),
             text_rendering: TextRenderingHints::default(),
@@ -2664,6 +2685,7 @@ pub mod defaults {
             scroll_physics: ScrollPhysics::ios(),
             linux: LinuxCustomization::default(),
             focus_visuals: FocusVisuals::default(),
+            handedness: Handedness::default(),
             accessibility: AccessibilitySettings::default(),
             input: InputMetrics::default(),
             text_rendering: TextRenderingHints::default(),
@@ -3493,3 +3515,23 @@ mod autotest_generated {
         assert_eq!(lang, detect_system_language(), "not deterministic");
     }
 }
+
+/// Which hand operates the device (see [`SystemStyle::handedness`]).
+///
+/// INDEPENDENT of text direction: an Arabic left-hander reads right-to-left
+/// but still reaches with the left hand, and a left-handed English user
+/// reads left-to-right. Deriving one from the other is a bug.
+#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Default)]
+#[repr(C)]
+pub enum Handedness {
+    /// Primary touch controls on the right (the default).
+    #[default]
+    RightHanded,
+    /// Primary touch controls on the left.
+    LeftHanded,
+}
+
+// NOTE: no explicit `is_left_handed()` here - the codegen already emits an
+// `isLeftHanded()` predicate for every enum variant, and a hand-written one
+// collides with it (PHP refuses the duplicate, other bindings get ambiguous
+// dispatch). Match on the variant instead.
