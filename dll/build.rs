@@ -825,11 +825,19 @@ fn emit_static_system_deps(target: &str) {
         }
         println!("cargo:rustc-link-lib=dylib=objc");
     } else if target.contains("windows") {
-        // advapi32: CredReadW/CredWriteW/CredDeleteW/CredFree — the keyring
-        // backend (azul-vault). Its absence broke ALL ten demo links at once
-        // (LNK2019 against the prebuilt azul.lib) the moment keyring landed.
+        // A prebuilt .a carries no #[link] metadata, so EVERY system DLL any
+        // code inside azul.lib touches must be named here — discovered one
+        // LNK2019 wave at a time:
+        //   advapi32: CredReadW/CredWriteW/... (keyring / azul-vault)
+        //   shcore:   GetDpiForMonitor (per-monitor DPI, desktop::display)
+        //   bcrypt:   BCryptGenRandom (getrandom — in azul's graph, not the
+        //             consumer's, so the consumer's std does not pull it)
+        // The rest are cheap universally-present DLLs listed preemptively so
+        // the next feature (audio timers, sockets, COM automation) does not
+        // repeat this cycle.
         for lib in [
-            "user32", "gdi32", "shell32", "ole32", "opengl32", "dwmapi", "advapi32",
+            "user32", "gdi32", "shell32", "ole32", "oleaut32", "opengl32", "dwmapi",
+            "advapi32", "shcore", "bcrypt", "winmm", "ws2_32", "userenv", "ntdll",
         ] {
             println!("cargo:rustc-link-lib=dylib={lib}");
         }
