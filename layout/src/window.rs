@@ -3669,10 +3669,23 @@ impl LayoutWindow {
 
         // Search the display list for a HitTestArea with matching tag
         // Note: tag is now (u64, u16) tuple where tag.0 is the TagId.inner
+        // Match the tag TYPE as well as its payload. `tag.0` carries two
+        // DIFFERENT numbering schemes: a DOM-node area stores the node's
+        // sequential `TagId` (`TAG_TYPE_DOM_NODE`), while a text run stores
+        // `(dom_id << 32) | node_index` for cursor resolution
+        // (`TAG_TYPE_CURSOR`). For `DomId(0)` the latter is just a node
+        // index, so the two spaces collide: node 199's TagId of 172 matched
+        // the text-run area of NODE 172 first, and every caller that turns a
+        // node into a click position — the E2E `click`/`double_click`
+        // selector path, menu anchoring — aimed at the wrong element.
         let mut rect = None;
         for item in &layout_result.display_list.items {
             if let DisplayListItem::HitTestArea { bounds, tag } = item {
-                if tag.0 == tag_id && bounds.0.size.width > 0.0 && bounds.0.size.height > 0.0 {
+                if tag.0 == tag_id
+                    && tag.1 == azul_core::hit_test::TAG_TYPE_DOM_NODE
+                    && bounds.0.size.width > 0.0
+                    && bounds.0.size.height > 0.0
+                {
                     rect = Some(bounds.0);
                     break;
                 }

@@ -11710,8 +11710,7 @@ pub fn process_debug_event(
                             }
                         }
                     }
-                }
-                found
+                }                found
             } else if let Some(txt) = text {
                 // Click by text content
                 let dom_id = ROOT_DOM_ID;
@@ -11906,6 +11905,18 @@ pub fn process_debug_event(
                 set_button_down(&mut new_state, false);
                 callback_info.modify_window_state(new_state.clone());
             }
+
+            // Two press/release cycles alone rely on the gesture manager's
+            // time+distance heuristic seeing two *ended* input sessions, which
+            // in turn depends on how many frames the injected window states
+            // are processed in. Platforms report a double click as a native
+            // gesture, and `GestureAndDragManager::detect_double_click`
+            // honours that directly, so inject it too: the op then delivers a
+            // `DoubleClick` deterministically instead of hoping the heuristic
+            // fires.
+            callback_info.inject_native_gesture(
+                azul_layout::managers::gesture::NativeGestureEvent::DoubleClick,
+            );
             // NO `needs_update` — see the note on `process_debug_event`.
 
             send_ok(request, None, None);

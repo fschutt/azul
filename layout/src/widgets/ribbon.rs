@@ -263,6 +263,7 @@ impl Default for RibbonTheme {
 // -- Colorless const part styles (shared by every theme) --
 
 static GROUP_ITEMS_STYLE: &[Cond] = &[
+    Cond::simple(P::const_box_sizing(LayoutBoxSizing::BorderBox)),
     Cond::simple(P::const_display(LayoutDisplay::Flex)),
     Cond::simple(P::const_flex_direction(LayoutFlexDirection::Row)),
     Cond::simple(P::const_flex_grow(LayoutFlexGrow::const_new(0))),
@@ -272,6 +273,7 @@ static GROUP_ITEMS_STYLE: &[Cond] = &[
 ];
 
 static GROUP_FOOTER_STYLE: &[Cond] = &[
+    Cond::simple(P::const_box_sizing(LayoutBoxSizing::BorderBox)),
     Cond::simple(P::const_display(LayoutDisplay::Flex)),
     Cond::simple(P::const_flex_direction(LayoutFlexDirection::Row)),
     Cond::simple(P::const_flex_grow(LayoutFlexGrow::const_new(0))),
@@ -344,6 +346,15 @@ fn cond_text_color(c: ColorU) -> Cond {
     Cond::simple(P::const_text_color(StyleTextColor { inner: c }))
 }
 
+/// Word's control metrics (22px small button, 66px large button, 26px tab)
+/// are BORDER-BOX numbers: they include the padding and the 1px hover
+/// border. CSS defaults to content-box, which inflated every control by its
+/// padding+border - three 22px rows became 78px and overflowed the 68px item
+/// area, painting over the group caption.
+fn cond_border_box() -> Cond {
+    Cond::simple(P::const_box_sizing(LayoutBoxSizing::BorderBox))
+}
+
 fn push_padding(v: &mut Vec<Cond>, top: isize, right: isize, bottom: isize, left: isize) {
     v.push(Cond::simple(P::const_padding_top(LayoutPaddingTop::const_px(top))));
     v.push(Cond::simple(P::const_padding_right(LayoutPaddingRight::const_px(right))));
@@ -388,6 +399,7 @@ fn push_bottom_border(v: &mut Vec<Cond>, c: ColorU) {
 /// Transparent-bordered, hover-highlighted button chassis shared by large
 /// and small ribbon buttons.
 fn push_button_chassis(v: &mut Vec<Cond>, t: &RibbonTheme) {
+    v.push(cond_border_box());
     v.push(Cond::simple(P::const_cursor(StyleCursor::Default)));
     v.push(cond_bg(TRANSPARENT));
     push_box_border(v, TRANSPARENT);
@@ -411,6 +423,7 @@ fn theme_container(t: &RibbonTheme) -> CssPropertyWithConditionsVec {
 
 fn theme_tab_bar(t: &RibbonTheme) -> CssPropertyWithConditionsVec {
     CssPropertyWithConditionsVec::from_vec(vec![
+        cond_border_box(),
         Cond::simple(P::const_display(LayoutDisplay::Flex)),
         Cond::simple(P::const_flex_direction(LayoutFlexDirection::Row)),
         Cond::simple(P::const_flex_grow(LayoutFlexGrow::const_new(0))),
@@ -420,7 +433,13 @@ fn theme_tab_bar(t: &RibbonTheme) -> CssPropertyWithConditionsVec {
 }
 
 fn theme_app_button(t: &RibbonTheme) -> CssPropertyWithConditionsVec {
-    let mut v = Vec::with_capacity(12);
+    let mut v: Vec<Cond> = vec![
+        cond_border_box(),
+        Cond::simple(P::const_display(LayoutDisplay::Flex)),
+        Cond::simple(P::const_flex_direction(LayoutFlexDirection::Row)),
+        Cond::simple(P::const_align_items(LayoutAlignItems::Center)),
+        Cond::simple(P::const_flex_grow(LayoutFlexGrow::const_new(0))),
+    ];
     v.push(Cond::simple(P::const_flex_shrink(LayoutFlexShrink { inner: FloatValue::const_new(0) })));
     push_padding(&mut v, 7, 17, 7, 17);
     v.push(cond_bg(t.accent));
@@ -433,7 +452,13 @@ fn theme_app_button(t: &RibbonTheme) -> CssPropertyWithConditionsVec {
 }
 
 fn theme_tab(t: &RibbonTheme) -> CssPropertyWithConditionsVec {
-    let mut v = Vec::with_capacity(14);
+    let mut v: Vec<Cond> = vec![
+        cond_border_box(),
+        Cond::simple(P::const_display(LayoutDisplay::Flex)),
+        Cond::simple(P::const_flex_direction(LayoutFlexDirection::Row)),
+        Cond::simple(P::const_align_items(LayoutAlignItems::Center)),
+        Cond::simple(P::const_flex_grow(LayoutFlexGrow::const_new(0))),
+    ];
     v.push(Cond::simple(P::const_flex_shrink(LayoutFlexShrink { inner: FloatValue::const_new(0) })));
     push_padding(&mut v, 7, 13, 6, 13);
     v.push(Cond::simple(P::const_cursor(StyleCursor::Pointer)));
@@ -446,7 +471,13 @@ fn theme_tab(t: &RibbonTheme) -> CssPropertyWithConditionsVec {
 }
 
 fn theme_tab_active(t: &RibbonTheme) -> CssPropertyWithConditionsVec {
-    let mut v = Vec::with_capacity(20);
+    let mut v: Vec<Cond> = vec![
+        cond_border_box(),
+        Cond::simple(P::const_display(LayoutDisplay::Flex)),
+        Cond::simple(P::const_flex_direction(LayoutFlexDirection::Row)),
+        Cond::simple(P::const_align_items(LayoutAlignItems::Center)),
+        Cond::simple(P::const_flex_grow(LayoutFlexGrow::const_new(0))),
+    ];
     v.push(Cond::simple(P::const_flex_shrink(LayoutFlexShrink { inner: FloatValue::const_new(0) })));
     push_padding(&mut v, 6, 12, 6, 12);
     v.push(Cond::simple(P::user_select(StyleUserSelect::None)));
@@ -469,6 +500,7 @@ fn theme_tab_filler(t: &RibbonTheme) -> CssPropertyWithConditionsVec {
 
 fn theme_content(t: &RibbonTheme) -> CssPropertyWithConditionsVec {
     CssPropertyWithConditionsVec::from_vec(vec![
+        cond_border_box(),
         Cond::simple(P::const_display(LayoutDisplay::Flex)),
         Cond::simple(P::const_flex_direction(LayoutFlexDirection::Row)),
         Cond::simple(P::const_flex_grow(LayoutFlexGrow::const_new(0))),
@@ -505,6 +537,7 @@ fn theme_group_label(t: &RibbonTheme) -> CssPropertyWithConditionsVec {
 
 fn theme_launcher_button(t: &RibbonTheme) -> CssPropertyWithConditionsVec {
     let mut v = vec![
+        cond_border_box(),
         Cond::simple(P::const_display(LayoutDisplay::Flex)),
         Cond::simple(P::const_flex_direction(LayoutFlexDirection::Row)),
         Cond::simple(P::const_align_items(LayoutAlignItems::Center)),
@@ -632,6 +665,7 @@ fn theme_checked(t: &RibbonTheme) -> CssPropertyWithConditionsVec {
 
 fn theme_gallery_frame(t: &RibbonTheme) -> CssPropertyWithConditionsVec {
     let mut v = vec![
+        cond_border_box(),
         Cond::simple(P::const_min_width(LayoutMinWidth::const_px(137))),
         Cond::simple(P::const_display(LayoutDisplay::Flex)),
         Cond::simple(P::const_flex_direction(LayoutFlexDirection::Row)),
@@ -652,6 +686,7 @@ fn theme_gallery_frame(t: &RibbonTheme) -> CssPropertyWithConditionsVec {
 
 fn theme_gallery_cell(t: &RibbonTheme) -> CssPropertyWithConditionsVec {
     let mut v = vec![
+        cond_border_box(),
         Cond::simple(P::const_display(LayoutDisplay::Flex)),
         Cond::simple(P::const_flex_direction(LayoutFlexDirection::Column)),
         Cond::simple(P::const_align_items(LayoutAlignItems::Center)),
@@ -732,6 +767,7 @@ fn theme_gallery_panel(t: &RibbonTheme) -> CssPropertyWithConditionsVec {
 
 fn theme_gallery_spinner_button(t: &RibbonTheme) -> CssPropertyWithConditionsVec {
     let mut v = vec![
+        cond_border_box(),
         Cond::simple(P::const_display(LayoutDisplay::Flex)),
         Cond::simple(P::const_flex_direction(LayoutFlexDirection::Row)),
         Cond::simple(P::const_align_items(LayoutAlignItems::Center)),
@@ -774,6 +810,7 @@ fn theme_combo_wrapper_base(_t: &RibbonTheme) -> Vec<Cond> {
 
 fn theme_combo_field(t: &RibbonTheme) -> CssPropertyWithConditionsVec {
     let mut v = vec![
+        cond_border_box(),
         Cond::simple(P::const_display(LayoutDisplay::Flex)),
         Cond::simple(P::const_flex_direction(LayoutFlexDirection::Row)),
         Cond::simple(P::const_align_items(LayoutAlignItems::Center)),
@@ -842,6 +879,12 @@ static CLS_GALLERY_CELL_SELECTED: &[IdOrClass] = &[
     Class(AzString::from_const_str("__azul-native-ribbon-gallery-cell")),
     Class(AzString::from_const_str("__azul-native-ribbon-gallery-cell-selected")),
 ];
+/// Class names the handlers resolve their targets by (see
+/// `ancestor_with_class`), kept next to the `IdOrClass` tables that emit them.
+const GALLERY_WRAPPER_CLASS: &str = "__azul-native-ribbon-gallery-wrapper";
+const GALLERY_CELL_CLASS: &str = "__azul-native-ribbon-gallery-cell";
+const RIBBON_TAB_CLASS: &str = "__azul-native-ribbon-tab";
+
 static CLS_GALLERY_MORE: &[IdOrClass] =
     &[Class(AzString::from_const_str("__azul-native-ribbon-gallery-more"))];
 static CLS_GALLERY_WRAPPER: &[IdOrClass] =
@@ -1612,9 +1655,10 @@ impl Ribbon {
         let mut bar_children: Vec<Dom> = Vec::with_capacity(tabs.len() + 2);
 
         if let Some(ab) = app_button.into_option() {
-            let mut d = Dom::create_text(ab.label)
+            let mut d = Dom::create_div()
                 .with_ids_and_classes(IdOrClassVec::from_const_slice(CLS_APP_BUTTON))
-                .with_css_props(style.app_button_style.clone());
+                .with_css_props(style.app_button_style.clone())
+                .with_children(DomVec::from_vec(vec![Dom::create_text(ab.label)]));
             if let Some(oc) = ab.on_click.into_option() {
                 d = d.with_callbacks(vec![CoreCallbackData {
                     event: EventFilter::Hover(HoverEventFilter::MouseUp),
@@ -1639,9 +1683,10 @@ impl Ribbon {
             } else {
                 (CLS_TAB, style.tab_style.clone())
             };
-            let mut d = Dom::create_text(tab.label.clone())
+            let mut d = Dom::create_div()
                 .with_ids_and_classes(IdOrClassVec::from_const_slice(classes))
-                .with_css_props(part_style);
+                .with_css_props(part_style)
+                .with_children(DomVec::from_vec(vec![Dom::create_text(tab.label.clone())]));
 
             let mut cbs: Vec<CoreCallbackData> = Vec::with_capacity(4);
             if has_callback {
@@ -2041,7 +2086,8 @@ struct RibbonChromeState {
 
 /// The content band is the tab bar's next sibling; from a tab header that is
 /// `parent(tab) -> next_sibling`.
-fn content_node_of_tab(info: &CallbackInfo, tab: DomNodeId) -> Option<DomNodeId> {
+fn content_node_of_tab(info: &CallbackInfo, hit: DomNodeId) -> Option<DomNodeId> {
+    let tab = ancestor_with_class(info, hit, RIBBON_TAB_CLASS)?;
     info.get_next_sibling(info.get_parent(tab)?)
 }
 
@@ -2110,16 +2156,39 @@ struct GalleryMoreData {
     open: bool,
 }
 
-/// The "More" button toggles the expansion panel. The panel is the gallery
-/// wrapper's last child; the button sits in
-/// wrapper > frame > spinner > button, so the wrapper is 3 parents up.
+/// Walks up from `start` (inclusive) to the first ancestor carrying `class`.
+///
+/// Hit nodes are not stable: a click on a button can report the button or
+/// the icon/label node inside it, and widgets may gain wrapper levels. So
+/// the ribbon's handlers locate their targets by CLASS rather than by
+/// counting `get_parent` hops - the same identifiers the public CSS API is
+/// built on. The walk is bounded so a malformed tree cannot spin.
+fn ancestor_with_class(
+    info: &CallbackInfo,
+    start: DomNodeId,
+    class: &str,
+) -> Option<DomNodeId> {
+    let mut current = Some(start);
+    for _ in 0..16 {
+        let node = current?;
+        if info
+            .get_node_classes(node)
+            .as_ref()
+            .iter()
+            .any(|c| c.as_str() == class)
+        {
+            return Some(node);
+        }
+        current = info.get_parent(node);
+    }
+    None
+}
+
+/// The "More" button toggles the expansion panel (the gallery wrapper's
+/// last child).
 extern "C" fn on_ribbon_gallery_more_click(mut refany: RefAny, mut info: CallbackInfo) -> Update {
     let hit = info.get_hit_node();
-    let Some(wrapper) = info
-        .get_parent(hit)
-        .and_then(|spinner| info.get_parent(spinner))
-        .and_then(|frame| info.get_parent(frame))
-    else {
+    let Some(wrapper) = ancestor_with_class(&info, hit, GALLERY_WRAPPER_CLASS) else {
         return Update::DoNothing;
     };
     let Some(panel) = info.get_last_child(wrapper) else {
@@ -2165,23 +2234,25 @@ extern "C" fn on_ribbon_gallery_cell_click(mut refany: RefAny, mut info: Callbac
     drop(data);
 
     // Default behavior: move the highlight to the clicked cell immediately,
-    // so the gallery feels live even if the app does not re-render.
+    // so the gallery feels live even if the app does not re-render. The hit
+    // node may be the cell's preview or label, so resolve the cell by class.
+    let cell = ancestor_with_class(&info, hit, GALLERY_CELL_CLASS).unwrap_or(hit);
     if auto_select {
-        if let Some(strip) = info.get_parent(hit) {
+        if let Some(strip) = info.get_parent(cell) {
             let mut sibling = info.get_first_child(strip);
-            while let Some(cell) = sibling {
-                let style = if cell == hit { &selected_style } else { &base_style };
+            while let Some(cell_node) = sibling {
+                let style = if cell_node == cell { &selected_style } else { &base_style };
                 for prop in style.as_ref() {
                     if prop.apply_if.as_ref().is_empty() {
-                        info.set_css_property(cell, prop.property.clone());
+                        info.set_css_property(cell_node, prop.property.clone());
                     }
                 }
-                sibling = info.get_next_sibling(cell);
+                sibling = info.get_next_sibling(cell_node);
             }
         }
-        // Picking from the expansion panel closes it (wrapper = panel parent).
+        // Picking from the expansion panel closes it.
         if in_panel {
-            if let Some(panel) = info.get_parent(hit) {
+            if let Some(panel) = info.get_parent(cell) {
                 info.set_css_property(panel, P::const_display(LayoutDisplay::None));
             }
         }
@@ -2245,6 +2316,11 @@ mod tests {
             NodeType::Text(s) => Some(s.as_ref().as_str()),
             _ => None,
         }
+    }
+
+    /// The text of a box's single label child (tabs / app button).
+    fn label_text(node: &Dom) -> Option<&str> {
+        node.children.as_ref().first().and_then(text_of)
     }
 
     fn icon_name_of(node: &Dom) -> Option<&str> {
@@ -2455,9 +2531,12 @@ mod tests {
 
         assert_eq!(ch.len(), 5, "[app, t0, t1, t2, filler]");
         assert!(has_class(&ch[0], "__azul-native-ribbon-appbutton"));
-        assert_eq!(text_of(&ch[0]), Some("FILE"));
+        // The app button and the tabs are BOXES holding a label text child
+        // (a raw text node is an inline box, whose border paints around the
+        // text run instead of the padded tab).
+        assert_eq!(label_text(&ch[0]), Some("FILE"));
         for i in 0..3 {
-            assert_eq!(text_of(&ch[1 + i]), Some(format!("t{i}").as_str()));
+            assert_eq!(label_text(&ch[1 + i]), Some(format!("t{i}").as_str()));
             assert!(has_class(&ch[1 + i], "__azul-native-ribbon-tab"));
             assert_eq!(
                 has_class(&ch[1 + i], "__azul-native-ribbon-tab-active"),
