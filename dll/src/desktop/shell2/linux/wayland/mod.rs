@@ -6142,7 +6142,7 @@ impl WaylandPopup {
                 .common
                 .layout_window
                 .as_ref()
-                .map(|lw| lw.image_cache.image_id_map.clone())
+                .map(azul_layout::window::LayoutWindow::image_id_map_snapshot)
                 .unwrap_or_default(),
             viewporter: parent.viewporter,
             preferred_scale_120: parent.preferred_scale_120,
@@ -6394,10 +6394,10 @@ impl WaylandPopup {
                 Ok(mut lw) => {
                     lw.routes = self.resources.config.routes.clone();
                     // Seed with the parent window's image map so css-id /
-                    // url("...") images inside menu items actually resolve.
-                    lw.image_cache = azul_core::resources::ImageCache {
-                        image_id_map: self.parent_image_id_map.clone(),
-                    };
+                    // url("...") images inside menu items actually resolve
+                    // (whole-map seed at creation; mutations stay on the
+                    // apply_content_change chokepoint).
+                    lw.seed_image_id_map(self.parent_image_id_map.clone());
                     self.layout_window = Some(lw);
                 }
                 Err(e) => {

@@ -43989,6 +43989,36 @@
                             }
                         ],
                         "repr": "C"
+                    },
+                    "FontCacheSnapshot": {
+                        "doc": [
+                            "Boxed snapshot of a window's font resolution state (shared parsed-font pool,",
+                            "resolved fallback chains, embedded fonts). Obtain via",
+                            "`CallbackInfo.get_font_cache_clone()`; hand to `Pdf.from_styled_dom_with_resources()`.",
+                            "Cloning shares the pool (cheap); valid after the callback returns (off-thread ok)."
+                        ],
+                        "external": "azul_layout::resource_handles::FontCacheSnapshot",
+                        "custom_impls": [
+                            "Clone",
+                            "Drop"
+                        ],
+                        "derive": [
+                            "Debug"
+                        ],
+                        "struct_fields": [
+                            {
+                                "ptr": {
+                                    "type": "c_void",
+                                    "ref_kind": "mutptr"
+                                }
+                            },
+                            {
+                                "run_destructor": {
+                                    "type": "bool"
+                                }
+                            }
+                        ],
+                        "repr": "C"
                     }
                 }
             },
@@ -68555,11 +68585,11 @@
                         ],
                         "external": "azul_layout::resource_handles::ImageCacheSnapshot",
                         "custom_impls": [
+                            "Clone",
                             "Drop"
                         ],
                         "derive": [
-                            "Debug",
-                            "Clone"
+                            "Debug"
                         ],
                         "struct_fields": [
                             {
@@ -69343,36 +69373,6 @@
                                     "doc": [
                                         "Number of elements in the slice"
                                     ]
-                                }
-                            }
-                        ],
-                        "repr": "C"
-                    },
-                    "FontCacheSnapshot": {
-                        "doc": [
-                            "Boxed snapshot of a window's font resolution state (shared parsed-font pool,",
-                            "resolved fallback chains, embedded fonts). Obtain via",
-                            "`CallbackInfo.get_font_cache_clone()`; hand to `Pdf.from_styled_dom_with_resources()`.",
-                            "Cloning shares the pool (cheap); valid after the callback returns (off-thread ok)."
-                        ],
-                        "external": "azul_layout::resource_handles::FontCacheSnapshot",
-                        "custom_impls": [
-                            "Drop"
-                        ],
-                        "derive": [
-                            "Debug",
-                            "Clone"
-                        ],
-                        "struct_fields": [
-                            {
-                                "ptr": {
-                                    "type": "c_void",
-                                    "ref_kind": "mutptr"
-                                }
-                            },
-                            {
-                                "run_destructor": {
-                                    "type": "bool"
                                 }
                             }
                         ],
@@ -105964,150 +105964,6 @@
                             }
                         },
                         "repr": "C"
-                    },
-                    "PaginationSnapshot": {
-                        "doc": [
-                            "Boxed pagination analysis: page count, page-of-Y and every break position",
-                            "computed WITHOUT materializing any per-page display list (the document-",
-                            "editor precalculation). Obtain via `Pdf.compute_pagination()`. An empty",
-                            "handle reports 0 pages."
-                        ],
-                        "external": "azul_layout::resource_handles::PaginationSnapshot",
-                        "custom_impls": [
-                            "Drop"
-                        ],
-                        "derive": [
-                            "Debug",
-                            "Clone"
-                        ],
-                        "struct_fields": [
-                            {
-                                "ptr": {
-                                    "type": "c_void",
-                                    "ref_kind": "mutptr"
-                                }
-                            },
-                            {
-                                "run_destructor": {
-                                    "type": "bool"
-                                }
-                            }
-                        ],
-                        "functions": {
-                            "page_count": {
-                                "doc": [
-                                    "Number of pages (0 for an empty handle)."
-                                ],
-                                "fn_args": [
-                                    {
-                                        "self": "ref"
-                                    }
-                                ],
-                                "returns": {
-                                    "type": "usize"
-                                },
-                                "fn_body": "object.page_count()"
-                            },
-                            "total_content_height": {
-                                "doc": [
-                                    "Total document-space content height."
-                                ],
-                                "fn_args": [
-                                    {
-                                        "self": "ref"
-                                    }
-                                ],
-                                "returns": {
-                                    "type": "f32"
-                                },
-                                "fn_body": "object.total_content_height()"
-                            },
-                            "break_count": {
-                                "doc": [
-                                    "Number of page breaks."
-                                ],
-                                "fn_args": [
-                                    {
-                                        "self": "ref"
-                                    }
-                                ],
-                                "returns": {
-                                    "type": "usize"
-                                },
-                                "fn_body": "object.break_count()"
-                            },
-                            "break_y": {
-                                "doc": [
-                                    "Document-space Y of break `index` (0.0 out of range)."
-                                ],
-                                "fn_args": [
-                                    {
-                                        "self": "ref"
-                                    },
-                                    {
-                                        "index": "usize"
-                                    }
-                                ],
-                                "returns": {
-                                    "type": "f32"
-                                },
-                                "fn_body": "object.break_y(index)"
-                            },
-                            "break_is_forced": {
-                                "doc": [
-                                    "Whether break `index` was forced by CSS break-before/after."
-                                ],
-                                "fn_args": [
-                                    {
-                                        "self": "ref"
-                                    },
-                                    {
-                                        "index": "usize"
-                                    }
-                                ],
-                                "returns": {
-                                    "type": "bool"
-                                },
-                                "fn_body": "object.break_is_forced(index)"
-                            },
-                            "break_was_avoided": {
-                                "doc": [
-                                    "Whether break `index` was moved by an avoid-rule (break-inside,",
-                                    "widows/orphans, atomic lines or table rows)."
-                                ],
-                                "fn_args": [
-                                    {
-                                        "self": "ref"
-                                    },
-                                    {
-                                        "index": "usize"
-                                    }
-                                ],
-                                "returns": {
-                                    "type": "bool"
-                                },
-                                "fn_body": "object.break_was_avoided(index)"
-                            },
-                            "page_of_y": {
-                                "doc": [
-                                    "Which page a document-space Y lands on - 'what page is this",
-                                    "node on?' with NO page ever materialized."
-                                ],
-                                "fn_args": [
-                                    {
-                                        "self": "ref"
-                                    },
-                                    {
-                                        "y": "f32"
-                                    }
-                                ],
-                                "returns": {
-                                    "type": "usize"
-                                },
-                                "fn_body": "object.page_of_y(y)"
-                            }
-                        },
-                        "repr": "C"
                     }
                 }
             },
@@ -106506,6 +106362,150 @@
                                 "Reduced": {}
                             }
                         ],
+                        "repr": "C"
+                    },
+                    "PaginationSnapshot": {
+                        "doc": [
+                            "Boxed pagination analysis: page count, page-of-Y and every break position",
+                            "computed WITHOUT materializing any per-page display list (the document-",
+                            "editor precalculation). Obtain via `Pdf.compute_pagination()`. An empty",
+                            "handle reports 0 pages."
+                        ],
+                        "external": "azul_layout::resource_handles::PaginationSnapshot",
+                        "custom_impls": [
+                            "Clone",
+                            "Drop"
+                        ],
+                        "derive": [
+                            "Debug"
+                        ],
+                        "struct_fields": [
+                            {
+                                "ptr": {
+                                    "type": "c_void",
+                                    "ref_kind": "mutptr"
+                                }
+                            },
+                            {
+                                "run_destructor": {
+                                    "type": "bool"
+                                }
+                            }
+                        ],
+                        "functions": {
+                            "page_count": {
+                                "doc": [
+                                    "Number of pages (0 for an empty handle)."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "usize"
+                                },
+                                "fn_body": "object.page_count()"
+                            },
+                            "total_content_height": {
+                                "doc": [
+                                    "Total document-space content height."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "f32"
+                                },
+                                "fn_body": "object.total_content_height()"
+                            },
+                            "break_count": {
+                                "doc": [
+                                    "Number of page breaks."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "usize"
+                                },
+                                "fn_body": "object.break_count()"
+                            },
+                            "break_y": {
+                                "doc": [
+                                    "Document-space Y of break `index` (0.0 out of range)."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    },
+                                    {
+                                        "index": "usize"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "f32"
+                                },
+                                "fn_body": "object.break_y(index)"
+                            },
+                            "break_is_forced": {
+                                "doc": [
+                                    "Whether break `index` was forced by CSS break-before/after."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    },
+                                    {
+                                        "index": "usize"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "bool"
+                                },
+                                "fn_body": "object.break_is_forced(index)"
+                            },
+                            "break_was_avoided": {
+                                "doc": [
+                                    "Whether break `index` was moved by an avoid-rule (break-inside,",
+                                    "widows/orphans, atomic lines or table rows)."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    },
+                                    {
+                                        "index": "usize"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "bool"
+                                },
+                                "fn_body": "object.break_was_avoided(index)"
+                            },
+                            "page_of_y": {
+                                "doc": [
+                                    "Which page a document-space Y lands on - 'what page is this",
+                                    "node on?' with NO page ever materialized."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    },
+                                    {
+                                        "y": "f32"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "usize"
+                                },
+                                "fn_body": "object.page_of_y(y)"
+                            }
+                        },
                         "repr": "C"
                     }
                 }

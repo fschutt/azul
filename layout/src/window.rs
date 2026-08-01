@@ -1317,6 +1317,22 @@ impl LayoutWindow {
         self.pagination_dirty_from.take()
     }
 
+    /// Snapshot of the css-id → image map for seeding a CHILD window
+    /// (popups/menus): the sanctioned read for shells, which may not name
+    /// content-state fields directly (the architecture lint enforces it).
+    #[must_use]
+    pub fn image_id_map_snapshot(&self) -> BTreeMap<AzString, ImageRef> {
+        self.image_cache.image_id_map.clone()
+    }
+
+    /// Seed this window's image map from a parent's snapshot — the popup
+    /// half of [`Self::image_id_map_snapshot`]. A whole-map replacement at
+    /// window CREATION only; per-image mutations afterwards still go through
+    /// `apply_content_change` (`ImageById` arm).
+    pub fn seed_image_id_map(&mut self, map: BTreeMap<AzString, ImageRef>) {
+        self.image_cache = ImageCache { image_id_map: map };
+    }
+
     /// Editing state of the focused node for the default-action decision
     /// (`determine_keyboard_default_action_with_editing`). `None` when the
     /// focus is not inside a contenteditable host.

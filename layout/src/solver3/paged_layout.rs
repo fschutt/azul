@@ -979,7 +979,8 @@ fn materialize_sequence_tail(
 /// # Errors
 ///
 /// Returns a `LayoutError` if any section's layout fails.
-#[cfg(feature = "text_layout")]
+// xml: `document_edit` (the spine-cut applier) lives behind text_layout+xml.
+#[cfg(all(feature = "text_layout", feature = "xml"))]
 #[allow(clippy::too_many_arguments)]
 pub fn compute_sectioned_pagination<T, F>(
     styled_dom: &StyledDom,
