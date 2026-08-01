@@ -38,9 +38,29 @@ public class AzulActivity extends NativeActivity {
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
+        // NativeActivity dlopens the cdylib NATIVELY during super.onCreate —
+        // which does NOT register it with this ClassLoader for Java
+        // native-method resolution. Without an explicit System.loadLibrary,
+        // every `native` method in this class (and the bridge classes) throws
+        // UnsatisfiedLinkError at its first call even though the symbols are
+        // exported (caught live by the post-release emulator check: crash in
+        // onWindowFocusChanged -> nativeGetWindowPointer). The lib name is
+        // per-app, so read it from the same manifest metadata NativeActivity
+        // itself uses; loading a lib twice in one ClassLoader is a no-op.
+        try {
+            android.content.pm.ActivityInfo ai = getPackageManager().getActivityInfo(
+                getComponentName(), android.content.pm.PackageManager.GET_META_DATA);
+            String lib = ai.metaData != null
+                ? ai.metaData.getString("android.app.lib_name")
+                : null;
+            if (lib != null) {
+                System.loadLibrary(lib);
+            }
+        } catch (Exception e) {
+            // Fall through: if the lib is truly unloadable, NativeActivity's
+            // own load in super.onCreate produces the canonical error.
+        }
         super.onCreate(savedInstanceState);
-        // NativeActivity loads the cdylib (libazul.so) during super.onCreate.
-        // By the time we return here, our static JNI_OnLoad has run and
         // android_main is starting on its own thread — but the
         // ANDROID_WINDOW_PTR may not be set yet. We attach lazily in
         // onWindowFocusChanged so the AndroidWindow* is guaranteed to
