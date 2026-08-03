@@ -3467,10 +3467,25 @@ where
             return self.paint_table_items(builder, node_index);
         }
 
+        // CSS 2.2 section 17.5.1: a cell's BACKGROUND belongs to layer 6 of
+        // the table paint order and is painted by paint_table_items — never
+        // here, or it re-paints ON TOP of whatever the table painted after
+        // layer 6 (the resolved collapsed borders). The cell's own BORDER is
+        // painted here in the separate-borders model only; in the collapsing
+        // model the table paints one resolved border per grid edge
+        // (paint_collapsed_table_borders), so the cell contributes nothing.
+        let is_table_cell = matches!(node.formatting_context, FormattingContext::TableCell);
+        if is_table_cell && self.is_inside_collapsed_table(node_index) {
+            return Ok(());
+        }
+
         if let Some(dom_id) = node.dom_node_id {
             let styled_node_state = self.get_styled_node_state(dom_id);
-            let background_contents =
-                get_background_contents(self.ctx.styled_dom, dom_id, &styled_node_state);
+            let background_contents = if is_table_cell {
+                Vec::new()
+            } else {
+                get_background_contents(self.ctx.styled_dom, dom_id, &styled_node_state)
+            };
             let border_info = get_border_info(self.ctx.styled_dom, dom_id, &styled_node_state);
 
             let node_type = &self.ctx.styled_dom.node_data.as_container()[dom_id];
@@ -3634,13 +3649,248 @@ where
             }
         }
 
-        // Borders are painted separately after all backgrounds
-        // This is handled by the normal rendering flow for each element
-        // TODO: For border-collapse: collapse tables, resolve conflicts between
-        // adjacent cell borders using BorderInfo::resolve_conflict() from fc.rs.
-        // Currently all cells paint their own borders (separate model behavior).
+        // Borders: separate model cells paint their own borders in the normal
+        // flow; the collapsing model paints ONE resolved border per grid edge
+        // here, on top of all table backgrounds (cell borders are suppressed
+        // in paint_node_background_and_border for collapsed tables).
+        if self.table_is_border_collapsed(table_index) {
+            self.paint_collapsed_table_borders(builder, table_index);
+        }
 
         Ok(())
+    }
+
+    /// Whether `table_index` (a `FormattingContext::Table` node) uses the
+    /// collapsing border model. Anonymous wrapper tables have no DOM node and
+    /// keep the initial value (separate).
+    fn table_is_border_collapsed(&self, table_index: usize) -> bool {
+        use azul_css::props::layout::table::StyleBorderCollapse;
+        let Some(node) = self.positioned_tree.tree.get(table_index) else {
+            return false;
+        };
+        let Some(dom_id) = node.dom_node_id else {
+            return false;
+        };
+        if let Some(ref cc) = self.ctx.styled_dom.css_property_cache.ptr.compact_cache {
+            return cc.get_border_collapse(dom_id.index()) == StyleBorderCollapse::Collapse;
+        }
+        let node_data = &self.ctx.styled_dom.node_data.as_container()[dom_id];
+        let node_state = self.get_styled_node_state(dom_id);
+        self.ctx
+            .styled_dom
+            .css_property_cache
+            .ptr
+            .get_border_collapse(node_data, &dom_id, &node_state)
+            .and_then(|prop| prop.get_property().copied())
+            .unwrap_or(StyleBorderCollapse::Separate)
+            == StyleBorderCollapse::Collapse
+    }
+
+    /// Whether a node lives inside a `border-collapse: collapse` table
+    /// (walks the layout-tree parent chain to the nearest Table node).
+    fn is_inside_collapsed_table(&self, node_index: usize) -> bool {
+        let mut cur = self.positioned_tree.tree.get(node_index).and_then(|n| n.parent);
+        while let Some(idx) = cur {
+            let Some(node) = self.positioned_tree.tree.get(idx) else {
+                return false;
+            };
+            if matches!(node.formatting_context, FormattingContext::Table) {
+                return self.table_is_border_collapsed(idx);
+            }
+            cur = node.parent;
+        }
+        false
+    }
+
+    /// CSS 2.2 section 17.6.2: paint the collapsing-border grid.
+    ///
+    /// For every grid edge the participating borders (the two adjacent cells
+    /// on interior edges; cell + table on perimeter edges; the row's own
+    /// border on horizontal edges) compete via
+    /// `BorderInfo::resolve_conflict` (hidden wins, then wider, then style
+    /// priority, then source priority) and the single winner is painted as a
+    /// strip CENTERED on the grid line — perimeter borders deliberately
+    /// straddle the table edge, exactly like browsers render them.
+    ///
+    /// v1 limitations, acceptable for the current corpus and safe (worst
+    /// case: a border strip at a slightly wrong offset, never a double
+    /// border): cells are paired positionally per row (colspan/rowspan
+    /// pairing is approximate), column/column-group borders do not
+    /// participate, and non-solid winners (dashed/dotted/double) paint as a
+    /// solid strip of the winning color.
+    fn paint_collapsed_table_borders(
+        &self,
+        builder: &mut DisplayListBuilder,
+        table_index: usize,
+    ) {
+        use crate::solver3::fc::{
+            get_border_info as collapsed_border_info, BorderInfo as CollapsedBorder, BorderSource,
+        };
+        use azul_css::props::style::border::BorderStyle;
+
+        // (cell layout-tree index, paint rect, owning row index) per row
+        let mut rows: Vec<(usize, Vec<(usize, LogicalRect)>)> = Vec::new();
+        for &child_idx in self.positioned_tree.tree.children(table_index) {
+            let Some(child) = self.positioned_tree.tree.get(child_idx) else {
+                continue;
+            };
+            match child.formatting_context {
+                FormattingContext::TableRowGroup => {
+                    for &row_idx in self.positioned_tree.tree.children(child_idx) {
+                        rows.push((row_idx, self.collect_row_cells(row_idx)));
+                    }
+                }
+                FormattingContext::TableRow => {
+                    rows.push((child_idx, self.collect_row_cells(child_idx)));
+                }
+                _ => {}
+            }
+        }
+        rows.retain(|(_, cells)| !cells.is_empty());
+        if rows.is_empty() {
+            return;
+        }
+
+        let cell_border = |idx: usize| -> Option<[CollapsedBorder; 4]> {
+            let node = self.positioned_tree.tree.get(idx)?;
+            let (t, r, b, l) = collapsed_border_info(self.ctx, node, BorderSource::Cell);
+            Some([t, r, b, l])
+        };
+        let row_border = |idx: usize| -> Option<[CollapsedBorder; 4]> {
+            let node = self.positioned_tree.tree.get(idx)?;
+            let (t, r, b, l) = collapsed_border_info(self.ctx, node, BorderSource::Row);
+            Some([t, r, b, l])
+        };
+        let table_border: Option<[CollapsedBorder; 4]> = self
+            .positioned_tree
+            .tree
+            .get(table_index)
+            .map(|node| {
+                let (t, r, b, l) = collapsed_border_info(self.ctx, node, BorderSource::Table);
+                [t, r, b, l]
+            });
+        const TOP: usize = 0;
+        const RIGHT: usize = 1;
+        const BOTTOM: usize = 2;
+        const LEFT: usize = 3;
+
+        // Fold the participants down to one winner. `resolve_conflict`
+        // returning None means `hidden` participated: paint nothing.
+        let resolve = |participants: &[Option<CollapsedBorder>]| -> Option<CollapsedBorder> {
+            let mut winner: Option<CollapsedBorder> = None;
+            for b in participants.iter().flatten() {
+                winner = match winner {
+                    None => Some(*b),
+                    Some(w) => Some(CollapsedBorder::resolve_conflict(&w, b)?),
+                };
+            }
+            let w = winner?;
+            (w.width > 0.0 && !matches!(w.style, BorderStyle::None | BorderStyle::Hidden))
+                .then_some(w)
+        };
+
+        // Vertical edges, one strip per (row, boundary).
+        for (row_idx, cells) in &rows {
+            let _ = row_idx;
+            let n = cells.len();
+            for boundary in 0..=n {
+                let left_cell = boundary.checked_sub(1).and_then(|i| cells.get(i));
+                let right_cell = cells.get(boundary);
+                let winner = resolve(&[
+                    left_cell.and_then(|(i, _)| cell_border(*i)).map(|b| b[RIGHT]),
+                    right_cell.and_then(|(i, _)| cell_border(*i)).map(|b| b[LEFT]),
+                    // table border participates on the perimeter only
+                    if boundary == 0 {
+                        table_border.map(|b| b[LEFT])
+                    } else if boundary == n {
+                        table_border.map(|b| b[RIGHT])
+                    } else {
+                        None
+                    },
+                ]);
+                let Some(w) = winner else { continue };
+                let (x, y0, y1) = match (left_cell, right_cell) {
+                    (Some((_, lr)), _) => (
+                        lr.origin.x + lr.size.width,
+                        lr.origin.y,
+                        lr.origin.y + lr.size.height,
+                    ),
+                    (None, Some((_, rr))) => {
+                        (rr.origin.x, rr.origin.y, rr.origin.y + rr.size.height)
+                    }
+                    (None, None) => continue,
+                };
+                builder.push_rect(
+                    LogicalRect::new(
+                        LogicalPosition::new(x - w.width * 0.5, y0),
+                        LogicalSize::new(w.width, y1 - y0),
+                    ),
+                    w.color,
+                    BorderRadius::default(),
+                );
+            }
+        }
+
+        // Horizontal edges: for each row boundary, one strip per column
+        // segment (positional pairing of the cells above/below).
+        let n_rows = rows.len();
+        for boundary in 0..=n_rows {
+            let above = boundary.checked_sub(1).and_then(|i| rows.get(i));
+            let below = rows.get(boundary);
+            let segments: &[(usize, LogicalRect)] = match below.or(above) {
+                Some((_, cells)) => cells,
+                None => continue,
+            };
+            for (col, (_, seg_rect)) in segments.iter().enumerate() {
+                let above_cell = above.and_then(|(_, cells)| cells.get(col));
+                let below_cell = below.and_then(|(_, cells)| cells.get(col));
+                let winner = resolve(&[
+                    above_cell.and_then(|(i, _)| cell_border(*i)).map(|b| b[BOTTOM]),
+                    above.and_then(|(r, _)| row_border(*r)).map(|b| b[BOTTOM]),
+                    below_cell.and_then(|(i, _)| cell_border(*i)).map(|b| b[TOP]),
+                    below.and_then(|(r, _)| row_border(*r)).map(|b| b[TOP]),
+                    if boundary == 0 {
+                        table_border.map(|b| b[TOP])
+                    } else if boundary == n_rows {
+                        table_border.map(|b| b[BOTTOM])
+                    } else {
+                        None
+                    },
+                ]);
+                let Some(w) = winner else { continue };
+                let y = match above_cell.or(below_cell) {
+                    Some((_, r)) if above_cell.is_some() => r.origin.y + r.size.height,
+                    Some((_, r)) => r.origin.y,
+                    None => continue,
+                };
+                // Extend the strip by its own half-width at both ends so the
+                // corners where a wider horizontal border meets a narrower
+                // vertical one are filled.
+                let x0 = seg_rect.origin.x - w.width * 0.5;
+                let x1 = seg_rect.origin.x + seg_rect.size.width + w.width * 0.5;
+                builder.push_rect(
+                    LogicalRect::new(
+                        LogicalPosition::new(x0, y - w.width * 0.5),
+                        LogicalSize::new(x1 - x0, w.width),
+                    ),
+                    w.color,
+                    BorderRadius::default(),
+                );
+            }
+        }
+    }
+
+    /// Paint rects of a row's cell children, in tree order.
+    fn collect_row_cells(&self, row_idx: usize) -> Vec<(usize, LogicalRect)> {
+        self.positioned_tree
+            .tree
+            .children(row_idx)
+            .iter()
+            .filter_map(|&cell_idx| {
+                let rect = self.get_paint_rect(cell_idx)?;
+                Some((cell_idx, rect))
+            })
+            .collect()
     }
 
     /// Helper function to paint a table row's background and then its cells' backgrounds

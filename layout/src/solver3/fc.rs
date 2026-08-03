@@ -3769,10 +3769,18 @@ fn translate_to_text3_constraints<'a, T: ParsedFontTrait>(
     // +spec:inline-formatting-context:686f8b - vertical-align shorthand: alignment-baseline + baseline-shift for inline boxes
     // +spec:inline-formatting-context:e579b6 - vertical-align / baseline alignment in inline context
     // +spec:inline-formatting-context:a01a75 - dominant baseline alignment for atomic inlines
-    let vertical_align = match get_vertical_align_property(styled_dom, id, node_state) {
-        MultiValue::Exact(v) => v,
-        _ => StyleVerticalAlign::default(),
-    };
+    //
+    // CSS 2.2 section 10.8.1: vertical-align applies to INLINE-LEVEL boxes
+    // and TABLE CELLS only. `id` here is the IFC ROOT (a block container:
+    // div, td, th, ...) — its own vertical-align must NOT become the line
+    // alignment of its anonymous inline content, which always starts from
+    // the initial value (baseline). Inline spans and atomic inlines inside
+    // the IFC carry their alignment per-item. A table cell's vertical-align
+    // is consumed by position_table_cells (cell content block alignment),
+    // and letting it leak in here double-applied it as an inline shift:
+    // the UA `th { vertical-align: middle }` pushed every header glyph in
+    // table-basic-001 ~9px below the padding box.
+    let vertical_align = StyleVerticalAlign::Baseline;
 
     // +spec:display-property:c03a6b - baseline-shift (sub/super/length/percentage) and line-relative (top/center/bottom) shifts handled via vertical-align
     let vertical_align = match vertical_align {
@@ -4552,7 +4560,7 @@ impl BorderInfo {
 /// Get border information for a node
 #[allow(clippy::similar_names)] // domain-standard coordinate/geometry/short-lived names
 #[allow(clippy::too_many_lines)] // large but cohesive: single-purpose layout/render/parse routine (one branch per case)
-fn get_border_info<T: ParsedFontTrait>(
+pub(crate) fn get_border_info<T: ParsedFontTrait>(
     ctx: &LayoutContext<'_, T>,
     node: &LayoutNodeHot,
     source: BorderSource,
