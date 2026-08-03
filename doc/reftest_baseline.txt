@@ -3,21 +3,29 @@
 # add it here in the same commit so the gain cannot silently regress later.
 # Removing a name is a deliberate admission of regression; say why.
 #
-# azul currently passes 29 of 52 CSS reftests. That is the real number, and it
+# azul currently passes 38 of 52 CSS reftests. That is the real number, and it
 # is why this gate is a REGRESSION gate rather than an all-must-pass gate:
 # demanding 100% today would block every deploy, and demanding nothing is what
 # `azul-doc reftest` did before (it returned Ok(()) unconditionally, so 0/44
 # was indistinguishable from 44/44).
 block-float-clear-complex-001
+block-padding-border-001
 block-positioning-complex-001
 block-width-height-001
 calc-width-001
+cascade-font-weight-inherit-001
+cascade-global-star-001
+cascade-inline-style-001
+cascade-multiple-classes-001
+cascade-nested-selectors-001
+cascade-specificity-001
 color-background-001
 display-none-visibility-001
 flexbox-flex-grow-shrink-001
 flexbox-simple
 flexbox-wrap-alignment-001
 font-hinting-001
+font-properties-001
 inline-block-text-002
 list-style-001
 margin-auto-centering-001

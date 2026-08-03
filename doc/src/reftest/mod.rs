@@ -906,14 +906,40 @@ pub fn compare_images(chrome_img_path: &Path, azul_img_path: &Path) -> anyhow::R
     let (width, height) = chrome_rgba.dimensions();
     let mut diff_count = 0;
 
-    // Perform direct byte comparison with anti-aliasing allowance
+    // Per-pixel comparison with a 1px-neighborhood allowance (the standard
+    // cross-engine reftest "fuzzy" match, cf. WPT fuzzy annotations): two
+    // different rasterizers (azul's agg vs Chrome's skia) place glyph edge
+    // coverage up to half a pixel apart, so a strict per-pixel comparison
+    // has a diff FLOOR of tens of thousands of pixels on text-heavy pages
+    // no matter how correct the layout is. A pixel only counts as different
+    // if, IN BOTH DIRECTIONS, no pixel within a 1px radius of the same
+    // position in the other image is within tolerance — sub-pixel AA noise
+    // vanishes while >1px layout shifts, missing borders and wrong colors
+    // still count in full.
+    let neighborhood_match = |img: &image::RgbaImage, x: u32, y: u32, pixel: &image::Rgba<u8>| {
+        let x0 = x.saturating_sub(1);
+        let y0 = y.saturating_sub(1);
+        for ny in y0..=(y + 1).min(height - 1) {
+            for nx in x0..=(x + 1).min(width - 1) {
+                if pixels_similar(pixel, img.get_pixel(nx, ny), 0.1) {
+                    return true;
+                }
+            }
+        }
+        false
+    };
+
     for y in 0..height {
         for x in 0..width {
             let chrome_pixel = chrome_rgba.get_pixel(x, y);
             let azul_pixel = azul_rgba.get_pixel(x, y);
 
-            // Compare pixels with some tolerance for anti-aliasing
-            if !pixels_similar(chrome_pixel, azul_pixel, 0.1) {
+            if pixels_similar(chrome_pixel, azul_pixel, 0.1) {
+                continue;
+            }
+            if !neighborhood_match(&azul_rgba, x, y, chrome_pixel)
+                || !neighborhood_match(&chrome_rgba, x, y, azul_pixel)
+            {
                 diff_count += 1;
             }
         }
