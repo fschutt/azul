@@ -236,6 +236,7 @@ pub fn run_reftests(config: RunRefTestsConfig) -> anyhow::Result<ReftestOutcome>
     println!("Initializing reftest pipeline...");
     // Hermetic fonts for BOTH engines (see write_hermetic_fontconfig).
     let _ = pipeline::ReftestPipeline::write_hermetic_fontconfig(&output_dir);
+    pin_comparison_text_blend();
     let mut pipeline = pipeline::ReftestPipeline::new(&chrome_path)
         .map_err(|e| anyhow::anyhow!("Pipeline init failed: {}", e))?;
 
@@ -445,6 +446,7 @@ pub fn run_single_reftest(test_name: &str, config: RunRefTestsConfig) -> anyhow:
 
     // Use unified pipeline
     let _ = pipeline::ReftestPipeline::write_hermetic_fontconfig(&output_dir);
+    pin_comparison_text_blend();
     let mut pipe = pipeline::ReftestPipeline::new(&chrome_path)
         .map_err(|e| anyhow::anyhow!("Pipeline: {}", e))?;
 
@@ -858,6 +860,21 @@ impl Default for Options {
 }
 
 /// Helper function to determine if two pixels are similar enough (for anti-aliasing)
+/// Pin the azul renders of the COMPARISON pipeline to the legacy
+/// sRGB-space LCD blend. Chrome headless rasterizes grayscale with a
+/// ClearType-era tone curve; azul's production default is colorimetric
+/// (linear-light per-stripe, agg `PixfmtRgba32LcdLinear`), which is
+/// deliberately NOT the same tone — dark-on-light sits lighter and
+/// stripe colors are physical rather than code-space. Comparing that
+/// against Chrome burns the entire pixel budget of text-dense pages on
+/// a rendering-philosophy difference and hides real layout signal, so
+/// the reftest pipeline compares like with like (same rationale as the
+/// hermetic font pinning). The colorimetric path is verified by unit
+/// tests in agg-rust-azul and by the fontblend probe page.
+fn pin_comparison_text_blend() {
+    std::env::set_var("AZ_LCD_BLEND", "legacy");
+}
+
 pub fn pixels_similar(p1: &image::Rgba<u8>, p2: &image::Rgba<u8>, threshold: f64) -> bool {
     // Skip fully transparent pixels
     if p1[3] == 0 && p2[3] == 0 {
