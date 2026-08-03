@@ -3542,6 +3542,133 @@ use crate::text3::cache::{FontChainKey, FontChainKeyOrRef, FontSelector, FontSta
 // extend the lifetime of a freshly-computed Platform and hand back a reference to it;
 // map_or_else cannot express this (the closure would return a dangling local ref).
 #[allow(clippy::option_if_let_else)]
+/// The system's fontconfig `<alias><prefer>` lists for the CSS generic
+/// families (Linux only), parsed once per process.
+///
+/// Chromium - and every fontconfig-linked toolkit - resolves `sans-serif`
+/// through these aliases, so the SAME machine that renders reftests with
+/// Noto Sans in Chrome must not render Ubuntu in azul just because
+/// rust-fontconfig's hardcoded per-OS candidate list puts Ubuntu first.
+/// The preferred families are inserted BEFORE the generic in the selector
+/// stack; the generic stays, so rust-fontconfig's expansion still appends
+/// its own fallbacks after them.
+///
+/// Only the `<alias>` subset of the fontconfig configuration is read
+/// (fonts.conf + conf.d/*.conf in sorted order, matching fontconfig's
+/// accumulation order); everything else in those files is ignored.
+#[cfg(all(target_os = "linux", feature = "std"))]
+fn fontconfig_generic_aliases() -> &'static std::collections::BTreeMap<String, Vec<String>> {
+    use std::collections::BTreeMap;
+    use std::sync::OnceLock;
+    static ALIASES: OnceLock<BTreeMap<String, Vec<String>>> = OnceLock::new();
+    ALIASES.get_or_init(|| {
+        let mut map: BTreeMap<String, Vec<String>> = BTreeMap::new();
+        // FONTCONFIG_FILE overrides the system configuration wholesale -
+        // exactly like libfontconfig - which is how the reftest pipeline
+        // pins a hermetic font set for azul AND Chrome simultaneously.
+        if let Ok(custom) = std::env::var("FONTCONFIG_FILE") {
+            if !custom.is_empty() {
+                let files = vec![std::path::PathBuf::from(custom)];
+                collect_alias_files(&files, &mut map);
+                return map;
+            }
+        }
+        let mut files: Vec<std::path::PathBuf> = vec!["/etc/fonts/fonts.conf".into()];
+        if let Ok(dir) = std::fs::read_dir("/etc/fonts/conf.d") {
+            let mut confs: Vec<_> = dir
+                .filter_map(Result::ok)
+                .map(|e| e.path())
+                .filter(|p| p.extension().is_some_and(|e| e == "conf"))
+                .collect();
+            confs.sort();
+            files.extend(confs);
+        }
+        collect_alias_files(&files, &mut map);
+        map
+    })
+}
+
+/// Accumulate `<alias><prefer>` families from the given fontconfig files
+/// into `map` (generic-family keys only, first occurrence wins per family).
+#[cfg(all(target_os = "linux", feature = "std"))]
+fn collect_alias_files(
+    files: &[std::path::PathBuf],
+    map: &mut std::collections::BTreeMap<String, Vec<String>>,
+) {
+    for path in files {
+        let Ok(content) = std::fs::read_to_string(path) else { continue };
+        let mut rest = content.as_str();
+        while let Some(start) = rest.find("<alias") {
+            let Some(end_rel) = rest[start..].find("</alias>") else { break };
+            let block = &rest[start..start + end_rel];
+            rest = &rest[start + end_rel + "</alias>".len()..];
+            let Some(fam) = extract_xml_tag(block, "family") else { continue };
+            let fam_lower = fam.to_ascii_lowercase();
+            if !matches!(fam_lower.as_str(), "sans-serif" | "serif" | "monospace") {
+                continue;
+            }
+            let Some(prefer_start) = block.find("<prefer>") else { continue };
+            let prefer_end = block[prefer_start..]
+                .find("</prefer>")
+                .map_or(block.len(), |e| prefer_start + e);
+            let mut prefer_block = &block[prefer_start..prefer_end];
+            let entry = map.entry(fam_lower).or_default();
+            while let Some(f) = extract_xml_tag(prefer_block, "family") {
+                if !entry.iter().any(|e| e.eq_ignore_ascii_case(&f)) {
+                    entry.push(f.clone());
+                }
+                let Some(pos) = prefer_block.find("</family>") else { break };
+                prefer_block = &prefer_block[pos + "</family>".len()..];
+            }
+        }
+    }
+}
+
+/// First `<tag>...</tag>` text content inside `block`, trimmed.
+#[cfg(all(target_os = "linux", feature = "std"))]
+fn extract_xml_tag(block: &str, tag: &str) -> Option<String> {
+    let open = alloc::format!("<{tag}>");
+    let close = alloc::format!("</{tag}>");
+    let s = block.find(&open)? + open.len();
+    let e = block[s..].find(&close)? + s;
+    Some(block[s..e].trim().to_string())
+}
+
+/// Push `family` onto the selector stack, preceded by the system's
+/// fontconfig alias preferences when it is a CSS generic family (see
+/// fontconfig_generic_aliases).
+fn push_family_with_system_aliases(
+    stack: &mut Vec<FontSelector>,
+    family: String,
+    weight: FcWeight,
+    style: FontStyle,
+) {
+    #[cfg(all(target_os = "linux", feature = "std"))]
+    {
+        let lower = family.to_ascii_lowercase();
+        if matches!(lower.as_str(), "sans-serif" | "serif" | "monospace") {
+            if let Some(prefs) = fontconfig_generic_aliases().get(&lower) {
+                for pref in prefs {
+                    if !stack.iter().any(|f| f.family.eq_ignore_ascii_case(pref)) {
+                        stack.push(FontSelector {
+                            family: pref.clone(),
+                            weight,
+                            style,
+                            unicode_ranges: Vec::new(),
+                        });
+                    }
+                }
+            }
+        }
+    }
+    stack.push(FontSelector {
+        family,
+        weight,
+        style,
+        unicode_ranges: Vec::new(),
+    });
+}
+
 fn build_font_selector_stack(
     font_families: &StyleFontFamilyVec,
     platform: Option<&azul_css::system::Platform>,
@@ -3592,15 +3719,15 @@ fn build_font_selector_stack(
                 });
             }
         } else {
-            stack.push(FontSelector {
-                // as_query_string, NOT as_string: FontManager queries fontconfig with the
-                // RAW name. as_string() CSS-quotes whitespace names ("Times New Roman" ->
-                // "\"Times New Roman\""), which corrupts the query for every multi-word font.
-                family: family.as_query_string(),
-                weight: fc_weight,
-                style: fc_style,
-                unicode_ranges: Vec::new(),
-            });
+            // as_query_string, NOT as_string: FontManager queries fontconfig with the
+            // RAW name. as_string() CSS-quotes whitespace names ("Times New Roman" ->
+            // "\"Times New Roman\""), which corrupts the query for every multi-word font.
+            push_family_with_system_aliases(
+                &mut stack,
+                family.as_query_string(),
+                fc_weight,
+                fc_style,
+            );
         }
     }
 
@@ -3609,12 +3736,12 @@ fn build_font_selector_stack(
             .iter()
             .any(|f| f.family.eq_ignore_ascii_case(fallback))
         {
-            stack.push(FontSelector {
-                family: (*fallback).to_string(),
-                weight: FcWeight::Normal,
-                style: FontStyle::Normal,
-                unicode_ranges: Vec::new(),
-            });
+            push_family_with_system_aliases(
+                &mut stack,
+                (*fallback).to_string(),
+                FcWeight::Normal,
+                FontStyle::Normal,
+            );
         }
     }
 
@@ -7511,11 +7638,36 @@ mod autotest_generated {
     // build_font_selector_stack
     // =====================================================================
 
+    /// Strip the machine-dependent fontconfig alias insertions (the
+    /// families push_family_with_system_aliases prepends before each CSS
+    /// generic) so stack-shape assertions stay portable across systems.
+    fn without_system_alias_prefs(stack: &[FontSelector]) -> Vec<FontSelector> {
+        #[cfg(all(target_os = "linux", feature = "std"))]
+        {
+            let aliases = fontconfig_generic_aliases();
+            let alias_names: std::collections::BTreeSet<String> = aliases
+                .values()
+                .flatten()
+                .map(|s| s.to_ascii_lowercase())
+                .collect();
+            return stack
+                .iter()
+                .filter(|s| !alias_names.contains(&s.family.to_ascii_lowercase()))
+                .cloned()
+                .collect();
+        }
+        #[cfg(not(all(target_os = "linux", feature = "std")))]
+        {
+            stack.to_vec()
+        }
+    }
+
     #[test]
     fn build_font_selector_stack_always_appends_the_three_generic_fallbacks() {
         let families = StyleFontFamilyVec::from_vec(Vec::new());
         let stack = build_font_selector_stack(&families, None, FcWeight::Normal, FontStyle::Normal);
 
+        let stack = without_system_alias_prefs(&stack);
         let names: Vec<&str> = stack.iter().map(|s| s.family.as_str()).collect();
         assert_eq!(names, ["sans-serif", "serif", "monospace"]);
         for s in &stack {
@@ -7532,6 +7684,7 @@ mod autotest_generated {
         ]);
         let stack = build_font_selector_stack(&families, None, FcWeight::Bold, FontStyle::Italic);
 
+        let stack = without_system_alias_prefs(&stack);
         assert_eq!(stack.len(), 5, "2 authored + 3 generic fallbacks");
         assert_eq!(stack[0].family, "Iosevka");
         assert_eq!(stack[1].family, "Menlo");
@@ -7585,6 +7738,7 @@ mod autotest_generated {
             StyleFontFamilyVec::from_vec(vec![StyleFontFamily::System("MONOSPACE".to_string().into())]);
         let stack = build_font_selector_stack(&families, None, FcWeight::Normal, FontStyle::Normal);
 
+        let stack = without_system_alias_prefs(&stack);
         assert_eq!(stack.len(), 3, "MONOSPACE + sans-serif + serif");
         assert_eq!(stack[0].family, "MONOSPACE");
         let lower: Vec<String> = stack.iter().map(|s| s.family.to_lowercase()).collect();
@@ -7601,6 +7755,7 @@ mod autotest_generated {
             StyleFontFamily::System("monospace".to_string().into()),
         ]);
         let stack = build_font_selector_stack(&families, None, FcWeight::Normal, FontStyle::Normal);
+        let stack = without_system_alias_prefs(&stack);
         assert_eq!(stack.len(), 3);
     }
 
@@ -7615,6 +7770,7 @@ mod autotest_generated {
         ]);
         let stack = build_font_selector_stack(&families, None, FcWeight::Normal, FontStyle::Normal);
 
+        let stack = without_system_alias_prefs(&stack);
         assert_eq!(stack.len(), 7, "4 authored + 3 generic fallbacks");
         assert_eq!(stack[0].family, "");
         assert_eq!(stack[2].family, "Ｍ🎉 ǝɔɐɟdʎʇ — «Шрифт»");
