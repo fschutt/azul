@@ -1086,6 +1086,8 @@ const GALLERY_CELL_CLASS: &str = "__azul-native-ribbon-gallery-cell";
 const RIBBON_TAB_CLASS: &str = "__azul-native-ribbon-tab";
 
 const MOBILE_TAB_BUTTON_CLASS: &str = "__azul-native-ribbon-mobile-tab";
+const RIBBON_CONTAINER_CLASS: &str = "__azul-native-ribbon";
+const RIBBON_CONTENT_CLASS: &str = "__azul-native-ribbon-content";
 static CLS_MOBILE_TAB_BUTTON: &[IdOrClass] =
     &[Class(AzString::from_const_str(MOBILE_TAB_BUTTON_CLASS))];
 static CLS_MOBILE_TAB_OVERLAY: &[IdOrClass] =
@@ -2126,7 +2128,7 @@ impl Ribbon {
             .with_css_props(style.content_style.clone())
             .with_children(DomVec::from_vec(group_doms));
 
-        Dom::create_div()
+        let mut container = Dom::create_div()
             .with_ids_and_classes(IdOrClassVec::from_const_slice(CLS_RIBBON))
             .with_css_props(style.container_style.clone())
             .with_children(DomVec::from_vec(vec![
@@ -2135,7 +2137,21 @@ impl Ribbon {
                 mobile_tab_overlay,
                 mobile_group_list,
                 content,
-            ]))
+            ]));
+        // The chrome state (collapse flag) lives on the container as a
+        // DATASET so it follows node identity across RefreshDom rebuilds
+        // (see keep_old_ribbon_chrome). Without this, every rebuild reset
+        // collapsed=false: double-clicking a tab collapsed the band and the
+        // tab-click's own RefreshDom immediately forgot it. Only attached
+        // when a chrome behavior is active - an inert ribbon has no chrome
+        // state to persist (and `Dom` equality stays meaningful for it).
+        if behavior.collapsible || behavior.peek_on_hover {
+            container.root.set_dataset(azul_core::refany::OptionRefAny::Some(chrome.clone()));
+            container.root.set_merge_callback(
+                keep_old_ribbon_chrome as azul_core::dom::DatasetMergeCallbackType,
+            );
+        }
+        container
     }
 }
 
@@ -2430,6 +2446,16 @@ fn gallery_dom(gallery: RibbonGallery, s: &RibbonStyle, b: RibbonBehavior) -> Do
 
 // -- Trampolines --
 
+/// Dataset merge for the ribbon container: chrome state (collapse) must
+/// survive app-driven rebuilds (any callback returning RefreshDom - the
+/// ribbon's own tab switch does), so keep the OLD allocation wholesale.
+/// `diff::transfer_states` then re-points every tab callback refany (they
+/// are clones of this dataset) onto the kept allocation, so the handlers
+/// keep reading the persistent state with no further wiring.
+extern "C" fn keep_old_ribbon_chrome(_new: RefAny, old: RefAny) -> RefAny {
+    old
+}
+
 struct TabClickData {
     tab_idx: usize,
     on_tab_click: OptionRibbonOnTabClick,
@@ -2457,9 +2483,28 @@ struct RibbonChromeState {
 
 /// The content band is the tab bar's next sibling; from a tab header that is
 /// `parent(tab) -> next_sibling`.
+/// The content band of the ribbon that owns `hit`'s tab header, resolved BY
+/// CLASS: walk up to the ribbon container, then scan its children for the
+/// content class. Positional navigation (`next_sibling(parent(tab))`) broke
+/// the moment the container grew more children — the mobile chrome sits
+/// between the tab bar and the content band, so a double-click "collapsed"
+/// the (already hidden) mobile tab button while the content stayed visible.
 fn content_node_of_tab(info: &CallbackInfo, hit: DomNodeId) -> Option<DomNodeId> {
     let tab = ancestor_with_class(info, hit, RIBBON_TAB_CLASS)?;
-    info.get_next_sibling(info.get_parent(tab)?)
+    let ribbon = ancestor_with_class(info, tab, RIBBON_CONTAINER_CLASS)?;
+    let mut child = info.get_first_child(ribbon);
+    while let Some(node) = child {
+        if info
+            .get_node_classes(node)
+            .as_ref()
+            .iter()
+            .any(|cl| cl.as_str() == RIBBON_CONTENT_CLASS)
+        {
+            return Some(node);
+        }
+        child = info.get_next_sibling(node);
+    }
+    None
 }
 
 fn set_content_visible(info: &mut CallbackInfo, content: DomNodeId, visible: bool) {
