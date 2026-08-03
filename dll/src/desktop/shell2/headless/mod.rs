@@ -1079,10 +1079,67 @@ impl HeadlessWindow {
             }
         }
 
-        // Mark that frame needs regeneration
-        self.common.request_regeneration(azul_core::callbacks::RelayoutReason::RefreshDom);
+        // Deliberately NO request_regeneration here. This ran at the end of
+        // every rendered frame ("mark that frame needs regeneration"), which
+        // turned the headless loop into a perpetual full-DOM-rebuild cycle:
+        // each frame re-invoked the user's layout() on the next tick, so every
+        // runtime CSS patch (a gallery panel toggled open, a combobox list
+        // shown) was silently reverted one frame later, incremental paths were
+        // never exercised in E2E, and "did this idle frame do any work?" was
+        // unanswerable. A frame is a RESPONSE to a request, never a producer
+        // of one — new frames come from real requests (events, timers,
+        // request_repaint, request_regeneration by callbacks).
 
         Ok(result)
+    }
+
+    /// Service one owed frame according to the tier a pass reported plus the
+    /// pending regeneration / relayout-only requests — the same contract the
+    /// four desktop loops implement (X11 `render_and_present`, wayland
+    /// `generate_frame_if_needed`, windows `WM_PAINT`, macOS
+    /// `build_atomic_txn`): relayout-only is tested FIRST and both flags are
+    /// consumed, and the full `regenerate_layout()` — which re-invokes the
+    /// user's `layout()` and therefore DISCARDS runtime CSS patches — runs
+    /// ONLY when a DOM rebuild was actually requested. Headless used to map
+    /// every redraw signal to `regenerate_layout()`, so a `set_css_property`
+    /// patch (the gallery panel toggling open) survived exactly one frame.
+    fn service_frame(&mut self, tier: azul_core::events::ProcessEventResult) {
+        use azul_core::events::ProcessEventResult as R;
+
+        // Mirror the desktop event-arm routing: a regenerate-tier result marks
+        // the DOM rebuild; an incremental-relayout result means the chokepoint
+        // ALREADY re-ran layout on the existing StyledDom, so the frame takes
+        // the relayout-only path (raise-time guard: never downgrade a pending
+        // rebuild).
+        if tier >= R::ShouldRegenerateDomCurrentWindow {
+            self.common
+                .request_regeneration(azul_core::callbacks::RelayoutReason::RefreshDom);
+        } else if tier == R::ShouldIncrementalRelayout {
+            self.common.request_relayout_only();
+        }
+
+        let relayout_only = self.common.take_relayout_only();
+        let regen_requested = self.common.take_regeneration();
+
+        let (res, what) = if relayout_only {
+            (self.relayout_only(), "relayout")
+        } else if regen_requested {
+            (self.regenerate_layout().map(|_| ()), "regeneration")
+        } else {
+            // Pure repaint (request_repaint, a paint-only change): render from
+            // the existing DOM. relayout_only() re-lays-out the EXISTING
+            // StyledDom and renders — it never re-invokes the user's layout(),
+            // so runtime patches survive.
+            (self.relayout_only(), "repaint")
+        };
+        if let Err(e) = res {
+            log_error!(
+                LogCategory::Layout,
+                "[Headless] Frame service ({}) failed: {}",
+                what,
+                e
+            );
+        }
     }
 
     /// Re-run layout on the EXISTING (already mutated) `StyledDom` and re-render —
@@ -1157,7 +1214,8 @@ impl HeadlessWindow {
             }
         }
 
-        self.common.request_regeneration(azul_core::callbacks::RelayoutReason::RefreshDom);
+        // Same as regenerate_layout_inner above: a completed frame must not
+        // re-arm regeneration (see the comment there).
         Ok(())
     }
 
@@ -1526,6 +1584,10 @@ impl HeadlessWindow {
         while self.is_open() {
             // ── Phase 1: Process injected events ─────────────────
             let mut events_need_redraw = false;
+            // The strongest ProcessEventResult of this drain — decides whether
+            // the frame below may rebuild the DOM or must keep it (see
+            // service_frame).
+            let mut events_result = azul_core::events::ProcessEventResult::DoNothing;
             while let Some(event) = self.poll_event() {
                 match event {
                     HeadlessEvent::Close => {
@@ -1548,6 +1610,7 @@ impl HeadlessWindow {
                                 .set_hovered_files(paths.into_iter().map(Into::into).collect());
                         }
                         let r = self.process_window_events(0);
+                        events_result = events_result.max(r);
                         if !matches!(r, azul_core::events::ProcessEventResult::DoNothing) {
                             events_need_redraw = true;
                         }
@@ -1565,6 +1628,7 @@ impl HeadlessWindow {
                                 .set_dropped_files(paths.into_iter().map(Into::into).collect());
                         }
                         let r = self.process_window_events(0);
+                        events_result = events_result.max(r);
                         if !matches!(r, azul_core::events::ProcessEventResult::DoNothing) {
                             events_need_redraw = true;
                         }
@@ -1585,6 +1649,7 @@ impl HeadlessWindow {
                             lw.file_drop_manager.set_hovered_file(None);
                         }
                         let r = self.process_window_events(0);
+                        events_result = events_result.max(r);
                         if !matches!(r, azul_core::events::ProcessEventResult::DoNothing) {
                             events_need_redraw = true;
                         }
@@ -1604,6 +1669,7 @@ impl HeadlessWindow {
                         // E2E because headless never routed it.
                         if self.common.scrollbar_drag_state.is_some() {
                             let r = PlatformWindow::handle_scrollbar_drag(&mut self, pos);
+                            events_result = events_result.max(r);
                             if !matches!(r, azul_core::events::ProcessEventResult::DoNothing) {
                                 events_need_redraw = true;
                             }
@@ -1611,6 +1677,7 @@ impl HeadlessWindow {
                             self.update_hit_test_at(pos);
                             record_headless_input(&mut self, false, false); // MWA-A4
                             let r = self.process_window_events(0);
+                            events_result = events_result.max(r);
                             if !matches!(r, azul_core::events::ProcessEventResult::DoNothing) {
                                 events_need_redraw = true;
                             }
@@ -1636,6 +1703,7 @@ impl HeadlessWindow {
                         if let Some((hit, p)) = sb_hit {
                             self.common.current_window_state.mouse_state.left_down = true;
                             let r = PlatformWindow::handle_scrollbar_click(&mut self, hit, p);
+                            events_result = events_result.max(r);
                             if !matches!(r, azul_core::events::ProcessEventResult::DoNothing) {
                                 events_need_redraw = true;
                             }
@@ -1654,6 +1722,7 @@ impl HeadlessWindow {
                         }
                         record_headless_input(&mut self, true, false); // MWA-A4
                         let r = self.process_window_events(0);
+                        events_result = events_result.max(r);
                         if !matches!(r, azul_core::events::ProcessEventResult::DoNothing) {
                             events_need_redraw = true;
                         }
@@ -1681,6 +1750,7 @@ impl HeadlessWindow {
                         }
                         record_headless_input(&mut self, false, true); // MWA-A4
                         let r = self.process_window_events(0);
+                        events_result = events_result.max(r);
                         if !matches!(r, azul_core::events::ProcessEventResult::DoNothing) {
                             events_need_redraw = true;
                         }
@@ -1693,6 +1763,7 @@ impl HeadlessWindow {
                         self.common.current_window_state.keyboard_state
                             .pressed_virtual_keycodes.insert_hm_item(virtual_keycode);
                         let r = self.process_window_events(0);
+                        events_result = events_result.max(r);
                         if !matches!(r, azul_core::events::ProcessEventResult::DoNothing) {
                             events_need_redraw = true;
                         }
@@ -1705,6 +1776,7 @@ impl HeadlessWindow {
                         self.common.current_window_state.keyboard_state
                             .pressed_virtual_keycodes.remove_hm_item(&virtual_keycode);
                         let r = self.process_window_events(0);
+                        events_result = events_result.max(r);
                         if !matches!(r, azul_core::events::ProcessEventResult::DoNothing) {
                             events_need_redraw = true;
                         }
@@ -1724,6 +1796,7 @@ impl HeadlessWindow {
                                 text: text.clone().into(),
                             },
                         );
+                        events_result = events_result.max(r);
                         if !matches!(r, azul_core::events::ProcessEventResult::DoNothing) {
                             events_need_redraw = true;
                         }
@@ -1823,13 +1896,7 @@ impl HeadlessWindow {
             }
 
             if events_need_redraw {
-                if let Err(e) = self.regenerate_layout() {
-                    log_error!(
-                        LogCategory::Layout,
-                        "[Headless] Layout regeneration after event failed: {}",
-                        e
-                    );
-                }
+                self.service_frame(events_result);
             }
 
             // ── Phase 1b: Apply queued accessibility actions ─────
@@ -1860,23 +1927,14 @@ impl HeadlessWindow {
             // reports "unchanged", and skips layout — leaving the old shaped
             // text and geometry on screen forever.
             if needs_redraw {
-                let relayout_only = {
-                    use super::common::event::PlatformWindow;
-                    self.take_relayout_only()
-                };
-                let res = if relayout_only {
-                    self.relayout_only()
-                } else {
-                    self.regenerate_layout().map(|_| ())
-                };
-                if let Err(e) = res {
-                    log_error!(
-                        LogCategory::Layout,
-                        "[Headless] Layout {} failed: {}",
-                        if relayout_only { "relayout" } else { "regeneration" },
-                        e
-                    );
-                }
+                // process_timers_and_threads already routed the tier: it
+                // raised the regeneration request only for real RefreshDom
+                // returns and relayout-only for in-place mutations. Passing
+                // ShouldReRenderCurrentWindow here just says "a frame is
+                // owed"; service_frame consumes the flags to pick the pass.
+                self.service_frame(
+                    azul_core::events::ProcessEventResult::ShouldReRenderCurrentWindow,
+                );
             }
 
             // ── Phase 2b: Honour `flags.close_requested` ─────────
@@ -2715,6 +2773,113 @@ mod tests {
     // --- Event-driven harness: drive a HeadlessEvent through the same per-event
     // path run() uses, relayout if it requested a redraw, and return the damage
     // produced this step (None if the event caused no visual change). ---
+    // --- One physical release = ONE Hover(MouseUp) invocation ------------
+    //
+    // The regression this pins: `process_window_events` derives events from
+    // the previous->current window-state diff but never CONSUMED the delta at
+    // the end of a pass. Any later pass with no state change of its own (a
+    // redraw tick, a wait_frame pump, the regeneration pass after RefreshDom)
+    // re-detected the SAME down->up transition and re-invoked the callback -
+    // every toggle widget self-cancelled (the ribbon gallery "More" panel
+    // could never open). The wrapper now advances previous_window_state after
+    // every completed pass.
+
+    #[derive(Debug, Clone)]
+    struct ClickCounterState {
+        hits: Arc<core::sync::atomic::AtomicUsize>,
+    }
+
+    extern "C" fn count_mouse_up(
+        mut refany: RefAny,
+        _info: azul_layout::callbacks::CallbackInfo,
+    ) -> azul_core::callbacks::Update {
+        if let Some(s) = refany.downcast_ref::<ClickCounterState>() {
+            s.hits.fetch_add(1, core::sync::atomic::Ordering::SeqCst);
+        }
+        azul_core::callbacks::Update::DoNothing
+    }
+
+    extern "C" fn click_counter_layout(mut data: RefAny, _info: LayoutCallbackInfo) -> Dom {
+        use azul_core::callbacks::{CoreCallback, CoreCallbackData};
+        use azul_core::events::{EventFilter, HoverEventFilter};
+        use azul_css::dynamic_selector::CssPropertyWithConditions;
+        use azul_css::props::layout::dimensions::{LayoutHeight, LayoutWidth};
+        use azul_css::props::property::CssProperty;
+
+        let hits = data
+            .downcast_ref::<ClickCounterState>()
+            .map(|s| s.hits.clone())
+            .unwrap_or_default();
+        Dom::create_body().with_child(
+            Dom::create_div()
+                .with_css_props(
+                    vec![
+                        CssPropertyWithConditions::simple(CssProperty::width(
+                            LayoutWidth::px(400.0),
+                        )),
+                        CssPropertyWithConditions::simple(CssProperty::height(
+                            LayoutHeight::px(300.0),
+                        )),
+                    ]
+                    .into(),
+                )
+                .with_callbacks(
+                    vec![CoreCallbackData {
+                        event: EventFilter::Hover(HoverEventFilter::MouseUp),
+                        callback: CoreCallback {
+                            cb: count_mouse_up as usize,
+                            ctx: azul_core::refany::OptionRefAny::None,
+                        },
+                        refany: RefAny::new(ClickCounterState { hits }),
+                    }]
+                    .into(),
+                ),
+        )
+    }
+
+    #[test]
+    fn a_mouse_release_invokes_its_hover_callback_exactly_once() {
+        use azul_core::events::MouseButton;
+
+        let hits = Arc::new(core::sync::atomic::AtomicUsize::new(0));
+        let state = Arc::new(RefCell::new(RefAny::new(ClickCounterState {
+            hits: hits.clone(),
+        })));
+        let mut window = make_window_with(&state, click_counter_layout);
+        window.regenerate_layout().expect("initial layout");
+
+        step(&mut window, HeadlessEvent::MouseMove { x: 200.0, y: 150.0 });
+        step(&mut window, HeadlessEvent::MouseDown { button: MouseButton::Left });
+        step(&mut window, HeadlessEvent::MouseUp { button: MouseButton::Left });
+        assert_eq!(
+            hits.load(core::sync::atomic::Ordering::SeqCst),
+            1,
+            "one release fires the Hover(MouseUp) callback once"
+        );
+
+        // The regression trigger: run extra passes WITHOUT any state change -
+        // exactly what a redraw tick or a wait_frame pump does. The consumed
+        // delta must not re-fire the callback.
+        for _ in 0..3 {
+            use crate::desktop::shell2::common::event::PlatformWindow;
+            let _ = window.process_window_events(0);
+        }
+        assert_eq!(
+            hits.load(core::sync::atomic::Ordering::SeqCst),
+            1,
+            "a pass without a state change must not re-dispatch the release"
+        );
+
+        // A genuine second click still works (the delta is consumed, not lost).
+        step(&mut window, HeadlessEvent::MouseDown { button: MouseButton::Left });
+        step(&mut window, HeadlessEvent::MouseUp { button: MouseButton::Left });
+        assert_eq!(
+            hits.load(core::sync::atomic::Ordering::SeqCst),
+            2,
+            "the second click fires exactly once more"
+        );
+    }
+
     fn step(window: &mut HeadlessWindow, event: HeadlessEvent) -> FrameDamage {
         use azul_core::events::{MouseButton, ProcessEventResult};
         use azul_core::window::CursorPosition;
