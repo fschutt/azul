@@ -62,6 +62,9 @@ const DEFAULT_STRUT_DESCENT: f32 = 3.2;
 
 /// Default x-height approximation: 0.5 * 16px (CSS spec fallback).
 const DEFAULT_X_HEIGHT: f32 = 8.0;
+/// Cap height of the default strut (0.7 x the 16px default font size), the
+/// same typical-Latin-ratio approximation the rest of the strut block uses.
+const DEFAULT_CAP_HEIGHT: f32 = 11.2;
 /// Default ch-width (advance of '0'): 0.5 * 16px.
 const DEFAULT_CH_WIDTH: f32 = 8.0;
 
@@ -1728,6 +1731,9 @@ pub struct UnifiedConstraints {
     pub strut_descent: f32,
     // x-height of the strut font (scaled to font_size), for vertical-align: middle
     pub strut_x_height: f32,
+    // cap-height of the strut font (scaled to font_size), for
+    // text-box-edge: cap trimming (CSS Inline 3 §6.1).
+    pub strut_cap_height: f32,
 
     // Width of '0' (zero) character in px, used for ch unit and tab-size.
     // Approximated as space_width from the first available font, or 0.5 * font_size fallback.
@@ -1787,6 +1793,7 @@ impl Default for UnifiedConstraints {
             strut_ascent: DEFAULT_STRUT_ASCENT,
             strut_descent: DEFAULT_STRUT_DESCENT,
             strut_x_height: DEFAULT_X_HEIGHT,
+            strut_cap_height: DEFAULT_CAP_HEIGHT,
             ch_width: DEFAULT_CH_WIDTH,
             overflow: OverflowBehavior::default(),
             segment_alignment: SegmentAlignment::default(),

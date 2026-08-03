@@ -4220,18 +4220,31 @@ pub fn parse_combined_css_property(
                     CssProperty::TextBoxEdge(CssPropertyValue::Exact(StyleTextBoxEdge::AUTO)),
                 ]);
             }
+            // Trim keywords are single tokens; the edge is ONE value of up
+            // to TWO tokens ("cap alphabetic"). Collect all non-trim tokens
+            // and parse them as one edge - the per-token loop rejected every
+            // two-token edge and silently dropped the whole declaration.
             let parts: Vec<&str> = trimmed.split_whitespace().collect();
             let mut trim_val = None;
-            let mut edge_val = None;
+            let mut edge_tokens: Vec<&str> = Vec::new();
             for part in &parts {
                 if let Ok(t) = parse_style_text_box_trim(part) {
+                    if trim_val.is_some() {
+                        return Err(CssParsingError::InvalidValue(InvalidValueErr(value)));
+                    }
                     trim_val = Some(t);
-                } else if let Ok(e) = parse_style_text_box_edge(part) {
-                    edge_val = Some(e);
                 } else {
-                    return Err(CssParsingError::InvalidValue(InvalidValueErr(value)));
+                    edge_tokens.push(part);
                 }
             }
+            let edge_val = if edge_tokens.is_empty() {
+                None
+            } else {
+                match parse_style_text_box_edge(&edge_tokens.join(" ")) {
+                    Ok(e) => Some(e),
+                    Err(_) => return Err(CssParsingError::InvalidValue(InvalidValueErr(value))),
+                }
+            };
             // Per spec: omitting trim defaults to "both" (not the initial "none")
             let trim = trim_val.unwrap_or(StyleTextBoxTrim::TrimBoth);
             // Per spec: omitting edge defaults to "auto" (the initial value)

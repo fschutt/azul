@@ -56,7 +56,8 @@ use crate::{
             get_display_property, get_element_font_size, get_float, get_clear,
             get_list_style_position, get_list_style_type, get_overflow_x, get_overflow_y,
             get_parent_font_size, get_root_font_size, get_style_properties,
-            get_text_align, get_text_box_trim_property, get_text_orientation_property,
+            get_text_align, get_text_box_edge_property, get_text_box_trim_property,
+            get_text_orientation_property,
             get_vertical_align_property, get_visibility, get_white_space_property,
             get_writing_mode, MultiValue,
         },
@@ -2624,6 +2625,116 @@ fn layout_bfc<T: ParsedFontTrait>(
 // +spec:inline-formatting-context:275f64 - IFC: boxes laid out horizontally into line boxes, respecting margins/borders/padding
 #[allow(clippy::field_reassign_with_default)] // struct built incrementally / test setup; a struct literal is not clearer here
 #[allow(clippy::too_many_lines, clippy::cognitive_complexity)] // large but cohesive: single-purpose layout/render/parse routine (one branch per case)
+/// CSS Inline 3 §6.2 text-box-trim for the IFC's block container, applied to
+/// the finished [`LayoutOutput`]. MUST run on EVERY `layout_ifc` exit that
+/// produces content bounds - the incremental cache-reuse arms included -
+/// or measure passes that hit the cache size the box untrimmed.
+fn apply_text_box_trim(
+    styled_dom: &azul_core::styled_dom::StyledDom,
+    ifc_root_dom_id: NodeId,
+    cached_constraints: &crate::text3::cache::UnifiedConstraints,
+    has_items: bool,
+    output: &mut LayoutOutput,
+) {
+        // +spec:box-model:929f42 - text-box-trim: trim half-leading from first/last formatted line
+        // +spec:box-model:02e0f9 - text-box-trim: trim-end and trim-both, no effect with non-zero padding/border
+        //
+        // CSS Inline 3 § 6.2: For block containers, trim the block-start/block-end side
+        // of the first/last formatted line. If there is intervening non-zero padding or
+        // borders, there is no effect. Does not apply to flex, grid, or table contexts.
+        let ifc_node_state = &styled_dom.styled_nodes.as_container()[ifc_root_dom_id].styled_node_state;
+        // Fast path: if no node in the DOM declared text-box-trim, the cascade
+        // walk would always return None → skip it.
+        let text_box_trim = {
+            let skip = styled_dom
+                .css_property_cache
+                .ptr
+                .compact_cache
+                .as_ref()
+                .is_some_and(|cc| cc.dom_declared_flags & azul_css::compact_cache::DOM_HAS_TEXT_BOX_TRIM == 0);
+            if skip {
+                StyleTextBoxTrim::None
+            } else {
+                get_text_box_trim_property(styled_dom, ifc_root_dom_id, ifc_node_state)
+                    .unwrap_or(StyleTextBoxTrim::None)
+            }
+        };
+
+        if text_box_trim != StyleTextBoxTrim::None && has_items {
+            // Half-leading = (line-height - (ascent + descent)) / 2
+            let half_leading = (cached_constraints.resolved_line_height()
+                - (cached_constraints.strut_ascent + cached_constraints.strut_descent))
+                / 2.0;
+            let half_leading = half_leading.max(0.0);
+
+            // +spec:display-property:db5125 - text-box-edge selects the metric the trim cuts to
+            // +spec:font-metrics:d3b654 - cap/alphabetic edges use the cap-height and alphabetic baseline
+            // The over edge trims PAST the half-leading down to the chosen
+            // metric: `cap` cuts ascent - cap-height further, `ex` cuts
+            // ascent - x-height; the under edge's `alphabetic` cuts the whole
+            // descent (down to the baseline). `text` (and `auto`, and the
+            // ideographic metrics we have no strut data for) trim the
+            // half-leading only. Trimming reduces the IFC's block size; the
+            // first line's glyphs keep their positions (the same model the
+            // half-leading-only implementation used - a start-trim shift of
+            // the line stack is still TODO).
+            let edge = get_text_box_edge_property(styled_dom, ifc_root_dom_id, ifc_node_state)
+                .unwrap_or(azul_css::props::style::text::StyleTextBoxEdge::AUTO);
+            let over_extra = match edge.over {
+                azul_css::props::style::text::TextBoxEdgeOver::Cap => {
+                    (cached_constraints.strut_ascent - cached_constraints.strut_cap_height)
+                        .max(0.0)
+                }
+                azul_css::props::style::text::TextBoxEdgeOver::Ex => {
+                    (cached_constraints.strut_ascent - cached_constraints.strut_x_height).max(0.0)
+                }
+                _ => 0.0,
+            };
+            let under_extra = match edge.under {
+                azul_css::props::style::text::TextBoxEdgeUnder::Alphabetic => {
+                    cached_constraints.strut_descent.max(0.0)
+                }
+                _ => 0.0,
+            };
+
+            // Check for intervening non-zero padding/border on block-start (top)
+            let has_pad_or_border_top = match get_css_padding_top(styled_dom, ifc_root_dom_id, ifc_node_state) {
+                MultiValue::Exact(pv) => pv.number.get() != 0.0,
+                _ => false,
+            } || match get_css_border_top_width(styled_dom, ifc_root_dom_id, ifc_node_state) {
+                MultiValue::Exact(pv) => pv.number.get() != 0.0,
+                _ => false,
+            };
+
+            // Check for intervening non-zero padding/border on block-end (bottom)
+            let has_pad_or_border_bottom = match get_css_padding_bottom(styled_dom, ifc_root_dom_id, ifc_node_state) {
+                MultiValue::Exact(pv) => pv.number.get() != 0.0,
+                _ => false,
+            } || match get_css_border_bottom_width(styled_dom, ifc_root_dom_id, ifc_node_state) {
+                MultiValue::Exact(pv) => pv.number.get() != 0.0,
+                _ => false,
+            };
+
+            let trim_start = matches!(text_box_trim, StyleTextBoxTrim::TrimStart | StyleTextBoxTrim::TrimBoth)
+                && !has_pad_or_border_top;
+            let trim_end = matches!(text_box_trim, StyleTextBoxTrim::TrimEnd | StyleTextBoxTrim::TrimBoth)
+                && !has_pad_or_border_bottom;
+
+            let mut height_reduction = 0.0;
+            if trim_start {
+                height_reduction += half_leading + over_extra;
+            }
+            if trim_end {
+                height_reduction += half_leading + under_extra;
+            }
+
+            if height_reduction > 0.0 {
+                output.overflow_size.height = (output.overflow_size.height - height_reduction).max(0.0);
+            }
+        }
+
+    }
+
 fn layout_ifc<T: ParsedFontTrait>(
     ctx: &mut LayoutContext<'_, T>,
     text_cache: &mut TextLayoutCache,
@@ -2841,6 +2952,17 @@ fn layout_ifc<T: ParsedFontTrait>(
                     let mut output = LayoutOutput::default();
                     output.overflow_size = LogicalSize::new(frag_bounds.width, frag_bounds.height);
                     output.baseline = main_frag.last_baseline();
+                    // The cache-reuse exit must trim like the full path: a
+                    // measure pass that lands here would otherwise size the
+                    // box untrimmed while the final pass trims (see
+                    // apply_text_box_trim).
+                    apply_text_box_trim(
+                        ctx.styled_dom,
+                        ifc_root_dom_id,
+                        &text3_constraints,
+                        !main_frag.items.is_empty(),
+                        &mut output,
+                    );
                     // Re-position inline-block children from cached layout
                     for positioned_item in &main_frag.items {
                         if let ShapedItem::Object { source, .. } = &positioned_item.item {
@@ -3025,72 +3147,13 @@ fn layout_ifc<T: ParsedFontTrait>(
         output.baseline = main_frag.last_baseline();
         warm_node.baseline = output.baseline;
 
-        // +spec:box-model:929f42 - text-box-trim: trim half-leading from first/last formatted line
-        // +spec:box-model:02e0f9 - text-box-trim: trim-end and trim-both, no effect with non-zero padding/border
-        //
-        // CSS Inline 3 § 6.2: For block containers, trim the block-start/block-end side
-        // of the first/last formatted line. If there is intervening non-zero padding or
-        // borders, there is no effect. Does not apply to flex, grid, or table contexts.
-        let ifc_node_state = &ctx.styled_dom.styled_nodes.as_container()[ifc_root_dom_id].styled_node_state;
-        // Fast path: if no node in the DOM declared text-box-trim, the cascade
-        // walk would always return None → skip it.
-        let text_box_trim = {
-            let skip = ctx.styled_dom
-                .css_property_cache
-                .ptr
-                .compact_cache
-                .as_ref()
-                .is_some_and(|cc| cc.dom_declared_flags & azul_css::compact_cache::DOM_HAS_TEXT_BOX_TRIM == 0);
-            if skip {
-                StyleTextBoxTrim::None
-            } else {
-                get_text_box_trim_property(ctx.styled_dom, ifc_root_dom_id, ifc_node_state)
-                    .unwrap_or(StyleTextBoxTrim::None)
-            }
-        };
-
-        if text_box_trim != StyleTextBoxTrim::None && !main_frag.items.is_empty() {
-            // Half-leading = (line-height - (ascent + descent)) / 2
-            let half_leading = (cached_constraints.resolved_line_height()
-                - (cached_constraints.strut_ascent + cached_constraints.strut_descent))
-                / 2.0;
-            let half_leading = half_leading.max(0.0);
-
-            // Check for intervening non-zero padding/border on block-start (top)
-            let has_pad_or_border_top = match get_css_padding_top(ctx.styled_dom, ifc_root_dom_id, ifc_node_state) {
-                MultiValue::Exact(pv) => pv.number.get() != 0.0,
-                _ => false,
-            } || match get_css_border_top_width(ctx.styled_dom, ifc_root_dom_id, ifc_node_state) {
-                MultiValue::Exact(pv) => pv.number.get() != 0.0,
-                _ => false,
-            };
-
-            // Check for intervening non-zero padding/border on block-end (bottom)
-            let has_pad_or_border_bottom = match get_css_padding_bottom(ctx.styled_dom, ifc_root_dom_id, ifc_node_state) {
-                MultiValue::Exact(pv) => pv.number.get() != 0.0,
-                _ => false,
-            } || match get_css_border_bottom_width(ctx.styled_dom, ifc_root_dom_id, ifc_node_state) {
-                MultiValue::Exact(pv) => pv.number.get() != 0.0,
-                _ => false,
-            };
-
-            let trim_start = matches!(text_box_trim, StyleTextBoxTrim::TrimStart | StyleTextBoxTrim::TrimBoth)
-                && !has_pad_or_border_top;
-            let trim_end = matches!(text_box_trim, StyleTextBoxTrim::TrimEnd | StyleTextBoxTrim::TrimBoth)
-                && !has_pad_or_border_bottom;
-
-            let mut height_reduction = 0.0;
-            if trim_start && half_leading > 0.0 {
-                height_reduction += half_leading;
-            }
-            if trim_end && half_leading > 0.0 {
-                height_reduction += half_leading;
-            }
-
-            if height_reduction > 0.0 {
-                output.overflow_size.height = (output.overflow_size.height - height_reduction).max(0.0);
-            }
-        }
+        apply_text_box_trim(
+            ctx.styled_dom,
+            ifc_root_dom_id,
+            &cached_constraints,
+            !main_frag.items.is_empty(),
+            &mut output,
+        );
 
         // Position all the inline-block children based on text3's calculations.
         // [CoordinateSpace::Parent] - positions are relative to IFC's content-box (0,0)
@@ -4199,6 +4262,11 @@ fn translate_to_text3_constraints<'a, T: ParsedFontTrait>(
         strut_ascent: font_size * 0.8,
         strut_descent: font_size * 0.2,
         strut_x_height: font_size * 0.5, // 0.5em fallback per CSS Inline 3 Appendix A
+        // Typical Latin cap ratio, same approximation spirit as the rest of
+        // the strut block (Appendix A.2's formal fallback is "ascent", which
+        // would make cap-edge trimming a no-op; 0.7em keeps it meaningful
+        // until real OS/2 metrics are threaded here - see the TODO above).
+        strut_cap_height: font_size * 0.7,
         ch_width: font_size * 0.5,
         vertical_align,
         // +spec:inline-formatting-context:48ce44 - overflow-wrap property: break at otherwise disallowed points to prevent overflow
