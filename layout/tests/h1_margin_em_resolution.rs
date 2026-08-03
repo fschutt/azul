@@ -17,6 +17,7 @@ fn test_h1_margin_em_resolution_direct() {
     // H1 has margin: 0.67em (own font-size is 32px) = 21.44px
 
     let context = ResolutionContext {
+        vertical_writing_mode: false,
         element_font_size: 32.0, // H1's computed font-size
         parent_font_size: 16.0,  // Body's font-size
         root_font_size: 16.0,    // Root font-size
@@ -58,6 +59,7 @@ fn test_rem_unit_resolution() {
     // Test rem units (always refer to root font-size)
 
     let context = ResolutionContext {
+        vertical_writing_mode: false,
         element_font_size: 32.0, // H1's computed font-size
         parent_font_size: 20.0,  // Body's font-size
         root_font_size: 18.0,    // Root font-size (custom)
@@ -98,6 +100,7 @@ fn test_percent_margin_resolution() {
     // Test that margin % uses containing block WIDTH (even for top/bottom)
 
     let context = ResolutionContext {
+        vertical_writing_mode: false,
         element_font_size: 16.0,
         parent_font_size: 16.0,
         root_font_size: 16.0,
@@ -131,6 +134,7 @@ fn test_nested_em_calculation() {
     let div_font_size = 1.2 * body_font_size; // 28.8px
 
     let context = ResolutionContext {
+        vertical_writing_mode: false,
         element_font_size: div_font_size, // P's font-size inherits from div
         parent_font_size: div_font_size,
         root_font_size: html_font_size,
@@ -168,6 +172,7 @@ fn test_comparison_old_vs_new() {
 
     // New behavior: uses element's actual font-size
     let context = ResolutionContext {
+        vertical_writing_mode: false,
         element_font_size: h1_font_size,
         parent_font_size: 16.0,
         root_font_size: 16.0,

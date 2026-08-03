@@ -22,6 +22,7 @@ fn test_h1_p_margin_collapse_calculation() {
 
     // H1: font-size: 2em = 32px, margin: 0.67em
     let h1_context = ResolutionContext {
+        vertical_writing_mode: false,
         element_font_size: 32.0,
         parent_font_size: 16.0,
         root_font_size: 16.0,
@@ -35,6 +36,7 @@ fn test_h1_p_margin_collapse_calculation() {
 
     // P: font-size: 1em = 16px, margin: 1em
     let p_context = ResolutionContext {
+        vertical_writing_mode: false,
         element_font_size: 16.0,
         parent_font_size: 16.0,
         root_font_size: 16.0,
@@ -76,6 +78,7 @@ fn test_margin_em_uses_element_font_size() {
     // Verify that em in margins resolves against element's OWN font-size, not parent's
 
     let context = ResolutionContext {
+        vertical_writing_mode: false,
         element_font_size: 32.0, // Element's own font-size
         parent_font_size: 16.0,  // Parent's font-size
         root_font_size: 16.0,
@@ -111,6 +114,7 @@ fn test_comparison_old_vs_new_behavior() {
 
     // New (correct) behavior: uses element's actual font-size
     let context = ResolutionContext {
+        vertical_writing_mode: false,
         element_font_size: h1_font_size,
         parent_font_size: 16.0,
         root_font_size: 16.0,

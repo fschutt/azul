@@ -213,6 +213,7 @@ fn test_bug3_font_size_dependency_chain_inheritance() {
 
     // Scenario: H1 has font-size: 2em = 32px (parent is body at 16px)
     let h1_context = ResolutionContext {
+        vertical_writing_mode: false,
         element_font_size: 32.0, // Already computed
         parent_font_size: 16.0,  // Body's font-size
         root_font_size: 16.0,
@@ -228,6 +229,7 @@ fn test_bug3_font_size_dependency_chain_inheritance() {
     // Child inside H1 that doesn't specify font-size should inherit COMPUTED value (32px)
     // NOT the dependency chain (2em)
     let child_context = ResolutionContext {
+        vertical_writing_mode: false,
         element_font_size: 32.0, // Inherited computed value from H1
         parent_font_size: 32.0,  // H1's computed font-size
         root_font_size: 16.0,
@@ -267,6 +269,7 @@ fn test_bug3_font_size_computed_value_inheritance() {
     // Parent: font-size: 2em (relative to its parent 16px) = 32px (computed)
     let parent_specified = PixelValue::em(2.0);
     let parent_context = ResolutionContext {
+        vertical_writing_mode: false,
         element_font_size: 32.0, // Will be computed to this
         parent_font_size: 16.0,  // Parent's parent (body) has 16px
         root_font_size: 16.0,
@@ -283,6 +286,7 @@ fn test_bug3_font_size_computed_value_inheritance() {
     //        Result: 2em * 32px = 64px
     let child_wrong = parent_specified.resolve_with_context(
         &ResolutionContext {
+        vertical_writing_mode: false,
             element_font_size: 64.0, // This would be computed
             parent_font_size: 32.0,  // Parent's computed value
             root_font_size: 16.0,
@@ -317,6 +321,7 @@ fn test_all_bugs_combined_h1_32px_not_64px() {
 
     // H1 font-size resolution with correct context
     let h1_context = ResolutionContext {
+        vertical_writing_mode: false,
         element_font_size: 32.0, // H1's computed font-size
         parent_font_size: 16.0,  // Body's font-size (correct parent)
         root_font_size: 16.0,
@@ -333,6 +338,7 @@ fn test_all_bugs_combined_h1_32px_not_64px() {
 
     // What would happen with Bug #2 (self-reference):
     let buggy_context = ResolutionContext {
+        vertical_writing_mode: false,
         element_font_size: 32.0,
         parent_font_size: 32.0, // BUG: Parent points to self!
         root_font_size: 16.0,
@@ -358,6 +364,7 @@ fn test_h1_margin_uses_own_font_size() {
     // This is independent of the bugs but related to the fix
 
     let h1_context = ResolutionContext {
+        vertical_writing_mode: false,
         element_font_size: 32.0, // H1's font-size
         parent_font_size: 16.0,  // Body's font-size
         root_font_size: 16.0,
