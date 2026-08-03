@@ -2387,22 +2387,41 @@ impl LayoutWindow {
                 if single_dom {
                     let keep_ids =
                         solver3::getters::collect_font_ids_from_chains(&chains);
-                    let keep_hashes: std::collections::HashSet<u64> = styled_dom
+                    // The family-hash keep-set comes from the compact style
+                    // cache — which a runtime CSS patch legitimately DROPS
+                    // (`restyle_user_property` invalidates it so the next
+                    // layout re-reads patched values through the slow path).
+                    // An absent cache is therefore an UNKNOWN keep-set, not an
+                    // empty one: treating it as empty evicted the manager's
+                    // entire hash registry mid-frame, and every glyph run in
+                    // the still-live display list stopped resolving — ALL text
+                    // vanished one frame after a `set_css_property(display)`
+                    // patch (the ribbon gallery panel toggle). Skip the GC for
+                    // this pass; the next full restyle rebuilds the cache and
+                    // collection resumes with a real keep-set.
+                    let keep_hashes: Option<std::collections::HashSet<u64>> = styled_dom
                         .css_property_cache
                         .ptr
                         .compact_cache
                         .as_ref()
-                        .map(|cc| cc.font_hash_to_families.keys().copied().collect())
-                        .unwrap_or_default();
-                    let evicted = self
-                        .font_manager
-                        .garbage_collect_fonts(&keep_ids, &keep_hashes);
-                    if evicted > 0 {
-                        if let Some(msgs) = debug_messages.as_mut() {
-                            msgs.push(LayoutDebugMessage::info(format!(
-                                "[FontLoading] GC evicted {evicted} unreferenced font(s)"
-                            )));
+                        .map(|cc| cc.font_hash_to_families.keys().copied().collect());
+                    if let Some(keep_hashes) = keep_hashes {
+                        let evicted = self
+                            .font_manager
+                            .garbage_collect_fonts(&keep_ids, &keep_hashes);
+                        if evicted > 0 {
+                            if let Some(msgs) = debug_messages.as_mut() {
+                                msgs.push(LayoutDebugMessage::info(format!(
+                                    "[FontLoading] GC evicted {evicted} unreferenced font(s)"
+                                )));
+                            }
                         }
+                    } else if let Some(msgs) = debug_messages.as_mut() {
+                        msgs.push(LayoutDebugMessage::info(
+                            "[FontLoading] font GC skipped: compact cache absent \
+                             (runtime patch pass) — keep-set unknown"
+                                .to_string(),
+                        ));
                     }
                 }
 
@@ -3007,16 +3026,17 @@ impl LayoutWindow {
             };
         }
         if !override_only {
-            // Keep the node's inline vec in sync so the reconcile
-            // fingerprint sees the change on the next generation.
-            use azul_css::dynamic_selector::CssPropertyWithConditions;
-            let with_conditions: Vec<CssPropertyWithConditions> = props
-                .iter()
-                .cloned()
-                .map(CssPropertyWithConditions::simple)
-                .collect();
-            layout_result.styled_dom.node_data.as_container_mut()[node_id]
-                .set_css_props(with_conditions.into());
+            // Keep the node's inline style in sync so the reconcile
+            // fingerprint sees the change on the next generation. UPSERT each
+            // patched property — this used to REPLACE the whole inline style
+            // with just the patch, so a panel toggled to `display: flex` lost
+            // its `position: absolute; top: ...` (and every other inline
+            // property the widget had set) and flowed into the row instead of
+            // overlaying it. See NodeData::upsert_inline_css_property.
+            let node = &mut layout_result.styled_dom.node_data.as_container_mut()[node_id];
+            for prop in &props {
+                node.upsert_inline_css_property(prop.clone());
+            }
         }
         // The property cache's single write site: the resolver
         // consults user-overridden properties FIRST, so paint changes

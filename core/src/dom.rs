@@ -2645,6 +2645,48 @@ impl NodeData {
     pub fn set_css_props(&mut self, css_props: CssPropertyWithConditionsVec) {
         self.style = css_props.into();
     }
+    /// Upsert one runtime-patched CSS property into this node's inline style.
+    ///
+    /// Every UNCONDITIONAL inline declaration of the same property type is
+    /// removed (a patch replaces the property's resting value), then the new
+    /// value is appended as its own unconditional rule at
+    /// `rule_priority::INLINE`. Conditional declarations (`:hover` styles,
+    /// `@media` rules) are left untouched: a runtime patch changes the
+    /// property's base value, not the node's whole style.
+    ///
+    /// The content chokepoint used to `set_css_props(vec![patch])` here,
+    /// which REPLACED the entire inline style — a gallery panel patched to
+    /// `display: flex` lost its `position: absolute; top: ...` and flowed
+    /// into the row, off-window. Remove-then-append also keeps repeated
+    /// toggles from growing the style without bound.
+    pub fn upsert_inline_css_property(&mut self, prop: azul_css::props::property::CssProperty) {
+        use azul_css::css::{rule_priority, CssDeclaration, CssPath, CssRuleBlock};
+
+        let ty = prop.get_type();
+        let mut rules = core::mem::take(&mut self.style.rules).into_library_owned_vec();
+        for rule in &mut rules {
+            if !rule.conditions.as_ref().is_empty() {
+                continue;
+            }
+            let mut decls = core::mem::take(&mut rule.declarations).into_library_owned_vec();
+            decls.retain(|d| match d {
+                CssDeclaration::Static(p) => p.get_type() != ty,
+                CssDeclaration::Dynamic(_) => true,
+            });
+            rule.declarations = decls.into();
+        }
+        // Drop rules the retain above emptied out entirely.
+        rules.retain(|r| !r.declarations.as_ref().is_empty());
+        rules.push(CssRuleBlock {
+            path: CssPath {
+                selectors: Vec::new().into(),
+            },
+            declarations: alloc::vec![CssDeclaration::Static(prop)].into(),
+            conditions: Vec::new().into(),
+            priority: rule_priority::INLINE,
+        });
+        self.style.rules = rules.into();
+    }
     /// Replace this node's inline style with a `Css` value. The Css's rules apply only
     /// to this node (implicit `:scope`).
     #[inline]
@@ -6314,6 +6356,87 @@ mod audit_tests {
 #[allow(clippy::cast_possible_wrap, clippy::too_many_lines)]
 mod autotest_generated {
     use super::*;
+
+    // ---------------------------------------------------------------------
+    // upsert_inline_css_property
+    // ---------------------------------------------------------------------
+
+    /// The runtime-patch upsert must REPLACE the unconditional declaration of
+    /// the same type, KEEP every other inline property (the content
+    /// chokepoint used to wipe the whole inline style, so a patched panel
+    /// lost its `position: absolute`), KEEP conditional declarations, and
+    /// stay bounded under repeated toggles.
+    #[test]
+    fn upsert_inline_css_property_replaces_only_the_unconditional_same_type() {
+        use azul_css::dynamic_selector::{
+            CssPropertyWithConditions, DynamicSelector, PseudoStateType,
+        };
+        use azul_css::props::layout::display::LayoutDisplay;
+        use azul_css::props::layout::position::LayoutPosition;
+        use azul_css::props::property::{CssProperty, CssPropertyType};
+
+        let mut node = NodeData::create_div();
+        node.set_css_props(
+            vec![
+                CssPropertyWithConditions::simple(CssProperty::const_position(
+                    LayoutPosition::Absolute,
+                )),
+                CssPropertyWithConditions::simple(CssProperty::const_display(
+                    LayoutDisplay::None,
+                )),
+                // A conditional (hover) display declaration must survive.
+                CssPropertyWithConditions {
+                    property: CssProperty::const_display(LayoutDisplay::Block),
+                    apply_if: vec![DynamicSelector::PseudoState(PseudoStateType::Hover)]
+                        .into(),
+                },
+            ]
+            .into(),
+        );
+
+        node.upsert_inline_css_property(CssProperty::const_display(LayoutDisplay::Flex));
+
+        let collect = |node: &NodeData| -> Vec<(CssProperty, bool)> {
+            node.style
+                .iter_inline_properties()
+                .map(|(p, conds)| (p.clone(), conds.as_ref().is_empty()))
+                .collect()
+        };
+
+        let props = collect(&node);
+        let unconditional_displays: Vec<&CssProperty> = props
+            .iter()
+            .filter(|(p, uncond)| *uncond && p.get_type() == CssPropertyType::Display)
+            .map(|(p, _)| p)
+            .collect();
+        assert_eq!(
+            unconditional_displays,
+            vec![&CssProperty::const_display(LayoutDisplay::Flex)],
+            "exactly ONE unconditional display remains: the patched value"
+        );
+        assert!(
+            props.iter().any(|(p, uncond)| *uncond
+                && *p == CssProperty::const_position(LayoutPosition::Absolute)),
+            "unrelated inline properties must survive the patch"
+        );
+        assert!(
+            props.iter().any(|(p, uncond)| !*uncond
+                && *p == CssProperty::const_display(LayoutDisplay::Block)),
+            "conditional (hover) declarations must survive the patch"
+        );
+
+        // Toggle many times: the style must not grow without bound.
+        let len_before = node.style.rules.as_ref().len();
+        for i in 0..20 {
+            let v = if i % 2 == 0 { LayoutDisplay::None } else { LayoutDisplay::Flex };
+            node.upsert_inline_css_property(CssProperty::const_display(v));
+        }
+        assert_eq!(
+            node.style.rules.as_ref().len(),
+            len_before,
+            "repeated upserts of the same type must not grow the inline style"
+        );
+    }
 
     // ---------------------------------------------------------------------
     // helpers

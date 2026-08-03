@@ -1928,16 +1928,26 @@ impl StyledDom {
         // `display: none -> flex` patch (combobox list, popover, ribbon
         // gallery panel) left the node at zero size and invisible.
         //
-        // Dropping the cache makes every getter fall through to the cascade
-        // path, which honours overrides. It is rebuilt by the next full
-        // cascade; overrides are user-interaction-rate, so this is not a
-        // per-frame cost. Only geometry-affecting overrides pay it — the
-        // animation channel (colour/opacity/transform) keeps the fast path.
+        // REBUILD the cache rather than merely dropping it. The builder's
+        // per-node walk applies `user_overridden_properties` as its last
+        // step, so the rebuilt cache reflects the patch — and every consumer
+        // that treats the compact cache as the source of truth keeps
+        // working. Leaving it `None` until "the next full cascade" was a
+        // trap: the font phase derives its requirements (font-stack
+        // signature, font chains, the GC keep-set) from this cache, so the
+        // very relayout that applies the patch resolved an EMPTY font world
+        // — the chain cache was replaced with nothing and the patched-in
+        // subtree's text laid out at zero size (the gallery panel opened as
+        // an 18px blank strip). Overrides are user-interaction-rate, so the
+        // rebuild is not a per-frame cost; the animation channel
+        // (colour/opacity/transform) keeps the fast path untouched.
         if new_properties
             .iter()
             .any(|p| p.get_type().can_trigger_relayout())
         {
-            self.get_css_property_cache_mut().compact_cache = None;
+            self.recompute_inheritance_and_compact_cache();
+            self.get_css_property_cache_mut()
+                .invalidate_resolved_font_sizes();
         }
 
         if !changes.is_empty() {
@@ -1945,6 +1955,57 @@ impl StyledDom {
         }
 
         map
+    }
+
+    /// Migrate runtime CSS overrides (`user_overridden_properties`) from a
+    /// previous generation's property cache onto this DOM, following the
+    /// reconciliation node matches.
+    ///
+    /// State follows node identity across a `RefreshDom` rebuild — exactly
+    /// like datasets (`diff::transfer_states`), scroll offsets and text
+    /// cursors already do. Without this, every runtime patch
+    /// (`set_css_property`) silently reverted on the next app-driven DOM
+    /// rebuild: the ribbon's collapsed band and an open combobox/gallery
+    /// panel "un-toggled" whenever any callback returned `RefreshDom` (the
+    /// ribbon's own tab-click does), because the fresh cascade knows nothing
+    /// of the old override layer.
+    ///
+    /// Rebuilds the compact cache when anything migrated, so the layout fast
+    /// path sees the carried-over values immediately.
+    pub fn migrate_user_overrides_from(
+        &mut self,
+        old_cache: &CssPropertyCache,
+        node_moves: &[crate::diff::NodeMove],
+    ) {
+        let node_count = self.node_data.as_ref().len();
+        let mut migrated_any = false;
+        for m in node_moves {
+            let Some(old_vec) = old_cache
+                .user_overridden_properties
+                .get(m.old_node_id.index())
+                .filter(|v| !v.is_empty())
+            else {
+                continue;
+            };
+            let new_idx = m.new_node_id.index();
+            if new_idx >= node_count {
+                continue;
+            }
+            let old_vec = old_vec.clone();
+            let cache = self.get_css_property_cache_mut();
+            if cache.user_overridden_properties.len() < node_count {
+                cache
+                    .user_overridden_properties
+                    .resize(node_count, Vec::new());
+            }
+            cache.user_overridden_properties[new_idx] = old_vec;
+            migrated_any = true;
+        }
+        if migrated_any {
+            self.recompute_inheritance_and_compact_cache();
+            self.get_css_property_cache_mut()
+                .invalidate_resolved_font_sizes();
+        }
     }
 
     /// Reconstruct a plain [`Dom`](crate::dom::Dom) from a subtree of this
@@ -3779,6 +3840,58 @@ mod autotest_generated {
             r.changed_nodes.keys().all(|n| *n == NodeId::new(1)),
             "only the node whose state actually changed may be reported"
         );
+    }
+
+    /// A geometry patch must leave the compact cache PRESENT and already
+    /// reflecting the override. The old behaviour (drop the cache, "the next
+    /// full cascade rebuilds it") broke every consumer that derives state
+    /// from the cache during the very relayout that applies the patch: the
+    /// font phase resolved an EMPTY font world (no stack signature, no
+    /// chains, empty GC keep-set), so the patched-in subtree's text laid out
+    /// at zero size and, pre-guard, the font GC evicted every loaded font
+    /// mid-frame.
+    #[test]
+    fn restyle_user_property_rebuilds_the_compact_cache_with_the_patch() {
+        use azul_css::props::layout::display::LayoutDisplay;
+        use azul_css::props::property::CssProperty;
+
+        let mut sd = flat_body(2);
+        let node = NodeId::new(1);
+
+        // Sanity: the fixture starts with a compact cache.
+        assert!(
+            sd.get_css_property_cache().compact_cache.is_some(),
+            "fixture should carry a compact cache"
+        );
+
+        let changes = sd.restyle_user_property(
+            &node,
+            &[CssProperty::const_display(LayoutDisplay::None)],
+        );
+        assert!(!changes.is_empty(), "display default -> none must report a change");
+
+        let cc = sd
+            .get_css_property_cache()
+            .compact_cache
+            .as_ref()
+            .expect("compact cache must be REBUILT by a geometry patch, not dropped");
+        assert_eq!(
+            cc.get_display(node.index()),
+            LayoutDisplay::None,
+            "the rebuilt compact cache must already reflect the patched value"
+        );
+
+        // And back again - repeated patches keep rebuilding, not accumulating.
+        let _ = sd.restyle_user_property(
+            &node,
+            &[CssProperty::const_display(LayoutDisplay::Flex)],
+        );
+        let cc = sd
+            .get_css_property_cache()
+            .compact_cache
+            .as_ref()
+            .expect("second patch keeps the cache present");
+        assert_eq!(cc.get_display(node.index()), LayoutDisplay::Flex);
     }
 
     #[test]

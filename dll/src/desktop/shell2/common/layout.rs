@@ -471,6 +471,22 @@ pub fn regenerate_layout(
             // Update the styled_dom with the merged node data
             styled_dom.node_data = new_node_data.into();
 
+            // Runtime CSS overrides follow node identity too — same contract
+            // as the dataset transfer above and the manager NodeId updates
+            // below. Without this, every `set_css_property` patch reverted on
+            // the next app-driven rebuild (the ribbon's collapsed band and
+            // open gallery panel "un-toggled" whenever any callback returned
+            // RefreshDom, e.g. the ribbon's own tab-click).
+            if let Some(old_layout_result) = layout_window
+                .layout_results
+                .get(&azul_core::dom::DomId::ROOT_ID)
+            {
+                styled_dom.migrate_user_overrides_from(
+                    &old_layout_result.styled_dom.css_property_cache.ptr,
+                    &diff_result.node_moves,
+                );
+            }
+
             log_debug!(
                 LogCategory::Layout,
                 "[regenerate_layout] State migration: {} node moves processed",

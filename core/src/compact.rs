@@ -740,6 +740,48 @@ impl CssPropertyCache {
                 update_dom_declared_flags(prop, &mut result.dom_declared_flags);
             }
 
+            // Step 4b: user-overridden properties (runtime patches via
+            // `set_css_property` / `restyle_user_property`). The resolver
+            // consults this layer FIRST, so the compact cache must apply it
+            // LAST — the cache is a projection of the same cascade and the
+            // two must agree. Without this step a rebuilt cache resurrected
+            // the pre-patch value: `restyle_user_property` rebuilds the cache
+            // right after recording the override, and the layout fast path
+            // then read the stale display/geometry the patch had just
+            // changed. Same dispatch shape as the inline loop above (the
+            // single-variant `if let`s exist for the remill lift, see there).
+            if let Some(user_props) = self.user_overridden_properties.get(i) {
+                for (_, prop) in user_props {
+                    if let CssProperty::Width(v) = prop {
+                        result.tier2_dims[i].width = encode_layout_width(v);
+                    } else if let CssProperty::Height(v) = prop {
+                        result.tier2_dims[i].height = encode_layout_height(v);
+                    } else if let CssProperty::FlexGrow(v) = prop {
+                        if let Some(e) = v.get_property() {
+                            result.tier2_dims[i].flex_grow = encode_flex_u16(e.inner.get());
+                        }
+                    } else if let CssProperty::Display(v) = prop {
+                        if let Some(e) = v.get_property() {
+                            let enc = u64::from(layout_display_to_u8(*e));
+                            let m = DISPLAY_MASK;
+                            let s = DISPLAY_SHIFT;
+                            result.tier1_enums[i] =
+                                (result.tier1_enums[i] & !(m << s)) | ((enc & m) << s);
+                        }
+                    } else {
+                        apply_css_property_to_compact(
+                            prop,
+                            &mut result.tier1_enums[i],
+                            &mut result.tier2_dims[i],
+                            &mut result.tier2_cold[i],
+                            &mut result.tier2b_text[i],
+                            &mut result.font_hash_to_families,
+                        );
+                    }
+                    update_dom_declared_flags(prop, &mut result.dom_declared_flags);
+                }
+            }
+
             // Resolve font-size from em/percent/pt/etc. to px.
             // CSS 2.1: inherited font-size is the COMPUTED (px) value, not the specified value.
             // Pre-order traversal guarantees parent's font_size is already resolved.
