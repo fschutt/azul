@@ -11213,7 +11213,7 @@ fn is_cjk_cluster(cluster: &ShapedCluster) -> bool {
 // +spec:line-breaking:a75147 - word-break property: normal (CJK breaks), break-all (every cluster), keep-all (suppress CJK breaks)
 // +spec:line-breaking:65ab41 - word-break: normal/break-all/keep-all break opportunity rules
 // +spec:line-breaking:7eca16 - U+200B ZERO WIDTH SPACE is always a break opportunity, even with keep-all
-fn is_break_opportunity_with_word_break(item: &ShapedItem, word_break: WordBreak, hyphens: Hyphens) -> bool {
+pub(crate) fn is_break_opportunity_with_word_break(item: &ShapedItem, word_break: WordBreak, hyphens: Hyphens) -> bool {
     // No-break spaces (UAX#14 class GL/WJ) are word separators for word-spacing
     // purposes but must NOT offer a soft-wrap opportunity. This is the segmentation
     // path used by BreakCursor::peek_next_unit, so it must suppress them the same way

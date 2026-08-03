@@ -72,7 +72,8 @@ struct Breakpoint {
 /// - Only supports horizontal text (vertical writing modes use greedy algorithm)
 /// - Higher computational cost than greedy breaking
 /// - May produce different results than browsers for edge cases
-/// - Does not yet handle overflow-wrap: anywhere/break-word (handled in greedy path)
+/// - overflow-wrap: anywhere/break-word emergency breaks stay greedy-only
+///   (word-break / hyphens-driven opportunities ARE honoured here)
 // overflow-wrap emergency breaks; the greedy break_one_line path handles this
 pub(crate) fn kp_layout<T: ParsedFontTrait>(
     items: &[ShapedItem],
@@ -88,8 +89,12 @@ pub(crate) fn kp_layout<T: ParsedFontTrait>(
         };
     }
 
-    // Convert ShapedItems into a sequence of Boxes, Glue, and Penalties
-    let nodes = convert_items_to_nodes(items, hyphenator, fonts);
+    // Convert ShapedItems into a sequence of Boxes, Glue, and Penalties.
+    // The paragraph base direction gates hyphenation (see 508895 below);
+    // the constraints carry word-break/line-break/overflow-wrap so the KP
+    // path honours the same soft-wrap controls as the greedy path.
+    let base_direction = get_base_direction_from_logical(logical_items);
+    let nodes = convert_items_to_nodes(items, hyphenator, fonts, constraints, base_direction);
 
     // Dynamic Programming to find optimal breakpoints
     let breaks = find_optimal_breakpoints(&nodes, constraints);
@@ -108,6 +113,8 @@ fn convert_items_to_nodes<T: ParsedFontTrait>(
     items: &[ShapedItem],
     hyphenator: Option<&Standard>,
     fonts: &LoadedFonts<T>,
+    constraints: &UnifiedConstraints,
+    base_direction: BidiDirection,
 ) -> Vec<LayoutNode> {
     let mut nodes = Vec::new();
     let is_vertical = false; // Knuth-Plass is horizontal-only for now
@@ -115,12 +122,6 @@ fn convert_items_to_nodes<T: ParsedFontTrait>(
 
     while let Some(item) = item_iter.next() {
         // +spec:line-breaking:f12241 - shaping across intra-word breaks: shaped clusters preserve joining forms
-        // NOTE: word-break property is not yet threaded through to kp_layout.
-        // Currently uses normal break behavior (spaces are break opportunities).
-        // To fully support break-all/keep-all, UnifiedConstraints.word_break
-        // would need to be passed here and used to insert additional Penalty
-        // nodes between CJK clusters (normal) or between all clusters (break-all),
-        // or suppress CJK inter-character penalties (keep-all).
         match item {
             item if is_zero_width_space(item) => {
                 nodes.push(LayoutNode::Penalty {
@@ -198,8 +199,17 @@ fn convert_items_to_nodes<T: ParsedFontTrait>(
                 // +spec:line-breaking:28a40b - Hyphenation is a rendering-only effect (no change to underlying content)
                 // +spec:line-breaking:f23fe8 - UA may use language-tailored heuristics (delegated to hyphenation crate)
                 // 2. Try to find all hyphenation opportunities for this word.
-                // +spec:display-property:508895 - cross-direction hyphenation suppression (LTR in RTL / RTL in LTR) not yet implemented
-                let hyphenation_breaks = hyphenator.and_then(|h| {
+                // +spec:display-property:508895 - hyphenation of direction-mismatched words is suppressed
+                // (CSS 2.2 §9.10 note: hyphenating an LTR word inside an RTL
+                // paragraph - or vice versa - would render the hyphen visually
+                // MID-line rather than at the line edge, so UAs usually
+                // suppress it. The word's direction comes from its first
+                // cluster; the paragraph's from the logical items.)
+                let word_direction = current_word_clusters
+                    .first()
+                    .map_or(base_direction, |c| c.direction);
+                let hyphenation_allowed = word_direction == base_direction;
+                let hyphenation_breaks = hyphenator.filter(|_| hyphenation_allowed).and_then(|h| {
                     crate::text3::cache::find_all_hyphenation_breaks(
                         &current_word_clusters,
                         h,
@@ -209,9 +219,31 @@ fn convert_items_to_nodes<T: ParsedFontTrait>(
                 });
 
                 if hyphenation_breaks.is_none() {
-                    // No hyphenation possible, add the whole word as boxes.
-                    for c in current_word_clusters {
+                    // No hyphenation possible, add the whole word as boxes -
+                    // with the SAME soft-wrap opportunities between clusters
+                    // the greedy path grants (word-break: break-all breaks
+                    // between any two clusters, `normal` between CJK ones,
+                    // keep-all suppresses those; the shared predicate is the
+                    // single source of truth). Without this, `text-wrap:
+                    // balance` (the KP path) silently ignored word-break and
+                    // CJK runs never gained intra-word breaks.
+                    let n_word = current_word_clusters.len();
+                    for (ci, c) in current_word_clusters.iter().enumerate() {
                         nodes.push(LayoutNode::Box(ShapedItem::Cluster(c.clone()), c.advance));
+                        let is_last = ci + 1 == n_word;
+                        if !is_last
+                            && crate::text3::cache::is_break_opportunity_with_word_break(
+                                &ShapedItem::Cluster(c.clone()),
+                                constraints.word_break,
+                                constraints.hyphenation,
+                            )
+                        {
+                            nodes.push(LayoutNode::Penalty {
+                                item: None,
+                                width: 0.0,
+                                penalty: 0.0,
+                            });
+                        }
                     }
                 } else {
                     // 3. Convert word + hyphenation breaks into a sequence of Boxes and Penalties.
@@ -770,7 +802,13 @@ mod kp_fix_tests {
             })
             .collect();
         let fonts: LoadedFonts<FontRef> = LoadedFonts::new();
-        convert_items_to_nodes(&items, None, &fonts)
+        convert_items_to_nodes(
+            &items,
+            None,
+            &fonts,
+            &UnifiedConstraints::default(),
+            BidiDirection::Ltr,
+        )
     }
 
     #[test]
@@ -918,7 +956,13 @@ mod autotest_generated {
     /// feature-gated type and needs a real dictionary; `None` is the path the
     /// engine takes whenever `hyphens: none`).
     fn nodes_of(items: &[ShapedItem]) -> Vec<LayoutNode> {
-        convert_items_to_nodes(items, None, &no_fonts())
+        convert_items_to_nodes(
+            items,
+            None,
+            &no_fonts(),
+            &UnifiedConstraints::default(),
+            BidiDirection::Ltr,
+        )
     }
 
     fn nodes_for(text: &str) -> Vec<LayoutNode> {
@@ -1236,20 +1280,23 @@ mod autotest_generated {
     }
 
     #[test]
-    fn cjk_ideographic_space_currently_offers_no_wrap_opportunity() {
-        // Characterization: U+3000 is deliberately NOT a word separator (CSS
-        // Text §7.1), and word_break is not threaded into kp_layout yet, so the
-        // whole run collapses into one unbreakable word. Locks in today's
-        // behavior; see the `word_break` TODO in convert_items_to_nodes.
+    fn cjk_run_gains_inter_character_wrap_opportunities() {
+        // U+3000 stays a non-separator (CSS Text §7.1), but word-break is
+        // threaded through kp_layout now: under `normal`, CJK clusters offer
+        // a soft-wrap opportunity after each ideograph, exactly like the
+        // greedy path (line-breaking:16e64c). Two inter-cluster penalties +
+        // the terminal forced break.
         let items = vec![cl("\u{4E00}", 16.0), cl("\u{3000}", 16.0), cl("\u{4E8C}", 16.0)];
         let nodes = nodes_of(&items);
         assert_eq!(
             penalty_count(&nodes),
-            1,
-            "only the terminal forced break exists in the CJK run"
+            3,
+            "two CJK inter-character opportunities plus the terminal break"
         );
         let breaks = find_optimal_breakpoints(&nodes, &definite(20.0));
         assert_breaks_well_formed(&nodes, &breaks, "cjk");
+        // And the run actually wraps at 20px now.
+        assert!(breaks.len() >= 2, "the CJK run must wrap: {breaks:?}");
     }
 
     #[test]
@@ -1723,6 +1770,77 @@ mod autotest_generated {
             48.0,
             "text-align: justify must not stretch the last line"
         );
+    }
+
+    #[test]
+    fn word_break_break_all_grants_intra_word_breaks_in_the_kp_path() {
+        use crate::text3::cache::WordBreak;
+        // "aaaa" = four 12px clusters, no spaces. At 30px it can only wrap if
+        // word-break: break-all inserts opportunities between clusters.
+        let nodes_normal = {
+            let items: Vec<ShapedItem> = "aaaa".chars().map(|ch| cl(&ch.to_string(), 12.0)).collect();
+            let fonts: LoadedFonts<FontRef> = LoadedFonts::new();
+            let c = UnifiedConstraints::default();
+            convert_items_to_nodes(&items, None, &fonts, &c, BidiDirection::Ltr)
+        };
+        let n_pen_normal = nodes_normal.iter().filter(|n| matches!(n, LayoutNode::Penalty { .. })).count();
+
+        let nodes_break_all = {
+            let items: Vec<ShapedItem> = "aaaa".chars().map(|ch| cl(&ch.to_string(), 12.0)).collect();
+            let fonts: LoadedFonts<FontRef> = LoadedFonts::new();
+            let c = UnifiedConstraints {
+                word_break: WordBreak::BreakAll,
+                ..Default::default()
+            };
+            convert_items_to_nodes(&items, None, &fonts, &c, BidiDirection::Ltr)
+        };
+        let n_pen_break_all = nodes_break_all.iter().filter(|n| matches!(n, LayoutNode::Penalty { .. })).count();
+
+        assert!(
+            n_pen_break_all > n_pen_normal,
+            "break-all must add intra-word opportunities: normal={n_pen_normal}, break-all={n_pen_break_all}"
+        );
+        // Three inter-cluster boundaries + the terminal forced break.
+        assert_eq!(n_pen_break_all, n_pen_normal + 3);
+    }
+
+    #[test]
+    fn hyphenation_is_suppressed_for_direction_mismatched_words() {
+        // An LTR word inside an RTL paragraph must not be hyphenated (CSS 2.2
+        // §9.10 note): the hyphen would land visually mid-line. Pin at the
+        // node level: with a mismatched base direction, no penalty carries a
+        // hyphen item even with a hyphenator present.
+        #[cfg(not(feature = "text_layout_hyphenation"))]
+        return; // dictionary feature not embedded in this build
+        #[cfg(feature = "text_layout_hyphenation")]
+        {
+        use hyphenation::Load;
+        let Ok(hyph) = Standard::from_embedded(hyphenation::Language::EnglishUS) else {
+            return;
+        };
+        // Glyph-less test clusters PANIC inside find_all_hyphenation_breaks
+        // (it indexes cluster.glyphs), so this test is doubly binding: with a
+        // mismatched direction the hyphenator must never be CONSULTED - if
+        // the gate regressed, the panic itself would fail the test before
+        // the assertion does.
+        let items: Vec<ShapedItem> = "hyphenation"
+            .chars()
+            .map(|ch| cl(&ch.to_string(), 12.0))
+            .collect();
+        let fonts: LoadedFonts<FontRef> = LoadedFonts::new();
+        let c = UnifiedConstraints::default();
+
+        let mismatched =
+            convert_items_to_nodes(&items, Some(&hyph), &fonts, &c, BidiDirection::Rtl);
+        let hyphen_penalties = mismatched
+            .iter()
+            .filter(|n| matches!(n, LayoutNode::Penalty { item: Some(_), .. }))
+            .count();
+        assert_eq!(
+            hyphen_penalties, 0,
+            "an LTR word in an RTL paragraph must not receive hyphen penalties"
+        );
+        }
     }
 
     #[test]
