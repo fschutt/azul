@@ -1471,3 +1471,255 @@ fn shrink_to_fit_labels_do_not_wrap_with_the_system_sans_font() {
         );
     }
 }
+
+/// `border-collapse: collapse` must zero out border-spacing between cells
+/// (CSS 2.2 section 17.6.2: the collapsing model has no border-spacing).
+/// table-basic-001 renders visible gaps between header cells because the
+/// separate-borders path runs despite `border-collapse: collapse`.
+#[test]
+fn border_collapse_collapse_suppresses_border_spacing() {
+    const CSS: &str = r#"
+        * { margin: 0; padding: 0; }
+        .tbl { display: table; border-collapse: collapse; border-spacing: 10px; }
+        .row { display: table-row; }
+        .c { display: table-cell; width: 50px; height: 20px; }
+    "#;
+    let dom = Dom::create_body().with_child(
+        Dom::create_div().with_ids_and_classes(class("tbl")).with_child(
+            Dom::create_div()
+                .with_ids_and_classes(class("row"))
+                .with_child(Dom::create_div().with_ids_and_classes(class("c")))
+                .with_child(Dom::create_div().with_ids_and_classes(class("c"))),
+        ),
+    );
+    let lw = layout_dom(dom, CSS, 800.0, 600.0);
+    let c1 = lw.get_node_layout_rect(node_id(3)).expect("cell 1");
+    let c2 = lw.get_node_layout_rect(node_id(4)).expect("cell 2");
+    let gap = c2.origin.x - (c1.origin.x + c1.size.width);
+    assert!(
+        gap.abs() < 0.5,
+        "collapsed table must have no border-spacing between cells, got a {gap}px gap"
+    );
+    assert!(
+        (c1.origin.x - 0.0).abs() < 0.5,
+        "collapsed table must not inset the first cell by border-spacing, cell 1 starts at {}",
+        c1.origin.x
+    );
+}
+
+/// Table-cell padding must surround the cell text symmetrically: with
+/// `padding: 8px` the text fragment starts 8px below the cell top (chrome
+/// centers it naturally; azul painted the text hugging the cell bottom in
+/// table-basic-001).
+#[test]
+fn table_cell_padding_offsets_text_from_the_cell_top() {
+    const CSS: &str = r#"
+        * { margin: 0; padding: 0; }
+        body { font-size: 14px; }
+        .tbl { display: table; border-collapse: collapse; }
+        .row { display: table-row; }
+        .c { display: table-cell; padding: 8px; }
+    "#;
+    let dom = Dom::create_body().with_child(
+        Dom::create_div().with_ids_and_classes(class("tbl")).with_child(
+            Dom::create_div().with_ids_and_classes(class("row")).with_child(
+                Dom::create_div()
+                    .with_ids_and_classes(class("c"))
+                    .with_child(Dom::create_text("Red 1")),
+            ),
+        ),
+    );
+    let lw = layout_dom(dom, CSS, 800.0, 600.0);
+    let cell = lw.get_node_layout_rect(node_id(3)).expect("cell");
+    let text = lw.get_node_layout_rect(node_id(4)).expect("text");
+    let top_inset = text.origin.y - cell.origin.y;
+    assert!(
+        (top_inset - 8.0).abs() < 1.5,
+        "text must start ~8px below the cell top (padding), got {top_inset}px (cell h {})",
+        cell.size.height
+    );
+}
+
+/// Collapsed-border painting must cover header rows too: the resolved
+/// 2px black strip between two `<th>` cells (and the black strip on the
+/// header/body boundary) must exist in the display list. table-basic-001
+/// renders the tbody edges but drops every edge touching the thead row.
+#[test]
+fn collapsed_borders_paint_across_header_rows() {
+    use azul_layout::solver3::display_list::DisplayListItem;
+    const CSS: &str = r#"
+        * { margin: 0; padding: 0; }
+        .tbl { display: table; border-collapse: collapse; }
+        .hgrp { display: table-header-group; }
+        .bgrp { display: table-row-group; }
+        .row { display: table-row; }
+        .th { display: table-cell; width: 50px; height: 20px; border: 2px solid #000000; background: #333333; }
+        .td { display: table-cell; width: 50px; height: 20px; border: 1px solid #999999; background: #ffcccc; }
+    "#;
+    let dom = Dom::create_body().with_child(
+        Dom::create_div().with_ids_and_classes(class("tbl"))
+            .with_child(
+                Dom::create_div().with_ids_and_classes(class("hgrp")).with_child(
+                    Dom::create_div().with_ids_and_classes(class("row"))
+                        .with_child(Dom::create_div().with_ids_and_classes(class("th")))
+                        .with_child(Dom::create_div().with_ids_and_classes(class("th"))),
+                ),
+            )
+            .with_child(
+                Dom::create_div().with_ids_and_classes(class("bgrp")).with_child(
+                    Dom::create_div().with_ids_and_classes(class("row"))
+                        .with_child(Dom::create_div().with_ids_and_classes(class("td")))
+                        .with_child(Dom::create_div().with_ids_and_classes(class("td"))),
+                ),
+            ),
+    );
+    let lw = layout_dom(dom, CSS, 800.0, 600.0);
+    // Boundary between the two header cells, from the real layout geometry
+    // (the test harness sizes cells to content, not to the declared width).
+    let th1 = lw.get_node_layout_rect(node_id(4)).expect("first th");
+    let th_boundary = th1.origin.x + th1.size.width;
+    let th_bottom = th1.origin.y + th1.size.height;
+    let result = lw.get_layout_result(&DomId::ROOT_ID).expect("layout result");
+    let mut black_vertical_between_ths = false;
+    let mut black_horizontal_under_header = false;
+    // Paint-order guard: cell BACKGROUNDS must never be emitted after the
+    // resolved border strips (a later background re-paint covers them).
+    let mut last_cell_bg_idx = None;
+    let mut first_strip_idx = None;
+    for (idx, item) in result.display_list.items.iter().enumerate() {
+        if let DisplayListItem::Rect { bounds, color, .. } = item {
+            let is_cell_bg = (color.r == 51 && color.g == 51 && color.b == 51)
+                || (color.r == 255 && color.g == 204 && color.b == 204);
+            let thin = bounds.size().width < 3.0 || bounds.size().height < 3.0;
+            if is_cell_bg && !thin {
+                last_cell_bg_idx = Some(idx);
+            }
+            if thin && color.a > 0 {
+                first_strip_idx.get_or_insert(idx);
+            }
+        }
+    }
+    if let (Some(bg), Some(strip)) = (last_cell_bg_idx, first_strip_idx) {
+        assert!(
+            bg < strip,
+            "cell background (item {bg}) painted AFTER a collapsed border strip (item {strip}) — it covers the border"
+        );
+    }
+    for item in &result.display_list.items {
+        if let DisplayListItem::Rect { bounds, color, .. } = item {
+            let is_black = color.r == 0 && color.g == 0 && color.b == 0 && color.a > 0;
+            if !is_black {
+                continue;
+            }
+            let (w, h) = (bounds.size().width, bounds.size().height);
+            let x = bounds.origin().x;
+            let y = bounds.origin().y;
+            // vertical 2px strip centered on the th/th boundary
+            if (w - 2.0).abs() < 0.6 && h > 10.0 && (x + w * 0.5 - th_boundary).abs() < 1.5 {
+                black_vertical_between_ths = true;
+            }
+            // horizontal 2px strip on the header/body boundary
+            if (h - 2.0).abs() < 0.6 && w > 3.0 && (y + h * 0.5 - th_bottom).abs() < 2.5 {
+                black_horizontal_under_header = true;
+            }
+        }
+    }
+    assert!(
+        black_vertical_between_ths,
+        "missing the resolved 2px black strip between the two th cells"
+    );
+    assert!(
+        black_horizontal_under_header,
+        "missing the resolved 2px black strip on the header/body row boundary"
+    );
+}
+
+/// Ground-truth probe: real <table>/<thead>/<th>/<td> nodes (UA stylesheet
+/// applies), replicating table-basic-001's header cell. Chrome centers the
+/// text (UA vertical-align: middle on cells); azul painted it 9px lower.
+#[test]
+fn real_table_cells_center_their_text_vertically() {
+    const CSS: &str = r#"
+        * { margin: 0; padding: 0; }
+        body { font-size: 14px; }
+        table { border-collapse: collapse; width: 400px; }
+        th { background: #333333; color: #ffffff; padding: 10px; border: 2px solid #000000; text-align: left; }
+    "#;
+    let mut dom = Dom::create_body().with_child(
+        Dom::create_table_no_a11y().with_child(
+            Dom::create_thead().with_child(
+                Dom::create_tr()
+                    .with_child(Dom::create_th().with_child(Dom::create_text("Header A")))
+                    .with_child(Dom::create_th().with_child(Dom::create_text("Header B"))),
+            ),
+        ),
+    );
+    let (css, _) = azul_css::parser2::new_from_str(CSS);
+    let styled_dom = StyledDom::create(&mut dom, css);
+    let mut layout_window = LayoutWindow::new(FcFontCache::build()).unwrap();
+    let mut window_state = FullWindowState::default();
+    window_state.size.dimensions = LogicalSize::new(800.0, 600.0);
+    layout_window.current_window_state = window_state.clone();
+    let renderer_resources = RendererResources::default();
+    let system_callbacks = ExternalSystemCallbacks::rust_internal();
+    let mut debug_messages = Some(Vec::new());
+    layout_window
+        .layout_and_generate_display_list(
+            styled_dom,
+            &window_state,
+            &renderer_resources,
+            &system_callbacks,
+            &mut debug_messages,
+        )
+        .unwrap();
+    let mut y_offset: Option<f32> = None;
+    for m in debug_messages.as_deref().unwrap_or_default() {
+        let msg = m.message.as_str();
+        if msg.contains("[position_table_cells]") && msg.contains("vertical-align") {
+            eprintln!("PROBE {msg}");
+            if let Some(pos) = msg.find("y_offset=") {
+                y_offset = msg[pos + 9..].trim_end().parse::<f32>().ok().or(y_offset);
+            }
+        }
+    }
+    let y = y_offset.expect("no vertical-align debug line for any cell");
+    assert!(
+        y.abs() < 2.5,
+        "header cell text must sit at the padding edge (row height equals \
+         content height, so EVERY alignment gives ~0), got y_offset={y}"
+    );
+
+    // End-to-end glyph check: the white header glyphs must start ~2px
+    // (border) + 10px (padding) + a small cap-vs-ascent gap below the cell
+    // top, like Chrome. The regression painted them ~9px lower.
+    use azul_layout::solver3::display_list::DisplayListItem;
+    let th_rect = lw_rect_of(&layout_window, 4);
+    let result = layout_window
+        .get_layout_result(&DomId::ROOT_ID)
+        .expect("layout result");
+    let mut glyph_min_y: Option<f32> = None;
+    for item in &result.display_list.items {
+        if let DisplayListItem::Text { glyphs, color, .. } = item {
+            if color.r == 255 && color.g == 255 && color.b == 255 {
+                for g in glyphs {
+                    let y = g.point.y;
+                    glyph_min_y = Some(glyph_min_y.map_or(y, |m: f32| m.min(y)));
+                }
+            }
+        }
+    }
+    let baseline_y = glyph_min_y.expect("no white glyphs in the display list");
+    // baseline sits at border(2) + padding(10) + ascent(~15.2 at 14px)
+    let expected = th_rect.origin.y + 2.0 + 10.0 + 15.2;
+    assert!(
+        (baseline_y - expected).abs() < 3.0,
+        "header glyph baseline must sit at the padding-box top plus the \
+         ascent ({expected:.1}), got {baseline_y:.1} (cell top {:.1})",
+        th_rect.origin.y
+    );
+}
+
+/// Layout rect of node `n`, panicking with context.
+fn lw_rect_of(lw: &LayoutWindow, n: usize) -> azul_core::geom::LogicalRect {
+    lw.get_node_layout_rect(node_id(n)).expect("node rect")
+}
