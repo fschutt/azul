@@ -174,9 +174,9 @@ dependencies = [
 
 [[package]]
 name = "agg-rust-azul"
-version = "1.0.3"
+version = "1.1.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "e782814ac90251de42fae8457a0ca3de88e9ad42cd3a218a57a0f1a3e31e80a2"
+checksum = "f5e11a5137df93122f4fc8c90a210fe40ebc1f41c646a19048877ceae5d34297"
 
 [[package]]
 name = "aho-corasick"

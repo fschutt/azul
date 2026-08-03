@@ -1,0 +1,32 @@
+<!DOCTYPE html>
+<html xmlns="http://www.w3.org/1999/xhtml">
+<head>
+<title>LCD blend probe: text/background color matrix</title>
+<style type="text/css">
+* { margin: 0; padding: 0; }
+body { font-family: "Noto Sans", sans-serif; width: 800px; background: #ffffff; }
+.band { padding: 6px 10px; }
+.w { color: #ffffff; }
+.k { color: #000000; }
+.s { font-size: 12px; }
+.m { font-size: 16px; }
+.g1 { background: #2e7d32; }
+.g2 { background: #00c853; }
+.bl { background: #1565c0; }
+.rd { background: #c62828; }
+.yl { background: #ffeb3b; }
+.gy { background: #808080; }
+.dk { background: #1a1a1a; }
+</style>
+</head>
+<body>
+<div class="band g1"><span class="w s">white 12px on dark green — the quick brown fox 0123</span> <span class="w m">16px sample</span></div>
+<div class="band g2"><span class="w s">white 12px on bright green — the quick brown fox 0123</span> <span class="k s">black 12px on bright green</span></div>
+<div class="band bl"><span class="w s">white 12px on blue — the quick brown fox 0123</span> <span class="w m">16px sample</span></div>
+<div class="band rd"><span class="w s">white 12px on red — the quick brown fox 0123</span> <span class="w m">16px sample</span></div>
+<div class="band yl"><span class="k s">black 12px on yellow — the quick brown fox 0123</span> <span class="k m">16px sample</span></div>
+<div class="band gy"><span class="w s">white 12px on gray</span> <span class="k s">black 12px on gray</span> <span class="w m">16px white</span></div>
+<div class="band dk"><span class="w s">white 12px on near-black — the quick brown fox 0123</span> <span class="w m">16px sample</span></div>
+<div class="band"><span class="k s">black 12px on white — the quick brown fox 0123</span> <span class="k m">16px sample</span></div>
+</body>
+</html>

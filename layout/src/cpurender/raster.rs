@@ -2265,18 +2265,75 @@ fn render_glyphs_lcd(
     // FreeType default "light" 5-tap FIR: primary 0x56, secondary 0x4D, tertiary
     // 0x08 (0x08+0x4D+0x56+0x4D+0x08 = 256); the LUT normalizes prim+2·sec+2·tert.
     let lut = LcdDistributionLut::new(f64::from(0x56u32), f64::from(0x4Du32), f64::from(0x08u32));
-    let pf = PixfmtRgba32Lcd::new(&mut ra, &lut);
-    let mut rb = RendererBase::new(pf);
-    if let Some(c) = clip {
-        rb.clip_box_i(
-            (c.x as i32) * 3,
-            c.y as i32,
-            ((c.x + c.width) as i32) * 3 - 1,
-            (c.y + c.height) as i32 - 1,
-        );
-    }
     let mut sl = ScanlineU8::new();
-    render_scanlines_aa_solid(&mut ras, &mut sl, &mut rb, &agg_color);
+    if let Some(params) = lcd_linear_params() {
+        // Colorimetric path (default): per-stripe compositing in LINEAR
+        // light against the actual background pixel, with contrast
+        // enhancement and an optional chroma budget — text stays legible
+        // on ANY fg/bg pair (thin white on green was unreadable with
+        // sRGB-space blending), instead of only on near-b/w pairs.
+        let pf = agg_rust::pixfmt_lcd::PixfmtRgba32LcdLinear::new(&mut ra, &lut, params);
+        let mut rb = RendererBase::new(pf);
+        if let Some(c) = clip {
+            rb.clip_box_i(
+                (c.x as i32) * 3,
+                c.y as i32,
+                ((c.x + c.width) as i32) * 3 - 1,
+                (c.y + c.height) as i32 - 1,
+            );
+        }
+        render_scanlines_aa_solid(&mut ras, &mut sl, &mut rb, &agg_color);
+    } else {
+        // Legacy sRGB-space blending (AZ_LCD_BLEND=legacy).
+        let pf = PixfmtRgba32Lcd::new(&mut ra, &lut);
+        let mut rb = RendererBase::new(pf);
+        if let Some(c) = clip {
+            rb.clip_box_i(
+                (c.x as i32) * 3,
+                c.y as i32,
+                ((c.x + c.width) as i32) * 3 - 1,
+                (c.y + c.height) as i32 - 1,
+            );
+        }
+        render_scanlines_aa_solid(&mut ras, &mut sl, &mut rb, &agg_color);
+    }
+}
+
+/// Parameters for the colorimetric LCD blend, or `None` for the legacy
+/// sRGB-space blend. Defaults to the colorimetric path.
+///
+/// - `AZ_LCD_BLEND=legacy` selects the old sRGB-space blending.
+/// - `AZ_LCD_COVERAGE_GAMMA=<100..255>` tone curve on stripe coverage,
+///   x100 (default 220 = c^(1/2.2)): pure linear compositing renders
+///   dark-on-light lighter than Skia/ClearType, which blend in an
+///   intermediate gamma space; this restores conventional stem weight
+///   while keeping linear per-channel mixing.
+/// - `AZ_LCD_CONTRAST=<0..255>` additional skia-style coverage contrast
+///   (default 0).
+/// - `AZ_LCD_CHROMA_LIMIT=<0..255>` caps how far a stripe may deviate
+///   from the luminance-correct composite (0 = physically free stripes,
+///   the default; 255 = grayscale-equivalent).
+///
+/// Read once.
+fn lcd_linear_params() -> Option<agg_rust::pixfmt_lcd::LcdBlendParams> {
+    use std::sync::OnceLock;
+    static V: OnceLock<Option<agg_rust::pixfmt_lcd::LcdBlendParams>> = OnceLock::new();
+    *V.get_or_init(|| {
+        if std::env::var("AZ_LCD_BLEND").is_ok_and(|v| v.eq_ignore_ascii_case("legacy")) {
+            return None;
+        }
+        let parse = |k: &str, default: u8| {
+            std::env::var(k)
+                .ok()
+                .and_then(|v| v.parse::<u8>().ok())
+                .unwrap_or(default)
+        };
+        Some(agg_rust::pixfmt_lcd::LcdBlendParams {
+            contrast: parse("AZ_LCD_CONTRAST", 0),
+            chroma_limit: parse("AZ_LCD_CHROMA_LIMIT", 0),
+            coverage_gamma: parse("AZ_LCD_COVERAGE_GAMMA", 220),
+        })
+    })
 }
 
 /// A `font_hash` that layout emitted but the `FontManager` that emitted it cannot
