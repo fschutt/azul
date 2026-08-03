@@ -693,6 +693,25 @@ impl LayoutCallbackInfo {
         self.relayout_reason
     }
 
+    /// Is the window's LOGICAL viewport wider than `width_px`?
+    ///
+    /// The structural-breakpoint helper: branch on this in `layout()` to
+    /// return an entirely different DOM per form factor
+    /// (`ribbon.dom_desktop()` vs `ribbon.dom_mobile()`), instead of
+    /// emitting both trees and toggling visibility with `@media` rules.
+    ///
+    /// CONTRACT: the framework re-invokes `layout()` on every window resize
+    /// (`RelayoutReason::Resize` - the regenerate path never takes the
+    /// layout-equivalence shortcut when the window size changed), so the
+    /// answer cannot go stale: crossing the breakpoint in either direction
+    /// re-runs `layout()` and the callback returns the other tree. If a
+    /// future optimization ever skips DOM regeneration on resize, it must
+    /// register the thresholds queried here and force a rebuild when one is
+    /// crossed - grep for this comment.
+    #[must_use] pub fn viewport_bigger_than(&self, width_px: f32) -> bool {
+        self.window_size.dimensions.width > width_px
+    }
+
     /// Set the callable pointer for FFI language bindings
     pub const fn set_callable_ptr(&mut self, callable: &OptionRefAny) {
         self.callable_ptr = core::ptr::from_ref::<OptionRefAny>(callable);
