@@ -234,6 +234,8 @@ pub fn run_reftests(config: RunRefTestsConfig) -> anyhow::Result<ReftestOutcome>
 
     // Initialize pipeline: FcFontRegistry (background threads) + Chrome CDP
     println!("Initializing reftest pipeline...");
+    // Hermetic fonts for BOTH engines (see write_hermetic_fontconfig).
+    let _ = pipeline::ReftestPipeline::write_hermetic_fontconfig(&output_dir);
     let mut pipeline = pipeline::ReftestPipeline::new(&chrome_path)
         .map_err(|e| anyhow::anyhow!("Pipeline init failed: {}", e))?;
 
@@ -442,6 +444,7 @@ pub fn run_single_reftest(test_name: &str, config: RunRefTestsConfig) -> anyhow:
     }
 
     // Use unified pipeline
+    let _ = pipeline::ReftestPipeline::write_hermetic_fontconfig(&output_dir);
     let mut pipe = pipeline::ReftestPipeline::new(&chrome_path)
         .map_err(|e| anyhow::anyhow!("Pipeline: {}", e))?;
 

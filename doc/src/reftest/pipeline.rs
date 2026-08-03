@@ -116,6 +116,52 @@ pub struct ReftestPipeline {
 }
 
 impl ReftestPipeline {
+    /// Write the hermetic fontconfig used for BOTH engines of a reftest run
+    /// and export it via FONTCONFIG_FILE (which Chrome honours natively and
+    /// azul honours through `fontconfig_generic_aliases`).
+    ///
+    /// Chrome does not ask fontconfig for "sans-serif": its own per-script
+    /// defaults request "Arial"/"Times New Roman" and rely on the system's
+    /// metric aliases, so on any given distro the two engines can resolve
+    /// DIFFERENT concrete fonts for the same page (Liberation Sans vs Noto
+    /// Sans here) and every text-bearing test diverges by a whole font.
+    /// Pinning one deterministic family set for the generics AND the classic
+    /// web families makes the comparison hermetic across machines.
+    pub fn write_hermetic_fontconfig(output_dir: &std::path::Path) -> Result<std::path::PathBuf, String> {
+        let dir = output_dir.join("fontconfig");
+        std::fs::create_dir_all(&dir).map_err(|e| format!("fontconfig dir: {e}"))?;
+        let cache_dir = dir.join("cache");
+        std::fs::create_dir_all(&cache_dir).map_err(|e| format!("fontconfig cache dir: {e}"))?;
+        let conf = dir.join("fonts.conf");
+        let xml = format!(
+            r#"<?xml version="1.0"?>
+<!DOCTYPE fontconfig SYSTEM "urn:fontconfig:fonts.dtd">
+<fontconfig>
+  <dir>/usr/share/fonts</dir>
+  <cachedir>{cache}</cachedir>
+  <alias><family>sans-serif</family><prefer><family>Noto Sans</family></prefer></alias>
+  <alias><family>serif</family><prefer><family>Noto Serif</family></prefer></alias>
+  <alias><family>monospace</family><prefer><family>Noto Sans Mono</family></prefer></alias>
+  <alias><family>Arial</family><prefer><family>Noto Sans</family></prefer></alias>
+  <alias><family>Helvetica</family><prefer><family>Noto Sans</family></prefer></alias>
+  <alias><family>Verdana</family><prefer><family>Noto Sans</family></prefer></alias>
+  <alias><family>Tahoma</family><prefer><family>Noto Sans</family></prefer></alias>
+  <alias><family>Times</family><prefer><family>Noto Serif</family></prefer></alias>
+  <alias><family>Times New Roman</family><prefer><family>Noto Serif</family></prefer></alias>
+  <alias><family>Georgia</family><prefer><family>Noto Serif</family></prefer></alias>
+  <alias><family>Courier</family><prefer><family>Noto Sans Mono</family></prefer></alias>
+  <alias><family>Courier New</family><prefer><family>Noto Sans Mono</family></prefer></alias>
+</fontconfig>
+"#,
+            cache = cache_dir.display()
+        );
+        std::fs::write(&conf, xml).map_err(|e| format!("write fonts.conf: {e}"))?;
+        // Chrome reads it at spawn; azul's alias parser reads it lazily on
+        // the first font-stack build. Set BEFORE either happens.
+        std::env::set_var("FONTCONFIG_FILE", &conf);
+        Ok(conf)
+    }
+
     pub fn new(chrome_path: &str) -> Result<Self, String> {
         let t0 = Instant::now();
         let registry = azul_layout::FcFontRegistry::new();

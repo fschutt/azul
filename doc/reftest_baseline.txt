@@ -1,19 +1,24 @@
-#
-# add it here in the same commit so the gain cannot silently regress later.
+# Reftests known to PASS at the time this baseline was recorded.
 # A test listed here MUST keep passing. Making a new test pass is welcome —
-# azul currently passes 5 of 44 CSS reftests. That is the real number, and it
+# add it here in the same commit so the gain cannot silently regress later.
+# Removing a name is a deliberate admission of regression; say why.
+#
+# azul currently passes 29 of 52 CSS reftests. That is the real number, and it
+# is why this gate is a REGRESSION gate rather than an all-must-pass gate:
+# demanding 100% today would block every deploy, and demanding nothing is what
 # `azul-doc reftest` did before (it returned Ok(()) unconditionally, so 0/44
+# was indistinguishable from 44/44).
 block-float-clear-complex-001
 block-positioning-complex-001
 block-width-height-001
 calc-width-001
 color-background-001
-# demanding 100% today would block every deploy, and demanding nothing is what
 display-none-visibility-001
 flexbox-flex-grow-shrink-001
 flexbox-simple
+flexbox-wrap-alignment-001
+font-hinting-001
 inline-block-text-002
-# is why this gate is a REGRESSION gate rather than an all-must-pass gate:
 list-style-001
 margin-auto-centering-001
 overflow-scroll-001
@@ -22,8 +27,6 @@ padding-debug-002
 padding-debug-003
 position-absolute-001
 position-relative-001
-# Reftests known to PASS at the time this baseline was recorded.
-# Removing a name is a deliberate admission of regression; say why.
 ribbonbug-border-around-text-box-001
 ribbonbug-border-box-metrics-001
 ribbonbug-flex-root-auto-height-001
@@ -32,6 +35,6 @@ ribbonbug-text-center-in-wide-box-001
 ribbonbug-text-maxcontent-nowrap-001
 ribbonbug-unset-border-color-001
 table-basic-001
+text-basic-001
 text-in-box-debug-001
 text-overflow-001
-# was indistinguishable from 44/44).
