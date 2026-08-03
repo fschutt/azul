@@ -1087,6 +1087,7 @@ const RIBBON_TAB_CLASS: &str = "__azul-native-ribbon-tab";
 
 const MOBILE_TAB_BUTTON_CLASS: &str = "__azul-native-ribbon-mobile-tab";
 const RIBBON_CONTAINER_CLASS: &str = "__azul-native-ribbon";
+const MOBILE_GROUP_LIST_ITEM_CLASS: &str = "__azul-native-ribbon-mobile-group-list-item";
 const RIBBON_CONTENT_CLASS: &str = "__azul-native-ribbon-content";
 static CLS_MOBILE_TAB_BUTTON: &[IdOrClass] =
     &[Class(AzString::from_const_str(MOBILE_TAB_BUTTON_CLASS))];
@@ -1096,6 +1097,8 @@ static CLS_MOBILE_TAB_OVERLAY_ITEM: &[IdOrClass] =
     &[Class(AzString::from_const_str("__azul-native-ribbon-mobile-tab-overlay-item"))];
 static CLS_MOBILE_GROUP_LIST: &[IdOrClass] =
     &[Class(AzString::from_const_str("__azul-native-ribbon-mobile-group-list"))];
+static CLS_MOBILE_BAND: &[IdOrClass] =
+    &[Class(AzString::from_const_str("__azul-native-ribbon-mobile-band"))];
 static CLS_MOBILE_GROUP_LIST_ITEM: &[IdOrClass] =
     &[Class(AzString::from_const_str("__azul-native-ribbon-mobile-group-list-item"))];
 
@@ -1900,9 +1903,38 @@ impl Ribbon {
         self
     }
 
-    /// Builds the ribbon DOM: the tab strip and the active tab's groups.
+    /// Builds the ADAPTIVE ribbon DOM: both the desktop chrome (tab strip)
+    /// and the touch chrome (full-width tab button, group list) live in the
+    /// tree, and inline viewport conditions decide which is visible. Use
+    /// this when one tree must serve every window size without re-running
+    /// `layout()` logic.
     #[must_use]
     pub fn dom(self) -> Dom {
+        self.build_chrome(RibbonChromeMode::Adaptive)
+    }
+
+    /// Builds ONLY the desktop chrome (tab strip + content band), with no
+    /// mobile nodes and no viewport conditions. Pair with
+    /// [`Self::dom_mobile`] by branching on
+    /// `LayoutCallbackInfo::viewport_bigger_than` in `layout()` - the
+    /// framework re-invokes `layout()` on every resize, so crossing the
+    /// breakpoint swaps the structure.
+    #[must_use]
+    pub fn dom_desktop(self) -> Dom {
+        self.build_chrome(RibbonChromeMode::Desktop)
+    }
+
+    /// Builds ONLY the touch chrome: the full-width active-tab button (tap
+    /// opens the fullscreen tab picker, double-tap collapses the band), the
+    /// scrollable group list on the dominant-hand side, and ONE visible
+    /// group at a time (tapping a list entry swaps it in with no app
+    /// relayout). See [`Self::dom_desktop`] for the pairing contract.
+    #[must_use]
+    pub fn dom_mobile(self) -> Dom {
+        self.build_chrome(RibbonChromeMode::Mobile)
+    }
+
+    fn build_chrome(self, mode: RibbonChromeMode) -> Dom {
         let Ribbon { app_button, tabs, active_tab, on_tab_click, style, behavior } = self;
         let has_callback = on_tab_click.is_some();
 
@@ -2009,7 +2041,7 @@ impl Ribbon {
             .with_css_props(style.tab_bar_style.clone())
             .with_children(DomVec::from_vec(bar_children));
 
-        let group_doms: Vec<Dom> = match tabs.into_library_owned_vec().into_iter().nth(active_tab) {
+        let mut group_doms: Vec<Dom> = match tabs.into_library_owned_vec().into_iter().nth(active_tab) {
             Some(active) => active
                 .groups
                 .into_library_owned_vec()
@@ -2018,6 +2050,17 @@ impl Ribbon {
                 .collect(),
             None => Vec::new(),
         };
+
+        // Structural mobile chrome shows ONE group at a time; the group list
+        // beside the content swaps them in (a runtime display patch - no app
+        // relayout, same mechanism as the gallery panel).
+        if matches!(mode, RibbonChromeMode::Mobile) {
+            for (idx, g) in group_doms.iter_mut().enumerate() {
+                if idx != 0 {
+                    g.root.upsert_inline_css_property(P::const_display(LayoutDisplay::None));
+                }
+            }
+        }
 
         // ---- mobile chrome -------------------------------------------
         // Same tabs and groups, touch presentation. Both chromes live in the
@@ -2110,12 +2153,27 @@ impl Ribbon {
                 } else {
                     style.mobile_group_list_item_style.clone()
                 };
-                Dom::create_div()
+                let mut item = Dom::create_div()
                     .with_ids_and_classes(IdOrClassVec::from_const_slice(
                         CLS_MOBILE_GROUP_LIST_ITEM,
                     ))
                     .with_css_props(item_style)
-                    .with_children(DomVec::from_vec(vec![Dom::create_text(label.clone())]))
+                    .with_children(DomVec::from_vec(vec![Dom::create_text(label.clone())]));
+                if matches!(mode, RibbonChromeMode::Mobile) {
+                    item = item.with_callbacks(vec![CoreCallbackData {
+                        event: EventFilter::Hover(HoverEventFilter::MouseUp),
+                        callback: CoreCallback {
+                            cb: on_ribbon_mobile_group_click as usize,
+                            ctx: azul_core::refany::OptionRefAny::None,
+                        },
+                        refany: RefAny::new(GroupListClickData {
+                            group_idx: idx,
+                            selected_style: style.mobile_group_list_item_selected_style.clone(),
+                            base_style: style.mobile_group_list_item_style.clone(),
+                        }),
+                    }].into());
+                }
+                item
             })
             .collect();
         let mobile_group_list = Dom::create_div()
@@ -2128,16 +2186,54 @@ impl Ribbon {
             .with_css_props(style.content_style.clone())
             .with_children(DomVec::from_vec(group_doms));
 
-        let mut container = Dom::create_div()
-            .with_ids_and_classes(IdOrClassVec::from_const_slice(CLS_RIBBON))
-            .with_css_props(style.container_style.clone())
-            .with_children(DomVec::from_vec(vec![
+        // Structural modes pin the chrome's visibility unconditionally
+        // (inline resolution is last-wins, so the appended value overrides
+        // the baked viewport condition): the STRUCTURE is the breakpoint
+        // switch, not the stylesheet.
+        let children = match mode {
+            RibbonChromeMode::Adaptive => vec![
                 tab_bar,
                 mobile_tab_button,
                 mobile_tab_overlay,
                 mobile_group_list,
                 content,
-            ]));
+            ],
+            RibbonChromeMode::Desktop => {
+                let mut tab_bar = tab_bar;
+                tab_bar.root.upsert_inline_css_property(P::const_display(LayoutDisplay::Flex));
+                vec![tab_bar, content]
+            }
+            RibbonChromeMode::Mobile => {
+                let mut mobile_tab_button = mobile_tab_button;
+                let mut mobile_group_list = mobile_group_list;
+                mobile_tab_button
+                    .root
+                    .upsert_inline_css_property(P::const_display(LayoutDisplay::Flex));
+                mobile_group_list
+                    .root
+                    .upsert_inline_css_property(P::const_display(LayoutDisplay::Flex));
+                // The group list and the ONE visible group share a ROW band
+                // ("scrollable list beside the content", the touch spec) -
+                // structurally, because the container is a column. List side
+                // = leading (right-handed default); a Handedness-driven
+                // row-reverse via a future mobile_band_style field can flip
+                // it without changing this structure.
+                let band = Dom::create_div()
+                    .with_ids_and_classes(IdOrClassVec::from_const_slice(CLS_MOBILE_BAND))
+                    .with_css_props(CssPropertyWithConditionsVec::from_vec(vec![
+                        Cond::simple(P::const_display(LayoutDisplay::Flex)),
+                        Cond::simple(P::const_flex_direction(LayoutFlexDirection::Row)),
+                        Cond::simple(P::const_flex_grow(LayoutFlexGrow::const_new(1))),
+                        cond_border_box(),
+                    ]))
+                    .with_children(DomVec::from_vec(vec![mobile_group_list, content]));
+                vec![mobile_tab_button, mobile_tab_overlay, band]
+            }
+        };
+        let mut container = Dom::create_div()
+            .with_ids_and_classes(IdOrClassVec::from_const_slice(CLS_RIBBON))
+            .with_css_props(style.container_style.clone())
+            .with_children(DomVec::from_vec(children));
         // The chrome state (collapse flag) lives on the container as a
         // DATASET so it follows node identity across RefreshDom rebuilds
         // (see keep_old_ribbon_chrome). Without this, every rebuild reset
@@ -2446,6 +2542,100 @@ fn gallery_dom(gallery: RibbonGallery, s: &RibbonStyle, b: RibbonBehavior) -> Do
 
 // -- Trampolines --
 
+/// Which chrome [`Ribbon::dom`]-family builder emits.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum RibbonChromeMode {
+    /// Both chromes in one tree; inline viewport conditions pick one.
+    Adaptive,
+    /// Desktop chrome only (tab strip + content).
+    Desktop,
+    /// Touch chrome only (tab button + overlay + group list + one group).
+    Mobile,
+}
+
+/// Per-list-entry payload for the mobile group switcher.
+struct GroupListClickData {
+    group_idx: usize,
+    selected_style: CssPropertyWithConditionsVec,
+    base_style: CssPropertyWithConditionsVec,
+}
+
+/// Tapping a group-list entry shows THAT group in the content band and moves
+/// the highlight - a runtime display patch, no app relayout (the same
+/// chokepoint mechanism the gallery panel uses). Targets resolve BY CLASS
+/// from the ribbon container, per the widget convention.
+extern "C" fn on_ribbon_mobile_group_click(mut refany: RefAny, mut info: CallbackInfo) -> Update {
+    let hit = info.get_hit_node();
+    let Some(mut data) = refany.downcast_mut::<GroupListClickData>() else {
+        return Update::DoNothing;
+    };
+    let group_idx = data.group_idx;
+    let selected_style = data.selected_style.clone();
+    let base_style = data.base_style.clone();
+    drop(data);
+
+    let Some(ribbon) = ancestor_with_class(&info, hit, RIBBON_CONTAINER_CLASS) else {
+        return Update::DoNothing;
+    };
+
+    // Swap the visible group inside the content band (the content sits
+    // INSIDE the mobile band wrapper, so resolve by descendant search).
+    if let Some(content) = descendant_with_class(&info, ribbon, RIBBON_CONTENT_CLASS) {
+        let mut group = info.get_first_child(content);
+        let mut idx = 0_usize;
+        while let Some(g) = group {
+            let display = if idx == group_idx {
+                LayoutDisplay::Flex
+            } else {
+                LayoutDisplay::None
+            };
+            info.set_css_property(g, P::const_display(display));
+            group = info.get_next_sibling(g);
+            idx += 1;
+        }
+    }
+
+    // Move the highlight along the list (unconditional props only, like the
+    // gallery cell highlight). For a DE-selected entry, property types the
+    // selected style sets but the base style does not are reset to Initial -
+    // set_css_property(Initial) REMOVES the runtime override, so the entry
+    // falls back to its inline style instead of keeping the stale highlight.
+    let item = ancestor_with_class(&info, hit, MOBILE_GROUP_LIST_ITEM_CLASS).unwrap_or(hit);
+    if let Some(list) = info.get_parent(item) {
+        let mut sibling = info.get_first_child(list);
+        while let Some(entry) = sibling {
+            if entry == item {
+                for prop in selected_style.as_ref() {
+                    if prop.apply_if.as_ref().is_empty() {
+                        info.set_css_property(entry, prop.property.clone());
+                    }
+                }
+            } else {
+                for prop in base_style.as_ref() {
+                    if prop.apply_if.as_ref().is_empty() {
+                        info.set_css_property(entry, prop.property.clone());
+                    }
+                }
+                for prop in selected_style.as_ref() {
+                    if !prop.apply_if.as_ref().is_empty() {
+                        continue;
+                    }
+                    let ty = prop.property.get_type();
+                    let in_base = base_style.as_ref().iter().any(|b| {
+                        b.apply_if.as_ref().is_empty() && b.property.get_type() == ty
+                    });
+                    if !in_base {
+                        info.set_css_property(entry, azul_css::props::property::CssProperty::initial(ty));
+                    }
+                }
+            }
+            sibling = info.get_next_sibling(entry);
+        }
+    }
+
+    Update::DoNothing
+}
+
 /// Dataset merge for the ribbon container: chrome state (collapse) must
 /// survive app-driven rebuilds (any callback returning RefreshDom - the
 /// ribbon's own tab switch does), so keep the OLD allocation wholesale.
@@ -2490,21 +2680,10 @@ struct RibbonChromeState {
 /// between the tab bar and the content band, so a double-click "collapsed"
 /// the (already hidden) mobile tab button while the content stayed visible.
 fn content_node_of_tab(info: &CallbackInfo, hit: DomNodeId) -> Option<DomNodeId> {
-    let tab = ancestor_with_class(info, hit, RIBBON_TAB_CLASS)?;
+    let tab = ancestor_with_class(info, hit, RIBBON_TAB_CLASS)
+        .or_else(|| ancestor_with_class(info, hit, MOBILE_TAB_BUTTON_CLASS))?;
     let ribbon = ancestor_with_class(info, tab, RIBBON_CONTAINER_CLASS)?;
-    let mut child = info.get_first_child(ribbon);
-    while let Some(node) = child {
-        if info
-            .get_node_classes(node)
-            .as_ref()
-            .iter()
-            .any(|cl| cl.as_str() == RIBBON_CONTENT_CLASS)
-        {
-            return Some(node);
-        }
-        child = info.get_next_sibling(node);
-    }
-    None
+    descendant_with_class(info, ribbon, RIBBON_CONTENT_CLASS)
 }
 
 fn set_content_visible(info: &mut CallbackInfo, content: DomNodeId, visible: bool) {
@@ -2624,6 +2803,44 @@ fn ancestor_with_class(
             return Some(node);
         }
         current = info.get_parent(node);
+    }
+    None
+}
+
+/// Breadth-first search for the first descendant of `root` carrying `class`,
+/// bounded to 64 visited nodes. The ribbon's structural chromes nest parts
+/// at different depths (the mobile band wraps group list + content), so
+/// class resolution must not assume direct children.
+fn descendant_with_class(
+    info: &CallbackInfo,
+    root: DomNodeId,
+    class: &str,
+) -> Option<DomNodeId> {
+    let mut queue: Vec<DomNodeId> = Vec::with_capacity(8);
+    let mut child = info.get_first_child(root);
+    while let Some(n) = child {
+        queue.push(n);
+        child = info.get_next_sibling(n);
+    }
+    let mut visited = 0_usize;
+    let mut i = 0_usize;
+    while i < queue.len() && visited < 64 {
+        let node = queue[i];
+        i += 1;
+        visited += 1;
+        if info
+            .get_node_classes(node)
+            .as_ref()
+            .iter()
+            .any(|cl| cl.as_str() == class)
+        {
+            return Some(node);
+        }
+        let mut child = info.get_first_child(node);
+        while let Some(n) = child {
+            queue.push(n);
+            child = info.get_next_sibling(n);
+        }
     }
     None
 }
@@ -2974,6 +3191,69 @@ mod tests {
         assert_eq!(bar.children.as_ref().len(), 1, "empty ribbon bar = filler only");
         assert!(has_class(&bar.children.as_ref()[0], "__azul-native-ribbon-tab-filler"));
         assert!(content.children.as_ref().is_empty());
+    }
+
+    #[test]
+    fn dom_desktop_emits_only_the_desktop_chrome() {
+        let r = Ribbon::new(tabs(3));
+        let dom = r.dom_desktop();
+        let ch = dom.children.as_ref();
+        assert_eq!(ch.len(), 2, "desktop chrome = [tab bar, content]");
+        assert!(has_class(&ch[0], "__azul-native-ribbon-tabbar"));
+        assert!(has_class(&ch[1], "__azul-native-ribbon-content"));
+    }
+
+    #[test]
+    fn dom_mobile_emits_only_the_touch_chrome_with_one_visible_group() {
+        use azul_css::props::property::CssPropertyType;
+
+        let mut tab = RibbonTab::new(AzString::from_const_str("HOME"));
+        for label in ["Clipboard", "Font", "Paragraph"] {
+            tab = tab.with_group(RibbonGroup::new(AzString::from(label)));
+        }
+        let r = Ribbon::new(RibbonTabVec::from_vec(vec![tab]));
+        let dom = r.dom_mobile();
+        let ch = dom.children.as_ref();
+        assert_eq!(ch.len(), 3, "mobile chrome = [tab button, overlay, band]");
+        assert!(has_class(&ch[0], "__azul-native-ribbon-mobile-tab"));
+        assert!(has_class(&ch[1], "__azul-native-ribbon-mobile-tab-overlay"));
+        assert!(has_class(&ch[2], "__azul-native-ribbon-mobile-band"));
+        let band = ch[2].children.as_ref();
+        assert_eq!(band.len(), 2, "band = [group list, content] side by side");
+        assert!(has_class(&band[0], "__azul-native-ribbon-mobile-group-list"));
+        assert!(has_class(&band[1], "__azul-native-ribbon-content"));
+
+        // Exactly the FIRST group is visible; the others carry an appended
+        // unconditional display:none (the group list swaps them at runtime).
+        let last_uncond_display = |d: &Dom| {
+            d.root
+                .style
+                .iter_inline_properties()
+                .filter(|(p, conds)| {
+                    conds.as_ref().is_empty() && p.get_type() == CssPropertyType::Display
+                })
+                .last()
+                .map(|(p, _)| p.clone())
+        };
+        let groups = ch[2].children.as_ref()[1].children.as_ref();
+        assert_eq!(groups.len(), 3);
+        assert_ne!(
+            last_uncond_display(&groups[0]),
+            Some(P::const_display(LayoutDisplay::None)),
+            "first group stays visible"
+        );
+        for g in &groups[1..] {
+            assert_eq!(
+                last_uncond_display(g),
+                Some(P::const_display(LayoutDisplay::None)),
+                "non-initial groups start hidden in the mobile chrome"
+            );
+        }
+
+        // Every group-list entry carries the swap callback.
+        for item in ch[2].children.as_ref()[0].children.as_ref() {
+            assert_eq!(item.root.callbacks.as_ref().len(), 1, "group-list entry has the swap callback");
+        }
     }
 
     #[test]
