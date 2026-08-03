@@ -899,18 +899,29 @@ fn shape_text_internal(
             .unwrap_or('\u{FFFD}');
 
         let base_advance = parsed_font.get_horizontal_advance(info.glyph.glyph_index);
-        // Use hinted advance width when available (matches FreeType/Chrome behavior).
-        // Hinting grid-fits at an INTEGER ppem, so rescale the result back to the exact
-        // (fractional) font size to keep the advance on the SAME size basis as the GPOS
-        // offsets and kerning below (which use the unrounded scale_factor). Otherwise a
-        // run at e.g. 14.4px would pair a 14px-basis advance with 14.4px-basis positioning.
-        let ppem = font_size.round().max(1.0) as u16;
-        let advance = parsed_font
-            .get_hinted_advance_px(info.glyph.glyph_index, ppem)
-            .map_or_else(
-                || f32::from(base_advance) * scale_factor,
-                |hinted| hinted * font_size / f32::from(ppem),
-            );
+        // Layout uses LINEAR (design-space) advances, like Chrome/Blink and
+        // CoreText: with sub-pixel text positioning the rasterizer places
+        // each glyph at a fractional origin, and under light hinting the X
+        // axis is not grid-fit at all, so integer-quantized hinted advances
+        // would only ADD error. Measured: hinted advances inflated runs by
+        // ~0.2px per glyph ('l' at 14px: 4.0 hinted vs 3.612 linear), which
+        // made every long text run visibly wider than Chrome's (cascade-*
+        // reftests). Full grid-fit mode (AZ_HINT_LIGHT=0) keeps the hinted
+        // advance so raster and metrics stay mutually consistent; it is
+        // rescaled from the integer hinting ppem back to the exact
+        // fractional font size to stay on the same basis as the GPOS
+        // offsets and kerning below.
+        let advance = if crate::glyph_cache::hint_light_enabled() {
+            f32::from(base_advance) * scale_factor
+        } else {
+            let ppem = font_size.round().max(1.0) as u16;
+            parsed_font
+                .get_hinted_advance_px(info.glyph.glyph_index, ppem)
+                .map_or_else(
+                    || f32::from(base_advance) * scale_factor,
+                    |hinted| hinted * font_size / f32::from(ppem),
+                )
+        };
         let kerning = f32::from(info.kerning) * scale_factor;
 
         let (offset_x_units, offset_y_units) =

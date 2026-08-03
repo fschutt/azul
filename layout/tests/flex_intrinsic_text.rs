@@ -1723,3 +1723,52 @@ fn real_table_cells_center_their_text_vertically() {
 fn lw_rect_of(lw: &LayoutWindow, n: usize) -> azul_core::geom::LogicalRect {
     lw.get_node_layout_rect(node_id(n)).expect("node rect")
 }
+
+/// Advance parity probe: a run of N identical glyphs must measure N times
+/// the linear (design-space) advance, like Chrome/HarfBuzz. Azul renders
+/// long lines ~0.19px/glyph wider than Chrome (cascade-* reftests), which
+/// points at per-glyph advance quantization somewhere in shaping.
+#[test]
+fn glyph_advances_stay_linear_and_unquantized() {
+    const CSS: &str = r#"
+        * { margin: 0; padding: 0; }
+        body { font-family: "Noto Sans"; font-size: 14px; }
+        .m { display: inline-block; }
+    "#;
+    // Noto Sans design advances at upem 1000: 'l' = 268? measured via FT:
+    // the exact per-glyph value doesn't matter — LINEARITY does: width of
+    // 40 glyphs must be exactly 4x the width of 10 glyphs (no per-glyph
+    // rounding), and both must be within 1px of the FT linear sum ratio.
+    let w10 = {
+        let dom = Dom::create_body().with_child(
+            Dom::create_div().with_ids_and_classes(class("m"))
+                .with_child(Dom::create_text("llllllllll")),
+        );
+        layout_dom(dom, CSS, 800.0, 600.0)
+            .get_node_layout_rect(node_id(1)).expect("10-run").size.width
+    };
+    let w40 = {
+        let dom = Dom::create_body().with_child(
+            Dom::create_div().with_ids_and_classes(class("m"))
+                .with_child(Dom::create_text("llllllllllllllllllllllllllllllllllllllll")),
+        );
+        layout_dom(dom, CSS, 800.0, 600.0)
+            .get_node_layout_rect(node_id(1)).expect("40-run").size.width
+    };
+    let per_glyph_10 = w10 / 10.0;
+    let per_glyph_40 = w40 / 40.0;
+    assert!(
+        (per_glyph_10 - per_glyph_40).abs() < 0.01,
+        "per-glyph advance must not depend on run length (quantization!): \
+         10-run {per_glyph_10:.4}px/glyph vs 40-run {per_glyph_40:.4}px/glyph"
+    );
+    // Noto Sans 'l' = 258 design units -> 3.612px at 14px. The old hinted
+    // advance quantized this to 4.0px, inflating every run ~0.2px/glyph vs
+    // Chrome. The 1/64 intrinsic ceil may add up to ~0.016px to the BOX.
+    assert!(
+        (3.55..=3.68).contains(&per_glyph_40),
+        "advance must be the linear design advance (~3.612px for 'l' at 14px \
+         Noto Sans), got {per_glyph_40:.4}px - hinted-quantized advances leak \
+         into layout"
+    );
+}

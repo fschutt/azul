@@ -275,10 +275,17 @@ impl GlyphCache {
                 };
 
                 // Feed the cached glyph vertices through the transform via ConvTransform
-                // (upstream removed add_path_vertices_transformed).
-                let mut src = agg_rust::conv_transform::ConvTransform::new(
-                    SliceVertexSource::new(path.vertices()),
-                    transform,
+                // (upstream removed add_path_vertices_transformed), then flatten the
+                // quadratic curve3 segments adaptively via ConvCurve. Without the
+                // ConvCurve stage the rasterizer walks curve3 verbs as straight
+                // lines THROUGH the control points, which turns every bowl into a
+                // chiseled polygon — invisible at UI sizes, obvious "blocky" curves
+                // at 24px+ (Lorem-ipsum headline comparison vs Chrome).
+                let mut src = agg_rust::conv_curve::ConvCurve::new(
+                    agg_rust::conv_transform::ConvTransform::new(
+                        SliceVertexSource::new(path.vertices()),
+                        transform,
+                    ),
                 );
                 ras.add_path(&mut src, 0);
                 let cells = ras.outline_cells();
@@ -417,7 +424,7 @@ fn build_hinted_path(
 /// Whether to apply CoreText-style "light" hinting (grid-fit Y only, fractional X).
 /// ON by default (matches CoreText / modern browser grayscale rendering); set
 /// `AZ_HINT_LIGHT=0` (or `false`) to force Windows-style full grid-fit. Read once.
-fn hint_light_enabled() -> bool {
+pub(crate) fn hint_light_enabled() -> bool {
     static V: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
     *V.get_or_init(|| {
         std::env::var("AZ_HINT_LIGHT")
