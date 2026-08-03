@@ -1500,8 +1500,32 @@ impl CssPropertyCache {
                 }
 
                 if need_tag {
+                    // DETERMINISTIC tag: a pure function of node identity
+                    // (node index + 1; 0 stays "no tag"), NOT a global
+                    // counter. Tag values are namespaced by tag TYPE
+                    // (`TAG_TYPE_DOM_NODE` vs cursor/scrollbar/... — every
+                    // consumer matches `tag.1`) and resolved per-DOM, so
+                    // per-node determinism is all that is required.
+                    //
+                    // The old `TagId::unique()` counter made tag numbers an
+                    // ALLOCATION ORDER artifact: rebuilding the SAME UI (any
+                    // callback returning RefreshDom) produced a fresh tag
+                    // map, while the structural-identity display-list cache
+                    // (solver3 Step 1.1 — root subtree hash + viewport)
+                    // correctly reused the old display list. Map and display
+                    // list then disagreed about every tag, and each lookup
+                    // that crosses the two — `get_node_hit_test_bounds`, the
+                    // WebRender hit-test translation — silently resolved to
+                    // nothing: after a hash-identical rebuild, clicks aimed
+                    // by node stopped landing (the E2E `double_click` on the
+                    // ribbon tab was the visible case). With tags derived
+                    // from node identity, a structurally identical tree gets
+                    // identical tags, which is exactly the invariant the
+                    // display-list cache assumes.
                     Some(TagIdToNodeIdMapping {
-                        tag_id: TagId::from_crate_internal(TagId::unique()),
+                        tag_id: TagId::from_crate_internal(TagId {
+                            inner: (node_idx as u64) + 1,
+                        }),
                         node_id: NodeHierarchyItemId::from_crate_internal(Some(node_id)),
                         tab_index: tab_index.into(),
                     })
