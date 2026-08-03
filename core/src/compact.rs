@@ -989,6 +989,41 @@ fn apply_css_property_to_compact(
         CssProperty::Float(v) => set_tier1!(v, FLOAT_SHIFT, FLOAT_MASK, layout_float_to_u8),
         CssProperty::OverflowX(v) => set_tier1!(v, OVERFLOW_X_SHIFT, OVERFLOW_MASK, layout_overflow_to_u8),
         CssProperty::OverflowY(v) => set_tier1!(v, OVERFLOW_Y_SHIFT, OVERFLOW_MASK, layout_overflow_to_u8),
+        // +spec:overflow:17654b - overflow-block / overflow-inline resolve to
+        // the physical axis through the writing mode. Application is in
+        // declaration order (a later physical declaration overwrites the
+        // same tier1 slot and vice versa), which is exactly CSS's
+        // equal-specificity last-wins rule for logical/physical pairs. The
+        // writing mode is read from tier1 AT THIS POINT: the inherited value
+        // is already present (inheritance runs first), so only the exotic
+        // "writing-mode declared AFTER a logical overflow on the SAME node"
+        // ordering maps against the pre-declaration mode.
+        CssProperty::OverflowBlock(v) => {
+            if let Some(val) = v.get_property() {
+                let wm_bits = ((*tier1 >> WRITING_MODE_SHIFT) & WRITING_MODE_MASK) as u8;
+                let vertical = wm_bits == layout_writing_mode_to_u8(
+                    azul_css::props::layout::wrapping::LayoutWritingMode::VerticalRl,
+                ) || wm_bits == layout_writing_mode_to_u8(
+                    azul_css::props::layout::wrapping::LayoutWritingMode::VerticalLr,
+                );
+                let shift = if vertical { OVERFLOW_X_SHIFT } else { OVERFLOW_Y_SHIFT };
+                let enc = u64::from(layout_overflow_to_u8(*val));
+                *tier1 = (*tier1 & !(OVERFLOW_MASK << shift)) | ((enc & OVERFLOW_MASK) << shift);
+            }
+        }
+        CssProperty::OverflowInline(v) => {
+            if let Some(val) = v.get_property() {
+                let wm_bits = ((*tier1 >> WRITING_MODE_SHIFT) & WRITING_MODE_MASK) as u8;
+                let vertical = wm_bits == layout_writing_mode_to_u8(
+                    azul_css::props::layout::wrapping::LayoutWritingMode::VerticalRl,
+                ) || wm_bits == layout_writing_mode_to_u8(
+                    azul_css::props::layout::wrapping::LayoutWritingMode::VerticalLr,
+                );
+                let shift = if vertical { OVERFLOW_Y_SHIFT } else { OVERFLOW_X_SHIFT };
+                let enc = u64::from(layout_overflow_to_u8(*val));
+                *tier1 = (*tier1 & !(OVERFLOW_MASK << shift)) | ((enc & OVERFLOW_MASK) << shift);
+            }
+        }
         CssProperty::BoxSizing(v) => set_tier1!(v, BOX_SIZING_SHIFT, BOX_SIZING_MASK, layout_box_sizing_to_u8),
         CssProperty::FlexDirection(v) => set_tier1!(v, FLEX_DIRECTION_SHIFT, FLEX_DIR_MASK, layout_flex_direction_to_u8),
         CssProperty::FlexWrap(v) => set_tier1!(v, FLEX_WRAP_SHIFT, FLEX_WRAP_MASK, layout_flex_wrap_to_u8),

@@ -1286,3 +1286,33 @@ fn overflow_hidden_is_a_programmatic_scroll_container_but_not_a_wheel_target() {
         "overflow:hidden must not be a user-wheel target"
     );
 }
+
+/// css-overflow-3: `overflow-inline` / `overflow-block` resolve onto the
+/// physical axes through the writing mode. Declaring them used to parse and
+/// then do nothing at all (the getters had zero callers).
+#[test]
+fn logical_overflow_properties_map_onto_physical_axes() {
+    const CSS: &str = r#"
+        body { display: flex; }
+        .h { width: 100px; height: 100px; overflow-inline: scroll; }
+    "#;
+    let dom = Dom::create_body().with_child(
+        Dom::create_div()
+            .with_ids_and_classes(class("h"))
+            .with_child(Dom::create_text("wide wide wide wide wide")),
+    );
+    let lw = layout_dom(dom, CSS, 800.0, 600.0);
+    let lr = lw.layout_results.get(&DomId { inner: 0 }).expect("layout");
+    let nid = node_id(1).node.into_crate_internal().unwrap();
+    let st = lr.styled_dom.styled_nodes.as_container()[nid].styled_node_state;
+    let ox = azul_layout::solver3::getters::get_overflow_x(&lr.styled_dom, nid, &st);
+    assert!(
+        format!("{ox:?}").contains("Scroll"),
+        "horizontal-tb: overflow-inline must resolve to overflow-x, got {ox:?}"
+    );
+    // And the box is registered as a user-scrollable container.
+    assert!(
+        lr.scroll_id_to_node_id.values().any(|n| *n == nid),
+        "the overflow-inline: scroll box must register scroll state"
+    );
+}

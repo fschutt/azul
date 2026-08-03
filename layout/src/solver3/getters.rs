@@ -1270,7 +1270,7 @@ get_css_property!(
 );
 
 get_css_property!(
-    get_overflow_x,
+    get_overflow_x_declared,
     get_overflow_x,
     LayoutOverflow,
     CssPropertyType::OverflowX,
@@ -1278,12 +1278,70 @@ get_css_property!(
 );
 
 get_css_property!(
-    get_overflow_y,
+    get_overflow_y_declared,
     get_overflow_y,
     LayoutOverflow,
     CssPropertyType::OverflowY,
     compact = get_overflow_y
 );
+
+// +spec:overflow:17654b - overflow-block and overflow-inline logical properties resolve to physical overflow based on writing mode
+/// Physical `overflow-x`, with the css-overflow-3 logical fallback: when the
+/// physical property is unset, a declared `overflow-inline` (horizontal
+/// writing modes) or `overflow-block` (vertical) supplies the value. On the
+/// compact fast path the mapping already happened at build time, in
+/// declaration order (equal-specificity last-wins); this slow-path fallback
+/// uses "physical if declared, else logical" as the cascade approximation.
+pub fn get_overflow_x(
+    styled_dom: &StyledDom,
+    node_id: NodeId,
+    node_state: &StyledNodeState,
+) -> MultiValue<LayoutOverflow> {
+    let phys = get_overflow_x_declared(styled_dom, node_id, node_state);
+    if matches!(phys, MultiValue::Exact(_)) {
+        return phys;
+    }
+    let vertical = matches!(
+        get_writing_mode(styled_dom, node_id, node_state),
+        MultiValue::Exact(LayoutWritingMode::VerticalRl | LayoutWritingMode::VerticalLr)
+    );
+    let logical = if vertical {
+        get_overflow_block(styled_dom, node_id, node_state)
+    } else {
+        get_overflow_inline(styled_dom, node_id, node_state)
+    };
+    if matches!(logical, MultiValue::Exact(_)) {
+        logical
+    } else {
+        phys
+    }
+}
+
+/// Physical `overflow-y`; see [`get_overflow_x`] for the logical fallback.
+pub fn get_overflow_y(
+    styled_dom: &StyledDom,
+    node_id: NodeId,
+    node_state: &StyledNodeState,
+) -> MultiValue<LayoutOverflow> {
+    let phys = get_overflow_y_declared(styled_dom, node_id, node_state);
+    if matches!(phys, MultiValue::Exact(_)) {
+        return phys;
+    }
+    let vertical = matches!(
+        get_writing_mode(styled_dom, node_id, node_state),
+        MultiValue::Exact(LayoutWritingMode::VerticalRl | LayoutWritingMode::VerticalLr)
+    );
+    let logical = if vertical {
+        get_overflow_inline(styled_dom, node_id, node_state)
+    } else {
+        get_overflow_block(styled_dom, node_id, node_state)
+    };
+    if matches!(logical, MultiValue::Exact(_)) {
+        logical
+    } else {
+        phys
+    }
+}
 
 // +spec:overflow:17654b - overflow-block and overflow-inline logical properties resolve to physical overflow based on writing mode
 get_css_property!(
