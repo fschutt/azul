@@ -1,0 +1,21 @@
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd">
+<html xmlns="http://www.w3.org/1999/xhtml">
+    <head>
+        <title>A fixed-height child of an auto-height column-flex root keeps its height</title>
+        <!-- Engine bug pinned: the root's content-derived used_size (still 0)
+             was passed to the flex algorithm as a DEFINITE main size, so the
+             fixed-height toolbar of `body { display:flex; flex-direction:column }`
+             collapsed to zero - the first thing any app layout does. -->
+        <style type="text/css">
+            * { margin: 0; padding: 0; }
+            body { display: flex; flex-direction: column; width: 800px;
+                   background: #ffffff; }
+            .toolbar { height: 120px; background: #2a579a; }
+            .band { height: 60px; background: #c45911; }
+        </style>
+    </head>
+    <body>
+        <div class="toolbar"></div>
+        <div class="band"></div>
+    </body>
+</html>

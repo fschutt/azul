@@ -1,0 +1,66 @@
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd">
+<html xmlns="http://www.w3.org/1999/xhtml">
+    <head>
+        <title>Mini ribbon composite: tabs, border-box groups, centered captions</title>
+        <!-- The complex end of the ribbonbug-* series: every ingredient the
+             simpler tests pin, composed the way the real ribbon widget
+             composes them. If this diverges while the simpler ones pass,
+             the regression is in composition, not in a single primitive. -->
+        <style type="text/css">
+            * { margin: 0; padding: 0; }
+            body { display: flex; flex-direction: column; width: 800px;
+                   background: #ffffff; font-family: sans-serif; font-size: 12px; }
+            .tabbar { display: flex; flex-direction: row; height: 28px;
+                      background: #ffffff; border-bottom: 1px solid #d4d4d4; }
+            .tab { display: flex; align-items: center; padding: 0 14px;
+                   color: #444444; }
+            .tab-active { display: flex; align-items: center; padding: 0 14px;
+                          color: #2a579a; background: #ffffff;
+                          border-top: 1px solid #d4d4d4;
+                          border-left: 1px solid #d4d4d4;
+                          border-right: 1px solid #d4d4d4; }
+            .content { display: flex; flex-direction: row; height: 92px;
+                       background: #f1f1f1; border-bottom: 1px solid #d4d4d4; }
+            .group { display: flex; flex-direction: column; padding: 2px 4px 0 4px;
+                     border-right: 1px solid #d4d4d4; }
+            .items { display: flex; flex-direction: row; height: 66px; }
+            .col { display: flex; flex-direction: column; }
+            .row { box-sizing: border-box; display: flex; align-items: center;
+                   height: 22px; padding: 1px 4px; color: #222222; }
+            .bigbtn { box-sizing: border-box; width: 46px; height: 66px;
+                      background: #dde8f5; border: 1px solid #ababab; }
+            .caption { text-align: center; color: #666666; padding: 4px 0; }
+        </style>
+    </head>
+    <body>
+        <div class="tabbar">
+            <div class="tab-active">HOME</div>
+            <div class="tab">INSERT</div>
+            <div class="tab">DESIGN</div>
+            <div class="tab">VIEW</div>
+        </div>
+        <div class="content">
+            <div class="group">
+                <div class="items">
+                    <div class="bigbtn"></div>
+                    <div class="col">
+                        <div class="row">Cut</div>
+                        <div class="row">Copy</div>
+                        <div class="row">Format Painter</div>
+                    </div>
+                </div>
+                <div class="caption">Clipboard</div>
+            </div>
+            <div class="group">
+                <div class="items">
+                    <div class="col">
+                        <div class="row">Bullets and Numbering</div>
+                        <div class="row">Align Left</div>
+                        <div class="row">Line Spacing</div>
+                    </div>
+                </div>
+                <div class="caption">Paragraph</div>
+            </div>
+        </div>
+    </body>
+</html>

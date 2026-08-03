@@ -1,0 +1,20 @@
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd">
+<html xmlns="http://www.w3.org/1999/xhtml">
+    <head>
+        <title>A border on a padded text container wraps the box, not the text run</title>
+        <!-- Engine bug pinned: ribbon tabs were raw text nodes; an inline
+             box paints its border around the TEXT RUN, so the active tab's
+             outline appeared as detached stubs. A block/flex box with a text
+             child must paint the border around the padded box. -->
+        <style type="text/css">
+            * { margin: 0; padding: 0; }
+            body { width: 800px; background: #ffffff; font-family: sans-serif; }
+            .tab { display: flex; align-items: center; width: 120px; height: 40px;
+                   padding: 0 18px; border: 3px solid #2a579a;
+                   font-size: 18px; color: #2a579a; background: #ffffff; }
+        </style>
+    </head>
+    <body>
+        <div class="tab">HOME</div>
+    </body>
+</html>

@@ -1,0 +1,27 @@
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd">
+<html xmlns="http://www.w3.org/1999/xhtml">
+    <head>
+        <title>box-sizing: border-box rows fit their fixed-height container</title>
+        <!-- Engine bug pinned: controls were sized content-box, so
+             padding+border inflated Word's border-box metrics - three 22px
+             rows became 3x26px, overflowed the 68px item area and painted
+             over the group caption. -->
+        <style type="text/css">
+            * { margin: 0; padding: 0; }
+            body { width: 800px; background: #ffffff; font-family: sans-serif; }
+            .items { height: 66px; width: 300px; background: #f8f8f8; }
+            .row { box-sizing: border-box; height: 22px; padding: 3px 6px;
+                   border: 1px solid #ababab; background: #dde8f5;
+                   font-size: 11px; color: #222222; }
+            .caption { height: 40px; background: #2a579a; }
+        </style>
+    </head>
+    <body>
+        <div class="items">
+            <div class="row">Cut</div>
+            <div class="row">Copy</div>
+            <div class="row">Format Painter</div>
+        </div>
+        <div class="caption"></div>
+    </body>
+</html>

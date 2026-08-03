@@ -1,0 +1,29 @@
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd">
+<html xmlns="http://www.w3.org/1999/xhtml">
+    <head>
+        <title>A shrink-to-fit flex label keeps its text on one line</title>
+        <!-- Engine bug pinned: the intrinsic max-content scan and the line
+             breaker folded f32 widths differently (per-word subtotals plus a
+             subtract-based fit test), so a box sized to its own measured
+             max-content wrapped its last word ("Format Painter" became
+             "Format / Painter"). The marker band below the labels turns the
+             wrap into a large geometric shift. -->
+        <style type="text/css">
+            * { margin: 0; padding: 0; }
+            body { width: 800px; background: #ffffff; font-family: sans-serif; }
+            .row { display: flex; flex-direction: row; }
+            .btn { display: flex; flex-direction: row; align-items: center;
+                   background: #dde8f5; padding: 2px 6px; margin: 4px;
+                   font-size: 16px; color: #222222; }
+            .marker { height: 120px; background: #2a579a; }
+        </style>
+    </head>
+    <body>
+        <div class="row">
+            <div class="btn">Format Painter</div>
+            <div class="btn">Decrease Indent</div>
+            <div class="btn">No Spacing</div>
+        </div>
+        <div class="marker"></div>
+    </body>
+</html>

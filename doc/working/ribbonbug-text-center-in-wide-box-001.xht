@@ -1,0 +1,23 @@
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd">
+<html xmlns="http://www.w3.org/1999/xhtml">
+    <head>
+        <title>Centered text stays centered in a wider definite box</title>
+        <!-- Engine bug pinned: a "fits by definition" guard switched
+             wider-than-content text nodes to MaxContent layout, but
+             Definite(w) is ALSO the alignment container width - centered
+             captions (the ribbon's "Clipboard"/"Font" group labels)
+             rendered left-anchored. -->
+        <style type="text/css">
+            * { margin: 0; padding: 0; }
+            body { width: 800px; background: #ffffff; font-family: sans-serif; }
+            .caption { width: 600px; text-align: center; font-size: 28px;
+                       color: #444444; background: #f1f1f1; padding: 8px 0; margin: 6px 0; }
+            .caption2 { width: 600px; text-align: right; font-size: 28px;
+                        color: #444444; background: #e4e4e4; padding: 8px 0; }
+        </style>
+    </head>
+    <body>
+        <div class="caption">Clipboard</div>
+        <div class="caption2">Font</div>
+    </body>
+</html>
