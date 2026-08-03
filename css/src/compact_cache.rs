@@ -1392,7 +1392,11 @@ impl Default for CompactNodePropsCold {
 pub struct CompactTextProps {
     pub text_color: u32,       // RGBA as 0xRRGGBBAA (0 = transparent/unset)
     pub font_family_hash: u64, // FxHash of font-family list (0 = sentinel/unset)
-    pub line_height: i16,      // px × 10, sentinel = I16_SENTINEL
+    /// Split scale by SIGN (parser convention: negative normalized =
+    /// absolute px): negative = -px x 10 (line-height: 40px -> -400),
+    /// positive = unitless multiple x 1000 (1.2 / 120% -> 1200).
+    /// I16_SENTINEL = unset ("normal").
+    pub line_height: i16,
     pub letter_spacing: i16,   // px × 10
     pub word_spacing: i16,     // px × 10
     pub text_indent: i16,      // px × 10

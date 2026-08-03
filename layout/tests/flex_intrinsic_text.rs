@@ -1402,3 +1402,30 @@ fn margin_percentages_use_the_inline_size_in_vertical_writing_modes() {
         "vertical-rl: 10% of INLINE size (height 400) = 40, got {y_v}"
     );
 }
+
+/// The compact cache stored line-height as normalized x1000 in an i16, so
+/// ANY absolute line-height above 32.76px overflowed to the sentinel and
+/// decoded as `normal` — `line-height: 40px` was silently dropped. The
+/// split-scale encoding keeps absolute values to ±3276.7px.
+#[test]
+fn absolute_line_heights_above_32px_survive_the_compact_cache() {
+    const CSS: &str = r#"
+        * { margin: 0; padding: 0; }
+        .t { font-size: 16px; line-height: 48px; width: 300px; }
+    "#;
+    let dom = Dom::create_body().with_child(
+        Dom::create_div()
+            .with_ids_and_classes(class("t"))
+            .with_child(Dom::create_text("one line")),
+    );
+    let lw = layout_dom(dom, CSS, 800.0, 600.0);
+    let h = lw
+        .get_node_layout_rect(node_id(1))
+        .expect("box")
+        .size
+        .height;
+    assert!(
+        (h - 48.0).abs() < 1.0,
+        "a single line at line-height: 48px must be 48px tall, got {h}"
+    );
+}

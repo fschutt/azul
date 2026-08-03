@@ -547,14 +547,32 @@ impl MultiValue<LayoutOverflow> {
     /// Resolves the computed value per CSS Overflow 3 § 3.1:
     /// visible/clip values compute to auto/hidden (respectively)
     /// if the other axis is neither visible nor clip.
+    ///
+    /// The UNSET sentinel means the initial value `visible`, and the rule
+    /// applies to it the same way: an unset axis computes to `auto` when the
+    /// other axis is scrollable. The old catch-all left it unresolved, so on
+    /// the slow path (pseudo-states / no compact cache) callers treated the
+    /// axis as visible instead of a scroll container - the compact fast path
+    /// (which always materializes `Exact`) disagreed.
     #[must_use] pub const fn resolve_computed(
         &self,
         other_axis: &Self,
     ) -> Self {
-        match (self, other_axis) {
-            (Self::Exact(val), Self::Exact(other)) => {
-                Self::Exact(val.resolve_computed(*other))
-            }
+        let this = match self {
+            Self::Exact(v) => *v,
+            _ => LayoutOverflow::Visible,
+        };
+        let other = match other_axis {
+            Self::Exact(v) => *v,
+            _ => LayoutOverflow::Visible,
+        };
+        let resolved = this.resolve_computed(other);
+        // Keep the sentinel when nothing changed (an unset axis stays unset
+        // unless the rule upgrades it), so downstream unset-vs-explicit
+        // distinctions (BFC establishment) are preserved.
+        match self {
+            Self::Exact(_) => Self::Exact(resolved),
+            _ if !matches!(resolved, LayoutOverflow::Visible) => Self::Exact(resolved),
             _ => *self,
         }
     }
@@ -2672,7 +2690,13 @@ get_css_property!(
         | LayoutDisplay::TableRow
         | LayoutDisplay::TableCell
         | LayoutDisplay::TableCaption => LayoutDisplay::Block,
-        // Already block-level types are unchanged
+        // css-display-3 §2.7: run-in blockifies to block.
+        LayoutDisplay::RunIn => LayoutDisplay::Block,
+        // Already block-level types are unchanged. NOTE: `display: contents`
+        // on the ROOT element must compute to `block` (css-display-3 §2.5) -
+        // that special case is the CALLER's to apply, since only it knows
+        // whether the node is the root; for non-root elements `contents`
+        // must pass through untouched.
         other => other,
     }
 }
@@ -2909,16 +2933,17 @@ pub fn get_style_properties(
         let mut sentinel_normal = false;
         if node_state.is_normal() {
             if let Some(ref cc) = cache.compact_cache {
-                if let Some(normalized) = cc.get_line_height(dom_id.index()) {
-                    // The compact cache stores `normalized() * 1000` as i16, and
-                    // get_line_height decodes it as `stored / 10`, i.e. this
-                    // `normalized` value equals `PercentageValue::normalized() * 100`.
-                    // Per the parser convention a NEGATIVE normalized() means an
-                    // absolute pixel line-height (CSS line-height cannot be negative),
-                    // so decode with the same rule fc.rs / the slow path use.
-                    let n = normalized / 100.0;
+                if let Some(decoded) = cc.get_line_height(dom_id.index()) {
+                    // get_line_height returns stored/10. The builder's split
+                    // scale (see core/src/compact.rs): NEGATIVE = absolute px
+                    // stored as -px x 10, so decoded == -px directly;
+                    // positive = multiple x 1000, so decoded == multiple x 100.
                     fast_lh = Some(crate::text3::cache::LineHeight::Px(
-                        if n < 0.0 { -n } else { n * font_size },
+                        if decoded < 0.0 {
+                            -decoded
+                        } else {
+                            (decoded / 100.0) * font_size
+                        },
                     ));
                 } else {
                     // Sentinel in compact cache = "normal" (CSS default).
@@ -6679,24 +6704,44 @@ mod autotest_generated {
     }
 
     #[test]
-    fn overflow_resolve_computed_is_a_no_op_unless_both_axes_are_exact() {
+    fn overflow_resolve_computed_treats_unset_as_the_initial_visible() {
         let keywords: [MultiValue<LayoutOverflow>; 3] = [
             MultiValue::Auto,
             MultiValue::Initial,
             MultiValue::Inherit,
         ];
-        // Non-Exact self → returned unchanged, whatever the other axis is.
+        // css-overflow-3 §3.1 applies to the UNSET sentinel too (it means
+        // the initial `visible`): an unset axis computes to `auto` when the
+        // other axis is scrollable, and stays the sentinel otherwise.
         for v in keywords {
             for other in ALL_OVERFLOW {
-                assert_eq!(v.resolve_computed(&MultiValue::Exact(other)), v);
+                let resolved = v.resolve_computed(&MultiValue::Exact(other));
+                let expected_upgrade = !matches!(
+                    other,
+                    LayoutOverflow::Visible | LayoutOverflow::Clip
+                );
+                if expected_upgrade {
+                    assert_eq!(
+                        resolved,
+                        MultiValue::Exact(LayoutOverflow::Auto),
+                        "unset + scrollable {other:?} computes to auto"
+                    );
+                } else {
+                    assert_eq!(resolved, v, "unset + {other:?} stays unset");
+                }
             }
             assert_eq!(v.resolve_computed(&MultiValue::Auto), v);
         }
-        // Non-Exact *other* axis → self is returned unchanged, no blockification.
+        // An unset OTHER axis acts as the initial `visible`: an Exact self
+        // resolves exactly as it would against Exact(Visible).
         for this in ALL_OVERFLOW {
             let v = MultiValue::Exact(this);
             for other in keywords {
-                assert_eq!(v.resolve_computed(&other), v, "{this:?} vs {other:?}");
+                assert_eq!(
+                    v.resolve_computed(&other),
+                    v.resolve_computed(&MultiValue::Exact(LayoutOverflow::Visible)),
+                    "{this:?} vs unset {other:?}"
+                );
             }
         }
     }
@@ -6772,6 +6817,8 @@ mod autotest_generated {
                 | LayoutDisplay::TableRow
                 | LayoutDisplay::TableCell
                 | LayoutDisplay::TableCaption => LayoutDisplay::Block,
+                // css-display-3 §2.7: run-in blockifies to block.
+                LayoutDisplay::RunIn => LayoutDisplay::Block,
                 other => other,
             };
             assert_eq!(blockify_display(d), want, "blockify_display({d:?})");

@@ -383,15 +383,28 @@ impl CssPropertyCache {
                 }
             }
 
-            // Line-height (PercentageValue: internal number is value × 1000, we store % × 10)
+            // Line-height. Parser convention: a NEGATIVE normalized() is an
+            // ABSOLUTE pixel line-height, a positive one a unitless multiple
+            // (or percentage) of font-size. The two need different i16
+            // scales:
+            //  - positive: multiple × 1000 (120% -> 1200; range up to ~32x)
+            //  - negative: -px × 10 (line-height: 40px -> -400; ±3276.7px)
+            // The old single ×1000 scale overflowed i16 for any absolute
+            // line-height above 32.76px, stored the SENTINEL, and the getter
+            // decoded that as "line-height: normal" - `line-height: 40px`
+            // was silently dropped on every normal-state node.
             if let Some(val) = self.get_line_height(nd, &node_id, &default_state) {
                 if let Some(lh) = val.get_property() {
-                    // lh.inner is PercentageValue, normalized() = value/100.
-                    // Internal number = percentage × 1000 (e.g. 120% → 120_000).
-                    // We store percentage × 10 as i16 (e.g. 120% → 1200).
-                    let pct_x10 = (lh.inner.normalized() * 1000.0).round() as i32;
-                    if pct_x10 >= -32768 && pct_x10 < i32::from(I16_SENTINEL_THRESHOLD) {
-                        result.tier2b_text[i].line_height = pct_x10 as i16;
+                    let n = lh.inner.normalized();
+                    let stored = if n < 0.0 {
+                        // Absolute px: clamp to the representable range
+                        // instead of falling to the sentinel ("normal").
+                        ((n * 10.0).round() as i32).max(-32768)
+                    } else {
+                        (n * 1000.0).round() as i32
+                    };
+                    if stored >= -32768 && stored < i32::from(I16_SENTINEL_THRESHOLD) {
+                        result.tier2b_text[i].line_height = stored as i16;
                     } else {
                         result.tier2b_text[i].line_height = I16_SENTINEL;
                     }
@@ -1203,9 +1216,20 @@ fn apply_css_property_to_compact(
         }
         CssProperty::LineHeight(v) => {
             if let Some(lh) = v.get_property() {
-                let pct_x10 = (lh.inner.normalized() * 1000.0).round() as i32;
-                if pct_x10 >= -32768 && pct_x10 < i32::from(I16_SENTINEL_THRESHOLD) {
-                    text.line_height = pct_x10 as i16;
+                // Split scale by SIGN (see the builder's line-height pre-pass
+                // and compact_cache.rs field doc): negative normalized =
+                // absolute px, stored as -px x 10; positive = multiple,
+                // stored x 1000. A single x1000 scale overflowed i16 for any
+                // absolute line-height above 32.76px and silently became
+                // "normal" via the sentinel.
+                let n = lh.inner.normalized();
+                let stored = if n < 0.0 {
+                    ((n * 10.0).round() as i32).max(-32768)
+                } else {
+                    (n * 1000.0).round() as i32
+                };
+                if stored >= -32768 && stored < i32::from(I16_SENTINEL_THRESHOLD) {
+                    text.line_height = stored as i16;
                 } else {
                     text.line_height = I16_SENTINEL;
                 }
@@ -2501,15 +2525,30 @@ mod autotest_generated {
         s.apply(&line_height_prop(120.0));
         assert_eq!(s.text.line_height, 1200, "120% must encode as % x 10");
 
-        // Absurd values must saturate — at BOTH ends, no wrap-around.
-        for pct in [1.0e9f32, -1.0e9] {
-            let mut big = Sink::new();
-            big.apply(&line_height_prop(pct));
-            assert_eq!(
-                big.text.line_height, I16_SENTINEL,
-                "line-height {pct}% should saturate to the sentinel"
-            );
-        }
+        // Absurd values must saturate - no wrap-around. The two signs land
+        // differently by design: a huge POSITIVE (unitless multiple) falls to
+        // the sentinel ("normal" - a 10^7x multiple is meaningless), while a
+        // huge NEGATIVE (= absolute px per the parser convention) CLAMPS to
+        // the largest representable px (-32768 = 3276.8px) instead of being
+        // silently reinterpreted as "normal".
+        let mut big = Sink::new();
+        big.apply(&line_height_prop(1.0e9f32));
+        assert_eq!(
+            big.text.line_height, I16_SENTINEL,
+            "a huge unitless multiple saturates to the sentinel"
+        );
+        let mut neg = Sink::new();
+        neg.apply(&line_height_prop(-1.0e9f32));
+        assert_eq!(
+            neg.text.line_height, -32768,
+            "a huge absolute px line-height clamps instead of dropping to normal"
+        );
+
+        // The split scale itself: 48px (normalized -48) stores as -480 and
+        // decodes back to 48px - the old x1000 scale overflowed at 32.76px.
+        let mut px48 = Sink::new();
+        px48.apply(&line_height_prop(-4800.0));
+        assert_eq!(px48.text.line_height, -480, "line-height: 48px stores as -px x 10");
     }
 
     #[test]
