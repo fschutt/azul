@@ -371,6 +371,14 @@ fn find_optimal_breakpoints(nodes: &[LayoutNode], constraints: &UnifiedConstrain
     };
 
     // Prefix sums for O(1) range queries (eliminates O(n³) inner loop).
+    //
+    // Knuth-Plass counts a Penalty's width ONLY when the line breaks AT that
+    // penalty (the hyphen is rendered at the split, nowhere else - CSS Text 3
+    // §5.3). Interior hyphenation opportunities therefore contribute ZERO to
+    // a candidate line's width: keep penalties out of `prefix_width` and add
+    // the break-node's own width explicitly in the DP loop. The old sums
+    // inflated every candidate by one hyphen width per unused opportunity,
+    // and the positioner then rendered a "-" at every opportunity mid-line.
     let n = nodes.len();
     let mut prefix_width = vec![0.0f32; n + 1];
     let mut prefix_stretch = vec![0.0f32; n + 1];
@@ -384,7 +392,7 @@ fn find_optimal_breakpoints(nodes: &[LayoutNode], constraints: &UnifiedConstrain
                 shrink,
                 ..
             } => (*width, *stretch, *shrink),
-            LayoutNode::Penalty { width, .. } => (*width, 0.0, 0.0),
+            LayoutNode::Penalty { .. } => (0.0, 0.0, 0.0),
         };
         prefix_width[k + 1] = prefix_width[k] + w;
         prefix_stretch[k + 1] = prefix_stretch[k] + st;
@@ -419,10 +427,17 @@ fn find_optimal_breakpoints(nodes: &[LayoutNode], constraints: &UnifiedConstrain
             continue;
         }
 
+        // Width the hyphen (or other penalty item) adds IF the line breaks here.
+        let break_penalty_width = match nodes.get(i) {
+            Some(LayoutNode::Penalty { width, .. }) => *width,
+            _ => 0.0,
+        };
+
         for j in (0..=i).rev() {
             // Calculate the properties of a potential line from node `j` to `i`.
-            // O(1) range sum via prefix sums: sum of nodes[j..=i]
-            let current_width = prefix_width[i + 1] - prefix_width[j];
+            // O(1) range sum via prefix sums: sum of nodes[j..=i], plus the
+            // width of the penalty broken at (see the prefix-sum note above).
+            let current_width = prefix_width[i + 1] - prefix_width[j] + break_penalty_width;
             let stretch = prefix_stretch[i + 1] - prefix_stretch[j];
             let shrink = prefix_shrink[i + 1] - prefix_shrink[j];
 
@@ -526,12 +541,20 @@ fn position_lines_from_breaks(
         let line_nodes = &nodes[start_node..end_node];
         let is_last_line = line_index == breaks.len() - 1;
 
+        // A Penalty's item (the synthesized hyphen) renders ONLY when the
+        // line actually breaks at that penalty - i.e. for the LAST node of
+        // the span. Cloning every penalty's item drew a "-" at each interior
+        // hyphenation opportunity (CSS Text 3 §5.3: hyphenation visually
+        // indicates the split, at the split).
+        let last_idx = line_nodes.len().saturating_sub(1);
         let mut line_items: Vec<ShapedItem> = line_nodes
             .iter()
-            .filter_map(|node| match node {
+            .enumerate()
+            .filter_map(|(k, node)| match node {
                 LayoutNode::Box(item, _) => Some(item.clone()),
                 LayoutNode::Glue { item, .. } => Some(item.clone()),
-                LayoutNode::Penalty { item, .. } => item.clone(),
+                LayoutNode::Penalty { item, .. } if k == last_idx => item.clone(),
+                LayoutNode::Penalty { .. } => None,
             })
             .collect();
 
@@ -563,9 +586,21 @@ fn position_lines_from_breaks(
         // +spec:display-contents:858337 - text-align justification: last line start-aligned, justify-all forces last line justify
         // +spec:display-property:50e074 - justify stretches spaces/words in inline boxes, not inline-table/inline-block
         // +spec:display-property:ce8d54 - text-justify selects justification method, inherited from block containers to root inline box
+        // Justify ONLY when the RESOLVED alignment says so.
+        // `resolve_effective_alignment` already encodes the last-line and
+        // forced-break rules (§6.1/§6.3: Justify degrades to Start there,
+        // JustifyAll does not), so no extra last-line disjunct belongs here.
+        // The old gate justified every non-last line whenever text-justify
+        // was not `none` - which is its DEFAULT (`auto` -> InterWord) - so
+        // `text-align: left/center/right` paragraphs came out justified, and
+        // lines before a forced break were justified against §6.3. The
+        // greedy path documents the same trap (see cache.rs
+        // "Without this check, ALL text gets justified").
         let should_justify = constraints.text_justify != JustifyContent::None
-            && (!is_last_line || constraints.text_align == TextAlign::JustifyAll
-                || effective_align == TextAlign::Justify || effective_align == TextAlign::JustifyAll);
+            && matches!(
+                effective_align,
+                TextAlign::Justify | TextAlign::JustifyAll
+            );
 
         // Get the available width as f32 for calculations
         // For MinContent/MaxContent, we use the actual computed line_width
@@ -1687,6 +1722,69 @@ mod autotest_generated {
             line_right(&layout, 1),
             48.0,
             "text-align: justify must not stretch the last line"
+        );
+    }
+
+    #[test]
+    fn left_aligned_paragraphs_are_never_justified() {
+        // text-justify DEFAULTS to a non-none method (auto -> inter-word), so
+        // the justification gate must key on the RESOLVED alignment, not on
+        // text-justify alone. The old gate justified every non-last line of a
+        // left-aligned paragraph.
+        let nodes = nodes_for("aa bb cccc");
+        let c = UnifiedConstraints {
+            available_width: AvailableSpace::Definite(60.0),
+            text_align: TextAlign::Left,
+            text_justify: JustifyContent::InterWord,
+            ..Default::default()
+        };
+        let breaks = find_optimal_breakpoints(&nodes, &c);
+        let layout = position_lines_from_breaks(&nodes, &breaks, &[], &c);
+        assert_eq!(line_count(&layout), 2, "breaks: {breaks:?}");
+        assert_eq!(
+            line_right(&layout, 0),
+            53.0,
+            "a left-aligned inner line keeps its natural width (was stretched to 60)"
+        );
+    }
+
+    #[test]
+    fn interior_hyphenation_opportunities_render_no_hyphen_and_add_no_width() {
+        use super::LayoutNode;
+
+        // Hand-built paragraph: "aa[-]bb cc" where [-] is a hyphenation
+        // PENALTY (item = a 6px "-" cluster) that the break DOES NOT use at
+        // width 80 (everything fits on one line). Knuth-Plass must neither
+        // render that hyphen nor count its width.
+        let aa = cl("aa", 24.0);
+        let bb = cl("bb", 24.0);
+        let sp = cl(" ", 5.0);
+        let ccx = cl("cc", 24.0);
+        let hyphen = cl("-", 6.0);
+        let nodes = vec![
+            LayoutNode::Box(aa, 24.0),
+            LayoutNode::Penalty { penalty: 50.0, width: 6.0, item: Some(hyphen) },
+            LayoutNode::Box(bb, 24.0),
+            LayoutNode::Glue { item: sp, width: 5.0, stretch: 2.5, shrink: 1.6 },
+            LayoutNode::Box(ccx, 24.0),
+            LayoutNode::Penalty { penalty: -INFINITY_BADNESS, width: 0.0, item: None },
+        ];
+        let c = UnifiedConstraints {
+            available_width: AvailableSpace::Definite(120.0),
+            ..Default::default()
+        };
+        let breaks = find_optimal_breakpoints(&nodes, &c);
+        let layout = position_lines_from_breaks(&nodes, &breaks, &[], &c);
+        assert_eq!(line_count(&layout), 1, "everything fits: breaks {breaks:?}");
+        let text = line_text(&layout, 0);
+        assert!(
+            !text.contains('-'),
+            "an UNUSED hyphenation opportunity must not render its hyphen: {text:?}"
+        );
+        assert_eq!(
+            line_right(&layout, 0),
+            24.0 + 24.0 + 5.0 + 24.0,
+            "the unused penalty's 6px must not count into the line width"
         );
     }
 
