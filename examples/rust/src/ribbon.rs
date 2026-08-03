@@ -436,7 +436,7 @@ fn title_bar() -> Dom {
 // Layout + main
 // ---------------------------------------------------------------------------
 
-extern "C" fn layout(mut data: RefAny, _: LayoutCallbackInfo) -> Dom {
+extern "C" fn layout(mut data: RefAny, info: LayoutCallbackInfo) -> Dom {
     let state = match data.downcast_ref::<DocState>() {
         Some(s) => (*s).clone(),
         None => return Dom::create_body(),
@@ -467,7 +467,13 @@ extern "C" fn layout(mut data: RefAny, _: LayoutCallbackInfo) -> Dom {
              padding: 0; font-family: system:ui; font-size: 12px; color: #444444;",
         )
         .with_child(title_bar())
-        .with_child(ribbon.dom())
+        .with_child(if info.viewport_bigger_than(720.0) {
+            // Structural breakpoint: the framework re-runs layout() on every
+            // resize, so crossing 720px swaps the whole ribbon tree.
+            ribbon.dom_desktop()
+        } else {
+            ribbon.dom_mobile()
+        })
         .with_child(document_area)
 }
 
