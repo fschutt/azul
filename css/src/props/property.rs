@@ -4217,7 +4217,7 @@ pub fn parse_combined_css_property(
             if trimmed == "normal" {
                 return Ok(vec![
                     CssProperty::TextBoxTrim(CssPropertyValue::Exact(StyleTextBoxTrim::None)),
-                    CssProperty::TextBoxEdge(CssPropertyValue::Exact(StyleTextBoxEdge::Auto)),
+                    CssProperty::TextBoxEdge(CssPropertyValue::Exact(StyleTextBoxEdge::AUTO)),
                 ]);
             }
             let parts: Vec<&str> = trimmed.split_whitespace().collect();
@@ -4235,7 +4235,7 @@ pub fn parse_combined_css_property(
             // Per spec: omitting trim defaults to "both" (not the initial "none")
             let trim = trim_val.unwrap_or(StyleTextBoxTrim::TrimBoth);
             // Per spec: omitting edge defaults to "auto" (the initial value)
-            let edge = edge_val.unwrap_or(StyleTextBoxEdge::Auto);
+            let edge = edge_val.unwrap_or(StyleTextBoxEdge::AUTO);
             Ok(vec![
                 CssProperty::TextBoxTrim(CssPropertyValue::Exact(trim)),
                 CssProperty::TextBoxEdge(CssPropertyValue::Exact(edge)),

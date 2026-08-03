@@ -42371,8 +42371,8 @@
                         ],
                         "repr": "C"
                     },
-                    "StyleTextBoxEdge": {
-                        "external": "azul_css::props::style::text::StyleTextBoxEdge",
+                    "TextBoxEdgeOver": {
+                        "external": "azul_css::props::style::text::TextBoxEdgeOver",
                         "derive": [
                             "Debug",
                             "Copy",
@@ -42387,9 +42387,60 @@
                         "enum_fields": [
                             {
                                 "Auto": {},
-                                "TextEdge": {},
-                                "CapHeight": {},
-                                "ExHeight": {}
+                                "Text": {},
+                                "Cap": {},
+                                "Ex": {},
+                                "Ideographic": {},
+                                "IdeographicInk": {}
+                            }
+                        ],
+                        "repr": "C"
+                    },
+                    "TextBoxEdgeUnder": {
+                        "external": "azul_css::props::style::text::TextBoxEdgeUnder",
+                        "derive": [
+                            "Debug",
+                            "Copy",
+                            "Clone",
+                            "PartialEq",
+                            "Eq",
+                            "PartialOrd",
+                            "Ord",
+                            "Hash",
+                            "Default"
+                        ],
+                        "enum_fields": [
+                            {
+                                "Auto": {},
+                                "Text": {},
+                                "Alphabetic": {},
+                                "Ideographic": {},
+                                "IdeographicInk": {}
+                            }
+                        ],
+                        "repr": "C"
+                    },
+                    "StyleTextBoxEdge": {
+                        "external": "azul_css::props::style::text::StyleTextBoxEdge",
+                        "derive": [
+                            "Debug",
+                            "Copy",
+                            "Clone",
+                            "PartialEq",
+                            "Eq",
+                            "PartialOrd",
+                            "Ord",
+                            "Hash",
+                            "Default"
+                        ],
+                        "struct_fields": [
+                            {
+                                "over": {
+                                    "type": "TextBoxEdgeOver"
+                                },
+                                "under": {
+                                    "type": "TextBoxEdgeUnder"
+                                }
                             }
                         ],
                         "repr": "C"

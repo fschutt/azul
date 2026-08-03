@@ -2709,25 +2709,68 @@ pub fn parse_style_text_box_trim(input: &str) -> Result<StyleTextBoxTrim, StyleT
 
 // -- StyleTextBoxEdge --
 
+/// The OVER edge metric of `text-box-edge` (first value).
+#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Default)]
+#[repr(C)]
+pub enum TextBoxEdgeOver {
+    // +spec:line-height:cc03df - Auto uses line-fit-edge value, interpreting leading (initial) as text
+    /// Use the line-fit-edge value (initial: text). `auto` is single-value
+    /// only: it cannot be paired with an under keyword.
+    #[default]
+    Auto,
+    /// Use the text-over baseline
+    Text,
+    /// Use the cap-height baseline
+    Cap,
+    /// Use the x-height baseline
+    Ex,
+    /// Use the ideographic-over baseline
+    Ideographic,
+    /// Use the ideographic-ink-over baseline
+    IdeographicInk,
+}
+
+/// The UNDER edge metric of `text-box-edge` (second value).
+#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Default)]
+#[repr(C)]
+pub enum TextBoxEdgeUnder {
+    /// Follows the over edge's `auto` (single-value form only).
+    #[default]
+    Auto,
+    /// Use the text-under baseline
+    Text,
+    /// Use the alphabetic baseline
+    Alphabetic,
+    /// Use the ideographic-under baseline
+    Ideographic,
+    /// Use the ideographic-ink-under baseline
+    IdeographicInk,
+}
+
 /// Represents the `text-box-edge` CSS property.
 ///
 /// Specifies the metrics used for determining the over/under edges of text
 /// for the purposes of `text-box-trim`.
 // +spec:writing-modes:daad86 - first value = over edge, second = under edge; single value applies to both (else "text" assumed for missing)
-#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+///
+/// Grammar: `auto | [ text | cap | ex | ideographic | ideographic-ink ]
+/// [ text | alphabetic | ideographic | ideographic-ink ]?`. With one value,
+/// both edges take that keyword when it exists on both axes (`text`,
+/// `ideographic`, `ideographic-ink`); otherwise (`cap`, `ex`) the under edge
+/// is assumed `text`.
+#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Default)]
 #[repr(C)]
-#[derive(Default)]
-pub enum StyleTextBoxEdge {
-    // +spec:line-height:cc03df - Auto uses line-fit-edge value, interpreting leading (initial) as text
-    /// Use the line-fit-edge value (initial: text)
-    #[default]
-    Auto,
-    /// Use the text-over / text-under baselines
-    TextEdge,
-    /// Use the cap-height baseline
-    CapHeight,
-    /// Use the x-height baseline
-    ExHeight,
+pub struct StyleTextBoxEdge {
+    pub over: TextBoxEdgeOver,
+    pub under: TextBoxEdgeUnder,
+}
+
+impl StyleTextBoxEdge {
+    /// The initial value: `auto` (over and under follow line-fit-edge).
+    pub const AUTO: Self = Self {
+        over: TextBoxEdgeOver::Auto,
+        under: TextBoxEdgeUnder::Auto,
+    };
 }
 impl_option!(
     StyleTextBoxEdge,
@@ -2736,12 +2779,38 @@ impl_option!(
 );
 impl PrintAsCssValue for StyleTextBoxEdge {
     fn print_as_css_value(&self) -> String {
-        String::from(match self {
-            Self::Auto => "auto",
-            Self::TextEdge => "text",
-            Self::CapHeight => "cap",
-            Self::ExHeight => "ex",
-        })
+        let over = match self.over {
+            TextBoxEdgeOver::Auto => return String::from("auto"),
+            TextBoxEdgeOver::Text => "text",
+            TextBoxEdgeOver::Cap => "cap",
+            TextBoxEdgeOver::Ex => "ex",
+            TextBoxEdgeOver::Ideographic => "ideographic",
+            TextBoxEdgeOver::IdeographicInk => "ideographic-ink",
+        };
+        let under = match self.under {
+            TextBoxEdgeUnder::Auto | TextBoxEdgeUnder::Text => "text",
+            TextBoxEdgeUnder::Alphabetic => "alphabetic",
+            TextBoxEdgeUnder::Ideographic => "ideographic",
+            TextBoxEdgeUnder::IdeographicInk => "ideographic-ink",
+        };
+        // Serialize the shortest form: omit the under edge when the single-
+        // value form round-trips to the same pair.
+        let single_round_trips = match self.over {
+            TextBoxEdgeOver::Text => matches!(self.under, TextBoxEdgeUnder::Text | TextBoxEdgeUnder::Auto),
+            TextBoxEdgeOver::Cap | TextBoxEdgeOver::Ex => {
+                matches!(self.under, TextBoxEdgeUnder::Text | TextBoxEdgeUnder::Auto)
+            }
+            TextBoxEdgeOver::Ideographic => matches!(self.under, TextBoxEdgeUnder::Ideographic),
+            TextBoxEdgeOver::IdeographicInk => {
+                matches!(self.under, TextBoxEdgeUnder::IdeographicInk)
+            }
+            TextBoxEdgeOver::Auto => unreachable!(),
+        };
+        if single_round_trips {
+            String::from(over)
+        } else {
+            alloc::format!("{over} {under}")
+        }
     }
 }
 
@@ -2789,13 +2858,48 @@ impl StyleTextBoxEdgeParseErrorOwned {
 ///
 /// Returns an error if `input` is not a valid CSS `text-box-edge` value.
 pub fn parse_style_text_box_edge(input: &str) -> Result<StyleTextBoxEdge, StyleTextBoxEdgeParseError<'_>> {
-    match input.trim() {
-        "auto" => Ok(StyleTextBoxEdge::Auto),
-        "text" => Ok(StyleTextBoxEdge::TextEdge),
-        "cap" => Ok(StyleTextBoxEdge::CapHeight),
-        "ex" => Ok(StyleTextBoxEdge::ExHeight),
-        other => Err(StyleTextBoxEdgeParseError::InvalidValue(InvalidValueErr(other))),
+    let trimmed = input.trim();
+    let mut parts = trimmed.split_whitespace();
+    let first = parts.next().unwrap_or("");
+    let second = parts.next();
+    if parts.next().is_some() {
+        return Err(StyleTextBoxEdgeParseError::InvalidValue(InvalidValueErr(input)));
     }
+
+    let over = match first {
+        "auto" => {
+            // `auto` is single-value only.
+            if second.is_some() {
+                return Err(StyleTextBoxEdgeParseError::InvalidValue(InvalidValueErr(input)));
+            }
+            return Ok(StyleTextBoxEdge::AUTO);
+        }
+        "text" => TextBoxEdgeOver::Text,
+        "cap" => TextBoxEdgeOver::Cap,
+        "ex" => TextBoxEdgeOver::Ex,
+        "ideographic" => TextBoxEdgeOver::Ideographic,
+        "ideographic-ink" => TextBoxEdgeOver::IdeographicInk,
+        other => return Err(StyleTextBoxEdgeParseError::InvalidValue(InvalidValueErr(other))),
+    };
+
+    let under = match second {
+        Some("text") => TextBoxEdgeUnder::Text,
+        Some("alphabetic") => TextBoxEdgeUnder::Alphabetic,
+        Some("ideographic") => TextBoxEdgeUnder::Ideographic,
+        Some("ideographic-ink") => TextBoxEdgeUnder::IdeographicInk,
+        Some(other) => {
+            return Err(StyleTextBoxEdgeParseError::InvalidValue(InvalidValueErr(other)))
+        }
+        // Single-value form: both edges take the keyword when it exists on
+        // both axes; otherwise `text` is assumed for the missing under edge.
+        None => match over {
+            TextBoxEdgeOver::Ideographic => TextBoxEdgeUnder::Ideographic,
+            TextBoxEdgeOver::IdeographicInk => TextBoxEdgeUnder::IdeographicInk,
+            _ => TextBoxEdgeUnder::Text,
+        },
+    };
+
+    Ok(StyleTextBoxEdge { over, under })
 }
 
 // -- StyleDominantBaseline --
@@ -3721,11 +3825,36 @@ mod autotest_generated {
                 parse_style_text_box_trim,
                 [Tbt::None, Tbt::TrimStart, Tbt::TrimEnd, Tbt::TrimBoth]
             );
-            type Tbe = StyleTextBoxEdge;
-            assert_keyword_round_trip!(
-                parse_style_text_box_edge,
-                [Tbe::Auto, Tbe::TextEdge, Tbe::CapHeight, Tbe::ExHeight]
-            );
+            {
+                // text-box-edge is a two-value property now; round-trip the
+                // grammar by hand instead of via the single-keyword macro.
+                use crate::props::style::text::{TextBoxEdgeOver as O, TextBoxEdgeUnder as U};
+                let cases = [
+                    ("auto", StyleTextBoxEdge::AUTO),
+                    ("text", StyleTextBoxEdge { over: O::Text, under: U::Text }),
+                    ("cap", StyleTextBoxEdge { over: O::Cap, under: U::Text }),
+                    ("ex", StyleTextBoxEdge { over: O::Ex, under: U::Text }),
+                    ("ideographic", StyleTextBoxEdge { over: O::Ideographic, under: U::Ideographic }),
+                    ("ideographic-ink", StyleTextBoxEdge { over: O::IdeographicInk, under: U::IdeographicInk }),
+                    ("cap alphabetic", StyleTextBoxEdge { over: O::Cap, under: U::Alphabetic }),
+                    ("text ideographic", StyleTextBoxEdge { over: O::Text, under: U::Ideographic }),
+                ];
+                for (input, expected) in cases {
+                    let parsed = parse_style_text_box_edge(input).unwrap_or_else(|e| {
+                        panic!("`{input}` must parse: {e:?}")
+                    });
+                    assert_eq!(parsed, expected, "parse of `{input}`");
+                    let printed = parsed.print_as_css_value();
+                    let reparsed = parse_style_text_box_edge(&printed)
+                        .unwrap_or_else(|e| panic!("reprint `{printed}` must parse: {e:?}"));
+                    assert_eq!(reparsed, parsed, "print/parse round trip via `{printed}`");
+                }
+                // `auto` cannot take a second value; junk is rejected.
+                assert!(parse_style_text_box_edge("auto text").is_err());
+                assert!(parse_style_text_box_edge("cap cap").is_err(), "cap is over-only");
+                assert!(parse_style_text_box_edge("alphabetic").is_err(), "alphabetic is under-only");
+                assert!(parse_style_text_box_edge("bogus").is_err());
+            }
             type DB = StyleDominantBaseline;
             assert_keyword_round_trip!(
                 parse_style_dominant_baseline,

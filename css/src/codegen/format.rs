@@ -739,7 +739,17 @@ impl_enum_fmt!(StyleBackfaceVisibility, Visible, Hidden);
 
 impl_enum_fmt!(StyleUnicodeBidi, Normal, Embed, Isolate, BidiOverride, IsolateOverride, Plaintext);
 impl_enum_fmt!(StyleTextBoxTrim, None, TrimStart, TrimEnd, TrimBoth);
-impl_enum_fmt!(StyleTextBoxEdge, Auto, TextEdge, CapHeight, ExHeight);
+impl_enum_fmt!(TextBoxEdgeOver, Auto, Text, Cap, Ex, Ideographic, IdeographicInk);
+impl_enum_fmt!(TextBoxEdgeUnder, Auto, Text, Alphabetic, Ideographic, IdeographicInk);
+impl FormatAsRustCode for StyleTextBoxEdge {
+    fn format_as_rust_code(&self, tabs: usize) -> String {
+        format!(
+            "StyleTextBoxEdge {{ over: {}, under: {} }}",
+            self.over.format_as_rust_code(tabs),
+            self.under.format_as_rust_code(tabs)
+        )
+    }
+}
 impl_enum_fmt!(StyleDominantBaseline, Auto, TextBottom, Alphabetic, Ideographic, Middle, Central, Mathematical, Hanging, TextTop);
 impl_enum_fmt!(StyleAlignmentBaseline, Baseline, TextBottom, Alphabetic, Ideographic, Middle, Central, Mathematical, TextTop);
 impl_enum_fmt!(StyleBaselineSource, Auto, First, Last);

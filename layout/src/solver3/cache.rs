@@ -1568,8 +1568,14 @@ pub fn compute_scrollbar_info_core<T: ParsedFontTrait>(
     reqs.visual_width_px = scrollbar_style.visual_width_px;
 
     // +spec:overflow:e90f12 - scrollbar-gutter reserves space independently of scrollbar presence
-    // +spec:overflow:3c44cc - scrollbar-gutter: stable reserves gutter even when no scrollbar is shown
+    // +spec:overflow:e8a828 - scrollbar-gutter affects gutter presence at the box's inline edges
     // +spec:overflow:3a6966 - classic scrollbar gutter width == scrollbar width; overlay scrollbars have no gutter
+    //
+    // NOT modeled: the non-normative side-selection note (overflow:3c44cc,
+    // "which side a scrollbar appears on MAY depend on OS conventions or
+    // bidirectionality") - the gutter is hardcoded to the physical right via
+    // the width-only shrink. A "may", so the fixed choice is conformant; a
+    // bidi-aware side needs writing-mode plumbing through ScrollbarReqs.
     //
     // scrollbar-gutter only applies to scroll containers (overflow: auto or scroll).
     // "stable" reserves gutter on the inline-end edge even if no scrollbar is needed.
