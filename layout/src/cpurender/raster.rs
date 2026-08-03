@@ -2241,9 +2241,16 @@ fn render_glyphs_lcd(
         transform.multiply(&TransAffine::new_translation(3.0 * f64::from(px), f64::from(py)));
         // ConvTransform over the cached vertices (upstream removed
         // add_path_vertices_transformed); no clone of the shared PathStorage.
-        let mut src = agg_rust::conv_transform::ConvTransform::new(
-            crate::glyph_cache::SliceVertexSource::new(cached.path.vertices()),
-            transform,
+        // ConvCurve flattens the quadratic curve3 verbs adaptively — without
+        // it the rasterizer draws straight lines THROUGH the control points
+        // and every bowl renders as a chiseled polygon at 24px+ (this is the
+        // LCD path, the default; the grayscale cell path flattens in
+        // GlyphCache::get_or_build_cells).
+        let mut src = agg_rust::conv_curve::ConvCurve::new(
+            agg_rust::conv_transform::ConvTransform::new(
+                crate::glyph_cache::SliceVertexSource::new(cached.path.vertices()),
+                transform,
+            ),
         );
         ras.add_path(&mut src, 0);
     }
