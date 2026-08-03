@@ -1359,3 +1359,46 @@ fn text_box_edge_cap_alphabetic_trims_to_the_metrics() {
         "expected ~6px extra trim ((16-14) over + 4 under): text={h_text} cap={h_cap}"
     );
 }
+
+/// css-writing-modes-4 §7.2: margin/padding percentages resolve against the
+/// containing block's INLINE size — the physical HEIGHT in vertical writing
+/// modes. The resolver hard-coded width, so `margin-top: 10%` in a
+/// vertical-rl container resolved against 200px instead of 400px.
+#[test]
+fn margin_percentages_use_the_inline_size_in_vertical_writing_modes() {
+    const CSS_H: &str = r#"
+        * { margin: 0; padding: 0; }
+        .cb { display: block; width: 200px; height: 400px; }
+        .m { display: block; margin-top: 10%; width: 50px; height: 50px; }
+    "#;
+    const CSS_V: &str = r#"
+        * { margin: 0; padding: 0; }
+        .cb { display: block; width: 200px; height: 400px; writing-mode: vertical-rl; }
+        .m { display: block; margin-top: 10%; width: 50px; height: 50px; writing-mode: vertical-rl; }
+    "#;
+    let build = || {
+        Dom::create_body().with_child(
+            Dom::create_div()
+                .with_ids_and_classes(class("cb"))
+                .with_child(Dom::create_div().with_ids_and_classes(class("m"))),
+        )
+    };
+    let y_h = layout_dom(build(), CSS_H, 800.0, 600.0)
+        .get_node_layout_rect(node_id(2))
+        .expect("h child")
+        .origin
+        .y;
+    let y_v = layout_dom(build(), CSS_V, 800.0, 600.0)
+        .get_node_layout_rect(node_id(2))
+        .expect("v child")
+        .origin
+        .y;
+    assert!(
+        (y_h - 20.0).abs() < 0.6,
+        "horizontal-tb: 10% of width 200 = 20, got {y_h}"
+    );
+    assert!(
+        (y_v - 40.0).abs() < 0.6,
+        "vertical-rl: 10% of INLINE size (height 400) = 40, got {y_v}"
+    );
+}

@@ -86,6 +86,7 @@ pub(crate) fn resolve_position_offsets(
     let containing_block_size = PhysicalSize::new(cb_size.width, cb_size.height);
 
     let resolution_context = ResolutionContext {
+        vertical_writing_mode: false,
         element_font_size,
         parent_font_size,
         root_font_size,

@@ -192,6 +192,7 @@ fn compute_all_font_sizes_px(styled_dom: &StyledDom) -> Vec<f32> {
                     } else {
                         // Shouldn't normally happen post-resolve, but fall through safely.
                         let context = ResolutionContext {
+                            vertical_writing_mode: false,
                             element_font_size: DEFAULT_FONT_SIZE,
                             parent_font_size,
                             root_font_size,
@@ -219,6 +220,7 @@ fn compute_all_font_sizes_px(styled_dom: &StyledDom) -> Vec<f32> {
             .and_then(|v| v.get_property().copied())
             .map(|v| {
                 let context = ResolutionContext {
+                    vertical_writing_mode: false,
                     element_font_size: DEFAULT_FONT_SIZE,
                     parent_font_size,
                     root_font_size,
@@ -339,6 +341,7 @@ fn resolve_font_size_one(
         .and_then(|v| v.get_property().copied())
         .map_or(DEFAULT_FONT_SIZE, |v| {
             let context = ResolutionContext {
+                vertical_writing_mode: false,
                 element_font_size: DEFAULT_FONT_SIZE,
                 parent_font_size,
                 root_font_size,
@@ -1778,6 +1781,7 @@ get_css_property!(
 
     // Create resolution context
     let context = ResolutionContext {
+        vertical_writing_mode: false,
         element_font_size,
         parent_font_size,
         root_font_size,
@@ -2810,6 +2814,7 @@ pub fn get_style_properties(
 
     // Create resolution context for font-size (em refers to parent)
     let font_size_context = ResolutionContext {
+        vertical_writing_mode: false,
         element_font_size: DEFAULT_FONT_SIZE, /* Not used for font-size property */
         parent_font_size,
         root_font_size,

@@ -1295,6 +1295,32 @@ fn layout_bfc<T: ParsedFontTrait>(
 
     // +spec:display-property:9f6e18 - BFC dispatches normal flow, floats, and relative positioning (CSS 2.2 §9.8)
     let pos_children = tree.children(node_index).to_vec();
+
+    // +spec:width-calculation:bef810 - margin percentages resolve against the containing block
+    // +spec:box-model:66e123 - ...whose INLINE size is the basis in CSS3 (writing-modes-4 §7.2)
+    // The tree-build resolution used the VIEWPORT as a placeholder containing
+    // block (the real one is only known here), so every percentage margin or
+    // padding in block flow was viewport-based. Re-resolve each child's box
+    // props against this BFC's content box before any of them are read; the
+    // correct em/rem bases are re-derived from the cascade.
+    {
+        let root_fs = crate::solver3::layout_tree::get_root_font_size(ctx.styled_dom);
+        for &child_index in &pos_children {
+            let Some(child_dom_id) = tree.get(child_index).and_then(|n| n.dom_node_id) else {
+                continue;
+            };
+            let efs =
+                crate::solver3::layout_tree::get_element_font_size(ctx.styled_dom, child_dom_id);
+            tree.resolve_box_props(
+                child_index,
+                children_containing_block_size,
+                ctx.viewport_size,
+                efs,
+                root_fs,
+            );
+        }
+    }
+
     for &child_index in &pos_children {
         let child_node = tree.get(child_index).ok_or(LayoutError::InvalidTree)?;
         let child_dom_id = child_node.dom_node_id;
@@ -3873,6 +3899,7 @@ fn translate_to_text3_constraints<'a, T: ParsedFontTrait>(
                 return 0.0;
             }
             let context = ResolutionContext {
+                vertical_writing_mode: false,
                 element_font_size: get_element_font_size(styled_dom, id, node_state),
                 parent_font_size: get_parent_font_size(styled_dom, id, node_state),
                 root_font_size: get_root_font_size(styled_dom, node_state),
@@ -3889,6 +3916,7 @@ fn translate_to_text3_constraints<'a, T: ParsedFontTrait>(
     // ResolutionContext shared by column-gap and column-width (both resolve
     // lengths against the same font/viewport, with no containing-block size).
     let column_resolve_ctx = ResolutionContext {
+        vertical_writing_mode: false,
         element_font_size: get_element_font_size(styled_dom, id, node_state),
         parent_font_size: get_parent_font_size(styled_dom, id, node_state),
         root_font_size: get_root_font_size(styled_dom, node_state),
@@ -4629,6 +4657,7 @@ fn get_border_info<T: ParsedFontTrait>(
     let root_font_size = get_root_font_size(ctx.styled_dom, &node_state);
 
     let resolution_context = ResolutionContext {
+        vertical_writing_mode: false,
         element_font_size,
         parent_font_size,
         root_font_size,
@@ -5165,6 +5194,7 @@ pub fn layout_table_fc<T: ParsedFontTrait>(
             let table_state = &styled_dom.styled_nodes.as_container()[table_id].styled_node_state;
 
             let spacing_context = ResolutionContext {
+                vertical_writing_mode: false,
                 element_font_size: get_element_font_size(styled_dom, table_id, table_state),
                 parent_font_size: get_parent_font_size(styled_dom, table_id, table_state),
                 root_font_size: get_root_font_size(styled_dom, table_state),
@@ -6554,6 +6584,7 @@ fn position_table_cells<T: ParsedFontTrait>(
             let table_state = &styled_dom.styled_nodes.as_container()[table_id].styled_node_state;
 
             let spacing_context = ResolutionContext {
+                vertical_writing_mode: false,
                 element_font_size: get_element_font_size(styled_dom, table_id, table_state),
                 parent_font_size: get_parent_font_size(styled_dom, table_id, table_state),
                 root_font_size: get_root_font_size(styled_dom, table_state),

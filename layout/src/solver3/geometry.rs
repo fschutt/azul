@@ -300,6 +300,7 @@ impl ResolutionParams {
     /// Create a `ResolutionContext` from these parameters.
     #[must_use] pub const fn to_resolution_context(&self) -> ResolutionContext {
         ResolutionContext {
+            vertical_writing_mode: false,
             element_font_size: self.element_font_size,
             // For non-font properties, `em` resolves against the element's own
             // computed font-size, so parent_font_size == element_font_size here.
@@ -332,12 +333,19 @@ pub struct UnresolvedBoxProps {
     pub margin: UnresolvedEdge<UnresolvedMargin>,
     pub padding: UnresolvedEdge<PixelValue>,
     pub border: UnresolvedEdge<PixelValue>,
+    /// css-writing-modes-4 §7.2: margin/padding percentages resolve against
+    /// the containing block's INLINE size. Captured at collection time from
+    /// the node's writing mode so late re-resolution (resolve_box_props with
+    /// the real containing block) picks the right axis without re-reading
+    /// the cascade.
+    pub vertical_writing_mode: bool,
 }
 
 impl UnresolvedBoxProps {
     /// Resolve all box properties to pixel values.
     #[must_use] pub fn resolve(&self, params: &ResolutionParams) -> ResolvedBoxProps {
-        let ctx = params.to_resolution_context();
+        let mut ctx = params.to_resolution_context();
+        ctx.vertical_writing_mode = self.vertical_writing_mode;
         ResolvedBoxProps {
             margin: self.margin.resolve(&ctx),
             padding: self.padding.resolve(&ctx, PropertyContext::Padding),
@@ -1227,6 +1235,7 @@ mod autotest_generated {
     fn unresolved_box_props_resolve_applies_the_right_property_context_per_edge() {
         let p = distinct_params(); // 800x600 block
         let b = UnresolvedBoxProps {
+            vertical_writing_mode: false,
             margin: UnresolvedEdge::new(
                 UnresolvedMargin::Auto,
                 UnresolvedMargin::Length(PixelValue::percent(10.0)), // -> 80 (width)

@@ -162,6 +162,12 @@ pub struct ResolutionContext {
     /// May be None during first layout pass before size is determined
     pub element_size: Option<PhysicalSize>,
 
+    /// Is the element in a VERTICAL writing mode (`vertical-rl`/`vertical-lr`)?
+    /// css-writing-modes-4 §7.2: margin/padding percentages resolve against
+    /// the containing block's INLINE size - the physical HEIGHT in vertical
+    /// modes. Physical width/height percentages are unaffected.
+    pub vertical_writing_mode: bool,
+
     /// The viewport size in CSS pixels (for vw, vh, vmin, vmax units)
     /// This is the layout viewport size, not physical screen size
     pub viewport_size: PhysicalSize,
@@ -176,6 +182,7 @@ impl Default for ResolutionContext {
             containing_block_size: PhysicalSize::new(0.0, 0.0),
             element_size: None,
             viewport_size: PhysicalSize::new(0.0, 0.0),
+            vertical_writing_mode: false,
         }
     }
 }
@@ -197,6 +204,7 @@ impl ResolutionContext {
                 width: 0.0,
                 height: 0.0,
             },
+            vertical_writing_mode: false,
         }
     }
 
@@ -568,7 +576,14 @@ impl PixelValue {
                     // +spec:width-calculation:d78514 - margin percentages refer to width of containing block
                     // Padding: ALWAYS containing block WIDTH, even for top/bottom! (CSS 2.1 §8.4)
                     PropertyContext::Margin | PropertyContext::Padding => {
-                        context.containing_block_size.width
+                        // CSS3 (writing-modes-4 §7.2) upgrades CSS 2.1's
+                        // "always width" to "the INLINE size": physical width
+                        // in horizontal-tb, physical HEIGHT in vertical-rl/lr.
+                        if context.vertical_writing_mode {
+                            context.containing_block_size.height
+                        } else {
+                            context.containing_block_size.width
+                        }
                     }
 
                     // Border-width: % is NOT valid per CSS spec (CSS Backgrounds 3 §4.1)
@@ -1079,6 +1094,7 @@ mod tests {
     fn test_resolve_with_context_em() {
         // Element has font-size: 32px, margin: 0.67em
         let context = ResolutionContext {
+            vertical_writing_mode: false,
             element_font_size: 32.0,
             parent_font_size: 16.0,
             ..Default::default()
@@ -1102,6 +1118,7 @@ mod tests {
     fn test_resolve_with_context_rem() {
         // Root has font-size: 18px
         let context = ResolutionContext {
+            vertical_writing_mode: false,
             element_font_size: 32.0,
             parent_font_size: 16.0,
             root_font_size: 18.0,
@@ -1126,6 +1143,7 @@ mod tests {
     fn test_resolve_with_context_percent_margin() {
         // Margin % uses containing block WIDTH (even for top/bottom!)
         let context = ResolutionContext {
+            vertical_writing_mode: false,
             element_font_size: 16.0,
             parent_font_size: 16.0,
             root_font_size: 16.0,
@@ -1307,6 +1325,7 @@ mod autotest_generated {
     /// reads the wrong field cannot accidentally produce the right number.
     fn distinct_context() -> ResolutionContext {
         ResolutionContext {
+            vertical_writing_mode: false,
             element_font_size: 32.0,
             parent_font_size: 8.0,
             root_font_size: 4.0,
@@ -2346,6 +2365,7 @@ mod autotest_generated {
         // element_size is None during the first layout pass; the % arms that read
         // it must degrade to 0 instead of unwrapping.
         let ctx = ResolutionContext {
+            vertical_writing_mode: false,
             element_size: None,
             ..distinct_context()
         };
@@ -2364,6 +2384,7 @@ mod autotest_generated {
     fn resolve_with_context_absolute_units_ignore_the_context_entirely() {
         let sane = distinct_context();
         let poisoned = ResolutionContext {
+            vertical_writing_mode: false,
             element_font_size: f32::NAN,
             parent_font_size: f32::INFINITY,
             root_font_size: f32::NEG_INFINITY,
@@ -2457,6 +2478,7 @@ mod autotest_generated {
 
         // A non-finite viewport propagates rather than panicking.
         let nan_vp = ResolutionContext {
+            vertical_writing_mode: false,
             viewport_size: PhysicalSize::new(f32::NAN, f32::NAN),
             ..distinct_context()
         };
@@ -2466,6 +2488,7 @@ mod autotest_generated {
         // NOTE: f32::min/max return the non-NaN operand, so vmin/vmax against a
         // half-NaN viewport silently pick the finite axis instead of poisoning.
         let half_nan_vp = ResolutionContext {
+            vertical_writing_mode: false,
             viewport_size: PhysicalSize::new(f32::NAN, 500.0),
             ..distinct_context()
         };

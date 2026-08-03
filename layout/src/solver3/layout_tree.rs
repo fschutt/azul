@@ -988,7 +988,7 @@ impl LayoutTree {
     }
 
     /// Re-resolve box properties for a node with the actual containing block size.
-    fn resolve_box_props(
+    pub(crate) fn resolve_box_props(
         &mut self,
         node_index: usize,
         containing_block: LogicalSize,
@@ -2748,7 +2748,7 @@ fn compute_layout_style(styled_dom: &StyledDom, dom_id: NodeId) -> ComputedLayou
 // hash_node_data() removed — replaced by NodeDataFingerprint::compute()
 
 /// Helper function to get element's computed font-size
-fn get_element_font_size(styled_dom: &StyledDom, dom_id: NodeId) -> f32 {
+pub(crate) fn get_element_font_size(styled_dom: &StyledDom, dom_id: NodeId) -> f32 {
     { let _ = (0xC3_000001u32); } // 2-arg wrapper entered
     let node_state = styled_dom
         .styled_nodes
@@ -2773,7 +2773,7 @@ fn get_parent_font_size(styled_dom: &StyledDom, dom_id: NodeId) -> f32 {
 }
 
 /// Helper function to get root element's font-size
-fn get_root_font_size(styled_dom: &StyledDom) -> f32 {
+pub(crate) fn get_root_font_size(styled_dom: &StyledDom) -> f32 {
     // Root is always NodeId(0) in Azul
     get_element_font_size(styled_dom, NodeId::new(0))
 }
@@ -2794,6 +2794,7 @@ fn create_resolution_context(
     { let _ = (0xC1_000004u32); } // after get_root_font_size
 
     ResolutionContext {
+        vertical_writing_mode: false,
         element_font_size,
         parent_font_size,
         root_font_size,
@@ -3021,6 +3022,14 @@ fn collect_box_props(
         margin: unresolved_margin,
         padding: unresolved_padding,
         border: unresolved_border,
+        // Percentage basis axis for margin/padding (writing-modes-4 §7.2).
+        vertical_writing_mode: matches!(
+            get_writing_mode(styled_dom, dom_id, &node_state),
+            crate::solver3::getters::MultiValue::Exact(
+                azul_css::props::layout::wrapping::LayoutWritingMode::VerticalRl
+                    | azul_css::props::layout::wrapping::LayoutWritingMode::VerticalLr
+            )
+        ),
     };
 
     // Create initial resolution params (with viewport as containing block for now)
