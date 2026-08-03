@@ -459,7 +459,13 @@ fn match_single_selector(
     use self::CssPathSelector::{Global, Root, Type, Class, Id, PseudoSelector, Attribute, DirectChildren, Children, AdjacentSibling, GeneralSibling};
 
     match selector {
-        Global => true,
+        // Per CSS, `*` matches ELEMENTS - never text nodes. Text gets its
+        // styling by inheritance; letting the universal selector hit text
+        // nodes made `* { color: #666 }` overwrite the color a text child
+        // had just inherited from its `p { color: red }` parent. (Bare-decl
+        // inline styles don't pass through here at all: they live on
+        // NodeData.style and are read directly by the cascade.)
+        Global => !node_data.is_text_node(),
         // `Root(range)` (scope marker, #47): matches any node WITHIN the subtree
         // range `[start, end]`. The range is chosen when the scope is pushed
         // (`CssPath::push_front_scope`):
@@ -1533,7 +1539,7 @@ mod autotest_generated {
     // ---------------------------------------------------------------------
 
     #[test]
-    fn match_single_selector_global_matches_every_node_type() {
+    fn match_single_selector_global_matches_elements_but_never_text_nodes() {
         let div = NodeData::create_div();
         let text = NodeData::create_text("hello");
         assert!(match_single_selector(
@@ -1544,7 +1550,10 @@ mod autotest_generated {
             None,
             true
         ));
-        assert!(match_single_selector(
+        // Per CSS, `*` matches ELEMENTS only. Text nodes take styling by
+        // inheritance; a universal rule hitting them directly overwrote
+        // freshly inherited values (`* { color }` vs `p { color }`).
+        assert!(!match_single_selector(
             &CssPathSelector::Global,
             info(u32::MAX, true),
             &text,

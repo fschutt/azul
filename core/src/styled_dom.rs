@@ -985,7 +985,13 @@ impl StyledDom {
                     owner
                 };
                 for mut rule in css_with_id.css.rules.into_library_owned_vec() {
-                    rule.path.push_front_scope(owner, end);
+                    // Bare-declaration wrappers (INLINE priority) stay
+                    // node-only; a stylesheet's `* { ... }` (AUTHOR/UA
+                    // priority) scopes to the whole subtree. See
+                    // push_front_scope_for.
+                    let node_only =
+                        rule.priority >= azul_css::css::rule_priority::INLINE;
+                    rule.path.push_front_scope_for(owner, end, node_only);
                     combined_rules.push(rule);
                 }
             }
@@ -2475,10 +2481,14 @@ fn scope_inline_css(dom: &mut Dom, next_id: &mut usize) {
     let end = start + dom.estimated_total_children;
     for css in dom.css.as_mut().iter_mut() {
         for rule in css.rules.as_mut().iter_mut() {
-            // push_front_scope picks node-only ([start,start]) for bare `*` rules
-            // (with_css inline decls) and subtree ([start,end]) for rules with a real
-            // selector (add_component_css), so descendant selectors match the subtree.
-            rule.path.push_front_scope(start, end);
+            // Bare-decl wrappers (INLINE priority, from set_css/with_css
+            // selector-less declarations) are scoped node-only so a non-root
+            // background can't leak to descendants (#47). A stylesheet's
+            // `* { ... }` (AUTHOR/UA priority) scopes to the SUBTREE - the
+            // classic `* { margin: 0 }` reset must reach every element of the
+            // mounted document, not just the mount root.
+            let node_only = rule.priority >= azul_css::css::rule_priority::INLINE;
+            rule.path.push_front_scope_for(start, end, node_only);
         }
     }
     *next_id += 1;

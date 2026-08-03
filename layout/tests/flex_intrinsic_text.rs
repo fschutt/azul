@@ -1192,3 +1192,49 @@ fn inline_viewport_conditions_are_applied() {
         "the mobile-only panel did not lay out at a 390px viewport: {rect:?}"
     );
 }
+
+/// The author `* { margin: 0 }` reset must beat the UA body margin — UA
+/// origin loses to author origin regardless of specificity. `apply_ua_css`
+/// skipped only properties already set per-node (css_props / cascaded /
+/// inline) and never consulted the GLOBAL `*` bucket, so every reftest page
+/// with the classic reset rendered shifted by the UA's 8px body margin
+/// against Chrome (ribbonbug-flex-root-auto-height-001).
+#[test]
+fn global_star_reset_beats_the_ua_body_margin() {
+    let xml = r#"<html><head><style type="text/css">
+        * { margin: 0; padding: 0; }
+        body { width: 800px; }
+        .toolbar { height: 120px; }
+    </style></head>
+    <body><div class="toolbar"></div></body></html>"#;
+
+    let styled = azul_layout::xml::parse_xml_to_styled_dom(xml).expect("parses");
+    let mut layout_window = LayoutWindow::new(FcFontCache::build()).unwrap();
+    let mut window_state = FullWindowState::default();
+    window_state.size.dimensions = LogicalSize::new(1920.0, 1080.0);
+    let renderer_resources = RendererResources::default();
+    let system_callbacks = ExternalSystemCallbacks::rust_internal();
+    let mut debug_messages = None;
+    layout_window
+        .layout_and_generate_display_list(
+            styled,
+            &window_state,
+            &renderer_resources,
+            &system_callbacks,
+            &mut debug_messages,
+        )
+        .unwrap();
+
+    // Find the toolbar (the only 120px-high box) and assert it sits at the
+    // true origin - any UA body margin surviving the reset shifts it.
+    let toolbar = (0..8_usize)
+        .filter_map(|i| layout_window.get_node_layout_rect(node_id(i)))
+        .find(|r| (r.size.height - 120.0).abs() < 0.5)
+        .expect("toolbar rect");
+    assert_eq!(
+        (toolbar.origin.x, toolbar.origin.y),
+        (0.0, 0.0),
+        "`* {{ margin: 0 }}` must reset the UA body margin: toolbar at {:?}",
+        toolbar.origin
+    );
+}

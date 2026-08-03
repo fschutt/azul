@@ -3454,6 +3454,32 @@ impl CssPropertyCache {
             }
         }
 
+        // Mark properties from the GLOBAL `*` bucket. A `* { margin: 0 }`
+        // reset is author CSS and must beat UA defaults on every ELEMENT
+        // (origin beats specificity), but it is stored once globally rather
+        // than per node, so the per-node marking above never saw it - the UA
+        // body margin (8px) survived the classic reset and every page using
+        // it rendered shifted against the browser reference. Text nodes are
+        // exempt: `*` matches elements only (the compact builder makes the
+        // same distinction), and UA defaults for text nodes must stay.
+        if !self.global_css_props.is_empty() {
+            let mut global_bits = [0u128; 2];
+            for p in &self.global_css_props {
+                let d = p.get_type() as u16 as usize;
+                if d < 128 {
+                    global_bits[0] |= 1u128 << d;
+                } else {
+                    global_bits[1] |= 1u128 << (d - 128);
+                }
+            }
+            for (node_idx, node) in node_data.iter().enumerate() {
+                if !node.is_text_node() {
+                    prop_set[node_idx][0] |= global_bits[0];
+                    prop_set[node_idx][1] |= global_bits[1];
+                }
+            }
+        }
+
         // All UA property types that get_ua_property() may return Some for
         let property_types = [
             CssPropertyType::Display,

@@ -1560,9 +1560,31 @@ impl CssPath {
     ///   subtree (e.g. a menu container's `.menu-item` children). `[Root([s,e]),
     ///   Class(x)]` matches any node in `[s,e]` that also matches `.x`.
     pub fn push_front_scope(&mut self, start: usize, end: usize) {
+        self.push_front_scope_for(start, end, true);
+    }
+
+    /// Like [`Self::push_front_scope`], but the CALLER decides whether a bare
+    /// `[Global]` path is a bare-declaration wrapper (scope it NODE-ONLY,
+    /// `[start, start]`) or a real stylesheet `* { ... }` rule (scope it to
+    /// the whole subtree).
+    ///
+    /// The two are indistinguishable by path shape - `parse_inline` wraps
+    /// selector-less declarations in `*`, and an author stylesheet's
+    /// universal rule IS `*` - but they differ by RULE PRIORITY
+    /// (`rule_priority::INLINE` vs `AUTHOR`), which only the caller holding
+    /// the `CssRuleBlock` can see. Treating every bare global as a wrapper
+    /// scoped the classic `* { margin: 0 }` reset of a mounted document to
+    /// the mount root alone: the UA body margin survived on every child and
+    /// each reftest page rendered shifted by 8px against the browser.
+    pub fn push_front_scope_for(
+        &mut self,
+        start: usize,
+        end: usize,
+        node_only_bare_global: bool,
+    ) {
         let is_bare_global = self.selectors.as_ref().len() == 1
             && matches!(self.selectors.as_ref().first(), Some(CssPathSelector::Global));
-        let range = if is_bare_global {
+        let range = if is_bare_global && node_only_bare_global {
             CssScopeRange { start, end: start }
         } else {
             CssScopeRange { start, end }
