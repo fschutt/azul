@@ -3064,7 +3064,21 @@ pub trait PlatformWindow {
                 if let Some(lw) = self.get_layout_window_mut() {
                     lw.gesture_drag_manager.inject_native_gesture(*gesture);
                 }
-                ProcessEventResult::ShouldRegenerateDomCurrentWindow
+                // The latched gesture only becomes a SyntheticEvent inside an
+                // event pass (`determine_all_events` consults the gesture
+                // manager: an injected DoubleClick raises `E::DoubleClick` at
+                // the hovered node), and the same pass clears the latch. Run
+                // that pass NOW — the contract every state-raising change
+                // follows (ModifyWindowState, QueueWindowStateSequence): a
+                // change delivers its events before the next change applies.
+                // This used to return ShouldRegenerateDomCurrentWindow and
+                // rely on "some later pass" reading the latch — which, until
+                // pass-end delta consumption was enforced, happened to be the
+                // STALE re-detection pass (the same defect that double-fired
+                // MouseUp). With that fixed, nothing guaranteed delivery at
+                // all: an injected DoubleClick sat latched until an unrelated
+                // event pass fired it at whatever was hovered much later.
+                self.process_window_events(0)
             }
 
             // === Accessibility action (screen-reader request) ===
@@ -4740,6 +4754,32 @@ pub trait PlatformWindow {
         }
 
         let result = self.process_window_events_inner(depth);
+
+        // CONSUME the state delta this pass just processed. The
+        // previous→current diff is a one-shot: without this, the delta
+        // survives the pass, and the NEXT pass — a redraw tick, a
+        // wait_frame pump, the regeneration pass after a callback returned
+        // RefreshDom, anything that calls process_window_events() without
+        // changing state first — re-detects the SAME transition and
+        // re-dispatches its events. One physical mouse release invoked a
+        // Hover(MouseUp) callback twice that way (every toggle callback
+        // self-cancelled); a held KeyDown or a WindowResize could repeat
+        // likewise. It runs AFTER the pass (not at determination time)
+        // because callbacks legitimately read the pre-pass state through
+        // CallbackInfo::get_previous_window_state() during dispatch.
+        //
+        // Every event-injection site (the platform handlers, the headless
+        // arms, ModifyWindowState, QueueWindowStateSequence) advances
+        // previous BEFORE mutating current and immediately runs its own
+        // pass, so consuming here never eats an unprocessed delta — it
+        // makes "a completed pass leaves no live delta behind" an invariant
+        // of this function instead of a convention every caller must
+        // remember. The depth-cap early-out is exempt: that pass never ran
+        // determination, so its delta must stay for the next regular pass.
+        if depth < MAX_EVENT_RECURSION_DEPTH {
+            let consumed = self.get_current_window_state().clone();
+            self.set_previous_window_state(consumed);
+        }
 
         if let Some(lw) = self.get_layout_window_mut() {
             lw.frame_report.terminal_result = result as u8;
