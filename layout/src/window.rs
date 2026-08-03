@@ -4938,11 +4938,17 @@ impl LayoutWindow {
                 .map(|n| n.styled_node_state)
                 .unwrap_or_default();
 
-            // Check if this node has scroll overflow
+            // Register every SCROLL CONTAINER (css-overflow-3 §3.1:
+            // hidden | scroll | auto). `hidden` boxes carry scroll state for
+            // PROGRAMMATIC scrolling (scroll-into-view, callback offsets);
+            // user input is gated separately at wheel-target selection via
+            // allows_user_scrolling(). The old `is_scroll()` (== scroll
+            // ONLY) even left `auto` containers without scroll ids.
             let overflow_x = get_overflow_x(styled_dom, dom_node_id, &styled_node_state);
             let overflow_y = get_overflow_y(styled_dom, dom_node_id, &styled_node_state);
 
-            let is_scrollable = overflow_x.is_scroll() || overflow_y.is_scroll();
+            let is_scrollable =
+                overflow_x.is_scroll_container() || overflow_y.is_scroll_container();
 
             if !is_scrollable {
                 continue;

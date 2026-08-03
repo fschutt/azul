@@ -1238,3 +1238,51 @@ fn global_star_reset_beats_the_ua_body_margin() {
         toolbar.origin
     );
 }
+
+/// css-overflow-3 §3.1: `overflow: hidden` establishes a SCROLL CONTAINER —
+/// programmatically scrollable (it gets a scroll id / scroll state), while
+/// user-triggered scrolling stays disabled (it must NOT become a wheel
+/// target in the hit-tester). `visible` boxes get neither.
+#[test]
+fn overflow_hidden_is_a_programmatic_scroll_container_but_not_a_wheel_target() {
+    const CSS: &str = r#"
+        body { display: flex; flex-direction: column; }
+        .hidden-clip { width: 200px; height: 50px; overflow: hidden; }
+        .plain { width: 200px; height: 50px; }
+        .tall { width: 100px; height: 400px; }
+    "#;
+    let dom = Dom::create_body()
+        .with_child(
+            Dom::create_div()
+                .with_ids_and_classes(class("hidden-clip"))
+                .with_child(Dom::create_div().with_ids_and_classes(class("tall"))),
+        )
+        .with_child(
+            Dom::create_div()
+                .with_ids_and_classes(class("plain"))
+                .with_child(Dom::create_div().with_ids_and_classes(class("tall"))),
+        );
+    let lw = layout_dom(dom, CSS, 800.0, 600.0);
+
+    // 0 body, 1 hidden-clip, 2 tall, 3 plain, 4 tall
+    let lr = lw.layout_results.get(&DomId { inner: 0 }).expect("root layout");
+    let scroll_nodes: Vec<_> = lr.scroll_id_to_node_id.values().copied().collect();
+    assert!(
+        scroll_nodes.contains(&node_id(1).node.into_crate_internal().unwrap()),
+        "overflow:hidden must register scroll state (programmatic scrolling): {scroll_nodes:?}"
+    );
+    assert!(
+        !scroll_nodes.contains(&node_id(3).node.into_crate_internal().unwrap()),
+        "a plain (overflow:visible) box must not: {scroll_nodes:?}"
+    );
+
+    // The wheel-target hit-tester must SKIP the hidden container.
+    let mut tester = azul_layout::headless::CpuHitTester::new();
+    tester.rebuild_from_layout_with_gpu(&lw.layout_results, None);
+    assert!(
+        !tester
+            .debug_scroll_container_nodes()
+            .contains(&node_id(1).node.into_crate_internal().unwrap()),
+        "overflow:hidden must not be a user-wheel target"
+    );
+}

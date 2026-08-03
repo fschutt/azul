@@ -647,6 +647,14 @@ impl CpuHitTester {
     /// reads the same cache) — so hit-test chains and painted frames cannot
     /// disagree about which nodes transform. Pass `None` only when no
     /// transforms can exist (unit tests, static popups).
+    /// The DOM node ids currently registered as USER-wheel scroll targets.
+    /// Test/introspection helper: programmatically-scrollable-only containers
+    /// (`overflow: hidden`) must never appear here.
+    #[must_use]
+    pub fn debug_scroll_container_nodes(&self) -> Vec<azul_core::id::NodeId> {
+        self.scroll_containers.iter().map(|e| e.node_id).collect()
+    }
+
     pub fn rebuild_from_layout_with_gpu(
         &mut self,
         layout_results: &BTreeMap<DomId, DomLayoutResult>,
@@ -696,12 +704,31 @@ impl CpuHitTester {
             );
 
             // Scroll containers of this DOM, for wheel-target containment.
+            // Only USER-scrollable containers become wheel targets:
+            // overflow:hidden boxes carry scroll ids (programmatic
+            // scrolling - scroll-into-view, callback offsets - reaches
+            // them), but css-overflow-3 disables their user-triggered
+            // scrolling, so the hit-tester must not route the wheel there.
             for (&layout_idx, &scroll_id) in scroll_ids {
                 let Some(n) = nodes.get(layout_idx) else { continue };
                 let Some(node_id) = n.dom_node_id else { continue };
                 let (Some(pos), Some(size)) = (positions.get(layout_idx), n.used_size) else {
                     continue;
                 };
+                let user_scrollable = styled_dom
+                    .styled_nodes
+                    .as_container()
+                    .get(node_id)
+                    .is_some_and(|sn| {
+                        let st = &sn.styled_node_state;
+                        crate::solver3::getters::get_overflow_x(styled_dom, node_id, st)
+                            .allows_user_scrolling()
+                            || crate::solver3::getters::get_overflow_y(styled_dom, node_id, st)
+                                .allows_user_scrolling()
+                    });
+                if !user_scrollable {
+                    continue;
+                }
                 self.scroll_containers.push(ScrollContainerEntry {
                     dom_id: *dom_id,
                     node_id,

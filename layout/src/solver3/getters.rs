@@ -473,6 +473,29 @@ impl MultiValue<LayoutOverflow> {
         )
     }
 
+    // +spec:overflow:3be57c - overflow:hidden disables user scrolling but programmatic scrolling still works
+    /// Does this value establish a SCROLL CONTAINER (css-overflow-3 §3.1)?
+    /// `hidden | scroll | auto` — an `overflow: hidden` box is
+    /// programmatically scrollable even though its user scrolling is
+    /// disabled. The unset sentinel (initial = visible) does not.
+    #[must_use] pub const fn is_scroll_container(&self) -> bool {
+        matches!(
+            self,
+            Self::Exact(
+                LayoutOverflow::Hidden | LayoutOverflow::Scroll | LayoutOverflow::Auto
+            )
+        )
+    }
+
+    /// Does this value allow scrolling DIRECTLY TRIGGERED BY THE USER
+    /// (wheel, scrollbar, keyboard)? `hidden` does not.
+    #[must_use] pub const fn allows_user_scrolling(&self) -> bool {
+        matches!(
+            self,
+            Self::Exact(LayoutOverflow::Scroll | LayoutOverflow::Auto)
+        )
+    }
+
     #[must_use] pub const fn is_auto_overflow(&self) -> bool {
         matches!(self, Self::Exact(LayoutOverflow::Auto))
     }

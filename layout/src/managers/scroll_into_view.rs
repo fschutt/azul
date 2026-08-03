@@ -307,9 +307,13 @@ fn check_if_scrollable(
         &styled_node.styled_node_state,
     );
     
-    let scroll_x = overflow_x.is_scroll();
-    let scroll_y = overflow_y.is_scroll();
-    
+    // Programmatic scrolling reaches EVERY scroll container - including
+    // overflow:hidden, whose user scrolling is disabled but which css
+    // overflow-3 §3.1 keeps programmatically scrollable (scrollIntoView
+    // through a hidden clipper is the canonical carousel/tab-panel case).
+    let scroll_x = overflow_x.is_scroll_container();
+    let scroll_y = overflow_y.is_scroll_container();
+
     // If neither axis is scrollable, skip this node
     if !scroll_x && !scroll_y {
         return None;

@@ -61,10 +61,27 @@ impl LayoutOverflow {
         )
     }
 
-    // +spec:overflow:3be57c - overflow:hidden disables user scrolling but programmatic scrolling still works
     /// Returns `true` if the overflow type is `scroll`.
     #[must_use] pub const fn is_scroll(&self) -> bool {
         matches!(self, Self::Scroll)
+    }
+
+    // +spec:overflow:3be57c - overflow:hidden disables user scrolling but programmatic scrolling still works
+    /// Does this value establish a SCROLL CONTAINER (css-overflow-3 §3.1)?
+    ///
+    /// `hidden`, `scroll` and `auto` all do — an `overflow: hidden` box is
+    /// programmatically scrollable (scrollIntoView, scroll offsets set from
+    /// callbacks) even though its user-facing scrolling UI is disabled.
+    /// `visible` and `clip` do not scroll at all.
+    #[must_use] pub const fn is_scroll_container(&self) -> bool {
+        matches!(self, Self::Hidden | Self::Scroll | Self::Auto)
+    }
+
+    /// Does this value allow scrolling DIRECTLY TRIGGERED BY THE USER
+    /// (wheel, trackpad, scrollbar drag, keyboard)? `hidden` does not —
+    /// only programmatic scrolling reaches it.
+    #[must_use] pub const fn allows_user_scrolling(&self) -> bool {
+        matches!(self, Self::Scroll | Self::Auto)
     }
 
     /// Returns `true` if the overflow type is `visible`, which is the only
