@@ -2117,12 +2117,32 @@ impl LayoutWindow {
     /// root DOM or any child (`VirtualView` / iframe) DOM.
     pub fn layout_dom_recursive(
         &mut self,
-        styled_dom: StyledDom,
+        mut styled_dom: StyledDom,
         window_state: &FullWindowState,
         renderer_resources: &RendererResources,
         system_callbacks: &ExternalSystemCallbacks,
         debug_messages: &mut Option<Vec<LayoutDebugMessage>>,
     ) -> Result<(), solver3::LayoutError> {
+        // Provide the window's dynamic-selector context BEFORE anything reads
+        // styles: inline conditional properties (@media-style viewport rules,
+        // theme/OS selectors on `CssPropertyWithConditions`) evaluate against
+        // it in both the compact fast path and `get_property_slow`. This is
+        // the one funnel every layout pass goes through (full regenerate,
+        // incremental relayout, the chokepoint's in-place relayout, headless
+        // frames), so a resize that crosses a breakpoint re-evaluates the
+        // conditions on its natural relayout — no extra invalidation
+        // machinery. A DOM without such conditions pays one bool read.
+        {
+            let dims = window_state.size.dimensions;
+            let base = self.system_style.as_deref().map_or_else(
+                azul_css::dynamic_selector::DynamicSelectorContext::default,
+                azul_css::dynamic_selector::DynamicSelectorContext::from_system_style,
+            );
+            let mut ctx = base.with_viewport(dims.width, dims.height);
+            ctx.window_focused = window_state.flags.has_focus;
+            styled_dom.set_dynamic_selector_context(ctx);
+        }
+
         // Child DOMs (VirtualView / iframe) must NOT lay out into the root's
         // live cache: the impl below writes tree + calculated_positions into
         // `self.layout_cache`, so a child pass CLOBBERS the root's geometry —

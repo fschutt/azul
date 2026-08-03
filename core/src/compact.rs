@@ -698,13 +698,26 @@ impl CssPropertyCache {
             // Scan inline CSS (node_data.style — typically 0-3 properties).
             // Inline CSS has highest specificity — applied last to override stylesheet.
             for (prop, conds) in nd.style.iter_inline_properties() {
-                // Only apply Normal state (no pseudo-selectors like :hover)
+                // Apply when the conditions hold for the RESTING state:
+                // pseudo-state conditions must be Normal, and every other
+                // condition (viewport/@media, theme, OS...) is evaluated
+                // against the window's dynamic context — the same rule
+                // get_property_slow applies, so the fast path and the slow
+                // path cannot disagree about a conditional property. A
+                // non-pseudo condition also flags the cache, so the window
+                // knows a context change requires a rebuild.
                 let is_normal = conds.as_slice().is_empty()
-                    || conds.as_slice().iter().all(|c|
-                        matches!(c, azul_css::dynamic_selector::DynamicSelector::PseudoState(
-                            azul_css::dynamic_selector::PseudoStateType::Normal
-                        ))
-                    );
+                    || conds.as_slice().iter().all(|c| match c {
+                        azul_css::dynamic_selector::DynamicSelector::PseudoState(s) => {
+                            *s == azul_css::dynamic_selector::PseudoStateType::Normal
+                        }
+                        non_pseudo => {
+                            result.has_dynamic_conditions = true;
+                            self.dynamic_context
+                                .as_deref()
+                                .is_some_and(|ctx| non_pseudo.matches(ctx))
+                        }
+                    });
                 if !is_normal { continue; }
                 // Layout-critical props dispatched via single-variant `if let` (direct discriminant
                 // COMPARES, no indirect jump). apply_css_property_to_compact's ~100-arm `match` lowers

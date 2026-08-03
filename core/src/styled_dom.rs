@@ -1957,6 +1957,52 @@ impl StyledDom {
         map
     }
 
+    /// Provide (or update) the window's `DynamicSelectorContext` — viewport
+    /// size, theme, OS, media type — for this DOM's cascade.
+    ///
+    /// Inline conditional properties (`CssPropertyWithConditions` with
+    /// viewport/@media/theme/OS selectors) evaluate against this context in
+    /// BOTH production readers: `get_property_slow` (per lookup) and the
+    /// compact-cache builder (at build time). A freshly created `StyledDom`
+    /// has NO context — non-pseudo conditions do not apply until a window
+    /// adopts the DOM and calls this, which the layout funnel
+    /// (`LayoutWindow::layout_and_generate_display_list`) does before every
+    /// pass.
+    ///
+    /// When the context actually changed AND the compact cache says some
+    /// node's resting style depends on it (`has_dynamic_conditions`), the
+    /// compact cache is rebuilt and hit-test tags are regenerated (a
+    /// condition can flip `display`, which decides which nodes carry tags).
+    /// For the common condition-free DOM a context change costs one bool
+    /// read.
+    pub fn set_dynamic_selector_context(
+        &mut self,
+        context: azul_css::dynamic_selector::DynamicSelectorContext,
+    ) {
+        {
+            let cache = self.get_css_property_cache_mut();
+            if cache.dynamic_context.as_deref() == Some(&context) {
+                return;
+            }
+            cache.dynamic_context = Some(Box::new(context));
+        }
+        let needs_rebuild = self
+            .get_css_property_cache()
+            .compact_cache
+            .as_ref()
+            .is_none_or(|cc| cc.has_dynamic_conditions);
+        if needs_rebuild {
+            self.recompute_inheritance_and_compact_cache();
+            self.get_css_property_cache_mut()
+                .invalidate_resolved_font_sizes();
+            let new_tag_ids = self.css_property_cache.downcast_mut().generate_tag_ids(
+                &self.node_data.as_container(),
+                &self.node_hierarchy,
+            );
+            self.tag_ids_to_node_ids = new_tag_ids.into();
+        }
+    }
+
     /// Migrate runtime CSS overrides (`user_overridden_properties`) from a
     /// previous generation's property cache onto this DOM, following the
     /// reconciliation node matches.

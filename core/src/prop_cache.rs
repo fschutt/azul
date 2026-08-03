@@ -719,6 +719,14 @@ pub struct CssPropertyCache {
 
     // properties that were overridden in callbacks (not specific to any node state)
     pub user_overridden_properties: Vec<Vec<(CssPropertyType, CssProperty)>>,
+    /// The window's dynamic-selector context (viewport size, theme, OS,
+    /// media type...), provided by the layout funnel before the first
+    /// layout. `None` = context UNKNOWN (a freshly created StyledDom that no
+    /// window has adopted yet): non-pseudo-state conditions then evaluate to
+    /// "does not apply", which is the same behaviour they always had before
+    /// contexts were wired through. Pseudo-state conditions never depend on
+    /// this field.
+    pub dynamic_context: Option<Box<azul_css::dynamic_selector::DynamicSelectorContext>>,
 
     // non-default CSS properties that were cascaded from the parent,
     // unified across all pseudo-states (Normal, Hover, Active, Focus, Dragging, DragOver).
@@ -1885,6 +1893,7 @@ impl CssPropertyCache {
             node_count,
             retained_author_css: Css::default(),
             user_overridden_properties: Vec::new(),
+            dynamic_context: None,
 
             cascaded_props: FlatVecVec::new(node_count),
             css_props: FlatVecVec::new(node_count),
@@ -1907,6 +1916,11 @@ impl CssPropertyCache {
 
     pub fn append(&mut self, other: &mut Self) {
         self.user_overridden_properties.append(&mut other.user_overridden_properties);
+        // The parent's dynamic context wins; a child subtree styled before
+        // composition has no window context of its own worth keeping.
+        if self.dynamic_context.is_none() {
+            self.dynamic_context = other.dynamic_context.take();
+        }
         self.cascaded_props.extend_from(&mut other.cascaded_props);
         self.css_props.extend_from(&mut other.css_props);
         self.computed_values.append(&mut other.computed_values);
@@ -2133,22 +2147,29 @@ impl CssPropertyCache {
 
         use azul_css::dynamic_selector::{DynamicSelector, PseudoStateType};
 
-        // Helper: do these conditions identify a rule that applies in `state`?
-        // Empty conditions = Normal-only. Otherwise all conditions must be
-        // PseudoState(state).
-        fn matches_pseudo_state(
-            conds: &azul_css::dynamic_selector::DynamicSelectorVec,
-            state: PseudoStateType,
-        ) -> bool {
+        // Helper: do these conditions identify a rule that applies in `state`
+        // under the window's dynamic context? Empty conditions = Normal-only.
+        // Otherwise EVERY condition must hold: a pseudo-state condition must
+        // equal `state`, and every other condition (viewport/@media, theme,
+        // OS, container...) is evaluated against the window-provided
+        // `dynamic_context`. With no context yet (a StyledDom no window has
+        // adopted), non-pseudo conditions do not apply - the exact behaviour
+        // they had before contexts were wired through, so creation-time
+        // styling is unchanged.
+        let ctx = self.dynamic_context.as_deref();
+        let matches_pseudo_state = |conds: &azul_css::dynamic_selector::DynamicSelectorVec,
+                                    state: PseudoStateType|
+         -> bool {
             let conditions = conds.as_slice();
             if conditions.is_empty() {
                 state == PseudoStateType::Normal
             } else {
-                conditions
-                    .iter()
-                    .all(|c| matches!(c, DynamicSelector::PseudoState(s) if *s == state))
+                conditions.iter().all(|c| match c {
+                    DynamicSelector::PseudoState(s) => *s == state,
+                    non_pseudo => ctx.is_some_and(|ctx| non_pseudo.matches(ctx)),
+                })
             }
-        }
+        };
 
         // First test if there is some user-defined override for the property
         if let Some(v) = self.user_overridden_properties.get(node_id.index()) {
@@ -2161,13 +2182,17 @@ impl CssPropertyCache {
         // :focus > :active > :hover > normal (fallback)
         if node_state.focused {
             // PRIORITY 1: Inline CSS properties (highest priority per CSS spec)
-            if let Some(p) = node_data.style.iter_inline_properties().find_map(|(prop, conds)| {
-                if matches_pseudo_state(conds,PseudoStateType::Focus)
+            if let Some(p) = node_data.style.iter_inline_properties().fold(None, |acc, (prop, conds)| {
+                if matches_pseudo_state(conds, PseudoStateType::Focus)
                     && prop.get_type() == *css_property_type
                 {
+                    // LAST matching inline declaration wins (CSS source order),
+                    // same as the compact builder's later-overwrites-earlier and
+                    // get_property_with_context - a widget's merged_style()
+                    // appends overrides and relies on exactly this.
                     Some(prop)
                 } else {
-                    None
+                    acc
                 }
             }) {
                 return Some(p);
@@ -2194,13 +2219,17 @@ impl CssPropertyCache {
 
         if node_state.active {
             // PRIORITY 1: Inline CSS properties (highest priority per CSS spec)
-            if let Some(p) = node_data.style.iter_inline_properties().find_map(|(prop, conds)| {
-                if matches_pseudo_state(conds,PseudoStateType::Active)
+            if let Some(p) = node_data.style.iter_inline_properties().fold(None, |acc, (prop, conds)| {
+                if matches_pseudo_state(conds, PseudoStateType::Active)
                     && prop.get_type() == *css_property_type
                 {
+                    // LAST matching inline declaration wins (CSS source order),
+                    // same as the compact builder's later-overwrites-earlier and
+                    // get_property_with_context - a widget's merged_style()
+                    // appends overrides and relies on exactly this.
                     Some(prop)
                 } else {
-                    None
+                    acc
                 }
             }) {
                 return Some(p);
@@ -2227,13 +2256,17 @@ impl CssPropertyCache {
 
         // :dragging pseudo-state (higher priority than :hover)
         if node_state.dragging {
-            if let Some(p) = node_data.style.iter_inline_properties().find_map(|(prop, conds)| {
-                if matches_pseudo_state(conds,PseudoStateType::Dragging)
+            if let Some(p) = node_data.style.iter_inline_properties().fold(None, |acc, (prop, conds)| {
+                if matches_pseudo_state(conds, PseudoStateType::Dragging)
                     && prop.get_type() == *css_property_type
                 {
+                    // LAST matching inline declaration wins (CSS source order),
+                    // same as the compact builder's later-overwrites-earlier and
+                    // get_property_with_context - a widget's merged_style()
+                    // appends overrides and relies on exactly this.
                     Some(prop)
                 } else {
-                    None
+                    acc
                 }
             }) {
                 return Some(p);
@@ -2258,13 +2291,17 @@ impl CssPropertyCache {
 
         // :drag-over pseudo-state (higher priority than :hover)
         if node_state.drag_over {
-            if let Some(p) = node_data.style.iter_inline_properties().find_map(|(prop, conds)| {
-                if matches_pseudo_state(conds,PseudoStateType::DragOver)
+            if let Some(p) = node_data.style.iter_inline_properties().fold(None, |acc, (prop, conds)| {
+                if matches_pseudo_state(conds, PseudoStateType::DragOver)
                     && prop.get_type() == *css_property_type
                 {
+                    // LAST matching inline declaration wins (CSS source order),
+                    // same as the compact builder's later-overwrites-earlier and
+                    // get_property_with_context - a widget's merged_style()
+                    // appends overrides and relies on exactly this.
                     Some(prop)
                 } else {
-                    None
+                    acc
                 }
             }) {
                 return Some(p);
@@ -2289,13 +2326,17 @@ impl CssPropertyCache {
 
         if node_state.hover {
             // PRIORITY 1: Inline CSS properties (highest priority per CSS spec)
-            if let Some(p) = node_data.style.iter_inline_properties().find_map(|(prop, conds)| {
-                if matches_pseudo_state(conds,PseudoStateType::Hover)
+            if let Some(p) = node_data.style.iter_inline_properties().fold(None, |acc, (prop, conds)| {
+                if matches_pseudo_state(conds, PseudoStateType::Hover)
                     && prop.get_type() == *css_property_type
                 {
+                    // LAST matching inline declaration wins (CSS source order),
+                    // same as the compact builder's later-overwrites-earlier and
+                    // get_property_with_context - a widget's merged_style()
+                    // appends overrides and relies on exactly this.
                     Some(prop)
                 } else {
-                    None
+                    acc
                 }
             }) {
                 return Some(p);
@@ -2322,13 +2363,18 @@ impl CssPropertyCache {
 
         // Normal/fallback properties - always apply as base layer
         // PRIORITY 1: Inline CSS properties (highest priority per CSS spec)
-        if let Some(p) = node_data.style.iter_inline_properties().find_map(|(prop, conds)| {
+        if let Some(p) = node_data.style.iter_inline_properties().fold(None, |acc, (prop, conds)| {
             if matches_pseudo_state(conds, PseudoStateType::Normal)
                 && prop.get_type() == *css_property_type
             {
+                // LAST matching inline declaration wins (CSS source order),
+                // same as the compact builder's later-overwrites-earlier and
+                // get_property_with_context - the widget pattern
+                // "display:none + display:flex @media(max-width)" relies on
+                // exactly this ordering.
                 Some(prop)
             } else {
-                None
+                acc
             }
         }) {
             return Some(p);

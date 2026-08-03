@@ -887,7 +887,7 @@ pub const DEFAULT_VIEWPORT_HEIGHT: f32 = 600.0;
 
 /// Context for evaluating dynamic selectors
 #[repr(C)]
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct DynamicSelectorContext {
     /// Operating system info
     pub os: OsCondition,

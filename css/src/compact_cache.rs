@@ -1464,6 +1464,13 @@ pub struct CompactLayoutCache {
     /// without going through `get_property_slow()` (which fails for inherited values
     /// on text nodes).
     pub font_hash_to_families: alloc::collections::BTreeMap<u64, crate::props::basic::font::StyleFontFamilyVec>,
+    /// True when any node's inline style carries a NON-pseudo dynamic
+    /// condition (viewport/@media, theme, OS, container...). The window uses
+    /// this to decide whether a `DynamicSelectorContext` change (a resize
+    /// crossing a breakpoint, a theme flip) requires rebuilding this cache:
+    /// for the overwhelmingly common condition-free DOM the answer is a
+    /// single bool read.
+    pub has_dynamic_conditions: bool,
     /// Bitfield tracking which rare text props are declared *anywhere* in the DOM.
     /// Built once during `build_compact_cache_with_inheritance`. When a bit is
     /// clear, callers (e.g. `translate_to_text3_constraints`) can skip the
@@ -1484,6 +1491,7 @@ impl CompactLayoutCache {
             prev_font_hashes: Vec::new(),
             font_hash_to_families: alloc::collections::BTreeMap::new(),
             dom_declared_flags: 0,
+            has_dynamic_conditions: false,
         }
     }
 
@@ -1498,6 +1506,7 @@ impl CompactLayoutCache {
             prev_font_hashes: vec![0u64; node_count],
             font_hash_to_families: alloc::collections::BTreeMap::new(),
             dom_declared_flags: 0,
+            has_dynamic_conditions: false,
         }
     }
 

@@ -1160,7 +1160,6 @@ fn hit_test_bounds_match_the_layout_rect_in_a_full_ribbon() {
 /// on viewport change; that is a cascade-level change, so this test documents
 /// the gap rather than asserting today's behaviour.
 #[test]
-#[ignore = "engine gap: inline viewport conditions are not evaluated by the production cascade"]
 fn inline_viewport_conditions_are_applied() {
     use azul_core::dom::{CssPropertyWithConditions, CssPropertyWithConditionsVec};
     use azul_css::{
