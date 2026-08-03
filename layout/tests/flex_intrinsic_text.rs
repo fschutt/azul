@@ -1429,3 +1429,45 @@ fn absolute_line_heights_above_32px_survive_the_compact_cache() {
         "a single line at line-height: 48px must be 48px tall, got {h}"
     );
 }
+
+/// The fold invariant, exercised with a REAL kerning-heavy system font
+/// (whatever `sans-serif` resolves to on this machine): a shrink-to-fit
+/// flex label sized to its own max-content must never wrap. The ribbonbug
+/// reftest caught "Decrease Indent" wrapping under Noto Sans while the
+/// KoHo/mock-font pins stayed green.
+#[test]
+fn shrink_to_fit_labels_do_not_wrap_with_the_system_sans_font() {
+    const CSS: &str = r#"
+        * { margin: 0; padding: 0; }
+        body { display: flex; flex-direction: row; font-family: sans-serif; }
+        .btn { display: flex; flex-direction: row; align-items: center;
+               background: #dde8f5; padding: 2px 6px; margin: 4px;
+               font-size: 16px; color: #222222; }
+    "#;
+    let dom = Dom::create_body()
+        .with_child(
+            Dom::create_div()
+                .with_ids_and_classes(class("btn"))
+                .with_child(Dom::create_text("Format Painter")),
+        )
+        .with_child(
+            Dom::create_div()
+                .with_ids_and_classes(class("btn"))
+                .with_child(Dom::create_text("Decrease Indent")),
+        )
+        .with_child(
+            Dom::create_div()
+                .with_ids_and_classes(class("btn"))
+                .with_child(Dom::create_text("No Spacing")),
+        );
+    let lw = layout_dom(dom, CSS, 800.0, 400.0);
+    // 0 body, 1 btn, 2 text, 3 btn, 4 text, 5 btn, 6 text
+    for (btn, label) in [(1_usize, "Format Painter"), (3, "Decrease Indent"), (5, "No Spacing")] {
+        let r = lw.get_node_layout_rect(node_id(btn)).expect("btn rect");
+        assert!(
+            r.size.height < 30.0,
+            "'{label}' wrapped (button {btn} is {}px tall)",
+            r.size.height
+        );
+    }
+}
