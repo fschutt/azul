@@ -1942,3 +1942,57 @@ mod autotest_generated {
         );
     }
 }
+
+/// A page break mapped to a STRUCTURAL position in the DOM — the keystone of
+/// the DOM-materialized-breaks editor architecture: the estimator computes
+/// break Y coordinates, the application inserts its break nodes at DOM
+/// positions. This type carries both.
+#[derive(Debug, Clone, PartialEq)]
+pub struct StructuralBreak {
+    /// Document-space Y where the page ends (same value as the
+    /// corresponding [`PageBreakPosition::y`](crate::solver3::page_breaks::PageBreakPosition)).
+    pub y: f32,
+    /// Why the break happened.
+    pub kind: crate::solver3::page_breaks::BreakKind,
+    /// For forced breaks: the node whose break property caused it.
+    pub causing_node: Option<NodeId>,
+    /// Root-to-node child-index path of the first block-level box at/after
+    /// `y` — the position where a break node inserted BEFORE the addressed
+    /// node reproduces this page boundary structurally
+    /// (`azul_core::dom::Dom` child indices, consumable by
+    /// `split_dom_at_path`). `None` when no block-level box sits at/after
+    /// `y` (a break in trailing whitespace / past the last block).
+    pub path: Option<Vec<u32>>,
+}
+
+/// Map every break of a [`PaginationInfo`](crate::solver3::page_breaks::PaginationInfo)
+/// to its structural DOM position, using the layout tree and positions that
+/// [`compute_document_pagination`] left in `cache`.
+///
+/// Call this immediately after [`compute_document_pagination`] with the SAME
+/// `cache` and `styled_dom` — the mapping reads `cache.tree` and
+/// `cache.calculated_positions`, which every further layout pass may
+/// invalidate. Returns `None` when the cache holds no tree (pagination was
+/// never computed, or the cache was cleared).
+#[cfg(feature = "text_layout")]
+#[must_use]
+pub fn pagination_to_dom_breaks(
+    cache: &crate::solver3::cache::LayoutCache,
+    styled_dom: &StyledDom,
+    pagination: &crate::solver3::page_breaks::PaginationInfo,
+) -> Option<Vec<StructuralBreak>> {
+    let tree = cache.tree.as_ref()?;
+    let positions = &cache.calculated_positions;
+    Some(
+        pagination
+            .breaks
+            .iter()
+            .map(|b| StructuralBreak {
+                y: b.y,
+                kind: b.kind,
+                causing_node: b.causing_node,
+                path: spine_path_at_y(tree, positions, styled_dom, b.y),
+            })
+            .collect(),
+    )
+}

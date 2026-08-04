@@ -289,14 +289,14 @@ fn compute_page_breaks_impl(
 
     // Forced breaks, ascending (they are hard walls the forward pass emits
     // verbatim — CSS Fragmentation: forced always wins over avoid).
-    let mut forced: Vec<f32> = input
+    let mut forced: Vec<crate::solver3::display_list::ForcedBreak> = input
         .display_list
         .forced_page_breaks
         .iter()
         .copied()
-        .filter(|y| *y > 0.0 && *y < total_height)
+        .filter(|b| b.y > 0.0 && b.y < total_height)
         .collect();
-    forced.sort_by(f32::total_cmp);
+    forced.sort_by(|a, b| a.y.total_cmp(&b.y));
 
     let mut breaks: Vec<PageBreakPosition> = Vec::new();
     let mut prev_end = 0.0_f32;
@@ -321,16 +321,16 @@ fn compute_page_breaks_impl(
         let naive = prev_end + effective_height;
 
         // A forced break before (or at) the naive position ends the page there.
-        if let Some(&fy) = forced_iter.peek() {
-            if fy <= naive + MERGE_WINDOW_PX {
+        if let Some(&fb) = forced_iter.peek() {
+            if fb.y <= naive + MERGE_WINDOW_PX {
                 forced_iter.next();
-                if fy > prev_end + MERGE_WINDOW_PX {
+                if fb.y > prev_end + MERGE_WINDOW_PX {
                     breaks.push(PageBreakPosition {
-                        y: fy,
+                        y: fb.y,
                         kind: BreakKind::Forced,
-                        causing_node: None,
+                        causing_node: fb.causing_node,
                     });
-                    prev_end = fy;
+                    prev_end = fb.y;
                     page_height = normal;
                     page_index += 1;
                 }
@@ -373,14 +373,14 @@ fn compute_page_breaks_impl(
     }
 
     // Any forced breaks past the last interval position still apply.
-    for fy in forced_iter {
-        if fy > prev_end + MERGE_WINDOW_PX {
+    for fb in forced_iter {
+        if fb.y > prev_end + MERGE_WINDOW_PX {
             breaks.push(PageBreakPosition {
-                y: fy,
+                y: fb.y,
                 kind: BreakKind::Forced,
-                causing_node: None,
+                causing_node: fb.causing_node,
             });
-            prev_end = fy;
+            prev_end = fb.y;
         }
     }
 
@@ -673,7 +673,7 @@ pub fn compute_page_breaks_from_display_list(
     display_list: &DisplayList,
     constraints: &PageConstraints,
 ) -> Vec<PageBreakPosition> {
-    compute_page_breaks_from_positions(
+    compute_page_breaks_from_forced(
         &display_list.forced_page_breaks,
         constraints,
         calculate_display_list_height(display_list),
@@ -691,6 +691,21 @@ pub fn compute_page_breaks_from_positions(
     constraints: &PageConstraints,
     total_height: f32,
 ) -> Vec<PageBreakPosition> {
+    let typed: Vec<crate::solver3::display_list::ForcedBreak> = forced_breaks
+        .iter()
+        .map(|&y| crate::solver3::display_list::ForcedBreak { y, causing_node: None })
+        .collect();
+    compute_page_breaks_from_forced(&typed, constraints, total_height)
+}
+
+/// [`compute_page_breaks_from_positions`] with the causing node carried
+/// through to [`PageBreakPosition::causing_node`].
+#[must_use]
+pub fn compute_page_breaks_from_forced(
+    forced_breaks: &[crate::solver3::display_list::ForcedBreak],
+    constraints: &PageConstraints,
+    total_height: f32,
+) -> Vec<PageBreakPosition> {
     let first = constraints.first_page_content_height;
     let normal = constraints.normal_page_content_height;
 
@@ -702,12 +717,12 @@ pub fn compute_page_breaks_from_positions(
 
     // Forced breaks from CSS break-before/after: always.
     // The range check also filters NaN (both comparisons are false for NaN).
-    for &forced_break_y in forced_breaks {
-        if forced_break_y > 0.0 && forced_break_y < total_height {
+    for fb in forced_breaks {
+        if fb.y > 0.0 && fb.y < total_height {
             breaks.push(PageBreakPosition {
-                y: forced_break_y,
+                y: fb.y,
                 kind: BreakKind::Forced,
-                causing_node: None,
+                causing_node: fb.causing_node,
             });
         }
     }
@@ -1099,7 +1114,7 @@ mod tests {
             (rect_item(0.0, 250.0), None),
             (rect_item(80.0, 60.0), Some(1)),
         ]);
-        dl.forced_page_breaks = vec![90.0];
+        dl.forced_page_breaks = vec![crate::solver3::display_list::ForcedBreak { y: 90.0, causing_node: None }];
         let policy = BreakPolicy {
             honor_break_inside: true,
             ..Default::default()
@@ -1404,7 +1419,7 @@ mod tests {
         // above stay value-identical, the region re-flows from the forced
         // break, and positions that happen to coincide again converge.
         let mut dl2 = dl.clone();
-        dl2.forced_page_breaks = vec![450.0];
+        dl2.forced_page_breaks = vec![crate::solver3::display_list::ForcedBreak { y: 450.0, causing_node: None }];
         let input2 = PageBreakInput {
             display_list: &dl2,
             layout_tree: None,

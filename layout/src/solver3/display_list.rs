@@ -317,6 +317,16 @@ impl ContentBoxRect {
 ///
 /// This is a flat list of drawing and state-management commands, already sorted
 /// according to the CSS paint order. A renderer can consume this list directly.
+/// A CSS-forced page break recorded while building the display list.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct ForcedBreak {
+    /// Absolute document-space Y of the break.
+    pub y: f32,
+    /// The node whose `break-before`/`break-after` property forced it.
+    /// `None` only for synthetic inputs (tests, hand-built lists).
+    pub causing_node: Option<NodeId>,
+}
+
 #[derive(Debug, Default, Clone)]
 pub struct DisplayList {
     pub items: Vec<DisplayListItem>,
@@ -324,10 +334,11 @@ pub struct DisplayList {
     /// Used for pagination to look up CSS break properties.
     /// Not all items have a source node (e.g., synthesized decorations).
     pub node_mapping: Vec<Option<NodeId>>,
-    /// Y-positions where forced page breaks should occur (from break-before/break-after: always).
-    /// These are absolute Y coordinates in the infinite canvas coordinate system.
-    /// The slicer will ensure page boundaries align with these positions.
-    pub forced_page_breaks: Vec<f32>,
+    /// Forced page breaks (from break-before/break-after: always), with the
+    /// node whose break property caused each one. Y coordinates are absolute
+    /// in the infinite canvas coordinate system; the slicer aligns page
+    /// boundaries with these positions.
+    pub forced_page_breaks: Vec<ForcedBreak>,
     /// Index ranges (start, end) of display list items that belong to fixed-position elements.
     /// In paged media, these items are replicated on every page (CSS Positioned Layout §2.1).
     pub fixed_position_item_ranges: Vec<(usize, usize)>,
@@ -1239,7 +1250,7 @@ struct DisplayListBuilder {
     /// Whether debug logging is enabled
     debug_enabled: bool,
     /// Y-positions where forced page breaks should occur
-    forced_page_breaks: Vec<f32>,
+    forced_page_breaks: Vec<ForcedBreak>,
     /// Index ranges of items from fixed-position elements (for paged media replication)
     fixed_position_item_ranges: Vec<(usize, usize)>,
     /// Start index of the current fixed-position element being built, if any
@@ -1315,14 +1326,16 @@ impl DisplayListBuilder {
         }
     }
 
-    /// Register a forced page break at the given Y position.
+    /// Register a forced page break at the given Y position, remembering the
+    /// node whose break property caused it (diagnostics: surfaces in
+    /// `PageBreakPosition::causing_node`).
     /// This is used for CSS break-before: always and break-after: always.
-    pub(crate) fn add_forced_page_break(&mut self, y_position: f32) {
-        // Avoid duplicates and keep sorted
-        if !self.forced_page_breaks.contains(&y_position) {
-            self.forced_page_breaks.push(y_position);
+    pub(crate) fn add_forced_page_break(&mut self, y_position: f32, causing_node: Option<NodeId>) {
+        // Avoid duplicates and keep sorted by Y
+        if !self.forced_page_breaks.iter().any(|b| b.y == y_position) {
+            self.forced_page_breaks.push(ForcedBreak { y: y_position, causing_node });
             self.forced_page_breaks
-                .sort_by(|a, b| a.partial_cmp(b).unwrap_or(core::cmp::Ordering::Equal));
+                .sort_by(|a, b| a.y.partial_cmp(&b.y).unwrap_or(core::cmp::Ordering::Equal));
         }
     }
 
@@ -3360,7 +3373,7 @@ where
             // For break-before: always, insert a page break at the top of this element
             if is_forced_page_break(break_before) {
                 let y_position = paint_rect.origin.y;
-                builder.add_forced_page_break(y_position);
+                builder.add_forced_page_break(y_position, Some(dom_id));
                 debug_info!(
                     self.ctx,
                     "Registered forced page break BEFORE node {} at y={}",
@@ -3372,7 +3385,7 @@ where
             // For break-after: always, insert a page break at the bottom of this element
             if is_forced_page_break(break_after) {
                 let y_position = paint_rect.origin.y + paint_rect.size.height;
-                builder.add_forced_page_break(y_position);
+                builder.add_forced_page_break(y_position, Some(dom_id));
                 debug_info!(
                     self.ctx,
                     "Registered forced page break AFTER node {} at y={}",
@@ -7873,16 +7886,16 @@ mod autotest_generated {
     #[test]
     fn builder_forced_page_breaks_are_deduped_and_sorted() {
         let mut b = DisplayListBuilder::new();
-        b.add_forced_page_break(300.0);
-        b.add_forced_page_break(100.0);
-        b.add_forced_page_break(300.0); // exact duplicate
-        b.add_forced_page_break(200.0);
-        b.add_forced_page_break(0.0);
-        b.add_forced_page_break(-50.0); // negative is accepted verbatim
-        b.add_forced_page_break(f32::INFINITY);
-        b.add_forced_page_break(f32::NEG_INFINITY);
+        b.add_forced_page_break(300.0, None);
+        b.add_forced_page_break(100.0, None);
+        b.add_forced_page_break(300.0, None); // exact duplicate
+        b.add_forced_page_break(200.0, None);
+        b.add_forced_page_break(0.0, None);
+        b.add_forced_page_break(-50.0, None); // negative is accepted verbatim
+        b.add_forced_page_break(f32::INFINITY, None);
+        b.add_forced_page_break(f32::NEG_INFINITY, None);
         assert_eq!(
-            b.forced_page_breaks,
+            b.forced_page_breaks.iter().map(|fb| fb.y).collect::<Vec<_>>(),
             vec![f32::NEG_INFINITY, -50.0, 0.0, 100.0, 200.0, 300.0, f32::INFINITY]
         );
     }
@@ -7893,11 +7906,11 @@ mod autotest_generated {
         // repeated calls accumulate. The sort uses partial_cmp().unwrap_or(Equal), so it
         // survives the non-total order rather than panicking on an `unwrap`.
         let mut b = DisplayListBuilder::new();
-        b.add_forced_page_break(f32::NAN);
-        b.add_forced_page_break(f32::NAN);
-        b.add_forced_page_break(100.0);
+        b.add_forced_page_break(f32::NAN, None);
+        b.add_forced_page_break(f32::NAN, None);
+        b.add_forced_page_break(100.0, None);
         assert_eq!(b.forced_page_breaks.len(), 3, "a NaN break is never deduped");
-        assert_eq!(b.forced_page_breaks.iter().filter(|v| v.is_nan()).count(), 2);
+        assert_eq!(b.forced_page_breaks.iter().filter(|v| v.y.is_nan()).count(), 2);
     }
 
     #[test]
@@ -8576,7 +8589,7 @@ mod autotest_generated {
             color: opaque(),
             border_radius: BorderRadius::default(),
         }]);
-        dl.forced_page_breaks = vec![50.0];
+        dl.forced_page_breaks = vec![ForcedBreak { y: 50.0, causing_node: None }];
         assert_eq!(
             calculate_page_break_positions(&dl, 100.0, 100.0),
             vec![(0.0, 50.0), (50.0, 100.0), (100.0, 200.0), (200.0, 250.0)]
@@ -8587,7 +8600,7 @@ mod autotest_generated {
         // position wins the merge (CSS Fragmentation: forced breaks always
         // apply; before the page_breaks extraction the interval break at 100.0
         // silently swallowed the author's break at 100.5).
-        dl.forced_page_breaks = vec![100.5];
+        dl.forced_page_breaks = vec![ForcedBreak { y: 100.5, causing_node: None }];
         let pages = calculate_page_break_positions(&dl, 100.0, 100.0);
         assert_eq!(pages, vec![(0.0, 100.5), (100.5, 200.0), (200.0, 250.0)]);
         assert!(pages.iter().all(|(s, e)| e > s), "no zero-height pages");
@@ -8603,7 +8616,10 @@ mod autotest_generated {
             color: opaque(),
             border_radius: BorderRadius::default(),
         }]);
-        dl.forced_page_breaks = vec![f32::NAN, -10.0, 0.0, 250.0, 9999.0, f32::INFINITY];
+        dl.forced_page_breaks = [f32::NAN, -10.0, 0.0, 250.0, 9999.0, f32::INFINITY]
+            .into_iter()
+            .map(|y| ForcedBreak { y, causing_node: None })
+            .collect();
         let pages = calculate_page_break_positions(&dl, 100.0, 100.0);
         // Only the regular interval breaks survive.
         assert_eq!(pages, vec![(0.0, 100.0), (100.0, 200.0), (200.0, 250.0)]);
@@ -8651,7 +8667,7 @@ mod autotest_generated {
             color: opaque(),
             border_radius: BorderRadius::default(),
         }]);
-        dl.forced_page_breaks = vec![50.0];
+        dl.forced_page_breaks = vec![ForcedBreak { y: 50.0, causing_node: None }];
         let cfg = SlicerConfig::simple(100.0);
         let constraints = page_breaks::PageConstraints::from_slicer_config(&cfg);
         let breaks = page_breaks::compute_page_breaks_from_display_list(&dl, &constraints);

@@ -417,16 +417,20 @@ pub use solver3::paged_layout::layout_document_paged;
 /// (document editors: page count / page-of-node WITHOUT materializing pages).
 #[cfg(feature = "text_layout")]
 pub use solver3::paged_layout::{
-    compute_document_pagination, layout_document_paged_v2, PagedLayoutResult,
+    compute_document_pagination, layout_document_paged_v2, pagination_to_dom_breaks,
+    spine_path_at_y, PagedLayoutResult, StructuralBreak,
 };
 /// Standalone page-break analysis (typed breaks, spans, policy, lazy pages).
 #[cfg(feature = "text_layout")]
 pub use solver3::{
     display_list::paginate_single_page,
     page_breaks::{
-        compute_page_breaks, compute_page_breaks_from_display_list, page_of_y, page_spans,
-        BreakKind, BreakPolicy, PageBreakPosition, PageBreakInput, PageConstraints, PaginationInfo,
+        compute_page_breaks, compute_page_breaks_from_display_list,
+        compute_page_breaks_with_sequence, page_of_y, page_spans,
+        recompute_page_breaks_from, BreakKind, BreakPolicy, PageBreakPosition,
+        PageBreakInput, PageConstraints, PaginationInfo,
     },
+    pagination::{PageSequence, PageSetup},
 };
 #[cfg(feature = "text_layout")]
 pub use solver3::{LayoutContext, LayoutError, Result as LayoutResult3};
