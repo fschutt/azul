@@ -1465,6 +1465,33 @@ impl CallbackInfo {
         });
     }
 
+    /// Scroll a node toward a target offset with the critically-damped
+    /// spring the scroll physics already uses for momentum and rubber-band
+    /// (AZUL-STILL-TODO B8/I27): the position GLIDES to the target instead
+    /// of jumping, and a retarget mid-flight keeps the current velocity.
+    /// One mechanism shared by scroll-to-caret, scroll-to-page and
+    /// find-result navigation.
+    ///
+    /// The input lands in the shared scroll queue; the platform shell
+    /// starts the physics timer when it sees pending input (the same path
+    /// wheel momentum takes).
+    pub fn scroll_to_animated(
+        &mut self,
+        dom_id: DomId,
+        node_id: NodeId,
+        target: LogicalPosition,
+    ) {
+        use crate::managers::scroll_state::{ScrollInput, ScrollInputSource};
+        let now = self.get_current_time();
+        self.get_scroll_manager().scroll_input_queue.push(ScrollInput {
+            dom_id,
+            node_id,
+            delta: target,
+            timestamp: now,
+            source: ScrollInputSource::AnimateTo,
+        });
+    }
+
     /// Scroll a node to a specific position without clamping.
     /// Used by the scroll physics timer for rubber-banding/overscroll.
     pub fn scroll_to_unclamped(

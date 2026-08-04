@@ -91,6 +91,13 @@ pub enum ScrollInputSource {
     /// Programmatic scroll (scrollTo API, keyboard Page Up/Down).
     /// Applied with optional easing animation.
     Programmatic,
+    /// Animated scroll toward an ABSOLUTE target offset (`delta` carries
+    /// the target, not a delta): the physics timer seeks it with a
+    /// critically-damped spring, so scroll-to-caret / scroll-to-page /
+    /// find-result navigation glide instead of jumping, and a retarget
+    /// mid-flight keeps the current velocity (no restart). Produced by
+    /// `LayoutWindow::scroll_to_animated`.
+    AnimateTo,
 }
 
 /// A single scroll input event to be processed by the physics timer.

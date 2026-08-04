@@ -74,6 +74,10 @@ pub struct ScrollPhysicsState {
     pub pending_positions: BTreeMap<(DomId, NodeId), LogicalPosition>,
     /// Per-node "forced position" from trackpad scroll (rubber-band clamped)
     pub pending_trackpad_positions: BTreeMap<(DomId, NodeId), LogicalPosition>,
+    /// Absolute offsets that `AnimateTo` inputs are seeking, per node. The
+    /// integration loop applies a critically-damped spring toward each and
+    /// removes the entry on convergence (snap to the exact target).
+    pub animate_targets: BTreeMap<(DomId, NodeId), LogicalPosition>,
     /// Global scroll physics configuration (from `SystemStyle`)
     pub scroll_physics: ScrollPhysics,
 }
@@ -98,6 +102,7 @@ impl ScrollPhysicsState {
             node_velocities: BTreeMap::new(),
             pending_positions: BTreeMap::new(),
             pending_trackpad_positions: BTreeMap::new(),
+            animate_targets: BTreeMap::new(),
             scroll_physics,
         }
     }
@@ -105,7 +110,8 @@ impl ScrollPhysicsState {
     /// Returns true if any node has non-zero velocity or there are pending inputs
     fn is_active(&self) -> bool {
         let threshold = self.scroll_physics.min_velocity_threshold;
-        self.input_queue.has_pending()
+        !self.animate_targets.is_empty()
+            || self.input_queue.has_pending()
             || self.node_velocities.values().any(|v| {
                 v.velocity.x.abs() > threshold
                     || v.velocity.y.abs() > threshold
@@ -206,6 +212,20 @@ pub extern "C" fn scroll_physics_timer_callback(
                 };
                 physics.pending_positions.insert(key, new_pos);
             }
+            ScrollInputSource::AnimateTo => {
+                // `delta` carries the ABSOLUTE target. Clamp into the node's
+                // scrollable range; keep any existing velocity so a retarget
+                // mid-flight stays continuous (the spring redirects it).
+                if let Some(info) = timer_info.get_scroll_node_info(input.dom_id, input.node_id) {
+                    let target = LogicalPosition {
+                        x: input.delta.x.clamp(0.0, info.max_scroll_x.max(0.0)),
+                        y: input.delta.y.clamp(0.0, info.max_scroll_y.max(0.0)),
+                    };
+                    physics.animate_targets.insert(key, target);
+                    physics.node_velocities.entry(key).or_default();
+                    physics.pending_trackpad_positions.remove(&key);
+                }
+            }
             ScrollInputSource::TrackpadEnd => {
                 // Trackpad gesture ended (fingers lifted).
                 // If the scroll position is past the bounds (rubber-banding overshoot),
@@ -246,12 +266,41 @@ pub extern "C" fn scroll_physics_timer_callback(
     // transferred up the scroll chain after the iteration (can't mutate
     // node_velocities mid-loop).
     let mut momentum_handoffs: Vec<((DomId, NodeId), LogicalPosition)> = Vec::new();
+    // AnimateTo targets, read-only during the iteration (the map itself is
+    // mutated after the loop via `converged_targets`).
+    let animate_targets = physics.animate_targets.clone();
+    let mut converged_targets: Vec<(DomId, NodeId)> = Vec::new();
 
     for ((dom_id, node_id), node_physics) in &mut physics.node_velocities {
         // Get current scroll info for clamping and per-node CSS config
         let Some(info) = timer_info.get_scroll_node_info(*dom_id, *node_id) else {
             continue;
         };
+
+        // Target-seeking spring (scroll_to_animated): a critically-damped
+        // pull toward the absolute target — the same F = -k*x - c*v the
+        // rubber-band uses, with x measured from the TARGET instead of the
+        // boundary. Close enough + slow enough snaps EXACTLY onto the
+        // target and retires it (no asymptotic crawl).
+        let seek_target = animate_targets.get(&(*dom_id, *node_id)).copied();
+        if let Some(target) = seek_target {
+            let err_x = info.current_offset.x - target.x;
+            let err_y = info.current_offset.y - target.y;
+            if err_x.abs() < 0.5
+                && err_y.abs() < 0.5
+                && node_physics.velocity.x.abs() < velocity_threshold
+                && node_physics.velocity.y.abs() < velocity_threshold
+            {
+                velocity_updates.push(((*dom_id, *node_id), target));
+                node_physics.velocity = LogicalPosition::zero();
+                converged_targets.push((*dom_id, *node_id));
+                continue;
+            }
+            let spring_k = spring_constant_from_bounce_duration(bounce_back_duration_ms);
+            let damping = 2.0 * spring_k.sqrt();
+            node_physics.velocity.x += (-spring_k * err_x - damping * node_physics.velocity.x) * dt;
+            node_physics.velocity.y += (-spring_k * err_y - damping * node_physics.velocity.y) * dt;
+        }
 
         // Determine if this node allows rubber-banding
         let rubber_band_x = node_allows_rubber_band(info.max_scroll_x, info.overscroll_behavior_x, info.overflow_scrolling, overscroll_elasticity);
@@ -281,8 +330,9 @@ pub extern "C" fn scroll_physics_timer_callback(
             node_physics.is_rubber_banding = true;
         }
 
-        // Skip if velocity is negligible and not rubber-banding
+        // Skip if velocity is negligible and not rubber-banding or seeking
         if !node_physics.is_rubber_banding
+            && seek_target.is_none()
             && node_physics.velocity.x.abs() < velocity_threshold
             && node_physics.velocity.y.abs() < velocity_threshold
         {
@@ -383,6 +433,11 @@ pub extern "C" fn scroll_physics_timer_callback(
     // the fling's direction and seed it with the leftover velocity (picked up
     // by the integration loop on the next tick; is_active() keeps the timer
     // alive because the entry lands in node_velocities).
+    // Retire converged AnimateTo targets (snapped exactly this tick).
+    for key in converged_targets {
+        physics.animate_targets.remove(&key);
+    }
+
     for ((dom_id, node_id), vel) in momentum_handoffs {
         let mut cur = node_id;
         for _ in 0..64 {
@@ -1788,5 +1843,108 @@ mod autotest_generated {
         assert_eq!((-600.0_f32).clamp(-0.0, 0.0), -0.0);
         // ...and NaN passes straight through clamp without panicking.
         assert!(f32::NAN.clamp(-8000.0, 8000.0).is_nan());
+    }
+
+    // ==================================================================
+    // AnimateTo — target-seeking spring (scroll_to_animated)
+    // ==================================================================
+    //
+    // NOTE: the window's scroll offset is NOT advanced between ticks in
+    // this harness (ScrollTo changes are applied by the event loop in
+    // production), so multi-tick assertions here are about VELOCITY
+    // continuity and single-tick outputs, both offset-independent.
+
+    #[test]
+    fn animate_to_first_tick_glides_instead_of_jumping() {
+        let (mut data, queue) = state_with(ScrollPhysics::default());
+        // Viewport 100x100 over 100x500 -> max_scroll_y = 400.
+        queue.push(input(3, (0.0, 400.0), ScrollInputSource::AnimateTo));
+        with_env(
+            |w| register_node(w, 3, (100.0, 100.0), (100.0, 500.0)),
+            |env| {
+                let ret = env.tick(&data);
+                assert_eq!(ret.should_terminate, TerminateTimer::Continue);
+                let tos = env.take_scroll_tos();
+                assert_eq!(tos.len(), 1, "one node moved: {tos:?}");
+                let (idx, pos, _unclamped) = tos[0];
+                assert_eq!(idx, 3);
+                assert!(
+                    pos.y > 0.0 && pos.y < 400.0,
+                    "an animated scroll SEEKS the target across ticks instead of \
+                     teleporting (Programmatic behavior): first tick landed at {pos:?}"
+                );
+            },
+        );
+        with_state(&mut data, |st| {
+            assert!(
+                st.animate_targets.contains_key(&key(3)),
+                "the target stays armed until convergence"
+            );
+        });
+    }
+
+    #[test]
+    fn animate_to_snaps_exactly_onto_the_target_and_retires_it() {
+        let (mut data, queue) = state_with(ScrollPhysics::default());
+        queue.push(input(3, (0.0, 400.0), ScrollInputSource::AnimateTo));
+        with_env(
+            |w| {
+                register_node(w, 3, (100.0, 100.0), (100.0, 500.0));
+                // Start 0.2px short of the target with no velocity: the
+                // convergence branch must snap to EXACTLY 400 (no
+                // asymptotic crawl) and retire the target.
+                w.scroll_manager.set_scroll_position(
+                    DomId::ROOT_ID,
+                    NodeId::new(3),
+                    LogicalPosition::new(0.0, 399.8),
+                    Instant::now(),
+                );
+            },
+            |env| {
+                let _ = env.tick(&data);
+                let tos = env.take_scroll_tos();
+                assert_eq!(tos.len(), 1, "{tos:?}");
+                let (_, pos, _) = tos[0];
+                assert!(
+                    (pos.y - 400.0).abs() < f32::EPSILON,
+                    "convergence snaps to the exact target, got {pos:?}"
+                );
+            },
+        );
+        with_state(&mut data, |st| {
+            assert!(
+                st.animate_targets.is_empty(),
+                "a converged target is retired"
+            );
+        });
+    }
+
+    #[test]
+    fn animate_to_retarget_keeps_the_current_velocity() {
+        let (data, queue) = state_with(ScrollPhysics::default());
+        queue.push(input(3, (0.0, 400.0), ScrollInputSource::AnimateTo));
+        with_env(
+            |w| register_node(w, 3, (100.0, 100.0), (100.0, 500.0)),
+            |env| {
+                let _ = env.tick(&data);
+                let first = env.take_scroll_tos();
+                let (_, p1, _) = first[0];
+
+                // Retarget mid-flight to the opposite direction.
+                queue.push(input(3, (0.0, 0.0), ScrollInputSource::AnimateTo));
+                let _ = env.tick(&data);
+                let second = env.take_scroll_tos();
+                let (_, p2, _) = second[0];
+
+                // The spring must REDIRECT the existing velocity, not
+                // restart from rest: the second position stays continuous
+                // with the first (still near/above it), it does not
+                // teleport toward the new target.
+                assert!(
+                    p2.y > 0.0 && (p2.y - p1.y).abs() < p1.y.max(1.0) * 4.0,
+                    "retarget must stay continuous: first {p1:?}, second {p2:?}"
+                );
+            },
+        );
     }
 }
