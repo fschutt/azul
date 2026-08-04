@@ -3249,10 +3249,23 @@ pub trait PlatformWindow {
                         .get_editing_dom_id()
                         .unwrap_or(azul_core::dom::DomId { inner: 0 });
                     if let Some(clipboard_content) = layout_window.get_selected_content_for_clipboard(&dom_id) {
-                        if set_system_clipboard(clipboard_content.plain_text.as_str().to_string())
-                            && layout_window.delete_selection(*target, false).is_some() {
+                        if set_system_clipboard(clipboard_content.plain_text.as_str().to_string()) {
+                            // Cross-block cut: the copy above already joined the
+                            // multi-paragraph text; the delete is the atomic
+                            // replace-merge changeset.
+                            let deleted = if layout_window
+                                .text_edit_manager
+                                .get_cross_block_selection()
+                                .is_some()
+                            {
+                                layout_window.delete_cross_block_selection().is_some()
+                            } else {
+                                layout_window.delete_selection(*target, false).is_some()
+                            };
+                            if deleted {
                                 affected = true;
                             }
+                        }
                     }
                 }
                 if affected { ProcessEventResult::ShouldUpdateDisplayListCurrentWindow } else { ProcessEventResult::DoNothing }
@@ -3261,6 +3274,21 @@ pub trait PlatformWindow {
             SystemChange::PasteFromClipboard => {
                 if let Some(layout_window) = self.get_layout_window_mut() {
                     if let Some(clipboard_text) = get_system_clipboard() {
+                        // Paste over a cross-block selection: one atomic
+                        // replace-merge changeset with the pasted text at the
+                        // join (caret resumes after it).
+                        if layout_window
+                            .text_edit_manager
+                            .get_cross_block_selection()
+                            .is_some()
+                        {
+                            if layout_window
+                                .replace_cross_block_selection(&clipboard_text)
+                                .is_some()
+                            {
+                                return ProcessEventResult::ShouldUpdateDisplayListCurrentWindow;
+                            }
+                        }
                         layout_window.clipboard_manager.set_paste_content(ClipboardContent {
                             plain_text: clipboard_text.as_str().into(),
                             // TODO(superplan): styled_runs empty — the OS clipboard read

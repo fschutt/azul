@@ -1611,25 +1611,12 @@ impl LayoutWindow {
         dom_id: DomId,
         node_id: NodeId,
     ) -> Option<azul_core::selection::TextCursor> {
-        use azul_core::selection::{CursorAffinity, GraphemeClusterId, TextCursor};
-        let content = self.get_text_before_textinput(dom_id, node_id);
-        let mut last: Option<(u32, u32)> = None;
-        for (i, c) in content.iter().enumerate() {
-            if let crate::text3::cache::InlineContent::Text(run) = c {
-                last = Some((
-                    u32::try_from(i).unwrap_or(u32::MAX),
-                    u32::try_from(run.text.len()).unwrap_or(u32::MAX),
-                ));
-            }
-        }
-        let (run, byte) = last?;
-        Some(TextCursor {
-            cluster_id: GraphemeClusterId {
-                source_run: run,
-                start_byte_in_run: byte,
-            },
-            affinity: CursorAffinity::Leading,
-        })
+        // The LAYOUT knows the real grapheme clusters: end = Trailing on the
+        // final cluster. A byte-length synthetic cursor (one past the last
+        // cluster start) resolves to NOTHING in get_selection_rects and the
+        // whole node silently loses its highlight.
+        self.get_node_inline_layout(dom_id, node_id)
+            .and_then(|layout| layout.end_cursor())
     }
 
     /// Establish a selection SPANNING MULTIPLE sibling blocks (AZUL-STILL-TODO
@@ -1721,24 +1708,39 @@ impl LayoutWindow {
         true
     }
 
-    /// Delete the active cross-block selection (AZUL-STILL-TODO C10):
+    /// Delete the active cross-block selection (AZUL-STILL-TODO C10) with
+    /// Word-style paragraph MERGE, as ONE atomic structural changeset:
     ///
-    /// - the anchor-side node keeps its text BEFORE the selection (tail
-    ///   trimmed through the text overlay - no DOM mutation),
-    /// - the focus-side node keeps its text AFTER the selection (head
-    ///   trimmed),
-    /// - every fully-covered block between them is emitted as ONE
-    ///   `RemoveChildren` structural changeset through the standard
-    ///   record/preview/ack flow (the app applies it to its model),
-    /// - the caret collapses to the selection start.
+    /// ```text
+    /// ReplaceChildren {
+    ///     parent,
+    ///     start..end:   the whole [first ..= last] block range,
+    ///     content:      ONE merged block - the FIRST block's element
+    ///                   (its classes and inline styles survive, Word
+    ///                   semantics) holding first-kept-text + last-kept-text,
+    /// }
+    /// ```
     ///
-    /// Returns the changeset id when middle blocks were removed, `None`
-    /// when the selection only spanned two adjacent blocks (trims only).
-    /// Word-style MERGING of the two remaining part-blocks is the separate
-    /// paragraph-merge gap (pdf2html list, section E2) and is NOT done here.
+    /// Atomicity is the point: the app applies or rejects the WHOLE edit,
+    /// undo is one entry, and the overlay previews the merged paragraph
+    /// ahead of the app's re-render. The resume point puts the caret at
+    /// the JOIN byte inside the merged text. Rich intra-block spans are
+    /// flattened to plain text in v1 (single-text-run editables, the
+    /// common case, keep their block-level formatting).
+    ///
+    /// Returns the changeset id, or `None` when no cross-block selection
+    /// is active / the selection could not be resolved.
     pub fn delete_cross_block_selection(&mut self) -> Option<u64> {
+        self.replace_cross_block_selection("")
+    }
+
+    /// [`Self::delete_cross_block_selection`] with `insert` placed at the
+    /// join: the paste-over-selection primitive. The merged paragraph holds
+    /// `first-kept + insert + last-kept` and the caret resumes AFTER the
+    /// inserted text.
+    pub fn replace_cross_block_selection(&mut self, insert: &str) -> Option<u64> {
         use crate::managers::changeset::{
-            DocOpRemoveChildren, DocumentChangeset, DocumentOperation,
+            DocOpReplaceChildren, DocumentChangeset, DocumentOperation, NodePosition,
         };
         use crate::text3::cache::InlineContent;
 
@@ -1753,47 +1755,120 @@ impl LayoutWindow {
         let (first, first_range) = nodes[0];
         let (last, last_range) = *nodes.last().expect("len >= 2");
 
-        // Tail-trim the first node: keep content BEFORE the range start.
-        let cut = first_range.start.cluster_id;
-        let content = self.get_text_before_textinput(dom_id, first);
-        let mut trimmed: Vec<InlineContent> = Vec::new();
-        for (i, c) in content.into_iter().enumerate() {
+        // Text kept from the FIRST block: everything before the range start
+        // (affinity-aware byte offsets — a Trailing cursor cuts AFTER its
+        // grapheme).
+        use crate::text3::edit::cursor_byte_offset_in_run;
+        let cut_run = first_range.start.cluster_id.source_run;
+        let mut first_kept = String::new();
+        for (i, c) in self.get_text_before_textinput(dom_id, first).iter().enumerate() {
             let i = u32::try_from(i).unwrap_or(u32::MAX);
-            match c {
-                InlineContent::Text(mut run) if i == cut.source_run => {
-                    let byte = (cut.start_byte_in_run as usize).min(run.text.len());
-                    run.text.truncate(byte);
-                    trimmed.push(InlineContent::Text(run));
+            if let InlineContent::Text(run) = c {
+                if i < cut_run {
+                    first_kept.push_str(&run.text);
+                } else if i == cut_run {
+                    let byte = cursor_byte_offset_in_run(&run.text, &first_range.start)
+                        .min(run.text.len());
+                    first_kept.push_str(&run.text[..byte]);
                     break;
                 }
-                other if i < cut.source_run => trimmed.push(other),
-                _ => break,
             }
         }
-        self.update_text_cache_after_edit(dom_id, first, trimmed);
 
-        // Head-trim the last node: keep content AFTER the range end.
-        let cut = last_range.end.cluster_id;
-        let content = self.get_text_before_textinput(dom_id, last);
-        let mut trimmed: Vec<InlineContent> = Vec::new();
-        for (i, c) in content.into_iter().enumerate() {
+        // Text kept from the LAST block: everything after the range end.
+        let cut_run = last_range.end.cluster_id.source_run;
+        let mut last_kept = String::new();
+        for (i, c) in self.get_text_before_textinput(dom_id, last).iter().enumerate() {
             let i = u32::try_from(i).unwrap_or(u32::MAX);
-            match c {
-                InlineContent::Text(mut run) if i == cut.source_run => {
-                    let byte = (cut.start_byte_in_run as usize).min(run.text.len());
-                    run.text.drain(..byte);
-                    trimmed.push(InlineContent::Text(run));
+            if let InlineContent::Text(run) = c {
+                if i == cut_run {
+                    let byte = cursor_byte_offset_in_run(&run.text, &last_range.end)
+                        .min(run.text.len());
+                    last_kept.push_str(&run.text[byte..]);
+                } else if i > cut_run {
+                    last_kept.push_str(&run.text);
                 }
-                other if i > cut.source_run => trimmed.push(other),
-                _ => {}
             }
         }
-        self.update_text_cache_after_edit(dom_id, last, trimmed);
 
-        // Collapse the caret to the selection start.
+        let join_byte =
+            u32::try_from(first_kept.len() + insert.len()).unwrap_or(u32::MAX);
+        let merged_text = {
+            let mut t = String::with_capacity(
+                first_kept.len() + insert.len() + last_kept.len(),
+            );
+            t.push_str(&first_kept);
+            t.push_str(insert);
+            t.push_str(&last_kept);
+            t
+        };
+
+        // Replacement subtree: the FIRST block's element with the merged text.
+        let (parent, start_idx, end_idx, replacement) = {
+            let lr = self.layout_results.get(&dom_id)?;
+            let hierarchy = lr.styled_dom.node_hierarchy.as_container();
+            let parent = hierarchy
+                .get(first)
+                .and_then(azul_core::styled_dom::NodeHierarchyItem::parent_id)?;
+            let last_parent = hierarchy
+                .get(last)
+                .and_then(azul_core::styled_dom::NodeHierarchyItem::parent_id)?;
+            if parent != last_parent {
+                return None; // invariant from set_cross_block_selection
+            }
+            let child_index_of = |target: NodeId| -> u32 {
+                let mut idx: u32 = 0;
+                let mut sib = hierarchy
+                    .get(target)
+                    .and_then(azul_core::styled_dom::NodeHierarchyItem::previous_sibling_id);
+                while let Some(sn) = sib {
+                    idx += 1;
+                    sib = hierarchy
+                        .get(sn)
+                        .and_then(azul_core::styled_dom::NodeHierarchyItem::previous_sibling_id);
+                }
+                idx
+            };
+            let start_idx = child_index_of(first);
+            let end_idx = child_index_of(last) + 1;
+            let mut root = lr.styled_dom.node_data.as_container()[first].clone();
+            // The clone carries the ELEMENT (type, classes, ids, inline css);
+            // its dataset/callback state stays with the app's re-render.
+            let _ = &mut root;
+            let replacement = azul_core::dom::Dom {
+                root,
+                children: alloc::vec![azul_core::dom::Dom::create_text(merged_text.clone())]
+                    .into(),
+                css: Vec::new().into(),
+                estimated_total_children: 1,
+            };
+            (parent, start_idx, end_idx, replacement)
+        };
+
+        let parent_dom_node = DomNodeId {
+            dom: dom_id,
+            node: NodeHierarchyItemId::from_crate_internal(Some(parent)),
+        };
+        let op = DocumentOperation::ReplaceChildren(DocOpReplaceChildren {
+            parent: parent_dom_node,
+            start: start_idx,
+            end: end_idx,
+            content: replacement,
+        });
+        let mut resume = self.compute_edit_resume_point(
+            DomNodeId {
+                dom: dom_id,
+                node: NodeHierarchyItemId::from_crate_internal(Some(first)),
+            },
+            &op,
+        )?;
+        // Word caret behavior: land INSIDE the merged text at the join, not
+        // merely "before the replaced slot".
+        resume.position = NodePosition::in_text_child(0, join_byte);
+
+        // Pre-apply caret continuity: collapse onto the selection start.
         {
-            let lr = self.layout_results.get(&dom_id);
-            let key = lr.map_or(0, |lr| {
+            let key = self.layout_results.get(&dom_id).map_or(0, |lr| {
                 azul_core::diff::calculate_contenteditable_key(
                     lr.styled_dom.node_data.as_ref(),
                     lr.styled_dom.node_hierarchy.as_ref(),
@@ -1811,41 +1886,10 @@ impl LayoutWindow {
                 ));
         }
 
-        // Fully-covered middles: one contiguous RemoveChildren changeset.
-        let middles: Vec<NodeId> = nodes[1..nodes.len() - 1].iter().map(|(n, _)| *n).collect();
-        if middles.is_empty() {
-            return None;
-        }
-        let lr = self.layout_results.get(&dom_id)?;
-        let hierarchy = lr.styled_dom.node_hierarchy.as_container();
-        let parent = hierarchy.get(middles[0]).and_then(azul_core::styled_dom::NodeHierarchyItem::parent_id)?;
-        let child_index_of = |target: NodeId| -> u32 {
-            let mut idx: u32 = 0;
-            let mut sib = hierarchy.get(target).and_then(azul_core::styled_dom::NodeHierarchyItem::previous_sibling_id);
-            while let Some(sn) = sib {
-                idx += 1;
-                sib = hierarchy.get(sn).and_then(azul_core::styled_dom::NodeHierarchyItem::previous_sibling_id);
-            }
-            idx
-        };
-        let start = child_index_of(middles[0]);
-        let end = start + u32::try_from(middles.len()).unwrap_or(u32::MAX);
-        let parent_dom_node = DomNodeId {
-            dom: dom_id,
-            node: NodeHierarchyItemId::from_crate_internal(Some(parent)),
-        };
-        let op = DocumentOperation::RemoveChildren(DocOpRemoveChildren {
-            parent: parent_dom_node,
-            start,
-            end,
-        });
-        let resume = self.compute_edit_resume_point(
-            DomNodeId {
-                dom: dom_id,
-                node: NodeHierarchyItemId::from_crate_internal(Some(middles[0])),
-            },
-            &op,
-        )?;
+        // Structural edits move layout: feed the paged-view dirty tracking
+        // (B6 covers content changes; changesets must min-in too).
+        self.mark_pagination_dirty_at_node(dom_id, first);
+
         let changeset = DocumentChangeset::new(parent_dom_node, op, resume, Instant::now());
         Some(self.record_document_edit(changeset))
     }
@@ -9320,13 +9364,53 @@ impl LayoutWindow {
             .get(layout_idx)
             .copied()
             .unwrap_or_default();
-        let cached = tree.warm(layout_idx)?.inline_layout_result.as_ref()?;
+        // (the anchor node's cached inline layout is re-borrowed below,
+        // after the cross-block branch may have taken &mut self)
+        tree.warm(layout_idx)?.inline_layout_result.as_ref()?;
 
         let local_pos = LogicalPosition {
             x: current_position.x - node_pos.x,
             y: current_position.y - node_pos.y,
         };
+
+        // Outside the anchor block (or in another block entirely): this is a
+        // CROSS-BLOCK drag (AZUL-STILL-TODO C9 driver). Resolve the block +
+        // cursor under the pointer globally and extend the multi-IFC
+        // selection; dragging back into the anchor block collapses to the
+        // regular single-node range below.
+        let anchor_rect_contains = {
+            let size = tree
+                .get(layout_idx)
+                .and_then(|n| n.used_size)
+                .unwrap_or_default();
+            local_pos.x >= 0.0
+                && local_pos.y >= 0.0
+                && local_pos.x <= size.width
+                && local_pos.y <= size.height
+        };
+        if !anchor_rect_contains {
+            let global_hit = self.hittest_text_position_global(dom_id, current_position);
+            if let Some((hit_node, hit_cursor)) = global_hit {
+                if hit_node != node_id
+                    && self.set_cross_block_selection(
+                        dom_id, node_id, anchor, hit_node, hit_cursor,
+                    )
+                {
+                    self.text_edit_manager.mark_dirty();
+                    self.regenerate_display_list_for_dom(dom_id);
+                    return Some(vec![dom_node_id]);
+                }
+            }
+        }
+
+        // Re-borrow after the possible &mut use above.
+        let layout_result = self.layout_results.get(&dom_id)?;
+        let tree = &layout_result.layout_tree;
+        let cached = tree.warm(layout_idx)?.inline_layout_result.as_ref()?;
         let focus = cached.layout.hittest_cursor(local_pos)?;
+
+        // Back inside the anchor block: a single-node range again.
+        self.text_edit_manager.clear_cross_block_selection();
 
         // Update primary selection: Cursor → Range(anchor, focus)
         let mc = self.text_edit_manager.multi_cursor.as_mut()?;
@@ -9344,6 +9428,66 @@ impl LayoutWindow {
         self.text_edit_manager.mark_dirty();
         self.regenerate_display_list_for_dom(dom_id);
         Some(vec![dom_node_id])
+    }
+
+    /// The IFC root + text cursor under a window-space position, searched
+    /// across ALL laid-out IFC roots of `dom_id` (the cross-block drag needs
+    /// a target outside the anchor block). Direct containment wins; a miss
+    /// falls back to the vertically NEAREST block within its horizontal
+    /// span-extended row (Word-style: dragging into the gap between
+    /// paragraphs selects to the closer one).
+    #[must_use]
+    pub fn hittest_text_position_global(
+        &self,
+        dom_id: DomId,
+        position: LogicalPosition,
+    ) -> Option<(NodeId, azul_core::selection::TextCursor)> {
+        let layout_result = self.layout_results.get(&dom_id)?;
+        let tree = &layout_result.layout_tree;
+        let mut best: Option<(f32, NodeId, LogicalPosition)> = None; // (y-distance, node, local)
+        for (idx, node) in tree.nodes.iter().enumerate() {
+            let Some(node_dom_id) = node.dom_node_id else { continue };
+            let Some(warm) = tree.warm(idx) else { continue };
+            if warm.inline_layout_result.is_none() {
+                continue;
+            }
+            let pos = layout_result
+                .calculated_positions
+                .get(idx)
+                .copied()
+                .unwrap_or_default();
+            let size = node.used_size.unwrap_or_default();
+            let local = LogicalPosition {
+                x: position.x - pos.x,
+                y: position.y - pos.y,
+            };
+            let dy = if position.y < pos.y {
+                pos.y - position.y
+            } else if position.y > pos.y + size.height {
+                position.y - (pos.y + size.height)
+            } else {
+                0.0
+            };
+            match &best {
+                Some((bd, _, _)) if *bd <= dy => {}
+                _ => best = Some((dy, node_dom_id, local)),
+            }
+        }
+        let (_, node_dom_id, local) = best?;
+        let layout_idx = tree
+            .nodes
+            .iter()
+            .position(|n| n.dom_node_id == Some(node_dom_id))?;
+        let cached = tree.warm(layout_idx)?.inline_layout_result.as_ref()?;
+        // Clamp the local point into the block so line hit-testing lands on
+        // the nearest line instead of failing outside the box.
+        let size = tree.get(layout_idx).and_then(|n| n.used_size).unwrap_or_default();
+        let clamped = LogicalPosition {
+            x: local.x.clamp(0.0, size.width.max(0.0)),
+            y: local.y.clamp(0.0, size.height.max(0.0)),
+        };
+        let cursor = cached.layout.hittest_cursor(clamped)?;
+        Some((node_dom_id, cursor))
     }
 
     /// Delete the currently selected text or one character at the cursor
@@ -9492,6 +9636,57 @@ impl LayoutWindow {
     ) -> Option<crate::managers::selection::ClipboardContent> {
         use crate::managers::selection::ClipboardContent;
         use crate::text3::edit::cursor_byte_offset_in_run;
+
+        // Cross-block selection: join the anchor block's selected tail, the
+        // fully-selected middles and the focus block's selected head with
+        // newlines (what Word puts on the clipboard for a multi-paragraph
+        // selection).
+        if let Some(cb) = self.text_edit_manager.get_cross_block_selection() {
+            if cb.dom_id == *dom_id {
+                let mut nodes: Vec<(NodeId, azul_core::selection::SelectionRange)> =
+                    cb.affected_nodes.iter().map(|(n, r)| (*n, *r)).collect();
+                nodes.sort_by_key(|(n, _)| n.index());
+                let mut parts: Vec<String> = Vec::with_capacity(nodes.len());
+                for (node, range) in &nodes {
+                    let content = self.get_text_before_textinput(*dom_id, *node);
+                    let mut text = String::new();
+                    let sr = range.start.cluster_id.source_run as usize;
+                    let er = range.end.cluster_id.source_run as usize;
+                    for (i, c) in content.iter().enumerate() {
+                        if let InlineContent::Text(run) = c {
+                            if i < sr || i > er {
+                                continue;
+                            }
+                            // Affinity-aware: a Trailing end cursor on the
+                            // final cluster means AFTER that grapheme.
+                            let lo = if i == sr {
+                                cursor_byte_offset_in_run(&run.text, &range.start)
+                                    .min(run.text.len())
+                            } else {
+                                0
+                            };
+                            let hi = if i == er {
+                                cursor_byte_offset_in_run(&run.text, &range.end)
+                                    .min(run.text.len())
+                            } else {
+                                run.text.len()
+                            };
+                            if lo < hi {
+                                text.push_str(&run.text[lo..hi]);
+                            }
+                        }
+                    }
+                    parts.push(text);
+                }
+                let plain = parts.join("\n");
+                if !plain.is_empty() {
+                    return Some(ClipboardContent {
+                        plain_text: plain.into(),
+                        styled_runs: crate::managers::selection::StyledTextRunVec::from_const_slice(&[]),
+                    });
+                }
+            }
+        }
 
         let mc = self.text_edit_manager.multi_cursor.as_ref()?;
         let node_id = mc.node_id.node.into_crate_internal()?;
@@ -12154,4 +12349,13 @@ mod autotest_generated {
             "resize must leave a laid-out DOM behind"
         );
     }
+}
+
+/// v1 text merge for the cross-block delete: plain concatenation. The seam
+/// for a future rich-text version (styled runs preserved per side).
+fn alloc_format_merge(first_kept: &str, last_kept: &str) -> String {
+    let mut s = String::with_capacity(first_kept.len() + last_kept.len());
+    s.push_str(first_kept);
+    s.push_str(last_kept);
+    s
 }

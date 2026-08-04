@@ -4760,6 +4760,30 @@ pub struct UnifiedLayout {
 }
 
 impl UnifiedLayout {
+    /// The cursor AFTER the last text cluster (Trailing on the final
+    /// grapheme) — the end-of-text position selections and Ctrl+End use.
+    /// `None` for layouts with no text clusters.
+    #[must_use]
+    pub fn end_cursor(&self) -> Option<crate::text3::cache::TextCursor> {
+        use azul_core::selection::CursorAffinity;
+        let mut best: Option<azul_core::selection::GraphemeClusterId> = None;
+        for item in &self.items {
+            if let ShapedItem::Cluster(c) = &item.item {
+                let id = c.source_cluster_id;
+                let better = best.is_none_or(|b| {
+                    (id.source_run, id.start_byte_in_run) > (b.source_run, b.start_byte_in_run)
+                });
+                if better {
+                    best = Some(id);
+                }
+            }
+        }
+        Some(crate::text3::cache::TextCursor {
+            cluster_id: best?,
+            affinity: CursorAffinity::Trailing,
+        })
+    }
+
     /// Calculate the bounding box of all positioned items.
     /// This is computed on-demand rather than cached.
     #[must_use] pub fn bounds(&self) -> Rect {

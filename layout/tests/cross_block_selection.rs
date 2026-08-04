@@ -109,17 +109,19 @@ fn cross_block_selection_builds_ranges_for_every_spanned_block() {
     );
     let r1 = sel.affected_nodes.get(&node_id(P1)).expect("anchor range");
     assert_eq!(r1.start.cluster_id.start_byte_in_run, 6);
+    // End = Trailing on the LAST cluster ("after the final grapheme"), so
+    // the byte names the final cluster's START, not the string length.
     assert_eq!(
         r1.end.cluster_id.start_byte_in_run as usize,
-        "first paragraph".len(),
-        "anchor node selects to its end"
+        "first paragraph".len() - 1,
+        "anchor end sits on the last cluster (Trailing)"
     );
     let r2 = sel.affected_nodes.get(&node_id(P2)).expect("middle range");
     assert_eq!(r2.start.cluster_id.start_byte_in_run, 0);
     assert_eq!(
         r2.end.cluster_id.start_byte_in_run as usize,
-        "second paragraph".len(),
-        "middle node is fully selected"
+        "second paragraph".len() - 1,
+        "middle end sits on its last cluster (Trailing)"
     );
     let r3 = sel.affected_nodes.get(&node_id(P3)).expect("focus range");
     assert_eq!(r3.start.cluster_id.start_byte_in_run, 0);
@@ -168,50 +170,199 @@ fn non_siblings_are_rejected() {
 }
 
 #[test]
-fn selection_spanning_delete_trims_ends_and_emits_remove_children() {
+fn selection_spanning_delete_merges_into_one_replace_changeset() {
     let mut lw = layout_three_paragraphs();
     assert!(lw.set_cross_block_selection(
         DomId::ROOT_ID,
         node_id(P1),
-        cursor(6),
+        cursor(6), // after "first "
         node_id(P3),
         cursor(6), // after "third "
     ));
     let changeset_id = lw.delete_cross_block_selection();
-    assert!(
-        changeset_id.is_some(),
-        "one fully-covered middle block must emit a structural changeset"
-    );
+    assert!(changeset_id.is_some(), "the delete records one changeset");
 
-    // End nodes trimmed through the overlay (no DOM mutation).
-    let text_of = |lw: &LayoutWindow, n: usize| -> String {
-        lw.get_text_before_textinput(DomId::ROOT_ID, node_id(n))
-            .iter()
-            .filter_map(|c| match c {
-                azul_layout::text3::cache::InlineContent::Text(run) => {
-                    Some(run.text.clone())
-                }
-                _ => None,
-            })
-            .collect()
-    };
-    assert_eq!(text_of(&lw, P1), "first ", "anchor keeps its head");
-    assert_eq!(text_of(&lw, P3), "paragraph", "focus keeps its tail");
-
-    // The middle block is emitted as RemoveChildren on the body.
+    // ONE atomic ReplaceChildren covering [P1 ..= P3]: Word semantics -
+    // the merged paragraph keeps the FIRST block's element and holds
+    // first-kept + last-kept text.
     let edit = lw
         .get_pending_document_edit()
         .expect("structural changeset pending");
     match &edit.operation {
-        azul_layout::managers::changeset::DocumentOperation::RemoveChildren(r) => {
+        azul_layout::managers::changeset::DocumentOperation::ReplaceChildren(r) => {
             assert_eq!(r.parent.node.into_crate_internal(), Some(node_id(0)));
-            assert_eq!((r.start, r.end), (1, 2), "removes exactly the middle div");
+            assert_eq!(
+                (r.start, r.end),
+                (0, 3),
+                "replaces the whole spanned block range"
+            );
+            let merged: String = r
+                .content
+                .children
+                .as_ref()
+                .iter()
+                .filter_map(|c| match c.root.get_node_type() {
+                    azul_core::dom::NodeType::Text(t) => Some(t.as_str().to_string()),
+                    _ => None,
+                })
+                .collect();
+            assert_eq!(
+                merged, "first paragraph",
+                "merged text = 'first ' + 'paragraph' (kept head + kept tail)"
+            );
+            assert!(
+                format!("{:?}", r.content.root.get_node_type()).contains("Div"),
+                "the merged block keeps the FIRST paragraph's element"
+            );
         }
-        other => panic!("expected RemoveChildren, got {other:?}"),
+        other => panic!("expected ReplaceChildren, got {other:?}"),
     }
 
-    // Caret collapsed at the selection start, selection cleared.
+    // The resume point lands the caret INSIDE the merged text at the join.
+    let pos = format!("{:?}", edit.resume.position);
+    assert!(
+        pos.contains('6'),
+        "caret resumes at the join byte (6 = len of 'first '): {pos}"
+    );
+
+    // Pre-apply: caret collapsed at the selection start, selection cleared.
     assert!(lw.text_edit_manager.get_cross_block_selection().is_none());
     let mc = lw.text_edit_manager.multi_cursor.as_ref().expect("caret");
     assert_eq!(mc.node_id.node.into_crate_internal(), Some(node_id(P1)));
+}
+
+
+#[test]
+fn drag_across_blocks_extends_the_selection_and_back_collapses_it() {
+    let mut lw = layout_three_paragraphs();
+
+    // Mouse-down analog: caret in P1 (the drag reads its anchor from here).
+    let key = 0;
+    lw.text_edit_manager.multi_cursor =
+        Some(azul_core::selection::MultiCursorState::new_with_cursor(
+            cursor(6),
+            azul_core::dom::DomNodeId {
+                dom: DomId::ROOT_ID,
+                node: azul_core::styled_dom::NodeHierarchyItemId::from_crate_internal(Some(
+                    node_id(P1),
+                )),
+            },
+            key,
+        ));
+
+    // Drag far below P1 (into P3's territory): the global hit-test resolves
+    // the block under the pointer and the selection goes cross-block.
+    let p3_rect = lw.get_node_layout_rect(azul_core::dom::DomNodeId {
+        dom: DomId::ROOT_ID,
+        node: azul_core::styled_dom::NodeHierarchyItemId::from_crate_internal(Some(node_id(P3))),
+    });
+    let p3_rect = p3_rect.expect("P3 laid out");
+    let inside_p3 = azul_core::geom::LogicalPosition::new(
+        p3_rect.origin.x + 10.0,
+        p3_rect.origin.y + p3_rect.size.height * 0.5,
+    );
+    let res = lw.process_mouse_drag_for_selection(
+        azul_core::geom::LogicalPosition::zero(),
+        inside_p3,
+    );
+    assert!(res.is_some(), "drag into another block must be handled");
+    let cb = lw
+        .text_edit_manager
+        .get_cross_block_selection()
+        .expect("cross-block selection active after dragging into P3");
+    assert_eq!(cb.affected_nodes.len(), 3, "{:?}", cb.affected_nodes);
+    assert!(cb.is_forward);
+
+    // VISUAL: the regenerated display list carries SelectionRect items in
+    // ALL THREE spanned IFCs (distinct vertical bands).
+    let result = lw
+        .get_layout_result(&DomId::ROOT_ID)
+        .expect("layout result");
+    let mut sel_ys: Vec<f32> = result
+        .display_list
+        .items
+        .iter()
+        .filter_map(|item| match item {
+            azul_layout::solver3::display_list::DisplayListItem::SelectionRect {
+                bounds,
+                ..
+            } => Some(bounds.origin().y),
+            _ => None,
+        })
+        .collect();
+    sel_ys.sort_by(f32::total_cmp);
+    sel_ys.dedup_by(|a, b| (*a - *b).abs() < 2.0);
+    assert!(
+        sel_ys.len() >= 3,
+        "selection highlights must render in all three paragraphs, got bands at {sel_ys:?}"
+    );
+
+    // Drag back inside P1: collapses to a plain single-node range.
+    let p1_rect = lw
+        .get_node_layout_rect(azul_core::dom::DomNodeId {
+            dom: DomId::ROOT_ID,
+            node: azul_core::styled_dom::NodeHierarchyItemId::from_crate_internal(Some(node_id(
+                P1,
+            ))),
+        })
+        .expect("P1 laid out");
+    let inside_p1 = azul_core::geom::LogicalPosition::new(
+        p1_rect.origin.x + 20.0,
+        p1_rect.origin.y + p1_rect.size.height * 0.5,
+    );
+    let res = lw.process_mouse_drag_for_selection(
+        azul_core::geom::LogicalPosition::zero(),
+        inside_p1,
+    );
+    assert!(res.is_some());
+    assert!(
+        lw.text_edit_manager.get_cross_block_selection().is_none(),
+        "dragging back into the anchor block returns to a single-node range"
+    );
+}
+
+#[test]
+fn cross_block_copy_joins_paragraphs_and_paste_replaces_atomically() {
+    let mut lw = layout_three_paragraphs();
+    assert!(lw.set_cross_block_selection(
+        DomId::ROOT_ID,
+        node_id(P1),
+        cursor(6), // after "first "
+        node_id(P3),
+        cursor(6), // after "third "
+    ));
+
+    // Ctrl+C: joined multi-paragraph text.
+    let clip = lw
+        .get_selected_content_for_clipboard(&DomId::ROOT_ID)
+        .expect("cross-block copy yields content");
+    assert_eq!(
+        clip.plain_text.as_str(),
+        "paragraph\nsecond paragraph\nthird ",
+        "anchor tail + full middle + focus head, newline-joined"
+    );
+
+    // Ctrl+V: one atomic replace with the pasted text at the join.
+    let id = lw.replace_cross_block_selection("PASTED");
+    assert!(id.is_some());
+    let edit = lw.get_pending_document_edit().expect("changeset pending");
+    match &edit.operation {
+        azul_layout::managers::changeset::DocumentOperation::ReplaceChildren(r) => {
+            let merged: String = r
+                .content
+                .children
+                .as_ref()
+                .iter()
+                .filter_map(|c| match c.root.get_node_type() {
+                    azul_core::dom::NodeType::Text(t) => Some(t.as_str().to_string()),
+                    _ => None,
+                })
+                .collect();
+            assert_eq!(merged, "first PASTEDparagraph");
+        }
+        other => panic!("expected ReplaceChildren, got {other:?}"),
+    }
+    // Caret resumes AFTER the pasted text: 6 + len("PASTED") = 12.
+    let pos = format!("{:?}", edit.resume.position);
+    assert!(pos.contains("12"), "caret after the insert: {pos}");
 }
