@@ -100,6 +100,33 @@ pub enum ScrollInputSource {
     AnimateTo,
 }
 
+/// WHERE a scroll input physically came from - distinct from
+/// [`ScrollInputSource`], which is the PROCESSING model. Different devices
+/// deserve different curves (a wheel step animated with the trackpad's
+/// long spring feels jarring), and accessibility drivers / test harnesses
+/// need to identify themselves for correct treatment and diagnostics.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum ScrollInputDevice {
+    /// Discrete physical mouse wheel clicks.
+    MouseWheel,
+    /// Trackpad / precision touchpad gestures.
+    Touchpad,
+    /// Direct touchscreen panning.
+    Touchscreen,
+    /// Keyboard navigation (PageUp/PageDown/arrows/Home/End).
+    Keyboard,
+    /// Assistive technology (screen readers, switch access).
+    Accessibility,
+    /// An automated test driver (e2e harness, CI scenarios).
+    TestDriver,
+    /// API-driven (scroll_to / scroll_to_animated from app code).
+    Programmatic,
+    /// Origin unknown (legacy producers). Treated like `MouseWheel` for
+    /// curve selection on discrete inputs.
+    #[default]
+    Unknown,
+}
+
 /// A single scroll input event to be processed by the physics timer.
 ///
 /// Scroll inputs are recorded by the platform event handler and consumed
@@ -117,6 +144,9 @@ pub struct ScrollInput {
     pub timestamp: Instant,
     /// How this input should be processed
     pub source: ScrollInputSource,
+    /// Where this input physically came from (curve selection,
+    /// accessibility, diagnostics).
+    pub device: ScrollInputDevice,
 }
 
 /// Thread-safe queue for scroll inputs, shared between event handlers and timer callbacks.
@@ -570,6 +600,7 @@ impl ScrollManager {
         delta_x: f32,
         delta_y: f32,
         source: ScrollInputSource,
+        device: ScrollInputDevice,
         hover_manager: &crate::managers::hover::HoverManager,
         input_point_id: &InputPointId,
         now: Instant,
@@ -612,6 +643,7 @@ impl ScrollManager {
             delta: LogicalPosition { x: delta_x, y: delta_y },
             timestamp: now,
             source,
+            device,
         };
         let should_start_timer = self.record_scroll_input(input);
         Some((dom_id, node_id, should_start_timer))
@@ -1407,6 +1439,7 @@ mod natural_scroll_tests {
             delta: LogicalPosition::new(dx, dy),
             timestamp: Instant::now(),
             source: ScrollInputSource::WheelDiscrete,
+            device: ScrollInputDevice::TestDriver,
         }
     }
 
@@ -1645,6 +1678,7 @@ mod autotest_generated {
             delta: pos(dx, dy),
             timestamp: at(ts),
             source: ScrollInputSource::WheelDiscrete,
+            device: ScrollInputDevice::TestDriver,
         }
     }
 
@@ -3331,7 +3365,7 @@ mod autotest_generated {
         // being set unconditionally — before the hit-test lookup can bail out.
         let mut m = mgr(size(100.0, 100.0), size(100.0, 500.0));
         let hover = HoverManager::new(); // no hit-test recorded at all
-        let out = m.record_scroll_from_hit_test(
+        let out = m.record_scroll_from_hit_test_test_shim(
             3.0,
             -7.0,
             ScrollInputSource::WheelDiscrete,
@@ -3349,7 +3383,7 @@ mod autotest_generated {
         let mut m = mgr(size(100.0, 100.0), size(100.0, 500.0));
         let hover = hover_over(&[0]);
         let (dom_id, node_id, start_timer) = m
-            .record_scroll_from_hit_test(
+            .record_scroll_from_hit_test_test_shim(
                 0.0,
                 -10.0, // raw "wheel down" under the traditional sign
                 ScrollInputSource::WheelDiscrete,
@@ -3364,7 +3398,7 @@ mod autotest_generated {
 
         // A second event while the queue is still pending must NOT re-start it.
         let (_, _, start_again) = m
-            .record_scroll_from_hit_test(
+            .record_scroll_from_hit_test_test_shim(
                 0.0,
                 -10.0,
                 ScrollInputSource::WheelDiscrete,
@@ -3399,7 +3433,7 @@ mod autotest_generated {
             false,
         );
         let hover = hover_over(&[0]);
-        let out = m.record_scroll_from_hit_test(
+        let out = m.record_scroll_from_hit_test_test_shim(
             0.0,
             -10.0,
             ScrollInputSource::WheelDiscrete,
@@ -3417,7 +3451,7 @@ mod autotest_generated {
         let mut m = mgr(size(100.0, 100.0), size(100.0, 500.0));
         let hover = hover_over(&[0]);
         // NaN: nothing can consume it, so the innermost scrollable is the fallback.
-        let out = m.record_scroll_from_hit_test(
+        let out = m.record_scroll_from_hit_test_test_shim(
             f32::NAN,
             f32::NAN,
             ScrollInputSource::TrackpadContinuous,
@@ -3432,7 +3466,7 @@ mod autotest_generated {
         assert!(q[0].delta.x.is_nan(), "NaN is queued verbatim, no panic");
 
         // Infinity: consumable (there is room), still queued safely.
-        let out = m.record_scroll_from_hit_test(
+        let out = m.record_scroll_from_hit_test_test_shim(
             0.0,
             f32::NEG_INFINITY,
             ScrollInputSource::WheelDiscrete,
@@ -3463,7 +3497,7 @@ mod autotest_generated {
         );
         let hover = hover_over(&[0, 5]);
         let (_, node_id, _) = m
-            .record_scroll_from_hit_test(
+            .record_scroll_from_hit_test_test_shim(
                 0.0,
                 -10.0,
                 ScrollInputSource::WheelDiscrete,
@@ -3505,5 +3539,30 @@ mod autotest_generated {
             !m.get_input_queue().has_pending(),
             "draining the handle drains the manager's queue"
         );
+    }
+}
+
+
+#[cfg(all(test, feature = "std"))]
+impl ScrollManager {
+    /// Test shim: the old 6-arg call shape with `device = TestDriver`.
+    pub(crate) fn record_scroll_from_hit_test_test_shim(
+        &mut self,
+        delta_x: f32,
+        delta_y: f32,
+        source: ScrollInputSource,
+        hover_manager: &crate::managers::hover::HoverManager,
+        input_point_id: &crate::managers::hover::InputPointId,
+        now: Instant,
+    ) -> Option<(DomId, NodeId, bool)> {
+        self.record_scroll_from_hit_test(
+            delta_x,
+            delta_y,
+            source,
+            ScrollInputDevice::TestDriver,
+            hover_manager,
+            input_point_id,
+            now,
+        )
     }
 }

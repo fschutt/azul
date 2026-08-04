@@ -45,7 +45,9 @@ use azul_core::{
 };
 
 use crate::{
-    managers::scroll_state::{ScrollInput, ScrollInputQueue, ScrollInputSource, ScrollNodeInfo},
+    managers::scroll_state::{
+        ScrollInput, ScrollInputDevice, ScrollInputQueue, ScrollInputSource, ScrollNodeInfo,
+    },
     timer::TimerCallbackInfo,
 };
 
@@ -74,10 +76,14 @@ pub struct ScrollPhysicsState {
     pub pending_positions: BTreeMap<(DomId, NodeId), LogicalPosition>,
     /// Per-node "forced position" from trackpad scroll (rubber-band clamped)
     pub pending_trackpad_positions: BTreeMap<(DomId, NodeId), LogicalPosition>,
-    /// Absolute offsets that `AnimateTo` inputs are seeking, per node. The
-    /// integration loop applies a critically-damped spring toward each and
-    /// removes the entry on convergence (snap to the exact target).
-    pub animate_targets: BTreeMap<(DomId, NodeId), LogicalPosition>,
+    /// Absolute offsets that `AnimateTo` / wheel-glide inputs are seeking,
+    /// per node, together with the DEVICE that asked for the seek (device
+    /// picks the spring duration: physical wheel clicks get the short
+    /// `wheel_animate_bounce_ms` glide, everything else
+    /// `bounce_back_duration_ms`). The integration loop applies a
+    /// critically-damped spring toward each and removes the entry on
+    /// convergence (snap to the exact target).
+    pub animate_targets: BTreeMap<(DomId, NodeId), (LogicalPosition, ScrollInputDevice)>,
     /// Global scroll physics configuration (from `SystemStyle`)
     pub scroll_physics: ScrollPhysics,
 }
@@ -161,6 +167,7 @@ pub extern "C" fn scroll_physics_timer_callback(
     let overscroll_elasticity = sp.overscroll_elasticity;
     let max_overscroll_distance = sp.max_overscroll_distance;
     let bounce_back_duration_ms = sp.bounce_back_duration_ms;
+    let wheel_animate_bounce_ms = sp.wheel_animate_bounce_ms;
 
     // 1. Take at most MAX_SCROLL_EVENTS_PER_TICK recent inputs from the shared queue
     let inputs = physics.input_queue.take_recent(MAX_SCROLL_EVENTS_PER_TICK);
@@ -185,19 +192,64 @@ pub extern "C" fn scroll_physics_timer_callback(
                 physics.node_velocities.remove(&key);
             }
             ScrollInputSource::WheelDiscrete => {
-                // Mouse wheel: Convert delta to velocity impulse
-                let node_physics = physics
-                    .node_velocities
-                    .entry(key)
-                    .or_insert_with(NodeScrollPhysics::default);
+                // Input provenance decides the math. A PHYSICAL wheel click
+                // glides toward an accumulating ABSOLUTE target (short
+                // critically-damped spring, hard stop on arrival) — running
+                // discrete clicks through the velocity+friction model gave
+                // them the trackpad's floaty momentum tail, which feels
+                // jarring on a ratcheting wheel. Consecutive clicks extend
+                // the target (glide keeps going), they don't stack impulses.
+                // Touchpads that surface wheel-style events (Windows
+                // precision-touchpad fallback, X11 smooth scrolling) and
+                // test drivers keep the velocity model: their deltas are
+                // fine-grained and the momentum tail is correct for them.
+                let mut wheel_glided = false;
+                if matches!(
+                    input.device,
+                    ScrollInputDevice::MouseWheel | ScrollInputDevice::Unknown
+                ) {
+                    if let Some(info) =
+                        timer_info.get_scroll_node_info(input.dom_id, input.node_id)
+                    {
+                        let base = physics
+                            .animate_targets
+                            .get(&key)
+                            .map(|(t, _)| *t)
+                            .unwrap_or(info.current_offset);
+                        // Clamp into the scrollable range: a wheel click at
+                        // the boundary must not build up an off-range target
+                        // (chaining to the parent scroller happens at
+                        // hit-test time in the ScrollManager, per click).
+                        let target = LogicalPosition {
+                            x: (base.x + input.delta.x * wheel_multiplier)
+                                .clamp(0.0, info.max_scroll_x.max(0.0)),
+                            y: (base.y + input.delta.y * wheel_multiplier)
+                                .clamp(0.0, info.max_scroll_y.max(0.0)),
+                        };
+                        physics.animate_targets.insert(key, (target, input.device));
+                        // Ensure the seek loop visits this node; keep any
+                        // in-flight velocity so a retarget stays continuous.
+                        physics.node_velocities.entry(key).or_default();
+                        physics.pending_trackpad_positions.remove(&key);
+                        wheel_glided = true;
+                    }
+                }
+                if !wheel_glided {
+                    // Velocity impulse (trackpad-style wheel events, test
+                    // drivers, or no scroll-node info registered yet).
+                    let node_physics = physics
+                        .node_velocities
+                        .entry(key)
+                        .or_insert_with(NodeScrollPhysics::default);
 
-                // Add impulse (delta is in pixels, convert to pixels/second)
-                node_physics.velocity.x += input.delta.x * wheel_multiplier * ASSUMED_FPS;
-                node_physics.velocity.y += input.delta.y * wheel_multiplier * ASSUMED_FPS;
+                    // Add impulse (delta is in pixels, convert to pixels/second)
+                    node_physics.velocity.x += input.delta.x * wheel_multiplier * ASSUMED_FPS;
+                    node_physics.velocity.y += input.delta.y * wheel_multiplier * ASSUMED_FPS;
 
-                // Clamp to max velocity
-                node_physics.velocity.x = node_physics.velocity.x.clamp(-max_velocity, max_velocity);
-                node_physics.velocity.y = node_physics.velocity.y.clamp(-max_velocity, max_velocity);
+                    // Clamp to max velocity
+                    node_physics.velocity.x = node_physics.velocity.x.clamp(-max_velocity, max_velocity);
+                    node_physics.velocity.y = node_physics.velocity.y.clamp(-max_velocity, max_velocity);
+                }
             }
             ScrollInputSource::Programmatic => {
                 // Programmatic: Set position directly
@@ -221,7 +273,7 @@ pub extern "C" fn scroll_physics_timer_callback(
                         x: input.delta.x.clamp(0.0, info.max_scroll_x.max(0.0)),
                         y: input.delta.y.clamp(0.0, info.max_scroll_y.max(0.0)),
                     };
-                    physics.animate_targets.insert(key, target);
+                    physics.animate_targets.insert(key, (target, input.device));
                     physics.node_velocities.entry(key).or_default();
                     physics.pending_trackpad_positions.remove(&key);
                 }
@@ -283,7 +335,7 @@ pub extern "C" fn scroll_physics_timer_callback(
         // boundary. Close enough + slow enough snaps EXACTLY onto the
         // target and retires it (no asymptotic crawl).
         let seek_target = animate_targets.get(&(*dom_id, *node_id)).copied();
-        if let Some(target) = seek_target {
+        if let Some((target, seek_device)) = seek_target {
             let err_x = info.current_offset.x - target.x;
             let err_y = info.current_offset.y - target.y;
             if err_x.abs() < 0.5
@@ -296,7 +348,15 @@ pub extern "C" fn scroll_physics_timer_callback(
                 converged_targets.push((*dom_id, *node_id));
                 continue;
             }
-            let spring_k = spring_constant_from_bounce_duration(bounce_back_duration_ms);
+            // Provenance picks the curve: wheel clicks want a short snappy
+            // glide, programmatic/other seeks the platform bounce duration.
+            let seek_duration_ms = match seek_device {
+                ScrollInputDevice::MouseWheel | ScrollInputDevice::Unknown => {
+                    wheel_animate_bounce_ms
+                }
+                _ => bounce_back_duration_ms,
+            };
+            let spring_k = spring_constant_from_bounce_duration(seek_duration_ms);
             let damping = 2.0 * spring_k.sqrt();
             node_physics.velocity.x += (-spring_k * err_x - damping * node_physics.velocity.x) * dt;
             node_physics.velocity.y += (-spring_k * err_y - damping * node_physics.velocity.y) * dt;
@@ -798,14 +858,26 @@ mod autotest_generated {
         );
     }
 
-    /// A scroll input for node `idx` of the root DOM.
+    /// A scroll input for node `idx` of the root DOM (device = TestDriver,
+    /// which keeps the legacy velocity model on WheelDiscrete).
     fn input(idx: usize, delta: (f32, f32), source: ScrollInputSource) -> ScrollInput {
+        input_dev(idx, delta, source, ScrollInputDevice::TestDriver)
+    }
+
+    /// A scroll input with an explicit device provenance.
+    fn input_dev(
+        idx: usize,
+        delta: (f32, f32),
+        source: ScrollInputSource,
+        device: ScrollInputDevice,
+    ) -> ScrollInput {
         ScrollInput {
             dom_id: DomId::ROOT_ID,
             node_id: NodeId::new(idx),
             delta: LogicalPosition::new(delta.0, delta.1),
             timestamp: Instant::now(),
             source,
+            device,
         }
     }
 
@@ -843,6 +915,7 @@ mod autotest_generated {
             max_overscroll_distance: f32::NAN,
             bounce_back_duration_ms: 0,
             timer_interval_ms: 0,
+            wheel_animate_bounce_ms: 0,
         }
     }
 
@@ -1943,6 +2016,163 @@ mod autotest_generated {
                 assert!(
                     p2.y > 0.0 && (p2.y - p1.y).abs() < p1.y.max(1.0) * 4.0,
                     "retarget must stay continuous: first {p1:?}, second {p2:?}"
+                );
+            },
+        );
+    }
+
+    // ==================================================================
+    // WheelDiscrete provenance — physical wheel = target glide,
+    // everything else keeps the velocity model
+    // ==================================================================
+
+    #[test]
+    fn physical_wheel_click_arms_an_absolute_target_glide() {
+        let (mut data, queue) = state_with(ScrollPhysics::default());
+        // Viewport 100x100 over 100x500 -> max_scroll_y = 400.
+        queue.push(input_dev(
+            3,
+            (0.0, 30.0),
+            ScrollInputSource::WheelDiscrete,
+            ScrollInputDevice::MouseWheel,
+        ));
+        with_env(
+            |w| register_node(w, 3, (100.0, 100.0), (100.0, 500.0)),
+            |env| {
+                let ret = env.tick(&data);
+                assert_eq!(ret.should_terminate, TerminateTimer::Continue);
+                let tos = env.take_scroll_tos();
+                assert_eq!(tos.len(), 1, "one node moved: {tos:?}");
+                let (_, pos, _) = tos[0];
+                assert!(
+                    pos.y > 0.0 && pos.y < 30.0,
+                    "a wheel click GLIDES toward its target (default \
+                     wheel_multiplier = 1.0 -> target y = 30), it neither \
+                     teleports nor overshoots on the first tick: {pos:?}"
+                );
+            },
+        );
+        with_state(&mut data, |st| {
+            let (target, device) = st.animate_targets[&key(3)];
+            assert_eq!(
+                target.y, 30.0,
+                "target = current offset + delta * wheel_multiplier"
+            );
+            assert_eq!(device, ScrollInputDevice::MouseWheel);
+        });
+    }
+
+    #[test]
+    fn consecutive_wheel_clicks_extend_the_target_instead_of_stacking_impulses() {
+        let (mut data, queue) = state_with(ScrollPhysics::default());
+        queue.push(input_dev(
+            3,
+            (0.0, 30.0),
+            ScrollInputSource::WheelDiscrete,
+            ScrollInputDevice::MouseWheel,
+        ));
+        queue.push(input_dev(
+            3,
+            (0.0, 30.0),
+            ScrollInputSource::WheelDiscrete,
+            ScrollInputDevice::MouseWheel,
+        ));
+        with_env(
+            |w| register_node(w, 3, (100.0, 100.0), (100.0, 500.0)),
+            |env| {
+                let _ = env.tick(&data);
+            },
+        );
+        with_state(&mut data, |st| {
+            let (target, _) = st.animate_targets[&key(3)];
+            assert_eq!(
+                target.y, 60.0,
+                "the second click extends the FIRST click's target (30 + 30), \
+                 it does not restart from the current offset"
+            );
+        });
+    }
+
+    #[test]
+    fn wheel_click_target_is_clamped_to_the_scrollable_range() {
+        let (mut data, queue) = state_with(ScrollPhysics::default());
+        // max_scroll_y = 400; one huge click must not build an off-range target.
+        queue.push(input_dev(
+            3,
+            (0.0, 10_000.0),
+            ScrollInputSource::WheelDiscrete,
+            ScrollInputDevice::MouseWheel,
+        ));
+        with_env(
+            |w| register_node(w, 3, (100.0, 100.0), (100.0, 500.0)),
+            |env| {
+                let _ = env.tick(&data);
+            },
+        );
+        with_state(&mut data, |st| {
+            let (target, _) = st.animate_targets[&key(3)];
+            assert_eq!(target.y, 400.0, "target clamps to max_scroll_y");
+        });
+    }
+
+    #[test]
+    fn test_driver_wheel_keeps_the_velocity_model() {
+        let (mut data, queue) = state_with(ScrollPhysics::default());
+        queue.push(input(3, (0.0, 30.0), ScrollInputSource::WheelDiscrete));
+        with_env(
+            |w| register_node(w, 3, (100.0, 100.0), (100.0, 500.0)),
+            |env| {
+                let _ = env.tick(&data);
+            },
+        );
+        with_state(&mut data, |st| {
+            assert!(
+                st.animate_targets.is_empty(),
+                "TestDriver wheel events must stay on the deterministic \
+                 velocity model (e2e harness contract), not the glide"
+            );
+            let v = st.node_velocities[&key(3)].velocity;
+            assert!(v.y > 0.0, "impulse recorded as velocity: {v:?}");
+        });
+    }
+
+    #[test]
+    fn wheel_glide_uses_the_short_wheel_spring_not_the_bounce_spring() {
+        // Same geometry, same 400px seek: node 3 via physical-wheel glide
+        // (wheel_animate_bounce_ms = 60, stiff), node 4 via AnimateTo from a
+        // test driver (bounce_back_duration_ms = 5000, soft). The stiffer
+        // wheel spring must pull farther on the first tick.
+        let physics = ScrollPhysics {
+            wheel_animate_bounce_ms: 60,
+            bounce_back_duration_ms: 5000,
+            ..ScrollPhysics::default()
+        };
+        let (data, queue) = state_with(physics);
+        queue.push(input_dev(
+            3,
+            (0.0, 400.0),
+            ScrollInputSource::WheelDiscrete,
+            ScrollInputDevice::MouseWheel,
+        ));
+        queue.push(input(4, (0.0, 400.0), ScrollInputSource::AnimateTo));
+        with_env(
+            |w| {
+                register_node(w, 3, (100.0, 100.0), (100.0, 500.0));
+                register_node(w, 4, (100.0, 100.0), (100.0, 500.0));
+            },
+            |env| {
+                let _ = env.tick(&data);
+                let tos = env.take_scroll_tos();
+                let wheel_y = tos.iter().find(|(i, ..)| *i == 3).map(|(_, p, _)| p.y);
+                let bounce_y = tos.iter().find(|(i, ..)| *i == 4).map(|(_, p, _)| p.y);
+                let (Some(wheel_y), Some(bounce_y)) = (wheel_y, bounce_y) else {
+                    panic!("both nodes must move on the first tick: {tos:?}");
+                };
+                assert!(
+                    wheel_y > bounce_y,
+                    "provenance picks the spring: wheel glide (60ms) must be \
+                     snappier than the bounce-duration seek (5000ms); \
+                     wheel {wheel_y} vs bounce {bounce_y}"
                 );
             },
         );

@@ -6866,6 +6866,7 @@ mod tests {
             delta: LogicalPosition::new(10.0, 20.0),
             timestamp: now,
             source: crate::managers::scroll_state::ScrollInputSource::WheelDiscrete,
+            device: crate::managers::scroll_state::ScrollInputDevice::TestDriver,
         };
 
         let should_start_timer = window

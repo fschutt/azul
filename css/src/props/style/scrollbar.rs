@@ -114,6 +114,13 @@ pub struct ScrollPhysics {
     /// Should match the monitor refresh rate (e.g. 16ms for 60Hz, 8ms for 120Hz).
     /// Default: 16 (60 Hz)
     pub timer_interval_ms: u32,
+
+    /// Spring duration for target-seeking animated scrolls
+    /// (`scroll_to_animated`) that originate from a MOUSE WHEEL. Wheel
+    /// steps animated with the trackpad's long bounce constant feel
+    /// jarring - a discrete click wants a short, snappy glide. Other
+    /// devices use `bounce_back_duration_ms`. Default: 120.
+    pub wheel_animate_bounce_ms: u32,
 }
 
 impl Default for ScrollPhysics {
@@ -129,6 +136,7 @@ impl Default for ScrollPhysics {
             max_overscroll_distance: 100.0,
             bounce_back_duration_ms: 400,
             timer_interval_ms: 16,
+            wheel_animate_bounce_ms: 120,
         }
     }
 }
@@ -147,6 +155,7 @@ impl ScrollPhysics {
             max_overscroll_distance: 120.0,
             bounce_back_duration_ms: 500,
             timer_interval_ms: 16,
+            wheel_animate_bounce_ms: 120,
         }
     }
 
@@ -163,6 +172,7 @@ impl ScrollPhysics {
             max_overscroll_distance: 80.0,
             bounce_back_duration_ms: 400,
             timer_interval_ms: 16,
+            wheel_animate_bounce_ms: 120,
         }
     }
 
@@ -179,6 +189,7 @@ impl ScrollPhysics {
             max_overscroll_distance: 0.0,
             bounce_back_duration_ms: 200,
             timer_interval_ms: 16,
+            wheel_animate_bounce_ms: 120,
         }
     }
 
@@ -195,6 +206,7 @@ impl ScrollPhysics {
             max_overscroll_distance: 60.0,
             bounce_back_duration_ms: 300,
             timer_interval_ms: 16,
+            wheel_animate_bounce_ms: 120,
         }
     }
 }

@@ -3785,6 +3785,11 @@ unsafe extern "system" fn window_proc(
                             if horizontal { -scroll_amount * 20.0 } else { 0.0 },
                             if horizontal { 0.0 } else { scroll_amount * 20.0 },
                             ScrollInputSource::WheelDiscrete,
+                            // WM_MOUSEWHEEL is also what precision touchpads
+                            // fall back to; without DirectManipulation there
+                            // is no reliable way to tell them apart, so the
+                            // physical wheel is the honest default here.
+                            azul_layout::managers::scroll_state::ScrollInputDevice::MouseWheel,
                             &layout_window.hover_manager,
                             &InputPointId::Mouse,
                             now,

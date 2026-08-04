@@ -1481,7 +1481,7 @@ impl CallbackInfo {
         node_id: NodeId,
         target: LogicalPosition,
     ) {
-        use crate::managers::scroll_state::{ScrollInput, ScrollInputSource};
+        use crate::managers::scroll_state::{ScrollInput, ScrollInputDevice, ScrollInputSource};
         let now = self.get_current_time();
         self.get_scroll_manager().scroll_input_queue.push(ScrollInput {
             dom_id,
@@ -1489,6 +1489,7 @@ impl CallbackInfo {
             delta: target,
             timestamp: now,
             source: ScrollInputSource::AnimateTo,
+            device: ScrollInputDevice::Programmatic,
         });
     }
 

@@ -3134,6 +3134,15 @@ impl WaylandWindow {
                         delta_x,
                         delta_y,
                         source,
+                        // Provenance mirrors the wl_pointer.axis_source
+                        // classification above.
+                        if self.current_axis_source == WL_AXIS_SOURCE_FINGER
+                            || self.current_axis_source == WL_AXIS_SOURCE_CONTINUOUS
+                        {
+                            azul_layout::managers::scroll_state::ScrollInputDevice::Touchpad
+                        } else {
+                            azul_layout::managers::scroll_state::ScrollInputDevice::MouseWheel
+                        },
                         &layout_window.hover_manager,
                         &InputPointId::Mouse,
                         now,
@@ -3206,6 +3215,7 @@ impl WaylandWindow {
                 0.0,
                 0.0,
                 ScrollInputSource::TrackpadEnd,
+                azul_layout::managers::scroll_state::ScrollInputDevice::Touchpad,
                 &layout_window.hover_manager,
                 &InputPointId::Mouse,
                 now,

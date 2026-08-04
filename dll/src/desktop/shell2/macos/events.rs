@@ -499,6 +499,16 @@ impl MacOSWindow {
                         delta_x as f32,
                         delta_y as f32,
                         source,
+                        // Provenance: the phase-classified source already
+                        // tells wheel and trackpad apart on macOS (trackpad
+                        // gestures carry phases; a ratcheting wheel doesn't).
+                        match source {
+                            azul_layout::managers::scroll_state::ScrollInputSource::TrackpadContinuous
+                            | azul_layout::managers::scroll_state::ScrollInputSource::TrackpadEnd => {
+                                azul_layout::managers::scroll_state::ScrollInputDevice::Touchpad
+                            }
+                            _ => azul_layout::managers::scroll_state::ScrollInputDevice::MouseWheel,
+                        },
                         &layout_window.hover_manager,
                         &InputPointId::Mouse,
                         now,

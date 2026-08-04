@@ -1833,6 +1833,9 @@ impl HeadlessWindow {
                                 delta_x,
                                 delta_y,
                                 azul_layout::managers::scroll_state::ScrollInputSource::WheelDiscrete,
+                                // e2e harness scrolls must stay deterministic
+                                // (velocity model, no wall-clock glide).
+                                azul_layout::managers::scroll_state::ScrollInputDevice::TestDriver,
                                 &lw.hover_manager,
                                 &azul_layout::managers::hover::InputPointId::Mouse,
                                 now,

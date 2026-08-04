@@ -42791,6 +42791,15 @@
                                 },
                                 "timer_interval_ms": {
                                     "type": "u32"
+                                },
+                                "wheel_animate_bounce_ms": {
+                                    "type": "u32",
+                                    "doc": [
+                                        "Spring duration (ms) for target-seeking scrolls that originate from a physical mouse wheel:",
+                                        "each wheel click extends an absolute target and the scroll glides there with a short",
+                                        "critically-damped spring (hard stop, no momentum tail). Other origins (programmatic",
+                                        "scroll_to_animated, rubber-band) use bounce_back_duration_ms."
+                                    ]
                                 }
                             }
                         ],

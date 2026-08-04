@@ -724,6 +724,10 @@ impl X11Window {
                         delta_x * X11_SCROLL_TICK_PIXELS,
                         delta_y * X11_SCROLL_TICK_PIXELS,
                         ScrollInputSource::WheelDiscrete,
+                        // Core-protocol buttons 4-7 are ratcheting wheel
+                        // clicks (XI2 smooth-scroll touchpads land in the
+                        // valuator path, not here).
+                        azul_layout::managers::scroll_state::ScrollInputDevice::MouseWheel,
                         &layout_window.hover_manager,
                         &InputPointId::Mouse,
                         now,
