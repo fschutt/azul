@@ -946,6 +946,44 @@ impl DisplayListItem {
     #[allow(clippy::similar_names)] // domain-standard coordinate/geometry/short-lived names
     #[allow(clippy::match_same_arms)] // enum/value mapping/dispatch table: one arm per input variant (or cross-type bindings that can't merge)
     #[allow(clippy::too_many_lines)] // large but cohesive: single-purpose layout/render/parse routine (one branch per case)
+    /// Is this a structure-opening marker (clip / scroll frame / stacking
+    /// context / text shadow / image mask)? Paired with [`Self::is_pop_marker`]
+    /// and [`Self::matching_pop`] by the page slicer's E17 re-derivation.
+    #[must_use] pub const fn is_push_marker(&self) -> bool {
+        matches!(
+            self,
+            Self::PushClip { .. }
+                | Self::PushScrollFrame { .. }
+                | Self::PushStackingContext { .. }
+                | Self::PushTextShadow { .. }
+                | Self::PushImageMaskClip { .. }
+        )
+    }
+
+    /// Is this a structure-closing marker?
+    #[must_use] pub const fn is_pop_marker(&self) -> bool {
+        matches!(
+            self,
+            Self::PopClip
+                | Self::PopScrollFrame
+                | Self::PopStackingContext
+                | Self::PopTextShadow
+                | Self::PopImageMaskClip
+        )
+    }
+
+    /// The Pop item that closes this Push marker (None for non-markers).
+    #[must_use] pub fn matching_pop(&self) -> Option<Self> {
+        match self {
+            Self::PushClip { .. } => Some(Self::PopClip),
+            Self::PushScrollFrame { .. } => Some(Self::PopScrollFrame),
+            Self::PushStackingContext { .. } => Some(Self::PopStackingContext),
+            Self::PushTextShadow { .. } => Some(Self::PopTextShadow),
+            Self::PushImageMaskClip { .. } => Some(Self::PopImageMaskClip),
+            _ => None,
+        }
+    }
+
     #[must_use] pub fn is_visually_equal(&self, other: &Self) -> bool {
         if std::mem::discriminant(self) != std::mem::discriminant(other) {
             return false;
@@ -6285,7 +6323,102 @@ fn paginate_pages_impl(
         };
 
         // 4. Slice and offset content items (skip fixed-position items, they are added in step 4b)
+        //
+        // E17: the clip / stacking / scroll-frame / text-shadow / image-mask
+        // STRUCTURE is re-derived per page. Push/Pop markers are tracked in
+        // a live stack and emitted LAZILY: a marker chain materializes only
+        // when the first content item UNDER it survives this page's Y-band
+        // (so pages without a subtree's content carry none of its markers,
+        // and marker-free lists produce byte-identical output to before).
+        // Balancing Pops are appended at the page end. Marker bounds get the
+        // same rebase as the content they wrap (clip rects intersected with
+        // the page band, so a partially-on-page clip keeps clipping).
+        //
+        // Previously EVERY marker was dropped at the page boundary: exports
+        // showed unclipped overflow bleed and flattened z-order / opacity on
+        // pages after the first affected one.
+        struct OpenMarker {
+            item_idx: usize,
+            /// Already emitted into page_items?
+            emitted: bool,
+        }
+        let mut marker_stack: Vec<OpenMarker> = Vec::new();
+
+        // Rebase a MARKER item into page-local space: intersect its rect
+        // with the page band (a clip partially on this page keeps clipping;
+        // an off-page clip collapses to an empty rect — its content is
+        // off-page anyway), rebase to page-local Y, apply the header offset.
+        let rebase_band = |r: LogicalRect| -> LogicalRect {
+            let top = r.origin.y.max(content_start_y);
+            let bottom = (r.origin.y + r.size.height).min(content_end_y);
+            LogicalRect {
+                origin: LogicalPosition {
+                    x: r.origin.x,
+                    y: (top - content_start_y) + header_space,
+                },
+                size: LogicalSize {
+                    width: r.size.width,
+                    height: (bottom - top).max(0.0),
+                },
+            }
+        };
+        let rebase_marker = |item: &DisplayListItem| -> DisplayListItem {
+            match item {
+                DisplayListItem::PushClip {
+                    bounds,
+                    border_radius,
+                } => DisplayListItem::PushClip {
+                    bounds: rebase_band(bounds.0).into(),
+                    border_radius: *border_radius,
+                },
+                DisplayListItem::PushStackingContext { z_index, bounds } => {
+                    DisplayListItem::PushStackingContext {
+                        z_index: *z_index,
+                        bounds: rebase_band(bounds.0).into(),
+                    }
+                }
+                DisplayListItem::PushScrollFrame {
+                    clip_bounds,
+                    content_size,
+                    scroll_id,
+                } => DisplayListItem::PushScrollFrame {
+                    clip_bounds: rebase_band(clip_bounds.0).into(),
+                    content_size: *content_size,
+                    scroll_id: *scroll_id,
+                },
+                DisplayListItem::PushImageMaskClip {
+                    bounds,
+                    mask_image,
+                    mask_rect,
+                } => DisplayListItem::PushImageMaskClip {
+                    bounds: rebase_band(bounds.0).into(),
+                    mask_image: mask_image.clone(),
+                    mask_rect: rebase_band(mask_rect.0).into(),
+                },
+                // PushTextShadow carries only the shadow definition.
+                other => other.clone(),
+            }
+        };
+
         for (item_idx, item) in full_display_list.items.iter().enumerate() {
+            // Maintain the live marker stack for EVERY item, retained or not.
+            if item.is_push_marker() {
+                marker_stack.push(OpenMarker {
+                    item_idx,
+                    emitted: false,
+                });
+                continue;
+            }
+            if item.is_pop_marker() {
+                if let Some(open) = marker_stack.pop() {
+                    if open.emitted {
+                        page_items.push(item.clone());
+                        page_node_mapping.push(None);
+                    }
+                }
+                continue;
+            }
+
             // Skip items that belong to fixed-position elements (they are replicated separately)
             let is_fixed = full_display_list.fixed_position_item_ranges.iter()
                 .any(|&(start, end)| item_idx >= start && item_idx < end);
@@ -6295,6 +6428,17 @@ fn paginate_pages_impl(
             if let Some(clipped_item) =
                 clip_and_offset_display_item(item, content_start_y, content_end_y)
             {
+                // The item survives this page: materialize its (not yet
+                // emitted) enclosing marker chain, outermost first.
+                for open in &mut marker_stack {
+                    if !open.emitted {
+                        page_items.push(rebase_marker(
+                            &full_display_list.items[open.item_idx],
+                        ));
+                        page_node_mapping.push(None);
+                        open.emitted = true;
+                    }
+                }
                 // Page-local y of the clipped item decides which thead band
                 // shifts it (items without geometry keep the base offset).
                 let item_shift = clipped_item
@@ -6313,6 +6457,17 @@ fn paginate_pages_impl(
                     .copied()
                     .flatten();
                 page_node_mapping.push(node_mapping);
+            }
+        }
+
+        // Balance: close every marker still open AND emitted at the page end
+        // (innermost first).
+        for open in marker_stack.iter().rev() {
+            if open.emitted {
+                if let Some(pop) = full_display_list.items[open.item_idx].matching_pop() {
+                    page_items.push(pop);
+                    page_node_mapping.push(None);
+                }
             }
         }
 
@@ -9486,6 +9641,105 @@ mod autotest_generated {
             .find(|i| i.visual_bounds().is_some_and(|b| b.size.width == 600.0))
             .expect("below-both paragraph on page 1");
         assert_eq!(item_y(below), 160.0 + 50.0, "sum of both thead heights");
+    }
+
+    // ======================================================================
+    // E17: clip / stacking structure is re-derived per page slice
+    // ======================================================================
+
+    /// A clipped, stacked subtree spanning pages 0-1: BOTH pages re-open the
+    /// chain around the content that lands on them, balanced; a page without
+    /// any of the subtree's content carries none of its markers.
+    #[test]
+    fn clip_and_stacking_chain_is_rederived_on_every_page_it_touches() {
+        // Subtree: PushStackingContext > PushClip(y 50..350) > rect(60..340),
+        // then a plain rect on page 2 (y 450..470) OUTSIDE the subtree.
+        let full = DisplayList {
+            items: vec![
+                DisplayListItem::PushStackingContext {
+                    z_index: 3,
+                    bounds: rect(0.0, 50.0, 600.0, 300.0).into(),
+                },
+                DisplayListItem::PushClip {
+                    bounds: rect(0.0, 50.0, 600.0, 300.0).into(),
+                    border_radius: BorderRadius::default(),
+                },
+                plain_rect(0.0, 60.0, 600.0, 280.0),
+                DisplayListItem::PopClip,
+                DisplayListItem::PopStackingContext,
+                plain_rect(0.0, 450.0, 600.0, 20.0),
+            ],
+            node_mapping: vec![None; 6],
+            ..DisplayList::default()
+        };
+        let config = SlicerConfig::simple(200.0);
+        let pages = paginate_display_list_with_slicer_and_breaks(
+            full,
+            &config,
+            &RendererResources::default(),
+        )
+        .expect("paginate");
+        assert!(pages.len() >= 3, "3 pages of content, got {}", pages.len());
+
+        let structure = |page: &DisplayList| -> Vec<&'static str> {
+            page.items
+                .iter()
+                .map(|i| match i {
+                    DisplayListItem::PushStackingContext { .. } => "push_sc",
+                    DisplayListItem::PopStackingContext => "pop_sc",
+                    DisplayListItem::PushClip { .. } => "push_clip",
+                    DisplayListItem::PopClip => "pop_clip",
+                    DisplayListItem::Rect { .. } => "rect",
+                    _ => "other",
+                })
+                .collect()
+        };
+
+        // Page 0: chain opens before the rect slice, closes after.
+        assert_eq!(
+            structure(&pages[0]),
+            vec!["push_sc", "push_clip", "rect", "pop_clip", "pop_sc"],
+            "page 0: {:?}",
+            structure(&pages[0])
+        );
+        // Page 1: the SAME chain re-opens for the continued slice — this is
+        // what the slicer used to drop entirely (unclipped bleed, flattened
+        // z-order on continuation pages).
+        assert_eq!(
+            structure(&pages[1]),
+            vec!["push_sc", "push_clip", "rect", "pop_clip", "pop_sc"],
+            "page 1: {:?}",
+            structure(&pages[1])
+        );
+        // The re-opened clip is INTERSECTED with page 1's band and rebased:
+        // original clip 50..350 ∩ page [200, 400) → page-local 0..150.
+        let clip_bounds = pages[1]
+            .items
+            .iter()
+            .find_map(|i| match i {
+                DisplayListItem::PushClip { bounds, .. } => Some(bounds.0),
+                _ => None,
+            })
+            .expect("clip on page 1");
+        assert_eq!(
+            (clip_bounds.origin.y, clip_bounds.size.height),
+            (0.0, 150.0),
+            "clip clipped to the page band and rebased"
+        );
+        // Page 2: no subtree content — NO markers, just the plain rect.
+        assert_eq!(
+            structure(&pages[2]),
+            vec!["rect"],
+            "a page without the subtree's content carries none of its markers"
+        );
+        // The stacking context keeps its z-index on every page it touches.
+        for page in &pages[..2] {
+            let z = page.items.iter().find_map(|i| match i {
+                DisplayListItem::PushStackingContext { z_index, .. } => Some(*z_index),
+                _ => None,
+            });
+            assert_eq!(z, Some(3));
+        }
     }
 
     /// One straddling table: everything shifts by exactly its thead height —
