@@ -38,6 +38,9 @@ const PAGE_COUNT: usize = 40;
 struct PagedModel {
     pages: Vec<Vec<String>>,
     window: std::ops::Range<usize>,
+    /// #16 signal capture: (scroll_y, viewport_h, virtual_h) from the last
+    /// VirtualViewCallbackInfo the engine handed the callback.
+    captured_signal: Option<(f32, f32, f32)>,
 }
 
 type SharedModel = Arc<Mutex<PagedModel>>;
@@ -48,16 +51,25 @@ fn fresh_model() -> SharedModel {
             .map(|i| vec![format!("page {i} content")])
             .collect(),
         window: 0..5,
+        captured_signal: None,
     }))
 }
 
 /// The VirtualView callback: renders the model's current page window.
-extern "C" fn pages_view(mut data: RefAny, _info: VirtualViewCallbackInfo) -> VirtualViewReturn {
+extern "C" fn pages_view(mut data: RefAny, info: VirtualViewCallbackInfo) -> VirtualViewReturn {
     let model = data
         .downcast_ref::<SharedModel>()
         .expect("model")
         .clone();
-    let model = model.lock().unwrap();
+    let mut model = model.lock().unwrap();
+    // #16: the engine's reinvoke signal must carry document-space offsets
+    // the app can feed straight into page_of_y ("user is looking at pages
+    // N..M"). Capture what the engine actually delivered.
+    model.captured_signal = Some((
+        info.scroll_offset.y,
+        info.bounds.get_logical_size().height,
+        info.virtual_scroll_size.height,
+    ));
 
     let mut root = Dom::create_div().with_css("display: block;");
     for page_idx in model.window.clone() {
@@ -265,5 +277,52 @@ fn edit_page_one_scroll_far_undo_reverts_without_corruption() {
     assert!(
         lw.get_pending_document_edit().is_none(),
         "a notified-but-unacked redo drops at the re-render (C11 promise)"
+    );
+}
+
+
+/// AZUL-STILL-TODO #16: the reinvoke path hands the app a CLEAN
+/// "user is now looking at pages N..M" signal — document-space scroll
+/// offset + viewport + virtual extent — consumable by page_of_y math.
+#[test]
+fn reinvoke_signal_carries_document_space_offsets_for_page_math() {
+    let model = fresh_model();
+    let mut lw = LayoutWindow::new(FcFontCache::build()).unwrap();
+    let mut window_state = FullWindowState::default();
+    window_state.size.dimensions = LogicalSize::new(800.0, 600.0);
+    lw.current_window_state = window_state;
+
+    relayout(&mut lw, &model);
+    // Scroll the virtual view to y = 230 in DOCUMENT space (page height
+    // 100 → the user is looking at pages 2..=(2 + viewport/100)).
+    lw.scroll_manager.set_scroll_position(
+        DomId::ROOT_ID,
+        NodeId::new(1),
+        LogicalPosition::new(0.0, 230.0),
+        azul_core::task::Instant::from(std::time::Instant::now()),
+    );
+    relayout(&mut lw, &model);
+
+    let (scroll_y, viewport_h, virtual_h) = model
+        .lock()
+        .unwrap()
+        .captured_signal
+        .expect("the engine reinvoked the callback with an info payload");
+    assert_eq!(
+        virtual_h,
+        PAGE_COUNT as f32 * 100.0,
+        "virtual extent round-trips (the callback declared it last invoke)"
+    );
+    assert!(
+        (scroll_y - 230.0).abs() < 0.6,
+        "the reinvoke signal carries the DOCUMENT-SPACE scroll offset the          app feeds into page_of_y, got {scroll_y}"
+    );
+    // The app-side page math the ledger asks for:
+    let first = (scroll_y / 100.0).floor() as usize;
+    let last = ((scroll_y + viewport_h) / 100.0).ceil() as usize;
+    assert_eq!(first, 2, "top of the viewport is on page 2");
+    assert!(
+        last >= 3 && last <= PAGE_COUNT,
+        "bottom edge maps to a sane page: {last}"
     );
 }

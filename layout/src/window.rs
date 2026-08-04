@@ -4125,6 +4125,15 @@ impl LayoutWindow {
 
         let hidpi_factor = window_state.size.get_hidpi_factor();
 
+        // #16: feed the sizes the callback DECLARED on its previous invoke
+        // back into the info — the reinvoke signal must carry the real
+        // document-space virtual extent (and rendered scroll_size) so the
+        // app's "user is looking at pages N..M" math works straight off
+        // the payload. First invoke falls back to the view bounds.
+        let (declared_scroll, declared_virtual) = self
+            .virtual_view_manager
+            .get_declared_sizes(parent_dom_id, node_id);
+
         // Create VirtualViewCallbackInfo with the most up-to-date state
         let mut callback_info = azul_core::callbacks::VirtualViewCallbackInfo::new(
             reason,
@@ -4135,9 +4144,9 @@ impl LayoutWindow {
                 logical_size: bounds.size,
                 hidpi_factor,
             },
-            bounds.size,
+            declared_scroll.unwrap_or(bounds.size),
             scroll_offset,
-            bounds.size,
+            declared_virtual.unwrap_or(bounds.size),
             LogicalPosition::zero(),
         );
         // Inject the headless-measure hook so the VirtualView callback can

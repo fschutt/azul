@@ -562,3 +562,105 @@ fn block_boundary_breaks_carry_no_line_start() {
         );
     }
 }
+
+/// AZUL-STILL-TODO #16b: the worked example for "window shift on content
+/// deletion". Deleting ~a page of content mid-document must tell BOTH
+/// consumers (the mounted-pages window and the thumbnail rail) exactly
+/// where re-derivation starts — via the same BreaksDelta signal — and the
+/// estimate output must be cheap to materialize per page for thumbnails.
+#[test]
+fn deletion_shifts_the_window_via_breaks_delta() {
+    use azul_layout::PaginationSession;
+    let doc = |blocks: usize| -> azul_core::styled_dom::StyledDom {
+        let mut body = String::from(
+            r#"<html><head><style>* { margin:0; padding:0; } .p { height: 150px; }</style></head><body>"#,
+        );
+        for i in 0..blocks {
+            body.push_str(&format!(r#"<div class="p">block {i}</div>"#));
+        }
+        body.push_str("</body></html>");
+        Dom::from_xml_string(&body)
+    };
+    let doc_a = doc(6); // 900px on 200px pages
+    let doc_b = doc(4); // two blocks (~1.5 pages) deleted → 600px
+
+    let fc_cache = build_font_cache();
+    let mut font_manager = FontManager::new(fc_cache).expect("FontManager");
+    let renderer_resources = RendererResources::default();
+    let loader = PathLoader::new();
+    let viewport = LogicalRect {
+        origin: LogicalPosition::zero(),
+        size: LogicalSize::new(800.0, 200.0),
+    };
+    let mut session = PaginationSession::new();
+    let mut run = |session: &mut PaginationSession,
+                   dom: &azul_core::styled_dom::StyledDom,
+                   fm: &mut FontManager<_>| {
+        let mut debug_messages = Some(Vec::new());
+        session
+            .re_estimate(
+                dom,
+                viewport,
+                fm,
+                &BTreeMap::new(),
+                &mut debug_messages,
+                None,
+                &renderer_resources,
+                azul_core::resources::IdNamespace(0),
+                DomId::ROOT_ID,
+                |bytes: std::sync::Arc<rust_fontconfig::FontBytes>, index: usize| {
+                    loader.load_font_shared(bytes, index)
+                },
+                FakePageConfig::new(),
+                &azul_core::resources::ImageCache::default(),
+                azul_core::task::GetSystemTimeCallback {
+                    cb: azul_core::task::get_system_time_libstd,
+                },
+            )
+            .expect("re-estimate")
+    };
+
+    let _first = run(&mut session, &doc_a, &mut font_manager);
+    let breaks_a = session.info().expect("estimate").breaks.clone();
+    assert!(breaks_a.len() >= 3, "900px / 200px pages: {breaks_a:?}");
+
+    // The app's pre-deletion state: window shows pages 0..5, caret on the
+    // LAST page.
+    let old_page_count = session.info().unwrap().page_count;
+
+    let delta = run(&mut session, &doc_b, &mut font_manager);
+    // Both consumers read the SAME signal: everything before
+    // first_changed_page is untouched (window keeps those pages mounted,
+    // rail keeps those thumbnails); re-derivation starts there.
+    assert!(delta.page_count_changed, "{delta:?}");
+    assert!(
+        delta.unchanged_prefix_len >= 1,
+        "breaks before the deletion point are bit-for-bit unchanged: {delta:?}"
+    );
+    assert_eq!(delta.first_changed_page, delta.unchanged_prefix_len);
+    let new_info = session.info().unwrap();
+    assert!(
+        new_info.page_count < old_page_count,
+        "deleting ~1.5 pages shrinks the document: {} -> {}",
+        old_page_count,
+        new_info.page_count
+    );
+    // Window math (the app side of the example): a caret that sat on the
+    // old last page now sits on the new last page — its page index comes
+    // straight from the new spans, and it is >= first_changed_page (the
+    // shifted region), so the window re-derives from the signal alone.
+    let caret_y_new = 550.0; // inside the last remaining block
+    let spans = azul_layout::page_spans(&new_info.breaks, 600.0);
+    let caret_page = spans
+        .iter()
+        .position(|&(start, end)| caret_y_new >= start && caret_y_new < end)
+        .expect("caret lands on a page");
+    assert!(
+        caret_page >= delta.first_changed_page,
+        "the caret's page ({caret_page}) is in the re-derived region \
+         (>= {})",
+        delta.first_changed_page
+    );
+    // Structural mapping stays available for the re-derived region.
+    assert!(session.dom_breaks(&doc_b).is_some());
+}

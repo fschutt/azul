@@ -148,6 +148,21 @@ impl VirtualViewManager {
     /// Called after the `VirtualView` callback returns to record the actual content
     /// dimensions. If the new size is larger than previously recorded, clears
     /// the expansion flag to allow `BoundsExpanded` re-invocation.
+    /// The sizes the view's LAST invoke declared (scroll_size,
+    /// virtual_scroll_size) — the reinvoke signal feeds these back so the
+    /// callback's page math sees its own declared virtual extent (#16).
+    #[must_use] pub fn get_declared_sizes(
+        &self,
+        dom_id: DomId,
+        node_id: NodeId,
+    ) -> (Option<LogicalSize>, Option<LogicalSize>) {
+        self.states
+            .get(&(dom_id, node_id))
+            .map_or((None, None), |s| {
+                (s.virtual_view_scroll_size, s.virtual_view_virtual_scroll_size)
+            })
+    }
+
     pub fn update_virtual_view_info(
         &mut self,
         dom_id: DomId,
