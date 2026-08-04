@@ -1964,7 +1964,7 @@ impl WritingMode {
 }
 
 // Stage 1: Collection - Styled runs from DOM traversal
-#[derive(Debug, Clone, Hash)]
+#[derive(Debug, Clone, Hash, PartialEq)]
 pub struct StyledRun {
     pub text: String,
     pub style: Arc<StyleProperties>,
@@ -2152,7 +2152,7 @@ pub struct VerticalMetrics {
 // +spec:font-metrics:f2cd75 - em-over/em-under baselines intentionally not included (not used by CSS per spec)
 // +spec:inline-formatting-context:76cd57 - ascent/descent font metrics for inline formatting context layout
 // +spec:font-metrics:207e6b - ascent/descent metrics used for baseline calculations
-#[derive(Copy, Debug, Clone)]
+#[derive(Copy, Debug, Clone, PartialEq)]
 pub struct LayoutFontMetrics {
     pub ascent: f32,
     pub descent: f32,
@@ -2533,7 +2533,7 @@ impl Eq for PathSegment {}
 // content is CLEAN: len=1, ptr ok, disc-at-0=0). An explicit u8 tag at offset 0 (no niche) lowers to
 // a simple load the lift handles correctly — the layout other (repr(C,u8)) enums use. Not FFI-exposed
 // (internal to text3; only native shell code matches it), so the repr change is layout-safe.
-#[derive(Debug, Clone, Hash)]
+#[derive(Debug, Clone, Hash, PartialEq)]
 #[repr(C, u8)]
 pub enum InlineContent {
     Text(StyledRun),
@@ -4535,7 +4535,7 @@ pub struct VisualItem {
 // + LogicalItem (g117). ShapedItem is matched in measure Stage-5 (`match item { ShapedItem::Cluster ..}`)
 // + cloned/matched throughout shaping; a repr(Rust) niche disc mis-lifts on the web. Explicit u8 tag at
 // offset 0 = a simple load the lift reads correctly. Internal to text3 (not FFI-exposed).
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 #[repr(C, u8)]
 pub enum ShapedItem {
     Cluster(ShapedCluster),
@@ -4610,7 +4610,7 @@ impl ShapedItem {
 }
 
 /// A group of glyphs that corresponds to one or more source characters (a cluster).
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct ShapedCluster {
     /// The original text that this cluster was shaped from.
     /// This is crucial for correct hyphenation.
@@ -4647,7 +4647,7 @@ pub struct ShapedCluster {
 }
 
 /// A single, shaped glyph with its essential metrics.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct ShapedGlyph {
     /// The kind of glyph this is (character, hyphen, etc.).
     pub kind: GlyphKind,
