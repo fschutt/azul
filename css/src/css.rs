@@ -1004,6 +1004,11 @@ pub enum NodeTypeTag {
     After,
     Marker,
     Placeholder,
+
+    /// THE canonical page-break element (`<pagebreak/>` /
+    /// `Dom::create_page_break()`): an empty block with UA
+    /// `break-before: page`. CSS tag: `pagebreak`.
+    PageBreak,
 }
 
 /// Error returned when a CSS tag name string cannot be mapped to a [`NodeTypeTag`].
@@ -1268,6 +1273,7 @@ impl NodeTypeTag {
             "virtual-view" | "iframe" => Ok(Self::VirtualView),
             "icon" => Ok(Self::Icon),
             "geolocation-probe" => Ok(Self::GeolocationProbe),
+            "pagebreak" => Ok(Self::PageBreak),
 
             // Pseudo-elements (usually prefixed with ::)
             "before" | "::before" => Ok(Self::Before),
@@ -1499,6 +1505,7 @@ impl fmt::Display for NodeTypeTag {
             Self::VirtualView => write!(f, "virtual-view"),
             Self::Icon => write!(f, "icon"),
             Self::GeolocationProbe => write!(f, "geolocation-probe"),
+            Self::PageBreak => write!(f, "pagebreak"),
 
             // Pseudo-elements
             Self::Before => write!(f, "::before"),

@@ -311,6 +311,7 @@ impl CodegenBackend for RustBackend {
         NodeTypeTag::VirtualView => "NodeTypeTag::VirtualView",
         NodeTypeTag::Icon => "NodeTypeTag::Icon",
         NodeTypeTag::GeolocationProbe => "NodeTypeTag::GeolocationProbe",
+        NodeTypeTag::PageBreak => "NodeTypeTag::PageBreak",
 
         // Pseudo-elements
         NodeTypeTag::Before => "NodeTypeTag::Before",

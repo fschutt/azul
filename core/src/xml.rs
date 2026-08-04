@@ -2671,6 +2671,7 @@ html_tag_node_types! {
     "blockquote" => BlockQuote,
     "br" => Br,
     "hr" => Hr,
+    "pagebreak" => PageBreak,
     // Lists
     "ul" => Ul,
     "ol" => Ol,
@@ -4383,6 +4384,7 @@ fn builtin_map_compile_fn(
             builtin_component_def("blockquote", "Blockquote", Some(""), ""),
             builtin_component_def("br", "Line Break", None, ""),
             builtin_component_def("hr", "Horizontal Rule", None, ""),
+            builtin_component_def("pagebreak", "Page Break", None, ""),
             builtin_component_def("icon", "Icon", Some(""), ""),
             // Lists
             builtin_component_def("ul", "Unordered List", None, ""),

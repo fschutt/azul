@@ -18540,7 +18540,8 @@
                                 },
                                 "GeolocationProbe": {
                                     "type": "GeolocationProbeConfig"
-                                }
+                                },
+                                "PageBreak": {}
                             }
                         ],
                         "repr": "C, u8"
@@ -20231,7 +20232,8 @@
                                 "Before": {},
                                 "After": {},
                                 "Marker": {},
-                                "Placeholder": {}
+                                "Placeholder": {},
+                                "PageBreak": {}
                             }
                         ],
                         "repr": "C"

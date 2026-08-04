@@ -249,3 +249,231 @@ fn pagination_session_reports_unchanged_prefix_on_identical_re_estimate() {
         "structural mapping stays available from the session's caches"
     );
 }
+
+/// AZUL-STILL-TODO A3: estimation <-> materialization equivalence.
+///
+/// The v1 contract is BLOCK-GRANULAR (Word semantics): a break can only be
+/// materialized BEFORE a block, so lossless equivalence holds exactly when
+/// the estimated boundary coincides with a block top. This fixture aligns
+/// them **including sibling margins** — two 260px blocks with 20px collapsed
+/// margins put block 2's top at exactly y=300 = the 300px page boundary:
+///
+/// - the estimator yields one break at 300 whose spine path addresses block 2,
+/// - inserting `Dom::create_page_break()` (an empty UA-styled block) there
+///   must NOT move block 2 (margins keep collapsing through the empty
+///   element — the doc's explicit margin-collapse worry), and
+/// - re-estimating the materialized document yields the same boundary,
+///   now FORCED (the forced break wins over the coinciding interval).
+///
+/// For boundaries that fall MID-block, block-granular materialization
+/// legitimately snaps to the spine block's top — asserted separately below.
+#[test]
+fn materialized_breaks_reproduce_the_estimated_boundaries() {
+    const CSS: &str = r#"
+        * { margin: 0; padding: 0; }
+        .p { height: 260px; margin: 20px 0; }
+    "#;
+    fn blocks(n: usize) -> Vec<Dom> {
+        (0..n)
+            .map(|i| {
+                let mut d = Dom::create_div();
+                d.root.set_ids_and_classes(vec![
+                    azul_core::dom::IdOrClass::Class("p".into()),
+                ].into());
+                d.with_child(Dom::create_text(format!("block {i}")))
+            })
+            .collect()
+    }
+    let build = |break_child_idxs: &[usize]| -> azul_core::styled_dom::StyledDom {
+        let mut body = Dom::create_body();
+        let mut children = blocks(2);
+        let mut idxs = break_child_idxs.to_vec();
+        idxs.sort_unstable();
+        for &i in idxs.iter().rev() {
+            if i <= children.len() {
+                children.insert(i, Dom::create_page_break());
+            }
+        }
+        for c in children {
+            body = body.with_child(c);
+        }
+        let (css, _) = azul_css::parser2::new_from_str(CSS);
+        azul_core::styled_dom::StyledDom::create(&mut body, css)
+    };
+
+    // Estimate on the break-less document: blocks at y=20 and y=300.
+    let styled_a = build(&[]);
+    let (cache_a, pagination_a) = paginate_styled(&styled_a, 800.0, 300.0);
+    assert_eq!(
+        pagination_a.breaks.len(),
+        1,
+        "560px of content on 300px pages: exactly one break: {:?}",
+        pagination_a.breaks
+    );
+    assert!(
+        (pagination_a.breaks[0].y - 300.0).abs() < 1.0,
+        "the break must land on the page boundary at 300: {:?}",
+        pagination_a.breaks
+    );
+    let breaks_a = azul_layout::pagination_to_dom_breaks(&cache_a, &styled_a, &pagination_a)
+        .expect("mapped");
+    let path = breaks_a[0].path.clone().expect("aligned break maps to block 2");
+    let body_child_idx = *path.last().expect("non-empty path") as usize;
+
+    // Materialize the canonical element at the estimated position.
+    let styled_b = build(&[body_child_idx]);
+    let (cache_b, pagination_b) = paginate_styled(&styled_b, 800.0, 300.0);
+
+    // Content must not have moved: block 2 still starts at y=300 (sibling
+    // margins collapse THROUGH the empty break element).
+    let block2_dom = azul_core::dom::NodeId::new(
+        styled_b
+            .node_data
+            .as_ref()
+            .iter()
+            .enumerate()
+            .filter(|(_, nd)| format!("{:?}", nd.get_node_type()).contains("Div"))
+            .map(|(i, _)| i)
+            .nth(1)
+            .expect("second .p div"),
+    );
+    let tree_b = cache_b.tree.as_ref().expect("tree");
+    let li = *tree_b
+        .dom_to_layout
+        .get(&block2_dom)
+        .and_then(|v| v.first())
+        .expect("block 2 laid out");
+    let block2_y = cache_b.calculated_positions.get(li).map(|p| p.y).unwrap();
+    assert!(
+        (block2_y - 300.0).abs() < 1.0,
+        "inserting the empty break element must not move block 2 (margin \
+         collapse-through): got y={block2_y}"
+    );
+
+    // Same boundary, now forced.
+    assert_eq!(pagination_a.page_count, pagination_b.page_count);
+    assert_eq!(pagination_b.breaks.len(), 1, "{:?}", pagination_b.breaks);
+    let b = &pagination_b.breaks[0];
+    assert!(
+        (b.y - 300.0).abs() < 1.0 && b.kind == BreakKind::Forced,
+        "the materialized boundary is the SAME Y, now forced: {b:?}"
+    );
+}
+
+/// Block-granular caveat, characterized: a boundary estimated MID-block
+/// materializes at the spine block's TOP (the whole straddling block moves
+/// to the next page, Word-style) — the boundary snaps, it does not slice.
+#[test]
+fn midblock_breaks_materialize_at_the_spine_block_top() {
+    const CSS: &str = r#"
+        * { margin: 0; padding: 0; }
+        .p { height: 150px; }
+    "#;
+    fn blocks(n: usize) -> Vec<Dom> {
+        (0..n)
+            .map(|i| {
+                let mut d = Dom::create_div();
+                d.root.set_ids_and_classes(vec![
+                    azul_core::dom::IdOrClass::Class("p".into()),
+                ].into());
+                d.with_child(Dom::create_text(format!("block {i}")))
+            })
+            .collect()
+    }
+    // blocks at 0/150/300, page 200: break estimated at 200 (inside block 2),
+    // spine = block 3 (top 300).
+    let build = |break_child_idxs: &[usize]| -> azul_core::styled_dom::StyledDom {
+        let mut body = Dom::create_body();
+        let mut children = blocks(3);
+        for &i in break_child_idxs.iter().rev() {
+            children.insert(i, Dom::create_page_break());
+        }
+        for c in children {
+            body = body.with_child(c);
+        }
+        let (css, _) = azul_css::parser2::new_from_str(CSS);
+        azul_core::styled_dom::StyledDom::create(&mut body, css)
+    };
+    let styled_a = build(&[]);
+    let (cache_a, pagination_a) = paginate_styled(&styled_a, 800.0, 200.0);
+    let breaks_a = azul_layout::pagination_to_dom_breaks(&cache_a, &styled_a, &pagination_a)
+        .expect("mapped");
+    let first = breaks_a.iter().find(|b| b.path.is_some()).expect("mappable break");
+    assert!((first.y - 200.0).abs() < 1.0, "estimated mid-block: {first:?}");
+    let idx = *first.path.as_ref().unwrap().last().unwrap() as usize;
+
+    let styled_b = build(&[idx]);
+    let (_cache_b, pagination_b) = paginate_styled(&styled_b, 800.0, 200.0);
+    assert!(
+        pagination_b
+            .breaks
+            .iter()
+            .any(|b| b.kind == BreakKind::Forced && (b.y - 300.0).abs() < 1.0),
+        "the materialized break lands at the spine block's top (300), not at \
+         the mid-block estimate (200): {:?}",
+        pagination_b.breaks
+    );
+}
+
+/// Shared driver for StyledDom fixtures (the `paginate` helper builds from
+/// XML; this one takes a prepared StyledDom).
+fn paginate_styled(
+    styled_dom: &azul_core::styled_dom::StyledDom,
+    w: f32,
+    h: f32,
+) -> (Solver3LayoutCache, azul_layout::PaginationInfo) {
+    let fc_cache = build_font_cache();
+    let mut font_manager = FontManager::new(fc_cache).expect("FontManager");
+    let font_manager = &mut font_manager;
+    let mut layout_cache = Solver3LayoutCache {
+        tree: None,
+        calculated_positions: Vec::new(),
+        viewport: None,
+        scroll_ids: HashMap::new(),
+        scroll_id_to_node_id: HashMap::new(),
+        counters: HashMap::new(),
+        float_cache: HashMap::new(),
+        cache_map: Default::default(),
+        previous_positions: Vec::new(),
+        cached_display_list: None,
+        prev_dom_ptr: 0,
+        prev_viewport: LogicalRect {
+            origin: LogicalPosition::zero(),
+            size: LogicalSize::zero(),
+        },
+    };
+    let mut text_cache = TextLayoutCache::new();
+    let content_size = LogicalSize::new(w, h);
+    let fragmentation_context = FragmentationContext::new_paged(content_size);
+    let viewport = LogicalRect {
+        origin: LogicalPosition::zero(),
+        size: content_size,
+    };
+    let renderer_resources = RendererResources::default();
+    let mut debug_messages = Some(Vec::new());
+    let loader = PathLoader::new();
+    let pagination = compute_document_pagination(
+        &mut layout_cache,
+        &mut text_cache,
+        fragmentation_context,
+        styled_dom,
+        viewport,
+        font_manager,
+        &BTreeMap::new(),
+        &mut debug_messages,
+        None,
+        &renderer_resources,
+        azul_core::resources::IdNamespace(0),
+        DomId::ROOT_ID,
+        |bytes: std::sync::Arc<rust_fontconfig::FontBytes>, index: usize| {
+            loader.load_font_shared(bytes, index)
+        },
+        FakePageConfig::new(),
+        &azul_core::resources::ImageCache::default(),
+        azul_core::task::GetSystemTimeCallback {
+            cb: azul_core::task::get_system_time_libstd,
+        },
+    )
+    .expect("pagination should succeed");
+    (layout_cache, pagination)
+}

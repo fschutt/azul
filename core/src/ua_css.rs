@@ -102,6 +102,11 @@ static DISPLAY_INLINE_BLOCK: CssProperty =
 static DISPLAY_NONE: CssProperty =
     CssProperty::Display(CssPropertyValue::Exact(LayoutDisplay::None));
 
+/// break-before: page (the canonical `<pagebreak/>` element)
+static BREAK_BEFORE_PAGE: CssProperty = CssProperty::BreakBefore(CssPropertyValue::Exact(
+    azul_css::props::layout::fragmentation::PageBreak::Page,
+));
+
 /// display: table
 static DISPLAY_TABLE: CssProperty =
     CssProperty::Display(CssPropertyValue::Exact(LayoutDisplay::Table));
@@ -685,6 +690,8 @@ static BUTTON_BORDER_RIGHT_WIDTH: CssProperty =
         // Tables themselves should NOT have break-inside: avoid (they can span pages)
         (NT::Table, PT::Display) => Some(&DISPLAY_TABLE),
         // NOTE: Removed break-inside: avoid from Table - tables CAN break across pages
+        (NT::PageBreak, PT::Display) => Some(&DISPLAY_BLOCK),
+        (NT::PageBreak, PT::BreakBefore) => Some(&BREAK_BEFORE_PAGE),
         (NT::THead, PT::Display) => Some(&DISPLAY_TABLE_HEADER_GROUP),
         (NT::THead, PT::VerticalAlign) => Some(&VERTICAL_ALIGN_MIDDLE),
         (NT::THead, PT::BreakInside) => Some(&BREAK_INSIDE_AVOID),

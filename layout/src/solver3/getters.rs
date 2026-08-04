@@ -3384,11 +3384,30 @@ get_css_property_pixel!(
         return PageBreak::Auto;
     };
     let node_state = &styled_dom.styled_nodes.as_container()[id].styled_node_state;
-    // Negative fast path: break-* is almost never declared.
+    // UA fallback: node types with intrinsic break behavior (the canonical
+    // `<pagebreak/>` element carries UA `break-before: page`). The author
+    // bitset below knows nothing about UA properties, so this must be the
+    // miss path on BOTH branches, not `Auto`.
+    let ua_fallback = |styled_dom: &StyledDom| -> PageBreak {
+        let node_data = &styled_dom.node_data.as_container()[id];
+        azul_core::ua_css::get_ua_property(
+            node_data.get_node_type(),
+            azul_css::props::property::CssPropertyType::BreakBefore,
+        )
+        .and_then(|p| {
+            if let azul_css::props::property::CssProperty::BreakBefore(v) = p {
+                v.get_property().copied()
+            } else {
+                None
+            }
+        })
+        .unwrap_or(PageBreak::Auto)
+    };
+    // Negative fast path: break-* is almost never declared by authors.
     if node_state.is_normal() {
         if let Some(ref cc) = styled_dom.css_property_cache.ptr.compact_cache {
             if !cc.has_break(id.index()) {
-                return PageBreak::Auto;
+                return ua_fallback(styled_dom);
             }
         }
     }
@@ -3398,7 +3417,7 @@ get_css_property_pixel!(
         .ptr
         .get_break_before(node_data, &id, node_state)
         .and_then(|v| v.get_property().copied())
-        .unwrap_or(PageBreak::Auto)
+        .unwrap_or_else(|| ua_fallback(styled_dom))
 }
 
 /// Get break-after property for paged media

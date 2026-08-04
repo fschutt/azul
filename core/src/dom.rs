@@ -647,6 +647,12 @@ pub enum NodeType {
     /// these at end-of-layout and starts / stops the matching native
     /// subscription. See `SUPER_PLAN_2.md` §1.5 + research/08.
     GeolocationProbe(crate::geolocation::GeolocationProbeConfig),
+    /// THE canonical page-break element: an empty block the UA styles with
+    /// `break-before: page`. The pagination estimator and a screen DOM
+    /// treat it identically; sibling margins collapse through it, so
+    /// materializing an estimated break does not move content. XML tag:
+    /// `<pagebreak/>`; constructor: [`Dom::create_page_break`].
+    PageBreak,
 }
 
 /// Type alias: `BoxOrStatic<ImageRef>` — used by `NodeType::Image` for FFI monomorphization.
@@ -825,6 +831,7 @@ impl NodeType {
             VirtualView => VirtualView,
             Icon(s) => Icon(BoxOrStatic::heap(s.clone_self())),
             GeolocationProbe(cfg) => GeolocationProbe(*cfg),
+            Self::PageBreak => Self::PageBreak,
         }
     }
 
@@ -1027,6 +1034,7 @@ impl NodeType {
             Self::VirtualView => NodeTypeTag::VirtualView,
             Self::Icon(_) => NodeTypeTag::Icon,
             Self::GeolocationProbe(_) => NodeTypeTag::GeolocationProbe,
+            Self::PageBreak => NodeTypeTag::PageBreak,
             Self::Before => NodeTypeTag::Before,
             Self::After => NodeTypeTag::After,
             Self::Marker => NodeTypeTag::Marker,
@@ -4981,6 +4989,23 @@ impl Dom {
     #[inline]
     #[must_use] pub fn create_hr() -> Self {
         Self::create_node(NodeType::Hr)
+    }
+
+    /// Creates THE canonical page-break element: a zero-size block with
+    /// `break-before: page`, carrying the `__azul-native-pagebreak` class.
+    ///
+    /// This is the one break element the pagination estimator and a screen
+    /// DOM treat identically (see `pagination_to_dom_breaks` in
+    /// azul-layout): an application materializes an estimated break by
+    /// inserting this node at the returned child-index path, and the layout
+    /// of the surrounding content does not move - the element is an empty
+    /// block with no margins, borders or padding, so sibling margins keep
+    /// collapsing through it exactly as they did without it.
+    ///
+    /// The XML pipeline's `<pagebreak/>` builtin renders the equivalent
+    /// element.
+    #[must_use] pub fn create_page_break() -> Self {
+        Self::create_node(NodeType::PageBreak)
     }
 
     // Additional Element Constructors
