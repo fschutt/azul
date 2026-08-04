@@ -444,6 +444,17 @@ pub struct TextInputEventData {
     pub old_text: String,
 }
 
+/// Carried by `EventType::DocumentEdit` events: identifies WHICH pending
+/// structural changeset this notification is for (the app acks with the same
+/// id via `mark_document_edit_applied`). The full changeset is intentionally
+/// NOT copied onto the event — it stays single-instance in the window
+/// (one-pending-changeset model).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct DocumentEditEventData {
+    /// The commit-handshake id of the recorded changeset.
+    pub changeset_id: u64,
+}
+
 /// Union of all possible event data types.
 #[derive(Debug, Clone, PartialEq)]
 pub enum EventData {
@@ -459,6 +470,8 @@ pub enum EventData {
     Clipboard(ClipboardEventData),
     /// Text-input (editing) event data
     TextInput(TextInputEventData),
+    /// Structural document-edit notification data
+    DocumentEdit(DocumentEditEventData),
     /// Lifecycle event data
     Lifecycle(LifecycleEventData),
     /// Window event data
@@ -694,6 +707,17 @@ pub enum EventType {
     /// A keyring store / get / delete operation completed. Read the outcome
     /// via `CallbackInfo::get_keyring_result`.
     KeyringResult,
+
+    // Structural document editing (C11 — synthesized once per recorded
+    // changeset by the LayoutWindow's document-edit EventProvider).
+    /// A STRUCTURAL document edit (Enter split / Backspace merge / wrap /
+    /// selection-spanning replace…) was recorded and awaits the app's
+    /// apply-and-ack. Fired ONCE per changeset so the app's apply loop is
+    /// prompt instead of polling `get_pending_document_edit()` on its next
+    /// unrelated callback. The changeset id rides on
+    /// `EventData::DocumentEdit`; the full changeset is read via
+    /// `CallbackInfo` / `LayoutWindow::get_pending_document_edit()`.
+    DocumentEdit,
 }
 
 /// Unified event wrapper (similar to React's `SyntheticEvent`).
@@ -1297,6 +1321,7 @@ fn matches_focus_filter(
         (ScrollStart, EventType::ScrollStart) => true,
         (ScrollEnd, EventType::ScrollEnd) => true,
         (TextInput, EventType::Input) => true,
+        (FocusEventFilter::DocumentEdit, EventType::DocumentEdit) => true,
         (VirtualKeyDown, EventType::KeyDown) => true,
         (VirtualKeyUp, EventType::KeyUp) => true,
         (FocusReceived, EventType::Focus) => true,
@@ -2020,6 +2045,10 @@ pub enum FocusEventFilter {
     Cut,
     /// Content is about to be pasted into the focused element (W3C `paste`)
     Paste,
+    /// A structural document edit was recorded on (or under) the focused
+    /// element and awaits the app's apply-and-ack (see
+    /// `EventType::DocumentEdit`). APPENDED at the end for ABI stability.
+    DocumentEdit,
 }
 
 /// Event filter that fires when any action fires on the entire window
@@ -2379,6 +2408,7 @@ impl From<On> for EventFilter {
             MouseLeave => Self::Hover(HoverEventFilter::MouseLeave),
             Scroll => Self::Hover(HoverEventFilter::Scroll),
             TextInput => Self::Focus(FocusEventFilter::TextInput), // focus!
+            On::DocumentEdit => Self::Focus(FocusEventFilter::DocumentEdit), // focus!
             VirtualKeyDown => Self::Window(WindowEventFilter::VirtualKeyDown), // window!
             VirtualKeyUp => Self::Window(WindowEventFilter::VirtualKeyUp), // window!
             HoveredFile => Self::Hover(HoverEventFilter::HoveredFile),

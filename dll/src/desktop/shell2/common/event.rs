@@ -4911,8 +4911,19 @@ pub trait PlatformWindow {
             )
         });
 
+        // C11: the pending STRUCTURAL edit's push notification — an owned
+        // snapshot provider (target + id + notified flag), emitting one
+        // DocumentEdit event per changeset. Marked delivered right after
+        // determination below.
+        let document_edit_provider = self
+            .get_layout_window()
+            .map(|w| w.document_edit_event_provider());
+
         // Build list of EventProvider managers
         let mut event_providers: Vec<&dyn azul_core::events::EventProvider> = Vec::new();
+        if let Some(p) = document_edit_provider.as_ref() {
+            event_providers.push(p as &dyn azul_core::events::EventProvider);
+        }
         if let Some((tm, sm, gm, geo, pm, bm, km)) = providers_ref {
             event_providers.push(tm as &dyn azul_core::events::EventProvider);
             event_providers.push(sm as &dyn azul_core::events::EventProvider);
@@ -4960,6 +4971,16 @@ pub trait PlatformWindow {
         // collected their events (the immutable event_providers borrow ended
         // above). One SensorChanged/GamepadInput fires per change, not per frame.
         if let Some(w) = self.get_layout_window_mut() {
+            // C11: the DocumentEdit notification (if any) was collected by THIS
+            // pass's determination and will be dispatched below — one event per
+            // changeset. From here on, a re-render without an ack rejects the
+            // edit (drop honored in layout_and_generate_display_list).
+            if synthetic_events
+                .iter()
+                .any(|e| e.event_type == azul_core::events::EventType::DocumentEdit)
+            {
+                w.mark_document_edit_notified();
+            }
             w.sensor_manager.clear_pending_event();
             w.gamepad_manager.clear_pending_event();
             w.geolocation_manager.clear_pending_event();

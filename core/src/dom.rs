@@ -1225,6 +1225,12 @@ pub enum On {
     Increment,
     /// Decrement value (e.g., number input, slider)
     Decrement,
+    /// A structural document edit (split / merge / wrap / replace…) was
+    /// recorded on (or under) this element and awaits the app's
+    /// apply-and-ack (fires once per changeset; focus-scoped, bubbles to
+    /// the contenteditable root). APPENDED at the enum tail for ABI
+    /// stability.
+    DocumentEdit,
 }
 
 /// Contains the necessary information to render an embedded `VirtualView` node.

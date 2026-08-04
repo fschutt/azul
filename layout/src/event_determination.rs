@@ -265,6 +265,36 @@ fn get_all_hovered_nodes(
 // Instant is a ref-counted FFI clock handle threaded through the event loop by value.
 #[allow(clippy::needless_pass_by_value)]
 #[allow(clippy::too_many_lines, clippy::cognitive_complexity)] // large but cohesive: single-purpose layout/render/parse routine (one branch per case)
+/// `EventProvider` for the window's pending STRUCTURAL edit (C11): emits one
+/// `EventType::DocumentEdit` targeted at the changeset's node, once per
+/// changeset id. Constructed per pass by
+/// `LayoutWindow::document_edit_event_provider`; the dispatcher marks the
+/// notification delivered after determination, so subsequent passes stay
+/// silent while the same edit is pending.
+pub struct DocumentEditEventProvider {
+    /// (changeset target node, changeset id), if an edit is pending.
+    pub pending: Option<(DomNodeId, u64)>,
+    /// True once this changeset's notification has been delivered.
+    pub already_notified: bool,
+}
+
+impl EventProvider for DocumentEditEventProvider {
+    fn get_pending_events(&self, timestamp: Instant) -> Vec<SyntheticEvent> {
+        match self.pending {
+            Some((target, id)) if !self.already_notified => vec![SyntheticEvent::new(
+                EventType::DocumentEdit,
+                EventSource::User,
+                target,
+                timestamp,
+                EventData::DocumentEdit(azul_core::events::DocumentEditEventData {
+                    changeset_id: id,
+                }),
+            )],
+            _ => Vec::new(),
+        }
+    }
+}
+
 pub fn determine_all_events(
     current_state: &FullWindowState,
     previous_state: &FullWindowState,

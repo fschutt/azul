@@ -36068,7 +36068,15 @@
                                 "CompositionEnd": {},
                                 "Copy": {},
                                 "Cut": {},
-                                "Paste": {}
+                                "Paste": {},
+                                "DocumentEdit": {
+                                    "doc": [
+                                        "A structural document edit (split / merge / wrap / replace...) was recorded on (or under)",
+                                        "the focused element and awaits the app's apply-and-ack. Fires ONCE per changeset; read the",
+                                        "changeset via the window's pending-document-edit accessor, ack with mark_document_edit_applied.",
+                                        "A re-render without an ack rejects (drops) the edit. APPENDED at the enum tail for ABI stability."
+                                    ]
+                                }
                             }
                         ],
                         "repr": "C"

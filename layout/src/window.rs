@@ -923,6 +923,12 @@ pub struct LayoutWindow {
     /// commit handshake) or dropped-with-warning at the next re-render if the
     /// app rejected it.
     pub pending_document_edit: Option<crate::managers::changeset::DocumentChangeset>,
+    /// Id of the pending structural edit whose `EventType::DocumentEdit`
+    /// notification has been DELIVERED to the app (set by the shared event
+    /// dispatcher after determination). Once notified, an app re-render
+    /// without an ack means rejection — `layout_and_generate_display_list`
+    /// then drops the edit with a warning, honoring the documented promise.
+    pub document_edit_notified: Option<u64>,
     /// Resume point of an ACKED structural edit, waiting for the app's
     /// re-render to land so the caret can be re-established against the NEW
     /// generation (resolved + cleared at the tail of
@@ -1130,6 +1136,7 @@ impl LayoutWindow {
             currently_dragging_thumb: None,
             text_input_manager: crate::managers::text_input::TextInputManager::new(),
             pending_document_edit: None,
+            document_edit_notified: None,
             pending_caret_restore: None,
             structural_history_suppression: None,
             pagination_dirty_from: None,
@@ -1250,6 +1257,27 @@ impl LayoutWindow {
         self.sync_frame_report();
         self.frame_report.layout_passes = self.frame_report.layout_passes.saturating_add(1);
 
+        // Honor the documented rejection path: the app was NOTIFIED of the
+        // pending structural edit (its `DocumentEdit` callback ran on an
+        // earlier pass) and still re-rendered without acking - drop the edit
+        // with a warning and end its previews. The preview-materializing
+        // relayout right after `record_document_edit` is NOT affected: the
+        // notification hasn't been delivered at that point, so
+        // `document_edit_notified` is still `None`.
+        if let Some(pending) = &self.pending_document_edit {
+            if self.document_edit_notified == Some(pending.id) {
+                #[cfg(debug_assertions)]
+                eprintln!(
+                    "[azul][document-edit] dropping un-acked structural edit #{} - the app \
+                     was notified and re-rendered without applying or rejecting it",
+                    pending.id
+                );
+                self.pending_document_edit = None;
+                self.document_edit_notified = None;
+                self.end_structural_previews();
+            }
+        }
+
         // Clear previous results for a full relayout
         self.layout_results.clear();
 
@@ -1355,6 +1383,7 @@ impl LayoutWindow {
         // clean subtree that lacks them.
         self.layout_cache.reset_incremental();
 
+        self.document_edit_notified = None;
         if let Some(stale) = self.pending_document_edit.replace(changeset) {
             #[cfg(debug_assertions)]
             eprintln!(
@@ -1374,6 +1403,34 @@ impl LayoutWindow {
         &self,
     ) -> Option<&crate::managers::changeset::DocumentChangeset> {
         self.pending_document_edit.as_ref()
+    }
+
+    /// Event provider for the pending structural edit: emits ONE
+    /// `EventType::DocumentEdit` per recorded changeset (C11 — the push
+    /// notification that replaces app-side polling). The shared dispatcher
+    /// includes it in event determination and calls
+    /// [`Self::mark_document_edit_notified`] afterwards.
+    #[must_use] pub fn document_edit_event_provider(
+        &self,
+    ) -> crate::event_determination::DocumentEditEventProvider {
+        crate::event_determination::DocumentEditEventProvider {
+            pending: self
+                .pending_document_edit
+                .as_ref()
+                .map(|c| (c.target, c.id)),
+            already_notified: self
+                .pending_document_edit
+                .as_ref()
+                .is_some_and(|c| self.document_edit_notified == Some(c.id)),
+        }
+    }
+
+    /// Record that the pending edit's `DocumentEdit` notification was
+    /// delivered this pass. From here on, an app re-render WITHOUT an ack is
+    /// a rejection: `layout_and_generate_display_list` drops the edit
+    /// (the documented promise).
+    pub fn mark_document_edit_notified(&mut self) {
+        self.document_edit_notified = self.pending_document_edit.as_ref().map(|c| c.id);
     }
 
     /// Drain the topmost document-space Y whose content changed since the
@@ -2070,6 +2127,7 @@ impl LayoutWindow {
             if let Some(edit) = self.pending_document_edit.take() {
                 self.pending_caret_restore = Some(edit.resume);
             }
+            self.document_edit_notified = None;
             self.end_structural_previews();
             true
         } else {
@@ -2103,6 +2161,7 @@ impl LayoutWindow {
             return false;
         };
         self.pending_caret_restore = Some(edit.resume.clone());
+        self.document_edit_notified = None;
         self.end_structural_previews();
         let entry = crate::managers::undo_redo::StructuralUndoEntry {
             op: edit.operation,
@@ -10480,6 +10539,9 @@ impl LayoutWindow {
             // and a changeset still pending AT a reconcile means the app
             // re-rendered without acking it — a rejected edit.
             pending_document_edit,
+            // Dropped together with the pending edit below (a notification id
+            // without its edit is meaningless).
+            document_edit_notified,
             // Deliberately generation-STABLE (host key + child-index path) —
             // that is its whole point; resolved against the new tree at the
             // layout tail, nothing to remap here.
@@ -10499,7 +10561,9 @@ impl LayoutWindow {
             );
             #[cfg(not(debug_assertions))]
             let _ = rejected;
+            *document_edit_notified = None;
         }
+        let _ = document_edit_notified;
 
         scroll_manager.remap_node_ids(dom, map);
         gesture_drag_manager.remap_node_ids(dom, map);
