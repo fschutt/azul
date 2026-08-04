@@ -228,6 +228,68 @@ extern "C" fn cursor_blink_timer_destructor(_: RefAny) {
 }
 
 // ============================================================================
+// Caret / Selection Tween Timer Callback
+// ============================================================================
+
+/// App-global system-animation configuration, set ONCE by `App::create` from
+/// `AppConfig.system_animations`. `LayoutWindow`s read it lazily (defaults
+/// when no App exists, e.g. unit tests / e2e harness); a per-window
+/// `system_animations_override` field wins over the global so tests can
+/// configure tweens without racing this process-wide slot.
+static SYSTEM_ANIMATIONS: std::sync::OnceLock<azul_core::resources::SystemAnimations> =
+    std::sync::OnceLock::new();
+
+/// Install the app-global system-animation configuration (first caller wins;
+/// intended to be `App::create`, exactly once per process).
+pub fn set_global_system_animations(sa: azul_core::resources::SystemAnimations) {
+    let _ = SYSTEM_ANIMATIONS.set(sa);
+}
+
+fn global_system_animations() -> &'static azul_core::resources::SystemAnimations {
+    SYSTEM_ANIMATIONS.get_or_init(Default::default)
+}
+
+/// Data for the tween timer: the shared "in flight" flag published by
+/// `TextTweenState::publish_active`, so the timer can self-terminate.
+#[derive(Debug)]
+pub struct TweenTimerData {
+    pub active: std::sync::Arc<core::sync::atomic::AtomicBool>,
+}
+
+/// Callback for the caret / selection tween driver timer (~16ms).
+///
+/// While a tween is in flight it forces the caret VISIBLE (the framework's
+/// hard-wired "no blinking during animation" rule — `SetCursorVisibility`
+/// also regenerates the display list, which is what advances the tween via
+/// `LayoutWindow::apply_text_tweens`). When the tween state goes idle the
+/// callback terminates the timer.
+#[must_use] pub extern "C" fn caret_tween_timer_callback(
+    mut data: RefAny,
+    mut info: crate::timer::TimerCallbackInfo,
+) -> azul_core::callbacks::TimerCallbackReturn {
+    use azul_core::{callbacks::TimerCallbackReturn, task::TerminateTimer};
+
+    let active = data
+        .downcast_ref::<TweenTimerData>()
+        .map(|d| d.active.load(core::sync::atomic::Ordering::Acquire))
+        .unwrap_or(false);
+
+    if !active {
+        return TimerCallbackReturn {
+            should_update: azul_core::callbacks::Update::DoNothing,
+            should_terminate: TerminateTimer::Terminate,
+        };
+    }
+
+    info.set_cursor_visibility(true);
+
+    TimerCallbackReturn {
+        should_update: azul_core::callbacks::Update::DoNothing,
+        should_terminate: TerminateTimer::Continue,
+    }
+}
+
+// ============================================================================
 // Tooltip Delay Timer Callback
 // ============================================================================
 
@@ -911,6 +973,10 @@ pub struct LayoutWindow {
     /// System style (colors, fonts, metrics) for resolving system color keywords
     /// Set via `set_system_style()` from the shell after window creation
     pub system_style: Option<Arc<azul_css::system::SystemStyle>>,
+    /// Per-window override of the app-global system-animation configuration
+    /// (`set_global_system_animations`). `None` = use the global. Mostly for
+    /// tests, which must not race the process-wide slot.
+    pub system_animations_override: Option<azul_core::resources::SystemAnimations>,
     /// Shared monitor list — initialized once at app start, updated by the platform
     /// layer on monitor topology changes. Arc<Mutex> allows zero-cost sharing
     /// across all `CallbackInfoRefData` without cloning the Vec each time.
@@ -1051,6 +1117,7 @@ impl LayoutWindow {
             gamepad_manager: crate::managers::gamepad::GamepadManager::new(),
             safe_area_insets: azul_css::system::SafeAreaInsets::default(),
             timers: BTreeMap::new(),
+            system_animations_override: None,
             threads: BTreeMap::new(),
             renderer_resources: RendererResources::default(),
             renderer_type: None,
@@ -2823,7 +2890,10 @@ impl LayoutWindow {
             self.gpu_state_manager.get_or_create_cache(dom_id).clone()
         };
 
-        let cursor_is_visible = self.text_edit_manager.should_draw_cursor();
+        // A tween in flight forces the caret solid: the framework suppresses
+        // blinking while the caret / selection is animating (user directive).
+        let cursor_is_visible = self.text_edit_manager.should_draw_cursor()
+            || self.text_edit_manager.tween.is_active();
         let cursor_locations = self.text_edit_manager.build_cursor_locations();
 
         let mut display_list = {
@@ -3113,6 +3183,17 @@ impl LayoutWindow {
                         });
                 }
             }
+        }
+
+        // Caret / selection tween post-pass: compare the freshly built caret /
+        // selection geometry against what the previous frame rendered and, if
+        // a tween is configured and in flight, PATCH the display-list items
+        // with interpolated rects (the solver's cached DL keeps the true
+        // geometry — Arc::make_mut copies before the patch, same contract as
+        // the VirtualView placeholder swap above).
+        {
+            let now = (system_callbacks.get_system_time_fn.cb)();
+            self.apply_text_tweens(dom_id, &mut display_list, now);
         }
 
         // Store the final layout result for this DOM. `styled_dom` was passed
@@ -4473,6 +4554,285 @@ impl LayoutWindow {
             interval: azul_core::task::OptionDuration::Some(interval),
             timeout: azul_core::task::OptionDuration::None,
             callback: TimerCallback::create(cursor_blink_timer_callback),
+        }
+    }
+
+    /// Create the caret / selection tween driver timer (~16ms).
+    ///
+    /// `RefAny` data = [`TweenTimerData`] sharing `tween.tick_flag`, so the
+    /// callback self-terminates the tick after both tweens finish.
+    #[must_use] pub fn create_caret_tween_timer(&self) -> Timer {
+        use crate::timer::{Timer, TimerCallback};
+        use azul_core::refany::RefAny;
+
+        let refany = RefAny::new(TweenTimerData {
+            active: self.text_edit_manager.tween.tick_flag.clone(),
+        });
+
+        Timer {
+            refany,
+            node_id: None.into(),
+            created: Instant::now(),
+            run_count: 0,
+            last_run: azul_core::task::OptionInstant::None,
+            delay: azul_core::task::OptionDuration::None,
+            interval: azul_core::task::OptionDuration::Some(
+                azul_core::task::Duration::from_millis(16),
+            ),
+            timeout: azul_core::task::OptionDuration::None,
+            callback: TimerCallback::create(caret_tween_timer_callback),
+        }
+    }
+
+    /// The system-animation configuration this window runs with: the
+    /// per-window override if set (tests), else the app-global one
+    /// installed by `App::create`.
+    #[must_use] pub fn effective_system_animations(&self) -> &azul_core::resources::SystemAnimations {
+        self.system_animations_override
+            .as_ref()
+            .unwrap_or_else(|| global_system_animations())
+    }
+
+    /// Caret / selection tween post-pass over a freshly built display list.
+    ///
+    /// Compares the caret rect (LAST `CursorRect` item = primary caret) and
+    /// the selection band (`SelectionRect` items, in list order) against what
+    /// the previous frame RENDERED for this window. On change, (re)arms a
+    /// tween starting FROM the previously rendered geometry (mid-flight
+    /// retargets stay continuous); while a tween is in flight, evaluates the
+    /// user-configured interpolator from `AppConfig.system_animations` and
+    /// patches the display-list items with the returned geometry. The solver
+    /// cache keeps the true geometry (`Arc::make_mut`).
+    ///
+    /// The 16ms driver timer is armed by the shared event dispatcher
+    /// (`process_window_events` tail) whenever `tween.is_active()`.
+    fn apply_text_tweens(
+        &mut self,
+        dom_id: DomId,
+        display_list: &mut Arc<solver3::display_list::DisplayList>,
+        now: Instant,
+    ) {
+        use azul_core::callbacks::{CaretTweenInfo, SelectionTweenInfo};
+
+        use crate::managers::text_edit::{CaretTweenTrack, SelectionTweenTrack};
+
+        let cfg = self.effective_system_animations().clone();
+        let caret_ms = cfg.caret_tween_duration_ms;
+        let sel_ms = cfg.selection_tween_duration_ms;
+
+        if caret_ms == 0 && sel_ms == 0 {
+            if self.text_edit_manager.tween.is_active()
+                || self.text_edit_manager.tween.last_caret.is_some()
+                || !self.text_edit_manager.tween.last_selection.is_empty()
+            {
+                self.text_edit_manager.tween.reset();
+            }
+            return;
+        }
+
+        // Only the DOM that owns the editing session is tracked; a rebuild of
+        // some OTHER dom (popup, menu) must not disturb the tween. No editing
+        // session at all resets tracking (focus lost).
+        let editing_dom = self.text_edit_manager.get_editing_dom_id().or({
+            // Cross-block selections keep rendering while multi_cursor may be
+            // parked; treat the rebuilt dom as the editing dom in that case.
+            if self.text_edit_manager.cross_block.is_some() {
+                Some(dom_id)
+            } else {
+                None
+            }
+        });
+        match editing_dom {
+            None => {
+                if self.text_edit_manager.tween.dom_id.is_some() {
+                    self.text_edit_manager.tween.reset();
+                }
+                return;
+            }
+            Some(ed) if ed != dom_id => return,
+            Some(_) => {}
+        }
+        if self.text_edit_manager.tween.dom_id != Some(dom_id) {
+            self.text_edit_manager.tween.reset();
+            self.text_edit_manager.tween.dom_id = Some(dom_id);
+        }
+
+        // Scan the built list: last CursorRect = primary caret; SelectionRect
+        // items in order = the selection band.
+        let mut caret_idx: Option<usize> = None;
+        let mut sel_idx: Vec<usize> = Vec::new();
+        for (i, item) in display_list.items.iter().enumerate() {
+            match item {
+                solver3::display_list::DisplayListItem::CursorRect { .. } => {
+                    caret_idx = Some(i);
+                }
+                solver3::display_list::DisplayListItem::SelectionRect { .. } => {
+                    sel_idx.push(i);
+                }
+                _ => {}
+            }
+        }
+
+        let tween = &mut self.text_edit_manager.tween;
+
+        // ---- caret ----
+        let mut caret_patch: Option<(usize, LogicalRect)> = None;
+        match caret_idx {
+            Some(idx) => {
+                let current = match &display_list.items[idx] {
+                    solver3::display_list::DisplayListItem::CursorRect { bounds, .. } => bounds.0,
+                    _ => unreachable!(),
+                };
+                if caret_ms == 0 {
+                    tween.caret = None;
+                    tween.last_caret = Some(current);
+                } else {
+                    match &mut tween.caret {
+                        Some(trk) if trk.to != current => {
+                            // Target moved mid-flight: retarget FROM the
+                            // previously rendered rect, restart the clock.
+                            trk.from = tween.last_caret.unwrap_or(current);
+                            trk.to = current;
+                            trk.start = now.clone();
+                        }
+                        Some(_) => {
+                            // In flight toward a stable target: let t advance.
+                        }
+                        None => {
+                            if let Some(last) = tween.last_caret {
+                                if last != current {
+                                    tween.caret = Some(CaretTweenTrack {
+                                        from: last,
+                                        to: current,
+                                        start: now.clone(),
+                                    });
+                                }
+                            }
+                        }
+                    }
+                    let rendered = match &tween.caret {
+                        Some(trk) => {
+                            let elapsed =
+                                now.duration_since(&trk.start).as_millis_u64() as f32;
+                            let t = elapsed / caret_ms as f32;
+                            if t >= 1.0 {
+                                tween.caret = None;
+                                current
+                            } else {
+                                let info = CaretTweenInfo {
+                                    past: trk.from,
+                                    current,
+                                    t,
+                                };
+                                (cfg.caret_tween.cb)(cfg.caret_tween_data.clone(), info)
+                            }
+                        }
+                        None => current,
+                    };
+                    if rendered != current {
+                        caret_patch = Some((idx, rendered));
+                    }
+                    tween.last_caret = Some(rendered);
+                }
+            }
+            None => {
+                tween.caret = None;
+                tween.last_caret = None;
+            }
+        }
+
+        // ---- selection ----
+        let mut sel_patch: Vec<(usize, LogicalRect)> = Vec::new();
+        if sel_idx.is_empty() {
+            tween.selection = None;
+            tween.last_selection.clear();
+        } else {
+            let current: Vec<LogicalRect> = sel_idx
+                .iter()
+                .map(|&i| match &display_list.items[i] {
+                    solver3::display_list::DisplayListItem::SelectionRect { bounds, .. } => {
+                        bounds.0
+                    }
+                    _ => unreachable!(),
+                })
+                .collect();
+            if sel_ms == 0 {
+                tween.selection = None;
+                tween.last_selection = current;
+            } else {
+                match &mut tween.selection {
+                    Some(trk) if trk.to != current => {
+                        trk.from = tween.last_selection.clone();
+                        trk.to = current.clone();
+                        trk.start = now.clone();
+                    }
+                    Some(_) => {}
+                    None => {
+                        if !tween.last_selection.is_empty() && tween.last_selection != current {
+                            tween.selection = Some(SelectionTweenTrack {
+                                from: tween.last_selection.clone(),
+                                to: current.clone(),
+                                start: now.clone(),
+                            });
+                        }
+                    }
+                }
+                let rendered: Vec<LogicalRect> = match &tween.selection {
+                    Some(trk) => {
+                        let elapsed = now.duration_since(&trk.start).as_millis_u64() as f32;
+                        let t = elapsed / sel_ms as f32;
+                        if t >= 1.0 {
+                            tween.selection = None;
+                            current.clone()
+                        } else {
+                            let info = SelectionTweenInfo {
+                                past: trk.from.clone().into(),
+                                current: current.clone().into(),
+                                t,
+                            };
+                            let out =
+                                (cfg.selection_tween.cb)(cfg.selection_tween_data.clone(), info);
+                            let out: Vec<LogicalRect> = out.into_library_owned_vec();
+                            // Contract: the interpolator must return exactly
+                            // one rect per current rect; anything else falls
+                            // back to the unanimated current geometry.
+                            if out.len() == current.len() {
+                                out
+                            } else {
+                                current.clone()
+                            }
+                        }
+                    }
+                    None => current.clone(),
+                };
+                for ((&item_i, r), c) in sel_idx.iter().zip(rendered.iter()).zip(current.iter())
+                {
+                    if r != c {
+                        sel_patch.push((item_i, *r));
+                    }
+                }
+                tween.last_selection = rendered;
+            }
+        }
+
+        tween.publish_active();
+
+        if caret_patch.is_some() || !sel_patch.is_empty() {
+            let dl_mut = Arc::make_mut(display_list);
+            if let Some((idx, r)) = caret_patch {
+                if let solver3::display_list::DisplayListItem::CursorRect { bounds, .. } =
+                    &mut dl_mut.items[idx]
+                {
+                    bounds.0 = r;
+                }
+            }
+            for (idx, r) in sel_patch {
+                if let solver3::display_list::DisplayListItem::SelectionRect { bounds, .. } =
+                    &mut dl_mut.items[idx]
+                {
+                    bounds.0 = r;
+                }
+            }
         }
     }
 
@@ -8255,8 +8615,10 @@ impl LayoutWindow {
         // Get GPU cache for this DOM
         let gpu_cache = self.gpu_state_manager.get_or_create_cache(dom_id).clone();
 
-        // Get cursor state for display list generation
-        let cursor_is_visible = self.text_edit_manager.should_draw_cursor();
+        // Get cursor state for display list generation. A tween in flight
+        // forces the caret solid (blinking is suppressed while animating).
+        let cursor_is_visible = self.text_edit_manager.should_draw_cursor()
+            || self.text_edit_manager.tween.is_active();
         let cursor_locations = self.text_edit_manager.build_cursor_locations();
         let text_selections_map = self.text_edit_manager.build_text_selections_map();
 
@@ -8337,8 +8699,19 @@ impl LayoutWindow {
                         }
                     }
                 }
+                // Caret / selection tween post-pass. This display-list-only
+                // path is the one the tween driver timer regenerates through
+                // (SetCursorVisibility), so the tween ADVANCES here; the full
+                // relayout path has the twin call before its own store.
+                let mut display_list = Arc::new(display_list);
+                {
+                    let now = (crate::callbacks::ExternalSystemCallbacks::rust_internal()
+                        .get_system_time_fn
+                        .cb)();
+                    self.apply_text_tweens(dom_id, &mut display_list, now);
+                }
                 if let Some(layout_result) = self.layout_results.get_mut(&dom_id) {
-                    layout_result.display_list = Arc::new(display_list);
+                    layout_result.display_list = display_list;
                 }
                 // The repaint `TextEditManager::mark_dirty` asked for has now
                 // been delivered — this is the display-list-only path that
@@ -10076,6 +10449,8 @@ impl LayoutWindow {
             #[cfg(feature = "pdf")]
             fragmentation_context: _,
             safe_area_insets: _,
+            // App-level animation CONFIG (durations + fn pointers), no node ids.
+            system_animations_override: _,
             timers: _,
             threads: _,
             renderer_type: _,

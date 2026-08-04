@@ -95,6 +95,19 @@ impl App {
         // Discover the real system style (replaces the hard-coded default from AppConfig::create)
         app_config.system_style = discover_system_style();
 
+        // Apply the AppConfig system-animation overrides ON TOP of discovery:
+        // the user's scroll physics (momentum / overscroll / wheel-vs-trackpad
+        // curves) must survive the discovery overwrite above, and the tween
+        // configuration becomes the app-global default LayoutWindows read.
+        if let azul_css::props::style::scrollbar::OptionScrollPhysics::Some(p) =
+            app_config.system_animations.scroll_physics
+        {
+            app_config.system_style.scroll_physics = p;
+        }
+        azul_layout::window::set_global_system_animations(
+            app_config.system_animations.clone(),
+        );
+
         // Set the icon resolver from the layout crate (the default resolver in core is a no-op)
         app_config.icon_provider.set_resolver(azul_layout::icon::default_icon_resolver);
 

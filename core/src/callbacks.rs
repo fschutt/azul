@@ -46,7 +46,10 @@ use rust_fontconfig::{FcFontCache, OwnedFontSource};
 
 use crate::{
     dom::{Dom, DomId, DomNodeId, EventFilter, OptionDom},
-    geom::{LogicalPosition, LogicalRect, LogicalSize, OptionLogicalPosition, PhysicalSize},
+    geom::{
+        LogicalPosition, LogicalRect, LogicalRectVec, LogicalSize, OptionLogicalPosition,
+        PhysicalSize,
+    },
     gl::OptionGlContextPtr,
     hit_test::OverflowingScrollNode,
     id::{NodeDataContainer, NodeDataContainerRef, NodeDataContainerRefMut, NodeId},
@@ -202,6 +205,158 @@ impl VirtualViewCallback {
             ctx: OptionRefAny::None,
         }
     }
+}
+
+// -- caret / selection tween callbacks (system text animations)
+//
+// The framework animates the caret and the selection highlight between their
+// previous and current geometry ("tween"). The MATH of the tween is a user-
+// replaceable C-ABI function set in `AppConfig.system_animations` (defaults
+// below): the framework drives a short timer, computes the linear progress
+// `t = elapsed / configured duration`, and calls the function to obtain the
+// geometry to RENDER this frame. While a tween is in flight the caret blink
+// is suppressed (the caret stays solid while it moves).
+
+/// Inputs for one caret-tween evaluation.
+#[derive(Debug, Clone, Copy, PartialEq, PartialOrd)]
+#[repr(C)]
+pub struct CaretTweenInfo {
+    /// Caret rectangle the previous frame RENDERED (mid-flight retargets
+    /// start from the interpolated position, not the old logical one).
+    pub past: LogicalRect,
+    /// Caret rectangle the current layout actually wants.
+    pub current: LogicalRect,
+    /// Linear time progress `0.0..=1.0` (elapsed / configured duration).
+    /// Easing/curves are this function's job.
+    pub t: f32,
+}
+
+/// Returns the caret rectangle to render at progress `info.t`.
+pub type CaretTweenCallbackType = extern "C" fn(RefAny, CaretTweenInfo) -> LogicalRect;
+
+/// User-settable caret tween interpolator (see [`CaretTweenInfo`]).
+#[repr(C)]
+pub struct CaretTweenCallback {
+    pub cb: CaretTweenCallbackType,
+    /// For FFI: stores the foreign callable (e.g., `PyFunction`)
+    /// Native Rust code sets this to None
+    pub ctx: OptionRefAny,
+}
+impl_callback!(CaretTweenCallback, CaretTweenCallbackType);
+
+impl CaretTweenCallback {
+    pub fn create(cb: CaretTweenCallbackType) -> Self {
+        Self {
+            cb,
+            ctx: OptionRefAny::None,
+        }
+    }
+}
+
+/// Inputs for one selection-tween evaluation: the full PAST and CURRENT
+/// selection band geometry (all rectangles of the selection highlight, in
+/// display-list order — spanning multiple lines and, for a cross-block
+/// selection, multiple nodes).
+#[derive(Debug, Clone, PartialEq, PartialOrd)]
+#[repr(C)]
+pub struct SelectionTweenInfo {
+    /// Selection rectangles the previous frame RENDERED.
+    pub past: LogicalRectVec,
+    /// Selection rectangles the current layout actually wants.
+    pub current: LogicalRectVec,
+    /// Linear time progress `0.0..=1.0` (elapsed / configured duration).
+    pub t: f32,
+}
+
+/// Returns the selection rectangles to render at progress `info.t`.
+/// MUST return exactly `info.current.len()` rectangles — a mismatched
+/// length makes the framework fall back to `info.current` unanimated.
+pub type SelectionTweenCallbackType =
+    extern "C" fn(RefAny, SelectionTweenInfo) -> LogicalRectVec;
+
+/// User-settable selection tween interpolator (see [`SelectionTweenInfo`]).
+#[repr(C)]
+pub struct SelectionTweenCallback {
+    pub cb: SelectionTweenCallbackType,
+    /// For FFI: stores the foreign callable (e.g., `PyFunction`)
+    /// Native Rust code sets this to None
+    pub ctx: OptionRefAny,
+}
+impl_callback!(SelectionTweenCallback, SelectionTweenCallbackType);
+
+impl SelectionTweenCallback {
+    pub fn create(cb: SelectionTweenCallbackType) -> Self {
+        Self {
+            cb,
+            ctx: OptionRefAny::None,
+        }
+    }
+}
+
+/// Trapezoidal velocity profile: velocity ramps up HARD over the first
+/// `RAMP` of the duration, cruises at constant speed, and ramps down hard
+/// over the last `RAMP` — a `/‾‾‾\` velocity curve. In position terms:
+/// a brief quadratic ease-in, a LINEAR middle, a brief quadratic ease-out.
+/// Chosen over ease-out-cubic for the caret/selection defaults: at the
+/// very short default durations the motion should read as "barely
+/// noticeable glide", not as a spring (user directive). Analytic integral,
+/// exact — a cubic bezier cannot express the flat-velocity plateau.
+#[inline]
+fn trapezoid_ease(t: f32) -> f32 {
+    const RAMP: f32 = 0.25;
+    // Peak velocity so the total distance integrates to exactly 1.
+    const V: f32 = 1.0 / (1.0 - RAMP);
+    let t = t.clamp(0.0, 1.0);
+    if t < RAMP {
+        V * t * t / (2.0 * RAMP)
+    } else if t <= 1.0 - RAMP {
+        V * (RAMP / 2.0 + (t - RAMP))
+    } else {
+        let inv = 1.0 - t;
+        1.0 - V * inv * inv / (2.0 * RAMP)
+    }
+}
+
+#[inline]
+fn lerp_rect(from: LogicalRect, to: LogicalRect, e: f32) -> LogicalRect {
+    LogicalRect {
+        origin: LogicalPosition {
+            x: from.origin.x + (to.origin.x - from.origin.x) * e,
+            y: from.origin.y + (to.origin.y - from.origin.y) * e,
+        },
+        size: crate::geom::LogicalSize {
+            width: from.size.width + (to.size.width - from.size.width) * e,
+            height: from.size.height + (to.size.height - from.size.height) * e,
+        },
+    }
+}
+
+/// Default caret tween: trapezoidal-velocity lerp of origin and size
+/// (hard rise, linear cruise, hard fall — see [`trapezoid_ease`]).
+pub extern "C" fn default_caret_tween(_data: RefAny, info: CaretTweenInfo) -> LogicalRect {
+    lerp_rect(info.past, info.current, trapezoid_ease(info.t))
+}
+
+/// Default selection tween: trapezoidal-velocity lerp, rectangles paired by
+/// index. Rectangles with no past counterpart (selection grew) appear at
+/// their final geometry immediately.
+pub extern "C" fn default_selection_tween(
+    _data: RefAny,
+    info: SelectionTweenInfo,
+) -> LogicalRectVec {
+    let e = trapezoid_ease(info.t);
+    let past = info.past.as_ref();
+    let out: Vec<LogicalRect> = info
+        .current
+        .as_ref()
+        .iter()
+        .enumerate()
+        .map(|(i, cur)| match past.get(i) {
+            Some(p) => lerp_rect(*p, *cur, e),
+            None => *cur,
+        })
+        .collect();
+    out.into()
 }
 
 /// Reason why a `VirtualView` callback is being invoked.

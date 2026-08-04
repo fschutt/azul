@@ -9,8 +9,12 @@
 //! Every mutation that affects visual output sets `display_list_dirty = true`,
 //! ensuring the display list is always regenerated.
 
+use alloc::sync::Arc;
+use core::sync::atomic::{AtomicBool, Ordering as AtomicOrdering};
+
 use azul_core::{
     dom::{DomId, DomNodeId, NodeId},
+    geom::LogicalRect,
     selection::{MultiCursorState, Selection, TextCursor},
     styled_dom::NodeHierarchyItemId,
     task::{Duration, Instant},
@@ -126,6 +130,87 @@ impl BlinkState {
     }
 }
 
+/// One in-flight caret tween: the caret is gliding from `from` (what the
+/// previous frame rendered) toward wherever the current layout puts it.
+#[derive(Debug, Clone)]
+pub struct CaretTweenTrack {
+    /// Rect the tween starts from (the previously RENDERED rect, so a
+    /// mid-flight retarget stays continuous).
+    pub from: LogicalRect,
+    /// Rect the tween is seeking. Retargeting happens ONLY when the layout's
+    /// current rect stops matching this — comparing against the rendered
+    /// rect would re-arm (and restart the clock) every animation tick.
+    pub to: LogicalRect,
+    /// When the tween (re)started.
+    pub start: Instant,
+}
+
+/// One in-flight selection tween (same contract as [`CaretTweenTrack`],
+/// for the whole selection band geometry).
+#[derive(Debug, Clone)]
+pub struct SelectionTweenTrack {
+    pub from: alloc::vec::Vec<LogicalRect>,
+    /// Geometry the tween is seeking (same retarget contract as
+    /// [`CaretTweenTrack::to`]).
+    pub to: alloc::vec::Vec<LogicalRect>,
+    pub start: Instant,
+}
+
+/// Caret / selection tween bookkeeping, updated by the display-list
+/// post-pass (`LayoutWindow::apply_text_tweens`). `tick_flag` is shared
+/// with the tween timer's `RefAny` data so the timer can terminate itself
+/// the tick after both tweens finish.
+#[derive(Debug, Default)]
+pub struct TextTweenState {
+    /// DOM the tracked geometry belongs to. A caret/selection appearing on a
+    /// DIFFERENT dom resets tracking (no cross-dom tween).
+    pub dom_id: Option<DomId>,
+    /// In-flight caret tween, if any.
+    pub caret: Option<CaretTweenTrack>,
+    /// Caret rect the last display-list pass RENDERED (tween target space).
+    pub last_caret: Option<LogicalRect>,
+    /// In-flight selection tween, if any.
+    pub selection: Option<SelectionTweenTrack>,
+    /// Selection rects the last display-list pass RENDERED.
+    pub last_selection: alloc::vec::Vec<LogicalRect>,
+    /// Shared "a tween is in flight" flag: written by the post-pass, read
+    /// by `caret_tween_timer_callback` (via its `RefAny`) to self-terminate.
+    pub tick_flag: Arc<AtomicBool>,
+}
+
+/// Cloning a manager must NOT share the original's tween-timer flag (the
+/// clone would steer the original's timer), and tween state is transient
+/// visual state anyway — a clone starts untweened, like `PartialEq` below
+/// ignores transient state.
+impl Clone for TextTweenState {
+    fn clone(&self) -> Self {
+        Self::default()
+    }
+}
+
+impl TextTweenState {
+    /// True while any tween is mid-flight (drives the 16ms tween timer and
+    /// forces the caret solid — blinking is suppressed during animation).
+    #[must_use] pub fn is_active(&self) -> bool {
+        self.caret.is_some() || self.selection.is_some()
+    }
+
+    /// Publish `is_active()` to the shared flag the tween timer polls.
+    pub fn publish_active(&self) {
+        self.tick_flag.store(self.is_active(), AtomicOrdering::Release);
+    }
+
+    /// Reset all tracking (focus lost / editing cleared / dom switched).
+    pub fn reset(&mut self) {
+        self.dom_id = None;
+        self.caret = None;
+        self.last_caret = None;
+        self.selection = None;
+        self.last_selection.clear();
+        self.publish_active();
+    }
+}
+
 /// Unified text editing manager.
 ///
 /// `multi_cursor` is the single source of truth for cursor/selection positions.
@@ -154,6 +239,8 @@ pub struct TextEditManager {
     pub preedit_cursor_end: i32,
     /// Set to true by any mutation that changes visual output.
     pub display_list_dirty: bool,
+    /// Caret / selection tween bookkeeping (see [`TextTweenState`]).
+    pub tween: TextTweenState,
 }
 
 impl Default for TextEditManager {
@@ -182,6 +269,7 @@ impl TextEditManager {
             preedit_cursor_begin: -1,
             preedit_cursor_end: -1,
             display_list_dirty: false,
+            tween: TextTweenState::default(),
         }
     }
 

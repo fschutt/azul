@@ -4812,6 +4812,34 @@ pub trait PlatformWindow {
         if let Some(lw) = self.get_layout_window_mut() {
             lw.frame_report.terminal_result = result as u8;
         }
+
+        // Arm the caret / selection tween driver if the display-list pass this
+        // event triggered left a tween in flight (LayoutWindow::apply_text_tweens
+        // publishes the flag). One shared site for every backend — the timer
+        // self-terminates via its RefAny'd flag when the tween finishes, so
+        // there is no matching stop call to keep in sync.
+        {
+            use azul_core::task::CARET_TWEEN_TIMER_ID;
+            let needs_tween_timer = self
+                .get_layout_window()
+                .map(|lw| {
+                    lw.text_edit_manager.tween.is_active()
+                        && !lw.timers.contains_key(&CARET_TWEEN_TIMER_ID)
+                })
+                .unwrap_or(false);
+            if needs_tween_timer {
+                let timer = self
+                    .get_layout_window()
+                    .map(|lw| lw.create_caret_tween_timer());
+                if let Some(timer) = timer {
+                    if let Some(lw) = self.get_layout_window_mut() {
+                        lw.timers.insert(CARET_TWEEN_TIMER_ID, timer.clone());
+                    }
+                    self.start_timer(CARET_TWEEN_TIMER_ID.id, timer);
+                }
+            }
+        }
+
         result
     }
 

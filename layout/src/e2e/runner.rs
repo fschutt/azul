@@ -164,7 +164,15 @@ impl Runner {
         let app_fc_cache = FcFontCache::build();
 
         Self {
-            layout_window: LayoutWindow::new(app_fc_cache.clone()).expect("LayoutWindow::new"),
+            layout_window: {
+                let mut lw =
+                    LayoutWindow::new(app_fc_cache.clone()).expect("LayoutWindow::new");
+                // e2e runs must be deterministic: no caret / selection tween
+                // (a screenshot must never catch geometry mid-glide).
+                lw.system_animations_override =
+                    Some(azul_core::resources::SystemAnimations::disabled());
+                lw
+            },
             renderer_resources: RendererResources::default(),
             system_callbacks: ExternalSystemCallbacks::rust_internal(),
             window_state: ws,

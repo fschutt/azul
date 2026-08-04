@@ -92764,6 +92764,70 @@
                         },
                         "repr": "C"
                     },
+                    "LogicalRectVecDestructorType": {
+                        "external": "azul_core::geom::LogicalRectVecDestructorType",
+                        "callback_typedef": {
+                            "fn_args": [
+                                {
+                                    "type": "LogicalRectVec",
+                                    "ref_kind": "mutptr"
+                                }
+                            ],
+                            "returns": null
+                        },
+                        "repr": "C"
+                    },
+                    "LogicalRectVecDestructor": {
+                        "external": "azul_core::geom::LogicalRectVecDestructor",
+                        "derive": [
+                            "Debug"
+                        ],
+                        "enum_fields": [
+                            {
+                                "DefaultRust": {},
+                                "NoDestructor": {},
+                                "External": {
+                                    "type": "LogicalRectVecDestructorType"
+                                },
+                                "AlreadyDestroyed": {}
+                            }
+                        ],
+                        "repr": "C, u8"
+                    },
+                    "LogicalRectVec": {
+                        "doc": [
+                            "Wrapper over a Rust-allocated `Vec<LogicalRect>`"
+                        ],
+                        "external": "azul_core::geom::LogicalRectVec",
+                        "custom_impls": [
+                            "Clone",
+                            "Debug",
+                            "PartialEq",
+                            "PartialOrd"
+                        ],
+                        "custom_destructor": true,
+                        "derive": [
+                            "Debug"
+                        ],
+                        "struct_fields": [
+                            {
+                                "ptr": {
+                                    "type": "LogicalRect",
+                                    "ref_kind": "constptr"
+                                },
+                                "len": {
+                                    "type": "usize"
+                                },
+                                "cap": {
+                                    "type": "usize"
+                                },
+                                "destructor": {
+                                    "type": "LogicalRectVecDestructor"
+                                }
+                            }
+                        ],
+                        "repr": "C"
+                    },
                     "LayoutRectVecDestructorType": {
                         "external": "azul_css::props::basic::geometry::LayoutRectVecDestructorType",
                         "callback_typedef": {
@@ -98754,6 +98818,25 @@
                         ],
                         "repr": "C, u8"
                     },
+                    "OptionScrollPhysics": {
+                        "external": "azul_css::props::style::scrollbar::OptionScrollPhysics",
+                        "derive": [
+                            "Debug",
+                            "Copy",
+                            "Clone",
+                            "PartialEq",
+                            "PartialOrd"
+                        ],
+                        "enum_fields": [
+                            {
+                                "None": {},
+                                "Some": {
+                                    "type": "ScrollPhysics"
+                                }
+                            }
+                        ],
+                        "repr": "C, u8"
+                    },
                     "OptionOsVersion": {
                         "external": "azul_css::dynamic_selector::OptionOsVersion",
                         "derive": [
@@ -103125,6 +103208,200 @@
                     "Application entry point, configuration, and lifecycle management."
                 ],
                 "classes": {
+                    "CaretTweenInfo": {
+                        "doc": [
+                            "Inputs for one caret-tween evaluation: the previously RENDERED caret rect,",
+                            "the rect the current layout wants, and the linear time progress 0.0..=1.0.",
+                            "Easing / curves are the tween function's job."
+                        ],
+                        "external": "azul_core::callbacks::CaretTweenInfo",
+                        "derive": [
+                            "Debug",
+                            "Clone",
+                            "Copy",
+                            "PartialEq",
+                            "PartialOrd"
+                        ],
+                        "struct_fields": [
+                            {
+                                "past": {
+                                    "type": "LogicalRect"
+                                },
+                                "current": {
+                                    "type": "LogicalRect"
+                                },
+                                "t": {
+                                    "type": "f32"
+                                }
+                            }
+                        ],
+                        "repr": "C"
+                    },
+                    "CaretTweenCallbackType": {
+                        "doc": [
+                            "Returns the caret rectangle to render at progress `info.t`"
+                        ],
+                        "external": "azul_core::callbacks::CaretTweenCallbackType",
+                        "callback_typedef": {
+                            "fn_args": [
+                                {
+                                    "type": "RefAny"
+                                },
+                                {
+                                    "type": "CaretTweenInfo"
+                                }
+                            ],
+                            "returns": {
+                                "type": "LogicalRect"
+                            }
+                        }
+                    },
+                    "CaretTweenCallback": {
+                        "doc": [
+                            "C-ABI wrapper over a `CaretTweenCallbackType` (user-settable caret tween math)"
+                        ],
+                        "external": "azul_core::callbacks::CaretTweenCallback",
+                        "custom_impls": [
+                            "Clone",
+                            "Debug",
+                            "Eq",
+                            "Hash",
+                            "Ord",
+                            "PartialEq",
+                            "PartialOrd"
+                        ],
+                        "struct_fields": [
+                            {
+                                "cb": {
+                                    "type": "CaretTweenCallbackType"
+                                },
+                                "ctx": {
+                                    "type": "OptionRefAny"
+                                }
+                            }
+                        ],
+                        "repr": "C"
+                    },
+                    "SelectionTweenInfo": {
+                        "doc": [
+                            "Inputs for one selection-tween evaluation: the previously RENDERED selection",
+                            "band rectangles, the rectangles the current layout wants (display-list order,",
+                            "possibly spanning multiple lines and nodes), and the linear progress 0.0..=1.0."
+                        ],
+                        "external": "azul_core::callbacks::SelectionTweenInfo",
+                        "derive": [
+                            "Debug",
+                            "Clone",
+                            "PartialEq",
+                            "PartialOrd"
+                        ],
+                        "struct_fields": [
+                            {
+                                "past": {
+                                    "type": "LogicalRectVec"
+                                },
+                                "current": {
+                                    "type": "LogicalRectVec"
+                                },
+                                "t": {
+                                    "type": "f32"
+                                }
+                            }
+                        ],
+                        "repr": "C"
+                    },
+                    "SelectionTweenCallbackType": {
+                        "doc": [
+                            "Returns the selection rectangles to render at progress `info.t`.",
+                            "MUST return exactly `info.current.len()` rectangles - a mismatched length",
+                            "makes the framework fall back to `info.current` unanimated."
+                        ],
+                        "external": "azul_core::callbacks::SelectionTweenCallbackType",
+                        "callback_typedef": {
+                            "fn_args": [
+                                {
+                                    "type": "RefAny"
+                                },
+                                {
+                                    "type": "SelectionTweenInfo"
+                                }
+                            ],
+                            "returns": {
+                                "type": "LogicalRectVec"
+                            }
+                        }
+                    },
+                    "SelectionTweenCallback": {
+                        "doc": [
+                            "C-ABI wrapper over a `SelectionTweenCallbackType` (user-settable selection tween math)"
+                        ],
+                        "external": "azul_core::callbacks::SelectionTweenCallback",
+                        "custom_impls": [
+                            "Clone",
+                            "Debug",
+                            "Eq",
+                            "Hash",
+                            "Ord",
+                            "PartialEq",
+                            "PartialOrd"
+                        ],
+                        "struct_fields": [
+                            {
+                                "cb": {
+                                    "type": "SelectionTweenCallbackType"
+                                },
+                                "ctx": {
+                                    "type": "OptionRefAny"
+                                }
+                            }
+                        ],
+                        "repr": "C"
+                    },
+                    "SystemAnimations": {
+                        "doc": [
+                            "Configuration of the SYSTEM-driven animations: physics-based scrolling and the",
+                            "caret / selection tweens. Lives on `AppConfig` so a platform or application can",
+                            "tune the feel without rebuilding azul. The scroll physics override is applied ON",
+                            "TOP of the platform-discovered `SystemStyle` at `App::create` time (`None` keeps",
+                            "the per-platform preset). Tween durations of 0 disable that tween (caret /",
+                            "selection jumps, the classic behavior). While a tween runs, caret blinking is",
+                            "suppressed (the caret stays solid while it moves)."
+                        ],
+                        "external": "azul_core::resources::SystemAnimations",
+                        "custom_impls": [
+                            "Default"
+                        ],
+                        "derive": [
+                            "Debug",
+                            "Clone"
+                        ],
+                        "struct_fields": [
+                            {
+                                "scroll_physics": {
+                                    "type": "OptionScrollPhysics"
+                                },
+                                "caret_tween_duration_ms": {
+                                    "type": "u32"
+                                },
+                                "caret_tween": {
+                                    "type": "CaretTweenCallback"
+                                },
+                                "caret_tween_data": {
+                                    "type": "RefAny"
+                                },
+                                "selection_tween_duration_ms": {
+                                    "type": "u32"
+                                },
+                                "selection_tween": {
+                                    "type": "SelectionTweenCallback"
+                                },
+                                "selection_tween_data": {
+                                    "type": "RefAny"
+                                }
+                            }
+                        ],
+                        "repr": "C"
+                    },
                     "AppConfig": {
                         "external": "azul_core::resources::AppConfig",
                         "custom_impls": [
@@ -103168,6 +103445,9 @@
                                 },
                                 "routes": {
                                     "type": "RouteVec"
+                                },
+                                "system_animations": {
+                                    "type": "SystemAnimations"
                                 }
                             }
                         ],

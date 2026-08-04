@@ -4540,7 +4540,7 @@ where
         builder: &mut DisplayListBuilder,
         container_rect: LogicalRect,
         viewport_clip_rect: LogicalRect,
-        layout: &UnifiedLayout,
+        layout: &Arc<UnifiedLayout>,
         source_node_index: usize,
     ) {
         // TODO: This will always paint images over the glyphs
@@ -4603,8 +4603,16 @@ where
                 }
             }
             let (primary_hash, primary_size) = primary.unwrap_or((0, 12.0));
+            // Clone the CACHED Arc, do not re-wrap a deep clone: TextLayout
+            // damage diffing is Arc::ptr_eq, so a fresh Arc per rebuild made
+            // every blink / tween tick repaint the whole text run (and deep-
+            // cloned all shaped glyphs per frame). Real text changes replace
+            // the cached Arc, so ptr_eq still fires damage then.
             builder.push_text_layout(
-                Arc::new(layout.clone()),
+                {
+                    let shared: Arc<dyn std::any::Any + Send + Sync> = layout.clone();
+                    shared
+                },
                 actual_bounds,
                 FontHash::from_hash(primary_hash),
                 primary_size,

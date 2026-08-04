@@ -24,6 +24,7 @@ use azul_css::{
         pixel::DEFAULT_FONT_SIZE, ColorU, FloatValue, FontRef, LayoutRect, LayoutSize,
         StyleFontFamily, StyleFontFamilyVec, StyleFontSize,
     },
+    props::style::scrollbar::OptionScrollPhysics,
     system::SystemStyle,
     AzString, F32Vec, LayoutDebugMessage, OptionI32, StringVec, U16Vec, U32Vec, U8Vec,
 };
@@ -456,6 +457,74 @@ impl_option!(RouteMatch, OptionRouteMatch, copy = false, [Debug, Clone, PartialE
     })
 }
 
+/// Configuration of the SYSTEM-driven animations: physics-based scrolling
+/// and the caret / selection tweens. Lives on [`AppConfig`] so a platform or
+/// application can tune the feel without rebuilding azul.
+///
+/// The scroll physics override is applied ON TOP of the platform-discovered
+/// [`SystemStyle`] at `App::create` time (`None` keeps the per-platform
+/// preset). The tween slots always apply; set a duration to `0` to disable
+/// that tween (the caret / selection then jumps, the classic behavior).
+#[derive(Debug, Clone)]
+#[repr(C)]
+pub struct SystemAnimations {
+    /// Overrides `SystemStyle.scroll_physics` (momentum, overscroll /
+    /// rubber-band, wheel-vs-trackpad curves). `None` = platform default.
+    pub scroll_physics: OptionScrollPhysics,
+    /// Duration of the caret-move tween in ms. `0` disables the tween.
+    /// While the tween runs, caret blinking is suppressed (caret stays
+    /// solid while it moves).
+    pub caret_tween_duration_ms: u32,
+    /// The caret tween MATH: called every animation frame with the past /
+    /// current caret rectangles and linear progress `t`; returns the
+    /// rectangle to render. Default: ease-out cubic lerp.
+    pub caret_tween: crate::callbacks::CaretTweenCallback,
+    /// User data passed to `caret_tween` on every invocation.
+    pub caret_tween_data: crate::refany::RefAny,
+    /// Duration of the selection tween in ms. `0` disables the tween.
+    pub selection_tween_duration_ms: u32,
+    /// The selection tween MATH: called every animation frame with the
+    /// past / current selection band rectangles and linear progress `t`;
+    /// returns the rectangles to render (must match the current count).
+    /// Default: ease-out cubic lerp, rectangles paired by index.
+    pub selection_tween: crate::callbacks::SelectionTweenCallback,
+    /// User data passed to `selection_tween` on every invocation.
+    pub selection_tween_data: crate::refany::RefAny,
+}
+
+impl SystemAnimations {
+    /// All system animations disabled: no scroll-physics override, tween
+    /// durations 0 (caret / selection jump). Test drivers and deterministic
+    /// harnesses use this so screenshots never catch geometry mid-glide.
+    #[must_use] pub fn disabled() -> Self {
+        Self {
+            caret_tween_duration_ms: 0,
+            selection_tween_duration_ms: 0,
+            ..Self::default()
+        }
+    }
+}
+
+impl Default for SystemAnimations {
+    fn default() -> Self {
+        Self {
+            scroll_physics: OptionScrollPhysics::None,
+            // Barely noticeable by design (user directive): a short glide,
+            // not an animation the eye waits for.
+            caret_tween_duration_ms: 60,
+            caret_tween: crate::callbacks::CaretTweenCallback::create(
+                crate::callbacks::default_caret_tween,
+            ),
+            caret_tween_data: crate::refany::RefAny::new(()),
+            selection_tween_duration_ms: 60,
+            selection_tween: crate::callbacks::SelectionTweenCallback::create(
+                crate::callbacks::default_selection_tween,
+            ),
+            selection_tween_data: crate::refany::RefAny::new(()),
+        }
+    }
+}
+
 /// Configuration for optional features, such as whether to enable logging or panic hooks
 #[derive(Debug, Clone)]
 #[repr(C)]
@@ -516,6 +585,9 @@ pub struct AppConfig {
     ///
     /// The first route (or `"/"`) is the default. Use `add_route()` to register.
     pub routes: RouteVec,
+    /// System-animation configuration (scroll physics override, caret /
+    /// selection tween hooks). See [`SystemAnimations`].
+    pub system_animations: SystemAnimations,
 }
 
 impl AppConfig {
@@ -537,6 +609,7 @@ impl AppConfig {
             system_style,
             component_libraries: ComponentLibraryVec::from_const_slice(&[]),
             routes: RouteVec::from_const_slice(&[]),
+            system_animations: SystemAnimations::default(),
         };
         // Dogfood: register the 52 built-in HTML elements via the
         // same `add_component_library` API that users call.

@@ -211,6 +211,12 @@ impl ScrollPhysics {
     }
 }
 
+impl_option!(
+    ScrollPhysics,
+    OptionScrollPhysics,
+    [Debug, Copy, Clone, PartialEq, PartialOrd]
+);
+
 // ============================================================================
 // Scrollbar Visibility Mode (CSS: -azul-scrollbar-visibility)
 // ============================================================================

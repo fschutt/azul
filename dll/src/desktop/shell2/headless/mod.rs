@@ -896,6 +896,10 @@ impl HeadlessWindow {
         // Create layout window — same as real platforms
         let mut layout_window = LayoutWindow::new(fc_cache.as_ref().clone())
             .map_err(|e| WindowError::PlatformError(format!("Layout init failed: {:?}", e)))?;
+        // Headless = the e2e test driver: deterministic, no caret / selection
+        // tween (a screenshot must never catch geometry mid-glide).
+        layout_window.system_animations_override =
+            Some(azul_core::resources::SystemAnimations::disabled());
         layout_window.current_window_state = full_window_state.clone();
         layout_window.routes = config.routes.clone();
 
