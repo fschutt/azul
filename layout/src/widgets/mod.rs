@@ -192,6 +192,18 @@ pub mod number_input;
 pub mod progressbar;
 /// Ribbon widget
 pub mod ribbon;
+/// Office-style backstage view (the full-window "FILE" screen): accent nav
+/// column + back ring + app-provided pane content. Word 2013 look by default;
+/// pairs with the ribbon's `RibbonAppButton`. See `backstage.rs`.
+pub mod backstage;
+/// Office-style status bar: left text segments, view switcher, zoom cluster
+/// (embeds the `slider` widget). Word 2013 look by default. See `statusbar.rs`.
+pub mod statusbar;
+/// Office-style title band with a Quick Access Toolbar (save/undo/redo),
+/// centered title and window buttons, drawn as DOM. Word 2013 look by
+/// default; use `titlebar` instead for native-caption windows. See
+/// `quick_access.rs`.
+pub mod quick_access;
 /// Tab container widgets
 pub mod tabs;
 /// Single line text input widget
