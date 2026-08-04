@@ -1,0 +1,269 @@
+//! D15: contenteditable INSIDE a virtual view — the paged-editor lifecycle.
+//!
+//! The Word-app model: the app's document lives in ITS model; a VirtualView
+//! mounts only a WINDOW of pages as a nested DOM (stable nested DomId, arena
+//! re-created per window). This e2e walks the full loop and pins the three
+//! landmines from AZUL-STILL-TODO #15:
+//!
+//!   edit on page 0 (structural split, record → app-apply → ack-with-inverse)
+//!   → scroll to page 40 (nested arena RE-CREATED, page 0 unmounted)
+//!   → undo (re-records the inverse; its DomNodeIds point at the DEAD
+//!     generation — engine must not panic, the app applies via the
+//!     generation-stable resume)
+//!   → re-render with page 0 still unmounted (caret restore must cleanly
+//!     no-op, not corrupt)
+//!   → scroll back: page 0 shows the ORIGINAL text.
+
+use std::sync::{Arc, Mutex};
+
+use azul_core::callbacks::{VirtualViewCallback, VirtualViewCallbackInfo, VirtualViewReturn};
+use azul_core::dom::{Dom, DomId, DomNodeId, NodeId, NodeType, OptionDom};
+use azul_core::geom::{LogicalPosition, LogicalSize};
+use azul_core::refany::RefAny;
+use azul_core::resources::RendererResources;
+use azul_core::selection::{CursorAffinity, GraphemeClusterId, TextCursor};
+use azul_core::styled_dom::{NodeHierarchyItemId, StyledDom};
+use azul_layout::managers::changeset::{
+    DocOpMergeNodes, DocOpSplitNode, DocumentOperation, NodePosition,
+};
+use azul_layout::{
+    callbacks::ExternalSystemCallbacks, window::LayoutWindow, window_state::FullWindowState,
+};
+use rust_fontconfig::FcFontCache;
+
+const PAGE_COUNT: usize = 40;
+
+/// The APP's document model: paragraphs per page + the mounted window.
+#[derive(Debug)]
+struct PagedModel {
+    pages: Vec<Vec<String>>,
+    window: std::ops::Range<usize>,
+}
+
+type SharedModel = Arc<Mutex<PagedModel>>;
+
+fn fresh_model() -> SharedModel {
+    Arc::new(Mutex::new(PagedModel {
+        pages: (0..PAGE_COUNT)
+            .map(|i| vec![format!("page {i} content")])
+            .collect(),
+        window: 0..5,
+    }))
+}
+
+/// The VirtualView callback: renders the model's current page window.
+extern "C" fn pages_view(mut data: RefAny, _info: VirtualViewCallbackInfo) -> VirtualViewReturn {
+    let model = data
+        .downcast_ref::<SharedModel>()
+        .expect("model")
+        .clone();
+    let model = model.lock().unwrap();
+
+    let mut root = Dom::create_div().with_css("display: block;");
+    for page_idx in model.window.clone() {
+        let mut page = Dom::create_div().with_css("display: block; height: 100px;");
+        for para in &model.pages[page_idx] {
+            let mut p = Dom::create_div().with_css("display: block;");
+            p.set_contenteditable(true);
+            p = p.with_child(Dom::create_text(para.as_str()));
+            page = page.with_child(p);
+        }
+        root = root.with_child(page);
+    }
+
+    let window_len = model.window.len() as f32;
+    VirtualViewReturn {
+        dom: OptionDom::Some(root),
+        scroll_size: LogicalSize::new(600.0, window_len * 100.0),
+        scroll_offset: LogicalPosition::new(0.0, model.window.start as f32 * 100.0),
+        virtual_scroll_size: LogicalSize::new(600.0, PAGE_COUNT as f32 * 100.0),
+        virtual_scroll_offset: LogicalPosition::zero(),
+    }
+}
+
+fn relayout(lw: &mut LayoutWindow, model: &SharedModel) {
+    let mut dom = Dom::create_body().with_child(
+        Dom::create_virtual_view(
+            RefAny::new(model.clone()),
+            VirtualViewCallback::create(pages_view),
+        )
+        .with_css("width: 600px; height: 500px; overflow: hidden;"),
+    );
+    let (css, _) = azul_css::parser2::new_from_str(
+        "* { margin: 0; padding: 0; } body { font-size: 14px; }",
+    );
+    let styled_dom = StyledDom::create(&mut dom, css);
+    let window_state = lw.current_window_state.clone();
+    let renderer_resources = RendererResources::default();
+    let system_callbacks = ExternalSystemCallbacks::rust_internal();
+    let mut debug_messages = Some(Vec::new());
+    lw.layout_and_generate_display_list(
+        styled_dom,
+        &window_state,
+        &renderer_resources,
+        &system_callbacks,
+        &mut debug_messages,
+    )
+    .unwrap();
+}
+
+/// Find `(paragraph element, its text child)` of the FIRST paragraph whose
+/// text contains `needle`, in the nested dom.
+fn find_para(lw: &LayoutWindow, nested: DomId, needle: &str) -> Option<(NodeId, NodeId)> {
+    let lr = lw.get_layout_result(&nested)?;
+    let node_data = lr.styled_dom.node_data.as_container();
+    let hierarchy = lr.styled_dom.node_hierarchy.as_container();
+    for i in 0..node_data.len() {
+        let id = NodeId::new(i);
+        if let NodeType::Text(t) = node_data[id].get_node_type() {
+            if t.as_str().contains(needle) {
+                let parent = hierarchy.get(id)?.parent_id()?;
+                return Some((parent, id));
+            }
+        }
+    }
+    None
+}
+
+fn dom_node(dom: DomId, node: NodeId) -> DomNodeId {
+    DomNodeId {
+        dom,
+        node: NodeHierarchyItemId::from_crate_internal(Some(node)),
+    }
+}
+
+fn cursor(byte: u32) -> TextCursor {
+    TextCursor {
+        cluster_id: GraphemeClusterId {
+            source_run: 0,
+            start_byte_in_run: byte,
+        },
+        affinity: CursorAffinity::Leading,
+    }
+}
+
+#[test]
+fn edit_page_one_scroll_far_undo_reverts_without_corruption() {
+    let model = fresh_model();
+    let mut lw = LayoutWindow::new(FcFontCache::build()).unwrap();
+    let mut window_state = FullWindowState::default();
+    window_state.size.dimensions = LogicalSize::new(800.0, 600.0);
+    lw.current_window_state = window_state;
+
+    // ── Mount pages 0..5.
+    relayout(&mut lw, &model);
+    let nested = lw
+        .virtual_view_manager
+        .get_nested_dom_id(DomId::ROOT_ID, NodeId::new(1))
+        .expect("virtual view mounted a nested dom");
+    assert!(
+        lw.get_layout_result(&nested).is_some(),
+        "nested dom has its own layout result"
+    );
+
+    // ── Caret into page 0's paragraph; STRUCTURAL split at "page 0 |content".
+    let (para, text) = find_para(&lw, nested, "page 0 content").expect("page 0 mounted");
+    lw.focus_manager
+        .set_focused_node(Some(dom_node(nested, para)));
+    lw.text_edit_manager
+        .initialize_editing(cursor(7), nested, text, 0);
+
+    let split_id = lw
+        .record_structural_default_action(&azul_core::events::DefaultAction::SplitBlockAtCursor {
+            target: dom_node(nested, para),
+        })
+        .expect("split records");
+    let split = lw.get_pending_document_edit().unwrap().clone();
+    let DocumentOperation::SplitNode(DocOpSplitNode { at, .. }) = &split.operation else {
+        panic!("expected SplitNode, got {:?}", split.operation);
+    };
+    assert_eq!(*at, NodePosition::in_text_child(0, 7));
+
+    // ── The APP applies the split to ITS model and acks WITH INVERSE
+    //    (merge of the two halves) — the edit becomes undoable.
+    {
+        let mut m = model.lock().unwrap();
+        m.pages[0] = vec!["page 0 ".to_string(), "content".to_string()];
+    }
+    let inverse = DocumentOperation::MergeNodes(DocOpMergeNodes {
+        first: dom_node(nested, para),
+        second: dom_node(nested, NodeId::new(para.index() + 2)),
+        join: NodePosition::in_text_child(0, 7),
+    });
+    assert!(lw.mark_document_edit_applied_with_inverse(split_id, inverse));
+    relayout(&mut lw, &model); // the app's re-render: page 0 now two paragraphs
+    assert!(
+        find_para(&lw, nested, "page 0 ").is_some() && find_para(&lw, nested, "content").is_some(),
+        "the split rendered"
+    );
+
+    // ── Scroll far away: pages 38..42 — the nested ARENA is re-created,
+    //    page 0 is unmounted (same nested DomId, new node ids).
+    model.lock().unwrap().window = 38..42.min(PAGE_COUNT);
+    relayout(&mut lw, &model);
+    assert!(
+        find_para(&lw, nested, "page 0").is_none(),
+        "page 0 is unmounted"
+    );
+    assert!(
+        find_para(&lw, nested, "page 39 content").is_some(),
+        "the far window is mounted"
+    );
+
+    // ── UNDO while the edit's page is unmounted. The re-recorded inverse
+    //    carries DomNodeIds of the DEAD generation — the engine must accept
+    //    the record (the app resolves via the generation-stable resume) and
+    //    must not panic previewing against the re-created arena.
+    let undo_id = lw
+        .undo_structural_edit()
+        .expect("undo re-records the inverse even with the page unmounted");
+    let undo_changeset = lw.get_pending_document_edit().unwrap().clone();
+    assert!(
+        matches!(undo_changeset.operation, DocumentOperation::MergeNodes(_)),
+        "undo of a split is a merge"
+    );
+    assert!(
+        !undo_changeset.resume.node_path.as_ref().is_empty()
+            || undo_changeset.resume.position != NodePosition::before_child(u32::MAX),
+        "the resume is present (generation-stable addressing for the app)"
+    );
+
+    // ── The APP applies the inverse to its model (IT knows the edit was
+    //    page 0 — resume-keyed addressing), acks, re-renders. Page 0 is
+    //    STILL unmounted: the caret-restore for the acked edit must cleanly
+    //    no-op at the layout tail (anchor not in the mounted window).
+    {
+        let mut m = model.lock().unwrap();
+        m.pages[0] = vec!["page 0 content".to_string()];
+    }
+    assert!(lw.mark_document_edit_applied(undo_id));
+    relayout(&mut lw, &model);
+    assert!(
+        lw.get_pending_document_edit().is_none(),
+        "nothing pending after the undo ack"
+    );
+
+    // ── Scroll back: page 0 shows the ORIGINAL text again.
+    model.lock().unwrap().window = 0..5;
+    relayout(&mut lw, &model);
+    let (para_after, _) = find_para(&lw, nested, "page 0 content")
+        .expect("page 0 re-mounted with the reverted text");
+    assert!(
+        find_para(&lw, nested, "page 0 ").map(|(p, _)| p) == Some(para_after),
+        "no leftover split half: the only 'page 0 ' hit is the merged paragraph"
+    );
+
+    // ── And the redo stack still works from here (the entry survived the
+    //    unmount round-trip).
+    let redo_id = lw.redo_structural_edit().expect("redo available");
+    assert!(lw.get_pending_document_edit().is_some());
+    // The app rejects it this time (re-renders without acking after the
+    //    notification) — exercise the C11 drop path end-to-end.
+    lw.mark_document_edit_notified();
+    let _ = redo_id;
+    relayout(&mut lw, &model);
+    assert!(
+        lw.get_pending_document_edit().is_none(),
+        "a notified-but-unacked redo drops at the re-render (C11 promise)"
+    );
+}
