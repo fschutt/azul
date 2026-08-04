@@ -490,6 +490,10 @@ pub struct SystemAnimations {
     pub selection_tween: crate::callbacks::SelectionTweenCallback,
     /// User data passed to `selection_tween` on every invocation.
     pub selection_tween_data: crate::refany::RefAny,
+    /// Whether "scroll the caret into view" glides via the scroll-physics
+    /// spring (true, the Word feel) or jumps instantly (false — also what
+    /// [`Self::disabled`] sets, keeping e2e screenshots deterministic).
+    pub caret_scroll_glide: bool,
 }
 
 impl SystemAnimations {
@@ -500,6 +504,7 @@ impl SystemAnimations {
         Self {
             caret_tween_duration_ms: 0,
             selection_tween_duration_ms: 0,
+            caret_scroll_glide: false,
             ..Self::default()
         }
     }
@@ -521,6 +526,7 @@ impl Default for SystemAnimations {
                 crate::callbacks::default_selection_tween,
             ),
             selection_tween_data: crate::refany::RefAny::new(()),
+            caret_scroll_glide: true,
         }
     }
 }

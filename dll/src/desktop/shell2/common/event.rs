@@ -4838,6 +4838,56 @@ pub trait PlatformWindow {
                     self.start_timer(CARET_TWEEN_TIMER_ID.id, timer);
                 }
             }
+
+            // Arm the scroll-physics timer for WINDOW-LEVEL queue pushes:
+            // caret-into-view glides (ledger #8) and callback
+            // scroll_to_animated land in the shared ScrollInputQueue outside
+            // any platform wheel handler, so no shell ever armed the timer
+            // for them — the queue sat undrained until the next physical
+            // wheel event. One shared site, same self-termination as wheel
+            // scrolling (the physics timer exits when idle).
+            {
+                use azul_core::task::SCROLL_MOMENTUM_TIMER_ID;
+                let needs_scroll_timer = self
+                    .get_layout_window()
+                    .map(|lw| {
+                        lw.scroll_manager.scroll_input_queue.has_pending()
+                            && !lw.timers.contains_key(&SCROLL_MOMENTUM_TIMER_ID)
+                    })
+                    .unwrap_or(false);
+                if needs_scroll_timer {
+                    let timer = self.get_layout_window().map(|lw| {
+                        use azul_core::refany::RefAny;
+                        use azul_layout::scroll_timer::{
+                            scroll_physics_timer_callback, ScrollPhysicsState,
+                        };
+                        use azul_layout::timer::{Timer, TimerCallbackType};
+                        let physics = lw
+                            .system_style
+                            .as_ref()
+                            .map(|s| s.scroll_physics.clone())
+                            .unwrap_or_default();
+                        let interval_ms = physics.timer_interval_ms.max(1);
+                        let state =
+                            ScrollPhysicsState::new(lw.scroll_manager.get_input_queue(), physics);
+                        Timer::create(
+                            RefAny::new(state),
+                            scroll_physics_timer_callback as TimerCallbackType,
+                            azul_layout::callbacks::ExternalSystemCallbacks::rust_internal()
+                                .get_system_time_fn,
+                        )
+                        .with_interval(azul_core::task::Duration::System(
+                            azul_core::task::SystemTimeDiff::from_millis(u64::from(interval_ms)),
+                        ))
+                    });
+                    if let Some(timer) = timer {
+                        if let Some(lw) = self.get_layout_window_mut() {
+                            lw.timers.insert(SCROLL_MOMENTUM_TIMER_ID, timer.clone());
+                        }
+                        self.start_timer(SCROLL_MOMENTUM_TIMER_ID.id, timer);
+                    }
+                }
+            }
         }
 
         result

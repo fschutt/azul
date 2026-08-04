@@ -103405,6 +103405,14 @@
                                 },
                                 "selection_tween_data": {
                                     "type": "RefAny"
+                                },
+                                "caret_scroll_glide": {
+                                    "type": "bool",
+                                    "doc": [
+                                        "Whether scroll-caret-into-view glides via the scroll-physics spring (true, the",
+                                        "Word feel) or jumps instantly (false; SystemAnimations::disabled() sets this",
+                                        "for deterministic e2e screenshots)."
+                                    ]
                                 }
                             }
                         ],

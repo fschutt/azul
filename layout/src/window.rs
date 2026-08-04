@@ -6612,14 +6612,6 @@ impl LayoutWindow {
 
         // Apply scroll if needed
         if scroll_delta.x != 0.0 || scroll_delta.y != 0.0 {
-            let duration = match scroll_mode {
-                ScrollMode::Instant => Duration::System(SystemTimeDiff { secs: 0, nanos: 0 }),
-                ScrollMode::Accelerated => Duration::System(SystemTimeDiff {
-                    secs: 0,
-                    nanos: 16_666_667,
-                }), // 60fps
-            };
-
             let external = ExternalSystemCallbacks::rust_internal();
             let now = (external.get_system_time_fn.cb)();
 
@@ -6627,6 +6619,39 @@ impl LayoutWindow {
             let new_target = LogicalPosition {
                 x: scroll_state.current_offset.x + scroll_delta.x,
                 y: scroll_state.current_offset.y + scroll_delta.y,
+            };
+
+            // Ledger #8: "typed past page 1 → glide to page 2". Cursor /
+            // selection reveals GLIDE via the physics AnimateTo spring
+            // (Keyboard provenance → the platform bounce duration) instead
+            // of teleporting — unless the app disabled system animations
+            // (e2e determinism: SystemAnimations::disabled() keeps the
+            // classic instant jump). Drag-autoscroll keeps the immediate
+            // per-frame path (its own accelerated loop).
+            let glide = matches!(scroll_mode, ScrollMode::Instant)
+                && self.effective_system_animations().caret_scroll_glide;
+            if glide {
+                use crate::managers::scroll_state::{
+                    ScrollInput, ScrollInputDevice, ScrollInputSource,
+                };
+                self.scroll_manager.scroll_input_queue.push(ScrollInput {
+                    dom_id: scroll_container.dom,
+                    node_id: scrollable_node_internal,
+                    // AnimateTo carries the ABSOLUTE target.
+                    delta: new_target,
+                    timestamp: now,
+                    source: ScrollInputSource::AnimateTo,
+                    device: ScrollInputDevice::Keyboard,
+                });
+                return true;
+            }
+
+            let duration = match scroll_mode {
+                ScrollMode::Instant => Duration::System(SystemTimeDiff { secs: 0, nanos: 0 }),
+                ScrollMode::Accelerated => Duration::System(SystemTimeDiff {
+                    secs: 0,
+                    nanos: 16_666_667,
+                }), // 60fps
             };
 
             self.scroll_manager.scroll_to(
