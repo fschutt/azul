@@ -2004,6 +2004,43 @@ pub fn calculate_layout_for_subtree<T: ParsedFontTrait>(
     float_cache: &mut HashMap<usize, fc::FloatingContext>,
     compute_mode: ComputeMode,
 ) -> Result<()> {
+    calculate_layout_for_subtree_fragment(
+        ctx,
+        tree,
+        text_cache,
+        node_index,
+        containing_block_pos,
+        containing_block_size,
+        calculated_positions,
+        reflow_needed_for_scrollbars,
+        float_cache,
+        compute_mode,
+        None,
+        None,
+    )
+}
+
+/// [`calculate_layout_for_subtree`] + the K30b fragment channel: `fragment`
+/// arms this subtree's fragmentainer (space + optional resume token, riding
+/// `LayoutConstraints.fragmentainer` — design §4.3/4.4); `fragment_out`
+/// receives the subtree's outgoing [`BreakToken`], `None` = finished.
+/// Existing callers use the plain wrapper (both channels `None` — the
+/// continuous path is bit-identical by construction).
+#[allow(clippy::too_many_arguments)]
+pub fn calculate_layout_for_subtree_fragment<T: ParsedFontTrait>(
+    ctx: &mut LayoutContext<'_, T>,
+    tree: &mut LayoutTree,
+    text_cache: &mut TextLayoutCache,
+    node_index: usize,
+    containing_block_pos: LogicalPosition,
+    containing_block_size: LogicalSize,
+    calculated_positions: &mut super::PositionVec,
+    reflow_needed_for_scrollbars: &mut bool,
+    float_cache: &mut HashMap<usize, fc::FloatingContext>,
+    compute_mode: ComputeMode,
+    fragment: Option<fc::FragmentainerSpace<'_>>,
+    mut fragment_out: Option<&mut Option<crate::solver3::break_token::BreakToken>>,
+) -> Result<()> {
     // [g147b az-web-lift DIAG] per-node calculate_layout_for_subtree entry (0x60980+slot): records the
     // last compute_mode that reached this node (PerformLayout=2 wins, runs after ComputeSize=1). If a div
     // shows 0x...0002 here but its layout_formatting_context marker (0x609A0+) is UNSET → positioning
@@ -2035,7 +2072,12 @@ pub fn calculate_layout_for_subtree<T: ParsedFontTrait>(
     // This split is critical for O(n) two-pass BFC:
     // - Pass 1 populates measurement slots (cheap: no absolute positioning)
     // - Pass 2 hits layout slot or re-computes with positions
-    if node_index < ctx.cache_map.entries.len() {
+    // NG rule (design doc §1.3 / research §2.1): the layout-result cache is
+    // BYPASSED for fragment passes — the fragmentainer (remaining extent +
+    // resume token) is not part of the cache key, so a hit would return the
+    // CONTINUOUS geometry and silently skip breaking. Fragment results are
+    // also never STORED (they would poison the continuous cache).
+    if fragment.is_none() && node_index < ctx.cache_map.entries.len() {
         match compute_mode {
             ComputeMode::ComputeSize => {
                 // ComputeSize: check measurement slot first (Taffy's 9-slot scheme).
@@ -2159,7 +2201,7 @@ pub fn calculate_layout_for_subtree<T: ParsedFontTrait>(
     // Err pins the failing phase (fires per recursive node; bare body is shallow).
     // Phase 1: Prepare layout context (calculate used size, constraints)
     let PreparedLayoutContext {
-        constraints,
+        mut constraints,
         dom_id,
         writing_mode,
         mut final_used_size,
@@ -2168,6 +2210,10 @@ pub fn calculate_layout_for_subtree<T: ParsedFontTrait>(
         let _p = crate::probe::Probe::span("prepare_layout_context");
         prepare_layout_context(ctx, tree, node_index, containing_block_size)?
     };
+    // K30b: arm this subtree's fragmentainer (None on the continuous path).
+    if let Some(fs) = fragment {
+        constraints.fragmentainer = Some(fs);
+    }
 
     // Phase 1.5: Update used_size BEFORE calling layout_formatting_context.
     //
@@ -2192,6 +2238,10 @@ pub fn calculate_layout_for_subtree<T: ParsedFontTrait>(
         let _p = crate::probe::Probe::span("layout_formatting_context");
         layout_formatting_context(ctx, tree, text_cache, node_index, &constraints, float_cache)?
     };
+    // K30b: hand the subtree's resume state up (None = finished).
+    if let Some(slot) = fragment_out.as_deref_mut() {
+        *slot = layout_result.outgoing_token.clone();
+    }
     let content_size = layout_result.output.overflow_size;
 
     // If layout_formatting_context adjusted this node's used_size (e.g.
@@ -2353,7 +2403,9 @@ pub fn calculate_layout_for_subtree<T: ParsedFontTrait>(
     // === STORE RESULT IN PER-NODE CACHE (Taffy-inspired 9+1 slot cache) ===
     // Store both the full layout entry and a sizing measurement entry.
     // This enables O(n) two-pass BFC: Pass 1 populates cache, Pass 2 reads it.
-    if node_index < ctx.cache_map.entries.len() {
+    // Fragment passes never store (NG rule, same as the hit-side gate above:
+    // fragment geometry would poison the continuous cache).
+    if fragment.is_none() && node_index < ctx.cache_map.entries.len() {
         let warm_ref = tree.warm(node_index);
         let baseline = warm_ref.and_then(|n| n.baseline);
         let escaped_top = warm_ref.and_then(|n| n.escaped_top_margin);

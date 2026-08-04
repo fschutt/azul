@@ -1360,16 +1360,112 @@ fn layout_bfc<T: ParsedFontTrait>(
         .and_then(|fs| fs.resume)
         .and_then(crate::solver3::break_token::resume_plan)
         .map(|p| p.first_unfinished);
+    // K30b part 2: per-child resume tokens (ResumeIn entries). A child in
+    // this map continues from ITS token in a re-laid subtree; BreakBefore
+    // children (and Inline tokens, v1) lay out from scratch.
+    let fragment_resume_tokens: alloc::collections::BTreeMap<
+        usize,
+        &crate::solver3::break_token::BreakToken,
+    > = constraints
+        .fragmentainer
+        .as_ref()
+        .and_then(|fs| fs.resume)
+        .map(|tok| {
+            tok.children
+                .iter()
+                .filter_map(|e| match e {
+                    crate::solver3::break_token::ChildBreakEntry::ResumeIn {
+                        child,
+                        token,
+                    } => Some((*child, &**token)),
+                    crate::solver3::break_token::ChildBreakEntry::BreakBefore { .. } => None,
+                })
+                .collect()
+        })
+        .unwrap_or_default();
     let mut fragment_resume_reached = fragment_resume_from.is_none();
     let mut fragment_placed_content = false;
     let mut fragment_token_out: Option<crate::solver3::break_token::BreakToken> = None;
 
     for &child_index in &pos_children {
+        // A token emitted while PLACING the previous child (break-descend /
+        // resumed-child continuation) stops sibling consumption here.
+        if fragment_token_out.is_some() {
+            break;
+        }
         if !fragment_resume_reached {
             if Some(child_index) == fragment_resume_from {
                 fragment_resume_reached = true;
             } else {
                 continue;
+            }
+        }
+
+        // K30b part 2, RESUME arm: this child carries a Block resume token —
+        // RE-LAY its subtree from that token inside the remaining extent
+        // (its used_size then reflects only the remaining content). If it
+        // STILL does not finish, emit its continuation and stop after
+        // placing it. Inline tokens re-lay from scratch in v1.
+        if let Some(fs) = constraints.fragmentainer.as_ref().copied() {
+            if let Some(crate::solver3::break_token::BreakToken::Block(child_tok)) =
+                fragment_resume_tokens.get(&child_index).copied()
+            {
+                let child_space = FragmentainerSpace {
+                    remaining_block_extent: (fs.remaining_block_extent - main_pen).max(0.0),
+                    next_fragmentainer_extent: fs.next_fragmentainer_extent,
+                    is_first: false,
+                    resume: Some(child_tok),
+                };
+                let mut child_out: Option<crate::solver3::break_token::BreakToken> = None;
+                let mut tmp_positions: super::PositionVec = Vec::new();
+                let mut tmp_scrollbars = false;
+                crate::solver3::cache::calculate_layout_for_subtree_fragment(
+                    ctx,
+                    tree,
+                    text_cache,
+                    child_index,
+                    LogicalPosition::zero(),
+                    children_containing_block_size,
+                    &mut tmp_positions,
+                    &mut tmp_scrollbars,
+                    float_cache,
+                    crate::solver3::cache::ComputeMode::ComputeSize,
+                    Some(child_space),
+                    Some(&mut child_out),
+                )?;
+                if let Some(cont) = child_out {
+                    let later: alloc::vec::Vec<usize> = pos_children
+                        .iter()
+                        .copied()
+                        .skip_while(|&c| c != child_index)
+                        .skip(1)
+                        .filter(|&c| {
+                            let pt = get_position_type(
+                                ctx.styled_dom,
+                                tree.get(c).and_then(|n| n.dom_node_id),
+                            );
+                            pt != LayoutPosition::Absolute && pt != LayoutPosition::Fixed
+                        })
+                        .collect();
+                    let mut children =
+                        alloc::vec![crate::solver3::break_token::ChildBreakEntry::ResumeIn {
+                            child: child_index,
+                            token: alloc::boxed::Box::new(cont),
+                        }];
+                    children.extend(later.into_iter().map(|child| {
+                        crate::solver3::break_token::ChildBreakEntry::BreakBefore { child }
+                    }));
+                    fragment_token_out = Some(crate::solver3::break_token::BreakToken::Block(
+                        crate::solver3::break_token::BlockBreakToken {
+                            node: node_index,
+                            consumed_block_size: main_pen,
+                            children,
+                            generation: 0,
+                        },
+                    ));
+                    // fall through: PLACE the fitted part of this child;
+                    // the loop-top guard stops the following siblings.
+                }
             }
         }
 
@@ -1917,13 +2013,31 @@ fn layout_bfc<T: ParsedFontTrait>(
         // reporting arrives with the page-loop driver).
         if let Some(fs) = constraints.fragmentainer.as_ref() {
             use crate::solver3::break_token::{fragment_fit, tail_token, FitDecision};
-            match fragment_fit(
-                main_pen,
-                child_size.main(writing_mode),
-                fs.remaining_block_extent,
-                fs.next_fragmentainer_extent,
-                fragment_placed_content,
-            ) {
+            // A BLOCK CONTAINER with children is never a true monolith —
+            // the monolith rule (place-overflowing) is for ATOMS. A
+            // container that does not fit DESCENDS whenever there is usable
+            // space, regardless of the placed_any/monolith classification
+            // (a first-child wrapper taller than every page must split, not
+            // overflow).
+            let child_fits = main_pen + child_size.main(writing_mode)
+                <= fs.remaining_block_extent + 0.01;
+            let container_descend = !child_fits
+                && tree.get(child_index).is_some_and(|n| {
+                    matches!(n.formatting_context, FormattingContext::Block { .. })
+                        && !tree.children(child_index).is_empty()
+                })
+                && (fs.remaining_block_extent - main_pen) >= 40.0;
+            match if container_descend {
+                FitDecision::BreakBeforeHere
+            } else {
+                fragment_fit(
+                    main_pen,
+                    child_size.main(writing_mode),
+                    fs.remaining_block_extent,
+                    fs.next_fragmentainer_extent,
+                    fragment_placed_content,
+                )
+            } {
                 FitDecision::Fits | FitDecision::MonolithOverflow => {}
                 FitDecision::BreakBeforeHere => {
                     let later: alloc::vec::Vec<usize> = pos_children
@@ -1939,17 +2053,101 @@ fn layout_bfc<T: ParsedFontTrait>(
                             pt != LayoutPosition::Absolute && pt != LayoutPosition::Fixed
                         })
                         .collect();
-                    fragment_token_out = Some(tail_token(
-                        node_index,
-                        main_pen,
-                        child_index,
-                        later.into_iter(),
-                    ));
-                    break;
+
+                    // K30b part 2, BREAK-DESCEND arm: a breakable BLOCK
+                    // container with usable space left gets PART of itself
+                    // on this fragmentainer — re-lay it inside the
+                    // remaining extent; its own token becomes a ResumeIn
+                    // entry. Leaf/IFC/atomic children (and sliver spaces
+                    // < MIN_DESCEND_EXTENT) keep the whole-child
+                    // BreakBefore of part 1.
+                    const MIN_DESCEND_EXTENT: f32 = 40.0;
+                    let child_is_block_container = tree
+                        .get(child_index)
+                        .is_some_and(|n| {
+                            matches!(
+                                n.formatting_context,
+                                FormattingContext::Block { .. }
+                            ) && !tree.children(child_index).is_empty()
+                        });
+                    let usable = fs.remaining_block_extent - main_pen;
+                    if child_is_block_container && usable >= MIN_DESCEND_EXTENT {
+                        let child_space = FragmentainerSpace {
+                            remaining_block_extent: usable,
+                            next_fragmentainer_extent: fs.next_fragmentainer_extent,
+                            is_first: fs.is_first && !fragment_placed_content,
+                            resume: None,
+                        };
+                        let mut child_out: Option<
+                            crate::solver3::break_token::BreakToken,
+                        > = None;
+                        let mut tmp_positions: super::PositionVec = Vec::new();
+                        let mut tmp_scrollbars = false;
+                        crate::solver3::cache::calculate_layout_for_subtree_fragment(
+                            ctx,
+                            tree,
+                            text_cache,
+                            child_index,
+                            LogicalPosition::zero(),
+                            children_containing_block_size,
+                            &mut tmp_positions,
+                            &mut tmp_scrollbars,
+                            float_cache,
+                            crate::solver3::cache::ComputeMode::ComputeSize,
+                            Some(child_space),
+                            Some(&mut child_out),
+                        )?;
+                        if let Some(cont) = child_out {
+                            // The child SPLIT: place its fitted part (fall
+                            // through with the shortened used_size) and
+                            // resume the rest on the next fragmentainer.
+                            let mut children = alloc::vec![
+                                crate::solver3::break_token::ChildBreakEntry::ResumeIn {
+                                    child: child_index,
+                                    token: alloc::boxed::Box::new(cont),
+                                }
+                            ];
+                            children.extend(later.into_iter().map(|child| {
+                                crate::solver3::break_token::ChildBreakEntry::BreakBefore {
+                                    child,
+                                }
+                            }));
+                            fragment_token_out =
+                                Some(crate::solver3::break_token::BreakToken::Block(
+                                    crate::solver3::break_token::BlockBreakToken {
+                                        node: node_index,
+                                        consumed_block_size: main_pen,
+                                        children,
+                                        generation: 0,
+                                    },
+                                ));
+                            // NO `break`: the loop-top guard stops the NEXT
+                            // sibling; this child still places below.
+                        } else {
+                            // The child fit entirely once re-laid (its
+                            // Pass-1 size was stale/conservative): place it,
+                            // no token from this child.
+                        }
+                    } else {
+                        fragment_token_out = Some(tail_token(
+                            node_index,
+                            main_pen,
+                            child_index,
+                            later.into_iter(),
+                        ));
+                        break;
+                    }
                 }
             }
             fragment_placed_content = true;
         }
+
+        // K30b: a descend/resume re-lay above may have SHORTENED this
+        // child's used_size — refresh the local before positioning.
+        let child_size = tree
+            .get(child_index)
+            .and_then(|n| n.used_size)
+            .unwrap_or(child_size);
 
         // Position child (non-empty blocks only reach here)
         //

@@ -2119,6 +2119,174 @@ pub fn spine_line_start_at_y(
     best
 }
 
+/// One fragmentainer's outcome from [`layout_document_tokenized`].
+#[derive(Debug, Clone)]
+pub struct TokenizedPage {
+    /// Block-size of the content laid INTO this fragmentainer (the root's
+    /// fitted used height for this pass).
+    pub content_block_size: f32,
+    /// The outgoing resume token (`None` = the document finished here).
+    pub outgoing: Option<crate::solver3::break_token::BreakToken>,
+}
+
+/// K30b part 2 / K30c skeleton: the NG-style page loop. Lays the document
+/// out one fragmentainer at a time — page N's outgoing token is page N+1's
+/// incoming token; layout re-descends the tree each page, skipping finished
+/// subtrees via the token (design doc §4.5). No display lists yet (that is
+/// the rest of K30c); the output pins the token algebra: progress,
+/// conservation, nested resume.
+///
+/// # Errors
+/// Propagates layout errors; the internal no-progress guard turns the
+/// NG infinite-loop class into loop termination instead.
+#[allow(clippy::too_many_arguments)]
+pub fn layout_document_tokenized<T, F>(
+    cache: &mut LayoutCache,
+    text_cache: &mut TextLayoutCache,
+    new_dom: &StyledDom,
+    viewport: LogicalRect,
+    font_manager: &mut crate::font_traits::FontManager<T>,
+    debug_messages: &mut Option<Vec<LayoutDebugMessage>>,
+    image_cache: &azul_core::resources::ImageCache,
+    get_system_time_fn: azul_core::task::GetSystemTimeCallback,
+    font_loader: F,
+    page_content_height: f32,
+    max_pages: usize,
+) -> Result<Vec<TokenizedPage>>
+where
+    T: ParsedFontTrait + Sync + 'static,
+    F: Fn(
+        std::sync::Arc<rust_fontconfig::FontBytes>,
+        usize,
+    ) -> std::result::Result<T, crate::text3::cache::LayoutError>,
+{
+    use crate::solver3::break_token::{token_fingerprint, BreakToken};
+    use crate::solver3::cache::{calculate_layout_for_subtree_fragment, ComputeMode};
+    use crate::solver3::fc::FragmentainerSpace;
+
+    // 1. Build the tree + shape text once via a CONTINUOUS pass (the page
+    // loop re-descends this structure; fonts resolve the same way the
+    // paged estimator does).
+    let mut frag = FragmentationContext::new_continuous(viewport.size.width);
+    {
+        // Font resolution identical to the paged path.
+        use crate::solver3::getters::{
+            collect_and_resolve_font_chains_with_registration, collect_font_ids_from_chains,
+            compute_fonts_to_load, load_fonts_from_disk,
+        };
+        let platform = azul_css::system::Platform::current();
+        let chains = collect_and_resolve_font_chains_with_registration(
+            new_dom, &font_manager.fc_cache, font_manager, &platform,
+        );
+        let required = collect_font_ids_from_chains(&chains);
+        let loaded = font_manager.get_loaded_font_ids();
+        let to_load = compute_fonts_to_load(&required, &loaded);
+        if !to_load.is_empty() {
+            let res = load_fonts_from_disk(&to_load, &font_manager.fc_cache, &font_loader);
+            font_manager.insert_fonts(res.loaded);
+        }
+        font_manager.set_font_chain_cache(chains.into_fontconfig_chains());
+    }
+    compute_layout_with_fragmentation(
+        cache,
+        text_cache,
+        &mut frag,
+        new_dom,
+        viewport,
+        font_manager,
+        debug_messages,
+        image_cache,
+        get_system_time_fn,
+        false,
+    )?;
+
+    // 2. The page loop.
+    let mut pages: Vec<TokenizedPage> = Vec::new();
+    let mut incoming: Option<BreakToken> = None;
+    for page_idx in 0..max_pages {
+        let resume = match incoming.as_ref() {
+            None => None,
+            Some(BreakToken::Block(b)) => Some(b),
+            // The ROOT is a block box; an inline token cannot reach here.
+            Some(BreakToken::Inline(_)) => None,
+        };
+        let space = FragmentainerSpace {
+            remaining_block_extent: page_content_height,
+            next_fragmentainer_extent: page_content_height,
+            is_first: page_idx == 0 && incoming.is_none(),
+            resume,
+        };
+
+        let tree = cache.tree.as_mut().ok_or(LayoutError::InvalidTree)?;
+        let mut counter_values = cache.counters.clone();
+        let empty_text_selections: BTreeMap<DomId, TextSelection> = BTreeMap::new();
+        let mut ctx = LayoutContext {
+            scrollbar_style_cache: core::cell::RefCell::new(std::collections::HashMap::new()),
+            styled_dom: new_dom,
+            font_manager: &*font_manager,
+            text_selections: &empty_text_selections,
+            debug_messages,
+            counters: &mut counter_values,
+            viewport_size: viewport.size,
+            fragmentation_context: None,
+            cursor_is_visible: false,
+            cursor_locations: Vec::new(),
+            preedit_text: None,
+            cache_map: std::mem::take(&mut cache.cache_map),
+            image_cache,
+            content_overlay: None,
+            system_style: None,
+            get_system_time_fn,
+        };
+
+        let mut outgoing: Option<BreakToken> = None;
+        let mut tmp_positions: crate::solver3::PositionVec = Vec::new();
+        let mut tmp_scrollbars = false;
+        let mut tmp_floats = std::collections::HashMap::new();
+        let result = calculate_layout_for_subtree_fragment(
+            &mut ctx,
+            tree,
+            text_cache,
+            0, // the root layout node
+            LogicalPosition::zero(),
+            viewport.size,
+            &mut tmp_positions,
+            &mut tmp_scrollbars,
+            &mut tmp_floats,
+            ComputeMode::ComputeSize,
+            Some(space),
+            Some(&mut outgoing),
+        );
+        cache.cache_map = std::mem::take(&mut ctx.cache_map);
+        result?;
+
+        let content = cache
+            .tree
+            .as_ref()
+            .and_then(|t| t.get(0))
+            .and_then(|n| n.used_size)
+            .map_or(0.0, |sz| sz.height);
+
+        // PROGRESS GUARD (the NG infinite-loop class): an outgoing token
+        // identical to the incoming one means the page consumed nothing.
+        let stalled = match (&incoming, &outgoing) {
+            (Some(a), Some(b)) => {
+                token_fingerprint(a) == token_fingerprint(b) && a == b
+            }
+            _ => false,
+        };
+        pages.push(TokenizedPage {
+            content_block_size: content,
+            outgoing: outgoing.clone(),
+        });
+        if stalled || outgoing.is_none() {
+            break;
+        }
+        incoming = outgoing;
+    }
+    Ok(pages)
+}
+
 /// The per-page delta of a re-estimation, for the editor's lazy re-break
 /// loop: pages whose breaks are bit-for-bit unchanged keep their DOM
 /// subtrees untouched; patching starts at `first_changed_page`.
