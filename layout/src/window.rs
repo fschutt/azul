@@ -1317,6 +1317,33 @@ impl LayoutWindow {
         self.pagination_dirty_from.take()
     }
 
+    /// Min-in a node's document-space Y as the topmost point above which
+    /// page breaks are still valid. Every edit source that can move layout
+    /// must call this (text edits, image swaps, style patches, clip masks) —
+    /// an embedder's lazy re-break otherwise misses non-text edits.
+    fn mark_pagination_dirty_at_node(&mut self, dom_id: DomId, node_id: NodeId) {
+        if let Some(lr) = self.layout_results.get(&dom_id) {
+            if let Some(&layout_idx) = lr
+                .layout_tree
+                .dom_to_layout
+                .get(&node_id)
+                .and_then(|v| v.first())
+            {
+                if let Some(pos) = solver3::pos_get(&lr.calculated_positions, layout_idx) {
+                    self.pagination_dirty_from =
+                        Some(self.pagination_dirty_from.map_or(pos.y, |p| p.min(pos.y)));
+                }
+            }
+        }
+    }
+
+    /// [`Self::mark_pagination_dirty_at_node`] for edits with no node anchor
+    /// (content-addressed image ids used by unknown nodes): invalidate from
+    /// the top of the document.
+    fn mark_pagination_dirty_everywhere(&mut self) {
+        self.pagination_dirty_from = Some(0.0);
+    }
+
     /// Snapshot of the css-id → image map for seeding a CHILD window
     /// (popups/menus): the sanctioned read for shells, which may not name
     /// content-state fields directly (the architecture lint enforces it).
@@ -2955,7 +2982,21 @@ impl LayoutWindow {
     ) -> crate::overlay::ContentChangeResult {
         use crate::overlay::{AppliedChange, ContentChange, ContentChangeResult, ContentDirtyTier};
 
-        match change {
+        // Pagination dirty tracking (editor architecture, AZUL-STILL-TODO B6):
+        // any content change that can move layout must min-in its document Y
+        // so a paged embedder's lazy re-break sees non-text edits too. The
+        // node anchor is captured up front; whether it counts is decided by
+        // the resulting tier below.
+        let pagination_anchor: Option<(DomId, NodeId)> = match &change {
+            ContentChange::Image { dom_id, node_id, .. }
+            | ContentChange::ImageCallbackResult { dom_id, node_id, .. }
+            | ContentChange::NodeCss { dom_id, node_id, .. }
+            | ContentChange::ImageMask { dom_id, node_id, .. } => Some((*dom_id, *node_id)),
+            ContentChange::ImageById { .. } => None,
+        };
+        let is_image_by_id = matches!(&change, ContentChange::ImageById { .. });
+
+        let result = match change {
             ContentChange::Image {
                 dom_id,
                 node_id,
@@ -3022,7 +3063,23 @@ impl LayoutWindow {
                     tier: ContentDirtyTier::RebuildDisplayList,
                 }
             }
+        };
+
+        // Layout-affecting tiers invalidate page breaks from the changed
+        // node's Y downward; Paint cannot move a break. ImageById has no
+        // node anchor (any node may use the id) — invalidate from the top.
+        match result.tier {
+            ContentDirtyTier::Relayout | ContentDirtyTier::RebuildDisplayList => {
+                if let Some((dom_id, node_id)) = pagination_anchor {
+                    self.mark_pagination_dirty_at_node(dom_id, node_id);
+                } else if is_image_by_id {
+                    self.mark_pagination_dirty_everywhere();
+                }
+            }
+            ContentDirtyTier::Unchanged | ContentDirtyTier::Paint => {}
         }
+
+        result
     }
 
     /// The node-CSS arm of [`Self::apply_content_change`].
@@ -7622,19 +7679,7 @@ impl LayoutWindow {
 
         // B4: record the topmost changed document Y for the embedder's paged
         // view (drained by take_pagination_dirty_from → incremental re-break).
-        if let Some(lr) = self.layout_results.get(&dom_id) {
-            if let Some(&layout_idx) = lr
-                .layout_tree
-                .dom_to_layout
-                .get(&node_id)
-                .and_then(|v| v.first())
-            {
-                if let Some(pos) = solver3::pos_get(&lr.calculated_positions, layout_idx) {
-                    self.pagination_dirty_from =
-                        Some(self.pagination_dirty_from.map_or(pos.y, |p| p.min(pos.y)));
-                }
-            }
-        }
+        self.mark_pagination_dirty_at_node(dom_id, node_id);
 
         // 1. Store the new content in dirty_text_nodes for tracking
         let cursor = self.text_edit_manager.get_primary_cursor();
