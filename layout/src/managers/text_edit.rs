@@ -137,6 +137,10 @@ pub struct TextEditManager {
     /// `Some` whenever a contenteditable element has focus.
     /// Source of truth for `edit_text()` and display list painting.
     pub multi_cursor: Option<MultiCursorState>,
+    /// Cross-block (multi-IFC-root) selection, render-ready. Precomputed by
+    /// `LayoutWindow::set_cross_block_selection`; wins over `multi_cursor`
+    /// in `build_text_selections_map` while set.
+    pub cross_block: Option<azul_core::selection::TextSelection>,
     /// Cursor blink animation state.
     pub blink: BlinkState,
     /// IME preedit (composition) text currently being composed.
@@ -172,6 +176,7 @@ impl TextEditManager {
     #[must_use] pub fn new() -> Self {
         Self {
             multi_cursor: None,
+            cross_block: None,
             blink: BlinkState::new(),
             preedit_text: None,
             preedit_cursor_begin: -1,
@@ -362,7 +367,43 @@ impl TextEditManager {
     /// The `affected_nodes` map uses the editing node's `NodeId` as key.
     /// NOTE: only one range per node is supported — if multiple cursors have
     /// range selections on the same node, later ranges overwrite earlier ones.
+    /// Cross-block selection (spans multiple IFC roots), precomputed by
+    /// `LayoutWindow::set_cross_block_selection` — the manager stores it
+    /// render-ready because computing the per-IFC ranges needs layout/text
+    /// access the manager does not have. Cleared by any single-node cursor
+    /// interaction. When set, it wins over `multi_cursor` for rendering.
+    pub fn set_cross_block_selection(&mut self, sel: azul_core::selection::TextSelection) {
+        self.cross_block = Some(sel);
+        self.display_list_dirty = true;
+    }
+
+    /// Clear the cross-block selection (single-node interactions do this).
+    pub fn clear_cross_block_selection(&mut self) {
+        if self.cross_block.take().is_some() {
+            self.display_list_dirty = true;
+        }
+    }
+
+    /// Take the cross-block selection (delete/apply flows consume it).
+    pub fn take_cross_block_selection(&mut self) -> Option<azul_core::selection::TextSelection> {
+        let s = self.cross_block.take();
+        if s.is_some() {
+            self.display_list_dirty = true;
+        }
+        s
+    }
+
+    /// The active cross-block selection, if any.
+    #[must_use] pub const fn get_cross_block_selection(&self) -> Option<&azul_core::selection::TextSelection> {
+        self.cross_block.as_ref()
+    }
+
     #[must_use] pub fn build_text_selections_map(&self) -> std::collections::BTreeMap<DomId, azul_core::selection::TextSelection> {
+        if let Some(cb) = &self.cross_block {
+            let mut map = std::collections::BTreeMap::new();
+            map.insert(cb.dom_id, cb.clone());
+            return map;
+        }
         use azul_core::selection::{TextSelection, SelectionAnchor, SelectionFocus};
         use azul_core::geom::LogicalRect;
 

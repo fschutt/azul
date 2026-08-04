@@ -1603,6 +1603,253 @@ impl LayoutWindow {
         )
     }
 
+    /// The end-of-text cursor of an IFC root: the byte AFTER the last text
+    /// run's content (overlay-aware — sees uncommitted edits). `None` when
+    /// the node has no text runs.
+    fn node_text_end_cursor(
+        &self,
+        dom_id: DomId,
+        node_id: NodeId,
+    ) -> Option<azul_core::selection::TextCursor> {
+        use azul_core::selection::{CursorAffinity, GraphemeClusterId, TextCursor};
+        let content = self.get_text_before_textinput(dom_id, node_id);
+        let mut last: Option<(u32, u32)> = None;
+        for (i, c) in content.iter().enumerate() {
+            if let crate::text3::cache::InlineContent::Text(run) = c {
+                last = Some((
+                    u32::try_from(i).unwrap_or(u32::MAX),
+                    u32::try_from(run.text.len()).unwrap_or(u32::MAX),
+                ));
+            }
+        }
+        let (run, byte) = last?;
+        Some(TextCursor {
+            cluster_id: GraphemeClusterId {
+                source_run: run,
+                start_byte_in_run: byte,
+            },
+            affinity: CursorAffinity::Leading,
+        })
+    }
+
+    /// Establish a selection SPANNING MULTIPLE sibling blocks (AZUL-STILL-TODO
+    /// C9, v1): anchor and focus must be text-bearing IFC roots under the
+    /// same parent (the common contenteditable-container case). The
+    /// per-IFC ranges are precomputed here — anchor node from its cursor to
+    /// its text end, every sibling between fully, focus node from its start
+    /// to its cursor (mirrored for backward selections) — and stored
+    /// render-ready on the text-edit manager, where the display-list pass
+    /// picks them up through `build_text_selections_map`.
+    ///
+    /// Returns false (and changes nothing) when the two nodes are not
+    /// siblings, are the same node (single-node selection is
+    /// `MultiCursorState`'s job), or either has no text.
+    pub fn set_cross_block_selection(
+        &mut self,
+        dom_id: DomId,
+        anchor_node: NodeId,
+        anchor_cursor: azul_core::selection::TextCursor,
+        focus_node: NodeId,
+        focus_cursor: azul_core::selection::TextCursor,
+    ) -> bool {
+        use azul_core::selection::{
+            CursorAffinity, GraphemeClusterId, SelectionAnchor, SelectionFocus, SelectionRange,
+            TextCursor, TextSelection,
+        };
+        if anchor_node == focus_node {
+            return false;
+        }
+        let is_forward = anchor_node.index() < focus_node.index();
+        let (first, first_cursor, last, last_cursor) = if is_forward {
+            (anchor_node, anchor_cursor, focus_node, focus_cursor)
+        } else {
+            (focus_node, focus_cursor, anchor_node, anchor_cursor)
+        };
+
+        // Walk first -> last along the sibling chain, collecting middles.
+        let mut middles: Vec<NodeId> = Vec::new();
+        let mut cur = first;
+        loop {
+            let Some(next) = self.block_sibling(dom_id, cur, true) else {
+                return false; // ran off the chain: not siblings
+            };
+            if next == last {
+                break;
+            }
+            middles.push(next);
+            cur = next;
+        }
+
+        let node_start = |_n: NodeId| TextCursor {
+            cluster_id: GraphemeClusterId {
+                source_run: 0,
+                start_byte_in_run: 0,
+            },
+            affinity: CursorAffinity::Leading,
+        };
+
+        let Some(first_end) = self.node_text_end_cursor(dom_id, first) else {
+            return false;
+        };
+        let mut affected = std::collections::BTreeMap::new();
+        affected.insert(first, SelectionRange { start: first_cursor, end: first_end });
+        for &m in &middles {
+            // Text-less middles (images, rules) contribute a zero-width range
+            // at their start: they are INSIDE the selection (deleted by
+            // delete_cross_block_selection) but have no text to highlight.
+            let end = self.node_text_end_cursor(dom_id, m).unwrap_or_else(|| node_start(m));
+            affected.insert(m, SelectionRange { start: node_start(m), end });
+        }
+        affected.insert(last, SelectionRange { start: node_start(last), end: last_cursor });
+
+        self.text_edit_manager.set_cross_block_selection(TextSelection {
+            dom_id,
+            anchor: SelectionAnchor {
+                ifc_root_node_id: anchor_node,
+                cursor: anchor_cursor,
+                char_bounds: azul_core::geom::LogicalRect::zero(),
+                mouse_position: azul_core::geom::LogicalPosition::zero(),
+            },
+            focus: SelectionFocus {
+                ifc_root_node_id: focus_node,
+                cursor: focus_cursor,
+                mouse_position: azul_core::geom::LogicalPosition::zero(),
+            },
+            affected_nodes: affected,
+            is_forward,
+        });
+        true
+    }
+
+    /// Delete the active cross-block selection (AZUL-STILL-TODO C10):
+    ///
+    /// - the anchor-side node keeps its text BEFORE the selection (tail
+    ///   trimmed through the text overlay - no DOM mutation),
+    /// - the focus-side node keeps its text AFTER the selection (head
+    ///   trimmed),
+    /// - every fully-covered block between them is emitted as ONE
+    ///   `RemoveChildren` structural changeset through the standard
+    ///   record/preview/ack flow (the app applies it to its model),
+    /// - the caret collapses to the selection start.
+    ///
+    /// Returns the changeset id when middle blocks were removed, `None`
+    /// when the selection only spanned two adjacent blocks (trims only).
+    /// Word-style MERGING of the two remaining part-blocks is the separate
+    /// paragraph-merge gap (pdf2html list, section E2) and is NOT done here.
+    pub fn delete_cross_block_selection(&mut self) -> Option<u64> {
+        use crate::managers::changeset::{
+            DocOpRemoveChildren, DocumentChangeset, DocumentOperation,
+        };
+        use crate::text3::cache::InlineContent;
+
+        let sel = self.text_edit_manager.take_cross_block_selection()?;
+        let dom_id = sel.dom_id;
+        let mut nodes: Vec<(NodeId, azul_core::selection::SelectionRange)> =
+            sel.affected_nodes.iter().map(|(n, r)| (*n, *r)).collect();
+        if nodes.len() < 2 {
+            return None;
+        }
+        nodes.sort_by_key(|(n, _)| n.index());
+        let (first, first_range) = nodes[0];
+        let (last, last_range) = *nodes.last().expect("len >= 2");
+
+        // Tail-trim the first node: keep content BEFORE the range start.
+        let cut = first_range.start.cluster_id;
+        let content = self.get_text_before_textinput(dom_id, first);
+        let mut trimmed: Vec<InlineContent> = Vec::new();
+        for (i, c) in content.into_iter().enumerate() {
+            let i = u32::try_from(i).unwrap_or(u32::MAX);
+            match c {
+                InlineContent::Text(mut run) if i == cut.source_run => {
+                    let byte = (cut.start_byte_in_run as usize).min(run.text.len());
+                    run.text.truncate(byte);
+                    trimmed.push(InlineContent::Text(run));
+                    break;
+                }
+                other if i < cut.source_run => trimmed.push(other),
+                _ => break,
+            }
+        }
+        self.update_text_cache_after_edit(dom_id, first, trimmed);
+
+        // Head-trim the last node: keep content AFTER the range end.
+        let cut = last_range.end.cluster_id;
+        let content = self.get_text_before_textinput(dom_id, last);
+        let mut trimmed: Vec<InlineContent> = Vec::new();
+        for (i, c) in content.into_iter().enumerate() {
+            let i = u32::try_from(i).unwrap_or(u32::MAX);
+            match c {
+                InlineContent::Text(mut run) if i == cut.source_run => {
+                    let byte = (cut.start_byte_in_run as usize).min(run.text.len());
+                    run.text.drain(..byte);
+                    trimmed.push(InlineContent::Text(run));
+                }
+                other if i > cut.source_run => trimmed.push(other),
+                _ => {}
+            }
+        }
+        self.update_text_cache_after_edit(dom_id, last, trimmed);
+
+        // Collapse the caret to the selection start.
+        {
+            let lr = self.layout_results.get(&dom_id);
+            let key = lr.map_or(0, |lr| {
+                azul_core::diff::calculate_contenteditable_key(
+                    lr.styled_dom.node_data.as_ref(),
+                    lr.styled_dom.node_hierarchy.as_ref(),
+                    first,
+                )
+            });
+            self.text_edit_manager.multi_cursor =
+                Some(azul_core::selection::MultiCursorState::new_with_cursor(
+                    first_range.start,
+                    DomNodeId {
+                        dom: dom_id,
+                        node: NodeHierarchyItemId::from_crate_internal(Some(first)),
+                    },
+                    key,
+                ));
+        }
+
+        // Fully-covered middles: one contiguous RemoveChildren changeset.
+        let middles: Vec<NodeId> = nodes[1..nodes.len() - 1].iter().map(|(n, _)| *n).collect();
+        if middles.is_empty() {
+            return None;
+        }
+        let lr = self.layout_results.get(&dom_id)?;
+        let hierarchy = lr.styled_dom.node_hierarchy.as_container();
+        let parent = hierarchy.get(middles[0]).and_then(azul_core::styled_dom::NodeHierarchyItem::parent_id)?;
+        let child_index_of = |target: NodeId| -> u32 {
+            let mut idx: u32 = 0;
+            let mut sib = hierarchy.get(target).and_then(azul_core::styled_dom::NodeHierarchyItem::previous_sibling_id);
+            while let Some(sn) = sib {
+                idx += 1;
+                sib = hierarchy.get(sn).and_then(azul_core::styled_dom::NodeHierarchyItem::previous_sibling_id);
+            }
+            idx
+        };
+        let start = child_index_of(middles[0]);
+        let end = start + u32::try_from(middles.len()).unwrap_or(u32::MAX);
+        let parent_dom_node = DomNodeId {
+            dom: dom_id,
+            node: NodeHierarchyItemId::from_crate_internal(Some(parent)),
+        };
+        let op = DocumentOperation::RemoveChildren(DocOpRemoveChildren {
+            parent: parent_dom_node,
+            start,
+            end,
+        });
+        let resume = self.compute_edit_resume_point(
+            DomNodeId {
+                dom: dom_id,
+                node: NodeHierarchyItemId::from_crate_internal(Some(middles[0])),
+            },
+            &op,
+        )?;
+        let changeset = DocumentChangeset::new(parent_dom_node, op, resume, Instant::now());
+        Some(self.record_document_edit(changeset))
+    }
+
     /// The previous/next SIBLING of a node (v1 block-adjacency; skips nothing).
     fn block_sibling(&self, dom_id: DomId, node_id: NodeId, next: bool) -> Option<NodeId> {
         let lr = self.layout_results.get(&dom_id)?;
