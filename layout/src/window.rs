@@ -2018,16 +2018,75 @@ impl LayoutWindow {
         Some(self.record_document_edit(changeset))
     }
 
-    /// The previous/next SIBLING of a node (v1 block-adjacency; skips nothing).
+    /// The previous/next MERGE-ELIGIBLE block sibling of a node (C13).
+    ///
+    /// Walks siblings in the given direction, SKIPPING whitespace-only text
+    /// runs (XML pretty-printing between blocks), and returns the first real
+    /// sibling iff it is a mergeable flow container:
+    /// - an element (a text run has no child list to receive the merged
+    ///   content; a replaced node has nothing to merge into),
+    /// - not a `<pagebreak/>` marker (Backspace never merges across a page
+    ///   break by default — that is an app-level decision),
+    /// - whose computed display is flow-block-ish (`Block` / `FlowRoot` /
+    ///   `ListItem`). Merging INTO a table / flex / grid container or an
+    ///   inline is not a Backspace/Delete merge, it is a caret move.
+    ///
+    /// The walk STOPS at the first non-skippable sibling — Word does not
+    /// merge across an obstacle either — and never invents a partner where
+    /// none exists: at the FIRST `<li>` there is no previous sibling inside
+    /// the `<ul>`, so the merge is a no-op. (The previous version returned
+    /// the raw sibling unfiltered, so Backspace at a block start could merge
+    /// a whole block INTO an XML whitespace text node.)
     fn block_sibling(&self, dom_id: DomId, node_id: NodeId, next: bool) -> Option<NodeId> {
+        use azul_core::dom::NodeType;
+
+        use crate::solver3::getters::{get_display_property, MultiValue};
+
         let lr = self.layout_results.get(&dom_id)?;
         let hierarchy = lr.styled_dom.node_hierarchy.as_container();
-        let item = hierarchy.get(node_id)?;
-        if next {
-            item.next_sibling_id()
-        } else {
-            item.previous_sibling_id()
+        let node_data = lr.styled_dom.node_data.as_container();
+
+        let step = |id: NodeId| -> Option<NodeId> {
+            let item = hierarchy.get(id)?;
+            if next {
+                item.next_sibling_id()
+            } else {
+                item.previous_sibling_id()
+            }
+        };
+
+        let mut cur = step(node_id);
+        while let Some(sib) = cur {
+            match node_data[sib].get_node_type() {
+                // Formatting whitespace between blocks: not content, skip.
+                NodeType::Text(t) if t.as_str().trim().is_empty() => {
+                    cur = step(sib);
+                    continue;
+                }
+                // A REAL inline text run cannot receive a block merge
+                // (no child list); stop — no partner.
+                NodeType::Text(_) => return None,
+                // Never merge across / into a page-break marker.
+                NodeType::PageBreak => return None,
+                // Replaced / embedded content has nothing to merge into.
+                NodeType::Image(_) | NodeType::VirtualView => return None,
+                _ => {}
+            }
+            // First real sibling found: eligible iff its computed display is
+            // a flow block. Anything else (inline, table, flex, grid,
+            // display:none…) stops the merge — do NOT jump over it.
+            let display = match get_display_property(&lr.styled_dom, Some(sib)) {
+                MultiValue::Exact(v) => v,
+                _ => return None,
+            };
+            return match display {
+                azul_css::props::layout::display::LayoutDisplay::Block
+                | azul_css::props::layout::display::LayoutDisplay::FlowRoot
+                | azul_css::props::layout::display::LayoutDisplay::ListItem => Some(sib),
+                _ => None,
+            };
         }
+        None
     }
 
     /// Compute the re-render-stable resume point for a structural edit:
