@@ -514,7 +514,42 @@ change and it is opt-in behind the engine enum on the PDF entry only.
 
 ---
 
-## 9. Appendix — seam inventory (audited 2026-08-04)
+## 9. Provenance & license hygiene (per the no-copying-licensed-code rule)
+
+Everything in this document derives from **specs and public architecture
+prose — no engine implementation source was consulted**:
+
+- **W3C specs**: css-break-3/4 (fragmentation model, parallel flows, margin
+  truncation, break classes), css-page-3, css-multicol-1.
+- **Blink LayoutNG**: the public `developer.chrome.com` RenderingNG
+  fragmentation article (Stenshorne) and the `layout_ng.md` architecture
+  README — both prose documents published to explain the design (the README
+  lives in the Chromium tree but is documentation, not implementation).
+  The token/constraint-space/fragment shape, appeal scores, the
+  one-relayout rule, and monolith-overflow all come from these.
+- **Gecko**: Mozilla's public LayoutOverview docs + Continuation_Model wiki
+  (the cautionary-tale section).
+- **WebKit**: architectural classification only (flow threads ≈ our
+  slicer), from public changeset descriptions and the blink-dev mailing
+  list (Regions removal) — no WebKit source, no implementation detail used.
+- The **finished-siblings invariant** is attributed upstream to Chromium
+  commit *messages* (public prose). Independently: if siblings before the
+  first token child were unfinished, resume would re-lay them (duplication
+  / non-termination) — we enforce it with our OWN debug assertion and
+  property tests (§6.2), not by trusting the attribution.
+- **K34 token convergence** is derived from the token algebra alone
+  (tokens are `Eq` values ⇒ an unchanged incoming token fixes every later
+  page) — deliberately NOT from the reflow-convergence description that
+  the research doc attributes to ONLYOFFICE source (AGPL); that attribution
+  is quarantined and unused here.
+
+The implementation phases must keep this bar: css-break-3 text + this doc
++ black-box A/B against Chrome print output as the oracle (same
+methodology as the hinting work: `no-copying-licensed-code.md`).
+
+---
+
+## 10. Appendix — seam inventory (audited 2026-08-04)
 
 - `layout/src/text3/cache.rs:11460` — `BreakCursor<'a>` (items,
   next_item_index, partial_remainder, word_break/hyphens/strictness).
