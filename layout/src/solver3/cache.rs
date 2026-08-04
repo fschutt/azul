@@ -792,6 +792,10 @@ fn layout_relevant_child_count(
         MultiValue::Exact(d) => d,
         _ => LayoutDisplay::Block,
     };
+    // Table-structural parents drop whitespace per CSS 2.2 section 17.2.1;
+    // flex/grid containers drop it per css-flexbox-1 section 4 /
+    // css-grid-1 section 6 (whitespace-only anonymous items are not
+    // rendered).
     let is_table_structural = matches!(
         parent_display,
         LayoutDisplay::Table
@@ -800,6 +804,10 @@ fn layout_relevant_child_count(
             | LayoutDisplay::TableHeaderGroup
             | LayoutDisplay::TableFooterGroup
             | LayoutDisplay::TableRow
+            | LayoutDisplay::Flex
+            | LayoutDisplay::InlineFlex
+            | LayoutDisplay::Grid
+            | LayoutDisplay::InlineGrid
     );
 
     let has_any_block_child = children
@@ -1189,6 +1197,17 @@ pub fn reconcile_recursive(
         // container (all children are direct items) — no anonymous boxes needed.
         // Process each child directly.
         for (i, &new_child_dom_id) in new_children_dom_ids.iter().enumerate() {
+            // css-flexbox-1 section 4 / css-grid-1 section 6: an anonymous
+            // flex/grid item that contains only white space is not rendered.
+            // Without this, every newline between a grid container's <div>
+            // children became a real grid item and consumed an auto-placement
+            // cell (grid-minmax-fr-001 rendered 0-height phantom items and
+            // pushed real items into implicit rows).
+            if parent_is_flex_or_grid
+                && super::layout_tree::is_whitespace_only_text(styled_dom, new_child_dom_id)
+            {
+                continue;
+            }
             // DOM-ID match rather than positional — tree builder
             // may have dropped some DOM children (whitespace text
             // nodes) so positional drift mis-aligns the cache.

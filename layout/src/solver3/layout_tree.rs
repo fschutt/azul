@@ -3133,20 +3133,24 @@ fn collect_box_props(
     false
 }
 
-/// CSS 2.2 Section 17.2.1 - Anonymous box generation, Stage 1:
-/// Determines if a node should be skipped in table structure generation.
-/// Whitespace-only text nodes are "irrelevant" and should not generate boxes
-/// when they appear between table-related elements.
+/// Anonymous box generation: is this node a whitespace-only text child that
+/// must NOT generate a box for this kind of parent?
 ///
-/// Returns true if the node should be skipped (i.e., it's whitespace-only text
-/// and the parent is a table structural element).
+/// - CSS 2.2 section 17.2.1 (tables): whitespace between table structural
+///   elements is "irrelevant" and generates nothing.
+/// - css-flexbox-1 section 4: "an anonymous flex item that contains only
+///   white space is not rendered".
+/// - css-grid-1 section 6: same rule for grid items.
+///
+/// Without the flex/grid arms, every newline between `<div>` children of a
+/// grid container became an anonymous grid ITEM, occupying auto-placement
+/// cells: grid-minmax-fr-001 rendered its 9 items in a checkerboard with
+/// phantom gaps and overflow rows.
 fn should_skip_for_table_structure(
     styled_dom: &StyledDom,
     node_id: NodeId,
     parent_display: LayoutDisplay,
 ) -> bool {
-    // CSS 2.2 Section 17.2.1: Only skip whitespace text nodes when parent is
-    // a table structural element (table, row group, row)
     matches!(
         parent_display,
         LayoutDisplay::Table
@@ -3155,6 +3159,10 @@ fn should_skip_for_table_structure(
             | LayoutDisplay::TableHeaderGroup
             | LayoutDisplay::TableFooterGroup
             | LayoutDisplay::TableRow
+            | LayoutDisplay::Grid
+            | LayoutDisplay::InlineGrid
+            | LayoutDisplay::Flex
+            | LayoutDisplay::InlineFlex
     ) && is_whitespace_only_text(styled_dom, node_id)
 }
 
@@ -5478,6 +5486,12 @@ mod autotest_generated {
             LayoutDisplay::TableHeaderGroup,
             LayoutDisplay::TableFooterGroup,
             LayoutDisplay::TableRow,
+            // css-flexbox-1 section 4 / css-grid-1 section 6: whitespace-only
+            // anonymous items are not rendered in flex/grid containers.
+            LayoutDisplay::Flex,
+            LayoutDisplay::InlineFlex,
+            LayoutDisplay::Grid,
+            LayoutDisplay::InlineGrid,
         ] {
             assert!(
                 should_skip_for_table_structure(&sd, ws, parent),
@@ -5487,14 +5501,13 @@ mod autotest_generated {
         for parent in [
             LayoutDisplay::Block,
             LayoutDisplay::Inline,
-            LayoutDisplay::Flex,
             LayoutDisplay::TableCell,
             LayoutDisplay::TableCaption,
             LayoutDisplay::TableColumn,
         ] {
             assert!(
                 !should_skip_for_table_structure(&sd, ws, parent),
-                "whitespace under {parent:?} is NOT skipped by §17.2.1 stage 1"
+                "whitespace under {parent:?} is NOT an irrelevant box"
             );
         }
     }

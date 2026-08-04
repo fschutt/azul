@@ -1772,3 +1772,184 @@ fn glyph_advances_stay_linear_and_unquantized() {
          into layout"
     );
 }
+
+/// grid-template-areas placement: the classic header/sidebar/main/aside/
+/// footer layout. Distilled from grid-template-areas-001, where azul
+/// scatters the items instead of honoring their named areas.
+#[test]
+fn grid_template_areas_place_items_in_their_named_cells() {
+    const CSS: &str = r#"
+        * { margin: 0; padding: 0; }
+        .container {
+            display: grid;
+            width: 600px;
+            height: 400px;
+            grid-template-columns: 100px 1fr 100px;
+            grid-template-rows: 50px 1fr 30px;
+            grid-template-areas:
+                "header header header"
+                "sidebar main aside"
+                "footer footer footer";
+        }
+        .header { grid-area: header; }
+        .sidebar { grid-area: sidebar; }
+        .main { grid-area: main; }
+        .aside { grid-area: aside; }
+        .footer { grid-area: footer; }
+    "#;
+    let dom = Dom::create_body().with_child(
+        Dom::create_div().with_ids_and_classes(class("container"))
+            .with_child(Dom::create_div().with_ids_and_classes(class("header")))
+            .with_child(Dom::create_div().with_ids_and_classes(class("sidebar")))
+            .with_child(Dom::create_div().with_ids_and_classes(class("main")))
+            .with_child(Dom::create_div().with_ids_and_classes(class("aside")))
+            .with_child(Dom::create_div().with_ids_and_classes(class("footer"))),
+    );
+    let lw = layout_dom(dom, CSS, 800.0, 600.0);
+    let r = |n: usize| lw.get_node_layout_rect(node_id(n)).expect("rect");
+    let (header, sidebar, main, aside, footer) = (r(2), r(3), r(4), r(5), r(6));
+
+    assert!(
+        (header.size.width - 600.0).abs() < 1.0 && (header.size.height - 50.0).abs() < 1.0
+            && header.origin.y.abs() < 1.0,
+        "header must span all columns in row 1: got {header:?}"
+    );
+    assert!(
+        sidebar.origin.x.abs() < 1.0 && (sidebar.origin.y - 50.0).abs() < 1.0
+            && (sidebar.size.width - 100.0).abs() < 1.0 && (sidebar.size.height - 320.0).abs() < 1.0,
+        "sidebar must fill column 1 of row 2: got {sidebar:?}"
+    );
+    assert!(
+        (main.origin.x - 100.0).abs() < 1.0 && (main.size.width - 400.0).abs() < 1.0
+            && (main.size.height - 320.0).abs() < 1.0,
+        "main must fill the 1fr center: got {main:?}"
+    );
+    assert!(
+        (aside.origin.x - 500.0).abs() < 1.0 && (aside.size.width - 100.0).abs() < 1.0,
+        "aside must fill column 3 of row 2: got {aside:?}"
+    );
+    assert!(
+        (footer.origin.y - 370.0).abs() < 1.0 && (footer.size.width - 600.0).abs() < 1.0
+            && (footer.size.height - 30.0).abs() < 1.0,
+        "footer must span all columns in row 3: got {footer:?}"
+    );
+}
+
+/// minmax()/fr track sizing: three minmax(min, Xfr) columns in an 800px
+/// grid resolve to the fr shares (200/400/200), and auto-placed items
+/// STRETCH to fill their cells (grid default). Distilled from
+/// grid-minmax-fr-001, where azul renders items at content size in
+/// wrong positions.
+#[test]
+fn grid_minmax_fr_tracks_resolve_and_items_stretch() {
+    const CSS: &str = r#"
+        * { margin: 0; padding: 0; }
+        .g {
+            display: grid;
+            width: 800px;
+            height: 300px;
+            grid-template-columns: minmax(150px, 1fr) minmax(200px, 2fr) minmax(100px, 1fr);
+            grid-template-rows: minmax(100px, 1fr);
+        }
+        .i { }
+    "#;
+    let dom = Dom::create_body().with_child(
+        Dom::create_div().with_ids_and_classes(class("g"))
+            .with_child(Dom::create_div().with_ids_and_classes(class("i")))
+            .with_child(Dom::create_div().with_ids_and_classes(class("i")))
+            .with_child(Dom::create_div().with_ids_and_classes(class("i")))
+    );
+    let lw = layout_dom(dom, CSS, 1000.0, 700.0);
+    let r = |n: usize| lw.get_node_layout_rect(node_id(n)).expect("rect");
+    let (a, b, c) = (r(2), r(3), r(4));
+    assert!(
+        (a.size.width - 200.0).abs() < 1.0 && a.origin.x.abs() < 1.0,
+        "col 1 must be 200px (1fr of 800 with 150px floor), item stretched: got {a:?}"
+    );
+    assert!(
+        (b.size.width - 400.0).abs() < 1.0 && (b.origin.x - 200.0).abs() < 1.0,
+        "col 2 must be 400px (2fr): got {b:?}"
+    );
+    assert!(
+        (c.size.width - 200.0).abs() < 1.0 && (c.origin.x - 600.0).abs() < 1.0,
+        "col 3 must be 200px (1fr with 100px floor): got {c:?}"
+    );
+    assert!(
+        (a.size.height - 300.0).abs() < 1.0,
+        "single minmax(100px,1fr) row must fill the 300px container, item stretched: got {a:?}"
+    );
+}
+
+/// Same grid as grid_minmax_fr_tracks_resolve_and_items_stretch, but built
+/// through the XML pipeline the reftests use (whitespace text nodes between
+/// the items!). In the rendered reftest the items land at every SECOND
+/// auto-placement cell (item N in cell 2N), so something in the XML-built
+/// DOM occupies the odd cells.
+#[test]
+fn grid_items_from_xml_markup_fill_consecutive_cells() {
+    const XML: &str = r#"<html><head><style type="text/css">
+        * { margin: 0; padding: 0; }
+        .g {
+            display: grid;
+            width: 800px;
+            height: 300px;
+            grid-template-columns: minmax(150px, 1fr) minmax(200px, 2fr) minmax(100px, 1fr);
+            grid-template-rows: minmax(100px, 1fr);
+        }
+    </style></head>
+    <body>
+        <div class="g">
+            <div class="i"></div>
+            <div class="i"></div>
+            <div class="i"></div>
+        </div>
+    </body></html>"#;
+    use azul_layout::xml::domxml_from_str;
+    use azul_core::xml::ComponentMap;
+    let mut component_map = ComponentMap::default();
+    let dom_xml = domxml_from_str(XML, &mut component_map);
+    // The XML path styles internally (the page's <style> is applied).
+    let styled_dom = dom_xml.parsed_dom;
+    let mut layout_window = LayoutWindow::new(FcFontCache::build()).unwrap();
+    let mut window_state = FullWindowState::default();
+    window_state.size.dimensions = LogicalSize::new(1000.0, 700.0);
+    layout_window.current_window_state = window_state.clone();
+    let renderer_resources = RendererResources::default();
+    let system_callbacks = ExternalSystemCallbacks::rust_internal();
+    let mut debug_messages = Some(Vec::new());
+    layout_window
+        .layout_and_generate_display_list(
+            styled_dom,
+            &window_state,
+            &renderer_resources,
+            &system_callbacks,
+            &mut debug_messages,
+        )
+        .unwrap();
+    // Find the three item rects: nodes are parser-defined, so scan for
+    // 3 sibling rects of equal height inside an 800px-wide parent.
+    let result = layout_window.get_layout_result(&DomId::ROOT_ID).expect("result");
+    let mut rects: Vec<(usize, azul_core::geom::LogicalRect)> = Vec::new();
+    for n in 0..result.styled_dom.node_data.len() {
+        if let Some(r) = layout_window.get_node_layout_rect(node_id(n)) {
+            rects.push((n, r));
+        }
+    }
+    for (n, r) in &rects {
+        eprintln!("XMLGRID node {n}: {:?} @ {:?}", r.size, r.origin);
+    }
+    let items: Vec<_> = rects
+        .iter()
+        .filter(|(_, r)| (r.size.height - 300.0).abs() < 1.0 && r.size.width < 500.0)
+        .collect();
+    assert!(
+        items.len() >= 3,
+        "expected 3 grid items 300px tall, found {}",
+        items.len()
+    );
+    let xs: Vec<f32> = items.iter().map(|(_, r)| r.origin.x).collect();
+    assert!(
+        xs.windows(2).all(|w| w[1] > w[0]) && (xs[0]).abs() < 1.0,
+        "items must fill consecutive cells starting at x=0: xs={xs:?}"
+    );
+}

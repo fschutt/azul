@@ -958,27 +958,48 @@ impl<'a, 'b, T: ParsedFontTrait> TaffyBridge<'a, 'b, T> {
         } // end if self_is_grid
 
         if parent_is_grid {
-        // Grid item placement — read from compact cold cache (Auto/Line/Span)
+        // Grid item placement. The compact cold cache holds Auto/Line/Span as
+        // an i16; NAMED lines and areas (`grid-area: header`) cannot be
+        // encoded there and are stored as I16_SENTINEL — for those the REAL
+        // property must be consulted, per axis. Decoding the sentinel as
+        // Auto silently discarded every named placement, which auto-flowed
+        // all grid-template-areas layouts (grid-template-areas-001).
+        let slow_grid_column = || {
+            cache
+                .get_property(node_data, &id, node_state, &CssPropertyType::GridColumn)
+                .and_then(|p| if let CssProperty::GridColumn(v) = p { v.get_property().cloned() } else { None })
+        };
+        let slow_grid_row = || {
+            cache
+                .get_property(node_data, &id, node_state, &CssPropertyType::GridRow)
+                .and_then(|p| if let CssProperty::GridRow(v) = p { v.get_property().cloned() } else { None })
+        };
         if let Some(cc) = cache.compact_cache.as_ref() {
-            let cs = cc.tier2_cold[id.index()].grid_col_start;
-            let ce = cc.tier2_cold[id.index()].grid_col_end;
-            if cs != azul_css::compact_cache::I16_AUTO || ce != azul_css::compact_cache::I16_AUTO {
+            use azul_css::compact_cache::{I16_AUTO, I16_SENTINEL};
+            let cold = &cc.tier2_cold[id.index()];
+            let (cs, ce) = (cold.grid_col_start, cold.grid_col_end);
+            if cs == I16_SENTINEL || ce == I16_SENTINEL {
+                if let Some(grid_col) = slow_grid_column() {
+                    taffy_style.grid_column = grid_placement_to_taffy(&grid_col);
+                }
+            } else if cs != I16_AUTO || ce != I16_AUTO {
                 taffy_style.grid_column = Line { start: decode_compact_grid_line(cs), end: decode_compact_grid_line(ce) };
             }
-            let rs = cc.tier2_cold[id.index()].grid_row_start;
-            let re = cc.tier2_cold[id.index()].grid_row_end;
-            if rs != azul_css::compact_cache::I16_AUTO || re != azul_css::compact_cache::I16_AUTO {
+            let (rs, re) = (cold.grid_row_start, cold.grid_row_end);
+            if rs == I16_SENTINEL || re == I16_SENTINEL {
+                if let Some(grid_row) = slow_grid_row() {
+                    taffy_style.grid_row = grid_placement_to_taffy(&grid_row);
+                }
+            } else if rs != I16_AUTO || re != I16_AUTO {
                 taffy_style.grid_row = Line { start: decode_compact_grid_line(rs), end: decode_compact_grid_line(re) };
             }
         } else {
-            if let Some(grid_col) = cache
-                .get_property(node_data, &id, node_state, &CssPropertyType::GridColumn)
-                .and_then(|p| if let CssProperty::GridColumn(v) = p { v.get_property().cloned() } else { None })
-            { taffy_style.grid_column = grid_placement_to_taffy(&grid_col); }
-            if let Some(grid_row) = cache
-                .get_property(node_data, &id, node_state, &CssPropertyType::GridRow)
-                .and_then(|p| if let CssProperty::GridRow(v) = p { v.get_property().cloned() } else { None })
-            { taffy_style.grid_row = grid_placement_to_taffy(&grid_row); }
+            if let Some(grid_col) = slow_grid_column() {
+                taffy_style.grid_column = grid_placement_to_taffy(&grid_col);
+            }
+            if let Some(grid_row) = slow_grid_row() {
+                taffy_style.grid_row = grid_placement_to_taffy(&grid_row);
+            }
         }
         } // end if parent_is_grid
 
