@@ -179,3 +179,43 @@ fn a_page_break_marker_blocks_the_merge() {
     );
     assert_eq!(merge_partner(&mut lw, 4), None);
 }
+
+// ---------------------------------------------------------------------------
+// C12: IME × structural interlock — no structural records mid-composition
+// ---------------------------------------------------------------------------
+
+#[test]
+fn active_ime_composition_suppresses_structural_records() {
+    let mut lw = layout(
+        Dom::create_body()
+            .with_child(para("first"))
+            .with_child(para("second")),
+    );
+
+    // Composition active: the IME owns the keys — a leaked Backspace must
+    // not record a merge against text containing uncommitted preedit.
+    lw.text_edit_manager.set_preedit("にほ".to_string(), -1, -1);
+    assert_eq!(
+        merge_partner(&mut lw, 3),
+        None,
+        "structural records are suppressed while preedit is active"
+    );
+    assert!(lw.get_pending_document_edit().is_none());
+
+    // Commit/cancel clears the preedit: the same action records again.
+    lw.text_edit_manager.clear_preedit();
+    assert_eq!(merge_partner(&mut lw, 3), Some(1));
+}
+
+#[test]
+fn empty_preedit_string_does_not_lock_editing() {
+    // Some IMEs send an EMPTY preedit update on focus — that is not an
+    // active composition and must not suppress editing.
+    let mut lw = layout(
+        Dom::create_body()
+            .with_child(para("first"))
+            .with_child(para("second")),
+    );
+    lw.text_edit_manager.set_preedit(String::new(), -1, -1);
+    assert_eq!(merge_partner(&mut lw, 3), Some(1));
+}

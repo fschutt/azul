@@ -1565,6 +1565,27 @@ impl LayoutWindow {
         };
         use azul_core::events::DefaultAction;
 
+        // C12 IME x structural interlock: while a composition (preedit) is
+        // active, the IME owns Enter / Backspace / Delete. A key event that
+        // leaks through the platform filter must not record a split/merge -
+        // the changeset's byte positions would be measured against overlay
+        // text that still contains uncommitted preedit glyphs, and the
+        // commit is about to replace them. Suppress; after the commit the
+        // user's next keypress re-determines the action against clean text.
+        if self
+            .text_edit_manager
+            .preedit_text
+            .as_ref()
+            .is_some_and(|p| !p.is_empty())
+        {
+            #[cfg(debug_assertions)]
+            eprintln!(
+                "[azul][document-edit] structural default action suppressed: \
+                 IME composition active (preedit present)"
+            );
+            return None;
+        }
+
         let (target, operation) = match action {
             DefaultAction::SplitBlockAtCursor { target } => {
                 let node_id = target.node.into_crate_internal()?;
