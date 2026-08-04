@@ -1963,6 +1963,12 @@ pub struct StructuralBreak {
     /// `split_dom_at_path`). `None` when no block-level box sits at/after
     /// `y` (a break in trailing whitespace / past the last block).
     pub path: Option<Vec<u32>>,
+    /// Ledger #2 (line-granular option): when the addressed block is an
+    /// IFC whose LINE BOXES straddle `y`, the (run, byte) of the first
+    /// line that moves to the next page — the app can split the paragraph
+    /// text there instead of moving the whole block. `None` = block
+    /// boundary (the entire addressed block moves), the v1 contract.
+    pub line_start: Option<azul_core::selection::ContentIndex>,
 }
 
 /// Map every break of a [`PaginationInfo`](crate::solver3::page_breaks::PaginationInfo)
@@ -1992,9 +1998,109 @@ pub fn pagination_to_dom_breaks(
                 kind: b.kind,
                 causing_node: b.causing_node,
                 path: spine_path_at_y(tree, positions, styled_dom, b.y),
+                line_start: spine_line_start_at_y(tree, positions, styled_dom, b.y),
             })
             .collect(),
     )
+}
+
+/// The DEEPEST block-level box whose border-box vertically CONTAINS `y`
+/// (the spine path addresses the first block AT/AFTER `y`; a mid-block
+/// break's line lookup needs the box the break lands IN).
+fn spine_layout_hit_at_y(
+    tree: &crate::solver3::layout_tree::LayoutTree,
+    positions: &crate::solver3::PositionVec,
+    styled_dom: &StyledDom,
+    y: f32,
+) -> Option<(usize, f32)> {
+    let hierarchy = styled_dom.node_hierarchy.as_container();
+    let depth_of = |mut n: NodeId| -> u32 {
+        let mut d = 0;
+        while let Some(p) = hierarchy
+            .get(n)
+            .and_then(azul_core::styled_dom::NodeHierarchyItem::parent_id)
+        {
+            d += 1;
+            n = p;
+        }
+        d
+    };
+    let mut best: Option<(u32, usize, f32)> = None;
+    for idx in 0..tree.nodes.len() {
+        let Some(node) = tree.get(idx) else { continue };
+        let Some(dom_id) = node.dom_node_id else { continue };
+        if !crate::solver3::layout_tree::is_block_level(styled_dom, dom_id) {
+            continue;
+        }
+        let Some(pos) = crate::solver3::pos_get(positions, idx) else {
+            continue;
+        };
+        let h = node.used_size.map_or(0.0, |sz| sz.height);
+        if !(pos.y - 0.5 <= y && y < pos.y + h - 0.5) {
+            continue;
+        }
+        let d = depth_of(dom_id);
+        if best.as_ref().is_none_or(|(bd, ..)| d > *bd) {
+            best = Some((d, idx, pos.y));
+        }
+    }
+    best.map(|(_, idx, top)| (idx, top))
+}
+
+/// Ledger #2: the line-granular refinement of [`spine_path_at_y`]. When the
+/// block the break lands IN is an IFC with line boxes on both sides of `y`,
+/// returns the (run, byte) starting the first line at/after `y` — measured
+/// in the block's content box. `None` when the break sits at a block
+/// boundary, the block has no inline layout, or every line is below `y`
+/// (then the whole block moves — the block-granular contract).
+pub fn spine_line_start_at_y(
+    tree: &crate::solver3::layout_tree::LayoutTree,
+    positions: &crate::solver3::PositionVec,
+    styled_dom: &StyledDom,
+    y: f32,
+) -> Option<azul_core::selection::ContentIndex> {
+    use crate::text3::cache::ShapedItem;
+    let hierarchy = styled_dom.node_hierarchy.as_container();
+    // Re-find the spine block the path addresses (same selection rule).
+    let (layout_idx, node_top) = spine_layout_hit_at_y(tree, positions, styled_dom, y)?;
+    let node = tree.get(layout_idx)?;
+    let bp = node.box_props.unpack();
+    let content_top = node_top + bp.padding.top + bp.border.top;
+    let rel_y = y - content_top;
+    if rel_y <= 0.5 {
+        return None; // block-boundary break: whole block moves
+    }
+    let layout = tree.get_inline_layout_for_node(layout_idx)?;
+    // First line whose top sits at/after the break line.
+    let mut best: Option<(usize, azul_core::selection::ContentIndex)> = None;
+    for item in &layout.items {
+        if item.position.y + 0.5 < rel_y {
+            continue;
+        }
+        let src = match &item.item {
+            ShapedItem::Cluster(c) => c.source_content_index,
+            ShapedItem::CombinedBlock { source, .. }
+            | ShapedItem::Object { source, .. }
+            | ShapedItem::Tab { source, .. }
+            | ShapedItem::Break { source, .. } => *source,
+        };
+        let better = match &best {
+            None => true,
+            Some((line, s)) => {
+                item.line_index < *line
+                    || (item.line_index == *line
+                        && (src.run_index, src.item_index) < (s.run_index, s.item_index))
+            }
+        };
+        if better {
+            best = Some((item.line_index, src));
+        }
+    }
+    // A first-line hit means the whole block moves: block-granular None.
+    match best {
+        Some((line, src)) if line > 0 => Some(src),
+        _ => None,
+    }
 }
 
 /// The per-page delta of a re-estimation, for the editor's lazy re-break
