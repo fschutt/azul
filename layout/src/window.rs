@@ -4767,11 +4767,43 @@ impl LayoutWindow {
         let cfg = self.effective_system_animations().clone();
         let caret_ms = cfg.caret_tween_duration_ms;
         let sel_ms = cfg.selection_tween_duration_ms;
+        let ring_ms = cfg.focus_ring_duration_ms;
 
-        if caret_ms == 0 && sel_ms == 0 {
+        // Ledger #29 (opt-in): the focus-ring glide target — the focused
+        // node's border-box (inflated 2px), only when NO text-editing
+        // session owns focus (there the caret is the indicator) and the
+        // node lives in THIS dom. Computed before the tween borrow below.
+        let focus_ring_target: Option<LogicalRect> = if ring_ms == 0 {
+            None
+        } else {
+            let editing_active = self.text_edit_manager.multi_cursor.is_some()
+                || self.text_edit_manager.cross_block.is_some();
+            if editing_active {
+                None
+            } else {
+                self.focus_manager
+                    .get_focused_node()
+                    .copied()
+                    .filter(|fnode| fnode.dom == dom_id)
+                    .and_then(|fnode| self.get_node_layout_rect(fnode))
+                    .map(|r| LogicalRect {
+                        origin: LogicalPosition {
+                            x: r.origin.x - 2.0,
+                            y: r.origin.y - 2.0,
+                        },
+                        size: LogicalSize {
+                            width: r.size.width + 4.0,
+                            height: r.size.height + 4.0,
+                        },
+                    })
+            }
+        };
+
+        if caret_ms == 0 && sel_ms == 0 && ring_ms == 0 {
             if self.text_edit_manager.tween.is_active()
                 || self.text_edit_manager.tween.last_caret.is_some()
                 || !self.text_edit_manager.tween.last_selection.is_empty()
+                || self.text_edit_manager.tween.last_focus_ring.is_some()
             {
                 self.text_edit_manager.tween.reset();
             }
@@ -4790,19 +4822,38 @@ impl LayoutWindow {
                 None
             }
         });
-        match editing_dom {
+        // The caret/selection sections need an editing session in THIS dom;
+        // the focus ring (which by definition runs WITHOUT one) proceeds on
+        // its own gate. A pass for an unrelated dom touches neither.
+        let text_tweens_ok = match editing_dom {
             None => {
-                if self.text_edit_manager.tween.dom_id.is_some() {
-                    self.text_edit_manager.tween.reset();
+                if self.text_edit_manager.tween.caret.is_some()
+                    || self.text_edit_manager.tween.last_caret.is_some()
+                    || !self.text_edit_manager.tween.last_selection.is_empty()
+                {
+                    self.text_edit_manager.tween.reset_text_tweens();
                 }
-                return;
+                false
             }
-            Some(ed) if ed != dom_id => return,
-            Some(_) => {}
-        }
-        if self.text_edit_manager.tween.dom_id != Some(dom_id) {
-            self.text_edit_manager.tween.reset();
+            Some(ed) if ed != dom_id => {
+                if focus_ring_target.is_none() {
+                    return;
+                }
+                false
+            }
+            Some(_) => true,
+        };
+        if editing_dom.is_some() || focus_ring_target.is_some() {
+            if self.text_edit_manager.tween.dom_id != Some(dom_id)
+                && self.text_edit_manager.tween.dom_id.is_some()
+            {
+                self.text_edit_manager.tween.reset();
+            }
             self.text_edit_manager.tween.dom_id = Some(dom_id);
+        }
+        if !text_tweens_ok && focus_ring_target.is_none() {
+            // Nothing to do on this dom (no editing session, no ring).
+            return;
         }
 
         // Scan the built list: last CursorRect = primary caret; SelectionRect
@@ -4825,7 +4876,7 @@ impl LayoutWindow {
 
         // ---- caret ----
         let mut caret_patch: Option<(usize, LogicalRect)> = None;
-        match caret_idx {
+        match caret_idx.filter(|_| text_tweens_ok) {
             Some(idx) => {
                 let current = match &display_list.items[idx] {
                     solver3::display_list::DisplayListItem::CursorRect { bounds, .. } => bounds.0,
@@ -4891,7 +4942,7 @@ impl LayoutWindow {
 
         // ---- selection ----
         let mut sel_patch: Vec<(usize, LogicalRect)> = Vec::new();
-        if sel_idx.is_empty() {
+        if !text_tweens_ok || sel_idx.is_empty() {
             tween.selection = None;
             tween.last_selection.clear();
         } else {
@@ -4963,9 +5014,63 @@ impl LayoutWindow {
             }
         }
 
+        // ---- focus ring (ledger #29, opt-in) ----
+        let mut ring_item: Option<LogicalRect> = None;
+        match focus_ring_target {
+            None => {
+                tween.focus_ring = None;
+                tween.last_focus_ring = None;
+            }
+            Some(current) => {
+                match &mut tween.focus_ring {
+                    Some(trk) if trk.to != current => {
+                        // Focus moved mid-glide: retarget from the rendered
+                        // rect, restart the clock (same rule as the caret).
+                        trk.from = tween.last_focus_ring.unwrap_or(current);
+                        trk.to = current;
+                        trk.start = now.clone();
+                    }
+                    Some(_) => {}
+                    None => {
+                        if let Some(last) = tween.last_focus_ring {
+                            if last != current {
+                                tween.focus_ring = Some(
+                                    crate::managers::text_edit::CaretTweenTrack {
+                                        from: last,
+                                        to: current,
+                                        start: now.clone(),
+                                    },
+                                );
+                            }
+                        }
+                    }
+                }
+                let rendered = match &tween.focus_ring {
+                    Some(trk) => {
+                        let elapsed = now.duration_since(&trk.start).as_millis_u64() as f32;
+                        let t = elapsed / ring_ms as f32;
+                        if t >= 1.0 {
+                            tween.focus_ring = None;
+                            current
+                        } else {
+                            let info = azul_core::callbacks::CaretTweenInfo {
+                                past: trk.from,
+                                current,
+                                t,
+                            };
+                            (cfg.caret_tween.cb)(cfg.caret_tween_data.clone(), info)
+                        }
+                    }
+                    None => current,
+                };
+                tween.last_focus_ring = Some(rendered);
+                ring_item = Some(rendered);
+            }
+        }
+
         tween.publish_active();
 
-        if caret_patch.is_some() || !sel_patch.is_empty() {
+        if caret_patch.is_some() || !sel_patch.is_empty() || ring_item.is_some() {
             let dl_mut = Arc::make_mut(display_list);
             if let Some((idx, r)) = caret_patch {
                 if let solver3::display_list::DisplayListItem::CursorRect { bounds, .. } =
@@ -4980,6 +5085,95 @@ impl LayoutWindow {
                 {
                     bounds.0 = r;
                 }
+            }
+            if let Some(r) = ring_item {
+                // The ring is a plain Border item APPENDED to the list —
+                // no new item kind, every renderer already draws it. Word
+                // accent blue, 2px solid, subtly rounded.
+                use azul_css::props::basic::PixelValue;
+                use azul_css::css::CssPropertyValue;
+                use crate::solver3::display_list::{
+                    DisplayListItem, StyleBorderColors, StyleBorderStyles, StyleBorderWidths,
+                };
+                let accent = azul_css::props::basic::ColorU {
+                    r: 43,
+                    g: 87,
+                    b: 154,
+                    a: 255,
+                };
+                let solid = azul_css::props::style::BorderStyle::Solid;
+                dl_mut.items.push(DisplayListItem::Border {
+                    bounds: r.into(),
+                    widths: StyleBorderWidths {
+                        top: Some(CssPropertyValue::Exact(
+                            azul_css::props::style::LayoutBorderTopWidth {
+                                inner: PixelValue::px(2.0),
+                            },
+                        )),
+                        right: Some(CssPropertyValue::Exact(
+                            azul_css::props::style::LayoutBorderRightWidth {
+                                inner: PixelValue::px(2.0),
+                            },
+                        )),
+                        bottom: Some(CssPropertyValue::Exact(
+                            azul_css::props::style::LayoutBorderBottomWidth {
+                                inner: PixelValue::px(2.0),
+                            },
+                        )),
+                        left: Some(CssPropertyValue::Exact(
+                            azul_css::props::style::LayoutBorderLeftWidth {
+                                inner: PixelValue::px(2.0),
+                            },
+                        )),
+                    },
+                    colors: StyleBorderColors {
+                        top: Some(CssPropertyValue::Exact(
+                            azul_css::props::style::StyleBorderTopColor { inner: accent },
+                        )),
+                        right: Some(CssPropertyValue::Exact(
+                            azul_css::props::style::StyleBorderRightColor {
+                                inner: accent,
+                            },
+                        )),
+                        bottom: Some(CssPropertyValue::Exact(
+                            azul_css::props::style::StyleBorderBottomColor {
+                                inner: accent,
+                            },
+                        )),
+                        left: Some(CssPropertyValue::Exact(
+                            azul_css::props::style::StyleBorderLeftColor {
+                                inner: accent,
+                            },
+                        )),
+                    },
+                    styles: StyleBorderStyles {
+                        top: Some(CssPropertyValue::Exact(
+                            azul_css::props::style::StyleBorderTopStyle { inner: solid },
+                        )),
+                        right: Some(CssPropertyValue::Exact(
+                            azul_css::props::style::StyleBorderRightStyle {
+                                inner: solid,
+                            },
+                        )),
+                        bottom: Some(CssPropertyValue::Exact(
+                            azul_css::props::style::StyleBorderBottomStyle {
+                                inner: solid,
+                            },
+                        )),
+                        left: Some(CssPropertyValue::Exact(
+                            azul_css::props::style::StyleBorderLeftStyle {
+                                inner: solid,
+                            },
+                        )),
+                    },
+                    border_radius: azul_css::props::style::border_radius::StyleBorderRadius {
+                        top_left: azul_css::props::basic::PixelValue::px(2.0),
+                        top_right: azul_css::props::basic::PixelValue::px(2.0),
+                        bottom_left: azul_css::props::basic::PixelValue::px(2.0),
+                        bottom_right: azul_css::props::basic::PixelValue::px(2.0),
+                    },
+                });
+                dl_mut.node_mapping.push(None);
             }
         }
     }

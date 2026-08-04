@@ -494,6 +494,13 @@ pub struct SystemAnimations {
     /// spring (true, the Word feel) or jumps instantly (false — also what
     /// [`Self::disabled`] sets, keeping e2e screenshots deterministic).
     pub caret_scroll_glide: bool,
+    /// Focus-ring glide duration in ms (ledger #29). `0` (the DEFAULT)
+    /// disables the ring entirely — no visual change for existing apps;
+    /// an app that opts in gets a focus outline that GLIDES between
+    /// focused elements using the `caret_tween` interpolator (the ring is
+    /// suppressed while a text-editing session owns focus — there the
+    /// caret is the indicator).
+    pub focus_ring_duration_ms: u32,
 }
 
 impl SystemAnimations {
@@ -505,6 +512,7 @@ impl SystemAnimations {
             caret_tween_duration_ms: 0,
             selection_tween_duration_ms: 0,
             caret_scroll_glide: false,
+            focus_ring_duration_ms: 0,
             ..Self::default()
         }
     }
@@ -527,6 +535,9 @@ impl Default for SystemAnimations {
             ),
             selection_tween_data: crate::refany::RefAny::new(()),
             caret_scroll_glide: true,
+            // Opt-in: 0 = no ring (existing apps unchanged). The Word app
+            // enables it at hookup.
+            focus_ring_duration_ms: 0,
         }
     }
 }

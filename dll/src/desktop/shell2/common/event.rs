@@ -2638,7 +2638,15 @@ pub trait PlatformWindow {
             CallbackChange::SetCursorVisibility { visible } => {
                 if let Some(lw) = self.get_layout_window_mut() {
                     lw.text_edit_manager.blink.set_visibility(*visible);
-                    if let Some(dom_id) = lw.text_edit_manager.get_editing_dom_id() {
+                    // The tween driver rides this change: a FOCUS-RING glide
+                    // runs without an editing session, so fall back to the
+                    // tween's own dom (else the ring tween would stall after
+                    // the first frame).
+                    let dom = lw
+                        .text_edit_manager
+                        .get_editing_dom_id()
+                        .or(lw.text_edit_manager.tween.dom_id);
+                    if let Some(dom_id) = dom {
                         lw.regenerate_display_list_for_dom(dom_id);
                     }
                 }

@@ -173,6 +173,11 @@ pub struct TextTweenState {
     pub selection: Option<SelectionTweenTrack>,
     /// Selection rects the last display-list pass RENDERED.
     pub last_selection: alloc::vec::Vec<LogicalRect>,
+    /// In-flight focus-ring glide (ledger #29; opt-in via
+    /// `SystemAnimations.focus_ring_duration_ms`).
+    pub focus_ring: Option<CaretTweenTrack>,
+    /// Focus-ring rect the last display-list pass RENDERED.
+    pub last_focus_ring: Option<LogicalRect>,
     /// Shared "a tween is in flight" flag: written by the post-pass, read
     /// by `caret_tween_timer_callback` (via its `RefAny`) to self-terminate.
     pub tick_flag: Arc<AtomicBool>,
@@ -192,7 +197,7 @@ impl TextTweenState {
     /// True while any tween is mid-flight (drives the 16ms tween timer and
     /// forces the caret solid — blinking is suppressed during animation).
     #[must_use] pub fn is_active(&self) -> bool {
-        self.caret.is_some() || self.selection.is_some()
+        self.caret.is_some() || self.selection.is_some() || self.focus_ring.is_some()
     }
 
     /// Publish `is_active()` to the shared flag the tween timer polls.
@@ -203,6 +208,18 @@ impl TextTweenState {
     /// Reset all tracking (focus lost / editing cleared / dom switched).
     pub fn reset(&mut self) {
         self.dom_id = None;
+        self.caret = None;
+        self.last_caret = None;
+        self.selection = None;
+        self.last_selection.clear();
+        self.focus_ring = None;
+        self.last_focus_ring = None;
+        self.publish_active();
+    }
+
+    /// Reset only the TEXT tweens (caret + selection) — the focus ring has
+    /// its own lifecycle (it runs without an editing session).
+    pub fn reset_text_tweens(&mut self) {
         self.caret = None;
         self.last_caret = None;
         self.selection = None;

@@ -103413,6 +103413,15 @@
                                         "Word feel) or jumps instantly (false; SystemAnimations::disabled() sets this",
                                         "for deterministic e2e screenshots)."
                                     ]
+                                },
+                                "focus_ring_duration_ms": {
+                                    "type": "u32",
+                                    "doc": [
+                                        "Focus-ring glide duration in ms. 0 (the DEFAULT) disables the ring entirely -",
+                                        "zero visual change for existing apps. Opted-in apps get a focus outline that",
+                                        "GLIDES between focused elements via the caret_tween interpolator; suppressed",
+                                        "while a text-editing session owns focus."
+                                    ]
                                 }
                             }
                         ],
