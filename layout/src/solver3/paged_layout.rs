@@ -2071,36 +2071,52 @@ pub fn spine_line_start_at_y(
         return None; // block-boundary break: whole block moves
     }
     let layout = tree.get_inline_layout_for_node(layout_idx)?;
-    // First line whose top sits at/after the break line.
-    let mut best: Option<(usize, azul_core::selection::ContentIndex)> = None;
+    // The line the break lands ON moves to the next page (a sliced line is
+    // atomic; a break AT a line top moves that line). Identify it purely by
+    // LINE TOPS — per-item heights are not trustworthy on this path — as
+    // the line with the largest top not above the break.
+    let mut line_tops: alloc::collections::BTreeMap<usize, f32> =
+        alloc::collections::BTreeMap::new();
     for item in &layout.items {
-        if item.position.y + 0.5 < rel_y {
+        let entry = line_tops.entry(item.line_index).or_insert(f32::MAX);
+        *entry = entry.min(item.position.y);
+    }
+    let straddler = line_tops
+        .iter()
+        .filter(|(_, top)| **top <= rel_y + 0.5)
+        .max_by(|a, b| a.1.total_cmp(b.1))
+        .map(|(line, _)| *line)?;
+    // A first-line hit means the whole block moves: block-granular None.
+    if straddler == 0 {
+        return None;
+    }
+    let mut best: Option<azul_core::selection::ContentIndex> = None;
+    for item in &layout.items {
+        if item.line_index != straddler {
             continue;
         }
+        // Clusters carry their identity in `source_cluster_id` (the same
+        // GraphemeClusterId the cursor/editing pipeline keys on);
+        // `source_content_index` is not populated on the paged shaping
+        // path. Non-cluster items fall back to their ContentIndex.
         let src = match &item.item {
-            ShapedItem::Cluster(c) => c.source_content_index,
+            ShapedItem::Cluster(c) => azul_core::selection::ContentIndex {
+                run_index: c.source_cluster_id.source_run,
+                item_index: c.source_cluster_id.start_byte_in_run,
+            },
             ShapedItem::CombinedBlock { source, .. }
             | ShapedItem::Object { source, .. }
             | ShapedItem::Tab { source, .. }
             | ShapedItem::Break { source, .. } => *source,
         };
-        let better = match &best {
-            None => true,
-            Some((line, s)) => {
-                item.line_index < *line
-                    || (item.line_index == *line
-                        && (src.run_index, src.item_index) < (s.run_index, s.item_index))
-            }
-        };
-        if better {
-            best = Some((item.line_index, src));
+        if best
+            .as_ref()
+            .is_none_or(|s| (src.run_index, src.item_index) < (s.run_index, s.item_index))
+        {
+            best = Some(src);
         }
     }
-    // A first-line hit means the whole block moves: block-granular None.
-    match best {
-        Some((line, src)) if line > 0 => Some(src),
-        _ => None,
-    }
+    best
 }
 
 /// The per-page delta of a re-estimation, for the editor's lazy re-break

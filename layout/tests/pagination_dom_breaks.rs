@@ -477,3 +477,88 @@ fn paginate_styled(
     .expect("pagination should succeed");
     (layout_cache, pagination)
 }
+
+#[test]
+fn mid_paragraph_break_exposes_the_line_start_byte() {
+    // Ledger #2 (line-granular option): ONE long wrapped paragraph spanning
+    // several 200px pages. The interval breaks land BETWEEN LINE BOXES
+    // inside the paragraph, so each mid-paragraph break must expose the
+    // (run, byte) of the first line that moves — the app splits the
+    // paragraph text there instead of moving the whole block.
+    let long = "wrap wrap wrap wrap wrap wrap wrap wrap wrap wrap ".repeat(40);
+    let html = format!(
+        r#"
+    <html><head><style>
+        * {{ margin: 0; padding: 0; }}
+        body {{ font-size: 16px; width: 300px; }}
+        .p {{ display: block; width: 300px; }}
+    </style></head>
+    <body>
+        <div class="p">{long}</div>
+    </body></html>"#
+    );
+    let (cache, styled_dom, pagination) = paginate(&html, 300.0, 200.0);
+    assert!(
+        pagination.page_count >= 2,
+        "the paragraph must span pages, got {}",
+        pagination.page_count
+    );
+    let breaks = pagination_to_dom_breaks(&cache, &styled_dom, &pagination)
+        .expect("cache holds tree+positions");
+
+    // Every break here lands inside the single paragraph: line_start must
+    // name a real, strictly-increasing byte per break (line starts are
+    // monotone down the text).
+    let mut prev_byte: Option<u32> = None;
+    let mut saw_line_start = 0usize;
+    for b in &breaks {
+        if let Some(ls) = b.line_start {
+            saw_line_start += 1;
+            assert!(
+                ls.item_index > 0,
+                "a mid-paragraph break never starts at byte 0 (that would \
+                 be a block boundary): {b:?}"
+            );
+            if let Some(prev) = prev_byte {
+                assert!(
+                    ls.item_index > prev,
+                    "line-start bytes must increase page over page: \
+                     {prev} then {:?}",
+                    ls
+                );
+            }
+            prev_byte = Some(ls.item_index);
+        }
+    }
+    assert!(
+        saw_line_start >= 1,
+        "at least one interval break lands mid-paragraph and must carry \
+         line_start: {breaks:?}"
+    );
+}
+
+#[test]
+fn block_boundary_breaks_carry_no_line_start() {
+    // The block-granular contract is untouched: fixed-height blocks whose
+    // boundaries align with break positions yield line_start == None (the
+    // whole addressed block moves).
+    let html = r#"
+    <html><head><style>
+        * { margin: 0; padding: 0; }
+        .p { height: 200px; }
+    </style></head>
+    <body>
+        <div class="p">one</div>
+        <div class="p">two</div>
+        <div class="p">three</div>
+    </body></html>"#;
+    let (cache, styled_dom, pagination) = paginate(html, 800.0, 200.0);
+    let breaks = pagination_to_dom_breaks(&cache, &styled_dom, &pagination)
+        .expect("cache holds tree+positions");
+    for b in &breaks {
+        assert!(
+            b.line_start.is_none(),
+            "a break at a block boundary must stay block-granular: {b:?}"
+        );
+    }
+}
