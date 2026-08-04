@@ -656,6 +656,10 @@ pub fn generate_chrome_screenshot(
 
     let status = Command::new(chrome_path)
         .arg("--headless")
+        // A page taller than the window grows a scrollbar in the shot
+        // otherwise — a 15px x full-height strip azul never paints
+        // (16,200 diff px on grid-alignment-001, the whole margin).
+        .arg("--hide-scrollbars")
         .arg(format!("--screenshot={}", output_file.display()))
         .arg(format!("--window-size={},{}", width, height))
         .arg(format!("file://{}", canonical_path.display()))
@@ -682,6 +686,10 @@ pub fn generate_chrome_screenshot_with_debug(
     // First, take the screenshot
     let status = Command::new(chrome_path)
         .arg("--headless")
+        // A page taller than the window grows a scrollbar in the shot
+        // otherwise — a 15px x full-height strip azul never paints
+        // (16,200 diff px on grid-alignment-001, the whole margin).
+        .arg("--hide-scrollbars")
         .arg(format!("--screenshot={}", output_file.display()))
         .arg(format!("--window-size={},{}", width, height))
         .arg(format!("file://{}", canonical_path.display()))
@@ -776,6 +784,7 @@ fn generate_simple_layout_info(
     // Use dump-dom - the script runs synchronously during parsing
     let output = Command::new(chrome_path)
         .arg("--headless")
+        .arg("--hide-scrollbars")
         .arg("--disable-gpu")
         .arg("--dump-dom")
         .arg(format!("--window-size={},{}", width, height))

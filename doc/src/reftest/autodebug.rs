@@ -144,6 +144,10 @@ pub(crate) mod cdp {
         pub fn launch(chrome_path: &str) -> Result<Self, String> {
             let mut child = Command::new(chrome_path)
                 .arg("--headless")
+                // Pages taller than the viewport otherwise grow a scrollbar
+                // in CDP screenshots — a 15px x full-height strip azul never
+                // paints (16,200 diff px on grid-alignment-001 alone).
+                .arg("--hide-scrollbars")
                 .arg("--disable-gpu")
                 .arg("--no-sandbox")
                 .arg("--remote-debugging-port=0")
