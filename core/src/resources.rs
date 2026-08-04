@@ -468,6 +468,23 @@ impl_option!(RouteMatch, OptionRouteMatch, copy = false, [Debug, Clone, PartialE
 #[derive(Debug, Clone)]
 #[repr(C)]
 pub struct SystemAnimations {
+    // Field order: decreasing alignment (8-aligned callbacks/RefAny first,
+    // then the 4-aligned option/durations, bool last) — the autofix padding
+    // lint enforces this, and the api.json struct_fields order must match
+    // (the field-order lint enforces THAT).
+    /// The caret tween MATH: called every animation frame with the past /
+    /// current caret rectangles and linear progress `t`; returns the
+    /// rectangle to render. Default: ease-out cubic lerp.
+    pub caret_tween: crate::callbacks::CaretTweenCallback,
+    /// The selection tween MATH: called every animation frame with the
+    /// past / current selection band rectangles and linear progress `t`;
+    /// returns the rectangles to render (must match the current count).
+    /// Default: ease-out cubic lerp, rectangles paired by index.
+    pub selection_tween: crate::callbacks::SelectionTweenCallback,
+    /// User data passed to `caret_tween` on every invocation.
+    pub caret_tween_data: crate::refany::RefAny,
+    /// User data passed to `selection_tween` on every invocation.
+    pub selection_tween_data: crate::refany::RefAny,
     /// Overrides `SystemStyle.scroll_physics` (momentum, overscroll /
     /// rubber-band, wheel-vs-trackpad curves). `None` = platform default.
     pub scroll_physics: OptionScrollPhysics,
@@ -475,25 +492,8 @@ pub struct SystemAnimations {
     /// While the tween runs, caret blinking is suppressed (caret stays
     /// solid while it moves).
     pub caret_tween_duration_ms: u32,
-    /// The caret tween MATH: called every animation frame with the past /
-    /// current caret rectangles and linear progress `t`; returns the
-    /// rectangle to render. Default: ease-out cubic lerp.
-    pub caret_tween: crate::callbacks::CaretTweenCallback,
-    /// User data passed to `caret_tween` on every invocation.
-    pub caret_tween_data: crate::refany::RefAny,
     /// Duration of the selection tween in ms. `0` disables the tween.
     pub selection_tween_duration_ms: u32,
-    /// The selection tween MATH: called every animation frame with the
-    /// past / current selection band rectangles and linear progress `t`;
-    /// returns the rectangles to render (must match the current count).
-    /// Default: ease-out cubic lerp, rectangles paired by index.
-    pub selection_tween: crate::callbacks::SelectionTweenCallback,
-    /// User data passed to `selection_tween` on every invocation.
-    pub selection_tween_data: crate::refany::RefAny,
-    /// Whether "scroll the caret into view" glides via the scroll-physics
-    /// spring (true, the Word feel) or jumps instantly (false — also what
-    /// [`Self::disabled`] sets, keeping e2e screenshots deterministic).
-    pub caret_scroll_glide: bool,
     /// Focus-ring glide duration in ms (ledger #29). `0` (the DEFAULT)
     /// disables the ring entirely — no visual change for existing apps;
     /// an app that opts in gets a focus outline that GLIDES between
@@ -501,6 +501,10 @@ pub struct SystemAnimations {
     /// suppressed while a text-editing session owns focus — there the
     /// caret is the indicator).
     pub focus_ring_duration_ms: u32,
+    /// Whether "scroll the caret into view" glides via the scroll-physics
+    /// spring (true, the Word feel) or jumps instantly (false — also what
+    /// [`Self::disabled`] sets, keeping e2e screenshots deterministic).
+    pub caret_scroll_glide: bool,
 }
 
 impl SystemAnimations {

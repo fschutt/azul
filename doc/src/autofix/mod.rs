@@ -1298,6 +1298,17 @@ pub enum FfiSafetyWarningKind {
     EnumWithDataMissingReprCU8 { current_repr: Option<String> },
     /// Enum without data variants but missing repr(C)
     EnumMissingReprC { current_repr: Option<String> },
+    /// api.json struct_fields ORDER diverges from the Rust repr(C) field
+    /// order. The transmute SIZE guard cannot catch this class when the
+    /// swapped fields pad to the same total (e.g. a bool+u32 swap) — the
+    /// generated C API would read every field after the divergence at the
+    /// WRONG offset, silently.
+    StructFieldOrderMismatch {
+        api_order: Vec<String>,
+        rust_order: Vec<String>,
+        /// First position where the two sequences differ: (api, rust).
+        first_divergence: (String, String),
+    },
     /// Enum uses non-C repr like repr(u16) with explicit discriminant values
     /// This breaks FFI because discriminant values aren't portable
     NonCReprEnum { current_repr: String },
@@ -1445,6 +1456,9 @@ impl FfiSafetyWarningKind {
             FfiSafetyWarningKind::StdOptionInVariant { .. } => true,
             FfiSafetyWarningKind::EnumWithDataMissingReprCU8 { .. } => true,
             FfiSafetyWarningKind::EnumMissingReprC { .. } => true,
+            // Critical - same-size field swaps are invisible to the
+            // transmute guard and corrupt every later field offset
+            FfiSafetyWarningKind::StructFieldOrderMismatch { .. } => true,
             FfiSafetyWarningKind::NonCReprEnum { .. } => true,
             FfiSafetyWarningKind::DuplicateTypeName { .. } => true,
             FfiSafetyWarningKind::BoxCVoidField { .. } => true,
@@ -1710,6 +1724,73 @@ fn estimate_padding_waste(fields: &[(String, usize, usize)]) -> usize {
 /// Check FFI safety of types that exist in api.json or are about to be added.
 /// `additional_type_names` contains type names from diff.additions that aren't
 /// in api.json yet but will be added — these also need repr checks in the source.
+/// The field-order lint's core rule: `Some((api, rust))` at the first
+/// position where the sequences diverge — but ONLY when both sides contain
+/// the same field SET (membership drift is reported by the diff engine as
+/// a modification; double-reporting it here would be noise).
+fn first_order_divergence(
+    api_order: &[String],
+    rust_order: &[String],
+) -> Option<(String, String)> {
+    use std::collections::BTreeSet;
+    let api_set: BTreeSet<&String> = api_order.iter().collect();
+    let rust_set: BTreeSet<&String> = rust_order.iter().collect();
+    if api_set != rust_set {
+        return None;
+    }
+    api_order
+        .iter()
+        .zip(rust_order.iter())
+        .find(|(a, r)| a != r)
+        .map(|(a, r)| (a.clone(), r.clone()))
+}
+
+#[cfg(test)]
+mod field_order_lint {
+    use super::first_order_divergence;
+
+    fn v(names: &[&str]) -> Vec<String> {
+        names.iter().map(|s| (*s).to_string()).collect()
+    }
+
+    #[test]
+    fn matching_order_is_clean() {
+        assert_eq!(
+            first_order_divergence(&v(&["a", "b", "c"]), &v(&["a", "b", "c"])),
+            None
+        );
+        assert_eq!(first_order_divergence(&v(&[]), &v(&[])), None);
+    }
+
+    #[test]
+    fn the_bool_u32_swap_class_is_caught() {
+        // The motivating case: caret_scroll_glide (bool) and
+        // focus_ring_duration_ms (u32) swapped — same struct size, every
+        // later offset wrong, transmute guard silent.
+        assert_eq!(
+            first_order_divergence(
+                &v(&["a", "focus_ring_duration_ms", "caret_scroll_glide"]),
+                &v(&["a", "caret_scroll_glide", "focus_ring_duration_ms"]),
+            ),
+            Some((
+                "focus_ring_duration_ms".to_string(),
+                "caret_scroll_glide".to_string()
+            ))
+        );
+    }
+
+    #[test]
+    fn membership_drift_is_left_to_the_diff_engine() {
+        // Different SETS: the diff engine reports a modification; the order
+        // lint stays silent instead of double-reporting.
+        assert_eq!(
+            first_order_divergence(&v(&["a", "b"]), &v(&["a", "b", "c"])),
+            None
+        );
+        assert_eq!(first_order_divergence(&v(&["x"]), &v(&["y"])), None);
+    }
+}
+
 pub fn check_ffi_safety(
     index: &type_index::TypeIndex,
     api_data: &ApiData,
@@ -1732,6 +1813,68 @@ pub fn check_ffi_safety(
     }
 
     let mut warnings = Vec::new();
+
+    // FIELD-ORDER LINT (user directive 2026-08-05): for every repr(C)
+    // struct present in BOTH api.json and the workspace, the api.json
+    // struct_fields sequence must MATCH the Rust declaration order.
+    // Membership drift is the diff engine's job — this lint fires exactly
+    // when the SETS agree but the SEQUENCES differ (the class the transmute
+    // size guard is blind to: same-size swaps like bool+u32).
+    for version in api_data.0.values() {
+        for module in version.api.values() {
+            for (class_name, class_data) in &module.classes {
+                let Some(fields_vec) = &class_data.struct_fields else {
+                    continue;
+                };
+                let api_order: Vec<String> = fields_vec
+                    .iter()
+                    .flat_map(|m| m.keys().cloned())
+                    .collect();
+                if api_order.is_empty() {
+                    continue;
+                }
+                // The matching workspace struct (skip the wasm façade copies
+                // and generics, same rules as the duplicate check).
+                let Some(defs) = index
+                    .iter_all()
+                    .find(|(name, _)| *name == class_name)
+                    .map(|(_, defs)| defs)
+                else {
+                    continue;
+                };
+                for typedef in defs {
+                    let file_path = typedef.file_path.display().to_string();
+                    if file_path.replace('\\', "/").contains("/unified/") {
+                        continue;
+                    }
+                    let type_index::TypeDefKind::Struct {
+                        fields,
+                        generic_params,
+                        ..
+                    } = &typedef.kind
+                    else {
+                        continue;
+                    };
+                    if !generic_params.is_empty() {
+                        continue;
+                    }
+                    let rust_order: Vec<String> = fields.keys().cloned().collect();
+                    if let Some(div) = first_order_divergence(&api_order, &rust_order) {
+                        warnings.push(FfiSafetyWarning {
+                            type_name: class_name.clone(),
+                            file_path: file_path.clone(),
+                            kind: FfiSafetyWarningKind::StructFieldOrderMismatch {
+                                api_order: api_order.clone(),
+                                rust_order,
+                                first_divergence: div,
+                            },
+                        });
+                    }
+                    break; // one comparison per class
+                }
+            }
+        }
+    }
 
     // Check for duplicate type names first
     // Build a map of type_name -> list of (file path, is_generic)
@@ -2462,6 +2605,28 @@ fn print_single_warning(warning: &FfiSafetyWarning) {
                 "FIX:".cyan()
             );
             println!("    {} {}", "FILE:".dimmed(), warning.file_path.dimmed());
+        }
+        FfiSafetyWarningKind::StructFieldOrderMismatch {
+            api_order,
+            rust_order,
+            first_divergence,
+        } => {
+            println!(
+                "    {} {}: api.json struct_fields ORDER diverges from the Rust repr(C) order",
+                "FIELD ORDER".red().bold(),
+                warning.type_name.red()
+            );
+            println!(
+                "      first divergence: api.json has '{}' where Rust has '{}'",
+                first_divergence.0, first_divergence.1
+            );
+            println!("      api.json order: [{}]", api_order.join(", "));
+            println!("      Rust order:     [{}]", rust_order.join(", "));
+            println!(
+                "      FIX: reorder the api.json struct_fields to match the Rust \
+                declaration (the transmute size guard cannot catch same-size swaps)."
+            );
+            println!("      FILE: {}", warning.file_path);
         }
         FfiSafetyWarningKind::EnumMissingReprC { current_repr } => {
             let repr_display = current_repr.as_deref().unwrap_or("none");
