@@ -426,8 +426,9 @@ pub use solver3::{
     display_list::paginate_single_page,
     page_breaks::{
         compute_page_breaks, compute_page_breaks_from_display_list,
-        compute_page_breaks_with_sequence, page_of_y, page_spans,
-        recompute_page_breaks_from, BreakKind, BreakPolicy, PageBreakPosition,
+        compute_page_breaks_with_report, compute_page_breaks_with_sequence,
+        page_of_y, page_spans, recompute_page_breaks_from, BreakKind,
+        BreakPolicy, MonolithReason, MonolithWarning, PageBreakPosition,
         PageBreakInput, PageConstraints, PaginationInfo,
     },
     pagination::{PageSequence, PageSetup},

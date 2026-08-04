@@ -195,7 +195,46 @@ pub fn compute_page_breaks(
     constraints: &PageConstraints,
     policy: &BreakPolicy,
 ) -> Vec<PageBreakPosition> {
-    compute_page_breaks_impl(input, *constraints, policy, None)
+    compute_page_breaks_impl(input, *constraints, policy, None, None)
+}
+
+/// Why an element could not be kept intact across a page boundary (E21).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum MonolithReason {
+    /// A `break-inside: avoid` box taller than the page content area —
+    /// no break position can satisfy it, so it tears.
+    AvoidBoxTallerThanPage,
+    /// An atomic table row taller than the page content area.
+    RowTallerThanPage,
+}
+
+/// E21: one element the break pass had to TEAR despite a keep-intact rule.
+/// The exporter surfaces these as "element X could not be kept intact".
+#[derive(Debug, Clone, PartialEq)]
+pub struct MonolithWarning {
+    /// The node whose rule was violated (None = anonymous, e.g. a row range
+    /// derived without a node mapping).
+    pub node: Option<NodeId>,
+    /// Document-space extent of the torn box.
+    pub top: f32,
+    pub bottom: f32,
+    pub reason: MonolithReason,
+}
+
+/// [`compute_page_breaks`] + the E21 monolith report: elements whose
+/// keep-intact rules (`break-inside: avoid`, atomic rows) could not be
+/// honored because they are taller than the page. The breaks are identical
+/// to [`compute_page_breaks`] — the report only ADDS information.
+#[must_use]
+pub fn compute_page_breaks_with_report(
+    input: &PageBreakInput<'_>,
+    constraints: &PageConstraints,
+    policy: &BreakPolicy,
+) -> (Vec<PageBreakPosition>, Vec<MonolithWarning>) {
+    let mut warnings = Vec::new();
+    let breaks =
+        compute_page_breaks_impl(input, *constraints, policy, None, Some(&mut warnings));
+    (breaks, warnings)
 }
 
 /// [`compute_page_breaks`] with an MS-Word-style [`PageSequence`].
@@ -218,7 +257,7 @@ pub fn compute_page_breaks_with_sequence(
         first_page_content_height: sequence.setup_for_page(0).content_height(),
         normal_page_content_height: default_h,
     };
-    compute_page_breaks_impl(input, constraints, policy, Some(sequence))
+    compute_page_breaks_impl(input, constraints, policy, Some(sequence), None)
 }
 
 #[allow(clippy::too_many_lines)] // large but cohesive: single-purpose layout/render/parse routine (one branch per case)
@@ -227,6 +266,7 @@ fn compute_page_breaks_impl(
     constraints: PageConstraints,
     policy: &BreakPolicy,
     sequence: Option<&crate::solver3::pagination::PageSequence>,
+    mut monolith_report: Option<&mut Vec<MonolithWarning>>,
 ) -> Vec<PageBreakPosition> {
     let any_awareness = policy.honor_break_inside
         || policy.atomic_lines
@@ -247,7 +287,8 @@ fn compute_page_breaks_impl(
         return Vec::new();
     }
 
-    let mut avoid_ranges = collect_avoid_ranges(input, constraints, policy);
+    let mut avoid_ranges =
+        collect_avoid_ranges(input, constraints, policy, monolith_report.as_deref_mut());
     if policy.atomic_table_rows {
         // A break may not slice a table row (monolith rule still applies:
         // a row taller than the page tears).
@@ -261,6 +302,13 @@ fn compute_page_breaks_impl(
                     top,
                     bottom,
                     node: None,
+                });
+            } else if let Some(report) = monolith_report.as_deref_mut() {
+                report.push(MonolithWarning {
+                    node: None,
+                    top,
+                    bottom,
+                    reason: MonolithReason::RowTallerThanPage,
                 });
             }
         }
@@ -403,6 +451,7 @@ fn collect_avoid_ranges(
     input: &PageBreakInput<'_>,
     constraints: PageConstraints,
     policy: &BreakPolicy,
+    mut monolith_report: Option<&mut Vec<MonolithWarning>>,
 ) -> Vec<AvoidRange> {
     use crate::solver3::getters::get_break_inside;
     use azul_css::props::layout::fragmentation::BreakInside;
@@ -437,7 +486,16 @@ fn collect_avoid_ranges(
         for (node, (top, bottom)) in per_node {
             // Monolith rule: a box taller than the page may be torn — an
             // avoid-range that can never be satisfied would push forever.
+            // E21: the tear is no longer SILENT — it lands in the report.
             if bottom - top > page_height {
+                if let Some(report) = monolith_report.as_deref_mut() {
+                    report.push(MonolithWarning {
+                        node: Some(node),
+                        top,
+                        bottom,
+                        reason: MonolithReason::AvoidBoxTallerThanPage,
+                    });
+                }
                 continue;
             }
             ranges.push(AvoidRange {
@@ -1178,6 +1236,92 @@ mod tests {
         );
         assert_eq!(breaks[0].y, 84.0, "{breaks:?}");
         assert!(matches!(breaks[0].kind, BreakKind::Avoided { .. }));
+    }
+
+    #[test]
+    fn widows_pull_enough_lines_onto_the_next_page() {
+        // E20 counterpart to the orphans test. Paragraph (node 1) with 3
+        // lines at 68..84, 84..100, 100..116; widows: 2, orphans: 1.
+        // The naive break at 100 carries ONE line to the next page — fewer
+        // than widows — so the break moves UP one line (84): 1 line stays
+        // (orphans: 1 satisfied), 2 lines carry over (widows: 2 satisfied).
+        let mut dom = azul_core::dom::Dom::create_div();
+        dom.add_child(azul_core::dom::Dom::create_p());
+        let (css, _warnings) =
+            azul_css::parser2::new_from_str("p { widows: 2; orphans: 1; }");
+        let styled = StyledDom::create(&mut dom, css);
+        let mut dl = DisplayList::default();
+        for (item, node) in [
+            (rect_item(0.0, 250.0), None),
+            (text_item(68.0, 16.0), Some(1)),
+            (text_item(84.0, 16.0), Some(1)),
+            (text_item(100.0, 16.0), Some(1)),
+        ] {
+            dl.items.push(item);
+            dl.node_mapping.push(node.map(NodeId::new));
+        }
+        let policy = BreakPolicy {
+            widows_orphans: true,
+            ..Default::default()
+        };
+        let breaks = compute_page_breaks(
+            &PageBreakInput {
+                display_list: &dl,
+                layout_tree: None,
+                styled_dom: &styled,
+                table_headers: None,
+            },
+            &constraints(100.0, 100.0),
+            &policy,
+        );
+        assert_eq!(breaks[0].y, 84.0, "{breaks:?}");
+        assert!(matches!(breaks[0].kind, BreakKind::Avoided { .. }));
+    }
+
+    #[test]
+    fn taller_than_page_avoid_box_lands_in_the_monolith_report() {
+        // E21: the tear itself is unchanged (monolith rule), but it is no
+        // longer silent. Avoid-box node 1 spans 250px on 100px pages.
+        let (styled, dl) = avoid_fixture(vec![
+            (rect_item(0.0, 400.0), None),
+            (rect_item(20.0, 250.0), Some(1)),
+        ]);
+        let policy = BreakPolicy {
+            honor_break_inside: true,
+            ..Default::default()
+        };
+        let input = PageBreakInput {
+            display_list: &dl,
+            layout_tree: None,
+            styled_dom: &styled,
+            table_headers: None,
+        };
+        let (breaks, warnings) =
+            compute_page_breaks_with_report(&input, &constraints(100.0, 100.0), &policy);
+        assert_eq!(
+            breaks,
+            compute_page_breaks(&input, &constraints(100.0, 100.0), &policy),
+            "the report only ADDS information, breaks are identical"
+        );
+        assert_eq!(warnings.len(), 1, "{warnings:?}");
+        assert_eq!(warnings[0].node, Some(NodeId::new(1)));
+        assert_eq!(warnings[0].reason, MonolithReason::AvoidBoxTallerThanPage);
+        assert_eq!((warnings[0].top, warnings[0].bottom), (20.0, 270.0));
+
+        // A box that FITS the page produces no warning.
+        let (styled2, dl2) = avoid_fixture(vec![
+            (rect_item(0.0, 400.0), None),
+            (rect_item(20.0, 60.0), Some(1)),
+        ]);
+        let input2 = PageBreakInput {
+            display_list: &dl2,
+            layout_tree: None,
+            styled_dom: &styled2,
+            table_headers: None,
+        };
+        let (_, warnings2) =
+            compute_page_breaks_with_report(&input2, &constraints(100.0, 100.0), &policy);
+        assert!(warnings2.is_empty(), "{warnings2:?}");
     }
 
     /// A synthetic table DOM + display list: div > table > (thead > tr,
