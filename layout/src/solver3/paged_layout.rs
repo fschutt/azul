@@ -1996,3 +1996,140 @@ pub fn pagination_to_dom_breaks(
             .collect(),
     )
 }
+
+/// The per-page delta of a re-estimation, for the editor's lazy re-break
+/// loop: pages whose breaks are bit-for-bit unchanged keep their DOM
+/// subtrees untouched; patching starts at `first_changed_page`.
+#[derive(Debug, Clone, PartialEq)]
+pub struct BreaksDelta {
+    /// Breaks (compared by exact `y` AND `kind`) identical to the previous
+    /// estimate up to this index. On the first estimate this is 0.
+    pub unchanged_prefix_len: usize,
+    /// The first page whose boundary moved — equal to
+    /// `unchanged_prefix_len` (page N ends at break N).
+    pub first_changed_page: usize,
+    /// Whether the total page count changed.
+    pub page_count_changed: bool,
+}
+
+/// Owns the caches an incremental pagination loop needs
+/// ([`crate::solver3::cache::LayoutCache`] + text cache + the previous
+/// estimate) so an embedder holds ONE session object instead of wiring
+/// solver internals (AZUL-STILL-TODO B7).
+///
+/// ```text
+/// changeset -> app model -> session.re_estimate(new_dom, ...) -> BreaksDelta
+///           -> patch own DOM only from first_changed_page on
+///           -> session.dom_breaks(new_dom) for the structural positions
+/// ```
+#[cfg(feature = "text_layout")]
+pub struct PaginationSession {
+    pub layout_cache: crate::solver3::cache::LayoutCache,
+    pub text_cache: crate::font_traits::TextLayoutCache,
+    pub previous: Option<crate::solver3::page_breaks::PaginationInfo>,
+}
+
+#[cfg(feature = "text_layout")]
+impl Default for PaginationSession {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+#[cfg(feature = "text_layout")]
+impl PaginationSession {
+    #[must_use]
+    pub fn new() -> Self {
+        Self {
+            layout_cache: crate::solver3::cache::LayoutCache::default(),
+            text_cache: crate::font_traits::TextLayoutCache::new(),
+            previous: None,
+        }
+    }
+
+    /// Re-estimate pagination for (a new generation of) the document and
+    /// report which pages kept their boundaries. Layout reuses this
+    /// session's caches, so an unchanged prefix is cheap by construction.
+    #[allow(clippy::too_many_arguments)] // mirrors compute_document_pagination's surface
+    pub fn re_estimate<T, F>(
+        &mut self,
+        styled_dom: &StyledDom,
+        viewport: LogicalRect,
+        font_manager: &mut crate::font_traits::FontManager<T>,
+        scroll_offsets: &BTreeMap<NodeId, ScrollPosition>,
+        debug_messages: &mut Option<Vec<LayoutDebugMessage>>,
+        gpu_value_cache: Option<&azul_core::gpu::GpuValueCache>,
+        renderer_resources: &RendererResources,
+        id_namespace: azul_core::resources::IdNamespace,
+        dom_id: DomId,
+        font_loader: F,
+        page_config: FakePageConfig,
+        image_cache: &azul_core::resources::ImageCache,
+        get_system_time_fn: azul_core::task::GetSystemTimeCallback,
+    ) -> Result<BreaksDelta>
+    where
+        T: ParsedFontTrait + Sync + 'static,
+        F: Fn(
+            std::sync::Arc<rust_fontconfig::FontBytes>,
+            usize,
+        ) -> std::result::Result<T, crate::text3::cache::LayoutError>,
+    {
+        let fragmentation_context = FragmentationContext::new_paged(viewport.size);
+        let info = compute_document_pagination(
+            &mut self.layout_cache,
+            &mut self.text_cache,
+            fragmentation_context,
+            styled_dom,
+            viewport,
+            font_manager,
+            scroll_offsets,
+            debug_messages,
+            gpu_value_cache,
+            renderer_resources,
+            id_namespace,
+            dom_id,
+            font_loader,
+            page_config,
+            image_cache,
+            get_system_time_fn,
+        )?;
+
+        let unchanged_prefix_len = match &self.previous {
+            None => 0,
+            Some(prev) => prev
+                .breaks
+                .iter()
+                .zip(info.breaks.iter())
+                // The reuse contract: unchanged breaks are bit-for-bit equal
+                // (recompute_page_breaks_from), so exact comparison is right —
+                // an epsilon would hide genuinely moved boundaries.
+                .take_while(|(a, b)| a.y.to_bits() == b.y.to_bits() && a.kind == b.kind)
+                .count(),
+        };
+        let page_count_changed = self
+            .previous
+            .as_ref()
+            .is_none_or(|prev| prev.page_count != info.page_count);
+        self.previous = Some(info);
+        Ok(BreaksDelta {
+            unchanged_prefix_len,
+            first_changed_page: unchanged_prefix_len,
+            page_count_changed,
+        })
+    }
+
+    /// The latest estimate (after at least one [`Self::re_estimate`]).
+    #[must_use]
+    pub fn info(&self) -> Option<&crate::solver3::page_breaks::PaginationInfo> {
+        self.previous.as_ref()
+    }
+
+    /// Structural DOM positions for the latest estimate — see
+    /// [`pagination_to_dom_breaks`]. Call with the SAME document that was
+    /// last re-estimated.
+    #[must_use]
+    pub fn dom_breaks(&self, styled_dom: &StyledDom) -> Option<Vec<StructuralBreak>> {
+        let info = self.previous.as_ref()?;
+        pagination_to_dom_breaks(&self.layout_cache, styled_dom, info)
+    }
+}

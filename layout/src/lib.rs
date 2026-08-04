@@ -418,7 +418,7 @@ pub use solver3::paged_layout::layout_document_paged;
 #[cfg(feature = "text_layout")]
 pub use solver3::paged_layout::{
     compute_document_pagination, layout_document_paged_v2, pagination_to_dom_breaks,
-    spine_path_at_y, PagedLayoutResult, StructuralBreak,
+    spine_path_at_y, BreaksDelta, PagedLayoutResult, PaginationSession, StructuralBreak,
 };
 /// Standalone page-break analysis (typed breaks, spans, policy, lazy pages).
 #[cfg(feature = "text_layout")]

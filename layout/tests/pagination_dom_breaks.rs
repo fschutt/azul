@@ -178,3 +178,74 @@ fn forced_break_carries_its_causing_node() {
     assert_eq!(fb.causing_node, Some(causing));
     assert!(fb.path.is_some(), "forced break maps to a spine path too");
 }
+
+#[test]
+fn pagination_session_reports_unchanged_prefix_on_identical_re_estimate() {
+    use azul_layout::PaginationSession;
+    let html = r#"
+    <html><head><style>
+        * { margin: 0; padding: 0; }
+        .p { height: 150px; }
+    </style></head>
+    <body>
+        <div class="p">one</div>
+        <div class="p">two</div>
+        <div class="p">three</div>
+    </body></html>"#;
+    let styled_dom = Dom::from_xml_string(html);
+    let fc_cache = build_font_cache();
+    let mut font_manager = FontManager::new(fc_cache).expect("FontManager");
+    let renderer_resources = RendererResources::default();
+    let loader = PathLoader::new();
+    let viewport = LogicalRect {
+        origin: LogicalPosition::zero(),
+        size: LogicalSize::new(800.0, 200.0),
+    };
+
+    let mut session = PaginationSession::new();
+    let mut run = |session: &mut PaginationSession,
+                   dom: &azul_core::styled_dom::StyledDom,
+                   fm: &mut FontManager<_>| {
+        let mut debug_messages = Some(Vec::new());
+        session
+            .re_estimate(
+                dom,
+                viewport,
+                fm,
+                &BTreeMap::new(),
+                &mut debug_messages,
+                None,
+                &renderer_resources,
+                azul_core::resources::IdNamespace(0),
+                DomId::ROOT_ID,
+                |bytes: std::sync::Arc<rust_fontconfig::FontBytes>, index: usize| {
+                    loader.load_font_shared(bytes, index)
+                },
+                FakePageConfig::new(),
+                &azul_core::resources::ImageCache::default(),
+                azul_core::task::GetSystemTimeCallback {
+                    cb: azul_core::task::get_system_time_libstd,
+                },
+            )
+            .expect("re-estimate")
+    };
+
+    let first = run(&mut session, &styled_dom, &mut font_manager);
+    assert_eq!(
+        first.unchanged_prefix_len, 0,
+        "the first estimate has nothing to be unchanged against"
+    );
+    let n_breaks = session.info().expect("estimate stored").breaks.len();
+    assert!(n_breaks >= 1);
+
+    let second = run(&mut session, &styled_dom, &mut font_manager);
+    assert_eq!(
+        second.unchanged_prefix_len, n_breaks,
+        "an identical document must keep every break bit-for-bit: {second:?}"
+    );
+    assert!(!second.page_count_changed);
+    assert!(
+        session.dom_breaks(&styled_dom).is_some(),
+        "structural mapping stays available from the session's caches"
+    );
+}
