@@ -169,13 +169,32 @@ fn push_row_center(v: &mut Vec<Cond>) {
 }
 
 /// Flat, hover-highlighted button chassis shared by every band control.
+/// The explicit TRANSPARENT border overrides the [`Button`] widget's
+/// default frame (Word's band controls are frameless until hovered).
 fn push_flat_button(v: &mut Vec<Cond>, t: &QuickAccessTheme) {
     v.push(cond_border_box());
     v.push(Cond::simple(P::const_cursor(StyleCursor::Default)));
     v.push(Cond::simple(P::user_select(StyleUserSelect::None)));
     v.push(cond_bg(TRANSPARENT));
+    push_box_border(v, TRANSPARENT);
     v.push(cond_bg_hover(t.hover_bg));
     v.push(cond_bg_active(t.pressed_bg));
+}
+
+/// 1px solid border on all four sides in the given color.
+fn push_box_border(v: &mut Vec<Cond>, c: ColorU) {
+    v.push(Cond::simple(P::const_border_top_width(LayoutBorderTopWidth::const_px(1))));
+    v.push(Cond::simple(P::const_border_left_width(LayoutBorderLeftWidth::const_px(1))));
+    v.push(Cond::simple(P::const_border_right_width(LayoutBorderRightWidth::const_px(1))));
+    v.push(Cond::simple(P::const_border_bottom_width(LayoutBorderBottomWidth::const_px(1))));
+    v.push(Cond::simple(P::const_border_top_style(StyleBorderTopStyle { inner: BorderStyle::Solid })));
+    v.push(Cond::simple(P::const_border_left_style(StyleBorderLeftStyle { inner: BorderStyle::Solid })));
+    v.push(Cond::simple(P::const_border_right_style(StyleBorderRightStyle { inner: BorderStyle::Solid })));
+    v.push(Cond::simple(P::const_border_bottom_style(StyleBorderBottomStyle { inner: BorderStyle::Solid })));
+    v.push(Cond::simple(P::const_border_top_color(StyleBorderTopColor { inner: c })));
+    v.push(Cond::simple(P::const_border_left_color(StyleBorderLeftColor { inner: c })));
+    v.push(Cond::simple(P::const_border_right_color(StyleBorderRightColor { inner: c })));
+    v.push(Cond::simple(P::const_border_bottom_color(StyleBorderBottomColor { inner: c })));
 }
 
 fn theme_bar(t: &QuickAccessTheme) -> CssPropertyWithConditionsVec {
