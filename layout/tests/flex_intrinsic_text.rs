@@ -1953,3 +1953,38 @@ fn grid_items_from_xml_markup_fill_consecutive_cells() {
         "items must fill consecutive cells starting at x=0: xs={xs:?}"
     );
 }
+
+/// CSS 2.2 section 8.3.1: a last in-flow child's bottom margin adjoins its
+/// parent's bottom margin when the parent has auto height and no bottom
+/// padding/border - even when the CHILD has its own padding (that only
+/// isolates the child's descendants). Distilled from
+/// block-margin-collapse-complex-001: parent margin-bottom 40 with a padded
+/// child of margin-bottom 50 must leave a 50px gap to the next sibling
+/// (max(40,50,next top 30)), not 40.
+#[test]
+fn padded_last_child_bottom_margin_collapses_into_the_parents() {
+    const CSS: &str = r#"
+        * { margin: 0; padding: 0; }
+        .wrap { width: 400px; background: #ffffff; }
+        .parent { margin: 40px 0; }
+        .child { margin: 50px 0; padding: 15px; height: 40px; }
+        .after { margin-top: 30px; height: 20px; }
+    "#;
+    let dom = Dom::create_body().with_child(
+        Dom::create_div().with_ids_and_classes(class("wrap"))
+            .with_child(
+                Dom::create_div().with_ids_and_classes(class("parent"))
+                    .with_child(Dom::create_div().with_ids_and_classes(class("child"))),
+            )
+            .with_child(Dom::create_div().with_ids_and_classes(class("after"))),
+    );
+    let lw = layout_dom(dom, CSS, 800.0, 600.0);
+    let child = lw.get_node_layout_rect(node_id(3)).expect("child");
+    let after = lw.get_node_layout_rect(node_id(4)).expect("after");
+    let child_bottom = child.origin.y + child.size.height;
+    let gap = after.origin.y - child_bottom;
+    assert!(
+        (gap - 50.0).abs() < 1.0,
+        "gap below the padded child must be max(child mb 50, parent mb 40, next mt 30) = 50, got {gap}"
+    );
+}

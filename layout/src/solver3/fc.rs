@@ -2382,9 +2382,21 @@ fn layout_bfc<T: ParsedFontTrait>(
             main_pen
         );
 
-        if !parent_has_bottom_blocker && !last_has_bottom_blocker && has_content {
-            // Last child's bottom margin can escape and collapse with the parent's
-            // own bottom margin, propagating to the grandparent (CSS 2.2 § 8.3.1).
+        if !parent_has_bottom_blocker && has_content {
+            // CSS 2.2 section 8.3.1: the bottom margin of the LAST in-flow child
+            // adjoins the parent's bottom margin whenever the parent has auto
+            // height and no bottom padding/border. The child's OWN bottom
+            // padding/border is irrelevant to THIS adjacency — it only decides
+            // whether the child's descendants' margins were already merged into
+            // `last_margin_bottom` (handled where child_escaped_bottom is read).
+            // An earlier version required the last child to be blocker-free too
+            // and exported only the parent's own margin otherwise: a padded
+            // child with margin-bottom 50 under a parent with margin-bottom 40
+            // produced a 40px sibling gap instead of Chrome's 50px, shifting
+            // everything below (block-margin-collapse-complex-001, -10px per
+            // section). The margin is NOT added to main_pen either way — it
+            // escapes the content box (counting it double-counted the height,
+            // nested-container came out 180px instead of 130px).
             let collapsed_bottom = collapse_margins(parent_margin_bottom, last_margin_bottom);
             escaped_bottom_margin = Some(collapsed_bottom);
             debug_info!(
@@ -2392,26 +2404,6 @@ fn layout_bfc<T: ParsedFontTrait>(
                 "[layout_bfc] Bottom margin ESCAPED for node {}: collapsed={}",
                 node_index,
                 collapsed_bottom
-            );
-            // Don't add last_margin_bottom to pen (it escaped)
-        } else if !parent_has_bottom_blocker && has_content {
-            // Last child has its OWN bottom border/padding (a blocker), but THIS
-            // parent has none: the child's bottom margin sits adjacent to the
-            // parent's bottom content edge, so per CSS 2.2 § 8.3.1 it escapes the
-            // parent's content box rather than being part of its height. This is the
-            // bottom-margin mirror of the top-margin escape handled above (where a
-            // padded first child still escapes its top margin through a padless
-            // parent). Do NOT add it to main_pen — counting it here double-counted
-            // the margin into a non-root parent's height (nested-container came out
-            // 180px instead of 130px). The parent's own bottom margin still flows to
-            // the grandparent through the normal `last_margin_bottom` path, so the
-            // grandparent's trap is unchanged.
-            debug_info!(
-                ctx,
-                "[layout_bfc] Bottom margin of blocked last child ESCAPES content box for node \
-                 {}: last_margin_bottom={} (not added to height)",
-                node_index,
-                last_margin_bottom
             );
         } else {
             // Can't escape: add to pen
