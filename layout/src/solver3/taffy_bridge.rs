@@ -1741,6 +1741,7 @@ impl<T: ParsedFontTrait> TaffyBridge<'_, '_, T> {
             text_align: fc_text_align,
             containing_block_size: available_size,
             available_width_type,
+            fragmentainer: None,
         };
 
         // A prior Taffy measurement pass (e.g. the min-content pass Taffy runs to

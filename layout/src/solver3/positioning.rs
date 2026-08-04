@@ -637,6 +637,7 @@ pub fn position_out_of_flow_elements<T: ParsedFontTrait>(
                         containing_block_size: inner,
                         available_width_type:
                             crate::text3::cache::AvailableSpace::Definite(inner.width),
+                        fragmentainer: None,
                     };
                     let mut reflow_float_cache: std::collections::HashMap<usize, FloatingContext> =
                         std::collections::HashMap::new();

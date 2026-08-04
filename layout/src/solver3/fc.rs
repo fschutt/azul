@@ -94,6 +94,10 @@ pub(crate) struct BfcLayoutResult {
     /// Bottom margin that escaped the BFC (for parent-child collapse)
     /// If Some, this margin should collapse with next sibling
     pub escaped_bottom_margin: Option<f32>,
+    /// K30b: `Some` = this BFC ran out of fragmentainer space; the token
+    /// resumes it in the next fragmentainer. Always `None` on the
+    /// continuous path (`constraints.fragmentainer == None`).
+    pub outgoing_token: Option<crate::solver3::break_token::BreakToken>,
 }
 
 impl BfcLayoutResult {
@@ -102,6 +106,7 @@ impl BfcLayoutResult {
             output,
             escaped_top_margin: None,
             escaped_bottom_margin: None,
+            outgoing_token: None,
         }
     }
 }
@@ -124,6 +129,26 @@ impl OverflowBehavior {
     #[must_use] pub const fn is_scroll(&self) -> bool {
         matches!(self, Self::Scroll | Self::Auto)
     }
+}
+
+/// K30b: the fragmentainer the current layout call is filling (design:
+/// scripts/BREAK_TOKENS_DESIGN.md §4.3). `None` = continuous media — every
+/// existing path passes `None` and behaves bit-for-bit as before.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct FragmentainerSpace<'a> {
+    /// Block-extent remaining in the CURRENT fragmentainer, measured from
+    /// this box's block-start (the pen compares against it directly).
+    pub remaining_block_extent: f32,
+    /// Extent of a FRESH next fragmentainer ("would it fit on the next
+    /// page at all?" — monolith classification).
+    pub next_fragmentainer_extent: f32,
+    /// True while filling the very first fragmentainer of the flow.
+    pub is_first: bool,
+    /// Incoming resume state for THIS box (the page loop threads page
+    /// N−1's outgoing token back in). The token rides the fragmentainer
+    /// input instead of a separate parameter so the continuous path stays
+    /// signature-identical.
+    pub resume: Option<&'a crate::solver3::break_token::BlockBreakToken>,
 }
 
 /// Input constraints for a layout function.
@@ -156,6 +181,9 @@ pub struct LayoutConstraints<'a> {
     /// to compute the cached result. A layout computed with `MinContent` (width=0)
     /// must not be reused when the actual available width is known.
     pub available_width_type: Text3AvailableSpace,
+    /// K30b fragmentation: `None` = continuous (screen) layout, identical
+    /// to pre-token behavior. `Some` arms the fit checks in `layout_bfc`.
+    pub fragmentainer: Option<FragmentainerSpace<'a>>,
 }
 
 /// Manages all layout state for a single Block Formatting Context.
@@ -1321,7 +1349,30 @@ fn layout_bfc<T: ParsedFontTrait>(
         }
     }
 
+    // K30b fragmentation state (inert when `constraints.fragmentainer` is
+    // None — the continuous path). Resume = skip every finished sibling
+    // before the token's first unfinished child WITH ZERO side effects
+    // (before any margin/pen/float bookkeeping); break = emit the
+    // unfinished tail as the outgoing token and stop consuming children.
+    let fragment_resume_from: Option<usize> = constraints
+        .fragmentainer
+        .as_ref()
+        .and_then(|fs| fs.resume)
+        .and_then(crate::solver3::break_token::resume_plan)
+        .map(|p| p.first_unfinished);
+    let mut fragment_resume_reached = fragment_resume_from.is_none();
+    let mut fragment_placed_content = false;
+    let mut fragment_token_out: Option<crate::solver3::break_token::BreakToken> = None;
+
     for &child_index in &pos_children {
+        if !fragment_resume_reached {
+            if Some(child_index) == fragment_resume_from {
+                fragment_resume_reached = true;
+            } else {
+                continue;
+            }
+        }
+
         let child_node = tree.get(child_index).ok_or(LayoutError::InvalidTree)?;
         let child_dom_id = child_node.dom_node_id;
 
@@ -1857,6 +1908,49 @@ fn layout_bfc<T: ParsedFontTrait>(
             }
         }
 
+        // K30b fit check: `main_pen` is final for this child (margins
+        // resolved above). A child that does not fit the remaining
+        // fragmentainer extent breaks BEFORE itself — it and every later
+        // in-flow sibling become the outgoing token's unfinished tail.
+        // A first-content child that can never fit places as a MONOLITH
+        // (overflows the fragmentainer; never torn, never looped —
+        // reporting arrives with the page-loop driver).
+        if let Some(fs) = constraints.fragmentainer.as_ref() {
+            use crate::solver3::break_token::{fragment_fit, tail_token, FitDecision};
+            match fragment_fit(
+                main_pen,
+                child_size.main(writing_mode),
+                fs.remaining_block_extent,
+                fs.next_fragmentainer_extent,
+                fragment_placed_content,
+            ) {
+                FitDecision::Fits | FitDecision::MonolithOverflow => {}
+                FitDecision::BreakBeforeHere => {
+                    let later: alloc::vec::Vec<usize> = pos_children
+                        .iter()
+                        .copied()
+                        .skip_while(|&c| c != child_index)
+                        .skip(1)
+                        .filter(|&c| {
+                            let pt = get_position_type(
+                                ctx.styled_dom,
+                                tree.get(c).and_then(|n| n.dom_node_id),
+                            );
+                            pt != LayoutPosition::Absolute && pt != LayoutPosition::Fixed
+                        })
+                        .collect();
+                    fragment_token_out = Some(tail_token(
+                        node_index,
+                        main_pen,
+                        child_index,
+                        later.into_iter(),
+                    ));
+                    break;
+                }
+            }
+            fragment_placed_content = true;
+        }
+
         // Position child (non-empty blocks only reach here)
         //
         // +spec:block-formatting-context:1dada5 - Normal flow boxes in BFC touch containing block edge
@@ -2248,6 +2342,7 @@ fn layout_bfc<T: ParsedFontTrait>(
                 text_align: constraints.text_align,
                 containing_block_size: constraints.containing_block_size,
                 available_width_type: Text3AvailableSpace::Definite(child_content_size.width),
+                fragmentainer: None,
             };
 
             // Re-layout the IFC with float awareness
@@ -2601,6 +2696,7 @@ fn layout_bfc<T: ParsedFontTrait>(
         output,
         escaped_top_margin,
         escaped_bottom_margin,
+        outgoing_token: fragment_token_out,
     })
 }
 
@@ -5262,6 +5358,7 @@ pub fn layout_table_fc<T: ParsedFontTrait>(
             text_align: constraints.text_align,
             containing_block_size: constraints.containing_block_size,
             available_width_type: Text3AvailableSpace::Definite(table_width),
+            fragmentainer: None,
         };
 
         // Layout the caption node
@@ -5785,6 +5882,7 @@ fn measure_cell_content_width<T: ParsedFontTrait>(
         text_align: constraints.text_align,
         containing_block_size: constraints.containing_block_size,
         available_width_type: width_type,
+        fragmentainer: None,
     };
 
     let mut temp_positions: super::PositionVec = Vec::new();
@@ -6212,6 +6310,7 @@ fn layout_cell_for_height<T: ParsedFontTrait>(
             // Use definite width for final cell layout!
             // This replaces any previous MinContent/MaxContent measurement.
             available_width_type: Text3AvailableSpace::Definite(content_width),
+            fragmentainer: None,
         };
 
         let output = layout_ifc(ctx, text_cache, tree, cell_index, &cell_constraints)?;
@@ -6249,6 +6348,7 @@ fn layout_cell_for_height<T: ParsedFontTrait>(
             containing_block_size: constraints.containing_block_size,
             // Use Definite width for final cell layout!
             available_width_type: Text3AvailableSpace::Definite(content_width),
+            fragmentainer: None,
         };
 
         let mut temp_positions: super::PositionVec = Vec::new();
@@ -7310,6 +7410,7 @@ fn collect_and_measure_inline_content_impl<T: ParsedFontTrait>(
                     text_align: TextAlign::Start,
                     containing_block_size: constraints.containing_block_size,
                     available_width_type: Text3AvailableSpace::Definite(content_box_size.width),
+                    fragmentainer: None,
                 };
 
                 // Drop the immutable borrow before calling layout_formatting_context
@@ -7781,6 +7882,7 @@ fn collect_and_measure_inline_content_impl<T: ParsedFontTrait>(
                 text_align: TextAlign::Start,
                 containing_block_size: constraints.containing_block_size,
                 available_width_type: Text3AvailableSpace::Definite(content_box_size.width),
+                fragmentainer: None,
             };
 
             // Drop the immutable borrow before calling layout_formatting_context
@@ -8256,6 +8358,7 @@ fn collect_inline_span_recursive<T: ParsedFontTrait>(
                     text_align: TextAlign::Start,
                     containing_block_size: constraints.containing_block_size,
                     available_width_type: Text3AvailableSpace::Definite(width),
+                    fragmentainer: None,
                 };
 
                 drop(child_node);
@@ -9476,6 +9579,7 @@ mod autotest_generated {
             text_align: TextAlign::Start,
             containing_block_size: available,
             available_width_type: Text3AvailableSpace::Definite(available.width),
+            fragmentainer: None,
         }
     }
 

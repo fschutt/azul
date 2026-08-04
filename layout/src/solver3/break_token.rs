@@ -143,6 +143,106 @@ impl InlineBreakToken {
 }
 
 // ---------------------------------------------------------------------------
+// K30b decision helpers — pure, exhaustively unit-tested; `layout_bfc` only
+// wires them (design §4.4)
+// ---------------------------------------------------------------------------
+
+/// Verdict for one normal-flow child against the fragmentainer.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum FitDecision {
+    /// The child ends within the remaining extent: place it here.
+    Fits,
+    /// Break BEFORE this child — it (and its later siblings) resume in the
+    /// next fragmentainer.
+    BreakBeforeHere,
+    /// The child is the first content of this fragmentainer and no
+    /// fragmentainer can ever hold it: place it OVERFLOWING (css-break
+    /// monolith rule — never tear, never loop).
+    MonolithOverflow,
+}
+
+/// Geometry tolerance for fit checks: sub-1/100-px overshoot is float noise,
+/// not a page break.
+const FIT_EPS: f32 = 0.01;
+
+/// Decide whether a child whose border-box starts at `pen` (margins already
+/// resolved) and spans `child_block_size` fits the remaining extent.
+///
+/// `placed_any_content`: whether this fragmentainer already holds content
+/// from this box — if it does, breaking before the child always makes
+/// progress; if it does not, breaking only helps when a FRESH fragmentainer
+/// is actually bigger than what remains here (otherwise the child is a
+/// monolith and overflows).
+#[must_use]
+pub fn fragment_fit(
+    pen: f32,
+    child_block_size: f32,
+    remaining_block_extent: f32,
+    next_fragmentainer_extent: f32,
+    placed_any_content: bool,
+) -> FitDecision {
+    if pen + child_block_size <= remaining_block_extent + FIT_EPS {
+        return FitDecision::Fits;
+    }
+    if placed_any_content {
+        return FitDecision::BreakBeforeHere;
+    }
+    // First content of the fragmentainer overflows on its own. Progress
+    // guarantee: only defer to the next fragmentainer if it is genuinely
+    // roomier than what is left here AND can hold the child.
+    if child_block_size <= next_fragmentainer_extent + FIT_EPS
+        && next_fragmentainer_extent > remaining_block_extent + FIT_EPS
+    {
+        FitDecision::BreakBeforeHere
+    } else {
+        FitDecision::MonolithOverflow
+    }
+}
+
+/// Build the outgoing token when a break lands before `breaking_child`:
+/// the unfinished tail is that child plus every later in-flow sibling, all
+/// as `BreakBefore` entries (block-granular v1 — `ResumeIn` entries appear
+/// when nested resume lands, K30b part 2).
+#[must_use]
+pub fn tail_token(
+    node: usize,
+    consumed_block_size: f32,
+    breaking_child: usize,
+    later_in_flow_siblings: impl Iterator<Item = usize>,
+) -> BreakToken {
+    let mut children = alloc::vec![ChildBreakEntry::BreakBefore {
+        child: breaking_child,
+    }];
+    children.extend(later_in_flow_siblings.map(|child| ChildBreakEntry::BreakBefore { child }));
+    BreakToken::Block(BlockBreakToken {
+        node,
+        consumed_block_size,
+        children,
+        generation: 0,
+    })
+}
+
+/// The consumer-side resume plan for a block token: which child is the
+/// FIRST unfinished one (everything before it is finished and must be
+/// skipped with zero side effects). `None` for a childless token —
+/// defensive: such a token encodes no work and resuming from it is a
+/// no-op, which the page loop's progress guard turns into a stop.
+pub struct ResumePlan {
+    pub first_unfinished: usize,
+}
+
+#[must_use]
+pub fn resume_plan(token: &BlockBreakToken) -> Option<ResumePlan> {
+    token.children.first().map(|entry| ResumePlan {
+        first_unfinished: match entry {
+            ChildBreakEntry::ResumeIn { child, .. } | ChildBreakEntry::BreakBefore { child } => {
+                *child
+            }
+        },
+    })
+}
+
+// ---------------------------------------------------------------------------
 // Fingerprints — fast-path rejector for K34 convergence
 // ---------------------------------------------------------------------------
 
@@ -403,6 +503,71 @@ mod break_token_laws {
             partial_remainder: vec![],
         }
         .is_degenerate_start());
+    }
+
+    // -- K30b decision helpers ---------------------------------------------
+
+    #[test]
+    fn fragment_fit_truth_table() {
+        use FitDecision::*;
+        // Fits exactly / with epsilon slack.
+        assert_eq!(fragment_fit(0.0, 100.0, 100.0, 100.0, false), Fits);
+        assert_eq!(fragment_fit(50.0, 50.005, 100.0, 100.0, true), Fits);
+        // Mid-page overflow with content already placed: break before.
+        assert_eq!(fragment_fit(80.0, 40.0, 100.0, 100.0, true), BreakBeforeHere);
+        // First content, uniform pages, taller than a page: monolith.
+        assert_eq!(
+            fragment_fit(0.0, 250.0, 100.0, 100.0, false),
+            MonolithOverflow
+        );
+        // First content, but the NEXT page is roomier and holds it: defer.
+        assert_eq!(
+            fragment_fit(0.0, 250.0, 100.0, 300.0, false),
+            BreakBeforeHere
+        );
+        // First content, next page roomier but STILL too small: monolith
+        // (deferring would just move the overflow, not fix it).
+        assert_eq!(
+            fragment_fit(0.0, 400.0, 100.0, 300.0, false),
+            MonolithOverflow
+        );
+        // Progress guarantee: never break-before on first content when the
+        // next fragmentainer is the same size (would loop forever).
+        assert_eq!(
+            fragment_fit(0.0, 100.02, 100.0, 100.0, false),
+            MonolithOverflow
+        );
+    }
+
+    #[test]
+    fn tail_token_lists_the_breaking_child_then_later_siblings_in_order() {
+        let t = tail_token(4, 320.0, 7, [9, 12].into_iter());
+        let BreakToken::Block(b) = &t else {
+            panic!("block token expected")
+        };
+        assert_eq!(b.node, 4);
+        assert_eq!(b.consumed_block_size, 320.0);
+        assert_eq!(
+            b.children,
+            vec![
+                ChildBreakEntry::BreakBefore { child: 7 },
+                ChildBreakEntry::BreakBefore { child: 9 },
+                ChildBreakEntry::BreakBefore { child: 12 },
+            ]
+        );
+        // Consumer side: resume starts exactly at the breaking child.
+        assert_eq!(resume_plan(b).unwrap().first_unfinished, 7);
+    }
+
+    #[test]
+    fn resume_plan_is_none_for_a_childless_token() {
+        let empty = BlockBreakToken {
+            node: 1,
+            consumed_block_size: 0.0,
+            children: vec![],
+            generation: 0,
+        };
+        assert!(resume_plan(&empty).is_none());
     }
 
     // -- Progress guard shape ----------------------------------------------
