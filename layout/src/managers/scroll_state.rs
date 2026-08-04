@@ -1394,6 +1394,50 @@ pub(crate) fn apply_easing(t: f32, easing: EasingFunction) -> f32 {
                 1.0 - (-2.0 * t + 2.0).powi(3) / 2.0
             }
         }
+        // Critically-damped spring released at the target (x(t) settles as
+        // (1+ωt)·e^(−ωt)): position = 1 − (1+ωt)e^(−ωt), ω chosen so the
+        // curve is within ~0.6% of the target at t = 1 (ω = 7). The exact
+        // landing is guaranteed by the clamp below — no asymptotic crawl.
+        // Same curve family the scroll physics integrates numerically
+        // (spring_constant_from_bounce_duration), evaluated analytically.
+        EasingFunction::Spring => {
+            const OMEGA: f32 = 7.0;
+            let settle = 1.0 - (1.0 + OMEGA * t) * (-OMEGA * t).exp();
+            // Normalize so t = 1 maps EXACTLY to 1.0: `end` goes through
+            // the SAME arithmetic as settle(1), so the division is 1.0 in
+            // f32 bit-for-bit (a hand-typed constant differed in the last
+            // ulp and t=1 landed at 0.99999994).
+            let end = 1.0 - (1.0 + OMEGA) * (-OMEGA).exp();
+            (settle / end).clamp(0.0, 1.0)
+        }
+    }
+}
+
+#[cfg(test)]
+mod spring_easing_laws {
+    use super::*;
+    use azul_core::events::EasingFunction;
+
+    #[test]
+    fn spring_hits_both_endpoints_exactly_and_is_monotone() {
+        assert_eq!(apply_easing(0.0, EasingFunction::Spring), 0.0);
+        assert_eq!(apply_easing(1.0, EasingFunction::Spring), 1.0);
+        let mut prev = 0.0f32;
+        for i in 1..=100 {
+            let v = apply_easing(i as f32 / 100.0, EasingFunction::Spring);
+            assert!(v >= prev, "monotone: {prev} -> {v} at step {i}");
+            assert!((0.0..=1.0).contains(&v));
+            prev = v;
+        }
+    }
+
+    #[test]
+    fn spring_front_loads_motion_like_a_released_spring() {
+        // More than 60% of the distance covered by half time (fast pull,
+        // gentle landing) — distinguishes it from Linear and EaseInOut.
+        let half = apply_easing(0.5, EasingFunction::Spring);
+        assert!(half > 0.6, "front-loaded: {half}");
+        assert!(half > apply_easing(0.5, EasingFunction::Linear));
     }
 }
 

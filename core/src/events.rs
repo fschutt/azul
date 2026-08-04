@@ -27,6 +27,12 @@ pub enum EasingFunction {
     Linear,
     EaseInOut,
     EaseOut,
+    /// Critically-damped spring settle (ledger #28, per the animation
+    /// design doc): position eases like a spring released toward the
+    /// target — fast initial pull, asymptote-free exact landing. Evaluated
+    /// analytically from normalized time (same curve family the scroll
+    /// physics integrates numerically).
+    Spring,
 }
 
 pub type RestyleNodes = BTreeMap<NodeId, Vec<ChangedCssProperty>>;
