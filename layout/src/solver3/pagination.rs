@@ -590,41 +590,49 @@ impl TableHeaderTracker {
     ///
     /// Returns the thead items that need to be injected at the top of the page,
     /// along with the Y offset where they should appear.
+    ///
+    /// Kept for compatibility: offsets are the LEGACY vertical stack (each
+    /// thead below the previous). The slicer now uses
+    /// [`Self::straddling_tables_for_page`] and places theads X-aware
+    /// (side-by-side tables keep their own column, nested ones stack).
     #[must_use] pub fn get_repeated_headers_for_page(
         &self,
         page_index: usize,
         page_top_y: f32,
         page_bottom_y: f32,
     ) -> Vec<(f32, &[super::display_list::DisplayListItem], f32)> {
-        let mut headers = Vec::new();
+        let mut stack_offset = 0.0_f32;
+        self.straddling_tables_for_page(page_index, page_top_y, page_bottom_y)
+            .into_iter()
+            .map(|t| {
+                let entry = (stack_offset, t.thead_items.as_slice(), t.thead_height);
+                stack_offset += t.thead_height;
+                entry
+            })
+            .collect()
+    }
 
+    /// The tables whose content STRADDLES this page top (started strictly
+    /// above, still continuing) — the ones whose thead must repeat here.
+    /// Two SIBLING tables can only both straddle when they sit side by side
+    /// (or nested); the slicer decides placement from their x-extents.
+    #[must_use] pub fn straddling_tables_for_page(
+        &self,
+        page_index: usize,
+        page_top_y: f32,
+        page_bottom_y: f32,
+    ) -> Vec<&TableHeaderInfo> {
         // Page 0 never repeats anything (the original thead is on it), and a
         // degenerate/inverted page has no room for a header.
         if page_index == 0 || page_bottom_y <= page_top_y {
-            return headers;
+            return Vec::new();
         }
-
-        let mut stack_offset = 0.0_f32;
-        for table in &self.tables {
-            // A CONTINUATION page for this table: it started strictly above
-            // this page and still has content on it.
-            let table_starts_before_page = table.table_start_y < page_top_y;
-            let table_continues_on_page = table.table_end_y > page_top_y;
-
-            if table_starts_before_page && table_continues_on_page {
-                // Multiple straddling tables STACK their repeated headers
-                // (offset 0 for all of them painted every header on top of
-                // the previous one).
-                headers.push((
-                    stack_offset,
-                    table.thead_items.as_slice(),
-                    table.thead_height,
-                ));
-                stack_offset += table.thead_height;
-            }
-        }
-
-        headers
+        self.tables
+            .iter()
+            .filter(|table| {
+                table.table_start_y < page_top_y && table.table_end_y > page_top_y
+            })
+            .collect()
     }
 }
 

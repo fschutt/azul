@@ -6202,26 +6202,87 @@ fn paginate_pages_impl(
             }
         }
 
-        // 2. Inject repeated table headers (if any)
-        let repeated_headers = config.table_headers.get_repeated_headers_for_page(
+        // 2. Inject repeated table headers (if any). Placement is X-AWARE:
+        // two sibling tables can only both straddle a page top when they sit
+        // SIDE BY SIDE (columns) — each repeated thead then stays in its own
+        // x-band at the page top, and each table's continued rows shift down
+        // by the summed heights of the theads whose x-band OVERLAPS theirs
+        // (side-by-side: their own thead only; nested tables: outer + inner
+        // stack). The old code stacked every thead vertically AND shifted
+        // ALL content by max(height) — two straddling tables overlapped.
+        struct TheadBand {
+            x_start: f32,
+            x_end: f32,
+            /// Cumulative shift for content whose x overlaps this band
+            /// (this table's thead + every x-overlapping one injected
+            /// above it).
+            shift: f32,
+            /// Rebased end of the table's content on this page (below it
+            /// the SUM of all thead heights applies — matching the break
+            /// pass's per-page reservation).
+            table_end_page_local: f32,
+        }
+        let straddlers = config.table_headers.straddling_tables_for_page(
             page_idx,
             content_start_y,
             content_end_y,
         );
-
-        let mut thead_total_height = 0.0f32;
-        for (y_offset_from_page_top, thead_items, thead_height) in repeated_headers {
-            let thead_y = header_space + y_offset_from_page_top;
-            for item in thead_items {
-                let translated_item = offset_display_item_y(item, thead_y);
-                page_items.push(translated_item);
+        let mut bands: Vec<TheadBand> = Vec::new();
+        let mut sum_all_theads = 0.0f32;
+        for table in &straddlers {
+            // The table's x-extent, from its thead's own geometry.
+            let (mut x_start, mut x_end) = (f32::MAX, f32::MIN);
+            for item in &table.thead_items {
+                if let Some(b) = item.visual_bounds() {
+                    x_start = x_start.min(b.origin.x);
+                    x_end = x_end.max(b.origin.x + b.size.width);
+                }
+            }
+            if x_start > x_end {
+                (x_start, x_end) = (f32::MIN, f32::MAX); // no geometry: full width
+            }
+            // Stack below previously injected theads whose x-band overlaps
+            // (nested tables); disjoint (side-by-side) theads sit at the top.
+            let stacked_above: f32 = bands
+                .iter()
+                .filter(|b| b.x_start < x_end && x_start < b.x_end)
+                .map(|b| b.shift)
+                .fold(0.0, f32::max);
+            let thead_y = header_space + stacked_above;
+            for item in &table.thead_items {
+                page_items.push(offset_display_item_y(item, thead_y));
                 page_node_mapping.push(None);
             }
-            thead_total_height = thead_total_height.max(thead_height);
+            bands.push(TheadBand {
+                x_start,
+                x_end,
+                shift: stacked_above + table.thead_height,
+                table_end_page_local: table.table_end_y - content_start_y,
+            });
+            sum_all_theads += table.thead_height;
         }
 
-        // 3. Calculate content offset (after header and repeated table headers)
-        let content_y_offset = header_space + thead_total_height;
+        // 3. Band-dependent shift for content items: inside a straddling
+        // table's x-band and y-range → that band's shift; below EVERY
+        // straddling table → the full sum (the break pass reserved it).
+        let below_all_y = bands
+            .iter()
+            .map(|b| b.table_end_page_local)
+            .fold(0.0f32, f32::max);
+        let thead_shift_for = |b: LogicalRect| -> f32 {
+            if bands.is_empty() {
+                return 0.0;
+            }
+            if b.origin.y >= below_all_y {
+                return sum_all_theads;
+            }
+            let x_center = b.origin.x + b.size.width * 0.5;
+            bands
+                .iter()
+                .filter(|band| x_center >= band.x_start && x_center < band.x_end)
+                .map(|band| band.shift)
+                .fold(0.0, f32::max)
+        };
 
         // 4. Slice and offset content items (skip fixed-position items, they are added in step 4b)
         for (item_idx, item) in full_display_list.items.iter().enumerate() {
@@ -6234,6 +6295,12 @@ fn paginate_pages_impl(
             if let Some(clipped_item) =
                 clip_and_offset_display_item(item, content_start_y, content_end_y)
             {
+                // Page-local y of the clipped item decides which thead band
+                // shifts it (items without geometry keep the base offset).
+                let item_shift = clipped_item
+                    .visual_bounds()
+                    .map_or(0.0, &thead_shift_for);
+                let content_y_offset = header_space + item_shift;
                 let final_item = if content_y_offset > 0.0 {
                     offset_display_item_y(&clipped_item, content_y_offset)
                 } else {
@@ -6255,8 +6322,10 @@ fn paginate_pages_impl(
         for &(start, end) in &full_display_list.fixed_position_item_ranges {
             for item_idx in start..end {
                 if let Some(item) = full_display_list.items.get(item_idx) {
-                    let final_item = if content_y_offset > 0.0 {
-                        offset_display_item_y(item, content_y_offset)
+                    // Fixed-position boxes anchor to the PAGE box: offset by
+                    // the page header only, never by content thead shifts.
+                    let final_item = if header_space > 0.0 {
+                        offset_display_item_y(item, header_space)
                     } else {
                         item.clone()
                     };
@@ -6275,7 +6344,16 @@ fn paginate_pages_impl(
         if hf.show_footer && !skip_this_page {
             let footer_text = hf.footer_text(page_info);
             if !footer_text.is_empty() {
-                let footer_y = config.page_content_height - hf.footer_height;
+                // THIS page's content height: under a PageSequence pages
+                // differ (first/parity/override); the uniform config height
+                // is only the no-sequence fallback.
+                let page_h = config
+                    .page_sequence
+                    .as_ref()
+                    .map_or(config.page_content_height, |s| {
+                        s.setup_for_page(page_idx).content_height()
+                    });
+                let footer_y = page_h - hf.footer_height;
                 let footer_items = generate_text_display_items(
                     &footer_text,
                     LogicalRect {
@@ -9284,5 +9362,177 @@ mod autotest_generated {
         // panic is a deliberate, visible contract rather than a latent crash.
         let mut dl = DisplayList::default();
         apply_clip_path(&mut dl, 3, rect(0.0, 0.0, 10.0, 10.0), 0.0);
+    }
+
+    // ======================================================================
+    // E18: repeated theads for MULTIPLE straddling tables (side-by-side)
+    // ======================================================================
+
+    fn plain_rect(x: f32, y: f32, w: f32, h: f32) -> DisplayListItem {
+        DisplayListItem::Rect {
+            bounds: rect(x, y, w, h).into(),
+            color: ColorU { r: 0, g: 0, b: 0, a: 255 },
+            border_radius: BorderRadius::default(),
+        }
+    }
+
+    fn item_y(item: &DisplayListItem) -> f32 {
+        item.visual_bounds().map(|b| b.origin.y).unwrap_or(f32::NAN)
+    }
+    fn item_x(item: &DisplayListItem) -> f32 {
+        item.visual_bounds().map(|b| b.origin.x).unwrap_or(f32::NAN)
+    }
+
+    /// Two side-by-side tables (columns) straddling the same page top: each
+    /// repeated thead stays in its own x-band AT the page top, each table's
+    /// continued rows shift by ITS OWN thead height, and content below both
+    /// shifts by the SUM (the break pass reserves the sum per page).
+    #[test]
+    fn side_by_side_straddling_tables_keep_their_own_thead_offsets() {
+        use crate::solver3::pagination::{TableHeaderInfo, TableHeaderTracker};
+
+        // Table A: x 0..280, thead 20 tall. Table B: x 320..600, thead 30.
+        // Both span content y 0..350 over 200-tall pages: page 1 (y 200..400)
+        // is a continuation page for both.
+        let thead_a = vec![plain_rect(0.0, 0.0, 280.0, 20.0)];
+        let thead_b = vec![plain_rect(320.0, 0.0, 280.0, 30.0)];
+        let mut tracker = TableHeaderTracker::new();
+        tracker.register_table_header(TableHeaderInfo {
+            table_node_index: 1,
+            table_start_y: 0.0,
+            table_end_y: 350.0,
+            thead_items: thead_a,
+            thead_height: 20.0,
+            thead_offset_y: 0.0,
+        });
+        tracker.register_table_header(TableHeaderInfo {
+            table_node_index: 2,
+            table_start_y: 0.0,
+            table_end_y: 350.0,
+            thead_items: thead_b,
+            thead_height: 30.0,
+            thead_offset_y: 0.0,
+        });
+
+        // Content: one row of each table living on page 1 (content y
+        // 200..240), plus a full-width paragraph BELOW both tables
+        // (content y 360..380).
+        let full = DisplayList {
+            items: vec![
+                plain_rect(0.0, 200.0, 280.0, 40.0),   // A's continued row
+                plain_rect(320.0, 200.0, 280.0, 40.0), // B's continued row
+                plain_rect(0.0, 360.0, 600.0, 20.0),   // below both
+            ],
+            node_mapping: vec![None, None, None],
+            ..DisplayList::default()
+        };
+
+        let config = SlicerConfig {
+            table_headers: tracker,
+            ..SlicerConfig::simple(200.0)
+        };
+        let pages = paginate_display_list_with_slicer_and_breaks(
+            full,
+            &config,
+            &RendererResources::default(),
+        )
+        .expect("paginate");
+        assert!(pages.len() >= 2, "content spans two pages, got {}", pages.len());
+        let page1 = &pages[1];
+
+        // Both theads sit AT the page top, in their own x-bands.
+        let thead_a_y = page1
+            .items
+            .iter()
+            .filter(|i| item_x(i) < 300.0 && i.visual_bounds().is_some_and(|b| b.size.height == 20.0))
+            .map(item_y)
+            .fold(f32::NAN, f32::min);
+        let thead_b_y = page1
+            .items
+            .iter()
+            .filter(|i| item_x(i) >= 300.0 && i.visual_bounds().is_some_and(|b| b.size.height == 30.0))
+            .map(item_y)
+            .fold(f32::NAN, f32::min);
+        assert_eq!(thead_a_y, 0.0, "thead A at its column's page top");
+        assert_eq!(
+            thead_b_y, 0.0,
+            "thead B at its OWN column's page top - NOT stacked below A"
+        );
+
+        // Each table's continued row shifts by ITS OWN thead height.
+        let row_a = page1
+            .items
+            .iter()
+            .find(|i| item_x(i) < 300.0 && i.visual_bounds().is_some_and(|b| b.size.height == 40.0))
+            .expect("A's row on page 1");
+        let row_b = page1
+            .items
+            .iter()
+            .find(|i| item_x(i) >= 300.0 && i.visual_bounds().is_some_and(|b| b.size.height == 40.0))
+            .expect("B's row on page 1");
+        assert_eq!(item_y(row_a), 20.0, "A's row below A's 20px thead only");
+        assert_eq!(
+            item_y(row_b),
+            30.0,
+            "B's row below B's 30px thead only - the old max() collapse \
+             shifted both by 30 and overlapped A"
+        );
+
+        // Content below BOTH tables shifts by the SUM (matches the break
+        // pass's per-page reservation).
+        let below = page1
+            .items
+            .iter()
+            .find(|i| i.visual_bounds().is_some_and(|b| b.size.width == 600.0))
+            .expect("below-both paragraph on page 1");
+        assert_eq!(item_y(below), 160.0 + 50.0, "sum of both thead heights");
+    }
+
+    /// One straddling table: everything shifts by exactly its thead height —
+    /// the pre-E18 behavior, unchanged.
+    #[test]
+    fn single_straddling_table_keeps_the_uniform_shift() {
+        use crate::solver3::pagination::{TableHeaderInfo, TableHeaderTracker};
+
+        let mut tracker = TableHeaderTracker::new();
+        tracker.register_table_header(TableHeaderInfo {
+            table_node_index: 1,
+            table_start_y: 0.0,
+            table_end_y: 350.0,
+            thead_items: vec![plain_rect(0.0, 0.0, 600.0, 25.0)],
+            thead_height: 25.0,
+            thead_offset_y: 0.0,
+        });
+        let full = DisplayList {
+            items: vec![
+                plain_rect(0.0, 200.0, 600.0, 40.0), // continued row
+                plain_rect(0.0, 360.0, 600.0, 20.0), // below the table
+            ],
+            node_mapping: vec![None, None],
+            ..DisplayList::default()
+        };
+        let config = SlicerConfig {
+            table_headers: tracker,
+            ..SlicerConfig::simple(200.0)
+        };
+        let pages = paginate_display_list_with_slicer_and_breaks(
+            full,
+            &config,
+            &RendererResources::default(),
+        )
+        .expect("paginate");
+        let page1 = &pages[1];
+        let row = page1
+            .items
+            .iter()
+            .find(|i| i.visual_bounds().is_some_and(|b| b.size.height == 40.0))
+            .expect("row");
+        let below = page1
+            .items
+            .iter()
+            .find(|i| i.visual_bounds().is_some_and(|b| b.size.height == 20.0 && b.size.width == 600.0))
+            .expect("below");
+        assert_eq!(item_y(row), 25.0);
+        assert_eq!(item_y(below), 160.0 + 25.0);
     }
 }
