@@ -2493,6 +2493,105 @@ mod tests {
         }
     }
 
+    /// STRESS the damage diff with a long, varied edit sequence.
+    ///
+    /// `tight_text_damage_leaves_no_stale_pixels` proves one scripted edit
+    /// is safe. That is not enough to trust incremental painting: the
+    /// failure mode is a damage rect that misses something, and whether it
+    /// does depends on the SHAPE of the edit — append, insert in the middle,
+    /// delete, replace, shrink to empty, grow across a line break. Each
+    /// moves a different set of glyphs.
+    ///
+    /// This runs 40 such edits from a fixed seed and, after every one,
+    /// compares the incrementally-painted frame against a full repaint of
+    /// the same content. Any rect the diff failed to emit shows up as a
+    /// differing pixel at the step that caused it, so a regression names
+    /// its own repro.
+    ///
+    /// This is the guard the display-list PATCHING work needs before it
+    /// lands: patching items in place instead of regenerating them can
+    /// desync the list from the layout, and a desync is invisible to every
+    /// timing test but shows up here immediately.
+    #[test]
+    fn damage_survives_a_randomised_edit_sequence() {
+        const WORDS: [&str; 6] = ["alpha", "beta", "gamma", "delta", "epsilon", "zeta"];
+
+        let state = Arc::new(RefCell::new(RefAny::new(UiState {
+            label: "alpha beta gamma".to_string(),
+        })));
+        let mut window = make_harness_window(&state);
+        window.regenerate_layout().expect("initial layout");
+        window.regenerate_layout().expect("settle");
+
+        // Deterministic LCG — a fixed seed means a failure reproduces
+        // exactly, and there is no rand dependency in this crate.
+        let mut seed: u64 = 0x2545_F491_4F6C_DD1D;
+        let mut next = move || {
+            seed = seed.wrapping_mul(6364136223846793005).wrapping_add(1442695040888963407);
+            (seed >> 33) as usize
+        };
+
+        let mut text = String::from("alpha beta gamma");
+        for step in 0..40 {
+            match next() % 5 {
+                0 => text.push_str(WORDS[next() % WORDS.len()]),      // append
+                1 => {
+                    // insert in the middle
+                    let at = if text.is_empty() { 0 } else { next() % text.len() };
+                    let at = (0..=at).rev().find(|i| text.is_char_boundary(*i)).unwrap_or(0);
+                    text.insert_str(at, WORDS[next() % WORDS.len()]);
+                }
+                2 => {
+                    // delete a chunk
+                    if !text.is_empty() {
+                        let a = next() % text.len();
+                        let b = (a + 1 + next() % 5).min(text.len());
+                        let a = (0..=a).rev().find(|i| text.is_char_boundary(*i)).unwrap_or(0);
+                        let b = (b..=text.len()).find(|i| text.is_char_boundary(*i)).unwrap_or(text.len());
+                        text.replace_range(a..b, "");
+                    }
+                }
+                3 => text = WORDS[next() % WORDS.len()].to_string(),  // replace all
+                _ => text.push(' '),                                  // whitespace only
+            }
+
+            set_label(&state, &text);
+            window.regenerate_layout().expect("incremental relayout");
+            let incremental = window
+                .cpu_backend
+                .last_frame
+                .as_ref()
+                .expect("frame")
+                .clone_pixmap();
+            let damage = window.cpu_backend.last_frame_damage.clone();
+
+            // Ground truth: the same content painted from scratch.
+            let mut fresh = make_harness_window(&state);
+            fresh.regenerate_layout().expect("fresh layout");
+            let full = fresh.cpu_backend.last_frame.as_ref().expect("fresh").clone_pixmap();
+
+            let (a, b) = (incremental.data(), full.data());
+            let mut diffs = 0usize;
+            let mut first: Option<(u32, u32)> = None;
+            let w = incremental.width();
+            for i in (0..a.len().min(b.len())).step_by(4) {
+                if a[i] != b[i] || a[i + 1] != b[i + 1] || a[i + 2] != b[i + 2] {
+                    diffs += 1;
+                    if first.is_none() {
+                        let px = (i / 4) as u32;
+                        first = Some((px % w, px / w));
+                    }
+                }
+            }
+            assert_eq!(
+                diffs, 0,
+                "step {step} (text = {text:?}) left {diffs} stale pixels, first at \
+                 {first:?}. The damage rects did not cover everything that \
+                 changed. damage = {damage:?}"
+            );
+        }
+    }
+
     /// MEASUREMENT: how tight is the damage for a one-character edit?
     ///
     /// The interactive budget is spent here. A `DisplayListItem::Text`
