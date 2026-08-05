@@ -345,6 +345,101 @@ const CE_CSS: &str = r#"
 // Test 1: Initial render of contenteditable div
 // =========================================================================
 
+/// What does ONE KEYSTROKE cost on the FAST path?
+///
+/// Run: `cargo test --release -p azul-layout --features probe --test
+/// contenteditable_e2e -- --nocapture keystroke_cost`
+///
+/// This is the number the interactive budget is actually spent against,
+/// and it is NOT what `frame_perf.rs` measures: that harness rebuilds the
+/// DOM every frame (parse + cascade + full solver3), which is
+/// `Update::RefreshDom` — the path a text edit must never take. See
+/// `scripts/TEXT_INPUT_ARCHITECTURE_V4.md`.
+///
+/// Here the edit goes through `record_text_input` + `apply_text_changeset`,
+/// which reuse the existing layout tree and the cached inline layout: no
+/// layout callback, no DOM rebuild, no cascade.
+#[test]
+fn keystroke_cost_on_the_incremental_path() {
+    if cfg!(debug_assertions) {
+        eprintln!(
+            "  [perf] *** DEBUG BUILD — not the shipped cost, re-run --release ***"
+        );
+    }
+
+    let mut h = ContentEditableHarness::new(400.0, 300.0);
+    let mut editor = Dom::create_div();
+    editor = editor.with_ids_and_classes(cls("editor").into());
+    editor.set_contenteditable(true);
+    editor.set_tab_index(TabIndex::Auto);
+    editor = editor.with_child(Dom::create_text(
+        "the quick brown fox jumps over the lazy dog and keeps on running",
+    ));
+    let dom = Dom::create_body().with_child(editor);
+    h.layout_dom(dom, CE_CSS);
+    let _ = h.render();
+
+    // Focus the editor so the changeset has a cursor to apply at.
+    let dom_id = DomId { inner: 0 };
+    let editor_node = NodeId::new(1);
+    h.focus_node(dom_id, editor_node);
+
+    // Warm: one keystroke to settle every cache.
+    h.type_text("x");
+    let _ = h.render();
+    let _ = azul_layout::probe::Probe::drain();
+
+    const N: u32 = 20;
+    let t = std::time::Instant::now();
+    for _ in 0..N {
+        h.type_text("a");
+    }
+    let edit_only = t.elapsed() / N;
+
+    // And the same again WITH the repaint, since a keystroke is only done
+    // when it is on screen.
+    let t = std::time::Instant::now();
+    for _ in 0..N {
+        h.type_text("b");
+        let _ = h.render();
+    }
+    let edit_and_paint = t.elapsed() / N;
+
+    eprintln!("  [perf] keystroke, incremental path only = {edit_only:?}");
+    eprintln!("  [perf] keystroke + FULL repaint          = {edit_and_paint:?}");
+
+    let events = azul_layout::probe::Probe::drain();
+    if events.is_empty() {
+        eprintln!("  [perf] no probe events — rerun with `--features probe`");
+        return;
+    }
+    let mut totals: std::collections::BTreeMap<&'static str, (u64, u32)> =
+        std::collections::BTreeMap::new();
+    let mut pending: Vec<(u16, u64)> = Vec::new();
+    for e in &events {
+        let azul_layout::probe::EventKind::Span { dur_ns } = e.kind else { continue };
+        let mut children = 0u64;
+        while let Some(&(d, ns)) = pending.last() {
+            if d > e.depth {
+                if d == e.depth + 1 { children += ns; }
+                pending.pop();
+            } else { break; }
+        }
+        let slot = totals.entry(e.name).or_insert((0, 0));
+        slot.0 += dur_ns.saturating_sub(children);
+        slot.1 += 1;
+        pending.push((e.depth, dur_ns));
+    }
+    let mut rows: Vec<_> = totals.into_iter().collect();
+    rows.sort_by_key(|(_, (self_ns, _))| std::cmp::Reverse(*self_ns));
+    eprintln!("  [perf] per-keystroke SELF time (edit + repaint):");
+    for (name, (self_ns, count)) in rows.iter().take(12) {
+        let per = *self_ns as f64 / 1_000_000.0 / f64::from(N);
+        if per < 0.005 { continue; }
+        eprintln!("  [perf]   {name:<28} {per:>7.3} ms  ({count} calls)");
+    }
+}
+
 #[test]
 fn contenteditable_initial_render() {
     let mut h = ContentEditableHarness::new(400.0, 300.0);
