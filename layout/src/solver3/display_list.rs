@@ -1193,6 +1193,25 @@ impl DisplayListItem {
     #[allow(clippy::suboptimal_flops)] // mul_add not guaranteed faster/available without target +fma; keep explicit a*b+c
     #[must_use] pub fn visual_bounds(&self) -> Option<LogicalRect> {
         match self {
+            // TextLayout paints NOTHING — `render_single_item` skips it
+            // outright ("metadata for PDF/accessibility"). So it must not
+            // contribute damage either.
+            //
+            // It did. Its bounds is the enclosing node's whole content box
+            // and its payload (the unified layout) changes on every edit, so
+            // `is_visually_equal` said "changed" and the damage diff unioned
+            // that box in — repainting the entire editor for a one-character
+            // keystroke. It dominated the union completely: measured on a
+            // 400x300 contenteditable, the two items that differ per
+            // keystroke are this one at 356x65 (identical before and after)
+            // and the caret at 2x22. Tightening TEXT damage could never show
+            // up while a non-painting item was damaging everything.
+            //
+            // `None` here is what push/pop items already return: no pixels,
+            // no damage. `bounds()` is left alone — it is the item filter in
+            // the damaged renderer, and the render arm for TextLayout is a
+            // no-op either way.
+            Self::TextLayout { .. } => None,
             // Text damages only where its GLYPHS are, not its whole clip box.
             //
             // `bounds()` reports a text run's `clip_rect`, and the emission

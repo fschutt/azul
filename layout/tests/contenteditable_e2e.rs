@@ -449,6 +449,30 @@ fn keystroke_cost_on_the_incremental_path() {
             Some(rects) => {
                 if full_repaints == 0 && damage_area_total == 0.0 {
                     eprintln!("  [perf]   damage rects = {rects:?}");
+                    // WHICH ITEMS changed? The coalesced union hides the
+                    // contributors, and one of them dominates.
+                    use azul_layout::solver3::display_list::DisplayListItem as D;
+                    for (i, (o, n)) in
+                        before.items.iter().zip(after.items.iter()).enumerate()
+                    {
+                        if !o.is_visually_equal(n) {
+                            let name = match n {
+                                D::Text { glyphs, .. } => {
+                                    format!("Text({} glyphs)", glyphs.len())
+                                }
+                                D::Rect { .. } => "Rect".to_string(),
+                                D::CursorRect { .. } => "CursorRect".to_string(),
+                                D::SelectionRect { .. } => "SelectionRect".to_string(),
+                                D::Border { .. } => "Border".to_string(),
+                                other => format!("{:?}", core::mem::discriminant(other)),
+                            };
+                            eprintln!(
+                                "  [perf]     changed #{i} {name} old={:?} new={:?}",
+                                o.visual_bounds(),
+                                n.visual_bounds()
+                            );
+                        }
+                    }
                 }
                 damage_area_total +=
                     rects.iter().map(|r| r.size.width * r.size.height).sum::<f32>();
