@@ -664,3 +664,199 @@ fn deletion_shifts_the_window_via_breaks_delta() {
     // Structural mapping stays available for the re-derived region.
     assert!(session.dom_breaks(&doc_b).is_some());
 }
+
+fn estimator_root_height(xml: &str) -> f32 {
+    let parsed = azul_layout::xml::parse_xml_string(xml).expect("parse");
+    let full = azul_layout::xml::dom_from_parsed_xml(azul_layout::xml::Xml {
+        root: parsed.into(),
+    });
+    let mut content = Dom::create_div();
+    content.css = full.css.clone();
+    for c in full.children.as_ref() {
+        if matches!(c.root.get_node_type(), azul_core::dom::NodeType::Body) {
+            content.children = c.children.clone();
+        }
+    }
+    content.fixup_children_estimated();
+    let styled_dom = azul_core::styled_dom::StyledDom::create_from_dom(core::mem::replace(
+        &mut content,
+        Dom::create_div(),
+    ));
+    let fc_cache = build_font_cache();
+    let mut font_manager = FontManager::new(fc_cache).expect("FontManager");
+    let mut layout_cache = Solver3LayoutCache {
+        tree: None,
+        calculated_positions: Vec::new(),
+        viewport: None,
+        scroll_ids: HashMap::new(),
+        scroll_id_to_node_id: HashMap::new(),
+        counters: HashMap::new(),
+        float_cache: HashMap::new(),
+        cache_map: Default::default(),
+        previous_positions: Vec::new(),
+        cached_display_list: None,
+        prev_dom_ptr: 0,
+        prev_viewport: LogicalRect {
+            origin: LogicalPosition::zero(),
+            size: LogicalSize::zero(),
+        },
+    };
+    let mut text_cache = TextLayoutCache::new();
+    let content_size = LogicalSize::new(602.0, 931.0);
+    let fragmentation_context = FragmentationContext::new_paged(content_size);
+    let viewport = LogicalRect {
+        origin: LogicalPosition::zero(),
+        size: content_size,
+    };
+    let renderer_resources = RendererResources::default();
+    let mut debug_messages = None;
+    let loader = PathLoader::new();
+    let font_loader = |bytes: std::sync::Arc<rust_fontconfig::FontBytes>, index: usize| {
+        loader.load_font_shared(bytes, index)
+    };
+    let _ = compute_document_pagination(
+        &mut layout_cache,
+        &mut text_cache,
+        fragmentation_context,
+        &styled_dom,
+        viewport,
+        &mut font_manager,
+        &BTreeMap::new(),
+        &mut debug_messages,
+        None,
+        &renderer_resources,
+        azul_core::resources::IdNamespace(0),
+        DomId::ROOT_ID,
+        font_loader,
+        FakePageConfig::new(),
+        &azul_core::resources::ImageCache::default(),
+        azul_core::task::GetSystemTimeCallback {
+            cb: azul_core::task::get_system_time_libstd,
+        },
+    );
+    layout_cache
+        .tree
+        .as_ref()
+        .and_then(|t| t.nodes.first())
+        .and_then(|n| n.used_size)
+        .map(|s| s.height)
+        .unwrap_or(-1.0)
+}
+
+/// miniword capstone: wrapped pure-text paragraphs (markdown soft breaks =
+/// embedded newlines) must measure in the estimator, through the unstyled
+/// XML path the app uses.
+#[test]
+fn wrapped_pure_text_measures_via_the_unstyled_xml_path() {
+    let long = "Lorem ipsum dolor sit amet, consectetur adipiscing elit. Sed do\neiusmod tempor incididunt ut labore et dolore magna aliqua. Ut enim ad\nminim veniam, quis nostrud exercitation ullamco laboris nisi ut aliquip\nex ea commodo consequat. Duis aute irure dolor in reprehenderit in\nvoluptate velit esse cillum dolore eu fugiat nulla pariatur.";
+    let xml = format!(
+        "<html><head><style>\n\
+            body {{ font-family: 'Liberation Sans', sans-serif; font-size: 15px;\n\
+                    color: #1a1a1a; line-height: 1.35; }}\n\
+            p {{ margin-bottom: 11px; }}\n\
+        </style></head>\n\
+        <body>\n<p>{long}</p>\n<p>{long}</p>\n<p>{long}</p>\n<p>{long}</p>\n<p>{long}</p>\n<p>{long}</p>\n</body></html>"
+    );
+    let h = estimator_root_height(&xml);
+    assert!(
+        h > 700.0,
+        "six wrapped paragraphs must measure (>700px), got {h}px \
+         (miniword: multi-line pure-text <p>s measured 0.0)"
+    );
+}
+
+/// KNOWN BUG (ignored pin, miniword capstone): the estimator measures the
+/// SAME document differently depending on ONE character — whether a newline
+/// separates `<body>` from its first element. With `<body><h1>` every
+/// multi-line pure-text `<p>` measures 0.0 (the sample document reports
+/// 482px / 1 page); with `<body>\n<h1>` everything measures (~1360px /
+/// 2 pages). The parser preserves text verbatim in both cases, so the
+/// divergence is in the unstyled XML->Dom builder or the anonymous-box/IFC
+/// classification. Un-ignore when fixed.
+#[test]
+#[ignore = "estimator sensitive to leading <body> whitespace - see comment"]
+fn estimator_is_insensitive_to_leading_body_whitespace() {
+    let bad = MINIWORD_SAMPLE_XML;
+    let good = MINIWORD_SAMPLE_XML.replacen("<body><h1>", "<body>\n<h1>", 1);
+    let h_bad = estimator_root_height(bad);
+    let h_good = estimator_root_height(&good);
+    assert!(
+        (h_bad - h_good).abs() < 1.0 && h_good > 1000.0,
+        "one whitespace character must not change document measurement: \
+         <body><h1> measured {h_bad}px, <body>-newline-<h1> measured {h_good}px"
+    );
+}
+
+const MINIWORD_SAMPLE_XML: &str = r####"<html><head><style>
+    body { font-family: 'Liberation Sans', sans-serif; font-size: 15px;
+           color: #1a1a1a; line-height: 1.35; }
+    p    { margin-bottom: 11px; }
+    h1   { font-size: 28px; color: #2e74b5; margin-bottom: 12px; margin-top: 4px; }
+    h2   { font-size: 21px; color: #2e74b5; margin-bottom: 10px; margin-top: 4px; }
+    h3   { font-size: 17px; color: #1f4d78; margin-bottom: 9px;  margin-top: 4px; }
+    ul, ol { margin-bottom: 11px; margin-left: 36px; }
+    li   { margin-bottom: 2px; }
+    blockquote { margin-left: 36px; margin-bottom: 11px; color: #555555;
+                 border-left: 3px solid #cccccc; padding-left: 10px; }
+    code { font-family: 'Liberation Mono', monospace; font-size: 13px;
+           background: #f2f2f2; }
+    pre  { font-family: 'Liberation Mono', monospace; font-size: 13px;
+           background: #f6f6f6; padding: 8px; margin-bottom: 11px; }
+    hr   { border-bottom: 1px solid #bbbbbb; margin-bottom: 11px; }
+    strong { font-weight: bold; }
+    em   { font-style: italic; }
+</style></head><body><h1>Project Report</h1>
+<p>This document demonstrates the miniword pipeline: markdown is converted to
+HTML, parsed into a DOM by the azul XML parser, styled with the Word 2013
+document stylesheet, and dynamically paginated by the layout engine.</p>
+<h2>Background</h2>
+<p>The layout engine estimates page breaks with <code>compute_document_pagination</code>,
+maps every break to a structural DOM path, and the application splits its
+content DOM at those paths. Each page is an independent subtree wrapped in
+the white sheet frame.</p>
+<h2>Method</h2>
+<ul>
+<li>Markdown parsing via <strong>pulldown-cmark</strong></li>
+<li>HTML to DOM through the <em>azul XML parser</em></li>
+<li>Dynamic pagination with the break-token engine</li>
+<li>One DOM per page, Word's page model</li>
+</ul>
+<h3>Details</h3>
+<p>Paragraphs flow across pages at block boundaries. Forced breaks, widows and
+orphans follow the css-break-3 rules that the engine test suite pins. The
+status bar shows the live page count from the same pagination result.</p>
+<h2>Results</h2>
+<p>The pipeline round-trips: load, edit, paginate, save. What you see on the
+canvas is the engine's own idea of where each page ends — no estimates in
+the application, no hand-computed heights, no hacks.</p>
+<blockquote>
+<p>The whole point of the capstone: the application composes engine
+primitives without working around them.</p>
+</blockquote>
+<h2>Longer section to force a second page</h2>
+<p>Lorem ipsum dolor sit amet, consectetur adipiscing elit. Sed do eiusmod
+tempor incididunt ut labore et dolore magna aliqua. Ut enim ad minim veniam,
+quis nostrud exercitation ullamco laboris nisi ut aliquip ex ea commodo
+consequat. Duis aute irure dolor in reprehenderit in voluptate velit esse
+cillum dolore eu fugiat nulla pariatur.</p>
+<p>Excepteur sint occaecat cupidatat non proident, sunt in culpa qui officia
+deserunt mollit anim id est laborum. Sed ut perspiciatis unde omnis iste
+natus error sit voluptatem accusantium doloremque laudantium, totam rem
+aperiam, eaque ipsa quae ab illo inventore veritatis et quasi architecto
+beatae vitae dicta sunt explicabo.</p>
+<p>Nemo enim ipsam voluptatem quia voluptas sit aspernatur aut odit aut fugit,
+sed quia consequuntur magni dolores eos qui ratione voluptatem sequi
+nesciunt. Neque porro quisquam est, qui dolorem ipsum quia dolor sit amet,
+consectetur, adipisci velit, sed quia non numquam eius modi tempora incidunt
+ut labore et dolore magnam aliquam quaerat voluptatem.</p>
+<p>Ut enim ad minima veniam, quis nostrum exercitationem ullam corporis
+suscipit laboriosam, nisi ut aliquid ex ea commodi consequatur? Quis autem
+vel eum iure reprehenderit qui in ea voluptate velit esse quam nihil
+molestiae consequatur, vel illum qui dolorem eum fugiat quo voluptas nulla
+pariatur?</p>
+<p>At vero eos et accusamus et iusto odio dignissimos ducimus qui blanditiis
+praesentium voluptatum deleniti atque corrupti quos dolores et quas
+molestias excepturi sint occaecati cupiditate non provident, similique sunt
+in culpa qui officia deserunt mollitia animi, id est laborum et dolorum
+fuga. Et harum quidem rerum facilis est et expedita distinctio.</p>
+</body></html>"####;
