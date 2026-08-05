@@ -243,6 +243,30 @@ impl ContentEditableHarness {
         (affected_count, old_text, inserted_text)
     }
 
+    /// Repaint ONLY `damage` into a retained pixmap — the path every shell
+    /// takes for an edit (`CpuBackend::render_frame`).
+    fn render_damaged(
+        &mut self,
+        pixmap: &mut AzulPixmap,
+        damage: &[azul_core::geom::LogicalRect],
+    ) {
+        let lw = self.layout_window.as_ref().unwrap();
+        let dom_id = DomId { inner: 0 };
+        let dl = &lw.layout_results.get(&dom_id).unwrap().display_list;
+        let state = cpurender::CpuRenderState::new(Default::default());
+        cpurender::render_display_list_damaged(
+            dl,
+            pixmap,
+            1.0,
+            &self.renderer_resources,
+            &lw.font_manager,
+            &mut self.glyph_cache,
+            &state,
+            damage,
+        )
+        .unwrap();
+    }
+
     /// Clone the current display list for damage comparison
     fn clone_display_list(&self) -> std::sync::Arc<azul_layout::solver3::display_list::DisplayList> {
         let lw = self.layout_window.as_ref().unwrap();
@@ -405,8 +429,48 @@ fn keystroke_cost_on_the_incremental_path() {
     }
     let edit_and_paint = t.elapsed() / N;
 
+    // THE END-TO-END NUMBER: repaint only the damage, which is what every
+    // shell does (`CpuBackend::render_frame` -> `render_display_list_damaged`).
+    // The full repaint above is the first-paint case.
+    let mut pixmap = h.render();
+    let _ = azul_layout::probe::Probe::drain();
+    let t = std::time::Instant::now();
+    let mut damage_area_total = 0.0f32;
+    let mut full_repaints = 0u32;
+    for _ in 0..N {
+        let before = h.clone_display_list();
+        h.type_text("c");
+        let after = h.clone_display_list();
+        let offsets = azul_layout::cpurender::ScrollOffsetMap::new();
+        let damage = azul_layout::cpurender::compute_display_list_damage(
+            &before, &after, &offsets, &offsets,
+        );
+        match damage {
+            Some(rects) => {
+                if full_repaints == 0 && damage_area_total == 0.0 {
+                    eprintln!("  [perf]   damage rects = {rects:?}");
+                }
+                damage_area_total +=
+                    rects.iter().map(|r| r.size.width * r.size.height).sum::<f32>();
+                h.render_damaged(&mut pixmap, &rects);
+            }
+            None => {
+                // Structural change (item count moved) -> full repaint.
+                full_repaints += 1;
+                damage_area_total += 400.0 * 300.0;
+                pixmap = h.render();
+            }
+        }
+    }
+    let edit_and_damaged_paint = t.elapsed() / N;
+
     eprintln!("  [perf] keystroke, incremental path only = {edit_only:?}");
     eprintln!("  [perf] keystroke + FULL repaint          = {edit_and_paint:?}");
+    eprintln!(
+        "  [perf] keystroke + DAMAGED repaint       = {edit_and_damaged_paint:?}  \
+         (avg damage {:.0} px2 of 120000, {full_repaints}/{N} escalated to full)",
+        damage_area_total / f64::from(N) as f32
+    );
 
     let events = azul_layout::probe::Probe::drain();
     if events.is_empty() {
