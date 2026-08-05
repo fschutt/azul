@@ -2493,6 +2493,59 @@ mod tests {
         }
     }
 
+    /// MEASUREMENT: how tight is the damage for a one-character edit?
+    ///
+    /// The interactive budget is spent here. A `DisplayListItem::Text`
+    /// reports its `clip_rect` as its bounds (`display_list.rs` `bounds()`),
+    /// and the emission site sets that to the node's whole viewport-sized
+    /// content box — so damage for a text change can never be finer than the
+    /// enclosing text node, no matter how little of it changed.
+    ///
+    /// This prints the ratio for a paragraph wide enough to wrap to several
+    /// lines, and pins the CURRENT behaviour so the next change to
+    /// glyph-run splitting or `visual_bounds()` shows up as a number rather
+    /// than a surprise. It deliberately does NOT assert a tight bound yet —
+    /// asserting one now would just encode the defect as expected.
+    #[test]
+    fn damage_one_char_edit_reports_its_granularity() {
+        let long = "the quick brown fox jumps over the lazy dog and keeps on                     running past the end of the first line and onto a second";
+        let state = Arc::new(RefCell::new(RefAny::new(UiState {
+            label: long.to_string(),
+        })));
+        let mut window = make_harness_window(&state);
+        window.regenerate_layout().expect("initial layout");
+        window.regenerate_layout().expect("settle");
+
+        // Append ONE character. Everything before it is untouched.
+        set_label(&state, &format!("{long}X"));
+        window.regenerate_layout().expect("relayout");
+        let damage = window.cpu_backend.last_frame_damage.clone();
+
+        let damaged_area: f32 = match &damage {
+            FrameDamage::Full => 400.0 * 300.0,
+            FrameDamage::None => 0.0,
+            FrameDamage::Rects(rs) => rs.iter().map(|r| r.size.width * r.size.height).sum(),
+        };
+        // The window is 400x300; the text node spans most of its width.
+        let window_area = 400.0 * 300.0;
+        println!(
+            "[harness] one-char edit damage = {damage:?}\n\
+             [harness]   damaged {damaged_area:.0} px2 of {window_area:.0} px2 window              = {:.1}%",
+            damaged_area / window_area * 100.0
+        );
+
+        assert!(
+            damaged_area > 0.0,
+            "a text change must damage SOMETHING, or the edit never reaches the \
+             screen"
+        );
+        assert!(
+            !matches!(damage, FrameDamage::Full),
+            "a one-character edit must not escalate to a FULL-window repaint — \
+             that is the worst case and means damage tracking gave up entirely"
+        );
+    }
+
     #[test]
     fn damage_text_change_repro() {
         let state = Arc::new(RefCell::new(RefAny::new(UiState {
