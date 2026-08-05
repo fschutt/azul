@@ -277,31 +277,59 @@ where
             compute_fonts_to_load, load_fonts_from_disk,
         };
 
-        // TODO: Accept platform as parameter instead of using ::current()
-        let platform = azul_css::system::Platform::current();
+        // SKIP THE RESOLVER when this DOM asks for the same font stacks the
+        // manager already resolved. `LayoutWindow` has done this since the
+        // beginning (window.rs, `font_requirements_unchanged`) via a rolling
+        // hash of the compact cache's `prev_font_hashes`; the pagination
+        // entry points did not — and worse, called the plain
+        // `set_font_chain_cache`, which CLEARS the recorded signature, so
+        // even a caller reusing one FontManager re-resolved a 160-family
+        // chain on EVERY pagination (measured 8 ms/call, ~8% of a warm one).
+        let font_stacks_sig = new_dom
+            .css_property_cache
+            .ptr
+            .compact_cache
+            .as_ref()
+            .map(|cc| {
+                let mut h: u64 = 0xcbf2_9ce4_8422_2325;
+                for &fh in &cc.prev_font_hashes {
+                    h = h.rotate_left(13) ^ fh;
+                    h = h.wrapping_mul(0x0100_0000_01b3);
+                }
+                h
+            });
+        let font_requirements_unchanged = font_stacks_sig.is_some()
+            && font_stacks_sig == font_manager.last_resolved_font_stacks_sig
+            && !font_manager.font_chain_cache.is_empty();
 
-        let chains = collect_and_resolve_font_chains_with_registration(
-            new_dom, &font_manager.fc_cache, font_manager, &platform,
-        );
+        if !font_requirements_unchanged {
+            let _p = crate::probe::Probe::span("font_chain_resolve");
+            let platform = azul_css::system::Platform::current();
 
-        let required_fonts = collect_font_ids_from_chains(&chains);
-        let already_loaded = font_manager.get_loaded_font_ids();
-        let fonts_to_load = compute_fonts_to_load(&required_fonts, &already_loaded);
+            let chains = collect_and_resolve_font_chains_with_registration(
+                new_dom, &font_manager.fc_cache, font_manager, &platform,
+            );
 
-        if !fonts_to_load.is_empty() {
-            let load_result =
-                load_fonts_from_disk(&fonts_to_load, &font_manager.fc_cache, &font_loader);
+            let required_fonts = collect_font_ids_from_chains(&chains);
+            let already_loaded = font_manager.get_loaded_font_ids();
+            let fonts_to_load = compute_fonts_to_load(&required_fonts, &already_loaded);
 
-            font_manager.insert_fonts(load_result.loaded);
-            for (font_id, error) in &load_result.failed {
-                if let Some(msgs) = debug_messages {
-                    msgs.push(LayoutDebugMessage::warning(format!(
-                        "[FontLoading] Failed to load font {font_id:?}: {error}"
-                    )));
+            if !fonts_to_load.is_empty() {
+                let load_result =
+                    load_fonts_from_disk(&fonts_to_load, &font_manager.fc_cache, &font_loader);
+
+                font_manager.insert_fonts(load_result.loaded);
+                for (font_id, error) in &load_result.failed {
+                    if let Some(msgs) = debug_messages {
+                        msgs.push(LayoutDebugMessage::warning(format!(
+                            "[FontLoading] Failed to load font {font_id:?}: {error}"
+                        )));
+                    }
                 }
             }
+            font_manager
+                .set_font_chain_cache_with_sig(chains.into_fontconfig_chains(), font_stacks_sig);
         }
-        font_manager.set_font_chain_cache(chains.into_fontconfig_chains());
     }
 
     // Get page dimensions from fragmentation context
@@ -2264,19 +2292,47 @@ where
             compute_fonts_to_load, load_fonts_from_disk,
         };
         let _p = crate::probe::Probe::span("font_chain_resolve");
-        let _p = crate::probe::Probe::span("font_chain_resolve");
-        let platform = azul_css::system::Platform::current();
-        let chains = collect_and_resolve_font_chains_with_registration(
-            new_dom, &font_manager.fc_cache, font_manager, &platform,
-        );
-        let required = collect_font_ids_from_chains(&chains);
-        let loaded = font_manager.get_loaded_font_ids();
-        let to_load = compute_fonts_to_load(&required, &loaded);
-        if !to_load.is_empty() {
-            let res = load_fonts_from_disk(&to_load, &font_manager.fc_cache, &font_loader);
-            font_manager.insert_fonts(res.loaded);
+        // SKIP THE RESOLVER when this DOM asks for the same font stacks the
+        // manager already resolved. `LayoutWindow` has done this since the
+        // beginning (window.rs, `font_requirements_unchanged`) via a rolling
+        // hash of the compact cache's `prev_font_hashes`; the pagination
+        // entry points did not — and worse, called the plain
+        // `set_font_chain_cache`, which CLEARS the recorded signature, so
+        // even a caller reusing one FontManager re-resolved a 160-family
+        // chain on EVERY pagination (measured 8 ms/call, ~8% of a warm one).
+        let font_stacks_sig = new_dom
+            .css_property_cache
+            .ptr
+            .compact_cache
+            .as_ref()
+            .map(|cc| {
+                let mut h: u64 = 0xcbf2_9ce4_8422_2325;
+                for &fh in &cc.prev_font_hashes {
+                    h = h.rotate_left(13) ^ fh;
+                    h = h.wrapping_mul(0x0100_0000_01b3);
+                }
+                h
+            });
+        let font_requirements_unchanged = font_stacks_sig.is_some()
+            && font_stacks_sig == font_manager.last_resolved_font_stacks_sig
+            && !font_manager.font_chain_cache.is_empty();
+
+        if !font_requirements_unchanged {
+            let _p = crate::probe::Probe::span("font_chain_resolve");
+            let platform = azul_css::system::Platform::current();
+            let chains = collect_and_resolve_font_chains_with_registration(
+                new_dom, &font_manager.fc_cache, font_manager, &platform,
+            );
+            let required = collect_font_ids_from_chains(&chains);
+            let loaded = font_manager.get_loaded_font_ids();
+            let to_load = compute_fonts_to_load(&required, &loaded);
+            if !to_load.is_empty() {
+                let res = load_fonts_from_disk(&to_load, &font_manager.fc_cache, &font_loader);
+                font_manager.insert_fonts(res.loaded);
+            }
+            font_manager
+                .set_font_chain_cache_with_sig(chains.into_fontconfig_chains(), font_stacks_sig);
         }
-        font_manager.set_font_chain_cache(chains.into_fontconfig_chains());
     }
     compute_layout_with_fragmentation(
         cache,

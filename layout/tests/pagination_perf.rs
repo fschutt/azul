@@ -80,15 +80,23 @@ fn paginate_once(
     font_manager: &mut FontManager<azul_css::props::basic::FontRef>,
     text_cache: &mut TextLayoutCache,
 ) -> usize {
+    paginate_with(html, font_manager, text_cache, &mut fresh_cache())
+}
+
+fn paginate_with(
+    html: &str,
+    font_manager: &mut FontManager<azul_css::props::basic::FontRef>,
+    text_cache: &mut TextLayoutCache,
+    cache: &mut Solver3LayoutCache,
+) -> usize {
     let styled_dom = {
         let _p = azul_layout::probe::Probe::span("parse_and_cascade");
         Dom::from_xml_string(html)
     };
-    let mut cache = fresh_cache();
     let content_size = LogicalSize::new(602.0, 931.0);
     let loader = PathLoader::new();
     let pagination = compute_document_pagination(
-        &mut cache,
+        cache,
         text_cache,
         FragmentationContext::new_paged(content_size),
         &styled_dom,
@@ -138,6 +146,19 @@ fn pagination_phase_breakdown() {
     let warm = t.elapsed() / N;
     eprintln!("[perf] warm  = {warm:?} per pagination");
 
+    // EXPERIMENT: does REUSING the layout cache across paginations of the
+    // same document make the per-node caches hit?
+    let mut shared = fresh_cache();
+    {
+        paginate_with(&html, &mut fm, &mut text_cache, &mut shared);
+        let _ = azul_layout::probe::Probe::drain();
+        let t = std::time::Instant::now();
+        for _ in 0..N {
+            paginate_with(&html, &mut fm, &mut text_cache, &mut shared);
+        }
+        eprintln!("[perf] warm (SHARED layout cache) = {:?}", t.elapsed() / N);
+    }
+
     // Attribute the warm time to phases.
     let events = azul_layout::probe::Probe::drain();
     if events.is_empty() {
@@ -165,4 +186,70 @@ fn pagination_phase_breakdown() {
             *nanos as f64 / 1_000_000.0
         );
     }
+}
+
+/// The font-resolver skip must be a CACHE, not a gate.
+///
+/// Pagination now skips font resolution when the DOM's font-stack signature
+/// matches what the `FontManager` last resolved. If that check is too
+/// coarse, a document asking for a DIFFERENT family silently renders in the
+/// previous document's font — the exact failure `window.rs` documents for
+/// wholesale DOM swaps. This paginates two documents with different
+/// families through ONE manager and requires the second family to resolve.
+#[test]
+fn changing_the_font_family_still_resolves_after_the_skip() {
+    fn doc(family: &str) -> String {
+        format!(
+            r#"<html><head><style>
+                body {{ font-family: '{family}'; font-size: 15px; }}
+            </style></head><body>
+            <p>Some text that needs a font to measure at all.</p>
+            </body></html>"#
+        )
+    }
+
+    let fc = build_font_cache();
+    let mut fm = FontManager::new(fc).expect("font manager");
+    let mut text_cache = TextLayoutCache::new();
+
+    paginate_once(&doc("Liberation Sans"), &mut fm, &mut text_cache);
+    let sans_keys: Vec<String> = fm
+        .font_chain_cache
+        .keys()
+        .filter_map(|k| k.font_families.first().cloned())
+        .collect();
+    assert!(
+        sans_keys.iter().any(|f| f == "Liberation Sans"),
+        "first document's family must resolve, got {sans_keys:?}"
+    );
+
+    // Same manager, DIFFERENT family: the signature must change and the
+    // resolver must run again.
+    paginate_once(&doc("Liberation Mono"), &mut fm, &mut text_cache);
+    let mono_keys: Vec<String> = fm
+        .font_chain_cache
+        .keys()
+        .filter_map(|k| k.font_families.first().cloned())
+        .collect();
+    assert!(
+        mono_keys.iter().any(|f| f == "Liberation Mono"),
+        "a NEW font family must still resolve after the skip was armed — \
+         otherwise the skip is a gate that starves changed fonts. Got \
+         {mono_keys:?}"
+    );
+
+    // Negative control: paginating the SAME document again must NOT change
+    // the cache (i.e. the skip really is taking effect, so this test would
+    // notice if it silently stopped skipping).
+    let before = fm.last_resolved_font_stacks_sig;
+    paginate_once(&doc("Liberation Mono"), &mut fm, &mut text_cache);
+    assert_eq!(
+        fm.last_resolved_font_stacks_sig, before,
+        "an unchanged document must reuse the recorded signature"
+    );
+    assert!(
+        before.is_some(),
+        "the signature must be RECORDED (the plain setter clears it, which \
+         is what defeated the skip before)"
+    );
 }
