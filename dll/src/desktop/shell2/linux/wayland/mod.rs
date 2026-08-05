@@ -720,6 +720,7 @@ impl WaylandWindow {
         // race-free non-blocking read: prepare_read (retrying after draining if the queue
         // isn't empty), flush our requests, poll the fd with timeout 0, then read_events
         // if readable or cancel_read if not, and finally dispatch what we read.
+        let mut hung_up = false;
         let dispatched = unsafe {
             while (self.wayland.wl_display_prepare_read_queue)(self.display, self.event_queue) != 0 {
                 // Queue not empty -> dispatch what's already there, then retry prepare.
@@ -730,8 +731,11 @@ impl WaylandWindow {
 
             let fd = (self.wayland.wl_display_get_fd)(self.display);
             let mut pfd = libc::pollfd { fd, events: libc::POLLIN, revents: 0 };
-            let readable =
-                libc::poll(&mut pfd, 1, 0) > 0 && (pfd.revents & libc::POLLIN) != 0;
+            let polled = libc::poll(&mut pfd, 1, 0);
+            // POLLHUP/POLLERR are reported regardless of the events mask:
+            // the compositor closed the socket.
+            hung_up = polled > 0 && (pfd.revents & (libc::POLLHUP | libc::POLLERR)) != 0;
+            let readable = polled > 0 && (pfd.revents & libc::POLLIN) != 0;
 
             if readable {
                 (self.wayland.wl_display_read_events)(self.display);
@@ -741,6 +745,31 @@ impl WaylandWindow {
 
             (self.wayland.wl_display_dispatch_queue_pending)(self.display, self.event_queue)
         };
+
+        // A DEAD CONNECTION MUST END THE WINDOW, not spin.
+        //
+        // libwayland latches a fatal error on the display (compositor gone,
+        // protocol error, socket hangup); from then on every call fails and
+        // `dispatch_queue_pending` just keeps returning -1. Without this
+        // check the loop treated "nothing dispatched" as "idle" and ran
+        // forever with no window on screen — the process outlived its own
+        // surface as an orphan, invisible and unkillable from the taskbar.
+        // (Observed when a slow frame made the client miss the
+        // configure/ping handshake and KWin dropped the surface.)
+        let display_error = unsafe { (self.wayland.wl_display_get_error)(self.display) };
+        if hung_up || display_error != 0 || dispatched < 0 {
+            log_warn!(
+                LogCategory::EventLoop,
+                "[Wayland] connection lost (hup={hung_up}, error={display_error}, \
+                 dispatched={dispatched}) - closing the window",
+            );
+            self.is_open = false;
+            // NONE, not Some(Close): the run loop drains with
+            // `while poll_event().is_some()`, so a Close here would spin as
+            // hard as the bug it fixes. Ending the drain lets the loop's
+            // `!window.is_open()` pass unregister and drop the window.
+            return None;
+        }
 
         // Service any open menu popup: dispatching above may have delivered its
         // configure (so we can render+attach a buffer) or popup_done (dismiss).
