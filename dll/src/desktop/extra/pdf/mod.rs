@@ -658,6 +658,38 @@ mod engine {
         let font_loader = |bytes, index| loader.load_font_shared(bytes, index);
         let page_config = FakePageConfig::new();
 
+        // K30c: runtime engine opt-in (design doc §6.1/§6.4 — printpdf is
+        // the FIRST consumer of the token engine; the slicer stays the
+        // default until the differential gate has covered the full corpus).
+        if std::env::var("AZ_PAGINATION_ENGINE").as_deref() == Ok("tokens") {
+            let mut dbg2 = None;
+            match azul_layout::solver3::paged_layout::layout_document_tokenized(
+                &mut layout_cache,
+                &mut text_cache,
+                &styled_dom,
+                viewport,
+                font_manager,
+                &mut dbg2,
+                image_cache,
+                azul_core::task::GetSystemTimeCallback {
+                    cb: azul_core::task::get_system_time_libstd,
+                },
+                font_loader,
+                &renderer_resources,
+                IdNamespace(0),
+                DomId::ROOT_ID,
+                content_size.height,
+                4096,
+            ) {
+                Ok(pages) => {
+                    return Ok(pages.into_iter().map(|p| p.display_list).collect());
+                }
+                Err(e) => {
+                    return Err(format!("tokenized pagination failed: {e:?}"));
+                }
+            }
+        }
+
         let display_lists = match layout_document_paged_with_config(
             &mut layout_cache,
             &mut text_cache,

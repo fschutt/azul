@@ -1387,16 +1387,39 @@ fn layout_bfc<T: ParsedFontTrait>(
     let mut fragment_placed_content = false;
     let mut fragment_token_out: Option<crate::solver3::break_token::BreakToken> = None;
 
+    // Fragment passes mark every child they DON'T place with a sentinel
+    // relative position: the positioning descent then computes far-negative
+    // absolutes for the whole stale subtree and the display-list builder's
+    // unassigned-position guard drops the items (the sentinel survives
+    // offset arithmetic by magnitude — that is why UNASSIGNED_POSITION_LIMIT
+    // is f32::MIN / 2). Without this, skipped/broken children reappear on
+    // every page at their CONTINUOUS positions.
+    let fragment_pass = constraints.fragmentainer.is_some();
+    macro_rules! clear_fragment_pos {
+        ($child:expr) => {
+            if fragment_pass {
+                if let Some(w) = tree.warm_mut($child) {
+                    w.relative_position =
+                        Some(LogicalPosition::new(f32::MIN, f32::MIN));
+                }
+            }
+        };
+    }
+
     for &child_index in &pos_children {
         // A token emitted while PLACING the previous child (break-descend /
-        // resumed-child continuation) stops sibling consumption here.
+        // resumed-child continuation) stops sibling consumption here — the
+        // rest of the tail is not on this page.
         if fragment_token_out.is_some() {
-            break;
+            clear_fragment_pos!(child_index);
+            continue;
         }
         if !fragment_resume_reached {
             if Some(child_index) == fragment_resume_from {
                 fragment_resume_reached = true;
             } else {
+                // Finished on an earlier fragmentainer.
+                clear_fragment_pos!(child_index);
                 continue;
             }
         }
@@ -2135,7 +2158,8 @@ fn layout_bfc<T: ParsedFontTrait>(
                             child_index,
                             later.into_iter(),
                         ));
-                        break;
+                        clear_fragment_pos!(child_index);
+                        continue;
                     }
                 }
             }

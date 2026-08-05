@@ -42,7 +42,7 @@ fn run(html: &str, page_h: f32) -> Vec<TokenizedPage> {
         origin: LogicalPosition::zero(),
         size: LogicalSize::new(800.0, page_h),
     };
-    let _rr = RendererResources::default();
+    let rr = RendererResources::default();
     let mut dbg = Some(Vec::new());
     let loader = PathLoader::new();
     layout_document_tokenized(
@@ -59,6 +59,9 @@ fn run(html: &str, page_h: f32) -> Vec<TokenizedPage> {
         |bytes: std::sync::Arc<rust_fontconfig::FontBytes>, index: usize| {
             loader.load_font_shared(bytes, index)
         },
+        &rr,
+        azul_core::resources::IdNamespace(0),
+        DomId::ROOT_ID,
         page_h,
         16,
     )

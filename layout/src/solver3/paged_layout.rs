@@ -2127,6 +2127,11 @@ pub struct TokenizedPage {
     pub content_block_size: f32,
     /// The outgoing resume token (`None` = the document finished here).
     pub outgoing: Option<crate::solver3::break_token::BreakToken>,
+    /// This page's display list, GENERATED from the fragment pass (never
+    /// sliced): only nodes laid on this page have assigned positions —
+    /// everything else sits at the unassigned sentinel and is dropped by
+    /// `push_item`. Page-local coordinates (the fragmentainer origin is 0).
+    pub display_list: crate::solver3::display_list::DisplayList,
 }
 
 /// K30b part 2 / K30c skeleton: the NG-style page loop. Lays the document
@@ -2150,6 +2155,9 @@ pub fn layout_document_tokenized<T, F>(
     image_cache: &azul_core::resources::ImageCache,
     get_system_time_fn: azul_core::task::GetSystemTimeCallback,
     font_loader: F,
+    renderer_resources: &RendererResources,
+    id_namespace: azul_core::resources::IdNamespace,
+    dom_id: DomId,
     page_content_height: f32,
     max_pages: usize,
 ) -> Result<Vec<TokenizedPage>>
@@ -2240,7 +2248,13 @@ where
         };
 
         let mut outgoing: Option<BreakToken> = None;
-        let mut tmp_positions: crate::solver3::PositionVec = Vec::new();
+        // Positions pre-filled with the UNASSIGNED sentinel: only nodes the
+        // fragment pass actually lays on THIS page receive positions; the
+        // display-list builder drops everything else (its existing
+        // unassigned-position guard) — pages are generated, never sliced.
+        let node_count = tree.nodes.len();
+        let mut page_positions: crate::solver3::PositionVec =
+            alloc::vec![crate::solver3::POSITION_UNSET; node_count];
         let mut tmp_scrollbars = false;
         let mut tmp_floats = std::collections::HashMap::new();
         let result = calculate_layout_for_subtree_fragment(
@@ -2250,15 +2264,36 @@ where
             0, // the root layout node
             LogicalPosition::zero(),
             viewport.size,
-            &mut tmp_positions,
+            &mut page_positions,
             &mut tmp_scrollbars,
             &mut tmp_floats,
-            ComputeMode::ComputeSize,
+            ComputeMode::PerformLayout,
             Some(space),
             Some(&mut outgoing),
         );
-        cache.cache_map = std::mem::take(&mut ctx.cache_map);
         result?;
+
+        // The ROOT box itself sits at the fragmentainer origin (its
+        // children got positions from Pass 2; the root's own position is
+        // the caller's job on the normal path).
+        crate::solver3::pos_set(&mut page_positions, 0, LogicalPosition::zero());
+
+        // Generate THIS page's display list from the fragment positions.
+        let display_list = {
+            let tree_ref: &_ = tree;
+            crate::solver3::display_list::generate_display_list(
+                &mut ctx,
+                tree_ref,
+                &page_positions,
+                &BTreeMap::new(),
+                &cache.scroll_ids,
+                None,
+                renderer_resources,
+                id_namespace,
+                dom_id,
+            )?
+        };
+        cache.cache_map = std::mem::take(&mut ctx.cache_map);
 
         let content = cache
             .tree
@@ -2278,6 +2313,7 @@ where
         pages.push(TokenizedPage {
             content_block_size: content,
             outgoing: outgoing.clone(),
+            display_list,
         });
         if stalled || outgoing.is_none() {
             break;
