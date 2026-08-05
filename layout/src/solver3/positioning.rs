@@ -240,12 +240,14 @@ pub fn position_out_of_flow_elements<T: ParsedFontTrait>(
             // Get node again after containing block calculation
             let node = &tree.nodes[node_index];
 
-            // Calculate used size for out-of-flow elements (they don't get sized during normal
-            // layout)
-            let element_size = if let Some(size) = node.used_size {
-                size
-            } else {
-                // Element hasn't been sized yet - calculate it now using containing block
+            // Calculate used size for out-of-flow elements. ALWAYS solve from
+            // the containing block + own CSS + intrinsics: abs elements are
+            // skipped by the in-flow pass, so a pre-existing `used_size` here
+            // is junk from that skip (typically Some(0x0)) — trusting it made
+            // an auto-sized abs box (`top/left` only) keep 0x0 forever and
+            // its children disappear. §10.3.7: their used size never depends
+            // on in-flow layout, so recomputing is deterministic.
+            let element_size = {
                 let intrinsic = tree.warm(node_index).and_then(|w| w.intrinsic_sizes).unwrap_or_default();
                 let Ok(size) = crate::solver3::sizing::calculate_used_size_for_node(
                     ctx.styled_dom,
@@ -603,53 +605,88 @@ pub fn position_out_of_flow_elements<T: ParsedFontTrait>(
 
             super::pos_set(calculated_positions, node_index, final_pos);
 
-            // The absolute box is now at its FINAL, definite size. Lay out its
-            // content against that box if a percentage-height child collapsed —
-            // which happens because (a) the taffy-bridge layout path that handles
-            // flex-nested blocks never runs `process_out_of_flow_children`, so an
-            // abs child's subtree is otherwise NEVER laid out, and (b) even on the
-            // solver3 path the subtree is laid out BEFORE the stretch-fit height is
-            // resolved here. Either way the child saw a 0-height containing block.
-            // Re-flowing now (the abs height is independent of its content, so this
-            // can't loop) lets `height:100%` children resolve against the real box.
-            // (Root cause of the slippy-map VirtualView blank-bounds bug.)
-            if height_is_auto {
-                let (used_size, inner, child_collapsed) = {
-                    let n = &tree.nodes[node_index];
-                    let used = n.used_size.unwrap_or_default();
-                    let inner = n.box_props.inner_size(used, LayoutWritingMode::HorizontalTb);
-                    let collapsed = inner.height > 1.0
-                        && tree.children(node_index).iter().any(|&c| {
-                            tree.get(c)
-                                .and_then(|cn| cn.used_size)
-                                .is_none_or(|s| s.height < 1.0)
-                        });
-                    (used, inner, collapsed)
+            // The absolute box is now at its FINAL, definite size (§10.3.7 /
+            // §10.6.4) — "abspos boxes laid out in containing block after its
+            // final size is determined". The in-flow pass deliberately skips
+            // abs subtrees, so THIS is the one authoritative interior layout:
+            // against the solved box, unconditionally (before, a collapsed-
+            // child heuristic left block interiors unlaid — children of an
+            // abs box simply disappeared — and the flex path let the taffy
+            // root re-derive the box's own height from content, clobbering
+            // the §10.6.4 stretch-fit). The solved border-box size is
+            // restored after the run precisely because a formatting-context
+            // root may re-derive its own size; child positions are then
+            // propagated from the final box (the interior run only writes
+            // warm relative positions). The abs box's used size is
+            // independent of its content, so this cannot loop.
+            let mut solved_size = tree.nodes[node_index].used_size.unwrap_or(element_size);
+            if !tree.children(node_index).is_empty() {
+                let inner = tree.nodes[node_index]
+                    .box_props
+                    .inner_size(solved_size, LayoutWritingMode::HorizontalTb);
+                let constraints = LayoutConstraints {
+                    available_size: inner,
+                    writing_mode: LayoutWritingMode::HorizontalTb,
+                    writing_mode_ctx: super::geometry::WritingModeContext::default(),
+                    bfc_state: None,
+                    text_align: TextAlign::Start,
+                    containing_block_size: inner,
+                    available_width_type:
+                        crate::text3::cache::AvailableSpace::Definite(inner.width),
+                    fragmentainer: None,
                 };
-                let _ = used_size;
-                if child_collapsed {
-                    let constraints = LayoutConstraints {
-                        available_size: inner,
-                        writing_mode: LayoutWritingMode::HorizontalTb,
-                        writing_mode_ctx: super::geometry::WritingModeContext::default(),
-                        bfc_state: None,
-                        text_align: TextAlign::Start,
-                        containing_block_size: inner,
-                        available_width_type:
-                            crate::text3::cache::AvailableSpace::Definite(inner.width),
-                        fragmentainer: None,
-                    };
-                    let mut reflow_float_cache: std::collections::HashMap<usize, FloatingContext> =
-                        std::collections::HashMap::new();
-                    drop(layout_formatting_context(
-                        ctx,
-                        tree,
-                        text_cache,
-                        node_index,
-                        &constraints,
-                        &mut reflow_float_cache,
-                    ));
+                let mut reflow_float_cache: std::collections::HashMap<usize, FloatingContext> =
+                    std::collections::HashMap::new();
+                let interior = layout_formatting_context(
+                    ctx,
+                    tree,
+                    text_cache,
+                    node_index,
+                    &constraints,
+                    &mut reflow_float_cache,
+                );
+
+                // §10.6.4 rules 1 and 3: with height:auto and at most one
+                // vertical inset, the used height IS the laid-out content
+                // height — adopt it from the interior run (the pre-layout
+                // value was the 0 placeholder). Rule 1 (bottom set, top
+                // auto) then re-derives top with the REAL height.
+                if height_is_auto && (top_is_auto || bottom_is_auto) {
+                    if let Ok(res) = &interior {
+                        let bp = tree.nodes[node_index].box_props.unpack();
+                        solved_size.height = res.output.overflow_size.height
+                            + bp.padding.top
+                            + bp.padding.bottom
+                            + bp.border.top
+                            + bp.border.bottom;
+                        if top_is_auto && !bottom_is_auto {
+                            let bottom_val = offsets.bottom.unwrap_or(0.0);
+                            let top_val = cb_height
+                                - used_margin_top
+                                - solved_size.height
+                                - used_margin_bottom
+                                - bottom_val;
+                            final_pos.y =
+                                containing_block_rect.origin.y + top_val + used_margin_top;
+                            super::pos_set(calculated_positions, node_index, final_pos);
+                        }
+                    }
                 }
+
+                if let Some(node_mut) = tree.get_mut(node_index) {
+                    node_mut.used_size = Some(solved_size);
+                }
+                let bp = tree.nodes[node_index].box_props.unpack();
+                let content_pos = LogicalPosition::new(
+                    final_pos.x + bp.border.left + bp.padding.left,
+                    final_pos.y + bp.border.top + bp.padding.top,
+                );
+                crate::solver3::cache::position_bfc_child_descendants(
+                    tree,
+                    node_index,
+                    content_pos,
+                    calculated_positions,
+                );
             }
         }
     }

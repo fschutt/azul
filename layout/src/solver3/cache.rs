@@ -1862,7 +1862,7 @@ fn process_inflow_child<T: ParsedFontTrait>(
 /// Recursively positions descendants of a BFC/IFC child without re-computing layout.
 /// The layout was already computed by `layout_bfc/layout_ifc`.
 /// We only need to convert relative positions to absolute positions.
-fn position_bfc_child_descendants(
+pub(super) fn position_bfc_child_descendants(
     tree: &LayoutTree,
     node_index: usize,
     content_box_pos: LogicalPosition,

@@ -672,7 +672,28 @@ fn layout_flex_grid<T: ParsedFontTrait>(
                 }
             }
         } else {
-            None
+            // Non-root height pass-through, mirroring the width arm above,
+            // but ONLY for absolutely/fixed-positioned containers: their
+            // used height was resolved by the §10.6.4 equations (stretch-fit
+            // between insets) BEFORE this run — a >0 value is the DEFINITE
+            // containing-block size, exactly like the width case. Without
+            // this, `inset:0; display:flex; align-items:center` centered
+            // within the CONTENT height (taffy re-derived the main size and
+            // clobbered the solved stretch-fit — miniword ENGINE-ISSUE 5a).
+            // In-flow auto-height containers stay None (content-sized;
+            // their used_size may hold a stale height on warm re-layouts).
+            let is_abs = matches!(
+                crate::solver3::positioning::get_position_type(
+                    ctx.styled_dom,
+                    node.dom_node_id,
+                ),
+                azul_css::props::layout::LayoutPosition::Absolute
+                    | azul_css::props::layout::LayoutPosition::Fixed
+            );
+            match (is_abs, node.used_size.as_ref().map(|s| s.height)) {
+                (true, Some(h)) if h > 0.0 => Some(h),
+                _ => None,
+            }
         }
     };
     let has_effective_width = effective_width.is_some();

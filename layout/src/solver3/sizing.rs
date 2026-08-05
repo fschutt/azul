@@ -375,6 +375,54 @@ impl<'a, 'b, 'c, T: ParsedFontTrait> IntrinsicSizeCalculator<'a, 'b, 'c, T> {
             let em = get_element_font_size(self.ctx.styled_dom, dom_id, node_state);
             let rem = super::getters::get_root_font_size(self.ctx.styled_dom, node_state);
 
+            // css-sizing-3 §5.2.1: a box with a DEFINITE preferred size
+            // contributes exactly that size — its min- and max-content are
+            // the used width/height, not the (possibly empty) content's.
+            // Without this, an empty `width: 794px` block contributed 0, so
+            // every shrink-to-fit ancestor (auto-width abspos §10.3.7,
+            // floats §10.3.5) collapsed to 0x0 and its children vanished
+            // (miniword ENGINE-ISSUE 5c). Intrinsics here are CONTENT sizes,
+            // so border-box declarations shed their border+padding first.
+            // Applied BEFORE the min floors so an explicit min still wins.
+            {
+                use azul_css::props::layout::dimensions::{LayoutWidth, LayoutHeight};
+                use azul_css::props::layout::LayoutBoxSizing;
+                let box_sizing = match get_css_box_sizing(self.ctx.styled_dom, dom_id, node_state) {
+                    MultiValue::Exact(v) => v,
+                    _ => LayoutBoxSizing::ContentBox,
+                };
+                let bp = tree
+                    .get(node_index)
+                    .map(|n| n.box_props.unpack())
+                    .unwrap_or_default();
+                if let MultiValue::Exact(LayoutWidth::Px(px)) =
+                    get_css_width(self.ctx.styled_dom, dom_id, node_state)
+                {
+                    if let Some(mut w) = super::calc::resolve_pixel_value_no_percent(&px, em, rem) {
+                        if box_sizing == LayoutBoxSizing::BorderBox {
+                            w = (w - bp.border.left - bp.border.right
+                                - bp.padding.left - bp.padding.right)
+                                .max(0.0);
+                        }
+                        intrinsic.min_content_width = w;
+                        intrinsic.max_content_width = w;
+                    }
+                }
+                if let MultiValue::Exact(LayoutHeight::Px(px)) =
+                    get_css_height(self.ctx.styled_dom, dom_id, node_state)
+                {
+                    if let Some(mut h) = super::calc::resolve_pixel_value_no_percent(&px, em, rem) {
+                        if box_sizing == LayoutBoxSizing::BorderBox {
+                            h = (h - bp.border.top - bp.border.bottom
+                                - bp.padding.top - bp.padding.bottom)
+                                .max(0.0);
+                        }
+                        intrinsic.min_content_height = h;
+                        intrinsic.max_content_height = h;
+                    }
+                }
+            }
+
             if let MultiValue::Exact(mw) = get_css_min_width(self.ctx.styled_dom, dom_id, node_state) {
                 if let Some(min_w) = super::calc::resolve_pixel_value_no_percent(&mw.inner, em, rem) {
                     intrinsic.min_content_width = intrinsic.min_content_width.max(min_w);
