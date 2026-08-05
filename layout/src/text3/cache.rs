@@ -6442,6 +6442,7 @@ impl TextShapingCache {
         // These stages are independent of the final geometry. We perform them once
         // on the entire content block before flowing. Caching is used at each stage.
 
+        let _probe_flow = crate::probe::Probe::span("text_layout_flow");
         // Cap per-item shaped cache to prevent unbounded growth.
         // When threshold is exceeded, evict entries not accessed this generation.
         const PER_ITEM_CACHE_MAX: usize = 4096;
@@ -6525,6 +6526,7 @@ impl TextShapingCache {
 
         // Stage 3: Shaping (VisualItem -> ShapedItem)
         // Two-level cache: monolithic (fast path) + per-item (incremental path).
+        let _probe_shape = crate::probe::Probe::span("text_shape_stage");
         let shaped_key = ShapedItemsKey::new(visual_items_id, &visual_items);
         let shaped_items_id = calculate_id(&shaped_key);
         // [g213] web lift uses the real shaped_items HashMap cache (g180 bypass deleted).
@@ -6570,6 +6572,7 @@ impl TextShapingCache {
         // (native is unaffected — the cap is far above any real fragment count.)
         #[allow(clippy::no_effect_underscore_binding)] // web_lift-gated debug iteration counter
         let mut _az_flow_iters: usize = 0;
+        let _probe_break = crate::probe::Probe::span("text_line_break");
         for fragment in flow_chain {
             #[cfg(feature = "web_lift")]
             {
@@ -11605,16 +11608,27 @@ impl<'a> BreakCursor<'a> {
     // punctuation and preserved white spaces; currently handled via peek_next_single_item
     pub fn peek_next_unit(&self) -> Vec<ShapedItem> {
         let mut unit = Vec::new();
-        let mut source_items = self.partial_remainder.clone();
-        source_items.extend_from_slice(&self.items[self.next_item_index..]);
+        // The remaining stream, WITHOUT materializing it. This used to be
+        // `partial_remainder.clone()` + `extend_from_slice(rest)` — a deep
+        // clone of every remaining ShapedItem (each carrying a String and a
+        // Vec<Glyph>) on EVERY call. The line breaker calls this once per
+        // word, so laying out an N-cluster paragraph performed O(N²) deep
+        // clones: ~90% of line-breaking time on an ordinary document, and
+        // line breaking was ~40% of a full pagination. Only the items that
+        // actually enter `unit` (one word) are cloned now.
+        let source_items = || {
+            self.partial_remainder
+                .iter()
+                .chain(self.items[self.next_item_index..].iter())
+        };
 
-        if source_items.is_empty() {
+        let Some(first) = source_items().next() else {
             return unit;
-        }
+        };
 
         // If the first item is a break opportunity (like a space), it's a unit on its own.
-        if is_break_opportunity_with_word_break(&source_items[0], self.word_break, self.hyphens) {
-            unit.push(source_items[0].clone());
+        if is_break_opportunity_with_word_break(first, self.word_break, self.hyphens) {
+            unit.push(first.clone());
             return unit;
         }
 
@@ -11625,7 +11639,7 @@ impl<'a> BreakCursor<'a> {
         // glue items together: if the last cluster ends with a break-suppressing control,
         // the next item cannot be separated from it.
         let mut suppress_next_break = false;
-        for (i, item) in source_items.iter().enumerate() {
+        for (i, item) in source_items().enumerate() {
             // Also suppress break if this item starts with a break-suppressing control
             // (WJ/ZWJ/ZWNBSP suppress breaks on both sides per Unicode line breaking)
             let starts_with_suppress = if let ShapedItem::Cluster(c) = item {

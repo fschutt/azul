@@ -4394,6 +4394,7 @@ fn pick_memory_face(
     scripts_hint: Option<&[UnicodeRange]>,
     memory_families: &HashMap<String, Vec<crate::text3::cache::MemoryFace>>,
 ) -> ResolvedFontChains {
+    let _probe = crate::probe::Probe::span("font_chain_resolve");
     let mut chains = HashMap::new();
     let mut unresolved: std::collections::BTreeSet<String> = std::collections::BTreeSet::new();
 

@@ -2145,7 +2145,84 @@ pub struct TokenizedPage {
 /// Propagates layout errors; the internal no-progress guard turns the
 /// NG infinite-loop class into loop termination instead.
 #[allow(clippy::too_many_arguments)]
+/// K34 — token convergence: what a previous tokenized run left behind, so
+/// an incremental re-pagination can stop as soon as it re-synchronizes with
+/// it.
+///
+/// Tokens are owned value types with reliable `Eq`, so the invariant is
+/// exact: **if the token entering page N is unchanged, pages ≥ N are
+/// unchanged.** An edit therefore only has to re-lay pages until an
+/// outgoing token matches the cached one for that page; everything after
+/// is reused verbatim. Typing converges in ≤ 2 pages, which is what makes
+/// live repagination affordable on a long document.
+#[derive(Debug, Clone, Default)]
+pub struct TokenCache {
+    /// Per-page outgoing token from the previous run (`None` = the document
+    /// ended on that page).
+    pub outgoing: Vec<Option<crate::solver3::break_token::BreakToken>>,
+    /// The pages themselves, reused verbatim from the convergence point on.
+    pub pages: Vec<TokenizedPage>,
+}
+
+/// Outcome of an incremental (convergence-aware) pagination.
+#[derive(Debug)]
+pub struct IncrementalPagination {
+    /// The full page list — freshly laid pages followed by any reused tail.
+    pub pages: Vec<TokenizedPage>,
+    /// How many pages this run actually laid out. `pages.len() - laid_out`
+    /// is what convergence saved.
+    pub laid_out: usize,
+    /// The page index at which the run re-synchronized with the cache, if it
+    /// did (`None` = it ran to the end of the document).
+    pub converged_at: Option<usize>,
+}
+
+/// What the shared page loop returns (see `layout_document_tokenized_from`).
+struct PageLoopOutcome {
+    pages: Vec<TokenizedPage>,
+    laid_out: usize,
+    converged_at: Option<usize>,
+}
+
+/// The public full-document entry point: lay every page from the start.
+#[allow(clippy::too_many_arguments)]
 pub fn layout_document_tokenized<T, F>(
+    cache: &mut LayoutCache,
+    text_cache: &mut TextLayoutCache,
+    new_dom: &StyledDom,
+    viewport: LogicalRect,
+    font_manager: &mut crate::font_traits::FontManager<T>,
+    debug_messages: &mut Option<Vec<LayoutDebugMessage>>,
+    image_cache: &azul_core::resources::ImageCache,
+    get_system_time_fn: azul_core::task::GetSystemTimeCallback,
+    font_loader: F,
+    renderer_resources: &RendererResources,
+    id_namespace: azul_core::resources::IdNamespace,
+    dom_id: DomId,
+    page_height: f32,
+    max_pages: usize,
+) -> Result<Vec<TokenizedPage>>
+where
+    T: ParsedFontTrait + Sync + 'static,
+    F: Fn(
+            std::sync::Arc<rust_fontconfig::FontBytes>,
+            usize,
+        ) -> std::result::Result<T, crate::text3::cache::LayoutError>
+        + Copy,
+{
+    Ok(layout_document_tokenized_from(
+        cache, text_cache, new_dom, viewport, font_manager, debug_messages,
+        image_cache, get_system_time_fn, font_loader, renderer_resources,
+        id_namespace, dom_id, page_height, max_pages, None, None,
+    )?
+    .pages)
+}
+
+/// The shared page loop. `start_token` resumes mid-document (K34 incremental
+/// re-pagination); `converge_against` lets it stop as soon as it
+/// re-synchronizes with a previous run.
+#[allow(clippy::too_many_arguments)]
+fn layout_document_tokenized_from<T, F>(
     cache: &mut LayoutCache,
     text_cache: &mut TextLayoutCache,
     new_dom: &StyledDom,
@@ -2160,7 +2237,9 @@ pub fn layout_document_tokenized<T, F>(
     dom_id: DomId,
     page_content_height: f32,
     max_pages: usize,
-) -> Result<Vec<TokenizedPage>>
+    start_token: Option<crate::solver3::break_token::BreakToken>,
+    converge_against: Option<(&TokenCache, usize)>,
+) -> Result<PageLoopOutcome>
 where
     T: ParsedFontTrait + Sync + 'static,
     F: Fn(
@@ -2169,6 +2248,8 @@ where
     ) -> std::result::Result<T, crate::text3::cache::LayoutError>,
 {
     use crate::solver3::break_token::{token_fingerprint, BreakToken};
+    let mut laid_out: usize = 0;
+    let mut converged_at: Option<usize> = None;
     use crate::solver3::cache::{calculate_layout_for_subtree_fragment, ComputeMode};
     use crate::solver3::fc::FragmentainerSpace;
 
@@ -2182,6 +2263,8 @@ where
             collect_and_resolve_font_chains_with_registration, collect_font_ids_from_chains,
             compute_fonts_to_load, load_fonts_from_disk,
         };
+        let _p = crate::probe::Probe::span("font_chain_resolve");
+        let _p = crate::probe::Probe::span("font_chain_resolve");
         let platform = azul_css::system::Platform::current();
         let chains = collect_and_resolve_font_chains_with_registration(
             new_dom, &font_manager.fc_cache, font_manager, &platform,
@@ -2210,7 +2293,7 @@ where
 
     // 2. The page loop.
     let mut pages: Vec<TokenizedPage> = Vec::new();
-    let mut incoming: Option<BreakToken> = None;
+    let mut incoming: Option<BreakToken> = start_token;
     for page_idx in 0..max_pages {
         let resume = match incoming.as_ref() {
             None => None,
@@ -2315,12 +2398,123 @@ where
             outgoing: outgoing.clone(),
             display_list,
         });
+        laid_out += 1;
         if stalled || outgoing.is_none() {
             break;
         }
+
+        // K34 CONVERGENCE. Tokens are value types with reliable `Eq`: if the
+        // token leaving this page equals the one that left the SAME page
+        // last time, every later page receives an identical input and is
+        // therefore identical. Splice the cached tail in and stop — this is
+        // what turns "repaginate the document" into "repaginate two pages".
+        if let Some((cached, base)) = converge_against {
+            let abs_page = base + page_idx;
+            if let Some(cached_outgoing) = cached.outgoing.get(abs_page) {
+                let same = match (cached_outgoing, &outgoing) {
+                    (Some(a), Some(b)) => {
+                        token_fingerprint(a) == token_fingerprint(b) && a == b
+                    }
+                    (None, None) => true,
+                    _ => false,
+                };
+                if same && abs_page + 1 < cached.pages.len() {
+                    pages.extend(cached.pages[abs_page + 1..].iter().cloned());
+                    converged_at = Some(abs_page);
+                    break;
+                }
+            }
+        }
+
         incoming = outgoing;
     }
-    Ok(pages)
+    Ok(PageLoopOutcome { pages, laid_out, converged_at })
+}
+
+/// K34: re-paginate from `first_dirty_page`, stopping as soon as the run
+/// re-synchronizes with `cache`.
+///
+/// The caller supplies the page the edit dirtied (`page_of_y` on the
+/// chokepoint's dirty extent) and the previous run's [`TokenCache`]. Pages
+/// before `first_dirty_page` are reused untouched — their incoming tokens
+/// predate the edit and are therefore still valid — and the loop resumes
+/// from that page's cached incoming token. After each freshly laid page the
+/// outgoing token is compared against the cached one for the same index: on
+/// equality every later page is spliced in verbatim and the run stops.
+///
+/// Falls back to a full run whenever the cache cannot be trusted (empty,
+/// or `first_dirty_page` beyond it), so a caller can always call this.
+///
+/// # Errors
+///
+/// Propagates layout failures from the underlying page loop.
+#[allow(clippy::too_many_arguments)]
+pub fn layout_document_tokenized_incremental<T, F>(
+    cache: &mut LayoutCache,
+    text_cache: &mut TextLayoutCache,
+    new_dom: &StyledDom,
+    viewport: LogicalRect,
+    font_manager: &mut crate::font_traits::FontManager<T>,
+    debug_messages: &mut Option<Vec<LayoutDebugMessage>>,
+    image_cache: &azul_core::resources::ImageCache,
+    get_system_time_fn: azul_core::task::GetSystemTimeCallback,
+    font_loader: F,
+    renderer_resources: &RendererResources,
+    id_namespace: azul_core::resources::IdNamespace,
+    dom_id: DomId,
+    page_height: f32,
+    max_pages: usize,
+    token_cache: &TokenCache,
+    first_dirty_page: usize,
+) -> Result<IncrementalPagination>
+where
+    T: ParsedFontTrait + Sync + 'static,
+    F: Fn(
+            std::sync::Arc<rust_fontconfig::FontBytes>,
+            usize,
+        ) -> std::result::Result<T, crate::text3::cache::LayoutError>
+        + Copy,
+{
+    // A full run whenever the cache cannot help.
+    let usable = !token_cache.pages.is_empty()
+        && token_cache.outgoing.len() == token_cache.pages.len()
+        && first_dirty_page < token_cache.pages.len();
+    if !usable {
+        let pages = layout_document_tokenized(
+            cache, text_cache, new_dom, viewport, font_manager, debug_messages,
+            image_cache, get_system_time_fn, font_loader, renderer_resources,
+            id_namespace, dom_id, page_height, max_pages,
+        )?;
+        let laid_out = pages.len();
+        return Ok(IncrementalPagination { pages, laid_out, converged_at: None });
+    }
+
+    // Pages before the dirty one are untouched by definition.
+    let mut pages: Vec<TokenizedPage> = token_cache.pages[..first_dirty_page]
+        .iter()
+        .cloned()
+        .collect();
+    // Resume from the token that ENTERED the dirty page: the previous
+    // page's outgoing, which predates the edit.
+    let resume_token = if first_dirty_page == 0 {
+        None
+    } else {
+        token_cache.outgoing[first_dirty_page - 1].clone()
+    };
+
+    let tail = layout_document_tokenized_from(
+        cache, text_cache, new_dom, viewport, font_manager, debug_messages,
+        image_cache, get_system_time_fn, font_loader, renderer_resources,
+        id_namespace, dom_id, page_height,
+        max_pages.saturating_sub(first_dirty_page),
+        resume_token,
+        Some((token_cache, first_dirty_page)),
+    )?;
+
+    let laid_out = tail.laid_out;
+    let converged_at = tail.converged_at;
+    pages.extend(tail.pages);
+    Ok(IncrementalPagination { pages, laid_out, converged_at })
 }
 
 /// The per-page delta of a re-estimation, for the editor's lazy re-break

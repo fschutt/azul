@@ -920,6 +920,23 @@ impl LayoutCallbackInfo {
             .collect()
     }
 
+    /// The window's ALREADY-BUILT system font cache.
+    ///
+    /// `get_system_fonts` only hands back stringified name/path pairs, which
+    /// is useless to a layout callback that wants to run engine layout of
+    /// its own (paginating a document, measuring for an export). Such an app
+    /// had to call `build_font_cache()` and re-scan every font on the
+    /// machine — measured at ~5 SECONDS on the first frame, during which the
+    /// client cannot answer the compositor's configure/ping handshake and
+    /// loses its surface.
+    ///
+    /// The cache is internally `Arc<RwLock<_>>` (rust-fontconfig 4.1+), so
+    /// this clone is a handle, not a copy: the caller sees the same fonts
+    /// the window already resolved, including builder-thread additions.
+    #[must_use] pub fn get_font_cache(&self) -> FcFontCache {
+        self.internal_get_system_fonts().clone()
+    }
+
     #[must_use] pub fn get_image(&self, image_id: &AzString) -> Option<ImageRef> {
         self.internal_get_image_cache()
             .get_css_image_id(image_id)
