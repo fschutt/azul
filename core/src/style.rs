@@ -435,6 +435,15 @@ fn selector_group_matches(
     expected_path_ending: Option<&CssPathPseudoSelector>,
     is_last_content_group: bool,
 ) -> bool {
+    // Inline-style detection for the `Global` arm: a bare-declaration
+    // `with_css` rule is scoped to EXACTLY its owner node when the scope is
+    // pushed (`push_front_scope_for` collapses the range to `[owner, owner]`
+    // for INLINE-priority bare `*` wrappers). Such a rule is the author
+    // addressing THIS node directly — it must style a text node too.
+    let node_scoped_to_self = selectors.iter().any(|s| {
+        matches!(s, CssPathSelector::Root(r)
+            if r.start == r.end && r.start == node_id.index())
+    });
     selectors.iter().all(|selector| {
         match_single_selector(
             selector,
@@ -443,6 +452,7 @@ fn selector_group_matches(
             node_id,
             expected_path_ending,
             is_last_content_group,
+            node_scoped_to_self,
         )
     })
 }
@@ -455,17 +465,21 @@ fn match_single_selector(
     node_id: NodeId,
     expected_path_ending: Option<&CssPathPseudoSelector>,
     is_last_content_group: bool,
+    node_scoped_to_self: bool,
 ) -> bool {
     use self::CssPathSelector::{Global, Root, Type, Class, Id, PseudoSelector, Attribute, DirectChildren, Children, AdjacentSibling, GeneralSibling};
 
     match selector {
-        // Per CSS, `*` matches ELEMENTS - never text nodes. Text gets its
-        // styling by inheritance; letting the universal selector hit text
-        // nodes made `* { color: #666 }` overwrite the color a text child
-        // had just inherited from its `p { color: red }` parent. (Bare-decl
-        // inline styles don't pass through here at all: they live on
-        // NodeData.style and are read directly by the cascade.)
-        Global => !node_data.is_text_node(),
+        // Per CSS, `*` matches ELEMENTS - never text nodes: letting a
+        // stylesheet's universal selector hit text nodes made
+        // `* { color: #666 }` overwrite the color a text child had just
+        // inherited from its `p { color: red }` parent. The one exception is
+        // a rule scoped to EXACTLY this node (`node_scoped_to_self`) — that
+        // is a bare-declaration `with_css` ON the text node itself, i.e.
+        // inline-style semantics: `create_text("x").with_css("color: white")`
+        // must apply. Subtree-scoped and unscoped `*` rules keep refusing
+        // text nodes.
+        Global => !node_data.is_text_node() || node_scoped_to_self,
         // `Root(range)` (scope marker, #47): matches any node WITHIN the subtree
         // range `[start, end]`. The range is chosen when the scope is pushed
         // (`CssPath::push_front_scope`):
@@ -1549,7 +1563,7 @@ mod autotest_generated {
             NodeId::new(0),
             None,
             true
-        ));
+        , false));
         // Per CSS, `*` matches ELEMENTS only. Text nodes take styling by
         // inheritance; a universal rule hitting them directly overwrote
         // freshly inherited values (`* { color }` vs `p { color }`).
@@ -1560,7 +1574,48 @@ mod autotest_generated {
             NodeId::new(usize::MAX),
             None,
             false
-        ));
+        , false));
+    }
+
+    #[test]
+    fn global_matches_a_text_node_only_when_the_rule_is_scoped_to_exactly_it() {
+        // Inline-style semantics (miniword ENGINE-ISSUE 4):
+        // `create_text("x").with_css("color: white")` produces
+        // `[Root(n..=n), Global]` — the author addressed THIS node, so the
+        // universal selector must match despite it being a text node.
+        let text = NodeData::create_text("hello");
+        let nid = NodeId::new(7);
+        let self_scope = CssPathSelector::Root(CssScopeRange { start: 7, end: 7 });
+        let global = CssPathSelector::Global;
+
+        let group: Vec<&CssPathSelector> = vec![&self_scope, &global];
+        assert!(
+            selector_group_matches(&group, info(0, true), &text, nid, None, true),
+            "a node-only-scoped bare-decl rule must style its own text node"
+        );
+
+        // Negative control 1: the SAME group on a DIFFERENT text node (the
+        // scope range excludes it) must not match.
+        assert!(
+            !selector_group_matches(&group, info(0, true), &text, NodeId::new(8), None, true),
+            "node-only scope must not leak to other text nodes"
+        );
+
+        // Negative control 2: a SUBTREE-scoped `* { }` (stylesheet semantics,
+        // start != end) keeps refusing text nodes — the historical
+        // `* { color: #666 }` inheritance-overwrite bug must stay fixed.
+        let subtree_scope = CssPathSelector::Root(CssScopeRange { start: 0, end: 20 });
+        let group2: Vec<&CssPathSelector> = vec![&subtree_scope, &global];
+        assert!(
+            !selector_group_matches(&group2, info(0, true), &text, nid, None, true),
+            "subtree-scoped universal selectors must never match text nodes"
+        );
+
+        // Negative control 3: an UNSCOPED bare `*` refuses text nodes too.
+        let group3: Vec<&CssPathSelector> = vec![&global];
+        assert!(
+            !selector_group_matches(&group3, info(0, true), &text, nid, None, true)
+        );
     }
 
     #[test]
@@ -1581,7 +1636,7 @@ mod autotest_generated {
                 NodeId::new(0),
                 None,
                 true
-            ));
+            , false));
         }
     }
 
@@ -1598,7 +1653,7 @@ mod autotest_generated {
                 NodeId::new(id),
                 None,
                 true
-            ));
+            , false));
         }
         for id in [0usize, 1, 5, usize::MAX] {
             assert!(!match_single_selector(
@@ -1608,7 +1663,7 @@ mod autotest_generated {
                 NodeId::new(id),
                 None,
                 true
-            ));
+            , false));
         }
     }
 
@@ -1626,7 +1681,7 @@ mod autotest_generated {
                 NodeId::new(id),
                 None,
                 true
-            ));
+            , false));
         }
 
         // Full range matches every node id, including usize::MAX.
@@ -1642,7 +1697,7 @@ mod autotest_generated {
                 NodeId::new(id),
                 None,
                 true
-            ));
+            , false));
         }
     }
 
@@ -1652,7 +1707,7 @@ mod autotest_generated {
         nd.add_class("日本語-🎉".into());
 
         let hit = |s: &CssPathSelector| {
-            match_single_selector(s, info(0, false), &nd, NodeId::new(0), None, true)
+            match_single_selector(s, info(0, false), &nd, NodeId::new(0), None, true, false)
         };
 
         assert!(hit(&CssPathSelector::Type(NodeTypeTag::Div)));

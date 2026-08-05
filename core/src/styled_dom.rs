@@ -3540,6 +3540,92 @@ mod autotest_generated {
         assert!(sd.get_styled_node_state(&NodeId::ZERO).is_normal());
     }
 
+    /// miniword ENGINE-ISSUE 4: `Dom::create_text(..).with_css(..)` silently
+    /// dropped EVERY declaration — the bare-decl wrapper parses to
+    /// `* { .. }`, and the `Global` matcher refused text nodes even for
+    /// rules scoped to exactly that node. All four reported strings now
+    /// cascade onto the text node.
+    #[test]
+    fn with_css_on_a_text_node_applies_its_declarations() {
+        use azul_css::props::basic::color::ColorU;
+
+        let cases: &[(&str, ColorU, isize)] = &[
+            ("font-size: 38px; color: #565656;", ColorU { r: 0x56, g: 0x56, b: 0x56, a: 255 }, 38),
+            ("font-size: 38px; color: #565656; flex-grow: 0;", ColorU { r: 0x56, g: 0x56, b: 0x56, a: 255 }, 38),
+            ("font-size: 16px; color: #2b579a; margin-bottom: 12px;", ColorU { r: 0x2b, g: 0x57, b: 0x9a, a: 255 }, 16),
+            ("font-size: 13px; color: white;", ColorU { r: 255, g: 255, b: 255, a: 255 }, 13),
+        ];
+
+        for (css_str, want_color, want_px) in cases {
+            let dom = crate::dom::Dom::create_body().with_child(
+                crate::dom::Dom::create_div()
+                    .with_css("color: #444444; font-size: 10px;")
+                    .with_child(crate::dom::Dom::create_text("X").with_css(css_str)),
+            );
+            // create_from_dom is the production path (scope_inline_css +
+            // collect_css_from_dom); plain create() ignores dom.css.
+            let styled = StyledDom::create_from_dom(dom);
+            let cache = styled.get_css_property_cache();
+            let n = styled.node_data.as_ref().len() - 1;
+            let node_id = NodeId::new(n);
+            let node_data = &styled.node_data.as_ref()[n];
+            assert!(
+                node_data.is_text_node(),
+                "fixture: last node must be the text node"
+            );
+            let state = &styled.styled_nodes.as_ref()[n].styled_node_state;
+
+            let color = cache
+                .get_text_color(node_data, &node_id, state)
+                .and_then(|p| p.get_property().copied())
+                .map(|c| c.inner);
+            assert_eq!(
+                color,
+                Some(*want_color),
+                "inline color lost on text node for {css_str:?}"
+            );
+            let size = cache
+                .get_font_size(node_data, &node_id, state)
+                .and_then(|p| p.get_property().copied())
+                .map(|s| s.inner.to_pixels_internal(16.0, 16.0, 16.0) as isize);
+            assert_eq!(
+                size,
+                Some(*want_px),
+                "inline font-size lost on text node for {css_str:?}"
+            );
+        }
+
+        // Negative control: a text node WITHOUT inline css keeps taking its
+        // color by INHERITANCE (the parent's #444444 arrives via
+        // cascaded_props) — the matcher exception must not have rerouted or
+        // broken the inheritance lane.
+        let dom = crate::dom::Dom::create_body().with_child(
+            crate::dom::Dom::create_div()
+                .with_css("color: #444444;")
+                .with_child(crate::dom::Dom::create_text("X")),
+        );
+        let styled = StyledDom::create_from_dom(dom);
+        let cache = styled.get_css_property_cache();
+        let n = styled.node_data.as_ref().len() - 1;
+        let node_id = NodeId::new(n);
+        let node_data = &styled.node_data.as_ref()[n];
+        let state = &styled.styled_nodes.as_ref()[n].styled_node_state;
+        assert!(node_data.is_text_node());
+        assert!(
+            cache.css_props.get_slice(n).is_empty(),
+            "an unstyled text node must have no OWN css_props"
+        );
+        let inherited = cache
+            .get_text_color(node_data, &node_id, state)
+            .and_then(|p| p.get_property().copied())
+            .map(|c| c.inner);
+        assert_eq!(
+            inherited,
+            Some(ColorU { r: 0x44, g: 0x44, b: 0x44, a: 255 }),
+            "inheritance must still deliver the parent's color to the text node"
+        );
+    }
+
     #[test]
     fn create_empties_the_source_dom() {
         // Documented: "After calling this function, the DOM will be reset to an empty DOM."
