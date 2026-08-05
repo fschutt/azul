@@ -2506,6 +2506,81 @@ mod tests {
     /// glyph-run splitting or `visual_bounds()` shows up as a number rather
     /// than a surprise. It deliberately does NOT assert a tight bound yet —
     /// asserting one now would just encode the defect as expected.
+    /// NEGATIVE CONTROL for the tightened text damage bounds.
+    ///
+    /// `DisplayListItem::Text::visual_bounds()` now reports the glyph ink
+    /// extent instead of the node's whole clip box, and glyph runs break at
+    /// line boundaries. Both make damage rects SMALLER, and a damage rect
+    /// that is too small leaves stale pixels on screen — a worse defect
+    /// than the coarseness it replaces, and one no timing test can see.
+    ///
+    /// This edits text and then compares the incrementally-painted frame
+    /// against a FULL repaint of the same content, pixel for pixel. Any
+    /// region the damage rects failed to cover shows up as a difference.
+    #[test]
+    fn tight_text_damage_leaves_no_stale_pixels() {
+        let long = "the quick brown fox jumps over the lazy dog and keeps on \
+                    running past the end of the first line and onto a second";
+        let state = Arc::new(RefCell::new(RefAny::new(UiState {
+            label: long.to_string(),
+        })));
+        let mut window = make_harness_window(&state);
+        window.regenerate_layout().expect("initial layout");
+        window.regenerate_layout().expect("settle");
+
+        // Edit, rendered INCREMENTALLY through the damage path.
+        set_label(&state, &format!("{long} tail"));
+        window.regenerate_layout().expect("incremental relayout");
+        let incremental = window
+            .cpu_backend
+            .last_frame
+            .as_ref()
+            .expect("frame")
+            .clone_pixmap();
+        let damage = window.cpu_backend.last_frame_damage.clone();
+
+        // Same content, but painted from scratch: drop the retained frame so
+        // the next render cannot reuse anything.
+        let mut fresh_window = make_harness_window(&state);
+        fresh_window.regenerate_layout().expect("fresh layout");
+        let full = fresh_window
+            .cpu_backend
+            .last_frame
+            .as_ref()
+            .expect("fresh frame")
+            .clone_pixmap();
+
+        assert_eq!(incremental.width(), full.width());
+        assert_eq!(incremental.height(), full.height());
+
+        let (a, b) = (incremental.data(), full.data());
+        let mut diffs = 0usize;
+        let mut first: Option<(u32, u32)> = None;
+        let w = incremental.width();
+        for i in (0..a.len().min(b.len())).step_by(4) {
+            // Anti-aliasing is deterministic here (same glyphs, same
+            // positions, same cache), so require an exact match on RGB.
+            if a[i] != b[i] || a[i + 1] != b[i + 1] || a[i + 2] != b[i + 2] {
+                diffs += 1;
+                if first.is_none() {
+                    let px = (i / 4) as u32;
+                    first = Some((px % w, px / w));
+                }
+            }
+        }
+        println!(
+            "[harness] stale-pixel check: {diffs} differing px, first at {first:?}, \
+             damage = {damage:?}"
+        );
+        assert_eq!(
+            diffs, 0,
+            "the incrementally-painted frame differs from a full repaint of the \
+             same content in {diffs} pixels (first at {first:?}). The damage \
+             rects did not cover everything that changed, so those pixels are \
+             STALE on a real screen. damage = {damage:?}"
+        );
+    }
+
     #[test]
     fn damage_one_char_edit_reports_its_granularity() {
         let long = "the quick brown fox jumps over the lazy dog and keeps on                     running past the end of the first line and onto a second";
@@ -2520,6 +2595,10 @@ mod tests {
         set_label(&state, &format!("{long}X"));
         window.regenerate_layout().expect("relayout");
         let damage = window.cpu_backend.last_frame_damage.clone();
+        println!(
+            "[harness] glyph runs after edit = {:?}",
+            text_glyph_counts(&window)
+        );
 
         let damaged_area: f32 = match &damage {
             FrameDamage::Full => 400.0 * 300.0,

@@ -935,6 +935,30 @@ pub enum DisplayListItem {
     PopTextShadow,
 }
 
+/// Intersect `a` with `b`; if they do not overlap, fall back to `b`.
+///
+/// Used to clamp a computed ink extent to its clip rect. The fallback is
+/// deliberately the CLIP and not an empty rect: a non-overlapping result
+/// means the extent was computed wrongly, and in that case damaging too
+/// much is recoverable while damaging nothing leaves stale pixels.
+fn intersect_or(a: LogicalRect, b: LogicalRect) -> LogicalRect {
+    let x0 = a.origin.x.max(b.origin.x);
+    let y0 = a.origin.y.max(b.origin.y);
+    let x1 = (a.origin.x + a.size.width).min(b.origin.x + b.size.width);
+    let y1 = (a.origin.y + a.size.height).min(b.origin.y + b.size.height);
+    if x1 > x0 && y1 > y0 {
+        LogicalRect {
+            origin: LogicalPosition { x: x0, y: y0 },
+            size: LogicalSize {
+                width: x1 - x0,
+                height: y1 - y0,
+            },
+        }
+    } else {
+        b
+    }
+}
+
 impl DisplayListItem {
     /// Compare two display list items for visual equality (same appearance when rendered).
     /// Used by damage computation to detect content changes within the same bounds.
@@ -1169,6 +1193,64 @@ impl DisplayListItem {
     #[allow(clippy::suboptimal_flops)] // mul_add not guaranteed faster/available without target +fma; keep explicit a*b+c
     #[must_use] pub fn visual_bounds(&self) -> Option<LogicalRect> {
         match self {
+            // Text damages only where its GLYPHS are, not its whole clip box.
+            //
+            // `bounds()` reports a text run's `clip_rect`, and the emission
+            // site sets that to the node's entire viewport-sized content box.
+            // Since `compute_display_list_damage` unions `visual_bounds()`,
+            // that made damage for a text change as coarse as the enclosing
+            // text node however little of it changed — measured at 384x48 for
+            // a one-character edit, i.e. every line of the paragraph.
+            //
+            // `bounds()` deliberately keeps returning the clip rect: it is the
+            // item filter in `render_display_list_damaged`, where being too
+            // WIDE only costs a redundant intersection test, while being too
+            // narrow would skip an item that should have painted. Only the
+            // damage side is tightened here.
+            //
+            // The extent is padded generously and then clamped to the clip.
+            // Ink routinely exceeds the advance box — diacritics, italic
+            // overhang, `f`/`j` descenders, emoji — and under-damaging leaves
+            // stale pixels on screen, which is worse than the coarseness this
+            // replaces. The padding is in em, so it scales with the font.
+            Self::Text {
+                glyphs,
+                clip_rect,
+                font_size_px,
+                ..
+            } => {
+                let clip = *clip_rect.inner();
+                if glyphs.is_empty() {
+                    return Some(clip);
+                }
+                let em = *font_size_px;
+                let mut min_x = f32::MAX;
+                let mut max_x = f32::MIN;
+                let mut min_y = f32::MAX;
+                let mut max_y = f32::MIN;
+                for g in glyphs {
+                    min_x = min_x.min(g.point.x);
+                    max_x = max_x.max(g.point.x);
+                    min_y = min_y.min(g.point.y);
+                    max_y = max_y.max(g.point.y);
+                }
+                // `point` is the pen position ON the baseline, so the box has
+                // to grow upward by the ascent and downward by the descent;
+                // 1.5em/0.75em covers every Latin face plus stacked marks.
+                // Horizontally the last glyph's own advance is still to come,
+                // hence the extra em on the right.
+                let ink = LogicalRect {
+                    origin: LogicalPosition {
+                        x: min_x - em,
+                        y: min_y - em * 1.5,
+                    },
+                    size: LogicalSize {
+                        width: (max_x - min_x) + em * 2.0,
+                        height: (max_y - min_y) + em * 2.25,
+                    },
+                };
+                Some(intersect_or(ink, clip))
+            }
             Self::BoxShadow { bounds, shadow, .. } => {
                 let b = *bounds.inner();
                 // Shadow can extend beyond element bounds by offset + spread + blur

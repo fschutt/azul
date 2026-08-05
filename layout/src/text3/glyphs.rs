@@ -57,6 +57,14 @@ pub struct SimpleGlyphRun {
 #[must_use] pub fn get_glyph_runs_simple(layout: &UnifiedLayout) -> Vec<SimpleGlyphRun> {
     let mut runs: Vec<SimpleGlyphRun> = Vec::new();
     let mut current_run: Option<SimpleGlyphRun> = None;
+    /// Baseline the open run sits on. Runs merge across layout items when
+    /// their style matches, and the style predicate below has no notion of
+    /// WHERE the glyphs are — so every line of a paragraph merged into one
+    /// run, hence one `DisplayListItem::Text`, hence one damage rect
+    /// covering all of them. Breaking on the baseline makes a line the unit
+    /// of damage, so editing line 3 of a paragraph does not repaint lines
+    /// 1 and 2.
+    let mut current_baseline: Option<f32> = None;
 
     for item in &layout.items {
         let (item_ascent, _) = get_item_vertical_metrics_approx(&item.item);
@@ -91,7 +99,8 @@ pub struct SimpleGlyphRun {
                         // changes do not affect shaping (shaping is done upstream in
                         // default.rs), but we still break rendering runs for correct drawing.
                         // Border/margin/padding changes break both shaping and rendering runs.
-                        if run.font_hash == font_hash
+                        if current_baseline == Some(baseline_y)
+                            && run.font_hash == font_hash
                             && run.color == glyph_color
                             && run.background_color == glyph_background
                             && run.background_content == glyph_background_content
@@ -103,6 +112,7 @@ pub struct SimpleGlyphRun {
                             run.glyphs.push(instance);
                         } else {
                             runs.push(run.clone());
+                            current_baseline = Some(baseline_y);
                             current_run = Some(SimpleGlyphRun {
                                 glyphs: vec![instance],
                                 color: glyph_color,
@@ -117,6 +127,7 @@ pub struct SimpleGlyphRun {
                             });
                         }
                     } else {
+                        current_baseline = Some(baseline_y);
                         current_run = Some(SimpleGlyphRun {
                             glyphs: vec![instance],
                             color: glyph_color,
