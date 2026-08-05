@@ -320,7 +320,7 @@ impl GlyphCache {
                     ),
                 );
                 ras.add_path(&mut src, 0);
-                let cells = ras.outline_cells();
+                let cells = ras.outline_cells_sorted();
                 if cells.is_empty() { None } else { Some(CachedCells { cells }) }
             });
             self.cells.insert(cell_key, cached_cells);
@@ -433,7 +433,7 @@ impl GlyphCache {
                     ),
                 );
                 ras.add_path(&mut src, 0);
-                let cells = ras.outline_cells();
+                let cells = ras.outline_cells_sorted();
                 if cells.is_empty() { None } else { Some(CachedCells { cells }) }
             });
             self.cells.insert(cell_key, cached_cells);
