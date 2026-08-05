@@ -2493,6 +2493,138 @@ mod tests {
         }
     }
 
+    /// Damage must survive the cases that BREAK a naive item mapping.
+    ///
+    /// The randomised text sequence covers glyphs moving inside a stable
+    /// box. These are the shapes that move the BOX, and each one breaks a
+    /// different naive assumption:
+    ///
+    ///  * **box-shadow** — visual bounds deliberately EXCEED the item box
+    ///    (offset + blur + spread), so damage taken from the box alone
+    ///    leaves the shadow's fringe stale.
+    ///  * **shrinking** — the vacated area is outside the NEW bounds, so
+    ///    damage must include the OLD bounds or the old pixels survive.
+    ///  * **anonymous layout boxes** — the div holds inline text, so the
+    ///    layout tree carries boxes the DOM never had, and resizing moves
+    ///    them; any NodeId -> item mapping has to cope with items that have
+    ///    no DOM identity.
+    ///
+    /// Each step is compared pixel-for-pixel against a full repaint, the
+    /// same ground truth `damage_survives_a_randomised_edit_sequence` uses.
+    ///
+    /// THE ITEM COUNT IS HELD CONSTANT ON PURPOSE. `compute_display_list_
+    /// damage` returns `None` — full repaint — the moment the item count
+    /// changes, so a fixture that adds or removes a shadow or a child never
+    /// takes the incremental path at all. The first version of this test did
+    /// exactly that and passed with damage forcibly cleared, i.e. it proved
+    /// nothing. Everything here varies SIZE only, so the frame stays
+    /// incremental and the assertion has something to catch.
+    #[test]
+    fn damage_survives_shadow_shrink_and_anonymous_boxes() {
+        #[derive(Debug, Clone)]
+        struct ShapeState {
+            variant: usize,
+        }
+
+        extern "C" fn layout_shapes(mut data: RefAny, _info: LayoutCallbackInfo) -> Dom {
+            use azul_css::dynamic_selector::CssPropertyWithConditions as P;
+            use azul_css::props::basic::color::ColorU;
+            use azul_css::props::basic::{PixelValue, PixelValueNoPercent};
+            use azul_css::props::layout::dimensions::{LayoutHeight, LayoutWidth};
+            use azul_css::props::property::CssProperty;
+            use azul_css::props::style::background::{
+                StyleBackgroundContent, StyleBackgroundContentVec,
+            };
+            use azul_css::props::style::box_shadow::{BoxShadowClipMode, StyleBoxShadow};
+
+            let v = data.downcast_ref::<ShapeState>().map(|s| s.variant).unwrap_or(0);
+            let bg: StyleBackgroundContentVec =
+                vec![StyleBackgroundContent::Color(ColorU { r: 0, g: 0, b: 200, a: 255 })].into();
+
+            // Variant drives size, shadow presence and child count together,
+            // so consecutive steps exercise several shapes at once.
+            let (w, h) = match v % 4 {
+                0 => (180.0, 90.0),
+                1 => (60.0, 30.0),   // shrink: vacates a large area
+                2 => (200.0, 100.0), // grow back
+                _ => (120.0, 60.0),
+            };
+            let mut props = vec![
+                P::simple(CssProperty::width(LayoutWidth::px(w))),
+                P::simple(CssProperty::height(LayoutHeight::px(h))),
+                P::simple(CssProperty::background_content(bg)),
+            ];
+            {
+                let shadow = StyleBoxShadow {
+                    offset_x: PixelValueNoPercent { inner: PixelValue::const_px(6) },
+                    offset_y: PixelValueNoPercent { inner: PixelValue::const_px(6) },
+                    blur_radius: PixelValueNoPercent { inner: PixelValue::const_px(8) },
+                    spread_radius: PixelValueNoPercent { inner: PixelValue::const_px(4) },
+                    clip_mode: BoxShadowClipMode::default(),
+                    color: ColorU { r: 0, g: 0, b: 0, a: 200 },
+                };
+                props.push(P::simple(CssProperty::box_shadow_left(shadow.clone())));
+                props.push(P::simple(CssProperty::box_shadow_right(shadow.clone())));
+                props.push(P::simple(CssProperty::box_shadow_top(shadow.clone())));
+                props.push(P::simple(CssProperty::box_shadow_bottom(shadow)));
+            }
+
+            // A constant inline child: it forces the anonymous layout boxes
+            // an inline formatting context creates (which have no DOM node),
+            // while keeping the display-list item COUNT stable so the frame
+            // stays on the incremental path — see the note on the test.
+            let div = Dom::create_div()
+                .with_css_props(props.into())
+                .with_child(Dom::create_text("one two three"));
+            Dom::create_body().with_child(div)
+        }
+
+        let state = Arc::new(RefCell::new(RefAny::new(ShapeState { variant: 0 })));
+        let mut window = make_window_with(&state, layout_shapes);
+        window.regenerate_layout().expect("initial layout");
+        window.regenerate_layout().expect("settle");
+
+        for step in 1..12usize {
+            if let Ok(mut b) = state.try_borrow_mut() {
+                if let Some(mut s) = b.downcast_mut::<ShapeState>() {
+                    s.variant = step;
+                }
+            }
+            window.regenerate_layout().expect("incremental relayout");
+            let incremental = window
+                .cpu_backend
+                .last_frame
+                .as_ref()
+                .expect("frame")
+                .clone_pixmap();
+            let damage = window.cpu_backend.last_frame_damage.clone();
+
+            let mut fresh = make_window_with(&state, layout_shapes);
+            fresh.regenerate_layout().expect("fresh layout");
+            let full = fresh.cpu_backend.last_frame.as_ref().expect("fresh").clone_pixmap();
+
+            let (a, b) = (incremental.data(), full.data());
+            let mut diffs = 0usize;
+            let mut first: Option<(u32, u32)> = None;
+            let w = incremental.width();
+            for i in (0..a.len().min(b.len())).step_by(4) {
+                if a[i] != b[i] || a[i + 1] != b[i + 1] || a[i + 2] != b[i + 2] {
+                    diffs += 1;
+                    if first.is_none() {
+                        let px = (i / 4) as u32;
+                        first = Some((px % w, px / w));
+                    }
+                }
+            }
+            assert_eq!(
+                diffs, 0,
+                "variant {step} left {diffs} stale pixels, first at {first:?}. \
+                 Damage did not cover a shadow fringe, a vacated area, or an \
+                 anonymous-box change. damage = {damage:?}"
+            );
+        }
+    }
+
     /// STRESS the damage diff with a long, varied edit sequence.
     ///
     /// `tight_text_damage_leaves_no_stale_pixels` proves one scripted edit
