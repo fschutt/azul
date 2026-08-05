@@ -7972,7 +7972,6 @@ dependencies = [
  "allocator-api2",
  "azul-core",
  "azul-css",
- "azul-layout",
  "bincode 2.0.1",
  "bitflags 2.13.1",
  "brotli",
