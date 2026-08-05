@@ -160,3 +160,71 @@ fn monolith_taller_than_every_page_terminates_with_overflow() {
         pages[0].content_block_size
     );
 }
+
+// ---------------------------------------------------------------------------
+// K31: margin truncation at unforced breaks + forced-break propagation
+// ---------------------------------------------------------------------------
+
+#[test]
+fn unforced_break_truncates_the_resumed_childs_top_margin() {
+    // b1 140px; b2/b3 140px with margin-top 20. Continuous: b1 0..140,
+    // b2 160..300, b3 320..460. Page 300: b1+b2 fit exactly (300); b3's
+    // margin-advanced pen (320) overflows → unforced break before b3.
+    // Page 2: css-break-3 §5.2 — b3 starts FLUSH (margin truncated): 140,
+    // not 160.
+    let html = r#"
+    <html><head><style>
+        * { margin: 0; padding: 0; }
+        .a { height: 140px; }
+        .b { height: 140px; margin-top: 20px; }
+    </style></head>
+    <body>
+        <div class="a">one</div>
+        <div class="b">two</div>
+        <div class="b">three</div>
+    </body></html>"#;
+    let pages = run(html, 300.0);
+    assert_eq!(pages.len(), 2, "{pages:?}");
+    assert!(
+        (pages[0].content_block_size - 300.0).abs() < 0.6,
+        "page 0 holds b1 + margin + b2 exactly: {}",
+        pages[0].content_block_size
+    );
+    assert!(
+        (pages[1].content_block_size - 140.0).abs() < 0.6,
+        "the resumed child's 20px top margin TRUNCATES at the unforced \
+         break (got {} — 160 would mean the margin survived)",
+        pages[1].content_block_size
+    );
+}
+
+#[test]
+fn forced_page_break_node_splits_and_preserves_the_next_margin() {
+    // <pagebreak/> (UA break-before: page) after b1 forces a boundary even
+    // though everything would fit one 400px page. FORCED breaks preserve
+    // the adjoining margin (css-break-3 §5.2 truncates UNFORCED only):
+    // page 2 = 30px margin + 100px block = 130.
+    let html = r#"
+    <html><head><style>
+        * { margin: 0; padding: 0; }
+        .p { height: 100px; }
+        .m { height: 100px; margin-top: 30px; }
+    </style></head>
+    <body>
+        <div class="p">one</div>
+        <pagebreak/>
+        <div class="m">two</div>
+    </body></html>"#;
+    let pages = run(html, 400.0);
+    assert_eq!(pages.len(), 2, "forced break splits a fitting page: {pages:?}");
+    assert!(
+        (pages[0].content_block_size - 100.0).abs() < 0.6,
+        "page 0 ends at the forced boundary: {}",
+        pages[0].content_block_size
+    );
+    assert!(
+        (pages[1].content_block_size - 130.0).abs() < 0.6,
+        "a FORCED break preserves the next child's 30px margin (got {} —          100 would mean it was wrongly truncated)",
+        pages[1].content_block_size
+    );
+}

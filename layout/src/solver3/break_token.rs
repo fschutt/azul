@@ -78,9 +78,12 @@ pub enum ChildBreakEntry {
         child: usize,
         token: Box<BreakToken>,
     },
-    /// The child has not started yet — a break landed before it (including
-    /// forced `break-before`).
-    BreakBefore { child: usize },
+    /// The child has not started yet — a break landed before it.
+    /// `forced` = the break came from `break-before: page` (or a
+    /// `<pagebreak/>` node): css-break-3 §5.2 truncates margins adjoining
+    /// UNFORCED breaks only, so the resume side keeps this child's top
+    /// margin iff the break was forced.
+    BreakBefore { child: usize, forced: bool },
 }
 
 /// Owned snapshot of text3's [`BreakCursor`] — the inline resume state.
@@ -212,8 +215,11 @@ pub fn tail_token(
 ) -> BreakToken {
     let mut children = alloc::vec![ChildBreakEntry::BreakBefore {
         child: breaking_child,
+        forced: false,
     }];
-    children.extend(later_in_flow_siblings.map(|child| ChildBreakEntry::BreakBefore { child }));
+    children.extend(
+        later_in_flow_siblings.map(|child| ChildBreakEntry::BreakBefore { child, forced: false }),
+    );
     BreakToken::Block(BlockBreakToken {
         node,
         consumed_block_size,
@@ -235,9 +241,8 @@ pub struct ResumePlan {
 pub fn resume_plan(token: &BlockBreakToken) -> Option<ResumePlan> {
     token.children.first().map(|entry| ResumePlan {
         first_unfinished: match entry {
-            ChildBreakEntry::ResumeIn { child, .. } | ChildBreakEntry::BreakBefore { child } => {
-                *child
-            }
+            ChildBreakEntry::ResumeIn { child, .. }
+            | ChildBreakEntry::BreakBefore { child, .. } => *child,
         },
     })
 }
@@ -289,7 +294,7 @@ fn fingerprint_into(mut h: u64, token: &BreakToken) -> u64 {
                         h = fnv_u64(h, *child as u64);
                         h = fingerprint_into(h, token);
                     }
-                    ChildBreakEntry::BreakBefore { child } => {
+                    ChildBreakEntry::BreakBefore { child, .. } => {
                         h = fnv(h, 0x03);
                         h = fnv_u64(h, *child as u64);
                     }
@@ -375,7 +380,7 @@ mod break_token_laws {
             7,
             120.5,
             vec![
-                ChildBreakEntry::BreakBefore { child: 3 },
+                ChildBreakEntry::BreakBefore { child: 3, forced: false },
                 ChildBreakEntry::ResumeIn {
                     child: 2,
                     token: Box::new(inline(4, vec![tab(0, 9, 12.0)])),
@@ -550,9 +555,9 @@ mod break_token_laws {
         assert_eq!(
             b.children,
             vec![
-                ChildBreakEntry::BreakBefore { child: 7 },
-                ChildBreakEntry::BreakBefore { child: 9 },
-                ChildBreakEntry::BreakBefore { child: 12 },
+                ChildBreakEntry::BreakBefore { child: 7, forced: false },
+                ChildBreakEntry::BreakBefore { child: 9, forced: false },
+                ChildBreakEntry::BreakBefore { child: 12, forced: false },
             ]
         );
         // Consumer side: resume starts exactly at the breaking child.
@@ -585,7 +590,7 @@ mod break_token_laws {
                     child: 1,
                     token: Box::new(inline(2, vec![])),
                 },
-                ChildBreakEntry::BreakBefore { child: 2 },
+                ChildBreakEntry::BreakBefore { child: 2, forced: false },
             ],
         );
         let after_child_finished = block(
@@ -606,7 +611,7 @@ mod break_token_laws {
                     child: 1,
                     token: Box::new(inline(3, vec![])),
                 },
-                ChildBreakEntry::BreakBefore { child: 2 },
+                ChildBreakEntry::BreakBefore { child: 2, forced: false },
             ],
         );
         assert_ne!(before, after_items_consumed);

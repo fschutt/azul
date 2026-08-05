@@ -1386,6 +1386,21 @@ fn layout_bfc<T: ParsedFontTrait>(
     let mut fragment_resume_reached = fragment_resume_from.is_none();
     let mut fragment_placed_content = false;
     let mut fragment_token_out: Option<crate::solver3::break_token::BreakToken> = None;
+    // css-break-3 §5.2: margins adjoining an UNFORCED break truncate; a
+    // FORCED break (break-before: page / <pagebreak/>) keeps them. Pending
+    // until the first resumed child places.
+    let mut fragment_truncate_first_margin: bool = constraints
+        .fragmentainer
+        .as_ref()
+        .and_then(|fs| fs.resume)
+        .and_then(|tok| tok.children.first())
+        .map(|entry| match entry {
+            crate::solver3::break_token::ChildBreakEntry::BreakBefore { forced, .. } => !*forced,
+            // A ResumeIn child CONTINUES mid-box: its top decoration/margin
+            // belongs to its first fragment — nothing to apply here anyway.
+            crate::solver3::break_token::ChildBreakEntry::ResumeIn { .. } => true,
+        })
+        .unwrap_or(false);
 
     // Fragment passes mark every child they DON'T place with a sentinel
     // relative position: the positioning descent then computes far-negative
@@ -1424,6 +1439,64 @@ fn layout_bfc<T: ParsedFontTrait>(
             }
         }
 
+        // K31: snapshot the pen BEFORE this child contributes anything —
+        // a break emitted at this child rolls the pen back here (the margin
+        // adjoining an unforced break truncates on BOTH sides; the pen had
+        // already advanced past the child's collapsed top margin when the
+        // fit check runs).
+        let fragment_pen_at_child = main_pen;
+
+        // K31 forced breaks: `break-before: page` (incl. the UA rule on
+        // `<pagebreak/>` nodes — which are EMPTY blocks and short-circuit
+        // before the fit check, hence this sits at the loop top). Only
+        // once this fragmentainer holds content (a forced break at the top
+        // of a fresh page is vacuously satisfied, else every page would
+        // re-break forever).
+        if fragment_pass
+            && fragment_placed_content
+            && fragment_token_out.is_none()
+            && crate::solver3::getters::get_break_before(
+                ctx.styled_dom,
+                tree.get(child_index).and_then(|n| n.dom_node_id),
+            ) != azul_css::props::layout::fragmentation::PageBreak::Auto
+        {
+            let later: alloc::vec::Vec<usize> = pos_children
+                .iter()
+                .copied()
+                .skip_while(|&c| c != child_index)
+                .skip(1)
+                .filter(|&c| {
+                    let pt = get_position_type(
+                        ctx.styled_dom,
+                        tree.get(c).and_then(|n| n.dom_node_id),
+                    );
+                    pt != LayoutPosition::Absolute && pt != LayoutPosition::Fixed
+                })
+                .collect();
+            let mut children =
+                alloc::vec![crate::solver3::break_token::ChildBreakEntry::BreakBefore {
+                    child: child_index,
+                    forced: true,
+                }];
+            children.extend(later.into_iter().map(|child| {
+                crate::solver3::break_token::ChildBreakEntry::BreakBefore {
+                    child,
+                    forced: false,
+                }
+            }));
+            fragment_token_out = Some(crate::solver3::break_token::BreakToken::Block(
+                crate::solver3::break_token::BlockBreakToken {
+                    node: node_index,
+                    consumed_block_size: main_pen,
+                    children,
+                    generation: 0,
+                },
+            ));
+            clear_fragment_pos!(child_index);
+            continue;
+        }
+
+        let mut fragment_child_resumed = false;
         // K30b part 2, RESUME arm: this child carries a Block resume token —
         // RE-LAY its subtree from that token inside the remaining extent
         // (its used_size then reflects only the remaining content). If it
@@ -1456,6 +1529,7 @@ fn layout_bfc<T: ParsedFontTrait>(
                     Some(child_space),
                     Some(&mut child_out),
                 )?;
+                fragment_child_resumed = true;
                 if let Some(cont) = child_out {
                     let later: alloc::vec::Vec<usize> = pos_children
                         .iter()
@@ -1476,7 +1550,10 @@ fn layout_bfc<T: ParsedFontTrait>(
                             token: alloc::boxed::Box::new(cont),
                         }];
                     children.extend(later.into_iter().map(|child| {
-                        crate::solver3::break_token::ChildBreakEntry::BreakBefore { child }
+                        crate::solver3::break_token::ChildBreakEntry::BreakBefore {
+                            child,
+                            forced: false,
+                        }
                     }));
                     fragment_token_out = Some(crate::solver3::break_token::BreakToken::Block(
                         crate::solver3::break_token::BlockBreakToken {
@@ -1648,8 +1725,14 @@ fn layout_bfc<T: ParsedFontTrait>(
             tree.warm(child_index).and_then(|w| w.escaped_bottom_margin)
         };
 
-        let child_margin_top = child_escaped_top.unwrap_or(child_own_margin_top);
+        let mut child_margin_top = child_escaped_top.unwrap_or(child_own_margin_top);
         let child_margin_bottom = child_escaped_bottom.unwrap_or(child_own_margin_bottom);
+        // K31: the first child placed after an UNFORCED fragmentation break
+        // starts flush at the fragmentainer top (css-break-3 §5.2).
+        if fragment_truncate_first_margin && !fragment_placed_content {
+            child_margin_top = 0.0;
+            fragment_truncate_first_margin = false;
+        }
 
         debug_info!(
             ctx,
@@ -2061,7 +2144,94 @@ fn layout_bfc<T: ParsedFontTrait>(
                     fragment_placed_content,
                 )
             } {
-                FitDecision::Fits | FitDecision::MonolithOverflow => {}
+                FitDecision::Fits => {
+                    // The fragmentainer PROPAGATES into fitting container
+                    // children too: a forced break (or a deep unforced one
+                    // behind conservative Pass-1 sizes) can hide INSIDE a
+                    // child that fits — e.g. body fits the page whole, but
+                    // a <pagebreak/> lives in it. Re-lay containers under
+                    // the remaining extent; a returned token wraps as
+                    // ResumeIn and stops sibling consumption after this
+                    // child places its fitted part. NEVER for the child the
+                    // RESUME arm just re-laid — a second pass with
+                    // resume: None would clobber the resumed fragment and
+                    // regenerate page 1's token forever (no-progress halt).
+                    let child_is_block_container = !fragment_child_resumed
+                        && tree
+                        .get(child_index)
+                        .is_some_and(|n| {
+                            matches!(
+                                n.formatting_context,
+                                FormattingContext::Block { .. }
+                            ) && !tree.children(child_index).is_empty()
+                        });
+                    if child_is_block_container {
+                        let child_space = FragmentainerSpace {
+                            remaining_block_extent: fs.remaining_block_extent - main_pen,
+                            next_fragmentainer_extent: fs.next_fragmentainer_extent,
+                            is_first: fs.is_first && !fragment_placed_content,
+                            resume: None,
+                        };
+                        let mut child_out: Option<
+                            crate::solver3::break_token::BreakToken,
+                        > = None;
+                        let mut tmp_positions: super::PositionVec = Vec::new();
+                        let mut tmp_scrollbars = false;
+                        crate::solver3::cache::calculate_layout_for_subtree_fragment(
+                            ctx,
+                            tree,
+                            text_cache,
+                            child_index,
+                            LogicalPosition::zero(),
+                            children_containing_block_size,
+                            &mut tmp_positions,
+                            &mut tmp_scrollbars,
+                            float_cache,
+                            crate::solver3::cache::ComputeMode::ComputeSize,
+                            Some(child_space),
+                            Some(&mut child_out),
+                        )?;
+                        if let Some(cont) = child_out {
+                            let later: alloc::vec::Vec<usize> = pos_children
+                                .iter()
+                                .copied()
+                                .skip_while(|&c| c != child_index)
+                                .skip(1)
+                                .filter(|&c| {
+                                    let pt = get_position_type(
+                                        ctx.styled_dom,
+                                        tree.get(c).and_then(|n| n.dom_node_id),
+                                    );
+                                    pt != LayoutPosition::Absolute
+                                        && pt != LayoutPosition::Fixed
+                                })
+                                .collect();
+                            let mut children = alloc::vec![
+                                crate::solver3::break_token::ChildBreakEntry::ResumeIn {
+                                    child: child_index,
+                                    token: alloc::boxed::Box::new(cont),
+                                }
+                            ];
+                            children.extend(later.into_iter().map(|child| {
+                                crate::solver3::break_token::ChildBreakEntry::BreakBefore {
+                                    child,
+                                    forced: false,
+                                }
+                            }));
+                            fragment_token_out =
+                                Some(crate::solver3::break_token::BreakToken::Block(
+                                    crate::solver3::break_token::BlockBreakToken {
+                                        node: node_index,
+                                        consumed_block_size: main_pen,
+                                        children,
+                                        generation: 0,
+                                    },
+                                ));
+                            // No break: this child PLACES its fitted part.
+                        }
+                    }
+                }
+                FitDecision::MonolithOverflow => {}
                 FitDecision::BreakBeforeHere => {
                     let later: alloc::vec::Vec<usize> = pos_children
                         .iter()
@@ -2133,6 +2303,7 @@ fn layout_bfc<T: ParsedFontTrait>(
                             children.extend(later.into_iter().map(|child| {
                                 crate::solver3::break_token::ChildBreakEntry::BreakBefore {
                                     child,
+                                    forced: false,
                                 }
                             }));
                             fragment_token_out =
@@ -2152,6 +2323,9 @@ fn layout_bfc<T: ParsedFontTrait>(
                             // no token from this child.
                         }
                     } else {
+                        // Roll the pen back: the margin that advanced it
+                        // for THIS child adjoins the break and truncates.
+                        main_pen = fragment_pen_at_child;
                         fragment_token_out = Some(tail_token(
                             node_index,
                             main_pen,
