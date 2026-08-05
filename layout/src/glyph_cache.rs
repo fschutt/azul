@@ -199,6 +199,16 @@ impl GlyphCache {
         self.cells.len() + self.cells_prev.len()
     }
 
+    /// Entries held in the PREVIOUS generation of either cache.
+    ///
+    /// Exists so a test can observe [`Self::gc`] actually running: without
+    /// it, "did GC happen" is indistinguishable from "there was nothing to
+    /// collect", and a test asserting the latter passes whether or not the
+    /// GC hook is wired up at all.
+    #[must_use] pub fn prev_generation_len(&self) -> usize {
+        self.paths_prev.len() + self.cells_prev.len()
+    }
+
     /// Get a cached path, or build it on cache miss.
     /// Returns `None` if the glyph has no outline (e.g. space character).
     pub fn get_or_build(

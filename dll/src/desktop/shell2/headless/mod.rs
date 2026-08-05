@@ -548,6 +548,22 @@ impl CpuBackend {
                 self.previous_scroll_offsets = next_scroll_baseline;
                 self.last_frame_damage = FrameDamage::None;
                 self.last_present_damage = FrameDamage::None;
+                // IDLE FRAME — the one safe place to do cache GC.
+                //
+                // `GlyphCache::gc()` frees the previous generation, which is
+                // thousands of PathStorage/cell vectors. That must never land
+                // on a keystroke, and it must NOT run every frame either:
+                // the two-generation scheme depends on `prev` surviving long
+                // enough for a rotated-out glyph to be promoted back, so
+                // GC-ing after every present would collapse it to a single
+                // generation and reintroduce the rebuild storm it exists to
+                // prevent.
+                //
+                // An idle frame is the right compromise: nothing is being
+                // painted, so the work is free in wall-clock terms, and by
+                // definition the user has stopped typing — which is exactly
+                // when a generation has gone cold.
+                self.glyph_cache.gc();
                 return Vec::new();
             }
             // The display-list diff plus, on a grow, the newly-exposed L. The
@@ -2623,6 +2639,91 @@ mod tests {
                  anonymous-box change. damage = {damage:?}"
             );
         }
+    }
+
+    /// Cache GC must run on IDLE frames and not while the user is typing.
+    ///
+    /// `GlyphCache::gc()` frees the previous generation — thousands of
+    /// vectors. Two ways to get this wrong, and this pins both:
+    ///
+    ///  * never calling it: the cold generation is held until a rotation
+    ///    overwrites it, so memory is retained long after the text changed.
+    ///  * calling it every present: `prev` never survives long enough for a
+    ///    rotated-out glyph to be promoted back, collapsing the two
+    ///    generations into one and reintroducing the rebuild storm the
+    ///    generational scheme exists to prevent.
+    #[test]
+    fn glyph_cache_gc_runs_on_idle_frames_only() {
+        let state = Arc::new(RefCell::new(RefAny::new(UiState {
+            label: "alpha beta gamma".to_string(),
+        })));
+        let mut window = make_harness_window(&state);
+        window.regenerate_layout().expect("initial layout");
+
+        // A frame that CHANGES something must not GC — the caches have to
+        // stay warm across an edit.
+        set_label(&state, "delta epsilon zeta");
+        window.regenerate_layout().expect("changed frame");
+        let after_change = window.cpu_backend.glyph_cache.paths_len();
+        assert!(
+            after_change > 0,
+            "the changed frame must have populated the glyph path cache, or \
+             this test cannot tell GC from an empty cache"
+        );
+        assert_ne!(
+            window.cpu_backend.last_frame_damage,
+            FrameDamage::None,
+            "a text change must damage something; if it does not, the idle \
+             branch below is being reached for the wrong reason"
+        );
+
+        // Force a rotation so there IS a previous generation to collect.
+        // Without this the idle frame has nothing to free and the assertion
+        // below would pass whether or not GC is wired up — which is exactly
+        // how the first version of this test managed to be worthless.
+        for i in 0..(8192u64 + 1) {
+            let _ = window
+                .cpu_backend
+                .glyph_cache
+                .get_or_build_cells(i, 0, 16, 0.0, 0.0, 1.0, false, 1.0);
+        }
+        assert!(
+            window.cpu_backend.glyph_cache.prev_generation_len() > 0,
+            "the fixture failed to rotate a generation, so the GC assertion \
+             below would be vacuous"
+        );
+
+        // Now an IDLE frame: same content, nothing to paint.
+        window.regenerate_layout().expect("idle frame");
+        assert_eq!(
+            window.cpu_backend.glyph_cache.prev_generation_len(),
+            0,
+            "an idle frame must collect the previous generation — that is the \
+             whole point of doing GC here rather than on a keystroke"
+        );
+        assert_eq!(
+            window.cpu_backend.last_frame_damage,
+            FrameDamage::None,
+            "an unchanged relayout must be idle, or the GC hook never runs"
+        );
+        // GC only frees the PREVIOUS generation, so the live entries stay.
+        // What must hold is that the cache is still usable and bounded.
+        let after_idle = window.cpu_backend.glyph_cache.paths_len();
+        assert!(
+            after_idle <= after_change,
+            "an idle frame must not GROW the glyph cache (was {after_change}, \
+             now {after_idle})"
+        );
+
+        // And the cache must still serve: another edit reuses it rather than
+        // starting from nothing.
+        set_label(&state, "delta epsilon zeta eta");
+        window.regenerate_layout().expect("second edit");
+        assert!(
+            window.cpu_backend.glyph_cache.paths_len() > 0,
+            "the glyph cache must survive an idle-frame GC — if it is empty \
+             here, GC threw away the LIVE generation, not the cold one"
+        );
     }
 
     /// STRESS the damage diff with a long, varied edit sequence.
