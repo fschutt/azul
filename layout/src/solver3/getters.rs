@@ -3036,7 +3036,7 @@ pub fn get_style_properties(
                 // build_font_selector_stack then resolves via Platform::current() so
                 // the names stay in lock-step with the font-loading pass.
                 let platform = system_style.map(|ss| &ss.platform);
-                FontStack::Stack(build_font_selector_stack(
+                FontStack::Stack(build_font_selector_stack_memo(
                     &font_families,
                     platform,
                     fc_weight,
@@ -3686,6 +3686,86 @@ fn push_family_with_system_aliases(
         style,
         unicode_ranges: Vec::new(),
     });
+}
+
+/// Memoised [`build_font_selector_stack`].
+///
+/// Building the stack is PURE — the same (families, platform, weight,
+/// style) always yields the same selectors — but it was being rebuilt for
+/// every text node during intrinsic sizing and again during inline layout.
+/// On a document whose body sets one `font-family` that every block
+/// inherits, that is the identical eight-selector stack constructed 82
+/// times per pagination, each build allocating a `String` per selector plus
+/// a lowercase copy and a fontconfig alias lookup per generic. It measured
+/// 18% of a warm release-mode pagination (`bfss_*` spans) and was the
+/// single largest source of short-lived allocations in the layout pass.
+///
+/// The memo is per-thread (layout is single-threaded per document, so no
+/// lock) and keyed on everything the builder reads, so a document that
+/// changes family, weight, style or platform gets a fresh build — see the
+/// `memo_is_keyed_on_*` tests.
+#[allow(clippy::implicit_hasher)]
+fn build_font_selector_stack_memo(
+    font_families: &StyleFontFamilyVec,
+    platform: Option<&azul_css::system::Platform>,
+    fc_weight: FcWeight,
+    fc_style: FontStyle,
+) -> Vec<FontSelector> {
+    use core::hash::{Hash, Hasher};
+    use std::cell::RefCell;
+    use std::collections::HashMap;
+
+    // Bounded so a pathological document (thousands of distinct
+    // family/weight combinations) cannot grow the memo without limit; the
+    // realistic working set is single digits.
+    const MAX_ENTRIES: usize = 256;
+
+    thread_local! {
+        static MEMO: RefCell<HashMap<u64, Vec<FontSelector>>> =
+            RefCell::new(HashMap::new());
+    }
+
+    let key = {
+        let mut h = std::collections::hash_map::DefaultHasher::new();
+        for i in 0..font_families.len() {
+            font_families.get(i).unwrap().hash(&mut h);
+        }
+        // `Platform` is a repr(C) FFI enum without `Hash`; hash its
+        // discriminant plus the one payload the builder can read (the
+        // Linux desktop-environment name).
+        match platform {
+            None => 0u8.hash(&mut h),
+            Some(p) => {
+                1u8.hash(&mut h);
+                core::mem::discriminant(p).hash(&mut h);
+                if let azul_css::system::Platform::Linux(de) = p {
+                    core::mem::discriminant(de).hash(&mut h);
+                    if let azul_css::system::DesktopEnvironment::Other(name) = de {
+                        name.as_str().hash(&mut h);
+                    }
+                }
+            }
+        }
+        core::mem::discriminant(&fc_weight).hash(&mut h);
+        core::mem::discriminant(&fc_style).hash(&mut h);
+        h.finish()
+    };
+
+    if let Some(hit) = MEMO.with(|m| m.borrow().get(&key).cloned()) {
+        drop(crate::probe::Probe::span("font_stack_memo_hit"));
+        return hit;
+    }
+
+    let _p = crate::probe::Probe::span("font_stack_build");
+    let built = build_font_selector_stack(font_families, platform, fc_weight, fc_style);
+    MEMO.with(|m| {
+        let mut m = m.borrow_mut();
+        if m.len() >= MAX_ENTRIES {
+            m.clear();
+        }
+        m.insert(key, built.clone());
+    });
+    built
 }
 
 fn build_font_selector_stack(
@@ -7743,6 +7823,91 @@ mod autotest_generated {
         assert_eq!(stack[4].family, "monospace");
         assert_eq!(stack[4].weight, FcWeight::Normal);
         assert_eq!(stack[4].style, FontStyle::Normal);
+    }
+
+    #[test]
+    fn font_stack_memo_returns_what_the_builder_would_have_built() {
+        let families = StyleFontFamilyVec::from_vec(vec![StyleFontFamily::System(
+            "Iosevka".to_string().into(),
+        )]);
+        let direct = build_font_selector_stack(&families, None, FcWeight::Normal, FontStyle::Normal);
+        // Twice: the first call fills the memo, the second must be served
+        // from it — and both must equal the unmemoised build.
+        for _ in 0..2 {
+            let memoed =
+                build_font_selector_stack_memo(&families, None, FcWeight::Normal, FontStyle::Normal);
+            assert_eq!(memoed, direct, "the memo must not alter the stack");
+        }
+    }
+
+    /// NEGATIVE CONTROL for the memo key.
+    ///
+    /// A memo whose key omits an input silently serves the previous
+    /// document's fonts — the same class of defect as the font-resolver
+    /// skip (see `changing_the_font_family_still_resolves_after_the_skip`).
+    /// Each case below changes exactly ONE input and requires the result to
+    /// change; if the key ever loses a field, the corresponding case fails.
+    #[test]
+    fn font_stack_memo_is_keyed_on_every_input_it_reads() {
+        let iosevka = StyleFontFamilyVec::from_vec(vec![StyleFontFamily::System(
+            "Iosevka".to_string().into(),
+        )]);
+        let menlo = StyleFontFamilyVec::from_vec(vec![StyleFontFamily::System(
+            "Menlo".to_string().into(),
+        )]);
+
+        let base =
+            build_font_selector_stack_memo(&iosevka, None, FcWeight::Normal, FontStyle::Normal);
+        assert_eq!(base[0].family, "Iosevka");
+
+        // 1. different FAMILY
+        let other_family =
+            build_font_selector_stack_memo(&menlo, None, FcWeight::Normal, FontStyle::Normal);
+        assert_eq!(
+            other_family[0].family, "Menlo",
+            "a different family must not be served the memoised stack"
+        );
+
+        // 2. different WEIGHT
+        let bold = build_font_selector_stack_memo(&iosevka, None, FcWeight::Bold, FontStyle::Normal);
+        assert_eq!(
+            bold[0].weight,
+            FcWeight::Bold,
+            "weight is part of every FontSelector, so it must be part of the key"
+        );
+
+        // 3. different STYLE
+        let italic =
+            build_font_selector_stack_memo(&iosevka, None, FcWeight::Normal, FontStyle::Italic);
+        assert_eq!(
+            italic[0].style,
+            FontStyle::Italic,
+            "style is part of every FontSelector, so it must be part of the key"
+        );
+
+        // 4. different PLATFORM — only observable through a system font,
+        //    whose fallback chain is platform-specific.
+        let sys = StyleFontFamilyVec::from_vec(vec![StyleFontFamily::System(
+            "system:ui".to_string().into(),
+        )]);
+        let mac = build_font_selector_stack_memo(
+            &sys,
+            Some(&azul_css::system::Platform::MacOs),
+            FcWeight::Normal,
+            FontStyle::Normal,
+        );
+        let win = build_font_selector_stack_memo(
+            &sys,
+            Some(&azul_css::system::Platform::Windows),
+            FcWeight::Normal,
+            FontStyle::Normal,
+        );
+        assert_ne!(
+            mac[0].family, win[0].family,
+            "the platform selects the system fallback chain, so it must be \
+             part of the key — got {:?} for both",
+            mac[0].family
+        );
     }
 
     #[test]

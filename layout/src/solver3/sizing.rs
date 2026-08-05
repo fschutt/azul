@@ -370,6 +370,7 @@ impl<'a, 'b, 'c, T: ParsedFontTrait> IntrinsicSizeCalculator<'a, 'b, 'c, T> {
         }
 
         // Then calculate this node's intrinsic size based on its children
+        let _p_self = crate::probe::Probe::span("intrinsic_node_compute");
         let mut intrinsic = self.calculate_node_intrinsic_sizes(tree, node_index, &child_intrinsics)?;
 
         // +spec:min-max-sizing:970fef - if min-width/min-height is a <length>, use as floor for intrinsic sizes
@@ -716,6 +717,7 @@ impl<'a, 'b, 'c, T: ParsedFontTrait> IntrinsicSizeCalculator<'a, 'b, 'c, T> {
             crate::az_mark(0x60758_u32, (c));
             crate::az_mark(0x6075C_u32, (node_index as u32));
         }
+        let _p_ifc = crate::probe::Probe::span("intrinsic_ifc_root");
         // Collect all inline content from this IFC root and its inline descendants
         // [g76] EXPLICIT match (was `?`): the g75 markers showed collect_inline_content reaching its
         // completion marker B8 (Ok at the source level) yet the IFC sizer never advancing to 0xA1 —
@@ -732,7 +734,10 @@ impl<'a, 'b, 'c, T: ParsedFontTrait> IntrinsicSizeCalculator<'a, 'b, 'c, T> {
         // mis-lifted Ok→Err (g76/g77 PROVED it: 0x60760=0xEE despite the source reaching B8). Filling
         // a `&mut Vec` out-param and returning `Result<()>` (register-returned, NO sret-of-Vec) lifts
         // cleanly — the established M12.7 "a pointer arg lifts cleanly" pattern. 0x60760 should now =1.
-        let collect_result = collect_inline_content(self.ctx, tree, node_index);
+        let collect_result = {
+            let _p = crate::probe::Probe::span("intrinsic_collect_inline");
+            collect_inline_content(self.ctx, tree, node_index)
+        };
         #[cfg(feature = "web_lift")]
         unsafe { crate::az_mark((0x60760) as u32, (if collect_result.is_ok() { 0x00000001u32 } else { 0x000000EEu32 }) as u32); }
         let inline_content: Vec<InlineContent> = collect_result?;
@@ -805,6 +810,7 @@ impl<'a, 'b, 'c, T: ParsedFontTrait> IntrinsicSizeCalculator<'a, 'b, 'c, T> {
             // If text MEASURES → the forced const pages contained EMPTY_GROUP → systemic fix found.
             let _ = (cl, loaded_fonts.len());
         }
+        let _p_measure = crate::probe::Probe::span("intrinsic_measure_widths");
         let Ok(intrinsic_text) = self.text_cache.measure_intrinsic_widths(
             &inline_content,
             &[],
@@ -1218,12 +1224,7 @@ fn collect_inline_content_recursive<T: ParsedFontTrait>(
         let style_props = Arc::new(get_style_properties(ctx.styled_dom, dom_id, ctx.system_style.as_ref(), azul_css::props::basic::PhysicalSize::new(ctx.viewport_size.width, ctx.viewport_size.height)));
         debug_log!(ctx, "Found text in node {}: '{}'", node_index, text);
         // Use split_text_for_whitespace to correctly handle white-space: pre with \n
-        let text_items = split_text_for_whitespace(
-            ctx.styled_dom,
-            dom_id,
-            &text,
-            &style_props,
-        );
+        let text_items = split_text_for_whitespace(ctx.styled_dom, dom_id, &text, &style_props);
         content.extend(text_items);
     }
 

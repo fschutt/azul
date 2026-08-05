@@ -124,8 +124,24 @@ fn paginate_with(
     pagination.page_count
 }
 
+/// A debug build is 10-13x slower than release here, and the ratio is not
+/// uniform across phases — an unoptimised `String`/`Vec` helper dominates a
+/// debug profile while barely registering in release. Reading a debug
+/// profile as if it were the shipped cost sends you optimising the
+/// allocator, not the algorithm; that happened once already (a 38 ms
+/// "sizing pass" that is 2 ms in release). Say so in the output.
+fn build_profile_banner() {
+    if cfg!(debug_assertions) {
+        eprintln!(
+            "[perf] *** DEBUG BUILD - these numbers are NOT the shipped cost. \
+             Re-run with --release before drawing any conclusion. ***"
+        );
+    }
+}
+
 #[test]
 fn pagination_phase_breakdown() {
+    build_profile_banner();
     let html = sample_html(30);
     let fc = build_font_cache();
     let mut fm = FontManager::new(fc).expect("font manager");
