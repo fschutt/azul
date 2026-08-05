@@ -461,7 +461,14 @@ mod engine {
     /// `SetFont` ops reference.
     fn page_ops(
         dl: &azul_layout::solver3::display_list::DisplayList,
-        page_size_px: azul_core::geom::LogicalSize,
+        // POINTS, not px. printpdf's CoordTransform computes
+        // `page_height - layout_y * (72/96)`: it scales the LAYOUT
+        // coordinate from CSS px into pt and subtracts from a page height
+        // that must already BE in pt. Handing it the pixel height put every
+        // drawing op ~1.33x too high — on A4 the whole content landed above
+        // the 842pt page box, so exported PDFs carried correct text ops,
+        // embedded fonts and page objects yet rendered BLANK.
+        page_size_pt: azul_core::geom::LogicalSize,
         font_manager: &azul_layout::font_traits::FontManager<azul_css::props::basic::FontRef>,
         images: &printpdf::html::bridge::ResolvedImages,
         bridge_res: &mut printpdf::html::bridge::BridgeResources,
@@ -475,7 +482,7 @@ mod engine {
 
         let ops = printpdf::html::bridge::display_list_to_printpdf_ops_with_margins(
             dl,
-            page_size_px,
+            page_size_pt,
             0.0,
             0.0,
             font_manager,
@@ -726,8 +733,10 @@ mod engine {
 
         let page_w_mm = page_w_px * 25.4 / 96.0;
         let page_h_mm = page_h_px * 25.4 / 96.0;
-        let _ = PX_TO_PT; // kept for callers/tests that reason in pt
-        let page_size_px = LogicalSize::new(page_w_px, page_h_px);
+        // The page BOX is mm-derived (A4 = 210x297mm = 595x842pt) while the
+        // display lists are laid out in CSS px, so the bridge needs the page
+        // extent in pt to invert the Y axis consistently.
+        let page_size_pt = LogicalSize::new(page_w_px * PX_TO_PT, page_h_px * PX_TO_PT);
         let mut display_lists = display_lists;
         let mut images = printpdf::html::bridge::ResolvedImages::new();
         resolve_raw_images(&mut display_lists, &mut images);
@@ -742,7 +751,7 @@ mod engine {
             .map(|dl| {
                 let ops = page_ops(
                     dl,
-                    page_size_px,
+                    page_size_pt,
                     &font_manager,
                     &images,
                     &mut bridge_res,
