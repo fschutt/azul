@@ -256,7 +256,10 @@ svg = [
 ]
 
 # CPU-based rendering (agg-rust, requires allsorts for text)
-cpurender = ["dep:agg-rust", "dep:png", "dep:allsorts", "dep:gl-context-loader"]
+# cpurender's svg.rs parses SVG through `crate::xml` — the feature must
+# declare that, or enabling cpurender alone fails to compile (found when
+# scoping the glyph rasterizer's azul-layout features).
+cpurender = ["dep:agg-rust", "dep:png", "dep:allsorts", "dep:gl-context-loader", "xml"]
 
 # Accessibility support (accesskit)
 a11y = ["dep:accesskit"]

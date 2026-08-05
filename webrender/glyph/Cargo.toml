@@ -34,7 +34,12 @@ log = "0.4"
 lazy_static = "1"
 fxhash = "0.2.1"
 # Replaces FreeType, CoreText, and DirectWrite.
-azul-layout = { path = "../../layout" }
+# Only the parsed-font types (font::parsed, font_ref_to_parsed_font) are
+# used here. Taking azul-layout with DEFAULT features made cargo feature
+# unification force that full set (a11y, svg, widgets, icons,
+# font_async_registry, ...) on every downstream consumer, silently
+# defeating any app-side `default-features = false`.
+azul-layout = { path = "../../layout", default-features = false, features = ["std", "font_loading", "text_layout", "cpurender"] }
 azul-core = { path = "../../core" }
 azul-css = { path = "../../css" }
 agg-rust = { package = "agg-rust-azul", version = "1.0.2", default-features = false }

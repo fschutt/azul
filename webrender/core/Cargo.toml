@@ -35,7 +35,12 @@ time = "0.3"
 api = { version = "0.62.0", path = "../api", package = "webrender_api" }
 webrender_build = { path = "../build" }
 glyph_rasterizer = { version = "0.1.0", path = "../glyph", package = "wr_azul_glyph_rasterizer", default-features = false }
-azul-layout = { path = "../../layout" }
+# azul-layout is NOT used by webrender (zero `azul_layout::` references in
+# src/). It was pulling the crate with DEFAULT features, and cargo feature
+# unification then forced that full set on every downstream consumer -
+# `default-features = false` in an app's own azul-layout dep was silently
+# defeated (miniword's font_async_registry pin never took effect). Kept
+# minimal instead of deleted only if a future need appears; for now: gone.
 azul-core = { path = "../../core" }
 azul-css = { path = "../../css" }
 svg_fmt = "0.4"
