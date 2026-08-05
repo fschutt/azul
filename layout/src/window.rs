@@ -2769,8 +2769,6 @@ impl LayoutWindow {
             // list is only re-computed inside `build_compact_cache`,
             // which most layouts do NOT re-run.
             let compact_cache_ref = styled_dom.css_property_cache.ptr.compact_cache.as_ref();
-            let font_dirty_count = compact_cache_ref
-                .map_or(1, |cc| cc.font_dirty_nodes.len()); // if no compact cache, treat as dirty
 
             let font_stacks_sig = compact_cache_ref.map(|cc| {
                 // Fast polynomial rolling hash over the `prev_font_hashes`
@@ -2801,9 +2799,26 @@ impl LayoutWindow {
             // loaded (parsed_fonts stayed flat even with eight distinct families
             // on screen) and silently rendered in the previous DOM's font. The
             // signature is what actually detects "these are different font
-            // stacks", so it is now required, not merely an alternative.
-            let font_requirements_unchanged = font_dirty_count == 0
-                && font_stacks_sig.is_some()
+            // stacks", so it is required.
+            //
+            // The dirty count is NOT also required, and requiring it made the
+            // skip dead code in the case it exists for. An app that rebuilds
+            // its DOM each frame (the normal shape: a layout callback returns
+            // a fresh Dom) hands over a compact cache where every font-bearing
+            // node reads as dirty — measured at 104 of 104 nodes, every frame,
+            // forever — while the signature matched on every frame after the
+            // first. So the resolver re-ran the full collect-and-resolve for a
+            // document whose font stacks were provably identical: 2.4 ms of an
+            // 8.9 ms edit frame, the single largest item in it.
+            //
+            // The signature is strictly stronger than the dirty count: it is
+            // computed over `prev_font_hashes`, i.e. the resolved font stack of
+            // every node, so any change to any node's family changes it. The
+            // remaining conjuncts are what make the skip safe — a signature
+            // must actually have been recorded, and there must be chains to
+            // reuse. `evict_unused` only drops loca/glyf from a live face
+            // (default.rs), so an eviction cannot invalidate a cached chain.
+            let font_requirements_unchanged = font_stacks_sig.is_some()
                 && font_stacks_sig == self.font_manager.last_resolved_font_stacks_sig
                 && !self.font_manager.font_chain_cache.is_empty();
 
@@ -7425,6 +7440,90 @@ impl LayoutWindow {
 mod tests {
     use super::*;
     use crate::{thread::Thread, timer::Timer};
+
+    /// NEGATIVE CONTROL for the font-resolution skip on the WINDOW path.
+    ///
+    /// `layout_and_generate_display_list` skips font resolution when the
+    /// DOM's font-stack signature matches what the `FontManager` last
+    /// resolved. If that check is too coarse, a document asking for a
+    /// DIFFERENT family silently renders in the previous document's font —
+    /// the exact failure the surrounding comment documents for wholesale
+    /// DOM swaps, and the reason the skip carries a signature at all.
+    ///
+    /// Layouts three DOMs through ONE window: family A, then family B
+    /// (which must resolve), then B again (which must skip). Mirrors
+    /// `changing_the_font_family_still_resolves_after_the_skip`, which
+    /// covers the pagination entry point.
+    #[test]
+    fn changing_the_font_family_still_resolves_on_the_window_path() {
+        use crate::xml::DomXmlExt;
+        use azul_core::{dom::Dom, geom::LogicalSize, resources::RendererResources};
+
+        fn doc(family: &str) -> String {
+            format!(
+                r#"<html><head><style>
+                    body {{ font-family: '{family}'; font-size: 15px; }}
+                </style></head><body><p>Text that needs a font.</p></body></html>"#
+            )
+        }
+
+        let fc = crate::font::loading::build_font_cache();
+        let Ok(mut window) = LayoutWindow::new(fc) else { return };
+        let rr = RendererResources::default();
+        let sc = crate::callbacks::ExternalSystemCallbacks::rust_internal();
+
+        fn layout(
+            window: &mut LayoutWindow,
+            rr: &RendererResources,
+            sc: &crate::callbacks::ExternalSystemCallbacks,
+            html: &str,
+        ) {
+            let styled_dom = Dom::from_xml_string(html);
+            let mut ws = crate::window_state::FullWindowState::default();
+            ws.size.dimensions = LogicalSize::new(600.0, 400.0);
+            let mut dbg = None;
+            window
+                .layout_and_generate_display_list(styled_dom, &ws, rr, sc, &mut dbg)
+                .expect("layout");
+        }
+
+        layout(&mut window, &rr, &sc, &doc("Liberation Sans"));
+        let sans_sig = window.font_manager.last_resolved_font_stacks_sig;
+        assert!(
+            sans_sig.is_some(),
+            "the signature must be RECORDED, or the skip can never arm"
+        );
+
+        // A DIFFERENT family: the signature must change and the resolver
+        // must run again.
+        layout(&mut window, &rr, &sc, &doc("Liberation Mono"));
+        let mono_sig = window.font_manager.last_resolved_font_stacks_sig;
+        assert_ne!(
+            mono_sig, sans_sig,
+            "a new font family must re-resolve — otherwise the skip is a gate \
+             that starves changed fonts and the document renders in the \
+             previous family"
+        );
+        let mono_families: Vec<String> = window
+            .font_manager
+            .font_chain_cache
+            .keys()
+            .filter_map(|k| k.font_families.first().cloned())
+            .collect();
+        assert!(
+            mono_families.iter().any(|f| f == "Liberation Mono"),
+            "the new family must be in the chain cache, got {mono_families:?}"
+        );
+
+        // The SAME document again must reuse the recorded signature, i.e.
+        // the skip really does arm. Without this the test above would pass
+        // even if the skip had silently stopped working.
+        layout(&mut window, &rr, &sc, &doc("Liberation Mono"));
+        assert_eq!(
+            window.font_manager.last_resolved_font_stacks_sig, mono_sig,
+            "an unchanged document must keep the recorded signature"
+        );
+    }
 
     #[test]
     fn test_timer_add_remove() {

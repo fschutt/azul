@@ -135,6 +135,56 @@ impl FrameHarness {
     }
 }
 
+impl FrameHarness {
+    /// Relayout, then repaint ONLY `damage` — the path a real shell takes
+    /// for an edit. `pixmap` is retained across calls, as a window's is.
+    fn damaged_frame(
+        &mut self,
+        html: &str,
+        pixmap: &mut AzulPixmap,
+        damage: &[azul_core::geom::LogicalRect],
+    ) {
+        let styled_dom = {
+            let _p = azul_layout::probe::Probe::span("frame_parse_and_cascade");
+            Dom::from_xml_string(html)
+        };
+        let mut ws = FullWindowState::default();
+        ws.size.dimensions = LogicalSize::new(self.width, H);
+        {
+            let _p = azul_layout::probe::Probe::span("frame_layout");
+            let mut dbg = None;
+            self.window
+                .layout_and_generate_display_list(
+                    styled_dom,
+                    &ws,
+                    &self.resources,
+                    &self.callbacks,
+                    &mut dbg,
+                )
+                .expect("layout");
+        }
+        let _p = azul_layout::probe::Probe::span("frame_render_damaged");
+        let dl = &self
+            .window
+            .layout_results
+            .get(&DomId { inner: 0 })
+            .expect("layout result")
+            .display_list;
+        let state = azul_layout::cpurender::CpuRenderState::new(Default::default());
+        cpurender::render_display_list_damaged(
+            dl,
+            pixmap,
+            1.0,
+            &self.resources,
+            &self.window.font_manager,
+            &mut self.glyph_cache,
+            &state,
+            damage,
+        )
+        .expect("damaged render");
+    }
+}
+
 /// Group drained probe events by name and report SELF time.
 ///
 /// Spans arrive post-order carrying (duration, depth), so a span's immediate
@@ -233,4 +283,30 @@ fn frame_cost_idle_edit_and_resize() {
     }
     eprintln!("[frame] resize = {:?} per frame", t.elapsed() / N);
     report("resize", N);
+
+    // DAMAGED EDIT — what typing actually costs in a real window.
+    //
+    // The three phases above deliberately repaint the WHOLE frame: that is
+    // the first-paint / full-expose case. A shell with damage tracking
+    // repaints only the changed paragraph, and `render_display_list_damaged`
+    // is the function it calls. One paragraph of a 30-paragraph page is the
+    // realistic edit, and this — not the full-frame number — is what the
+    // interactive budget is spent against.
+    h.width = W;
+    let mut retained = h.frame(&html);
+    let _ = azul_layout::probe::Probe::drain();
+    let para = azul_core::geom::LogicalRect {
+        origin: azul_core::geom::LogicalPosition { x: 0.0, y: 300.0 },
+        size: LogicalSize::new(W, 40.0),
+    };
+    let t = std::time::Instant::now();
+    for i in 0..N {
+        let edited = sample_html(30, Some((i as usize) % 30));
+        h.damaged_frame(&edited, &mut retained, core::slice::from_ref(&para));
+    }
+    eprintln!(
+        "[frame] edit (DAMAGED, one paragraph) = {:?} per frame",
+        t.elapsed() / N
+    );
+    report("edit-damaged", N);
 }
