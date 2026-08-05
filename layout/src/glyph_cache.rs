@@ -101,17 +101,32 @@ struct CachedCells {
     cells: Vec<CellAa>,
 }
 
-/// Maximum number of glyph path entries before eviction.
-/// ~8K glyphs covers most Latin + CJK pages without unbounded growth.
-const MAX_PATH_ENTRIES: usize = 8192;
-/// Maximum number of cell cache entries before eviction.
-/// Cell entries are larger than paths, so a lower limit is appropriate.
-const MAX_CELL_ENTRIES: usize = 16384;
+/// Entries per GENERATION before rotating. Two generations are live, so
+/// the cache holds up to twice this — the totals match the single-map
+/// caps these replaced (8192 paths, 16384 cells).
+const MAX_PATH_ENTRIES: usize = 4096;
+/// See [`MAX_PATH_ENTRIES`]. Cell entries are larger than paths.
+const MAX_CELL_ENTRIES: usize = 8192;
 
 /// Cache of built glyph paths and pre-rasterized cells.
+///
+/// GENERATIONAL, because the previous scheme had a cliff: on reaching the
+/// cap it called `clear()` and threw away EVERYTHING, so one glyph over
+/// the line re-hinted the entire visible page — a multi-millisecond stall
+/// landing on whichever keystroke happened to cross it.
+///
+/// Now a full young map is demoted to `*_prev` (an O(1) move) and a fresh
+/// one starts. A lookup that misses young but hits prev is promoted back,
+/// so the live working set survives a rotation and only genuinely cold
+/// entries are dropped — and they are dropped one map at a time, never
+/// all of them.
 pub struct GlyphCache {
     paths: HashMap<GlyphPathKey, Option<(PathStorage, bool)>>,
+    /// Previous generation, see the type docs.
+    paths_prev: HashMap<GlyphPathKey, Option<(PathStorage, bool)>>,
     cells: HashMap<GlyphCellKey, Option<CachedCells>>,
+    /// Previous generation, see the type docs.
+    cells_prev: HashMap<GlyphCellKey, Option<CachedCells>>,
 }
 
 impl core::fmt::Debug for GlyphCache {
@@ -165,15 +180,24 @@ impl GlyphCache {
     pub fn new() -> Self {
         Self {
             paths: HashMap::new(),
+            paths_prev: HashMap::new(),
             cells: HashMap::new(),
+            cells_prev: HashMap::new(),
         }
     }
 
     /// Entry count of the glyph-path cache (for leak probes).
-    #[must_use] pub fn paths_len(&self) -> usize { self.paths.len() }
+    /// Counts BOTH generations — a probe watching for unbounded growth
+    /// must see everything the cache is holding.
+    #[must_use] pub fn paths_len(&self) -> usize {
+        self.paths.len() + self.paths_prev.len()
+    }
 
     /// Entry count of the pre-rasterized cell cache (for leak probes).
-    #[must_use] pub fn cells_len(&self) -> usize { self.cells.len() }
+    /// Counts BOTH generations, see [`Self::paths_len`].
+    #[must_use] pub fn cells_len(&self) -> usize {
+        self.cells.len() + self.cells_prev.len()
+    }
 
     /// Get a cached path, or build it on cache miss.
     /// Returns `None` if the glyph has no outline (e.g. space character).
@@ -185,10 +209,17 @@ impl GlyphCache {
         parsed_font: &ParsedFont,
         ppem: u16,
     ) -> Option<CachedGlyph<'_>> {
-        if self.paths.len() >= MAX_PATH_ENTRIES {
-            self.paths.clear();
-        }
         let key = GlyphPathKey { font_hash, glyph_id, ppem };
+        // Promote from the previous generation before considering a
+        // rotation, so a live glyph is never rebuilt just because it aged
+        // into the older map.
+        if !self.paths.contains_key(&key) {
+            if let Some(v) = self.paths_prev.remove(&key) {
+                self.paths.insert(key, v);
+            } else if self.paths.len() >= MAX_PATH_ENTRIES {
+                self.paths_prev = core::mem::take(&mut self.paths);
+            }
+        }
         let entry = self
             .paths
             .entry(key)
@@ -210,6 +241,32 @@ impl GlyphCache {
             path,
             is_hinted: *is_hinted,
         })
+    }
+
+    /// Promote `key` from the previous cell generation if it is there, and
+    /// otherwise rotate when the young map is full. Mirrors what
+    /// `get_or_build` does inline for paths.
+    fn promote_or_rotate_cells(&mut self, key: &GlyphCellKey) {
+        if self.cells.contains_key(key) {
+            return;
+        }
+        if let Some(v) = self.cells_prev.remove(key) {
+            self.cells.insert(*key, v);
+        } else if self.cells.len() >= MAX_CELL_ENTRIES {
+            self.cells_prev = core::mem::take(&mut self.cells);
+        }
+    }
+
+    /// Drop the previous generation of both caches.
+    ///
+    /// Intended to be called AFTER a frame is presented, never during one:
+    /// freeing thousands of `PathStorage`/cell vectors is exactly the kind
+    /// of work that must not land on a keystroke. Rotation alone already
+    /// bounds the cache, so this is an opportunity to return memory early,
+    /// not a correctness requirement.
+    pub fn gc(&mut self) {
+        self.paths_prev = HashMap::new();
+        self.cells_prev = HashMap::new();
     }
 
     /// Get cached rasterizer cells for a glyph, or build them from the path.
@@ -238,9 +295,6 @@ impl GlyphCache {
         is_hinted: bool,
         hint_correction: f32,
     ) -> Option<(&[CellAa], i32, i32)> {
-        if self.cells.len() >= MAX_CELL_ENTRIES {
-            self.cells.clear();
-        }
         // Hinted outline built at integer ppem needs rescaling only when the
         // effective size is fractional (hint_correction != 1). Otherwise it stays
         // pixel-grid-snapped (rounded placement) as hinting intends.
@@ -277,6 +331,7 @@ impl GlyphCache {
         let int_x = if subpx_x_snap { glyph_x.round() as i32 } else { glyph_x.floor() as i32 };
         let int_y = if grid_snapped { glyph_y.round() as i32 } else { glyph_y.floor() as i32 };
 
+        self.promote_or_rotate_cells(&cell_key);
         if !self.cells.contains_key(&cell_key) {
             // Build cells from cached path
             let path_key = GlyphPathKey { font_hash, glyph_id, ppem };
@@ -363,9 +418,6 @@ impl GlyphCache {
         is_hinted: bool,
         hint_correction: f32,
     ) -> Option<(&[CellAa], i32, i32)> {
-        if self.cells.len() >= MAX_CELL_ENTRIES {
-            self.cells.clear();
-        }
         let rescale_hinted = is_hinted && (hint_correction - 1.0).abs() > 1e-4;
         let subpx = text_subpixel_enabled();
 
@@ -395,6 +447,7 @@ impl GlyphCache {
             x_subsamples: 3,
         };
 
+        self.promote_or_rotate_cells(&cell_key);
         if !self.cells.contains_key(&cell_key) {
             let path_key = GlyphPathKey { font_hash, glyph_id, ppem };
             let cached_cells = self.paths.get(&path_key).and_then(|entry| {
@@ -1253,15 +1306,33 @@ mod autotest_generated {
     }
 
     #[test]
-    fn get_or_build_cells_evicts_wholesale_at_the_entry_limit() {
+    fn get_or_build_cells_rotates_generations_at_the_entry_limit() {
         let mut cache = GlyphCache::new();
         for i in 0..MAX_CELL_ENTRIES as u64 {
             let _ = cache.get_or_build_cells(i, 0, 16, 0.0, 0.0, 1.0, false, 1.0);
         }
         assert_eq!(cache.cells_len(), MAX_CELL_ENTRIES);
-        // One past the limit: the whole map is cleared, then the new key lands.
+        // One past the limit rotates rather than clearing.
         let _ = cache.get_or_build_cells(u64::MAX, 0, 16, 0.0, 0.0, 1.0, false, 1.0);
-        assert_eq!(cache.cells_len(), 1, "cell cache must not grow unbounded");
+        assert_eq!(
+            cache.cells_len(),
+            MAX_CELL_ENTRIES + 1,
+            "rotation must DEMOTE the old generation, not delete it"
+        );
+        for i in 0..MAX_CELL_ENTRIES as u64 {
+            let _ = cache.get_or_build_cells(1_000_000 + i, 0, 16, 0.0, 0.0, 1.0, false, 1.0);
+        }
+        assert!(
+            cache.cells_len() <= 2 * MAX_CELL_ENTRIES,
+            "cell cache must not grow unbounded, got {}",
+            cache.cells_len()
+        );
+        // `gc()` is the post-present hook: it drops the older generation.
+        cache.gc();
+        assert!(
+            cache.cells_len() <= MAX_CELL_ENTRIES,
+            "gc() must release the previous generation"
+        );
     }
 
     // ---------------------------------------------------------------------
@@ -1337,7 +1408,7 @@ mod autotest_generated {
     }
 
     #[test]
-    fn get_or_build_evicts_wholesale_at_the_entry_limit() {
+    fn get_or_build_rotates_generations_at_the_entry_limit() {
         let Some(font) = test_font() else {
             return;
         };
@@ -1347,8 +1418,32 @@ mod autotest_generated {
             let _ = cache.get_or_build(i, 0, &glyph, &font, 0);
         }
         assert_eq!(cache.paths_len(), MAX_PATH_ENTRIES);
+        // One past the limit rotates: the full young map becomes `prev` and
+        // a fresh one starts. Bounded, but NOT emptied.
         let _ = cache.get_or_build(u64::MAX, 0, &glyph, &font, 0);
-        assert_eq!(cache.paths_len(), 1, "path cache must not grow unbounded");
+        assert_eq!(
+            cache.paths_len(),
+            MAX_PATH_ENTRIES + 1,
+            "rotation must DEMOTE the old generation, not delete it — clearing \
+             wholesale re-hints the entire visible page on whichever keystroke \
+             happens to cross the limit"
+        );
+        // The point of keeping it: an entry that was live before the
+        // rotation is served from `prev` and promoted, not rebuilt.
+        let _ = cache.get_or_build(0, 0, &glyph, &font, 0);
+        assert!(
+            cache.paths_len() <= 2 * MAX_PATH_ENTRIES,
+            "two generations is the whole budget; a third would be unbounded"
+        );
+        // Filling a second generation must evict the FIRST, never both.
+        for i in 0..MAX_PATH_ENTRIES as u64 {
+            let _ = cache.get_or_build(1_000_000 + i, 0, &glyph, &font, 0);
+        }
+        assert!(
+            cache.paths_len() <= 2 * MAX_PATH_ENTRIES,
+            "path cache must not grow unbounded, got {}",
+            cache.paths_len()
+        );
     }
 
     // ---------------------------------------------------------------------
