@@ -1645,6 +1645,47 @@ fn layout_bfc<T: ParsedFontTrait>(
 
                 debug_info!(ctx, "[layout_bfc] Float positioned at: {:?}", float_rect);
 
+                // K32: floats participate in fragmentation ATOMICALLY (an
+                // anchored image never splits — the Word model). A float
+                // that does not fit the remaining extent moves WHOLE to the
+                // next fragmentainer via the unfinished tail; its exclusion
+                // geometry then belongs to THAT page only (each layout_bfc
+                // call seeds a fresh FloatingContext, so nothing leaks
+                // across fragmentainers by construction).
+                if let Some(fs) = constraints.fragmentainer.as_ref() {
+                    let float_bottom = float_rect.origin.main(writing_mode)
+                        + float_rect.size.main(writing_mode);
+                    let fits = float_bottom <= fs.remaining_block_extent + 0.01;
+                    if !fits && fragment_placed_content {
+                        let later: alloc::vec::Vec<usize> = pos_children
+                            .iter()
+                            .copied()
+                            .skip_while(|&c| c != child_index)
+                            .skip(1)
+                            .filter(|&c| {
+                                let pt = get_position_type(
+                                    ctx.styled_dom,
+                                    tree.get(c).and_then(|n| n.dom_node_id),
+                                );
+                                pt != LayoutPosition::Absolute
+                                    && pt != LayoutPosition::Fixed
+                            })
+                            .collect();
+                        main_pen = fragment_pen_at_child;
+                        fragment_token_out =
+                            Some(crate::solver3::break_token::tail_token(
+                                node_index,
+                                main_pen,
+                                child_index,
+                                later.into_iter(),
+                            ));
+                        clear_fragment_pos!(child_index);
+                        continue;
+                    }
+                    // First content overflowing every page: monolith-place
+                    // (falls through), same rule as atomic blocks.
+                }
+
                 // Add to float context BEFORE positioning next element
                 float_context.add_float(float_type, float_rect, *float_margin);
 
@@ -1658,6 +1699,10 @@ fn layout_bfc<T: ParsedFontTrait>(
                     child_index,
                     main_pen
                 );
+
+                if constraints.fragmentainer.is_some() {
+                    fragment_placed_content = true;
+                }
 
                 // Floats are taken out of normal flow - DON'T advance main_pen
                 // Continue to next child
