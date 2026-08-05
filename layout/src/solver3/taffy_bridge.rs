@@ -1756,16 +1756,30 @@ impl<T: ParsedFontTrait> TaffyBridge<'_, '_, T> {
         // measure. When width is unknown (an intrinsic pass), clear it so layout_bfc
         // falls back to `constraints.available_size` (INFINITY → true intrinsic).
         if let Some(n) = self.tree.get_mut(node_idx) {
-            n.used_size = inputs.known_dimensions.width.map(|w| LogicalSize {
-                width: w,
-                height: inputs.known_dimensions.height.unwrap_or_else(|| {
-                    if available_height.is_finite() {
-                        available_height + node_padding_height + node_border_height
-                    } else {
-                        0.0
-                    }
+            n.used_size = match (inputs.known_dimensions.width, inputs.known_dimensions.height) {
+                (Some(w), Some(h)) => Some(LogicalSize {
+                    width: w,
+                    height: h,
                 }),
-            });
+                (Some(w), None) if available_height.is_finite() => Some(LogicalSize {
+                    width: w,
+                    height: available_height + node_padding_height + node_border_height,
+                }),
+                // Height genuinely unknown with INFINITE available height —
+                // the main-axis content-measure pass of a COLUMN flex
+                // container (cross width is known via stretch, height is
+                // what taffy is asking us to compute). The old arm
+                // fabricated height 0.0 here, and layout_bfc then used that
+                // used_size as the children's containing block: every
+                // descendant laid out inside a 0-HEIGHT box, the results
+                // were cached, and auto-height text content inside a
+                // fixed-height column flex item rendered as NOTHING (row
+                // containers dodged it because the UNKNOWN axis there is
+                // the width, which maps to None). Clear instead — layout_bfc
+                // falls back to constraints.available_size (the true
+                // content-measure request), same as the width-unknown case.
+                _ => None,
+            };
         }
 
         // Use a temporary float cache for this subtree
