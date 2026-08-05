@@ -1209,6 +1209,7 @@ pub fn render_display_list_damaged(
                 }
             }
 
+            let _p = crate::probe::Probe::span(probe_label_for_item(item));
             render_single_item(
                 item,
                 pixmap,
@@ -2192,18 +2193,20 @@ fn render_glyphs_lcd(
         u32::from(color.b),
         u32::from(color.a),
     );
-    let subpx = crate::glyph_cache::text_subpixel_enabled();
 
     // Accumulate every glyph outline (at 3× horizontal resolution) into one
     // rasterizer, then sweep once — same batching as the grayscale path.
     let mut ras = RasterizerScanlineAa::new();
     ras.filling_rule(FillingRule::NonZero);
 
+    let _p_outline = crate::probe::Probe::span("glyph_lcd_outline");
     for glyph in glyphs {
         let glyph_index = glyph.index as u16;
         let Some(glyph_data) = parsed_font.get_or_decode_glyph(glyph_index) else {
             continue;
         };
+        // Builds (and caches) the hinted outline; we only need to know which
+        // coordinate space it came back in.
         let Some(cached) = glyph_cache.get_or_build(
             font_hash.font_hash,
             glyph_index,
@@ -2217,44 +2220,27 @@ fn render_glyphs_lcd(
 
         let glyph_x = (glyph.point.x - scroll_offset.0) * dpi_factor;
         let glyph_baseline_y = (glyph.point.y - scroll_offset.1) * dpi_factor;
-        // Crisp vertical: grid-snap the baseline. Soft horizontal: keep the true
-        // fractional x (LCD gives 1/3-px precision) unless sub-pixel is disabled.
-        let px = if subpx { glyph_x } else { glyph_x.round() };
-        let py = glyph_baseline_y.round();
 
-        // Path units → pixels: hinted-at-integer-ppem is already pixel-space
-        // (scale 1), a fractional effective size rescales by hint_correction, and
-        // an unhinted outline is in font units (scale = px/upem). Mirrors
-        // `GlyphCache::get_or_build_cells`.
-        let rescale_hinted = is_hinted && (hint_correction - 1.0).abs() > 1e-4;
-        let path_scale = if is_hinted {
-            if rescale_hinted { f64::from(hint_correction) } else { 1.0 }
-        } else {
-            f64::from(scale)
+        // Cells are rasterized once per (glyph, ppem, scale, 1/3-px bucket)
+        // and replayed here at an integer offset. `int_x` is in whole pixels
+        // and the cells' x axis is in stripes, hence the *3.
+        let Some((cells, int_x, int_y)) = glyph_cache.get_or_build_cells_lcd(
+            font_hash.font_hash,
+            glyph_index,
+            ppem,
+            glyph_x,
+            glyph_baseline_y,
+            scale,
+            is_hinted,
+            hint_correction,
+        ) else {
+            continue;
         };
-
-        // Map the path to its absolute pixel position, then triple the X axis so
-        // the rasterizer runs at 3 sub-samples per pixel:
-        //   final_subpixel_x = 3*(path_scale*path_x + px),  final_y = path_scale*path_y + py
-        // (scale-then-translate: `TransAffine::multiply` post-concatenates).
-        let mut transform = TransAffine::new_scaling(3.0 * path_scale, path_scale);
-        transform.multiply(&TransAffine::new_translation(3.0 * f64::from(px), f64::from(py)));
-        // ConvTransform over the cached vertices (upstream removed
-        // add_path_vertices_transformed); no clone of the shared PathStorage.
-        // ConvCurve flattens the quadratic curve3 verbs adaptively — without
-        // it the rasterizer draws straight lines THROUGH the control points
-        // and every bowl renders as a chiseled polygon at 24px+ (this is the
-        // LCD path, the default; the grayscale cell path flattens in
-        // GlyphCache::get_or_build_cells).
-        let mut src = agg_rust::conv_curve::ConvCurve::new(
-            agg_rust::conv_transform::ConvTransform::new(
-                crate::glyph_cache::SliceVertexSource::new(cached.path.vertices()),
-                transform,
-            ),
-        );
-        ras.add_path(&mut src, 0);
+        ras.add_cells_offset(cells, int_x * 3, int_y);
     }
 
+    drop(_p_outline);
+    let _p_sweep = crate::probe::Probe::span("glyph_lcd_sweep");
     // Blend via the LCD pixel format. It reports width*3, so the rasterizer's 3×
     // x-coordinates address individual R/G/B stripes; the clip box X is likewise
     // in sub-pixel space.

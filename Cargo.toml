@@ -52,6 +52,15 @@ gleam = "0.15.1"
 azul-css = { path = "css" }
 azul-core = { path = "core" }
 azul-layout = { path = "layout" }
+# agg-rust-azul: pinned to a branch while an LCD-text perf fix is in flight.
+# `blend_solid_hspan` allocated a fresh Vec for the 5-tap coverage
+# distribution on EVERY span, and text produces hundreds of thousands of
+# short spans per frame — the malloc/free pair, not the blending, dominated
+# the LCD glyph sweep (22 ms/frame on a 30-paragraph document, against
+# 0.8 ms for the whole layout pass). Unpin once this is released as a
+# version bump; a git patch trips the "no [patch] on published deps"
+# release gate, so this MUST NOT survive into a publish.
+agg-rust-azul = { git = "https://github.com/fschutt/agg-rust", branch = "perf/lcd-span-scratch-buffer" }
 # printpdf now comes from crates.io (0.12.x — requires azul-css/core 0.0.13 +
 # azul-layout 0.0.13, all published). The azul-* path patches above redirect
 # printpdf's azul deps to this one workspace copy, so there is a single

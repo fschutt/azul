@@ -7453,8 +7453,35 @@ fn split_text_by_font_coverage<T: ParsedFontTrait>(
     // .notdef (tofu) segment instead of being silently dropped (zero glyphs/advance).
     let notdef_font_id = loaded_fonts.iter().map(|(id, _)| *id).min();
 
+    // Per-character resolution is memoised for the duration of this call.
+    // `resolve_char` walks every fallback group's unicode ranges linearly AND
+    // clones a String for the matched css_name, and the loop below runs it
+    // once per CHARACTER — so a paragraph paid it ~200 times to answer ~40
+    // distinct questions. A `perf` profile of a steady-state frame put the
+    // cmap/range scanning at 7.8% of the whole frame, third behind the pixel
+    // blend and the scanline sweep, plus a share of the malloc traffic from
+    // those per-character String clones.
+    //
+    // The memo is call-scoped on purpose: `font_chain`, `fc_cache` and
+    // `loaded_fonts` are all fixed for the duration, so a character's answer
+    // cannot change within one call. A longer-lived cache would have to key
+    // on all three and is a different, riskier change.
+    let mut resolved: alloc::collections::BTreeMap<char, Option<FontId>> =
+        alloc::collections::BTreeMap::new();
+
     for (byte_idx, ch) in text.char_indices() {
         let char_end = byte_idx + ch.len_utf8();
+        if let Some(&memo) = resolved.get(&ch) {
+            if let Some(font_id) = memo {
+                match segments.last_mut() {
+                    Some(last) if last.2 == font_id && last.1 == byte_idx => {
+                        last.1 = char_end;
+                    }
+                    _ => segments.push((byte_idx, char_end, font_id)),
+                }
+            }
+            continue;
+        }
         // Primary: the resolved fallback chain. Its coverage comes from
         // rust-fontconfig's OS/2-derived `unicode_ranges`, which can MISS
         // codepoints a font actually has in its cmap — e.g. Noto Sans CJK's
@@ -7481,6 +7508,7 @@ fn split_text_by_font_coverage<T: ParsedFontTrait>(
             // the primary loaded face so the shaper emits a visible .notdef box and
             // the byte range is preserved (following text is not shifted).
             .or(notdef_font_id);
+        resolved.insert(ch, font_id);
         if let Some(font_id) = font_id {
             match segments.last_mut() {
                 Some(last) if last.2 == font_id && last.1 == byte_idx => {

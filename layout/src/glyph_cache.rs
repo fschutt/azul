@@ -68,10 +68,15 @@ struct GlyphCellKey {
     /// Scale factor encoded as fixed-point (scale * 65536) for unhinted glyphs.
     /// 0 for hinted glyphs (already in pixel coords).
     scale_fixed: u32,
-    /// Sub-pixel x position quantized to 1/4 pixel (0..3).
+    /// Sub-pixel x position, quantized to 1/`x_subsamples`-of-a-pixel for
+    /// the LCD path and to 1/4 pixel for the grayscale path.
     subpx_x: u8,
     /// Sub-pixel y position quantized to 1/4 pixel (0..3).
     subpx_y: u8,
+    /// Horizontal sub-samples per pixel the cells were rasterized at: 1 for
+    /// the grayscale path, 3 for RGB LCD. Part of the key because the two
+    /// produce completely different cell geometry for the same glyph.
+    x_subsamples: u8,
 }
 
 /// Result of a cache lookup: the path plus whether it's hinted (pixel coords) or not.
@@ -127,6 +132,28 @@ fn quantize_subpx(frac: f32) -> u8 {
     (f * 4.0).min(3.0) as u8
 }
 
+/// Horizontal sub-pixel buckets used by the LCD cell cache.
+///
+/// The obvious choice is 3 — one per RGB stripe — on the reasoning that a
+/// 3x rasterizer cannot resolve finer. That reasoning is WRONG and the
+/// reftests caught it: the uncached path translated the outline by a
+/// FLOAT (`3.0 * px`), and the rasterizer carries sub-stripe precision
+/// internally (24.8 fixed point), so exact fractional placement really did
+/// render detail that 1/3-px bucketing throws away. Quantizing to thirds
+/// moved four previously-passing text reftests into failure.
+///
+/// 16 buckets put the placement error at 1/16 px, an order of magnitude
+/// below a stripe, at 16 cell sets per glyph instead of 3.
+const LCD_SUBPX_BUCKETS: u8 = 16;
+
+/// Quantize a fractional pixel position into one of [`LCD_SUBPX_BUCKETS`].
+#[inline]
+#[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)] // bounded graphics/coord/font/fixed-point/debug-marker cast
+fn quantize_subpx_lcd(frac: f32) -> u8 {
+    let f = frac - frac.floor();
+    (f * f32::from(LCD_SUBPX_BUCKETS)).min(f32::from(LCD_SUBPX_BUCKETS - 1)) as u8
+}
+
 impl Default for GlyphCache {
     fn default() -> Self {
         Self::new()
@@ -166,6 +193,10 @@ impl GlyphCache {
             .paths
             .entry(key)
             .or_insert_with(|| {
+                // Only fires on a MISS, so this span is the true cost of
+                // running the hinting interpreter for a glyph — as opposed
+                // to `glyph_lcd_outline`, which is paid on every frame.
+                let _p = crate::probe::Probe::span("glyph_path_build");
                 // Try hinted path first if ppem > 0
                 if ppem > 0 {
                     if let Some(path) = build_hinted_path(glyph_id, glyph_data, parsed_font, ppem) {
@@ -237,6 +268,7 @@ impl GlyphCache {
 
         let cell_key = GlyphCellKey {
             font_hash, glyph_id, ppem, scale_fixed, subpx_x, subpx_y,
+            x_subsamples: 1,
         };
 
         // Integer pixel offset — the cells are at sub-pixel origin, offset by int
@@ -285,6 +317,119 @@ impl GlyphCache {
                     agg_rust::conv_transform::ConvTransform::new(
                         SliceVertexSource::new(path.vertices()),
                         transform,
+                    ),
+                );
+                ras.add_path(&mut src, 0);
+                let cells = ras.outline_cells();
+                if cells.is_empty() { None } else { Some(CachedCells { cells }) }
+            });
+            self.cells.insert(cell_key, cached_cells);
+        }
+
+        let entry = self.cells.get(&cell_key)?;
+        entry.as_ref().map(|cc| (cc.cells.as_slice(), int_x, int_y))
+    }
+
+    /// Cached rasterizer cells for the **RGB LCD** path — the same idea as
+    /// [`Self::get_or_build_cells`], but rasterized at 3 horizontal
+    /// sub-samples per pixel so the cells address individual R/G/B stripes.
+    ///
+    /// WHY THIS EXISTS: the cell cache was built for the grayscale path, and
+    /// the LCD path — added later, and on by default — never used it. It
+    /// re-flattened and re-rasterized every glyph on screen on every frame,
+    /// which measured 40 ms of a 46 ms frame for a 30-paragraph document
+    /// (`layout/tests/frame_perf.rs`), against 0.8 ms for the whole layout.
+    /// Grayscale, which does use the cache, renders the same document in
+    /// 18 ms. This closes that gap.
+    ///
+    /// Returned offsets are `(cells, int_x, int_y)` where `int_x` is in
+    /// WHOLE PIXELS — the caller multiplies by 3 when adding the cells,
+    /// because the cells' own x axis is already in stripe units.
+    ///
+    /// Horizontal sub-pixel positioning buckets at 1/3 px rather than the
+    /// grayscale path's 1/4 px: 1/3 px is exactly what a 3× rasterizer can
+    /// resolve, so nothing visible is given up, and 3 buckets per glyph keeps
+    /// the cache small. The baseline is always grid-snapped (crisp vertical),
+    /// matching what the uncached LCD path did.
+    #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)] // bounded graphics/coord/font/fixed-point/debug-marker cast
+    pub fn get_or_build_cells_lcd(
+        &mut self,
+        font_hash: u64,
+        glyph_id: u16,
+        ppem: u16,
+        glyph_x: f32,
+        glyph_y: f32,
+        scale: f32,
+        is_hinted: bool,
+        hint_correction: f32,
+    ) -> Option<(&[CellAa], i32, i32)> {
+        if self.cells.len() >= MAX_CELL_ENTRIES {
+            self.cells.clear();
+        }
+        let rescale_hinted = is_hinted && (hint_correction - 1.0).abs() > 1e-4;
+        let subpx = text_subpixel_enabled();
+
+        // Mirrors the uncached LCD path exactly: fractional x when sub-pixel
+        // positioning is on, rounded x when it is off, always-rounded y.
+        let (int_x, subpx_x) = if subpx {
+            (glyph_x.floor() as i32, quantize_subpx_lcd(glyph_x))
+        } else {
+            (glyph_x.round() as i32, 0)
+        };
+        let int_y = glyph_y.round() as i32;
+
+        debug_assert!((0.0..65536.0).contains(&scale), "scale out of range for fixed-point: {scale}");
+        let scale_fixed = if is_hinted {
+            if rescale_hinted { (hint_correction * 65536.0) as u32 } else { 0 }
+        } else {
+            (scale * 65536.0) as u32
+        };
+
+        let cell_key = GlyphCellKey {
+            font_hash,
+            glyph_id,
+            ppem,
+            scale_fixed,
+            subpx_x,
+            subpx_y: 0,
+            x_subsamples: 3,
+        };
+
+        if !self.cells.contains_key(&cell_key) {
+            let path_key = GlyphPathKey { font_hash, glyph_id, ppem };
+            let cached_cells = self.paths.get(&path_key).and_then(|entry| {
+                use agg_rust::basics::FillingRule;
+                use agg_rust::rasterizer_scanline_aa::RasterizerScanlineAa;
+                use agg_rust::trans_affine::TransAffine;
+                let (path, _) = entry.as_ref()?;
+
+                // Path units -> pixels, same rule as the uncached path: a
+                // hinted outline at integer ppem is already pixel-space,
+                // a fractional effective size rescales by hint_correction,
+                // an unhinted outline is in font units.
+                let path_scale = if is_hinted {
+                    if rescale_hinted { f64::from(hint_correction) } else { 1.0 }
+                } else {
+                    f64::from(scale)
+                };
+
+                // Triple the x axis, then shift by the sub-pixel bucket.
+                // The bucket is a fraction of a PIXEL, and the axis is in
+                // stripes, so it converts as `3 * k / BUCKETS`.
+                let frac_stripes =
+                    3.0 * f64::from(subpx_x) / f64::from(LCD_SUBPX_BUCKETS);
+                let mut t = TransAffine::new_scaling(3.0 * path_scale, path_scale);
+                t.multiply(&TransAffine::new_translation(frac_stripes, 0.0));
+
+                let mut ras = RasterizerScanlineAa::new();
+                ras.filling_rule(FillingRule::NonZero);
+                // ConvCurve flattens the quadratic curve3 verbs adaptively;
+                // without it the rasterizer draws straight lines THROUGH the
+                // control points and every bowl renders as a chiseled polygon.
+                let mut src = agg_rust::conv_curve::ConvCurve::new(
+                    agg_rust::conv_transform::ConvTransform::new(
+                        SliceVertexSource::new(path.vertices()),
+                        t,
                     ),
                 );
                 ras.add_path(&mut src, 0);
