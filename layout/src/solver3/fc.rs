@@ -3652,6 +3652,30 @@ fn layout_ifc<T: ParsedFontTrait>(
             .is_some_and(|s| !s.floats.floats.is_empty());
         let current_width_type = constraints.available_width_type;
 
+        // A layout that placed NOTHING for non-empty text content is a
+        // font-race artifact, not a layout: the first pass can run before
+        // `load_missing_for_chains` has parsed this run's font, shaping
+        // yields zero items, and text3's own caches self-heal on the next
+        // call — but THIS per-node store is keyed by width+content only, so
+        // an empty result would be served to every later pass ("reuse")
+        // and the paragraph would measure 0.0 forever. (miniword: the
+        // sample document reported 1 page; WHICH node got poisoned flipped
+        // on a single leading whitespace character re-ordering the first
+        // font-less pass.) Skip the store; the next pass recomputes with
+        // fonts present.
+        let content_has_text = inline_content
+            .iter()
+            .any(|c| matches!(c, InlineContent::Text(r) if !r.text.trim().is_empty()));
+        if content_has_text && main_frag.items.is_empty() {
+            debug_info!(
+                ctx,
+                "[layout_ifc] NOT caching empty layout for node {} (fonts not loaded yet?)",
+                node_index
+            );
+            output.overflow_size = LogicalSize::zero();
+            return Ok(output);
+        }
+
         let warm_node = tree.warm_mut(node_index).ok_or(LayoutError::InvalidTree)?;
 
         let should_store = match &warm_node.inline_layout_result {
@@ -4775,11 +4799,23 @@ fn translate_to_text3_constraints<'a, T: ParsedFontTrait>(
         // Use the semantic available_width_type directly instead of converting from float.
         // This preserves MinContent/MaxContent semantics for intrinsic sizing.
         available_width: constraints.available_width_type,
-        // For scrollable containers (overflow: scroll/auto), don't constrain height
-        // so that the full content is laid out and content_size is calculated correctly.
-        available_height: match overflow_behaviour {
-            LayoutOverflow::Scroll | LayoutOverflow::Auto => None,
-            _ => Some(constraints.available_size.height),
+        // Height only constrains line PRODUCTION where it is semantically
+        // load-bearing: multi-column balancing ("column full → next column").
+        // Everywhere else the continuous IFC lays out ALL its lines and the
+        // true content height flows into overflow_size — in CSS, inline
+        // content is never truncated by available height at layout time
+        // (overflow is a paint/scroll concern, and nothing consumes
+        // text3's remaining_items on this path, so truncated lines were
+        // silently LOST). The old `Some(available_size.height)` arm let any
+        // 0-height measure pass produce a ZERO-LINE layout that the
+        // width+content-keyed caches then served to the real pass — the
+        // miniword estimator measured multi-line paragraphs as 0.0 px
+        // depending on one leading whitespace character shifting which
+        // pass primed the cache.
+        available_height: if columns > 1 {
+            Some(constraints.available_size.height)
+        } else {
+            None
         },
         shape_boundaries, // CSS shape-inside: text flows within shape
         shape_exclusions, // CSS shape-outside + floats: text wraps around shapes

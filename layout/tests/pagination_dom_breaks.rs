@@ -665,6 +665,93 @@ fn deletion_shifts_the_window_via_breaks_delta() {
     assert!(session.dom_breaks(&doc_b).is_some());
 }
 
+
+fn estimator_node_heights(xml: &str, label: &str) {
+    let parsed = azul_layout::xml::parse_xml_string(xml).expect("parse");
+    let full = azul_layout::xml::dom_from_parsed_xml(azul_layout::xml::Xml {
+        root: parsed.into(),
+    });
+    let mut content = Dom::create_div();
+    content.css = full.css.clone();
+    for c in full.children.as_ref() {
+        if matches!(c.root.get_node_type(), azul_core::dom::NodeType::Body) {
+            content.children = c.children.clone();
+        }
+    }
+    content.fixup_children_estimated();
+    let styled_dom = azul_core::styled_dom::StyledDom::create_from_dom(core::mem::replace(
+        &mut content,
+        Dom::create_div(),
+    ));
+    let fc_cache = build_font_cache();
+    let mut font_manager = FontManager::new(fc_cache).expect("FontManager");
+    let mut layout_cache = Solver3LayoutCache {
+        tree: None,
+        calculated_positions: Vec::new(),
+        viewport: None,
+        scroll_ids: HashMap::new(),
+        scroll_id_to_node_id: HashMap::new(),
+        counters: HashMap::new(),
+        float_cache: HashMap::new(),
+        cache_map: Default::default(),
+        previous_positions: Vec::new(),
+        cached_display_list: None,
+        prev_dom_ptr: 0,
+        prev_viewport: LogicalRect {
+            origin: LogicalPosition::zero(),
+            size: LogicalSize::zero(),
+        },
+    };
+    let mut text_cache = TextLayoutCache::new();
+    let content_size = LogicalSize::new(602.0, 931.0);
+    let fragmentation_context = FragmentationContext::new_paged(content_size);
+    let viewport = LogicalRect {
+        origin: LogicalPosition::zero(),
+        size: content_size,
+    };
+    let renderer_resources = RendererResources::default();
+    let mut debug_messages = None;
+    let loader = PathLoader::new();
+    let font_loader = |bytes: std::sync::Arc<rust_fontconfig::FontBytes>, index: usize| {
+        loader.load_font_shared(bytes, index)
+    };
+    let _ = compute_document_pagination(
+        &mut layout_cache,
+        &mut text_cache,
+        fragmentation_context,
+        &styled_dom,
+        viewport,
+        &mut font_manager,
+        &BTreeMap::new(),
+        &mut debug_messages,
+        None,
+        &renderer_resources,
+        azul_core::resources::IdNamespace(0),
+        DomId::ROOT_ID,
+        font_loader,
+        FakePageConfig::new(),
+        &azul_core::resources::ImageCache::default(),
+        azul_core::task::GetSystemTimeCallback {
+            cb: azul_core::task::get_system_time_libstd,
+        },
+    );
+    if let Some(t) = layout_cache.tree.as_ref() {
+        for (i, n) in t.nodes.iter().enumerate() {
+            let lines = t
+                .warm(i)
+                .and_then(|w| w.inline_layout_result.as_ref())
+                .map(|r| format!("{:?}", r.layout.bounds()))
+                .unwrap_or_else(|| "-".into());
+            eprintln!(
+                "[{label}] node {i}: dom={:?} used_h={:?} pos={:?} ifc_bounds={lines}",
+                n.dom_node_id.map(|d| d.index()),
+                n.used_size.map(|s| s.height),
+                layout_cache.calculated_positions.get(i),
+            );
+        }
+    }
+}
+
 fn estimator_root_height(xml: &str) -> f32 {
     let parsed = azul_layout::xml::parse_xml_string(xml).expect("parse");
     let full = azul_layout::xml::dom_from_parsed_xml(azul_layout::xml::Xml {
@@ -774,7 +861,6 @@ fn wrapped_pure_text_measures_via_the_unstyled_xml_path() {
 /// divergence is in the unstyled XML->Dom builder or the anonymous-box/IFC
 /// classification. Un-ignore when fixed.
 #[test]
-#[ignore = "estimator sensitive to leading <body> whitespace - see comment"]
 fn estimator_is_insensitive_to_leading_body_whitespace() {
     let bad = MINIWORD_SAMPLE_XML;
     let good = MINIWORD_SAMPLE_XML.replacen("<body><h1>", "<body>\n<h1>", 1);

@@ -300,6 +300,7 @@ pub use crate::font_traits::{ParsedFontTrait, ShallowClone};
 
 /// Key for caching font chains - based only on CSS properties, not text content
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+
 pub struct FontChainKey {
     pub font_families: Vec<String>,
     pub weight: FcWeight,
@@ -393,6 +394,42 @@ impl FontChainKey {
         }
     }
 }
+
+/// On-demand chain resolution for a shaping-time cache miss.
+///
+/// `font_chain_cache` is an OPTIMIZATION, not a gate: the pre-resolve
+/// collector dedupes text nodes by compact-cache (family-hash, weight,
+/// style) bits, and when those bits under-represent the real cascade
+/// (e.g. every text node reads 0 and ONE representative decides the only
+/// chain — its UA-bold h1 weight), whole runs asked for a key that was
+/// never stored. The old behavior silently SKIPPED such runs: zero shaped
+/// items, zero lines, zero height (miniword: multi-line paragraphs
+/// measured 0.0 depending on which text node came first). Resolving at
+/// miss time uses the same fc_cache query the pre-pass would have used,
+/// so the result is identical — just later.
+fn resolve_chain_on_miss(
+    key: &FontChainKey,
+    fc_cache: &FcFontCache,
+) -> rust_fontconfig::FontFallbackChain {
+    let mut trace = Vec::new();
+    fc_cache.resolve_font_chain_with_scripts(
+        &key.font_families,
+        key.weight,
+        if key.italic {
+            rust_fontconfig::PatternMatch::True
+        } else {
+            rust_fontconfig::PatternMatch::False
+        },
+        if key.oblique {
+            rust_fontconfig::PatternMatch::True
+        } else {
+            rust_fontconfig::PatternMatch::False
+        },
+        None,
+        &mut trace,
+    )
+}
+
 
 /// A map of pre-loaded fonts, keyed by `FontId` (from rust-fontconfig)
 ///
@@ -6557,6 +6594,25 @@ impl TextShapingCache {
             }
         }
 
+        if std::env::var("TEXTDBG").is_ok() {
+            let total_items: usize = fragment_layouts.values().map(|f| f.items.len()).sum();
+            let text_preview: String = content
+                .iter()
+                .filter_map(|c| match c {
+                    InlineContent::Text(r) => Some(r.text.chars().take(24).collect::<String>()),
+                    _ => None,
+                })
+                .collect::<Vec<_>>()
+                .join("|");
+            eprintln!(
+                "[TEXTDBG] layout_flow: content={} logical={} shaped={} frags={} placed_items={total_items} avail_h={:?} text='{text_preview}'",
+                content.len(),
+                logical_items.len(),
+                oriented_items.len(),
+                fragment_layouts.len(),
+                first_constraints.available_height,
+            );
+        }
         Ok(FlowLayout {
             fragment_layouts,
             remaining_items: cursor.drain_remaining(),
@@ -7707,7 +7763,14 @@ pub fn shape_visual_items<T: ParsedFontTrait>(
                         }
                         FontStack::Stack(selectors) => {
                             let cache_key = FontChainKey::from_selectors(selectors);
-                            let Some(font_chain) = font_chain_cache.get(&cache_key) else { idx = coalesce_end; continue; };
+                            let resolved_on_miss;
+                            let font_chain = match font_chain_cache.get(&cache_key) {
+                                Some(c) => c,
+                                None => {
+                                    resolved_on_miss = resolve_chain_on_miss(&cache_key, fc_cache);
+                                    &resolved_on_miss
+                                }
+                            };
                             // Per-character font fallback: split text by font coverage
                             shape_with_font_fallback(
                                 &merged_text, script, language, direction,
@@ -7799,16 +7862,20 @@ pub fn shape_visual_items<T: ParsedFontTrait>(
                         // KEY-CONSTRUCTION divergence (duplicated families on the query side,
                         // deduped on the store side), fixed by routing every key build through
                         // FontChainKey::from_selectors. Verified lifted: lookup path = get.)
-                        let Some(font_chain) = font_chain_cache.get(&cache_key) else {
-                            if let Some(msgs) = debug_messages {
-                                msgs.push(LayoutDebugMessage::warning(format!(
-                                    "[TextLayout] Font chain not pre-resolved for {:?} - text will \
-                                     not be rendered",
-                                    cache_key.font_families
-                                )));
+                        let resolved_on_miss;
+                        let font_chain = match font_chain_cache.get(&cache_key) {
+                            Some(c) => c,
+                            None => {
+                                if let Some(msgs) = debug_messages {
+                                    msgs.push(LayoutDebugMessage::info(format!(
+                                        "[TextLayout] Font chain not pre-resolved for {:?} - \
+                                         resolving on demand",
+                                        cache_key.font_families
+                                    )));
+                                }
+                                resolved_on_miss = resolve_chain_on_miss(&cache_key, fc_cache);
+                                &resolved_on_miss
                             }
-                            idx += 1;
-                            continue;
                         };
 
                         // Per-character font fallback: split text by font coverage
@@ -8023,15 +8090,13 @@ pub fn shape_visual_items<T: ParsedFontTrait>(
                         // Build FontChainKey and resolve through fontconfig
                         let cache_key = FontChainKey::from_selectors(selectors);
 
-                        let Some(font_chain) = font_chain_cache.get(&cache_key) else {
-                            if let Some(msgs) = debug_messages {
-                                msgs.push(LayoutDebugMessage::warning(format!(
-                                    "[TextLayout] Font chain not pre-resolved for CombinedText {:?}",
-                                    cache_key.font_families
-                                )));
+                        let resolved_on_miss;
+                        let font_chain = match font_chain_cache.get(&cache_key) {
+                            Some(c) => c,
+                            None => {
+                                resolved_on_miss = resolve_chain_on_miss(&cache_key, fc_cache);
+                                &resolved_on_miss
                             }
-                            idx += 1;
-                            continue;
                         };
 
                         // Per-character font fallback for CombinedText

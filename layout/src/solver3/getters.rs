@@ -3929,6 +3929,7 @@ impl ResolvedFontChains {
             crate::az_mark(0x606E0_u32, u32::from(core::ptr::read(p0)));
         }
     }
+    let styled_nodes_phase1 = styled_dom.styled_nodes.as_container();
     for i in 0..node_count {
         // Only text nodes need fonts. WEB-LIFT: the lifted `matches!(node_type,
         // NodeType::Text(_))` MIS-LIFTS (compares against a mis-lifted discriminant
@@ -3946,8 +3947,31 @@ impl ResolvedFontChains {
         }
         let fh = compact.tier2b_text[i].font_family_hash;
         let t1 = compact.tier1_enums[i];
-        let weight_bits = ((t1 >> FONT_WEIGHT_SHIFT) & FONT_WEIGHT_MASK) as u8;
-        let style_bits = ((t1 >> FONT_STYLE_SHIFT) & FONT_STYLE_MASK) as u8;
+        let mut weight_bits = ((t1 >> FONT_WEIGHT_SHIFT) & FONT_WEIGHT_MASK) as u8;
+        let mut style_bits = ((t1 >> FONT_STYLE_SHIFT) & FONT_STYLE_MASK) as u8;
+        // The compact bits see only AUTHOR css. Two text nodes with all-
+        // default bits can still resolve to DIFFERENT weights/styles through
+        // UA rules on their parents (an h1's bold vs a p's normal), and
+        // deduping them into one bucket resolved+loaded only the
+        // REPRESENTATIVE's chain — every run asking for the other weight was
+        // unshapeable (skipped: zero lines) and its font never loaded.
+        // Whenever the fast bits are at their defaults, key on the real
+        // cascade instead (the same reads Phase 2 does on representatives).
+        if weight_bits == 0 && style_bits == 0 {
+            if let Some(dom_id) = NodeId::from_usize(i) {
+                let node_state = &styled_nodes_phase1[dom_id].styled_node_state;
+                if let MultiValue::Exact(w) =
+                    get_font_weight_property(styled_dom, dom_id, node_state)
+                {
+                    weight_bits = super::fc::convert_font_weight(w) as u8;
+                }
+                if let MultiValue::Exact(st) =
+                    get_font_style_property(styled_dom, dom_id, node_state)
+                {
+                    style_bits = st as u8;
+                }
+            }
+        }
         let key = (fh, weight_bits, style_bits);
         unique_font_keys.entry(key).or_insert(i);
     }
@@ -4397,6 +4421,9 @@ fn pick_memory_face(
             oblique: is_oblique,
         });
 
+        if std::env::var("TEXTDBG").is_ok() {
+            eprintln!("[TEXTDBG] CHAIN STORE key={cache_key:?}");
+        }
         // Skip if already resolved
         if chains.contains_key(&cache_key) {
             continue;
