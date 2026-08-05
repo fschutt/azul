@@ -661,36 +661,44 @@ mod engine {
         // K30c: runtime engine opt-in (design doc §6.1/§6.4 — printpdf is
         // the FIRST consumer of the token engine; the slicer stays the
         // default until the differential gate has covered the full corpus).
-        if std::env::var("AZ_PAGINATION_ENGINE").as_deref() == Ok("tokens") {
-            let mut dbg2 = None;
-            match azul_layout::solver3::paged_layout::layout_document_tokenized(
-                &mut layout_cache,
-                &mut text_cache,
-                &styled_dom,
-                viewport,
-                font_manager,
-                &mut dbg2,
-                image_cache,
-                azul_core::task::GetSystemTimeCallback {
-                    cb: azul_core::task::get_system_time_libstd,
-                },
-                font_loader,
-                &renderer_resources,
-                IdNamespace(0),
-                DomId::ROOT_ID,
-                content_size.height,
-                4096,
-            ) {
-                Ok(pages) => {
-                    return Ok(pages.into_iter().map(|p| p.display_list).collect());
+        // Both engines produce the SAME thing — one display list per page —
+        // and both flow into the shared PDF-op path below. (This branch used
+        // to `return Ok(..)`/`return Err(..)` from a `-> Vec<u8>` function,
+        // which broke every `pdf`-feature build including CI's `build-dll`
+        // check; the token path had simply never been compiled.)
+        let tokens_requested =
+            std::env::var("AZ_PAGINATION_ENGINE").as_deref() == Ok("tokens");
+        let tokenized: Option<Vec<azul_layout::solver3::display_list::DisplayList>> =
+            if tokens_requested {
+                let mut dbg2 = None;
+                match azul_layout::solver3::paged_layout::layout_document_tokenized(
+                    &mut layout_cache,
+                    &mut text_cache,
+                    &styled_dom,
+                    viewport,
+                    font_manager,
+                    &mut dbg2,
+                    image_cache,
+                    azul_core::task::GetSystemTimeCallback {
+                        cb: azul_core::task::get_system_time_libstd,
+                    },
+                    font_loader,
+                    &renderer_resources,
+                    IdNamespace(0),
+                    DomId::ROOT_ID,
+                    content_size.height,
+                    4096,
+                ) {
+                    Ok(pages) => Some(pages.into_iter().map(|p| p.display_list).collect()),
+                    Err(_) => return Vec::new(),
                 }
-                Err(e) => {
-                    return Err(format!("tokenized pagination failed: {e:?}"));
-                }
-            }
-        }
+            } else {
+                None
+            };
 
-        let display_lists = match layout_document_paged_with_config(
+        let display_lists = match tokenized {
+            Some(dls) => dls,
+            None => match layout_document_paged_with_config(
             &mut layout_cache,
             &mut text_cache,
             fragmentation_context,
@@ -709,10 +717,11 @@ mod engine {
             azul_core::task::GetSystemTimeCallback {
                 cb: azul_core::task::get_system_time_libstd,
             },
-            false,
-        ) {
-            Ok(d) => d,
-            Err(_) => return Vec::new(),
+                false,
+            ) {
+                Ok(d) => d,
+                Err(_) => return Vec::new(),
+            },
         };
 
         let page_w_mm = page_w_px * 25.4 / 96.0;

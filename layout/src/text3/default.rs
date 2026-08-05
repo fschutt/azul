@@ -911,7 +911,18 @@ fn shape_text_internal(
         // rescaled from the integer hinting ppem back to the exact
         // fractional font size to stay on the same basis as the GPOS
         // offsets and kerning below.
-        let advance = if crate::glyph_cache::hint_light_enabled() {
+        // `hint_light_enabled` lives in glyph_cache, which is `cpurender`-
+        // gated; text layout itself is not. Without cpurender there is no
+        // rasterizer to stay consistent WITH, so the light (linear-advance)
+        // basis — also the default when the module IS present — is the only
+        // sensible answer. Reading the same env var here keeps a
+        // cpurender-less build honest about AZ_HINT_LIGHT=0 being a
+        // raster-side knob it cannot honor.
+        #[cfg(feature = "cpurender")]
+        let hint_light = crate::glyph_cache::hint_light_enabled();
+        #[cfg(not(feature = "cpurender"))]
+        let hint_light = true;
+        let advance = if hint_light {
             f32::from(base_advance) * scale_factor
         } else {
             let ppem = font_size.round().max(1.0) as u16;
