@@ -479,12 +479,14 @@ pub fn layout_formatting_context<T: ParsedFontTrait>(
         FormattingContext::Block { .. } => {
             #[cfg(feature = "web_lift")]
             unsafe { crate::az_mark(((0x609C0 + (node_index & 7) * 4)) as u32, (0xC0DE0001) as u32); }
+            let _p = crate::probe::Probe::span("fc_block");
             layout_bfc(ctx, tree, text_cache, node_index, constraints, float_cache)
         }
         // +spec:inline-formatting-context:a180ed - IFC establishment: inline-level boxes fragmented into line boxes with baseline alignment
         FormattingContext::Inline => {
             #[cfg(feature = "web_lift")]
             unsafe { crate::az_mark(((0x609C0 + (node_index & 7) * 4)) as u32, (0xC0DE0002) as u32); }
+            let _p = crate::probe::Probe::span("fc_inline");
             layout_ifc(ctx, text_cache, tree, node_index, constraints)
                 .map(BfcLayoutResult::from_output)
         }
@@ -498,6 +500,7 @@ pub fn layout_formatting_context<T: ParsedFontTrait>(
             // InlineBlock ALWAYS establishes a BFC for its contents.
             // The element itself participates as an atomic inline in its parent's IFC,
             // but its children are laid out in a BFC, not an IFC.
+            let _p = crate::probe::Probe::span("fc_inline_block");
             let mut temp_float_cache = HashMap::new();
             layout_bfc(ctx, tree, text_cache, node_index, constraints, &mut temp_float_cache)
         }
@@ -514,6 +517,7 @@ pub fn layout_formatting_context<T: ParsedFontTrait>(
         FormattingContext::Flex | FormattingContext::Grid => {
             #[cfg(feature = "web_lift")]
             unsafe { crate::az_mark(((0x609C0 + (node_index & 7) * 4)) as u32, (0xC0DE0004) as u32); }
+            let _p = crate::probe::Probe::span("fc_flex_grid");
             layout_flex_grid(ctx, tree, text_cache, node_index, constraints)
         }
         // that are not block boxes, so they establish new BFCs for their contents
@@ -3370,13 +3374,85 @@ fn layout_ifc<T: ParsedFontTrait>(
     // +spec:display-property:a469a6 - line boxes created as needed for inline-level content in IFC
     // +spec:display-property:f3c875 - calculate layout bounds (size contributions) of each inline-level box
     // Phase 1: Collect and measure all inline-level children.
-    let collect_result = collect_and_measure_inline_content(
-        ctx,
-        text_cache,
-        tree,
-        node_index,
-        constraints,
-    );
+    // Fold the IFC subtree's per-node fingerprints into one key. The
+    // reconcile pass already computes and stores these (they are what marks
+    // a node clean/dirty), so this is a handful of hashes over data already
+    // in cache — versus re-resolving the FULL cascade
+    // (`get_style_properties`) for every text run and inline span, which is
+    // what collection does and what made it 2 ms per IFC / 32 ms per
+    // pagination even when the line layout was going to be reused.
+    let subtree_fingerprint = {
+        use core::hash::{Hash, Hasher};
+        let mut h = std::collections::hash_map::DefaultHasher::new();
+
+        // vw/vh and percentage-derived values resolve against the viewport,
+        // so a resize MUST invalidate collected styles.
+        ctx.viewport_size.width.to_bits().hash(&mut h);
+        ctx.viewport_size.height.to_bits().hash(&mut h);
+
+        let compact = ctx.styled_dom.css_property_cache.ptr.compact_cache.as_ref();
+        let mut stack = alloc::vec![node_index];
+        while let Some(idx) = stack.pop() {
+            if let Some(cold) = tree.cold(idx) {
+                cold.node_data_fingerprint.hash(&mut h);
+                // NodeDataFingerprint covers the node's own data and INLINE
+                // css — not what the AUTHOR STYLESHEET resolved onto it. Two
+                // DOMs with identical nodes but different stylesheets would
+                // otherwise share a key and serve each other's styles. The
+                // compact cache holds the RESOLVED values, so folding this
+                // node's entries in makes any cascade change invalidate.
+                let dom_id_opt = tree.get(idx).and_then(|n| n.dom_node_id);
+                if let (Some(cc), Some(dom_id)) = (compact, dom_id_opt) {
+                    let i = dom_id.index();
+                    if let Some(t1) = cc.tier1_enums.get(i) {
+                        t1.hash(&mut h);
+                    }
+                    if let Some(t2) = cc.tier2b_text.get(i) {
+                        t2.font_family_hash.hash(&mut h);
+                    }
+                }
+            }
+            idx.hash(&mut h);
+            for &c in tree.children(idx) {
+                stack.push(c);
+            }
+        }
+        h.finish()
+    };
+
+    let cached_collection = tree
+        .warm(node_index)
+        .and_then(|w| w.inline_content_cache.as_ref())
+        .filter(|c| c.subtree_fingerprint == subtree_fingerprint)
+        .map(|c| (c.content.clone(), c.child_map.clone()));
+
+    let collect_result = match cached_collection {
+        Some(hit) => {
+            drop(crate::probe::Probe::span("ifc_collect_cached"));
+            Ok(hit)
+        }
+        None => {
+            let _p = crate::probe::Probe::span("ifc_collect_content");
+            let res = collect_and_measure_inline_content(
+                ctx,
+                text_cache,
+                tree,
+                node_index,
+                constraints,
+            );
+            if let Ok((content, child_map)) = res.as_ref() {
+                if let Some(w) = tree.warm_mut(node_index) {
+                    w.inline_content_cache =
+                        Some(crate::solver3::layout_tree::CachedInlineContent {
+                            content: content.clone(),
+                            child_map: child_map.clone(),
+                            subtree_fingerprint,
+                        });
+                }
+            }
+            res
+        }
+    };
     // [g133 az-web-lift DIAG] which early-return fires in POSITIONING's layout_ifc.
     #[cfg(feature = "web_lift")]
     unsafe {
@@ -3401,6 +3477,7 @@ fn layout_ifc<T: ParsedFontTrait>(
         translate_to_text3_constraints(ctx, constraints, ctx.styled_dom, ifc_root_dom_id);
 
     let current_content_hash = {
+        let _p = crate::probe::Probe::span("ifc_content_hash");
         use std::hash::{Hash, Hasher};
         let mut h = std::collections::hash_map::DefaultHasher::new();
         inline_content.hash(&mut h);

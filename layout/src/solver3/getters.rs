@@ -6614,6 +6614,7 @@ mod autotest_generated {
             intrinsic_sizes: None,
             baseline: None,
             inline_layout_result: None,
+            inline_content_cache: None,
             scrollbar_info,
             relative_position: None,
             overflow_content_size: None,

@@ -40,12 +40,16 @@ mod imp {
 
     thread_local! {
         static EVENTS: RefCell<Vec<super::Event>> = const { RefCell::new(Vec::new()) };
+        /// Currently-open span count. Read when a span OPENS (its own
+        /// depth) and decremented when it closes.
+        static DEPTH: std::cell::Cell<u16> = const { std::cell::Cell::new(0) };
     }
 
     /// RAII guard that records its name + elapsed nanos on drop.
     pub struct Span {
         pub(crate) name: &'static str,
         pub(crate) start: Instant,
+        pub(crate) depth: u16,
     }
 
     impl Drop for Span {
@@ -55,25 +59,37 @@ mod imp {
             // TLS, so `with` hits panic_access_error. These probe accesses are
             // inlined into layout_dom_recursive/layout_document, so they can't
             // be stubbed at the symbol level — use the non-panicking access.
+            let depth = self.depth;
+            let _ = DEPTH.try_with(|d| d.set(d.get().saturating_sub(1)));
             let _ = EVENTS.try_with(|cell| {
                 cell.borrow_mut().push(super::Event {
                     name: self.name,
                     kind: super::EventKind::Span { dur_ns },
+                    depth,
                 });
             });
         }
     }
 
     pub(super) fn open(name: &'static str) -> Span {
-        Span { name, start: Instant::now() }
+        let depth = DEPTH
+            .try_with(|d| {
+                let cur = d.get();
+                d.set(cur.saturating_add(1));
+                cur
+            })
+            .unwrap_or(0);
+        Span { name, start: Instant::now(), depth }
     }
 
     pub(super) fn sample_rss(label: &'static str, bytes: u64) {
         // try_with: see Span::drop — no real TLS in the lifted wasm backend.
+        let depth = DEPTH.try_with(std::cell::Cell::get).unwrap_or(0);
         let _ = EVENTS.try_with(|cell| {
             cell.borrow_mut().push(super::Event {
                 name: label,
                 kind: super::EventKind::Rss { bytes },
+                depth,
             });
         });
     }
@@ -142,6 +158,16 @@ mod imp {
 pub struct Event {
     pub name: &'static str,
     pub kind: EventKind,
+    /// Nesting depth at the time the span OPENED (0 = outermost).
+    ///
+    /// Spans are emitted post-order carrying only a duration, so a
+    /// consumer could report a phase's CUMULATIVE time but never its own:
+    /// an outer `layout_formatting_context` reports the whole subtree it
+    /// contains, and the totals happily exceed wall-clock. With depth, a
+    /// consumer walking the post-order stream can subtract each span's
+    /// immediate children and get SELF time — which is what actually
+    /// names a hot phase. `Rss` samples carry the current depth too.
+    pub depth: u16,
 }
 
 #[derive(Copy, Debug, Clone)]
@@ -1216,9 +1242,9 @@ mod autotest_generated {
         // With zero spans the row list is empty; the `ns.last().unwrap()` in
         // the row builder must never be reached.
         let events = [
-            Event { name: "a", kind: EventKind::Rss { bytes: 0 } },
-            Event { name: "b", kind: EventKind::Rss { bytes: u64::MAX } },
-            Event { name: "c", kind: EventKind::Rss { bytes: 1 } },
+            Event { name: "a", kind: EventKind::Rss { bytes: 0 }, depth: 0 },
+            Event { name: "b", kind: EventKind::Rss { bytes: u64::MAX }, depth: 0 },
+            Event { name: "c", kind: EventKind::Rss { bytes: 1 }, depth: 0 },
         ];
         print_drained_events("rss-only", &events);
     }
@@ -1230,6 +1256,7 @@ mod autotest_generated {
         for n in [1usize, 2, 3, 99, 100, 101, 199, 200, 201, 1000] {
             let events: Vec<Event> = (0..n)
                 .map(|i| Event {
+                    depth: 0,
                     name: "phase",
                     kind: EventKind::Span { dur_ns: i as u64 },
                 })
@@ -1244,10 +1271,10 @@ mod autotest_generated {
         // u128 and truncates for display, so this must not panic in a debug
         // build (overflow checks are on for `cargo test`).
         let events = [
-            Event { name: "huge", kind: EventKind::Span { dur_ns: u64::MAX } },
-            Event { name: "huge", kind: EventKind::Span { dur_ns: u64::MAX } },
-            Event { name: "huge", kind: EventKind::Span { dur_ns: u64::MAX } },
-            Event { name: "zero", kind: EventKind::Span { dur_ns: 0 } },
+            Event { name: "huge", kind: EventKind::Span { dur_ns: u64::MAX }, depth: 0 },
+            Event { name: "huge", kind: EventKind::Span { dur_ns: u64::MAX }, depth: 0 },
+            Event { name: "huge", kind: EventKind::Span { dur_ns: u64::MAX }, depth: 0 },
+            Event { name: "zero", kind: EventKind::Span { dur_ns: 0 }, depth: 0 },
         ];
         print_drained_events("overflowing-total", &events);
     }
@@ -1257,9 +1284,9 @@ mod autotest_generated {
         // The delta is computed in i128; a MAX -> 0 -> MAX swing is the worst
         // case for a naive i64/u64 subtraction.
         let events = [
-            Event { name: "peak", kind: EventKind::Rss { bytes: u64::MAX } },
-            Event { name: "trough", kind: EventKind::Rss { bytes: 0 } },
-            Event { name: "peak_again", kind: EventKind::Rss { bytes: u64::MAX } },
+            Event { name: "peak", kind: EventKind::Rss { bytes: u64::MAX }, depth: 0 },
+            Event { name: "trough", kind: EventKind::Rss { bytes: 0 }, depth: 0 },
+            Event { name: "peak_again", kind: EventKind::Rss { bytes: u64::MAX }, depth: 0 },
         ];
         print_drained_events("delta-swing", &events);
     }
@@ -1268,10 +1295,10 @@ mod autotest_generated {
     fn print_drained_events_hostile_labels_and_names() {
         let big = leak("x".repeat(65_536));
         let events = [
-            Event { name: "", kind: EventKind::Span { dur_ns: 1 } },
-            Event { name: "{}{:?}", kind: EventKind::Span { dur_ns: 2 } },
-            Event { name: big, kind: EventKind::Span { dur_ns: u64::MAX } },
-            Event { name: "🦀\u{0301}\0", kind: EventKind::Rss { bytes: 1 } },
+            Event { name: "", kind: EventKind::Span { dur_ns: 1 }, depth: 0 },
+            Event { name: "{}{:?}", kind: EventKind::Span { dur_ns: 2 }, depth: 0 },
+            Event { name: big, kind: EventKind::Span { dur_ns: u64::MAX }, depth: 0 },
+            Event { name: "🦀\u{0301}\0", kind: EventKind::Rss { bytes: 1 }, depth: 0 },
         ];
         print_drained_events(big, &events);
         print_drained_events("\0\n{}", &events);
@@ -1490,8 +1517,8 @@ mod autotest_generated {
 
     #[test]
     fn event_is_copy_and_clone_preserving_payload() {
-        let span = Event { name: "n", kind: EventKind::Span { dur_ns: u64::MAX } };
-        let rss = Event { name: "n", kind: EventKind::Rss { bytes: u64::MAX } };
+        let span = Event { name: "n", kind: EventKind::Span { dur_ns: u64::MAX }, depth: 0 };
+        let rss = Event { name: "n", kind: EventKind::Rss { bytes: u64::MAX }, depth: 0 };
         let span_copy = span; // Copy
         #[allow(clippy::clone_on_copy)]
         let rss_clone = rss.clone();

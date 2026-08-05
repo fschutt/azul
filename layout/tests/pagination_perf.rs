@@ -168,22 +168,50 @@ fn pagination_phase_breakdown() {
         );
         return;
     }
-    let mut totals: BTreeMap<&'static str, (u64, u32)> = BTreeMap::new();
+    // SELF time. Spans arrive post-order carrying (duration, depth), so a
+    // span's immediate children are the not-yet-consumed spans at
+    // depth+1 that precede it. Subtracting them turns "this subtree cost
+    // X" (which double-counts and can exceed wall-clock) into "this phase
+    // itself cost X" — the only number that names a hot spot.
+    let mut totals: BTreeMap<&'static str, (u64, u64, u32)> = BTreeMap::new();
+    // Stack of (depth, child_total_ns) for spans still awaiting a parent.
+    let mut pending: Vec<(u16, u64)> = Vec::new();
     for e in &events {
-        if let azul_layout::probe::EventKind::Span { dur_ns } = e.kind {
-            let slot = totals.entry(e.name).or_insert((0, 0));
-            slot.0 += dur_ns;
-            slot.1 += 1;
+        let azul_layout::probe::EventKind::Span { dur_ns } = e.kind else {
+            continue;
+        };
+        // Everything deeper than this span, sitting on top of the stack,
+        // is its direct-or-indirect child; the ones at exactly depth+1
+        // are its immediate children.
+        let mut children_ns = 0u64;
+        while let Some(&(d, ns)) = pending.last() {
+            if d > e.depth {
+                if d == e.depth + 1 {
+                    children_ns += ns;
+                }
+                pending.pop();
+            } else {
+                break;
+            }
         }
+        let self_ns = dur_ns.saturating_sub(children_ns);
+        let slot = totals.entry(e.name).or_insert((0, 0, 0));
+        slot.0 += self_ns;
+        slot.1 += dur_ns;
+        slot.2 += 1;
+        pending.push((e.depth, dur_ns));
     }
     let mut rows: Vec<_> = totals.into_iter().collect();
-    rows.sort_by_key(|(_, (nanos, _))| std::cmp::Reverse(*nanos));
-    eprintln!("[perf] top phases across {N} paginations:");
-    for (name, (nanos, count)) in rows.iter().take(14) {
+    rows.sort_by_key(|(_, (self_ns, _, _))| std::cmp::Reverse(*self_ns));
+    eprintln!(
+        "[perf] phases by SELF time across {N} paginations (self / cumulative):"
+    );
+    for (name, (self_ns, cum_ns, count)) in rows.iter().take(14) {
         eprintln!(
-            "[perf]   {:<34} {:>9.2} ms  ({count} calls)",
+            "[perf]   {:<32} {:>8.2} ms self  {:>8.2} ms cum  ({count} calls)",
             name,
-            *nanos as f64 / 1_000_000.0
+            *self_ns as f64 / 1_000_000.0,
+            *cum_ns as f64 / 1_000_000.0
         );
     }
 }

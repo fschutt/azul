@@ -202,6 +202,20 @@ pub struct InlineItemMetrics {
 ///
 /// 1. **Min-content measurement**: width = `MinContent` (effectively 0)
 /// 2. **Max-content measurement**: width = `MaxContent` (effectively infinite)
+/// Cached output of `collect_and_measure_inline_content` (see
+/// `LayoutNodeWarm::inline_content_cache`).
+#[derive(Debug, Clone)]
+pub struct CachedInlineContent {
+    /// The collected inline content (text runs, atomics, markers).
+    pub content: alloc::vec::Vec<crate::text3::cache::InlineContent>,
+    /// `ContentIndex` -> child layout-node index, as collection built it.
+    pub child_map: std::collections::HashMap<crate::text3::cache::ContentIndex, usize>,
+    /// Validity key: the fingerprints of the IFC root and its descendants,
+    /// folded in tree order. Anything that changes text, style or structure
+    /// changes a fingerprint, so an equal key means an identical collection.
+    pub subtree_fingerprint: u64,
+}
+
 /// 3. **Final layout**: width = `Definite(actual_column_width)`
 ///
 /// Without tracking which constraints were used, a cached result from phase 1
@@ -487,6 +501,8 @@ pub struct LayoutNode {
     /// (with width=0) would be incorrectly reused for final rendering.
     /// (13 accesses — IFC roots / table cells)
     pub inline_layout_result: Option<CachedInlineLayout>,
+    /// See [`LayoutNodeWarm::inline_content_cache`].
+    pub inline_content_cache: Option<CachedInlineContent>,
     /// Cached scrollbar information (calculated during layout)
     /// Used to determine if scrollbars appeared/disappeared requiring reflow
     /// (12 accesses — scrollable containers only)
@@ -688,6 +704,15 @@ pub struct LayoutNodeWarm {
     pub baseline: Option<f32>,
     /// Cached inline layout result with the constraints used to compute it.
     pub inline_layout_result: Option<CachedInlineLayout>,
+    /// Cached result of `collect_and_measure_inline_content` for this IFC
+    /// root, valid while the subtree's fingerprints are unchanged.
+    ///
+    /// Collection resolves the FULL cascade (`get_style_properties`) for
+    /// every text run and inline span. That ran on every layout — even one
+    /// that went on to reuse the cached line layout — and measured 2 ms per
+    /// IFC, 32 ms per pagination: the single largest remaining cost after
+    /// the line-breaker and font-signature fixes.
+    pub inline_content_cache: Option<CachedInlineContent>,
     /// Cached scrollbar information
     pub scrollbar_info: Option<ScrollbarRequirements>,
     /// The position relative to parent's content box.
@@ -756,6 +781,7 @@ impl LayoutNode {
                 intrinsic_sizes: self.intrinsic_sizes,
                 baseline: self.baseline,
                 inline_layout_result: self.inline_layout_result,
+                inline_content_cache: self.inline_content_cache,
                 scrollbar_info: self.scrollbar_info,
                 relative_position: self.relative_position,
                 overflow_content_size: self.overflow_content_size,
@@ -966,6 +992,7 @@ impl LayoutTree {
             intrinsic_sizes: warm.intrinsic_sizes,
             baseline: warm.baseline,
             inline_layout_result: warm.inline_layout_result,
+            inline_content_cache: warm.inline_content_cache,
             scrollbar_info: warm.scrollbar_info,
             relative_position: warm.relative_position,
             overflow_content_size: warm.overflow_content_size,
@@ -1801,6 +1828,7 @@ impl LayoutTreeBuilder {
             intrinsic_sizes: None,
             baseline: None,
             inline_layout_result: None,
+            inline_content_cache: None,
             scrollbar_info: None,
             relative_position: None,
             overflow_content_size: None,
@@ -1860,6 +1888,7 @@ impl LayoutTreeBuilder {
             intrinsic_sizes: None,
             baseline: None,
             inline_layout_result: None,
+            inline_content_cache: None,
             scrollbar_info: None,
             relative_position: None,
             overflow_content_size: None,
@@ -1991,6 +2020,7 @@ impl LayoutTreeBuilder {
             intrinsic_sizes: None,
             baseline: None,
             inline_layout_result: None,
+            inline_content_cache: None,
             scrollbar_info: None,
             relative_position: None,
             overflow_content_size: None,
