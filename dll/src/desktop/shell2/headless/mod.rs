@@ -3596,6 +3596,80 @@ mod tests {
     /// scrollbar'd window re-damaged its bar every frame — the skip path was
     /// unreachable and idle windows re-rendered + re-presented forever (the
     /// thumb position now flows through the GPU-value damage channel instead).
+    /// Scrolling must MOVE the pixels it already has, not repaint them.
+    ///
+    /// `render_frame` memmoves the still-visible part of a scrolled frame
+    /// inside the retained pixmap (`scroll_shift_region`) and repaints only
+    /// the strip that scrolled into view — but ONLY when
+    /// `scroll_fast_path_eligible` says the content opaquely covers the clip
+    /// at both the old and new offsets. When it says no, the else-branch
+    /// pushes the WHOLE clip as damage and every scrolled pixel is
+    /// re-rasterized.
+    ///
+    /// Nothing pinned which of those two happens, so the fast path could
+    /// silently stop firing — turning every pan into a full repaint of the
+    /// scrolled area — without a single test noticing. This asserts the
+    /// painted area stays far below the clip area.
+    #[test]
+    fn damage_scroll_takes_the_memmove_fast_path() {
+        use azul_core::geom::{LogicalPosition, LogicalRect, LogicalSize};
+
+        let state = Arc::new(RefCell::new(RefAny::new(ScrollTestState { n_items: 20 })));
+        let mut window = make_window_with(&state, harness_layout_scroll);
+        window.regenerate_layout().expect("initial layout");
+        // Second render so the next one is incremental (the first frame is a
+        // full repaint by definition, and the fast path only runs then).
+        window.regenerate_layout().expect("settle");
+
+        // The scroll clip from `harness_layout_scroll` / `scroll_frame_to`.
+        let clip = LogicalRect {
+            origin: LogicalPosition::new(8.0, 8.0),
+            size: LogicalSize::new(200.0, 100.0),
+        };
+        let clip_area = clip.size.width * clip.size.height;
+
+        scroll_frame_to(&mut window, 30.0);
+        window.regenerate_layout().expect("scroll relayout");
+        let damage = window.cpu_backend.last_frame_damage.clone();
+        println!("[harness] scroll-30 PAINT damage = {damage:?}");
+
+        // Area actually re-rasterized inside the scroll clip.
+        let painted: f32 = match &damage {
+            FrameDamage::Full => clip_area,
+            FrameDamage::None => 0.0,
+            FrameDamage::Rects(rs) => rs
+                .iter()
+                .filter_map(|r| {
+                    let x0 = r.origin.x.max(clip.origin.x);
+                    let y0 = r.origin.y.max(clip.origin.y);
+                    let x1 = (r.origin.x + r.size.width).min(clip.origin.x + clip.size.width);
+                    let y1 = (r.origin.y + r.size.height).min(clip.origin.y + clip.size.height);
+                    if x1 > x0 && y1 > y0 { Some((x1 - x0) * (y1 - y0)) } else { None }
+                })
+                .sum(),
+        };
+
+        // A 30px scroll of a 100px-tall clip exposes a 30px strip, so ~30% of
+        // the clip plus the scrollbar column. The threshold is deliberately
+        // loose — the point is to catch "the whole clip got repainted"
+        // (100%), which is what an ineligible fast path produces.
+        let ratio = painted / clip_area;
+        println!("[harness] painted {painted:.0}px2 of clip {clip_area:.0}px2 = {ratio:.2}");
+        assert!(
+            ratio < 0.6,
+            "scrolling 30px of a 100px clip repainted {:.0}% of it. The \
+             memmove fast path did not fire, so every pan re-rasterizes the \
+             whole scrolled area instead of shifting the pixels it already \
+             has. damage = {damage:?}",
+            ratio * 100.0
+        );
+        assert!(
+            painted > 0.0,
+            "scrolling repainted NOTHING — the newly exposed strip must still \
+             be painted, or scrolled-in content is stale pixels"
+        );
+    }
+
     #[test]
     #[cfg(feature = "cpurender")]
     fn damage_idle_scrollbar_window_skips() {
