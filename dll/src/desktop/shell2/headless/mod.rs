@@ -852,6 +852,12 @@ pub struct HeadlessWindow {
     icon_provider: SharedIconProvider,
     /// Font registry (needed for spawning sub-windows).
     font_registry: Option<Arc<FcFontRegistry>>,
+    /// `WindowCreateOptions::create_callback`, deferred until `run()`.
+    ///
+    /// Every OS shell fires this after the window exists and before the
+    /// first layout; headless dropped it, so an app installing its startup
+    /// timer there idled forever under `AZ_BACKEND=headless`.
+    create_callback: azul_layout::callbacks::OptionCallback,
     /// Condvar + mutex used to block the event loop until work arrives.
     wake_condvar: Arc<Condvar>,
     wake_mutex: Arc<Mutex<WakeState>>,
@@ -891,6 +897,9 @@ impl HeadlessWindow {
         fc_cache: Arc<FcFontCache>,
         font_registry: Option<Arc<FcFontRegistry>>,
     ) -> Result<Self, WindowError> {
+        // Extract create_callback before consuming options (same as every
+        // platform shell) — invoked in run() ahead of the initial layout.
+        let create_callback = options.create_callback.clone();
         let full_window_state = options.window_state;
 
         // Create layout window — same as real platforms
@@ -938,6 +947,7 @@ impl HeadlessWindow {
             config,
             icon_provider,
             font_registry,
+            create_callback,
             wake_condvar,
             wake_mutex,
             accessibility_adapter: A11yActionQueue::new(),
@@ -1450,6 +1460,53 @@ impl HeadlessWindow {
         self.pending_window_creates.len()
     }
 
+    /// Fire `WindowCreateOptions::create_callback` exactly once, before the
+    /// first layout.
+    ///
+    /// X11/Wayland/Windows/macOS all invoke it after the window exists and
+    /// BEFORE the first layout; headless is documented as behavior-parity
+    /// ("callbacks fire, timers tick"), so it must too — an app that installs
+    /// its startup timer here otherwise idles until killed under
+    /// `AZ_BACKEND=headless`. Public so the e2e harness (which drives frames
+    /// manually instead of calling the blocking `run()`) can fire it at the
+    /// same point in the lifecycle.
+    pub fn invoke_create_callback(&mut self) {
+        // take, not clone: fires exactly once per window lifetime.
+        let taken = core::mem::replace(
+            &mut self.create_callback,
+            azul_layout::callbacks::OptionCallback::None,
+        );
+        let Some(mut callback) = taken.into_option() else {
+            return;
+        };
+
+        let app_data = self.common.app_data.clone();
+        let borrows = self.prepare_callback_invocation();
+        let mut app_data_ref = app_data.borrow_mut();
+
+        let (changes, _update) = borrows.layout_window.invoke_single_callback(
+            &mut callback,
+            &mut *app_data_ref,
+            &borrows.window_handle,
+            borrows.gl_context_ptr,
+            borrows.system_style.clone(),
+            &azul_layout::callbacks::ExternalSystemCallbacks::rust_internal(),
+            borrows.previous_window_state,
+            borrows.current_window_state,
+            borrows.renderer_resources,
+        );
+
+        drop(app_data_ref);
+        use crate::desktop::shell2::common::event::PlatformWindow;
+        for change in &changes {
+            let r = self.apply_user_change(change);
+            if r != azul_core::events::ProcessEventResult::DoNothing {
+                self.common
+                    .request_regeneration(azul_core::callbacks::RelayoutReason::RefreshDom);
+            }
+        }
+    }
+
     // === Blocking event loop ===
 
     /// Run the headless event loop — **blocks** until the window closes.
@@ -1476,6 +1533,9 @@ impl HeadlessWindow {
             "[Headless] Entering condvar-based blocking event loop (debug={})",
             debug_enabled,
         );
+
+        // -- Invoke create_callback (behavior parity with the OS shells) --
+        self.invoke_create_callback();
 
         // -- Perform initial layout (same as every platform) --
         log_debug!(
@@ -2480,6 +2540,93 @@ mod tests {
              not a damage bug).",
             after,
             damage
+        );
+    }
+
+    /// App-side state observed by the create_callback parity test.
+    #[derive(Debug, Clone)]
+    struct CreateState {
+        fired: usize,
+    }
+
+    extern "C" fn create_cb_installs_timer(
+        mut data: RefAny,
+        mut info: azul_layout::callbacks::CallbackInfo,
+    ) -> azul_core::callbacks::Update {
+        use azul_core::callbacks::Update;
+        if let Some(mut s) = data.downcast_mut::<CreateState>() {
+            s.fired += 1;
+        }
+        // The miniword symptom: the startup timer installed here never
+        // ticked because the callback never ran under AZ_BACKEND=headless.
+        info.add_timer(
+            azul_core::task::TimerId { id: 777 },
+            azul_layout::timer::Timer::default(),
+        );
+        Update::DoNothing
+    }
+
+    #[test]
+    fn create_callback_fires_once_with_app_data_and_installs_timers() {
+        use azul_core::icon::{IconProviderHandle, SharedIconProvider};
+        let state = Arc::new(RefCell::new(RefAny::new(CreateState { fired: 0 })));
+
+        let fc_cache = Arc::new(FcFontCache::default());
+        let icon_provider = SharedIconProvider::from_handle(IconProviderHandle::default());
+        let mut opts = WindowCreateOptions::default();
+        opts.window_state.layout_callback = LayoutCallback {
+            cb: harness_layout,
+            ctx: OptionRefAny::None,
+        };
+        opts.window_state.size.dimensions = LogicalSize::new(400.0, 300.0);
+        opts.create_callback = azul_layout::callbacks::OptionCallback::Some(
+            azul_layout::callbacks::Callback {
+                cb: create_cb_installs_timer,
+                ctx: OptionRefAny::None,
+            },
+        );
+        let mut window = HeadlessWindow::new(
+            opts,
+            state.clone(),
+            event::SharedUndoManager::new(),
+            AppConfig::default(),
+            icon_provider,
+            fc_cache,
+            None,
+        )
+        .unwrap();
+        inject_harness_font(&window);
+
+        // Negative control: nothing fired at construction time.
+        assert!(
+            !window.has_active_timers(),
+            "no timer may exist before invoke_create_callback"
+        );
+        assert_eq!(
+            state.borrow_mut().downcast_ref::<CreateState>().unwrap().fired,
+            0
+        );
+
+        window.invoke_create_callback();
+
+        assert_eq!(
+            state.borrow_mut().downcast_ref::<CreateState>().unwrap().fired,
+            1,
+            "create_callback must run with the APP data (parity with OS shells)"
+        );
+        assert!(
+            window.has_active_timers(),
+            "the timer installed by create_callback must land in the \
+             layout window (AddTimer change applied)"
+        );
+
+        // Exactly once per window lifetime — a second lifecycle pass must
+        // not re-fire it (OS shells consume the callback at window creation).
+        window.invoke_create_callback();
+        assert_eq!(
+            state.borrow_mut().downcast_ref::<CreateState>().unwrap().fired,
+            1,
+            "create_callback fired more than once"
         );
     }
 

@@ -169,6 +169,11 @@ pub fn run_e2e_scenario(
     )?;
     eprintln!("[E2E-TRACE] after HeadlessWindow::new");
 
+    // Fire create_callback at the same lifecycle point as the OS shells and
+    // the blocking headless run(): after the window exists, before the first
+    // layout. Scenario apps that install startup timers rely on this.
+    window.invoke_create_callback();
+
     // --- Warmup ticks ---
     for w in 0..scenario.warmup_ticks {
         eprintln!("[E2E-TRACE] before warmup tick {}", w);
