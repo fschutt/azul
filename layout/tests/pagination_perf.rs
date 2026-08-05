@@ -206,7 +206,7 @@ fn pagination_phase_breakdown() {
     eprintln!(
         "[perf] phases by SELF time across {N} paginations (self / cumulative):"
     );
-    for (name, (self_ns, cum_ns, count)) in rows.iter().take(14) {
+    for (name, (self_ns, cum_ns, count)) in rows.iter().take(40) {
         eprintln!(
             "[perf]   {:<32} {:>8.2} ms self  {:>8.2} ms cum  ({count} calls)",
             name,

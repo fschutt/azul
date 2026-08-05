@@ -271,8 +271,15 @@ impl<'a, 'b, 'c, T: ParsedFontTrait> IntrinsicSizeCalculator<'a, 'b, 'c, T> {
                     .warm(node_index)
                     .and_then(|w| w.intrinsic_sizes)
                 {
+                    drop(crate::probe::Probe::span("intrinsic_cache_hit"));
                     return Ok(cached);
                 }
+                // A node the reconcile pass called CLEAN whose intrinsic
+                // was not carried over: it recomputes (text measurement,
+                // ~3 ms for an IFC root) even though nothing about it
+                // changed. Counted so the warm profile shows how much of
+                // the sizing pass is this hole rather than real work.
+                drop(crate::probe::Probe::span("intrinsic_clean_but_uncached"));
             }
         }
 

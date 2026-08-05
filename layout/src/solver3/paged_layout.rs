@@ -337,6 +337,7 @@ where
 
     // Handle continuous media (no pagination)
     if !fragmentation_context.is_paged() {
+        let _p = crate::probe::Probe::span("paged_layout_pass");
         compute_layout_with_fragmentation(
             cache,
             text_cache,
@@ -373,6 +374,7 @@ where
             get_system_time_fn,
         };
 
+        let _p = crate::probe::Probe::span("paged_display_list");
         let display_list = generate_display_list(
             &mut ctx,
             tree,
@@ -396,6 +398,7 @@ where
     // Paged Layout
 
     // Perform layout with fragmentation context (layout only, no display list)
+    let _p_layout = crate::probe::Probe::span("paged_layout_pass");
     compute_layout_with_fragmentation(
         cache,
         text_cache,
@@ -462,6 +465,8 @@ where
     // - CSS fragmentation properties are respected
 
     // Step 1: Generate ONE complete display list (infinite canvas)
+    drop(_p_layout);
+    let _p_dl = crate::probe::Probe::span("paged_display_list");
     let full_display_list = generate_display_list(
         &mut ctx,
         tree,
@@ -699,7 +704,10 @@ fn compute_layout_with_fragmentation<T: ParsedFontTrait + Sync + 'static>(
     }
 
     // Step 1.3: Compute CSS Counters
-    cache::compute_counters(new_dom, &new_tree, &mut counter_values);
+    {
+        let _p = crate::probe::Probe::span("frag_compute_counters");
+        cache::compute_counters(new_dom, &new_tree, &mut counter_values);
+    }
 
     // Step 1.4: Resize and invalidate per-node cache (Taffy-inspired 9+1 slot cache)
     // Move cache_map out of LayoutCache for the duration of layout.
@@ -745,7 +753,9 @@ fn compute_layout_with_fragmentation<T: ParsedFontTrait + Sync + 'static>(
     }
 
     // --- Step 2: Incremental Layout Loop ---
+    let _p_clone_pos = crate::probe::Probe::span("frag_clone_positions");
     let mut calculated_positions = cache.calculated_positions.clone();
+    drop(_p_clone_pos);
     let mut loop_count = 0;
     loop {
         loop_count += 1;
@@ -756,6 +766,7 @@ fn compute_layout_with_fragmentation<T: ParsedFontTrait + Sync + 'static>(
         calculated_positions.clone_from(&cache.calculated_positions);
         let mut reflow_needed_for_scrollbars = false;
 
+        let _p_intrinsic = crate::probe::Probe::span("frag_intrinsic_sizes");
         crate::solver3::sizing::calculate_intrinsic_sizes(
             &mut ctx,
             &mut new_tree,
