@@ -43,6 +43,16 @@ pub struct AppliedEdit {
     /// against); the structural payload (positions, ranges, fragments) is
     /// what the undo path re-records.
     pub inverse: DocumentOperation,
+    /// The resume point to re-record [`inverse`] WITH.
+    ///
+    /// Index resolution is asymmetric — a split targets
+    /// `resume.node_path.last() - 1` while a merge keeps
+    /// `resume.node_path.last()` — so replaying the inverse with the
+    /// ORIGINAL resume point lands one node off and edits the wrong pair.
+    /// An application undoing an edit must not have to know that: this is
+    /// the resume point that makes `inverse` apply to exactly the nodes the
+    /// forward operation touched.
+    pub inverse_resume: crate::managers::changeset::EditResumePoint,
 }
 
 /// Why an apply failed. Failures leave the tree UNCHANGED.
@@ -98,13 +108,22 @@ pub fn apply_document_operation(
         .copied()
         .unwrap_or(0);
 
+    // The index the inverse must address, in the units ITS OWN arm reads
+    // (split reads `last - 1`, merge reads `last`), so the caller can replay
+    // the inverse verbatim.
+    let mut inverse_resume_last = resume_index;
     let inverse = match &changeset.operation {
         DocumentOperation::SplitNode(split) => {
             let node_index = resume_index.saturating_sub(1) as usize;
+            // Inverse is a MERGE of (node_index, node_index + 1); merge reads
+            // the index directly.
+            inverse_resume_last = node_index as u32;
             apply_split(host, node_index, split)?
         }
         DocumentOperation::MergeNodes(merge) => {
             let first_index = resume_index as usize;
+            // Inverse is a SPLIT of `first_index`; split reads `last - 1`.
+            inverse_resume_last = first_index as u32 + 1;
             apply_merge(host, first_index, merge)?
         }
         DocumentOperation::InsertChildren(insert) => apply_insert(host, insert),
@@ -119,9 +138,20 @@ pub fn apply_document_operation(
     // bubble up through every ancestor of the edited node.
     root.fixup_children_estimated();
 
+    let mut inverse_resume = changeset.resume.clone();
+    {
+        let mut path = inverse_resume.node_path.as_ref().to_vec();
+        match path.last_mut() {
+            Some(last) => *last = inverse_resume_last,
+            None => path.push(inverse_resume_last),
+        }
+        inverse_resume.node_path = path.into();
+    }
+
     Ok(AppliedEdit {
         resume: changeset.resume.clone(),
         inverse,
+        inverse_resume,
     })
 }
 

@@ -946,3 +946,109 @@ molestias excepturi sint occaecati cupiditate non provident, similique sunt
 in culpa qui officia deserunt mollitia animi, id est laborum et dolorum
 fuga. Et harum quidem rerum facilis est et expedita distinctio.</p>
 </body></html>"####;
+
+// ── AppliedEdit::inverse_resume: undo must be replayable verbatim ──────────
+
+/// An application undoing a structural edit re-records the returned inverse
+/// through the same apply loop. Index resolution is ASYMMETRIC (split reads
+/// `resume.last() - 1`, merge reads `resume.last()`), so replaying with the
+/// ORIGINAL resume point edits the wrong pair — miniword's undo merged
+/// blocks 1+2 where it had split 0. `inverse_resume` is the fix; this pins
+/// that a split→undo round-trip restores the document EXACTLY.
+#[test]
+fn applied_edit_inverse_resume_makes_undo_a_verbatim_replay() {
+    use azul_layout::managers::changeset::{
+        DocOpSplitNode, DocumentChangeset, DocumentOperation, EditResumePoint, NodePosition,
+    };
+
+    fn null_node() -> azul_core::dom::DomNodeId {
+        azul_core::dom::DomNodeId {
+            dom: DomId::ROOT_ID,
+            node: azul_core::styled_dom::NodeHierarchyItemId::from_crate_internal(None),
+        }
+    }
+    fn block_texts(d: &Dom) -> Vec<String> {
+        fn own(d: &Dom) -> String {
+            let mut s = String::new();
+            for c in d.children.as_ref() {
+                match c.root.get_node_type() {
+                    azul_core::dom::NodeType::Text(t) => s.push_str(t.as_str()),
+                    _ => s.push_str(&own(c)),
+                }
+            }
+            s
+        }
+        d.children.as_ref().iter().map(own).collect()
+    }
+    fn cs(op: DocumentOperation, path: Vec<u32>) -> DocumentChangeset {
+        DocumentChangeset::new(
+            null_node(),
+            op,
+            EditResumePoint {
+                anchor_key: 0,
+                node_path: path.into(),
+                position: NodePosition { child_index: 0, text_byte: Some(0).into() },
+            },
+            azul_core::task::Instant::from(std::time::Instant::now()),
+        )
+    }
+
+    let mut model = Dom::create_div()
+        .with_child(Dom::create_p().with_child(Dom::create_text("First paragraph here.")))
+        .with_child(Dom::create_p().with_child(Dom::create_text("Second.")))
+        .with_child(Dom::create_p().with_child(Dom::create_text("Third.")));
+    model.fixup_children_estimated();
+    let before = block_texts(&model);
+
+    // Split block 0 after "First" — the resume names the NEW second part.
+    let forward = cs(
+        DocumentOperation::SplitNode(DocOpSplitNode {
+            node: null_node(),
+            at: NodePosition { child_index: 0, text_byte: Some(5).into() },
+        }),
+        vec![1],
+    );
+    let applied = azul_layout::document_edit::apply_document_operation(&mut model, &[], &forward)
+        .expect("apply split");
+    assert_eq!(
+        block_texts(&model),
+        vec!["First", " paragraph here.", "Second.", "Third."]
+    );
+
+    // The inverse's resume must NOT be the forward one (that is the bug).
+    assert_ne!(
+        applied.inverse_resume.node_path.as_ref(),
+        applied.resume.node_path.as_ref(),
+        "a split's inverse merges at a different index than the split's resume"
+    );
+
+    // UNDO: replay the inverse verbatim with the resume the engine handed back.
+    let undo = cs(applied.inverse.clone(), applied.inverse_resume.node_path.as_ref().to_vec());
+    azul_layout::document_edit::apply_document_operation(&mut model, &[], &undo)
+        .expect("apply inverse");
+    assert_eq!(
+        block_texts(&model),
+        before,
+        "undo must restore the document exactly"
+    );
+
+    // NEGATIVE CONTROL: replaying with the FORWARD resume (what an app would
+    // naively reach for) must NOT restore it — otherwise this test would
+    // pass even with inverse_resume removed.
+    let mut model2 = Dom::create_div()
+        .with_child(Dom::create_p().with_child(Dom::create_text("First paragraph here.")))
+        .with_child(Dom::create_p().with_child(Dom::create_text("Second.")))
+        .with_child(Dom::create_p().with_child(Dom::create_text("Third.")));
+    model2.fixup_children_estimated();
+    let applied2 =
+        azul_layout::document_edit::apply_document_operation(&mut model2, &[], &forward)
+            .expect("apply split 2");
+    let naive = cs(applied2.inverse.clone(), applied2.resume.node_path.as_ref().to_vec());
+    let _ = azul_layout::document_edit::apply_document_operation(&mut model2, &[], &naive);
+    assert_ne!(
+        block_texts(&model2),
+        before,
+        "control: the forward resume must NOT undo correctly (if it does, \
+         inverse_resume is not carrying its weight)"
+    );
+}
