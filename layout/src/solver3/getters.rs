@@ -7804,6 +7804,62 @@ mod autotest_generated {
         }
     }
 
+    /// Two DIFFERENT documents must not share a style answer for the same
+    /// `NodeId`.
+    ///
+    /// This exists because of a bug it would have caught. An
+    /// `Arc<StyleProperties>` memo (worth a measured 6.3 MB of peak heap)
+    /// was written keyed on `ptr::from_ref(styled_dom) as usize` as the
+    /// document identity. A pointer address is not an identity: a
+    /// `StyledDom` is created, rendered, dropped, and the next one lands at
+    /// the same address — so the second document was served the first
+    /// one's cached styles. Sixteen reftests went red.
+    ///
+    /// Every per-node style cache added here must keep this green. It
+    /// asserts CONCRETE VALUES (11px, 29px) rather than mere inequality, so
+    /// it cannot pass by both sides being equally wrong.
+    ///
+    /// Its control is the incident itself rather than a synthetic break:
+    /// the pointer-keyed memo really was written, really did compile and
+    /// pass every lib test, and really did turn sixteen reftests red. This
+    /// asserts the axis those reftests were the only thing watching.
+    #[test]
+    fn two_documents_do_not_share_a_style_answer_for_the_same_node_id() {
+        use azul_core::dom::Dom;
+        use azul_css::props::basic::PhysicalSize;
+
+        fn resolve(css: &str) -> f32 {
+            let mut dom = Dom::create_body().with_child(Dom::create_div());
+            let styled = azul_core::styled_dom::StyledDom::create(
+                &mut dom,
+                azul_css::css::Css::from_string(css.into()),
+            );
+            get_style_properties(
+                &styled,
+                NodeId::new(1),
+                None,
+                PhysicalSize::new(800.0, 600.0),
+            )
+            .font_size_px
+            // `styled` is dropped here on purpose: the NEXT call may well
+            // reuse this exact allocation, which is the aliasing hazard.
+        }
+
+        let a = resolve("div { font-size: 11px; }");
+        let b = resolve("div { font-size: 29px; }");
+        assert!(
+            (a - 11.0).abs() < 0.5,
+            "first document must resolve to its OWN 11px, got {a}"
+        );
+        assert!(
+            (b - 29.0).abs() < 0.5,
+            "second document must resolve to its OWN 29px, got {b} — if this \
+             is 11 the second document was served the first one's cached \
+             style, which is what a pointer-address cache key does once the \
+             allocator reuses the address"
+        );
+    }
+
     #[test]
     fn build_font_selector_stack_puts_the_authored_families_first() {
         let families = StyleFontFamilyVec::from_vec(vec![
