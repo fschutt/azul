@@ -2508,6 +2508,27 @@ impl LayoutTreeBuilder {
             parent.and_then(|p| self.nodes.get(p).map(|n| n.formatting_context));
         new_node.children = Vec::new();
         new_node.dirty_flag = DirtyFlag::None;
+        // The measurement cache does NOT survive the clone.
+        //
+        // A clone is taken because the node's own data is unchanged — but
+        // "unchanged" says nothing about its SURROUNDINGS. Its cached
+        // (available space -> computed size) entries were measured against
+        // the previous frame's siblings, and a clone is taken precisely when
+        // a sibling changed enough to re-lay the parent out. `layout_document`
+        // clears this cache for `intrinsic_dirty` nodes; the clean clones
+        // beside them kept theirs.
+        //
+        // Symptom: clicking ribbon tab 1 left tab 2 — the tab that never
+        // changed state — drawing its label 1.5px lower than a fresh render
+        // of the same state, with an IDENTICAL header box. The cached entry
+        // was answering with a measurement taken while tab 0 was active.
+        //
+        // What the clone is FOR is still preserved: the tree structure, the
+        // fingerprint, and `inline_layout_result` — so the text is not
+        // re-shaped, only re-measured. Measured flat on
+        // layout/tests/frame_perf.rs (idle 19.21 vs 19.70 ms, cold 75.96 vs
+        // 74.57 ms, edit 22.72 vs 25.39 ms — all inside run-to-run noise).
+        new_node.taffy_cache.clear();
         new_node.dom_node_id = new_dom_id;
         self.nodes.push(new_node);
         if let Some(p) = parent {

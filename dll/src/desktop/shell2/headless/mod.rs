@@ -4059,32 +4059,27 @@ mod tests {
         }
     }
 
-    /// KNOWN GAP - a tab switch leaves the OTHER tabs' text at a stale
-    /// vertical position once the headers carry a border.
+    /// A tab switch must not move the tabs that did not change.
     ///
-    /// Found by the per-tab border aid above. Narrowed by display-list
-    /// comparison; what is ESTABLISHED:
+    /// Clicking tab 1 used to leave tab 2 — the tab whose state never
+    /// changed — drawing its label 1.5px lower than a fresh render of the
+    /// same state (baseline 34.6 against 33.1), with an IDENTICAL header
+    /// box of 66x26 @ (126, 16). Only the CONTENT moved.
     ///
-    ///  * Only tab 2 is wrong — the one that did NOT change state. Tab 0
-    ///    (lost active) and tab 1 (gained active) both match a fresh render
-    ///    exactly.
-    ///  * Its BOX is identical in both: `66x26 @ (126, 16)`. Only the text
-    ///    inside sits 1.5px lower — Border/TextLayout `36x12 @ (141, 25)`
-    ///    against `@ (141, 23.5)`, baseline 34.6 against 33.1.
-    ///  * Colours are correct by then, so this is NOT the shaped-run
-    ///    staleness fixed in 8ec9f387d.
-    ///  * NOT the text node's own reuse: forcing EVERY text node to
-    ///    DirtyFlag::Layout in reconciliation does not fix it (tried, still
-    ///    fails). So the stale vertical position is held by something above
-    ///    the text node — the header's own clean clone, or the IFC layout
-    ///    keyed to it.
+    /// Root cause: `clone_node_from_old` carried the node's taffy
+    /// measurement cache. A clone is taken because the node's own data is
+    /// unchanged, but that says nothing about its surroundings — and a
+    /// clone is taken precisely when a sibling changed enough to re-lay the
+    /// parent out. Tab 2 was answering with a size measured while tab 0 was
+    /// still active.
     ///
-    /// Next: find what carries a baseline for a clean node whose box did not
-    /// move. The 2-item Border difference between the two lists (the clicked
-    /// window omits two all-None-colour Borders, the ribbon root and the tab
-    /// bar) is the other unexplained signal and may be the same cause.
+    /// Found by the per-tab border aid (`RibbonTab::style`), which is why
+    /// this runs with `bordered: true`: without borders the stale
+    /// measurement happens to agree.
+    ///
+    /// NEGATIVE CONTROL: restoring the cache on the clone (dropping
+    /// `new_node.taffy_cache.clear()`) makes this fail — run and seen.
     #[test]
-    #[ignore = "known gap: bordered tab headers keep a stale y after a switch"]
     fn switching_tabs_does_not_shift_the_other_tabs_text() {
         let state = Arc::new(RefCell::new(RefAny::new(RibbonUiState {
             active_tab: 0,
