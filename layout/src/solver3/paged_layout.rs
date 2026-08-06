@@ -304,19 +304,41 @@ where
 
         if !font_requirements_unchanged {
             let _p = crate::probe::Probe::span("font_chain_resolve");
+            let trace = std::env::var_os("AZ_PAGINATE_TRACE").is_some();
+            let t0 = std::time::Instant::now();
             let platform = azul_css::system::Platform::current();
 
             let chains = collect_and_resolve_font_chains_with_registration(
                 new_dom, &font_manager.fc_cache, font_manager, &platform,
             );
+            let t_resolve = t0.elapsed();
 
             let required_fonts = collect_font_ids_from_chains(&chains);
             let already_loaded = font_manager.get_loaded_font_ids();
             let fonts_to_load = compute_fonts_to_load(&required_fonts, &already_loaded);
+            if trace {
+                eprintln!(
+                    "[paginate] font_chain_resolve {t_resolve:?}: {} chain(s), {} font(s) \
+                     required, {} already loaded, {} to load",
+                    chains.chains.len(),
+                    required_fonts.len(),
+                    already_loaded.len(),
+                    fonts_to_load.len(),
+                );
+            }
 
             if !fonts_to_load.is_empty() {
+                let t1 = std::time::Instant::now();
                 let load_result =
                     load_fonts_from_disk(&fonts_to_load, &font_manager.fc_cache, &font_loader);
+                if trace {
+                    eprintln!(
+                        "[paginate] load_fonts_from_disk {:?}: {} loaded, {} failed",
+                        t1.elapsed(),
+                        load_result.loaded.len(),
+                        load_result.failed.len(),
+                    );
+                }
 
                 font_manager.insert_fonts(load_result.loaded);
                 for (font_id, error) in &load_result.failed {

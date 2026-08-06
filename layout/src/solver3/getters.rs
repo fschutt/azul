@@ -4530,6 +4530,9 @@ fn pick_memory_face(
 ) -> ResolvedFontChains {
     let _probe = crate::probe::Probe::span("font_chain_resolve");
     let mut chains = HashMap::new();
+    let _trace_t0 = std::env::var_os("AZ_PAGINATE_TRACE")
+        .is_some()
+        .then(std::time::Instant::now);
     let mut unresolved: std::collections::BTreeSet<String> = std::collections::BTreeSet::new();
 
     // Resolve system/file font stacks via fontconfig
@@ -4671,6 +4674,15 @@ fn pick_memory_face(
         unresolved_families: unresolved,
         last_resort_chains: 0,
     };
+    if let Some(t0) = _trace_t0 {
+        eprintln!(
+            "[paginate]   resolve_font_chains_with_registry {:?}: {} chain(s), {} \
+             unresolved family name(s)",
+            t0.elapsed(),
+            out.chains.len(),
+            out.unresolved_families.len(),
+        );
+    }
     report_unresolved_families(&out);
     out
 }
