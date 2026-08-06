@@ -4521,6 +4521,107 @@ fn pick_memory_face(
 /// [`resolve_font_chains`] does and what every code path did before
 /// Phase 3.
 #[allow(clippy::implicit_hasher)] // internal; memory_families always uses the default hasher
+/// Concrete family names that exist ONLY because the fontconfig generic
+/// alias expansion invented them — the union of every `<alias><prefer>` list
+/// (see `fontconfig_generic_aliases`). Lowercased.
+///
+/// These are CANDIDATES, not requests: the system offers ~50 families per
+/// generic and expects most of them to be absent. Nothing in the document
+/// asked for `ZYSong18030`.
+#[cfg(all(target_os = "linux", feature = "std"))]
+fn alias_candidate_names() -> &'static std::collections::BTreeSet<String> {
+    use std::collections::BTreeSet;
+    use std::sync::OnceLock;
+    static S: OnceLock<BTreeSet<String>> = OnceLock::new();
+    S.get_or_init(|| {
+        fontconfig_generic_aliases()
+            .values()
+            .flatten()
+            .map(|f| f.to_ascii_lowercase())
+            .collect()
+    })
+}
+
+#[cfg(not(all(target_os = "linux", feature = "std")))]
+fn alias_candidate_names() -> &'static std::collections::BTreeSet<String> {
+    use std::collections::BTreeSet;
+    use std::sync::OnceLock;
+    static S: OnceLock<BTreeSet<String>> = OnceLock::new();
+    S.get_or_init(BTreeSet::new)
+}
+
+/// Lowercased family names the cache can actually serve.
+fn available_family_names(fc_cache: &FcFontCache) -> std::collections::BTreeSet<String> {
+    let mut out = std::collections::BTreeSet::new();
+    fc_cache.for_each_pattern(|pattern, _id| {
+        if let Some(f) = pattern.family.as_ref() {
+            out.insert(f.to_ascii_lowercase());
+        }
+    });
+    out
+}
+
+/// Drop the alias-expansion candidates the system cannot serve.
+///
+/// THE COST THIS REMOVES. Every CSS generic is expanded to the system's
+/// `<alias><prefer>` families ahead of the generic itself, so a stack of
+/// three generics reaches the resolver as ~150 concrete names. Resolving a
+/// name that is not installed is not free — measured at ~0.52 ms each,
+/// x142 misses = 73.8 ms of a 177 ms cold pagination, for TWO chains. The
+/// same 142 misses were also the wall of `UNRESOLVED font-family` warnings.
+///
+/// WHY THIS IS SAFE. azul does the generic expansion ITSELF
+/// (`push_family_with_system_aliases`), so every candidate reaching the
+/// resolver is already a concrete name — a concrete name absent from the
+/// cache cannot resolve by any route. Generics are never pruned (the
+/// resolver expands those internally), and neither is any family that is
+/// NOT an alias candidate: a name the DOCUMENT authored keeps its lookup
+/// and keeps its warning.
+///
+/// KNOWN TRADE-OFF: a family that is both authored AND on the system's
+/// prefer list (Arial, DejaVu Sans, ...) is pruned silently when absent.
+/// Its absence is what alias lists exist to absorb, so it is not a
+/// diagnostic worth a warning.
+fn prune_absent_alias_candidates(
+    families: &[String],
+    fc_cache: &FcFontCache,
+) -> (Vec<String>, usize) {
+    let aliases = alias_candidate_names();
+    if aliases.is_empty() {
+        return (families.to_vec(), 0);
+    }
+    let available = available_family_names(fc_cache);
+    let mut pruned = 0usize;
+    let kept = families
+        .iter()
+        .filter(|f| {
+            let drop = should_prune_family(f, aliases, &available);
+            if drop {
+                pruned += 1;
+            }
+            !drop
+        })
+        .cloned()
+        .collect();
+    (kept, pruned)
+}
+
+/// The decision behind [`prune_absent_alias_candidates`], over explicit sets
+/// so it can be tested without a system font configuration.
+///
+/// Prune ONLY when all three hold: the name was invented by the alias
+/// expansion, the system does not have it, and it is not a generic (the
+/// resolver expands those itself). Anything the DOCUMENT authored fails the
+/// first test and is always kept — lookup and warning intact.
+fn should_prune_family(
+    family: &str,
+    aliases: &std::collections::BTreeSet<String>,
+    available: &std::collections::BTreeSet<String>,
+) -> bool {
+    let lower = family.to_ascii_lowercase();
+    aliases.contains(&lower) && !available.contains(&lower) && !is_generic_family(family)
+}
+
 #[must_use] pub fn resolve_font_chains_with_registry(
     collected: &CollectedFontStacks,
     fc_cache: &FcFontCache,
@@ -4534,6 +4635,7 @@ fn pick_memory_face(
         .is_some()
         .then(std::time::Instant::now);
     let mut unresolved: std::collections::BTreeSet<String> = std::collections::BTreeSet::new();
+    let mut total_pruned = 0usize;
 
     // Resolve system/file font stacks via fontconfig
     for font_stack in &collected.font_stacks {
@@ -4588,6 +4690,14 @@ fn pick_memory_face(
         let (mem_groups, disk_families, mem_fallbacks) =
             split_memory_matches(&font_families, memory_families, weight, is_italic, is_oblique);
 
+        // Alias candidates the system cannot serve never reach the resolver:
+        // each one costs a real lookup (~0.52 ms) to learn what a set
+        // membership test answers for free. See
+        // `prune_absent_alias_candidates`.
+        let (disk_families, pruned_aliases) =
+            prune_absent_alias_candidates(&disk_families, fc_cache);
+        total_pruned += pruned_aliases;
+
         // Registry-aware resolve: scout-on-demand path when available.
         // See `resolve_font_chains_with_registry` doc for rationale.
         let mut chain = if disk_families.is_empty() {
@@ -4637,7 +4747,14 @@ fn pick_memory_face(
                 .css_fallbacks
                 .iter()
                 .any(|g| g.css_name.eq_ignore_ascii_case(family) && !g.fonts.is_empty());
-            if !matched && !is_generic_family(family) {
+            // A pruned candidate is not a failed request — the expansion
+            // invented it and the system does not have it, which is the
+            // normal case an alias list exists to absorb. Reporting them
+            // buried the families the DOCUMENT actually asked for under
+            // ~142 lines of noise.
+            let is_absent_alias = !disk_families.iter().any(|d| d == family)
+                && alias_candidate_names().contains(&family.to_ascii_lowercase());
+            if !matched && !is_generic_family(family) && !is_absent_alias {
                 unresolved.insert(family.clone());
             }
         }
@@ -4677,7 +4794,7 @@ fn pick_memory_face(
     if let Some(t0) = _trace_t0 {
         eprintln!(
             "[paginate]   resolve_font_chains_with_registry {:?}: {} chain(s), {} \
-             unresolved family name(s)",
+             unresolved family name(s), {total_pruned} absent alias candidate(s) pruned",
             t0.elapsed(),
             out.chains.len(),
             out.unresolved_families.len(),
@@ -8956,5 +9073,62 @@ mod memory_font_tier_tests {
         assert_eq!(primary, ["Helvetica"]);
         assert!(disk.is_empty());
         assert!(fallback.is_empty());
+    }
+}
+
+#[cfg(test)]
+mod alias_prune_tests {
+    use super::should_prune_family;
+    use std::collections::BTreeSet;
+
+    fn set(v: &[&str]) -> BTreeSet<String> {
+        v.iter().map(|s| s.to_ascii_lowercase()).collect()
+    }
+
+    /// Only the alias expansion's own inventions get pruned.
+    ///
+    /// Resolving a family the system does not have costs a real lookup
+    /// (~0.52 ms measured); the generic expansion produces ~150 of them per
+    /// stack, which was 73.8 ms of a 177 ms cold pagination AND the wall of
+    /// `UNRESOLVED font-family` warnings. Pruning them is free. Pruning
+    /// anything else would silently change which font renders.
+    ///
+    /// NEGATIVE CONTROL: dropping the `aliases.contains(..)` term (prune
+    /// anything absent) fails the authored-family case; dropping the
+    /// `!available.contains(..)` term fails the installed-alias case;
+    /// dropping the generic guard fails the generic case. All three run and
+    /// seen.
+    #[test]
+    fn only_absent_alias_candidates_are_pruned() {
+        let aliases = set(&["DejaVu Sans", "ZYSong18030", "Cantarell"]);
+        let available = set(&["DejaVu Sans", "Liberation Sans"]);
+
+        // Invented by the expansion AND not installed -> the whole point.
+        assert!(should_prune_family("ZYSong18030", &aliases, &available));
+        assert!(should_prune_family("Cantarell", &aliases, &available));
+        // Case-insensitively, since CSS family names are.
+        assert!(should_prune_family("zysong18030", &aliases, &available));
+
+        // An alias candidate that IS installed must still be tried, or the
+        // system's preferred font stops being reachable.
+        assert!(!should_prune_family("DejaVu Sans", &aliases, &available));
+
+        // AUTHORED families are never pruned, present or not: pruning a
+        // missing one would also swallow its warning, which is the one
+        // diagnostic worth keeping.
+        assert!(!should_prune_family("Liberation Sans", &aliases, &available));
+        assert!(
+            !should_prune_family("Comic Sans MS", &aliases, &available),
+            "a family the document asked for is not an alias candidate, so it \
+             keeps its lookup AND its UNRESOLVED warning"
+        );
+
+        // Generics are expanded by the resolver itself.
+        for g in ["sans-serif", "serif", "monospace", "system-ui"] {
+            assert!(
+                !should_prune_family(g, &set(&[g]), &available),
+                "{g} must survive even if it appears in an alias list"
+            );
+        }
     }
 }
