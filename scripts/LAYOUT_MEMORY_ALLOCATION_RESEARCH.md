@@ -151,31 +151,141 @@ win comes from *removing owned heap from the struct*, not from adopting an arena
 
 ## 4. Q3 — what the engines actually did (published prose only)
 
-- **Gecko is the direct answer to this workload.** It stores **one 4-byte
-  `CompressedGlyph` per character** for the simple case, with rare cases spilling to side
-  `DetailedGlyph` records
-  ([Bugzilla 671297](https://bugzilla.mozilla.org/show_bug.cgi?id=671297), prose
-  discussion: the accounting is "character count multiplied by either 1 or 2 bytes, plus
-  CompressedGlyph overhead"). Jonathan Kew in the same thread: *"I hit 75,000 [textruns]
-  easily just by loading a couple of large, text-heavy tabs."*
-  **Gecko spends 4 B/char where azul spends ~434.**
-- **Chromium/Oilpan — compaction works.** Heap compaction cut Gmail's Blink heap
-  **6.8 MB -> 2.3 MB** (~66%), shipped in Opera 39 beta
-  ([Opera blog](https://blogs.opera.com/desktop/2016/07/memory-usage-opera-heap-compaction/)).
-- **Chromium — handles beat pointers, measured.** Oilpan pointer compression (32-bit
-  offsets into a heap cage instead of 64-bit pointers) gave **21% median / 33% p99
-  (-59 MB) memory reduction on Windows**, 6%/8% on Android, plus **another 4% from field
-  reorganization** in Chrome 108 ([v8.dev](https://v8.dev/blog/oilpan-pointer-compression)).
-  Validates both halves of the plan below: small handles *and* struct packing.
-- **Servo — flat arrays.** *"Boxes end up flattened into a flat list instead of a linked
-  data structure, improving cache locality and memory usage, and the line breaking code
-  need not traverse trees but only traverses a single array"* (Servo wiki, Layout Overview).
-- **Firefox MemShrink** achieved ~30% overall reductions in its first releases
-  ([Nethercote's blog](https://blog.mozilla.org/nnethercote/)), with `about:memory` as the
-  enabling instrumentation — the methodological lesson being *measure attribution first*.
+### 4.1 Headline measured numbers
 
-Could not verify: Flutter's approach, Blink `ShapeResult` layout, whether Servo ever
-removed an arena.
+| Engine | Technique | Measured win |
+|---|---|---|
+| Blink | Pointer compression (32-bit handles) | Blink memory **P50 Win -21%**, **P99 Win -33% (-59 MB)** |
+| Blink | Oilpan heap compaction | gmail **6.8M -> 2.3M**, cnn **8.0M -> 2.8M**; cost **1-2 ms/GC** |
+| Blink | **NGFragmentItem (flat list replaces tree)** | Wikipedia **1.6 MB -> 0.3 MB (~82%)**; one line box **640 -> 152 bytes** |
+| Gecko | Arena size-class fix (nsPresArena) | **half of all arena memory was slop**; one page **2.0 GB -> 1.3 GB** |
+| Gecko | Compact glyph record | retained shaped text **~6 B/char** ASCII, **11 B/char** with word cache |
+| Stylo | ComputedValues sharing | GitHub diff page **109k -> ~5-10k** ComputedValues |
+
+### 4.2 Gecko — the direct answer to this workload
+
+`CompressedGlyph` *"has no virtual methods or destructor, and just a single `uint32_t`
+data member"*, with factory methods for *"both simple and complex glyph values"* —
+confirming the two-mode design (compact common case, `DetailedGlyph` side table)
+([bug 1411625](https://bugzilla.mozilla.org/show_bug.cgi?id=1411625)).
+
+**Corrected figure.** The full retained cost is not 4 B/char. Robert O'Callahan
+([bug 367116 c9](https://bugzilla.mozilla.org/show_bug.cgi?id=367116)): *"If it's ASCII
+text then I expect we should be using about **6 bytes per character** plus the cost of the
+textrun word cache... Total **11 bytes per character**."* 6 B = 4-byte `CompressedGlyph` +
+2-byte UTF-16 char (INFERRED arithmetic on verified facts).
+
+**Even at 4 B/glyph it was still half the memory.** Boris Zbarsky, same bug c16, profiling
+~130 MB on a text-heavy page: *"**70% of the memory is allocated in `gfxTextRun`. It's
+split 50-20 between the CompressedGlyph array and the PRUnichar array**."*
+
+**But after the word cache and expiry, retained textruns become a rounding error.** An
+official `about:memory` snapshot: style-sets **6.22 MB (23.24% of layout)**, pres-shell
+4.00 MB, frames 1.79 MB, **text-runs 0.04 MB (0.14%)**
+([docs](https://firefox-source-docs.mozilla.org/performance/memory/about_colon_memory.html)).
+**Azul's shaped text is 83% of its LayoutTree; Gecko's is 0.14% of layout.** That gap is
+the size of the prize.
+
+Scale, for calibration: *"I hit **75,000** [textruns] easily just by loading a couple of
+large, text-heavy tabs"*
+([bug 671297](https://bugzilla.mozilla.org/show_bug.cgi?id=671297)).
+
+### 4.3 The arena size-class trap — read this before writing any arena
+
+Gecko's `nsPresArena` requested power-of-two chunks *plus a header*, which jemalloc then
+rounded to the next size class:
+
+> *"The arena attempted to get 4 KB chunks from the heap. It also tacked on a few words
+> for bookkeeping purposes which resulted in it asking for slightly over 4 KB, which got
+> rounded to 8 KB."* — [AOSA](https://aosabook.org/en/posa/memshrink.html)
+
+> *"on platforms where jemalloc is used, **half the memory allocated by nsPresArena was
+> wasted**."* — [MemShrink wk 9](https://blog.mozilla.org/nnethercote/2011/08/17/memshrink-progress-week-9/)
+
+Cost: one page went **2.0 GB -> 1.3 GB**; *"it saves around 3MB even on Gmail."* The bug
+*"had been identified 3.5 years prior but remained unfixed."* **An arena is only a win if
+its chunk size is a true allocator size class.**
+
+### 4.4 Chromium — the most important finding for prioritization
+
+**Handles beat pointers, measured.** Oilpan pointer compression (32-bit offsets into a
+4 GB heap cage): **P50 Windows -21%, P99 -33% (-59 MB)**; plus **another 4% from field
+reordering** in Chrome 108. Conservative stack scanning ate 3 of a possible 24 points
+([v8.dev](https://v8.dev/blog/oilpan-pointer-compression)).
+
+**Compaction works, but only for single-owner backing stores.** Oilpan compacts *hash
+tables and vector buffers* — movable precisely because they are *"single-use/linear
+objects referred to by only one other object"*: exactly one slot to patch. **DOM nodes and
+LayoutObjects are never moved.** Motivation: *"It is quite common to see 1-8M of heap
+memory 'wasted' due to unused freelist entries."* Fragmentation of *"40-50% is quite
+common"*
+([Finne design doc](https://docs.google.com/document/d/1k-vivOinomDXnScw8Ew5zpsYCXiYqj76OCOYZSvHkaU/mobilebasic)).
+**Implication: compaction is unavailable for multi-referrer structures without an
+indirection layer.**
+
+**The contrarian result that should shape the plan.** BlinkOn 5 memory deck, slide 25:
+**"sizeof(Node) and sizeof(LayoutObject) don't really matter"** — backed by a per-site
+PartitionAlloc table where Layout is 1.17-15.89% of a footprint dominated by Buffer
+(34-76%). Yet the same team then got **82% on Wikipedia (1.6 MB -> 0.3 MB)** with
+**NGFragmentItem**, which replaced a nested fragment *tree* for inline content with a
+**flat list**: one simple line box went **640 bytes -> 152 bytes**
+([kojii doc](https://docs.google.com/document/d/10vJ6wdyEdeGkmcotKBZ9h3YtDzw5FIpDksa8rCHVFuM/mobilebasic)).
+
+**Synthesis: shrinking fields was measured and found not to matter; removing a redundant
+level of structure bought 82%.** This is direct evidence that P1 below dominates P2/P4.
+
+### 4.5 Interning — Firefox's own layout docs describe exactly the fix
+
+WebRender interns its scene: *"each **`TextRun`**, `Decoration`, `Image` and so on is
+registered in a repository (a `DataStore`) and consequently referred to by its **unique
+ID**"*, so *"cache contents can then be encoded as a list of IDs... Diffing is then just a
+fast list comparison"*
+([docs](https://firefox-source-docs.mozilla.org/gfx/RenderingOverview.html)).
+Techniques (b) and (c) at once: dedup by interning, handle is a small ID.
+
+### 4.6 Stylo — a warning about Arc-sharing that silently fails
+
+On a GitHub diff page, one pseudo-element rule (`.blob-code-inner::before{content:""}`)
+defeated the sharing check: **109k ComputedValues** where Gecko needed *"about 2200"* — a
+**~50x blowup** in a 244.69 MB process; fixes brought it to ~5-10k
+([bug 1369902](https://bugzilla.mozilla.org/show_bug.cgi?id=1369902)). Related
+([bug 1367854](https://bugzilla.mozilla.org/show_bug.cgi?id=1367854)): `nsStyleUIReset`
+**1,068 vs 1** instances, and *"allocator slop from jemalloc bucket mismatch ~1.7 MB"*
+even at equal counts.
+
+**Applicable check for azul:** we share `Arc<StyleProperties>` — verify the sharing
+actually holds. A single always-unique field silently turns sharing into per-node copies.
+
+### 4.7 Zed / Flutter — design prose, no numbers
+
+Zed's arena post contains **no allocation counts, no bytes, no before/after** — the payoff
+is asserted, never measured. Worse, a maintainer states GPUI *"always re-layout the whole
+app on each frame"* and calls text-layout caching a *"micro-optimization"*; a user reported
+**120 FPS -> ~80 FPS** drag-scrolling a large table purely from shaped-text cache misses
+([discussion](https://github.com/zed-industries/zed/discussions/24260)). Zed's shaped-text
+cache is frame-scoped: anything absent from the new frame is evicted immediately.
+
+Flutter publishes no bytes-per-widget figure either. **INFERRED, and it is the sharpest
+observation in the survey:** Flutter never needed an explicit arena because *Dart's
+young-space scavenger already is one* — two semi-spaces with bump-pointer allocation. GPUI
+had to hand-build the same thing because Rust gives you malloc.
+
+Skia's answer to paragraph caching, incidentally, is *"the correct way to cache the
+paragraph is as a SkPicture"* — cache the recorded drawing, not the shaped-text structure.
+An alternative direction worth considering if display-list caching lands first.
+
+### 4.8 Cross-cutting lessons
+
+1. **Structure beats field-shrinking, empirically** (Blink: fields "don't matter", flat
+   list bought 82%).
+2. **Small integer handles are the best-measured technique** anywhere in the survey
+   (-21% P50 / -33% P99).
+3. **Compaction only worked where ownership was single and provable.**
+4. **Arenas are a size-class trap** — measure slop before trusting one.
+5. **4 B/glyph is the published state of the art and was still half the memory** on a
+   text-heavy page; the dedup layer that matters is a per-word shaped cache with expiry.
+6. **Nobody publishes a bytes-per-node figure for a retained UI tree.** If we print one,
+   we are first.
 
 ---
 
@@ -386,8 +496,20 @@ Also measure `len` vs `capacity` on the retained per-IFC vectors (§6).
 
 Make `PositionedItem` reference the shaped cluster instead of embedding it by value, and
 delete the `shaped_items` cache already labelled *"for backward compat"*. This is a
-multiplier on everything below. Aligns with Oilpan's measured 66% compaction win and
-Servo's flat-list rationale.
+multiplier on everything below.
+
+**This is the highest-confidence item in the plan, and §4.4 is why.** Blink measured
+`sizeof(Node)`/`sizeof(LayoutObject)` and concluded they *"don't really matter"* — then
+took Wikipedia from **1.6 MB to 0.3 MB (82%)** by replacing a redundant tree level with a
+flat list (**640 -> 152 bytes** for one line box). Removing structural duplication beat
+field-shrinking by a wide margin in the one place both were measured by the same team.
+Firefox's own WebRender docs describe the exact mechanism to adopt (§4.5): intern each
+`TextRun` in a `DataStore` and refer to it by ID, which additionally turns frame diffing
+into a list compare.
+
+Secondary check while in here: verify `Arc<StyleProperties>` sharing actually holds.
+Stylo's equivalent silently degraded to **109k instances where 2,200 were expected** (§4.6)
+because one rule defeated the sharing predicate.
 
 ### P2 — Shrink `ShapedGlyph` 96 B -> ~16 B (days, ~4 MB)
 
@@ -417,8 +539,15 @@ that is a no-op under glibc (§6). Gated on the P0 `len` vs `capacity` measureme
 ### P6 — Only if P1-P5 fall short: the Gecko representation
 
 A ~20 B/cluster packed record (glyph_id, advance, x_offset, start_byte, run_id, flags)
-with a side table for the <1% complex cases, taking 13.5 MB -> ~0.65 MB. Gecko does this
-at 4 B/char, so there is headroom. High complexity — the destination, not the next step.
+with a side table for the <1% complex cases, taking 13.5 MB -> ~0.65 MB. Gecko's retained
+cost is **~6 B/char** (4-byte glyph record + 2-byte char), so there is headroom. High
+complexity — the destination, not the next step.
+
+Note from §4.2: even at 4 bytes per glyph, the glyph array was still *half of all
+allocated memory* on a text-heavy Gecko page. What actually pushed retained textruns down
+to **0.14% of layout memory** was the per-word shaped cache **with expiry**. If P1
+consolidates the six copies into one interned store, adding an expiry policy to it is
+likely worth more than further packing.
 
 ### Explicit non-goals
 
@@ -448,5 +577,22 @@ at 4 B/char, so there is headroom. High complexity — the destination, not the 
 | Current snmalloc purge policy | NOT VERIFIED — ISMM'19 paper says it withholds memory until pressure; no doc says that changed. |
 | `heaptrack` reporting RSS | NOT VERIFIED — no documentation found. Treat as a requested-bytes tool. |
 | `bytehound`'s `show_rss` semantics | NOT VERIFIED. Crate is dormant (last release 2022-11). |
-| Flutter / Blink ShapeResult / Servo arena history | NOT VERIFIED — no prose source found, and source reading was out of bounds. |
 | Struct sizes of la-arena / id-arena / cranelift-entity handles | INFERRED from documented API; no crate publishes a numeric `size_of`. |
+| **Fraction of characters that hit Gecko's compact glyph path** | **NOT VERIFIED.** Searched Bugzilla, the Mozilla wiki, Firefox source docs and roc's textrun redesign bug — no published prose states it. This was the single most wanted number and it does not exist in public writing. |
+| Blink ShapeCache footprint / eviction policy / per-run byte cost | NOT VERIFIED. The only substantive prose is a source-tree README, deliberately not opened under the licensing rule. Largest gap in the Blink material. |
+| LayoutNG's memory delta vs legacy layout | NOT VERIFIED — no Intent-to-Ship or launch post gives a figure in either direction. |
+| Zed/GPUI arena payoff | **VERIFIED NEGATIVE** — the post's entire numeric content is "60hz" and a "4ms" target. No allocation counts, no bytes, no before/after. |
+| Whether GPUI's `EntityId` is a small integer index | INFERRED only; docs say "unique identifier", representation unstated. |
+| Flutter bytes-per-widget / per-element | NOT VERIFIED — neither canonical architecture doc contains a single measured number. |
+
+### Sections never researched
+
+- **Servo.** The delegated agent died twice without delivering. Nothing on Servo's arena
+  allocation, parallel-layout writeups, memory reporters, or layout_2020's fragment tree
+  is in this document. The one Servo claim in §4 (flat list of boxes) came from a search
+  summary of the Servo wiki, not a fetched page — treat as weakly sourced.
+- **Other text-heavy apps.** VS Code's piece-table post (which does have measured
+  numbers), xi-editor, Ropey, Sublime, LibreOffice, and Skia's glyph cache beyond what
+  surfaced incidentally were not covered.
+
+Both are worth a standalone re-run; this session exhausted its 200-call web-search budget.

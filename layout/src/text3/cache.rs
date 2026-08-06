@@ -6117,6 +6117,15 @@ pub struct TextShapingCache {
     per_item_shaped: HashMap<u64, Arc<PerItemShapedEntry>>,
     /// Tracks which `per_item_shaped` keys were accessed in the current generation.
     per_item_accessed: HashSet<u64>,
+    /// Same, for the three STAGE caches above.
+    ///
+    /// Those three had no cap and no sweep of any kind: every distinct piece
+    /// of text ever laid out stayed in them for the life of the process, so
+    /// they grew monotonically with editing. Measured on one 960-line
+    /// markdown: 792 entries each, 7.0 MB (logical 396 KiB, visual 519 KiB,
+    /// shaped 6140 KiB) — on top of the 13.5 MB of the SAME shaped text
+    /// already retained per layout node as `warm.inline`.
+    stage_accessed: HashSet<CacheId>,
     /// Current generation counter, incremented each layout pass.
     generation: u64,
 }
@@ -6155,6 +6164,7 @@ impl TextShapingCache {
             shaped_items: HashMap::new(),
             per_item_shaped: HashMap::new(),
             per_item_accessed: HashSet::new(),
+            stage_accessed: HashSet::new(),
             generation: 0,
         }
     }
@@ -6202,8 +6212,35 @@ impl TextShapingCache {
             let accessed = &self.per_item_accessed;
             self.per_item_shaped.retain(|k, _| accessed.contains(k));
         }
+        // The three STAGE caches get the same policy. They had none at all,
+        // so text that is edited away was never released — the entry for the
+        // old wording stayed shaped and resident forever. Same rule as
+        // per-item: anything touched this generation survives.
+        if self.generation > 0 && !self.stage_accessed.is_empty() {
+            let accessed = &self.stage_accessed;
+            self.logical_items.retain(|k, _| accessed.contains(k));
+            self.visual_items.retain(|k, _| accessed.contains(k));
+            self.shaped_items.retain(|k, _| accessed.contains(k));
+        }
         self.per_item_accessed.clear();
+        self.stage_accessed.clear();
         self.generation += 1;
+    }
+
+    /// Entry counts of the three stage caches, for tests and the memory
+    /// report.
+    #[must_use]
+    pub fn stage_entry_counts(&self) -> (usize, usize, usize) {
+        (
+            self.logical_items.len(),
+            self.visual_items.len(),
+            self.shaped_items.len(),
+        )
+    }
+
+    /// Mark a stage-cache id as used this generation (see `stage_accessed`).
+    fn touch_stage(&mut self, id: CacheId) {
+        self.stage_accessed.insert(id);
     }
 
     /// Check if we can reuse an old layout based on layout-affecting parameters.
@@ -6456,7 +6493,14 @@ impl TextShapingCache {
         // Cap per-item shaped cache to prevent unbounded growth.
         // When threshold is exceeded, evict entries not accessed this generation.
         const PER_ITEM_CACHE_MAX: usize = 4096;
-        if self.per_item_shaped.len() > PER_ITEM_CACHE_MAX {
+        // The stage caches need a trigger too — they were the unbounded
+        // ones. A document's worth of distinct runs is ~800 entries, so
+        // 4096 leaves several documents' worth resident before any sweep.
+        const STAGE_CACHE_MAX: usize = 4096;
+        let (l, v, sh) = self.stage_entry_counts();
+        if self.per_item_shaped.len() > PER_ITEM_CACHE_MAX
+            || l.max(v).max(sh) > STAGE_CACHE_MAX
+        {
             self.begin_generation();
         }
 
@@ -6470,6 +6514,7 @@ impl TextShapingCache {
         // for >=8-byte 8-aligned 0xFF runs and mirrors them). Verified: web-nested-text lays out
         // ("Hello" at 8,16,800,20), __remill_error=0. No azul-source workaround needed here.
         let logical_items_id = calculate_id(&content);
+        self.touch_stage(logical_items_id);
         let logical_items = self
             .logical_items
             .entry(logical_items_id)
@@ -6522,6 +6567,7 @@ impl TextShapingCache {
             base_direction,
         };
         let visual_items_id = calculate_id(&visual_key);
+        self.touch_stage(visual_items_id);
         // [g213] web lift uses the real visual_items HashMap cache (g180 bypass deleted; WIDTH=8
         // EMPTY_GROUP now mirrored — see Stage-1 note + symbol_table.rs).
         let visual_items = self
@@ -6539,6 +6585,7 @@ impl TextShapingCache {
         let _probe_shape = crate::probe::Probe::span("text_shape_stage");
         let shaped_key = ShapedItemsKey::new(visual_items_id, &visual_items);
         let shaped_items_id = calculate_id(&shaped_key);
+        self.touch_stage(shaped_items_id);
         // [g213] web lift uses the real shaped_items HashMap cache (g180 bypass deleted).
         let shaped_items = if let Some(cached) = self.shaped_items.get(&shaped_items_id) {
             // Monolithic cache hit — all visual items unchanged
@@ -6665,7 +6712,14 @@ impl TextShapingCache {
         debug_messages: &mut Option<Vec<LayoutDebugMessage>>,
     ) -> Result<IntrinsicTextSizes, LayoutError> {
         const PER_ITEM_CACHE_MAX: usize = 4096;
-        if self.per_item_shaped.len() > PER_ITEM_CACHE_MAX {
+        // The stage caches need a trigger too — they were the unbounded
+        // ones. A document's worth of distinct runs is ~800 entries, so
+        // 4096 leaves several documents' worth resident before any sweep.
+        const STAGE_CACHE_MAX: usize = 4096;
+        let (l, v, sh) = self.stage_entry_counts();
+        if self.per_item_shaped.len() > PER_ITEM_CACHE_MAX
+            || l.max(v).max(sh) > STAGE_CACHE_MAX
+        {
             self.begin_generation();
         }
 
@@ -6673,6 +6727,7 @@ impl TextShapingCache {
         // bypass here was rooted in the un-mirrored hashbrown EMPTY_GROUP, fixed transpiler-side
         // in symbol_table.rs::compute_hashbrown_empty_group_ranges).
         let logical_items_id = calculate_id(&content);
+        self.touch_stage(logical_items_id);
         let logical_items = self
             .logical_items
             .entry(logical_items_id)
@@ -6705,6 +6760,7 @@ impl TextShapingCache {
             base_direction,
         };
         let visual_items_id = calculate_id(&visual_key);
+        self.touch_stage(visual_items_id);
         let visual_items = self
             .visual_items
             .entry(visual_items_id)
@@ -6718,6 +6774,7 @@ impl TextShapingCache {
         // Stage 3: Shaping (two-level cache, same as layout_flow)
         let shaped_key = ShapedItemsKey::new(visual_items_id, &visual_items);
         let shaped_items_id = calculate_id(&shaped_key);
+        self.touch_stage(shaped_items_id);
         let shaped_items = if let Some(cached) = self.shaped_items.get(&shaped_items_id) { cached.clone() } else {
             let items = Arc::new(shape_visual_items_with_per_item_cache(
                 &visual_items,
@@ -14613,6 +14670,64 @@ mod autotest_generated {
         }
         assert!(c.per_item_accessed.is_empty());
         assert!(c.per_item_shaped.is_empty());
+    }
+
+    /// The three STAGE caches must be swept, not just `per_item_shaped`.
+    ///
+    /// They had no cap and no sweep of any kind: every distinct piece of
+    /// text ever laid out stayed resident for the life of the process, so
+    /// editing grew them monotonically — the entry for a wording you deleted
+    /// stayed shaped forever. Measured on one 960-line markdown: 792 entries
+    /// each, 7.0 MB, ON TOP of the 13.5 MB of the same shaped text already
+    /// held per layout node as `warm.inline`.
+    ///
+    /// Same policy as per-item: touched this generation survives, untouched
+    /// goes. Generation 0 never evicts, so a first pass cannot throw away
+    /// what it just built.
+    ///
+    /// NEGATIVE CONTROL: dropping the three `retain` calls from
+    /// `begin_generation` makes the eviction assertions fail — run and seen.
+    #[test]
+    fn text_shaping_cache_begin_generation_evicts_unaccessed_stage_entries() {
+        let mut c = TextShapingCache::new();
+        c.logical_items.insert(1, Arc::new(Vec::new()));
+        c.logical_items.insert(2, Arc::new(Vec::new()));
+        c.visual_items.insert(1, Arc::new(Vec::new()));
+        c.visual_items.insert(2, Arc::new(Vec::new()));
+        c.shaped_items.insert(1, Arc::new(Vec::new()));
+        c.shaped_items.insert(2, Arc::new(Vec::new()));
+
+        // Generation 0 never evicts — otherwise the very first layout pass
+        // would discard the entries it had just produced.
+        c.begin_generation();
+        assert_eq!(
+            c.stage_entry_counts(),
+            (2, 2, 2),
+            "gen 0 must keep everything"
+        );
+
+        // Touch only id 1. Rolling the generation drops id 2 from all three.
+        c.touch_stage(1);
+        c.begin_generation();
+        assert_eq!(
+            c.stage_entry_counts(),
+            (1, 1, 1),
+            "an id not touched this generation must be evicted from every \
+             stage cache - these were the unbounded ones"
+        );
+        assert!(c.logical_items.contains_key(&1));
+        assert!(c.visual_items.contains_key(&1));
+        assert!(c.shaped_items.contains_key(&1));
+
+        // The accessed set resets, so surviving entries must be re-touched
+        // to survive again — otherwise nothing would ever be released.
+        assert!(c.stage_accessed.is_empty());
+        c.begin_generation();
+        assert_eq!(
+            c.stage_entry_counts(),
+            (1, 1, 1),
+            "an empty accessed set skips the sweep rather than clearing all"
+        );
     }
 
     #[test]
