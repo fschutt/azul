@@ -9094,6 +9094,7 @@ impl LayoutWindow {
         let cache_map = std::mem::take(&mut self.layout_cache.cache_map);
 
         let mut ctx = LayoutContext {
+            style_cache: Default::default(),
             scrollbar_style_cache: core::cell::RefCell::new(HashMap::new()),
             styled_dom,
             font_manager: &self.font_manager,

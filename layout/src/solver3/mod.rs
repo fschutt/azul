@@ -194,6 +194,22 @@ use crate::{
 #[derive(Debug)]
 pub struct LayoutContext<'a, T: ParsedFontTrait> {
     pub styled_dom: &'a StyledDom,
+    /// Per-document memo for [`crate::solver3::getters::get_style_properties`].
+    ///
+    /// Resolving a node's style allocates ~6.5 KB (a font stack of heap
+    /// `String`s, a background-content Vec, a font-features Vec, a cloned
+    /// family list), and the sizing pass and the inline-layout pass each
+    /// resolve the same node independently. heaptrack measured 6.33 MB of
+    /// peak heap over 966 calls on a 3-page document.
+    ///
+    /// It lives HERE, on the context, so its lifetime is exactly the
+    /// document's. An earlier attempt used a thread-local keyed on
+    /// `ptr::from_ref(styled_dom)`, which passed every library test and
+    /// reddened sixteen reftests: a `StyledDom` is dropped and the next one
+    /// reuses the address, so the second document was served the first
+    /// one's styles. Ownership makes that unrepresentable rather than
+    /// merely unlikely.
+    pub style_cache: crate::solver3::getters::StyleCache,
     #[cfg(feature = "text_layout")]
     pub font_manager: &'a crate::font_traits::FontManager<T>,
     #[cfg(not(feature = "text_layout"))]
@@ -465,6 +481,7 @@ pub fn layout_document<T: ParsedFontTrait + Sync + 'static>(
     // Create temporary context without counters for tree generation
     let mut counter_values = HashMap::new();
     let mut ctx_temp = LayoutContext {
+        style_cache: Default::default(),
         scrollbar_style_cache: core::cell::RefCell::new(HashMap::new()),
         styled_dom: new_dom,
         font_manager,
@@ -662,6 +679,7 @@ pub fn layout_document<T: ParsedFontTrait + Sync + 'static>(
 
     // Now create the real context with computed counters
     let mut ctx = LayoutContext {
+        style_cache: Default::default(),
         scrollbar_style_cache: core::cell::RefCell::new(HashMap::new()),
         styled_dom: new_dom,
         font_manager,
@@ -2011,6 +2029,7 @@ mod autotest_generated {
 
             fn ctx(&mut self) -> LayoutContext<'_, FontRef> {
                 LayoutContext {
+                    style_cache: Default::default(),
                     scrollbar_style_cache: core::cell::RefCell::new(HashMap::new()),
                     styled_dom: &self.styled_dom,
                     font_manager: &self.font_manager,

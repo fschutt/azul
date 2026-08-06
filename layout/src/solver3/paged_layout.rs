@@ -356,6 +356,7 @@ where
         let mut counter_values = cache.counters.clone();
         let empty_text_selections: BTreeMap<DomId, TextSelection> = BTreeMap::new();
         let mut ctx = LayoutContext {
+            style_cache: Default::default(),
             scrollbar_style_cache: core::cell::RefCell::new(std::collections::HashMap::new()),
             styled_dom: new_dom,
             font_manager: &*font_manager,
@@ -430,6 +431,7 @@ where
     let mut counter_values = cache.counters.clone();
     let empty_text_selections: BTreeMap<DomId, TextSelection> = BTreeMap::new();
     let mut ctx = LayoutContext {
+        style_cache: Default::default(),
         scrollbar_style_cache: core::cell::RefCell::new(std::collections::HashMap::new()),
         styled_dom: new_dom,
         font_manager: &*font_manager,
@@ -662,6 +664,7 @@ fn compute_layout_with_fragmentation<T: ParsedFontTrait + Sync + 'static>(
     let mut counter_values = std::collections::HashMap::new();
     let empty_text_selections: BTreeMap<DomId, TextSelection> = BTreeMap::new();
     let mut ctx_temp = LayoutContext {
+        style_cache: Default::default(),
         scrollbar_style_cache: core::cell::RefCell::new(std::collections::HashMap::new()),
         styled_dom: new_dom,
         font_manager,
@@ -722,6 +725,7 @@ fn compute_layout_with_fragmentation<T: ParsedFontTrait + Sync + 'static>(
 
     // Now create the real context with computed counters and fragmentation
     let mut ctx = LayoutContext {
+        style_cache: Default::default(),
         scrollbar_style_cache: core::cell::RefCell::new(std::collections::HashMap::new()),
         styled_dom: new_dom,
         font_manager,
@@ -2379,6 +2383,7 @@ where
         let mut counter_values = cache.counters.clone();
         let empty_text_selections: BTreeMap<DomId, TextSelection> = BTreeMap::new();
         let mut ctx = LayoutContext {
+            style_cache: Default::default(),
             scrollbar_style_cache: core::cell::RefCell::new(std::collections::HashMap::new()),
             styled_dom: new_dom,
             font_manager: &*font_manager,

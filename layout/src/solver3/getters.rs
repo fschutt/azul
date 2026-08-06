@@ -2785,6 +2785,60 @@ get_css_property!(
     }
 }
 
+/// Per-document memo for [`get_style_properties`], owned by
+/// [`crate::solver3::LayoutContext`].
+///
+/// Keyed on everything that can change the answer for a node: its index,
+/// its `StyledNodeState` (`:hover`/`:focus`/`:disabled` select different
+/// declarations) and the viewport (`vw`/`vh` and percentages resolve
+/// against it). The DOCUMENT is not part of the key because the cache
+/// belongs to one — see the field docs for why that matters.
+pub type StyleCache = std::collections::HashMap<
+    (u32, azul_core::styled_dom::StyledNodeState, u32, u32),
+    std::sync::Arc<StyleProperties>,
+>;
+
+/// [`get_style_properties`], memoised in a caller-owned per-document cache
+/// and shared behind an `Arc`.
+///
+/// The cache is passed separately from `styled_dom` rather than taking the
+/// whole `LayoutContext`, so callers can hand over two disjoint fields of
+/// the same context without a borrow conflict.
+#[must_use]
+pub fn get_style_properties_cached(
+    cache: &mut StyleCache,
+    styled_dom: &StyledDom,
+    dom_id: NodeId,
+    system_style: Option<&std::sync::Arc<azul_css::system::SystemStyle>>,
+    viewport_size: PhysicalSize,
+) -> std::sync::Arc<StyleProperties> {
+    let node_state = styled_dom
+        .styled_nodes
+        .as_container()
+        .get(dom_id)
+        .map(|n| n.styled_node_state)
+        .unwrap_or_default();
+    let key = (
+        dom_id.index() as u32,
+        node_state,
+        viewport_size.width.to_bits(),
+        viewport_size.height.to_bits(),
+    );
+    if let Some(v) = cache.get(&key) {
+        drop(crate::probe::Probe::span("style_props_memo_hit"));
+        return std::sync::Arc::clone(v);
+    }
+    let _p = crate::probe::Probe::span("style_props_build");
+    let built = std::sync::Arc::new(get_style_properties(
+        styled_dom,
+        dom_id,
+        system_style,
+        viewport_size,
+    ));
+    cache.insert(key, std::sync::Arc::clone(&built));
+    built
+}
+
 #[allow(clippy::cast_possible_truncation)] // bounded graphics/coord/font/fixed-point/debug-marker cast
 #[allow(clippy::too_many_lines, clippy::cognitive_complexity)] // large but cohesive: single-purpose layout/render/parse routine (one branch per case)
 /// # Panics

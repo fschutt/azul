@@ -3684,6 +3684,7 @@ mod autotest_generated {
 
             fn ctx(&mut self) -> LayoutContext<'_, FontRef> {
                 LayoutContext {
+                    style_cache: Default::default(),
                     scrollbar_style_cache: core::cell::RefCell::new(HashMap::new()),
                     styled_dom: &self.styled_dom,
                     font_manager: &self.font_manager,

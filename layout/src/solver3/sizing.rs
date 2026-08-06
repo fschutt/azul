@@ -1221,7 +1221,13 @@ fn collect_inline_content_recursive<T: ParsedFontTrait>(
 
     // First check if THIS node is a text node
     if let Some(text) = extract_text_from_node(ctx.styled_dom, dom_id) {
-        let style_props = Arc::new(get_style_properties(ctx.styled_dom, dom_id, ctx.system_style.as_ref(), azul_css::props::basic::PhysicalSize::new(ctx.viewport_size.width, ctx.viewport_size.height)));
+        let style_props = crate::solver3::getters::get_style_properties_cached(
+                        &mut ctx.style_cache,
+                        ctx.styled_dom,
+                        dom_id,
+                        ctx.system_style.as_ref(),
+                        azul_css::props::basic::PhysicalSize::new(ctx.viewport_size.width, ctx.viewport_size.height),
+                    );
         debug_log!(ctx, "Found text in node {}: '{}'", node_index, text);
         // Use split_text_for_whitespace to correctly handle white-space: pre with \n
         let text_items = split_text_for_whitespace(ctx.styled_dom, dom_id, &text, &style_props);
@@ -1245,7 +1251,13 @@ fn collect_inline_content_recursive<T: ParsedFontTrait>(
         let child_dom_node = &ctx.styled_dom.node_data.as_container()[child_id];
         if let NodeType::Text(text_data) = child_dom_node.get_node_type() {
             let text = text_data.as_str().to_string();
-            let style_props = Arc::new(get_style_properties(ctx.styled_dom, child_id, ctx.system_style.as_ref(), azul_css::props::basic::PhysicalSize::new(ctx.viewport_size.width, ctx.viewport_size.height)));
+            let style_props = crate::solver3::getters::get_style_properties_cached(
+                        &mut ctx.style_cache,
+                        ctx.styled_dom,
+                        child_id,
+                        ctx.system_style.as_ref(),
+                        azul_css::props::basic::PhysicalSize::new(ctx.viewport_size.width, ctx.viewport_size.height),
+                    );
             debug_log!(ctx, "Found text in DOM child of node {}: '{}'", node_index, text);
             // Use split_text_for_whitespace to correctly handle white-space: pre with \n
             let text_items = split_text_for_whitespace(
@@ -2425,6 +2437,7 @@ mod autotest_generated {
 
         fn ctx(&mut self) -> LayoutContext<'_, FontRef> {
             LayoutContext {
+                style_cache: Default::default(),
                 scrollbar_style_cache: core::cell::RefCell::new(HashMap::new()),
                 styled_dom: &self.styled_dom,
                 font_manager: &self.font_manager,

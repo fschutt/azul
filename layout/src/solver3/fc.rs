@@ -7876,7 +7876,13 @@ fn collect_and_measure_inline_content_impl<T: ParsedFontTrait>(
                 );
                 // Get style from the TEXT NODE itself (dom_id), not the IFC root
                 // This ensures inline styles like color: #666666 are applied to the text
-                let style = Arc::new(get_style_properties(ctx.styled_dom, dom_id, ctx.system_style.as_ref(), PhysicalSize::new(ctx.viewport_size.width, ctx.viewport_size.height)));
+                let style = crate::solver3::getters::get_style_properties_cached(
+                        &mut ctx.style_cache,
+                        ctx.styled_dom,
+                        dom_id,
+                        ctx.system_style.as_ref(),
+                        PhysicalSize::new(ctx.viewport_size.width, ctx.viewport_size.height),
+                    );
                 let text_items = split_text_for_whitespace(
                     ctx.styled_dom,
                     dom_id,
@@ -8177,7 +8183,13 @@ fn collect_and_measure_inline_content_impl<T: ParsedFontTrait>(
 
                 // Generate marker text segments - font fallback happens during shaping
                 let base_style =
-                    Arc::new(get_style_properties(ctx.styled_dom, list_dom_id_for_style, ctx.system_style.as_ref(), PhysicalSize::new(ctx.viewport_size.width, ctx.viewport_size.height)));
+                    crate::solver3::getters::get_style_properties_cached(
+                        &mut ctx.style_cache,
+                        ctx.styled_dom,
+                        list_dom_id_for_style,
+                        ctx.system_style.as_ref(),
+                        PhysicalSize::new(ctx.viewport_size.width, ctx.viewport_size.height),
+                    );
                 let marker_segments = generate_list_marker_segments(
                     tree,
                     ctx.styled_dom,
@@ -8234,7 +8246,13 @@ fn collect_and_measure_inline_content_impl<T: ParsedFontTrait>(
     // SPECIAL CASE: If the IFC root itself is a text node (leaf node),
     // add its text content directly instead of iterating over children
     if let NodeType::Text(ref text_content) = ifc_root_node_data.get_node_type() {
-        let style = Arc::new(get_style_properties(ctx.styled_dom, ifc_root_dom_id, ctx.system_style.as_ref(), PhysicalSize::new(ctx.viewport_size.width, ctx.viewport_size.height)));
+        let style = crate::solver3::getters::get_style_properties_cached(
+                        &mut ctx.style_cache,
+                        ctx.styled_dom,
+                        ifc_root_dom_id,
+                        ctx.system_style.as_ref(),
+                        PhysicalSize::new(ctx.viewport_size.width, ctx.viewport_size.height),
+                    );
         let text_items = split_text_for_whitespace(
             ctx.styled_dom,
             ifc_root_dom_id,
@@ -8313,7 +8331,13 @@ fn collect_and_measure_inline_content_impl<T: ParsedFontTrait>(
             // Get style from the TEXT NODE itself (dom_child_id), not the IFC root
             // This ensures inline styles like color: #666666 are applied to the text
             // Uses split_text_for_whitespace to correctly handle white-space: pre with \n
-            let style = Arc::new(get_style_properties(ctx.styled_dom, dom_child_id, ctx.system_style.as_ref(), PhysicalSize::new(ctx.viewport_size.width, ctx.viewport_size.height)));
+            let style = crate::solver3::getters::get_style_properties_cached(
+                        &mut ctx.style_cache,
+                        ctx.styled_dom,
+                        dom_child_id,
+                        ctx.system_style.as_ref(),
+                        PhysicalSize::new(ctx.viewport_size.width, ctx.viewport_size.height),
+                    );
             let text_items = split_text_for_whitespace(
                 ctx.styled_dom,
                 dom_child_id,
