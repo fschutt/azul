@@ -4648,7 +4648,7 @@ fn pick_memory_face(
         let total_fonts = chain.css_fallbacks.iter().map(|g| g.fonts.len()).sum::<usize>()
             + chain.unicode_fallbacks.len();
         if total_fonts == 0 {
-            if let Some((_pattern, id)) = fc_cache.list().first() {
+            if let Some((_pattern, id)) = first_font_in_cache(fc_cache).as_ref() {
                 // Vec::new() ranges (not pattern.unicode_ranges.clone()) — the Vec-clone
                 // mis-lifts on the web backend and empty == "no range restriction" here.
                 chain.unicode_fallbacks.push(rust_fontconfig::FontMatch {
@@ -4675,6 +4675,31 @@ fn pick_memory_face(
     out
 }
 
+/// The first `(pattern, id)` in the font cache, WITHOUT cloning the whole
+/// database.
+///
+/// `FcFontCache::list()` allocates a `Vec<(FcPattern, FontId)>` and clones
+/// every pattern in it — and each `FcPattern` owns several `String`s. Call
+/// sites here only ever wanted `.first()`, so the entire font database was
+/// being deep-copied to read one entry. heaptrack on a 3-page document
+/// counted 717429 `String::clone` calls with `FcPattern::clone` /
+/// `FcFontMetadata::clone` on the backtrace, retaining 2.3 MB.
+///
+/// rust-fontconfig documents `for_each_pattern` as "avoids the per-entry
+/// clone that `list` incurs"; it has no early exit, so this keeps the first
+/// hit and ignores the rest — one clone instead of N.
+fn first_font_in_cache(
+    fc_cache: &FcFontCache,
+) -> Option<(rust_fontconfig::FcPattern, rust_fontconfig::FontId)> {
+    let mut first = None;
+    fc_cache.for_each_pattern(|pattern, id| {
+        if first.is_none() {
+            first = Some((pattern.clone(), *id));
+        }
+    });
+    first
+}
+
 /// WEB-LIFT last resort, applied LIFT-SAFELY. The lifted backend drops in-place
 /// mutations made through `BTreeMap::values_mut()` (the pushed `FontMatch` is silently
 /// lost — same class as the cascade `From` mapped-collect drop) and mis-lifts the
@@ -4686,8 +4711,8 @@ fn pick_memory_face(
 /// `query_matches`/`find_unicode_fallbacks` yields an empty chain even though a fallback
 /// font IS registered, the text node measures 0 → `LayoutError::InvalidTree`.
 fn ensure_chains_nonempty(resolved: &mut ResolvedFontChains, fc_cache: &FcFontCache) {
-    let fallback_id = match fc_cache.list().first() {
-        Some((_pattern, id)) => *id,
+    let fallback_id = match first_font_in_cache(fc_cache) {
+        Some((_pattern, id)) => id,
         None => return,
     };
     let keys: Vec<FontChainKeyOrRef> = resolved.chains.keys().cloned().collect();

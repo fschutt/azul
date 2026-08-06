@@ -733,7 +733,17 @@ impl FontContext {
             let total = chain.css_fallbacks.iter().map(|g| g.fonts.len()).sum::<usize>()
                 + chain.unicode_fallbacks.len();
             if total == 0 {
-                if let Some((pattern, id)) = self.fc_cache.list().first() {
+                // `list()` deep-copies the ENTIRE font database to read one entry;
+                // see `first_font_in_cache` in solver3::getters for the
+                // measurement (717k String clones, 2.3 MB retained).
+                let __first = {
+                    let mut f = None;
+                    self.fc_cache.for_each_pattern(|p, id| {
+                        if f.is_none() { f = Some((p.clone(), *id)); }
+                    });
+                    f
+                };
+                if let Some((pattern, id)) = __first.as_ref() {
                     chain.unicode_fallbacks.push(rust_fontconfig::FontMatch {
                         id: *id,
                         unicode_ranges: pattern.unicode_ranges.clone(),
