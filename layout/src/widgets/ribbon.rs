@@ -1424,6 +1424,16 @@ pub struct RibbonTab {
     pub label: AzString,
     /// Groups rendered when this tab is active.
     pub groups: RibbonGroupVec,
+    /// Extra properties APPENDED to this tab header's style, after the
+    /// shared [`RibbonStyle::tab_style`] / [`RibbonStyle::tab_active_style`]
+    /// — so they win, and they apply in BOTH states.
+    ///
+    /// Empty (the default) leaves the tab looking like every other one.
+    /// This is the only per-tab hook: `RibbonStyle` describes the tab
+    /// STRIP, so without it a single tab could not be tinted, badged or
+    /// given its own border, and telling two tabs apart in a screenshot
+    /// meant reading their labels.
+    pub style: CssPropertyWithConditionsVec,
 }
 
 /// A captioned group of controls within a [`RibbonTab`].
@@ -1602,7 +1612,24 @@ impl RibbonTab {
     /// Creates a new tab with the given label and no groups.
     #[must_use]
     pub const fn new(label: AzString) -> Self {
-        Self { label, groups: RibbonGroupVec::from_const_slice(&[]) }
+        Self {
+            label,
+            groups: RibbonGroupVec::from_const_slice(&[]),
+            style: CssPropertyWithConditionsVec::from_const_slice(&[]),
+        }
+    }
+
+    /// Appends per-tab style properties to this tab's header (see
+    /// [`RibbonTab::style`]).
+    pub fn set_style(&mut self, style: CssPropertyWithConditionsVec) {
+        self.style = style;
+    }
+
+    /// Builder method: sets the per-tab header style and returns `self`.
+    #[must_use]
+    pub fn with_style(mut self, style: CssPropertyWithConditionsVec) -> Self {
+        self.set_style(style);
+        self
     }
 
     /// Appends a group to this tab.
@@ -1977,6 +2004,15 @@ impl Ribbon {
                 (CLS_TAB_ACTIVE, style.tab_active_style.clone())
             } else {
                 (CLS_TAB, style.tab_style.clone())
+            };
+            // Per-tab properties go AFTER the shared ones so they win, and
+            // they are applied in both the active and inactive state.
+            let part_style = if tab.style.as_ref().is_empty() {
+                part_style
+            } else {
+                let mut merged = part_style.into_library_owned_vec();
+                merged.extend(tab.style.as_ref().iter().cloned());
+                CssPropertyWithConditionsVec::from_vec(merged)
             };
             let mut d = Dom::create_div()
                 .with_ids_and_classes(IdOrClassVec::from_const_slice(classes))

@@ -47695,6 +47695,9 @@
                                 },
                                 "groups": {
                                     "type": "RibbonGroupVec"
+                                },
+                                "style": {
+                                    "type": "CssPropertyWithConditionsVec"
                                 }
                             }
                         ],
@@ -47742,6 +47745,37 @@
                                     "type": "RibbonTab"
                                 },
                                 "fn_body": "object.with_group(group)"
+                            },
+                            "set_style": {
+                                "doc": [
+                                    "Appends per-tab style properties to this tab's header, after the shared tab style (see `RibbonTab::style`)."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "refmut"
+                                    },
+                                    {
+                                        "style": "CssPropertyWithConditionsVec"
+                                    }
+                                ],
+                                "fn_body": "object.set_style(style)"
+                            },
+                            "with_style": {
+                                "doc": [
+                                    "Builder method: sets the per-tab header style and returns `self`."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "value"
+                                    },
+                                    {
+                                        "style": "CssPropertyWithConditionsVec"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "RibbonTab"
+                                },
+                                "fn_body": "object.with_style(style)"
                             }
                         },
                         "repr": "C"

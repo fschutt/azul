@@ -3530,6 +3530,10 @@ mod tests {
     #[derive(Debug, Clone)]
     struct RibbonUiState {
         active_tab: usize,
+        /// Give every tab header its own border colour (`RibbonTab::style`).
+        /// Off for the damage tests so the strip stays uniform; on for the
+        /// test that pins what the aid exposed.
+        bordered: bool,
     }
 
     /// Desktop viewport: at 400x300 the ribbon renders its MOBILE variant,
@@ -3557,14 +3561,68 @@ mod tests {
             StyleBackgroundContent, StyleBackgroundContentVec,
         };
         use azul_css::AzString;
+        use azul_css::dynamic_selector::CssPropertyWithConditionsVec;
         use azul_layout::widgets::ribbon::{
             Ribbon, RibbonButton, RibbonGroup, RibbonItem, RibbonTab, RibbonTabVec,
         };
 
-        let active = data
+        use azul_css::props::style::border::{
+            BorderStyle, LayoutBorderBottomWidth, LayoutBorderLeftWidth,
+            LayoutBorderRightWidth, LayoutBorderTopWidth, StyleBorderBottomColor,
+            StyleBorderBottomStyle, StyleBorderLeftColor, StyleBorderLeftStyle,
+            StyleBorderRightColor, StyleBorderRightStyle, StyleBorderTopColor,
+            StyleBorderTopStyle,
+        };
+
+        let (active, bordered) = data
             .downcast_ref::<RibbonUiState>()
-            .map(|s| s.active_tab)
-            .unwrap_or(0);
+            .map(|s| (s.active_tab, s.bordered))
+            .unwrap_or((0, false));
+
+        let tab_border = |r: u8, g: u8, b: u8| {
+            if !bordered {
+                return CssPropertyWithConditionsVec::from_vec(Vec::new());
+            }
+            let c = ColorU { r, g, b, a: 255 };
+            CssPropertyWithConditionsVec::from_vec(vec![
+                CssPropertyWithConditions::simple(CssProperty::border_top_style(
+                    StyleBorderTopStyle { inner: BorderStyle::Solid },
+                )),
+                CssPropertyWithConditions::simple(CssProperty::border_right_style(
+                    StyleBorderRightStyle { inner: BorderStyle::Solid },
+                )),
+                CssPropertyWithConditions::simple(CssProperty::border_bottom_style(
+                    StyleBorderBottomStyle { inner: BorderStyle::Solid },
+                )),
+                CssPropertyWithConditions::simple(CssProperty::border_left_style(
+                    StyleBorderLeftStyle { inner: BorderStyle::Solid },
+                )),
+                CssPropertyWithConditions::simple(CssProperty::border_top_width(
+                    LayoutBorderTopWidth::const_px(2),
+                )),
+                CssPropertyWithConditions::simple(CssProperty::border_right_width(
+                    LayoutBorderRightWidth::const_px(2),
+                )),
+                CssPropertyWithConditions::simple(CssProperty::border_bottom_width(
+                    LayoutBorderBottomWidth::const_px(2),
+                )),
+                CssPropertyWithConditions::simple(CssProperty::border_left_width(
+                    LayoutBorderLeftWidth::const_px(2),
+                )),
+                CssPropertyWithConditions::simple(CssProperty::border_top_color(
+                    StyleBorderTopColor { inner: c },
+                )),
+                CssPropertyWithConditions::simple(CssProperty::border_right_color(
+                    StyleBorderRightColor { inner: c },
+                )),
+                CssPropertyWithConditions::simple(CssProperty::border_bottom_color(
+                    StyleBorderBottomColor { inner: c },
+                )),
+                CssPropertyWithConditions::simple(CssProperty::border_left_color(
+                    StyleBorderLeftColor { inner: c },
+                )),
+            ])
+        };
 
         // Different group counts and label lengths per tab, so the replaced
         // subtree differs in node count AND painted extent - a rect carried
@@ -3584,10 +3642,15 @@ mod tests {
             t
         };
 
+        // Each tab gets a DIFFERENT border colour (RibbonTab::style, the
+        // per-tab hook). This is the debug aid the reported artifact needed:
+        // with the strip painted in one colour, a rect attributed to the
+        // wrong tab is invisible, and telling two tabs apart in a frame dump
+        // meant reading their labels.
         let ribbon = Ribbon::new(RibbonTabVec::from_vec(vec![
-            tab("HOME", 3, 2),
-            tab("INSERT", 1, 4),
-            tab("DESIGN", 2, 1),
+            tab("HOME", 3, 2).with_style(tab_border(255, 0, 0)),
+            tab("INSERT", 1, 4).with_style(tab_border(0, 160, 0)),
+            tab("DESIGN", 2, 1).with_style(tab_border(0, 0, 255)),
         ]))
         .with_active_tab(active)
         .with_on_tab_click(
@@ -3714,7 +3777,7 @@ mod tests {
     /// Build the pair the tab-switch tests compare: a window that reached
     /// `active_tab = 1` by CLICKING, and a fresh one that started there.
     fn switched_and_fresh() -> (HeadlessWindow, HeadlessWindow, f32, f32, FrameDamage) {
-        let state = Arc::new(RefCell::new(RefAny::new(RibbonUiState { active_tab: 0 })));
+        let state = Arc::new(RefCell::new(RefAny::new(RibbonUiState { active_tab: 0, bordered: false })));
         let mut window = make_window_sized(&state, ribbon_layout, RIBBON_W, RIBBON_H);
         window.regenerate_layout().expect("initial layout");
         window.regenerate_layout().expect("settle");
@@ -3736,7 +3799,7 @@ mod tests {
         // in its hover style, so a fresh window with the mouse elsewhere is
         // a DIFFERENT picture and the comparison would report hover as
         // staleness.
-        let fresh_state = Arc::new(RefCell::new(RefAny::new(RibbonUiState { active_tab: 1 })));
+        let fresh_state = Arc::new(RefCell::new(RefAny::new(RibbonUiState { active_tab: 1, bordered: false })));
         let mut fresh = make_window_sized(&fresh_state, ribbon_layout, RIBBON_W, RIBBON_H);
         fresh.regenerate_layout().expect("fresh layout");
         step(&mut fresh, HeadlessEvent::MouseMove { x, y });
@@ -3765,7 +3828,7 @@ mod tests {
 
         // Switch on to a tab that GROWS the tree again, then back: both
         // directions of the size change go through the positional fallback.
-        let state = Arc::new(RefCell::new(RefAny::new(RibbonUiState { active_tab: 1 })));
+        let state = Arc::new(RefCell::new(RefAny::new(RibbonUiState { active_tab: 1, bordered: false })));
         let mut w2 = make_window_sized(&state, ribbon_layout, RIBBON_W, RIBBON_H);
         w2.regenerate_layout().expect("layout");
         for target in [0usize, 2, 1, 0] {
@@ -3830,7 +3893,7 @@ mod tests {
     #[test]
     #[ignore = "known gap: a structural change falls back to FULL damage"]
     fn ribbon_tab_click_does_not_damage_the_document_below() {
-        let state = Arc::new(RefCell::new(RefAny::new(RibbonUiState { active_tab: 0 })));
+        let state = Arc::new(RefCell::new(RefAny::new(RibbonUiState { active_tab: 0, bordered: false })));
         let mut window = make_window_sized(&state, ribbon_layout, RIBBON_W, RIBBON_H);
         window.regenerate_layout().expect("initial layout");
         window.regenerate_layout().expect("settle");
@@ -3941,6 +4004,101 @@ mod tests {
             "the two labels must report DIFFERENT source nodes - damage \
              attributes rects by source_node_index, so a shared one repaints \
              the wrong node. items = {texts:?}"
+        );
+    }
+
+    /// Border items of the display list, as debug strings.
+    fn dl_borders(window: &HeadlessWindow) -> Vec<String> {
+        let Some(lw) = window.common.layout_window.as_ref() else {
+            return Vec::new();
+        };
+        let Some(r) = lw.layout_results.get(&azul_core::dom::DomId { inner: 0 }) else {
+            return Vec::new();
+        };
+        r.display_list
+            .items
+            .iter()
+            .filter_map(|i| match i {
+                DisplayListItem::Border { .. } => Some(format!("{i:?}")),
+                _ => None,
+            })
+            .collect()
+    }
+
+    /// `RibbonTab::style` reaches the rendered tab header.
+    ///
+    /// `RibbonStyle` describes the tab STRIP, so before this there was no
+    /// way to tint one tab: every header shared `tab_style` /
+    /// `tab_active_style`. The per-tab hook is what makes a frame dump
+    /// legible when a rect is attributed to the wrong tab.
+    ///
+    /// NEGATIVE CONTROL: dropping the `tab.style` append in
+    /// `Ribbon::dom()` leaves all three colours absent — verified.
+    #[test]
+    fn a_per_tab_style_reaches_that_tabs_header_and_no_other() {
+        let state = Arc::new(RefCell::new(RefAny::new(RibbonUiState {
+            active_tab: 0,
+            bordered: true,
+        })));
+        let mut window = make_window_sized(&state, ribbon_layout, RIBBON_W, RIBBON_H);
+        window.regenerate_layout().expect("layout");
+
+        let borders = dl_borders(&window);
+        for (name, needle) in [
+            ("HOME red", "#ff0000ff"),
+            ("INSERT green", "#00a000ff"),
+            ("DESIGN blue", "#0000ffff"),
+        ] {
+            let n = borders.iter().filter(|b| b.contains(needle)).count();
+            assert_eq!(
+                n, 1,
+                "expected exactly one border carrying the {name} tab colour, \
+                 found {n}. Per-tab style is not reaching the header (or is \
+                 reaching more than one)."
+            );
+        }
+    }
+
+    /// KNOWN GAP - a tab switch leaves the OTHER tabs' text at a stale
+    /// vertical position once the headers carry a border.
+    ///
+    /// Found by the per-tab border aid above. With borders on, clicking tab
+    /// 1 leaves tab 2's label baseline at y=34.6 where a fresh render of the
+    /// same state puts it at 33.1 - a 1.5px shift on a tab that did not
+    /// change state at all. Colours are correct by then, so this is not the
+    /// shaped-run staleness fixed in 8ec9f387d; the border changes the
+    /// header's box, and the incremental path keeps a vertical position
+    /// computed against the previous strip.
+    #[test]
+    #[ignore = "known gap: bordered tab headers keep a stale y after a switch"]
+    fn switching_tabs_does_not_shift_the_other_tabs_text() {
+        let state = Arc::new(RefCell::new(RefAny::new(RibbonUiState {
+            active_tab: 0,
+            bordered: true,
+        })));
+        let mut window = make_window_sized(&state, ribbon_layout, RIBBON_W, RIBBON_H);
+        window.regenerate_layout().expect("initial layout");
+        window.regenerate_layout().expect("settle");
+        let Some((x, y)) = tab_header_centre(&window, 1) else {
+            panic!("no ribbon tab headers");
+        };
+        click_at(&mut window, x, y);
+        window.regenerate_layout().expect("post-click relayout");
+
+        let fresh_state = Arc::new(RefCell::new(RefAny::new(RibbonUiState {
+            active_tab: 1,
+            bordered: true,
+        })));
+        let mut fresh = make_window_sized(&fresh_state, ribbon_layout, RIBBON_W, RIBBON_H);
+        fresh.regenerate_layout().expect("fresh layout");
+        step(&mut fresh, HeadlessEvent::MouseMove { x, y });
+        fresh.regenerate_layout().expect("fresh layout under the cursor");
+
+        assert_eq!(
+            dl_texts(&window),
+            dl_texts(&fresh),
+            "a tab switch must leave the untouched tabs where a fresh render \
+             puts them"
         );
     }
 
