@@ -868,6 +868,17 @@ pub struct LayoutTreeMemoryReport {
     /// own text). Called out separately because it is pure duplication of
     /// text the DOM already holds.
     pub shaped_cluster_text_bytes: usize,
+    /// Distinct `Arc<StyleProperties>` allocations the retained glyphs point
+    /// at, by pointer identity.
+    ///
+    /// A document has a handful of distinct text styles (body, headings,
+    /// code), so a healthy number here is single digits no matter how many
+    /// glyphs there are. A count that tracks the GLYPH count means the
+    /// sharing predicate has silently stopped sharing — Stylo hit exactly
+    /// this, ending up with 109k ComputedValues where 2,200 were expected
+    /// because one pseudo-element rule defeated the predicate. At 248 B per
+    /// StyleProperties that failure is invisible and expensive.
+    pub distinct_glyph_style_arcs: usize,
     pub warm_taffy_cache_bytes: usize,
     pub cold_bytes: usize,
     pub dom_to_layout_bytes: usize,
@@ -903,6 +914,7 @@ impl LayoutTree {
             shaped_cluster_count: 0,
             shaped_glyph_count: 0,
             shaped_cluster_text_bytes: 0,
+            distinct_glyph_style_arcs: 0,
             warm_taffy_cache_bytes: 0,
         };
         // HashMap<NodeId, Vec<usize>> — approximate: (key + Vec-header) per entry
@@ -914,6 +926,8 @@ impl LayoutTree {
         }
         // Inline layout data lives behind Arc — count Arc heap-shares once
         // per node that has a cached layout. Counted conservatively.
+        let mut style_arcs: alloc::collections::BTreeSet<usize> =
+            alloc::collections::BTreeSet::new();
         for w in &self.warm {
             if let Some(cached) = &w.inline_layout_result {
                 // Arc<UnifiedLayout> — count the UnifiedLayout header + its items.
@@ -942,12 +956,16 @@ impl LayoutTree {
                         report.shaped_cluster_count += 1;
                         report.shaped_glyph_count += c.glyphs.len();
                         report.shaped_cluster_text_bytes += c.text.capacity();
+                        for g in &c.glyphs {
+                            style_arcs.insert(alloc::sync::Arc::as_ptr(&g.style) as usize);
+                        }
                     }
                 }
             }
             // Taffy cache — each slot is an Option, ~50 B empty
             report.warm_taffy_cache_bytes += size_of::<TaffyCache>();
         }
+        report.distinct_glyph_style_arcs = style_arcs.len();
         report
     }
 
@@ -4555,6 +4573,7 @@ mod autotest_generated {
             shaped_cluster_count: 0,
             shaped_glyph_count: 0,
             shaped_cluster_text_bytes: 0,
+            distinct_glyph_style_arcs: 0,
         };
         assert_eq!(r.total_bytes(), eighth * 8);
         assert_eq!(r.total_bytes(), usize::MAX - 7);

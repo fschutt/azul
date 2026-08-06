@@ -3161,6 +3161,18 @@ impl LayoutWindow {
                         tr.warm_inline_layout_bytes / tr.shaped_cluster_count,
                         tr.shaped_cluster_text_bytes / tr.shaped_cluster_count,
                     );
+                    // Arc sharing health. Single digits = sharing works.
+                    // A count tracking the glyph count means the predicate
+                    // silently stopped sharing (Stylo: 109k ComputedValues
+                    // where 2,200 were expected, from one pseudo-element
+                    // rule) — invisible, and 248 B a pop.
+                    eprintln!(
+                        "[MEM]       styles        {} distinct Arc<StyleProperties> for \
+                         {} glyphs  ({} B each)",
+                        tr.distinct_glyph_style_arcs,
+                        tr.shaped_glyph_count,
+                        core::mem::size_of::<crate::text3::cache::StyleProperties>(),
+                    );
                     eprintln!(
                         "[MEM]       sizeof        ShapedItem {} B  ShapedCluster {} B  \
                          ShapedGlyph {} B",
