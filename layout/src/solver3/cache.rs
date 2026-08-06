@@ -914,7 +914,51 @@ pub fn reconcile_and_invalidate<T: ParsedFontTrait>(
     // layout_document's step marker is stuck at 1 (post-`?` not reached), the
     // lifted `?` mis-discriminated this Ok as Err (niche-Result mis-lift).
     { let _ = (0xCC00_0001u32); }
+    assert_dom_ids_are_in_range(&new_tree, ctx.styled_dom);
     Ok((new_tree, recon_result))
+}
+
+/// Every `dom_node_id` in a freshly reconciled tree must address a node of
+/// the StyledDom it was reconciled against.
+///
+/// WHY THIS IS AN ASSERTION AND NOT A `Result`. A tree that survives with a
+/// stale id does not fail — it succeeds at describing the WRONG node. Some
+/// thirty display-list sites, the style getters, the hit-test areas and the
+/// damage attribution all read `styled_dom` through this id, and each one
+/// silently returns another node's data. The reported symptom was a ribbon
+/// tab click repainting rects belonging to unrelated nodes; the only reason
+/// it was ever caught is that `compute_counters` happened to index far
+/// enough out of range to trip a bounds check. Checking the invariant once,
+/// here, converts that whole class of silent corruption into one failure
+/// that names the node.
+///
+/// Cost: one comparison per layout node, against a pass that does real work
+/// per node.
+fn assert_dom_ids_are_in_range(tree: &LayoutTree, styled_dom: &StyledDom) {
+    let dom_len = styled_dom.node_data.as_container().internal.len();
+    for idx in 0..tree.nodes.len() {
+        let Some(dom_id) = tree.get(idx).and_then(|n| n.dom_node_id) else {
+            continue;
+        };
+        assert!(
+            dom_id.index() < dom_len,
+            "layout node {idx} claims DOM node {} but the StyledDom it was \
+             reconciled against has only {dom_len} nodes. A layout node's \
+             identity must come from the DOM node it was reconciled AGAINST, \
+             never from one it merely reused measurements from (see \
+             `clone_node_from_old`).",
+            dom_id.index(),
+        );
+    }
+    for dom_id in tree.dom_to_layout.keys() {
+        assert!(
+            dom_id.index() < dom_len,
+            "dom_to_layout maps DOM node {} but the StyledDom has only \
+             {dom_len} nodes - a lookup through this map would hand out a \
+             layout index for a node that does not exist",
+            dom_id.index(),
+        );
+    }
 }
 
 /// CSS 2.2 § 9.2.2.1: Checks whether an inline run consists entirely of
@@ -1076,7 +1120,15 @@ pub fn reconcile_recursive(
         let old_full_node = old_tree
             .and_then(|t| old_tree_idx.and_then(|idx| t.get_full_node(idx)))
             .ok_or(LayoutError::InvalidTree)?;
-        let mut idx = new_tree_builder.clone_node_from_old(&old_full_node, new_parent_idx);
+        // The clone reuses the OLD node's measurements under the NEW node's
+        // identity: `old_tree_idx` may have come from the positional
+        // fallback below, in which case `old_full_node.dom_node_id` names a
+        // different (or, after the DOM shrank, a nonexistent) node.
+        let mut idx = new_tree_builder.clone_node_from_old(
+            &old_full_node,
+            new_parent_idx,
+            Some(new_dom_id),
+        );
         // If paint-only change, update the fingerprint and dirty flag
         if dirty_flag == DirtyFlag::Paint {
             if let Some(cloned) = new_tree_builder.get_mut(idx) {

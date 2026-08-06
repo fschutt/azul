@@ -2397,6 +2397,21 @@ mod tests {
         state: &Arc<RefCell<RefAny>>,
         cb: azul_core::callbacks::LayoutCallbackType,
     ) -> HeadlessWindow {
+        make_window_sized(state, cb, 400.0, 300.0)
+    }
+
+    /// [`make_window_with`] at an explicit viewport.
+    ///
+    /// The 400x300 default is PHONE-sized: a widget with a responsive layout
+    /// (the ribbon collapses its tab strip into one mobile tab button)
+    /// renders its small-screen variant there, and a test aiming at desktop
+    /// chrome finds nodes that were never laid out.
+    fn make_window_sized(
+        state: &Arc<RefCell<RefAny>>,
+        cb: azul_core::callbacks::LayoutCallbackType,
+        width: f32,
+        height: f32,
+    ) -> HeadlessWindow {
         use azul_core::icon::{IconProviderHandle, SharedIconProvider};
         // Empty cache → NO system-font scan / disk access. The deterministic
         // embedded font is injected into the FontManager below (see
@@ -2408,7 +2423,7 @@ mod tests {
             cb,
             ctx: OptionRefAny::None,
         };
-        opts.window_state.size.dimensions = LogicalSize::new(400.0, 300.0);
+        opts.window_state.size.dimensions = LogicalSize::new(width, height);
         let window = HeadlessWindow::new(
             opts,
             state.clone(),
@@ -3496,6 +3511,368 @@ mod tests {
             2,
             "the second click fires exactly once more"
         );
+    }
+
+    // --- Ribbon tab switching -------------------------------------------
+    //
+    // REPORTED: "clicking on various tabs causes repaint / damage rect
+    // issues, i.e. it's as if the damage rects have a NodeID issue and take
+    // the damage rect from a different node (anonymous nodes?)".
+    //
+    // A tab click is the hardest case a real app hands the incremental
+    // path: the callback returns RefreshDom, the content band is REPLACED
+    // by a different tab's groups (a different node COUNT, so NodeIds
+    // shift), and two tab headers swap their active/inactive style.
+    //
+    // The harness puts a large, deliberately UNCHANGING document block
+    // below the ribbon as a control surface.
+
+    #[derive(Debug, Clone)]
+    struct RibbonUiState {
+        active_tab: usize,
+    }
+
+    /// Desktop viewport: at 400x300 the ribbon renders its MOBILE variant,
+    /// which has no tab strip to click.
+    const RIBBON_W: f32 = 1000.0;
+    const RIBBON_H: f32 = 600.0;
+
+    extern "C" fn on_ribbon_tab(
+        mut refany: RefAny,
+        _info: azul_layout::callbacks::CallbackInfo,
+        idx: usize,
+    ) -> azul_core::callbacks::Update {
+        if let Some(mut s) = refany.downcast_mut::<RibbonUiState>() {
+            s.active_tab = idx;
+        }
+        azul_core::callbacks::Update::RefreshDom
+    }
+
+    extern "C" fn ribbon_layout(mut data: RefAny, _info: LayoutCallbackInfo) -> Dom {
+        use azul_css::dynamic_selector::CssPropertyWithConditions;
+        use azul_css::props::basic::color::ColorU;
+        use azul_css::props::layout::dimensions::{LayoutHeight, LayoutWidth};
+        use azul_css::props::property::CssProperty;
+        use azul_css::props::style::background::{
+            StyleBackgroundContent, StyleBackgroundContentVec,
+        };
+        use azul_css::AzString;
+        use azul_layout::widgets::ribbon::{
+            Ribbon, RibbonButton, RibbonGroup, RibbonItem, RibbonTab, RibbonTabVec,
+        };
+
+        let active = data
+            .downcast_ref::<RibbonUiState>()
+            .map(|s| s.active_tab)
+            .unwrap_or(0);
+
+        // Different group counts and label lengths per tab, so the replaced
+        // subtree differs in node count AND painted extent - a rect carried
+        // over from the previous tab cannot happen to be the right size.
+        let tab = |label: &str, groups: usize, btns: usize| {
+            let mut t = RibbonTab::new(AzString::from(label));
+            for g in 0..groups {
+                let mut grp = RibbonGroup::new(AzString::from(format!("{label}-G{g}")));
+                for b in 0..btns {
+                    grp.add_item(RibbonItem::LargeButton(RibbonButton::new(
+                        AzString::from(""),
+                        AzString::from(format!("{label}{g}{b}")),
+                    )));
+                }
+                t.add_group(grp);
+            }
+            t
+        };
+
+        let ribbon = Ribbon::new(RibbonTabVec::from_vec(vec![
+            tab("HOME", 3, 2),
+            tab("INSERT", 1, 4),
+            tab("DESIGN", 2, 1),
+        ]))
+        .with_active_tab(active)
+        .with_on_tab_click(
+            data.clone(),
+            on_ribbon_tab as azul_layout::widgets::ribbon::RibbonOnTabClickCallbackType,
+        );
+
+        let doc = Dom::create_div().with_css_props(
+            vec![
+                CssPropertyWithConditions::simple(CssProperty::width(LayoutWidth::px(RIBBON_W))),
+                CssPropertyWithConditions::simple(CssProperty::height(LayoutHeight::px(RIBBON_H))),
+                CssPropertyWithConditions::simple(CssProperty::background_content(
+                    StyleBackgroundContentVec::from(vec![StyleBackgroundContent::Color(
+                        ColorU { r: 0, g: 128, b: 0, a: 255 },
+                    )]),
+                )),
+            ]
+            .into(),
+        );
+
+        Dom::create_body().with_child(ribbon.dom()).with_child(doc)
+    }
+
+    /// On-screen rects of every laid-out node carrying `class`, left to right.
+    fn rects_by_class(
+        window: &HeadlessWindow,
+        class: &str,
+    ) -> Vec<azul_core::geom::LogicalRect> {
+        use azul_core::dom::{DomId, DomNodeId, IdOrClass};
+        use azul_core::geom::LogicalRect;
+        use azul_core::styled_dom::NodeHierarchyItemId;
+
+        let Some(lw) = window.common.layout_window.as_ref() else {
+            return Vec::new();
+        };
+        let Some(dom) = lw.layout_results.get(&DomId { inner: 0 }) else {
+            return Vec::new();
+        };
+        let mut found: Vec<LogicalRect> = Vec::new();
+        for (node_id, data) in
+            dom.styled_dom.node_data.as_container().internal.iter().enumerate()
+        {
+            let matches = data.get_ids_and_classes().iter().any(|c| match c {
+                IdOrClass::Class(s) => s.as_str() == class,
+                IdOrClass::Id(_) => false,
+            });
+            if !matches {
+                continue;
+            }
+            let dnid = DomNodeId {
+                dom: DomId { inner: 0 },
+                node: NodeHierarchyItemId::from_crate_internal(Some(
+                    azul_core::dom::NodeId::new(node_id),
+                )),
+            };
+            // A tab header has a MouseUp callback, so it has a tag and a
+            // HitTestArea; the ribbon root does not, so fall back to the
+            // layout box. A node in the DOM but NOT in the layout (the
+            // mobile variant on a desktop viewport) yields neither.
+            let bounds = lw.get_node_hit_test_bounds(dnid).or_else(|| {
+                Some(LogicalRect {
+                    origin: lw.get_node_position(dnid)?,
+                    size: lw.get_node_size(dnid)?,
+                })
+            });
+            if let Some(r) = bounds {
+                found.push(r);
+            }
+        }
+        found.sort_by(|a, b| a.origin.x.total_cmp(&b.origin.x));
+        found
+    }
+
+    fn tab_header_centre(window: &HeadlessWindow, idx: usize) -> Option<(f32, f32)> {
+        let r = *rects_by_class(window, "__azul-native-ribbon-tab").get(idx)?;
+        Some((
+            r.origin.x + r.size.width / 2.0,
+            r.origin.y + r.size.height / 2.0,
+        ))
+    }
+
+    /// Bottom edge of the ribbon as LAID OUT; below it is the document area.
+    /// Measured, not hard-coded: a constant that drifts past the real edge
+    /// turns the control surface into a no-op.
+    fn ribbon_bottom(window: &HeadlessWindow) -> f32 {
+        rects_by_class(window, "__azul-native-ribbon")
+            .iter()
+            .map(|r| r.origin.y + r.size.height)
+            .fold(0.0_f32, f32::max)
+    }
+
+    /// The app-side tab index (`RefAny::downcast_ref` needs `&mut self`).
+    fn active_tab_of(state: &Arc<RefCell<RefAny>>) -> Option<usize> {
+        let mut g = state.borrow_mut();
+        let r: &mut RefAny = &mut g;
+        r.downcast_ref::<RibbonUiState>().map(|s| s.active_tab)
+    }
+
+    fn click_at(window: &mut HeadlessWindow, x: f32, y: f32) -> FrameDamage {
+        use azul_core::events::MouseButton;
+        step(window, HeadlessEvent::MouseMove { x, y });
+        step(window, HeadlessEvent::MouseDown { button: MouseButton::Left });
+        step(window, HeadlessEvent::MouseUp { button: MouseButton::Left })
+    }
+
+    /// Text items of a window's display list, as debug strings.
+    fn dl_texts(window: &HeadlessWindow) -> Vec<String> {
+        let Some(lw) = window.common.layout_window.as_ref() else {
+            return Vec::new();
+        };
+        let Some(r) = lw.layout_results.get(&azul_core::dom::DomId { inner: 0 }) else {
+            return Vec::new();
+        };
+        r.display_list
+            .items
+            .iter()
+            .filter_map(|i| match i {
+                DisplayListItem::Text { .. } => Some(format!("{i:?}")),
+                _ => None,
+            })
+            .collect()
+    }
+
+    /// Build the pair the tab-switch tests compare: a window that reached
+    /// `active_tab = 1` by CLICKING, and a fresh one that started there.
+    fn switched_and_fresh() -> (HeadlessWindow, HeadlessWindow, f32, f32, FrameDamage) {
+        let state = Arc::new(RefCell::new(RefAny::new(RibbonUiState { active_tab: 0 })));
+        let mut window = make_window_sized(&state, ribbon_layout, RIBBON_W, RIBBON_H);
+        window.regenerate_layout().expect("initial layout");
+        window.regenerate_layout().expect("settle");
+
+        let Some((x, y)) = tab_header_centre(&window, 1) else {
+            panic!("no ribbon tab headers in the layout - the harness built the wrong DOM");
+        };
+        let damage = click_at(&mut window, x, y);
+        window.regenerate_layout().expect("post-click relayout");
+        assert_eq!(
+            active_tab_of(&state),
+            Some(1),
+            "the click at ({x}, {y}) did not reach the tab header, so every \
+             comparison below would pass for the wrong reason"
+        );
+
+        // The same state painted from scratch. The cursor has to sit where
+        // it sits in the window under test: the tab under the pointer draws
+        // in its hover style, so a fresh window with the mouse elsewhere is
+        // a DIFFERENT picture and the comparison would report hover as
+        // staleness.
+        let fresh_state = Arc::new(RefCell::new(RefAny::new(RibbonUiState { active_tab: 1 })));
+        let mut fresh = make_window_sized(&fresh_state, ribbon_layout, RIBBON_W, RIBBON_H);
+        fresh.regenerate_layout().expect("fresh layout");
+        step(&mut fresh, HeadlessEvent::MouseMove { x, y });
+        fresh.regenerate_layout().expect("fresh layout under the cursor");
+
+        (window, fresh, x, y, damage)
+    }
+
+    /// A tab click must not leave the layout tree describing a DOM that no
+    /// longer exists.
+    ///
+    /// This is the regression for the reconciliation identity bug: switching
+    /// from a 3-group tab to a 1-group tab SHRINKS the DOM, reconciliation
+    /// falls back to positional matching for the children whose ids moved,
+    /// and `clone_node_from_old` used to carry the OLD node's `dom_node_id`
+    /// into the new tree. `assert_dom_ids_are_in_range` (solver3::cache)
+    /// fires on the resulting tree; before the fix this panicked with
+    /// "index out of bounds: the len is 37 but the index is 52" inside
+    /// `compute_counters`.
+    ///
+    /// NEGATIVE CONTROL: reverting `clone_node_from_old` to copy
+    /// `old_node.dom_node_id` makes this panic - verified.
+    #[test]
+    fn switching_ribbon_tabs_keeps_the_layout_tree_addressing_the_live_dom() {
+        let (window, _fresh, _x, _y, _damage) = switched_and_fresh();
+
+        // Switch on to a tab that GROWS the tree again, then back: both
+        // directions of the size change go through the positional fallback.
+        let state = Arc::new(RefCell::new(RefAny::new(RibbonUiState { active_tab: 1 })));
+        let mut w2 = make_window_sized(&state, ribbon_layout, RIBBON_W, RIBBON_H);
+        w2.regenerate_layout().expect("layout");
+        for target in [0usize, 2, 1, 0] {
+            let Some((x, y)) = tab_header_centre(&w2, target) else {
+                panic!("tab {target} has no header");
+            };
+            click_at(&mut w2, x, y);
+            w2.regenerate_layout().expect("relayout after tab switch");
+            assert_eq!(active_tab_of(&state), Some(target));
+        }
+
+        // The frames exist and are the right size - a tree that survived the
+        // assertion must still paint.
+        for (name, w) in [("clicked", &window), ("cycled", &w2)] {
+            let pm = w
+                .cpu_backend
+                .last_frame
+                .as_ref()
+                .unwrap_or_else(|| panic!("{name} window produced no frame"))
+                .clone_pixmap();
+            assert_eq!((pm.width(), pm.height()), (RIBBON_W as u32, RIBBON_H as u32));
+        }
+    }
+
+    /// KNOWN GAP - a deactivated tab keeps the text colour it resolved while
+    /// it was active.
+    ///
+    /// After clicking tab 1, tab 0's label paints #2B579A (the Word-blue
+    /// ACTIVE colour) where a fresh render of the same state paints #444444.
+    /// The CASCADE is right in both windows - reading the resolved colour
+    /// out of `styled_dom` for that node gives #444444ff either way - so the
+    /// stale value is baked into a cached inline/text layout that the
+    /// display-list builder paints from instead of re-resolving.
+    ///
+    /// Not the reconciliation identity bug (fixed, see the test above) and
+    /// not the cascade. The next place to look is which cached
+    /// `inline_layout_result` survives a colour-only change:
+    /// `StyleProperties::layout_hash` deliberately excludes colour, and the
+    /// IFC validity key in `solver3::fc` folds in the container properties
+    /// but is only consulted when the owning node is re-laid out.
+    #[test]
+    #[ignore = "known gap: deactivated tab keeps its active-state text colour"]
+    fn clicking_a_ribbon_tab_re_resolves_the_deactivated_tabs_text_colour() {
+        let (window, fresh, x, y, _damage) = switched_and_fresh();
+        let (a, b) = (dl_texts(&window), dl_texts(&fresh));
+        assert_eq!(a.len(), b.len(), "same state must emit the same Text items");
+        for (i, (ta, tb)) in a.iter().zip(b.iter()).enumerate() {
+            assert_eq!(
+                ta, tb,
+                "Text[{i}] differs after a tab click at ({x}, {y}); the clicked \
+                 window painted a colour it resolved before the switch"
+            );
+        }
+    }
+
+    /// KNOWN GAP - a tab click repaints the whole window.
+    ///
+    /// `compute_display_list_damage` (cpurender::compositor) returns None -
+    /// meaning FULL damage - as soon as the two lists differ in item COUNT,
+    /// which every tab switch does. The rects are therefore not wrong, they
+    /// are absent; this test pins the behaviour the queued display-list
+    /// patching work (NodeId -> item mapping) is meant to deliver.
+    #[test]
+    #[ignore = "known gap: a structural change falls back to FULL damage"]
+    fn ribbon_tab_click_does_not_damage_the_document_below() {
+        let state = Arc::new(RefCell::new(RefAny::new(RibbonUiState { active_tab: 0 })));
+        let mut window = make_window_sized(&state, ribbon_layout, RIBBON_W, RIBBON_H);
+        window.regenerate_layout().expect("initial layout");
+        window.regenerate_layout().expect("settle");
+
+        let band = ribbon_bottom(&window);
+        assert!(
+            band > 0.0 && band < RIBBON_H,
+            "the ribbon must occupy a band at the top; measured bottom = {band}"
+        );
+
+        let Some((x, y)) = tab_header_centre(&window, 1) else {
+            panic!("no ribbon tab headers in the layout");
+        };
+        click_at(&mut window, x, y);
+        window.regenerate_layout().expect("post-click relayout");
+        let damage = window.cpu_backend.last_frame_damage.clone();
+        assert_eq!(active_tab_of(&state), Some(1), "the click missed the tab");
+
+        match &damage {
+            FrameDamage::Full => panic!(
+                "a ribbon tab click reported FULL damage. Only the tab strip and \
+                 the group band changed."
+            ),
+            FrameDamage::None => panic!(
+                "a ribbon tab click reported NO damage, but the visible tab \
+                 changed - the new frame would never reach the screen"
+            ),
+            FrameDamage::Rects(rects) => {
+                let intruders: Vec<_> = rects
+                    .iter()
+                    .filter(|r| r.origin.y + r.size.height > band)
+                    .collect();
+                assert!(
+                    intruders.is_empty(),
+                    "a tab click damaged {} rect(s) reaching below the ribbon's \
+                     own bottom edge (y = {band}), into the document area that \
+                     did not change: {intruders:?}",
+                    intruders.len()
+                );
+            }
+        }
     }
 
     fn step(window: &mut HeadlessWindow, event: HeadlessEvent) -> FrameDamage {

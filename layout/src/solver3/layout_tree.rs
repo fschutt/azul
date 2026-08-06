@@ -2480,7 +2480,27 @@ impl LayoutTreeBuilder {
         }
     }
 
-    pub fn clone_node_from_old(&mut self, old_node: &LayoutNode, parent: Option<usize>) -> usize {
+    /// Reuse an old node's cached layout under a NEW DOM identity.
+    ///
+    /// `new_dom_id` is what the node IS; the clone only carries what it
+    /// COSTS (used size, taffy cache, inline layout result). Reconciliation
+    /// matches an old child to a new one by DOM id where it can, but falls
+    /// back to POSITION when the id is absent from the old child list — and
+    /// a positional match pairs nodes with different ids. Copying the old
+    /// id through then produced a layout node claiming to be a DOM node
+    /// that has moved, or (when the DOM shrank) one that no longer exists:
+    /// `compute_counters` panicked indexing `node_data[52]` on a 37-node
+    /// StyledDom, and every quieter consumer — style lookups, node rects,
+    /// damage attribution — silently read a DIFFERENT node's data.
+    ///
+    /// Passing `None` keeps the node anonymous (no DOM identity), which is
+    /// correct for pure layout wrappers.
+    pub fn clone_node_from_old(
+        &mut self,
+        old_node: &LayoutNode,
+        parent: Option<usize>,
+        new_dom_id: Option<NodeId>,
+    ) -> usize {
         let index = self.nodes.len();
         let mut new_node = old_node.clone();
         new_node.parent = parent;
@@ -2488,11 +2508,12 @@ impl LayoutTreeBuilder {
             parent.and_then(|p| self.nodes.get(p).map(|n| n.formatting_context));
         new_node.children = Vec::new();
         new_node.dirty_flag = DirtyFlag::None;
+        new_node.dom_node_id = new_dom_id;
         self.nodes.push(new_node);
         if let Some(p) = parent {
             self.nodes[p].children.push(index);
         }
-        if let Some(dom_id) = old_node.dom_node_id {
+        if let Some(dom_id) = new_dom_id {
             self.dom_to_layout.entry(dom_id).or_default().push(index);
         }
         index
@@ -4909,8 +4930,8 @@ mod autotest_generated {
         assert!(!old_root.children.is_empty(), "the source root has children");
 
         let mut b = LayoutTreeBuilder::new(VIEWPORT);
-        let root = b.clone_node_from_old(&old_root, None);
-        let child = b.clone_node_from_old(&old_child, Some(root));
+        let root = b.clone_node_from_old(&old_root, None, old_root.dom_node_id);
+        let child = b.clone_node_from_old(&old_child, Some(root), old_child.dom_node_id);
         assert_eq!((root, child), (0, 1));
 
         assert!(
@@ -4935,11 +4956,63 @@ mod autotest_generated {
         assert_eq!(old.dom_node_id, None);
 
         let mut b = LayoutTreeBuilder::new(VIEWPORT);
-        let idx = b.clone_node_from_old(&old, None);
+        let idx = b.clone_node_from_old(&old, None, old.dom_node_id);
         assert_eq!(idx, 0);
         assert!(
             b.dom_to_layout.is_empty(),
             "a node with no dom_node_id must not create a mapping entry"
+        );
+    }
+
+    /// A clone takes the identity it is given, not the identity it was
+    /// copied from.
+    ///
+    /// Reconciliation falls back to POSITIONAL matching when a new child's
+    /// DOM id is absent from the old child list (`cache.rs`, the
+    /// `.or_else(|| old_children_indices.get(i))` arm). That pairs an old
+    /// node with a new node of a DIFFERENT id, and the clone is taken to
+    /// reuse the old node's measurements. Carrying the old id through made
+    /// the new tree describe a DOM that no longer exists: after a ribbon
+    /// tab switch shrank the tree, `compute_counters` panicked indexing
+    /// `node_data[52]` on a 37-node StyledDom, and everything quieter —
+    /// style lookups, node rects, damage attribution — read the wrong node.
+    ///
+    /// NEGATIVE CONTROL: restoring `new_node.dom_node_id` to the old value
+    /// (i.e. dropping the `new_node.dom_node_id = new_dom_id` assignment)
+    /// makes both assertions below fail — verified.
+    #[test]
+    fn a_clone_takes_the_new_dom_identity_not_the_one_it_was_copied_from() {
+        let sd = mixed_dom();
+        let tree = build_tree(&sd);
+        // Any node that HAS a DOM id; its id is the "old" one.
+        let old_idx = (0..tree.nodes.len())
+            .find(|&i| tree.get_full_node(i).and_then(|n| n.dom_node_id).is_some())
+            .expect("mixed_dom has DOM-backed nodes");
+        let old = tree.get_full_node(old_idx).unwrap();
+        let old_id = old.dom_node_id.unwrap();
+
+        // Reconcile it against a DIFFERENT DOM node, as the positional
+        // fallback does.
+        let new_id = NodeId::new(old_id.index() + 7);
+
+        let mut b = LayoutTreeBuilder::new(VIEWPORT);
+        let idx = b.clone_node_from_old(&old, None, Some(new_id));
+
+        assert_eq!(
+            b.get(idx).unwrap().dom_node_id,
+            Some(new_id),
+            "the clone must describe the node it was reconciled AGAINST"
+        );
+        assert_eq!(
+            b.dom_to_layout.get(&new_id).map(Vec::as_slice),
+            Some(&[idx][..]),
+            "dom_to_layout must index the clone under its NEW id"
+        );
+        assert!(
+            !b.dom_to_layout.contains_key(&old_id),
+            "the identity it was copied from must leave no mapping behind - a \
+             stale entry here is what hands a later lookup a different node's \
+             rect"
         );
     }
 
