@@ -2793,10 +2793,27 @@ get_css_property!(
 /// declarations) and the viewport (`vw`/`vh` and percentages resolve
 /// against it). The DOCUMENT is not part of the key because the cache
 /// belongs to one — see the field docs for why that matters.
-pub type StyleCache = std::collections::HashMap<
-    (u32, azul_core::styled_dom::StyledNodeState, u32, u32),
-    std::sync::Arc<StyleProperties>,
->;
+/// Per-document memo for [`get_style_properties_cached`].
+///
+/// TWO maps on purpose. `by_node` answers "what is this node's style?" and
+/// `by_value` answers "has anyone already built this exact style?".
+///
+/// With only the first, every node got its OWN `Arc` even when the computed
+/// style was byte-identical — sharing by PRODUCER IDENTITY rather than by
+/// RESULT VALUE. Measured before this: 672 distinct `Arc<StyleProperties>`
+/// backing 31,086 glyphs on one markdown document, where the document has
+/// on the order of ten distinct text styles. Stylo shipped the same defect
+/// (109k ComputedValues where 2,200 were expected) and it is invisible
+/// without counting the pointers, which is what `AZ_PROFILE=memory` now
+/// does.
+#[derive(Default, Debug)]
+pub struct StyleCache {
+    by_node: std::collections::HashMap<
+        (u32, azul_core::styled_dom::StyledNodeState, u32, u32),
+        std::sync::Arc<StyleProperties>,
+    >,
+    by_value: std::collections::HashMap<u64, Vec<std::sync::Arc<StyleProperties>>>,
+}
 
 /// [`get_style_properties`], memoised in a caller-owned per-document cache
 /// and shared behind an `Arc`.
@@ -2824,19 +2841,41 @@ pub fn get_style_properties_cached(
         viewport_size.width.to_bits(),
         viewport_size.height.to_bits(),
     );
-    if let Some(v) = cache.get(&key) {
+    if let Some(v) = cache.by_node.get(&key) {
         drop(crate::probe::Probe::span("style_props_memo_hit"));
         return std::sync::Arc::clone(v);
     }
     let _p = crate::probe::Probe::span("style_props_build");
-    let built = std::sync::Arc::new(get_style_properties(
-        styled_dom,
-        dom_id,
-        system_style,
-        viewport_size,
-    ));
-    cache.insert(key, std::sync::Arc::clone(&built));
-    built
+    let built = get_style_properties(styled_dom, dom_id, system_style, viewport_size);
+
+    // Share by VALUE. Nodes that resolve to the same computed style get the
+    // same allocation, so a thousand paragraphs cost one StyleProperties
+    // rather than a thousand.
+    //
+    // The bucket is a Vec and the match is a real `==`, never the hash
+    // alone: a 64-bit collision would otherwise hand two DIFFERENT styles
+    // the same allocation and silently repaint text in the wrong font. The
+    // Vec is length 1 in every non-colliding case.
+    let value_hash = {
+        use core::hash::{Hash, Hasher};
+        let mut h = std::collections::hash_map::DefaultHasher::new();
+        built.hash(&mut h);
+        h.finish()
+    };
+    let bucket = cache.by_value.entry(value_hash).or_default();
+    let shared = match bucket.iter().find(|existing| ***existing == built) {
+        Some(existing) => {
+            drop(crate::probe::Probe::span("style_props_value_shared"));
+            std::sync::Arc::clone(existing)
+        }
+        None => {
+            let fresh = std::sync::Arc::new(built);
+            bucket.push(std::sync::Arc::clone(&fresh));
+            fresh
+        }
+    };
+    cache.by_node.insert(key, std::sync::Arc::clone(&shared));
+    shared
 }
 
 #[allow(clippy::cast_possible_truncation)] // bounded graphics/coord/font/fixed-point/debug-marker cast
@@ -9073,6 +9112,131 @@ mod memory_font_tier_tests {
         assert_eq!(primary, ["Helvetica"]);
         assert!(disk.is_empty());
         assert!(fallback.is_empty());
+    }
+}
+
+#[cfg(test)]
+mod style_interning_tests {
+    use super::*;
+
+    /// Nodes that resolve to the SAME computed style must share one
+    /// allocation.
+    ///
+    /// The cache used to be keyed on `(node_id, state, viewport)` alone, so
+    /// every node got its own `Arc` even when the style was byte-identical
+    /// — sharing by producer identity, not by result value. Measured on one
+    /// markdown document: 672 distinct `Arc<StyleProperties>` behind 31,086
+    /// glyphs, for a document with ~10 distinct text styles. Stylo shipped
+    /// the same defect (109k ComputedValues where 2,200 were expected).
+    ///
+    /// NEGATIVE CONTROL: dropping the `by_value` lookup (always
+    /// `Arc::new`) makes the pointer-equality assertion fail — run and
+    /// seen.
+    #[test]
+    fn identical_styles_share_one_allocation() {
+        use azul_core::dom::{Dom, NodeId};
+        use azul_core::styled_dom::StyledDom;
+
+        // Three sibling texts with no styling of their own: identical
+        // computed style, three different nodes.
+        let dom = Dom::create_body()
+            .with_child(Dom::create_text("one"))
+            .with_child(Dom::create_text("two"))
+            .with_child(Dom::create_text("three"));
+        let sd = StyledDom::create_from_dom(dom);
+        let viewport = PhysicalSize::new(800.0, 600.0);
+
+        let mut cache = StyleCache::default();
+        let n = sd.node_data.as_container().internal.len();
+        let mut arcs = Vec::new();
+        for i in 0..n {
+            arcs.push(get_style_properties_cached(
+                &mut cache,
+                &sd,
+                NodeId::new(i),
+                None,
+                viewport,
+            ));
+        }
+
+        let distinct: std::collections::BTreeSet<usize> = arcs
+            .iter()
+            .map(|a| std::sync::Arc::as_ptr(a) as usize)
+            .collect();
+        assert!(
+            distinct.len() < arcs.len(),
+            "{} nodes produced {} DISTINCT StyleProperties allocations — \
+             identical computed styles are not being shared, which is the \
+             defect this cache exists to prevent",
+            arcs.len(),
+            distinct.len()
+        );
+
+        // Asking for the same node twice must not build anything new.
+        let again = get_style_properties_cached(
+            &mut cache,
+            &sd,
+            NodeId::new(0),
+            None,
+            viewport,
+        );
+        assert!(
+            std::sync::Arc::ptr_eq(&arcs[0], &again),
+            "a repeat query for the same node must hit the by-node memo"
+        );
+    }
+
+    /// A hash collision must NEVER merge two different styles.
+    ///
+    /// `by_value` buckets on a 64-bit hash. If the bucket were trusted
+    /// without an equality check, two distinct styles landing in one bucket
+    /// would share an allocation and text would silently render in the
+    /// wrong font/colour — a corruption far worse than the memory it saves.
+    /// This forces the collision directly by planting a foreign entry under
+    /// the hash the next build will compute.
+    #[test]
+    fn a_hash_collision_never_merges_two_different_styles() {
+        use azul_core::dom::{Dom, NodeId};
+        use azul_core::styled_dom::StyledDom;
+
+        let sd = StyledDom::create_from_dom(
+            Dom::create_body().with_child(Dom::create_text("x")),
+        );
+        let viewport = PhysicalSize::new(800.0, 600.0);
+
+        let mut cache = StyleCache::default();
+        let real = get_style_properties_cached(
+            &mut cache,
+            &sd,
+            NodeId::new(0),
+            None,
+            viewport,
+        );
+
+        // A style that differs from `real`, planted in EVERY bucket so the
+        // next lookup is guaranteed to meet a colliding entry.
+        let mut impostor = (*real).clone();
+        impostor.font_size_px += 7.0;
+        assert_ne!(impostor, *real, "the impostor must actually differ");
+        let impostor = std::sync::Arc::new(impostor);
+        for bucket in cache.by_value.values_mut() {
+            bucket.insert(0, std::sync::Arc::clone(&impostor));
+        }
+        cache.by_node.clear();
+
+        let rebuilt = get_style_properties_cached(
+            &mut cache,
+            &sd,
+            NodeId::new(0),
+            None,
+            viewport,
+        );
+        assert_ne!(
+            *rebuilt, *impostor,
+            "a colliding bucket entry must be rejected by the equality \
+             check, not returned"
+        );
+        assert_eq!(*rebuilt, *real, "the correct style is still produced");
     }
 }
 
