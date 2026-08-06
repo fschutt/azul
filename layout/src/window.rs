@@ -2709,9 +2709,14 @@ impl LayoutWindow {
         system_callbacks: &ExternalSystemCallbacks,
         debug_messages: &mut Option<Vec<LayoutDebugMessage>>,
     ) -> Result<(), solver3::LayoutError> {
-        // Optional memory-breakdown print for the CSS property cache.
-        // Gated on AZ_MEM_BREAKDOWN=1; off costs one env-var read on
-        // the first call (`OnceLock`-cached) and nothing after.
+        // Optional memory-breakdown print for the CSS property cache and
+        // the layout tree. Gated on `AZ_PROFILE=memory` (the flag word is
+        // parsed by `azul_core::profile::flags`); off costs one env-var
+        // read on the first call (`OnceLock`-cached) and nothing after.
+        //
+        // It is NOT `AZ_MEM_BREAKDOWN=1`, which is what this comment used
+        // to say — that variable has never existed, and setting it prints
+        // nothing at all.
         static MEM_BREAKDOWN_ENABLED: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
         // Optional AZ_PROFILE=cpu dump: per-phase wall-clock timings from
         // `Probe::span` spans (layout, style, cascade, paint, text-shape,
@@ -3143,6 +3148,27 @@ impl LayoutWindow {
                 eprintln!("[MEM]     hot              {:>6} KiB", tr.hot_bytes / 1024);
                 eprintln!("[MEM]     warm             {:>6} KiB", tr.warm_bytes / 1024);
                 eprintln!("[MEM]     warm.inline      {:>6} KiB  (shaped text in CachedInlineLayout)", tr.warm_inline_layout_bytes / 1024);
+                // The number that explains the line above. A cluster is one
+                // GRAPHEME, so on Latin text this is the character count of
+                // everything laid out, and `B/cluster` is what a single
+                // character of document costs to keep shaped.
+                if tr.shaped_cluster_count > 0 {
+                    eprintln!(
+                        "[MEM]       clusters       {:>6}    glyphs {}  ({} B/cluster, \
+                         of which {} B is its own text copy)",
+                        tr.shaped_cluster_count,
+                        tr.shaped_glyph_count,
+                        tr.warm_inline_layout_bytes / tr.shaped_cluster_count,
+                        tr.shaped_cluster_text_bytes / tr.shaped_cluster_count,
+                    );
+                    eprintln!(
+                        "[MEM]       sizeof        ShapedItem {} B  ShapedCluster {} B  \
+                         ShapedGlyph {} B",
+                        core::mem::size_of::<crate::text3::cache::ShapedItem>(),
+                        core::mem::size_of::<crate::text3::cache::ShapedCluster>(),
+                        core::mem::size_of::<crate::text3::cache::ShapedGlyph>(),
+                    );
+                }
                 eprintln!("[MEM]     warm.taffy       {:>6} KiB", tr.warm_taffy_cache_bytes / 1024);
                 eprintln!("[MEM]     cold             {:>6} KiB", tr.cold_bytes / 1024);
                 eprintln!("[MEM]     children_arena   {:>6} KiB", tr.children_arena_bytes / 1024);

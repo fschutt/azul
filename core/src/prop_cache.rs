@@ -801,7 +801,7 @@ impl CssPropertyCacheBreakdown {
 impl CssPropertyCache {
     /// Approximate heap bytes retained by this cache, broken out by
     /// subfield. Used by `StyledDom::memory_breakdown` + the
-    /// `AZ_MEM_BREAKDOWN=1` reporter. Sums capacity × element size
+    /// `AZ_PROFILE=memory` reporter. Sums capacity × element size
     /// for each Vec and adds a coarse allowance for the inner Vec
     /// headers inside `computed_values`.
     ///

@@ -195,7 +195,7 @@ pub fn parse_xml_to_fast_dom(xml: &str) -> Result<azul_core::dom::FastDom, XmlEr
 /// Returns an `XmlError` if the XML cannot be parsed.
 pub fn parse_xml_to_styled_dom(xml: &str) -> Result<StyledDom, XmlError> {
     // Optional per-phase RSS/timing breakdown.
-    // Gated on AZ_MEM_BREAKDOWN=1 — prints
+    // Gated on AZ_PROFILE=memory — prints
     //   [XML] tokenize+fast_dom       : +XX MiB in YY ms
     //   [XML] css attach              : +XX MiB in YY ms
     //   [XML] create_from_fast_dom    : +XX MiB in YY ms

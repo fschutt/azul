@@ -857,6 +857,17 @@ pub struct LayoutTreeMemoryReport {
     pub hot_bytes: usize,
     pub warm_bytes: usize,
     pub warm_inline_layout_bytes: usize,
+    /// Shaped clusters retained across the whole tree. A cluster is one
+    /// grapheme, so on Latin text this is roughly the CHARACTER COUNT of
+    /// everything laid out — the number that explains `warm.inline`.
+    pub shaped_cluster_count: usize,
+    /// Shaped glyphs retained. Differs from the cluster count only for
+    /// ligatures and combining marks.
+    pub shaped_glyph_count: usize,
+    /// Bytes of per-cluster heap `String` (each cluster owns a copy of its
+    /// own text). Called out separately because it is pure duplication of
+    /// text the DOM already holds.
+    pub shaped_cluster_text_bytes: usize,
     pub warm_taffy_cache_bytes: usize,
     pub cold_bytes: usize,
     pub dom_to_layout_bytes: usize,
@@ -889,6 +900,9 @@ impl LayoutTree {
             children_offsets_bytes: self.children_offsets.capacity() * size_of::<(u32, u32)>(),
             dom_to_layout_bytes: 0,
             warm_inline_layout_bytes: 0,
+            shaped_cluster_count: 0,
+            shaped_glyph_count: 0,
+            shaped_cluster_text_bytes: 0,
             warm_taffy_cache_bytes: 0,
         };
         // HashMap<NodeId, Vec<usize>> — approximate: (key + Vec-header) per entry
@@ -908,13 +922,26 @@ impl LayoutTree {
                     * size_of::<crate::text3::cache::PositionedItem>();
                 report.warm_inline_layout_bytes += cached.item_metrics.capacity()
                     * size_of::<InlineItemMetrics>();
-                // Glyph bytes inside ShapedItem::Cluster — unbounded but bounded
-                // per entry. Approximate by counting clusters × 32 bytes/glyph.
+                // Glyphs and per-cluster text.
+                //
+                // ONLY the SPILLED glyphs are counted here. `glyphs` is a
+                // `SmallVec<[ShapedGlyph; 1]>`, so its first element lives
+                // INSIDE the ShapedCluster — which is already counted as part
+                // of `PositionedItem` above. Multiplying `capacity()` (which
+                // includes the inline slot) by `size_of::<ShapedGlyph>()`
+                // double-counted one 96-byte glyph for EVERY cluster: on a
+                // 31k-cluster document that inflated the report by ~3 MB, and
+                // a memory report that over-reports sends the optimisation
+                // work at the wrong target.
                 for item in &cached.layout.items {
                     if let crate::text3::cache::ShapedItem::Cluster(c) = &item.item {
-                        report.warm_inline_layout_bytes += c.glyphs.capacity()
-                            * size_of::<crate::text3::cache::ShapedGlyph>();
+                        let spilled = c.glyphs.capacity().saturating_sub(1);
+                        report.warm_inline_layout_bytes +=
+                            spilled * size_of::<crate::text3::cache::ShapedGlyph>();
                         report.warm_inline_layout_bytes += c.text.capacity();
+                        report.shaped_cluster_count += 1;
+                        report.shaped_glyph_count += c.glyphs.len();
+                        report.shaped_cluster_text_bytes += c.text.capacity();
                     }
                 }
             }
@@ -4524,6 +4551,10 @@ mod autotest_generated {
             dom_to_layout_bytes: eighth,
             children_arena_bytes: eighth,
             children_offsets_bytes: eighth,
+            // Counters, not byte totals — `total_bytes` must not add them.
+            shaped_cluster_count: 0,
+            shaped_glyph_count: 0,
+            shaped_cluster_text_bytes: 0,
         };
         assert_eq!(r.total_bytes(), eighth * 8);
         assert_eq!(r.total_bytes(), usize::MAX - 7);
