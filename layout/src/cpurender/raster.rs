@@ -1035,6 +1035,51 @@ const fn probe_label_for_item(item: &DisplayListItem) -> &'static str {
 /// # Errors
 ///
 /// Returns an error string if rendering fails.
+/// Colour the damaged region is cleared to before it is repainted.
+///
+/// Opaque white normally — the same base a full repaint starts from. Set
+/// `AZ_DEBUG_FILL=RRGGBB` (or `1` for red) to clear to something loud
+/// instead: whatever is still that colour at the end of the frame was
+/// CLEARED BUT NEVER REPAINTED, and whatever kept its old content was never
+/// in a damage rect at all. That distinction is otherwise invisible — a
+/// region that repaints to the wrong colour and a region that never repaints
+/// look identical on screen.
+fn damage_clear_color() -> (u8, u8, u8, u8) {
+    use std::sync::OnceLock;
+    static C: OnceLock<(u8, u8, u8, u8)> = OnceLock::new();
+    *C.get_or_init(|| parse_damage_fill(std::env::var("AZ_DEBUG_FILL").ok().as_deref()))
+}
+
+/// `AZ_DEBUG_FILL` -> clear colour. Split out from [`damage_clear_color`]
+/// because that one latches its answer in a `OnceLock`, so a test can only
+/// ever observe one branch of it per process.
+fn parse_damage_fill(v: Option<&str>) -> (u8, u8, u8, u8) {
+    const WHITE: (u8, u8, u8, u8) = (255, 255, 255, 255);
+    const RED: (u8, u8, u8, u8) = (255, 0, 0, 255);
+    match v {
+        None => WHITE,
+        // Unset is the shipping default; "0" turns the knob off explicitly
+        // without having to unset it.
+        Some("0") | Some("") => WHITE,
+        Some("1") => RED,
+        Some(v) => u32::from_str_radix(v.trim_start_matches('#'), 16).map_or(RED, |n| {
+            (
+                ((n >> 16) & 0xff) as u8,
+                ((n >> 8) & 0xff) as u8,
+                (n & 0xff) as u8,
+                255,
+            )
+        }),
+    }
+}
+
+/// `AZ_DEBUG_DAMAGE=1` — log what each damaged repaint actually touched.
+fn damage_logging_enabled() -> bool {
+    use std::sync::OnceLock;
+    static E: OnceLock<bool> = OnceLock::new();
+    *E.get_or_init(|| std::env::var_os("AZ_DEBUG_DAMAGE").is_some())
+}
+
 pub fn render_display_list_damaged(
     display_list: &DisplayList,
     pixmap: &mut AzulPixmap,
@@ -1156,17 +1201,25 @@ pub fn render_display_list_damaged(
     // damage rects (e.g. window background + scroll strip + scrollbar column:
     // the background repainted the entire union = whole window, while all the
     // rows in the middle were skipped → visually wiped).
-    for sr in &rects {
-        pixmap.fill_rect(
-            sr.x0,
-            sr.y0,
-            sr.x1 - sr.x0,
-            sr.y1 - sr.y0,
-            255,
-            255,
-            255,
-            255,
+    if damage_logging_enabled() {
+        let total: i64 = rects
+            .iter()
+            .map(|r| i64::from(r.x1 - r.x0) * i64::from(r.y1 - r.y0))
+            .sum();
+        let window = i64::from(pw_i) * i64::from(ph_i);
+        eprintln!(
+            "[damage] {} rect(s) after merge (from {} requested), {total} px = {:.1}% of \
+             the {pw_i}x{ph_i} window, {} display-list item(s)",
+            rects.len(),
+            damage_rects.len(),
+            if window > 0 { 100.0 * total as f64 / window as f64 } else { 0.0 },
+            display_list.items.len(),
         );
+    }
+
+    for sr in &rects {
+        let (cr, cg, cb, ca) = damage_clear_color();
+        pixmap.fill_rect(sr.x0, sr.y0, sr.x1 - sr.x0, sr.y1 - sr.y0, cr, cg, cb, ca);
 
         let base_clip = AzRect::from_xywh(
             sr.x0 as f32,
@@ -1174,6 +1227,7 @@ pub fn render_display_list_damaged(
             (sr.x1 - sr.x0) as f32,
             (sr.y1 - sr.y0) as f32,
         );
+        let (mut painted, mut skipped) = (0usize, 0usize);
         let mut transform_stack = vec![TransAffine::new()];
         let mut clip_stack: Vec<Option<AzRect>> = vec![base_clip];
         let mut mask_stack: Vec<MaskEntry> = Vec::new();
@@ -1204,11 +1258,13 @@ pub fn render_display_list_damaged(
                         }
                     };
                     if !rects_overlap_or_adjacent(&test_bounds, &sr.logical, 0.0) {
+                        skipped += 1;
                         continue;
                     }
                 }
             }
 
+            painted += 1;
             let _p = crate::probe::Probe::span(probe_label_for_item(item));
             render_single_item(
                 item,
@@ -1224,6 +1280,16 @@ pub fn render_display_list_damaged(
                 &mut text_shadow_stack,
                 render_state,
             )?;
+        }
+        if damage_logging_enabled() {
+            eprintln!(
+                "[damage]   rect {}x{} @ ({}, {}) phys — painted {painted} item(s), \
+                 skipped {skipped}",
+                sr.x1 - sr.x0,
+                sr.y1 - sr.y0,
+                sr.x0,
+                sr.y0,
+            );
         }
     }
 
@@ -6498,5 +6564,38 @@ mod autotest_generated {
                 .is_some(),
             "unicode input must not panic or bail out"
         );
+    }
+}
+
+#[cfg(test)]
+mod damage_debug_tests {
+    use super::*;
+
+    /// The damaged-repaint clear colour is white unless asked otherwise, and
+    /// the knob really produces a DIFFERENT colour — a debug fill that
+    /// silently stayed white would make the "cleared but never repainted"
+    /// experiment look like a clean frame.
+    ///
+    /// NEGATIVE CONTROL: making `parse_damage_fill` return WHITE for every
+    /// input fails the "1" and hex cases — run and seen.
+    #[test]
+    fn the_damage_fill_knob_changes_the_clear_colour() {
+        const WHITE: (u8, u8, u8, u8) = (255, 255, 255, 255);
+        assert_eq!(parse_damage_fill(None), WHITE, "unset ships as white");
+        assert_eq!(parse_damage_fill(Some("0")), WHITE, "0 turns it off");
+        assert_eq!(parse_damage_fill(Some("")), WHITE);
+
+        assert_eq!(parse_damage_fill(Some("1")), (255, 0, 0, 255), "1 is red");
+        assert_ne!(
+            parse_damage_fill(Some("1")),
+            WHITE,
+            "the debug fill must not be white, or nothing is visible"
+        );
+
+        assert_eq!(parse_damage_fill(Some("00ff00")), (0, 255, 0, 255));
+        assert_eq!(parse_damage_fill(Some("#0000ff")), (0, 0, 255, 255));
+        // Garbage falls back to red rather than to white: the user asked for
+        // a debug fill, so give them a visible one.
+        assert_eq!(parse_damage_fill(Some("nonsense")), (255, 0, 0, 255));
     }
 }

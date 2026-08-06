@@ -79,15 +79,88 @@ const CPU_FALLBACK_BG_COLOR: std::os::raw::c_ulong = 0x0000FF;
 ///
 /// The default X11 error handler terminates the entire application.
 /// This custom handler logs the error and allows the app to continue.
+/// Name of a core X11 protocol error code (X.h `BadRequest`..`BadImplementation`).
+///
+/// The handler used to log the bare number. "Error Code: 9" is not something
+/// anyone can act on; "BadDrawable" is. Extension errors are outside the core
+/// 1..=17 range and are reported as-is.
+fn x11_error_name(code: u8) -> &'static str {
+    match code {
+        0 => "Success",
+        1 => "BadRequest",
+        2 => "BadValue",
+        3 => "BadWindow",
+        4 => "BadPixmap",
+        5 => "BadAtom",
+        6 => "BadCursor",
+        7 => "BadFont",
+        8 => "BadMatch",
+        9 => "BadDrawable",
+        10 => "BadAccess",
+        11 => "BadAlloc",
+        12 => "BadColor",
+        13 => "BadGC",
+        14 => "BadIDChoice",
+        15 => "BadName",
+        16 => "BadLength",
+        17 => "BadImplementation",
+        _ => "<extension error>",
+    }
+}
+
+/// Name of a core X11 request opcode, so the log says WHICH call failed.
+/// Opcodes above 127 belong to extensions and are not in the core table.
+fn x11_request_name(opcode: u8) -> &'static str {
+    match opcode {
+        1 => "CreateWindow",
+        2 => "ChangeWindowAttributes",
+        3 => "GetWindowAttributes",
+        4 => "DestroyWindow",
+        8 => "MapWindow",
+        10 => "UnmapWindow",
+        12 => "ConfigureWindow",
+        14 => "GetGeometry",
+        15 => "QueryTree",
+        16 => "InternAtom",
+        18 => "ChangeProperty",
+        20 => "GetProperty",
+        22 => "SetSelectionOwner",
+        23 => "GetSelectionOwner",
+        24 => "ConvertSelection",
+        25 => "SendEvent",
+        26 => "GrabPointer",
+        28 => "GrabButton",
+        31 => "GrabKeyboard",
+        38 => "QueryPointer",
+        42 => "SetInputFocus",
+        53 => "CreatePixmap",
+        54 => "FreePixmap",
+        55 => "CreateGC",
+        56 => "ChangeGC",
+        60 => "FreeGC",
+        62 => "CopyArea",
+        70 => "PolyFillRectangle",
+        72 => "PutImage",
+        73 => "GetImage",
+        93 => "CreateColormap",
+        98 => "QueryExtension",
+        _ if opcode >= 128 => "<extension request>",
+        _ => "<core request>",
+    }
+}
+
 extern "C" fn x11_error_handler(_display: *mut Display, event: *mut XErrorEvent) -> c_int {
     let error = unsafe { *event };
     log_error!(
         LogCategory::Platform,
-        "[X11 Error] Opcode: {}, Resource ID: {:#x}, Serial: {}, Error Code: {}",
+        "[X11 Error] {} ({}) from {} (opcode {}.{}), resource {:#x}, serial {}",
+        x11_error_name(error.error_code),
+        error.error_code,
+        x11_request_name(error.request_code),
         error.request_code,
+        error.minor_code,
         error.resourceid,
         error.serial,
-        error.error_code
     );
     // Return 0 to indicate the error has been handled (don't terminate)
     0
@@ -5415,5 +5488,38 @@ impl X11Window {
                 );
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod error_decode_tests {
+    use super::{x11_error_name, x11_request_name};
+
+    /// The handler must turn X11's numbers into names. "Error Code: 9" is
+    /// not actionable; "BadDrawable from CreateGC" is.
+    ///
+    /// NEGATIVE CONTROL: making `x11_error_name` return "<extension error>"
+    /// for everything fails the BadDrawable/BadWindow assertions — run and
+    /// seen.
+    #[test]
+    fn x11_errors_and_requests_decode_to_names() {
+        assert_eq!(x11_error_name(3), "BadWindow");
+        assert_eq!(x11_error_name(9), "BadDrawable");
+        assert_eq!(x11_error_name(11), "BadAlloc");
+        assert_eq!(x11_error_name(17), "BadImplementation");
+        // Outside the core 1..=17 range: extension errors carry their own
+        // numbering and must not be mislabelled as a core error.
+        assert_eq!(x11_error_name(150), "<extension error>");
+
+        assert_eq!(x11_request_name(1), "CreateWindow");
+        assert_eq!(x11_request_name(55), "CreateGC");
+        assert_eq!(x11_request_name(72), "PutImage");
+        assert_eq!(x11_request_name(130), "<extension request>");
+
+        // Every core code has a distinct name — a table that mapped two
+        // codes to one string would quietly mislead.
+        let names: std::collections::BTreeSet<_> =
+            (1u8..=17).map(x11_error_name).collect();
+        assert_eq!(names.len(), 17, "core error names must be distinct");
     }
 }

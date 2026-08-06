@@ -329,6 +329,8 @@ winapi = { version = "0.3.9", optional = true, default-features = false, feature
     "windowsx",
     "libloaderapi",
     "errhandlingapi",
+    # FormatMessageW, so GetLastError codes reach the log as text
+    "winbase",
     "winuser",
     "uxtheme",
     "dwmapi",

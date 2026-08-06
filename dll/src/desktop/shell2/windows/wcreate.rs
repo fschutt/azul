@@ -22,6 +22,41 @@ pub const CLASS_NAME: &str = "AzulWindowClass";
 ///
 /// This must be called before creating any windows.
 /// It's safe to call multiple times - duplicate registrations are ignored.
+/// Decode a Win32 `GetLastError()` code into its system message.
+///
+/// The logs carried the bare number ("failed with error: 2000"), which needs
+/// a lookup table and a browser to act on. `FormatMessageW` is the same
+/// lookup the OS uses, so the log can carry the text directly.
+///
+/// Returns `"<code N>"` when the OS has no message for the code, so callers
+/// can always print something.
+pub(crate) fn win32_error_string(code: u32) -> String {
+    use winapi::um::winbase::{
+        FormatMessageW, FORMAT_MESSAGE_FROM_SYSTEM, FORMAT_MESSAGE_IGNORE_INSERTS,
+    };
+    if code == 0 {
+        return "ERROR_SUCCESS".to_string();
+    }
+    let mut buf = [0u16; 512];
+    let len = unsafe {
+        FormatMessageW(
+            FORMAT_MESSAGE_FROM_SYSTEM | FORMAT_MESSAGE_IGNORE_INSERTS,
+            std::ptr::null(),
+            code,
+            0,
+            buf.as_mut_ptr(),
+            buf.len() as u32,
+            std::ptr::null_mut(),
+        )
+    };
+    if len == 0 {
+        return format!("<code {code}>");
+    }
+    String::from_utf16_lossy(&buf[..len as usize])
+        .trim_end_matches(['\r', '\n'])
+        .to_string()
+}
+
 pub fn register_window_class(
     hinstance: HINSTANCE,
     window_proc: super::dlopen::WNDPROC,
@@ -296,7 +331,8 @@ pub fn create_gl_context(
             let error = winapi::um::errhandlingapi::GetLastError();
             log_error!(
                 LogCategory::Rendering,
-                "[GL] SetPixelFormat failed with error: {}",
+                "[GL] SetPixelFormat failed: {} ({})",
+                win32_error_string(error),
                 error
             );
             (win32.user32.ReleaseDC)(hwnd, hdc);
@@ -380,7 +416,8 @@ pub fn create_gl_context(
             let error = winapi::um::errhandlingapi::GetLastError();
             log_error!(
                 LogCategory::Rendering,
-                "[GL] All OpenGL context creation attempts failed! GetLastError: {}",
+                "[GL] All OpenGL context creation attempts failed: {} ({})",
+                win32_error_string(error),
                 error
             );
             (win32.user32.ReleaseDC)(hwnd, hdc);
