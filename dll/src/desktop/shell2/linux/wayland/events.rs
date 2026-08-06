@@ -978,6 +978,51 @@ extern "C" fn data_device_data_offer(
     unsafe { (window.wayland.wl_data_offer_add_listener)(id, &WL_DATA_OFFER_LISTENER, data) };
 }
 
+/// Dispose of a `wl_data_offer`: send the destroy REQUEST, then free the
+/// local PROXY. Both halves, always, in that order.
+///
+/// This is what libwayland's own generated `wl_data_offer_destroy` does, and
+/// getting only half of it wrong disconnects the client:
+///
+/// * Skipping `wl_proxy_destroy` leaves the id in the CLIENT's object map.
+///   Offer ids are SERVER-allocated (they start at 0xFF000000), and the
+///   server reuses them; the next `wl_data_device.data_offer` carrying a
+///   recycled id makes libwayland's demarshaller find the id already
+///   occupied and raise
+///   `not a valid new object id (4278190080), message data_offer(n)`.
+///   That is a protocol error, so the compositor drops the connection: the
+///   window VANISHES while the process keeps running. Selecting text was
+///   enough to hit it, because every clipboard change delivers a fresh
+///   offer through `selection`.
+/// * Skipping the destroy request leaks the object SERVER-side instead.
+///
+/// The three call sites (`selection`, `leave`, `drop`) each used to open-code
+/// this and each got a different half of it right. Routing them through one
+/// function is the fix; `destroys_the_request_and_the_proxy_in_that_order`
+/// pins the pair.
+unsafe fn destroy_data_offer(window: &WaylandWindow, offer: *mut wl_data_offer) {
+    destroy_data_offer_raw(
+        std::mem::transmute(window.wayland.wl_proxy_marshal),
+        window.wayland.wl_proxy_destroy,
+        offer,
+    );
+}
+
+/// [`destroy_data_offer`] against explicit libwayland entry points, so the
+/// pair can be exercised without a compositor (see the tests below).
+unsafe fn destroy_data_offer_raw(
+    marshal: unsafe extern "C" fn(*mut wl_proxy, u32),
+    proxy_destroy: unsafe extern "C" fn(*mut wl_proxy),
+    offer: *mut wl_data_offer,
+) {
+    if offer.is_null() {
+        return;
+    }
+    // wl_data_offer.destroy: opcode 2, signature "".
+    marshal(offer as *mut wl_proxy, 2);
+    proxy_destroy(offer as *mut wl_proxy);
+}
+
 /// Marshal `wl_data_offer.accept(serial, mime_type)` — opcode 0, signature "u?s".
 unsafe fn data_offer_accept(window: &WaylandWindow, offer: *mut wl_data_offer, serial: u32) {
     let mime = std::ffi::CString::new(URI_LIST_MIME).unwrap();
@@ -1066,9 +1111,7 @@ extern "C" fn data_device_motion(
 
 extern "C" fn data_device_leave(data: *mut c_void, _dev: *mut wl_data_device) {
     let window = unsafe { &mut *(data as *mut WaylandWindow) };
-    if !window.drag.offer.is_null() {
-        unsafe { (window.wayland.wl_proxy_destroy)(window.drag.offer as *mut wl_proxy) };
-    }
+    unsafe { destroy_data_offer(window, window.drag.offer) };
     window.drag.offer = std::ptr::null_mut();
     window.drag.has_uri_list = false;
     let r = window.handle_file_drag_exited();
@@ -1087,14 +1130,14 @@ extern "C" fn data_device_drop(data: *mut c_void, _dev: *mut wl_data_device) {
     // [opcode 1, "sh"], flush, close write end, read read end to EOF.
     let paths = unsafe { receive_uri_list(window, offer) };
 
-    // v3+: finish() [opcode 3] then destroy() [opcode 2].
+    // v3+: finish() [opcode 3] before the destroy pair.
     unsafe {
         if window.data_device_version >= 3 {
             let f: unsafe extern "C" fn(*mut wl_proxy, u32) =
                 std::mem::transmute(window.wayland.wl_proxy_marshal);
             f(offer as *mut wl_proxy, 3);
         }
-        (window.wayland.wl_proxy_destroy)(offer as *mut wl_proxy);
+        destroy_data_offer(window, offer);
     }
     window.drag.offer = std::ptr::null_mut();
     window.drag.has_uri_list = false;
@@ -1219,12 +1262,7 @@ extern "C" fn data_device_selection(
     let window = unsafe { &mut *(data as *mut WaylandWindow) };
     let old = window.clipboard_offer;
     if !old.is_null() && old != id {
-        // wl_data_offer.destroy: opcode 2, signature "".
-        unsafe {
-            let destroy: unsafe extern "C" fn(*mut wl_proxy, u32) =
-                std::mem::transmute(window.wayland.wl_proxy_marshal);
-            destroy(old as *mut wl_proxy, 2);
-        }
+        unsafe { destroy_data_offer(window, old) };
     }
     window.clipboard_offer = id;
 }
@@ -1950,4 +1988,84 @@ pub(super) extern "C" fn text_input_done_handler(
     }
     // Preedit changes (set or clear) need a redraw
     window.request_redraw();
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // Recorded libwayland calls. A `wl_data_offer` must be disposed of with
+    // BOTH the destroy request and `wl_proxy_destroy`; the bug this pins
+    // sent only one of them, and which one differed per call site.
+    static MARSHAL_CALLS: std::sync::Mutex<Vec<(usize, u32)>> =
+        std::sync::Mutex::new(Vec::new());
+    static DESTROY_CALLS: std::sync::Mutex<Vec<usize>> = std::sync::Mutex::new(Vec::new());
+    /// Interleaved order: ("marshal"|"destroy", proxy).
+    static ORDER: std::sync::Mutex<Vec<&'static str>> = std::sync::Mutex::new(Vec::new());
+
+    unsafe extern "C" fn stub_marshal(p: *mut wl_proxy, opcode: u32) {
+        MARSHAL_CALLS.lock().unwrap().push((p as usize, opcode));
+        ORDER.lock().unwrap().push("marshal");
+    }
+    unsafe extern "C" fn stub_proxy_destroy(p: *mut wl_proxy) {
+        DESTROY_CALLS.lock().unwrap().push(p as usize);
+        ORDER.lock().unwrap().push("destroy");
+    }
+
+    fn reset() {
+        MARSHAL_CALLS.lock().unwrap().clear();
+        DESTROY_CALLS.lock().unwrap().clear();
+        ORDER.lock().unwrap().clear();
+    }
+
+    /// Disposing of an offer must send the destroy REQUEST and free the local
+    /// PROXY, in that order.
+    ///
+    /// Dropping `wl_proxy_destroy` leaves the id in the client's object map.
+    /// Offer ids are server-allocated and RECYCLED, so the next `data_offer`
+    /// carrying a reused id makes libwayland raise "not a valid new object
+    /// id" — a protocol error that disconnects the client and makes the
+    /// window vanish. Dropping the request instead leaks the object
+    /// server-side. Neither half is optional.
+    ///
+    /// NEGATIVE CONTROL: removing either call from `destroy_data_offer_raw`
+    /// fails this — run and seen for both.
+    #[test]
+    fn destroys_the_request_and_the_proxy_in_that_order() {
+        reset();
+        let offer = 0xDEAD_BEEF_usize as *mut wl_data_offer;
+        unsafe { destroy_data_offer_raw(stub_marshal, stub_proxy_destroy, offer) };
+
+        assert_eq!(
+            *MARSHAL_CALLS.lock().unwrap(),
+            vec![(offer as usize, 2)],
+            "the wl_data_offer.destroy request (opcode 2) must be sent to the \
+             server exactly once, for this offer"
+        );
+        assert_eq!(
+            *DESTROY_CALLS.lock().unwrap(),
+            vec![offer as usize],
+            "wl_proxy_destroy must free the local proxy exactly once — without \
+             it the server-allocated id stays in the client's object map and \
+             its next reuse is a fatal protocol error"
+        );
+        assert_eq!(
+            *ORDER.lock().unwrap(),
+            vec!["marshal", "destroy"],
+            "the request has to go out BEFORE the proxy is freed; the other \
+             order marshals through a dead proxy"
+        );
+    }
+
+    /// A null offer is the normal "nothing to release" case (no drag in
+    /// progress, selection cleared) and must not reach libwayland.
+    #[test]
+    fn a_null_offer_calls_nothing() {
+        reset();
+        unsafe {
+            destroy_data_offer_raw(stub_marshal, stub_proxy_destroy, std::ptr::null_mut())
+        };
+        assert!(MARSHAL_CALLS.lock().unwrap().is_empty());
+        assert!(DESTROY_CALLS.lock().unwrap().is_empty());
+    }
 }
