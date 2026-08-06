@@ -3807,7 +3807,6 @@ mod tests {
     /// IFC validity key in `solver3::fc` folds in the container properties
     /// but is only consulted when the owning node is re-laid out.
     #[test]
-    #[ignore = "known gap: deactivated tab keeps its active-state text colour"]
     fn clicking_a_ribbon_tab_re_resolves_the_deactivated_tabs_text_colour() {
         let (window, fresh, x, y, _damage) = switched_and_fresh();
         let (a, b) = (dl_texts(&window), dl_texts(&fresh));
@@ -3873,6 +3872,76 @@ mod tests {
                 );
             }
         }
+    }
+
+    /// Two nodes with the SAME text must not share one shaped entry's
+    /// colour or its identity.
+    ///
+    /// `shape_visual_items_with_per_item_cache` keys on `layout_hash`, which
+    /// excludes paint-only properties by design so a recolour can reuse the
+    /// shaping. The cached clusters, though, carry a whole
+    /// `Arc<StyleProperties>` per glyph AND a `source_node_id`, and the
+    /// display list reads its text colour and its `source_node_index` —
+    /// which is what damage attributes rects by — straight out of them. Two
+    /// labels reading "Label" at the same size therefore collided: the
+    /// second took the first's colour and reported the first's node.
+    ///
+    /// NEGATIVE CONTROL: restoring the plain
+    /// `shaped.extend(cached.clusters.iter().cloned())` makes both
+    /// assertions fail — verified.
+    extern "C" fn twin_label_layout(_data: RefAny, _info: LayoutCallbackInfo) -> Dom {
+        use azul_css::dynamic_selector::CssPropertyWithConditions;
+        use azul_css::props::basic::color::ColorU;
+        use azul_css::props::property::CssProperty;
+        use azul_css::props::style::text::StyleTextColor;
+
+        let label = |r: u8, g: u8, b: u8| {
+            Dom::create_div()
+                .with_css_props(
+                    vec![CssPropertyWithConditions::simple(CssProperty::text_color(
+                        StyleTextColor { inner: ColorU { r, g, b, a: 255 } },
+                    ))]
+                    .into(),
+                )
+                .with_child(Dom::create_text("Label"))
+        };
+        Dom::create_body()
+            .with_child(label(255, 0, 0))
+            .with_child(label(0, 0, 255))
+    }
+
+    #[test]
+    fn two_nodes_with_the_same_text_keep_their_own_colour_and_identity() {
+        let state = Arc::new(RefCell::new(RefAny::new(())));
+        let mut window = make_window_sized(&state, twin_label_layout, 400.0, 300.0);
+        window.regenerate_layout().expect("layout");
+
+        let texts = dl_texts(&window);
+        assert_eq!(texts.len(), 2, "one Text item per label: {texts:?}");
+
+        let red = texts.iter().filter(|t| t.contains("r: 255, g: 0, b: 0")).count();
+        let blue = texts.iter().filter(|t| t.contains("r: 0, g: 0, b: 255")).count();
+        assert_eq!(
+            (red, blue),
+            (1, 1),
+            "each label keeps its own colour; the shaping cache is keyed on \
+             layout_hash, which excludes colour, so a shared entry would paint \
+             both in whichever colour shaped first. items = {texts:?}"
+        );
+
+        let mut sources: Vec<&str> = texts
+            .iter()
+            .filter_map(|t| t.split("source_node_index: ").nth(1))
+            .collect();
+        sources.sort_unstable();
+        sources.dedup();
+        assert_eq!(
+            sources.len(),
+            2,
+            "the two labels must report DIFFERENT source nodes - damage \
+             attributes rects by source_node_index, so a shared one repaints \
+             the wrong node. items = {texts:?}"
+        );
     }
 
     fn step(window: &mut HeadlessWindow, event: HeadlessEvent) -> FrameDamage {

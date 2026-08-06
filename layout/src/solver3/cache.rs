@@ -889,6 +889,7 @@ pub fn reconcile_and_invalidate<T: ParsedFontTrait>(
         &mut new_tree_builder,
         &mut recon_result,
         ctx.debug_messages,
+        false, // the root has no ancestor whose restyle could reach it
     )?;
 
     // Clean up layout roots: if a parent is a layout root, its children don't need to be.
@@ -1034,6 +1035,7 @@ pub fn reconcile_recursive(
     new_tree_builder: &mut LayoutTreeBuilder,
     recon: &mut ReconciliationResult,
     debug_messages: &mut Option<Vec<LayoutDebugMessage>>,
+    ancestor_style_changed: bool,
 ) -> Result<usize> {
     // Cache the env check in a `OnceLock<bool>`: this branch
     // fires once per dirty node (hundreds on cold layout),
@@ -1093,6 +1095,59 @@ pub fn reconcile_recursive(
                 DirtyFlag::None
             }
         });
+    // INHERITANCE. `NodeDataFingerprint` describes ONE node: content,
+    // state, inline CSS, classes, callbacks, attributes. Nothing in it
+    // mentions the parent - so a child whose own data is untouched compares
+    // CLEAN even when the style it INHERITS changed underneath it, and gets
+    // cloned complete with the `inline_layout_result` that has the old
+    // computed colour shaped into its glyphs. `layout_ifc` is then never
+    // re-entered for that node, so the IFC content hash - which DOES
+    // include colour - never gets a chance to reject the stale layout, and
+    // the display-list builder paints straight out of it.
+    //
+    // Traced on the ribbon: clicking tab 1 makes tab 0's header
+    // Layout-dirty (its classes and inline props both change) but leaves
+    // its child text node at DirtyFlag::None, and the deactivated tab's
+    // label keeps painting Word-blue #2B579A instead of #444444.
+    //
+    // A node re-cascades its descendants when the parts of its fingerprint
+    // that can change a COMPUTED INHERITED value move: inline CSS (declares
+    // them), ids/classes (select the rules that declare them), and the
+    // styled state (:hover/:focus/:active variants). Content, callbacks and
+    // attributes cannot, so a plain text edit still invalidates only its
+    // own node and the incremental-edit path is untouched.
+    let own_style_changed = old_cold.is_none_or(|old_c| {
+        let old_fp = &old_c.node_data_fingerprint;
+        old_fp.inline_css_hash != new_fingerprint.inline_css_hash
+            || old_fp.ids_classes_hash != new_fingerprint.ids_classes_hash
+            || old_fp.state_hash != new_fingerprint.state_hash
+    });
+    let subtree_style_changed = ancestor_style_changed || own_style_changed;
+
+    // An ancestor's restyle forces a REBUILD rather than a clone: the clone
+    // is what carries the stale inline layout, so marking it paint-dirty
+    // would repaint the wrong colour rather than re-resolve it.
+    //
+    // Only TEXT nodes need it. The staleness lives in shaped glyphs, which
+    // only text produces; every other node re-reads its own computed style
+    // from the cascade when the display list is built, and the cascade is
+    // already correct (verified: the deactivated tab's DIV painted the right
+    // background while its text child painted the old colour). Restricting
+    // the rebuild to text nodes keeps the cost off the rest of the tree.
+    // Measured (layout/tests/frame_perf.rs, release), baseline / unrestricted
+    // / text-only:
+    //   idle    19.35 / 20.11 / 19.25 ms
+    //   resize  33.59 / 35.19 / 33.01 ms
+    //   cold   140.97 / 148.01 / 137.12 ms
+    // i.e. the unrestricted form cost 4-5%; restricted to text it is flat.
+    let dirty_flag = if ancestor_style_changed
+        && matches!(node_data.get_node_type(), NodeType::Text(_))
+    {
+        DirtyFlag::Layout
+    } else {
+        dirty_flag
+    };
+
     let is_dirty = dirty_flag >= DirtyFlag::Paint;
 
     // M12.7: `|| old_tree.is_none()` — on COLD layout there is no old tree to
@@ -1277,6 +1332,7 @@ pub fn reconcile_recursive(
                 new_tree_builder,
                 recon,
                 debug_messages,
+                subtree_style_changed,
             )?;
             if let Some(child_node) = new_tree_builder.get(reconciled_child_idx) {
                 new_child_hashes.push(child_node.subtree_hash.0);
@@ -1362,6 +1418,7 @@ pub fn reconcile_recursive(
                             new_tree_builder,
                             recon,
                             debug_messages,
+                            subtree_style_changed,
                         )?;
                         if let Some(child_node) = new_tree_builder.get(reconciled_child_idx) {
                             new_child_hashes.push(child_node.subtree_hash.0);
@@ -1394,6 +1451,7 @@ pub fn reconcile_recursive(
                     new_tree_builder,
                     recon,
                     debug_messages,
+                    subtree_style_changed,
                 )?;
                 if let Some(child_node) = new_tree_builder.get(reconciled_child_idx) {
                     new_child_hashes.push(child_node.subtree_hash.0);
@@ -1452,6 +1510,7 @@ pub fn reconcile_recursive(
                     new_tree_builder,
                     recon,
                     debug_messages,
+                    subtree_style_changed,
                 )?;
                 if let Some(child_node) = new_tree_builder.get(reconciled_child_idx) {
                     new_child_hashes.push(child_node.subtree_hash.0);

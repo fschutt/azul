@@ -7420,7 +7420,55 @@ pub fn shape_visual_items_with_per_item_cache<T: ParsedFontTrait>(
         // Check per-item cache
         per_item_accessed.insert(group_key);
         if let Some(cached) = per_item_cache.get(&group_key) {
-            shaped.extend(cached.clusters.iter().cloned());
+            // The key is `layout_hash`, which EXCLUDES paint-only properties
+            // (colour, background, text-decoration) BY DESIGN — that is what
+            // lets a hover recolour reuse the shaping instead of re-running
+            // it. But the cached clusters carry a WHOLE `Arc<StyleProperties>`
+            // per glyph, and `get_glyph_runs_simple` reads `glyph.style.color`
+            // when it builds the display list. Handing back the cached glyphs
+            // unchanged therefore hands back the colour of whichever run
+            // happened to shape this text first.
+            //
+            // Same for identity: `source_node_id` rides along in the cluster,
+            // and `DisplayListItem::Text.source_node_index` — which the damage
+            // system attributes rects by — is taken from it. Two nodes with
+            // the same text and the same layout_hash (three ribbon tab
+            // headers, a column of identical labels) share one entry, so the
+            // second one's text was reported as belonging to the first.
+            //
+            // Geometry is identical by construction (that IS the key), so
+            // re-stamping the paint-and-identity fields from the CURRENT items
+            // is sound and keeps the reuse. Clusters map back to their item
+            // through `source_content_index`.
+            let group = &visual_items[idx..coalesce_end];
+            shaped.extend(cached.clusters.iter().map(|c| {
+                let mut c = c.clone();
+                if let ShapedItem::Cluster(ref mut sc) = c {
+                    let current = group.iter().find_map(|it| match &it.logical_source {
+                        LogicalItem::Text {
+                            source,
+                            style,
+                            source_node_id,
+                            ..
+                        } if *source == sc.source_content_index => {
+                            Some((style.clone(), *source_node_id))
+                        }
+                        LogicalItem::CombinedText { source, style, .. }
+                            if *source == sc.source_content_index =>
+                        {
+                            Some((style.clone(), None))
+                        }
+                        _ => None,
+                    });
+                    if let Some((style, source_node_id)) = current {
+                        sc.source_node_id = source_node_id;
+                        for g in &mut sc.glyphs {
+                            g.style = style.clone();
+                        }
+                    }
+                }
+                c
+            }));
         } else {
             // Cache miss — shape this group
             let group_items = shape_visual_items(
