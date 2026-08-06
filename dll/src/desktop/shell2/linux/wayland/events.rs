@@ -1008,6 +1008,14 @@ unsafe fn destroy_data_offer(window: &WaylandWindow, offer: *mut wl_data_offer) 
     );
 }
 
+/// [`destroy_data_offer`], reachable from `WaylandWindow::drop`.
+pub(super) unsafe fn destroy_data_offer_for_teardown(
+    window: &WaylandWindow,
+    offer: *mut wl_data_offer,
+) {
+    destroy_data_offer(window, offer);
+}
+
 /// [`destroy_data_offer`] against explicit libwayland entry points, so the
 /// pair can be exercised without a compositor (see the tests below).
 unsafe fn destroy_data_offer_raw(

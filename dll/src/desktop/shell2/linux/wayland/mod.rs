@@ -761,7 +761,8 @@ impl WaylandWindow {
             log_warn!(
                 LogCategory::EventLoop,
                 "[Wayland] connection lost (hup={hung_up}, error={display_error}, \
-                 dispatched={dispatched}) - closing the window",
+                 dispatched={dispatched}){} - closing the window",
+                self.describe_protocol_error(display_error),
             );
             self.is_open = false;
             // NONE, not Some(Close): the run loop drains with
@@ -780,6 +781,42 @@ impl WaylandWindow {
         } else {
             None
         }
+    }
+
+    /// Name the object that killed the connection, for the "connection lost"
+    /// log line.
+    ///
+    /// `wl_display_get_error` returns a bare errno, and EPROTO (71) covers
+    /// every protocol violation there is — which is how a `wl_data_offer`
+    /// id collision presented as an unexplained vanishing window. libwayland
+    /// keeps the details, so ask for them:
+    /// `wl_display_get_protocol_error` returns the interface-defined error
+    /// CODE and fills in the interface and the offending object id.
+    ///
+    /// Empty string for anything that is not a protocol error (a hangup, a
+    /// dead socket), so the caller can append it unconditionally.
+    fn describe_protocol_error(&self, display_error: i32) -> String {
+        if display_error != libc::EPROTO {
+            return String::new();
+        }
+        let mut interface: *const defines::wl_interface = std::ptr::null();
+        let mut id: u32 = 0;
+        let code = unsafe {
+            (self.wayland.wl_display_get_protocol_error)(self.display, &mut interface, &mut id)
+        };
+        let name = if interface.is_null() {
+            "<unknown interface>".to_string()
+        } else {
+            unsafe {
+                let n = (*interface).name;
+                if n.is_null() {
+                    "<unnamed>".to_string()
+                } else {
+                    std::ffi::CStr::from_ptr(n).to_string_lossy().into_owned()
+                }
+            }
+        };
+        format!(" [protocol error: {name}@{id} code {code}]")
     }
 
     pub fn present(&mut self) -> Result<(), WindowError> {
@@ -5453,6 +5490,23 @@ impl Drop for WaylandWindow {
         }
 
         unsafe {
+            // The clipboard offer the compositor last handed us. Every
+            // `wl_data_device.selection` releases its PREDECESSOR
+            // (`events::destroy_data_offer`), so at teardown exactly one is
+            // still held — the current one — and nothing else will ever
+            // release it. It is what shows up in libwayland's
+            // "queue destroyed while proxies still attached" report as
+            // `wl_data_offer@4278190080`.
+            //
+            // Safe to do here, unlike the proxies the warning above is about:
+            // offers are NEVER passed to `track_listener`, so they are not in
+            // `listener_proxies` and cannot be double-freed by it. Released
+            // FIRST, while the display is still connected.
+            if !self.clipboard_offer.is_null() {
+                events::destroy_data_offer_for_teardown(self, self.clipboard_offer);
+                self.clipboard_offer = std::ptr::null_mut();
+            }
+
             // Clean up text-input v3 resources
             if let Some(text_input) = self.text_input.take() {
                 (self.wayland.wl_proxy_destroy)(text_input as _);

@@ -51,6 +51,14 @@ pub struct Wayland {
     /// fails; without checking it the event loop spins forever on a window
     /// that no longer exists.
     pub wl_display_get_error: unsafe extern "C" fn(display: *mut wl_display) -> i32,
+    /// `wl_display_get_protocol_error(display, &interface, &id) -> code`.
+    /// Only meaningful once `wl_display_get_error` reports EPROTO; names the
+    /// object that killed the connection.
+    pub wl_display_get_protocol_error: unsafe extern "C" fn(
+        display: *mut wl_display,
+        interface: *mut *const wl_interface,
+        id: *mut u32,
+    ) -> u32,
 
     // Note: These are variadic C functions. Rust doesn't support variadic fn pointers,
     // so we store them as raw pointers and cast when calling.
@@ -362,6 +370,11 @@ impl Wayland {
             wl_display_read_events: load_symbol!(lib_client, _, "wl_display_read_events"),
             wl_display_cancel_read: load_symbol!(lib_client, _, "wl_display_cancel_read"),
             wl_display_get_error: load_symbol!(lib_client, _, "wl_display_get_error"),
+            wl_display_get_protocol_error: load_symbol!(
+                lib_client,
+                _,
+                "wl_display_get_protocol_error"
+            ),
 
             wl_proxy_marshal_constructor: wl_proxy_marshal_constructor_ptr,
             wl_proxy_marshal: wl_proxy_marshal_ptr,
