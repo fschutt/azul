@@ -4062,13 +4062,27 @@ mod tests {
     /// KNOWN GAP - a tab switch leaves the OTHER tabs' text at a stale
     /// vertical position once the headers carry a border.
     ///
-    /// Found by the per-tab border aid above. With borders on, clicking tab
-    /// 1 leaves tab 2's label baseline at y=34.6 where a fresh render of the
-    /// same state puts it at 33.1 - a 1.5px shift on a tab that did not
-    /// change state at all. Colours are correct by then, so this is not the
-    /// shaped-run staleness fixed in 8ec9f387d; the border changes the
-    /// header's box, and the incremental path keeps a vertical position
-    /// computed against the previous strip.
+    /// Found by the per-tab border aid above. Narrowed by display-list
+    /// comparison; what is ESTABLISHED:
+    ///
+    ///  * Only tab 2 is wrong — the one that did NOT change state. Tab 0
+    ///    (lost active) and tab 1 (gained active) both match a fresh render
+    ///    exactly.
+    ///  * Its BOX is identical in both: `66x26 @ (126, 16)`. Only the text
+    ///    inside sits 1.5px lower — Border/TextLayout `36x12 @ (141, 25)`
+    ///    against `@ (141, 23.5)`, baseline 34.6 against 33.1.
+    ///  * Colours are correct by then, so this is NOT the shaped-run
+    ///    staleness fixed in 8ec9f387d.
+    ///  * NOT the text node's own reuse: forcing EVERY text node to
+    ///    DirtyFlag::Layout in reconciliation does not fix it (tried, still
+    ///    fails). So the stale vertical position is held by something above
+    ///    the text node — the header's own clean clone, or the IFC layout
+    ///    keyed to it.
+    ///
+    /// Next: find what carries a baseline for a clean node whose box did not
+    /// move. The 2-item Border difference between the two lists (the clicked
+    /// window omits two all-None-colour Borders, the ribbon root and the tab
+    /// bar) is the other unexplained signal and may be the same cause.
     #[test]
     #[ignore = "known gap: bordered tab headers keep a stale y after a switch"]
     fn switching_tabs_does_not_shift_the_other_tabs_text() {
