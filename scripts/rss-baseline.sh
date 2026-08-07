@@ -35,6 +35,20 @@
 # fixed cost and a change in the SLOPE is a change to per-line cost. Read them
 # separately — most optimisations move only one.
 #
+# `heap` baseline on uniq-960.md, same build:
+#
+#   peak heap        100.19 M      total leaked   87.87 M
+#   text3::cache      42.14 M / 81 sites   <- shaped text; THE target
+#   compute_document_pagination
+#                     18.53 M / 87 sites   <- app-side A4 layout, intentional
+#   solver3::sizing   18.23 M / 39 sites   <- intrinsic-width pass
+#   ParsedFont        11.69 M / 70 sites   <- decoded font tables
+#   LayoutTreeBuilder  4.26 M /  4 sites   <- does NOT grow with text content
+#
+# These filters OVERLAP by construction (pagination and sizing both reach
+# text3; font decode is reached from text3's FontManager). Do NOT add them.
+# Track each against its own previous value instead.
+#
 # Usage:
 #   scripts/rss-baseline.sh gen [outdir]     regenerate the corpus (deterministic)
 #   scripts/rss-baseline.sh rss  <file.md>   settled RSS + mapping breakdown
@@ -154,5 +168,5 @@ case "${1:-}" in
   gen)  gen ;;
   rss)  rss_run "${2:?usage: rss <file.md>}" ;;
   heap) heap_run "${2:?usage: heap <file.md>}" ;;
-  *)    sed -n '2,41p' "$0"; exit 1 ;;
+  *)    sed -n '2,55p' "$0"; exit 1 ;;
 esac
