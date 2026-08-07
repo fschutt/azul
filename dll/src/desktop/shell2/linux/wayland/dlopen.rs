@@ -555,6 +555,10 @@ impl Wayland {
 // which owns _lib_client). See scripts/WACOM_TOUCH_API_RESEARCH.md.
 struct WlMarshalCtx {
     marshal: *const c_void,
+    /// `wl_proxy_destroy`. Required by every `*_destroy_impl` below: a destroy
+    /// is TWO operations, and sending only the request leaks the client proxy.
+    /// See [`destroy_proxy_after_request`].
+    proxy_destroy: unsafe extern "C" fn(*mut wl_proxy),
     marshal_constructor: *const c_void,
     marshal_constructor_versioned: *const c_void,
     marshal_flags: *const c_void,
@@ -583,6 +587,7 @@ fn ctx() -> &'static WlMarshalCtx {
 fn init_marshal_ctx(w: &Wayland) {
     let _ = WL_CTX.set(WlMarshalCtx {
         marshal: w.wl_proxy_marshal,
+        proxy_destroy: w.wl_proxy_destroy,
         marshal_constructor: w.wl_proxy_marshal_constructor,
         marshal_constructor_versioned: w.wl_proxy_marshal_constructor_versioned,
         marshal_flags: w.wl_proxy_marshal_flags,
@@ -822,13 +827,40 @@ unsafe extern "C" fn wl_subsurface_set_desync_impl(p: *mut wl_subsurface) {
     let f: unsafe extern "C" fn(*mut wl_proxy, u32) = std::mem::transmute(ctx().marshal);
     f(p as *mut wl_proxy, 5);
 }
+/// Free the local proxy after its destroy REQUEST has been marshalled.
+///
+/// A Wayland destructor is TWO operations and libwayland's own generated
+/// `wl_*_destroy` inlines do both: marshal the request (tells the compositor to
+/// drop its resource) and `wl_proxy_destroy` (frees the client-side proxy and
+/// releases the object id). azul cannot call those inlines — they are
+/// `static inline` in `wayland-client-protocol.h` and are NOT exported symbols,
+/// which is why every one is hand-rolled here — and the hand-rolled versions
+/// all did only the first half.
+///
+/// Measured consequence, 2026-08-07: a five-second mouse drag-resize created
+/// 374 `wl_shm_pool`s, ran `CpuFallbackState::drop` 374 times, and left ~370 of
+/// them "still attached" at teardown with object ids climbing monotonically to
+/// 1047 and never recycled. Recycling is the tell: libwayland reuses an id only
+/// after the proxy is destroyed AND the server acknowledges with `delete_id`,
+/// so a monotonically climbing id space is proof the first half never happened.
+///
+/// This is the same defect, and the same fix, as `destroy_data_offer_raw` in
+/// `events.rs` — whose doc comment already spells out that skipping
+/// `wl_proxy_destroy` "leaves the id in the CLIENT's object map". That one was
+/// found via a protocol error; these seven were not, because leaking a proxy is
+/// silent until something counts them.
+unsafe fn destroy_proxy_after_request(p: *mut wl_proxy) {
+    (ctx().proxy_destroy)(p);
+}
 unsafe extern "C" fn wl_subsurface_destroy_impl(p: *mut wl_subsurface) {
     let f: unsafe extern "C" fn(*mut wl_proxy, u32) = std::mem::transmute(ctx().marshal);
     f(p as *mut wl_proxy, 0);
+    destroy_proxy_after_request(p as *mut wl_proxy);
 }
 unsafe extern "C" fn wl_surface_destroy_impl(s: *mut wl_surface) {
     let f: unsafe extern "C" fn(*mut wl_proxy, u32) = std::mem::transmute(ctx().marshal);
     f(s as *mut wl_proxy, 0);
+    destroy_proxy_after_request(s as *mut wl_proxy);
 }
 unsafe extern "C" fn wl_surface_attach_impl(s: *mut wl_surface, buffer: *mut wl_buffer, x: i32, y: i32) {
     let f: unsafe extern "C" fn(*mut wl_proxy, u32, *mut wl_buffer, i32, i32) = std::mem::transmute(ctx().marshal);
@@ -939,6 +971,7 @@ unsafe extern "C" fn xdg_positioner_set_constraint_adjustment_impl(p: *mut xdg_p
 unsafe extern "C" fn xdg_positioner_destroy_impl(p: *mut xdg_positioner) {
     let f: unsafe extern "C" fn(*mut wl_proxy, u32) = std::mem::transmute(ctx().marshal);
     f(p as *mut wl_proxy, 0);
+    destroy_proxy_after_request(p as *mut wl_proxy);
 }
 unsafe extern "C" fn xdg_popup_grab_impl(popup: *mut xdg_popup, seat: *mut wl_seat, serial: u32) {
     let f: unsafe extern "C" fn(*mut wl_proxy, u32, *mut wl_seat, u32) = std::mem::transmute(ctx().marshal);
@@ -947,18 +980,22 @@ unsafe extern "C" fn xdg_popup_grab_impl(popup: *mut xdg_popup, seat: *mut wl_se
 unsafe extern "C" fn xdg_popup_destroy_impl(popup: *mut xdg_popup) {
     let f: unsafe extern "C" fn(*mut wl_proxy, u32) = std::mem::transmute(ctx().marshal);
     f(popup as *mut wl_proxy, 0);
+    destroy_proxy_after_request(popup as *mut wl_proxy);
 }
 unsafe extern "C" fn wl_buffer_destroy_impl(b: *mut wl_buffer) {
     let f: unsafe extern "C" fn(*mut wl_proxy, u32) = std::mem::transmute(ctx().marshal);
     f(b as *mut wl_proxy, 0);
+    destroy_proxy_after_request(b as *mut wl_proxy);
 }
 unsafe extern "C" fn wl_shm_pool_destroy_impl(pool: *mut wl_shm_pool) {
     let f: unsafe extern "C" fn(*mut wl_proxy, u32) = std::mem::transmute(ctx().marshal);
     f(pool as *mut wl_proxy, 1);
+    destroy_proxy_after_request(pool as *mut wl_proxy);
 }
 unsafe extern "C" fn wl_region_destroy_impl(r: *mut wl_region) {
     let f: unsafe extern "C" fn(*mut wl_proxy, u32) = std::mem::transmute(ctx().marshal);
     f(r as *mut wl_proxy, 0);
+    destroy_proxy_after_request(r as *mut wl_proxy);
 }
 unsafe extern "C" fn wl_region_add_impl(r: *mut wl_region, x: i32, y: i32, w: i32, h: i32) {
     let f: unsafe extern "C" fn(*mut wl_proxy, u32, i32, i32, i32, i32) = std::mem::transmute(ctx().marshal);
