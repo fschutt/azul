@@ -88,9 +88,13 @@ def skippable_lines(lines):
     throughout by design, and guessing at that from prose produced a 78%
     false-positive rate. The report declares the intent; the checker obeys it.
     """
+    # Track the TOP-LEVEL (##) section only. Keying on any heading meant a
+    # "###" subheading inside a banner-marked section reset the tracker, so
+    # everything after the first subheading stopped being skipped — which is
+    # why banner'd sections were still producing candidates.
     banner, cur = {}, None
     for line in lines:
-        if re.match(r"^#{2,3} ", line):
+        if re.match(r"^## ", line):
             cur = line
             banner[cur] = False
         if cur and (("SUPERSEDED" in line and line.lstrip().startswith(">"))
@@ -98,7 +102,7 @@ def skippable_lines(lines):
             banner[cur] = True
     skip, cur = set(), None
     for i, line in enumerate(lines):
-        if re.match(r"^#{2,3} ", line):
+        if re.match(r"^## ", line):
             cur = line
         if cur and (banner.get(cur) or cur.startswith("## 0.") or "SUPERSEDED" in cur):
             skip.add(i)
