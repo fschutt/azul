@@ -23,6 +23,13 @@
 #     real prose, so a caching change measured against it looks ~40% better than
 #     it is. `gen` below produces a 100%-distinct corpus; use it.
 #
+# WARNING: this corpus is NOT the one scripts/RSS_MAP_2026_08_07.md measured.
+# The report used a scratchpad doc-uniq.md (640 non-empty lines, 145.4);
+# `gen` produces uniq-960.md (786 non-empty, 147.9). Same 960 total lines and
+# both 100% distinct, but a different structural mix — the 2.5 MB between them
+# is CORPUS, NOT REGRESSION. Baseline and re-measure with the SAME corpus and
+# compare those to each other; never compare a run here against the report.
+#
 # BASELINE, azul 743eb5837, 1280x800 window, CPU backend, this machine.
 # Regenerate with `gen` and compare; these are what the map was built against.
 #
@@ -189,5 +196,5 @@ case "${1:-}" in
   gen)  gen ;;
   rss)  rss_run "${2:?usage: rss <file.md>}" ;;
   heap) heap_run "${2:?usage: heap <file.md>}" ;;
-  *)    sed -n '2,59p' "$0"; exit 1 ;;
+  *)    sed -n '2,66p' "$0"; exit 1 ;;
 esac
