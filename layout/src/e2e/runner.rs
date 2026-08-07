@@ -1248,11 +1248,16 @@ impl Runner {
             // the run in progress with no trace. Refused loudly rather than
             // silently, because a scenario that quietly stops half way is the
             // worst of the available outcomes.
+            // Cancelling in the headless runner: nothing here was started by
+            // ExecuteE2eJson (it refuses, below), so there is never a handle
+            // to cancel. A no-op, not an error — see `stop_e2e_json`.
+            CallbackChange::StopE2eJson { .. } => ProcessEventResult::DoNothing,
+
             CallbackChange::ExecuteE2eJson { .. } => {
                 crate::e2e::full::log(
                     crate::e2e::full::LogLevel::Warn,
                     crate::e2e::full::LogCategory::Callbacks,
-                    "execute_e2e_json ignored: already inside an E2E run. Nested                      scripts would overwrite the outer run's continuation.",
+                    "execute_e2e_json ignored: already inside an E2E run. Nested                      scripts would overwrite the outer run's continuation. This holds                      for BOTH execution modes: Sync would additionally block the very                      thread that has to drive the outer run.",
                     None,
                 );
                 ProcessEventResult::DoNothing

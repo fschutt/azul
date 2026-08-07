@@ -1802,6 +1802,12 @@ pub trait PlatformWindow {
             // swallowed: a scripting API that accepts a script, returns
             // success and runs nothing is indistinguishable from one that
             // works, which is the whole reason this arm is loud.
+            // No executor yet, so nothing can be running to cancel. Silent
+            // because `stop_e2e_json` is documented as a no-op for unknown
+            // handles — unlike Execute, this arm is not hiding a dropped
+            // request.
+            CallbackChange::StopE2eJson { .. } => ProcessEventResult::DoNothing,
+
             CallbackChange::ExecuteE2eJson { .. } => {
                 // eprintln, not the e2e logger: `azul_layout::e2e` is itself
                 // behind `e2e-server`, so the message would vanish in exactly
@@ -1809,7 +1815,8 @@ pub trait PlatformWindow {
                 eprintln!(
                     "[azul] execute_e2e_json: NOT IMPLEMENTED on the desktop shell \
                      — the script was DROPPED. The E2eSession continuation slot is \
-                     not reachable from apply_user_change yet."
+                     not reachable from apply_user_change yet. Both Async (queue + \
+                     driver timer) and Sync (block the caller) are still to be wired."
                 );
                 ProcessEventResult::DoNothing
             }

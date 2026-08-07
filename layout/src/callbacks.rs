@@ -156,6 +156,62 @@ impl_option!(
     [Debug, Clone, PartialEq, Eq]
 );
 
+/// Handle to a running E2E script, so it can be cancelled.
+///
+/// Minted by `execute_e2e_json` BEFORE the script runs — that is what makes it
+/// returnable from a call that may not have executed anything yet, and it is
+/// also what makes cancelling a queued-but-not-started script possible.
+///
+/// A 128-bit random UUID is what this wants to be; there is no `uuid`
+/// dependency in the tree and adding one to azul-core for a process-local
+/// handle is not worth it. A monotonic counter gives the property actually
+/// needed — no two live scripts in this process share a handle — and cannot
+/// collide. It is NOT stable across runs and must not be persisted.
+/// Whether an E2E script blocks its caller or runs alongside the UI.
+///
+/// A bool carries the same information; the enum is used because
+/// `execute_e2e_json(script, Sync)` says at the call site what
+/// `execute_e2e_json(script, true)` does not.
+///
+/// The debug HTTP server is SYNCHRONOUS — it waits on `rx.recv_timeout(..)`
+/// (`e2e/full.rs:3837`) until the UI thread replies, which works because the
+/// waiting thread is not the UI thread. A UI callback runs ON the UI thread;
+/// `Sync` there is still SUPPORTED and is usually what an AGENT wants, but it
+/// constrains the implementation: the executor must DRIVE FRAMES INLINE to
+/// completion. Written as "wait on a channel the UI thread feeds" it
+/// deadlocks, because the waiting thread is the one that has to do the
+/// feeding.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[repr(C)]
+pub enum E2eExecutionMode {
+    /// Queue and return immediately, so a person can keep using the UI.
+    Async,
+    /// Block until the script finishes.
+    Sync,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[repr(C)]
+pub struct E2eScriptHandle {
+    pub id: u64,
+}
+
+impl E2eScriptHandle {
+    /// Mint a fresh handle. Never returns the same value twice in a process.
+    #[must_use]
+    pub fn new() -> Self {
+        use core::sync::atomic::{AtomicU64, Ordering};
+        static NEXT: AtomicU64 = AtomicU64::new(1);
+        Self { id: NEXT.fetch_add(1, Ordering::Relaxed) }
+    }
+}
+
+impl Default for E2eScriptHandle {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 /// Represents a change made by a callback that will be applied after the callback returns
 ///
 /// This transaction-based system provides:
@@ -178,6 +234,23 @@ pub enum CallbackChange {
     /// case, a script whose own step starts another script.
     ExecuteE2eJson {
         script: azul_core::json::Json,
+        /// Identifies this run, for `StopE2eJson`.
+        handle: E2eScriptHandle,
+        /// `true` blocks the UI until the script finishes — which an AGENT
+        /// generally wants, since it needs the result before deciding what to
+        /// do next. `false` runs it alongside the UI, so a person can keep
+        /// interacting while it works.
+        ///
+        /// Blocking requires the executor to DRIVE FRAMES INLINE to
+        /// completion. Implementing it as "wait on a channel the UI thread
+        /// feeds" deadlocks, because the waiting thread is the one that must
+        /// do the feeding.
+        /// Blocking or not — see `E2eExecutionMode`. No default.
+        mode: E2eExecutionMode,
+    },
+    /// Cancel a script started by `ExecuteE2eJson`, running or still queued.
+    StopE2eJson {
+        handle: E2eScriptHandle,
     },
 
     // Window State Changes
@@ -959,8 +1032,24 @@ impl CallbackInfo {
     /// returned a value here would be handing the caller something that reads
     /// as the script's outcome and is not. Poll the app's own state, or the
     /// op results, for that.
-    pub fn execute_e2e_json(&mut self, script: azul_core::json::Json) {
-        self.push_change(CallbackChange::ExecuteE2eJson { script });
+    /// Returns the handle immediately, before the script has necessarily
+    /// started — pass it to `stop_e2e_json` to cancel. The handle is NOT the
+    /// script's result; under `Async` there is no result yet.
+    pub fn execute_e2e_json(
+        &mut self,
+        script: azul_core::json::Json,
+        mode: E2eExecutionMode,
+    ) -> E2eScriptHandle {
+        let handle = E2eScriptHandle::new();
+        self.push_change(CallbackChange::ExecuteE2eJson { script, handle, mode });
+        handle
+    }
+
+    /// Cancel a script by handle. A handle that is unknown, already finished
+    /// or already cancelled is a no-op, not an error: the caller cannot
+    /// observe the race between a script ending and this arriving.
+    pub fn stop_e2e_json(&mut self, handle: E2eScriptHandle) {
+        self.push_change(CallbackChange::StopE2eJson { handle });
     }
 
     /// Snapshot the current app state into the undo history (mini-git commit).
