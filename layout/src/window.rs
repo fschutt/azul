@@ -787,6 +787,7 @@ fn memory_walk_coverage_is_exhaustive(w: &LayoutWindow) {
         monitors: _,
         input_interpreter: _,
         post_filter: _,
+        custom_e2e_op: _,
         routes: _,
         #[cfg(feature = "icu")]
         icu_localizer: _,
@@ -1121,6 +1122,9 @@ pub struct LayoutWindow {
     /// Configurable post-callback filter.
     /// Default: `default_post_filter` (scroll-into-view after cursor ops).
     pub post_filter: azul_core::events::PostFilterCallback,
+    /// Application handler for E2E ops the engine does not implement.
+    /// Mirrored from `AppConfig`, like `post_filter` and `input_interpreter`.
+    pub custom_e2e_op: azul_core::events::CustomE2eOpCallback,
     /// Registered routes from `AppConfig`.  Set once at window creation.
     /// Used by `CallbackChange::SwitchRoute` to look up layout callbacks.
     pub routes: azul_core::resources::RouteVec,
@@ -1272,6 +1276,7 @@ impl LayoutWindow {
             pre_preedit_content: None,
             input_interpreter: azul_core::events::InputInterpreterCallback::default(),
             post_filter: azul_core::events::PostFilterCallback::default(),
+            custom_e2e_op: azul_core::events::CustomE2eOpCallback::default(),
             routes: azul_core::resources::RouteVec::from_const_slice(&[]),
             #[cfg(feature = "icu")]
             icu_localizer: IcuLocalizerHandle::default(),
@@ -11322,7 +11327,8 @@ impl LayoutWindow {
             pre_preedit_content: _,
             input_interpreter: _,
             post_filter: _,
-            routes: _,
+            custom_e2e_op: _,
+                routes: _,
             #[cfg(feature = "icu")]
             icu_localizer: _,
             // Lifecycle events carry NodeIds, but they are produced BY this very

@@ -126,11 +126,27 @@ pub struct ProfileResponse {
     pub phases_us: Vec<(String, u64)>,
 }
 
+/// What the application's handler returned for a `CustomOp`.
+#[derive(Debug, Clone, Default, serde::Serialize)]
+pub struct CustomOpResponse {
+    /// The op name, echoed so an async consumer can match responses.
+    pub op: String,
+    /// The handler's JSON result, verbatim. `null` if it returned nothing
+    /// parseable — the raw string is still in `raw`.
+    pub result: Option<serde_json::Value>,
+    /// The handler's result before parsing. Kept because a handler returning
+    /// malformed JSON is a bug worth SEEING rather than silently flattening
+    /// to null.
+    pub raw: String,
+}
+
 #[derive(Debug, Clone, serde::Serialize)]
 #[serde(tag = "type", content = "value", rename_all = "snake_case")]
 pub enum ResponseData {
     /// A memory or CPU profile snapshot, see `DebugEvent::GetProfileReport`.
     Profile(ProfileResponse),
+    /// Result of an application-handled `CustomOp`.
+    CustomOp(CustomOpResponse),
     /// Screenshot data (base64 encoded PNG)
     Screenshot(ScreenshotData),
     /// Node CSS properties
@@ -1735,6 +1751,21 @@ pub enum DebugEvent {
     GetProfileReport {
         #[serde(default = "profile_kind_memory")]
         kind: ProfileKind,
+    },
+    /// An op the ENGINE does not implement, handed to the application's
+    /// `AppConfig::custom_e2e_op` handler. Lets a scenario drive app-level
+    /// actions ("now load the document") the engine cannot express for it.
+    ///
+    /// If no handler is installed, or the handler does not recognise `op`,
+    /// this FAILS rather than quietly succeeding — see `CustomE2eOpResult`.
+    CustomOp {
+        /// The application-defined op name. NOT called `op`: that key is the
+        /// enum's own serde tag, so a scenario reads
+        /// `{"op": "custom_op", "name": "load_document", "args": {..}}`.
+        name: String,
+        /// Arguments, passed through to the handler verbatim as JSON.
+        #[serde(default)]
+        args: serde_json::Value,
     },
     // Mouse Events
     MouseMove {
@@ -12586,6 +12617,50 @@ pub fn process_debug_event(
                 node_tag: result_tag,
             };
             send_ok(request, None, Some(ResponseData::HitTest(response)));
+        }
+
+        DebugEvent::CustomOp { name, args } => {
+            // The fn pointer is copied out BEFORE `app_data` is touched: the
+            // handler lives on the (immutably borrowed) LayoutWindow and the
+            // ctx it receives is mutable app state, so holding both borrows
+            // at once would not compile.
+            let handler = callback_info.get_layout_window().custom_e2e_op.cb;
+            let ctx = match callback_info.get_layout_window().custom_e2e_op.ctx.as_ref() {
+                Some(c) => c.clone(),
+                // No explicit ctx: hand the app its OWN data. That is what a
+                // "now load the document" hook needs, and RefAny is
+                // refcounted so the clone is a bump.
+                None => app_data.clone(),
+            };
+            let args_json = serde_json::to_string(args).unwrap_or_else(|_| "null".to_string());
+            let out = (handler)(
+                ctx,
+                azul_css::AzString::from(name.clone()),
+                azul_css::AzString::from(args_json),
+            );
+            let raw = out.json.as_str().to_string();
+            if out.handled {
+                let response = CustomOpResponse {
+                    op: name.clone(),
+                    result: serde_json::from_str(&raw).ok(),
+                    raw,
+                };
+                send_ok(request, None, Some(ResponseData::CustomOp(response)));
+            } else {
+                // NOT an OK with an empty body. An unrecognised op name is the
+                // most likely thing to be wrong in a scenario — a typo, or a
+                // handler that was never installed — and reporting it as
+                // success makes it invisible, since non-assert ops print
+                // nothing of their own.
+                send_err(
+                    request,
+                    format!(
+                        "custom op '{name}' was not handled: the application's \
+                         AppConfig::custom_e2e_op returned handled=false (no handler \
+                         installed, or the name is not one it recognises)"
+                    ),
+                );
+            }
         }
 
         DebugEvent::GetProfileReport { kind } => {

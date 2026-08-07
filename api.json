@@ -14535,6 +14535,82 @@
                                 "type": "Update"
                             }
                         }
+                    },
+                    "CustomE2eOpResult": {
+                        "doc": [
+                            "Outcome of a user-defined E2E op.",
+                            "`handled` is 'was this op mine at all', NOT 'did it succeed'. The debug server turns false into an explicit unknown-op error rather than an OK, so a typo'd op name in a scenario fails instead of passing silently."
+                        ],
+                        "external": "azul_core::events::CustomE2eOpResult",
+                        "derive": [
+                            "Debug",
+                            "Clone",
+                            "PartialEq",
+                            "Eq"
+                        ],
+                        "struct_fields": [
+                            {
+                                "handled": {
+                                    "type": "bool"
+                                }
+                            },
+                            {
+                                "json": {
+                                    "type": "String"
+                                }
+                            }
+                        ],
+                        "repr": "C"
+                    },
+                    "CustomE2eOpCallbackType": {
+                        "doc": [
+                            "Handles an E2E op the engine does not implement.",
+                            "Args are the op name and its arguments as a JSON string, verbatim."
+                        ],
+                        "external": "azul_core::events::CustomE2eOpCallbackType",
+                        "callback_typedef": {
+                            "fn_args": [
+                                {
+                                    "type": "RefAny"
+                                },
+                                {
+                                    "type": "String"
+                                },
+                                {
+                                    "type": "String"
+                                }
+                            ],
+                            "returns": {
+                                "type": "CustomE2eOpResult"
+                            }
+                        }
+                    },
+                    "CustomE2eOpCallback": {
+                        "doc": [
+                            "Application handler for E2E ops, plus the schema describing them.",
+                            "`op_schema` is DATA, not a second callback: discovery is a field read, needing no invocation and no debug HTTP server. It carries, per op, name / summary / description / the JSON type each argument expects / usage examples / example returns.",
+                            "Those examples and types are what a macro picker renders and what an agent reads instead of taking a screenshot.",
+                            "AzJson is the deliberate interim interface; typed structs come later."
+                        ],
+                        "external": "azul_core::events::CustomE2eOpCallback",
+                        "struct_fields": [
+                            {
+                                "cb": {
+                                    "type": "CustomE2eOpCallbackType"
+                                }
+                            },
+                            {
+                                "ctx": {
+                                    "type": "OptionRefAny"
+                                }
+                            },
+                            {
+                                "op_schema": {
+                                    "type": "Json"
+                                }
+                            }
+                        ],
+                        "repr": "C"
                     }
                 }
             },
@@ -103507,6 +103583,9 @@
                                 },
                                 "system_animations": {
                                     "type": "SystemAnimations"
+                                },
+                                "custom_e2e_op": {
+                                    "type": "CustomE2eOpCallback"
                                 }
                             }
                         ],

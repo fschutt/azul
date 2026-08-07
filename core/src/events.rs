@@ -2897,6 +2897,232 @@ impl Default for PostFilterCallback {
     }
 }
 
+/// What JSON type an op argument expects.
+///
+/// Spelled out rather than left to prose, because this is read by machines:
+/// an agent choosing arguments and a UI validating a macro form both need the
+/// type, not a sentence describing it.
+#[derive(Debug, Clone, PartialEq, Eq)]
+#[cfg_attr(feature = "serde-json", derive(serde::Serialize, serde::Deserialize))]
+#[cfg_attr(feature = "serde-json", serde(rename_all = "lowercase"))]
+pub enum E2eOpArgType {
+    String,
+    Number,
+    Bool,
+    Object,
+    Array,
+    /// Any JSON value is acceptable.
+    Any,
+}
+
+/// One argument of one op.
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+#[cfg_attr(feature = "serde-json", derive(serde::Serialize, serde::Deserialize))]
+pub struct E2eOpArg {
+    pub name: String,
+    #[cfg_attr(feature = "serde-json", serde(rename = "type"))]
+    pub arg_type: E2eOpArgType,
+    pub required: bool,
+    pub description: String,
+}
+
+impl Default for E2eOpArgType {
+    fn default() -> Self {
+        Self::Any
+    }
+}
+
+/// A worked example: what to send, and what comes back.
+///
+/// Both halves matter. The arguments alone tell a caller how to invoke the op;
+/// the RETURN tells it what it can then assert on, which is what a scenario
+/// author and an agent each need before committing to a call.
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+#[cfg_attr(feature = "serde-json", derive(serde::Serialize, serde::Deserialize))]
+pub struct E2eOpExample {
+    pub description: String,
+    /// Example arguments, as a JSON string.
+    pub args: String,
+    /// What the op returns for those arguments, as a JSON string.
+    pub returns: String,
+}
+
+/// One op the application answers.
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+#[cfg_attr(feature = "serde-json", derive(serde::Serialize, serde::Deserialize))]
+pub struct E2eOpDef {
+    pub name: String,
+    /// One line, for a list or a picker.
+    pub summary: String,
+    /// The long form, for a tooltip or an agent's context.
+    pub description: String,
+    pub args: Vec<E2eOpArg>,
+    pub examples: Vec<E2eOpExample>,
+}
+
+/// Everything an application advertises about its ops.
+///
+/// Built in memory as a normal Rust struct and serialized to `Json` at the
+/// boundary — on BOTH sides, framework and application. The `Json` hop is a
+/// deliberate interim bridge so the shape can be iterated on without an ABI
+/// break each time; these types get exposed through api.json later and the
+/// bridge goes away.
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+#[cfg_attr(feature = "serde-json", derive(serde::Serialize, serde::Deserialize))]
+pub struct E2eOpSchema {
+    pub ops: Vec<E2eOpDef>,
+}
+
+impl E2eOpSchema {
+    /// Serialize to the `Json` that crosses the C ABI.
+    #[must_use]
+    pub fn to_json(&self) -> crate::json::Json {
+        #[cfg(feature = "serde-json")]
+        {
+            // Falling back to an empty-op object rather than to null: a
+            // consumer must never be handed something that reads as "not
+            // parseable" when the truth is "serialization failed".
+            return serde_json::to_string(self)
+                .ok()
+                .and_then(|s| crate::json::Json::parse(&s).ok())
+                .unwrap_or_else(|| crate::json::Json {
+                    value_type: crate::json::JsonType::Object,
+                    internal: crate::json::JsonInternal {
+                        string_value: AzString::from_const_str(r#"{"ops":[]}"#),
+                        ..Default::default()
+                    },
+                });
+        }
+        #[cfg(not(feature = "serde-json"))]
+        crate::json::Json {
+            value_type: crate::json::JsonType::Object,
+            internal: crate::json::JsonInternal {
+                string_value: AzString::from_const_str(r#"{"ops":[]}"#),
+                ..Default::default()
+            },
+        }
+    }
+}
+
+/// Outcome of a user-defined E2E op.
+#[repr(C)]
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct CustomE2eOpResult {
+    /// Whether the application RECOGNISED this op name.
+    ///
+    /// This is not "did it succeed" — it is "was this op mine at all". The
+    /// debug server turns `false` into an explicit unknown-op error rather
+    /// than an OK. Without it, a hook that returns a result for every name
+    /// makes a typo'd op in a scenario indistinguishable from one that ran:
+    /// non-assert ops produce no output of their own, so a silent success and
+    /// a silent miss look identical from the outside.
+    pub handled: bool,
+    /// Result payload, JSON. Reported back to the scenario as-is, so a
+    /// scenario can assert on it. Empty string is a valid empty result.
+    pub json: AzString,
+}
+
+/// The `extern "C"` callback type for a user-defined E2E op.
+///
+/// Receives the op name and its arguments as a JSON string, exactly as they
+/// appeared in the scenario, and returns a `CustomE2eOpResult`. This is the
+/// hook for driving application-level actions from a scenario — "now load the
+/// document" — that the engine has no way to express on the app's behalf.
+pub type CustomE2eOpCallbackType = extern "C" fn(
+    crate::refany::RefAny, // ctx
+    AzString,              // op name
+    AzString,              // arguments, JSON
+) -> CustomE2eOpResult;
+
+/// Application-provided handler for E2E ops the engine does not implement.
+#[repr(C)]
+pub struct CustomE2eOpCallback {
+    pub cb: CustomE2eOpCallbackType,
+    pub ctx: crate::refany::OptionRefAny,
+    /// Describes every op `cb` answers: name, summary, description, the JSON
+    /// type each argument expects, usage examples, and example returns.
+    ///
+    /// DATA, not a second callback — discovery is a field read, so it needs
+    /// no invocation and no debug HTTP server. That is what lets a plugin
+    /// enumerate host capabilities, a locally-spawned MCP server expose the
+    /// app to an agent that would otherwise drive it by screenshot, or a
+    /// `script.json` be handed straight to the binary.
+    ///
+    /// The examples and types are not documentation garnish: they are what a
+    /// macro picker renders and what an agent reads in place of a screenshot.
+    ///
+    /// `Json` deliberately, not typed structs — the schema can then follow an
+    /// OpenAPI-style operation shape and gain fields without an ABI break.
+    /// Typed structs come later.
+    pub op_schema: crate::json::Json,
+}
+
+// `impl_callback_traits!` only ever reads `self.cb`, so it is correct here.
+// The full `impl_callback!` is NOT usable: its generated `Clone` and `From`
+// construct `Self { cb, ctx }` literally, and this struct has a third field.
+impl_callback_traits!(CustomE2eOpCallback);
+
+impl Clone for CustomE2eOpCallback {
+    fn clone(&self) -> Self {
+        Self {
+            cb: self.cb,
+            ctx: self.ctx.clone(),
+            op_schema: self.op_schema.clone(),
+        }
+    }
+}
+
+impl From<CustomE2eOpCallbackType> for CustomE2eOpCallback {
+    /// Installs a handler that advertises NOTHING.
+    ///
+    /// A bare fn pointer carries no schema, so this cannot invent one. An app
+    /// converting from a fn pointer gets a working handler whose ops are
+    /// undiscoverable until it sets `op_schema` — visible in a plugin listing
+    /// as an empty op list, which is the honest answer rather than a guess.
+    fn from(cb: CustomE2eOpCallbackType) -> Self {
+        Self {
+            cb,
+            ..Self::default()
+        }
+    }
+}
+
+impl Default for CustomE2eOpCallback {
+    fn default() -> Self {
+        Self {
+            cb: default_custom_e2e_op_extern,
+            ctx: crate::refany::OptionRefAny::None,
+            // An empty LIST, not an empty string or a null. A consumer must
+            // be able to tell "this app advertises no ops" from "this app
+            // returned nothing parseable"; those mean different things to a
+            // plugin deciding whether the host is usable at all.
+            // An empty LIST, not an empty string or a null. A consumer must
+            // be able to tell "this app advertises no ops" from "this app
+            // returned nothing parseable"; those mean different things to a
+            // plugin deciding whether the host is usable at all.
+            op_schema: E2eOpSchema::default().to_json(),
+        }
+    }
+}
+
+/// Default handler: recognises NOTHING.
+///
+/// `handled: false` is the load-bearing part. An app that has not installed a
+/// handler must make a scenario referencing a custom op FAIL, not pass
+/// quietly — the default has to be the safe answer, because it is the one
+/// that ships when nobody thought about this.
+#[must_use]
+pub extern "C" fn default_custom_e2e_op_extern(
+    _ctx: crate::refany::RefAny,
+    _op: AzString,
+    _args: AzString,
+) -> CustomE2eOpResult {
+    CustomE2eOpResult {
+        handled: false,
+        json: AzString::from_const_str(""),
+    }
+}
+
 // Keep simpler Rust fn pointer aliases for internal use
 pub type InputInterpreterFn = fn(
     info: &InputInterpreterInfo<'_>,
@@ -6316,6 +6542,58 @@ mod autotest_generated {
     }
 
     #[test]
+    /// The default schema must be an empty op LIST, not null and not a string.
+    ///
+    /// A plugin deciding whether a host is usable has to distinguish "this app
+    /// advertises no ops" from "this app returned nothing parseable". Those
+    /// are different answers and only one of them means "move on".
+    #[test]
+    fn default_op_schema_is_an_empty_list_not_a_null() {
+        let cb = CustomE2eOpCallback::default();
+        assert!(cb.op_schema.is_object(), "schema must be an object");
+        assert!(!cb.op_schema.is_null());
+        let text = cb.op_schema.internal.string_value.as_str();
+        assert!(text.contains("\"ops\""), "got {text}");
+
+        // Positive control: a NON-empty schema must serialize its contents,
+        // so this test cannot pass by everything being empty.
+        let schema = E2eOpSchema {
+            ops: alloc::vec![E2eOpDef {
+                name: "load_document".to_string(),
+                summary: "Open a file".to_string(),
+                description: "Loads a markdown file into the editor.".to_string(),
+                args: alloc::vec![E2eOpArg {
+                    name: "path".to_string(),
+                    arg_type: E2eOpArgType::String,
+                    required: true,
+                    description: "Absolute path.".to_string(),
+                }],
+                examples: alloc::vec![E2eOpExample {
+                    description: "Open big.md".to_string(),
+                    args: r#"{"path":"/tmp/big.md"}"#.to_string(),
+                    returns: r#"{"pages":40}"#.to_string(),
+                }],
+            }],
+        };
+        let j = schema.to_json();
+        let t = j.internal.string_value.as_str();
+        for needle in ["load_document", "Open a file", "\"type\":\"string\"", "big.md", "pages"] {
+            assert!(t.contains(needle), "missing {needle} in {t}");
+        }
+    }
+
+    #[test]
+    fn default_custom_op_handler_recognises_nothing() {
+        // handled=false is the load-bearing default: an app with no handler
+        // must make a scenario naming a custom op FAIL, not pass quietly.
+        let r = default_custom_e2e_op_extern(
+            crate::refany::RefAny::new(0u8),
+            AzString::from_const_str("anything"),
+            AzString::from_const_str("{}"),
+        );
+        assert!(!r.handled);
+    }
+
     fn default_post_filter_extern_decodes_the_none_focus_sentinel() {
         // old_focus = the `None` sentinel, new_focus = a real node => a focus change.
         let pre: Vec<SystemChange> = Vec::new();

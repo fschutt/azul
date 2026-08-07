@@ -609,6 +609,13 @@ pub struct AppConfig {
     /// System-animation configuration (scroll physics override, caret /
     /// selection tween hooks). See [`SystemAnimations`].
     pub system_animations: SystemAnimations,
+    /// Handler for E2E ops the engine does not implement, letting a scenario
+    /// drive application-level actions ("now load the document") that the
+    /// engine cannot express on the app's behalf.
+    ///
+    /// The default recognises nothing, so a scenario naming a custom op fails
+    /// unless the app installed a handler.
+    pub custom_e2e_op: crate::events::CustomE2eOpCallback,
 }
 
 impl AppConfig {
@@ -631,6 +638,7 @@ impl AppConfig {
             component_libraries: ComponentLibraryVec::from_const_slice(&[]),
             routes: RouteVec::from_const_slice(&[]),
             system_animations: SystemAnimations::default(),
+            custom_e2e_op: crate::events::CustomE2eOpCallback::default(),
         };
         // Dogfood: register the 52 built-in HTML elements via the
         // same `add_component_library` API that users call.

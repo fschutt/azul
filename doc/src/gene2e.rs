@@ -380,6 +380,11 @@ pub type DenyReason = &'static str;
 /// Keyed by the snake_case `op` string as it appears in the JSON.
 #[rustfmt::skip]
 const OP_POLICY: &[(&str, Option<DenyReason>)] = &[
+    // DENY: the op NAME is defined by the application, not the engine, so the
+    // generator has nothing valid to generate. Every scenario it invented
+    // would name an op no handler recognises and fail with handled=false —
+    // which is the op behaving correctly, and useless as a generated test.
+    ("custom_op", Some("app-defined op name; the engine cannot know any valid one")),
     // ALLOW: a read-only snapshot. Denying it would also block HAND-WRITTEN
     // scenarios from using it, and asserting a memory budget from a scenario
     // is the entire reason it exists.

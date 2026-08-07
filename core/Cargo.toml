@@ -34,7 +34,7 @@ url                     = { version = "2.5", default-features = false, optional 
 
 [features]
 # Default: std + CSS parser
-default = ["std"]
+default = ["std", "serde-json"]
 
 # Standard library support (includes CSS parser)
 std = ["css_parser"]
