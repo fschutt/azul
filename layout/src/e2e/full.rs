@@ -83,9 +83,54 @@ pub enum DebugResponseData {
 
 /// Typed response data variants
 #[cfg(feature = "std")]
+fn profile_kind_memory() -> ProfileKind {
+    ProfileKind::Memory
+}
+
+/// Which profile a `GetProfileReport` op wants.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ProfileKind {
+    Memory,
+    Cpu,
+}
+
+/// A profile snapshot, in the SAME units the engine's own report prints:
+/// **KiB** (which is also what `/proc` reports, despite its "kB" label).
+/// Mixing that with a decimal-MB source is a 4.9% error and has produced
+/// wrong conclusions in this project's own analysis, so the unit is in every
+/// field name.
+#[derive(Debug, Clone, Default, serde::Serialize, serde::Deserialize)]
+pub struct ProfileResponse {
+    /// Resident set size — the number an assertion like "under 50 MB" means.
+    pub rss_kib: u64,
+    pub heap_kib: u64,
+    pub anon_kib: u64,
+    pub binary_kib: u64,
+    pub shared_libs_kib: u64,
+    pub font_files_kib: u64,
+    pub framebuffer_kib: u64,
+    /// Live allocations per the allocator. `None` where `mallinfo2` is
+    /// unavailable (musl, glibc < 2.33, macOS) — **null, never 0**, because a
+    /// zero here reads as "no memory held", the worst available wrong answer.
+    pub allocator_live_kib: Option<u64>,
+    /// Freed by the program but still held by the allocator. Churn, not data.
+    pub allocator_free_in_arena_kib: Option<u64>,
+    /// Log messages evicted by the debug queue cap. **Non-zero invalidates a
+    /// memory assertion taken under `AZ_E2E`**: the logger allocates per
+    /// message, and an unbounded version of this queue once cost 41 MB and
+    /// was briefly misreported as a resize leak.
+    pub logs_dropped: u64,
+    /// Wall-clock of recorded phases, `Cpu` kind only.
+    #[serde(skip_serializing_if = "Vec::is_empty", default)]
+    pub phases_us: Vec<(String, u64)>,
+}
+
 #[derive(Debug, Clone, serde::Serialize)]
 #[serde(tag = "type", content = "value", rename_all = "snake_case")]
 pub enum ResponseData {
+    /// A memory or CPU profile snapshot, see `DebugEvent::GetProfileReport`.
+    Profile(ProfileResponse),
     /// Screenshot data (base64 encoded PNG)
     Screenshot(ScreenshotData),
     /// Node CSS properties
@@ -1682,6 +1727,15 @@ impl TextLines {
 #[cfg_attr(feature = "std", derive(serde::Deserialize))]
 #[serde(tag = "op", rename_all = "snake_case")]
 pub enum DebugEvent {
+    /// Snapshot memory or CPU, so a scenario can assert a budget:
+    /// `{ "op": "get_profile_report", "kind": "memory" }`.
+    ///
+    /// Reads the same sources as `AZ_PROFILE=memory` rather than scraping its
+    /// output, so the assertion cannot drift when the printed format changes.
+    GetProfileReport {
+        #[serde(default = "profile_kind_memory")]
+        kind: ProfileKind,
+    },
     // Mouse Events
     MouseMove {
         x: f32,
@@ -3516,6 +3570,68 @@ static LOGS_DROPPED: AtomicU64 = AtomicU64::new(0);
 #[must_use]
 pub fn logs_dropped() -> u64 {
     LOGS_DROPPED.load(Ordering::Relaxed)
+}
+
+#[cfg(all(test, feature = "std"))]
+mod profile_report_tests {
+    use super::*;
+
+    /// The op must deserialise from the JSON a scenario actually writes, and
+    /// default to `memory` when `kind` is omitted.
+    #[test]
+    fn get_profile_report_parses_from_scenario_json() {
+        let ev: DebugEvent =
+            serde_json::from_str(r#"{"op":"get_profile_report","kind":"memory"}"#)
+                .expect("explicit kind must parse");
+        assert!(matches!(ev, DebugEvent::GetProfileReport { kind: ProfileKind::Memory }));
+
+        let ev: DebugEvent = serde_json::from_str(r#"{"op":"get_profile_report"}"#)
+            .expect("kind must be optional");
+        assert!(
+            matches!(ev, DebugEvent::GetProfileReport { kind: ProfileKind::Memory }),
+            "omitting kind must mean memory, not fail and not mean cpu"
+        );
+
+        let ev: DebugEvent =
+            serde_json::from_str(r#"{"op":"get_profile_report","kind":"cpu"}"#)
+                .expect("cpu must parse");
+        assert!(matches!(ev, DebugEvent::GetProfileReport { kind: ProfileKind::Cpu }));
+    }
+
+    /// An absent allocator must serialise as NULL, never 0.
+    ///
+    /// NEGATIVE CONTROL: change `allocator_live_kib` to a bare `u64` and this
+    /// fails — the field comes back `0`, which a budget assertion reads as
+    /// "no memory held". That is the worst available wrong answer, and it is
+    /// the same failure the printed report avoids by saying "unavailable".
+    #[test]
+    fn absent_allocator_serialises_as_null_not_zero() {
+        let r = ProfileResponse::default();
+        let json = serde_json::to_string(&r).expect("serialises");
+        assert!(
+            json.contains(r#""allocator_live_kib":null"#),
+            "absent allocator must be null, not 0; got {json}"
+        );
+        assert!(
+            !json.contains(r#""allocator_live_kib":0"#),
+            "a 0 here reads as 'no memory held'; got {json}"
+        );
+    }
+
+    /// `phases_us` is omitted when empty rather than serialised as `[]`, so a
+    /// memory snapshot does not carry a CPU field that was never measured.
+    #[test]
+    fn empty_phases_are_omitted_from_the_json() {
+        let json = serde_json::to_string(&ProfileResponse::default()).unwrap();
+        assert!(!json.contains("phases_us"), "empty phases must be omitted; got {json}");
+
+        let with = ProfileResponse {
+            phases_us: vec![("layout".to_string(), 1234)],
+            ..Default::default()
+        };
+        let json = serde_json::to_string(&with).unwrap();
+        assert!(json.contains(r#""phases_us":[["layout",1234]]"#), "got {json}");
+    }
 }
 
 #[cfg(all(test, feature = "std"))]
@@ -12470,6 +12586,49 @@ pub fn process_debug_event(
                 node_tag: result_tag,
             };
             send_ok(request, None, Some(ResponseData::HitTest(response)));
+        }
+
+        DebugEvent::GetProfileReport { kind } => {
+            let mut r = ProfileResponse {
+                logs_dropped: logs_dropped(),
+                ..Default::default()
+            };
+            if let Some(c) = azul_layout::probe::rss_census() {
+                r.rss_kib = c.total_kib;
+                r.heap_kib = c.heap_kib;
+                r.anon_kib = c.anon_kib;
+                r.binary_kib = c.binary_kib;
+                r.shared_libs_kib = c.shared_libs_kib;
+                r.font_files_kib = c.font_files_kib;
+                r.framebuffer_kib = c.framebuffer_kib;
+            }
+            if let Some(a) = azul_layout::probe::allocator_stats() {
+                r.allocator_live_kib = Some(a.live_bytes / 1024);
+                r.allocator_free_in_arena_kib = Some(a.free_in_arena_bytes / 1024);
+            }
+            if *kind == ProfileKind::Cpu {
+                // Phase timings are DRAINED by the probe, so reading them
+                // consumes them. Only the Cpu kind pays that cost — a memory
+                // snapshot must not silently eat another consumer's timings.
+                // Only `Span` events carry a duration; `Rss` events are
+                // labelled checkpoints, not phases, and folding them in would
+                // report a byte count as microseconds.
+                //
+                // NOTE: `Probe::drain()` is a no-op without the `probe`
+                // cargo feature, so `phases_us` comes back EMPTY on a stock
+                // build. Empty is honest here — the field is omitted from the
+                // JSON entirely rather than serialised as zeros.
+                r.phases_us = azul_layout::probe::Probe::drain()
+                    .into_iter()
+                    .filter_map(|e| match e.kind {
+                        azul_layout::probe::EventKind::Span { dur_ns } => {
+                            Some((e.name.to_string(), dur_ns / 1000))
+                        }
+                        azul_layout::probe::EventKind::Rss { .. } => None,
+                    })
+                    .collect();
+            }
+            send_ok(request, None, Some(ResponseData::Profile(r)));
         }
 
         DebugEvent::GetLogs { .. } => {
