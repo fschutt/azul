@@ -380,6 +380,10 @@ pub type DenyReason = &'static str;
 /// Keyed by the snake_case `op` string as it appears in the JSON.
 #[rustfmt::skip]
 const OP_POLICY: &[(&str, Option<DenyReason>)] = &[
+    // ALLOW: a read-only snapshot. Denying it would also block HAND-WRITTEN
+    // scenarios from using it, and asserting a memory budget from a scenario
+    // is the entire reason it exists.
+    ("get_profile_report", None),
     // -- ALLOW: MOCK INPUT — the primary drive surface ----------------------
     ("mouse_move",                None),
     ("mouse_down",                None),
