@@ -1612,3 +1612,161 @@ mod autotest_generated {
         }
     }
 }
+
+// ---------------------------------------------------------------------------
+// RSS CENSUS — the mapping-level breakdown, in-process.
+//
+// This reproduces what scripts/RSS_MAP_2026_08_07.md established by reading
+// /proc/<pid>/smaps by hand: where the process's resident memory actually is,
+// as opposed to what the engine's own object walk can see. The two answer
+// different questions and the gap between them IS the finding — the engine
+// walks its caches and reaches ~33% of RSS; the rest is framebuffers, fonts,
+// binary, libraries, allocator retention, and any cache the APPLICATION owns.
+//
+// Deliberately NOT behind the `probe` feature: the memory report should work
+// on a stock build, and reading one file per report is not a cost worth
+// gating.
+// ---------------------------------------------------------------------------
+
+/// Resident memory grouped the way the RSS map groups it. All figures are
+/// **KiB**, matching what `smaps` reports (it prints "kB" but means KiB —
+/// conflating that with decimal MB is a 4.9% error and has produced at least
+/// three wrong conclusions in this project's own analysis).
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct RssCensus {
+    pub heap_kib: u64,
+    /// Anonymous mappings. Large allocations go here rather than `[heap]`
+    /// because glibc serves anything above `MMAP_THRESHOLD` with `mmap` — a
+    /// full-window pixmap lands here and never appears in `[heap]`.
+    pub anon_kib: u64,
+    pub binary_kib: u64,
+    pub shared_libs_kib: u64,
+    pub font_files_kib: u64,
+    /// `memfd:azul-fb` — the Wayland shared-memory framebuffer pool.
+    pub framebuffer_kib: u64,
+    pub stacks_kib: u64,
+    pub other_kib: u64,
+    pub total_kib: u64,
+    pub shared_lib_mappings: usize,
+    pub font_mappings: usize,
+}
+
+impl RssCensus {
+    /// Sum of the categories. Equals `total_kib` unless a category was missed,
+    /// so a caller can assert the census is exhaustive rather than trusting it.
+    #[must_use]
+    pub const fn categorised_kib(&self) -> u64 {
+        self.heap_kib
+            + self.anon_kib
+            + self.binary_kib
+            + self.shared_libs_kib
+            + self.font_files_kib
+            + self.framebuffer_kib
+            + self.stacks_kib
+            + self.other_kib
+    }
+}
+
+/// Read `/proc/self/smaps` and group resident pages by what backs them.
+///
+/// Returns `None` off Linux or if `smaps` is unreadable. Costs one file read
+/// and a linear scan; `smaps` is a few hundred KB on a process this size.
+#[must_use]
+pub fn rss_census() -> Option<RssCensus> {
+    #[cfg(not(target_os = "linux"))]
+    {
+        None
+    }
+    #[cfg(target_os = "linux")]
+    {
+        let text = std::fs::read_to_string("/proc/self/smaps").ok()?;
+        let mut c = RssCensus::default();
+        // The mapping name is the 6th whitespace field of a header line; the
+        // `Rss:` line that follows belongs to it.
+        let mut name = String::new();
+        for line in text.lines() {
+            if let Some(rest) = line.strip_prefix("Rss:") {
+                let kib: u64 = rest
+                    .split_whitespace()
+                    .next()
+                    .and_then(|v| v.parse().ok())
+                    .unwrap_or(0);
+                c.total_kib += kib;
+                if name.is_empty() {
+                    c.anon_kib += kib;
+                } else if name.contains("memfd:azul-fb") {
+                    c.framebuffer_kib += kib;
+                } else if name == "[heap]" {
+                    c.heap_kib += kib;
+                } else if name.starts_with("[stack") || name == "[vdso]" || name == "[vvar]" {
+                    c.stacks_kib += kib;
+                } else if name.ends_with(".ttf")
+                    || name.ends_with(".ttc")
+                    || name.ends_with(".otf")
+                    || name.ends_with(".pfb")
+                {
+                    c.font_files_kib += kib;
+                    c.font_mappings += 1;
+                } else if name.contains(".so") {
+                    c.shared_libs_kib += kib;
+                    c.shared_lib_mappings += 1;
+                } else if std::env::current_exe()
+                    .ok()
+                    .and_then(|p| p.to_str().map(|s| name == s))
+                    .unwrap_or(false)
+                {
+                    c.binary_kib += kib;
+                } else {
+                    c.other_kib += kib;
+                }
+            } else if let Some(first) = line.split_whitespace().next() {
+                // Header lines start with an address range `hex-hex`.
+                if first.len() > 8 && first.contains('-') && !line.ends_with(':') {
+                    name = line.split_whitespace().nth(5).unwrap_or("").to_string();
+                }
+            }
+        }
+        Some(c)
+    }
+}
+
+#[cfg(test)]
+mod rss_census_tests {
+    use super::*;
+
+    /// The census must account for every resident page it counted. A category
+    /// sum that falls short of the total means a mapping shape we do not
+    /// recognise is being silently dropped — which is how a memory report
+    /// starts under-reporting without anyone noticing.
+    #[test]
+    #[cfg(target_os = "linux")]
+    fn census_is_exhaustive_and_sees_this_process() {
+        let Some(c) = rss_census() else {
+            // smaps unreadable (containers, hardened kernels). Not a failure.
+            return;
+        };
+        assert!(
+            c.total_kib > 0,
+            "a running test process has resident memory; reading smaps returned none"
+        );
+        assert_eq!(
+            c.categorised_kib(),
+            c.total_kib,
+            "every counted page must land in exactly one category — \
+             {} KiB of {} KiB did not",
+            c.total_kib - c.categorised_kib(),
+            c.total_kib
+        );
+        // A Rust test binary always has a heap and shared libraries; if either
+        // is zero the header/Rss pairing has broken.
+        assert!(c.heap_kib > 0 || c.anon_kib > 0, "no heap and no anon mappings — parse is wrong");
+    }
+
+    /// Off Linux the census is honest about being unavailable rather than
+    /// returning a zeroed struct that reads as "no memory used".
+    #[test]
+    #[cfg(not(target_os = "linux"))]
+    fn census_is_none_off_linux() {
+        assert!(rss_census().is_none());
+    }
+}

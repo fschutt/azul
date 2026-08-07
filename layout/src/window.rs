@@ -3209,8 +3209,22 @@ impl LayoutWindow {
                 eprintln!("[MEM]   combined_block    {:>7} KiB  (tate-chu-yoko glyphs)", tc.combined_block_glyph_bytes / 1024);
             }
             if let Some(bpc) = tc.bytes_per_cluster() {
-                eprintln!("[MEM]   -> {} clusters, {} B/cluster  (vs Gecko's retained ~6 B/char)",
-                    tc.cluster_count, bpc);
+                // THIS CACHE ONLY. The same text is ALSO retained per layout
+                // node as `warm.inline` above, so the per-cluster cost of
+                // shaped text in the process is this PLUS that — quoting this
+                // line alone understates it roughly twofold. Both are printed;
+                // the combined figure is the one to compare externally.
+                let warm_per_cluster = if tc.cluster_count > 0 {
+                    sc.tree_report.as_ref().map_or(0, |t| t.warm_inline_layout_bytes) / tc.cluster_count
+                } else {
+                    0
+                };
+                eprintln!("[MEM]   -> {} clusters; {} B/cluster in THIS cache, {} B/cluster in",
+                    tc.cluster_count, bpc, warm_per_cluster);
+                eprintln!("[MEM]      warm.inline = {} B/cluster retained TOTAL for shaped text",
+                    bpc + warm_per_cluster);
+                eprintln!("[MEM]      (Gecko retains ~6 B/char; the same text is held TWICE here —");
+                eprintln!("[MEM]       once by measure_intrinsic_widths, once by layout_flow.)");
             }
 
             let grand_total = sr.total_bytes() + sc.total_bytes() + tc.total_bytes();
@@ -3226,10 +3240,51 @@ impl LayoutWindow {
             eprintln!("[MEM] NOTE units: this report and smaps are KiB (1024); heaptrack is MB (1000).");
             // COVERAGE. What this walk does NOT reach, so nobody reads the
             // grand total as the process's memory:
-            eprintln!("[MEM] NOT COVERED: framebuffers/pixmaps, font files+decoded tables,");
-            eprintln!("[MEM]              binary+shared libs, allocator slack, freed-but-unreturned,");
-            eprintln!("[MEM]              and any Solver3LayoutCache owned by the APPLICATION");
-            eprintln!("[MEM]              (e.g. a thread_local pagination cache) — invisible here.");
+            eprintln!("[MEM] NOT COVERED by the walk above: framebuffers/pixmaps, font files +");
+            eprintln!("[MEM]   decoded tables, binary + shared libs, allocator slack,");
+            eprintln!("[MEM]   freed-but-unreturned pages, and any Solver3LayoutCache owned by");
+            eprintln!("[MEM]   the APPLICATION (e.g. a thread_local pagination cache).");
+
+            // WHERE THE REST IS. The object walk above answers "what do the
+            // engine's caches hold"; this answers "where is the process's
+            // resident memory". Printing only the first invites reading its
+            // grand total as the app's footprint — it is ~a third of it.
+            if let Some(m) = crate::probe::rss_census() {
+                eprintln!("[MEM] === RSS CENSUS (all KiB; smaps prints \"kB\" but means KiB) ===");
+                let row = |label: &str, kib: u64| {
+                    if kib > 0 {
+                        eprintln!("[MEM]   {label:<22} {:>8} KiB  {:>6.1} MiB", kib, kib as f64 / 1024.0);
+                    }
+                };
+                row("[heap]", m.heap_kib);
+                row("[anon] (incl. pixmaps)", m.anon_kib);
+                row("binary", m.binary_kib);
+                eprintln!("[MEM]   {:<22} {:>8} KiB  {:>6.1} MiB  ({} mappings)",
+                    "shared libraries", m.shared_libs_kib, m.shared_libs_kib as f64 / 1024.0,
+                    m.shared_lib_mappings);
+                eprintln!("[MEM]   {:<22} {:>8} KiB  {:>6.1} MiB  ({} mappings, mostly untouched)",
+                    "font files (mmap)", m.font_files_kib, m.font_files_kib as f64 / 1024.0,
+                    m.font_mappings);
+                row("framebuffer (memfd)", m.framebuffer_kib);
+                row("stacks/vdso", m.stacks_kib);
+                row("other", m.other_kib);
+                eprintln!("[MEM]   {:<22} {:>8} KiB  {:>6.1} MiB", "TOTAL RSS",
+                    m.total_kib, m.total_kib as f64 / 1024.0);
+                // The census must be exhaustive; if it is not, say so rather
+                // than letting a silent shortfall look like attributed memory.
+                let missed = m.total_kib.saturating_sub(m.categorised_kib());
+                if missed > 0 {
+                    eprintln!("[MEM]   !! {missed} KiB fell into no category — the census is not exhaustive");
+                }
+                // THE HEADLINE RATIO, with both sides in the same unit.
+                let walked_kib = (grand_total / 1024) as u64;
+                if m.total_kib > 0 {
+                    eprintln!("[MEM] the object walk reaches {:.1}% of RSS ({} of {} KiB).",
+                        100.0 * walked_kib as f64 / m.total_kib as f64, walked_kib, m.total_kib);
+                    eprintln!("[MEM] The remainder is NOT missing — it is the categories above that");
+                    eprintln!("[MEM] the engine does not own. See scripts/RSS_MAP_2026_08_07.md.");
+                }
+            }
 
             #[cfg(feature = "probe")]
             {
