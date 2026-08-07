@@ -1242,6 +1242,22 @@ impl Runner {
     #[allow(clippy::too_many_lines)]
     fn apply_user_change(&mut self, change: &CallbackChange) -> ProcessEventResult {
         match change {
+            // A script asking to run a script. The headless runner is ALREADY
+            // executing a scenario when it gets here, and `E2eSession` has one
+            // continuation slot per window — accepting this would overwrite
+            // the run in progress with no trace. Refused loudly rather than
+            // silently, because a scenario that quietly stops half way is the
+            // worst of the available outcomes.
+            CallbackChange::ExecuteE2eJson { .. } => {
+                crate::e2e::full::log(
+                    crate::e2e::full::LogLevel::Warn,
+                    crate::e2e::full::LogCategory::Callbacks,
+                    "execute_e2e_json ignored: already inside an E2E run. Nested                      scripts would overwrite the outer run's continuation.",
+                    None,
+                );
+                ProcessEventResult::DoNothing
+            }
+
             // === Window State ===
             CallbackChange::ModifyWindowState { state } => {
                 let old = std::mem::replace(&mut self.window_state, state.clone());

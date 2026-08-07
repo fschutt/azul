@@ -1794,6 +1794,26 @@ pub trait PlatformWindow {
         use azul_core::callbacks::Update;
 
         match change {
+            // NOT YET EXECUTED ON THE DESKTOP SHELL.
+            //
+            // `E2eSession` — which owns the continuation slot a script has to
+            // be resumed through — is not reachable from here, so there is
+            // nowhere to hand this yet. Logged at ERROR and dropped, NOT
+            // swallowed: a scripting API that accepts a script, returns
+            // success and runs nothing is indistinguishable from one that
+            // works, which is the whole reason this arm is loud.
+            CallbackChange::ExecuteE2eJson { .. } => {
+                // eprintln, not the e2e logger: `azul_layout::e2e` is itself
+                // behind `e2e-server`, so the message would vanish in exactly
+                // the builds most likely to hit this.
+                eprintln!(
+                    "[azul] execute_e2e_json: NOT IMPLEMENTED on the desktop shell \
+                     — the script was DROPPED. The E2eSession continuation slot is \
+                     not reachable from apply_user_change yet."
+                );
+                ProcessEventResult::DoNothing
+            }
+
             // === Window State ===
 
             CallbackChange::ModifyWindowState { state } => {

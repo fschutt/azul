@@ -165,6 +165,21 @@ impl_option!(
 /// - Future extensibility for new change types
 #[derive(Debug, Clone)]
 pub enum CallbackChange {
+    /// Run an E2E script in this session, as JSON.
+    ///
+    /// The plugin / macro path: a user opens an `.json` scenario and it drives
+    /// the app, with no debug HTTP server anywhere in the picture (build with
+    /// the dll's `e2e-scripting` feature).
+    ///
+    /// Deferred BY CONSTRUCTION — a `CallbackChange` is applied after the
+    /// callback returns, which is what makes this safe at all: a callback runs
+    /// mid-frame and a scenario DRIVES frames, so executing inline would
+    /// re-enter the frame loop. `E2eSession::running` guards the remaining
+    /// case, a script whose own step starts another script.
+    ExecuteE2eJson {
+        script: azul_core::json::Json,
+    },
+
     // Window State Changes
     /// Modify the window state (size, position, title, etc.)
     ModifyWindowState { state: FullWindowState },
@@ -928,6 +943,24 @@ impl CallbackInfo {
     #[cfg(not(feature = "std"))]
     pub fn push_change(&mut self, change: CallbackChange) {
         unsafe { (*self.changes).push(change) }
+    }
+
+    /// Queue an E2E script (JSON) to run in this session after the callback
+    /// returns.
+    ///
+    /// **NOT YET EXECUTED BY THE DESKTOP SHELL.** The variant is delivered and
+    /// the shell logs an ERROR and drops it — the continuation slot it needs
+    /// (`E2eSession`) is not reachable from the change-application site yet.
+    /// Documented here rather than left to be discovered, because an API that
+    /// looks like it works is worse than one that is absent.
+    ///
+    /// Returns nothing on purpose. Execution is DEFERRED, so there is no
+    /// result to hand back yet — and a function named `execute_*` that
+    /// returned a value here would be handing the caller something that reads
+    /// as the script's outcome and is not. Poll the app's own state, or the
+    /// op results, for that.
+    pub fn execute_e2e_json(&mut self, script: azul_core::json::Json) {
+        self.push_change(CallbackChange::ExecuteE2eJson { script });
     }
 
     /// Snapshot the current app state into the undo history (mini-git commit).
