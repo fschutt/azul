@@ -3573,6 +3573,34 @@ impl LayoutWindow {
             },
         );
 
+        // layout_results — THE KNOWN BLIND SPOT, reported HERE and not with
+        // the rest of the [MEM] block.
+        //
+        // `layout_results` owns a `StyledDom` AND a `LayoutTree` BY VALUE per
+        // DOM, and the main memory walk reports only `self.layout_cache`, so
+        // this has always been invisible to it. It has to be measured at THIS
+        // point in the frame: `layout_results.clear()` runs early in a full
+        // relayout and this insert is the last thing to refill it, so the
+        // window where the main [MEM] block runs is one where the map is empty
+        // BY CONSTRUCTION. Measuring it there printed a confident 0 DOMs that
+        // said nothing about the map and everything about the placement.
+        static MEM_LR_ENABLED: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+        if *MEM_LR_ENABLED.get_or_init(azul_core::profile::memory_enabled) {
+            let mut lr_styled = 0usize;
+            let mut lr_tree = 0usize;
+            for (_dom_id, res) in &self.layout_results {
+                lr_styled += res.styled_dom.memory_report().total_bytes();
+                lr_tree += res.layout_tree.memory_report().total_bytes();
+            }
+            eprintln!(
+                "[MEM] layout_results   {} DOM(s), {} KiB  (StyledDom {} + LayoutTree {} KiB)                  -- NOT in the GRAND TOTAL, which walks only layout_cache",
+                self.layout_results.len(),
+                (lr_styled + lr_tree) / 1024,
+                lr_styled / 1024,
+                lr_tree / 1024,
+            );
+        }
+
         // Clear scroll dirty flag — the new display list has
         // up-to-date scroll offsets embedded in PushScrollFrame items.
         self.scroll_manager.clear_scroll_dirty();
