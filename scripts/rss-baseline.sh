@@ -149,8 +149,25 @@ heap_run() {
   kill -TERM "$pid" 2>/dev/null; sleep 20
   local zst="$out.zst"; [ -f "$zst" ] || die "no profile written"
   echo "### $(basename "$doc") — heaptrack"
-  heaptrack_print "$zst" 2>/dev/null | grep -E '^peak heap|^total memory leaked|^calls to alloc'
-  # SANITY: an empty or tiny profile means a trap fired (see header).
+  local stats; stats=$(heaptrack_print "$zst" 2>/dev/null \
+    | grep -E '^peak heap|^total memory leaked|^calls to alloc')
+  echo "$stats"
+  # GUARD, not a comment. The traps in the header all fail the SAME way: a
+  # profile that exists, exits 0 and reports implausibly little. An empty
+  # profile (MINIWORD_SHOT / the `env` wrapper) reports 0B; a plateau that
+  # fired early reports a fraction of the real peak. Both look like success.
+  # A blank document peaks near 29 M, so anything under 40 M on a real
+  # document did not measure what you think it did.
+  local peak; peak=$(printf '%s\n' "$stats" | awk '/^peak heap/{
+      v=$5; u=substr(v,length(v),1); n=substr(v,1,length(v)-1)+0;
+      if(u=="G") n*=1024; else if(u=="K") n/=1024; else if(u=="B") n=0;
+      printf "%d", n }')
+  if [ -z "${peak:-}" ] || [ "$peak" -lt 40 ]; then
+    echo "  *** SUSPECT PROFILE: peak heap ${peak:-?} M, expected >40 M." >&2
+    echo "  *** A blank document peaks near 29 M. Check: was MINIWORD_SHOT" >&2
+    echo "  *** set? was the app wrapped in \`env\`? did the plateau fire" >&2
+    echo "  *** early under load? See the traps at the top of this script." >&2
+  fi
   for f in azul_layout::text3::cache compute_document_pagination \
            LayoutTreeBuilder solver3::sizing ParsedFont; do
     printf '  %-32s' "$f"
