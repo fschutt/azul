@@ -46,6 +46,14 @@ pub struct JsonInternal {
     pub bool_value: bool,
 }
 
+/// `Json::null()`. A default that is JSON null, rather than an empty string
+/// masquerading as a value.
+impl Default for Json {
+    fn default() -> Self {
+        Self::null()
+    }
+}
+
 impl Default for JsonInternal {
     fn default() -> Self {
         Self {
@@ -363,6 +371,26 @@ impl fmt::Display for Json {
 // ============================================================================
 // serde_json-dependent methods (gated behind "serde-json" feature)
 // ============================================================================
+
+#[cfg(feature = "serde-json")]
+impl serde::Serialize for Json {
+    /// Serialize as the JSON value this represents, not as its repr(C) fields.
+    ///
+    /// Without this, a struct holding a `Json` field cannot derive
+    /// `Serialize` at all — and the obvious workaround, storing the payload
+    /// as a `String` of JSON, produces escaped JSON-inside-JSON that every
+    /// consumer has to parse twice and nothing validates.
+    fn serialize<S: serde::Serializer>(&self, s: S) -> Result<S::Ok, S::Error> {
+        self.to_serde_value().serialize(s)
+    }
+}
+
+#[cfg(feature = "serde-json")]
+impl<'de> serde::Deserialize<'de> for Json {
+    fn deserialize<D: serde::Deserializer<'de>>(d: D) -> Result<Self, D::Error> {
+        Ok(Self::from_serde_value(serde_json::Value::deserialize(d)?))
+    }
+}
 
 #[cfg(feature = "serde-json")]
 impl Json {

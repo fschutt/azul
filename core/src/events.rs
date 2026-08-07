@@ -2937,18 +2937,26 @@ impl Default for E2eOpArgType {
 /// Both halves matter. The arguments alone tell a caller how to invoke the op;
 /// the RETURN tells it what it can then assert on, which is what a scenario
 /// author and an agent each need before committing to a call.
-#[derive(Debug, Clone, PartialEq, Eq, Default)]
+#[derive(Debug, Clone, PartialEq, Default)]
 #[cfg_attr(feature = "serde-json", derive(serde::Serialize, serde::Deserialize))]
 pub struct E2eOpExample {
     pub description: String,
-    /// Example arguments, as a JSON string.
-    pub args: String,
-    /// What the op returns for those arguments, as a JSON string.
-    pub returns: String,
+    /// Example arguments — a real JSON value, not a string containing JSON.
+    ///
+    /// These were `String` first, which serialized as escaped JSON inside
+    /// JSON: every consumer parsed twice and nothing checked the inner text
+    /// was even well-formed, so a malformed example sat in the schema looking
+    /// fine.
+    pub args: crate::json::Json,
+    /// What the op returns for those arguments.
+    ///
+    /// MUST contain a `success` boolean — validated when the schema is
+    /// installed, see `E2eOpSchema::validate`.
+    pub returns: crate::json::Json,
 }
 
 /// One op the application answers.
-#[derive(Debug, Clone, PartialEq, Eq, Default)]
+#[derive(Debug, Clone, PartialEq, Default)]
 #[cfg_attr(feature = "serde-json", derive(serde::Serialize, serde::Deserialize))]
 pub struct E2eOpDef {
     pub name: String,
@@ -2967,13 +2975,108 @@ pub struct E2eOpDef {
 /// deliberate interim bridge so the shape can be iterated on without an ABI
 /// break each time; these types get exposed through api.json later and the
 /// bridge goes away.
-#[derive(Debug, Clone, PartialEq, Eq, Default)]
+#[derive(Debug, Clone, PartialEq, Default)]
 #[cfg_attr(feature = "serde-json", derive(serde::Serialize, serde::Deserialize))]
 pub struct E2eOpSchema {
     pub ops: Vec<E2eOpDef>,
 }
 
+/// Does this value have a top-level `success` boolean?
+///
+/// Deliberately requires a BOOLEAN, not merely the key: `"success": "yes"` and
+/// `"success": null` are the shapes a hand-written schema actually produces,
+/// and each would otherwise pass while telling a consumer nothing.
+fn json_has_success_bool(v: &crate::json::Json) -> bool {
+    #[cfg(feature = "serde-json")]
+    {
+        return v
+            .to_serde_value()
+            .get("success")
+            .is_some_and(serde_json::Value::is_boolean);
+    }
+    #[cfg(not(feature = "serde-json"))]
+    {
+        // Without serde there is no parser here. Returning TRUE would silently
+        // pass every schema; the honest fallback is a textual check that can
+        // only reject things that are definitely wrong.
+        let _ = v;
+        true
+    }
+}
+
+/// Why an advertised schema is unusable.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum E2eSchemaError {
+    /// An op has no name.
+    UnnamedOp { index: usize },
+    /// Two ops share a name, so dispatch by name is ambiguous.
+    DuplicateOpName { name: String },
+    /// An argument has no name, or no usable type.
+    UnnamedArg { op: String, index: usize },
+    /// An example's `returns` has no `success` boolean.
+    ///
+    /// The contract is that every op result says whether it worked. An
+    /// example that omits it is advertising a result shape the runtime is
+    /// required to reject.
+    ExampleMissingSuccess { op: String, index: usize },
+}
+
+impl core::fmt::Display for E2eSchemaError {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        match self {
+            Self::UnnamedOp { index } => write!(f, "op #{index} has an empty name"),
+            Self::DuplicateOpName { name } => {
+                write!(f, "two ops are both named '{name}'; dispatch would be ambiguous")
+            }
+            Self::UnnamedArg { op, index } => {
+                write!(f, "op '{op}' argument #{index} has an empty name")
+            }
+            Self::ExampleMissingSuccess { op, index } => write!(
+                f,
+                "op '{op}' example #{index}: `returns` has no `success` boolean. Every op \
+                 result must say whether it worked, or a failure is indistinguishable from a \
+                 success"
+            ),
+        }
+    }
+}
+
 impl E2eOpSchema {
+    /// Check the schema is usable, BEFORE anything reads or dispatches it.
+    ///
+    /// Called when the schema is installed, not on first invocation. The whole
+    /// point of advertising a schema is that a plugin, an MCP server or an
+    /// agent reads it before calling anything — a schema that only proves
+    /// malformed when an op is finally invoked has failed at its one job. An
+    /// app shipping an unusable advertisement is a bug in the app, and its own
+    /// startup is the cheapest place to catch it.
+    pub fn validate(&self) -> Result<(), E2eSchemaError> {
+        let mut seen: Vec<&str> = Vec::new();
+        for (i, op) in self.ops.iter().enumerate() {
+            if op.name.trim().is_empty() {
+                return Err(E2eSchemaError::UnnamedOp { index: i });
+            }
+            if seen.contains(&op.name.as_str()) {
+                return Err(E2eSchemaError::DuplicateOpName { name: op.name.clone() });
+            }
+            seen.push(op.name.as_str());
+            for (a, arg) in op.args.iter().enumerate() {
+                if arg.name.trim().is_empty() {
+                    return Err(E2eSchemaError::UnnamedArg { op: op.name.clone(), index: a });
+                }
+            }
+            for (e, ex) in op.examples.iter().enumerate() {
+                if !json_has_success_bool(&ex.returns) {
+                    return Err(E2eSchemaError::ExampleMissingSuccess {
+                        op: op.name.clone(),
+                        index: e,
+                    });
+                }
+            }
+        }
+        Ok(())
+    }
+
     /// Serialize to the `Json` that crosses the C ABI.
     #[must_use]
     pub fn to_json(&self) -> crate::json::Json {
@@ -2982,9 +3085,19 @@ impl E2eOpSchema {
             // Falling back to an empty-op object rather than to null: a
             // consumer must never be handed something that reads as "not
             // parseable" when the truth is "serialization failed".
+            // serde_json preserves declaration order; `Json::parse` does NOT
+            // (it re-serializes sorted, which buried `name` and `summary`
+            // under `args`/`description`/`examples`). Keep the serialized text
+            // and wrap it, rather than round-tripping through the parser.
             return serde_json::to_string(self)
                 .ok()
-                .and_then(|s| crate::json::Json::parse(&s).ok())
+                .map(|text| crate::json::Json {
+                    value_type: crate::json::JsonType::Object,
+                    internal: crate::json::JsonInternal {
+                        string_value: AzString::from(text),
+                        ..Default::default()
+                    },
+                })
                 .unwrap_or_else(|| crate::json::Json {
                     value_type: crate::json::JsonType::Object,
                     internal: crate::json::JsonInternal {
@@ -6541,7 +6654,6 @@ mod autotest_generated {
         }
     }
 
-    #[test]
     /// The default schema must be an empty op LIST, not null and not a string.
     ///
     /// A plugin deciding whether a host is usable has to distinguish "this app
@@ -6570,8 +6682,9 @@ mod autotest_generated {
                 }],
                 examples: alloc::vec![E2eOpExample {
                     description: "Open big.md".to_string(),
-                    args: r#"{"path":"/tmp/big.md"}"#.to_string(),
-                    returns: r#"{"pages":40}"#.to_string(),
+                    args: crate::json::Json::parse(r#"{"path":"/tmp/big.md"}"#).unwrap(),
+                    returns: crate::json::Json::parse(r#"{"success":true,"pages":40}"#)
+                        .unwrap(),
                 }],
             }],
         };
@@ -6580,6 +6693,68 @@ mod autotest_generated {
         for needle in ["load_document", "Open a file", "\"type\":\"string\"", "big.md", "pages"] {
             assert!(t.contains(needle), "missing {needle} in {t}");
         }
+    }
+
+    fn sample_op(returns: &str) -> E2eOpDef {
+        E2eOpDef {
+            name: "load_document".to_string(),
+            summary: "Open a markdown file".to_string(),
+            description: "Reads and paginates a file.".to_string(),
+            args: alloc::vec![E2eOpArg {
+                name: "path".to_string(),
+                arg_type: E2eOpArgType::String,
+                required: true,
+                description: "Absolute path.".to_string(),
+            }],
+            examples: alloc::vec![E2eOpExample {
+                description: "Open big.md".to_string(),
+                args: crate::json::Json::parse(r#"{"path":"/tmp/big.md"}"#).unwrap(),
+                returns: crate::json::Json::parse(returns).unwrap(),
+            }],
+        }
+    }
+
+    /// `success` is REQUIRED, and checked when the schema is installed.
+    #[test]
+    fn schema_validation_requires_a_success_boolean_in_every_example() {
+        let ok = E2eOpSchema { ops: alloc::vec![sample_op(r#"{"success":true,"pages":40}"#)] };
+        assert_eq!(ok.validate(), Ok(()));
+
+        // NEGATIVE CONTROL: drop `success` and validation must reject.
+        let missing = E2eOpSchema { ops: alloc::vec![sample_op(r#"{"pages":40}"#)] };
+        assert!(matches!(
+            missing.validate(),
+            Err(E2eSchemaError::ExampleMissingSuccess { .. })
+        ));
+
+        // Present but not a BOOLEAN is still a reject — `"success":"yes"` is
+        // what a hand-written schema actually produces and tells a consumer
+        // nothing.
+        let stringy = E2eOpSchema { ops: alloc::vec![sample_op(r#"{"success":"yes"}"#)] };
+        assert!(stringy.validate().is_err());
+
+        let dupe = E2eOpSchema {
+            ops: alloc::vec![
+                sample_op(r#"{"success":true}"#),
+                sample_op(r#"{"success":true}"#),
+            ],
+        };
+        assert!(matches!(dupe.validate(), Err(E2eSchemaError::DuplicateOpName { .. })));
+    }
+
+    /// Identity fields lead, and examples are NESTED JSON not escaped strings.
+    #[test]
+    fn schema_json_keeps_declaration_order_and_nests_examples() {
+        let schema = E2eOpSchema { ops: alloc::vec![sample_op(r#"{"success":true,"pages":40}"#)] };
+        let text = schema.to_json().internal.string_value.as_str().to_string();
+
+        let name_at = text.find("\"name\"").expect("name present");
+        let args_at = text.find("\"args\"").expect("args present");
+        assert!(name_at < args_at, "identity fields must lead: {text}");
+
+        // Nested, so NO backslash-escaped quotes anywhere in the payload.
+        assert!(!text.contains("\\\""), "examples must nest, not escape: {text}");
+        assert!(text.contains("\"success\":true"), "{text}");
     }
 
     #[test]

@@ -717,6 +717,18 @@ logging = ["log"]
 # adds the TCP listener + `register_debug_timer`. It used to be a second, drifted
 # copy of the same 12k lines.
 debug-server = ["json", "azul-layout/e2e-server-http", "spmc"]
+# E2E SCRIPTING WITHOUT THE HTTP SERVER.
+#
+# `debug-server` above pulls `e2e-server-http`, which opens a listening
+# socket and carries the HTML debugger. Neither is wanted in a shipped
+# binary: an accidentally-open port is a security problem, and the debugger's
+# bundled JS is 2-4 MB of DLL. But the EXECUTION ENGINE is wanted — a script
+# handed over via `AZ_E2E=script.json`, or by an app calling into it, needs no
+# server at all.
+#
+# So this enables `e2e-server` (the op dispatch, despite the name) WITHOUT
+# `-http` and without `spmc`, which exists only for the HTTP transport.
+e2e-scripting = ["json", "azul-layout/e2e-server"]
 
 # Memory allocator features — set the global allocator inside the azul DLL.
 # Since azul exposes a C API, the allocator only affects azul's internal
