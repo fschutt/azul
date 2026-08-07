@@ -674,6 +674,104 @@ pub struct DomLayoutResult {
     pub scroll_id_to_node_id: HashMap<u64, NodeId>,
 }
 
+/// Bytes held by `layout_results`, published by the walk at the insert site so
+/// the `accounted / rss` line can say what it is missing. Cross-frame by
+/// necessity: the two are measured at different points in the frame.
+static LAST_LAYOUT_RESULTS_BYTES: core::sync::atomic::AtomicU64 =
+    core::sync::atomic::AtomicU64::new(0);
+
+/// COMPILE-TIME COVERAGE GUARD for the `AZ_PROFILE=memory` walk.
+///
+/// `layout_results` was invisible to the memory report for its entire
+/// existence — 15.6 MiB on `big.md`, more than half again the reported GRAND
+/// TOTAL — purely because nobody remembered to add it. Nothing failed; the
+/// report simply understated engine memory and looked authoritative doing it.
+///
+/// This function is never called. It exists so that adding a field to
+/// `LayoutWindow` is a DECISION about memory coverage rather than an
+/// accident: the destructure is exhaustive, so a new field does not compile
+/// until it is listed in one of the two groups below.
+///
+/// It cannot verify that the walked fields are walked CORRECTLY — only that
+/// every field has been consciously classified. That is the part that was
+/// actually missing.
+#[allow(dead_code, clippy::used_underscore_binding)]
+fn memory_walk_coverage_is_exhaustive(w: &LayoutWindow) {
+    let LayoutWindow {
+        // WALKED — each of these contributes to the [MEM] report.
+        layout_cache: _,
+        text_cache: _,
+        font_manager: _,
+        layout_results: _,
+
+        // NOT WALKED. Each is either a fixed-size manager, a handle, or
+        // a collection whose size is bounded by user actions rather than
+        // by document size. If you add a field here that can grow with the
+        // document, walk it instead — that is exactly the mistake
+        // `layout_results` represented.
+        e2e_mount: _,
+        #[cfg(feature = "e2e-server")]
+        e2e_scratch: _,
+        skip_gpu_sync: _,
+        frame_report: _,
+        frame_report_reset_request: _,
+        #[cfg(feature = "pdf")]
+        fragmentation_context: _,
+        image_cache: _,
+        content_overlay: _,
+        content_journal: _,
+        scroll_manager: _,
+        gesture_drag_manager: _,
+        focus_manager: _,
+        text_edit_manager: _,
+        file_drop_manager: _,
+        clipboard_manager: _,
+        hover_manager: _,
+        virtual_view_manager: _,
+        gpu_state_manager: _,
+        a11y_manager: _,
+        permission_manager: _,
+        geolocation_manager: _,
+        biometric_manager: _,
+        keyring_manager: _,
+        sensor_manager: _,
+        gamepad_manager: _,
+        safe_area_insets: _,
+        currently_dragging_thumb: _,
+        pending_caret_restore: _,
+        structural_history_suppression: _,
+        pagination_dirty_from: _,
+        font_stacks_hash: _,
+        pre_preedit_content: _,
+        timers: _,
+        threads: _,
+        renderer_resources: _,
+        renderer_type: _,
+        previous_window_state: _,
+        current_window_state: _,
+        document_id: _,
+        id_namespace: _,
+        epoch: _,
+        gl_texture_cache: _,
+        text_input_manager: _,
+        pending_document_edit: _,
+        document_edit_notified: _,
+        undo_redo_manager: _,
+        text_constraints_cache: _,
+        pending_virtual_view_updates: _,
+        pending_lifecycle_events: _,
+        pending_unmount_invocations: _,
+        system_style: _,
+        system_animations_override: _,
+        monitors: _,
+        input_interpreter: _,
+        post_filter: _,
+        routes: _,
+        #[cfg(feature = "icu")]
+        icu_localizer: _,
+    } = w;
+}
+
 /// State for tracking scrollbar drag interaction
 #[derive(Copy, Debug, Clone)]
 pub struct ScrollbarDragState {
@@ -3225,6 +3323,15 @@ impl LayoutWindow {
             eprintln!("[MEM]   per_item_shaped   {:>7} KiB  ({} entries)", tc.per_item_shaped_bytes / 1024, tc.per_item_shaped_entries);
             eprintln!("[MEM]   map_overhead      {:>7} KiB  (HashMap tables + Arc headers; ESTIMATE)", tc.map_overhead_bytes / 1024);
             eprintln!("[MEM]   style_arcs        {:>7} KiB  ({} distinct Arc<StyleProperties>)", tc.style_arc_bytes / 1024, tc.distinct_style_arcs);
+            // Printed unconditionally, INCLUDING when zero. A shared-Arc
+            // correction that only appears when non-zero is indistinguishable
+            // from a walk that stopped deduplicating, and this figure exists
+            // precisely to make the correction auditable.
+            eprintln!(
+                "[MEM]   (shared Arcs deduplicated: {} KiB the per-key walk would \
+                 have double-charged; NOT part of any total)",
+                tc.shared_bytes_avoided / 1024,
+            );
             if tc.combined_block_glyph_bytes > 0 {
                 eprintln!("[MEM]   combined_block    {:>7} KiB  (tate-chu-yoko glyphs)", tc.combined_block_glyph_bytes / 1024);
             }
@@ -3376,8 +3483,23 @@ impl LayoutWindow {
                 eprintln!("[MEM] after layout: current rss={:.1} MiB  peak rss={:.1} MiB  (unreturned={:.1} MiB)",
                     rss as f64 / 1048576.0, peak as f64 / 1048576.0,
                     (peak.saturating_sub(rss)) as f64 / 1048576.0);
-                eprintln!("[MEM] accounted / rss = {:.1}% — the gap is allocator overhead + unreturned transient pages + fonts/images + misc",
+                // `grand_total` is the layout_cache walk ONLY. `layout_results`
+                // holds a second StyledDom + LayoutTree and is measured later
+                // in the frame (see the walk at the insert site), so the best
+                // figure available here is the PREVIOUS frame's. Reporting the
+                // bare ratio would repeat the exact error this pair of numbers
+                // exists to expose: an "accounted" line that silently omits a
+                // known owner reads as coverage it does not have.
+                let lr = LAST_LAYOUT_RESULTS_BYTES.load(Ordering::Relaxed);
+                eprintln!("[MEM] accounted / rss = {:.1}% (layout_cache walk only) — the gap is allocator overhead + unreturned transient pages + fonts/images + misc",
                     grand_total as f64 * 100.0 / (rss as f64).max(1.0));
+                if lr > 0 {
+                    eprintln!("[MEM]   incl. layout_results ({:.1} MiB, previous frame) = {:.1}%",
+                        lr as f64 / 1048576.0,
+                        (grand_total as u64 + lr) as f64 * 100.0 / (rss as f64).max(1.0));
+                } else {
+                    eprintln!("[MEM]   layout_results not yet measured this run — the ratio above is a FLOOR.");
+                }
             }
         }
 
@@ -3599,6 +3721,7 @@ impl LayoutWindow {
                 lr_styled / 1024,
                 lr_tree / 1024,
             );
+            LAST_LAYOUT_RESULTS_BYTES.store((lr_styled + lr_tree) as u64, Ordering::Relaxed);
         }
 
         // Clear scroll dirty flag — the new display list has

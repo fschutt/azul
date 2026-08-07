@@ -6175,6 +6175,11 @@ pub struct TextCacheMemoryReport {
     /// non-zero on vertical CJK, where the old walk silently skipped them
     /// because it only matched the `Cluster` arm.
     pub combined_block_glyph_bytes: usize,
+    /// Bytes the NAIVE per-key walk would have charged twice, because several
+    /// cache keys point at one shared `Arc`. Not part of any total — this is
+    /// the size of the error that per-key counting used to make, kept in the
+    /// output so the correction is auditable rather than invisible.
+    pub shared_bytes_avoided: usize,
     /// Cluster count, so a reader can derive bytes-per-cluster without
     /// having to find it in another section of the report.
     pub cluster_count: usize,
@@ -6222,13 +6227,36 @@ impl TextShapingCache {
     #[allow(clippy::field_reassign_with_default)] // struct built incrementally / test setup; a struct literal is not clearer here
     #[must_use] pub fn memory_report(&self) -> TextCacheMemoryReport {
         let mut r = TextCacheMemoryReport::default();
+
+        // COUNT EACH ALLOCATION ONCE, NOT EACH KEY.
+        //
+        // All four stage maps are `HashMap<_, Arc<..>>`, and sharing one `Arc`
+        // between several keys is the entire point of the cache. Charging
+        // `capacity()` per VALUE therefore charged shared allocations once per
+        // key that referenced them, and the report claimed bytes that do not
+        // exist in the process. `shared_bytes_avoided` records what the naive
+        // walk would have double-charged, so the correction is visible in the
+        // output instead of appearing as an unexplained drop.
+        let mut counted: alloc::collections::BTreeSet<usize> =
+            alloc::collections::BTreeSet::new();
+
         r.logical_items_entries = self.logical_items.len();
         for arc in self.logical_items.values() {
-            r.logical_items_bytes += arc.capacity() * size_of::<LogicalItem>();
+            let bytes = arc.capacity() * size_of::<LogicalItem>();
+            if counted.insert(Arc::as_ptr(arc) as *const u8 as usize) {
+                r.logical_items_bytes += bytes;
+            } else {
+                r.shared_bytes_avoided += bytes;
+            }
         }
         r.visual_items_entries = self.visual_items.len();
         for arc in self.visual_items.values() {
-            r.visual_items_bytes += arc.capacity() * size_of::<VisualItem>();
+            let bytes = arc.capacity() * size_of::<VisualItem>();
+            if counted.insert(Arc::as_ptr(arc) as *const u8 as usize) {
+                r.visual_items_bytes += bytes;
+            } else {
+                r.shared_bytes_avoided += bytes;
+            }
         }
         let mut style_arcs: alloc::collections::BTreeSet<usize> =
             alloc::collections::BTreeSet::new();
@@ -6245,6 +6273,10 @@ impl TextShapingCache {
 
         r.shaped_items_entries = self.shaped_items.len();
         for arc in self.shaped_items.values() {
+            if !counted.insert(Arc::as_ptr(arc) as *const u8 as usize) {
+                r.shared_bytes_avoided += arc.capacity() * size_of::<ShapedItem>();
+                continue;
+            }
             r.shaped_items_bytes += arc.capacity() * size_of::<ShapedItem>();
             for item in arc.iter() {
                 match item {
@@ -6279,6 +6311,10 @@ impl TextShapingCache {
         }
         r.per_item_shaped_entries = self.per_item_shaped.len();
         for arc in self.per_item_shaped.values() {
+            if !counted.insert(Arc::as_ptr(arc) as *const u8 as usize) {
+                r.shared_bytes_avoided += arc.clusters.capacity() * size_of::<ShapedItem>();
+                continue;
+            }
             r.per_item_shaped_bytes += arc.clusters.capacity() * size_of::<ShapedItem>();
             for item in &arc.clusters {
                 match item {
@@ -14754,6 +14790,51 @@ mod autotest_generated {
     // getter/other: TextShapingCache + TextCacheMemoryReport + calculate_id
     // =====================================================================
 
+    /// NEGATIVE CONTROL for the Arc dedup in `memory_report`.
+    ///
+    /// Sharing one `Arc` across several cache keys is the point of the cache,
+    /// so a walk that charges `capacity()` per KEY reports bytes the process
+    /// does not have. Delete the `counted.insert(..)` guards in
+    /// `memory_report` and this test fails on the first assertion: the shared
+    /// vec gets charged three times.
+    #[test]
+    fn shared_arcs_are_counted_once_not_once_per_key() {
+        let mut cache = TextShapingCache::new();
+        let shared: Arc<Vec<LogicalItem>> = Arc::new(Vec::with_capacity(64));
+        let one_copy = 64 * size_of::<LogicalItem>();
+
+        cache.logical_items.insert(1, Arc::clone(&shared));
+        let single = cache.memory_report();
+        assert_eq!(single.logical_items_bytes, one_copy);
+        assert_eq!(single.shared_bytes_avoided, 0);
+
+        // Two MORE keys, same allocation. Nothing was allocated, so nothing
+        // reported may grow.
+        cache.logical_items.insert(2, Arc::clone(&shared));
+        cache.logical_items.insert(3, Arc::clone(&shared));
+        let shared_thrice = cache.memory_report();
+        assert_eq!(
+            shared_thrice.logical_items_bytes, one_copy,
+            "three keys, one allocation: bytes must not triple"
+        );
+        assert_eq!(
+            shared_thrice.shared_bytes_avoided,
+            2 * one_copy,
+            "the two extra keys are exactly the error per-key counting made"
+        );
+        // Entry COUNT is a count of keys and legitimately does rise; only the
+        // BYTES are a claim about memory.
+        assert_eq!(shared_thrice.logical_items_entries, 3);
+
+        // POSITIVE control, so the test cannot pass by reporting zero for
+        // everything: a genuinely distinct allocation must still be added.
+        cache
+            .logical_items
+            .insert(4, Arc::new(Vec::with_capacity(64)));
+        let distinct = cache.memory_report();
+        assert_eq!(distinct.logical_items_bytes, 2 * one_copy);
+    }
+
     #[test]
     fn text_cache_memory_report_total_bytes_sums_only_the_byte_fields() {
         let r = TextCacheMemoryReport::default();
@@ -14774,6 +14855,9 @@ mod autotest_generated {
             map_overhead_bytes: 64,
             style_arc_bytes: 128,
             combined_block_glyph_bytes: 256,
+            // NOT summed by total_bytes(): it is the size of an error the
+            // walk avoided, not memory the process holds.
+            shared_bytes_avoided: 1 << 30,
             distinct_style_arcs: 1_000_000, // a COUNT — must NOT be counted
             cluster_count: 1_000_000,       // a COUNT — must NOT be counted
         };
