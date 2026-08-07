@@ -20,6 +20,39 @@
 //! 4. The resolver callback is invoked with the found RefAny data + original DOM
 //! 5. The callback returns a StyledDom subtree that replaces the icon node
 //!
+//! # Caching
+//!
+//! Resolution results are CACHED on the [`SharedIconProvider`], keyed by
+//! (icon spec, the original icon node's full `NodeData`, its `StyledNode`),
+//! and flushed when the `SystemStyle` changes. The engine calls
+//! `resolve_icons_in_styled_dom` on EVERY DOM regeneration — during a Wayland
+//! drag-resize that is one call per pixel of mouse movement (373 in a measured
+//! 5-second drag), and each un-cached resolution runs `StyledDom::create`'s
+//! full single-node cascade whose output is then thrown away by the host's
+//! own cascade recompute. ~66 ribbon icons × 373 regenerations ≈ 24 600
+//! throwaway cascades per drag, all yielding bit-identical results
+//! (scripts/RSS_MAP_2026_08_07.md §36c).
+//!
+//! The cache stores the resolver's output DECONSTRUCTED into exactly the
+//! fields the replacement consumes (node type, inline style, accessibility,
+//! styled node), so a hit is four field clones — no `Dom`, no `StyledDom`,
+//! no cascade, no `CssPropertyCache`, not even the single-node extraction of
+//! the original.
+//!
+//! Correctness notes:
+//! - The KEY includes the whole original `NodeData` + `StyledNode`, because a
+//!   custom resolver may read anything from `original_icon_dom` (the default
+//!   one copies inline styles and accessibility info). Same name with
+//!   different inline styles → separate entries; a hover-state flip on the
+//!   node → different `StyledNode` → re-resolve.
+//! - The icon SET and the resolver are frozen once the provider is shared
+//!   (`App::run` consumes the handle; `SharedIconProvider` exposes no
+//!   registration), so registration invalidation cannot be needed post-share.
+//! - "Animated icons" remain compatible: animation is carried by the DATA the
+//!   resolver returns (e.g. an image-callback node that animates per frame),
+//!   not by re-resolving per frame — re-resolution only ever happened on DOM
+//!   regeneration anyway.
+//!
 //! # Custom Resolvers
 //!
 //! Users can provide custom C callbacks for complete control:
@@ -443,12 +476,130 @@ impl IconProviderHandle {
 #[derive(Debug, Clone)]
 pub struct SharedIconProvider {
     inner: Arc<Mutex<IconProviderInner>>,
+    /// Resolution cache — see the module-level `# Caching` section. Shared by
+    /// every clone of this provider (all windows), like `inner`.
+    cache: Arc<Mutex<IconResolutionCache>>,
+}
+
+/// Hard cap on cached resolutions. A frame's live icon set is typically a few
+/// dozen; the cap only matters when specs vary without bound (adversarial or
+/// generated names). Policy on overflow is FLUSH-ALL: the next frame re-fills
+/// with the live set, so a pathological producer degrades to today's uncached
+/// behaviour instead of growing without limit.
+const ICON_CACHE_CAP: usize = 512;
+
+/// A resolver result, stored DECONSTRUCTED into exactly what
+/// [`apply_cached_resolution`] consumes. See the module `# Caching` docs for
+/// why this is not a `StyledDom`.
+#[derive(Debug, Clone)]
+enum CachedIconResolution {
+    /// Resolver returned a zero-node `StyledDom` → the icon becomes an empty
+    /// `Div` placeholder (same as the uncached empty arm).
+    Empty,
+    /// The dominant case: a single-node replacement.
+    SingleNode {
+        node_type: NodeType,
+        style: azul_css::css::Css,
+        accessibility: Option<Box<crate::a11y::AccessibilityInfo>>,
+        /// `None` = the replacement carried no styled node; keep the host's
+        /// (exact parity with the uncached path, which only overwrites when
+        /// the replacement's `styled_nodes` is non-empty).
+        styled_node: Option<Box<crate::styled_dom::StyledNode>>,
+    },
+    /// Multi-node subtree, cloned wholesale on hit. Rare — and today's
+    /// splicing uses only its root (see `apply_multi_node_replacement`) — but
+    /// stored complete so implementing real splicing later cannot be silently
+    /// truncated by this cache.
+    Subtree(StyledDom),
+}
+
+/// One cached resolution. `original`/`original_styled` are the KEY (together
+/// with the spec, the map key one level up); `resolution` is the value.
+#[derive(Debug)]
+struct IconCacheEntry {
+    original: NodeData,
+    original_styled: crate::styled_dom::StyledNode,
+    resolution: CachedIconResolution,
+}
+
+/// See the module-level `# Caching` section.
+#[derive(Debug, Default)]
+struct IconResolutionCache {
+    /// The `SystemStyle` every entry was resolved under. A mismatch flushes:
+    /// resolvers read the style (theme, tint, grayscale), so entries from
+    /// another style are wrong, not merely stale.
+    system_style: Option<SystemStyle>,
+    /// spec → entries with that spec (usually exactly one; more when the same
+    /// icon name appears with different inline styles).
+    entries: BTreeMap<String, Vec<IconCacheEntry>>,
+    /// Total entry count across all specs (the map holds vecs, so `len()` of
+    /// the map alone cannot enforce [`ICON_CACHE_CAP`]).
+    total: usize,
 }
 
 impl SharedIconProvider {
     /// Create from an `IconProviderHandle` (consumes the handle)
     #[must_use] pub fn from_handle(handle: IconProviderHandle) -> Self {
-        Self { inner: handle.into_shared() }
+        Self {
+            inner: handle.into_shared(),
+            cache: Arc::new(Mutex::new(IconResolutionCache::default())),
+        }
+    }
+
+    /// Flush the cache if `system_style` differs from the one its entries
+    /// were resolved under. Called ONCE per `resolve_icons_in_styled_dom`
+    /// batch, not per icon, so the `SystemStyle` comparison is per-frame.
+    fn validate_cache_for_style(&self, system_style: &SystemStyle) {
+        let Ok(mut cache) = self.cache.lock() else { return };
+        match &cache.system_style {
+            Some(cached) if cached == system_style => {}
+            _ => {
+                cache.entries.clear();
+                cache.total = 0;
+                cache.system_style = Some(system_style.clone());
+            }
+        }
+    }
+
+    /// Cache hit test. `None` = miss (resolve for real, then
+    /// [`Self::store_resolution`]).
+    fn cached_resolution(
+        &self,
+        spec: &str,
+        node: &NodeData,
+        styled: &crate::styled_dom::StyledNode,
+    ) -> Option<CachedIconResolution> {
+        let cache = self.cache.lock().ok()?;
+        cache.entries.get(spec)?.iter().find_map(|e| {
+            (e.original == *node && e.original_styled == *styled)
+                .then(|| e.resolution.clone())
+        })
+    }
+
+    /// Insert a freshly-resolved entry, flushing everything first if the cap
+    /// is reached (see [`ICON_CACHE_CAP`]).
+    fn store_resolution(
+        &self,
+        spec: &str,
+        node: &NodeData,
+        styled: &crate::styled_dom::StyledNode,
+        resolution: &CachedIconResolution,
+    ) {
+        let Ok(mut cache) = self.cache.lock() else { return };
+        if cache.total >= ICON_CACHE_CAP {
+            cache.entries.clear();
+            cache.total = 0;
+        }
+        cache
+            .entries
+            .entry(spec.to_string())
+            .or_default()
+            .push(IconCacheEntry {
+                original: node.clone(),
+                original_styled: styled.clone(),
+                resolution: resolution.clone(),
+            });
+        cache.total += 1;
     }
     
     /// Resolve an icon to a `StyledDom` using the registered callback
@@ -504,8 +655,9 @@ struct CollectedIcon {
 struct IconReplacement {
     /// Index of the icon node to replace
     node_idx: usize,
-    /// The resolved `StyledDom` (may be empty, single node, or multi-node tree)
-    replacement: StyledDom,
+    /// The resolved replacement, already normalized for both the apply step
+    /// and the cache (empty / single node / subtree)
+    replacement: CachedIconResolution,
     /// Spec-supplying text children to clear after the swap
     text_children: Vec<usize>,
 }
@@ -614,23 +766,118 @@ fn extract_single_node_styled_dom(styled_dom: &StyledDom, node_idx: usize) -> St
     }
 }
 
-/// Resolve all collected icons to their `StyledDom` representations
+/// Resolve all collected icons, consulting the provider's cache first.
+///
+/// On a HIT nothing is built at all: no single-node extraction (which clones
+/// the node's inline `Css` and allocates a throwaway `CssPropertyCache`), no
+/// pack lookup, no resolver call, no cascade. The 66-icon ribbon that
+/// motivated this (RSS_MAP §36c) turns from 66 resolver round-trips per DOM
+/// regeneration into 66 key comparisons.
 fn resolve_collected_icons(
     icons: &[CollectedIcon],
     styled_dom: &StyledDom,
     provider: &SharedIconProvider,
     system_style: &SystemStyle,
 ) -> Vec<IconReplacement> {
+    let node_data = styled_dom.node_data.as_ref();
+    let styled_nodes = styled_dom.styled_nodes.as_ref();
+    let default_styled = crate::styled_dom::StyledNode::default();
+
     icons.iter().map(|icon| {
-        // Extract the original icon node as a StyledDom
+        let spec = icon.icon_name.as_str();
+        // The key mirrors what `extract_single_node_styled_dom` would hand the
+        // resolver: this node's data + styled state (default when absent,
+        // matching the extraction's own fallback).
+        let key_node = node_data.get(icon.node_idx);
+        let key_styled = styled_nodes.get(icon.node_idx).unwrap_or(&default_styled);
+
+        if let Some(node) = key_node {
+            if let Some(hit) = provider.cached_resolution(spec, node, key_styled) {
+                return IconReplacement {
+                    node_idx: icon.node_idx,
+                    replacement: hit,
+                    text_children: icon.text_children.clone(),
+                };
+            }
+        }
+
+        // MISS: the uncached path, exactly as before — extract, resolve —
+        // followed by normalize + store.
         let original_icon_dom = extract_single_node_styled_dom(styled_dom, icon.node_idx);
-        let replacement = provider.resolve(&original_icon_dom, icon.icon_name.as_str(), system_style);
+        let resolved = provider.resolve(&original_icon_dom, spec, system_style);
+        let resolution = normalize_replacement(resolved);
+        if let Some(node) = key_node {
+            provider.store_resolution(spec, node, key_styled, &resolution);
+        }
         IconReplacement {
             node_idx: icon.node_idx,
-            replacement,
+            replacement: resolution,
             text_children: icon.text_children.clone(),
         }
     }).collect()
+}
+
+/// Deconstruct a resolver-returned `StyledDom` into [`CachedIconResolution`].
+///
+/// The single-node arm takes the SAME fields, by move, that
+/// `apply_single_node_replacement` takes — everything else in the returned
+/// `StyledDom` (notably the `CssPropertyCache` its cascade just built) was
+/// always discarded, which is precisely why the result is cacheable in this
+/// reduced form.
+fn normalize_replacement(replacement: StyledDom) -> CachedIconResolution {
+    match replacement.node_data.as_ref().len() {
+        0 => CachedIconResolution::Empty,
+        1 => {
+            let StyledDom { node_data, styled_nodes, .. } = replacement;
+            let mut roots = node_data.into_library_owned_vec();
+            let root = roots.swap_remove(0);
+            let NodeData { node_type, style, accessibility, .. } = root;
+            let mut styled_vec = styled_nodes.into_library_owned_vec();
+            let styled_node = if styled_vec.is_empty() {
+                None
+            } else {
+                Some(Box::new(styled_vec.swap_remove(0)))
+            };
+            CachedIconResolution::SingleNode { node_type, style, accessibility, styled_node }
+        }
+        _ => CachedIconResolution::Subtree(replacement),
+    }
+}
+
+/// Apply a normalized resolution to the icon node at `node_idx`. Semantics
+/// are bit-for-bit those of the pre-cache code: `Empty` → placeholder `Div`
+/// (old `apply_single_node_replacement` empty arm), `SingleNode` → move the
+/// four fields in (old non-empty arm), `Subtree` → root-only splice via
+/// `apply_multi_node_replacement`.
+fn apply_cached_resolution(
+    styled_dom: &mut StyledDom,
+    node_idx: usize,
+    resolution: CachedIconResolution,
+) {
+    match resolution {
+        CachedIconResolution::Empty => {
+            if let Some(node) = styled_dom.node_data.as_mut().get_mut(node_idx) {
+                node.set_node_type(NodeType::Div);
+            }
+        }
+        CachedIconResolution::SingleNode { node_type, style, accessibility, styled_node } => {
+            if let Some(node) = styled_dom.node_data.as_mut().get_mut(node_idx) {
+                node.set_node_type(node_type);
+                node.set_style(style);
+                if let Some(a11y) = accessibility {
+                    node.set_accessibility_info(*a11y);
+                }
+            }
+            if let Some(replacement_styled) = styled_node {
+                if let Some(styled) = styled_dom.styled_nodes.as_mut().get_mut(node_idx) {
+                    *styled = *replacement_styled;
+                }
+            }
+        }
+        CachedIconResolution::Subtree(replacement) => {
+            apply_multi_node_replacement(styled_dom, node_idx, replacement);
+        }
+    }
 }
 
 /// Check if a replacement is a single-node replacement (fast path)
@@ -744,26 +991,20 @@ pub fn resolve_icons_in_styled_dom(
         return;
     }
 
-    // Step 2: Resolve all icons to their StyledDom representations
-    // Note: We pass styled_dom to extract each icon's original node
+    // Step 1.5: A SystemStyle change (theme flip, tint, grayscale) invalidates
+    // every cached resolution. Checked once per batch, not once per icon.
+    provider.validate_cache_for_style(system_style);
+
+    // Step 2: Resolve all icons (cache-first; see resolve_collected_icons)
     let replacements = resolve_collected_icons(&icons, styled_dom, provider, system_style);
 
     // Step 3: Apply replacements (reverse order to preserve indices)
     for replacement in replacements.into_iter().rev() {
-        if is_single_node_replacement(&replacement.replacement) ||
-           replacement.replacement.node_data.as_ref().is_empty() {
-            apply_single_node_replacement(
-                styled_dom,
-                replacement.node_idx,
-                replacement.replacement,
-            );
-        } else {
-            apply_multi_node_replacement(
-                styled_dom,
-                replacement.node_idx,
-                replacement.replacement,
-            );
-        }
+        apply_cached_resolution(
+            styled_dom,
+            replacement.node_idx,
+            replacement.replacement,
+        );
 
         // `<icon>name</icon>`: the spec text was consumed by the resolution —
         // clear the contributing text children so the raw name never renders
@@ -1701,8 +1942,13 @@ mod autotest_generated {
         assert_eq!(replacements.len(), icons.len());
         for (r, i) in replacements.iter().zip(icons.iter()) {
             assert_eq!(r.node_idx, i.node_idx);
-            // The custom resolver ignores the data, so even unregistered icons resolve.
-            assert!(matches!(node_type_at(&r.replacement, 0), NodeType::Div));
+            // The custom resolver ignores the data, so even unregistered icons
+            // resolve. Replacements are pre-normalized now: a one-node div
+            // arrives as `SingleNode { node_type: Div, .. }`.
+            assert!(matches!(
+                &r.replacement,
+                CachedIconResolution::SingleNode { node_type: NodeType::Div, .. }
+            ));
         }
     }
 
@@ -1791,5 +2037,335 @@ mod autotest_generated {
 
         assert_eq!(sd.node_data.as_ref().len(), before_len);
         assert!(collect_icon_nodes(&sd).is_empty());
+    }
+}
+
+/// Tests for the resolution CACHE — the reproduction of the per-regeneration
+/// waste (RSS_MAP_2026_08_07.md §36c) and the properties of the fix.
+///
+/// The engine calls `resolve_icons_in_styled_dom` once per DOM regeneration on
+/// a FRESH StyledDom each time (the layout callback rebuilds it), so "two
+/// frames" here means two identically-built DOMs — exactly what a drag-resize
+/// produces 373 times in five seconds.
+#[cfg(test)]
+#[allow(clippy::float_cmp)]
+mod icon_cache_tests {
+    use core::sync::atomic::{AtomicUsize, Ordering as AtomicOrdering};
+
+    use super::*;
+    use crate::refany::RefAny;
+
+    #[derive(Debug, Clone, PartialEq)]
+    struct CacheTestIconData {
+        id: u32,
+    }
+
+    fn dom_with_icons(names: &[&str]) -> StyledDom {
+        let mut body = Dom::create_body();
+        for n in names {
+            body.add_child(Dom::create_icon(*n));
+        }
+        StyledDom::create_from_dom(body)
+    }
+
+    fn icon_indices(sd: &StyledDom) -> Vec<usize> {
+        collect_icon_nodes(sd).iter().map(|i| i.node_idx).collect()
+    }
+
+    // Per-test statics: `extern "C" fn` cannot capture, and tests run in
+    // parallel — never share one counter between two tests (same convention
+    // as `autotest_generated::REC_*`).
+
+    static FRAME_CALLS: AtomicUsize = AtomicUsize::new(0);
+    extern "C" fn frame_counting_resolver(
+        _icon_data: OptionRefAny,
+        _original: &StyledDom,
+        _style: &SystemStyle,
+    ) -> StyledDom {
+        FRAME_CALLS.fetch_add(1, AtomicOrdering::SeqCst);
+        StyledDom::create_from_dom(Dom::create_div())
+    }
+
+    /// THE REPRODUCTION. Before the cache, this counted one resolver call per
+    /// icon per frame — 3 icons × 2 frames = 6 calls for six bit-identical
+    /// results (scaled up in production: 66 icons × 373 regenerations in one
+    /// measured drag ≈ 24 600 calls, each running a full throwaway single-node
+    /// cascade). With the cache: ONE call, ever, for identical inputs.
+    #[test]
+    fn identical_icons_across_frames_resolve_exactly_once() {
+        let mut h = IconProviderHandle::with_resolver(frame_counting_resolver);
+        h.register_icon("p", "home", RefAny::new(CacheTestIconData { id: 1 }));
+        let shared = SharedIconProvider::from_handle(h);
+        let style = SystemStyle::default();
+
+        for frame in 0..3 {
+            let mut sd = dom_with_icons(&["home", "home", "home"]);
+            let idxs = icon_indices(&sd);
+            resolve_icons_in_styled_dom(&mut sd, &shared, &style);
+            for idx in idxs {
+                assert!(
+                    matches!(sd.node_data.as_ref()[idx].get_node_type(), NodeType::Div),
+                    "frame {frame}: icon must be resolved on the cached path too"
+                );
+            }
+        }
+
+        assert_eq!(
+            FRAME_CALLS.load(AtomicOrdering::SeqCst),
+            1,
+            "identical (spec, node, styled-state) must hit the cache — both \
+             across frames AND across duplicates within one frame"
+        );
+    }
+
+    static STYLE_VARIANT_CALLS: AtomicUsize = AtomicUsize::new(0);
+    extern "C" fn style_variant_resolver(
+        _icon_data: OptionRefAny,
+        _original: &StyledDom,
+        _style: &SystemStyle,
+    ) -> StyledDom {
+        STYLE_VARIANT_CALLS.fetch_add(1, AtomicOrdering::SeqCst);
+        StyledDom::create_from_dom(Dom::create_div())
+    }
+
+    /// The resolver copies inline styles off the original node, so the same
+    /// icon NAME with different inline styles is a different resolution and
+    /// must occupy a different cache entry.
+    #[test]
+    fn distinct_inline_styles_are_distinct_cache_entries() {
+        use azul_css::dynamic_selector::CssPropertyWithConditions;
+        use azul_css::props::layout::dimensions::LayoutWidth;
+        use azul_css::props::property::CssProperty;
+
+        let shared = SharedIconProvider::from_handle(IconProviderHandle::with_resolver(
+            style_variant_resolver,
+        ));
+        let style = SystemStyle::default();
+
+        let build = || {
+            let mut body = Dom::create_body();
+            body.add_child(Dom::create_icon("home"));
+            body.add_child(Dom::create_icon("home").with_css_props(
+                vec![CssPropertyWithConditions::simple(CssProperty::width(
+                    LayoutWidth::px(24.0),
+                ))]
+                .into(),
+            ));
+            StyledDom::create_from_dom(body)
+        };
+
+        let mut frame1 = build();
+        resolve_icons_in_styled_dom(&mut frame1, &shared, &style);
+        assert_eq!(
+            STYLE_VARIANT_CALLS.load(AtomicOrdering::SeqCst),
+            2,
+            "same name, different inline style => two resolutions"
+        );
+
+        let mut frame2 = build();
+        resolve_icons_in_styled_dom(&mut frame2, &shared, &style);
+        assert_eq!(
+            STYLE_VARIANT_CALLS.load(AtomicOrdering::SeqCst),
+            2,
+            "both variants must be cache hits on the second frame"
+        );
+    }
+
+    static SYS_STYLE_CALLS: AtomicUsize = AtomicUsize::new(0);
+    extern "C" fn sys_style_resolver(
+        _icon_data: OptionRefAny,
+        _original: &StyledDom,
+        _style: &SystemStyle,
+    ) -> StyledDom {
+        SYS_STYLE_CALLS.fetch_add(1, AtomicOrdering::SeqCst);
+        StyledDom::create_from_dom(Dom::create_div())
+    }
+
+    /// Resolvers read the SystemStyle (theme, tint, grayscale), so a style
+    /// change must flush. The policy is flush-on-change, not per-style keying:
+    /// flipping BACK re-resolves too. That trade is deliberate — a style flip
+    /// is a rare, user-visible event; keying every entry by style would bloat
+    /// every comparison for it.
+    #[test]
+    fn system_style_change_flushes_the_cache() {
+        let shared =
+            SharedIconProvider::from_handle(IconProviderHandle::with_resolver(sys_style_resolver));
+        let style_a = SystemStyle::default();
+        let mut style_b = SystemStyle::default();
+        style_b.language = azul_css::AzString::from("xx-ZZ");
+        assert_ne!(style_a, style_b);
+
+        let mut sd = dom_with_icons(&["home"]);
+        resolve_icons_in_styled_dom(&mut sd, &shared, &style_a);
+        assert_eq!(SYS_STYLE_CALLS.load(AtomicOrdering::SeqCst), 1);
+
+        let mut sd = dom_with_icons(&["home"]);
+        resolve_icons_in_styled_dom(&mut sd, &shared, &style_b);
+        assert_eq!(SYS_STYLE_CALLS.load(AtomicOrdering::SeqCst), 2, "style change => re-resolve");
+
+        let mut sd = dom_with_icons(&["home"]);
+        resolve_icons_in_styled_dom(&mut sd, &shared, &style_a);
+        assert_eq!(
+            SYS_STYLE_CALLS.load(AtomicOrdering::SeqCst),
+            3,
+            "flush-on-change: flipping back re-resolves (documented policy)"
+        );
+    }
+
+    static PARITY_CALLS: AtomicUsize = AtomicUsize::new(0);
+    extern "C" fn parity_resolver(
+        _icon_data: OptionRefAny,
+        original: &StyledDom,
+        _style: &SystemStyle,
+    ) -> StyledDom {
+        use azul_css::dynamic_selector::CssPropertyWithConditions;
+        use azul_css::props::layout::dimensions::LayoutWidth;
+        use azul_css::props::property::CssProperty;
+        PARITY_CALLS.fetch_add(1, AtomicOrdering::SeqCst);
+        // A realistic replacement: styled text (what a font-icon resolver
+        // produces), reading nothing but producing node type + props + a11y.
+        let mut dom = Dom::create_text("\u{e88a}");
+        dom.root.set_css_props(
+            vec![CssPropertyWithConditions::simple(CssProperty::width(LayoutWidth::px(16.0)))]
+                .into(),
+        );
+        if let Some(orig) = original.node_data.as_ref().first() {
+            if let Some(a11y) = orig.get_accessibility_info() {
+                dom = dom.with_accessibility_info(a11y.clone());
+            }
+        }
+        StyledDom::create(&mut dom, azul_css::css::Css::empty())
+    }
+
+    /// A cache hit must produce a node BIT-IDENTICAL to what the fresh
+    /// resolver produced on frame 1 — node type, inline style, the lot.
+    #[test]
+    fn cached_hit_produces_an_identical_node() {
+        let shared =
+            SharedIconProvider::from_handle(IconProviderHandle::with_resolver(parity_resolver));
+        let style = SystemStyle::default();
+
+        let mut frame1 = dom_with_icons(&["save"]);
+        let idx1 = icon_indices(&frame1)[0];
+        resolve_icons_in_styled_dom(&mut frame1, &shared, &style);
+        assert_eq!(PARITY_CALLS.load(AtomicOrdering::SeqCst), 1);
+
+        let mut frame2 = dom_with_icons(&["save"]);
+        let idx2 = icon_indices(&frame2)[0];
+        resolve_icons_in_styled_dom(&mut frame2, &shared, &style);
+        assert_eq!(PARITY_CALLS.load(AtomicOrdering::SeqCst), 1, "frame 2 must be a hit");
+
+        assert_eq!(
+            frame1.node_data.as_ref()[idx1],
+            frame2.node_data.as_ref()[idx2],
+            "cached and freshly-resolved node must be indistinguishable"
+        );
+        assert_eq!(
+            frame1.styled_nodes.as_ref()[idx1],
+            frame2.styled_nodes.as_ref()[idx2],
+        );
+    }
+
+    static EMPTY_CALLS: AtomicUsize = AtomicUsize::new(0);
+    extern "C" fn empty_resolver(
+        _icon_data: OptionRefAny,
+        _original: &StyledDom,
+        _style: &SystemStyle,
+    ) -> StyledDom {
+        EMPTY_CALLS.fetch_add(1, AtomicOrdering::SeqCst);
+        StyledDom {
+            node_data: crate::dom::NodeDataVec::from_vec(Vec::new()),
+            styled_nodes: crate::styled_dom::StyledNodeVec::from_vec(Vec::new()),
+            ..StyledDom::default()
+        }
+    }
+
+    /// "Icon not found → empty div" is also a resolution and is also cached.
+    #[test]
+    fn empty_resolutions_are_cached_too() {
+        let shared =
+            SharedIconProvider::from_handle(IconProviderHandle::with_resolver(empty_resolver));
+        let style = SystemStyle::default();
+
+        for _ in 0..2 {
+            let mut sd = dom_with_icons(&["missing"]);
+            let idx = icon_indices(&sd)[0];
+            resolve_icons_in_styled_dom(&mut sd, &shared, &style);
+            assert!(matches!(sd.node_data.as_ref()[idx].get_node_type(), NodeType::Div));
+        }
+        assert_eq!(EMPTY_CALLS.load(AtomicOrdering::SeqCst), 1);
+    }
+
+    static SUBTREE_CALLS: AtomicUsize = AtomicUsize::new(0);
+    extern "C" fn subtree_resolver(
+        _icon_data: OptionRefAny,
+        _original: &StyledDom,
+        _style: &SystemStyle,
+    ) -> StyledDom {
+        SUBTREE_CALLS.fetch_add(1, AtomicOrdering::SeqCst);
+        StyledDom::create_from_dom(
+            Dom::create_body()
+                .with_child(Dom::create_div())
+                .with_child(Dom::create_text("x")),
+        )
+    }
+
+    /// Multi-node replacements go through the same cache (stored as a whole
+    /// `StyledDom`, cloned per hit). Splicing itself is root-only today; the
+    /// cache must not change that behaviour either way.
+    #[test]
+    fn subtree_resolutions_are_cached() {
+        let shared =
+            SharedIconProvider::from_handle(IconProviderHandle::with_resolver(subtree_resolver));
+        let style = SystemStyle::default();
+
+        let mut first_type = None;
+        for _ in 0..2 {
+            let mut sd = dom_with_icons(&["multi"]);
+            let idx = icon_indices(&sd)[0];
+            resolve_icons_in_styled_dom(&mut sd, &shared, &style);
+            let t = sd.node_data.as_ref()[idx].get_node_type().clone();
+            match &first_type {
+                None => first_type = Some(t),
+                Some(prev) => assert_eq!(prev, &t, "cached subtree must apply identically"),
+            }
+        }
+        assert_eq!(SUBTREE_CALLS.load(AtomicOrdering::SeqCst), 1);
+    }
+
+    static CAP_CALLS: AtomicUsize = AtomicUsize::new(0);
+    extern "C" fn cap_resolver(
+        _icon_data: OptionRefAny,
+        _original: &StyledDom,
+        _style: &SystemStyle,
+    ) -> StyledDom {
+        CAP_CALLS.fetch_add(1, AtomicOrdering::SeqCst);
+        StyledDom::create_from_dom(Dom::create_div())
+    }
+
+    /// Unbounded distinct specs must not grow the cache without limit; the
+    /// flush-all overflow policy degrades to uncached behaviour, never to
+    /// unbounded memory.
+    #[test]
+    fn cache_is_capped_and_correct_past_the_cap() {
+        let shared =
+            SharedIconProvider::from_handle(IconProviderHandle::with_resolver(cap_resolver));
+        let style = SystemStyle::default();
+
+        let names: Vec<String> = (0..(ICON_CACHE_CAP + 100)).map(|i| format!("icon{i}")).collect();
+        let refs: Vec<&str> = names.iter().map(String::as_str).collect();
+        let mut sd = dom_with_icons(&refs);
+        resolve_icons_in_styled_dom(&mut sd, &shared, &style);
+
+        assert_eq!(CAP_CALLS.load(AtomicOrdering::SeqCst), ICON_CACHE_CAP + 100);
+        assert!(collect_icon_nodes(&sd).is_empty(), "every icon still resolved");
+
+        let cache = shared.cache.lock().unwrap();
+        assert!(
+            cache.total <= ICON_CACHE_CAP,
+            "cap must hold: total={} cap={}",
+            cache.total,
+            ICON_CACHE_CAP
+        );
     }
 }
