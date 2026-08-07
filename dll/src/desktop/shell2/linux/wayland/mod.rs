@@ -18,6 +18,109 @@
 
 use crate::impl_platform_window_getters;
 
+// ============================================================================
+// PLATFORM TRACE — deliberately NOT behind `feature = "logging"`
+// ============================================================================
+//
+// Every `log_debug!` / `log_warn!` / `log_error!` in this backend expands to
+// NOTHING unless azul-dll is built with the `logging` feature. That feature is
+// in `default`, but an application that links azul-dll with
+// `default-features = false` (miniword does, and so does anything following the
+// lean `link-static` recipe) silently loses the entire platform log.
+//
+// That is not hypothetical: on 2026-08-07 a Wayland protocol error disconnected
+// the client mid-run. `poll_event`'s dead-connection detector was present and
+// correct, and printed nothing at all, because its `log_warn!` had been compiled
+// out. The run produced `Error sending request: Broken pipe` from libwayland and
+// no azul diagnosis whatsoever. See scripts/RSS_MAP_2026_08_07.md §34/§36.
+//
+// So the OS-level trace uses `eprintln!` and a RUNTIME switch. A diagnostic that
+// a build flag can silently delete is not a diagnostic.
+//
+//   AZ_WL_TRACE=1                    -> on
+//   AZ_LOG=trace | debug | 1 | on    -> on  (AZ_LOG=off/0/none wins and forces off)
+//
+// Fatal conditions (lost connection, protocol error) print UNCONDITIONALLY and
+// ignore both switches.
+
+/// Runtime gate for [`wl_trace!`]. Read once, cached forever.
+pub(super) fn wl_trace_enabled() -> bool {
+    static ON: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    *ON.get_or_init(|| {
+        let az_log = std::env::var("AZ_LOG").unwrap_or_default();
+        let az_log = az_log.trim().to_ascii_lowercase();
+        // An explicit AZ_LOG=off means off, even with AZ_WL_TRACE set: one
+        // "shut up" switch that actually shuts everything up.
+        if matches!(
+            az_log.as_str(),
+            "0" | "off" | "false" | "none" | "no" | "disable" | "disabled"
+        ) {
+            return false;
+        }
+        if std::env::var_os("AZ_WL_TRACE").is_some() {
+            return true;
+        }
+        matches!(az_log.as_str(), "trace" | "all" | "debug" | "1" | "true" | "on" | "yes")
+    })
+}
+
+/// Wayland/OS-level trace line. Prefixed `[WL]` so a run log can be filtered
+/// down to the platform layer with a single grep.
+macro_rules! wl_trace {
+    ($($arg:tt)*) => {
+        if $crate::desktop::shell2::linux::wayland::wl_trace_enabled() {
+            eprintln!("[WL] {}", format_args!($($arg)*));
+        }
+    };
+}
+pub(super) use wl_trace;
+
+/// Live/created/destroyed `CpuFallbackState` census.
+///
+/// §29 of the RSS map counted 1 279 `wl_shm_pool` proxies still attached at
+/// teardown of an interactive session and asked for exactly this measurement:
+/// "count pools created against configure events in the SAME run". These are
+/// that count, and they are always maintained (the atomics are free) so the
+/// numbers are available the moment a trace is switched on.
+pub(super) static POOLS_CREATED: core::sync::atomic::AtomicUsize =
+    core::sync::atomic::AtomicUsize::new(0);
+pub(super) static POOLS_DESTROYED: core::sync::atomic::AtomicUsize =
+    core::sync::atomic::AtomicUsize::new(0);
+/// `xdg_toplevel.configure` events seen, and how many of those changed the size.
+pub(super) static CONFIGURES_SEEN: core::sync::atomic::AtomicUsize =
+    core::sync::atomic::AtomicUsize::new(0);
+pub(super) static CONFIGURES_RESIZED: core::sync::atomic::AtomicUsize =
+    core::sync::atomic::AtomicUsize::new(0);
+
+/// Spell out the errno `wl_display_get_error` returns, because the two common
+/// values mean opposite things about WHERE the fault is:
+///
+/// * `EPIPE` — the compositor had already closed the socket when we wrote. The
+///   protocol violation happened BEFORE this and is not visible here; the
+///   compositor's own log (`error in client communication (pid N)` from
+///   libwayland-server) is the corroborating record.
+/// * `EPROTO` — libwayland raised the error locally; `wl_display_get_protocol_error`
+///   then names the interface, object id and error code.
+pub(super) fn errno_name(e: i32) -> &'static str {
+    match e {
+        0 => "no error",
+        libc::EPIPE => "EPIPE — compositor closed the socket before this write",
+        libc::EPROTO => "EPROTO — protocol error",
+        libc::ECONNRESET => "ECONNRESET",
+        libc::EINVAL => "EINVAL",
+        libc::ENOMEM => "ENOMEM",
+        _ => "see errno(3)",
+    }
+}
+
+/// One-line pool census: created / destroyed / still live.
+pub(super) fn pool_census() -> String {
+    use core::sync::atomic::Ordering::Relaxed;
+    let c = POOLS_CREATED.load(Relaxed);
+    let d = POOLS_DESTROYED.load(Relaxed);
+    format!("pools created={c} destroyed={d} live={}", c.saturating_sub(d))
+}
+
 pub mod clipboard;
 mod defines;
 mod dlopen;
@@ -758,6 +861,23 @@ impl WaylandWindow {
         // configure/ping handshake and KWin dropped the surface.)
         let display_error = unsafe { (self.wayland.wl_display_get_error)(self.display) };
         if hung_up || display_error != 0 || dispatched < 0 {
+            // UNCONDITIONAL, and deliberately not a log macro.
+            //
+            // This detector was correct and silent on 2026-08-07: `log_warn!` in
+            // a `debug-server` build routes into the debug server's in-memory
+            // queue and never reaches stderr, so a compositor disconnect
+            // produced libwayland's bare `Error sending request: Broken pipe`
+            // and not one word from azul. Losing the display is fatal to the
+            // window, so it prints no matter how logging is configured.
+            eprintln!(
+                "[WL] CONNECTION LOST — closing the window. hup={hung_up} \
+                 errno={display_error} ({}) dispatched={dispatched}{} — \
+                 configures={} {}",
+                errno_name(display_error),
+                self.describe_protocol_error(display_error),
+                CONFIGURES_SEEN.load(core::sync::atomic::Ordering::Relaxed),
+                pool_census(),
+            );
             log_warn!(
                 LogCategory::EventLoop,
                 "[Wayland] connection lost (hup={hung_up}, error={display_error}, \
@@ -785,6 +905,12 @@ impl WaylandWindow {
 
     /// Name the object that killed the connection, for the "connection lost"
     /// log line.
+    ///
+    /// See also [`errno_name`]: `wl_display_get_error` returns a bare errno and
+    /// the two that matter read very differently. EPIPE means WE wrote to a
+    /// socket the compositor had already closed — the violation happened
+    /// earlier and this is only the aftermath. EPROTO means libwayland itself
+    /// rejected something, and then the protocol-error detail below names it.
     ///
     /// `wl_display_get_error` returns a bare errno, and EPROTO (71) covers
     /// every protocol violation there is — which is how a `wl_data_offer`
@@ -5765,6 +5891,13 @@ impl CpuFallbackState {
             }
         };
 
+        POOLS_CREATED.fetch_add(1, core::sync::atomic::Ordering::Relaxed);
+        wl_trace!(
+            "shm pool CREATE pool={pool:p} {width}x{height} stride={stride} scale={scale} \
+             bytes={size} fd={fd} — {}",
+            pool_census()
+        );
+
         Ok(Self {
             wayland: wayland.clone(),
             pool,
@@ -5827,6 +5960,15 @@ impl CpuFallbackState {
 
 impl Drop for CpuFallbackState {
     fn drop(&mut self) {
+        POOLS_DESTROYED.fetch_add(1, core::sync::atomic::Ordering::Relaxed);
+        wl_trace!(
+            "shm pool DESTROY pool={:p} {}x{} bytes={} — {}",
+            self.pool,
+            self.width,
+            self.height,
+            self.pool_size,
+            pool_census()
+        );
         unsafe {
             for slot in &mut self.slots {
                 if !slot.buffer.is_null() {
@@ -5860,6 +6002,13 @@ impl WaylandWindow {
         // Physical buffer size + integer buffer scale (fractional-aware);
         // computed before the render_mode borrow below.
         let (buf_w, buf_h, scale) = self.cpu_buffer_spec(width, height);
+        // A mouse drag delivers one configure PER FRAME, and each one lands
+        // here and rebuilds the whole shm pool: shm_open + ftruncate + mmap of
+        // ~w*h*4*2 bytes, plus the munmap/close of the old one. That is the
+        // cost this timing exists to expose — the E2E path takes it three
+        // times, a drag takes it hundreds of times (RSS map §29 counted 1 279
+        // pools in one interactive session).
+        let t0 = std::time::Instant::now();
         match &mut self.render_mode {
             RenderMode::Gpu(gl_context, _gl_functions) => {
                 gl_context.resize(&self.wayland, width, height);
@@ -5875,6 +6024,12 @@ impl WaylandWindow {
                             self.os_present_requested = true;
                         }
                         Err(e) => {
+                            // NOT log_error!: in a `debug-server` build that
+                            // macro only reaches the debug server's in-memory
+                            // queue, so a failed buffer rebuild — which leaves
+                            // the window with NO buffer at all — was invisible
+                            // on stderr. This one always prints.
+                            eprintln!("[WL] CPU buffer resize FAILED: {e:?}");
                             log_error!(
                                 LogCategory::Rendering,
                                 "[Wayland] CPU buffer resize failed: {:?}",
@@ -5885,6 +6040,12 @@ impl WaylandWindow {
                 }
             }
         }
+        wl_trace!(
+            "resize_surface logical={width}x{height} buffer={buf_w}x{buf_h} scale={scale} \
+             took={:.2}ms — {}",
+            t0.elapsed().as_secs_f64() * 1000.0,
+            pool_census()
+        );
     }
 
     /// Check timers and threads, trigger callbacks if needed.

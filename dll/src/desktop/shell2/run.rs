@@ -274,10 +274,26 @@ fn setup_e2e_runner(test_file: &str) {
         .spawn(move || {
             use debug_server::{DebugResponseData, ResponseData};
 
+            // Timeout and Disconnected are DIFFERENT failures and must not
+            // share a message. Disconnected means the sender was dropped —
+            // the window died (a lost display connection, a protocol error,
+            // a panic in the event loop) — and it returns IMMEDIATELY. Folding
+            // it into `Err(_)` printed "E2E test timeout (600 s)" the instant
+            // the compositor disconnected us, which reads as "the harness hung
+            // for ten minutes" when nothing waited at all. That false message
+            // is on record as a finding in scripts/RSS_MAP_2026_08_07.md §34.
             let response = match rx.recv_timeout(std::time::Duration::from_secs(600)) {
                 Ok(r) => r,
-                Err(_) => {
+                Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {
                     eprintln!("\nerror: E2E test timeout (600 s)");
+                    std::process::exit(1);
+                }
+                Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => {
+                    eprintln!(
+                        "\nerror: E2E run ended before the tests reported — the window \
+                         closed (lost display connection, protocol error, or a panic in \
+                         the event loop). This is NOT a timeout; nothing waited."
+                    );
                     std::process::exit(1);
                 }
             };

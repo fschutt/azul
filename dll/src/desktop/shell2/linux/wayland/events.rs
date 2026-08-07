@@ -1574,12 +1574,31 @@ pub(super) extern "C" fn xdg_toplevel_configure_handler(
         let _ = is_activated; // Can be used for focus indication if needed
     }
 
+    // Configure census. A mouse drag-resize delivers one of these PER FRAME;
+    // the E2E path delivers three per run. Comparing `configures` against
+    // `pools created` is the measurement RSS map §29 asked for and never took:
+    // it separates "a Drop that is not running" from "a creation path nobody
+    // is tracking", without any new plumbing.
+    super::CONFIGURES_SEEN.fetch_add(1, core::sync::atomic::Ordering::Relaxed);
+
     // If width/height are non-zero, the compositor is requesting a specific size
     if width > 0 && height > 0 {
         let current_width = window.common.current_window_state.size.dimensions.width as i32;
         let current_height = window.common.current_window_state.size.dimensions.height as i32;
 
+        super::wl_trace!(
+            "xdg_toplevel.configure {}x{} (current {}x{}) changed={} — configures={} {}",
+            width,
+            height,
+            current_width,
+            current_height,
+            width != current_width || height != current_height,
+            super::CONFIGURES_SEEN.load(core::sync::atomic::Ordering::Relaxed),
+            super::pool_census(),
+        );
+
         if width != current_width || height != current_height {
+            super::CONFIGURES_RESIZED.fetch_add(1, core::sync::atomic::Ordering::Relaxed);
             // Store old context for breakpoint detection
             let old_context = window.dynamic_selector_context.clone();
 
