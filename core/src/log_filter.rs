@@ -88,16 +88,25 @@ static INITIALISED: AtomicBool = AtomicBool::new(false);
 /// Echo every passing record to stderr, in addition to whatever sink the build
 /// has.
 ///
-/// **Default ON.** Asking for debugging and getting silence is the bug this
-/// whole module exists to kill: `AZ_DEBUG=<port>` and `AZ_E2E=<file>` both used
-/// to route every record into the debug server's in-memory queue and print
-/// nothing at all on the terminal, so the operator saw a blank screen and
-/// concluded logging was broken. If you turn a debug mode on, you get logs.
+/// **ON as soon as anything asks for logging, OFF for a plain run.** Asking for
+/// debugging and getting silence is the bug this module exists to kill:
+/// `AZ_DEBUG=<port>` and `AZ_E2E=<file>` routed every record into the debug
+/// server's in-memory queue and printed nothing on the terminal, so the
+/// operator saw a blank screen and concluded logging was broken. If you turn a
+/// debug mode on, you get logs — [`crate::log_filter`] callers OR the shell's
+/// `log_gate`, which also treats an active debug server as "asked for logs".
 ///
-/// Turn it off with `AZ_LOG_STDERR=0` (keeps the queue for the debugger UI) or
-/// silence everything with `AZ_LOG=off`. Volume is a LEVEL/CATEGORY question —
-/// `AZ_LOG=warn,+platform` — not a reason to have no sink.
-static STDERR_ECHO: AtomicBool = AtomicBool::new(true);
+/// It must NOT default to on for an app that asked for nothing. The default
+/// level is Debug and the Layout category alone emits 482 547 records on a
+/// three-resize run, so an unconditional echo would make every shipped azul app
+/// write ~55 MB of layout tracing to stderr on an ordinary run. That is a worse
+/// bug than the silence it fixes.
+///
+/// Set explicitly with `AZ_LOG_STDERR=1` / `AZ_LOG_STDERR=0` (0 keeps the queue
+/// for the debugger UI); `AZ_LOG=off` silences everything. Volume is a
+/// LEVEL/CATEGORY question — `AZ_LOG=debug,-layout` — not a reason to have no
+/// sink.
+static STDERR_ECHO: AtomicBool = AtomicBool::new(false);
 
 /// The five level switches, exposed individually because that is how they are
 /// usually flipped from a debugger or a callback: `log_filter::DEBUG.store(true, ..)`.
@@ -269,6 +278,13 @@ pub fn init_from_env() {
     #[cfg(feature = "std")]
     {
         let raw = std::env::var("AZ_LOG").unwrap_or_default();
+        // Setting AZ_LOG AT ALL is a request to see logs, so it turns the echo
+        // on. Leaving it unset is not, which is what keeps an ordinary app run
+        // quiet. (`log_gate` additionally treats an active debug server as such
+        // a request; it can see `log_active()` and this crate cannot.)
+        if !raw.trim().is_empty() {
+            STDERR_ECHO.store(true, Ordering::Relaxed);
+        }
         let (level, overrides) = parse(&raw);
         let min = level.map_or(u8::MAX, |l| l as u8);
         MIN_LEVEL.store(min, Ordering::Relaxed);

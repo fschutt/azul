@@ -83,6 +83,43 @@ pub fn sink_available() -> bool {
     super::debug_server::log_active() || log_filter::stderr_echo() || log_file().is_some()
 }
 
+/// Whether a passing record should go to stderr.
+///
+/// `AZ_LOG` being set turns this on inside `log_filter`. An ACTIVE DEBUG SERVER
+/// counts as the same request and can only be detected here, because
+/// `log_active()` lives in the shell: `AZ_DEBUG=<port>` / `AZ_E2E=<file>` used
+/// to fill the debug server's queue and print nothing, which is precisely the
+/// "I asked for debugging and got silence" complaint.
+///
+/// `AZ_LOG_STDERR=0` overrides both — it clears the flag in `log_filter`, and
+/// `log_active()` is then the only thing that could re-enable it, so the check
+/// below deliberately reads the explicit setting first.
+fn echo_to_stderr() -> bool {
+    if log_filter::stderr_echo() {
+        return true;
+    }
+    // Not explicitly on: a debug server that is collecting means someone asked.
+    super::debug_server::log_active() && !stderr_explicitly_disabled()
+}
+
+/// `AZ_LOG_STDERR=0`-style opt-out, read once.
+fn stderr_explicitly_disabled() -> bool {
+    #[cfg(feature = "std")]
+    {
+        static OFF: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+        return *OFF.get_or_init(|| {
+            std::env::var("AZ_LOG_STDERR")
+                .map(|v| {
+                    let v = v.trim().to_ascii_lowercase();
+                    matches!(v.as_str(), "0" | "off" | "false" | "no" | "none")
+                })
+                .unwrap_or(false)
+        });
+    }
+    #[cfg(not(feature = "std"))]
+    false
+}
+
 /// THE gate. Runs before the `format!` at every `log_*!` call site, so it stays
 /// branch-and-atomic-loads only.
 #[must_use]
@@ -221,7 +258,7 @@ pub fn emit_at(
             let _ = writeln!(f, "[{us:>12}us][{level:?}][{category:?}] {message}");
         }
     }
-    if log_filter::stderr_echo() {
+    if echo_to_stderr() {
         eprintln!("[{us:>12}us][{level:?}][{category:?}] {message}");
     }
     super::debug_server::log(level, category, message, window_id);
