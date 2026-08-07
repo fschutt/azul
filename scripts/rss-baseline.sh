@@ -15,6 +15,10 @@
 #     replaces the image and 0 allocations are flushed. Export the variable.
 #   * A fixed sleep is not enough — heaptrack slows startup ~10x, so this waits
 #     for an RSS PLATEAU instead of a clock.
+#   * LOCALE. Under a comma-decimal locale (de_DE etc.) awk parses "9.57" as
+#     9 — the period reads as a thousands separator — so every per-site
+#     figure silently truncates. This understated the report's filter totals
+#     by 5-35%%. Every awk that parses heaptrack output here is LC_ALL=C.
 #   * big.md is 98% duplicate lines. Content-hash caching makes it flatter than
 #     real prose, so a caching change measured against it looks ~40% better than
 #     it is. `gen` below produces a 100%-distinct corpus; use it.
@@ -38,12 +42,12 @@
 # `heap` baseline on uniq-960.md, same build:
 #
 #   peak heap        100.19 M      total leaked   87.87 M
-#   text3::cache      42.14 M / 81 sites   <- shaped text; THE target
+#   text3::cache      44.78 M / 81 sites   <- shaped text; THE target
 #   compute_document_pagination
-#                     18.53 M / 87 sites   <- app-side A4 layout, intentional
-#   solver3::sizing   18.23 M / 39 sites   <- intrinsic-width pass
-#   ParsedFont        11.69 M / 70 sites   <- decoded font tables
-#   LayoutTreeBuilder  4.26 M /  4 sites   <- does NOT grow with text content
+#                     19.98 M / 87 sites   <- app-side A4 layout, intentional
+#   solver3::sizing   19.67 M / 39 sites   <- intrinsic-width pass
+#   ParsedFont        13.06 M / 70 sites   <- decoded font tables
+#   LayoutTreeBuilder  4.78 M /  4 sites   <- does NOT grow with text content
 #
 # These filters OVERLAP by construction (pagination and sizing both reach
 # text3; font decode is reached from text3's FontManager). Do NOT add them.
@@ -158,7 +162,7 @@ heap_run() {
   # fired early reports a fraction of the real peak. Both look like success.
   # A blank document peaks near 29 M, so anything under 40 M on a real
   # document did not measure what you think it did.
-  local peak; peak=$(printf '%s\n' "$stats" | awk '/^peak heap/{
+  local peak; peak=$(printf '%s\n' "$stats" | LC_ALL=C awk '/^peak heap/{
       v=$5; u=substr(v,length(v),1); n=substr(v,1,length(v)-1)+0;
       if(u=="G") n*=1024; else if(u=="K") n/=1024; else if(u=="B") n=0;
       printf "%d", n }')
@@ -174,7 +178,7 @@ heap_run() {
     heaptrack_print --filter-bt-function "$f" -p 0 -a 0 -T 0 -l 1 -n 250 -s 1 \
         --print-flamegraph /dev/null "$zst" 2>/dev/null \
       | grep -E '^[0-9.]+[KMGB]? leaked over [0-9]+ calls from$' \
-      | awk '{v=$1;u=substr(v,length(v),1);n=substr(v,1,length(v)-1)+0;
+      | LC_ALL=C awk '{v=$1;u=substr(v,length(v),1);n=substr(v,1,length(v)-1)+0;
               if(u=="M")b=n*1e6; else if(u=="K")b=n*1e3; else b=v+0; s+=b;c++}
              END{printf " %7.2f M / %d sites\n", s/1e6, c}'
   done
@@ -185,5 +189,5 @@ case "${1:-}" in
   gen)  gen ;;
   rss)  rss_run "${2:?usage: rss <file.md>}" ;;
   heap) heap_run "${2:?usage: heap <file.md>}" ;;
-  *)    sed -n '2,55p' "$0"; exit 1 ;;
+  *)    sed -n '2,59p' "$0"; exit 1 ;;
 esac
