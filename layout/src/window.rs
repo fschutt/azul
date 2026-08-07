@@ -3304,6 +3304,28 @@ impl LayoutWindow {
                     eprintln!("[MEM] The remainder is NOT missing — it is the categories above that");
                     eprintln!("[MEM] the engine does not own. See scripts/RSS_MAP_2026_08_07.md.");
                 }
+                // ALLOCATOR. The census above says where RSS is; it cannot say
+                // how much of `[heap]` is live data versus memory the program
+                // freed and glibc kept. Every "transient" finding in the RSS
+                // map is the latter, and without this line the two are
+                // indistinguishable.
+                if let Some(a) = crate::probe::allocator_stats() {
+                    let mb = |b: u64| b as f64 / 1_048_576.0;
+                    eprintln!("[MEM] === ALLOCATOR (glibc mallinfo2) ===");
+                    eprintln!("[MEM]   live (uordblks)        {:>8.1} MiB  <- compare with the walk above",
+                        mb(a.live_bytes));
+                    eprintln!("[MEM]   freed, still held      {:>8.1} MiB  ({:.0}% of arena) <- CHURN, not data",
+                        mb(a.free_in_arena_bytes), a.fragmentation_pct());
+                    eprintln!("[MEM]   arena                  {:>8.1} MiB", mb(a.arena_bytes));
+                    eprintln!("[MEM]   releasable by trim     {:>8.1} MiB", mb(a.releasable_bytes));
+                    eprintln!("[MEM]   mmapped (hblkhd)       {:>8.1} MiB  <- lands in [anon], NOT [heap]",
+                        mb(a.mmapped_bytes));
+                } else {
+                    eprintln!("[MEM] ALLOCATOR: mallinfo2 unavailable (musl / glibc < 2.33 / macOS).");
+                    eprintln!("[MEM]   Saying so rather than printing zeros — a zero here would read");
+                    eprintln!("[MEM]   as \"no memory held\", the worst possible wrong answer.");
+                }
+
                 // DELTA vs the previous frame. Frame 0 has nothing to compare
                 // against and says so rather than printing a fake +N.
                 let prev_walk = PREV_WALKED_KIB.swap(walked_kib, Relaxed);

@@ -1770,3 +1770,202 @@ mod rss_census_tests {
         assert!(rss_census().is_none());
     }
 }
+
+// ---------------------------------------------------------------------------
+// ALLOCATOR STATS — live vs freed-but-held.
+//
+// The RSS census says where the process's pages are. It CANNOT say how much
+// of `[heap]` is live data and how much is memory the program freed but the
+// allocator kept. That distinction is load-bearing for this codebase: the CSS
+// clone churn, the ~32 MiB a window resize costs, and the "transient 5.2 MB"
+// in the RSS map are ALL freed-but-unreturned, and until now the report could
+// not tell them from live data — which is exactly the confusion that made a
+// 2 MB peak look like 5 MB of live footprint.
+// ---------------------------------------------------------------------------
+
+/// glibc's `struct mallinfo2`. All fields `size_t`, in bytes.
+///
+/// `mallinfo` (the old one) uses `int` and silently WRAPS past 2 GB, which is
+/// why only `mallinfo2` is used here.
+#[repr(C)]
+#[derive(Clone, Copy, Default)]
+struct MallInfo2 {
+    arena: usize,
+    ordblks: usize,
+    smblks: usize,
+    hblks: usize,
+    hblkhd: usize,
+    usmblks: usize,
+    fsmblks: usize,
+    uordblks: usize,
+    fordblks: usize,
+    keepcost: usize,
+}
+
+/// What the allocator is holding, in bytes.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct AllocatorStats {
+    /// Live: handed to the program and not yet freed. THIS is the number to
+    /// compare against an object walk.
+    pub live_bytes: u64,
+    /// Freed by the program, still held by the allocator. Counts toward RSS
+    /// and toward `[heap]`, but is not data — it is what a churn-heavy
+    /// startup leaves behind.
+    pub free_in_arena_bytes: u64,
+    /// `hblkhd` — space in mmapped regions. Served by `mmap` rather than the
+    /// arena (glibc does this above `MMAP_THRESHOLD`), so it lands in
+    /// `[anon]` and NOT in `[heap]` — which is why a full-window pixmap
+    /// never appears in the heap figure.
+    ///
+    /// Note for anyone testing this: an allocation whose result is never read
+    /// is DELETED by LLVM at `-O`, and then none of these counters move. A
+    /// first attempt here concluded the field was broken on that basis. With
+    /// the allocation forced to exist, a 64 MiB `Vec` moves `hblks` by +1 and
+    /// this field by +67 112 960 (64 MiB + a 4 KiB header), and drops back on
+    /// free. `arena` and `live_bytes` correctly stay flat, because an mmapped
+    /// block is not an arena block.
+    pub mmapped_bytes: u64,
+    /// Total arena size. `live + free_in_arena` should approximate it.
+    pub arena_bytes: u64,
+    /// Trailing space that `malloc_trim` could return to the OS.
+    pub releasable_bytes: u64,
+}
+
+impl AllocatorStats {
+    /// Freed-but-held as a share of the arena. High means churn, not data.
+    #[must_use]
+    pub fn fragmentation_pct(&self) -> f64 {
+        if self.arena_bytes == 0 {
+            0.0
+        } else {
+            100.0 * self.free_in_arena_bytes as f64 / self.arena_bytes as f64
+        }
+    }
+}
+
+/// Query the allocator, or `None` if it cannot be asked.
+///
+/// Looked up with `dlsym` rather than declared `extern`, deliberately.
+/// `mallinfo2` only exists in glibc >= 2.33; an `extern` declaration would
+/// make the BINARY FAIL TO LINK on musl, on older glibc, and on macOS. A
+/// runtime lookup degrades to `None` instead, and the report says the
+/// allocator could not be queried rather than printing zeros — a zero here
+/// would read as "no memory held", which is the worst possible wrong answer.
+#[must_use]
+pub fn allocator_stats() -> Option<AllocatorStats> {
+    #[cfg(not(all(unix, not(target_os = "macos"))))]
+    {
+        None
+    }
+    #[cfg(all(unix, not(target_os = "macos")))]
+    {
+        // RTLD_DEFAULT is NULL on glibc: search the global symbol scope.
+        unsafe extern "C" {
+            fn dlsym(handle: *mut core::ffi::c_void, symbol: *const u8)
+                -> *mut core::ffi::c_void;
+        }
+        let sym = unsafe { dlsym(core::ptr::null_mut(), c"mallinfo2".as_ptr().cast()) };
+        if sym.is_null() {
+            return None;
+        }
+        type MallInfo2Fn = unsafe extern "C" fn() -> MallInfo2;
+        let f: MallInfo2Fn = unsafe { core::mem::transmute(sym) };
+        let mi = unsafe { f() };
+        Some(AllocatorStats {
+            live_bytes: mi.uordblks as u64,
+            free_in_arena_bytes: mi.fordblks as u64,
+            mmapped_bytes: mi.hblkhd as u64,
+            arena_bytes: mi.arena as u64,
+            releasable_bytes: mi.keepcost as u64,
+        })
+    }
+}
+
+#[cfg(test)]
+mod allocator_stats_tests {
+    use super::*;
+
+    /// On a glibc host the allocator must answer, and its numbers must be
+    /// self-consistent. A test process has always allocated something, so a
+    /// zero `live_bytes` means the struct layout is wrong — which is the
+    /// failure mode a hand-written `#[repr(C)]` mirror invites.
+    #[test]
+    #[cfg(all(unix, not(target_os = "macos")))]
+    fn allocator_stats_are_self_consistent_or_absent() {
+        let Some(a) = allocator_stats() else {
+            // musl, or glibc < 2.33. Absence is a valid answer.
+            return;
+        };
+        assert!(
+            a.live_bytes > 0,
+            "a running test process has live allocations; 0 means the \
+             mallinfo2 struct layout is wrong"
+        );
+        assert!(
+            a.arena_bytes >= a.free_in_arena_bytes,
+            "free-in-arena ({}) cannot exceed the arena ({})",
+            a.free_in_arena_bytes,
+            a.arena_bytes
+        );
+        let pct = a.fragmentation_pct();
+        assert!((0.0..=100.0).contains(&pct), "fragmentation {pct} out of range");
+    }
+
+    /// Allocating must move the numbers, and must move the RIGHT one.
+    ///
+    /// This test was written asserting that a 4 MiB `Vec` raises
+    /// `live_bytes`, and it FAILED — correctly. glibc serves anything above
+    /// `MMAP_THRESHOLD` (128 KiB by default) with `mmap`, so a large
+    /// allocation lands in `hblkhd`/`mmapped_bytes` and never touches
+    /// `uordblks`/`live_bytes` at all. That split is the whole reason a
+    /// full-window pixmap shows up in `[anon]` rather than `[heap]`, and it
+    /// is worth pinning rather than discovering again.
+    #[test]
+    #[cfg(all(unix, not(target_os = "macos")))]
+    fn arena_and_mmap_allocations_move_the_right_counters() {
+        // ARENA allocations are tracked, and that is what this feature needs:
+        // the live-vs-freed-but-held split for churn. Verified, pinned.
+        // ARENA allocations move `live_bytes`. 32 MiB of 16 KiB blocks, so
+        // the delta dominates whatever other tests are doing concurrently.
+        let Some(before_small) = allocator_stats() else { return };
+        let small: Vec<Vec<u8>> = (0..2048).map(|_| vec![7u8; 16 * 1024]).collect();
+        let small = core::hint::black_box(small);
+        let Some(after_small) = allocator_stats() else { return };
+        let grew = after_small.live_bytes.saturating_sub(before_small.live_bytes);
+        assert!(
+            grew > 16 * 1024 * 1024,
+            "32 MiB of arena allocations must raise live_bytes by well over \
+             16 MiB; saw {grew} ({} -> {})",
+            before_small.live_bytes,
+            after_small.live_bytes
+        );
+        drop(small);
+
+        // A LARGE allocation goes to mmap instead, moving `mmapped_bytes`
+        // while leaving the arena counters alone.
+        //
+        // `black_box` is load-bearing. Without it LLVM deletes an allocation
+        // whose result is never read, no counter moves, and the test "proves"
+        // the field is broken — which is exactly the wrong conclusion an
+        // earlier version of this test reached.
+        let Some(before_big) = allocator_stats() else { return };
+        let mut big: Vec<u8> = vec![7u8; 64 * 1024 * 1024];
+        big[12345] = 9;
+        let big = core::hint::black_box(big);
+        let Some(after_big) = allocator_stats() else { return };
+        assert!(
+            after_big.mmapped_bytes > before_big.mmapped_bytes,
+            "a 64 MiB allocation must raise mmapped_bytes ({} -> {})",
+            before_big.mmapped_bytes,
+            after_big.mmapped_bytes
+        );
+        // NOT asserted: that `live_bytes` is UNCHANGED across the mmap.
+        // It should be — an mmapped block is not an arena block — but
+        // `mallinfo2` is PROCESS-GLOBAL and the test harness runs tests in
+        // parallel, so other threads' allocations move it between the two
+        // samples. That assertion passed alone and failed in the full suite.
+        // Only deltas large enough to dominate concurrent noise (64 MiB) are
+        // safe to assert here.
+        drop(big);
+    }
+}
