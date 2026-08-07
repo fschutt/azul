@@ -154,5 +154,5 @@ case "${1:-}" in
   gen)  gen ;;
   rss)  rss_run "${2:?usage: rss <file.md>}" ;;
   heap) heap_run "${2:?usage: heap <file.md>}" ;;
-  *)    sed -n '2,40p' "$0"; exit 1 ;;
+  *)    sed -n '2,41p' "$0"; exit 1 ;;
 esac
