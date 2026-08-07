@@ -3122,6 +3122,26 @@ impl LayoutWindow {
         }
 
         if *MEM_BREAKDOWN_ENABLED.get_or_init(azul_core::profile::memory_enabled) {
+            // ACROSS FRAMES. A single snapshot says where memory is; the DELTA
+            // says whether a change helped, and whether the process is still
+            // growing after it should have settled. Steady-state growth per
+            // frame is the signal a leak or an unbounded cache produces, and a
+            // one-shot report cannot show it at all.
+            //
+            // A plain static is right here: the report is already
+            // single-threaded (it runs inside layout) and a mutex would only
+            // add a way for the instrumentation to deadlock the thing it
+            // measures.
+            static MEM_FRAME: core::sync::atomic::AtomicU64 =
+                core::sync::atomic::AtomicU64::new(0);
+            static PREV_WALKED_KIB: core::sync::atomic::AtomicU64 =
+                core::sync::atomic::AtomicU64::new(0);
+            static PREV_RSS_KIB: core::sync::atomic::AtomicU64 =
+                core::sync::atomic::AtomicU64::new(0);
+            use core::sync::atomic::Ordering::Relaxed;
+            let mem_frame = MEM_FRAME.fetch_add(1, Relaxed);
+            eprintln!("[MEM] ================ frame {mem_frame} ================");
+
             let sr = styled_dom.memory_report();
             eprintln!("[MEM] StyledDom ({} nodes) total={} KiB", sr.node_count, sr.total_bytes() / 1024);
             eprintln!("[MEM]   node_hierarchy    {:>7} KiB", sr.node_hierarchy_bytes / 1024);
@@ -3283,6 +3303,29 @@ impl LayoutWindow {
                         100.0 * walked_kib as f64 / m.total_kib as f64, walked_kib, m.total_kib);
                     eprintln!("[MEM] The remainder is NOT missing — it is the categories above that");
                     eprintln!("[MEM] the engine does not own. See scripts/RSS_MAP_2026_08_07.md.");
+                }
+                // DELTA vs the previous frame. Frame 0 has nothing to compare
+                // against and says so rather than printing a fake +N.
+                let prev_walk = PREV_WALKED_KIB.swap(walked_kib, Relaxed);
+                let prev_rss = PREV_RSS_KIB.swap(m.total_kib, Relaxed);
+                if mem_frame == 0 {
+                    eprintln!("[MEM] delta: (first frame — nothing to compare against yet)");
+                } else {
+                    let d = |now: u64, was: u64| -> String {
+                        let diff = now as i64 - was as i64;
+                        format!("{diff:+} KiB ({:+.1} MiB)", diff as f64 / 1024.0)
+                    };
+                    eprintln!("[MEM] delta vs frame {}: engine-walked {} | RSS {}",
+                        mem_frame - 1, d(walked_kib, prev_walk), d(m.total_kib, prev_rss));
+                    // Growth after the first few frames is the interesting
+                    // case: the document is laid out, nothing new was opened,
+                    // and RSS is still climbing.
+                    if mem_frame >= 3 && m.total_kib > prev_rss + 256 {
+                        eprintln!("[MEM] !! RSS grew {} KiB on a settled frame — a cache is unbounded,",
+                            m.total_kib - prev_rss);
+                        eprintln!("[MEM] !! or something is retained per frame. This is the shape a");
+                        eprintln!("[MEM] !! leak makes; a single snapshot cannot show it.");
+                    }
                 }
             }
 
