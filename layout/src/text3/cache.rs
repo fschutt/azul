@@ -6130,6 +6130,23 @@ pub struct TextShapingCache {
     generation: u64,
 }
 
+/// Bytes an `Arc` allocation adds in front of its payload: strong + weak
+/// refcount.
+const ARC_HEADER: usize = 2 * size_of::<usize>();
+
+/// Approximate heap bytes of a `HashMap`'s own table.
+///
+/// hashbrown sizes for `entries / 0.875` buckets rounded up to a power of two,
+/// each holding a `(K, V)` pair plus one control byte. An ESTIMATE, labelled as
+/// such where it is printed — but far closer than the zero charged before.
+fn hashmap_bytes<K, V>(entries: usize) -> usize {
+    if entries == 0 {
+        return 0;
+    }
+    let buckets = ((entries * 8) / 7).next_power_of_two();
+    buckets * (size_of::<K>() + size_of::<V>() + 1)
+}
+
 /// Approximate heap bytes retained by a [`TextShapingCache`].
 #[derive(Copy, Debug, Clone, Default)]
 pub struct TextCacheMemoryReport {
@@ -6143,6 +6160,24 @@ pub struct TextCacheMemoryReport {
     pub shaped_cluster_text_bytes: usize,
     pub per_item_shaped_entries: usize,
     pub per_item_shaped_bytes: usize,
+    /// `HashMap` table allocations plus one `Arc` header per entry.
+    ///
+    /// Previously uncounted, which is why the itemised lines did not add up
+    /// to the total anyone read off this report: on a 960-line document the
+    /// four maps hold ~3 000 entries and the gap was ~3.4 MB.
+    pub map_overhead_bytes: usize,
+    /// Distinct `Arc<StyleProperties>` reachable from cached clusters, and
+    /// the bytes they hold. Counted once per allocation, not per referent —
+    /// the whole point of the `Arc` is that glyphs share it.
+    pub distinct_style_arcs: usize,
+    pub style_arc_bytes: usize,
+    /// Glyphs in `ShapedItem::CombinedBlock` (tate-chu-yoko). Zero on Latin;
+    /// non-zero on vertical CJK, where the old walk silently skipped them
+    /// because it only matched the `Cluster` arm.
+    pub combined_block_glyph_bytes: usize,
+    /// Cluster count, so a reader can derive bytes-per-cluster without
+    /// having to find it in another section of the report.
+    pub cluster_count: usize,
 }
 
 impl TextCacheMemoryReport {
@@ -6153,6 +6188,20 @@ impl TextCacheMemoryReport {
             + self.shaped_glyph_bytes
             + self.shaped_cluster_text_bytes
             + self.per_item_shaped_bytes
+            + self.map_overhead_bytes
+            + self.style_arc_bytes
+            + self.combined_block_glyph_bytes
+    }
+
+    /// Bytes per shaped cluster, the figure worth comparing against other
+    /// engines. `None` when nothing is cached.
+    #[must_use]
+    pub const fn bytes_per_cluster(&self) -> Option<usize> {
+        if self.cluster_count == 0 {
+            None
+        } else {
+            Some(self.total_bytes() / self.cluster_count)
+        }
     }
 }
 
@@ -6181,13 +6230,50 @@ impl TextShapingCache {
         for arc in self.visual_items.values() {
             r.visual_items_bytes += arc.capacity() * size_of::<VisualItem>();
         }
+        let mut style_arcs: alloc::collections::BTreeSet<usize> =
+            alloc::collections::BTreeSet::new();
+
+        // ONE glyph lives INLINE in the cluster's `SmallVec<[ShapedGlyph; 1]>`
+        // and is already inside the `size_of::<ShapedItem>()` charged above.
+        // Counting full `capacity()` charged it twice — on Latin text, where
+        // every cluster has exactly one glyph, that DOUBLED the reported glyph
+        // bytes. Fixed in `solver3/layout_tree.rs:952` (d41a15dbe); never
+        // applied here until now.
+        fn glyph_spill_bytes(c: &ShapedCluster) -> usize {
+            c.glyphs.capacity().saturating_sub(1) * size_of::<ShapedGlyph>()
+        }
+
         r.shaped_items_entries = self.shaped_items.len();
         for arc in self.shaped_items.values() {
             r.shaped_items_bytes += arc.capacity() * size_of::<ShapedItem>();
             for item in arc.iter() {
-                if let ShapedItem::Cluster(c) = item {
-                    r.shaped_glyph_bytes += c.glyphs.capacity() * size_of::<ShapedGlyph>();
-                    r.shaped_cluster_text_bytes += c.text.capacity();
+                match item {
+                    ShapedItem::Cluster(c) => {
+                        r.shaped_glyph_bytes += glyph_spill_bytes(c);
+                        r.shaped_cluster_text_bytes += c.text.capacity();
+                        r.cluster_count += 1;
+                        for g in &c.glyphs {
+                            style_arcs.insert(Arc::as_ptr(&g.style) as usize);
+                        }
+                    }
+                    // Tate-chu-yoko. Previously skipped entirely: the walk
+                    // only matched the `Cluster` arm.
+                    ShapedItem::CombinedBlock { glyphs, .. } => {
+                        r.combined_block_glyph_bytes +=
+                            glyphs.capacity() * size_of::<ShapedGlyph>();
+                        for g in glyphs {
+                            style_arcs.insert(Arc::as_ptr(&g.style) as usize);
+                        }
+                    }
+                    // No heap beyond the `size_of::<ShapedItem>()` already
+                    // charged for the slot. Listed explicitly rather than
+                    // caught by a wildcard so that adding a heap-owning arm
+                    // later fails to compile instead of silently going
+                    // uncounted — which is exactly how `CombinedBlock` was
+                    // missed by the old `if let Cluster`.
+                    ShapedItem::Object { .. }
+                    | ShapedItem::Tab { .. }
+                    | ShapedItem::Break { .. } => {}
                 }
             }
         }
@@ -6195,12 +6281,52 @@ impl TextShapingCache {
         for arc in self.per_item_shaped.values() {
             r.per_item_shaped_bytes += arc.clusters.capacity() * size_of::<ShapedItem>();
             for item in &arc.clusters {
-                if let ShapedItem::Cluster(c) = item {
-                    r.per_item_shaped_bytes += c.glyphs.capacity() * size_of::<ShapedGlyph>();
-                    r.per_item_shaped_bytes += c.text.capacity();
+                match item {
+                    ShapedItem::Cluster(c) => {
+                        r.per_item_shaped_bytes += glyph_spill_bytes(c);
+                        r.per_item_shaped_bytes += c.text.capacity();
+                        r.cluster_count += 1;
+                        for g in &c.glyphs {
+                            style_arcs.insert(Arc::as_ptr(&g.style) as usize);
+                        }
+                    }
+                    ShapedItem::CombinedBlock { glyphs, .. } => {
+                        r.combined_block_glyph_bytes +=
+                            glyphs.capacity() * size_of::<ShapedGlyph>();
+                        for g in glyphs {
+                            style_arcs.insert(Arc::as_ptr(&g.style) as usize);
+                        }
+                    }
+                    // No heap beyond the `size_of::<ShapedItem>()` already
+                    // charged for the slot. Listed explicitly rather than
+                    // caught by a wildcard so that adding a heap-owning arm
+                    // later fails to compile instead of silently going
+                    // uncounted — which is exactly how `CombinedBlock` was
+                    // missed by the old `if let Cluster`.
+                    ShapedItem::Object { .. }
+                    | ShapedItem::Tab { .. }
+                    | ShapedItem::Break { .. } => {}
                 }
             }
         }
+
+        r.distinct_style_arcs = style_arcs.len();
+        r.style_arc_bytes = style_arcs.len() * (size_of::<StyleProperties>() + ARC_HEADER);
+
+        // The maps themselves. Every line above measures what an entry POINTS
+        // AT; none measured the table holding the pointers or the `Arc` header
+        // in front of each payload. That is why the itemised lines never summed
+        // to the printed total — a ~3.4 MB gap on a 960-line document.
+        r.map_overhead_bytes = hashmap_bytes::<CacheId, Arc<Vec<LogicalItem>>>(
+            self.logical_items.len(),
+        ) + hashmap_bytes::<CacheId, Arc<Vec<VisualItem>>>(self.visual_items.len())
+            + hashmap_bytes::<CacheId, Arc<Vec<ShapedItem>>>(self.shaped_items.len())
+            + hashmap_bytes::<u64, Arc<PerItemShapedEntry>>(self.per_item_shaped.len())
+            + ARC_HEADER
+                * (self.logical_items.len()
+                    + self.visual_items.len()
+                    + self.shaped_items.len()
+                    + self.per_item_shaped.len());
         r
     }
 
@@ -14633,6 +14759,7 @@ mod autotest_generated {
         let r = TextCacheMemoryReport::default();
         assert_eq!(r.total_bytes(), 0);
 
+        // Powers of two, so a wrong total names the offending field.
         let full = TextCacheMemoryReport {
             logical_items_entries: 1_000_000, // must NOT be counted
             logical_items_bytes: 1,
@@ -14644,8 +14771,22 @@ mod autotest_generated {
             shaped_cluster_text_bytes: 16,
             per_item_shaped_entries: 1_000_000, // must NOT be counted
             per_item_shaped_bytes: 32,
+            map_overhead_bytes: 64,
+            style_arc_bytes: 128,
+            combined_block_glyph_bytes: 256,
+            distinct_style_arcs: 1_000_000, // a COUNT — must NOT be counted
+            cluster_count: 1_000_000,       // a COUNT — must NOT be counted
         };
-        assert_eq!(full.total_bytes(), 63, "1+2+4+8+16+32");
+        assert_eq!(full.total_bytes(), 511, "1+2+4+8+16+32+64+128+256");
+
+        // `bytes_per_cluster` divides by the count, so it must not divide by
+        // zero and must use the count rather than any byte field.
+        assert_eq!(
+            TextCacheMemoryReport::default().bytes_per_cluster(),
+            None,
+            "no clusters cached => no per-cluster figure, not a division by zero"
+        );
+        assert_eq!(full.bytes_per_cluster(), Some(0), "511 / 1_000_000 truncates to 0");
     }
 
     #[test]

@@ -3203,10 +3203,33 @@ impl LayoutWindow {
             eprintln!("[MEM]     glyph_bytes     {:>7} KiB", tc.shaped_glyph_bytes / 1024);
             eprintln!("[MEM]     cluster_text    {:>7} KiB", tc.shaped_cluster_text_bytes / 1024);
             eprintln!("[MEM]   per_item_shaped   {:>7} KiB  ({} entries)", tc.per_item_shaped_bytes / 1024, tc.per_item_shaped_entries);
+            eprintln!("[MEM]   map_overhead      {:>7} KiB  (HashMap tables + Arc headers; ESTIMATE)", tc.map_overhead_bytes / 1024);
+            eprintln!("[MEM]   style_arcs        {:>7} KiB  ({} distinct Arc<StyleProperties>)", tc.style_arc_bytes / 1024, tc.distinct_style_arcs);
+            if tc.combined_block_glyph_bytes > 0 {
+                eprintln!("[MEM]   combined_block    {:>7} KiB  (tate-chu-yoko glyphs)", tc.combined_block_glyph_bytes / 1024);
+            }
+            if let Some(bpc) = tc.bytes_per_cluster() {
+                eprintln!("[MEM]   -> {} clusters, {} B/cluster  (vs Gecko's retained ~6 B/char)",
+                    tc.cluster_count, bpc);
+            }
 
             let grand_total = sr.total_bytes() + sc.total_bytes() + tc.total_bytes();
-            eprintln!("[MEM] --- GRAND TOTAL (StyledDom + Solver3 + TextCache) = {} KiB = {:.2} MiB ---",
-                grand_total / 1024, grand_total as f64 / 1_048_576.0);
+            eprintln!("[MEM] --- GRAND TOTAL (StyledDom + Solver3 + TextCache) = {} KiB = {:.2} MiB = {:.2} MB ---",
+                grand_total / 1024, grand_total as f64 / 1_048_576.0, grand_total as f64 / 1_000_000.0);
+            // UNITS. This report prints KiB, as does /proc/<pid>/smaps despite
+            // its "kB" label. heaptrack prints DECIMAL MB. Mixing them silently
+            // is a 4.9% error, and it has produced at least three wrong
+            // conclusions in this project's own analysis — a "0.2% agreement"
+            // that was really 4.7%, and a "peak above settled" effect that did
+            // not exist. Both units are printed above so a comparison cannot
+            // pick the wrong one by accident.
+            eprintln!("[MEM] NOTE units: this report and smaps are KiB (1024); heaptrack is MB (1000).");
+            // COVERAGE. What this walk does NOT reach, so nobody reads the
+            // grand total as the process's memory:
+            eprintln!("[MEM] NOT COVERED: framebuffers/pixmaps, font files+decoded tables,");
+            eprintln!("[MEM]              binary+shared libs, allocator slack, freed-but-unreturned,");
+            eprintln!("[MEM]              and any Solver3LayoutCache owned by the APPLICATION");
+            eprintln!("[MEM]              (e.g. a thread_local pagination cache) — invisible here.");
 
             #[cfg(feature = "probe")]
             {

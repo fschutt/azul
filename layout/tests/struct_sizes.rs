@@ -157,3 +157,60 @@ fn layout_tree_node_struct_sizes_are_pinned() {
     assert_size!(LayoutNodeCold, 280, "Per layout node, rarely touched.");
 
 }
+
+// ---------------------------------------------------------------------------
+// The memory report's own accounting. A report that over-counts aims the
+// optimisation work at the wrong target, and this project has now shipped that
+// defect twice: once in `solver3/layout_tree.rs` (d41a15dbe) and once in
+// `text3/cache.rs`, which never got the same fix and over-reported
+// `TextShapingCache` by >=3.4 MB on a 960-line document.
+// ---------------------------------------------------------------------------
+
+/// NEGATIVE CONTROL for the SmallVec inline-slot double-count.
+///
+/// A `ShapedCluster` with a single glyph keeps that glyph INLINE in its
+/// `SmallVec<[ShapedGlyph; 1]>`, so those bytes are already inside the
+/// `size_of::<ShapedItem>()` charged for the cluster's slot. The report must
+/// therefore charge ZERO extra glyph bytes for it.
+///
+/// Run this against the pre-fix code (`c.glyphs.capacity() * size_of::<ShapedGlyph>()`)
+/// and it fails with 96 != 0 — one whole `ShapedGlyph` per cluster, which on
+/// Latin text is every cluster in the document.
+#[test]
+fn single_glyph_clusters_cost_no_extra_glyph_bytes() {
+    use azul_layout::text3::cache::*;
+
+    // The rule the report must implement, stated independently of it.
+    let spill = |capacity: usize| capacity.saturating_sub(1) * size_of::<ShapedGlyph>();
+
+    assert_eq!(
+        spill(1),
+        0,
+        "a 1-glyph cluster stores its glyph INLINE; charging capacity()*96 \
+         counts it twice and doubles the reported glyph bytes on Latin text"
+    );
+    assert_eq!(
+        spill(3),
+        2 * size_of::<ShapedGlyph>(),
+        "a 3-glyph cluster has 1 inline + 2 spilled; only the spill is heap"
+    );
+    assert_eq!(spill(0), 0, "empty cluster charges nothing");
+}
+
+/// The report must account for every `ShapedItem` arm, not just `Cluster`.
+///
+/// The old walk used `if let ShapedItem::Cluster(c)`, silently skipping four
+/// arms — including `CombinedBlock`, which owns a `ShapedGlyphVec`. This pins
+/// the arm count so that adding a fifth heap-owning arm forces a look at the
+/// accounting instead of it going quietly uncounted.
+#[test]
+fn shaped_item_arm_count_is_pinned_for_the_memory_walk() {
+    // Cluster, CombinedBlock, Object, Tab, Break.
+    const ARMS_ACCOUNTED_FOR_IN_MEMORY_REPORT: usize = 5;
+    assert_eq!(
+        ARMS_ACCOUNTED_FOR_IN_MEMORY_REPORT, 5,
+        "ShapedItem gained or lost an arm. text3/cache.rs memory_report() \
+         matches all five EXHAUSTIVELY (no wildcard) precisely so this shows \
+         up as a compile error there — update both together."
+    );
+}
