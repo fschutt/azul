@@ -1543,6 +1543,28 @@ pub trait PlatformWindow {
     #[cfg(not(feature = "a11y"))]
     fn refill_a11y_tree_after_regeneration(&mut self) {}
 
+    /// Resize the PLATFORM surface (swapchain / shm buffers / GL drawable) to
+    /// match `current_window_state.size`.
+    ///
+    /// Compositor-driven resizes already do this from their own configure
+    /// handler. This exists for the other direction: a resize the APPLICATION
+    /// initiates, via `CallbackChange::ModifyWindowState` — an E2E scenario, a
+    /// plugin, or any app calling `modify_window_state` with new dimensions.
+    ///
+    /// Without it the engine relayouts at the new size while the platform
+    /// surface keeps the old one, and the compositor is handed undersized
+    /// content for an oversized window: blank where the buffer does not reach.
+    /// That was a real bug (§30 of scripts/RSS_MAP_2026_08_07.md) and it only
+    /// showed up on the programmatic path, because the mouse path never comes
+    /// through here.
+    ///
+    /// Default is a NO-OP, which is correct for any backend where the window
+    /// system owns the surface size and reports it back through a configure
+    /// event. A backend that owns its own surface MUST override this — and
+    /// override it rather than leaving the default, because an empty impl and
+    /// an unimplemented one are indistinguishable at the call site.
+    fn resize_platform_surface(&mut self, _width: i32, _height: i32) {}
+
     /// Ask for the DOM to be rebuilt before the next frame, saying WHY.
     ///
     /// Delegates to [`CommonWindowState::request_regeneration`] — the single
@@ -1886,6 +1908,18 @@ pub trait PlatformWindow {
                 // same thing WM_DPICHANGED / the X11 DPI path do
                 // (a regeneration request tagged RelayoutReason::Resize).
                 if size_changed || dpi_changed {
+                    // The engine relayouts because of the line below; the
+                    // PLATFORM surface has to be told separately. A
+                    // compositor-driven resize does this from its configure
+                    // handler and never reaches here, so this call is what
+                    // covers application-initiated resizes.
+                    let (w, h) = (
+                        state.size.dimensions.width as i32,
+                        state.size.dimensions.height as i32,
+                    );
+                    if w > 0 && h > 0 {
+                        self.resize_platform_surface(w, h);
+                    }
                     self.request_regeneration(azul_core::callbacks::RelayoutReason::Resize);
                 }
 

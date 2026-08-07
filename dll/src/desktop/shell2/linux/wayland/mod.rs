@@ -1007,6 +1007,13 @@ impl WaylandWindow {
 // PlatformWindow Trait Implementation (Cross-platform V2 Event System)
 
 impl PlatformWindow for WaylandWindow {
+    /// Wayland owns its shm pool / EGL drawable, so an application-initiated
+    /// resize must rebuild them here — the compositor will not send a
+    /// configure for a size the client chose itself.
+    fn resize_platform_surface(&mut self, width: i32, height: i32) {
+        self.resize_surface(width, height);
+    }
+
     fn regenerate_layout_once(
         &mut self,
     ) -> Result<crate::desktop::shell2::common::layout::LayoutRegenerateResult, String> {
