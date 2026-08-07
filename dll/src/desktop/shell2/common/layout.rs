@@ -158,6 +158,62 @@ pub enum LayoutRegenerateResult {
 /// Returns `Ok(LayoutChanged)` if full layout was performed,
 /// `Ok(LayoutUnchanged)` if the DOM was structurally unchanged and layout was reused,
 /// or an error message on failure.
+/// Per-phase wall-clock for one `regenerate_layout`, reported as ONE line.
+///
+/// `emit_phase_heap` marks the same boundaries but measures HEAP, needs the
+/// `probe` feature, and says nothing about time. The 2026-08-07 mouse-resize
+/// investigation needed the time split and had no way to get it: the only
+/// timing was a single 654-942 ms total for the whole function.
+///
+/// One line per relayout rather than one per phase, because a drag produces
+/// hundreds of relayouts and 20 lines each is unreadable. Costs an `Instant::now`
+/// per boundary and nothing else when the gate is closed.
+struct PhaseTimer {
+    enabled: bool,
+    start: std::time::Instant,
+    last: std::time::Instant,
+    marks: Vec<(&'static str, f64)>,
+}
+
+impl PhaseTimer {
+    fn new() -> Self {
+        let enabled = crate::desktop::shell2::common::log_gate::should_log(
+            LogCategory::Window,
+            azul_core::log_filter::Level::Debug,
+        );
+        let now = std::time::Instant::now();
+        Self { enabled, start: now, last: now, marks: Vec::new() }
+    }
+
+    fn mark(&mut self, name: &'static str) {
+        if !self.enabled {
+            return;
+        }
+        let now = std::time::Instant::now();
+        self.marks.push((name, (now - self.last).as_secs_f64() * 1000.0));
+        self.last = now;
+    }
+
+    /// Log the phases that actually cost something, biggest first. Phases under
+    /// 0.5 ms are summed into one "rest" entry — with ~20 boundaries the noise
+    /// otherwise hides the two or three that matter.
+    fn report(&self) {
+        if !self.enabled {
+            return;
+        }
+        let total = (self.last - self.start).as_secs_f64() * 1000.0;
+        let mut sorted: Vec<_> = self.marks.iter().filter(|(_, ms)| *ms >= 0.5).collect();
+        sorted.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(core::cmp::Ordering::Equal));
+        let rest: f64 = self.marks.iter().filter(|(_, ms)| *ms < 0.5).map(|(_, ms)| ms).sum();
+        let mut line = format!("[phases] total {total:.1}ms |");
+        for (name, ms) in sorted {
+            line.push_str(&format!(" {name} {ms:.1}ms |"));
+        }
+        line.push_str(&format!(" rest {rest:.1}ms"));
+        log_debug!(LogCategory::Window, "{}", line);
+    }
+}
+
 pub fn regenerate_layout(
     layout_window: &mut LayoutWindow,
     app_data: &Arc<RefCell<RefAny>>,
@@ -173,6 +229,7 @@ pub fn regenerate_layout(
 ) -> Result<LayoutRegenerateResult, String> {
     log_debug!(LogCategory::Layout, "[regenerate_layout] START");
     azul_layout::probe::emit_phase_heap("start");
+    let mut phases = PhaseTimer::new();
 
     // E2E observability: count DOM regenerations (sticky until
     // `reset_frame_counters`) so that a test can assert an interaction did not
@@ -186,6 +243,7 @@ pub fn regenerate_layout(
     // is effectively free; on first run it blocks until the Scout + Builder
     // threads have parsed the needed fonts.
     azul_layout::probe::emit_phase_heap("before_registry_check");
+phases.mark("before_registry_check");
     if let Some(registry) = font_registry.as_ref() {
         // Avoid replacing a complete font cache (e.g. loaded from disk cache at
         // startup) with an incomplete snapshot while background builder threads
@@ -205,17 +263,21 @@ pub fn regenerate_layout(
             // Snapshot the registry into an FcFontCache for use during layout
             layout_window.font_manager.replace_fc_cache(registry.shared_cache());
             azul_layout::probe::emit_phase_heap("after_shared_cache");
+phases.mark("after_shared_cache");
             log_debug!(LogCategory::Layout, "[regenerate_layout] Font registry snapshot complete");
         } else {
             log_debug!(LogCategory::Layout, "[regenerate_layout] Using existing font cache (build still in progress)");
         }
     } else {
         azul_layout::probe::emit_phase_heap("before_fc_clone");
+phases.mark("before_fc_clone");
         // Fallback: use the provided fc_cache directly
         layout_window.font_manager.replace_fc_cache((**fc_cache).clone());
         azul_layout::probe::emit_phase_heap("after_fc_clone");
+phases.mark("after_fc_clone");
     }
     azul_layout::probe::emit_phase_heap("after_font_snapshot");
+phases.mark("after_font_snapshot");
 
     // 1. Call user's layout callback to get new DOM
     log_debug!(
@@ -256,12 +318,14 @@ pub fn regenerate_layout(
 
     let app_data_borrowed = app_data.borrow_mut();
     azul_layout::probe::emit_phase_heap("before_callback");
+phases.mark("before_callback");
 
     let user_dom =
         (current_window_state.layout_callback.cb)((*app_data_borrowed).clone(), callback_info);
 
     drop(app_data_borrowed); // Release borrow
     azul_layout::probe::emit_phase_heap("after_callback");
+phases.mark("after_callback");
 
     // Software menu bar — the Linux fallback. Injected at the *Dom* level (before
     // `create_from_dom`) so the bar's `with_css` rules are scoped by
@@ -319,11 +383,13 @@ pub fn regenerate_layout(
         None => azul_core::styled_dom::StyledDom::create_from_dom(user_dom),
     };
     azul_layout::probe::emit_phase_heap("after_create_from_dom");
+phases.mark("after_create_from_dom");
 
     // 2. Resolve icon nodes to their actual content (text glyphs, images, etc.)
     // This must happen after the user's layout callback and before CSD injection
     azul_core::icon::resolve_icons_in_styled_dom(&mut user_styled_dom, icon_provider, system_style);
     azul_layout::probe::emit_phase_heap("after_icons");
+phases.mark("after_icons");
 
     // 3. Conditionally inject Client-Side Decorations (CSD)
     //
@@ -380,6 +446,7 @@ pub fn regenerate_layout(
         user_styled_dom
     };
     azul_layout::probe::emit_phase_heap("after_csd");
+phases.mark("after_csd");
 
     // 3.4. Re-compute inheritance and compact cache on the composed tree.
     //
@@ -401,6 +468,7 @@ pub fn regenerate_layout(
     // fixes both issues. Cost: one extra O(n) pass — acceptable for correctness.
     styled_dom.recompute_inheritance_and_compact_cache();
     azul_layout::probe::emit_phase_heap("after_recompute_cache");
+phases.mark("after_recompute_cache");
 
     // 3.5. STATE MIGRATION: Transfer heavy resources from old DOM to new DOM
     // This allows components like video players to preserve their decoder handles
@@ -547,6 +615,7 @@ pub fn regenerate_layout(
         }
     }
     azul_layout::probe::emit_phase_heap("after_state_migrate");
+phases.mark("after_state_migrate");
 
     // NOTE: dirty_text_nodes is NOT applied to the StyledDom here.
     // The V3 architecture has two paths:
@@ -574,6 +643,7 @@ pub fn regenerate_layout(
         current_window_state,
     );
     azul_layout::probe::emit_phase_heap("after_runtime_states");
+phases.mark("after_runtime_states");
 
     // 3.7 OPTIMIZATION: Check if the new DOM is structurally identical to the old DOM.
     // If so, we can skip the expensive layout pipeline (CSS cascade, flexbox, display list)
@@ -661,11 +731,14 @@ pub fn regenerate_layout(
 
             log_debug!(LogCategory::Layout, "[regenerate_layout] COMPLETE (layout unchanged)");
             azul_layout::probe::emit_phase_heap("end_unchanged");
+phases.mark("end_unchanged");
+            phases.report();
             return Ok(LayoutRegenerateResult::LayoutUnchanged);
         }
     }
     } // end if !window_size_changed
     azul_layout::probe::emit_phase_heap("after_equivalence_check");
+phases.mark("after_equivalence_check");
 
     // 4. Perform layout with solver3
     log_debug!(
@@ -676,6 +749,7 @@ pub fn regenerate_layout(
     // Update system style for resolving system color keywords (selection colors, accent, etc.)
     layout_window.set_system_style(system_style.clone());
     azul_layout::probe::emit_phase_heap("before_layout_dl");
+phases.mark("before_layout_dl");
 
     layout_window
         .layout_and_generate_display_list(
@@ -687,6 +761,7 @@ pub fn regenerate_layout(
         )
         .map_err(|e| format!("Layout error: {:?}", e))?;
     azul_layout::probe::emit_phase_heap("after_layout_and_dl");
+phases.mark("after_layout_and_dl");
 
     // CRITICAL: Update layout_window's cached window state so the next
     // regenerate_layout correctly detects size changes.  Without this,
@@ -859,6 +934,8 @@ pub fn regenerate_layout(
 
     log_debug!(LogCategory::Layout, "[regenerate_layout] COMPLETE");
     azul_layout::probe::emit_phase_heap("end");
+phases.mark("end");
+    phases.report();
 
     Ok(LayoutRegenerateResult::LayoutChanged)
 }
