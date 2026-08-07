@@ -120,7 +120,7 @@ mod nostd_lock {
 use azul_css::{AzString, system::SystemStyle};
 
 use crate::{
-    dom::{Dom, NodeType},
+    dom::{Dom, NodeData, NodeType},
     refany::{OptionRefAny, RefAny},
     styled_dom::StyledDom,
 };
@@ -638,11 +638,26 @@ fn is_single_node_replacement(replacement: &StyledDom) -> bool {
     replacement.node_data.as_ref().len() == 1
 }
 
-/// Apply a single-node replacement (fast path: swap `NodeType` and copy properties)
+/// Apply a single-node replacement (fast path: swap `NodeType` and MOVE properties).
+///
+/// Takes the replacement BY VALUE. It was previously borrowed and every field
+/// deep-copied out of it — `NodeType`, the inline `Css`, the accessibility
+/// box, and the `StyledNode` — even though the caller already owns each
+/// replacement (`replacements.into_iter()`) and drops it immediately after.
+///
+/// Cloning a `Css` is not cheap: it is a `CssRuleBlockVec`, each block holding
+/// a `CssDeclarationVec`, and `Css::from(CssPropertyWithConditionsVec)`
+/// (`css/src/css.rs:171`) builds ONE rule block with a ONE-ELEMENT declaration
+/// vec per property — so a widget with N inline properties is N separate heap
+/// allocations, and cloning it re-allocates all N. Measured on an icon-dense
+/// ribbon: 304 style clones cascading into **14 690** `CssDeclarationVec`
+/// clones, ~2 MB of transient churn that glibc never returns to the OS.
+///
+/// Moving costs nothing and cannot fail. This is a memory AND a latency fix.
 fn apply_single_node_replacement(
     styled_dom: &mut StyledDom,
     node_idx: usize,
-    replacement: &StyledDom,
+    replacement: StyledDom,
 ) {
     if replacement.node_data.as_ref().is_empty() {
         // Empty replacement - convert to empty div
@@ -650,31 +665,31 @@ fn apply_single_node_replacement(
         if let Some(node) = node_data.get_mut(node_idx) {
             node.set_node_type(NodeType::Div);
         }
-    } else {
-        // Get the root node from the replacement and copy its properties
-        let replacement_root = &replacement.node_data.as_ref()[0];
-        let replacement_node_type = replacement_root.get_node_type().clone();
-        
-        let node_data = styled_dom.node_data.as_mut();
-        if let Some(node) = node_data.get_mut(node_idx) {
-            // Swap node type
-            node.set_node_type(replacement_node_type);
-            
-            // Copy inline style from replacement
-            node.set_style(replacement_root.get_style().clone());
-            
-            // Copy accessibility info if present
-            if let Some(a11y) = replacement_root.get_accessibility_info() {
-                node.set_accessibility_info(a11y.clone());
-            }
+        return;
+    }
+
+    // Consume the replacement so its root's fields can be MOVED rather than
+    // cloned. `swap_remove(0)` is fine: only index 0 is read, and the vec is
+    // dropped immediately after.
+    let StyledDom { node_data, styled_nodes, .. } = replacement;
+    let mut roots = node_data.into_library_owned_vec();
+    let root = roots.swap_remove(0);
+    let NodeData { node_type, style, accessibility, .. } = root;
+
+    if let Some(node) = styled_dom.node_data.as_mut().get_mut(node_idx) {
+        node.set_node_type(node_type);
+        node.set_style(style);
+        if let Some(a11y) = accessibility {
+            node.set_accessibility_info(*a11y);
         }
-        
-        // Also update the styled_nodes to reflect the new styling
-        if let Some(replacement_styled) = replacement.styled_nodes.as_ref().first() {
-            let styled_nodes = styled_dom.styled_nodes.as_mut();
-            if let Some(styled) = styled_nodes.get_mut(node_idx) {
-                *styled = replacement_styled.clone();
-            }
+    }
+
+    // Also update the styled_nodes to reflect the new styling.
+    let mut styled_vec = styled_nodes.into_library_owned_vec();
+    if !styled_vec.is_empty() {
+        let replacement_styled = styled_vec.swap_remove(0);
+        if let Some(styled) = styled_dom.styled_nodes.as_mut().get_mut(node_idx) {
+            *styled = replacement_styled;
         }
     }
 }
@@ -683,8 +698,9 @@ fn apply_single_node_replacement(
 fn apply_multi_node_replacement(
     styled_dom: &mut StyledDom,
     node_idx: usize,
-    replacement: &StyledDom,
+    replacement: StyledDom,
 ) {
+    // Read the length BEFORE moving — it is used again after the call.
     let replacement_len = replacement.node_data.as_ref().len();
     if replacement_len == 0 {
         let node_data = styled_dom.node_data.as_mut();
@@ -693,8 +709,10 @@ fn apply_multi_node_replacement(
         }
         return;
     }
-    
-    // For now, just apply the root node (same as single-node)
+
+    // For now, just apply the root node (same as single-node). Ownership is
+    // threaded through so the root's fields MOVE rather than being cloned;
+    // see apply_single_node_replacement.
     apply_single_node_replacement(styled_dom, node_idx, replacement);
     
     if replacement_len > 1 {
@@ -737,13 +755,13 @@ pub fn resolve_icons_in_styled_dom(
             apply_single_node_replacement(
                 styled_dom,
                 replacement.node_idx,
-                &replacement.replacement
+                replacement.replacement,
             );
         } else {
             apply_multi_node_replacement(
                 styled_dom,
                 replacement.node_idx,
-                &replacement.replacement
+                replacement.replacement,
             );
         }
 
@@ -1582,7 +1600,7 @@ mod autotest_generated {
         let idx = icon_indices(&sd)[0];
         let empty = zero_node_styled_dom();
 
-        apply_single_node_replacement(&mut sd, idx, &empty);
+        apply_single_node_replacement(&mut sd, idx, empty);
         assert!(matches!(node_type_at(&sd, idx), NodeType::Div));
         assert!(collect_icon_nodes(&sd).is_empty());
     }
@@ -1594,7 +1612,7 @@ mod autotest_generated {
         let before_len = sd.node_data.as_ref().len();
         let repl = StyledDom::create_from_dom(Dom::create_div());
 
-        apply_single_node_replacement(&mut sd, idx, &repl);
+        apply_single_node_replacement(&mut sd, idx, repl);
         assert!(matches!(node_type_at(&sd, idx), NodeType::Div));
         assert_eq!(sd.node_data.as_ref().len(), before_len, "node count must not change");
     }
@@ -1610,8 +1628,9 @@ mod autotest_generated {
 
         for idx in [len, len + 1, usize::MAX / 2, usize::MAX] {
             let mut sd = styled_dom_with_icons(&["home"]);
-            apply_single_node_replacement(&mut sd, idx, &repl);
-            apply_single_node_replacement(&mut sd, idx, &empty);
+            // Cloned because the loop reuses them; production MOVES.
+            apply_single_node_replacement(&mut sd, idx, repl.clone());
+            apply_single_node_replacement(&mut sd, idx, empty.clone());
             assert_eq!(sd.node_data.as_ref().len(), len, "idx {idx} must not resize");
             assert!(
                 matches!(node_type_at(&sd, icon_idx), NodeType::Icon(_)),
@@ -1627,7 +1646,7 @@ mod autotest_generated {
         let mut sd = styled_dom_with_icons(&["home"]);
         let idx = icon_indices(&sd)[0];
 
-        apply_multi_node_replacement(&mut sd, idx, &zero_node_styled_dom());
+        apply_multi_node_replacement(&mut sd, idx, zero_node_styled_dom());
         assert!(matches!(node_type_at(&sd, idx), NodeType::Div));
     }
 
@@ -1642,7 +1661,7 @@ mod autotest_generated {
         );
         assert!(repl.node_data.as_ref().len() > 1);
 
-        apply_multi_node_replacement(&mut sd, idx, &repl);
+        apply_multi_node_replacement(&mut sd, idx, repl);
 
         // Documented TODO: subtree splicing is not implemented, only the root is used.
         assert!(matches!(node_type_at(&sd, idx), NodeType::Div));
@@ -1658,8 +1677,9 @@ mod autotest_generated {
 
         for idx in [len, usize::MAX] {
             let mut sd = styled_dom_with_icons(&["home"]);
-            apply_multi_node_replacement(&mut sd, idx, &repl);
-            apply_multi_node_replacement(&mut sd, idx, &zero_node_styled_dom());
+            // Cloned because the loop reuses it; production MOVES.
+            apply_multi_node_replacement(&mut sd, idx, repl.clone());
+            apply_multi_node_replacement(&mut sd, idx, zero_node_styled_dom());
             assert_eq!(sd.node_data.as_ref().len(), len);
             assert!(matches!(node_type_at(&sd, icon_idx), NodeType::Icon(_)));
         }
