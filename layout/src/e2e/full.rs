@@ -12628,6 +12628,23 @@ pub fn process_debug_event(
                     })
                     .collect();
             }
+            // Also LOG the snapshot, not just answer the HTTP request.
+            //
+            // Non-assert ops reply through the debug channel and log nothing,
+            // so with no HTTP client attached this op produced no observable
+            // output at all — it ran correctly and looked like it had not run.
+            // A profile you cannot see is a profile you cannot act on, and the
+            // whole point of the op is that a scenario run leaves a record of
+            // what memory did.
+            log(
+                LogLevel::Info,
+                LogCategory::DebugServer,
+                match serde_json::to_string(&r) {
+                    Ok(j) => format!("[PROFILE] {j}"),
+                    Err(e) => format!("[PROFILE] serialise failed: {e}"),
+                },
+                None,
+            );
             send_ok(request, None, Some(ResponseData::Profile(r)));
         }
 
