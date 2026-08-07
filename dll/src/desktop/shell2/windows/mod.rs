@@ -14,6 +14,11 @@
 //! - Common shell2 modules: Compositor, error handling
 
 use crate::desktop::shell2::common::debug_server::LogCategory;
+
+/// `WM_SIZE` events seen. The Win32 half of the cross-backend resize census —
+/// see the Wayland `CONFIGURES_SEEN` for why the count matters.
+pub(super) static WM_SIZE_SEEN: core::sync::atomic::AtomicUsize =
+    core::sync::atomic::AtomicUsize::new(0);
 use crate::impl_platform_window_getters;
 use crate::{log_debug, log_error, log_info, log_trace, log_warn};
 
@@ -2935,6 +2940,18 @@ unsafe extern "system" fn window_proc(
 
             if width > 0 && height > 0 {
                 use azul_core::{geom::PhysicalSizeU32, window::WindowSize};
+
+                // Resize census, matching the Wayland/X11 configure traces. A
+                // drag delivers one WM_SIZE per frame, so per-event work runs at
+                // frame rate — count them and time what they cause.
+                crate::log_debug!(
+                    LogCategory::Window,
+                    "[Win32 WM_SIZE] #{} phys {}x{} wparam={}",
+                    WM_SIZE_SEEN.fetch_add(1, core::sync::atomic::Ordering::Relaxed) + 1,
+                    width,
+                    height,
+                    wparam as usize
+                );
 
                 let physical_size = PhysicalSizeU32::new(width, height);
                 let dpi = window.common.current_window_state.size.dpi;

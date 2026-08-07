@@ -61,6 +61,13 @@ use self::{
 };
 use super::common::gl::GlFunctions;
 use crate::desktop::shell2::common::debug_server::LogCategory;
+
+/// `ConfigureNotify` events seen. The X11 half of the cross-backend resize
+/// census — see the Wayland `CONFIGURES_SEEN` for why the count matters: a
+/// drag-resize delivers one configure per frame, so anything done per configure
+/// is done at frame rate.
+pub(super) static CONFIGURES_SEEN: core::sync::atomic::AtomicUsize =
+    core::sync::atomic::AtomicUsize::new(0);
 use crate::desktop::{
     shell2::common::{
         event::{self, HitTestNode, PlatformWindow},
@@ -2817,6 +2824,23 @@ impl X11Window {
                 let new_logical =
                     LogicalSize::new(new_width as f32 / scale, new_height as f32 / scale);
 
+                // Resize census, matching the Wayland configure trace. A mouse
+                // drag delivers one of these PER FRAME on every backend, so the
+                // per-event cost is what decides whether a drag feels smooth —
+                // count them and time the work they cause, on all of them.
+                crate::log_debug!(
+                    LogCategory::Window,
+                    "[X11 ConfigureNotify] #{} phys {}x{} logical {:.0}x{:.0} scale={} \
+                     synthetic={}",
+                    CONFIGURES_SEEN.fetch_add(1, core::sync::atomic::Ordering::Relaxed) + 1,
+                    new_width,
+                    new_height,
+                    new_logical.width,
+                    new_logical.height,
+                    scale,
+                    ev.send_event != 0
+                );
+
                 // ICCCM: only a SYNTHETIC (WM-sent, send_event != 0)
                 // ConfigureNotify carries root-absolute x/y; a REAL one is
                 // relative to the PARENT — under a reparenting WM that is the
@@ -4990,6 +5014,26 @@ impl Drop for X11Window {
         self.common.deinit_renderer();
 
         self.common.gl_context_ptr = OptionGlContextPtr::None;
+
+        // Free the CPU-path graphics context EXPLICITLY.
+        //
+        // `RenderMode::Cpu(Option<GC>)` holds a bare X resource id and the enum
+        // has no `Drop`, so assigning `RenderMode::None` below drops the
+        // Option<GC> without telling the X server anything — one leaked GC per
+        // window, for the life of the connection. The comment above this block
+        // asserts that "eglDestroyContext / XFreeGC would run against a
+        // destroyed window", i.e. it was written believing this teardown
+        // already happened. It did not; only the GL arm has a Drop.
+        //
+        // Order matters and is why this sits here rather than in a Drop impl:
+        // the GC must go while `self.display` and `self.window` are still
+        // alive, which is exactly the window this block was built to provide —
+        // `self.close()` on the next line destroys both.
+        if let RenderMode::Cpu(Some(gc)) = self.render_mode {
+            unsafe {
+                (self.xlib.XFreeGC)(self.display, gc);
+            }
+        }
 
         self.render_mode = RenderMode::None;
         self.close();

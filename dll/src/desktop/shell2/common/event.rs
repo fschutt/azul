@@ -1484,15 +1484,36 @@ pub trait PlatformWindow {
     ) -> Result<crate::desktop::shell2::common::layout::LayoutRegenerateResult, String> {
         use azul_layout::window::MAX_LIFECYCLE_REGEN_PASSES;
 
+        // Timed at WINDOW category, deliberately NOT Layout.
+        //
+        // Everything inside `regenerate_layout` logs under LogCategory::Layout,
+        // and Layout is the category you are forced to silence (`AZ_LOG=debug,
+        // -layout`) because it emitted 482 547 lines on a three-resize run. So
+        // the single most important number for diagnosing a slow resize — how
+        // long a relayout takes and how many passes it needed — was only
+        // available in the one configuration too noisy to run. This span is
+        // outside that category on purpose.
+        let _span = crate::log_span!(
+            crate::desktop::shell2::common::debug_server::LogCategory::Window,
+            "regenerate_layout",
+        );
+        let started = std::time::Instant::now();
+
         let mut result = self.regenerate_layout_once()?;
+        let mut passes = 1usize;
 
         for _pass in 1..MAX_LIFECYCLE_REGEN_PASSES {
             if !self.dispatch_pending_lifecycle_events() {
                 self.refill_a11y_tree_after_regeneration();
                 self.flush_a11y_tree_update();
+                _span.note(format_args!(
+                    "{passes} pass(es) in {:.2}ms",
+                    started.elapsed().as_secs_f64() * 1000.0
+                ));
                 return Ok(result);
             }
             result = self.regenerate_layout_once()?;
+            passes += 1;
         }
 
         // One last drain, so callbacks still RUN on the final pass even though we
@@ -1504,6 +1525,16 @@ pub trait PlatformWindow {
         }
         self.refill_a11y_tree_after_regeneration();
         self.flush_a11y_tree_update();
+        // Hitting the cap means the lifecycle loop never converged — every one
+        // of these passes is a FULL relayout, so this is the difference between
+        // a resize costing one layout and costing MAX_LIFECYCLE_REGEN_PASSES of
+        // them. Warn rather than note: it is a defect, not a statistic.
+        crate::log_warn!(
+            crate::desktop::shell2::common::debug_server::LogCategory::Window,
+            "[regenerate_layout] hit the lifecycle cap: {passes} FULL relayouts in {:.2}ms \
+             without converging",
+            started.elapsed().as_secs_f64() * 1000.0
+        );
         Ok(result)
     }
 
@@ -1563,6 +1594,30 @@ pub trait PlatformWindow {
     /// event. A backend that owns its own surface MUST override this — and
     /// override it rather than leaving the default, because an empty impl and
     /// an unimplemented one are indistinguishable at the call site.
+    ///
+    /// # Per-backend audit (2026-08-07) — the default is DELIBERATE, not unchecked
+    ///
+    /// The commit that introduced this said X11/Windows/macOS "have not been
+    /// checked and may have the same bug". They have now been checked, by
+    /// reading each backend's `sync_window_state()`:
+    ///
+    /// | backend | programmatic resize reaches the OS by | override needed |
+    /// |---|---|---|
+    /// | Wayland | nothing — `sync_window_state` has NO size branch | **yes, overridden** |
+    /// | X11 | `sync_window_state` → `XResizeWindow` (x11/mod.rs) | no |
+    /// | Windows | `sync_window_state` → `SetWindowPos` (windows/mod.rs) | no |
+    /// | macOS | `sync_window_state` → `setContentSize` (macos/mod.rs) | no |
+    /// | Android / iOS | the system owns the surface; `sync_window_state` is `{}` | no |
+    /// | headless | no platform surface exists | no |
+    ///
+    /// The asymmetry is real rather than an oversight: on X11/Windows/macOS the
+    /// platform call resizes the WINDOW, and the drawable is then resized by the
+    /// resulting `ConfigureNotify` / `WM_SIZE` / `windowDidResize`. Wayland has
+    /// no such round trip — the client allocates its own `wl_shm` buffers — so
+    /// it is the one backend where the application-initiated path has to do the
+    /// work itself.
+    ///
+    /// If you add a backend that allocates its own swapchain, override this.
     fn resize_platform_surface(&mut self, _width: i32, _height: i32) {}
 
     /// Ask for the DOM to be rebuilt before the next frame, saying WHY.
@@ -1917,8 +1972,31 @@ pub trait PlatformWindow {
                         state.size.dimensions.width as i32,
                         state.size.dimensions.height as i32,
                     );
+                    crate::log_debug!(
+                        crate::desktop::shell2::common::debug_server::LogCategory::Window,
+                        "[resize] APP-initiated {}x{} (size_changed={} dpi_changed={}) \
+                         — calling resize_platform_surface + regenerate",
+                        w,
+                        h,
+                        size_changed,
+                        dpi_changed
+                    );
                     if w > 0 && h > 0 {
+                        let _span = crate::log_span!(
+                            crate::desktop::shell2::common::debug_server::LogCategory::Window,
+                            "resize_platform_surface",
+                        );
                         self.resize_platform_surface(w, h);
+                    } else {
+                        // A zero/negative size reaching here means the caller
+                        // built a window state the platform cannot represent.
+                        // Silently skipping it is how "the window never
+                        // resized" turns into an unexplained blank region.
+                        crate::log_warn!(
+                            crate::desktop::shell2::common::debug_server::LogCategory::Window,
+                            "[resize] REFUSED a {w}x{h} platform resize — the engine will \
+                             still relayout, so the surface and the layout are now out of step"
+                        );
                     }
                     self.request_regeneration(azul_core::callbacks::RelayoutReason::Resize);
                 }

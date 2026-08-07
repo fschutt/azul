@@ -62,6 +62,11 @@ use objc2_foundation::{
 use rust_fontconfig::FcFontCache;
 
 use super::common::debug_server::LogCategory;
+
+/// `windowDidResize:` notifications seen. The macOS half of the cross-backend
+/// resize census — see the Wayland `CONFIGURES_SEEN` for why the count matters.
+pub(super) static WINDOW_DID_RESIZE_SEEN: core::sync::atomic::AtomicUsize =
+    core::sync::atomic::AtomicUsize::new(0);
 use crate::impl_platform_window_getters;
 use crate::{log_debug, log_error, log_info, log_trace, log_warn};
 
@@ -2401,6 +2406,19 @@ define_class!(
                         let bounds = content_view.bounds();
                         let new_width = bounds.size.width;
                         let new_height = bounds.size.height;
+
+                        // Resize census, matching the Wayland/X11/Win32 traces.
+                        // A live-resize drag delivers one windowDidResize per
+                        // frame, so per-event work runs at frame rate.
+                        crate::log_debug!(
+                            LogCategory::Window,
+                            "[macOS windowDidResize] #{} logical {:.0}x{:.0}",
+                            WINDOW_DID_RESIZE_SEEN
+                                .fetch_add(1, core::sync::atomic::Ordering::Relaxed)
+                                + 1,
+                            new_width,
+                            new_height
+                        );
 
                         let result = macos_window.handle_resize(new_width, new_height);
                         match result {

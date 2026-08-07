@@ -43,25 +43,25 @@ use crate::impl_platform_window_getters;
 // Fatal conditions (lost connection, protocol error) print UNCONDITIONALLY and
 // ignore both switches.
 
-/// Runtime gate for [`wl_trace!`]. Read once, cached forever.
+/// Runtime gate for [`wl_trace!`].
+///
+/// Delegates to [`azul_core::log_filter`] — the SAME gate every `log_*!` uses —
+/// rather than parsing `AZ_LOG` a second time. The second parser is not a
+/// hypothetical hazard: the first version of this function matched the whole
+/// variable against `"debug"`, so `AZ_LOG=debug,-layout` (the invocation that
+/// makes the log readable) silently produced no platform trace at all.
+///
+/// `AZ_WL_TRACE=1` forces it on regardless of level, for the case where you
+/// want ONLY this trace and nothing else.
 pub(super) fn wl_trace_enabled() -> bool {
-    static ON: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
-    *ON.get_or_init(|| {
-        let az_log = std::env::var("AZ_LOG").unwrap_or_default();
-        let az_log = az_log.trim().to_ascii_lowercase();
-        // An explicit AZ_LOG=off means off, even with AZ_WL_TRACE set: one
-        // "shut up" switch that actually shuts everything up.
-        if matches!(
-            az_log.as_str(),
-            "0" | "off" | "false" | "none" | "no" | "disable" | "disabled"
-        ) {
-            return false;
-        }
-        if std::env::var_os("AZ_WL_TRACE").is_some() {
-            return true;
-        }
-        matches!(az_log.as_str(), "trace" | "all" | "debug" | "1" | "true" | "on" | "yes")
-    })
+    static FORCED: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    if *FORCED.get_or_init(|| std::env::var_os("AZ_WL_TRACE").is_some()) {
+        return true;
+    }
+    azul_core::log_filter::enabled(
+        azul_core::log_filter::Category::Platform,
+        azul_core::log_filter::Level::Debug,
+    )
 }
 
 /// Wayland/OS-level trace line. Prefixed `[WL]` so a run log can be filtered
@@ -69,7 +69,15 @@ pub(super) fn wl_trace_enabled() -> bool {
 macro_rules! wl_trace {
     ($($arg:tt)*) => {
         if $crate::desktop::shell2::linux::wayland::wl_trace_enabled() {
-            eprintln!("[WL] {}", format_args!($($arg)*));
+            // Through the shared sink, so this trace gets the same timestamp
+            // and the same `AZ_LOG_FILE` destination as everything else. It
+                // used to `eprintln!` directly, which is why the mouse-resize
+            // capture had 1 500 untimed `[WL]` lines in it.
+            $crate::desktop::shell2::common::log_gate::emit(
+                $crate::desktop::shell2::common::debug_server::LogLevel::Debug,
+                $crate::desktop::shell2::common::debug_server::LogCategory::Platform,
+                format!("[WL] {}", format_args!($($arg)*)),
+            );
         }
     };
 }
@@ -869,7 +877,7 @@ impl WaylandWindow {
             // produced libwayland's bare `Error sending request: Broken pipe`
             // and not one word from azul. Losing the display is fatal to the
             // window, so it prints no matter how logging is configured.
-            eprintln!(
+            let fatal = format!(
                 "[WL] CONNECTION LOST — closing the window. hup={hung_up} \
                  errno={display_error} ({}) dispatched={dispatched}{} — \
                  configures={} {}",
@@ -877,6 +885,15 @@ impl WaylandWindow {
                 self.describe_protocol_error(display_error),
                 CONFIGURES_SEEN.load(core::sync::atomic::Ordering::Relaxed),
                 pool_census(),
+            );
+            eprintln!("{fatal}");
+            // Also into the log FILE. A fatal line that exists only on a
+            // terminal is lost the moment the terminal scrolls, which is
+            // exactly how the 2026-08-07 disconnect went undiagnosed.
+            crate::desktop::shell2::common::log_gate::emit(
+                crate::desktop::shell2::common::debug_server::LogLevel::Error,
+                LogCategory::EventLoop,
+                fatal,
             );
             log_warn!(
                 LogCategory::EventLoop,
