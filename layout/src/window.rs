@@ -3317,14 +3317,32 @@ impl LayoutWindow {
                     };
                     eprintln!("[MEM] delta vs frame {}: engine-walked {} | RSS {}",
                         mem_frame - 1, d(walked_kib, prev_walk), d(m.total_kib, prev_rss));
-                    // Growth after the first few frames is the interesting
-                    // case: the document is laid out, nothing new was opened,
-                    // and RSS is still climbing.
-                    if mem_frame >= 3 && m.total_kib > prev_rss + 256 {
-                        eprintln!("[MEM] !! RSS grew {} KiB on a settled frame — a cache is unbounded,",
-                            m.total_kib - prev_rss);
-                        eprintln!("[MEM] !! or something is retained per frame. This is the shape a");
-                        eprintln!("[MEM] !! leak makes; a single snapshot cannot show it.");
+                    // A SINGLE frame growing proves nothing: laying out a
+                    // NEW document legitimately allocates, and a host that
+                    // renders many documents in one process (the reftest
+                    // harness does 52) grows on most frames. An earlier
+                    // version of this warning asserted "on a settled frame"
+                    // and fired 24 times in 104 reftest layouts — all of them
+                    // false, because the premise was never checked.
+                    //
+                    // A LEAK is SUSTAINED growth. Warn only when several
+                    // consecutive frames each grow, which new-document churn
+                    // does not do (it grows, then flattens).
+                    const GROWTH_KIB: u64 = 256;
+                    const RUN_TO_WARN: u64 = 8;
+                    static GROWTH_RUN: core::sync::atomic::AtomicU64 =
+                        core::sync::atomic::AtomicU64::new(0);
+                    let run = if m.total_kib > prev_rss + GROWTH_KIB {
+                        GROWTH_RUN.fetch_add(1, Relaxed) + 1
+                    } else {
+                        GROWTH_RUN.store(0, Relaxed);
+                        0
+                    };
+                    if run >= RUN_TO_WARN {
+                        eprintln!("[MEM] !! RSS grew >{GROWTH_KIB} KiB for {run} CONSECUTIVE layouts.");
+                        eprintln!("[MEM] !! Sustained growth is the shape a leak or an unbounded");
+                        eprintln!("[MEM] !! cache makes. One growing frame is normal (new content);");
+                        eprintln!("[MEM] !! {run} in a row is not. A single snapshot cannot show this.");
                     }
                 }
             }
