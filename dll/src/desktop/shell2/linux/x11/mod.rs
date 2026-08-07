@@ -1082,7 +1082,11 @@ impl X11Window {
         // needs_redraw is included deliberately: MapNotify, Expose and the CPU
         // shm retry all set ONLY that, and a gate that ignores it leaves those
         // events with no path to a frame at all.
-        if self.common.regeneration_pending() || vview_pending || self.needs_redraw.pending() {
+        if self.common.regeneration_pending()
+            || self.common.resize_relayout_pending()
+            || vview_pending
+            || self.needs_redraw.pending()
+        {
             if let Err(e) = self.render_and_present() {
                 log_error!(
                     LogCategory::Rendering,
@@ -2885,6 +2889,10 @@ impl X11Window {
                 };
 
                 if size_changed {
+                    let old_logical = azul_core::geom::LogicalSize::new(
+                        old_context.viewport_width,
+                        old_context.viewport_height,
+                    );
                     self.common.current_window_state.size.dimensions = new_logical;
                     self.dynamic_selector_context.viewport_width = new_logical.width;
                     self.dynamic_selector_context.viewport_height = new_logical.height;
@@ -2893,21 +2901,32 @@ impl X11Window {
                     } else {
                         azul_css::dynamic_selector::OrientationType::Portrait
                     };
-                    if old_context.viewport_breakpoint_changed(
-                        &self.dynamic_selector_context,
-                        CSS_BREAKPOINTS,
-                    ) {
+                    // RESIZE POLICY (user ruling 2026-08-08, same as Wayland):
+                    // a drag delivers one ConfigureNotify per pixel; the app's
+                    // layout() is only re-invoked when a recorded
+                    // window-size query answer flips or a CSS breakpoint /
+                    // orientation is crossed. Everything else re-flows the
+                    // existing StyledDom, coalesced to one relayout per frame.
+                    // This replaces an unconditional SYNCHRONOUS
+                    // regenerate_now(Resize) — a full DOM rebuild per
+                    // ConfigureNotify, the X11 spelling of the 654-942 ms
+                    // drag lag.
+                    let full = self.common.request_regeneration_for_resize(
+                        old_logical,
+                        new_logical,
+                    );
+                    if full {
                         log_debug!(
                             LogCategory::Layout,
-                            "[X11 Resize] Breakpoint crossed: {}x{} -> {}x{}",
+                            "[X11 Resize] boundary crossed ({}x{} -> {}x{}) — full regeneration",
                             old_context.viewport_width,
                             old_context.viewport_height,
                             self.dynamic_selector_context.viewport_width,
                             self.dynamic_selector_context.viewport_height
                         );
+                        self.regenerate_now(azul_core::callbacks::RelayoutReason::Resize)
+                            .ok();
                     }
-                    self.regenerate_now(azul_core::callbacks::RelayoutReason::Resize)
-                        .ok();
 
                     // XWayland / some compositors don't send an Expose after
                     // ConfigureNotify, so request a repaint explicitly (self-Expose,
@@ -3706,6 +3725,36 @@ impl X11Window {
         let phys = self.common.current_window_state.size.get_physical_size();
         if phys.width == 0 || phys.height == 0 {
             return Ok(());
+        }
+
+        // RESIZE FAST PATH (coalesced): consume the latch ONCE per frame — any
+        // number of ConfigureNotify events since the last frame become one
+        // incremental relayout of the EXISTING StyledDom at the latest size.
+        // A concurrent full regeneration request supersedes it (it lays out at
+        // the new size anyway), so the latch is consumed and dropped.
+        if self.common.take_resize_relayout() && !self.common.regeneration_pending() {
+            let mut resize_relayout_failed = false;
+            if let Some(layout_window) = self.common.layout_window.as_mut() {
+                let mut debug_messages = None;
+                if let Err(e) = crate::desktop::shell2::common::layout::incremental_relayout(
+                    layout_window,
+                    &self.common.current_window_state,
+                    &mut self.common.renderer_resources,
+                    &mut debug_messages,
+                ) {
+                    log_warn!(
+                        LogCategory::Layout,
+                        "[X11] resize fast-path relayout failed: {e} — falling back to a full                          regeneration"
+                    );
+                    resize_relayout_failed = true;
+                }
+            }
+            if resize_relayout_failed {
+                self.common
+                    .request_regeneration(azul_core::callbacks::RelayoutReason::Resize);
+            } else {
+                self.common.request_relayout_only();
+            }
         }
 
         // Step 1: Regenerate layout if needed, otherwise send lightweight transaction

@@ -3,7 +3,10 @@
 2026-08-08. Companion to `RSS_MAP_2026_08_07.md` §36; written after the mouse-
 resize capture measured `regenerate_layout` at 654–942 ms while `resize_surface`
 costs 0.09–0.45 ms. Two subjects: the `<icon>` waste (FIXED, landed in core) and
-the layout-reuse gap (ROOT-CAUSED here, design below, not yet implemented).
+the layout-reuse gap — §§2–3 are the root-cause analysis and phased design as
+first written; **§4 records that the user ruled the same day and R1+R2 are now
+IMPLEMENTED** (resize never re-invokes `layout()` unless a boundary crosses).
+§§2–3 are kept as the record of WHY; read §4 for what is true now.
 
 ---
 
@@ -167,3 +170,74 @@ size instead of 75×/s). Making the relayout itself cheaper is the separate,
 frozen memory-plan work (shaped text dominates); these are complementary, and
 the PhaseTimer split should be captured FIRST so each phase's win is a
 number, not a belief.
+
+---
+
+## 4. IMPLEMENTED (2026-08-08, same day) — the user ruled, R1+R2 landed
+
+USER RULING: *"we should not call layout() again on a RESIZE. Never, ever —
+except if we cross a boundary (from desktop to mobile, as the LayoutCallbackInfo
+'isLargerThan', 'isSmallerThan' indicates). [Apps reading window size
+imperatively in layout()] is a bug, it should always go over the 'is larger
+than' system."* Target pipeline: `resize -> relayout (using existing cache) ->
+patch display list -> repaint`.
+
+What landed, per layer:
+
+- **The sanctioned query channel now RECORDS.** The six responsive helpers
+  that already existed and were already FFI-exposed —
+  `window_width_less_than` / `window_width_greater_than` /
+  `window_width_between` + height variants — record `(axis, exact operator,
+  threshold, answer)` into a thread-local drained by `regenerate_layout` right
+  after the callback returns (`LayoutWindow::recorded_size_queries`). Four
+  exact operators (`<`, `>`, `>=`, `<=`) because `between`'s bounds are
+  inclusive while the single-ended forms are strict, and a resize landing
+  exactly on a queried boundary is the one pixel the app said it cares about.
+  The recorder CAPS at 256 and reports overflow rather than dropping — dropped
+  queries would be missed flips, the unsafe direction. NO new API and NO
+  codegen: the channel existed, it was just never observed.
+
+- **THE decision** is `LayoutWindow::resize_needs_full_regeneration(old, new)`
+  — full `layout()` re-invocation iff (1) a recorded query answer flips,
+  (2) a `CSS_BREAKPOINTS` threshold is crossed on either axis or the
+  orientation flips (the list moved to `azul_core::window` so layout and dll
+  share it), or (3) there is no previous layout. One fn, used by every desktop
+  shell AND the headless E2E runner, so the corpus tests the exact policy the
+  shells run.
+
+- **The coalescing latch** (`CommonWindowState::request_resize_relayout`):
+  resize handlers latch instead of regenerating; each backend's frame path
+  consumes the latch ONCE and runs `incremental_relayout` — the existing
+  StyledDom, warm solver3 caches, at the LATEST size. One configure per pixel
+  in, at most one relayout per frame out. A concurrent full regeneration
+  request supersedes the latch.
+
+- **Per backend**: Wayland toplevel-configure decides fast/full;
+  `xdg_surface_configure` requests `RefreshDom` ONLY on the first configure
+  (it fired per-configure — a second full-rebuild entry point at 75/s that
+  would have defeated the fast path from the side); X11 stops calling
+  `regenerate_now(Resize)` synchronously per ConfigureNotify; Win32 `WM_SIZE`
+  and macOS `handle_resize` decide the same way (macOS previously forced a
+  full rebuild on EVERY resize "so window-size checks reflect the live size" —
+  the recording is precisely what makes that assumption unnecessary); headless
+  + the E2E runner fold into their existing relayout arms.
+
+- **R1 (the diff is used):** `regenerate_layout`'s equivalence check no longer
+  skips when the size changed. Equivalent + same size → unchanged-skip as
+  before; equivalent + size changed → the freshly-produced DOM is DROPPED and
+  the PREVIOUS StyledDom (the object solver3's warm caches were built against)
+  is re-laid-out at the new size. Safe because state migration COPIES from the
+  old result (`.to_vec()` clones), it does not drain it.
+
+- **Pinned by** `e2e/op-resize-no-dom-rebuild.json`: two non-crossing resizes
+  → `exact_dom_regens: 0, min_layout_passes: 1`; one 1024-crossing resize →
+  `exact_dom_regens: 1`. Negative control run and seen red ("expected exactly
+  0, got 2" with the decision forced to full). Core unit tests pin the
+  operator semantics, per-bound `between` recording, drain reset, and the
+  overflow latch.
+
+Still open from this design: R3 (a `DomDiff` parameter so structural edits can
+be incremental too), display-list PATCHING (the fast path still rebuilds the
+DL from the relayouted tree; patching is the queued DL work), and re-measuring
+the drag with `[phases]` to quantify what the fast path leaves (expected:
+solver3 re-flow + DL build + present, no callback/cascade/icons/CSD/migration).

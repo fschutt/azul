@@ -2368,6 +2368,7 @@ impl WaylandWindow {
                 .unwrap_or(false);
             if self.common.regeneration_pending()
                 || self.common.relayout_only_pending()
+                || self.common.resize_relayout_pending()
                 || self.needs_redraw.pending()
                 || vview_pending
             {
@@ -4498,6 +4499,7 @@ impl WaylandWindow {
             .unwrap_or(false);
         let needs_work = self.common.regeneration_pending()
             || self.common.relayout_only_pending()
+            || self.common.resize_relayout_pending()
             || self.needs_redraw.pending()
             || vview_pending;
         if !needs_work {
@@ -4561,6 +4563,43 @@ impl WaylandWindow {
         // to allocate textures and draw to them
         if let RenderMode::Gpu(ref gl_context, _) = self.render_mode {
             gl_context.make_current();
+        }
+
+        // RESIZE FAST PATH (coalesced). Any number of configures since the last
+        // frame collapse into ONE incremental relayout of the EXISTING
+        // StyledDom at the LATEST size — a drag delivers one configure per
+        // pixel, and this consume-per-frame latch is what turns 75 configure/s
+        // into (at most) frame-rate relayouts with zero layout() re-invocations.
+        // A concurrent FULL regeneration request supersedes it: the full
+        // rebuild lays out at the new size anyway, so the latch is consumed and
+        // dropped rather than left to fire a redundant relayout afterwards.
+        if self.common.take_resize_relayout() && !self.common.regeneration_pending() {
+            let mut resize_relayout_failed = false;
+            if let Some(layout_window) = self.common.layout_window.as_mut() {
+                let mut debug_messages = None;
+                let _span = crate::log_span!(LogCategory::Window, "resize_incremental_relayout");
+                if let Err(e) = crate::desktop::shell2::common::layout::incremental_relayout(
+                    layout_window,
+                    &self.common.current_window_state,
+                    &mut self.common.renderer_resources,
+                    &mut debug_messages,
+                ) {
+                    log_warn!(
+                        LogCategory::Layout,
+                        "[Wayland] resize fast-path relayout failed: {e} — falling back to a                          full regeneration"
+                    );
+                    resize_relayout_failed = true;
+                }
+            }
+            if resize_relayout_failed {
+                self.common
+                    .request_regeneration(azul_core::callbacks::RelayoutReason::Resize);
+            } else {
+                // Layout is now up to date on the existing StyledDom: take the
+                // established relayout-only path below (skip regenerate_layout,
+                // still rebuild the hit-tester + send the full transaction).
+                self.common.request_relayout_only();
+            }
         }
 
         // Captured BEFORE either path renders: a callback inside the render can
@@ -5569,6 +5608,7 @@ extern "C" fn frame_done_callback(
         .unwrap_or(false);
     if window.common.regeneration_pending()
         || window.common.relayout_only_pending()
+        || window.common.resize_relayout_pending()
         || window.needs_redraw.pending()
         || vview_pending
     {

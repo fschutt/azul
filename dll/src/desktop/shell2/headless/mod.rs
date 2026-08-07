@@ -1149,6 +1149,12 @@ impl HeadlessWindow {
         }
 
         let relayout_only = self.common.take_relayout_only();
+        // The resize fast path folds into headless's existing arms: a full
+        // regeneration (boundary crossed) lays out at the new size, and BOTH
+        // other arms below call relayout_only(), which re-lays-out the
+        // existing StyledDom at the current (new) size. Consuming the latch
+        // here keeps it from leaking into a later frame.
+        let _resize_relayout = self.common.take_resize_relayout();
         let regen_requested = self.common.take_regeneration();
 
         let (res, what) = if relayout_only {

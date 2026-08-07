@@ -1,0 +1,47 @@
+{
+  "name": "op_resize_no_dom_rebuild",
+  "description": "THE RESIZE POLICY (user ruling 2026-08-08): a resize NEVER re-invokes the app's layout() — dom_regenerations stays 0 — unless it crosses a boundary the callback can observe (a CSS_BREAKPOINTS threshold, an orientation flip, or a recorded window_width_*/window_height_* query answer). Background: a Wayland drag delivers one configure PER PIXEL (373 measured in 5 s) and each full regeneration cost 654-942 ms, so the pre-fix pipeline could repaint ~1.4x/second during a drag. Sizes are chosen against CSS_BREAKPOINTS = [320, 480, 640, 768, 1024, 1280, 1440, 1920]: 800->900->850 stays inside (768, 1024] on the width axis and crosses nothing on the height axis, so both resizes must be pure relayouts (exact_dom_regens 0, layout still ran: min_layout_passes 1). 900->1100 crosses 1024, so exactly one full regeneration must follow. If the first assert fails with dom_regens > 0, the fast path regressed — check the escalation site in e2e/runner.rs service() and LayoutWindow::resize_needs_full_regeneration. If the second fails with 0, the boundary detection regressed and apps CANNOT switch mobile/desktop DOMs any more, which is worse than slow.",
+  "setup": {
+    "window_width": 800,
+    "window_height": 600,
+    "dpi": 96
+  },
+  "steps": [
+    {
+      "op": "mount",
+      "html": [
+        "<div id=\"root\">",
+        "  <div class=\"bar\"></div>",
+        "  <p id=\"t\">resize policy probe</p>",
+        "</div>"
+      ],
+      "css": [
+        "body  { font-size: 20px; color: black; }",
+        "#root { display: flex; flex-direction: column; }",
+        ".bar  { width: 100%; height: 30px; background: green; }"
+      ]
+    },
+    { "op": "wait_frame" },
+    { "op": "wait", "ms": 120 },
+    { "op": "assert_exists", "selector": "#root" },
+
+    { "op": "reset_frame_counters" },
+    { "op": "resize", "width": 900, "height": 600 },
+    { "op": "wait_frame" },
+    { "op": "wait", "ms": 120 },
+    { "op": "resize", "width": 850, "height": 600 },
+    { "op": "wait_frame" },
+    { "op": "wait", "ms": 120 },
+
+    { "op": "assert_work_bounded", "exact_dom_regens": 0, "min_layout_passes": 1 },
+    { "op": "assert_exists", "selector": "#root" },
+
+    { "op": "reset_frame_counters" },
+    { "op": "resize", "width": 1100, "height": 600 },
+    { "op": "wait_frame" },
+    { "op": "wait", "ms": 120 },
+
+    { "op": "assert_work_bounded", "exact_dom_regens": 1, "min_layout_passes": 1 },
+    { "op": "assert_exists", "selector": "#root" }
+  ]
+}

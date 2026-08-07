@@ -788,6 +788,151 @@ pub struct LayoutCallbackInfo {
     _abi_mut: *mut c_void,
 }
 
+/// One recorded window-size query made by a `layout()` callback — see
+/// [`LayoutCallbackInfo::window_width_less_than`] & co. The engine replays
+/// these against a
+/// prospective new size to decide whether a resize could change the DOM at
+/// all: if no recorded answer flips (and no CSS breakpoint is crossed), the
+/// callback is provably size-stable across that resize and is not re-invoked.
+#[repr(C)]
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct SizeQuery {
+    pub axis: SizeQueryAxis,
+    pub op: SizeQueryOp,
+    pub threshold_px: f32,
+    /// The answer given at recording time, evaluated against the size the
+    /// callback actually saw.
+    pub answer: bool,
+}
+
+/// Which window dimension a [`SizeQuery`] tested.
+#[repr(C)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SizeQueryAxis {
+    Width,
+    Height,
+}
+
+/// The comparison a [`SizeQuery`] performed. Four variants rather than a
+/// greater/smaller bool because the recorded operator must REPLAY EXACTLY:
+/// `window_width_less_than` is a strict `<` while `window_width_between`'s
+/// lower bound is `>=`, and collapsing either onto the other misjudges a
+/// resize landing precisely on the queried boundary — the one pixel the app
+/// explicitly said it cares about.
+#[repr(C)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SizeQueryOp {
+    /// `dim < threshold` (`window_width_less_than` / `window_height_less_than`)
+    LessThan,
+    /// `dim > threshold` (`window_width_greater_than` / `window_height_greater_than`)
+    GreaterThan,
+    /// `dim >= threshold` (the lower bound of `window_*_between`)
+    GreaterOrEqual,
+    /// `dim <= threshold` (the upper bound of `window_*_between`)
+    LessOrEqual,
+}
+
+impl SizeQuery {
+    /// What this query would answer at `size` — compare with [`Self::answer`]
+    /// to detect a flip. MUST mirror the operators of the recording methods
+    /// exactly (see [`SizeQueryOp`]), or the engine would skip a `layout()`
+    /// re-invocation right at the boundary the app asked about.
+    #[must_use] pub fn answer_at(&self, size: crate::geom::LogicalSize) -> bool {
+        let dim = match self.axis {
+            SizeQueryAxis::Width => size.width,
+            SizeQueryAxis::Height => size.height,
+        };
+        match self.op {
+            SizeQueryOp::LessThan => dim < self.threshold_px,
+            SizeQueryOp::GreaterThan => dim > self.threshold_px,
+            SizeQueryOp::GreaterOrEqual => dim >= self.threshold_px,
+            SizeQueryOp::LessOrEqual => dim <= self.threshold_px,
+        }
+    }
+
+    /// Would this query's answer differ at `size` from the recorded one?
+    #[must_use] pub fn flips_at(&self, size: crate::geom::LogicalSize) -> bool {
+        self.answer_at(size) != self.answer
+    }
+}
+
+/// Thread-local recorder backing the responsive helpers
+/// (`LayoutCallbackInfo::window_width_less_than` & co.).
+///
+/// A thread-local (rather than a field on the FFI-frozen `LayoutCallbackInfo`)
+/// works because the layout callback is invoked SYNCHRONOUSLY on the calling
+/// thread: the engine drains the recording immediately after the callback
+/// returns, on the same thread that made the queries.
+///
+/// Bounded, and the overflow direction matters: SILENTLY dropping queries
+/// would drop exactly the flips the engine needs to see — the UNSAFE
+/// direction, a resize skipping a `layout()` that would have branched. So the
+/// cap does not drop; it latches an `overflowed` flag that the drain reports,
+/// and the engine then treats the callback as size-dependent EVERYWHERE
+/// (every resize re-invokes it — today's behaviour, merely un-optimized).
+#[cfg(feature = "std")]
+mod size_query_recorder {
+    use super::SizeQuery;
+
+    /// More distinct thresholds than any real breakpoint scheme uses; a
+    /// callback exceeding this is generating them programmatically.
+    pub const SIZE_QUERY_CAP: usize = 256;
+
+    std::thread_local! {
+        static RECORDED: core::cell::RefCell<(Vec<SizeQuery>, bool)> =
+            const { core::cell::RefCell::new((Vec::new(), false)) };
+    }
+
+    pub fn record(q: SizeQuery) {
+        RECORDED.with(|r| {
+            let mut r = r.borrow_mut();
+            if r.0.len() >= SIZE_QUERY_CAP {
+                r.1 = true; // overflowed: the drain must report "unbounded"
+            } else {
+                r.0.push(q);
+            }
+        });
+    }
+
+    /// Drain the recording. Returns `(queries, overflowed)`; `overflowed`
+    /// means the cap was hit and the list is INCOMPLETE — treat every resize
+    /// as potentially DOM-changing.
+    pub fn take() -> (Vec<SizeQuery>, bool) {
+        RECORDED.with(|r| {
+            let mut r = r.borrow_mut();
+            let overflowed = r.1;
+            r.1 = false;
+            (core::mem::take(&mut r.0), overflowed)
+        })
+    }
+}
+
+#[cfg(feature = "std")]
+fn record_size_query(q: SizeQuery) {
+    size_query_recorder::record(q);
+}
+
+/// Without `std` there is no thread-local to record into; the queries still
+/// ANSWER correctly, the engine just cannot prove size-stability and falls
+/// back to re-invoking `layout()` on breakpoint-relevant resizes (web builds
+/// are out of scope for the resize fast path).
+#[cfg(not(feature = "std"))]
+fn record_size_query(_q: SizeQuery) {}
+
+/// Drain the size queries recorded since the last drain on THIS thread.
+/// Call immediately after a `layout()` callback returns, on the same thread.
+/// `(queries, overflowed)` — on `overflowed == true` the list is incomplete
+/// and the caller must treat the callback as size-dependent everywhere.
+#[cfg(feature = "std")]
+#[must_use] pub fn take_recorded_size_queries() -> (alloc::vec::Vec<SizeQuery>, bool) {
+    size_query_recorder::take()
+}
+
+#[cfg(not(feature = "std"))]
+#[must_use] pub fn take_recorded_size_queries() -> (alloc::vec::Vec<SizeQuery>, bool) {
+    (alloc::vec::Vec::new(), false)
+}
+
 impl Clone for LayoutCallbackInfo {
     #[allow(clippy::used_underscore_binding)] // intentional `_`-prefix (FFI/api.json pub field, or cfg-gated binding); access is deliberate
     fn clone(&self) -> Self {
@@ -847,6 +992,7 @@ impl LayoutCallbackInfo {
     #[must_use] pub const fn relayout_reason(&self) -> RelayoutReason {
         self.relayout_reason
     }
+
 
     /// Is the window's LOGICAL viewport wider than `width_px`?
     ///
@@ -957,37 +1103,81 @@ impl LayoutCallbackInfo {
         self.get_active_route()?.get_param(key)
     }
 
-    // Responsive layout helper methods
-    /// Returns true if the window width is less than the given pixel value
+    // Responsive layout helper methods.
+    //
+    // These are THE sanctioned way for `layout()` to branch on window size
+    // (mobile vs desktop DOM shapes, instead of `display:none` stacks). Every
+    // call is RECORDED, and the recording is what makes resize cheap: a resize
+    // that flips none of the recorded answers (and crosses no CSS breakpoint)
+    // provably cannot change what the callback returns through this channel,
+    // so the engine re-flows the existing DOM instead of re-invoking it
+    // (`LayoutWindow::resize_needs_full_regeneration`). Reading the size
+    // imperatively (`get_window_width()`, `info.window_size`) to branch the
+    // DOM is a bug in the app: the engine cannot see that read, so the DOM
+    // goes stale across exactly the resizes the app cared about.
+
+    fn record_width_query(&self, op: SizeQueryOp, threshold_px: f32, answer: bool) -> bool {
+        record_size_query(SizeQuery {
+            axis: SizeQueryAxis::Width,
+            op,
+            threshold_px,
+            answer,
+        });
+        answer
+    }
+
+    fn record_height_query(&self, op: SizeQueryOp, threshold_px: f32, answer: bool) -> bool {
+        record_size_query(SizeQuery {
+            axis: SizeQueryAxis::Height,
+            op,
+            threshold_px,
+            answer,
+        });
+        answer
+    }
+
+    /// Returns true if the window width is less than the given pixel value.
+    /// Recorded — see the note above these helpers.
     #[must_use] pub fn window_width_less_than(&self, px: f32) -> bool {
-        self.window_size.dimensions.width < px
+        let answer = self.window_size.dimensions.width < px;
+        self.record_width_query(SizeQueryOp::LessThan, px, answer)
     }
 
-    /// Returns true if the window width is greater than the given pixel value
+    /// Returns true if the window width is greater than the given pixel value.
+    /// Recorded — see the note above these helpers.
     #[must_use] pub fn window_width_greater_than(&self, px: f32) -> bool {
-        self.window_size.dimensions.width > px
+        let answer = self.window_size.dimensions.width > px;
+        self.record_width_query(SizeQueryOp::GreaterThan, px, answer)
     }
 
-    /// Returns true if the window width is between min and max (inclusive)
+    /// Returns true if the window width is between min and max (inclusive).
+    /// Recorded as its two bounds — see the note above these helpers.
     #[must_use] pub fn window_width_between(&self, min_px: f32, max_px: f32) -> bool {
         let width = self.window_size.dimensions.width;
-        width >= min_px && width <= max_px
+        self.record_width_query(SizeQueryOp::GreaterOrEqual, min_px, width >= min_px)
+            & self.record_width_query(SizeQueryOp::LessOrEqual, max_px, width <= max_px)
     }
 
-    /// Returns true if the window height is less than the given pixel value
+    /// Returns true if the window height is less than the given pixel value.
+    /// Recorded — see the note above these helpers.
     #[must_use] pub fn window_height_less_than(&self, px: f32) -> bool {
-        self.window_size.dimensions.height < px
+        let answer = self.window_size.dimensions.height < px;
+        self.record_height_query(SizeQueryOp::LessThan, px, answer)
     }
 
-    /// Returns true if the window height is greater than the given pixel value
+    /// Returns true if the window height is greater than the given pixel value.
+    /// Recorded — see the note above these helpers.
     #[must_use] pub fn window_height_greater_than(&self, px: f32) -> bool {
-        self.window_size.dimensions.height > px
+        let answer = self.window_size.dimensions.height > px;
+        self.record_height_query(SizeQueryOp::GreaterThan, px, answer)
     }
 
-    /// Returns true if the window height is between min and max (inclusive)
+    /// Returns true if the window height is between min and max (inclusive).
+    /// Recorded as its two bounds — see the note above these helpers.
     #[must_use] pub fn window_height_between(&self, min_px: f32, max_px: f32) -> bool {
         let height = self.window_size.dimensions.height;
-        height >= min_px && height <= max_px
+        self.record_height_query(SizeQueryOp::GreaterOrEqual, min_px, height >= min_px)
+            & self.record_height_query(SizeQueryOp::LessOrEqual, max_px, height <= max_px)
     }
 
     /// Returns the current window width in pixels
@@ -2434,5 +2624,162 @@ mod autotest_generated {
             EventFilter::Hover(HoverEventFilter::MouseDown)
         );
         assert_eq!(c.len(), 2);
+    }
+}
+
+/// Tests for the recorded window-size queries — the responsive helpers
+/// (`window_width_less_than` & co.) every `layout()` should branch on, and the
+/// mechanism that lets a resize skip `layout()` when no recorded answer flips.
+#[cfg(test)]
+#[allow(clippy::float_cmp)]
+mod size_query_tests {
+    use super::*;
+    use crate::geom::LogicalSize;
+
+    fn win(width: f32, height: f32) -> WindowSize {
+        WindowSize {
+            dimensions: LogicalSize::new(width, height),
+            ..WindowSize::default()
+        }
+    }
+
+    fn info_at(rd: &LayoutCallbackInfoRefData<'_>, w: f32, h: f32) -> LayoutCallbackInfo {
+        LayoutCallbackInfo::new(rd, win(w, h), WindowTheme::LightMode)
+    }
+
+    fn drain() -> (alloc::vec::Vec<SizeQuery>, bool) {
+        take_recorded_size_queries()
+    }
+
+    /// Build the minimal ref-data a `LayoutCallbackInfo` needs. The queries
+    /// only read `window_size`, so everything else can be empty.
+    struct Rd {
+        image_cache: crate::resources::ImageCache,
+        gl: crate::gl::OptionGlContextPtr,
+        fonts: rust_fontconfig::FcFontCache,
+        style: alloc::sync::Arc<azul_css::system::SystemStyle>,
+    }
+    impl Rd {
+        fn new() -> Self {
+            Self {
+                image_cache: crate::resources::ImageCache::default(),
+                gl: crate::gl::OptionGlContextPtr::None,
+                fonts: rust_fontconfig::FcFontCache::default(),
+                style: alloc::sync::Arc::new(azul_css::system::SystemStyle::default()),
+            }
+        }
+        fn ref_data(&self) -> LayoutCallbackInfoRefData<'_> {
+            LayoutCallbackInfoRefData {
+                image_cache: &self.image_cache,
+                gl_context: &self.gl,
+                system_fonts: &self.fonts,
+                system_style: self.style.clone(),
+                active_route: None,
+            }
+        }
+    }
+
+    #[test]
+    fn every_responsive_helper_records_with_its_exact_operator() {
+        let rd = Rd::new();
+        let rd = rd.ref_data();
+        let _ = drain();
+
+        let info = info_at(&rd, 800.0, 600.0);
+        assert!(!info.window_width_less_than(800.0), "strict <: boundary is false");
+        assert!(!info.window_width_greater_than(800.0), "strict >: boundary is false");
+        assert!(info.window_width_between(800.0, 1024.0), "between is inclusive");
+        assert!(info.window_height_less_than(601.0));
+        assert!(!info.window_height_greater_than(600.0));
+        assert!(info.window_height_between(0.0, 600.0));
+
+        let (recorded, overflowed) = drain();
+        // between records BOTH of its bounds, so 4 single-bound calls + 2
+        // between calls = 8 queries.
+        assert_eq!(recorded.len(), 8, "every call recorded; between records two bounds");
+        assert!(!overflowed);
+        assert_eq!(recorded[0].op, SizeQueryOp::LessThan);
+        assert_eq!(recorded[1].op, SizeQueryOp::GreaterThan);
+        assert_eq!(recorded[2].op, SizeQueryOp::GreaterOrEqual);
+        assert_eq!(recorded[3].op, SizeQueryOp::LessOrEqual);
+    }
+
+    #[test]
+    fn flips_at_detects_exactly_the_crossings() {
+        let rd = Rd::new();
+        let rd = rd.ref_data();
+        let _ = drain();
+
+        let info = info_at(&rd, 800.0, 600.0);
+        let mobile = info.window_width_less_than(640.0); // false at 800
+        assert!(!mobile);
+        let (recorded, _) = drain();
+        let q = recorded[0];
+
+        // Shrinking within the desktop range does not flip…
+        assert!(!q.flips_at(LogicalSize::new(700.0, 600.0)));
+        assert!(!q.flips_at(LogicalSize::new(640.0, 600.0)), "strict <: 640 is still false");
+        // …crossing the queried threshold does…
+        assert!(q.flips_at(LogicalSize::new(639.9, 600.0)));
+        assert!(q.flips_at(LogicalSize::new(320.0, 600.0)));
+        // …and the other axis is irrelevant to a width query.
+        assert!(!q.flips_at(LogicalSize::new(700.0, 10.0)));
+    }
+
+    /// `between` must flip on BOTH of its bounds, inclusively — the reason
+    /// [`SizeQueryOp`] has four exact operators instead of a bool.
+    #[test]
+    fn between_flips_on_either_bound_with_inclusive_semantics() {
+        let rd = Rd::new();
+        let rd = rd.ref_data();
+        let _ = drain();
+
+        let info = info_at(&rd, 800.0, 600.0);
+        assert!(info.window_width_between(768.0, 1024.0));
+        let (recorded, _) = drain();
+        let lower = recorded[0];
+        let upper = recorded[1];
+
+        assert!(!lower.flips_at(LogicalSize::new(768.0, 600.0)), ">= 768: boundary holds");
+        assert!(lower.flips_at(LogicalSize::new(767.9, 600.0)));
+        assert!(!upper.flips_at(LogicalSize::new(1024.0, 600.0)), "<= 1024: boundary holds");
+        assert!(upper.flips_at(LogicalSize::new(1024.1, 600.0)));
+    }
+
+    #[test]
+    fn drain_resets_the_recording() {
+        let rd = Rd::new();
+        let rd = rd.ref_data();
+        let _ = drain();
+
+        let info = info_at(&rd, 1024.0, 768.0);
+        let _ = info.window_width_greater_than(640.0);
+        let (first, _) = drain();
+        assert_eq!(first.len(), 1);
+        let (second, overflowed) = drain();
+        assert!(second.is_empty(), "drain must reset");
+        assert!(!overflowed);
+    }
+
+    #[test]
+    fn overflow_latches_and_reports_rather_than_dropping_silently() {
+        let rd = Rd::new();
+        let rd = rd.ref_data();
+        let _ = drain();
+
+        let info = info_at(&rd, 1024.0, 768.0);
+        for i in 0..(size_query_recorder::SIZE_QUERY_CAP + 10) {
+            let _ = info.window_width_greater_than(i as f32);
+        }
+        let (recorded, overflowed) = drain();
+        assert_eq!(recorded.len(), size_query_recorder::SIZE_QUERY_CAP);
+        assert!(
+            overflowed,
+            "past the cap the drain MUST say the list is incomplete — silence \
+             here is a resize skipping a layout() that would have branched"
+        );
+        // And the latch itself resets with the drain.
+        let (_, overflowed2) = drain();
+        assert!(!overflowed2);
     }
 }

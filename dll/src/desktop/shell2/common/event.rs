@@ -882,6 +882,29 @@ pub struct RegenerationState {
     /// (`build_atomic_txn`) and x11 (`render_and_present`) check it BEFORE the
     /// plain regeneration request and take the transaction-only path.
     relayout_only: bool,
+    /// "The window size changed and layout must re-run on the EXISTING
+    /// `StyledDom` at the new size" — the resize fast path.
+    ///
+    /// Distinct from [`Self::relayout_only`] in both directions of time:
+    /// `relayout_only` means the incremental relayout ALREADY ran (the scroll /
+    /// restyle arms run it inline, then set the flag so the frame path only
+    /// sends the transaction); `resize_relayout` means it has NOT run yet —
+    /// the frame path runs it exactly once when it consumes the flag. That
+    /// deferral is the COALESCING: a mouse drag delivers one configure per
+    /// pixel (373 in a measured 5 s drag), and running the relayout inline per
+    /// configure would relayout at every intermediate size. Latching and
+    /// consuming per-frame means any number of configures between two frames
+    /// cost ONE relayout, at the latest size.
+    ///
+    /// Deliberately NOT raised through [`LatchedRequest`]/`request`: the
+    /// regeneration request means "rebuild the DOM", and the entire point of
+    /// this flag is that the DOM does NOT need rebuilding (no CSS breakpoint
+    /// crossed, no recorded window-size query answer flipped). A concurrent
+    /// REAL regeneration request (app callback returned `RefreshDom`, a
+    /// breakpoint-crossing resize) takes precedence in every frame path: the
+    /// full rebuild lays out at the current (new) size anyway, so this flag is
+    /// consumed and dropped alongside it.
+    resize_relayout: bool,
 }
 
 impl RegenerationState {
@@ -893,6 +916,7 @@ impl RegenerationState {
             request: LatchedRequest::raised(),
             reason: azul_core::callbacks::RelayoutReason::Initial,
             relayout_only: false,
+            resize_relayout: false,
         }
     }
 
@@ -906,6 +930,7 @@ impl RegenerationState {
             request: LatchedRequest::default(),
             reason: azul_core::callbacks::RelayoutReason::Initial,
             relayout_only: false,
+            resize_relayout: false,
         }
     }
 }
@@ -1105,6 +1130,83 @@ impl CommonWindowState {
     #[must_use]
     pub fn relayout_only_pending(&self) -> bool {
         self.regen.relayout_only
+    }
+
+    /// Ask for the RESIZE fast path: the window size changed, no CSS
+    /// breakpoint was crossed and no recorded window-size query answer flipped,
+    /// so `layout()` provably cannot produce a different DOM — re-run layout
+    /// on the EXISTING `StyledDom` at the new size instead.
+    ///
+    /// Latched, consumed once per frame by [`Self::take_resize_relayout`] —
+    /// see `RegenerationState::resize_relayout` for why that deferral (the
+    /// coalescing of one-configure-per-pixel drags into one relayout per
+    /// frame) is the point. Callers must ALSO schedule a frame through their
+    /// backend's own mechanism (`request_redraw` / needs_redraw / invalidate);
+    /// this flag deliberately does not raise the DOM-rebuild request.
+    pub fn request_resize_relayout(&mut self) {
+        self.regen.resize_relayout = true;
+    }
+
+    /// Is the resize fast path requested? Read-only, for frame gates.
+    #[must_use]
+    pub fn resize_relayout_pending(&self) -> bool {
+        self.regen.resize_relayout
+    }
+
+    /// Consume the resize fast-path request.
+    #[must_use]
+    pub fn take_resize_relayout(&mut self) -> bool {
+        core::mem::take(&mut self.regen.resize_relayout)
+    }
+
+    /// Decide how a size change regenerates, and request it.
+    ///
+    /// THE resize policy (user ruling, 2026-08-08): a resize NEVER re-invokes
+    /// the app's `layout()` — except when it could observably change what that
+    /// callback returns, which is exactly:
+    ///
+    ///   1. a recorded window-size query answer flips (`window_width_less_than` & co.)
+    ///      (the sanctioned imperative channel — see
+    ///      `LayoutCallbackInfo::window_width_less_than` & co.),
+    ///   2. a `CSS_BREAKPOINTS` threshold or the orientation is crossed
+    ///      (the declarative `@media` channel), or
+    ///   3. there is nothing to reuse (no previous layout).
+    ///
+    /// Everything else takes `resize -> relayout (existing StyledDom, warm
+    /// solver3 caches) -> new display list -> repaint`, coalesced to one
+    /// relayout per frame.
+    ///
+    /// Returns `true` when the FULL path was requested, so callers that log or
+    /// branch further can tell which way it went.
+    pub fn request_regeneration_for_resize(
+        &mut self,
+        old_logical: azul_core::geom::LogicalSize,
+        new_logical: azul_core::geom::LogicalSize,
+    ) -> bool {
+        let full = self.resize_needs_full_regeneration(old_logical, new_logical);
+        if full {
+            self.request_regeneration(azul_core::callbacks::RelayoutReason::Resize);
+        } else {
+            self.request_resize_relayout();
+        }
+        full
+    }
+
+    /// The decision behind [`Self::request_regeneration_for_resize`], without
+    /// the side effect.
+    #[must_use]
+    pub fn resize_needs_full_regeneration(
+        &self,
+        old_logical: azul_core::geom::LogicalSize,
+        new_logical: azul_core::geom::LogicalSize,
+    ) -> bool {
+        // Nothing to reuse: the first layout has not happened.
+        let Some(layout_window) = self.layout_window.as_ref() else {
+            return true;
+        };
+        // The shared engine policy — the same fn the headless E2E runner
+        // calls, so the corpus tests exactly what the shells run.
+        layout_window.resize_needs_full_regeneration(old_logical, new_logical)
     }
 
     /// Consume the relayout-only request.
@@ -1918,6 +2020,10 @@ pub trait PlatformWindow {
                     || old_state.flags.has_focus != state.flags.has_focus;
                 let position_changed = old_state.position != state.position;
                 let size_changed = old_state.size.dimensions != state.size.dimensions;
+                // Copied out now: `old_state` is MOVED into
+                // set_previous_window_state below, and the resize decision
+                // further down needs the pre-change dimensions.
+                let old_dims = old_state.size.dimensions;
                 let dpi_changed = old_state.size.dpi != state.size.dpi;
                 // Touch was missing from BOTH the copy below and this gate, so
                 // a callback that pushed a modified `touch_state` through
@@ -1998,7 +2104,30 @@ pub trait PlatformWindow {
                              still relayout, so the surface and the layout are now out of step"
                         );
                     }
-                    self.request_regeneration(azul_core::callbacks::RelayoutReason::Resize);
+                    if dpi_changed {
+                        // A DPI change rescales every rasterised pixel AND
+                        // changes text metrics — never the fast path.
+                        self.request_regeneration(azul_core::callbacks::RelayoutReason::Resize);
+                    } else {
+                        // Resize policy: layout() is NOT re-invoked unless a
+                        // recorded window-size query answer flips or a CSS
+                        // breakpoint / orientation is crossed. See
+                        // request_regeneration_for_resize.
+                        let full = self.get_common_mut().request_regeneration_for_resize(
+                            old_dims,
+                            state.size.dimensions,
+                        );
+                        crate::log_debug!(
+                            crate::desktop::shell2::common::debug_server::LogCategory::Window,
+                            "[resize] APP-initiated path chose {} ({}x{} -> {}x{})",
+                            if full { "FULL regeneration (boundary crossed)" }
+                            else { "fast relayout (no boundary crossed)" },
+                            old_dims.width,
+                            old_dims.height,
+                            state.size.dimensions.width,
+                            state.size.dimensions.height,
+                        );
+                    }
                 }
 
                 // Mouse state changed → update hit test before the event pass

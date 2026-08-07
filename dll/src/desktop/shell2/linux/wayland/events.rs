@@ -1523,13 +1523,25 @@ pub(super) extern "C" fn xdg_surface_configure_handler(
 ) {
     let window = unsafe { &mut *(data as *mut WaylandWindow) };
     unsafe { (window.wayland.xdg_surface_ack_configure)(xdg_surface, serial) };
+    let first_configure = !window.configured;
     window.configured = true;
-    // A configure is the initial map AND every resize. The frame that follows must
-    // be a FULL regeneration (relayout + rebuild + send the display-list transaction),
-    // not the lightweight image-only path — otherwise WebRender has no display list
-    // for this surface and renders an uncleared backbuffer (garbage). This mirrors
-    // the X11 ConfigureNotify path. request_redraw() additionally raises needs_redraw.
-    window.common.request_regeneration(azul_core::callbacks::RelayoutReason::RefreshDom);
+    // ONLY the FIRST configure (the initial map) forces a full regeneration:
+    // at that point WebRender has no display list for the surface, and the
+    // lightweight image-only path would render an uncleared backbuffer
+    // (garbage). This mirrors the X11 ConfigureNotify path.
+    //
+    // It used to fire on EVERY configure — and a drag-resize acks one
+    // configure per pixel of movement, so this line alone forced a full DOM
+    // rebuild 75 times per second REGARDLESS of what the toplevel-configure
+    // handler decided, defeating the resize fast path from a second entry
+    // point. Post-map, size handling belongs to xdg_toplevel_configure_handler
+    // (which chooses fast/full), and non-size configures (activation, tiling
+    // states) change no layout input at all.
+    if first_configure {
+        window.common.request_regeneration(azul_core::callbacks::RelayoutReason::RefreshDom);
+    }
+    // request_redraw() raises needs_redraw so the frame that applies whatever
+    // was decided actually happens.
     window.request_redraw();
 }
 
@@ -1601,13 +1613,32 @@ pub(super) extern "C" fn xdg_toplevel_configure_handler(
             super::CONFIGURES_RESIZED.fetch_add(1, core::sync::atomic::Ordering::Relaxed);
             // Store old context for breakpoint detection
             let old_context = window.dynamic_selector_context.clone();
+            let old_logical = azul_core::geom::LogicalSize::new(
+                current_width as f32,
+                current_height as f32,
+            );
 
             window.common.current_window_state.size.dimensions.width = width as f32;
             window.common.current_window_state.size.dimensions.height = height as f32;
-            // Tag the regeneration as a resize so the user's layout() callback
-            // can detect it via `info.relayout_reason()`.
-            window.common
-                .request_regeneration(azul_core::callbacks::RelayoutReason::Resize);
+            // RESIZE POLICY (user ruling 2026-08-08): a drag delivers one
+            // configure PER PIXEL (373 measured in a 5 s drag), and each full
+            // regeneration costs 654-942 ms — so a resize NEVER re-invokes the
+            // app's layout() unless it could observably change its result
+            // (a recorded window-size query answer flips, a CSS breakpoint /
+            // orientation crossing, or there is no previous layout). The fast
+            // path latches ONE coalesced relayout-at-new-size per frame.
+            let full = window.common.request_regeneration_for_resize(
+                old_logical,
+                azul_core::geom::LogicalSize::new(width as f32, height as f32),
+            );
+            super::wl_trace!(
+                "xdg_toplevel.configure resize {}x{} -> {}x{}: {}",
+                current_width,
+                current_height,
+                width,
+                height,
+                if full { "FULL regeneration (boundary crossed)" } else { "fast relayout" },
+            );
 
             // Update dynamic selector context with new viewport dimensions
             window.dynamic_selector_context.viewport_width = width as f32;

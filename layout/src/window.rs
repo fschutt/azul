@@ -736,6 +736,8 @@ fn memory_walk_coverage_is_exhaustive(w: &LayoutWindow) {
         skip_gpu_sync: _,
         frame_report: _,
         frame_report_reset_request: _,
+        // Bounded by SIZE_QUERY_CAP (256 entries), not by the document.
+        recorded_size_queries: _,
         #[cfg(feature = "pdf")]
         fragmentation_context: _,
         image_cache: _,
@@ -930,6 +932,16 @@ pub struct LayoutWindow {
     /// Fragmentation context for this window (continuous for screen, paged for print)
     #[cfg(feature = "pdf")]
     pub fragmentation_context: crate::paged::FragmentationContext,
+    /// Window-size queries the LAST run of the app's `layout()` callback made
+    /// through `LayoutCallbackInfo::window_width_less_than` & co. & co., plus whether the
+    /// recording overflowed (incomplete list -> must assume size-dependence).
+    ///
+    /// This is what makes resize cheap: a prospective new size that flips NONE
+    /// of these answers (and crosses no CSS breakpoint) provably cannot change
+    /// what `layout()` returns through the sanctioned query channel, so the
+    /// engine re-flows the existing DOM instead of re-invoking the callback.
+    /// See [`Self::size_queries_would_flip`].
+    pub recorded_size_queries: (Vec<azul_core::callbacks::SizeQuery>, bool),
     /// Layout cache for solver3 (incremental layout tree) - for the root DOM
     pub layout_cache: Solver3LayoutCache,
     /// Text layout cache for text3 (shaped glyphs, line breaks, etc.)
@@ -1153,6 +1165,71 @@ const fn duration_to_millis(duration: Duration) -> u64 {
 }
 
 impl LayoutWindow {
+    /// Would resizing to `new_size` flip the answer of any window-size query
+    /// the last `layout()` run made (`window_width_less_than` & co.)?
+    ///
+    /// `true` also when the recording OVERFLOWED (incomplete list — silence
+    /// would be a resize skipping a `layout()` that would have branched) and
+    /// when there are no recorded queries but no layout has run yet.
+    ///
+    /// `false` means: through the sanctioned query channel, the callback is
+    /// provably size-stable across this resize. (An app reading
+    /// `info.window_size` imperatively instead of querying is outside the
+    /// channel BY DEFINITION — that pattern is a bug in the app; the queries
+    /// exist precisely so the engine can see the dependency.)
+    #[must_use]
+    pub fn size_queries_would_flip(&self, new_size: azul_core::geom::LogicalSize) -> bool {
+        let (queries, overflowed) = &self.recorded_size_queries;
+        if *overflowed {
+            return true;
+        }
+        queries.iter().any(|q| q.flips_at(new_size))
+    }
+
+    /// THE resize decision (user ruling 2026-08-08): does resizing from
+    /// `old_logical` to `new_logical` require re-invoking the app's `layout()`
+    /// (a full DOM regeneration), or can the existing `StyledDom` be re-flowed
+    /// at the new size?
+    ///
+    /// Full regeneration iff any signal through which the callback could
+    /// observably branch on size fires:
+    ///
+    /// 1. a recorded window-size query answer flips (`window_width_less_than` & co.)
+    ///    ([`Self::size_queries_would_flip`], the sanctioned imperative
+    ///    channel — incl. the recording having overflowed);
+    /// 2. an [`azul_core::window::CSS_BREAKPOINTS`] threshold is crossed on
+    ///    either axis, or the orientation flips (the declarative `@media`
+    ///    channel);
+    /// 3. there is no previous layout to reuse.
+    ///
+    /// Shared by every desktop shell (via
+    /// `CommonWindowState::resize_needs_full_regeneration`) and the headless
+    /// E2E runner, so the corpus tests the same policy the shells run.
+    #[must_use]
+    pub fn resize_needs_full_regeneration(
+        &self,
+        old_logical: azul_core::geom::LogicalSize,
+        new_logical: azul_core::geom::LogicalSize,
+    ) -> bool {
+        if self.layout_results.is_empty() {
+            return true;
+        }
+        if self.size_queries_would_flip(new_logical) {
+            return true;
+        }
+        let crossed = |old: f32, new: f32| {
+            azul_core::window::CSS_BREAKPOINTS
+                .iter()
+                .any(|&bp| (old <= bp) != (new <= bp))
+        };
+        if crossed(old_logical.width, new_logical.width)
+            || crossed(old_logical.height, new_logical.height)
+        {
+            return true;
+        }
+        (old_logical.width > old_logical.height) != (new_logical.width > new_logical.height)
+    }
+
     /// Ask this window to zero its frame-report counters + accumulated damage
     /// before the next write (the `reset_frame_counters` E2E op).
     ///
@@ -1202,6 +1279,7 @@ impl LayoutWindow {
             // M12.7 web/headless GPU-sync skip (default false → desktop unaffected)
             skip_gpu_sync: false,
             frame_report: FrameReport::default(),
+            recorded_size_queries: (Vec::new(), false),
             frame_report_reset_request: core::sync::atomic::AtomicU64::new(0),
             #[cfg(feature = "pdf")]
             fragmentation_context: crate::paged::FragmentationContext::new_continuous(800.0),
@@ -11311,6 +11389,8 @@ impl LayoutWindow {
             // Exempt: damage rects + frame counters only, keyed by nothing.
             frame_report: _,
             frame_report_reset_request: _,
+            // Thresholds + answers, keyed by nothing.
+            recorded_size_queries: _,
             layout_cache: _,
             layout_results: _,
             // Content-addressed (hashes / font ids / image ids), never NodeIds:

@@ -89,10 +89,18 @@ struct Runner {
     /// The async font registry, i.e. `AppInternal::font_registry`.
     #[cfg(feature = "font_async_registry")]
     font_registry: Option<Arc<azul_layout::FcFontRegistry>>,
-    /// Set by a `ModifyWindowState` whose size or DPI changed — the DLL answers
-    /// that with `request_regeneration(RelayoutReason::Resize)`,
-    /// which invalidates every cached rasterisation.
+    /// Set by a `ModifyWindowState` whose size changed. Consumed by
+    /// [`Runner::service`], which then runs the SAME resize decision the
+    /// shells run (`LayoutWindow::resize_needs_full_regeneration`): full DOM
+    /// regeneration only when a recorded window-size query answer flips or a
+    /// CSS breakpoint / orientation is crossed; otherwise a relayout of the
+    /// existing `StyledDom` at the new size. This is what lets the corpus
+    /// assert `dom_regenerations == 0` across a plain resize.
     resize_pending: bool,
+    /// Set by a `ModifyWindowState` whose DPI changed. Always a full
+    /// regeneration: a scale change invalidates every cached rasterisation
+    /// and every shaped run measured at the old scale.
+    dpi_pending: bool,
     /// `CallbackChange`s this host could not apply faithfully (see
     /// [`Runner::unsupported`]). Non-empty ⇒ the scenario FAILS: it asked the
     /// engine to do something the headless runner cannot do, so whatever it
@@ -183,6 +191,7 @@ impl Runner {
             #[cfg(feature = "font_async_registry")]
             font_registry,
             resize_pending: false,
+            dpi_pending: false,
             unsupported_changes: Vec::new(),
             pending_redraw: false,
         }
@@ -244,6 +253,12 @@ impl Runner {
                 &mut dbg,
             )
             .expect("layout_and_generate_display_list");
+        // Same CRITICAL sync as the DLL paths (regenerate_layout's tail /
+        // incremental_relayout): the cached state is the "old size" the resize
+        // decision diffs against. Without it, every resize after the first
+        // compared against the size of the last FULL layout — conservative
+        // (extra full regenerations), but wrong.
+        self.layout_window.current_window_state = self.window_state.clone();
         self.register_scroll_nodes();
         self.rebuild_hit_tester();
     }
@@ -486,10 +501,29 @@ impl Runner {
         if self.layout_window.e2e_mount.is_dirty() {
             result = result.max(ProcessEventResult::ShouldRegenerateDomCurrentWindow);
         }
-        // A size/DPI change invalidates every rasterised pixel — same thing
-        // WM_DPICHANGED / the X11 DPI path do (`request_regeneration`).
-        if self.resize_pending {
+        // RESIZE POLICY (user ruling 2026-08-08) — the same decision every
+        // desktop shell makes, through the same LayoutWindow fn, so the corpus
+        // tests exactly what the shells run. A DPI change is always a full
+        // regeneration; a size change re-invokes layout() only when a recorded
+        // window-size query answer flips or a CSS breakpoint / orientation is
+        // crossed. Everything else re-flows the existing StyledDom.
+        if self.dpi_pending {
             result = result.max(ProcessEventResult::ShouldRegenerateDomCurrentWindow);
+        } else if self.resize_pending {
+            let old_logical = self
+                .layout_window
+                .current_window_state
+                .size
+                .get_logical_size();
+            let full = self.layout_window.resize_needs_full_regeneration(
+                old_logical,
+                self.window_state.size.dimensions,
+            );
+            result = result.max(if full {
+                ProcessEventResult::ShouldRegenerateDomCurrentWindow
+            } else {
+                ProcessEventResult::ShouldIncrementalRelayout
+            });
         }
 
         self.layout_window.sync_frame_report();
@@ -1269,8 +1303,11 @@ impl Runner {
                 let size_changed = self.window_state.size.dimensions != old.size.dimensions;
                 let dpi_changed = self.window_state.size.dpi != old.size.dpi;
                 let mouse_state_changed = self.window_state.mouse_state != old.mouse_state;
-                if size_changed || dpi_changed {
+                if size_changed {
                     self.resize_pending = true;
+                }
+                if dpi_changed {
+                    self.dpi_pending = true;
                 }
                 if state.flags.close_requested {
                     return ProcessEventResult::DoNothing;
@@ -2033,10 +2070,11 @@ impl Runner {
                     // this host caches rasterisations per size/DPI, so a queued
                     // size change has to invalidate them or the frame keeps the
                     // old scale (`ModifyWindowState` does the same).
-                    if self.window_state.size.dimensions != old.size.dimensions
-                        || self.window_state.size.dpi != old.size.dpi
-                    {
+                    if self.window_state.size.dimensions != old.size.dimensions {
                         self.resize_pending = true;
+                    }
+                    if self.window_state.size.dpi != old.size.dpi {
+                        self.dpi_pending = true;
                     }
 
                     if let Some(pos) = queued_state.mouse_state.cursor_position.get_position() {
@@ -2393,6 +2431,7 @@ impl Runner {
                 self.layout_window.layout_results.clear();
                 self.cpu_backend.previous_display_list = None;
                 self.resize_pending = false;
+                self.dpi_pending = false;
                 return;
             }
             None => self
@@ -2404,14 +2443,16 @@ impl Runner {
 
         let Some(mut styled_dom) = styled_dom else {
             self.resize_pending = false;
+            self.dpi_pending = false;
             return;
         };
 
         // A DPI or size change invalidates every cached rasterisation and every
         // shaped run measured at the old scale.
-        if self.resize_pending {
+        if self.resize_pending || self.dpi_pending {
             self.layout_window.clear_caches();
             self.resize_pending = false;
+            self.dpi_pending = false;
         }
 
         // Step 3.4 of `regenerate_layout`: re-run inheritance + rebuild the
@@ -2432,6 +2473,13 @@ impl Runner {
     /// and "new" are the same DOM — so layout would be skipped and the frame
     /// would keep the pre-mutation shaped text and geometry forever.
     fn relayout_only(&mut self) {
+        // The resize fast path lands here: the pending size change is consumed
+        // by re-laying-out the existing StyledDom at the new
+        // `self.window_state` size — WITHOUT `clear_caches()`. Keeping the
+        // warm shaping/intrinsics caches is the entire point of the fast path
+        // (shaping depends on font size and DPI, not on the viewport); DPI
+        // changes never come through here (always a full regeneration).
+        self.resize_pending = false;
         if let Some(layout_result) = self.layout_window.layout_results.remove(&DomId::ROOT_ID) {
             self.layout(layout_result.styled_dom);
         }

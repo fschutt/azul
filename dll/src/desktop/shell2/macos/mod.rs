@@ -6102,6 +6102,36 @@ impl MacOSWindow {
         // Captured BEFORE either branch renders: a lifecycle callback inside the
         // render can raise a new regeneration request, and only what we saw here
         // may be retired.
+        // RESIZE FAST PATH (coalesced): any number of windowDidResize events
+        // since the last frame become ONE incremental relayout of the EXISTING
+        // StyledDom at the latest size. A concurrent full regeneration request
+        // supersedes it (it lays out at the new size anyway).
+        if self.common.take_resize_relayout() && !self.common.regeneration_pending() {
+            let mut resize_relayout_failed = false;
+            if let Some(layout_window) = self.common.layout_window.as_mut() {
+                let mut debug_messages = None;
+                if let Err(e) = crate::desktop::shell2::common::layout::incremental_relayout(
+                    layout_window,
+                    &self.common.current_window_state,
+                    &mut self.common.renderer_resources,
+                    &mut debug_messages,
+                ) {
+                    log_error!(
+                        LogCategory::Layout,
+                        "[macOS] resize fast-path relayout failed: {e} — falling back to a \
+                         full regeneration"
+                    );
+                    resize_relayout_failed = true;
+                }
+            }
+            if resize_relayout_failed {
+                self.common
+                    .request_regeneration(azul_core::callbacks::RelayoutReason::Resize);
+            } else {
+                self.common.request_relayout_only();
+            }
+        }
+
         let regen_epoch_seen = self.common.regen_epoch();
         let display_list_needs_rebuild = if self.common.take_relayout_only() {
             // Restyle / runtime edit: the RegenerateLayoutIncremental input arm already

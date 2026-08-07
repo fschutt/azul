@@ -320,10 +320,21 @@ phases.mark("after_font_snapshot");
     azul_layout::probe::emit_phase_heap("before_callback");
 phases.mark("before_callback");
 
+    // Clear any stale recording from an earlier callback on this thread —
+    // the drain below must see ONLY what this invocation queried.
+    let _ = azul_core::callbacks::take_recorded_size_queries();
+
     let user_dom =
         (current_window_state.layout_callback.cb)((*app_data_borrowed).clone(), callback_info);
 
     drop(app_data_borrowed); // Release borrow
+
+    // Capture which window-size queries (`window_width_less_than` & co.) the callback
+    // made, synchronously on this same thread. This recording is the resize
+    // fast path's evidence: a size change that flips none of these answers
+    // (and crosses no CSS breakpoint) skips this whole produce side and
+    // re-flows the existing DOM. See LayoutWindow::size_queries_would_flip.
+    layout_window.recorded_size_queries = azul_core::callbacks::take_recorded_size_queries();
     azul_layout::probe::emit_phase_heap("after_callback");
 phases.mark("after_callback");
 
@@ -637,7 +648,7 @@ phases.mark("after_state_migrate");
     // The layout callback creates a fresh StyledDom with default states (focused=false, etc.)
     // We need to synchronize the StyledNodeState with the current runtime state
     // (FocusManager.focused_node, mouse hover position, etc.) BEFORE the display list is generated
-    let styled_dom = apply_runtime_states_before_layout(
+    let mut styled_dom = apply_runtime_states_before_layout(
         styled_dom,
         layout_window,
         current_window_state,
@@ -664,12 +675,17 @@ phases.mark("after_runtime_states");
             || (old_dims.height - new_dims.height).abs() > SIZE_CHANGE_THRESHOLD
     };
 
-    if !window_size_changed {
+    // The equivalence check runs REGARDLESS of whether the size changed — it
+    // used to be gated on `!window_size_changed`, which meant the one case
+    // where the DOM is most likely identical (a pure resize) bypassed the
+    // check and threw the fresh-but-identical DOM into a from-scratch layout.
+    // The size decides what happens WITH the equivalence result (below), not
+    // whether it is worth knowing.
     if let Some(old_layout_result) = layout_window.layout_results.get(&azul_core::dom::DomId::ROOT_ID) {
         if azul_core::styled_dom::is_layout_equivalent(&old_layout_result.styled_dom, &styled_dom) {
             log_debug!(
                 LogCategory::Layout,
-                "[regenerate_layout] DOM unchanged - skipping layout, will only refresh image callbacks"
+                "[regenerate_layout] DOM structurally unchanged (size_changed={window_size_changed})"
             );
 
             // Transfer the new image callback RefAnys to the old DOM's nodes.
@@ -729,14 +745,41 @@ phases.mark("after_runtime_states");
                 }
             }
 
-            log_debug!(LogCategory::Layout, "[regenerate_layout] COMPLETE (layout unchanged)");
-            azul_layout::probe::emit_phase_heap("end_unchanged");
-phases.mark("end_unchanged");
-            phases.report();
-            return Ok(LayoutRegenerateResult::LayoutUnchanged);
+            if !window_size_changed {
+                log_debug!(LogCategory::Layout, "[regenerate_layout] COMPLETE (layout unchanged)");
+                azul_layout::probe::emit_phase_heap("end_unchanged");
+                phases.mark("end_unchanged");
+                phases.report();
+                return Ok(LayoutRegenerateResult::LayoutUnchanged);
+            }
+
+            // R1 — THE EQUIVALENCE RESULT IS USED, NOT THROWN AWAY. The size
+            // changed but the DOM did not, so the freshly-produced StyledDom
+            // is DROPPED and the PREVIOUS one — the exact object solver3's
+            // warm caches (shaping, intrinsic widths) were built against — is
+            // re-laid-out at the new size below. Same-object identity makes
+            // cache reconciliation trivial instead of heuristic. The fresh
+            // DOM lost nothing in the swap: state migration COPIES from the
+            // old result (`.to_vec()` clones), it does not drain it, and the
+            // callback/image updates above were applied to the OLD dom.
+            //
+            // (This branch is rare by design: the resize fast path skips this
+            // whole function unless a breakpoint crossed. It catches full
+            // regenerations — breakpoint crossings, RefreshDom — that produced
+            // an identical DOM while the size also moved.)
+            if let Some(old_result) = layout_window
+                .layout_results
+                .remove(&azul_core::dom::DomId::ROOT_ID)
+            {
+                log_debug!(
+                    LogCategory::Layout,
+                    "[regenerate_layout] size changed, DOM equivalent — relaying out the \
+                     PREVIOUS StyledDom (warm caches) at the new size"
+                );
+                styled_dom = old_result.styled_dom;
+            }
         }
     }
-    } // end if !window_size_changed
     azul_layout::probe::emit_phase_heap("after_equivalence_check");
 phases.mark("after_equivalence_check");
 
@@ -1040,6 +1083,13 @@ pub fn incremental_relayout(
                 debug_messages,
             )
             .map_err(|e| format!("Incremental layout error: {:?}", e))?;
+
+        // Same CRITICAL update as regenerate_layout's tail: the cached window
+        // state is what the next pass diffs against to detect size changes.
+        // The resize fast path lands HERE (not in regenerate_layout), so
+        // without this line every fast resize left the cached size stale —
+        // and the next full regeneration would mis-detect what changed.
+        layout_window.current_window_state = current_window_state.clone();
     }
 
     register_scroll_nodes(layout_window);

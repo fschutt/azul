@@ -2877,6 +2877,37 @@ unsafe extern "system" fn window_proc(
             // Captured BEFORE either branch renders: a callback inside the render
             // can raise a new regeneration request, and only what we saw here may
             // be retired.
+            // RESIZE FAST PATH (coalesced): any number of WM_SIZE events since
+            // the last paint become ONE incremental relayout of the EXISTING
+            // StyledDom at the latest size. A concurrent full regeneration
+            // request supersedes it (it lays out at the new size anyway).
+            if window.common.take_resize_relayout() && !window.common.regeneration_pending() {
+                let mut resize_relayout_failed = false;
+                if let Some(layout_window) = window.common.layout_window.as_mut() {
+                    let mut debug_messages = None;
+                    if let Err(e) = crate::desktop::shell2::common::layout::incremental_relayout(
+                        layout_window,
+                        &window.common.current_window_state,
+                        &mut window.common.renderer_resources,
+                        &mut debug_messages,
+                    ) {
+                        log_error!(
+                            LogCategory::Layout,
+                            "[Win32] resize fast-path relayout failed: {e} — falling back to a \
+                             full regeneration"
+                        );
+                        resize_relayout_failed = true;
+                    }
+                }
+                if resize_relayout_failed {
+                    window
+                        .common
+                        .request_regeneration(azul_core::callbacks::RelayoutReason::Resize);
+                } else {
+                    window.common.request_relayout_only();
+                }
+            }
+
             let regen_epoch_seen = window.common.regen_epoch();
             let layout_was_regenerated = if window.common.take_relayout_only() {
                 // Restyle / runtime edit: incremental_relayout() already re-ran layout
@@ -3033,14 +3064,29 @@ unsafe extern "system" fn window_proc(
                 window.common.current_window_state = new_window_state.clone();
                 window.common.previous_window_state = Some(new_window_state);
 
-                // Tag the next regen as a resize so the user's layout()
-                // callback can detect it via `info.relayout_reason()`.
-                // Resize requires a full display list rebuild, tagged as a
-                // resize so the user's layout() can branch on it.
-                window.common
-                    .request_regeneration(azul_core::callbacks::RelayoutReason::Resize);
+                // RESIZE POLICY (user ruling 2026-08-08, same as Wayland/X11):
+                // a drag delivers one WM_SIZE per frame; the app's layout() is
+                // only re-invoked when a recorded window-size query answer flips
+                // or a CSS breakpoint / orientation is crossed. Everything else
+                // re-flows the existing StyledDom — one coalesced relayout per
+                // WM_PAINT, at the latest size.
+                let old_logical = azul_core::geom::LogicalSize::new(
+                    old_context.viewport_width,
+                    old_context.viewport_height,
+                );
+                let full = window
+                    .common
+                    .request_regeneration_for_resize(old_logical, logical_size);
+                if full {
+                    log_debug!(
+                        LogCategory::Layout,
+                        "[WM_SIZE] boundary crossed — full regeneration at {}x{}",
+                        logical_size.width,
+                        logical_size.height
+                    );
+                }
 
-                // Request redraw (will trigger regenerate_layout in WM_PAINT)
+                // Request redraw (WM_PAINT consumes whichever path was chosen)
                 (window.win32.user32.InvalidateRect)(hwnd, ptr::null(), 0);
             }
 

@@ -855,35 +855,42 @@ impl MacOSWindow {
             return EventProcessResult::RequestRedraw;
         }
 
-        // Check if any CSS breakpoints were crossed
-        let breakpoint_crossed = old_context.viewport_breakpoint_changed(
-            &self.dynamic_selector_context,
-            crate::desktop::shell2::common::CSS_BREAKPOINTS,
+        // RESIZE POLICY (user ruling 2026-08-08, same as Wayland/X11/Win32):
+        // a live-resize drag delivers one windowDidResize per frame, and the
+        // app's layout() is only re-invoked when a recorded window-size
+        // query answer flips or a CSS breakpoint / orientation is crossed —
+        // `request_regeneration_for_resize` folds all three signals. This
+        // replaces "the platform path requests a full DOM rebuild on every
+        // resize so that window-size checks always reflect the live size":
+        // the recorded-query channel exists precisely so the engine can tell
+        // WHICH sizes the callback cares about, instead of assuming all of
+        // them.
+        let old_logical = azul_core::geom::LogicalSize::new(
+            old_context.viewport_width,
+            old_context.viewport_height,
         );
-
-        if breakpoint_crossed {
-            // The user's `layout()` callback may branch on
-            // `info.window_width_*` to emit a structurally different
-            // tree (e.g. hamburger menu vs sidebar). Tag the next
-            // regen with `Resize` so the callback can detect it via
-            // `info.relayout_reason()` and skip work that doesn't
-            // need to repeat (analytics, async fetches, etc.).
+        let new_logical = azul_core::geom::LogicalSize::new(
+            self.dynamic_selector_context.viewport_width,
+            self.dynamic_selector_context.viewport_height,
+        );
+        let full = self
+            .common
+            .request_regeneration_for_resize(old_logical, new_logical);
+        if full {
             log_debug!(
                 LogCategory::Layout,
-                "[Resize] Breakpoint crossed: {}x{} -> {}x{} — re-running layout()",
+                "[Resize] boundary crossed: {}x{} -> {}x{} — re-running layout()",
                 old_context.viewport_width,
                 old_context.viewport_height,
                 self.dynamic_selector_context.viewport_width,
                 self.dynamic_selector_context.viewport_height
             );
-            self.common
-                .request_regeneration(azul_core::callbacks::RelayoutReason::Resize);
         }
 
-        // Whether or not a breakpoint was crossed, the platform path
-        // requests a full DOM rebuild on every resize so that
-        // `info.window_width_*` checks always reflect the live size.
-        EventProcessResult::RegenerateDisplayList
+        // Either way the compositor needs a frame; the caller's RequestRedraw
+        // arm sets surface_needs_update + request_redraw, and the fast path's
+        // latch is consumed (once, coalesced) at the top of build_atomic_txn.
+        EventProcessResult::RequestRedraw
     }
 
     /// Process a file drop event (the user released the dragged files over the
