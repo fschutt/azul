@@ -64,6 +64,17 @@ pub trait ParsedFontTrait: Send + Clone + ShallowClone {
     /// Hash of the font, necessary for breaking layouted glyphs into glyph runs
     fn get_hash(&self) -> u64;
 
+    /// Resolve either this font or one of its cached variable-font instances
+    /// by the hash stamped onto shaped glyphs.
+    ///
+    /// Non-variable backends only need the default implementation. Variable
+    /// font backends override this so renderers and PDF exporters can retrieve
+    /// the exact static instance that was used for shaping.
+    #[must_use]
+    fn resolve_font_hash(&self, hash: u64) -> Option<Self> {
+        (self.get_hash() == hash).then(|| self.shallow_clone())
+    }
+
     /// Returns the size of a glyph at the given font size, or `None` if the glyph is missing.
     fn get_glyph_size(&self, glyph_id: u16, font_size: f32) -> Option<LogicalSize>;
 
