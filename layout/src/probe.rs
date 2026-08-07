@@ -1851,6 +1851,46 @@ impl AllocatorStats {
 /// runtime lookup degrades to `None` instead, and the report says the
 /// allocator could not be queried rather than printing zeros — a zero here
 /// would read as "no memory held", which is the worst possible wrong answer.
+/// Ask glibc to return free heap pages to the OS. Returns `Some(true)` if it
+/// released anything, `Some(false)` if it had nothing to release, `None` if
+/// `malloc_trim` is unavailable (musl, macOS, older glibc).
+///
+/// WHY THIS EXISTS. §26 of `scripts/RSS_MAP_2026_08_07.md` established that a
+/// window resize costs ~+62 MB of transient PEAK and only ~+2.6 MB of
+/// RETAINED memory — the RSS that stays behind is glibc's arena holding pages
+/// it no longer needs, not objects anyone owns. Nothing that reduces retained
+/// bytes can move it; returning the pages is the only lever that acts on it
+/// directly.
+///
+/// `dlsym` rather than an `extern` declaration, for the same reason as
+/// `allocator_stats`: an `extern` block would make the BINARY FAIL TO LINK
+/// wherever the symbol is absent, turning a missing optimisation into a
+/// missing build.
+#[must_use]
+pub fn malloc_trim() -> Option<bool> {
+    #[cfg(not(all(unix, not(target_os = "macos"))))]
+    {
+        None
+    }
+    #[cfg(all(unix, not(target_os = "macos")))]
+    {
+        unsafe extern "C" {
+            fn dlsym(handle: *mut core::ffi::c_void, symbol: *const u8)
+                -> *mut core::ffi::c_void;
+        }
+        let sym = unsafe { dlsym(core::ptr::null_mut(), c"malloc_trim".as_ptr().cast()) };
+        if sym.is_null() {
+            return None;
+        }
+        type MallocTrimFn = unsafe extern "C" fn(usize) -> i32;
+        let f: MallocTrimFn = unsafe { core::mem::transmute(sym) };
+        // pad = 0: keep nothing back. A non-zero pad would leave a cushion for
+        // the next spike, which is a tuning question this measurement has no
+        // basis to answer yet.
+        Some(unsafe { f(0) } != 0)
+    }
+}
+
 #[must_use]
 pub fn allocator_stats() -> Option<AllocatorStats> {
     #[cfg(not(all(unix, not(target_os = "macos"))))]

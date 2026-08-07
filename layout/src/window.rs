@@ -3760,6 +3760,35 @@ impl LayoutWindow {
             LAST_LAYOUT_RESULTS_BYTES.store((lr_styled + lr_tree) as u64, Ordering::Relaxed);
         }
 
+        // RETURN THE PAGES A RELAYOUT BORROWED.
+        //
+        // A relayout allocates a large transient working set and frees it
+        // again; glibc keeps the arena expanded afterwards. §26 of
+        // scripts/RSS_MAP_2026_08_07.md measured a resize at +62 MB of PEAK
+        // against +2.6 MB of RETAINED, so the RSS left behind is arena, not
+        // objects — and nothing that shrinks retained data can move it.
+        //
+        // OPT-IN, and deliberately so. `malloc_trim` walks the free lists and
+        // madvise()s pages back; that costs time on a path that just finished
+        // a relayout, and the pages are likely to be wanted again on the next
+        // one. Whether the trade is worth it is a measurement, not a default,
+        // and the env gate is what makes the A/B possible at all.
+        static MEM_TRIM: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+        if *MEM_TRIM.get_or_init(|| std::env::var("AZ_MALLOC_TRIM").as_deref() == Ok("1")) {
+            let released = crate::probe::malloc_trim();
+            static MEM_TRIM_LOG: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+            if *MEM_TRIM_LOG.get_or_init(azul_core::profile::memory_enabled) {
+                // rss_census(), not current_rss_bytes(): the latter is behind
+                // `#[cfg(feature = "probe")]` and this path must report in any
+                // build where the trim itself runs.
+                let rss_mib = crate::probe::rss_census()
+                    .map_or(0.0, |c| c.total_kib as f64 / 1024.0);
+                eprintln!(
+                    "[MEM] malloc_trim: released={released:?}  rss now {rss_mib:.1} MiB"
+                );
+            }
+        }
+
         // Clear scroll dirty flag — the new display list has
         // up-to-date scroll offsets embedded in PushScrollFrame items.
         self.scroll_manager.clear_scroll_dirty();
