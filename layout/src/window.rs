@@ -698,17 +698,38 @@ static LAST_LAYOUT_RESULTS_BYTES: core::sync::atomic::AtomicU64 =
 #[allow(dead_code, clippy::used_underscore_binding)]
 fn memory_walk_coverage_is_exhaustive(w: &LayoutWindow) {
     let LayoutWindow {
-        // WALKED — each of these contributes to the [MEM] report.
+        // WALKED — these contribute to the [MEM] report. VERIFIED against the
+        // report body, not asserted: it touches `self.layout_cache` and
+        // `self.text_cache` only, plus the `layout_results` walk at the insert
+        // site. `font_manager` was listed here when this guard was first
+        // written and does NOT belong — see below.
         layout_cache: _,
         text_cache: _,
-        font_manager: _,
         layout_results: _,
 
-        // NOT WALKED. Each is either a fixed-size manager, a handle, or
-        // a collection whose size is bounded by user actions rather than
-        // by document size. If you add a field here that can grow with the
-        // document, walk it instead — that is exactly the mistake
-        // `layout_results` represented.
+        // NOT WALKED, AND CAN GROW WITH CONTENT — these are the live gaps.
+        // Named individually rather than folded into the list below, because
+        // a coverage annotation claiming "everything else is small" is worse
+        // than none when it is wrong.
+        //
+        //   font_manager        decoded font tables; heaptrack attributes
+        //                       ~13 MB to ParsedFont. The report's
+        //                       `font_files_kib` comes from the smaps census
+        //                       and is MAPPED FILE RSS — a different quantity
+        //                       from this heap, not a substitute for it.
+        //   image_cache         decoded image pixels
+        //   gl_texture_cache    texture + staging memory
+        //   renderer_resources  renderer-side per-document resources
+        //   text_constraints_cache
+        //   content_overlay / content_journal
+        //   undo_redo_manager   grows with edit history
+        //   virtual_view_manager
+        font_manager: _,
+
+        // NOT WALKED — fixed-size managers, handles, window state, or
+        // collections bounded by user actions rather than document size. If
+        // you add a field here that can grow with the document, walk it —
+        // that is exactly the mistake `layout_results` represented.
         e2e_mount: _,
         #[cfg(feature = "e2e-server")]
         e2e_scratch: _,
@@ -3371,6 +3392,16 @@ impl LayoutWindow {
             eprintln!("[MEM]   decoded tables, binary + shared libs, allocator slack,");
             eprintln!("[MEM]   freed-but-unreturned pages, and any Solver3LayoutCache owned by");
             eprintln!("[MEM]   the APPLICATION (e.g. a thread_local pagination cache).");
+            // Engine-owned and content-sized, but NOT in the walk. Listed by
+            // name because "not covered: ... and misc" is how `layout_results`
+            // stayed hidden for its whole existence — a reader cannot audit a
+            // gap that is only described as a category.
+            eprintln!("[MEM]   ALSO engine-owned and content-sized, but NOT walked:");
+            eprintln!("[MEM]   font_manager (decoded tables, ~13 MB per heaptrack; the");
+            eprintln!("[MEM]   font_files_kib census line is MAPPED FILE RSS, not this heap),");
+            eprintln!("[MEM]   image_cache, gl_texture_cache, renderer_resources,");
+            eprintln!("[MEM]   text_constraints_cache, content_overlay/journal, undo_redo,");
+            eprintln!("[MEM]   virtual_view_manager. See memory_walk_coverage_is_exhaustive().");
 
             // WHERE THE REST IS. The object walk above answers "what do the
             // engine's caches hold"; this answers "where is the process's
