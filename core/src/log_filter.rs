@@ -1,0 +1,396 @@
+//! Runtime log filtering — atomics, not `#[cfg]`.
+//!
+//! # Why this module exists
+//!
+//! azul's platform logging used to be switchable only at COMPILE time, in two
+//! independent ways, and on 2026-08-07 both of them silently deleted the one
+//! diagnosis that was needed:
+//!
+//! * `log_*!` reached the `log` facade only under `feature = "logging"`. An app
+//!   linking azul-dll with `default-features = false` (the documented lean
+//!   `link-static` recipe) got a no-op sink.
+//! * In a `debug-server` build the same macros route into the debug server's
+//!   in-memory queue instead, which never reaches stderr at all.
+//!
+//! The result: a Wayland compositor disconnected the client mid-run, azul's
+//! dead-connection detector fired correctly, and the user saw nothing but
+//! libwayland's bare `Error sending request: Broken pipe`. A diagnostic a build
+//! flag can delete is not a diagnostic.
+//!
+//! USER RULING (2026-08-07): logging must be gated by runtime atomics, the same
+//! way perf and memory profiling are — never by a cargo feature. This module is
+//! that gate. It is always compiled, costs one relaxed atomic load per call
+//! site, and can be changed while the process runs.
+//!
+//! # Configuring it
+//!
+//! Parsed once from `AZ_LOG` on first use, then mutable at runtime:
+//!
+//! ```text
+//! AZ_LOG=debug                  every category at Debug and above (the default)
+//! AZ_LOG=off                    silence
+//! AZ_LOG=trace                  everything, including the per-frame firehose
+//! AZ_LOG=warn,+platform         Warn globally, but Platform down to Trace
+//! AZ_LOG=debug,-layout          Debug globally, but Layout silenced
+//! ```
+//!
+//! `-<category>` / `+<category>` exist because the levels alone are not a usable
+//! filter here: one three-resize run emits 482 547 `[Debug][Layout]` messages
+//! against 7 `[Debug][Platform]` ones. Asking for platform detail at Debug means
+//! writing 55 MB of layout tracing you did not want, which is slow enough to
+//! change the behaviour being measured.
+
+use core::sync::atomic::{AtomicBool, AtomicU32, AtomicU8, Ordering};
+
+/// Severity, ordered so `level as u8 >= threshold` is the enabled test.
+/// Mirrors `LogLevel` in the shell without depending on it.
+#[repr(u8)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+pub enum Level {
+    Trace = 0,
+    Debug = 1,
+    Info = 2,
+    Warn = 3,
+    Error = 4,
+}
+
+/// Log categories, in the order the shell's `LogCategory` declares them. The
+/// discriminants are the bit positions used by [`CATEGORY_MASK`].
+#[repr(u8)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Category {
+    General = 0,
+    Window = 1,
+    EventLoop = 2,
+    Input = 3,
+    Layout = 4,
+    Text = 5,
+    DisplayList = 6,
+    Rendering = 7,
+    Resources = 8,
+    Callbacks = 9,
+    Timer = 10,
+    DebugServer = 11,
+    Platform = 12,
+}
+
+/// Number of [`Category`] variants.
+pub const CATEGORY_COUNT: usize = 13;
+
+/// Minimum severity that passes. `u8::MAX` means "logging off entirely".
+static MIN_LEVEL: AtomicU8 = AtomicU8::new(u8::MAX);
+/// One enable bit per [`Category`]; bit N corresponds to discriminant N.
+static CATEGORY_MASK: AtomicU32 = AtomicU32::new(u32::MAX);
+/// Mirror of `MIN_LEVEL != u8::MAX`, so the hot path is a single bool load.
+static ANY_ENABLED: AtomicBool = AtomicBool::new(false);
+/// Whether `AZ_LOG` has been parsed yet.
+static INITIALISED: AtomicBool = AtomicBool::new(false);
+/// Echo every passing record to stderr, in addition to whatever sink the build
+/// has.
+///
+/// **Default ON.** Asking for debugging and getting silence is the bug this
+/// whole module exists to kill: `AZ_DEBUG=<port>` and `AZ_E2E=<file>` both used
+/// to route every record into the debug server's in-memory queue and print
+/// nothing at all on the terminal, so the operator saw a blank screen and
+/// concluded logging was broken. If you turn a debug mode on, you get logs.
+///
+/// Turn it off with `AZ_LOG_STDERR=0` (keeps the queue for the debugger UI) or
+/// silence everything with `AZ_LOG=off`. Volume is a LEVEL/CATEGORY question —
+/// `AZ_LOG=warn,+platform` — not a reason to have no sink.
+static STDERR_ECHO: AtomicBool = AtomicBool::new(true);
+
+/// The five level switches, exposed individually because that is how they are
+/// usually flipped from a debugger or a callback: `log_filter::DEBUG.store(true, ..)`.
+/// They are derived from [`MIN_LEVEL`] and kept in step by [`recompute`].
+pub static TRACE: AtomicBool = AtomicBool::new(false);
+/// See [`TRACE`].
+pub static DEBUG: AtomicBool = AtomicBool::new(false);
+/// See [`TRACE`].
+pub static INFO: AtomicBool = AtomicBool::new(false);
+/// See [`TRACE`].
+pub static WARN: AtomicBool = AtomicBool::new(false);
+/// See [`TRACE`].
+pub static ERROR: AtomicBool = AtomicBool::new(false);
+
+fn recompute(min: u8) {
+    let on = |l: Level| min != u8::MAX && (l as u8) >= min;
+    TRACE.store(on(Level::Trace), Ordering::Relaxed);
+    DEBUG.store(on(Level::Debug), Ordering::Relaxed);
+    INFO.store(on(Level::Info), Ordering::Relaxed);
+    WARN.store(on(Level::Warn), Ordering::Relaxed);
+    ERROR.store(on(Level::Error), Ordering::Relaxed);
+    ANY_ENABLED.store(min != u8::MAX, Ordering::Relaxed);
+}
+
+/// Set the global minimum level at runtime. `None` disables logging entirely.
+pub fn set_min_level(level: Option<Level>) {
+    let min = level.map_or(u8::MAX, |l| l as u8);
+    MIN_LEVEL.store(min, Ordering::Relaxed);
+    recompute(min);
+    INITIALISED.store(true, Ordering::Relaxed);
+}
+
+/// Current global minimum level, or `None` when logging is off.
+#[must_use]
+pub fn min_level() -> Option<Level> {
+    match MIN_LEVEL.load(Ordering::Relaxed) {
+        0 => Some(Level::Trace),
+        1 => Some(Level::Debug),
+        2 => Some(Level::Info),
+        3 => Some(Level::Warn),
+        4 => Some(Level::Error),
+        _ => None,
+    }
+}
+
+/// Enable or silence one category at runtime, independently of the level.
+pub fn set_category(category: Category, enabled: bool) {
+    let bit = 1u32 << (category as u8);
+    let mut cur = CATEGORY_MASK.load(Ordering::Relaxed);
+    loop {
+        let next = if enabled { cur | bit } else { cur & !bit };
+        match CATEGORY_MASK.compare_exchange_weak(cur, next, Ordering::Relaxed, Ordering::Relaxed) {
+            Ok(_) => return,
+            Err(actual) => cur = actual,
+        }
+    }
+}
+
+/// Whether `category` is currently enabled, ignoring the level.
+#[must_use]
+pub fn category_enabled(category: Category) -> bool {
+    CATEGORY_MASK.load(Ordering::Relaxed) & (1u32 << (category as u8)) != 0
+}
+
+/// Whether records at `level` in `category` should be emitted.
+///
+/// This is THE hot path — it runs before the `format!` at every one of the 700+
+/// `log_*!` call sites, so it must stay two relaxed loads and no allocation.
+#[must_use]
+pub fn enabled(category: Category, level: Level) -> bool {
+    if !INITIALISED.load(Ordering::Relaxed) {
+        init_from_env();
+    }
+    if !ANY_ENABLED.load(Ordering::Relaxed) {
+        return false;
+    }
+    (level as u8) >= MIN_LEVEL.load(Ordering::Relaxed) && category_enabled(category)
+}
+
+/// Level-only test, for call sites that have no category.
+#[must_use]
+pub fn level_enabled(level: Level) -> bool {
+    if !INITIALISED.load(Ordering::Relaxed) {
+        init_from_env();
+    }
+    ANY_ENABLED.load(Ordering::Relaxed) && (level as u8) >= MIN_LEVEL.load(Ordering::Relaxed)
+}
+
+/// Whether passing records should also be echoed to stderr.
+#[must_use]
+pub fn stderr_echo() -> bool {
+    STDERR_ECHO.load(Ordering::Relaxed)
+}
+
+/// Turn the stderr echo on or off at runtime.
+pub fn set_stderr_echo(on: bool) {
+    STDERR_ECHO.store(on, Ordering::Relaxed);
+}
+
+/// Map a category name to its enum value. Accepts the spellings used in
+/// `AZ_LOG` (lowercase, no separators) — `eventloop`, `displaylist`, etc.
+#[must_use]
+pub fn category_from_name(name: &str) -> Option<Category> {
+    Some(match name {
+        "general" => Category::General,
+        "window" => Category::Window,
+        "eventloop" | "event_loop" => Category::EventLoop,
+        "input" => Category::Input,
+        "layout" => Category::Layout,
+        "text" => Category::Text,
+        "displaylist" | "display_list" => Category::DisplayList,
+        "rendering" | "render" => Category::Rendering,
+        "resources" => Category::Resources,
+        "callbacks" => Category::Callbacks,
+        "timer" => Category::Timer,
+        "debugserver" | "debug_server" | "debug" => Category::DebugServer,
+        "platform" => Category::Platform,
+        _ => return None,
+    })
+}
+
+/// Parse one `AZ_LOG` value into (min level, category overrides).
+///
+/// Split out from [`init_from_env`] so it is testable without touching the
+/// process environment.
+#[must_use]
+pub fn parse(raw: &str) -> (Option<Level>, alloc::vec::Vec<(Category, bool)>) {
+    use alloc::vec::Vec;
+    let mut level = Some(Level::Debug); // unset / unrecognised -> Debug (the historical default)
+    let mut overrides: Vec<(Category, bool)> = Vec::new();
+    let lower = raw.trim().to_ascii_lowercase();
+    if lower.is_empty() {
+        return (level, overrides);
+    }
+    for token in lower.split(|c| c == ',' || c == ';' || c == ' ').filter(|t| !t.is_empty()) {
+        // +name / -name enable or silence a single category.
+        if let Some(name) = token.strip_prefix('+') {
+            if let Some(cat) = category_from_name(name) {
+                overrides.push((cat, true));
+            }
+            continue;
+        }
+        if let Some(name) = token.strip_prefix('-') {
+            if let Some(cat) = category_from_name(name) {
+                overrides.push((cat, false));
+            }
+            continue;
+        }
+        level = match token {
+            "0" | "off" | "false" | "none" | "no" | "disable" | "disabled" => None,
+            "error" => Some(Level::Error),
+            "warn" | "warning" => Some(Level::Warn),
+            "info" => Some(Level::Info),
+            "trace" | "all" => Some(Level::Trace),
+            // "1"/"true"/"on"/"yes"/"debug"/anything unknown -> Debug.
+            _ => Some(Level::Debug),
+        };
+    }
+    (level, overrides)
+}
+
+/// Parse `AZ_LOG` (and `AZ_LOG_STDERR`) into the atomics. Idempotent; the first
+/// caller wins and later ones are no-ops, so an explicit [`set_min_level`] made
+/// before any logging is not clobbered.
+pub fn init_from_env() {
+    if INITIALISED.swap(true, Ordering::SeqCst) {
+        return;
+    }
+    #[cfg(feature = "std")]
+    {
+        let raw = std::env::var("AZ_LOG").unwrap_or_default();
+        let (level, overrides) = parse(&raw);
+        let min = level.map_or(u8::MAX, |l| l as u8);
+        MIN_LEVEL.store(min, Ordering::Relaxed);
+        recompute(min);
+        for (cat, on) in overrides {
+            set_category(cat, on);
+        }
+        // Explicit override only. The default is ON (see STDERR_ECHO) — this
+        // exists so a build that genuinely wants the queue and nothing else can
+        // say so, not as the switch that makes logging work.
+        if let Ok(v) = std::env::var("AZ_LOG_STDERR") {
+            let v = v.trim().to_ascii_lowercase();
+            let off = matches!(v.as_str(), "0" | "off" | "false" | "no" | "none");
+            STDERR_ECHO.store(!off, Ordering::Relaxed);
+        }
+        // AZ_LOG=off means off, including the echo.
+        if level.is_none() {
+            STDERR_ECHO.store(false, Ordering::Relaxed);
+        }
+    }
+    #[cfg(not(feature = "std"))]
+    {
+        // No environment to read: default to Debug so an embedder that installs
+        // a sink still gets records, matching the std default.
+        MIN_LEVEL.store(Level::Debug as u8, Ordering::Relaxed);
+        recompute(Level::Debug as u8);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn unset_defaults_to_debug_and_keeps_every_category() {
+        let (level, overrides) = parse("");
+        assert_eq!(level, Some(Level::Debug));
+        assert!(overrides.is_empty());
+    }
+
+    #[test]
+    fn off_spellings_disable_logging() {
+        for raw in ["off", "0", "false", "none", "no", "disable", "disabled", "  OFF  "] {
+            assert_eq!(parse(raw).0, None, "{raw} should disable logging");
+        }
+    }
+
+    #[test]
+    fn level_names_parse() {
+        assert_eq!(parse("trace").0, Some(Level::Trace));
+        assert_eq!(parse("debug").0, Some(Level::Debug));
+        assert_eq!(parse("info").0, Some(Level::Info));
+        assert_eq!(parse("warn").0, Some(Level::Warn));
+        assert_eq!(parse("error").0, Some(Level::Error));
+    }
+
+    #[test]
+    fn unknown_token_falls_back_to_debug_rather_than_silence() {
+        // Silence-on-typo is the failure mode this whole module exists to stop.
+        assert_eq!(parse("verbose-ish").0, Some(Level::Debug));
+    }
+
+    #[test]
+    fn category_overrides_parse_in_both_directions() {
+        let (level, overrides) = parse("warn,+platform,-layout");
+        assert_eq!(level, Some(Level::Warn));
+        assert_eq!(overrides, vec![(Category::Platform, true), (Category::Layout, false)]);
+    }
+
+    #[test]
+    fn levels_are_ordered_so_higher_severity_passes_a_higher_threshold() {
+        assert!((Level::Error as u8) > (Level::Warn as u8));
+        assert!((Level::Warn as u8) > (Level::Info as u8));
+        assert!((Level::Info as u8) > (Level::Debug as u8));
+        assert!((Level::Debug as u8) > (Level::Trace as u8));
+    }
+
+    #[test]
+    fn category_bits_are_distinct() {
+        let cats = [
+            Category::General, Category::Window, Category::EventLoop, Category::Input,
+            Category::Layout, Category::Text, Category::DisplayList, Category::Rendering,
+            Category::Resources, Category::Callbacks, Category::Timer, Category::DebugServer,
+            Category::Platform,
+        ];
+        assert_eq!(cats.len(), CATEGORY_COUNT);
+        let mut seen = 0u32;
+        for c in cats {
+            let bit = 1u32 << (c as u8);
+            assert_eq!(seen & bit, 0, "duplicate bit for {c:?}");
+            seen |= bit;
+        }
+    }
+
+    #[test]
+    fn runtime_toggles_take_effect() {
+        set_min_level(Some(Level::Warn));
+        assert!(!DEBUG.load(Ordering::Relaxed));
+        assert!(WARN.load(Ordering::Relaxed));
+        assert!(ERROR.load(Ordering::Relaxed));
+        assert!(level_enabled(Level::Error));
+        assert!(!level_enabled(Level::Debug));
+
+        set_min_level(Some(Level::Trace));
+        assert!(TRACE.load(Ordering::Relaxed));
+        assert!(level_enabled(Level::Trace));
+
+        set_min_level(None);
+        assert!(!level_enabled(Level::Error), "None must silence even Error");
+        assert!(!ERROR.load(Ordering::Relaxed));
+
+        // Restore a sane default for any other test in this binary.
+        set_min_level(Some(Level::Debug));
+    }
+
+    #[test]
+    fn silencing_one_category_leaves_the_others() {
+        set_min_level(Some(Level::Debug));
+        set_category(Category::Layout, false);
+        assert!(!enabled(Category::Layout, Level::Error), "silenced category ignores level");
+        assert!(enabled(Category::Platform, Level::Debug));
+        set_category(Category::Layout, true);
+        assert!(enabled(Category::Layout, Level::Debug));
+    }
+}

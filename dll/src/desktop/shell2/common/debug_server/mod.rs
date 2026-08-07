@@ -109,12 +109,17 @@ macro_rules! plog_error {
     }};
 }
 
-/// Log a trace message (only evaluated when debug server is active)
+/// Log a trace message. Gated at RUNTIME by `log_gate::should_log`
+/// (level + category atomics, plus "is any sink listening") — never by a
+/// cargo feature. The `format!` runs only if the gate passes.
 #[macro_export]
 macro_rules! log_trace {
     ($cat:expr, $($arg:tt)*) => {
-        if $crate::desktop::shell2::common::debug_server::log_active() {
-            $crate::desktop::shell2::common::debug_server::log(
+        if $crate::desktop::shell2::common::log_gate::should_log(
+            $cat,
+            $crate::desktop::shell2::common::log_gate::Level::Trace,
+        ) {
+            $crate::desktop::shell2::common::log_gate::emit_at(
                 $crate::desktop::shell2::common::debug_server::LogLevel::Trace,
                 $cat,
                 format!($($arg)*),
@@ -123,8 +128,11 @@ macro_rules! log_trace {
         }
     };
     ($cat:expr, $win:expr, $($arg:tt)*) => {
-        if $crate::desktop::shell2::common::debug_server::log_active() {
-            $crate::desktop::shell2::common::debug_server::log(
+        if $crate::desktop::shell2::common::log_gate::should_log(
+            $cat,
+            $crate::desktop::shell2::common::log_gate::Level::Trace,
+        ) {
+            $crate::desktop::shell2::common::log_gate::emit_at(
                 $crate::desktop::shell2::common::debug_server::LogLevel::Trace,
                 $cat,
                 format!($($arg)*),
@@ -134,12 +142,17 @@ macro_rules! log_trace {
     };
 }
 
-/// Log a debug message (only evaluated when debug server is active)
+/// Log a debug message. Gated at RUNTIME by `log_gate::should_log`
+/// (level + category atomics, plus "is any sink listening") — never by a
+/// cargo feature. The `format!` runs only if the gate passes.
 #[macro_export]
 macro_rules! log_debug {
     ($cat:expr, $($arg:tt)*) => {
-        if $crate::desktop::shell2::common::debug_server::log_active() {
-            $crate::desktop::shell2::common::debug_server::log(
+        if $crate::desktop::shell2::common::log_gate::should_log(
+            $cat,
+            $crate::desktop::shell2::common::log_gate::Level::Debug,
+        ) {
+            $crate::desktop::shell2::common::log_gate::emit_at(
                 $crate::desktop::shell2::common::debug_server::LogLevel::Debug,
                 $cat,
                 format!($($arg)*),
@@ -148,8 +161,11 @@ macro_rules! log_debug {
         }
     };
     ($cat:expr, $win:expr, $($arg:tt)*) => {
-        if $crate::desktop::shell2::common::debug_server::log_active() {
-            $crate::desktop::shell2::common::debug_server::log(
+        if $crate::desktop::shell2::common::log_gate::should_log(
+            $cat,
+            $crate::desktop::shell2::common::log_gate::Level::Debug,
+        ) {
+            $crate::desktop::shell2::common::log_gate::emit_at(
                 $crate::desktop::shell2::common::debug_server::LogLevel::Debug,
                 $cat,
                 format!($($arg)*),
@@ -159,12 +175,17 @@ macro_rules! log_debug {
     };
 }
 
-/// Log an info message (only evaluated when debug server is active)
+/// Log an info message. Gated at RUNTIME by `log_gate::should_log`
+/// (level + category atomics, plus "is any sink listening") — never by a
+/// cargo feature. The `format!` runs only if the gate passes.
 #[macro_export]
 macro_rules! log_info {
     ($cat:expr, $($arg:tt)*) => {
-        if $crate::desktop::shell2::common::debug_server::log_active() {
-            $crate::desktop::shell2::common::debug_server::log(
+        if $crate::desktop::shell2::common::log_gate::should_log(
+            $cat,
+            $crate::desktop::shell2::common::log_gate::Level::Info,
+        ) {
+            $crate::desktop::shell2::common::log_gate::emit_at(
                 $crate::desktop::shell2::common::debug_server::LogLevel::Info,
                 $cat,
                 format!($($arg)*),
@@ -173,8 +194,11 @@ macro_rules! log_info {
         }
     };
     ($cat:expr, $win:expr, $($arg:tt)*) => {
-        if $crate::desktop::shell2::common::debug_server::log_active() {
-            $crate::desktop::shell2::common::debug_server::log(
+        if $crate::desktop::shell2::common::log_gate::should_log(
+            $cat,
+            $crate::desktop::shell2::common::log_gate::Level::Info,
+        ) {
+            $crate::desktop::shell2::common::log_gate::emit_at(
                 $crate::desktop::shell2::common::debug_server::LogLevel::Info,
                 $cat,
                 format!($($arg)*),
@@ -184,12 +208,17 @@ macro_rules! log_info {
     };
 }
 
-/// Log a warning message (only evaluated when debug server is active)
+/// Log a warning message. Gated at RUNTIME by `log_gate::should_log`
+/// (level + category atomics, plus "is any sink listening") — never by a
+/// cargo feature. The `format!` runs only if the gate passes.
 #[macro_export]
 macro_rules! log_warn {
     ($cat:expr, $($arg:tt)*) => {
-        if $crate::desktop::shell2::common::debug_server::log_active() {
-            $crate::desktop::shell2::common::debug_server::log(
+        if $crate::desktop::shell2::common::log_gate::should_log(
+            $cat,
+            $crate::desktop::shell2::common::log_gate::Level::Warn,
+        ) {
+            $crate::desktop::shell2::common::log_gate::emit_at(
                 $crate::desktop::shell2::common::debug_server::LogLevel::Warn,
                 $cat,
                 format!($($arg)*),
@@ -198,8 +227,11 @@ macro_rules! log_warn {
         }
     };
     ($cat:expr, $win:expr, $($arg:tt)*) => {
-        if $crate::desktop::shell2::common::debug_server::log_active() {
-            $crate::desktop::shell2::common::debug_server::log(
+        if $crate::desktop::shell2::common::log_gate::should_log(
+            $cat,
+            $crate::desktop::shell2::common::log_gate::Level::Warn,
+        ) {
+            $crate::desktop::shell2::common::log_gate::emit_at(
                 $crate::desktop::shell2::common::debug_server::LogLevel::Warn,
                 $cat,
                 format!($($arg)*),
@@ -209,12 +241,17 @@ macro_rules! log_warn {
     };
 }
 
-/// Log an error message (only evaluated when debug server is active)
+/// Log an error message. Gated at RUNTIME by `log_gate::should_log`
+/// (level + category atomics, plus "is any sink listening") — never by a
+/// cargo feature. The `format!` runs only if the gate passes.
 #[macro_export]
 macro_rules! log_error {
     ($cat:expr, $($arg:tt)*) => {
-        if $crate::desktop::shell2::common::debug_server::log_active() {
-            $crate::desktop::shell2::common::debug_server::log(
+        if $crate::desktop::shell2::common::log_gate::should_log(
+            $cat,
+            $crate::desktop::shell2::common::log_gate::Level::Error,
+        ) {
+            $crate::desktop::shell2::common::log_gate::emit_at(
                 $crate::desktop::shell2::common::debug_server::LogLevel::Error,
                 $cat,
                 format!($($arg)*),
@@ -223,8 +260,11 @@ macro_rules! log_error {
         }
     };
     ($cat:expr, $win:expr, $($arg:tt)*) => {
-        if $crate::desktop::shell2::common::debug_server::log_active() {
-            $crate::desktop::shell2::common::debug_server::log(
+        if $crate::desktop::shell2::common::log_gate::should_log(
+            $cat,
+            $crate::desktop::shell2::common::log_gate::Level::Error,
+        ) {
+            $crate::desktop::shell2::common::log_gate::emit_at(
                 $crate::desktop::shell2::common::debug_server::LogLevel::Error,
                 $cat,
                 format!($($arg)*),
