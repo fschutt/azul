@@ -401,6 +401,12 @@ pub struct LayoutCache {
     /// "skipped the walk" from "walked and found everything clean" (both
     /// produce identical pixels and identical reuse censuses).
     pub last_reconcile_was_skipped: bool,
+    /// used_size of every layout node as of the PREVIOUS pass — captured at
+    /// the resize-skip branch (the pass overwrites used_size in the shared
+    /// tree object). DL patching diffs these against the new sizes: a node
+    /// whose size changed must re-emit its items (a translated background
+    /// rect would be the wrong SIZE, not just the wrong place).
+    pub previous_sizes: Vec<Option<LogicalSize>>,
     /// Reconciliation census of the LAST pass: how many nodes were CLONED
     /// from the previous tree (warm shaped-text + intrinsic caches carried
     /// forward) vs built FRESH (no warm data). This pair is what makes cache

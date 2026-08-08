@@ -342,6 +342,128 @@ pub struct DisplayList {
     /// Index ranges (start, end) of display list items that belong to fixed-position elements.
     /// In paged media, these items are replicated on every page (CSS Positioned Layout §2.1).
     pub fixed_position_item_ranges: Vec<(usize, usize)>,
+    /// Per-item (layout-tree index, emission phase) — the DL-PATCHING key.
+    /// `node_mapping` attributes items to DOM ids, but patching substitutes
+    /// per LAYOUT-NODE PAINT CALL: on a resize-skip pass the tree object and
+    /// its indices are unchanged, so a node's cached items can replace a
+    /// paint call — IF the run for the bg/border call can be told apart from
+    /// the run for the content call and from items the SC walk itself pushes
+    /// (scroll-frame hit areas, clips, scrollbars — those always re-emit
+    /// fresh). Parallel to `items`, like `node_mapping`.
+    pub layout_node_mapping: Vec<Option<(usize, EmitPhase)>>,
+}
+
+/// Translate a display-list item's geometry by `delta` (DL patching:
+/// same item content, moved node). Every variant the two paint fns can
+/// emit is handled; variants outside `patchable_item` never reach this
+/// (PatchState::build forces their node into the re-emit set).
+#[must_use]
+pub(crate) fn translate_item(mut item: DisplayListItem, delta: LogicalPosition) -> DisplayListItem {
+    use DisplayListItem as I;
+    if delta.x == 0.0 && delta.y == 0.0 {
+        return item;
+    }
+    let shift = |b: &mut WindowLogicalRect| {
+        b.0.origin.x += delta.x;
+        b.0.origin.y += delta.y;
+    };
+    match &mut item {
+        I::Rect { bounds, .. }
+        | I::SelectionRect { bounds, .. }
+        | I::CursorRect { bounds, .. }
+        | I::Border { bounds, .. }
+        | I::TextLayout { bounds, .. }
+        | I::Underline { bounds, .. }
+        | I::Strikethrough { bounds, .. }
+        | I::Overline { bounds, .. }
+        | I::Image { bounds, .. }
+        | I::LinearGradient { bounds, .. }
+        | I::RadialGradient { bounds, .. }
+        | I::ConicGradient { bounds, .. }
+        | I::BoxShadow { bounds, .. }
+        | I::HitTestArea { bounds, .. } => shift(bounds),
+        I::Text { glyphs, clip_rect, .. } => {
+            for g in glyphs.iter_mut() {
+                g.point.x += delta.x;
+                g.point.y += delta.y;
+            }
+            shift(clip_rect);
+        }
+        // No geometry of their own.
+        I::PushTextShadow { .. } | I::PopTextShadow => {}
+        // Anything else is untranslatable by contract (see patchable_item).
+        _ => {}
+    }
+    item
+}
+
+/// Whether an item may appear in a PATCHED (copied+translated) run. The
+/// build step forces nodes emitting anything else into the re-emit set —
+/// scroll frames, clips, stacking contexts, virtual views, filters and
+/// scrollbars all carry state beyond a rect and must re-emit fresh.
+#[must_use]
+pub(crate) const fn patchable_item(item: &DisplayListItem) -> bool {
+    use DisplayListItem as I;
+    matches!(
+        item,
+        I::Rect { .. }
+            | I::SelectionRect { .. }
+            | I::CursorRect { .. }
+            | I::Border { .. }
+            | I::TextLayout { .. }
+            | I::Text { .. }
+            | I::Underline { .. }
+            | I::Strikethrough { .. }
+            | I::Overline { .. }
+            | I::Image { .. }
+            | I::LinearGradient { .. }
+            | I::RadialGradient { .. }
+            | I::ConicGradient { .. }
+            | I::BoxShadow { .. }
+            | I::HitTestArea { .. }
+            | I::PushTextShadow { .. }
+            | I::PopTextShadow
+    )
+}
+
+/// Runtime toggle for DL patching. 0 = uninitialized (resolve from
+/// `AZ_NO_DL_PATCH` on first read), 1 = enabled, 2 = disabled. A runtime
+/// atomic rather than a latched OnceLock so tests can A/B the patched and
+/// full paths in one process (the golden-equality gate), and so a live
+/// session can be flipped for diagnosis.
+static DL_PATCHING: core::sync::atomic::AtomicU8 = core::sync::atomic::AtomicU8::new(0);
+
+#[must_use]
+pub fn dl_patching_enabled() -> bool {
+    use core::sync::atomic::Ordering;
+    match DL_PATCHING.load(Ordering::Relaxed) {
+        1 => true,
+        2 => false,
+        _ => {
+            let on = std::env::var_os("AZ_NO_DL_PATCH").is_none();
+            DL_PATCHING.store(if on { 1 } else { 2 }, Ordering::Relaxed);
+            on
+        }
+    }
+}
+
+/// Force DL patching on/off (tests + live diagnosis; overrides the env).
+pub fn set_dl_patching_enabled(on: bool) {
+    use core::sync::atomic::Ordering;
+    DL_PATCHING.store(if on { 1 } else { 2 }, Ordering::Relaxed);
+}
+
+/// Which emission site produced a display-list item. See
+/// [`DisplayList::layout_node_mapping`].
+#[derive(Debug, Copy, Clone, PartialEq, Eq)]
+pub enum EmitPhase {
+    /// Pushed by the stacking-context walk itself (clips, scroll frames,
+    /// scrollable hit areas, scrollbars) — never substituted from cache.
+    ScWalk,
+    /// Pushed by `paint_node_background_and_border`.
+    BgBorder,
+    /// Pushed by `paint_node_content`.
+    Content,
 }
 
 impl DisplayList {
@@ -1450,6 +1572,10 @@ struct DisplayListBuilder {
     fixed_position_item_ranges: Vec<(usize, usize)>,
     /// Start index of the current fixed-position element being built, if any
     fixed_position_start: Option<usize>,
+    /// Current (layout index, phase) for `layout_node_mapping` — see
+    /// [`DisplayList::layout_node_mapping`].
+    current_layout: Option<(usize, EmitPhase)>,
+    layout_node_mapping: Vec<Option<(usize, EmitPhase)>>,
 }
 
 impl DisplayListBuilder {
@@ -1467,6 +1593,8 @@ impl DisplayListBuilder {
             forced_page_breaks: Vec::new(),
             fixed_position_item_ranges: Vec::new(),
             fixed_position_start: None,
+            current_layout: None,
+            layout_node_mapping: Vec::new(),
         }
     }
 
@@ -1491,12 +1619,19 @@ impl DisplayListBuilder {
             node_mapping: self.node_mapping,
             forced_page_breaks: self.forced_page_breaks,
             fixed_position_item_ranges: self.fixed_position_item_ranges,
+            layout_node_mapping: self.layout_node_mapping,
         }
     }
 
     /// Set the current node context for subsequent push operations
     pub(crate) const fn set_current_node(&mut self, node_id: Option<NodeId>) {
         self.current_node = node_id;
+    }
+
+    /// Tag subsequent pushes with (layout index, phase). `None` = untagged
+    /// (equivalent to ScWalk for patching purposes — never substituted).
+    pub(crate) const fn set_current_layout(&mut self, tag: Option<(usize, EmitPhase)>) {
+        self.current_layout = tag;
     }
 
     /// The current node context (to save/restore around pushes that must be
@@ -1602,8 +1737,39 @@ impl DisplayListBuilder {
                 return;
             }
         }
+        // Structural push/pop items get NO node attribution. Before this,
+        // they inherited whatever `current_node` the LAST paint call leaked —
+        // a PopStackingContext attributed to some text node that happened to
+        // paint last. No consumer legitimately reads a break property or a
+        // damage source off a Push/Pop, and the leak made attribution
+        // pass-history-dependent (the DL-patch golden test caught patched
+        // and full passes disagreeing about it).
+        let attr = if matches!(
+            item,
+            DisplayListItem::PushClip { .. }
+                | DisplayListItem::PopClip
+                | DisplayListItem::PushImageMaskClip { .. }
+                | DisplayListItem::PopImageMaskClip
+                | DisplayListItem::PushScrollFrame { .. }
+                | DisplayListItem::PopScrollFrame
+                | DisplayListItem::PushStackingContext { .. }
+                | DisplayListItem::PopStackingContext
+                | DisplayListItem::PushReferenceFrame { .. }
+                | DisplayListItem::PopReferenceFrame
+                | DisplayListItem::PushFilter { .. }
+                | DisplayListItem::PopFilter
+                | DisplayListItem::PushBackdropFilter { .. }
+                | DisplayListItem::PopBackdropFilter
+                | DisplayListItem::PushOpacity { .. }
+                | DisplayListItem::PopOpacity
+        ) {
+            None
+        } else {
+            self.current_node
+        };
         self.items.push(item);
-        self.node_mapping.push(self.current_node);
+        self.node_mapping.push(attr);
+        self.layout_node_mapping.push(self.current_layout);
     }
 
     pub(crate) fn build(self) -> DisplayList {
@@ -1612,6 +1778,7 @@ impl DisplayListBuilder {
             node_mapping: self.node_mapping,
             forced_page_breaks: self.forced_page_breaks,
             fixed_position_item_ranges: self.fixed_position_item_ranges,
+            layout_node_mapping: self.layout_node_mapping,
         }
     }
 
@@ -2112,6 +2279,29 @@ pub fn generate_display_list<T: ParsedFontTrait + Sync + 'static>(
     id_namespace: IdNamespace,
     dom_id: DomId,
 ) -> Result<DisplayList> {
+    generate_display_list_impl(
+        ctx, tree, calculated_positions, scroll_offsets, scroll_ids,
+        gpu_value_cache, renderer_resources, id_namespace, dom_id, None,
+    )
+}
+
+/// [`generate_display_list`] + the DL-PATCHING source. With `patch` armed
+/// (resize-skip passes), unchanged nodes' paint calls are substituted by
+/// their previous items translated by the node's position delta — only
+/// re-flowed IFCs and size-changed nodes actually re-emit.
+#[allow(clippy::too_many_arguments)]
+pub fn generate_display_list_impl<T: ParsedFontTrait + Sync + 'static>(
+    ctx: &mut LayoutContext<'_, T>,
+    tree: &LayoutTree,
+    calculated_positions: &super::PositionVec,
+    scroll_offsets: &BTreeMap<NodeId, ScrollPosition>,
+    scroll_ids: &HashMap<usize, u64>,
+    gpu_value_cache: Option<&GpuValueCache>,
+    renderer_resources: &RendererResources,
+    id_namespace: IdNamespace,
+    dom_id: DomId,
+    patch: Option<PatchState<'_>>,
+) -> Result<DisplayList> {
     debug_info!(
         ctx,
         "[DisplayList] generate_display_list: tree has {} nodes, {} positions calculated",
@@ -2143,6 +2333,7 @@ pub fn generate_display_list<T: ParsedFontTrait + Sync + 'static>(
         id_namespace,
         dom_id,
     );
+    generator.patch = patch;
 
     // Create builder with debug enabled if ctx has debug messages
     let debug_enabled = generator.ctx.debug_messages.is_some();
@@ -2217,6 +2408,84 @@ struct DisplayListGenerator<'a, 'b, T: ParsedFontTrait> {
     renderer_resources: &'a RendererResources,
     id_namespace: IdNamespace,
     dom_id: DomId,
+    /// DL-PATCHING source (resize-skip passes only): the previous pass's
+    /// display list plus per-node deltas. `None` = full generation.
+    patch: Option<PatchState<'a>>,
+}
+
+/// State for patched display-list generation. Built by `layout_document`
+/// on a resize-skip pass — the tree object and its indices are unchanged,
+/// so per-(layout node, phase) item runs from the PREVIOUS list can replace
+/// the paint calls of every node that neither re-flowed its inline content
+/// nor changed size; their geometry moves by the node's position delta.
+pub(crate) struct PatchState<'a> {
+    prev: &'a DisplayList,
+    /// Per (layout idx, phase): queue of item ranges in `prev`, walk order.
+    runs: std::collections::HashMap<(usize, u8), std::collections::VecDeque<(usize, usize)>>,
+    /// Per layout idx: (new_pos - old_pos).
+    deltas: Vec<LogicalPosition>,
+    /// Nodes that MUST re-emit (re-flowed IFC, size changed).
+    reemit: std::collections::BTreeSet<usize>,
+}
+
+impl<'a> PatchState<'a> {
+    pub(crate) fn build(
+        prev: &'a DisplayList,
+        prev_positions: &[LogicalPosition],
+        new_positions: &[LogicalPosition],
+        prev_sizes: &[Option<LogicalSize>],
+        new_sizes: &[Option<LogicalSize>],
+        reflowed_ifcs: &std::collections::BTreeSet<usize>,
+    ) -> Option<Self> {
+        // The tagging is as old as the patcher — a cached list from before
+        // the tagging (or a page slice) cannot be patched.
+        if prev.layout_node_mapping.len() != prev.items.len() {
+            return None;
+        }
+        let n = new_positions.len().min(prev_positions.len());
+
+        let mut reemit: std::collections::BTreeSet<usize> = reflowed_ifcs.clone();
+        for i in 0..n.min(prev_sizes.len()).min(new_sizes.len()) {
+            if prev_sizes[i] != new_sizes[i] {
+                reemit.insert(i);
+            }
+        }
+
+        let mut deltas = vec![LogicalPosition::zero(); new_positions.len()];
+        for i in 0..n {
+            deltas[i] = LogicalPosition {
+                x: new_positions[i].x - prev_positions[i].x,
+                y: new_positions[i].y - prev_positions[i].y,
+            };
+        }
+
+        // Contiguous same-(node,phase) runs, in list order.
+        let mut runs: std::collections::HashMap<(usize, u8), std::collections::VecDeque<(usize, usize)>> =
+            std::collections::HashMap::new();
+        let mut i = 0usize;
+        while i < prev.items.len() {
+            let tag = prev.layout_node_mapping[i];
+            let start = i;
+            while i < prev.items.len() && prev.layout_node_mapping[i] == tag {
+                i += 1;
+            }
+            if let Some((node, phase)) = tag {
+                if !matches!(phase, EmitPhase::ScWalk) {
+                    if prev.items[start..i].iter().all(patchable_item) {
+                        runs.entry((node, phase as u8))
+                            .or_default()
+                            .push_back((start, i));
+                    } else {
+                        // The run carries state beyond translatable geometry
+                        // (virtual view, filter, …) — this node re-emits.
+                        reemit.insert(node);
+                    }
+                }
+            }
+        }
+
+        Some(Self { prev, runs, deltas, reemit })
+    }
 }
 
 // +spec:stacking-contexts:9e85a3 - Stacking context tree: hierarchical, nested, atomic painting order
@@ -2253,7 +2522,55 @@ where
             renderer_resources,
             id_namespace,
             dom_id,
+            patch: None,
         }
+    }
+
+    /// DL-PATCHING substitution: if a patch source is armed and this node's
+    /// (phase) run can be reused, copy it translated by the node's position
+    /// delta and report `true` (the caller skips painting). `false` = paint
+    /// normally (no patch, node in the re-emit set, or no cached run left —
+    /// the last one falls back to a fresh paint, which is always correct).
+    fn try_copy_cached_run(
+        &mut self,
+        builder: &mut DisplayListBuilder,
+        node_index: usize,
+        phase: EmitPhase,
+    ) -> bool {
+        let Some(patch) = self.patch.as_mut() else {
+            return false;
+        };
+        if patch.reemit.contains(&node_index) {
+            return false;
+        }
+        let Some(run) = patch
+            .runs
+            .get_mut(&(node_index, phase as u8))
+            .and_then(|q| q.pop_front())
+        else {
+            // No cached run for this call. For a node that emitted nothing
+            // last pass this is the COMMON case — and emitting nothing again
+            // is exactly right, so treat it as a successful (empty) copy.
+            // A node that DID emit but whose run count changed cannot occur
+            // without a reflow/size change (both force re-emit).
+            drop(crate::probe::Probe::span("dl_patch_empty"));
+            return true;
+        };
+        let delta = patch.deltas.get(node_index).copied().unwrap_or_else(LogicalPosition::zero);
+        drop(crate::probe::Probe::span("dl_patch_copy"));
+        // DOM attribution is PER ITEM, not per run: a content run can switch
+        // attribution mid-run (e.g. an IFC root's items ending with a text
+        // child's id) — the golden test caught a first-item flattening here.
+        let saved_node = builder.current_node;
+        builder.set_current_layout(Some((node_index, phase)));
+        for i in run.0..run.1 {
+            builder.set_current_node(patch.prev.node_mapping.get(i).copied().flatten());
+            let item = translate_item(patch.prev.items[i].clone(), delta);
+            builder.push_item(item);
+        }
+        builder.set_current_layout(None);
+        builder.set_current_node(saved_node);
+        true
     }
 
     /// Helper to get styled node state for a node
@@ -3554,6 +3871,20 @@ where
         node_index: usize,
     ) -> Result<()> {
         let _p = crate::probe::Probe::span("dl_bg_border");
+        if self.try_copy_cached_run(builder, node_index, EmitPhase::BgBorder) {
+            return Ok(());
+        }
+        builder.set_current_layout(Some((node_index, EmitPhase::BgBorder)));
+        let result = self.paint_node_background_and_border_inner(builder, node_index);
+        builder.set_current_layout(None);
+        result
+    }
+
+    fn paint_node_background_and_border_inner(
+        &mut self,
+        builder: &mut DisplayListBuilder,
+        node_index: usize,
+    ) -> Result<()> {
         let Some(paint_rect) = self.get_paint_rect(node_index) else {
             return Ok(());
         };
@@ -4208,6 +4539,20 @@ where
         node_index: usize,
     ) -> Result<()> {
         let _p = crate::probe::Probe::span("dl_content");
+        if self.try_copy_cached_run(builder, node_index, EmitPhase::Content) {
+            return Ok(());
+        }
+        builder.set_current_layout(Some((node_index, EmitPhase::Content)));
+        let result = self.paint_node_content_inner(builder, node_index);
+        builder.set_current_layout(None);
+        result
+    }
+
+    fn paint_node_content_inner(
+        &mut self,
+        builder: &mut DisplayListBuilder,
+        node_index: usize,
+    ) -> Result<()> {
         // CSS 2.2 §11.2: visibility:hidden — skip painting content for hidden nodes.
         if self.is_node_hidden(node_index) {
             return Ok(());
@@ -6713,6 +7058,9 @@ fn paginate_pages_impl(
             node_mapping: page_node_mapping,
             forced_page_breaks: Vec::new(),
             fixed_position_item_ranges: Vec::new(), // Already handled during pagination
+            // Page slices are consumed by renderers only — patching operates
+            // on the WINDOWED cached DL, never on page slices.
+            layout_node_mapping: Vec::new(),
         });
     }
 

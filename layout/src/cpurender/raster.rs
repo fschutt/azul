@@ -3586,6 +3586,7 @@ pub fn render_component_preview(
         tree: None,
         resize_only_hint: false,
             last_reconcile_was_skipped: false,
+            previous_sizes: Vec::new(),
         calculated_positions: Vec::new(),
         viewport: None,
         scroll_ids: HashMap::new(),

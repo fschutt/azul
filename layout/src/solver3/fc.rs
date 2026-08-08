@@ -3902,6 +3902,9 @@ fn layout_ifc<T: ParsedFontTrait>(
             // the store decision above can detect content changes.
             cil.inline_content_hash = current_content_hash;
             warm_node.inline_layout_result = Some(cil);
+            // DL-patching invalidation: this IFC's line layout was
+            // recomputed — its text items must re-emit on a patched pass.
+            ctx.reflowed_ifcs.insert(node_index);
         }
 
         // Extract the overall size and baseline for the IFC root.
@@ -7654,6 +7657,9 @@ fn position_table_cells<T: ParsedFontTrait>(
                     // can still validly fast-path this layout (#11).
                     cil.inline_content_hash = cached_layout.inline_content_hash;
                     warm_mut.inline_layout_result = Some(cil);
+                    // Vertical-align adjustment changed item positions
+                    // within this cell's IFC — patched passes must re-emit.
+                    ctx.reflowed_ifcs.insert(cell_info.node_index);
                 }
             }
         }

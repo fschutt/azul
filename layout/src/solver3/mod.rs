@@ -222,6 +222,13 @@ pub struct LayoutContext<'a, T: ParsedFontTrait> {
     /// Fragmentation context for CSS Paged Media (PDF generation)
     /// When Some, layout respects page boundaries and generates one `DisplayList` per page
     pub fragmentation_context: Option<&'a mut crate::paged::FragmentationContext>,
+    /// Per-pass record: layout-tree indices of IFC roots whose LINE LAYOUT
+    /// was recomputed this pass (`layout_flow` ran — GlyphSwap reuse does
+    /// NOT count). The DL-patching invalidation signal: a re-flowed IFC's
+    /// text items changed shape and must re-emit; everything else can be
+    /// copied+translated. Drained into the patch machinery by
+    /// `layout_document`; empty on GlyphSwap-only passes.
+    pub reflowed_ifcs: std::collections::BTreeSet<usize>,
     /// Whether the text cursor should be drawn (managed by `CursorManager` blink timer)
     /// When false, the cursor is in the "off" phase of blinking and should not be rendered.
     /// When true (default), the cursor is visible.
@@ -490,6 +497,7 @@ pub fn layout_document<T: ParsedFontTrait + Sync + 'static>(
         counters: &mut counter_values,
         viewport_size: viewport.size,
         fragmentation_context: None,
+            reflowed_ifcs: std::collections::BTreeSet::new(),
         cursor_is_visible,
         cursor_locations: cursor_locations.clone(),
         preedit_text: preedit_text.clone(),
@@ -548,6 +556,10 @@ pub fn layout_document<T: ParsedFontTrait + Sync + 'static>(
         let _p = crate::probe::Probe::span("reconcile_skipped_resize_only");
         cache.last_reconcile_was_skipped = true;
         let tree = cache.tree.take().expect("checked is_some above");
+        // DL-patching input: the sizes the PREVIOUS pass computed — the
+        // layout pass below overwrites used_size in place (same tree
+        // object), so this is the only moment they can be captured.
+        cache.previous_sizes = tree.nodes.iter().map(|n| n.used_size).collect();
         let mut r = cache::ReconciliationResult::default();
         r.layout_roots.insert(tree.root);
         r.reused_nodes = tree.nodes.len();
@@ -747,6 +759,7 @@ pub fn layout_document<T: ParsedFontTrait + Sync + 'static>(
         counters: &mut counter_values,
         viewport_size: viewport.size,
         fragmentation_context: None,
+            reflowed_ifcs: std::collections::BTreeSet::new(),
         cursor_is_visible,
         cursor_locations,
         preedit_text,
@@ -1115,7 +1128,38 @@ pub fn layout_document<T: ParsedFontTrait + Sync + 'static>(
         DisplayList::default()
     } else {
         let _p = crate::probe::Probe::span("generate_display_list");
-        generate_display_list(
+        // DL PATCHING (task 12 round 2): on a resize-skip pass the tree
+        // object and its indices are unchanged, so the previous display
+        // list's per-node item runs can substitute for the paint calls of
+        // every node that neither re-flowed its inline content nor changed
+        // size — their items just translate by the node's position delta.
+        // `AZ_NO_DL_PATCH=1` is the runtime escape hatch (and the A/B lever
+        // for the golden-equality test).
+        let patch_disabled = !display_list::dl_patching_enabled();
+        let patch = if cache.last_reconcile_was_skipped
+            && !patch_disabled
+            && cache.previous_sizes.len() == new_tree.nodes.len()
+            && cache.calculated_positions.len() == calculated_positions.len()
+        {
+            cache.cached_display_list.as_ref().and_then(|(_, _, prev_dl)| {
+                let new_sizes: Vec<Option<LogicalSize>> =
+                    new_tree.nodes.iter().map(|n| n.used_size).collect();
+                display_list::PatchState::build(
+                    prev_dl,
+                    &cache.calculated_positions, // last pass's positions (replaced later)
+                    &calculated_positions,
+                    &cache.previous_sizes,
+                    &new_sizes,
+                    &ctx.reflowed_ifcs,
+                )
+            })
+        } else {
+            None
+        };
+        if patch.is_some() {
+            drop(crate::probe::Probe::span("dl_patched_pass"));
+        }
+        display_list::generate_display_list_impl(
             &mut ctx,
             &new_tree,
             &calculated_positions,
@@ -1125,6 +1169,7 @@ pub fn layout_document<T: ParsedFontTrait + Sync + 'static>(
             renderer_resources,
             id_namespace,
             dom_id,
+            patch,
         )?
     };
     crate::probe::sample_phase_peak("rss:peak_during_display_list");
@@ -2109,6 +2154,7 @@ mod autotest_generated {
                     counters: &mut self.counters,
                     viewport_size: size(800.0, 600.0),
                     fragmentation_context: None,
+            reflowed_ifcs: std::collections::BTreeSet::new(),
                     cursor_is_visible: true,
                     cursor_locations: Vec::new(),
                     preedit_text: None,

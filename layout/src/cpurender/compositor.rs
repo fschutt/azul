@@ -1993,6 +1993,7 @@ mod scroll_shift_tests {
             node_mapping: Vec::new(),
             forced_page_breaks: Vec::new(),
             fixed_position_item_ranges: Vec::new(),
+            layout_node_mapping: Vec::new(),
         }
     }
     fn wr(x: f32, y: f32, w: f32, h: f32) -> WindowLogicalRect {

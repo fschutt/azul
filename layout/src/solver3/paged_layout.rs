@@ -378,6 +378,7 @@ where
         let mut counter_values = cache.counters.clone();
         let empty_text_selections: BTreeMap<DomId, TextSelection> = BTreeMap::new();
         let mut ctx = LayoutContext {
+            reflowed_ifcs: std::collections::BTreeSet::new(),
             style_cache: Default::default(),
             scrollbar_style_cache: core::cell::RefCell::new(std::collections::HashMap::new()),
             styled_dom: new_dom,
@@ -453,6 +454,7 @@ where
     let mut counter_values = cache.counters.clone();
     let empty_text_selections: BTreeMap<DomId, TextSelection> = BTreeMap::new();
     let mut ctx = LayoutContext {
+            reflowed_ifcs: std::collections::BTreeSet::new(),
         style_cache: Default::default(),
         scrollbar_style_cache: core::cell::RefCell::new(std::collections::HashMap::new()),
         styled_dom: new_dom,
@@ -686,6 +688,7 @@ fn compute_layout_with_fragmentation<T: ParsedFontTrait + Sync + 'static>(
     let mut counter_values = std::collections::HashMap::new();
     let empty_text_selections: BTreeMap<DomId, TextSelection> = BTreeMap::new();
     let mut ctx_temp = LayoutContext {
+            reflowed_ifcs: std::collections::BTreeSet::new(),
         style_cache: Default::default(),
         scrollbar_style_cache: core::cell::RefCell::new(std::collections::HashMap::new()),
         styled_dom: new_dom,
@@ -748,6 +751,7 @@ fn compute_layout_with_fragmentation<T: ParsedFontTrait + Sync + 'static>(
 
     // Now create the real context with computed counters and fragmentation
     let mut ctx = LayoutContext {
+            reflowed_ifcs: std::collections::BTreeSet::new(),
         style_cache: Default::default(),
         scrollbar_style_cache: core::cell::RefCell::new(std::collections::HashMap::new()),
         styled_dom: new_dom,
@@ -2415,6 +2419,7 @@ where
             counters: &mut counter_values,
             viewport_size: viewport.size,
             fragmentation_context: None,
+            reflowed_ifcs: std::collections::BTreeSet::new(),
             cursor_is_visible: false,
             cursor_locations: Vec::new(),
             preedit_text: None,

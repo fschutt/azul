@@ -1300,6 +1300,7 @@ impl LayoutWindow {
                 tree: None,
                 resize_only_hint: false,
             last_reconcile_was_skipped: false,
+            previous_sizes: Vec::new(),
                 calculated_positions: Vec::new(),
                 viewport: None,
                 scroll_ids: HashMap::new(),
@@ -2799,6 +2800,7 @@ impl LayoutWindow {
             tree: None,
             resize_only_hint: false,
             last_reconcile_was_skipped: false,
+            previous_sizes: Vec::new(),
             calculated_positions: Vec::new(),
             viewport: None,
             scroll_ids: HashMap::new(),
@@ -4475,6 +4477,7 @@ impl LayoutWindow {
             tree: None,
             resize_only_hint: false,
             last_reconcile_was_skipped: false,
+            previous_sizes: Vec::new(),
             calculated_positions: Vec::new(),
             viewport: None,
             scroll_ids: HashMap::new(),
@@ -9633,6 +9636,7 @@ impl LayoutWindow {
         let cache_map = std::mem::take(&mut self.layout_cache.cache_map);
 
         let mut ctx = LayoutContext {
+            reflowed_ifcs: std::collections::BTreeSet::new(),
             style_cache: Default::default(),
             scrollbar_style_cache: core::cell::RefCell::new(HashMap::new()),
             styled_dom,

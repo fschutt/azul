@@ -2076,6 +2076,7 @@ mod autotest_generated {
 
             fn ctx(&mut self) -> LayoutContext<'_, FontRef> {
                 LayoutContext {
+            reflowed_ifcs: std::collections::BTreeSet::new(),
                     style_cache: Default::default(),
                     scrollbar_style_cache: core::cell::RefCell::new(HashMap::new()),
                     styled_dom: &self.styled_dom,

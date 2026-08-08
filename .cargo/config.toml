@@ -33,6 +33,12 @@ ar     = "/opt/homebrew/share/android-commandlinetools/ndk/27.0.12077973/toolcha
 [target.i686-rust9x-windows-msvc]
 rustflags = ["-Clink-arg=advapi32.lib"]
 
-[profile.release]
-lto = "thin"
-codegen-units = 16
+# NO profile override here. This block used to force `lto = "thin"` on the
+# whole workspace — config-toml profile settings silently OVERRIDE the
+# workspace Cargo.toml, so the deliberate `[profile.release] lto = false`
+# ("faster local builds") never actually applied: every one of the ~12 dll
+# integration-test binaries paid a full thin-LTO relink of the static
+# engine (~25 min per battery, measured 2026-08-08). Shipped artifacts get
+# their LTO from `--profile prod-release` (see workspace Cargo.toml), which
+# is the CI path; local release builds are for iteration. USER ruling:
+# "what we ship is the DLL. Just do no LTO [for tests]."
