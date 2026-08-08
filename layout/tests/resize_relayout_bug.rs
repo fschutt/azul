@@ -130,3 +130,93 @@ fn absolute_inset_child_grows_on_viewport_resize() {
         gc_large.size.width
     );
 }
+
+/// The COUNTERPART invariant to `absolute_inset_child_grows_on_viewport_resize`:
+/// correctness on resize must not be bought by rebuilding the tree from
+/// scratch. A same-DOM viewport resize must RECONCILE every node against its
+/// previous self (cloning warm shaped-text + intrinsic caches forward), with
+/// ZERO fresh nodes.
+///
+/// This is the regression test for the `old_tree = None`-on-resize sledgehammer
+/// in `reconcile_and_invalidate`: with it, every resize re-shaped 917
+/// paragraphs and re-measured 1112 intrinsic widths on big.md (~130 of 246 ms)
+/// while EVERY pixel-level test still passed — rebuilt-from-scratch and reused
+/// produce identical output, just slower. The reuse census on `LayoutCache`
+/// (`last_reconcile_reused` / `last_reconcile_fresh`) exists precisely so this
+/// difference is assertable. The two tests in this file TOGETHER pin the
+/// resize contract: #9 says viewport-dependent sizes must update; this one
+/// says everything else must be reused.
+#[test]
+fn viewport_resize_reuses_every_reconciled_node() {
+    let dom = Dom::create_div()
+        .with_ids_and_classes(vec![IdOrClass::Class("root".into())].into())
+        .with_child(Dom::create_text("some shaped text that must not be re-shaped"))
+        .with_child(
+            Dom::create_div()
+                .with_ids_and_classes(vec![IdOrClass::Class("child".into())].into())
+                .with_child(Dom::create_text("a second paragraph of shaped text")),
+        );
+
+    let css_str = r#"
+        * { margin: 0px; padding: 0px; }
+        .root { width: 100%; height: 100%; }
+        .child { width: 50%; }
+    "#;
+    let (css, _) = azul_css::parser2::new_from_str(css_str);
+
+    let mut dom = dom;
+    let styled_dom = StyledDom::create(&mut dom, css);
+    let styled_dom_first = styled_dom.clone();
+
+    let font_cache = FcFontCache::build();
+    let mut layout_window = LayoutWindow::new(font_cache).unwrap();
+    let renderer_resources = RendererResources::default();
+    let system_callbacks = ExternalSystemCallbacks::rust_internal();
+    let mut debug_messages = Some(Vec::new());
+
+    let mut ws = FullWindowState::default();
+    ws.size.dimensions = LogicalSize::new(640.0, 480.0);
+    layout_window
+        .layout_and_generate_display_list(
+            styled_dom_first,
+            &ws,
+            &renderer_resources,
+            &system_callbacks,
+            &mut debug_messages,
+        )
+        .unwrap();
+
+    // Cold pass: everything is fresh by definition.
+    let cold_fresh = layout_window.layout_cache.last_reconcile_fresh;
+    assert!(cold_fresh > 0, "cold layout must create nodes (got {cold_fresh})");
+    assert_eq!(
+        layout_window.layout_cache.last_reconcile_reused, 0,
+        "cold layout has nothing to reuse"
+    );
+
+    // Resize pass: SAME DOM content, new viewport.
+    ws.size.dimensions = LogicalSize::new(800.0, 600.0);
+    layout_window
+        .layout_and_generate_display_list(
+            styled_dom,
+            &ws,
+            &renderer_resources,
+            &system_callbacks,
+            &mut debug_messages,
+        )
+        .unwrap();
+
+    let reused = layout_window.layout_cache.last_reconcile_reused;
+    let fresh = layout_window.layout_cache.last_reconcile_fresh;
+    println!("resize reconcile: reused={reused} fresh={fresh} (cold created {cold_fresh})");
+
+    assert_eq!(
+        fresh, 0,
+        "a same-DOM viewport resize built {fresh} nodes FRESH — warm shaped-text \
+         and intrinsic caches were thrown away (the old_tree=None-on-resize bug)"
+    );
+    assert_eq!(
+        reused, cold_fresh,
+        "every node the cold pass created must be reconciled-and-reused on resize"
+    );
+}

@@ -214,6 +214,15 @@ pub struct CachedInlineContent {
     /// folded in tree order. Anything that changes text, style or structure
     /// changes a fingerprint, so an equal key means an identical collection.
     pub subtree_fingerprint: u64,
+    /// Hash of `content` alone, computed ONCE when the collection is (re)built.
+    ///
+    /// The per-visit "current content hash" used to re-hash the full inline
+    /// content on EVERY `layout_ifc` entry — 2 292 hashes × ~12.7 µs ≈ 29 ms
+    /// per resize relayout on big.md, hashing bytes that by definition had not
+    /// changed (an equal `subtree_fingerprint` is what admitted the cached
+    /// collection in the first place). Visits now fold only the seven
+    /// constraint-level container properties on top of this base.
+    pub content_hash_base: u64,
 }
 
 /// 3. **Final layout**: width = `Definite(actual_column_width)`

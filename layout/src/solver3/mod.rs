@@ -526,6 +526,12 @@ pub fn layout_document<T: ParsedFontTrait + Sync + 'static>(
     crate::probe::reset_peak();
     let (new_tree_val, mut recon_result) =
         cache::reconcile_and_invalidate(&mut ctx_temp, cache, viewport)?;
+    // The reuse census, persisted where a test can read it — see the field
+    // docs on LayoutCache for why this pair is the ONLY external observable
+    // that distinguishes "reused the warm tree" from "rebuilt it from
+    // scratch" (both produce identical pixels).
+    cache.last_reconcile_reused = recon_result.reused_nodes;
+    cache.last_reconcile_fresh = recon_result.fresh_nodes;
     // [g56 FIX] Box the LayoutTree onto the HEAP. The lifted `&mut new_tree` passed to
     // calculate_intrinsic_sizes was mis-lifted (callee saw nodes.len()=0 while the caller saw 2)
     // because a stack/SROA'd `new_tree`'s address doesn't survive the cross-function lifted call

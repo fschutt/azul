@@ -348,6 +348,18 @@ impl LayoutCacheMap {
 pub struct LayoutCache {
     /// The fully laid-out tree from the previous frame. This is our primary cache.
     pub tree: Option<LayoutTree>,
+    /// Reconciliation census of the LAST pass: how many nodes were CLONED
+    /// from the previous tree (warm shaped-text + intrinsic caches carried
+    /// forward) vs built FRESH (no warm data). This pair is what makes cache
+    /// reuse TESTABLE from outside solver3: `resize_relayout_bug.rs` asserts
+    /// a same-DOM viewport resize reuses every node — the regression that
+    /// motivated it (`old_tree = None` on any viewport change) re-shaped 917
+    /// paragraphs and re-measured 1112 intrinsic widths per resize while
+    /// every test still passed, because rebuilt-from-scratch produces the
+    /// same pixels as reused, just ~130 ms slower.
+    pub last_reconcile_reused: usize,
+    /// See [`Self::last_reconcile_reused`].
+    pub last_reconcile_fresh: usize,
     /// The final, absolute positions of all nodes from the previous frame.
     pub calculated_positions: super::PositionVec,
     /// The viewport size from the last layout pass, used to detect resizes.
@@ -485,6 +497,14 @@ pub struct ReconciliationResult {
     pub layout_roots: BTreeSet<usize>,
     /// Set of nodes that only need a paint/display-list update (no relayout).
     pub paint_dirty: BTreeSet<usize>,
+    /// Nodes CLONED from the previous tree, warm data (shaped text, intrinsic
+    /// widths) and all. The observable half of cache reuse — see
+    /// [`LayoutCache::last_reconcile_reused`] for why this is load-bearing.
+    pub reused_nodes: usize,
+    /// Nodes built fresh (`create_node_from_dom`): genuinely new or
+    /// Layout-dirty, with NO warm data. On a same-DOM relayout (a pure
+    /// resize) this being anything but 0 means warm caches were thrown away.
+    pub fresh_nodes: usize,
 }
 
 impl ReconciliationResult {
@@ -855,21 +875,38 @@ pub fn reconcile_and_invalidate<T: ParsedFontTrait>(
     let _probe_outer = crate::probe::Probe::span("reconcile_and_invalidate");
     let mut new_tree_builder = LayoutTreeBuilder::new(ctx.viewport_size);
     let mut recon_result = ReconciliationResult::default();
-    // A viewport SIZE change invalidates every computed size: percentage, flex,
-    // and absolute insets (top/right/bottom/left) all resolve against the
-    // viewport / containing block. Incrementally reusing the cached layout tree
-    // left out-of-flow and VirtualView nodes sized against the OLD viewport — e.g.
-    // the map's absolutely-positioned container kept its old size, so a maximized
-    // window showed tiles only in the original rect and grey everywhere else
-    // (#9 "grey on resize"). On a size change, drop the cached tree so the whole
-    // tree is laid out fresh against the new viewport. (Position-only moves keep
-    // the incremental path.)
+    // A viewport SIZE change invalidates every VIEWPORT-DEPENDENT computed
+    // size — and nothing else. The old code dropped the ENTIRE cached tree
+    // here (`old_tree = None`), which made every node reconcile as brand-new
+    // (`recon_old_tree_none` 1209/1209 on a same-DOM resize) and threw away
+    // every warm handle with it: measured on big.md, ~54 ms of re-SHAPING
+    // (917 `text_shape_stage` calls — shaping does not depend on the
+    // viewport) plus ~75 ms of intrinsic-width recomputation (also
+    // viewport-independent) per resize, ~130 ms of a 246 ms pass re-deriving
+    // bit-identical results. That was the single largest reason a drag-resize
+    // could not approach interactive rates (scripts/RSS_MAP §36,
+    // ICON_CACHE_AND_RELAYOUT_REUSE §4).
+    //
+    // KEEPING the tree is sound because the things that DO depend on the
+    // viewport re-derive through keys, not through tree identity:
+    //
+    //   * size/layout cache slots are KEYED by `containing_block_size`
+    //     (`NodeCache::get_size/get_layout`) — the new viewport enters as the
+    //     root containing block and every affected chain misses its key and
+    //     recomputes. This is exactly the mechanism that fixed #9 "grey on
+    //     resize" (an abs-positioned node's containing block IS the
+    //     viewport, so its key changes); dropping the whole tree on top of
+    //     it was belt-and-braces from before the keys existed.
+    //   * conditional (@media-style) properties evaluate per pass against
+    //     the dynamic-selector context (`style_cache` is rebuilt per
+    //     `LayoutContext`), and shaping keys carry the RESOLVED font size —
+    //     a viewport-relative font re-shapes via its changed content hash.
+    //   * `layout_roots.insert(0)` below still forces the full top-down
+    //     layout pass at the new size; reconciliation merely decides what
+    //     that pass may REUSE (shaped runs, intrinsic widths), not whether
+    //     it runs.
     let viewport_resized = cache.viewport.is_none_or(|v| v.size != viewport.size);
-    let old_tree = if viewport_resized {
-        None
-    } else {
-        cache.tree.as_ref()
-    };
+    let old_tree = cache.tree.as_ref();
 
     if viewport_resized {
         recon_result.layout_roots.insert(0); // Root is always index 0
@@ -1157,6 +1194,7 @@ pub fn reconcile_recursive(
     // niche-enum mis-discriminant) wrongly steering cold nodes into the else.
     let new_node_idx = if dirty_flag >= DirtyFlag::Layout || old_tree.is_none() {
         { let _ = (0xBB00_0001u32); }
+        recon.fresh_nodes += 1;
         let idx = new_tree_builder.create_node_from_dom(
             styled_dom,
             new_dom_id,
@@ -1171,6 +1209,7 @@ pub fn reconcile_recursive(
         idx
     } else {
         { let _ = (0xBB00_0002u32); }
+        recon.reused_nodes += 1;
         // Paint-only or clean: clone the old node (preserving layout cache)
         let old_full_node = old_tree
             .and_then(|t| old_tree_idx.and_then(|idx| t.get_full_node(idx)))

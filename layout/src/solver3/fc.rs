@@ -3424,12 +3424,15 @@ fn layout_ifc<T: ParsedFontTrait>(
         .warm(node_index)
         .and_then(|w| w.inline_content_cache.as_ref())
         .filter(|c| c.subtree_fingerprint == subtree_fingerprint)
-        .map(|c| (c.content.clone(), c.child_map.clone()));
+        .map(|c| (c.content.clone(), c.child_map.clone(), c.content_hash_base));
 
-    let collect_result = match cached_collection {
-        Some(hit) => {
+    // `content_hash_base` rides with the collection: hashed ONCE per rebuild,
+    // reused by every subsequent visit (see CachedInlineContent::content_hash_base
+    // for the 29 ms this replaces).
+    let (collect_result, content_hash_base) = match cached_collection {
+        Some((content, child_map, base)) => {
             drop(crate::probe::Probe::span("ifc_collect_cached"));
-            Ok(hit)
+            (Ok((content, child_map)), Some(base))
         }
         None => {
             let _p = crate::probe::Probe::span("ifc_collect_content");
@@ -3440,17 +3443,27 @@ fn layout_ifc<T: ParsedFontTrait>(
                 node_index,
                 constraints,
             );
+            let mut base = None;
             if let Ok((content, child_map)) = res.as_ref() {
+                let computed_base = {
+                    let _p = crate::probe::Probe::span("ifc_content_hash_base");
+                    use std::hash::{Hash, Hasher};
+                    let mut h = std::collections::hash_map::DefaultHasher::new();
+                    content.hash(&mut h);
+                    h.finish()
+                };
+                base = Some(computed_base);
                 if let Some(w) = tree.warm_mut(node_index) {
                     w.inline_content_cache =
                         Some(crate::solver3::layout_tree::CachedInlineContent {
                             content: content.clone(),
                             child_map: child_map.clone(),
                             subtree_fingerprint,
+                            content_hash_base: computed_base,
                         });
                 }
             }
-            res
+            (res, base)
         }
     };
     // [g133 az-web-lift DIAG] which early-return fires in POSITIONING's layout_ifc.
@@ -3480,7 +3493,15 @@ fn layout_ifc<T: ParsedFontTrait>(
         let _p = crate::probe::Probe::span("ifc_content_hash");
         use std::hash::{Hash, Hasher};
         let mut h = std::collections::hash_map::DefaultHasher::new();
-        inline_content.hash(&mut h);
+        // The content component comes pre-hashed from the collection cache —
+        // an equal subtree_fingerprint admitted it, so its bytes are the ones
+        // this hash used to re-derive per visit. `None` cannot happen when
+        // `inline_content` exists (the miss arm computes a base for every Ok
+        // collection), but fall back to hashing rather than unwrapping.
+        match content_hash_base {
+            Some(base) => base.hash(&mut h),
+            None => inline_content.hash(&mut h),
+        }
         // Fold the constraint-relevant container properties into the validity key.
         text3_constraints.text_align.hash(&mut h);
         text3_constraints.text_align_last.hash(&mut h);

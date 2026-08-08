@@ -1296,6 +1296,8 @@ impl LayoutWindow {
                 cached_display_list: None,
                 prev_dom_ptr: 0,
                 prev_viewport: LogicalRect::zero(),
+            last_reconcile_reused: 0,
+            last_reconcile_fresh: 0,
             },
             text_cache: TextLayoutCache::new(),
             font_manager,
@@ -2790,6 +2792,8 @@ impl LayoutWindow {
             cached_display_list: None,
             prev_dom_ptr: 0,
             prev_viewport: LogicalRect::zero(),
+            last_reconcile_reused: 0,
+            last_reconcile_fresh: 0,
         };
         let mut scratch_text = TextLayoutCache::new();
         let viewport = LogicalRect::new(LogicalPosition::zero(), available);
@@ -4452,6 +4456,8 @@ impl LayoutWindow {
                 cached_display_list: None,
                 prev_dom_ptr: 0,
                 prev_viewport: LogicalRect::zero(),
+            last_reconcile_reused: 0,
+            last_reconcile_fresh: 0,
         };
         self.text_cache = TextLayoutCache::new();
         self.layout_results.clear();
