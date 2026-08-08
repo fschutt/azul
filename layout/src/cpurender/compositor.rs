@@ -1576,6 +1576,7 @@ fn render_display_list_range(
         let item = &display_list.items[i];
         render_single_item(
             item,
+            display_list.uniform_text_bgs.get(i).copied().flatten(),
             pixmap,
             dpi_factor,
             renderer_resources,
@@ -1994,6 +1995,7 @@ mod scroll_shift_tests {
             forced_page_breaks: Vec::new(),
             fixed_position_item_ranges: Vec::new(),
             layout_node_mapping: Vec::new(),
+            uniform_text_bgs: Vec::new(),
         }
     }
     fn wr(x: f32, y: f32, w: f32, h: f32) -> WindowLogicalRect {

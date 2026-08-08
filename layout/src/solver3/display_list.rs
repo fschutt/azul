@@ -342,6 +342,15 @@ pub struct DisplayList {
     /// Index ranges (start, end) of display list items that belong to fixed-position elements.
     /// In paged media, these items are replicated on every page (CSS Positioned Layout §2.1).
     pub fixed_position_item_ranges: Vec<(usize, usize)>,
+    /// Per-item PROVEN uniform background (Text items only, None elsewhere).
+    /// Parallel to `items` like `node_mapping`. Lives on the LIST rather
+    /// than in the `Text` variant because printpdf (crates.io, immutable)
+    /// pattern-matches the variant exhaustively — a new variant field is a
+    /// downstream semver break; a new list field is not. See
+    /// `compute_uniform_text_bg` for what "proven" means and the raster's
+    /// pre-blended tile path for what it buys (~6 ms/repaint of per-pixel
+    /// linear LCD compositing).
+    pub uniform_text_bgs: Vec<Option<ColorU>>,
     /// Per-item (layout-tree index, emission phase) — the DL-PATCHING key.
     /// `node_mapping` attributes items to DOM ids, but patching substitutes
     /// per LAYOUT-NODE PAINT CALL: on a resize-skip pass the tree object and
@@ -1576,6 +1585,10 @@ struct DisplayListBuilder {
     /// [`DisplayList::layout_node_mapping`].
     current_layout: Option<(usize, EmitPhase)>,
     layout_node_mapping: Vec<Option<(usize, EmitPhase)>>,
+    /// One-shot: the uniform background for the NEXT pushed item (set by
+    /// push_text_run / the patch copy just before pushing a Text item).
+    next_text_bg: Option<ColorU>,
+    uniform_text_bgs: Vec<Option<ColorU>>,
 }
 
 impl DisplayListBuilder {
@@ -1595,6 +1608,8 @@ impl DisplayListBuilder {
             fixed_position_start: None,
             current_layout: None,
             layout_node_mapping: Vec::new(),
+            next_text_bg: None,
+            uniform_text_bgs: Vec::new(),
         }
     }
 
@@ -1620,6 +1635,7 @@ impl DisplayListBuilder {
             forced_page_breaks: self.forced_page_breaks,
             fixed_position_item_ranges: self.fixed_position_item_ranges,
             layout_node_mapping: self.layout_node_mapping,
+            uniform_text_bgs: self.uniform_text_bgs,
         }
     }
 
@@ -1770,6 +1786,7 @@ impl DisplayListBuilder {
         self.items.push(item);
         self.node_mapping.push(attr);
         self.layout_node_mapping.push(self.current_layout);
+        self.uniform_text_bgs.push(self.next_text_bg.take());
     }
 
     pub(crate) fn build(self) -> DisplayList {
@@ -1779,6 +1796,7 @@ impl DisplayListBuilder {
             forced_page_breaks: self.forced_page_breaks,
             fixed_position_item_ranges: self.fixed_position_item_ranges,
             layout_node_mapping: self.layout_node_mapping,
+            uniform_text_bgs: self.uniform_text_bgs,
         }
     }
 
@@ -2179,6 +2197,7 @@ impl DisplayListBuilder {
         color: ColorU,
         clip_rect: LogicalRect,
         source_node_index: Option<usize>,
+        uniform_bg: Option<ColorU>,
     ) {
         self.debug_log(format!(
             "[push_text_run] {} glyphs, font_size={}px, color=({},{},{},{}), clip={:?}",
@@ -2192,6 +2211,7 @@ impl DisplayListBuilder {
         ));
 
         if !glyphs.is_empty() && color.a > 0 {
+            self.next_text_bg = uniform_bg;
             self.push_item(DisplayListItem::Text {
                 glyphs,
                 font_hash,
@@ -2526,6 +2546,51 @@ where
         }
     }
 
+    /// Prove the SOLID OPAQUE color a text run inside this IFC sits on, or
+    /// `None`. Correct-by-construction: only claims a background when the
+    /// nearest layout ancestor that paints ANY background paints exactly one
+    /// solid opaque color (no gradients/images, no translucency) and no
+    /// selection touches the node (selection rects paint between background
+    /// and glyphs). No claim for canvas-direct text — the clear color is a
+    /// renderer detail (AZ_DEBUG_FILL can change it).
+    fn compute_uniform_text_bg(&self, source_node_index: usize) -> Option<ColorU> {
+        let tree = self.positioned_tree.tree;
+        let dom_id_opt = tree.get(source_node_index).and_then(|n| n.dom_node_id);
+        if let (Some(sel), Some(dom_id)) = (
+            self.ctx.text_selections.get(&self.ctx.styled_dom.dom_id),
+            dom_id_opt,
+        ) {
+            if sel.affected_nodes.contains_key(&dom_id) {
+                return None;
+            }
+        }
+        let mut cur = Some(source_node_index);
+        while let Some(idx) = cur {
+            if let Some(dom_id) = tree.get(idx).and_then(|n| n.dom_node_id) {
+                let state = self.get_styled_node_state(dom_id);
+                let contents = crate::solver3::getters::get_background_contents(
+                    self.ctx.styled_dom,
+                    dom_id,
+                    &state,
+                );
+                let mut saw_any = false;
+                for c in &contents {
+                    use azul_css::props::style::StyleBackgroundContent as B;
+                    match c {
+                        B::Color(col) if col.a == 255 => return Some(*col),
+                        B::Color(col) if col.a == 0 => {}
+                        // translucent color, gradient or image — unprovable
+                        _ => return None,
+                    }
+                    saw_any = true;
+                }
+                let _ = saw_any;
+            }
+            cur = tree.get(idx).and_then(|n| n.parent);
+        }
+        None
+    }
+
     /// DL-PATCHING substitution: if a patch source is armed and this node's
     /// (phase) run can be reused, copy it translated by the node's position
     /// delta and report `true` (the caller skips painting). `false` = paint
@@ -2565,6 +2630,7 @@ where
         builder.set_current_layout(Some((node_index, phase)));
         for i in run.0..run.1 {
             builder.set_current_node(patch.prev.node_mapping.get(i).copied().flatten());
+            builder.next_text_bg = patch.prev.uniform_text_bgs.get(i).copied().flatten();
             let item = translate_item(patch.prev.items[i].clone(), delta);
             builder.push_item(item);
         }
@@ -5236,6 +5302,10 @@ where
             }
         }
 
+        // The IFC-level background proof, refined per run below (a run
+        // carrying its OWN background paints it directly underneath).
+        let ifc_uniform_bg = self.compute_uniform_text_bg(source_node_index);
+
         // SECOND PASS: Render text runs
         for glyph_run in glyph_runs {
             // Clip text to the viewport-sized content box, not the full scroll
@@ -5257,6 +5327,15 @@ where
                 .collect();
 
             // Store only the font hash in the display list to keep it lean
+            let uniform_bg = if !glyph_run.background_content.is_empty() {
+                None // gradient/image span background — unprovable
+            } else {
+                match glyph_run.background_color {
+                    Some(c) if c.a == 255 => Some(c),
+                    Some(c) if c.a > 0 => None, // translucent span bg
+                    _ => ifc_uniform_bg,
+                }
+            };
             builder.push_text_run(
                 offset_glyphs,
                 FontHash::from_hash(glyph_run.font_hash),
@@ -5264,6 +5343,7 @@ where
                 glyph_run.color,
                 clip_rect,
                 Some(source_node_index),
+                uniform_bg,
             );
 
             // Render text decorations if present OR if this is IME composition preview
@@ -7061,6 +7141,7 @@ fn paginate_pages_impl(
             // Page slices are consumed by renderers only — patching operates
             // on the WINDOWED cached DL, never on page slices.
             layout_node_mapping: Vec::new(),
+            uniform_text_bgs: Vec::new(),
         });
     }
 
@@ -8616,13 +8697,13 @@ mod autotest_generated {
     fn builder_text_run_skips_empty_glyphs_and_transparent_color() {
         let clip = rect(0.0, 0.0, 100.0, 20.0);
         let mut b = DisplayListBuilder::new();
-        b.push_text_run(Vec::new(), FontHash::invalid(), 16.0, opaque(), clip, Some(0));
-        b.push_text_run(vec![glyph(1, 0.0, 0.0)], FontHash::invalid(), 16.0, ColorU::TRANSPARENT, clip, Some(0));
+        b.push_text_run(Vec::new(), FontHash::invalid(), 16.0, opaque(), clip, Some(0), None);
+        b.push_text_run(vec![glyph(1, 0.0, 0.0)], FontHash::invalid(), 16.0, ColorU::TRANSPARENT, clip, Some(0), None);
         assert!(b.items.is_empty());
 
         // NaN / huge font sizes are pass-through values, not a panic.
-        b.push_text_run(vec![glyph(1, 0.0, 0.0)], FontHash::invalid(), f32::NAN, opaque(), clip, None);
-        b.push_text_run(vec![glyph(2, 0.0, 0.0)], FontHash::invalid(), f32::MAX, opaque(), clip, None);
+        b.push_text_run(vec![glyph(1, 0.0, 0.0)], FontHash::invalid(), f32::NAN, opaque(), clip, None, None);
+        b.push_text_run(vec![glyph(2, 0.0, 0.0)], FontHash::invalid(), f32::MAX, opaque(), clip, None, None);
         assert_eq!(b.items.len(), 2);
     }
 

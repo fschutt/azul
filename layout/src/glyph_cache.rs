@@ -127,6 +127,9 @@ pub struct GlyphCache {
     cells: HashMap<GlyphCellKey, Option<CachedCells>>,
     /// Previous generation, see the type docs.
     cells_prev: HashMap<GlyphCellKey, Option<CachedCells>>,
+    /// Pre-blended LCD tiles (uniform-background fast path). `None` entry =
+    /// glyph has no cells. Flat cap with full drop — see MAX_TILE_ENTRIES.
+    lcd_tiles: HashMap<LcdTileKey, Option<LcdGlyphTile>>,
 }
 
 impl core::fmt::Debug for GlyphCache {
@@ -183,6 +186,7 @@ impl GlyphCache {
             paths_prev: HashMap::new(),
             cells: HashMap::new(),
             cells_prev: HashMap::new(),
+            lcd_tiles: HashMap::new(),
         }
     }
 
@@ -1611,5 +1615,166 @@ mod autotest_generated {
                 v.y
             );
         }
+    }
+}
+
+// ============================================================================
+// Pre-blended LCD glyph tiles (uniform-background fast path)
+// ============================================================================
+
+/// A pre-blended LCD glyph: the FINAL RGBA pixels of one glyph composited
+/// against a known solid opaque background through the exact colorimetric
+/// pipeline (`PixfmtRgba32LcdLinear` + the FIR LUT). Where the display-list
+/// generator PROVED the run sits on that background (`Text.uniform_bg`),
+/// painting the glyph is an opaque row copy — the per-pixel linear blend
+/// (~6 ms of every big.md repaint) runs once per (glyph, color, bg) ever.
+#[derive(Clone)]
+pub struct LcdGlyphTile {
+    pub w: u32,
+    pub h: u32,
+    /// Offset from the glyph's (int_x, int_y) anchor to the tile's top-left.
+    pub dx: i32,
+    pub dy: i32,
+    pub rgba: Vec<u8>,
+}
+
+#[derive(Clone, PartialEq, Eq, Hash)]
+struct LcdTileKey {
+    font_hash: u64,
+    glyph_id: u16,
+    ppem: u16,
+    scale_fixed: u32,
+    subpx_x: u8,
+    color: (u8, u8, u8, u8),
+    bg: (u8, u8, u8),
+}
+
+/// Entries per generation; a body-text document uses a few hundred
+/// distinct (glyph, subpixel, color, bg) combinations at ~1 KB each.
+const MAX_TILE_ENTRIES: usize = 4096;
+
+impl GlyphCache {
+    /// Pre-blended tile for one glyph on a uniform opaque background.
+    /// `None` = the glyph produced no cells (whitespace) — nothing to paint.
+    #[allow(clippy::too_many_arguments)]
+    pub fn get_or_build_lcd_tile(
+        &mut self,
+        font_hash: u64,
+        glyph_id: u16,
+        ppem: u16,
+        glyph_x: f32,
+        glyph_y: f32,
+        scale: f32,
+        is_hinted: bool,
+        hint_correction: f32,
+        color: azul_css::props::basic::color::ColorU,
+        bg: azul_css::props::basic::color::ColorU,
+        lut: &agg_rust::pixfmt_lcd::LcdDistributionLut,
+        params: agg_rust::pixfmt_lcd::LcdBlendParams,
+    ) -> Option<(LcdGlyphTile, i32, i32)> {
+        let rescale_hinted = is_hinted && (hint_correction - 1.0).abs() > 1e-4;
+        let subpx = text_subpixel_enabled();
+        let (int_x, subpx_x) = if subpx {
+            (glyph_x.floor() as i32, quantize_subpx_lcd(glyph_x))
+        } else {
+            (glyph_x.round() as i32, 0)
+        };
+        let int_y = glyph_y.round() as i32;
+        let scale_fixed = if is_hinted {
+            if rescale_hinted { (hint_correction * 65536.0) as u32 } else { 0 }
+        } else {
+            (scale * 65536.0) as u32
+        };
+        let key = LcdTileKey {
+            font_hash,
+            glyph_id,
+            ppem,
+            scale_fixed,
+            subpx_x,
+            color: (color.r, color.g, color.b, color.a),
+            bg: (bg.r, bg.g, bg.b),
+        };
+
+        if let Some(hit) = self.lcd_tiles.get(&key) {
+            return hit.clone().map(|t| (t, int_x, int_y));
+        }
+        if self.lcd_tiles.len() >= MAX_TILE_ENTRIES {
+            self.lcd_tiles.clear(); // simple full-drop; rebuild is cheap
+        }
+
+        // Cells for THIS glyph (cached themselves), cloned so we can borrow
+        // self mutably for the insert below.
+        let cells: Vec<agg_rust::rasterizer_cells_aa::CellAa> = self
+            .get_or_build_cells_lcd(
+                font_hash, glyph_id, ppem, glyph_x, glyph_y, scale, is_hinted,
+                hint_correction,
+            )
+            .map(|(c, _, _)| c.to_vec())?;
+        if cells.is_empty() {
+            self.lcd_tiles.insert(key, None);
+            return None;
+        }
+
+        // Cell bbox: x in STRIPE coords (3 per pixel), y in pixels.
+        let (mut min_sx, mut max_sx, mut min_y, mut max_y) =
+            (i32::MAX, i32::MIN, i32::MAX, i32::MIN);
+        for c in &cells {
+            min_sx = min_sx.min(c.x);
+            max_sx = max_sx.max(c.x);
+            min_y = min_y.min(c.y);
+            max_y = max_y.max(c.y);
+        }
+        // Snap the stripe range outward to whole pixels, then pad 1 px on
+        // each horizontal side: the 5-tap FIR distributes a stripe's energy
+        // up to 2 STRIPES sideways, so a tile cut at the cell bbox would
+        // lose the sub-pixel fringe the slow path paints into the dst.
+        let min_px = min_sx.div_euclid(3) - 1;
+        let max_px = max_sx.div_euclid(3) + 1;
+        let w = (max_px - min_px + 1).max(1) as u32;
+        let h = (max_y - min_y + 1).max(1) as u32;
+        if w > 512 || h > 512 {
+            // Degenerate/huge glyph: no tile (caller falls back).
+            self.lcd_tiles.insert(key, None);
+            return None;
+        }
+
+        // bg-filled tile, then the exact same sweep the slow path runs.
+        let mut rgba = vec![0u8; (w * h * 4) as usize];
+        for px in rgba.chunks_exact_mut(4) {
+            px[0] = bg.r;
+            px[1] = bg.g;
+            px[2] = bg.b;
+            px[3] = 255;
+        }
+        {
+            use agg_rust::basics::FillingRule;
+            use agg_rust::pixfmt_lcd::PixfmtRgba32LcdLinear;
+            use agg_rust::rasterizer_scanline_aa::RasterizerScanlineAa;
+            use agg_rust::renderer_base::RendererBase;
+            use agg_rust::renderer_scanline::render_scanlines_aa_solid;
+            use agg_rust::rendering_buffer::RowAccessor;
+            use agg_rust::scanline_u::ScanlineU8;
+
+            let mut ras = RasterizerScanlineAa::new();
+            ras.filling_rule(FillingRule::NonZero);
+            ras.add_cells_offset(&cells, -min_px * 3, -min_y);
+            let stride = (w * 4) as i32;
+            let mut ra =
+                unsafe { RowAccessor::new_with_buf(rgba.as_mut_ptr(), w, h, stride) };
+            let pf = PixfmtRgba32LcdLinear::new(&mut ra, lut, params);
+            let mut rb = RendererBase::new(pf);
+            let mut sl = ScanlineU8::new();
+            let agg_color = agg_rust::color::Rgba8::new(
+                u32::from(color.r),
+                u32::from(color.g),
+                u32::from(color.b),
+                u32::from(color.a),
+            );
+            render_scanlines_aa_solid(&mut ras, &mut sl, &mut rb, &agg_color);
+        }
+
+        let tile = LcdGlyphTile { w, h, dx: min_px, dy: min_y, rgba };
+        self.lcd_tiles.insert(key, Some(tile.clone()));
+        Some((tile, int_x, int_y))
     }
 }

@@ -1093,10 +1093,11 @@ fn render_display_list_with_state(
     let mut text_shadow_stack: Vec<StyleBoxShadow> = Vec::new();
 
     let _p_loop = crate::probe::Probe::span("raster_loop");
-    for item in &display_list.items {
+    for (item_idx, item) in display_list.items.iter().enumerate() {
         let _p_item = crate::probe::Probe::span(probe_label_for_item(item));
         render_single_item(
             item,
+            display_list.uniform_text_bgs.get(item_idx).copied().flatten(),
             pixmap,
             dpi_factor,
             renderer_resources,
@@ -1378,7 +1379,7 @@ pub fn render_display_list_damaged(
         let mut scroll_offset_stack: Vec<(f32, f32)> = vec![(0.0, 0.0)];
         let mut text_shadow_stack: Vec<StyleBoxShadow> = Vec::new();
 
-        for item in &display_list.items {
+        for (item_idx, item) in display_list.items.iter().enumerate() {
             // Always process state-management items (Push/Pop) regardless of bounds,
             // because skipping a Push while processing its matching Pop corrupts stacks.
             if !item.is_state_management() {
@@ -1412,6 +1413,7 @@ pub fn render_display_list_damaged(
             let _p = crate::probe::Probe::span(probe_label_for_item(item));
             render_single_item(
                 item,
+                display_list.uniform_text_bgs.get(item_idx).copied().flatten(),
                 pixmap,
                 dpi_factor,
                 renderer_resources,
@@ -1453,6 +1455,10 @@ pub fn render_display_list_damaged(
 /// Returns an error string if rendering fails.
 pub fn render_single_item(
     item: &DisplayListItem,
+    // PROVEN uniform background for THIS item (Text only; from
+    // DisplayList.uniform_text_bgs — the variant itself cannot carry it,
+    // printpdf pattern-matches Text exhaustively). None = slow path.
+    item_uniform_bg: Option<ColorU>,
     pixmap: &mut AzulPixmap,
     dpi_factor: f32,
     renderer_resources: &RendererResources,
@@ -1750,7 +1756,7 @@ pub fn render_single_item(
                     (scroll_dx, scroll_dy),
                 );
             }
-            render_text(
+            render_text_with_bg(
                 glyphs,
                 *font_hash,
                 *font_size_px,
@@ -1764,6 +1770,7 @@ pub fn render_single_item(
                 glyph_cache,
                 (scroll_dx, scroll_dy),
                 false,
+                item_uniform_bg,
             );
         }
         DisplayListItem::TextLayout {
@@ -2009,9 +2016,10 @@ pub fn render_single_item(
                 );
                 clip_stack.push(vv_clip);
                 scroll_offset_stack.push((scroll_dx - vv_origin.x, scroll_dy - vv_origin.y));
-                for child_item in &child_dl.items {
+                for (child_idx, child_item) in child_dl.items.iter().enumerate() {
                     render_single_item(
                         child_item,
+                        child_dl.uniform_text_bgs.get(child_idx).copied().flatten(),
                         pixmap,
                         dpi_factor,
                         renderer_resources,
@@ -2598,6 +2606,170 @@ pub(crate) fn empty_font_manager() -> FontManager<FontRef> {
 
 #[allow(clippy::cast_possible_truncation, clippy::cast_possible_wrap, clippy::cast_sign_loss)] // software rasterizer: bounded pixel/coord/colour casts
 #[allow(clippy::too_many_lines)] // large but cohesive: font lookup + grayscale/LCD dispatch + glyph loop
+/// [`render_text`] + the uniform-background pre-blend fast path. When the
+/// generator PROVED the run sits on one solid opaque color
+/// (`Text.uniform_bg`), each glyph is an opaque copy of a pre-blended tile
+/// (built once through the exact colorimetric pipeline) — the per-pixel
+/// linear LCD sweep drops out of the frame. Falls back to the normal path
+/// whenever the proof is absent, LCD/linear is off, or adjacent glyph
+/// tiles would overlap (an opaque copy would clobber the neighbour's
+/// antialiased edge — italic/tight-kerned runs take the slow path).
+#[allow(clippy::too_many_arguments)]
+fn render_text_with_bg(
+    glyphs: &[GlyphInstance],
+    font_hash: FontHash,
+    font_size_px: f32,
+    color: ColorU,
+    pixmap: &mut AzulPixmap,
+    clip_rect: &LogicalRect,
+    clip: Option<AzRect>,
+    renderer_resources: &RendererResources,
+    font_manager: &FontManager<FontRef>,
+    dpi_factor: f32,
+    glyph_cache: &mut GlyphCache,
+    scroll_offset: (f32, f32),
+    force_grayscale: bool,
+    uniform_bg: Option<ColorU>,
+) {
+    if let Some(bg) = uniform_bg {
+        if text_lcd_enabled() && !force_grayscale {
+            if let Some(params) = lcd_linear_params() {
+                if render_text_prerendered_lcd(
+                    glyphs, font_hash, font_size_px, color, bg, params, pixmap,
+                    clip_rect, clip, renderer_resources, font_manager,
+                    dpi_factor, glyph_cache, scroll_offset,
+                ) {
+                    return;
+                }
+            }
+        }
+    }
+    render_text(
+        glyphs, font_hash, font_size_px, color, pixmap, clip_rect, clip,
+        renderer_resources, font_manager, dpi_factor, glyph_cache,
+        scroll_offset, force_grayscale,
+    );
+}
+
+/// The pre-blended tile path. Returns `false` (nothing painted) when any
+/// glyph pair would overlap or a tile is unavailable — the caller then
+/// runs the normal path.
+#[allow(clippy::too_many_arguments)]
+fn render_text_prerendered_lcd(
+    glyphs: &[GlyphInstance],
+    font_hash: FontHash,
+    font_size_px: f32,
+    color: ColorU,
+    bg: ColorU,
+    params: agg_rust::pixfmt_lcd::LcdBlendParams,
+    pixmap: &mut AzulPixmap,
+    clip_rect: &LogicalRect,
+    clip: Option<AzRect>,
+    renderer_resources: &RendererResources,
+    font_manager: &FontManager<FontRef>,
+    dpi_factor: f32,
+    glyph_cache: &mut GlyphCache,
+    scroll_offset: (f32, f32),
+) -> bool {
+    use agg_rust::pixfmt_lcd::LcdDistributionLut;
+    use crate::glyph_cache::LcdGlyphTile;
+    let _ = renderer_resources;
+    let Some(font_ref) = font_manager.resolve_font_by_hash(font_hash.font_hash) else {
+        return false;
+    };
+    let parsed_font: &ParsedFont = crate::font_ref_to_parsed_font(&font_ref);
+    let units_per_em = f32::from(parsed_font.font_metrics.units_per_em);
+    if units_per_em <= 0.0 {
+        return false;
+    }
+    let effective_px = font_size_px * dpi_factor;
+    let scale = effective_px / units_per_em;
+    let ppem = effective_px.round() as u16;
+    let hint_correction = if ppem > 0 { effective_px / f32::from(ppem) } else { 1.0 };
+    let lut = LcdDistributionLut::new(f64::from(0x56u32), f64::from(0x4Du32), f64::from(0x08u32));
+
+    // Combined clip: the item clip_rect ∩ the stack clip, device pixels.
+    let cr = clip_rect;
+    let mut cx0 = (cr.origin.x * dpi_factor).floor() as i32;
+    let mut cy0 = (cr.origin.y * dpi_factor).floor() as i32;
+    let mut cx1 = ((cr.origin.x + cr.size.width) * dpi_factor).ceil() as i32;
+    let mut cy1 = ((cr.origin.y + cr.size.height) * dpi_factor).ceil() as i32;
+    if let Some(c) = clip {
+        cx0 = cx0.max(c.x as i32);
+        cy0 = cy0.max(c.y as i32);
+        cx1 = cx1.min((c.x + c.width) as i32);
+        cy1 = cy1.min((c.y + c.height) as i32);
+    }
+    if cx1 <= cx0 || cy1 <= cy0 {
+        return true; // fully clipped: nothing to paint, and nothing missed
+    }
+
+    let _p = crate::probe::Probe::span("glyph_lcd_pretile");
+    // Pass 1: collect tiles + overlap check (x-interval overlap between
+    // CONSECUTIVE glyphs on the same row is the case that matters).
+    let mut placed: Vec<(LcdGlyphTile, i32, i32)> = Vec::with_capacity(glyphs.len());
+    let mut prev_end: i32 = i32::MIN;
+    let mut prev_row: i32 = i32::MIN;
+    for glyph in glyphs {
+        let gx = (glyph.point.x - scroll_offset.0) * dpi_factor;
+        let gy = (glyph.point.y - scroll_offset.1) * dpi_factor;
+        let glyph_index = glyph.index as u16;
+        let Some(glyph_data) = parsed_font.get_or_decode_glyph(glyph_index) else {
+            continue;
+        };
+        let is_hinted = glyph_cache
+            .get_or_build(font_hash.font_hash, glyph_index, &glyph_data, parsed_font, ppem)
+            .map(|c| c.is_hinted)
+            .unwrap_or(false);
+        let Some((tile, int_x, int_y)) = glyph_cache.get_or_build_lcd_tile(
+            font_hash.font_hash,
+            glyph.index as u16,
+            ppem,
+            gx,
+            gy,
+            scale,
+            is_hinted,
+            hint_correction,
+            color,
+            bg,
+            &lut,
+            params,
+        ) else {
+            continue; // no cells (space) — nothing to paint for this glyph
+        };
+        let x0 = int_x + tile.dx;
+        let y0 = int_y + tile.dy;
+        if y0 == prev_row && x0 < prev_end {
+            drop(crate::probe::Probe::span("glyph_lcd_pretile_overlap"));
+            return false; // overlapping neighbours — slow path for the run
+        }
+        prev_row = y0;
+        prev_end = x0 + tile.w as i32;
+        placed.push((tile, x0, y0));
+    }
+
+    // Pass 2: opaque copies, clip-aware.
+    let dst_w = pixmap.width as i32;
+    let dst_h = pixmap.height as i32;
+    for (tile, x0, y0) in placed {
+        let tx0 = x0.max(cx0).max(0);
+        let ty0 = y0.max(cy0).max(0);
+        let tx1 = (x0 + tile.w as i32).min(cx1).min(dst_w);
+        let ty1 = (y0 + tile.h as i32).min(cy1).min(dst_h);
+        for ty in ty0..ty1 {
+            let src_row = ((ty - y0) as u32 * tile.w * 4) as usize;
+            let src_off = src_row + ((tx0 - x0) as u32 * 4) as usize;
+            let dst_off = ((ty as u32 * pixmap.width + tx0 as u32) * 4) as usize;
+            let n = ((tx1 - tx0) as u32 * 4) as usize;
+            if src_off + n <= tile.rgba.len() && dst_off + n <= pixmap.data.len() {
+                pixmap.data[dst_off..dst_off + n]
+                    .copy_from_slice(&tile.rgba[src_off..src_off + n]);
+            }
+        }
+    }
+    true
+}
+
 fn render_text(
     glyphs: &[GlyphInstance],
     font_hash: FontHash,
@@ -4304,6 +4476,7 @@ mod autotest_generated {
         let mut gc = GlyphCache::new();
         render_single_item(
             item,
+            None,
             p,
             1.0,
             &res,
@@ -6944,6 +7117,119 @@ mod shadow_ring_blit_tests {
             r < 250 && g < 250 && b < 250,
             "shadow must paint outside the border box (got {:?})",
             (r, g, b)
+        );
+    }
+}
+
+#[cfg(all(test, feature = "std"))]
+mod lcd_pretile_tests {
+    use super::*;
+
+    use crate::font::parsed::ParsedFont;
+
+    fn load_test_font() -> Option<ParsedFont> {
+        let candidates = [
+            "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
+            "/usr/share/fonts/truetype/liberation/LiberationSans-Regular.ttf",
+            "/System/Library/Fonts/Helvetica.ttc",
+            "C:/Windows/Fonts/arial.ttf",
+        ];
+        for path in candidates {
+            if let Ok(bytes) = std::fs::read(path) {
+                let arc = std::sync::Arc::new(rust_fontconfig::FontBytes::Owned(
+                    std::sync::Arc::from(bytes.as_slice()),
+                ));
+                if let Some(font) = ParsedFont::from_bytes(&bytes, 0, &mut Vec::new())
+                    .map(|f| f.with_source_bytes(arc))
+                {
+                    return Some(font);
+                }
+            }
+        }
+        None
+    }
+
+    fn rr_with(font: &ParsedFont) -> (RendererResources, FontManager<FontRef>, FontHash) {
+        let rr = RendererResources::default();
+        let font_ref = crate::parsed_font_to_font_ref(font.clone());
+        let hash = crate::font_ref_to_parsed_font(&font_ref).hash;
+        let fm: FontManager<FontRef> =
+            FontManager::new(rust_fontconfig::FcFontCache::default()).expect("FontManager::new");
+        fm.insert_font(rust_fontconfig::FontId::new(), font_ref);
+        (rr, fm, FontHash { font_hash: hash })
+    }
+
+    fn shape(parsed: &ParsedFont, text: &str, font_size: f32, x: f32, y: f32) -> Vec<GlyphInstance> {
+        let upm = f32::from(parsed.font_metrics.units_per_em);
+        let scale = font_size / upm;
+        let mut pen_x = x;
+        let mut out = Vec::new();
+        for c in text.chars() {
+            let gid = parsed.lookup_glyph_index(c as u32).unwrap_or(0);
+            let advance = f32::from(parsed.get_horizontal_advance(gid)) * scale;
+            out.push(GlyphInstance {
+                index: u32::from(gid),
+                point: LogicalPosition { x: pen_x, y },
+                size: LogicalSize { width: advance, height: font_size },
+            });
+            pen_x += advance;
+        }
+        out
+    }
+
+    /// The pre-blended tile path must produce EXACTLY the pixels of the
+    /// per-pixel linear sweep for a non-overlapping run on a uniform
+    /// opaque background — same pipeline, same LUT, same params, cached.
+    /// Any divergence is a rendering bug, not a tolerance question.
+    #[test]
+    fn pretile_path_is_pixel_identical_to_the_sweep() {
+        let Some(font) = load_test_font() else {
+            eprintln!("no system test font — skipping");
+            return;
+        };
+        let (rr, fm, font_hash) = rr_with(&font);
+
+        let font_size = 24.0;
+        let glyphs = shape(&font, "Hamburgefonstiv 123", font_size, 8.0, 40.0);
+        let clip_rect = LogicalRect {
+            origin: LogicalPosition { x: 0.0, y: 0.0 },
+            size: LogicalSize { width: 320.0, height: 60.0 },
+        };
+        let bg = ColorU { r: 255, g: 255, b: 255, a: 255 };
+        let color = ColorU { r: 20, g: 20, b: 20, a: 255 };
+
+        let mut slow = AzulPixmap::new(320, 60).unwrap();
+        slow.fill(bg.r, bg.g, bg.b, 255);
+        let mut gc1 = GlyphCache::new();
+        render_text_with_bg(
+            &glyphs, font_hash, font_size, color, &mut slow, &clip_rect, None,
+            &rr, &fm, 1.0, &mut gc1, (0.0, 0.0), false, None,
+        );
+
+        let mut fast = AzulPixmap::new(320, 60).unwrap();
+        fast.fill(bg.r, bg.g, bg.b, 255);
+        let mut gc2 = GlyphCache::new();
+        render_text_with_bg(
+            &glyphs, font_hash, font_size, color, &mut fast, &clip_rect, None,
+            &rr, &fm, 1.0, &mut gc2, (0.0, 0.0), false, Some(bg),
+        );
+
+        if !text_lcd_enabled() || lcd_linear_params().is_none() {
+            // Without the LCD linear pipeline both calls took the same path.
+            assert_eq!(slow.data, fast.data);
+            return;
+        }
+        let diff = slow
+            .data
+            .iter()
+            .zip(fast.data.iter())
+            .filter(|(a, b)| a != b)
+            .count();
+        assert_eq!(
+            diff, 0,
+            "pre-blended tiles diverge from the sweep on {diff} bytes — \
+             same pipeline must mean same pixels (check FIR padding and \
+             tile placement)"
         );
     }
 }
