@@ -1646,6 +1646,38 @@ fn render_display_list_range(
 /// Without this projection, damage for items inside a scrolled frame lands at
 /// the content-space position (off by exactly the scroll offset), so the
 /// consumer repaints the wrong band and the changed item stays visually stale.
+/// Runtime toggle for the DAMAGE REFINEMENTS (skip non-painting items,
+/// symmetric-difference strips for same-origin solid rects / clips).
+/// Default OFF: the refinements are individually correct, but honest
+/// (smaller) damage UN-MASKS a latent cross-path LCD text divergence —
+/// the first-paint pixels of a run differ from a fresh reference render
+/// by one fringe quantum (corpus assert_damage_sound, 2 channels at the
+/// run's left fringe; grayscale passes). Until that path difference is
+/// fixed, full-strength damage keeps production repaints byte-stable;
+/// the round-3 blit gate opts IN (it needs honest damage to prove the
+/// blit is load-bearing).
+static DL_DIFF_REFINEMENTS: core::sync::atomic::AtomicU8 = core::sync::atomic::AtomicU8::new(0);
+
+#[must_use]
+pub fn dl_diff_refinements_enabled() -> bool {
+    use core::sync::atomic::Ordering;
+    match DL_DIFF_REFINEMENTS.load(Ordering::Relaxed) {
+        1 => true,
+        2 => false,
+        _ => {
+            let on = std::env::var_os("AZ_DL_DIFF_REFINE").is_some();
+            DL_DIFF_REFINEMENTS.store(if on { 1 } else { 2 }, Ordering::Relaxed);
+            on
+        }
+    }
+}
+
+/// Force the refinements on/off (tests; overrides the env).
+pub fn set_dl_diff_refinements(on: bool) {
+    use core::sync::atomic::Ordering;
+    DL_DIFF_REFINEMENTS.store(if on { 1 } else { 2 }, Ordering::Relaxed);
+}
+
 /// Round-3 translate hint: a mismatching item pair whose OLD geometry
 /// translated by `delta` equals the NEW one, and whose old bounds sit
 /// inside `region_old`, is a MOVE — collected into the returned moved
@@ -1729,16 +1761,19 @@ fn compute_display_list_damage_impl(
         // change within the same bounds must still produce a damage rect.
         // Use visual_bounds() to include effects like box-shadow extent.
         if !old_item.is_visually_equal(new_item) {
+            let refine = dl_diff_refinements_enabled();
             // Items that never RASTERIZE must never produce PAINT damage.
             // The root's HitTestArea resizes with the window (640→680 =
             // a full-viewport "change") and TextLayout is PDF/a11y
             // metadata — both were forcing 100% repaints on every resize.
             // Hit testing and metadata consumers read the NEW display list
             // directly; no pixels are involved.
-            if matches!(
-                new_item,
-                DisplayListItem::HitTestArea { .. } | DisplayListItem::TextLayout { .. }
-            ) {
+            if refine
+                && matches!(
+                    new_item,
+                    DisplayListItem::HitTestArea { .. } | DisplayListItem::TextLayout { .. }
+                )
+            {
                 continue;
             }
             // A Border whose widths are all None/absent paints NOTHING —
@@ -1750,6 +1785,10 @@ fn compute_display_list_damage_impl(
                 DisplayListItem::Border { widths: nw, .. },
             ) = (old_item, new_item)
             {
+                let _refine_gate = refine;
+                if !refine {
+                    // fall through to plain damage below
+                } else {
                 // Sides have distinct wrapper types; small duplication
                 // (same inner PixelValue) beats a generic bound here.
                 let paints = |w: &crate::solver3::display_list::StyleBorderWidths| {
@@ -1769,11 +1808,12 @@ fn compute_display_list_damage_impl(
                 if !paints(ow) && !paints(nw) {
                     continue;
                 }
+                }
             }
             // PushStackingContext carries region metadata (bounds + z);
             // its geometry change does not itself paint — children carry
             // their own damage. (Same class as HitTestArea.)
-            if matches!(new_item, DisplayListItem::PushStackingContext { .. }) {
+            if refine && matches!(new_item, DisplayListItem::PushStackingContext { .. }) {
                 continue;
             }
             let (acc_old, acc_new) = *offset_stack.last().unwrap_or(&((0.0, 0.0), (0.0, 0.0)));
@@ -1792,6 +1832,9 @@ fn compute_display_list_damage_impl(
                 DisplayListItem::PushClip { bounds: nb, border_radius: nbr },
             ) = (old_item, new_item)
             {
+                if !refine {
+                    // plain damage below
+                } else {
                 let same_origin = (ob.0.origin.x - nb.0.origin.x).abs() < 0.01
                     && (ob.0.origin.y - nb.0.origin.y).abs() < 0.01;
                 if same_origin && obr == nbr {
@@ -1821,12 +1864,16 @@ fn compute_display_list_damage_impl(
                     }
                     continue;
                 }
+                }
             }
             if let (
                 DisplayListItem::Rect { bounds: ob, color: oc, border_radius: obr },
                 DisplayListItem::Rect { bounds: nb, color: nc, border_radius: nbr },
             ) = (old_item, new_item)
             {
+                if !refine {
+                    // plain damage below
+                } else {
                 let same_origin = (ob.0.origin.x - nb.0.origin.x).abs() < 0.01
                     && (ob.0.origin.y - nb.0.origin.y).abs() < 0.01;
                 if same_origin && oc == nc && obr == nbr && obr.is_zero() {
@@ -1863,6 +1910,7 @@ fn compute_display_list_damage_impl(
                         });
                     }
                     continue;
+                }
                 }
             }
             // Round-3: a pure translation by the hint's delta, inside its

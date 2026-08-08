@@ -2656,8 +2656,12 @@ fn render_text_with_bg(
     force_grayscale: bool,
     uniform_bg: Option<(ColorU, crate::solver3::display_list::WindowLogicalRect)>,
 ) {
+    let pretile_disabled = {
+        static V: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+        *V.get_or_init(|| std::env::var_os("AZ_NO_LCD_PRETILE").is_some())
+    };
     if let Some((bg, proven_rect)) = uniform_bg {
-        if text_lcd_enabled() && !force_grayscale {
+        if text_lcd_enabled() && !force_grayscale && !pretile_disabled {
             if let Some(params) = lcd_linear_params() {
                 if render_text_prerendered_lcd(
                     glyphs, font_hash, font_size_px, color, bg, proven_rect.0, params, pixmap,
@@ -2787,10 +2791,15 @@ fn render_text_prerendered_lcd(
         // the divergence the round-3 blit gate caught. Such glyphs sweep.
         {
             let pr = proven_rect;
-            let px0 = (pr.origin.x * dpi_factor).ceil() as i32;
-            let py0 = (pr.origin.y * dpi_factor).ceil() as i32;
-            let px1 = ((pr.origin.x + pr.size.width) * dpi_factor).floor() as i32;
-            let py1 = ((pr.origin.y + pr.size.height) * dpi_factor).floor() as i32;
+            // 1-px INSET beyond the rounded bounds: the FIR/chroma blend of
+            // the tile's edge stripes READS neighbouring pixels — those
+            // reads must also land on proven background, not merely the
+            // writes. (The corpus damage-soundness gate caught a 2-channel
+            // divergence at a proven-rect boundary without this.)
+            let px0 = (pr.origin.x * dpi_factor).ceil() as i32 + 1;
+            let py0 = (pr.origin.y * dpi_factor).ceil() as i32 + 1;
+            let px1 = ((pr.origin.x + pr.size.width) * dpi_factor).floor() as i32 - 1;
+            let py1 = ((pr.origin.y + pr.size.height) * dpi_factor).floor() as i32 - 1;
             if x0 < px0
                 || y0 < py0
                 || x0 + tile.w as i32 > px1

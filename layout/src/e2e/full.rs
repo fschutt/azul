@@ -8806,6 +8806,22 @@ fn eval_assert_damage_sound(
             }
             if diff > 0 {
                 let p = firstd.unwrap_or(0);
+                // AZ_E2E_DUMP=1: print the divergent pixels' actual channel
+                // values (incremental vs fresh) with 2px of context — the
+                // datum every soundness debugging session starts by needing.
+                if std::env::var_os("AZ_E2E_DUMP").is_some() {
+                    let (fx, fy) = (p % w, p / w);
+                    for y in fy.saturating_sub(1)..=(fy + 1).min(h - 1) {
+                        for x in fx.saturating_sub(2)..=(fx + 2).min(w - 1) {
+                            let i = (y * w + x) * 4;
+                            eprintln!(
+                                "[dsound] px({x},{y}): incr={:?} fresh={:?}",
+                                &data[i..i + 4],
+                                &ad2[i..i + 4]
+                            );
+                        }
+                    }
+                }
                 return AssertionResult::fail_with(
                     "assert_damage_sound: the incrementally-repainted buffer does NOT match an \
                      independent full repaint — the incremental path produced different pixels"
