@@ -1564,6 +1564,48 @@ impl<T: ParsedFontTrait> LayoutPartialTree for TaffyBridge<'_, '_, T> {
             .map(|s| s.formatting_context)
             .unwrap_or_default();
 
+        // PURE CONTENT MEASURE cache (min-/max-content, no known dimensions).
+        // These answers are viewport-independent, but taffy's own cache
+        // cannot keep them alive: the flex algorithm's candidate-width
+        // probes share their slot class and evict them within every pass.
+        // Serve them from the warm node instead — invalidated with
+        // `taffy_cache` by the intrinsic-dirty ancestor closure. Gated off
+        // for documents that use viewport units (vw/vh in font sizes make
+        // "content size" viewport-dependent), mirroring the collect gate.
+        let pure_measure_slot = if inputs.run_mode == RunMode::ComputeSize
+            && inputs.known_dimensions.width.is_none()
+            && inputs.known_dimensions.height.is_none()
+            && !self
+                .ctx
+                .styled_dom
+                .css_property_cache
+                .ptr
+                .compact_cache
+                .as_ref()
+                .is_none_or(|cc| cc.uses_viewport_units)
+        {
+            match inputs.available_space.width {
+                AvailableSpace::MinContent => Some(0usize),
+                AvailableSpace::MaxContent => Some(1usize),
+                AvailableSpace::Definite(_) => None,
+            }
+        } else {
+            None
+        };
+        if let Some(slot) = pure_measure_slot {
+            if let Some(warm) = self.tree.warm(node_idx) {
+                let cached = match slot {
+                    0 => warm.measured_content_sizes.0,
+                    _ => warm.measured_content_sizes.1,
+                };
+                if let Some(out) = cached {
+                    drop(crate::probe::Probe::span("taffy_pure_measure_hit"));
+                    return out;
+                }
+            }
+            drop(crate::probe::Probe::span("taffy_pure_measure_miss"));
+        }
+
         let mut result = compute_cached_layout(self, node_id, inputs, |tree, node_id, inputs| {
             let node_idx: usize = node_id.into();
             let fc = tree
@@ -1580,6 +1622,16 @@ impl<T: ParsedFontTrait> LayoutPartialTree for TaffyBridge<'_, '_, T> {
                 _ => tree.compute_non_flex_layout(node_idx, inputs),
             }
         });
+
+        // Populate the pure-measure cache from the result we just computed.
+        if let Some(slot) = pure_measure_slot {
+            if let Some(warm) = self.tree.warm_mut(node_idx) {
+                match slot {
+                    0 => warm.measured_content_sizes.0 = Some(result),
+                    _ => warm.measured_content_sizes.1 = Some(result),
+                }
+            }
+        }
 
         // Store layout for container nodes - Taffy only calls set_unrounded_layout for leaf nodes
         if let Some(node) = self.tree.get_mut(node_idx) {
@@ -2078,6 +2130,7 @@ impl<T: ParsedFontTrait> CacheTree for TaffyBridge<'_, '_, T> {
         let node_idx: usize = node_id.into();
         if let Some(warm) = self.tree.warm_mut(node_idx) {
             warm.taffy_cache.clear();
+            warm.measured_content_sizes = (None, None);
         }
     }
 }

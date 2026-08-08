@@ -2885,7 +2885,7 @@ unsafe extern "system" fn window_proc(
                 let mut resize_relayout_failed = false;
                 if let Some(layout_window) = window.common.layout_window.as_mut() {
                     let mut debug_messages = None;
-                    if let Err(e) = crate::desktop::shell2::common::layout::incremental_relayout(
+                    if let Err(e) = crate::desktop::shell2::common::layout::incremental_relayout_for_resize(
                         layout_window,
                         &window.common.current_window_state,
                         &mut window.common.renderer_resources,

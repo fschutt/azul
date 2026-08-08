@@ -390,6 +390,17 @@ impl LayoutCacheMap {
 pub struct LayoutCache {
     /// The fully laid-out tree from the previous frame. This is our primary cache.
     pub tree: Option<LayoutTree>,
+    /// One-shot latch: the next `layout_document` call is a RESIZE-ONLY
+    /// relayout of the SAME StyledDom object (set by the dll's
+    /// `incremental_relayout_for_resize`, consumed unconditionally at entry).
+    /// Skips reconcile + cache_map remap wholesale — see the Step-1 branch
+    /// in `layout_document` for the contract and the dom-id sanity guard.
+    pub resize_only_hint: bool,
+    /// Census: did the LAST `layout_document` take the resize-only
+    /// reconcile-skip branch? The external observable that distinguishes
+    /// "skipped the walk" from "walked and found everything clean" (both
+    /// produce identical pixels and identical reuse censuses).
+    pub last_reconcile_was_skipped: bool,
     /// Reconciliation census of the LAST pass: how many nodes were CLONED
     /// from the previous tree (warm shaped-text + intrinsic caches carried
     /// forward) vs built FRESH (no warm data). This pair is what makes cache

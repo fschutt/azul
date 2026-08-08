@@ -4652,7 +4652,7 @@ impl WaylandWindow {
             if let Some(layout_window) = self.common.layout_window.as_mut() {
                 let mut debug_messages = None;
                 let _span = crate::log_span!(LogCategory::Window, "resize_incremental_relayout");
-                if let Err(e) = crate::desktop::shell2::common::layout::incremental_relayout(
+                if let Err(e) = crate::desktop::shell2::common::layout::incremental_relayout_for_resize(
                     layout_window,
                     &self.common.current_window_state,
                     &mut self.common.renderer_resources,

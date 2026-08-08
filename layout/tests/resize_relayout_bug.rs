@@ -371,3 +371,101 @@ fn scrollbar_toggle_does_not_remeasure_all_intrinsics() {
          blanket `(0..len).collect()` is back"
     );
 }
+
+/// The resize-only reconcile SKIP (the hinted fast path). When the dll's
+/// resize latch fires, the StyledDom object is by construction unchanged —
+/// walking 1209 nodes to rediscover "everything reused" was ~9.6 ms per drag
+/// frame, plus an identity remap of every per-node cache entry. With the
+/// hint set, solver3 must take the retained tree AS-IS (census says
+/// skipped), still re-run the top-down pass at the new size (root width
+/// must track the viewport), and consume the hint (one-shot: the next
+/// un-hinted pass reconciles normally).
+#[test]
+fn resize_only_hint_skips_reconcile_but_still_resizes() {
+    let dom = Dom::create_div()
+        .with_ids_and_classes(vec![IdOrClass::Class("root".into())].into())
+        .with_child(Dom::create_text("skip-path paragraph one"))
+        .with_child(Dom::create_text("skip-path paragraph two"));
+
+    let css_str = r#"
+        * { margin: 0px; padding: 0px; }
+        .root { width: 100%; height: 100%; }
+    "#;
+    let (css, _) = azul_css::parser2::new_from_str(css_str);
+
+    let mut dom = dom;
+    let styled_dom = StyledDom::create(&mut dom, css);
+    let styled_dom_first = styled_dom.clone();
+    let styled_dom_third = styled_dom.clone();
+
+    let font_cache = FcFontCache::build();
+    let mut layout_window = LayoutWindow::new(font_cache).unwrap();
+    let renderer_resources = RendererResources::default();
+    let system_callbacks = ExternalSystemCallbacks::rust_internal();
+    let mut debug_messages = Some(Vec::new());
+
+    let mut ws = FullWindowState::default();
+    ws.size.dimensions = LogicalSize::new(640.0, 480.0);
+    layout_window
+        .layout_and_generate_display_list(
+            styled_dom_first,
+            &ws,
+            &renderer_resources,
+            &system_callbacks,
+            &mut debug_messages,
+        )
+        .unwrap();
+    assert!(
+        !layout_window.layout_cache.last_reconcile_was_skipped,
+        "cold pass must reconcile"
+    );
+
+    // Hinted resize: reconcile skipped, sizes still track the viewport.
+    layout_window.layout_cache.resize_only_hint = true;
+    ws.size.dimensions = LogicalSize::new(900.0, 700.0);
+    layout_window
+        .layout_and_generate_display_list(
+            styled_dom,
+            &ws,
+            &renderer_resources,
+            &system_callbacks,
+            &mut debug_messages,
+        )
+        .unwrap();
+    assert!(
+        layout_window.layout_cache.last_reconcile_was_skipped,
+        "the hinted resize must take the reconcile-skip branch"
+    );
+    let root_width = {
+        let lr = layout_window
+            .layout_results
+            .get(&azul_core::dom::DomId::ROOT_ID)
+            .expect("layout result");
+        let tree = &lr.layout_tree;
+        tree.get(tree.root)
+            .and_then(|n| n.used_size)
+            .map(|s| s.width)
+            .expect("root used_size")
+    };
+    assert!(
+        (root_width - 900.0).abs() < 1.0,
+        "skip must NOT skip the layout itself: root width {root_width} != 900 — \
+         the top-down pass did not run at the new viewport"
+    );
+
+    // The hint is one-shot: an un-hinted follow-up reconciles normally.
+    ws.size.dimensions = LogicalSize::new(910.0, 700.0);
+    layout_window
+        .layout_and_generate_display_list(
+            styled_dom_third,
+            &ws,
+            &renderer_resources,
+            &system_callbacks,
+            &mut debug_messages,
+        )
+        .unwrap();
+    assert!(
+        !layout_window.layout_cache.last_reconcile_was_skipped,
+        "the hint must be consumed by exactly one pass"
+    );
+}

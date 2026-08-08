@@ -6946,6 +6946,7 @@ mod autotest_generated {
             relative_position: None,
             overflow_content_size: None,
             taffy_cache: taffy::Cache::new(),
+            measured_content_sizes: (None, None),
             computed_style: ComputedLayoutStyle::default(),
             pseudo_element: None,
             escaped_top_margin: None,

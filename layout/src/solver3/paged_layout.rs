@@ -725,6 +725,7 @@ fn compute_layout_with_fragmentation<T: ParsedFontTrait + Sync + 'static>(
     for &node_idx in &recon_result.intrinsic_dirty {
         if let Some(warm) = new_tree.warm_mut(node_idx) {
             warm.taffy_cache.clear();
+            warm.measured_content_sizes = (None, None);
         }
     }
 

@@ -3416,6 +3416,8 @@ pub fn render_component_preview(
     // --- Layout ---
     let mut layout_cache = LayoutCache {
         tree: None,
+        resize_only_hint: false,
+            last_reconcile_was_skipped: false,
         calculated_positions: Vec::new(),
         viewport: None,
         scroll_ids: HashMap::new(),

@@ -1209,6 +1209,29 @@ phases.mark("end");
 ///       split; `generate_frame_if_needed` runs `regenerate_layout()` only in the true
 ///       full case and still rebuilds the hit-tester + sends the transaction (via
 ///       `generate_frame()`) in both.
+/// [`incremental_relayout`] + the solver3 reconcile-skip hint. ONLY for the
+/// resize-latch call sites (`take_resize_relayout()` branches): there the
+/// StyledDom is by construction the same object with zero DOM/style dirt, so
+/// solver3 may take the retained tree as-is instead of re-walking 1209 nodes
+/// to rediscover full reuse (~9.6 ms/pass) and re-mapping per-node caches to
+/// an identity mapping. Restyle/scroll-driven incremental relayouts MUST keep
+/// calling [`incremental_relayout`] — they need reconcile's fingerprint diff
+/// for paint-dirty classification.
+pub fn incremental_relayout_for_resize(
+    layout_window: &mut LayoutWindow,
+    current_window_state: &FullWindowState,
+    renderer_resources: &mut RendererResources,
+    debug_messages: &mut Option<Vec<LayoutDebugMessage>>,
+) -> Result<(), String> {
+    layout_window.layout_cache.resize_only_hint = true;
+    incremental_relayout(
+        layout_window,
+        current_window_state,
+        renderer_resources,
+        debug_messages,
+    )
+}
+
 pub fn incremental_relayout(
     layout_window: &mut LayoutWindow,
     current_window_state: &FullWindowState,

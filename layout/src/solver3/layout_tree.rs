@@ -527,6 +527,20 @@ pub struct LayoutNode {
     /// Cache for Taffy layout computations for this node.
     /// (6 accesses — Taffy bridge)
     pub taffy_cache: TaffyCache,
+    /// Pure min-content / max-content measure results from the taffy bridge
+    /// (`(min, max)` outer sizes), keyed by NOTHING — a pure content
+    /// measurement is viewport-independent, so it stays valid until the
+    /// node's content changes. Invalidated wherever `taffy_cache` is
+    /// (the intrinsic-dirty ancestor closure). WHY separate from
+    /// `taffy_cache`: taffy's slot classes collide under the flex
+    /// algorithm's candidate-width probing (Definite(0)/Definite(w1)/…
+    /// share a slot and evict each other within one pass), so min/max
+    /// entries did not survive to the NEXT pass — 312 full min/max-content
+    /// subtree re-layouts per steady resize on big.md, each re-breaking
+    /// every IFC line in the subtree AND evicting the Definite entry of
+    /// the single-slot IFC cache on the way (the 429 text_layout_flow
+    /// calls). (2 accesses — Taffy bridge measure path)
+    pub measured_content_sizes: (Option<LayoutOutput>, Option<LayoutOutput>),
     /// Pre-computed CSS properties needed during layout.
     /// Computed once during layout tree build to avoid repeated style lookups.
     /// (5 accesses — cache.rs only)
@@ -730,6 +744,8 @@ pub struct LayoutNodeWarm {
     pub overflow_content_size: Option<LogicalSize>,
     /// Cache for Taffy layout computations.
     pub taffy_cache: TaffyCache,
+    /// Pure min/max-content measure results — see the facade field's doc.
+    pub measured_content_sizes: (Option<LayoutOutput>, Option<LayoutOutput>),
     /// Pre-computed CSS properties needed during layout.
     pub computed_style: ComputedLayoutStyle,
     /// Pseudo-element type if this node is a pseudo-element
@@ -795,6 +811,7 @@ impl LayoutNode {
                 relative_position: self.relative_position,
                 overflow_content_size: self.overflow_content_size,
                 taffy_cache: self.taffy_cache,
+                measured_content_sizes: self.measured_content_sizes,
                 computed_style: self.computed_style,
                 pseudo_element: self.pseudo_element,
                 escaped_top_margin: self.escaped_top_margin,
@@ -1051,6 +1068,7 @@ impl LayoutTree {
             relative_position: warm.relative_position,
             overflow_content_size: warm.overflow_content_size,
             taffy_cache: warm.taffy_cache,
+            measured_content_sizes: warm.measured_content_sizes,
             computed_style: warm.computed_style,
             pseudo_element: warm.pseudo_element,
             escaped_top_margin: warm.escaped_top_margin,
@@ -1887,6 +1905,7 @@ impl LayoutTreeBuilder {
             relative_position: None,
             overflow_content_size: None,
             taffy_cache: TaffyCache::new(),
+            measured_content_sizes: (None, None),
             computed_style: ComputedLayoutStyle::default(),
             pseudo_element: None,
             escaped_top_margin: None,
@@ -1947,6 +1966,7 @@ impl LayoutTreeBuilder {
             relative_position: None,
             overflow_content_size: None,
             taffy_cache: TaffyCache::new(),
+            measured_content_sizes: (None, None),
             computed_style: ComputedLayoutStyle::default(),
             pseudo_element: Some(PseudoElement::Marker),
             escaped_top_margin: None,
@@ -2079,6 +2099,7 @@ impl LayoutTreeBuilder {
             relative_position: None,
             overflow_content_size: None,
             taffy_cache: TaffyCache::new(),
+            measured_content_sizes: (None, None),
             // +spec:overflow:8f9f7e - viewport overflow propagation: visible→auto, clip→hidden
             computed_style: {
                 let mut style = compute_layout_style(styled_dom, dom_id);
@@ -2267,6 +2288,7 @@ impl LayoutTreeBuilder {
             part2.anonymous_type = Some(AnonymousBoxType::SplitPreviewPart);
             part2.inline_layout_result = None;
             part2.taffy_cache = TaffyCache::new();
+            part2.measured_content_sizes = (None, None);
             part2.dirty_flag = DirtyFlag::Layout;
             let parent = part2.parent;
             self.nodes.push(part2);
@@ -2347,6 +2369,7 @@ impl LayoutTreeBuilder {
         part2.anonymous_type = Some(AnonymousBoxType::SplitPreviewPart);
         part2.inline_layout_result = None;
         part2.taffy_cache = TaffyCache::new();
+        part2.measured_content_sizes = (None, None);
         part2.dirty_flag = DirtyFlag::Layout;
         let parent = part2.parent;
         self.nodes.push(part2);
@@ -2412,6 +2435,7 @@ impl LayoutTreeBuilder {
         self.nodes[wrapper].children = keep;
         self.nodes[wrapper].inline_layout_result = None;
         self.nodes[wrapper].taffy_cache = TaffyCache::new();
+        self.nodes[wrapper].measured_content_sizes = (None, None);
         self.nodes[wrapper].dirty_flag = DirtyFlag::Layout;
         if moved.is_empty() {
             return None;
@@ -2422,6 +2446,7 @@ impl LayoutTreeBuilder {
         second.children = moved;
         second.inline_layout_result = None;
         second.taffy_cache = TaffyCache::new();
+        second.measured_content_sizes = (None, None);
         second.dirty_flag = DirtyFlag::Layout;
         self.nodes.push(second);
         let moved_children = self.nodes[second_idx].children.clone();
@@ -2492,6 +2517,7 @@ impl LayoutTreeBuilder {
                         self.nodes[c].children = survivors;
                         self.nodes[c].inline_layout_result = None;
                         self.nodes[c].taffy_cache = TaffyCache::new();
+                        self.nodes[c].measured_content_sizes = (None, None);
                         self.nodes[c].dirty_flag = DirtyFlag::Layout;
                         changed = true;
                     }
@@ -2583,6 +2609,7 @@ impl LayoutTreeBuilder {
         // layout/tests/frame_perf.rs (idle 19.21 vs 19.70 ms, cold 75.96 vs
         // 74.57 ms, edit 22.72 vs 25.39 ms — all inside run-to-run noise).
         new_node.taffy_cache.clear();
+        new_node.measured_content_sizes = (None, None);
         new_node.dom_node_id = new_dom_id;
         self.nodes.push(new_node);
         if let Some(p) = parent {

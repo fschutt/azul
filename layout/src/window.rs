@@ -1298,6 +1298,8 @@ impl LayoutWindow {
             fragmentation_context: crate::paged::FragmentationContext::new_continuous(800.0),
             layout_cache: Solver3LayoutCache {
                 tree: None,
+                resize_only_hint: false,
+            last_reconcile_was_skipped: false,
                 calculated_positions: Vec::new(),
                 viewport: None,
                 scroll_ids: HashMap::new(),
@@ -2795,6 +2797,8 @@ impl LayoutWindow {
     ) -> LogicalSize {
         let mut scratch_cache = Solver3LayoutCache {
             tree: None,
+            resize_only_hint: false,
+            last_reconcile_was_skipped: false,
             calculated_positions: Vec::new(),
             viewport: None,
             scroll_ids: HashMap::new(),
@@ -4469,6 +4473,8 @@ impl LayoutWindow {
     pub fn clear_caches(&mut self) {
         self.layout_cache = Solver3LayoutCache {
             tree: None,
+            resize_only_hint: false,
+            last_reconcile_was_skipped: false,
             calculated_positions: Vec::new(),
             viewport: None,
             scroll_ids: HashMap::new(),

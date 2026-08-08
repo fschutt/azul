@@ -524,8 +524,39 @@ pub fn layout_document<T: ParsedFontTrait + Sync + 'static>(
 
     // --- Step 1: Reconciliation & Invalidation ---
     crate::probe::reset_peak();
-    let (new_tree_val, mut recon_result) =
-        cache::reconcile_and_invalidate(&mut ctx_temp, cache, viewport)?;
+    // RESIZE-ONLY SKIP: the incremental-relayout resize path hands solver3
+    // the SAME StyledDom object with zero DOM/style dirt — the viewport is
+    // the only delta. Reconcile would walk 1209 nodes to rediscover
+    // "everything reused, nothing dirty" (~9.6 ms/pass on big.md) and the
+    // cache_map remap would rebuild an identity mapping. Take the retained
+    // tree as-is instead: indices are unchanged (so the per-node size/layout
+    // caches keep working WITHOUT a remap), layout_roots={root} re-runs the
+    // top-down pass at the new size, and the censuses read full-reuse. The
+    // hint is a one-shot latch set ONLY by the resize-latch call sites
+    // (common/layout.rs incremental_relayout_for_resize); restyle-driven
+    // incremental relayouts keep full reconcile — they NEED its fingerprint
+    // diff for paint-dirty classification. The dom-id sanity check guards
+    // against a stale hint meeting a swapped DOM.
+    let resize_only = core::mem::take(&mut cache.resize_only_hint);
+    let dom_len_for_hint = new_dom.node_data.as_ref().len();
+    let (new_tree_val, mut recon_result) = if resize_only
+        && cache.tree.as_ref().is_some_and(|t| {
+            t.dom_to_layout
+                .last_key_value()
+                .is_none_or(|(max_id, _)| max_id.index() < dom_len_for_hint)
+        }) {
+        let _p = crate::probe::Probe::span("reconcile_skipped_resize_only");
+        cache.last_reconcile_was_skipped = true;
+        let tree = cache.tree.take().expect("checked is_some above");
+        let mut r = cache::ReconciliationResult::default();
+        r.layout_roots.insert(tree.root);
+        r.reused_nodes = tree.nodes.len();
+        r.fresh_nodes = 0;
+        (tree, r)
+    } else {
+        cache.last_reconcile_was_skipped = false;
+        cache::reconcile_and_invalidate(&mut ctx_temp, cache, viewport)?
+    };
     // The reuse census, persisted where a test can read it — see the field
     // docs on LayoutCache for why this pair is the ONLY external observable
     // that distinguishes "reused the warm tree" from "rebuilt it from
@@ -593,6 +624,7 @@ pub fn layout_document<T: ParsedFontTrait + Sync + 'static>(
         for &node_idx in &closure {
             if let Some(warm) = new_tree.warm_mut(node_idx) {
                 warm.taffy_cache.clear();
+                warm.measured_content_sizes = (None, None);
             }
         }
     }
