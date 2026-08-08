@@ -502,6 +502,7 @@ impl CssPropertyCache {
             use azul_css::props::property::CssProperty;
 
             for prop in &self.global_css_props {
+                result.uses_viewport_units |= css_property_uses_viewport_units(prop);
                 // Apply each global property to the pre-encoded compact values
                 macro_rules! global_tier1_enum {
                     ($variant:ident, $shift:ident, $mask:ident, $encoder:ident) => {
@@ -658,6 +659,7 @@ impl CssPropertyCache {
             // even though `<p>` correctly got red from `p { color: red }`.
             if !nd.is_text_node() {
                 for prop in &self.global_css_props {
+                    // (flag already accumulated in the has_global pre-pass)
                     apply_css_property_to_compact(
                         prop,
                         &mut result.tier1_enums[i],
@@ -690,6 +692,7 @@ impl CssPropertyCache {
             // Typically 5-15 entries per node. Only Normal state matters for layout.
             for prop in self.css_props.get_slice(i) {
                 if prop.state != azul_css::dynamic_selector::PseudoStateType::Normal { continue; }
+                result.uses_viewport_units |= css_property_uses_viewport_units(&prop.property);
                 apply_css_property_to_compact(
                     &prop.property,
                     &mut result.tier1_enums[i],
@@ -732,6 +735,7 @@ impl CssPropertyCache {
                         }
                     });
                 if !is_normal { continue; }
+                result.uses_viewport_units |= css_property_uses_viewport_units(prop);
                 // Layout-critical props dispatched via single-variant `if let` (direct discriminant
                 // COMPARES, no indirect jump). apply_css_property_to_compact's ~100-arm `match` lowers
                 // to a jump table that remill mis-lifts (never reaches the right arm) — same class as the
@@ -778,6 +782,7 @@ impl CssPropertyCache {
             // single-variant `if let`s exist for the remill lift, see there).
             if let Some(user_props) = self.user_overridden_properties.get(i) {
                 for (_, prop) in user_props {
+                    result.uses_viewport_units |= css_property_uses_viewport_units(prop);
                     if let CssProperty::Width(v) = prop {
                         result.tier2_dims[i].width = encode_layout_width(v);
                     } else if let CssProperty::Height(v) = prop {
@@ -958,6 +963,72 @@ fn resolve_font_size_to_px(
     };
     tier2_dims[node_idx].font_size =
         encode_pixel_value_u32(&azul_css::props::basic::pixel::PixelValue::px(resolved_px));
+}
+
+/// Does this property's value use a viewport-relative unit (vw/vh/vmin/vmax)?
+///
+/// Feeds `CompactLayoutCache::uses_viewport_units` from the property loops of
+/// `build_compact_cache_with_inheritance` — one call per (node, property), on
+/// data the loops are already iterating. See that field's docs for what the
+/// flag buys (solver3 skips per-resize invalidation of every inline collection
+/// for the overwhelming majority of documents that never mention a viewport
+/// unit).
+///
+/// Coverage = the pixel-carrying properties the compact cache itself encodes,
+/// which is a superset of what inline collection/measurement reads (the only
+/// consumer). `calc()` widths/heights are flagged CONSERVATIVELY without
+/// walking the AST — a false positive merely keeps the old always-invalidate
+/// behaviour.
+fn css_property_uses_viewport_units(prop: &CssProperty) -> bool {
+    use azul_css::props::basic::length::SizeMetric;
+    use azul_css::props::basic::pixel::PixelValue;
+    fn pv(p: &PixelValue) -> bool {
+        matches!(p.metric, SizeMetric::Vw | SizeMetric::Vh | SizeMetric::Vmin | SizeMetric::Vmax)
+    }
+    fn inner<T: HasInnerPixelValue>(v: &CssPropertyValue<T>) -> bool {
+        matches!(v, CssPropertyValue::Exact(x) if pv(&x.get_inner_pixel()))
+    }
+    use azul_css::props::layout::dimensions::{LayoutHeight, LayoutWidth};
+    use azul_css::props::layout::flex::LayoutFlexBasis;
+    match prop {
+        CssProperty::Width(v) => matches!(v, CssPropertyValue::Exact(w) if match w {
+            LayoutWidth::Px(p) | LayoutWidth::FitContent(p) => pv(p),
+            LayoutWidth::Calc(_) => true,
+            _ => false,
+        }),
+        CssProperty::Height(v) => matches!(v, CssPropertyValue::Exact(h) if match h {
+            LayoutHeight::Px(p) | LayoutHeight::FitContent(p) => pv(p),
+            LayoutHeight::Calc(_) => true,
+            _ => false,
+        }),
+        CssProperty::FlexBasis(v) => matches!(v, CssPropertyValue::Exact(LayoutFlexBasis::Exact(p)) if pv(p)),
+        CssProperty::MinWidth(v) => inner(v),
+        CssProperty::MaxWidth(v) => inner(v),
+        CssProperty::MinHeight(v) => inner(v),
+        CssProperty::MaxHeight(v) => inner(v),
+        CssProperty::FontSize(v) => inner(v),
+        CssProperty::PaddingTop(v) => inner(v),
+        CssProperty::PaddingRight(v) => inner(v),
+        CssProperty::PaddingBottom(v) => inner(v),
+        CssProperty::PaddingLeft(v) => inner(v),
+        CssProperty::MarginTop(v) => inner(v),
+        CssProperty::MarginRight(v) => inner(v),
+        CssProperty::MarginBottom(v) => inner(v),
+        CssProperty::MarginLeft(v) => inner(v),
+        CssProperty::BorderTopWidth(v) => inner(v),
+        CssProperty::BorderRightWidth(v) => inner(v),
+        CssProperty::BorderBottomWidth(v) => inner(v),
+        CssProperty::BorderLeftWidth(v) => inner(v),
+        CssProperty::Top(v) => inner(v),
+        CssProperty::Right(v) => inner(v),
+        CssProperty::Bottom(v) => inner(v),
+        CssProperty::Left(v) => inner(v),
+        CssProperty::LetterSpacing(v) => inner(v),
+        CssProperty::WordSpacing(v) => inner(v),
+        CssProperty::TextIndent(v) => inner(v),
+        CssProperty::TabSize(v) => inner(v),
+        _ => false,
+    }
 }
 
 // =============================================================================

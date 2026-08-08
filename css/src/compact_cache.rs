@@ -1437,6 +1437,21 @@ impl Default for CompactTextProps {
 /// resolved via the slow cascade path in `CssPropertyCache::get_property_slow()`.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct CompactLayoutCache {
+    /// Whether ANY layout-relevant pixel value in this document uses a
+    /// viewport-relative unit (vw/vh/vmin/vmax), detected while the build
+    /// loop extracts those very values (text tier + box dimensions — the set
+    /// that feeds inline collection and measurement).
+    ///
+    /// Consumers use it to SKIP viewport-based cache invalidation for the
+    /// overwhelmingly common document that never mentions a viewport unit:
+    /// solver3's inline-collection fingerprint folded `ctx.viewport_size`
+    /// into EVERY IFC's key "because vw/vh", so every resize invalidated
+    /// every collection (552 re-collections ≈ 19.6 ms per resize on big.md)
+    /// to protect a feature the document did not use. False negatives are
+    /// impossible for the covered set (the flag is set from the same values
+    /// the cache encodes); a property OUTSIDE the covered set cannot reach
+    /// inline collection, which is the only consumer.
+    pub uses_viewport_units: bool,
     /// Tier 1: ALL enum properties bitpacked into u64 per node (8 B/node)
     pub tier1_enums: Vec<u64>,
     /// Tier 2 hot: Layout-critical numeric dimensions per node (68 B/node)
@@ -1487,6 +1502,7 @@ impl CompactLayoutCache {
     /// Create an empty cache (no nodes).
     #[must_use] pub const fn empty() -> Self {
         Self {
+            uses_viewport_units: false,
             tier1_enums: Vec::new(),
             tier2_dims: Vec::new(),
             tier2_cold: Vec::new(),
@@ -1502,6 +1518,7 @@ impl CompactLayoutCache {
     /// Create a cache pre-allocated for `node_count` nodes, filled with defaults.
     #[must_use] pub fn with_capacity(node_count: usize) -> Self {
         Self {
+            uses_viewport_units: false,
             tier1_enums: vec![0u64; node_count],
             tier2_dims: vec![CompactNodeProps::default(); node_count],
             tier2_cold: vec![CompactNodePropsCold::default(); node_count],

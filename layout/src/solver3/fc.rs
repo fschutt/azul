@@ -3385,10 +3385,25 @@ fn layout_ifc<T: ParsedFontTrait>(
         use core::hash::{Hash, Hasher};
         let mut h = std::collections::hash_map::DefaultHasher::new();
 
-        // vw/vh and percentage-derived values resolve against the viewport,
-        // so a resize MUST invalidate collected styles.
-        ctx.viewport_size.width.to_bits().hash(&mut h);
-        ctx.viewport_size.height.to_bits().hash(&mut h);
+        // vw/vh/vmin/vmax resolve against the viewport, so a resize MUST
+        // invalidate collected styles — but ONLY for documents that actually
+        // use a viewport unit. Folding the viewport in unconditionally
+        // invalidated EVERY collection on EVERY resize (552 re-collections
+        // ≈ 19.6 ms per resize on big.md) to protect a feature the document
+        // did not use. `uses_viewport_units` is detected at compact-build
+        // time from the same values the cache encodes; a missing compact
+        // cache degrades to the old always-invalidate behaviour.
+        let doc_uses_viewport_units = ctx
+            .styled_dom
+            .css_property_cache
+            .ptr
+            .compact_cache
+            .as_ref()
+            .is_none_or(|cc| cc.uses_viewport_units);
+        if doc_uses_viewport_units {
+            ctx.viewport_size.width.to_bits().hash(&mut h);
+            ctx.viewport_size.height.to_bits().hash(&mut h);
+        }
 
         let compact = ctx.styled_dom.css_property_cache.ptr.compact_cache.as_ref();
         let mut stack = alloc::vec![node_index];

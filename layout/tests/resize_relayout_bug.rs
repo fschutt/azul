@@ -220,3 +220,61 @@ fn viewport_resize_reuses_every_reconciled_node() {
         "every node the cold pass created must be reconciled-and-reused on resize"
     );
 }
+
+/// The viewport-units side of the collect-cache contract — and the discovery
+/// it forced. `uses_viewport_units` lets solver3 skip per-resize invalidation
+/// of every inline collection for documents that never mention vw/vh; this
+/// test pins the DETECTOR (author-CSS `5vw` must set the flag; the negative
+/// control breaks the detector and watches this go red).
+///
+/// DISCOVERED WHILE WRITING THE STRICT VERSION: viewport units do not
+/// actually RESOLVE anywhere in the pipeline — `font-size: 5vw` lays out as a
+/// ~5px font at every window size (measured: line height 6.81px at BOTH 400w
+/// and 1200w; 5vw should be 20px vs 60px). The compact encoder and the slow
+/// path both treat the number as raw pixels. So the viewport fold this flag
+/// gates was ALWAYS protecting a non-functional feature, at the cost of
+/// re-collecting every IFC on every resize for everyone.
+///
+/// WHEN vw RESOLUTION IS IMPLEMENTED, the same commit MUST extend this test:
+/// lay out at 400w and 1200w and assert the auto-height container grows ~3x —
+/// at that point the assertion also becomes the run-and-see-red control for
+/// the fc-gate consumer (a wrongly-skipped invalidation freezes the height).
+#[test]
+fn vw_font_size_sets_the_viewport_units_flag() {
+    let dom = Dom::create_div()
+        .with_ids_and_classes(vec![IdOrClass::Class("root".into())].into())
+        .with_child(Dom::create_text("vw sized text"));
+
+    let css_str = r#"
+        * { margin: 0px; padding: 0px; }
+        .root { width: 100%; font-size: 5vw; }
+    "#;
+    let (css, _) = azul_css::parser2::new_from_str(css_str);
+
+    let mut dom = dom;
+    let styled_dom = StyledDom::create(&mut dom, css);
+
+    let flag = styled_dom
+        .css_property_cache
+        .ptr
+        .compact_cache
+        .as_ref()
+        .map(|cc| cc.uses_viewport_units);
+    assert_eq!(flag, Some(true), "5vw font-size must set uses_viewport_units");
+}
+
+#[test]
+fn px_only_document_does_not_set_uses_viewport_units() {
+    let mut dom = Dom::create_div().with_child(Dom::create_text("plain"));
+    let (css, _) = azul_css::parser2::new_from_str(
+        "* { margin: 0px; } div { width: 100%; font-size: 20px; }",
+    );
+    let styled_dom = StyledDom::create(&mut dom, css);
+    let flag = styled_dom
+        .css_property_cache
+        .ptr
+        .compact_cache
+        .as_ref()
+        .map(|cc| cc.uses_viewport_units);
+    assert_eq!(flag, Some(false), "px-only document must not set the flag");
+}
