@@ -803,6 +803,7 @@ pub fn layout_document<T: ParsedFontTrait + Sync + 'static>(
                 crate::az_mark(0x60748_u32, (new_tree.nodes.len() as u32));
                 crate::az_mark(0x6074C_u32, (cache.tree.as_ref().map_or(999, |t| t.nodes.len()) as u32));
             }
+            cache.last_intrinsic_dirty = recon_result.intrinsic_dirty.len();
             calculate_intrinsic_sizes(
                 &mut ctx,
                 &mut new_tree,
@@ -973,7 +974,18 @@ pub fn layout_document<T: ParsedFontTrait + Sync + 'static>(
             );
             recon_result.layout_roots.clear();
             recon_result.layout_roots.insert(new_tree.root);
-            recon_result.intrinsic_dirty = (0..new_tree.nodes.len()).collect();
+            // Deliberately NOT touching intrinsic_dirty. A scrollbar toggle
+            // changes AVAILABLE SPACE (container inner width shrinks/grows by
+            // scrollbar_width); intrinsic min/max-content widths are CONTENT-
+            // derived and cannot change because a scrollbar appeared. This
+            // line used to mark EVERY node intrinsic-dirty
+            // (`(0..nodes.len()).collect()`), so any resize that toggled a
+            // scrollbar re-measured the whole document's intrinsics — 75 ms
+            // of the measured 166 ms on big.md's first in-range resize, and
+            // the same sledgehammer pattern as the old drop-the-tree-on-
+            // viewport-change. Nodes whose intrinsics genuinely changed are
+            // already in the set from reconciliation; the root layout_root
+            // above re-resolves every SIZE against the new inner width.
             continue;
         }
 

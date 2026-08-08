@@ -360,6 +360,14 @@ pub struct LayoutCache {
     pub last_reconcile_reused: usize,
     /// See [`Self::last_reconcile_reused`].
     pub last_reconcile_fresh: usize,
+    /// How many nodes the LAST pass actually recomputed intrinsic sizes for
+    /// (the `intrinsic_dirty` set at the final `calculate_intrinsic_sizes`
+    /// call). Same testability rationale as the reconcile census: the
+    /// scrollbar-reflow loop used to mark EVERY node intrinsic-dirty
+    /// (`(0..len).collect()`) — 75 ms re-measuring a whole document whose
+    /// content had not changed — and no pixel test could see it, because
+    /// recomputed intrinsics equal reused intrinsics.
+    pub last_intrinsic_dirty: usize,
     /// The final, absolute positions of all nodes from the previous frame.
     pub calculated_positions: super::PositionVec,
     /// The viewport size from the last layout pass, used to detect resizes.

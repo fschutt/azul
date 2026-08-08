@@ -3429,6 +3429,7 @@ pub fn render_component_preview(
         prev_viewport: LogicalRect::zero(),
             last_reconcile_reused: 0,
             last_reconcile_fresh: 0,
+            last_intrinsic_dirty: 0,
     };
     let mut text_cache = TextLayoutCache::new();
     let empty_scroll_offsets = BTreeMap::new();

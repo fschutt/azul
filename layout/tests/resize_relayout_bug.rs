@@ -278,3 +278,80 @@ fn px_only_document_does_not_set_uses_viewport_units() {
         .map(|cc| cc.uses_viewport_units);
     assert_eq!(flag, Some(false), "px-only document must not set the flag");
 }
+
+/// The scrollbar-reflow counterpart to the reuse census: when a resize makes
+/// a scrollbar appear or disappear, the layout loop re-runs — and it used to
+/// mark EVERY node intrinsic-dirty on the way (`(0..len).collect()`),
+/// re-measuring the whole document's min/max-content widths although a
+/// scrollbar changes AVAILABLE SPACE, not content. 75 ms of the measured
+/// 166 ms first-resize outlier on big.md, invisible to every pixel test
+/// (recomputed intrinsics equal reused ones). `last_intrinsic_dirty` is the
+/// observable; the negative control re-adds the blanket collect and watches
+/// this go red.
+#[test]
+fn scrollbar_toggle_does_not_remeasure_all_intrinsics() {
+    // Content tall enough to overflow 300px viewport height (scrollbar ON)
+    // but not 800px (scrollbar OFF) — the resize crosses the toggle.
+    let mut children = Vec::new();
+    for i in 0..24 {
+        children.push(Dom::create_text(format!("line of overflow text number {i}")));
+    }
+    let dom = Dom::create_div()
+        .with_ids_and_classes(vec![IdOrClass::Class("scroller".into())].into())
+        .with_children(children.into());
+
+    let css_str = r#"
+        * { margin: 0px; padding: 0px; }
+        .scroller { width: 100%; height: 100%; overflow-y: auto; font-size: 16px; }
+    "#;
+    let (css, _) = azul_css::parser2::new_from_str(css_str);
+
+    let mut dom = dom;
+    let styled_dom = StyledDom::create(&mut dom, css);
+    let styled_dom_first = styled_dom.clone();
+    let node_count = styled_dom.node_data.as_ref().len();
+
+    let font_cache = FcFontCache::build();
+    let mut layout_window = LayoutWindow::new(font_cache).unwrap();
+    let renderer_resources = RendererResources::default();
+    let system_callbacks = ExternalSystemCallbacks::rust_internal();
+    let mut debug_messages = Some(Vec::new());
+
+    let mut ws = FullWindowState::default();
+    ws.size.dimensions = LogicalSize::new(400.0, 300.0); // overflows -> scrollbar
+    layout_window
+        .layout_and_generate_display_list(
+            styled_dom_first,
+            &ws,
+            &renderer_resources,
+            &system_callbacks,
+            &mut debug_messages,
+        )
+        .unwrap();
+
+    // Resize across the scrollbar toggle. Same DOM => reconcile reuses all;
+    // the reflow loop may run, but intrinsics must stay untouched.
+    ws.size.dimensions = LogicalSize::new(500.0, 800.0); // fits -> scrollbar off
+    layout_window
+        .layout_and_generate_display_list(
+            styled_dom,
+            &ws,
+            &renderer_resources,
+            &system_callbacks,
+            &mut debug_messages,
+        )
+        .unwrap();
+
+    let dirty = layout_window.layout_cache.last_intrinsic_dirty;
+    let reused = layout_window.layout_cache.last_reconcile_reused;
+    println!("scrollbar toggle: intrinsic_dirty={dirty} of {node_count} nodes (reused={reused})");
+    assert_eq!(
+        layout_window.layout_cache.last_reconcile_fresh, 0,
+        "same-DOM resize must reuse the tree"
+    );
+    assert!(
+        dirty < node_count / 2,
+        "scrollbar toggle re-measured {dirty} of {node_count} intrinsics — the \
+         blanket `(0..len).collect()` is back"
+    );
+}
