@@ -121,6 +121,66 @@ pub(super) fn errno_name(e: i32) -> &'static str {
     }
 }
 
+/// Trim IME surrounding text to the protocol's size budget, keeping the
+/// cursor (and, when it fits, the anchor) inside the returned window.
+///
+/// `zwp_text_input_v3.set_surrounding_text` is documented with a 4000-byte
+/// budget, and libwayland enforces a HARD ~4096-byte cap on any single wire
+/// message — a longer string does not get truncated, it makes the send fail
+/// and the compositor CLOSE THE CONNECTION ("error in client communication",
+/// then EPIPE client-side, then the window vanishes while the process lives).
+/// miniword sent the focused node's ENTIRE text here, so clicking into any
+/// paragraph over ~4 KB was fatal. This is the strongest candidate yet for
+/// the long-standing "selecting text kills the window" crash — it survived
+/// the data_offer fix because it is a different message on the same socket.
+///
+/// Returns `(byte_range_of_window, cursor_in_window, anchor_in_window)`;
+/// offsets are rebased to the window and clamped to it (the spec wants both
+/// inside the sent text; when the selection itself exceeds the budget the
+/// anchor is clamped to the window edge — the compositor still gets valid,
+/// self-consistent context, just less of it).
+fn trim_surrounding_text(
+    text: &str,
+    cursor_byte: usize,
+    anchor_byte: usize,
+) -> (core::ops::Range<usize>, i32, i32) {
+    /// Comfortably under both the 4000-byte protocol budget and libwayland's
+    /// 4096-byte message cap (which must also fit the header + two ints).
+    const BUDGET: usize = 3800;
+
+    let len = text.len();
+    // Defensive: offsets are computed from a parallel text extraction and may
+    // disagree with `text` — clamp instead of trusting them.
+    let cursor = cursor_byte.min(len);
+    let anchor = anchor_byte.min(len);
+
+    if len <= BUDGET {
+        return (0..len, cursor as i32, anchor as i32);
+    }
+
+    let (lo, hi) = (cursor.min(anchor), cursor.max(anchor));
+    // Centre the window on the selection when it fits, on the CURSOR when the
+    // selection alone exceeds the budget.
+    let (centre_lo, centre_hi) = if hi - lo <= BUDGET { (lo, hi) } else { (cursor, cursor) };
+    let slack = BUDGET - (centre_hi - centre_lo);
+    let mut start = centre_lo.saturating_sub(slack / 2);
+    let mut end = (start + BUDGET).min(len);
+    start = end.saturating_sub(BUDGET);
+
+    // Snap INWARD to char boundaries — snapping outward could re-exceed the
+    // budget, and a non-boundary split would send invalid UTF-8 (its own
+    // protocol violation).
+    while start < len && !text.is_char_boundary(start) {
+        start += 1;
+    }
+    while end > start && !text.is_char_boundary(end) {
+        end -= 1;
+    }
+
+    let rebase = |b: usize| -> i32 { (b.clamp(start, end) - start) as i32 };
+    (start..end, rebase(cursor), rebase(anchor))
+}
+
 /// One-line pool census: created / destroyed / still live.
 pub(super) fn pool_census() -> String {
     use core::sync::atomic::Ordering::Relaxed;
@@ -370,6 +430,14 @@ pub struct WaylandWindow {
     listener_proxies: Vec<*mut defines::wl_proxy>,
     is_open: bool,
     configured: bool,
+    /// Set by `xdg_toplevel_configure_handler` when the configure batch being
+    /// processed carries a SIZE change; read + reset by
+    /// `xdg_surface_configure_handler` (which arrives at the end of that same
+    /// batch) to decide how the mandatory commit-after-ack happens. A size
+    /// change's commit comes from the real present with the new-size buffer; a
+    /// state-only / repeated configure gets an immediate EMPTY commit — see
+    /// the ack handler for why skipping that commit stalls the compositor.
+    configure_size_changed: bool,
 
     // Wayland protocols
     subcompositor: Option<*mut defines::wl_subcompositor>, // For tooltips
@@ -1541,6 +1609,7 @@ impl WaylandWindow {
             xdg_toplevel: std::ptr::null_mut(),
             is_open: true,
             configured: false,
+            configure_size_changed: false,
             subcompositor: None,
             blur_manager: None,
             current_blur: None,
@@ -3620,9 +3689,14 @@ impl WaylandWindow {
         unsafe {
             // Destroy any previous outgoing source. destroy: opcode 1, "".
             if !self.clipboard_source.is_null() {
+                // BOTH halves, like every destructor (see dlopen.rs
+                // destroy_proxy_after_request): the request tells the server,
+                // wl_proxy_destroy frees the client id. This site sent only
+                // the request — one leaked proxy per clipboard copy.
                 let destroy: unsafe extern "C" fn(*mut defines::wl_proxy, u32) =
                     std::mem::transmute(self.wayland.wl_proxy_marshal);
                 destroy(self.clipboard_source as *mut defines::wl_proxy, 1);
+                (self.wayland.wl_proxy_destroy)(self.clipboard_source as *mut defines::wl_proxy);
                 self.clipboard_source = std::ptr::null_mut();
             }
 
@@ -7080,8 +7154,16 @@ impl WaylandWindow {
                     None => (0, 0),
                 };
 
-                match std::ffi::CString::new(text_str) {
-                    Ok(cstr) => (cstr, cursor_byte, anchor_byte),
+                // Never hand the wire an oversized string — see
+                // trim_surrounding_text: beyond ~4 KB the message is not
+                // truncated, the compositor disconnects us.
+                let (window, cursor_in_window, anchor_in_window) = trim_surrounding_text(
+                    &text_str,
+                    cursor_byte.max(0) as usize,
+                    anchor_byte.max(0) as usize,
+                );
+                match std::ffi::CString::new(&text_str[window]) {
+                    Ok(cstr) => (cstr, cursor_in_window, anchor_in_window),
                     Err(_) => (std::ffi::CString::new("").unwrap(), 0, 0),
                 }
             }
@@ -7566,3 +7648,74 @@ extern "C" fn popup_done(data: *mut c_void, _xdg_popup: *mut defines::xdg_popup)
         ctx.dismissed.set(true);
     }
 }
+
+/// Tests for [`trim_surrounding_text`] — the guard between the IME context
+/// and libwayland's hard per-message size cap. An oversized string here is a
+/// CONNECTION-FATAL protocol failure, not a cosmetic truncation, so these pin
+/// the budget, the UTF-8 boundary safety, and the offset rebasing.
+#[cfg(test)]
+mod trim_surrounding_text_tests {
+    use super::trim_surrounding_text;
+
+    const BUDGET: usize = 3800;
+
+    #[test]
+    fn small_text_passes_through_untouched() {
+        let t = "hello world";
+        let (r, c, a) = trim_surrounding_text(t, 5, 2);
+        assert_eq!(r, 0..t.len());
+        assert_eq!((c, a), (5, 2));
+    }
+
+    #[test]
+    fn huge_text_is_bounded_and_offsets_stay_inside() {
+        // The miniword crash case: a document paragraph far over the budget.
+        let t = "x".repeat(60_000);
+        let (r, c, a) = trim_surrounding_text(&t, 30_000, 29_990);
+        assert!(r.end - r.start <= BUDGET, "window {} exceeds the budget", r.end - r.start);
+        assert!(c >= 0 && (c as usize) <= r.end - r.start);
+        assert!(a >= 0 && (a as usize) <= r.end - r.start);
+        // The cursor's absolute position must be preserved relative to the window.
+        assert_eq!(r.start + c as usize, 30_000);
+        assert_eq!(r.start + a as usize, 29_990);
+    }
+
+    #[test]
+    fn multibyte_boundaries_are_never_split() {
+        // 4-byte scalars everywhere: any non-boundary cut would panic at the
+        // slice (or send invalid UTF-8 — its own protocol violation).
+        let t = "\u{1F600}".repeat(2_000); // 8000 bytes
+        let (r, _c, _a) = trim_surrounding_text(&t, 4_000, 4_000);
+        assert!(t.is_char_boundary(r.start) && t.is_char_boundary(r.end));
+        assert!(r.end - r.start <= BUDGET);
+        let _slice = &t[r.clone()]; // must not panic
+    }
+
+    #[test]
+    fn selection_wider_than_the_budget_keeps_the_cursor() {
+        let t = "y".repeat(20_000);
+        let (r, c, a) = trim_surrounding_text(&t, 15_000, 1_000); // 14 KB selection
+        assert!(r.end - r.start <= BUDGET);
+        assert_eq!(r.start + c as usize, 15_000, "cursor must stay exact");
+        // Anchor cannot fit — clamped to the window, still valid.
+        assert!((a as usize) <= r.end - r.start);
+    }
+
+    #[test]
+    fn out_of_range_offsets_are_clamped_not_fatal() {
+        let t = "abc";
+        let (r, c, a) = trim_surrounding_text(t, 999, 999);
+        assert_eq!(r, 0..3);
+        assert_eq!((c, a), (3, 3));
+    }
+
+    #[test]
+    fn cursor_at_the_very_end_of_a_huge_text() {
+        let t = "z".repeat(10_000);
+        let (r, c, _a) = trim_surrounding_text(&t, 10_000, 10_000);
+        assert!(r.end - r.start <= BUDGET);
+        assert_eq!(r.end, 10_000, "window must reach the end to contain the cursor");
+        assert_eq!(r.start + c as usize, 10_000);
+    }
+}
+

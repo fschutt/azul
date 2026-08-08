@@ -1053,6 +1053,16 @@ pub fn incremental_relayout(
 ) -> Result<(), String> {
     log_debug!(LogCategory::Layout, "[incremental_relayout] START");
 
+    // Window category, same reasoning as regenerate_layout's span: Layout is
+    // the category everyone silences (AZ_LOG=debug,-layout), and the fast
+    // resize path's cost — solver3 re-flow + display list on the EXISTING
+    // StyledDom — is the number the <8ms interactivity target is measured
+    // against. Without this span the fast path was invisible in the log.
+    let _span = crate::log_span!(
+        crate::desktop::shell2::common::debug_server::LogCategory::Window,
+        "incremental_relayout",
+    );
+
     let system_callbacks = ExternalSystemCallbacks::rust_internal();
 
     // Re-run layout on the existing StyledDom with dirty flags already set.

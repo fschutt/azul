@@ -1323,11 +1323,14 @@ extern "C" fn data_source_cancelled(data: *mut c_void, source: *mut wl_data_sour
     if window.clipboard_source == source {
         window.clipboard_source = std::ptr::null_mut();
     }
-    // wl_data_source.destroy: opcode 1, signature "".
+    // wl_data_source.destroy: opcode 1, signature "". BOTH halves — the
+    // request for the server, wl_proxy_destroy for the client id (this site
+    // leaked one proxy per cancelled clipboard source).
     unsafe {
         let destroy: unsafe extern "C" fn(*mut wl_proxy, u32) =
             std::mem::transmute(window.wayland.wl_proxy_marshal);
         destroy(source as *mut wl_proxy, 1);
+        (window.wayland.wl_proxy_destroy)(source as *mut wl_proxy);
     }
 }
 
@@ -1525,6 +1528,28 @@ pub(super) extern "C" fn xdg_surface_configure_handler(
     unsafe { (window.wayland.xdg_surface_ack_configure)(xdg_surface, serial) };
     let first_configure = !window.configured;
     window.configured = true;
+
+    // A configure is only COMPLETE once a commit follows the ack — the ack
+    // alone is half the handshake. For a SIZE-changing batch that commit is
+    // the real present (new-size buffer; `resize_surface` set
+    // `os_present_requested`, the frame path attaches + commits). For a
+    // state-only or repeated configure there may be NOTHING to redraw: the
+    // frame path's damage machinery correctly computes "no damage" and
+    // commits nothing — leaving the configure PERMANENTLY un-completed.
+    // Measured consequence (2026-08-08, the first fast-path field test): KWin
+    // re-sent the same 1920x1008 configure at ~243/s (401 in 1.65 s), refused
+    // to start interactive edge-resizes, and the run ended in EPIPE. The old
+    // code was accidentally immune because it forced a FULL DOM regeneration
+    // per ack, whose present always committed. The empty commit below is the
+    // protocol-correct completion: no attach, no damage — it applies pending
+    // state and answers the configure, nothing else.
+    let size_changed_batch = std::mem::take(&mut window.configure_size_changed);
+    if !first_configure && !size_changed_batch {
+        unsafe { (window.wayland.wl_surface_commit)(window.surface) };
+        super::wl_trace!(
+            "xdg_surface.ack_configure serial={serial}: state-only — completed with an              empty commit"
+        );
+    }
     // ONLY the FIRST configure (the initial map) forces a full regeneration:
     // at that point WebRender has no display list for the surface, and the
     // lightweight image-only path would render an uncleared backbuffer
@@ -1611,6 +1636,11 @@ pub(super) extern "C" fn xdg_toplevel_configure_handler(
 
         if width != current_width || height != current_height {
             super::CONFIGURES_RESIZED.fetch_add(1, core::sync::atomic::Ordering::Relaxed);
+            // This configure batch changes the size: the commit that completes
+            // it must carry the NEW-size buffer, so the ack handler below must
+            // NOT send its empty commit (an old-size buffer surviving an empty
+            // commit violates the size rules in maximized/tiled states).
+            window.configure_size_changed = true;
             // Store old context for breakpoint detection
             let old_context = window.dynamic_selector_context.clone();
             let old_logical = azul_core::geom::LogicalSize::new(
