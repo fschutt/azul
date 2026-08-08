@@ -865,6 +865,34 @@ pub fn scroll_shift_region(
     new_offset: (f32, f32),
     dpi_factor: f32,
 ) -> Vec<LogicalRect> {
+    scroll_shift_region_impl(pixmap, clip_bounds, delta, new_offset, dpi_factor, false)
+}
+
+/// [`scroll_shift_region`] with EXACT strips (no 1-px over-cover). The
+/// over-cover guards fractional-dpi seams, but for the round-3 patch blit
+/// (gated on INTEGRAL physical deltas) it reaches INTO the blit
+/// destination — clearing and re-blending one column of carried LCD text,
+/// which can never byte-match an unclipped render (the colorimetric blend
+/// reads neighbours). Exact strips cover exactly the vacated pixels.
+pub fn scroll_shift_region_exact(
+    pixmap: &mut AzulPixmap,
+    clip_bounds: &LogicalRect,
+    delta: (f32, f32),
+    new_offset: (f32, f32),
+    dpi_factor: f32,
+) -> Vec<LogicalRect> {
+    scroll_shift_region_impl(pixmap, clip_bounds, delta, new_offset, dpi_factor, true)
+}
+
+#[allow(clippy::too_many_lines)]
+fn scroll_shift_region_impl(
+    pixmap: &mut AzulPixmap,
+    clip_bounds: &LogicalRect,
+    delta: (f32, f32),
+    new_offset: (f32, f32),
+    dpi_factor: f32,
+    exact_strips: bool,
+) -> Vec<LogicalRect> {
     // Physical shift = difference of the ROUNDED offsets, not the rounded
     // difference. Rounding each frame's delta independently accumulates up to
     // 0.5px of error per step at fractional dpi (the moved block drifts away
@@ -935,7 +963,8 @@ pub fn scroll_shift_region(
     let cbh = (cy1 - cy0) as f32 / dpi_factor;
     let mut exposed = Vec::new();
     if px_dy != 0 {
-        let h_logical = (px_dy.abs() as f32 + 1.0) / dpi_factor;
+        let over = if exact_strips { 0.0 } else { 1.0 };
+        let h_logical = (px_dy.abs() as f32 + over) / dpi_factor;
         let h = h_logical.min(cbh);
         let y = if px_dy > 0 {
             // bottom strip exposed
@@ -950,7 +979,8 @@ pub fn scroll_shift_region(
         });
     }
     if px_dx != 0 {
-        let w_logical = (px_dx.abs() as f32 + 1.0) / dpi_factor;
+        let over = if exact_strips { 0.0 } else { 1.0 };
+        let w_logical = (px_dx.abs() as f32 + over) / dpi_factor;
         let w = w_logical.min(cbw);
         let x = if px_dx > 0 {
             // right strip exposed
@@ -1557,6 +1587,7 @@ fn render_display_list_range(
 ) -> Result<(), String> {
     let mut transform_stack = vec![TransAffine::new()];
     let mut clip_stack: Vec<Option<AzRect>> = vec![None];
+    let mut real_clip_stack: Vec<Option<AzRect>> = vec![None];
     let mut mask_stack: Vec<MaskEntry> = Vec::new();
     // Apply the layer origin offset: content is translated by -(offset_x,offset_y)
     // so it's rendered RELATIVE to this layer's pixbuf origin (which is then
@@ -1584,6 +1615,7 @@ fn render_display_list_range(
             glyph_cache,
             &mut transform_stack,
             &mut clip_stack,
+            &mut real_clip_stack,
             &mut mask_stack,
             &mut scroll_offset_stack,
             &mut text_shadow_stack,
@@ -1697,7 +1729,142 @@ fn compute_display_list_damage_impl(
         // change within the same bounds must still produce a damage rect.
         // Use visual_bounds() to include effects like box-shadow extent.
         if !old_item.is_visually_equal(new_item) {
+            // Items that never RASTERIZE must never produce PAINT damage.
+            // The root's HitTestArea resizes with the window (640→680 =
+            // a full-viewport "change") and TextLayout is PDF/a11y
+            // metadata — both were forcing 100% repaints on every resize.
+            // Hit testing and metadata consumers read the NEW display list
+            // directly; no pixels are involved.
+            if matches!(
+                new_item,
+                DisplayListItem::HitTestArea { .. } | DisplayListItem::TextLayout { .. }
+            ) {
+                continue;
+            }
+            // A Border whose widths are all None/absent paints NOTHING —
+            // the generator emits one per node regardless, and a resize of
+            // a borderless node's Border item was damaging its whole rect
+            // (the viewport, for the root).
+            if let (
+                DisplayListItem::Border { widths: ow, .. },
+                DisplayListItem::Border { widths: nw, .. },
+            ) = (old_item, new_item)
+            {
+                // Sides have distinct wrapper types; small duplication
+                // (same inner PixelValue) beats a generic bound here.
+                let paints = |w: &crate::solver3::display_list::StyleBorderWidths| {
+                    w.top.as_ref().map_or(0.0, |v| {
+                        v.get_property().map_or(0.0, |x| x.inner.to_pixels_internal(0.0, 16.0, 16.0))
+                    }) > 0.0
+                        || w.right.as_ref().map_or(0.0, |v| {
+                            v.get_property().map_or(0.0, |x| x.inner.to_pixels_internal(0.0, 16.0, 16.0))
+                        }) > 0.0
+                        || w.bottom.as_ref().map_or(0.0, |v| {
+                            v.get_property().map_or(0.0, |x| x.inner.to_pixels_internal(0.0, 16.0, 16.0))
+                        }) > 0.0
+                        || w.left.as_ref().map_or(0.0, |v| {
+                            v.get_property().map_or(0.0, |x| x.inner.to_pixels_internal(0.0, 16.0, 16.0))
+                        }) > 0.0
+                };
+                if !paints(ow) && !paints(nw) {
+                    continue;
+                }
+            }
+            // PushStackingContext carries region metadata (bounds + z);
+            // its geometry change does not itself paint — children carry
+            // their own damage. (Same class as HitTestArea.)
+            if matches!(new_item, DisplayListItem::PushStackingContext { .. }) {
+                continue;
+            }
             let (acc_old, acc_new) = *offset_stack.last().unwrap_or(&((0.0, 0.0), (0.0, 0.0)));
+            // A SOLID rect that only changed SIZE (same origin, color,
+            // radius) — the width:100% root background on every resize —
+            // damages only its SYMMETRIC DIFFERENCE: pixels inside both old
+            // and new are identical (uniform fill), so old∪new (the whole
+            // viewport, forcing a full repaint per resize) over-damages by
+            // exactly the intersection. Emit the exposed right/bottom (or
+            // shrunk) strips instead.
+            // Same-origin size-only change of a CLIP: the intersection kept
+            // its clipping; only the delta strips can newly show or hide
+            // content. (A moved clip falls through to full old∪new.)
+            if let (
+                DisplayListItem::PushClip { bounds: ob, border_radius: obr },
+                DisplayListItem::PushClip { bounds: nb, border_radius: nbr },
+            ) = (old_item, new_item)
+            {
+                let same_origin = (ob.0.origin.x - nb.0.origin.x).abs() < 0.01
+                    && (ob.0.origin.y - nb.0.origin.y).abs() < 0.01;
+                if same_origin && obr == nbr {
+                    let o = ob.0;
+                    let nr = nb.0;
+                    let (wx0, wx1) =
+                        (o.size.width.min(nr.size.width), o.size.width.max(nr.size.width));
+                    if wx1 - wx0 > 0.01 {
+                        damage.push(LogicalRect {
+                            origin: LogicalPosition { x: nr.origin.x + wx0, y: nr.origin.y },
+                            size: LogicalSize {
+                                width: wx1 - wx0,
+                                height: o.size.height.max(nr.size.height),
+                            },
+                        });
+                    }
+                    let (hy0, hy1) =
+                        (o.size.height.min(nr.size.height), o.size.height.max(nr.size.height));
+                    if hy1 - hy0 > 0.01 {
+                        damage.push(LogicalRect {
+                            origin: LogicalPosition { x: nr.origin.x, y: nr.origin.y + hy0 },
+                            size: LogicalSize {
+                                width: o.size.width.max(nr.size.width),
+                                height: hy1 - hy0,
+                            },
+                        });
+                    }
+                    continue;
+                }
+            }
+            if let (
+                DisplayListItem::Rect { bounds: ob, color: oc, border_radius: obr },
+                DisplayListItem::Rect { bounds: nb, color: nc, border_radius: nbr },
+            ) = (old_item, new_item)
+            {
+                let same_origin = (ob.0.origin.x - nb.0.origin.x).abs() < 0.01
+                    && (ob.0.origin.y - nb.0.origin.y).abs() < 0.01;
+                if same_origin && oc == nc && obr == nbr && obr.is_zero() {
+                    let (acc_o, acc_n) = (acc_old, acc_new);
+                    let scrolled = |r: &crate::solver3::display_list::WindowLogicalRect, acc: (f32, f32)| LogicalRect {
+                        origin: LogicalPosition {
+                            x: r.0.origin.x - acc.0,
+                            y: r.0.origin.y - acc.1,
+                        },
+                        size: r.0.size,
+                    };
+                    let o = scrolled(ob, acc_o);
+                    let nr = scrolled(nb, acc_n);
+                    // Horizontal strip (width delta), full height of the taller.
+                    let (wx0, wx1) = (o.size.width.min(nr.size.width), o.size.width.max(nr.size.width));
+                    if wx1 - wx0 > 0.01 {
+                        damage.push(LogicalRect {
+                            origin: LogicalPosition { x: nr.origin.x + wx0, y: nr.origin.y },
+                            size: LogicalSize {
+                                width: wx1 - wx0,
+                                height: o.size.height.max(nr.size.height),
+                            },
+                        });
+                    }
+                    // Vertical strip (height delta), full width of the wider.
+                    let (hy0, hy1) = (o.size.height.min(nr.size.height), o.size.height.max(nr.size.height));
+                    if hy1 - hy0 > 0.01 {
+                        damage.push(LogicalRect {
+                            origin: LogicalPosition { x: nr.origin.x, y: nr.origin.y + hy0 },
+                            size: LogicalSize {
+                                width: o.size.width.max(nr.size.width),
+                                height: hy1 - hy0,
+                            },
+                        });
+                    }
+                    continue;
+                }
+            }
             // Round-3: a pure translation by the hint's delta, inside its
             // region, is a MOVE — the caller blits it; no damage here.
             if let Some(h) = hint {
@@ -1723,6 +1890,13 @@ fn compute_display_list_damage_impl(
                         continue;
                     }
                 }
+            }
+            if std::env::var_os("AZ_BLIT_DEBUG").is_some() {
+                eprintln!(
+                    "[dldiff] mismatch {:?} old_bounds={:?}",
+                    std::mem::discriminant(new_item),
+                    old_item.visual_bounds()
+                );
             }
             if let Some(ob) = old_item.visual_bounds() {
                 damage.push(LogicalRect {

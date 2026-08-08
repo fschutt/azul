@@ -350,7 +350,7 @@ pub struct DisplayList {
     /// `compute_uniform_text_bg` for what "proven" means and the raster's
     /// pre-blended tile path for what it buys (~6 ms/repaint of per-pixel
     /// linear LCD compositing).
-    pub uniform_text_bgs: Vec<Option<ColorU>>,
+    pub uniform_text_bgs: Vec<Option<(ColorU, WindowLogicalRect)>>,
     /// Per-item (layout-tree index, emission phase) — the DL-PATCHING key.
     /// `node_mapping` attributes items to DOM ids, but patching substitutes
     /// per LAYOUT-NODE PAINT CALL: on a resize-skip pass the tree object and
@@ -1587,8 +1587,8 @@ struct DisplayListBuilder {
     layout_node_mapping: Vec<Option<(usize, EmitPhase)>>,
     /// One-shot: the uniform background for the NEXT pushed item (set by
     /// push_text_run / the patch copy just before pushing a Text item).
-    next_text_bg: Option<ColorU>,
-    uniform_text_bgs: Vec<Option<ColorU>>,
+    next_text_bg: Option<(ColorU, WindowLogicalRect)>,
+    uniform_text_bgs: Vec<Option<(ColorU, WindowLogicalRect)>>,
 }
 
 impl DisplayListBuilder {
@@ -2197,7 +2197,7 @@ impl DisplayListBuilder {
         color: ColorU,
         clip_rect: LogicalRect,
         source_node_index: Option<usize>,
-        uniform_bg: Option<ColorU>,
+        uniform_bg: Option<(ColorU, WindowLogicalRect)>,
     ) {
         self.debug_log(format!(
             "[push_text_run] {} glyphs, font_size={}px, color=({},{},{},{}), clip={:?}",
@@ -2457,11 +2457,20 @@ pub(crate) struct PatchState<'a> {
 pub struct PatchMoveSummary {
     /// The translation shared by the largest moved item AREA (logical px).
     pub dominant_delta: LogicalPosition,
-    /// Union of the OLD rects of every dominant mover.
+    /// OLD rects of the dominant movers, one blit each. Per-rect (not a
+    /// union): the union would include the gaps BETWEEN movers — static
+    /// backdrop that must not be dragged. Only movers that paint an OPAQUE
+    /// background over their own rect qualify (a translucent mover's pixels
+    /// are a blend with the static backdrop, which does not translate).
+    pub mover_rects_old: Vec<LogicalRect>,
+    /// Union of `mover_rects_old` — the region the translated DIFF may
+    /// classify as moves.
     pub moved_region_old: LogicalRect,
-    /// Rects that must repaint regardless: re-emitted nodes, movers with a
-    /// DIFFERENT delta, and STATIC nodes overlapping the moved region
-    /// (their pixels must not be dragged along by the blit) — each as
+    /// Rects that must repaint regardless: re-emitted nodes, off-delta
+    /// movers, non-opaque movers, and NON-ANCESTOR static nodes overlapping
+    /// a mover (ancestors paint BELOW their descendants — the root
+    /// background under a page is covered by the opaque page and never
+    /// dragged visibly; a static sibling painted ABOVE would be) — each as
     /// old∪new bounds.
     pub exceptions: Vec<LogicalRect>,
 }
@@ -2477,6 +2486,11 @@ pub struct PatchMoveSummary {
     prev_sizes: &[Option<LogicalSize>],
     new_sizes: &[Option<LogicalSize>],
     reemit: &std::collections::BTreeSet<usize>,
+    // parents[i] = layout parent of node i (ancestor exclusion);
+    // opaque_bg[i] = node i paints a fully opaque background over its own
+    // rect (blit eligibility for movers).
+    parents: &[Option<usize>],
+    opaque_bg: &[bool],
 ) -> Option<PatchMoveSummary> {
     const EPS: f32 = 0.01;
     const MAX_EXCEPTIONS: usize = 64;
@@ -2540,8 +2554,12 @@ pub struct PatchMoveSummary {
             && b.origin.y < a.origin.y + a.size.height
     };
 
-    // Pass 1: the moved region (dominant movers' OLD rects).
-    let mut moved_region: Option<LogicalRect> = None;
+    // Pass 1: dominant movers. Only OPAQUE-background movers may blit;
+    // the rest become exceptions in pass 2. Keep only TOP-LEVEL mover
+    // rects (drop movers whose ancestor is already a collected mover —
+    // the ancestor's blit carries them).
+    const MAX_MOVERS: usize = 32;
+    let mut is_dominant_mover = vec![false; n];
     for i in 0..n {
         if reemit.contains(&i) {
             continue;
@@ -2551,33 +2569,98 @@ pub struct PatchMoveSummary {
         if (dx - dominant.x).abs() < EPS && (dy - dominant.y).abs() < EPS
             && (dx.abs() >= EPS || dy.abs() >= EPS)
         {
-            if let Some(r) = rect_of(prev_positions[i], prev_sizes[i]) {
-                moved_region = Some(union(moved_region, r));
+            is_dominant_mover[i] = true;
+        }
+    }
+    let covered_by_mover_ancestor = |i: usize| -> bool {
+        let mut cur = parents.get(i).copied().flatten();
+        while let Some(p) = cur {
+            if is_dominant_mover.get(p).copied().unwrap_or(false)
+                && opaque_bg.get(p).copied().unwrap_or(false)
+            {
+                return true;
             }
+            cur = parents.get(p).copied().flatten();
+        }
+        false
+    };
+    let mut mover_rects_old: Vec<LogicalRect> = Vec::new();
+    let mut moved_region: Option<LogicalRect> = None;
+    for i in 0..n {
+        if !is_dominant_mover[i]
+            || !opaque_bg.get(i).copied().unwrap_or(false)
+            || covered_by_mover_ancestor(i)
+        {
+            continue;
+        }
+        if let Some(r) = rect_of(prev_positions[i], prev_sizes[i]) {
+            mover_rects_old.push(r);
+            if mover_rects_old.len() > MAX_MOVERS {
+                return None; // too many independent blits — full repaint
+            }
+            moved_region = Some(union(moved_region, r));
         }
     }
     let moved_region_old = moved_region?;
+    // Descendant-of-blitted-mover test for pass 2: a static (or any) node
+    // whose OPAQUE mover ancestor blits is carried by that blit and needs
+    // no exception; equally, dominant movers inside a blitted ancestor are
+    // fine. Everything else that touches a mover rect must repaint.
+    let inside_blit = |i: usize| -> bool {
+        is_dominant_mover[i] && opaque_bg.get(i).copied().unwrap_or(false)
+            || covered_by_mover_ancestor(i)
+    };
 
-    // Pass 2: exceptions — re-emitted nodes, off-delta movers, and static
-    // nodes overlapping the moved region.
+    // Pass 2: exceptions — re-emitted nodes, off-delta movers, non-opaque
+    // dominant movers outside any blitted ancestor, and NON-ANCESTOR
+    // static nodes overlapping a blitted mover. Ancestors of a mover paint
+    // BELOW it (covered by the mover's opaque background) — no exception.
+    let is_ancestor_of_any_mover = |i: usize| -> bool {
+        // ancestor test via the parent chains of the collected movers is
+        // O(movers × depth); movers are ≤32 and depth is small.
+        for (j, dom) in is_dominant_mover.iter().enumerate() {
+            if !dom || !opaque_bg.get(j).copied().unwrap_or(false) {
+                continue;
+            }
+            let mut cur = parents.get(j).copied().flatten();
+            while let Some(p) = cur {
+                if p == i {
+                    return true;
+                }
+                cur = parents.get(p).copied().flatten();
+            }
+        }
+        false
+    };
     let mut exceptions: Vec<LogicalRect> = Vec::new();
     for i in 0..n {
         let dx = new_positions[i].x - prev_positions[i].x;
         let dy = new_positions[i].y - prev_positions[i].y;
-        let is_dominant = (dx - dominant.x).abs() < EPS && (dy - dominant.y).abs() < EPS;
         let is_static = dx.abs() < EPS && dy.abs() < EPS;
         let old_r = rect_of(prev_positions[i], prev_sizes[i]);
         let new_r = rect_of(new_positions[i], new_sizes[i]);
         let needs_exception = if reemit.contains(&i) {
-            true
-        } else if is_dominant && !is_static {
+            // NOT an exception: a re-emitted node's items genuinely differ
+            // (fresh content / new size), so the translated DIFF damages
+            // them itself — old∪new bounds — which also repaints over any
+            // pixels a blit dragged through them. Listing them here
+            // double-covered the damage and, for the size-changed ROOT
+            // (width:100% on every resize), turned the whole viewport into
+            // an exception — the blit was decorative and the NC could not
+            // go red.
+            false
+        } else if inside_blit(i) {
             false
         } else if is_static {
-            // A static node whose pixels sit inside the blit region would be
-            // dragged along — repaint it.
-            old_r.map_or(false, |r| intersects(&r, &moved_region_old))
+            // Static content BELOW the movers (their ancestors) is covered
+            // by the opaque blits; anything else touching a mover rect
+            // would be visibly dragged or stamped over — repaint it.
+            !is_ancestor_of_any_mover(i)
+                && old_r.map_or(false, |r| {
+                    mover_rects_old.iter().any(|m| intersects(&r, m))
+                })
         } else {
-            true // off-delta mover
+            true // off-delta mover (or non-opaque dominant outside a blit)
         };
         if needs_exception {
             let mut acc: Option<LogicalRect> = None;
@@ -2596,7 +2679,12 @@ pub struct PatchMoveSummary {
         }
     }
 
-    Some(PatchMoveSummary { dominant_delta: dominant, moved_region_old, exceptions })
+    Some(PatchMoveSummary {
+        dominant_delta: dominant,
+        mover_rects_old,
+        moved_region_old,
+        exceptions,
+    })
 }
 
 impl<'a> PatchState<'a> {
@@ -2704,7 +2792,10 @@ where
     /// selection touches the node (selection rects paint between background
     /// and glyphs). No claim for canvas-direct text — the clear color is a
     /// renderer detail (AZ_DEBUG_FILL can change it).
-    fn compute_uniform_text_bg(&self, source_node_index: usize) -> Option<ColorU> {
+    fn compute_uniform_text_bg(
+        &self,
+        source_node_index: usize,
+    ) -> Option<(ColorU, WindowLogicalRect)> {
         let tree = self.positioned_tree.tree;
         let dom_id_opt = tree.get(source_node_index).and_then(|n| n.dom_node_id);
         if let (Some(sel), Some(dom_id)) = (
@@ -2728,7 +2819,18 @@ where
                 for c in &contents {
                     use azul_css::props::style::StyleBackgroundContent as B;
                     match c {
-                        B::Color(col) if col.a == 255 => return Some(*col),
+                        B::Color(col) if col.a == 255 => {
+                            // The PROOF's extent: this node's painted rect.
+                            // The LCD fringe of a glyph at the very edge of
+                            // it spills onto UNPROVEN pixels — the raster
+                            // must sweep those glyphs (a pre-blended tile
+                            // stamped across the boundary bakes the wrong
+                            // neighbour into the fringe; caught by the
+                            // round-3 blit gate as an 8-pixel divergence at
+                            // the page edge).
+                            let rect = self.get_paint_rect(idx)?;
+                            return Some((*col, rect.into()));
+                        }
                         B::Color(col) if col.a == 0 => {}
                         // translucent color, gradient or image — unprovable
                         _ => return None,
@@ -5482,7 +5584,14 @@ where
                 None // gradient/image span background — unprovable
             } else {
                 match glyph_run.background_color {
-                    Some(c) if c.a == 255 => Some(c),
+                    // A span's own opaque background covers only the run —
+                    // no cheap proven-RECT for the fringe boundary here, so
+                    // the run takes the sweep. (The common body-text case is
+                    // "no span background" → the ancestor proof below.)
+                    Some(c) if c.a == 255 => {
+                        let _ = c;
+                        None
+                    }
                     Some(c) if c.a > 0 => None, // translucent span bg
                     _ => ifc_uniform_bg,
                 }

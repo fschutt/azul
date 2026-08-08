@@ -1179,12 +1179,36 @@ pub fn layout_document<T: ParsedFontTrait + Sync + 'static>(
                     reemit_full.insert(i);
                 }
             }
+            let parents: Vec<Option<usize>> =
+                new_tree.nodes.iter().map(|n| n.parent).collect();
+            let opaque_bg: Vec<bool> = (0..new_tree.nodes.len())
+                .map(|i| {
+                    new_tree
+                        .get(i)
+                        .and_then(|node| node.dom_node_id)
+                        .map(|dom_id| {
+                            let state = &ctx.styled_dom.styled_nodes.as_container()
+                                [dom_id]
+                                .styled_node_state;
+                            crate::solver3::getters::get_background_color(
+                                ctx.styled_dom,
+                                dom_id,
+                                state,
+                            )
+                            .a
+                                == 255
+                        })
+                        .unwrap_or(false)
+                })
+                .collect();
             cache.last_patch_move = display_list::compute_patch_move_summary(
                 &cache.calculated_positions,
                 &calculated_positions,
                 &cache.previous_sizes,
                 &new_sizes,
                 &reemit_full,
+                &parents,
+                &opaque_bg,
             );
         } else {
             cache.last_patch_move = None;

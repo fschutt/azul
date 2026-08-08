@@ -206,6 +206,12 @@ pub struct CpuBackend {
     /// REGION_PLAN): small paint region, larger present region. Equals the paint
     /// damage when nothing was pixel-shifted.
     pub last_present_damage: FrameDamage,
+    /// Arc ptr of the display list the round-3 patch SHIFT was last applied
+    /// for. A buffers-held retry re-runs render_frame with the SAME list —
+    /// re-applying the memmove would double-shift the retained pixels, so
+    /// the hint is gated on ptr inequality (the retry then takes the plain
+    /// diff, which damages the movers normally).
+    pub last_patch_shift_dl: usize,
     /// Scroll offsets from the previous frame (scroll_id → (x,y)). Used to detect
     /// scroll-offset changes and damage the affected frame's viewport so its
     /// content re-renders at the new offset (#13 — the display list is unchanged
@@ -256,6 +262,7 @@ impl CpuBackend {
             previous_display_list: None,
             last_frame_damage: FrameDamage::None,
             last_present_damage: FrameDamage::None,
+            last_patch_shift_dl: 0,
             #[cfg(feature = "cpurender")]
             previous_scroll_offsets: azul_layout::cpurender::ScrollOffsetMap::new(),
             #[cfg(feature = "cpurender")]
@@ -410,15 +417,51 @@ impl CpuBackend {
         // were copied over verbatim). No on a shrink / first allocation.
         let can_reuse_previous_frame = !needs_resize || resize_preserved_pixels;
 
+        // ROUND 3: the layout patch's presentation hint. Eligible when the
+        // dominant delta is INTEGRAL in physical pixels (a fractional blit
+        // would change every subpixel phase — those frames re-render), the
+        // previous frame's pixels are trustworthy, and this display list has
+        // not already been shifted (buffers-held retry).
+        let dl_arc_ptr = std::sync::Arc::as_ptr(display_list) as usize;
+        let patch_hint: Option<(cpurender::TranslateHint, Vec<azul_core::geom::LogicalRect>)> =
+            layout_window.layout_cache.last_patch_move.as_ref().and_then(|m| {
+                let px = m.dominant_delta.x * dpi_factor;
+                let py = m.dominant_delta.y * dpi_factor;
+                let integral =
+                    (px - px.round()).abs() < 0.001 && (py - py.round()).abs() < 0.001;
+                let moved_any = px.round().abs() >= 1.0 || py.round().abs() >= 1.0;
+                if integral
+                    && moved_any
+                    && can_reuse_previous_frame
+                    && self.last_patch_shift_dl != dl_arc_ptr
+                {
+                    Some((
+                        cpurender::TranslateHint {
+                            delta: (m.dominant_delta.x, m.dominant_delta.y),
+                            region_old: m.moved_region_old,
+                        },
+                        m.exceptions.clone(),
+                    ))
+                } else {
+                    None
+                }
+            });
+
         // Compute display list damage (incremental path)
+        let mut patch_moved_union: Option<azul_core::geom::LogicalRect> = None;
         let dl_damage = match &self.previous_display_list {
             Some(old_dl) if can_reuse_previous_frame && !gpu_damage.needs_full => {
-                cpurender::compute_display_list_damage(
+                cpurender::compute_display_list_damage_translated(
                     old_dl,
                     display_list,
                     &self.previous_scroll_offsets,
                     &scroll_offsets,
+                    patch_hint.as_ref().map(|(h, _)| h),
                 )
+                .map(|(rects, moved)| {
+                    patch_moved_union = moved;
+                    rects
+                })
             }
             _ => None, // first frame, shrink or ref-frame transform → full repaint
         };
@@ -531,7 +574,10 @@ impl CpuBackend {
                     && resize_damage.is_empty()
                     && !has_scroll
                     && !has_vview_damage
-                    && !has_gpu_damage =>
+                    && !has_gpu_damage
+                    // A pending patch MOVE with empty damage is NOT an idle
+                    // frame — skipping would swallow the translation.
+                    && patch_moved_union.is_none() =>
             {
                 // `!needs_resize` is load-bearing now that a resize can reach
                 // this match at all: skipping leaves `last_frame` at the OLD
@@ -632,7 +678,113 @@ impl CpuBackend {
         // Regions that were pixel-SHIFTED: painted as a thin strip but the whole
         // clip changed on screen, so they belong to PRESENT damage (not paint).
         let mut present_extra: Vec<azul_core::geom::LogicalRect> = Vec::new();
+        // ROUND 3: the layout-translation blit. The translated diff classified
+        // the dominant movers as MOVES (no damage) — shift their pixels here
+        // and repaint only the exceptions + exposed strips. Sign map: the
+        // shifter takes SCROLL deltas (offset +d moves content by −d), so a
+        // layout move BY +d passes delta −d anchored at offset (0,0).
         if is_incremental {
+            if let (Some((hint, exceptions)), Some(moved)) =
+                (patch_hint.as_ref(), patch_moved_union)
+            {
+                self.last_patch_shift_dl = dl_arc_ptr;
+                let d = hint.delta;
+                let _ = moved;
+                // One blit PER MOVER RECT (never the union — the gaps
+                // between movers are static backdrop that must not be
+                // dragged). Clip per mover = old∪(old+delta) so both the
+                // vacated source and the destination lie inside the
+                // memmove region; exposed strips repaint per mover.
+                let mover_rects = layout_window
+                    .layout_cache
+                    .last_patch_move
+                    .as_ref()
+                    .map(|m| m.mover_rects_old.clone())
+                    .unwrap_or_default();
+                if std::env::var_os("AZ_BLIT_DEBUG").is_some() {
+                    eprintln!(
+                        "[blit] delta={:?} movers={} exceptions={}",
+                        d,
+                        mover_rects.len(),
+                        exceptions.len()
+                    );
+                    for m in &mover_rects {
+                        eprintln!("[blit]   mover {:?}", m);
+                    }
+                    for e in exceptions.iter() {
+                        eprintln!("[blit]   exception {:?}", e);
+                    }
+                }
+                for mr in &mover_rects {
+                    let dest = azul_core::geom::LogicalRect {
+                        origin: azul_core::geom::LogicalPosition {
+                            x: mr.origin.x + d.0,
+                            y: mr.origin.y + d.1,
+                        },
+                        size: mr.size,
+                    };
+                    let x0 = mr.origin.x.min(dest.origin.x);
+                    let y0 = mr.origin.y.min(dest.origin.y);
+                    let x1 = (mr.origin.x + mr.size.width)
+                        .max(dest.origin.x + dest.size.width);
+                    let y1 = (mr.origin.y + mr.size.height)
+                        .max(dest.origin.y + dest.size.height);
+                    let clip = azul_core::geom::LogicalRect {
+                        origin: azul_core::geom::LogicalPosition { x: x0, y: y0 },
+                        size: azul_core::geom::LogicalSize {
+                            width: x1 - x0,
+                            height: y1 - y0,
+                        },
+                    };
+                    let strips = cpurender::scroll_shift_region_exact(
+                        &mut output,
+                        &clip,
+                        (-d.0, -d.1),
+                        (0.0, 0.0),
+                        dpi_factor,
+                    );
+                    all_damage.extend(strips.iter().copied());
+                    // LCD text is FIR-fringed: a run STARTING at the blit
+                    // destination hangs 1px of fringe INTO the vacated
+                    // strip. A strip-clipped repaint cannot reproduce that
+                    // fringe (the colorimetric blend reads neighbours), so
+                    // any text run whose 1px-inflated bounds touch a strip
+                    // is damaged WHOLE — cleared and re-rendered exactly
+                    // like the full-repaint control.
+                    for strip in &strips {
+                        for (idx, item) in display_list.items.iter().enumerate() {
+                            let _ = idx;
+                            if let azul_layout::solver3::display_list::DisplayListItem::Text {
+                                ..
+                            } = item
+                            {
+                                if let Some(b) = item.bounds() {
+                                    let inflated = azul_core::geom::LogicalRect {
+                                        origin: azul_core::geom::LogicalPosition {
+                                            x: b.origin.x - 1.0,
+                                            y: b.origin.y - 1.0,
+                                        },
+                                        size: azul_core::geom::LogicalSize {
+                                            width: b.size.width + 2.0,
+                                            height: b.size.height + 2.0,
+                                        },
+                                    };
+                                    let ix = inflated.origin.x < strip.origin.x + strip.size.width
+                                        && strip.origin.x < inflated.origin.x + inflated.size.width
+                                        && inflated.origin.y < strip.origin.y + strip.size.height
+                                        && strip.origin.y
+                                            < inflated.origin.y + inflated.size.height;
+                                    if ix {
+                                        all_damage.push(inflated);
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    present_extra.push(clip);
+                }
+                all_damage.extend(exceptions.iter().copied());
+            }
             for (scroll_id, clip, delta, offset) in &scroll_shifts {
                 // The pixels being dragged were composited at the PREVIOUS
                 // offset — eligibility (opaque coverage) must hold there too,

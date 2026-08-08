@@ -1084,6 +1084,7 @@ fn render_display_list_with_state(
 ) -> Result<(), String> {
     let mut transform_stack = vec![TransAffine::new()]; // identity
     let mut clip_stack: Vec<Option<AzRect>> = vec![None];
+    let mut real_clip_stack: Vec<Option<AzRect>> = vec![None];
     let mut mask_stack: Vec<MaskEntry> = Vec::new();
     // Accumulated scroll offset stack. Each PushScrollFrame pushes
     // (parent_offset_x + scroll_x, parent_offset_y + scroll_y).
@@ -1105,6 +1106,7 @@ fn render_display_list_with_state(
             glyph_cache,
             &mut transform_stack,
             &mut clip_stack,
+            &mut real_clip_stack,
             &mut mask_stack,
             &mut scroll_offset_stack,
             &mut text_shadow_stack,
@@ -1375,6 +1377,7 @@ pub fn render_display_list_damaged(
         let (mut painted, mut skipped) = (0usize, 0usize);
         let mut transform_stack = vec![TransAffine::new()];
         let mut clip_stack: Vec<Option<AzRect>> = vec![base_clip];
+        let mut real_clip_stack: Vec<Option<AzRect>> = vec![None];
         let mut mask_stack: Vec<MaskEntry> = Vec::new();
         let mut scroll_offset_stack: Vec<(f32, f32)> = vec![(0.0, 0.0)];
         let mut text_shadow_stack: Vec<StyleBoxShadow> = Vec::new();
@@ -1421,6 +1424,7 @@ pub fn render_display_list_damaged(
                 glyph_cache,
                 &mut transform_stack,
                 &mut clip_stack,
+                &mut real_clip_stack,
                 &mut mask_stack,
                 &mut scroll_offset_stack,
                 &mut text_shadow_stack,
@@ -1458,7 +1462,7 @@ pub fn render_single_item(
     // PROVEN uniform background for THIS item (Text only; from
     // DisplayList.uniform_text_bgs — the variant itself cannot carry it,
     // printpdf pattern-matches Text exhaustively). None = slow path.
-    item_uniform_bg: Option<ColorU>,
+    item_uniform_bg: Option<(ColorU, crate::solver3::display_list::WindowLogicalRect)>,
     pixmap: &mut AzulPixmap,
     dpi_factor: f32,
     renderer_resources: &RendererResources,
@@ -1466,6 +1470,14 @@ pub fn render_single_item(
     glyph_cache: &mut GlyphCache,
     transform_stack: &mut Vec<TransAffine>,
     clip_stack: &mut Vec<Option<AzRect>>,
+    // The clip stack WITHOUT the damage base (seeded [None]) — TEXT paints
+    // under this one. The colorimetric LCD blend reads NEIGHBOUR pixels
+    // (chroma step), so a run clipped mid-glyph at a damage boundary
+    // blends against different dst than an unclipped render — the round-3
+    // blit gate caught it as a one-column divergence. Repainting the whole
+    // run is always byte-correct: any pixel the wider write touches that
+    // is NOT damaged is by definition identical between frames.
+    real_clip_stack: &mut Vec<Option<AzRect>>,
     mask_stack: &mut Vec<MaskEntry>,
     scroll_offset_stack: &mut Vec<(f32, f32)>,
     text_shadow_stack: &mut Vec<StyleBoxShadow>,
@@ -1922,6 +1934,10 @@ pub fn render_single_item(
             let new_clip = Some(new_clip.unwrap_or(AzRect::DENY_ALL));
             let merged = intersect_clips(clip_stack.last().copied().flatten(), new_clip);
             clip_stack.push(merged);
+            real_clip_stack.push(intersect_clips(
+                real_clip_stack.last().copied().flatten(),
+                new_clip,
+            ));
         }
         DisplayListItem::PopClip => {
             // Never pop the base clip (the window rect pushed at init). An
@@ -1933,6 +1949,9 @@ pub fn render_single_item(
             // instead so the frame still presents; the only effect of an over-pop
             // is that trailing items fall back to the base (window) clip, which is
             // harmless for well-formed DOMs.
+            if real_clip_stack.len() > 1 {
+                real_clip_stack.pop();
+            }
             if clip_stack.len() > 1 {
                 clip_stack.pop();
             } else {
@@ -2015,6 +2034,10 @@ pub fn render_single_item(
                     logical_rect_to_az_rect(&scroll_rect(bounds.inner()), dpi_factor),
                 );
                 clip_stack.push(vv_clip);
+                real_clip_stack.push(intersect_clips(
+                    real_clip_stack.last().copied().flatten(),
+                    logical_rect_to_az_rect(&scroll_rect(bounds.inner()), dpi_factor),
+                ));
                 scroll_offset_stack.push((scroll_dx - vv_origin.x, scroll_dy - vv_origin.y));
                 for (child_idx, child_item) in child_dl.items.iter().enumerate() {
                     render_single_item(
@@ -2027,6 +2050,7 @@ pub fn render_single_item(
                         glyph_cache,
                         transform_stack,
                         clip_stack,
+                        real_clip_stack,
                         mask_stack,
                         scroll_offset_stack,
                         text_shadow_stack,
@@ -2034,7 +2058,8 @@ pub fn render_single_item(
                     )?;
                 }
                 scroll_offset_stack.pop();
-                clip_stack.pop();
+real_clip_stack.pop();
+                                clip_stack.pop();
             }
         }
         DisplayListItem::VirtualViewPlaceholder { .. } => {
@@ -2629,13 +2654,13 @@ fn render_text_with_bg(
     glyph_cache: &mut GlyphCache,
     scroll_offset: (f32, f32),
     force_grayscale: bool,
-    uniform_bg: Option<ColorU>,
+    uniform_bg: Option<(ColorU, crate::solver3::display_list::WindowLogicalRect)>,
 ) {
-    if let Some(bg) = uniform_bg {
+    if let Some((bg, proven_rect)) = uniform_bg {
         if text_lcd_enabled() && !force_grayscale {
             if let Some(params) = lcd_linear_params() {
                 if render_text_prerendered_lcd(
-                    glyphs, font_hash, font_size_px, color, bg, params, pixmap,
+                    glyphs, font_hash, font_size_px, color, bg, proven_rect.0, params, pixmap,
                     clip_rect, clip, renderer_resources, font_manager,
                     dpi_factor, glyph_cache, scroll_offset,
                 ) {
@@ -2661,6 +2686,7 @@ fn render_text_prerendered_lcd(
     font_size_px: f32,
     color: ColorU,
     bg: ColorU,
+    proven_rect: LogicalRect,
     params: agg_rust::pixfmt_lcd::LcdBlendParams,
     pixmap: &mut AzulPixmap,
     clip_rect: &LogicalRect,
@@ -2753,6 +2779,27 @@ fn render_text_prerendered_lcd(
         };
         let x0 = int_x + tile.dx;
         let y0 = int_y + tile.dy;
+        // FRINGE BOUNDARY: the tile (glyph + 1px FIR pad) must lie fully
+        // inside the PROVEN uniform region, in device pixels. A tile
+        // crossing the boundary would stamp fringe pre-blended against the
+        // proven color onto UNPROVEN neighbours (the sweep blends against
+        // the real pixel there) — a visible halo at e.g. a page edge, and
+        // the divergence the round-3 blit gate caught. Such glyphs sweep.
+        {
+            let pr = proven_rect;
+            let px0 = (pr.origin.x * dpi_factor).ceil() as i32;
+            let py0 = (pr.origin.y * dpi_factor).ceil() as i32;
+            let px1 = ((pr.origin.x + pr.size.width) * dpi_factor).floor() as i32;
+            let py1 = ((pr.origin.y + pr.size.height) * dpi_factor).floor() as i32;
+            if x0 < px0
+                || y0 < py0
+                || x0 + tile.w as i32 > px1
+                || y0 + tile.h as i32 > py1
+            {
+                drop(crate::probe::Probe::span("glyph_lcd_pretile_boundary"));
+                return false; // whole run sweeps (rare: edge-hugging text)
+            }
+        }
         // Same component as the previous glyph if the tile RECTS intersect
         // (runs are in x order; vertical bands overlap on one text row).
         let component = match placed.last() {
@@ -4514,13 +4561,15 @@ mod autotest_generated {
         masks: Vec<MaskEntry>,
         scrolls: Vec<(f32, f32)>,
         shadows: Vec<StyleBoxShadow>,
-    }
+        real_clips: Vec<Option<AzRect>>,
+}
 
     impl Stacks {
         fn new() -> Self {
             Self {
                 transforms: vec![TransAffine::new()],
                 clips: vec![None],
+            real_clips: vec![None],
                 masks: Vec::new(),
                 scrolls: vec![(0.0, 0.0)],
                 shadows: Vec::new(),
@@ -4547,6 +4596,7 @@ mod autotest_generated {
             &mut gc,
             &mut st.transforms,
             &mut st.clips,
+            &mut st.real_clips,
             &mut st.masks,
             &mut st.scrolls,
             &mut st.shadows,
@@ -7277,7 +7327,11 @@ mod lcd_pretile_tests {
         let mut gc2 = GlyphCache::new();
         render_text_with_bg(
             &glyphs, font_hash, font_size, color, &mut fast, &clip_rect, None,
-            &rr, &fm, 1.0, &mut gc2, (0.0, 0.0), false, Some(bg),
+            &rr, &fm, 1.0, &mut gc2, (0.0, 0.0), false,
+            Some((bg, LogicalRect {
+                origin: LogicalPosition { x: -10_000.0, y: -10_000.0 },
+                size: LogicalSize { width: 20_000.0, height: 20_000.0 },
+            }.into())),
         );
         let diff = slow.data.iter().zip(fast.data.iter()).filter(|(a, b)| a != b).count();
         assert_eq!(
@@ -7320,7 +7374,11 @@ mod lcd_pretile_tests {
         let mut gc2 = GlyphCache::new();
         render_text_with_bg(
             &glyphs, font_hash, font_size, color, &mut fast, &clip_rect, None,
-            &rr, &fm, 1.0, &mut gc2, (0.0, 0.0), false, Some(bg),
+            &rr, &fm, 1.0, &mut gc2, (0.0, 0.0), false,
+            Some((bg, LogicalRect {
+                origin: LogicalPosition { x: -10_000.0, y: -10_000.0 },
+                size: LogicalSize { width: 20_000.0, height: 20_000.0 },
+            }.into())),
         );
 
         if !text_lcd_enabled() || lcd_linear_params().is_none() {
