@@ -2448,6 +2448,157 @@ pub(crate) struct PatchState<'a> {
     reemit: std::collections::BTreeSet<usize>,
 }
 
+/// Presentation summary of a patched pass: which single translation moved
+/// most of the frame, and which rects must be repainted anyway. Feeds the
+/// CPU compositor's translate-aware presentation (blit the retained pixmap
+/// by `dominant_delta`, repaint `exceptions` + exposed strips) — the round-3
+/// path that makes a drag frame memory-bandwidth instead of rendering.
+#[derive(Debug, Clone)]
+pub struct PatchMoveSummary {
+    /// The translation shared by the largest moved item AREA (logical px).
+    pub dominant_delta: LogicalPosition,
+    /// Union of the OLD rects of every dominant mover.
+    pub moved_region_old: LogicalRect,
+    /// Rects that must repaint regardless: re-emitted nodes, movers with a
+    /// DIFFERENT delta, and STATIC nodes overlapping the moved region
+    /// (their pixels must not be dragged along by the blit) — each as
+    /// old∪new bounds.
+    pub exceptions: Vec<LogicalRect>,
+}
+
+/// Compute a [`PatchMoveSummary`] from the same inputs `PatchState::build`
+/// consumes. Returns `None` when the frame has no dominant translation
+/// (nothing moved, or the exception list would exceed its cap — at which
+/// point a plain full repaint is the better deal).
+#[allow(clippy::too_many_lines)]
+#[must_use] pub fn compute_patch_move_summary(
+    prev_positions: &[LogicalPosition],
+    new_positions: &[LogicalPosition],
+    prev_sizes: &[Option<LogicalSize>],
+    new_sizes: &[Option<LogicalSize>],
+    reemit: &std::collections::BTreeSet<usize>,
+) -> Option<PatchMoveSummary> {
+    const EPS: f32 = 0.01;
+    const MAX_EXCEPTIONS: usize = 64;
+    let n = prev_positions
+        .len()
+        .min(new_positions.len())
+        .min(prev_sizes.len())
+        .min(new_sizes.len());
+
+    // Group movers by exact delta bits, weighted by new area.
+    let mut groups: std::collections::HashMap<(u32, u32), f32> =
+        std::collections::HashMap::new();
+    for i in 0..n {
+        if reemit.contains(&i) {
+            continue;
+        }
+        let dx = new_positions[i].x - prev_positions[i].x;
+        let dy = new_positions[i].y - prev_positions[i].y;
+        if dx.abs() < EPS && dy.abs() < EPS {
+            continue;
+        }
+        let area = new_sizes[i]
+            .map(|s| (s.width * s.height).max(1.0))
+            .unwrap_or(1.0);
+        *groups.entry((dx.to_bits(), dy.to_bits())).or_insert(0.0) += area;
+    }
+    let ((dxb, dyb), _) = groups
+        .into_iter()
+        .max_by(|a, b| a.1.partial_cmp(&b.1).unwrap_or(core::cmp::Ordering::Equal))?;
+    let dominant = LogicalPosition {
+        x: f32::from_bits(dxb),
+        y: f32::from_bits(dyb),
+    };
+
+    let rect_of = |pos: LogicalPosition, size: Option<LogicalSize>| -> Option<LogicalRect> {
+        let s = size?;
+        if s.width <= 0.0 || s.height <= 0.0 || !pos.x.is_finite() || !pos.y.is_finite() {
+            return None;
+        }
+        Some(LogicalRect { origin: pos, size: s })
+    };
+    let union = |a: Option<LogicalRect>, b: LogicalRect| -> LogicalRect {
+        match a {
+            None => b,
+            Some(a) => {
+                let x0 = a.origin.x.min(b.origin.x);
+                let y0 = a.origin.y.min(b.origin.y);
+                let x1 = (a.origin.x + a.size.width).max(b.origin.x + b.size.width);
+                let y1 = (a.origin.y + a.size.height).max(b.origin.y + b.size.height);
+                LogicalRect {
+                    origin: LogicalPosition { x: x0, y: y0 },
+                    size: LogicalSize { width: x1 - x0, height: y1 - y0 },
+                }
+            }
+        }
+    };
+    let intersects = |a: &LogicalRect, b: &LogicalRect| -> bool {
+        a.origin.x < b.origin.x + b.size.width
+            && b.origin.x < a.origin.x + a.size.width
+            && a.origin.y < b.origin.y + b.size.height
+            && b.origin.y < a.origin.y + a.size.height
+    };
+
+    // Pass 1: the moved region (dominant movers' OLD rects).
+    let mut moved_region: Option<LogicalRect> = None;
+    for i in 0..n {
+        if reemit.contains(&i) {
+            continue;
+        }
+        let dx = new_positions[i].x - prev_positions[i].x;
+        let dy = new_positions[i].y - prev_positions[i].y;
+        if (dx - dominant.x).abs() < EPS && (dy - dominant.y).abs() < EPS
+            && (dx.abs() >= EPS || dy.abs() >= EPS)
+        {
+            if let Some(r) = rect_of(prev_positions[i], prev_sizes[i]) {
+                moved_region = Some(union(moved_region, r));
+            }
+        }
+    }
+    let moved_region_old = moved_region?;
+
+    // Pass 2: exceptions — re-emitted nodes, off-delta movers, and static
+    // nodes overlapping the moved region.
+    let mut exceptions: Vec<LogicalRect> = Vec::new();
+    for i in 0..n {
+        let dx = new_positions[i].x - prev_positions[i].x;
+        let dy = new_positions[i].y - prev_positions[i].y;
+        let is_dominant = (dx - dominant.x).abs() < EPS && (dy - dominant.y).abs() < EPS;
+        let is_static = dx.abs() < EPS && dy.abs() < EPS;
+        let old_r = rect_of(prev_positions[i], prev_sizes[i]);
+        let new_r = rect_of(new_positions[i], new_sizes[i]);
+        let needs_exception = if reemit.contains(&i) {
+            true
+        } else if is_dominant && !is_static {
+            false
+        } else if is_static {
+            // A static node whose pixels sit inside the blit region would be
+            // dragged along — repaint it.
+            old_r.map_or(false, |r| intersects(&r, &moved_region_old))
+        } else {
+            true // off-delta mover
+        };
+        if needs_exception {
+            let mut acc: Option<LogicalRect> = None;
+            if let Some(r) = old_r {
+                acc = Some(union(acc, r));
+            }
+            if let Some(r) = new_r {
+                acc = Some(union(acc, r));
+            }
+            if let Some(r) = acc {
+                exceptions.push(r);
+                if exceptions.len() > MAX_EXCEPTIONS {
+                    return None; // too fragmented — full repaint is cheaper
+                }
+            }
+        }
+    }
+
+    Some(PatchMoveSummary { dominant_delta: dominant, moved_region_old, exceptions })
+}
+
 impl<'a> PatchState<'a> {
     pub(crate) fn build(
         prev: &'a DisplayList,

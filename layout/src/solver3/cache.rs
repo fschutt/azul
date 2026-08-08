@@ -418,6 +418,12 @@ pub struct LayoutCache {
     /// Census: fingerprint computations skipped via `dom_diff_clean` in the
     /// LAST reconcile — the external observable for the channel's tests.
     pub last_fingerprint_skips: usize,
+    /// Presentation hint of the LAST pass, set ONLY when the DL patch fired:
+    /// the dominant translation + exceptions. The CPU compositor turns it
+    /// into a retained-pixmap blit + strip repaint (round 3). One-shot in
+    /// spirit — the consumer must guard against re-application on the SAME
+    /// display list (buffers-held retries re-run the present path).
+    pub last_patch_move: Option<super::display_list::PatchMoveSummary>,
     /// Reconciliation census of the LAST pass: how many nodes were CLONED
     /// from the previous tree (warm shaped-text + intrinsic caches carried
     /// forward) vs built FRESH (no warm data). This pair is what makes cache

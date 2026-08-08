@@ -1614,18 +1614,55 @@ fn render_display_list_range(
 /// Without this projection, damage for items inside a scrolled frame lands at
 /// the content-space position (off by exactly the scroll offset), so the
 /// consumer repaints the wrong band and the changed item stays visually stale.
+/// Round-3 translate hint: a mismatching item pair whose OLD geometry
+/// translated by `delta` equals the NEW one, and whose old bounds sit
+/// inside `region_old`, is a MOVE — collected into the returned moved
+/// union instead of damage. The caller blits that union by `delta` and
+/// repaints only the rest. See `items_equal_translated`.
+#[derive(Debug, Clone, Copy)]
+pub struct TranslateHint {
+    pub delta: (f32, f32),
+    pub region_old: LogicalRect,
+}
+
+/// [`compute_display_list_damage`] + the translate hint. Returns
+/// `(damage, moved_union)`; `moved_union` is `None` when nothing matched
+/// the hint (caller falls back to plain damage).
+#[must_use] pub fn compute_display_list_damage_translated(
+    old: &DisplayList,
+    new: &DisplayList,
+    old_offsets: &ScrollOffsetMap,
+    new_offsets: &ScrollOffsetMap,
+    hint: Option<&TranslateHint>,
+) -> Option<(Vec<LogicalRect>, Option<LogicalRect>)> {
+    compute_display_list_damage_impl(old, new, old_offsets, new_offsets, hint)
+}
+
 #[must_use] pub fn compute_display_list_damage(
     old: &DisplayList,
     new: &DisplayList,
     old_offsets: &ScrollOffsetMap,
     new_offsets: &ScrollOffsetMap,
 ) -> Option<Vec<LogicalRect>> {
+    compute_display_list_damage_impl(old, new, old_offsets, new_offsets, None)
+        .map(|(damage, _moved)| damage)
+}
+
+#[allow(clippy::too_many_lines)]
+fn compute_display_list_damage_impl(
+    old: &DisplayList,
+    new: &DisplayList,
+    old_offsets: &ScrollOffsetMap,
+    new_offsets: &ScrollOffsetMap,
+    hint: Option<&TranslateHint>,
+) -> Option<(Vec<LogicalRect>, Option<LogicalRect>)> {
     // Different item counts → structural change → full repaint
     if old.items.len() != new.items.len() {
         return None;
     }
 
     let mut damage = Vec::new();
+    let mut moved_union: Option<LogicalRect> = None;
 
     // Accumulated (old, new) scroll offsets of the enclosing frames. The two
     // lists are structurally identical (discriminants checked below), so one
@@ -1661,6 +1698,32 @@ fn render_display_list_range(
         // Use visual_bounds() to include effects like box-shadow extent.
         if !old_item.is_visually_equal(new_item) {
             let (acc_old, acc_new) = *offset_stack.last().unwrap_or(&((0.0, 0.0), (0.0, 0.0)));
+            // Round-3: a pure translation by the hint's delta, inside its
+            // region, is a MOVE — the caller blits it; no damage here.
+            if let Some(h) = hint {
+                if let Some(ob) = old_item.visual_bounds() {
+                    let inside = ob.origin.x >= h.region_old.origin.x - 0.5
+                        && ob.origin.y >= h.region_old.origin.y - 0.5
+                        && ob.origin.x + ob.size.width
+                            <= h.region_old.origin.x + h.region_old.size.width + 0.5
+                        && ob.origin.y + ob.size.height
+                            <= h.region_old.origin.y + h.region_old.size.height + 0.5;
+                    if inside && items_equal_translated(old_item, new_item, h.delta) {
+                        let vr = LogicalRect {
+                            origin: LogicalPosition {
+                                x: ob.origin.x - acc_old.0,
+                                y: ob.origin.y - acc_old.1,
+                            },
+                            size: ob.size,
+                        };
+                        moved_union = Some(match moved_union {
+                            None => vr,
+                            Some(m) => union_rects(m, vr),
+                        });
+                        continue;
+                    }
+                }
+            }
             if let Some(ob) = old_item.visual_bounds() {
                 damage.push(LogicalRect {
                     origin: LogicalPosition {
@@ -1684,7 +1747,34 @@ fn render_display_list_range(
 
     // Coalesce overlapping rects
     coalesce_damage_rects(&mut damage);
-    Some(damage)
+    Some((damage, moved_union))
+}
+
+fn union_rects(a: LogicalRect, b: LogicalRect) -> LogicalRect {
+    let x0 = a.origin.x.min(b.origin.x);
+    let y0 = a.origin.y.min(b.origin.y);
+    let x1 = (a.origin.x + a.size.width).max(b.origin.x + b.size.width);
+    let y1 = (a.origin.y + a.size.height).max(b.origin.y + b.size.height);
+    LogicalRect {
+        origin: LogicalPosition { x: x0, y: y0 },
+        size: LogicalSize { width: x1 - x0, height: y1 - y0 },
+    }
+}
+
+/// Is `new` exactly `old` translated by `delta`? Uses `translate_item` on a
+/// clone + `is_visually_equal` — runs ONLY for mismatching pairs inside the
+/// hint region (the steady-state pair equals and never reaches this).
+#[must_use] pub fn items_equal_translated(
+    old: &DisplayListItem,
+    new: &DisplayListItem,
+    delta: (f32, f32),
+) -> bool {
+    use crate::solver3::display_list::translate_item;
+    let translated = translate_item(
+        old.clone(),
+        LogicalPosition { x: delta.0, y: delta.1 },
+    );
+    translated.is_visually_equal(new)
 }
 
 /// Are two display lists visually identical?

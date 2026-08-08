@@ -1167,6 +1167,27 @@ pub fn layout_document<T: ParsedFontTrait + Sync + 'static>(
         };
         if patch.is_some() {
             drop(crate::probe::Probe::span("dl_patched_pass"));
+            // Round-3 presentation hint from the SAME inputs the patch used.
+            // The re-emit set must match PatchState's exactly: reflowed IFCs
+            // PLUS size-changed nodes — a size-changed node re-emitted its
+            // items, so blitting its old pixels without repainting is stale.
+            let new_sizes: Vec<Option<LogicalSize>> =
+                new_tree.nodes.iter().map(|n| n.used_size).collect();
+            let mut reemit_full = ctx.reflowed_ifcs.clone();
+            for i in 0..new_sizes.len().min(cache.previous_sizes.len()) {
+                if cache.previous_sizes[i] != new_sizes[i] {
+                    reemit_full.insert(i);
+                }
+            }
+            cache.last_patch_move = display_list::compute_patch_move_summary(
+                &cache.calculated_positions,
+                &calculated_positions,
+                &cache.previous_sizes,
+                &new_sizes,
+                &reemit_full,
+            );
+        } else {
+            cache.last_patch_move = None;
         }
         display_list::generate_display_list_impl(
             &mut ctx,
