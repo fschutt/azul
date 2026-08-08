@@ -1065,6 +1065,75 @@ StyleWhiteSpace::PreLine)
     true // All nodes are whitespace-only text
 }
 
+/// Ordinal-match a freshly created anonymous inline wrapper to the old
+/// parent's Nth anon wrapper and, when the run's children are IDENTICAL
+/// (same dom ids, same order), carry the warm caches forward.
+///
+/// Anonymous wrappers have no `dom_node_id`, so ordinary reconciliation
+/// cannot see them — every reconcile pass recreated them cold and flipped
+/// their parent to `children_are_different = true` UNCONDITIONALLY, which put
+/// every paragraph's parent into `intrinsic_dirty` + `layout_roots` on EVERY
+/// pass (measured on big.md: 240 intrinsic IFC roots and 112 inline-content
+/// re-collections per resize with a bit-identical DOM, ~12 ms). The ordinal
+/// IS the identity: wrappers exist only for inline runs, runs are ordered by
+/// child position, so the Nth wrapper under a node corresponds to the Nth run
+/// — the same matching `layout_document`'s cache_map remap already performs
+/// post-hoc for the size caches.
+///
+/// Only SELF-VALIDATING or content-derived caches are carried:
+/// `inline_content_cache` re-validates itself against the subtree
+/// fingerprint, and `intrinsic_sizes` are content-derived with the children
+/// verified identical. Layout-derived state (inline_layout_result, used
+/// sizes, baselines) stays `None` and re-derives through the CB-size-keyed
+/// caches like any other clean node.
+///
+/// Returns whether the wrapper matched; the caller folds `!matched` into
+/// `children_are_different` instead of flipping it unconditionally. A DIRTY
+/// child inside a matched run still invalidates through that child's own
+/// `mark_dirty` propagation — matching the wrapper never masks content edits.
+fn try_reuse_anon_wrapper(
+    old_tree: Option<&LayoutTree>,
+    old_parent_idx: Option<usize>,
+    anon_ordinal: usize,
+    inline_run: &[(usize, NodeId)],
+    new_tree_builder: &mut LayoutTreeBuilder,
+    anon_idx: usize,
+) -> bool {
+    let (Some(t), Some(op)) = (old_tree, old_parent_idx) else {
+        return false;
+    };
+    // Children live on the TREE (hot/warm/cold split), not the node struct.
+    let Some(old_anon) = t
+        .children(op)
+        .iter()
+        .copied()
+        .filter(|&c| {
+            t.cold(c)
+                .is_some_and(|cold| cold.anonymous_type == Some(AnonymousBoxType::InlineWrapper))
+        })
+        .nth(anon_ordinal)
+    else {
+        return false;
+    };
+    let old_anon_children = t.children(old_anon);
+    if old_anon_children.len() != inline_run.len() {
+        return false;
+    }
+    let ids_match = old_anon_children
+        .iter()
+        .zip(inline_run.iter())
+        .all(|(&oc, &(_, nid))| t.get(oc).and_then(|n| n.dom_node_id) == Some(nid));
+    if !ids_match {
+        return false;
+    }
+    if let (Some(old_warm), Some(new_node)) = (t.warm(old_anon), new_tree_builder.get_mut(anon_idx))
+    {
+        new_node.inline_content_cache = old_warm.inline_content_cache.clone();
+        new_node.intrinsic_sizes = old_warm.intrinsic_sizes;
+    }
+    true
+}
+
 /// Recursively traverses the new DOM and old tree, building a new tree and marking dirty nodes.
 #[allow(clippy::cast_possible_truncation)] // bounded graphics/coord/counter/fixed-point cast
 #[allow(clippy::too_many_lines, clippy::cognitive_complexity)] // large but cohesive: single-purpose layout/render/parse routine (one branch per case)
@@ -1298,16 +1367,49 @@ pub fn reconcile_recursive(
     let old_children_by_dom: alloc::collections::BTreeMap<NodeId, usize> = old_tree
         .and_then(|t| old_tree_idx.map(|idx| {
             t.children(idx).iter()
+                // Pseudo-element nodes (::marker on list items) are
+                // layout-SYNTHESIZED children that carry their originating
+                // node's dom id without being DOM children. Counting them made
+                // every <li> compare old=2 vs new=1 and flip
+                // `children_are_different` on every reconcile (360 clean
+                // parents re-dirtied per resize on big.md — the whole list
+                // content re-measured each pass); keying them into the by-dom
+                // map could also alias a marker as its own host during lookup.
+                .filter(|&&cidx| t.warm(cidx).is_none_or(|w| w.pseudo_element.is_none()))
                 .filter_map(|&cidx| t.get(cidx).and_then(|n| n.dom_node_id).map(|did| (did, cidx)))
                 .collect()
         }))
         .unwrap_or_default();
 
-    // Count of old layout children that correspond to a real DOM
-    // node (exclude anonymous wrappers). This is what we compare
-    // against the layout-relevant subset of new DOM children to
-    // decide whether the structural shape actually changed.
-    let old_layout_relevant_count = old_children_by_dom.len();
+    // Count of old layout children that correspond to a real DOM node. The
+    // old tree hides inline children UNDER anonymous wrappers, so the direct
+    // children alone under-count every mixed-content parent (a wrapper is one
+    // layout child holding N dom children) — the initializer then compared
+    // old=1 against new=2 for a plain [text, div] parent and flipped
+    // `children_are_different` on EVERY reconcile. That wrongness was masked
+    // for as long as the wrapper sites flipped the flag unconditionally
+    // anyway; ordinal-matched wrapper reuse unmasked it. Flatten wrappers:
+    // count their dom-id'd children as if they were direct.
+    let old_layout_relevant_count = old_children_by_dom.len()
+        + old_tree
+            .zip(old_tree_idx)
+            .map_or(0, |(t, oidx)| {
+                t.children(oidx)
+                    .iter()
+                    .copied()
+                    .filter(|&c| {
+                        t.cold(c).is_some_and(|cold| {
+                            cold.anonymous_type == Some(AnonymousBoxType::InlineWrapper)
+                        })
+                    })
+                    .map(|w| {
+                        t.children(w)
+                            .iter()
+                            .filter(|&&cc| t.get(cc).and_then(|n| n.dom_node_id).is_some())
+                            .count()
+                    })
+                    .sum::<usize>()
+            });
 
     // Filter new DOM children to the subset the layout-tree builder
     // would actually emit. This mirrors `should_skip_for_table_structure`
@@ -1317,6 +1419,18 @@ pub fn reconcile_recursive(
     // drops.
     let new_layout_relevant_count = layout_relevant_child_count(styled_dom, &new_children_dom_ids, new_dom_id);
 
+    if std::env::var_os("AZ_RECON_DEBUG").is_some()
+        && old_tree.is_some()
+        && new_layout_relevant_count != old_layout_relevant_count
+    {
+        eprintln!(
+            "[recon] COUNT MISMATCH parent dom {:?}: old_relevant={} new_relevant={} (direct_old={})",
+            new_dom_id.index(),
+            old_layout_relevant_count,
+            new_layout_relevant_count,
+            old_children_by_dom.len(),
+        );
+    }
     let mut children_are_different = new_layout_relevant_count != old_layout_relevant_count;
     let mut new_child_hashes = Vec::new();
 
@@ -1405,6 +1519,9 @@ pub fn reconcile_recursive(
         }
 
         let mut inline_run: Vec<(usize, NodeId)> = Vec::new(); // (dom_child_index, dom_id)
+        // Which inline run (== which anon-wrapper ordinal) we're on — the
+        // identity try_reuse_anon_wrapper matches against the old tree.
+        let mut anon_ordinal: usize = 0;
 
         for (i, &new_child_dom_id) in new_children_dom_ids.iter().enumerate() {
             if is_block_level(styled_dom, new_child_dom_id) {
@@ -1432,6 +1549,15 @@ pub fn reconcile_recursive(
                         AnonymousBoxType::InlineWrapper,
                         FormattingContext::Inline, // IFC for inline content
                     );
+                    let anon_reused = try_reuse_anon_wrapper(
+                        old_tree,
+                        old_tree_idx,
+                        anon_ordinal,
+                        &inline_run,
+                        new_tree_builder,
+                        anon_idx,
+                    );
+                    anon_ordinal += 1;
 
                     if let Some(msgs) = debug_messages.as_mut() {
                         msgs.push(LayoutDebugMessage::info(format!(
@@ -1478,11 +1604,18 @@ pub fn reconcile_recursive(
                     // themselves dirty, their own `mark_dirty` call
                     // propagates upward through this wrapper, so
                     // wrappers whose content is unchanged keep their
-                    // cached layout. Setting `children_are_different`
-                    // when the wrapper is newly created (no matching
-                    // old anon) flips the parent to layout-dirty,
-                    // which is what triggers a fresh wrapper layout.
-                    children_are_different = true;
+                    // cached layout. `children_are_different` flips the
+                    // parent to layout-dirty ONLY when the wrapper is
+                    // genuinely new / its run changed — the previous
+                    // unconditional `= true` here re-dirtied every
+                    // paragraph's parent on every reconcile (see
+                    // try_reuse_anon_wrapper).
+                    if !anon_reused {
+                        if std::env::var_os("AZ_RECON_DEBUG").is_some() {
+                            eprintln!("[recon] mid-loop wrapper ord {} NOT reused (run len {})", anon_ordinal - 1, inline_run.len());
+                        }
+                        children_are_different = true;
+                    }
                     } // end else (non-whitespace run)
                 }
 
@@ -1509,6 +1642,17 @@ pub fn reconcile_recursive(
                         .get(reconciled_child_idx)
                         .map(|n| n.subtree_hash)
                 {
+                    if std::env::var_os("AZ_RECON_DEBUG").is_some() {
+                        eprintln!(
+                            "[recon] block child dom {:?} under parent dom {:?} hash MISMATCH warm_pass={} old_idx={:?} (old {:?} vs new {:?})",
+                            new_child_dom_id.index(),
+                            new_dom_id.index(),
+                            old_tree.is_some(),
+                            old_child_idx,
+                            old_tree.and_then(|t| t.cold(old_child_idx.unwrap_or(usize::MAX)).map(|n| n.subtree_hash)),
+                            new_tree_builder.get(reconciled_child_idx).map(|n| n.subtree_hash),
+                        );
+                    }
                     children_are_different = true;
                 }
             } else {
@@ -1535,6 +1679,15 @@ pub fn reconcile_recursive(
                 AnonymousBoxType::InlineWrapper,
                 FormattingContext::Inline, // IFC for inline content
             );
+            let anon_reused = try_reuse_anon_wrapper(
+                old_tree,
+                old_tree_idx,
+                anon_ordinal,
+                &inline_run,
+                new_tree_builder,
+                anon_idx,
+            );
+            anon_ordinal += 1;
 
             if let Some(msgs) = debug_messages.as_mut() {
                 msgs.push(LayoutDebugMessage::info(format!(
@@ -1567,7 +1720,12 @@ pub fn reconcile_recursive(
             // See note in main mixed-content branch: rely on
             // children's own mark_dirty to propagate upward rather
             // than invalidating the whole wrapper each reconcile.
-            children_are_different = true;
+            if !anon_reused {
+                if std::env::var_os("AZ_RECON_DEBUG").is_some() {
+                    eprintln!("[recon] trailing wrapper ord {} NOT reused", anon_ordinal - 1);
+                }
+                children_are_different = true;
+            }
             } // end else (non-whitespace trailing run)
         }
     }
@@ -1587,6 +1745,17 @@ pub fn reconcile_recursive(
 
     // Classify this node into the appropriate dirty set based on what changed.
     if dirty_flag >= DirtyFlag::Layout || children_are_different {
+        // Runtime-gated classification trace: names WHY a node went dirty,
+        // which is the question every reconcile investigation starts with.
+        if std::env::var_os("AZ_RECON_DEBUG").is_some() {
+            eprintln!(
+                "[recon] intrinsic_dirty += layout_idx {} (dom {:?}, flag {:?}, children_diff {})",
+                new_node_idx,
+                new_dom_id.index(),
+                dirty_flag,
+                children_are_different
+            );
+        }
         recon.intrinsic_dirty.insert(new_node_idx);
         recon.layout_roots.insert(new_node_idx);
     } else if dirty_flag == DirtyFlag::Paint {

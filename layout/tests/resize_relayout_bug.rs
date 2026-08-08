@@ -219,6 +219,22 @@ fn viewport_resize_reuses_every_reconciled_node() {
         reused, cold_fresh,
         "every node the cold pass created must be reconciled-and-reused on resize"
     );
+
+    // The ANON-WRAPPER half of the same contract. Wrappers have no dom id, so
+    // they are invisible to the fresh/reused census above — but their damage
+    // IS visible here: an unmatched wrapper flips its parent to
+    // children_are_different, which lands the parent in intrinsic_dirty. This
+    // DOM has two text paragraphs (=> two inline runs => wrappers), and
+    // before ordinal-matching (try_reuse_anon_wrapper) every resize
+    // re-dirtied their parents: last_intrinsic_dirty was non-zero on every
+    // same-DOM resize. Zero means the wrappers matched and nothing was
+    // re-measured.
+    assert_eq!(
+        layout_window.layout_cache.last_intrinsic_dirty, 0,
+        "a same-DOM resize must not re-measure any intrinsics — a non-zero \
+         count means anonymous wrappers failed to ordinal-match their old \
+         selves (children_are_different flipped unconditionally again)"
+    );
 }
 
 /// The viewport-units side of the collect-cache contract — and the discovery
