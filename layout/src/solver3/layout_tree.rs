@@ -249,6 +249,13 @@ pub struct CachedInlineLayout {
     /// The full constraints used to compute this layout.
     /// Used for quick relayout after text edits without rebuilding from CSS.
     pub constraints: Option<UnifiedConstraints>,
+    /// Glyph runs derived from `layout` at STORE time (a pure function of
+    /// it — see `get_glyph_runs_simple`). The display-list generator used to
+    /// re-derive these on EVERY paint of every IFC (the run-grouping walk was
+    /// the bulk of dl_inline_text's 6.8 ms/resize on big.md); computing them
+    /// once alongside the layout makes every later paint a lookup. Rides
+    /// GlyphSwap reuse for free — a reused layout is a reused run list.
+    pub glyph_runs: Arc<Vec<crate::text3::glyphs::SimpleGlyphRun>>,
     /// Per-item metrics for incremental IFC relayout (Phase 2).
     ///
     /// Each entry corresponds to one `PositionedItem` in `layout.items`.
@@ -276,11 +283,13 @@ impl CachedInlineLayout {
         has_floats: bool,
     ) -> Self {
         let item_metrics = Self::extract_item_metrics(&layout);
+        let glyph_runs = Arc::new(crate::text3::glyphs::get_glyph_runs_simple(&layout));
         Self {
             layout,
             available_width,
             has_floats,
             constraints: None,
+            glyph_runs,
             item_metrics,
             line_breaks: None,
             inline_content_hash: 0,
@@ -302,11 +311,13 @@ impl CachedInlineLayout {
         let line_breaks = Some(crate::text3::cache::extract_line_breaks(
             &layout.items, available_width_px,
         ));
+        let glyph_runs = Arc::new(crate::text3::glyphs::get_glyph_runs_simple(&layout));
         Self {
             layout,
             available_width,
             has_floats,
             constraints: Some(constraints),
+            glyph_runs,
             item_metrics,
             line_breaks,
             inline_content_hash: 0,

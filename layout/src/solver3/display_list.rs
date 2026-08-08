@@ -4324,7 +4324,14 @@ where
                 }
             }
 
-            self.paint_inline_content(builder, content_box_rect, viewport_clip_rect, inline_layout, node_index);
+            self.paint_inline_content(
+                builder,
+                content_box_rect,
+                viewport_clip_rect,
+                inline_layout,
+                &cached_layout.glyph_runs,
+                node_index,
+            );
 
             if pushed_text_shadow {
                 builder.push_item(DisplayListItem::PopTextShadow);
@@ -4744,6 +4751,7 @@ where
         container_rect: LogicalRect,
         viewport_clip_rect: LogicalRect,
         layout: &Arc<UnifiedLayout>,
+        glyph_runs: &[crate::text3::glyphs::SimpleGlyphRun],
         source_node_index: usize,
     ) {
         let _p = crate::probe::Probe::span("dl_inline_text");
@@ -4829,11 +4837,12 @@ where
             );
         }
 
-        let glyph_runs = crate::text3::glyphs::get_glyph_runs_simple(layout);
+        // Precomputed at CachedInlineLayout store time — the run-grouping
+        // walk used to re-run here on EVERY paint of every IFC.
 
         // FIRST PASS: Render backgrounds (solid colors, gradients) and borders for each glyph run
         // This must happen BEFORE rendering text so that backgrounds appear behind text.
-        for glyph_run in &glyph_runs {
+        for glyph_run in glyph_runs {
             // Calculate the bounding box for this glyph run
             if let (Some(first_glyph), Some(last_glyph)) =
                 (glyph_run.glyphs.first(), glyph_run.glyphs.last())
@@ -4883,7 +4892,7 @@ where
         }
 
         // SECOND PASS: Render text runs
-        for glyph_run in &glyph_runs {
+        for glyph_run in glyph_runs {
             // Clip text to the viewport-sized content box, not the full scroll
             // content area. This prevents text from overflowing outside the
             // container when overflow is hidden/scroll/auto.
@@ -4974,7 +4983,7 @@ where
 
         // THIRD PASS: Generate hit-test areas for text runs
         // This enables cursor resolution directly on text nodes instead of their containers
-        for glyph_run in &glyph_runs {
+        for glyph_run in glyph_runs {
             // Only generate hit-test areas for runs with a source node id
             let Some(source_node_id) = glyph_run.source_node_id else {
                 continue;
