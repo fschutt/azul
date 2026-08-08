@@ -116,8 +116,8 @@ fn blitted_resize_frame_is_pixel_identical_to_a_full_repaint() {
                 .position(|(a, b)| a != b)
                 .unwrap();
         let w = 680usize;
-        for y in [4usize, 5, 20] {
-            for x in [188usize, 189, 190, 191, 192] {
+        for y in [4usize, 8, 12, 16] {
+            for x in [167usize, 168, 169, 170, 171] {
                 let i = (y * 680 + x) * 4;
                 eprintln!(
                     "  px({x},{y}): blit={:?} full={:?}",

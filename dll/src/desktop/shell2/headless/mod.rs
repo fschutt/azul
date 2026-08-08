@@ -743,6 +743,27 @@ impl CpuBackend {
                         (0.0, 0.0),
                         dpi_factor,
                     );
+                    // Inflate the vacated strips by 1px: LCD fringe of a run
+                    // hugging the mover's edge hangs one device pixel OUTSIDE
+                    // the mover rect, so the un-inflated vacated region leaves
+                    // that column stale after the move (the full-repaint
+                    // control clears it via the diff's own text inflation —
+                    // the gate diverged by exactly that column). A wider strip
+                    // that now cuts a destination run is already handled by
+                    // the fringe-touching-runs-damaged-whole rule below.
+                    let strips: Vec<azul_core::geom::LogicalRect> = strips
+                        .iter()
+                        .map(|r| azul_core::geom::LogicalRect {
+                            origin: azul_core::geom::LogicalPosition {
+                                x: r.origin.x - 1.0,
+                                y: r.origin.y - 1.0,
+                            },
+                            size: azul_core::geom::LogicalSize {
+                                width: r.size.width + 2.0,
+                                height: r.size.height + 2.0,
+                            },
+                        })
+                        .collect();
                     all_damage.extend(strips.iter().copied());
                     // LCD text is FIR-fringed: a run STARTING at the blit
                     // destination hangs 1px of fringe INTO the vacated

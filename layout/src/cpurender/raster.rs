@@ -2525,26 +2525,49 @@ fn render_glyphs_lcd(
         // enhancement and an optional chroma budget — text stays legible
         // on ANY fg/bg pair (thin white on green was unreadable with
         // sRGB-space blending), instead of only on near-b/w pairs.
-        let pf = agg_rust::pixfmt_lcd::PixfmtRgba32LcdLinear::new(&mut ra, &lut, params);
+        let mut pf = agg_rust::pixfmt_lcd::PixfmtRgba32LcdLinear::new(&mut ra, &lut, params);
+        if let Some(c) = clip {
+            // The FIR spread writes 2 stripes past every span; the renderer-
+            // base clip box cannot bound those writes (task #17: a damage-rect
+            // repaint double-blended the escaped fringe one pixel LEFT of the
+            // rect — 239²/255 = 224, the exact measured divergence).
+            pf.set_stripe_clip((c.x as i32) * 3, ((c.x + c.width) as i32) * 3);
+        }
         let mut rb = RendererBase::new(pf);
         if let Some(c) = clip {
+            // Y-only span clip: vertical has no FIR spread, so scanline
+            // clipping is exact. X spans must reach the FIR distribution
+            // UNCLIPPED — ink just OUTSIDE the clip contributes fringe to
+            // the boundary column INSIDE it (a span-clipped repaint loses
+            // that contribution and renders the column lighter than a full
+            // repaint). The stripe clip set above bounds the WRITES instead.
             rb.clip_box_i(
-                (c.x as i32) * 3,
+                0,
                 c.y as i32,
-                ((c.x + c.width) as i32) * 3 - 1,
+                (w as i32) * 3 - 1,
                 (c.y + c.height) as i32 - 1,
             );
         }
         render_scanlines_aa_solid(&mut ras, &mut sl, &mut rb, &agg_color);
     } else {
         // Legacy sRGB-space blending (AZ_LCD_BLEND=legacy).
-        let pf = PixfmtRgba32Lcd::new(&mut ra, &lut);
+        let mut pf = PixfmtRgba32Lcd::new(&mut ra, &lut);
+        if let Some(c) = clip {
+            // Same stripe-clip as the colorimetric arm above.
+            pf.set_stripe_clip((c.x as i32) * 3, ((c.x + c.width) as i32) * 3);
+        }
         let mut rb = RendererBase::new(pf);
         if let Some(c) = clip {
+            // Y-only span clip: vertical has no FIR spread, so scanline
+            // clipping is exact. X spans must reach the FIR distribution
+            // UNCLIPPED — ink just OUTSIDE the clip contributes fringe to
+            // the boundary column INSIDE it (a span-clipped repaint loses
+            // that contribution and renders the column lighter than a full
+            // repaint). The stripe clip set above bounds the WRITES instead.
             rb.clip_box_i(
-                (c.x as i32) * 3,
+                0,
                 c.y as i32,
-                ((c.x + c.width) as i32) * 3 - 1,
+                (w as i32) * 3 - 1,
                 (c.y + c.height) as i32 - 1,
             );
         }
@@ -4259,7 +4282,7 @@ mod text_shadow_tests {
         let glyphs = shape(&font, "Hi", font_size, 10.0, 40.0);
         // test fixture: bounded pixmap-dimension cast
         #[allow(clippy::cast_precision_loss)]
-        let clip_rect: WindowLogicalRect = LogicalRect {
+        let clip_rect: crate::solver3::display_list::WindowLogicalRect = LogicalRect {
             origin: LogicalPosition { x: 0.0, y: 0.0 },
             size: LogicalSize { width: w as f32, height: h as f32 },
         }
@@ -4351,7 +4374,7 @@ mod text_shadow_tests {
         let glyphs = shape(&font, "Hi", font_size, 40.0, 50.0);
         // test fixture: bounded pixmap-dimension cast
         #[allow(clippy::cast_precision_loss)]
-        let clip_rect: WindowLogicalRect = LogicalRect {
+        let clip_rect: crate::solver3::display_list::WindowLogicalRect = LogicalRect {
             origin: LogicalPosition { x: 0.0, y: 0.0 },
             size: LogicalSize { width: w as f32, height: h as f32 },
         }
@@ -7244,10 +7267,14 @@ mod shadow_ring_blit_tests {
 }
 
 #[cfg(all(test, feature = "std"))]
-mod lcd_pretile_tests {
+pub(super) mod lcd_pretile_tests {
     use super::*;
 
     use crate::font::parsed::ParsedFont;
+
+    pub(super) fn load_test_font_pub() -> Option<ParsedFont> { load_test_font() }
+    pub(super) fn rr_with_pub(f: &ParsedFont) -> (RendererResources, FontManager<FontRef>, FontHash) { rr_with(f) }
+    pub(super) fn shape_pub(p: &ParsedFont, t: &str, sz: f32, x: f32, y: f32) -> Vec<GlyphInstance> { shape(p, t, sz, x, y) }
 
     fn load_test_font() -> Option<ParsedFont> {
         let candidates = [
@@ -7406,6 +7433,134 @@ mod lcd_pretile_tests {
             "pre-blended tiles diverge from the sweep on {diff} bytes — \
              same pipeline must mean same pixels (check FIR padding and \
              tile placement)"
+        );
+    }
+}
+
+#[cfg(all(test, feature = "std"))]
+mod layer_path_text_tests {
+    use super::*;
+    use crate::solver3::display_list::DisplayList;
+
+    /// Task #17: all three paths (plain / damaged / layers+composite) must
+    /// agree byte-for-byte on a text run. An earlier version of this test
+    /// went red only because it skipped `allocate_layers_from_display_list`
+    /// (the root layer's range was empty and NOTHING was painted — the
+    /// "missing tail from x=88" was the 'fl' ascenders, i.e. the whole run).
+    #[test]
+    fn render_layers_text_equals_plain_render() {
+        let Some(font) = super::lcd_pretile_tests::load_test_font_pub() else {
+            return;
+        };
+        let (rr, fm, font_hash) = super::lcd_pretile_tests::rr_with_pub(&font);
+        let glyphs =
+            super::lcd_pretile_tests::shape_pub(&font, "grow reflow", 20.0, 8.0, 26.0);
+        let clip_rect: crate::solver3::display_list::WindowLogicalRect = LogicalRect {
+            origin: LogicalPosition { x: 0.0, y: 0.0 },
+            size: LogicalSize { width: 200.0, height: 40.0 },
+        }
+        .into();
+        let item = DisplayListItem::Text {
+            glyphs,
+            font_hash,
+            font_size_px: 20.0,
+            color: ColorU { r: 0, g: 0, b: 0, a: 255 },
+            clip_rect,
+            source_node_index: None,
+        };
+        let dl = DisplayList { items: vec![item], node_mapping: vec![None], ..Default::default() };
+
+        let mut plain = AzulPixmap::new(200, 40).unwrap();
+        plain.fill(255, 255, 255, 255);
+        let mut gc1 = GlyphCache::new();
+        render_display_list(&dl, &mut plain, 1.0, &rr, &fm, &mut gc1).unwrap();
+
+        let state = CpuRenderState::new(ScrollOffsetMap::new());
+        let mut layered = AzulPixmap::new(200, 40).unwrap();
+        layered.fill(255, 255, 255, 255);
+        let mut gc3 = GlyphCache::new();
+        let mut comp = CompositorState::new(200, 40);
+        comp.allocate_layers_from_display_list(&dl, 1.0);
+        comp.render_layers(&dl, 1.0, &rr, &fm, &mut gc3, &state).unwrap();
+        comp.composite_frame(&mut layered, 1.0);
+        let ldiff = plain.data().iter().zip(layered.data().iter()).filter(|(a, b)| a != b).count();
+        assert_eq!(ldiff, 0, "render_layers+composite diverges on {ldiff} bytes");
+    }
+}
+
+#[cfg(all(test, feature = "std"))]
+mod damaged_vs_plain_text_tests {
+    use super::*;
+    use crate::solver3::display_list::DisplayList;
+
+    /// Task #17 bisect: the SAME Text item rendered through the plain
+    /// full renderer and through the damaged renderer (one full-window
+    /// rect) must produce identical bytes — these are the two paths behind
+    /// "retained first-paint" vs "fresh reference", and the corpus caught
+    /// them disagreeing by one LCD fringe quantum.
+    #[test]
+    fn damaged_full_rect_text_equals_plain_render() {
+        let Some(font) = super::lcd_pretile_tests::load_test_font_pub() else {
+            eprintln!("no system test font — skipping");
+            return;
+        };
+        let (rr, fm, font_hash) = super::lcd_pretile_tests::rr_with_pub(&font);
+        let glyphs =
+            super::lcd_pretile_tests::shape_pub(&font, "grow reflow", 20.0, 8.0, 26.0);
+        let clip_rect: crate::solver3::display_list::WindowLogicalRect = LogicalRect {
+            origin: LogicalPosition { x: 0.0, y: 0.0 },
+            size: LogicalSize { width: 200.0, height: 40.0 },
+        }
+        .into();
+        let item = DisplayListItem::Text {
+            glyphs,
+            font_hash,
+            font_size_px: 20.0,
+            color: ColorU { r: 0, g: 0, b: 0, a: 255 },
+            clip_rect,
+            source_node_index: None,
+        };
+        let dl = DisplayList {
+            items: vec![item],
+            node_mapping: vec![None],
+            ..Default::default()
+        };
+
+        let mut plain = AzulPixmap::new(200, 40).unwrap();
+        plain.fill(255, 255, 255, 255);
+        let mut gc1 = GlyphCache::new();
+        render_display_list(&dl, &mut plain, 1.0, &rr, &fm, &mut gc1).unwrap();
+
+        let mut damaged = AzulPixmap::new(200, 40).unwrap();
+        damaged.fill(255, 255, 255, 255);
+        let mut gc2 = GlyphCache::new();
+        let state = CpuRenderState::new(ScrollOffsetMap::new());
+        let full = vec![LogicalRect {
+            origin: LogicalPosition { x: 0.0, y: 0.0 },
+            size: LogicalSize { width: 200.0, height: 40.0 },
+        }];
+        render_display_list_damaged(&dl, &mut damaged, 1.0, &rr, &fm, &mut gc2, &state, &full)
+            .unwrap();
+
+
+
+        let diff: Vec<usize> = plain
+            .data()
+            .iter()
+            .zip(damaged.data().iter())
+            .enumerate()
+            .filter(|(_, (a, b))| a != b)
+            .map(|(i, _)| i)
+            .collect();
+        assert!(
+            diff.is_empty(),
+            "plain vs damaged-full-rect diverge on {} bytes, first at px ({}, {}): \
+             plain={:?} damaged={:?}",
+            diff.len(),
+            (diff[0] / 4) % 200,
+            (diff[0] / 4) / 200,
+            &plain.data()[diff[0] & !3..(diff[0] & !3) + 4],
+            &damaged.data()[diff[0] & !3..(diff[0] & !3) + 4],
         );
     }
 }

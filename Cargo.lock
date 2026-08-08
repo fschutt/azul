@@ -175,7 +175,7 @@ dependencies = [
 [[package]]
 name = "agg-rust-azul"
 version = "1.1.2"
-source = "git+https://github.com/fschutt/agg-rust?branch=perf%2Flcd-span-scratch-buffer#f1e1976daa48747692b132bb3b1bbab6d5a260bc"
+source = "git+https://github.com/fschutt/agg-rust?branch=perf%2Flcd-span-scratch-buffer#4a2be0044194f2d329d1f1e2bf673bcb2e021f52"
 
 [[package]]
 name = "aho-corasick"

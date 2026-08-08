@@ -95,7 +95,14 @@ impl CompositorState {
     #[allow(clippy::cast_precision_loss)] // bounded pixel/coord/colour/glyph cast
     #[must_use] pub fn new(width: u32, height: u32) -> Self {
         let root_id = LayerId(0);
-        let root_layer = Layer::new(
+        // The ROOT layer is the canvas: start it OPAQUE WHITE (the base a
+        // full repaint clears to), never zeroed transparent black. The
+        // colorimetric LCD text blend reads destination pixels, so any
+        // path that touches the root pixbuf before the first
+        // render_layers (which re-fills it per frame) must find the same
+        // base a fresh repaint would. Non-root layers stay transparent —
+        // they composite.
+        let mut root_layer = Layer::new(
             root_id,
             LogicalRect {
                 origin: LogicalPosition::zero(),
@@ -107,6 +114,7 @@ impl CompositorState {
             width,
             height,
         );
+        root_layer.pixbuf.fill(255, 255, 255, 255);
         let mut layers = HashMap::new();
         layers.insert(root_id, root_layer);
         Self {
@@ -1648,14 +1656,15 @@ fn render_display_list_range(
 /// consumer repaints the wrong band and the changed item stays visually stale.
 /// Runtime toggle for the DAMAGE REFINEMENTS (skip non-painting items,
 /// symmetric-difference strips for same-origin solid rects / clips).
-/// Default OFF: the refinements are individually correct, but honest
-/// (smaller) damage UN-MASKS a latent cross-path LCD text divergence —
-/// the first-paint pixels of a run differ from a fresh reference render
-/// by one fringe quantum (corpus assert_damage_sound, 2 channels at the
-/// run's left fringe; grayscale passes). Until that path difference is
-/// fixed, full-strength damage keeps production repaints byte-stable;
-/// the round-3 blit gate opts IN (it needs honest damage to prove the
-/// blit is load-bearing).
+/// Default ON. They were landed default-OFF because honest (smaller)
+/// damage un-masked what looked like a cross-path LCD divergence; the
+/// real defect was twofold and is FIXED: (1) the FIR spread in the LCD
+/// pixfmts wrote 2 stripes outside the renderer clip, double-blending
+/// retained fringe on damage-rect repaints (agg-rust `set_stripe_clip`),
+/// and (2) a changed Text item's damage did not cover the 1-device-px
+/// fringe overhang (inflated in the diff below). The corpus damage-
+/// soundness gate is green with the refinements on; `AZ_DL_DIFF_REFINE=0`
+/// remains as the kill-switch.
 static DL_DIFF_REFINEMENTS: core::sync::atomic::AtomicU8 = core::sync::atomic::AtomicU8::new(0);
 
 #[must_use]
@@ -1665,7 +1674,11 @@ pub fn dl_diff_refinements_enabled() -> bool {
         1 => true,
         2 => false,
         _ => {
-            let on = std::env::var_os("AZ_DL_DIFF_REFINE").is_some();
+            // Default ON; the env var forces either way ("0"/"off" = off).
+            let on = match std::env::var("AZ_DL_DIFF_REFINE") {
+                Ok(v) => !(v == "0" || v.eq_ignore_ascii_case("off")),
+                Err(_) => true,
+            };
             DL_DIFF_REFINEMENTS.store(if on { 1 } else { 2 }, Ordering::Relaxed);
             on
         }
@@ -1946,23 +1959,41 @@ fn compute_display_list_damage_impl(
                     old_item.visual_bounds()
                 );
             }
+            // LCD text ink hangs ~2/3 of a device pixel outside the run's
+            // bounds on each side (the 5-tap FIR fringe). A MOVED run leaves
+            // stale fringe one pixel outside old∪new unless the damage covers
+            // it, and the repaint must CLEAR that pixel so the re-blend lands
+            // on base, not on retained ink. 1 LOGICAL px covers the fringe
+            // for every dpi ≥ 0.67 (0.67 × 1 px = the 2-stripe overhang).
+            let fringe = if matches!(new_item, DisplayListItem::Text { .. }) {
+                1.0
+            } else {
+                0.0
+            };
+            let inflate = |r: LogicalRect| LogicalRect {
+                origin: LogicalPosition { x: r.origin.x - fringe, y: r.origin.y - fringe },
+                size: LogicalSize {
+                    width: r.size.width + 2.0 * fringe,
+                    height: r.size.height + 2.0 * fringe,
+                },
+            };
             if let Some(ob) = old_item.visual_bounds() {
-                damage.push(LogicalRect {
+                damage.push(inflate(LogicalRect {
                     origin: LogicalPosition {
                         x: ob.origin.x - acc_old.0,
                         y: ob.origin.y - acc_old.1,
                     },
                     size: ob.size,
-                });
+                }));
             }
             if let Some(nb) = new_item.visual_bounds() {
-                damage.push(LogicalRect {
+                damage.push(inflate(LogicalRect {
                     origin: LogicalPosition {
                         x: nb.origin.x - acc_new.0,
                         y: nb.origin.y - acc_new.1,
                     },
                     size: nb.size,
-                });
+                }));
             }
         }
     }
