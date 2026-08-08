@@ -580,9 +580,54 @@ fn render_box_shadow(
         (data, sw, sh)
     };
 
-    // Blit the shadow buffer onto the main pixmap
+    // Blit the shadow buffer onto the main pixmap.
+    //
+    // CSS: an OUTSET shadow "must not be painted inside the border-box"
+    // (the border-box acts as an opaque occluder for its own shadow). The
+    // full blit both violated that under translucent elements AND paid the
+    // single largest alpha-blend of a repaint — the page-sized interior
+    // that the element immediately overdraws. Blit the RING around the
+    // border box instead: four strips, skipping the hole. Rounded corners
+    // keep the full blit (a rectangular hole would clip shadow that must
+    // show at the corner cutouts); non-outset modes keep it too.
     let dst_x = shadow_x as i32;
     let dst_y = shadow_y as i32;
+    let ring_eligible =
+        matches!(shadow.clip_mode, BoxShadowClipMode::Outset) && border_radius.is_zero();
+    if ring_eligible {
+        // Border-box hole in SOURCE coordinates. Shrink it by 1px on every
+        // side (ceil origin, floor extent) so the ring keeps a sliver of
+        // shadow UNDER the element edge — an over-large hole would leave a
+        // visible seam against the element's antialiased edge.
+        let hole_x = (rect.x - shadow_x).max(0.0).ceil() as u32 + 1;
+        let hole_y = (rect.y - shadow_y).max(0.0).ceil() as u32 + 1;
+        let hole_r = ((rect.x + rect.width - shadow_x).floor() as i64 - 1).max(0) as u32;
+        let hole_b = ((rect.y + rect.height - shadow_y).floor() as i64 - 1).max(0) as u32;
+        let hole_r = hole_r.min(sw);
+        let hole_b = hole_b.min(sh);
+
+        if hole_x < hole_r && hole_y < hole_b {
+            // Top strip (full width).
+            blit_buffer_sub(pixmap, &shadow_data, sw, sh, 0, 0, sw, hole_y, dst_x, dst_y);
+            // Bottom strip (full width).
+            blit_buffer_sub(
+                pixmap, &shadow_data, sw, sh, 0, hole_b, sw, sh - hole_b,
+                dst_x, dst_y + hole_b as i32,
+            );
+            // Left strip (between top and bottom).
+            blit_buffer_sub(
+                pixmap, &shadow_data, sw, sh, 0, hole_y, hole_x, hole_b - hole_y,
+                dst_x, dst_y + hole_y as i32,
+            );
+            // Right strip (between top and bottom).
+            blit_buffer_sub(
+                pixmap, &shadow_data, sw, sh, hole_r, hole_y, sw - hole_r, hole_b - hole_y,
+                dst_x + hole_r as i32, dst_y + hole_y as i32,
+            );
+            return Ok(());
+        }
+        // Degenerate hole (element fully outside the buffer) — fall through.
+    }
     blit_buffer(pixmap, &shadow_data, sw, sh, dst_x, dst_y);
 
     Ok(())
@@ -5000,7 +5045,15 @@ mod autotest_generated {
     // ==================================================================
 
     #[test]
-    fn box_shadow_paints_under_the_bounds() {
+    fn box_shadow_does_not_paint_under_the_bounds() {
+        // CSS Backgrounds 3 §box-shadow: an OUTER shadow casts as if the
+        // border box were opaque and is painted only OUTSIDE the border
+        // box. A zero-offset hard shadow is therefore (nearly) invisible —
+        // this test used to pin the opposite (>100 dark pixels UNDER the
+        // box, the pre-ring-blit behavior that also wasted the biggest
+        // alpha-blend of every repaint). The ring blit keeps a deliberate
+        // 1px sliver under the element edge to avoid antialiasing seams,
+        // hence "nearly": the sliver is ~4 edges x 20px.
         let mut p = pixmap(40, 40);
         let res = render_box_shadow(
             &mut p,
@@ -5011,7 +5064,22 @@ mod autotest_generated {
         );
         assert!(res.is_ok());
         let dark = p.data().chunks_exact(4).filter(|c| c[0] < 50).count();
-        assert!(dark > 100, "a hard 20x20 shadow must darken the box, got {dark}");
+        assert!(
+            dark <= 90,
+            "a zero-offset outset shadow must not paint under the border box              (only the 1px anti-seam sliver may darken), got {dark}"
+        );
+        // And an OFFSET shadow must still visibly paint outside the box.
+        let mut p2 = pixmap(60, 60);
+        render_box_shadow(
+            &mut p2,
+            &lrect(10.0, 10.0, 20.0, 20.0),
+            &shadow(15.0, 2.0, 0.0, BLACK),
+            &BorderRadius::default(),
+            1.0,
+        )
+        .unwrap();
+        let dark2 = p2.data().chunks_exact(4).filter(|c| c[0] < 50).count();
+        assert!(dark2 > 100, "an offset shadow must paint outside the box, got {dark2}");
     }
 
     #[test]
@@ -6803,5 +6871,54 @@ mod shadow_blur_cache_tests {
         let (len, bytes) = cache_state();
         assert_eq!(len, 2, "distinct blur radii are distinct entries");
         assert!(bytes <= SHADOW_CACHE_MAX_BYTES);
+    }
+}
+
+#[cfg(all(test, feature = "std"))]
+mod shadow_ring_blit_tests {
+    use super::*;
+    use azul_css::props::basic::pixel::{PixelValue, PixelValueNoPercent};
+    use azul_css::props::style::box_shadow::{BoxShadowClipMode, StyleBoxShadow};
+
+    fn pv(v: f32) -> PixelValueNoPercent {
+        PixelValueNoPercent { inner: PixelValue::px(v) }
+    }
+
+    /// CSS outset shadows must not paint inside the border box. With a big
+    /// offset, the old full blit dragged shadow pixels UNDER the element
+    /// area — visible whenever the element's own background is translucent
+    /// (and pure wasted blending when it is not).
+    #[test]
+    fn outset_shadow_does_not_paint_inside_the_border_box() {
+        let shadow = StyleBoxShadow {
+            offset_x: pv(20.0),
+            offset_y: pv(20.0),
+            blur_radius: pv(2.0),
+            spread_radius: pv(0.0),
+            color: azul_css::props::basic::color::ColorU { r: 0, g: 0, b: 0, a: 255 },
+            clip_mode: BoxShadowClipMode::Outset,
+        };
+        let bounds = LogicalRect {
+            origin: LogicalPosition { x: 30.0, y: 30.0 },
+            size: LogicalSize { width: 40.0, height: 40.0 },
+        };
+        let mut p = AzulPixmap::new(140, 140).unwrap();
+        p.fill(255, 255, 255, 255);
+        render_box_shadow(&mut p, &bounds, &shadow, &BorderRadius::default(), 1.0).unwrap();
+
+        let px = |x: u32, y: u32| {
+            let i = ((y * 140 + x) * 4) as usize;
+            (p.data[i], p.data[i + 1], p.data[i + 2])
+        };
+        // Center of the border box: the offset shadow overlaps this area,
+        // but outset shadows must not paint under the element.
+        assert_eq!(px(50, 50), (255, 255, 255), "border-box interior must stay untouched");
+        // Just outside the border box on the offset side: shadow must be there.
+        let (r, g, b) = px(70 + 8, 70 + 8);
+        assert!(
+            r < 250 && g < 250 && b < 250,
+            "shadow must paint outside the border box (got {:?})",
+            (r, g, b)
+        );
     }
 }

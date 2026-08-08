@@ -845,6 +845,67 @@ pub fn agg_fill_gradient_clipped<G: GradientFunction>(
 
 /// Alpha-blend one premultiplied-alpha RGBA buffer onto another at (dx, dy).
 #[allow(clippy::cast_possible_wrap, clippy::cast_sign_loss)] // bounded pixel/coord/colour/glyph cast
+/// [`blit_buffer`] restricted to a sub-rectangle of the SOURCE buffer.
+/// `(sx, sy, w, h)` select the source region; `(dx, dy)` is where that
+/// region's top-left lands in `dst`. Exists for the box-shadow ring blit:
+/// an outset shadow must not paint inside the border box (CSS), and the
+/// interior of a page-sized shadow buffer is the single largest
+/// alpha-blend a repaint used to do.
+pub fn blit_buffer_sub(
+    dst: &mut AzulPixmap,
+    src: &[u8],
+    src_w: u32,
+    src_h: u32,
+    sx: u32,
+    sy: u32,
+    w: u32,
+    h: u32,
+    dx: i32,
+    dy: i32,
+) {
+    let dw = dst.width as i32;
+    let dh = dst.height as i32;
+    let x_end = sx.saturating_add(w).min(src_w);
+    let y_end = sy.saturating_add(h).min(src_h);
+
+    for py in sy..y_end {
+        let ty = dy.saturating_add((py - sy) as i32);
+        if ty < 0 || ty >= dh {
+            continue;
+        }
+        for px in sx..x_end {
+            let tx = dx.saturating_add((px - sx) as i32);
+            if tx < 0 || tx >= dw {
+                continue;
+            }
+            let si = ((py * src_w + px) * 4) as usize;
+            let di = ((ty as u32 * dst.width + tx as u32) * 4) as usize;
+            if si + 3 >= src.len() || di + 3 >= dst.data.len() {
+                continue;
+            }
+            let sa = u32::from(src[si + 3]);
+            if sa == 0 {
+                continue;
+            }
+            if sa == 255 {
+                dst.data[di] = src[si];
+                dst.data[di + 1] = src[si + 1];
+                dst.data[di + 2] = src[si + 2];
+                dst.data[di + 3] = 255;
+            } else {
+                let inv_sa = 255 - sa;
+                dst.data[di] =
+                    ((u32::from(src[si]) + u32::from(dst.data[di]) * inv_sa / 255).min(255)) as u8;
+                dst.data[di + 1] =
+                    ((u32::from(src[si + 1]) + u32::from(dst.data[di + 1]) * inv_sa / 255).min(255)) as u8;
+                dst.data[di + 2] =
+                    ((u32::from(src[si + 2]) + u32::from(dst.data[di + 2]) * inv_sa / 255).min(255)) as u8;
+                dst.data[di + 3] = ((sa + u32::from(dst.data[di + 3]) * inv_sa / 255).min(255)) as u8;
+            }
+        }
+    }
+}
+
 pub fn blit_buffer(dst: &mut AzulPixmap, src: &[u8], src_w: u32, src_h: u32, dx: i32, dy: i32) {
     let dw = dst.width as i32;
     let dh = dst.height as i32;
