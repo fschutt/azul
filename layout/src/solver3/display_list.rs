@@ -2118,6 +2118,9 @@ pub fn generate_display_list<T: ParsedFontTrait + Sync + 'static>(
         tree.nodes.len(),
         calculated_positions.len()
     );
+    // AZ_PROFILE=cpu breakdown of the DL build. Inert (one relaxed load)
+    // unless recording is on — see probe::set_recording.
+    let _dl_span = crate::probe::Probe::span("dl_generate");
 
     debug_info!(ctx, "Starting display list generation");
     debug_info!(
@@ -2182,7 +2185,10 @@ pub fn generate_display_list<T: ParsedFontTrait + Sync + 'static>(
     // +spec:stacking-contexts:887766 - CSS2 §9.9 stacking contexts, z-index layering, and painting order
     // 1. Build a tree of stacking contexts, which defines the global paint order.
     // +spec:display-property:9a419c - root element always forms a stacking context (it's the tree root)
-    let stacking_context_tree = generator.collect_stacking_contexts(tree.root)?;
+    let stacking_context_tree = {
+        let _p = crate::probe::Probe::span("dl_collect_stacking");
+        generator.collect_stacking_contexts(tree.root)?
+    };
 
     // 2. Traverse the stacking context tree to generate display items in the correct order.
     debug_info!(
@@ -3547,6 +3553,7 @@ where
         builder: &mut DisplayListBuilder,
         node_index: usize,
     ) -> Result<()> {
+        let _p = crate::probe::Probe::span("dl_bg_border");
         let Some(paint_rect) = self.get_paint_rect(node_index) else {
             return Ok(());
         };
@@ -4200,6 +4207,7 @@ where
         builder: &mut DisplayListBuilder,
         node_index: usize,
     ) -> Result<()> {
+        let _p = crate::probe::Probe::span("dl_content");
         // CSS 2.2 §11.2: visibility:hidden — skip painting content for hidden nodes.
         if self.is_node_hidden(node_index) {
             return Ok(());
@@ -4738,6 +4746,7 @@ where
         layout: &Arc<UnifiedLayout>,
         source_node_index: usize,
     ) {
+        let _p = crate::probe::Probe::span("dl_inline_text");
         // TODO: This will always paint images over the glyphs
         // TODO: Handle z-index within inline content (e.g. background images)
         // NOTE: Text decorations (underline, strikethrough, overline) are handled in push_text_layout_to_display_list

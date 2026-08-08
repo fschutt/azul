@@ -224,25 +224,67 @@ impl NodeCache {
         }
     }
 
+    /// Classify a CONCRETE containing-block size into (measurement slot,
+    /// canonicalized key). The call sites only have resolved `f32`s — the
+    /// availability enums are gone by this depth — so "indefinite" is
+    /// detected by value: non-finite or the ≥1e9 sentinel family.
+    ///
+    /// WHY THIS EXISTS (2026-08-08, measured on big.md): with everything
+    /// collapsed onto slot 0, ~507 nodes were each sized TWICE per pass —
+    /// the measure visit under an INDEFINITE height and the final visit
+    /// under the resolved height — and the single slot ping-ponged between
+    /// the two keys: 506 `h_qinf` + 508 `h_sinf` misses, a structural 100%
+    /// miss rate on a pass where nothing changed. Separate slots per
+    /// known/unknown combination make both visits hit from the second pass
+    /// on; canonicalizing the indefinite axis to `f32::MAX` keeps the
+    /// epsilon compare meaningful (`INFINITY - INFINITY` is NaN, which
+    /// fails every `<` test and would turn a same-key lookup into a miss).
+    #[must_use] pub fn classify_size_key(containing_block_size: LogicalSize) -> (usize, LogicalSize) {
+        const INDEFINITE: f32 = 1.0e9;
+        let w = containing_block_size.width;
+        let h = containing_block_size.height;
+        let w_known = w.is_finite() && w.abs() < INDEFINITE;
+        let h_known = h.is_finite() && h.abs() < INDEFINITE;
+        let slot = Self::slot_index(
+            w_known,
+            h_known,
+            AvailableWidthType::Definite,
+            AvailableWidthType::Definite,
+        );
+        let key = LogicalSize {
+            width: if w_known { w } else { f32::MAX },
+            height: if h_known { h } else { f32::MAX },
+        };
+        (slot, key)
+    }
+
     /// Look up a sizing cache entry, implementing Taffy's "result matches request"
     /// optimization: if the caller provides the result size as a known dimension
     /// (common in Pass1→Pass2 transitions), it's still a cache hit.
     #[must_use] pub fn get_size(&self, slot: usize, known_dims: LogicalSize) -> Option<&SizingCacheEntry> {
-        let entry = self.measure_entries[slot].as_ref()?;
-        // Exact match on input constraints
-        if (known_dims.width - entry.available_size.width).abs() < CACHE_SIZE_EPSILON
-            && (known_dims.height - entry.available_size.height).abs() < CACHE_SIZE_EPSILON
-        {
-            return Some(entry);
+        if let Some(entry) = self.measure_entries[slot].as_ref() {
+            // Exact match on input constraints
+            if (known_dims.width - entry.available_size.width).abs() < CACHE_SIZE_EPSILON
+                && (known_dims.height - entry.available_size.height).abs() < CACHE_SIZE_EPSILON
+            {
+                return Some(entry);
+            }
         }
         // "Result matches request" — if the caller provides the result size
         // as a known dimension, it's still a hit. This is the key optimization
         // that makes two-pass layout O(n): Pass 1 measures a node, Pass 2
         // provides the measured size as a constraint → automatic cache hit.
-        if (known_dims.width - entry.result_size.width).abs() < CACHE_SIZE_EPSILON
-            && (known_dims.height - entry.result_size.height).abs() < CACHE_SIZE_EPSILON
-        {
-            return Some(entry);
+        // Valid only for a fully-definite query (both axes are real lengths),
+        // and the matching entry may live in ANY slot — pass 1 stored its
+        // result under the measure-constraint slot, not the definite one.
+        if known_dims.width < 1.0e9 && known_dims.height < 1.0e9 {
+            for entry in self.measure_entries.iter().flatten() {
+                if (known_dims.width - entry.result_size.width).abs() < CACHE_SIZE_EPSILON
+                    && (known_dims.height - entry.result_size.height).abs() < CACHE_SIZE_EPSILON
+                {
+                    return Some(entry);
+                }
+            }
         }
         None
     }
@@ -2407,14 +2449,15 @@ pub fn calculate_layout_for_subtree_fragment<T: ParsedFontTrait>(
     if fragment.is_none() && node_index < ctx.cache_map.entries.len() {
         match compute_mode {
             ComputeMode::ComputeSize => {
-                // ComputeSize: check measurement slot first (Taffy's 9-slot scheme).
-                // TODO(superplan): only slot 0 is ever read/written — the other 8
-                // measurement slots are dead. To wire the full multi-slot scheme,
-                // classify `containing_block_size` into (width_known, height_known,
-                // width_type, height_type) and select the slot via
-                // `NodeCache::slot_index(..)` here and at the matching `store_size`.
+                // ComputeSize: check the measurement slot for THIS constraint
+                // shape (Taffy's 9-slot scheme, wired 2026-08-08). The measure
+                // visit (indefinite height) and the final visit (definite
+                // height) land in different slots, so neither evicts the
+                // other — the slot-0 collapse made every visit a miss.
+                let (size_slot, size_key) =
+                    NodeCache::classify_size_key(containing_block_size);
                 let sizing_hit = ctx.cache_map.entries[node_index]
-                    .get_size(0, containing_block_size)
+                    .get_size(size_slot, size_key)
                     .copied();
                 if let Some(cached_sizing) = sizing_hit {
                     // SIZING CACHE HIT — set used_size and return immediately.
@@ -2452,6 +2495,48 @@ pub fn calculate_layout_for_subtree_fragment<T: ParsedFontTrait>(
                 // the cache instead (so layout_formatting_context/layout_ifc were skipped).
                 #[cfg(feature = "web_lift")]
                 unsafe { crate::az_mark(((0x60A60 + (node_index & 7) * 4)) as u32, (0xC0DE0001) as u32); }
+                // Miss triage (AZ_PROFILE=cpu): a steady-state resize showed
+                // 1020/1020 misses — this names WHICH failure it is. "empty"
+                // = slot never stored / cleared (invalidation or remap loss);
+                // "sizekey" = an entry exists but was stored under different
+                // constraints (the slot-0 collapse overwriting, or a genuine
+                // containing-block change); "laykey" = only the layout slot
+                // exists and its key mismatches.
+                {
+                    let e = &ctx.cache_map.entries[node_index];
+                    let reason = if let Some(m) = e.measure_entries[size_slot].as_ref() {
+                        let dw = (size_key.width - m.available_size.width).abs();
+                        let dh = (size_key.height - m.available_size.height).abs();
+                        if dw >= CACHE_SIZE_EPSILON && dh >= CACHE_SIZE_EPSILON {
+                            "size_cache_miss_sizekey_both"
+                        } else if dw >= CACHE_SIZE_EPSILON {
+                            "size_cache_miss_sizekey_w"
+                        } else {
+                            // Which SIDE of the height pair is the indefinite
+                            // sentinel? q∞/s∞ = the measure-vs-final ping-pong
+                            // (one slot alternating between an indefinite
+                            // measure query and a definite final query);
+                            // finite/finite = a genuinely changed containing
+                            // block height.
+                            const BIG: f32 = 1.0e9;
+                            let qi = size_key.height >= BIG
+                                || !size_key.height.is_finite();
+                            let si = m.available_size.height >= BIG
+                                || !m.available_size.height.is_finite();
+                            match (qi, si) {
+                                (true, false) => "size_cache_miss_sizekey_h_qinf",
+                                (false, true) => "size_cache_miss_sizekey_h_sinf",
+                                (true, true) => "size_cache_miss_sizekey_h_bothinf",
+                                (false, false) => "size_cache_miss_sizekey_h_finite",
+                            }
+                        }
+                    } else if e.layout_entry.is_some() {
+                        "size_cache_miss_laykey"
+                    } else {
+                        "size_cache_miss_empty"
+                    };
+                    drop(crate::probe::Probe::span(reason));
+                }
                 drop(crate::probe::Probe::span("size_cache_miss"));
             }
             ComputeMode::PerformLayout => {
@@ -2749,13 +2834,14 @@ pub fn calculate_layout_for_subtree_fragment<T: ParsedFontTrait>(
             scrollbar_info: merged_scrollbar_info,
         });
 
-        // Also store in a measurement slot (slot 0: both dimensions known).
-        // This enables the "result matches request" optimization (Taffy pattern):
-        // when Pass 2 provides the same size as Pass 1 measured, it's a cache hit.
-        // TODO(superplan): see the matching note at the `get_size(0, ..)` site —
-        // slots 1-8 are unused; wire `NodeCache::slot_index(..)` to populate them.
-        ctx.cache_map.get_mut(node_index).store_size(0, SizingCacheEntry {
-            available_size: containing_block_size,
+        // Also store in the measurement slot matching THIS constraint shape
+        // (same classification as the lookup — the measure visit and the
+        // final visit must land in different slots or they evict each other
+        // every pass). The canonicalized key replaces the raw containing
+        // block so an indefinite axis compares equal next time.
+        let (size_slot, size_key) = NodeCache::classify_size_key(containing_block_size);
+        ctx.cache_map.get_mut(node_index).store_size(size_slot, SizingCacheEntry {
+            available_size: size_key,
             result_size: final_used_size,
             baseline,
             escaped_top_margin: escaped_top,
@@ -3373,15 +3459,37 @@ mod autotest_generated {
     #[test]
     fn nodecache_slots_are_independent() {
         let mut c = NodeCache::default();
-        c.store_size(0, sizing_entry(size(1.0, 1.0), size(1.0, 1.0)));
-        c.store_size(8, sizing_entry(size(2.0, 2.0), size(2.0, 2.0)));
+        c.store_size(0, sizing_entry(size(1.0, 1.0), size(9.0, 9.0)));
+        c.store_size(8, sizing_entry(size(2.0, 2.0), size(7.0, 7.0)));
 
         assert!(c.get_size(0, size(1.0, 1.0)).is_some());
         assert!(c.get_size(8, size(2.0, 2.0)).is_some());
-        // No cross-talk between slots.
+        // No cross-talk between slots on the AVAILABLE-SIZE key: a query
+        // whose constraints were stored in another slot does not hit here
+        // (result sizes chosen so the result-matches fallback stays silent).
         assert!(c.get_size(0, size(2.0, 2.0)).is_none());
         assert!(c.get_size(8, size(1.0, 1.0)).is_none());
         assert!(c.get_size(4, size(1.0, 1.0)).is_none());
+    }
+
+    #[test]
+    fn nodecache_result_match_crosses_slots_for_definite_queries() {
+        // The pass1→pass2 handoff (2026-08-08 slot wiring): pass 1 measures
+        // under an indefinite constraint and stores in a MEASURE slot; pass 2
+        // queries with the measured result as a DEFINITE constraint — which
+        // classifies to a different slot. "Result matches request" must
+        // therefore scan ALL slots (Taffy's Cache::get does the same), or
+        // wiring the 9 slots would have traded the eviction bug for a
+        // permanent pass-2 miss.
+        let mut c = NodeCache::default();
+        // Stored under slot 1 (definite width, indefinite height).
+        c.store_size(1, sizing_entry(size(100.0, f32::MAX), size(100.0, 40.0)));
+        // Pass 2 asks with the RESULT as a fully-definite constraint → slot 0
+        // is empty, but the slot-1 entry's result matches the request.
+        let hit = c.get_size(0, size(100.0, 40.0)).expect("cross-slot result match");
+        assert_eq!(hit.result_size, size(100.0, 40.0));
+        // An INDEFINITE query never takes the fallback: only exact key hits.
+        assert!(c.get_size(0, size(100.0, f32::MAX)).is_none());
     }
 
     #[test]

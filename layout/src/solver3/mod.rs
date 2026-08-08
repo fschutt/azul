@@ -569,10 +569,31 @@ pub fn layout_document<T: ParsedFontTrait + Sync + 'static>(
         }
     }
 
-    // Step 1.2: Clear Taffy Caches for Dirty Nodes
-    for &node_idx in &recon_result.intrinsic_dirty {
-        if let Some(warm) = new_tree.warm_mut(node_idx) {
-            warm.taffy_cache.clear();
+    // Step 1.2: Clear Taffy Caches for Dirty Nodes — and their ANCESTORS.
+    //
+    // The per-node `taffy_cache` persists across passes (it rides the warm
+    // carry), keyed by taffy on (known_dimensions, available_space,
+    // run_mode). Input changes miss by key on their own; what the key can
+    // NOT see is a content change INSIDE the measured subtree — a deep text
+    // edit changes what a flex item measures to at the SAME inputs. The
+    // dirty node alone isn't enough: every ancestor's measure derives from
+    // it, so the closure must be cleared (same propagation rule as
+    // `calculate_intrinsic_sizes`' dirty_closure).
+    //
+    // This closure-clear is what made it safe to DELETE the unconditional
+    // "clear every child before every flex layout" hammer in
+    // `layout_taffy_subtree` (taffy_bridge.rs, from Nov 2025 — it predates
+    // reconcile-driven dirtiness and was forcing 312 min/max-content
+    // subtree re-layouts per pass on big.md, ~40% of a steady resize).
+    {
+        let closure = sizing::compute_dirty_ancestor_closure(
+            &new_tree,
+            &recon_result.intrinsic_dirty,
+        );
+        for &node_idx in &closure {
+            if let Some(warm) = new_tree.warm_mut(node_idx) {
+                warm.taffy_cache.clear();
+            }
         }
     }
 

@@ -3435,6 +3435,17 @@ fn layout_ifc<T: ParsedFontTrait>(
         h.finish()
     };
 
+    // Visit-type census (AZ_PROFILE=cpu): which constraint TYPE reaches this
+    // IFC. Min/Max-content visits that fall through to layout_flow are the
+    // measure-vs-final cache thrash — intrinsic WIDTHS are cached on warm,
+    // so a min/max-content visit that still re-runs line breaking is either
+    // a min-content-HEIGHT request or a bug.
+    drop(crate::probe::Probe::span(match constraints.available_width_type {
+        Text3AvailableSpace::Definite(_) => "ifc_visit_definite",
+        Text3AvailableSpace::MinContent => "ifc_visit_min",
+        Text3AvailableSpace::MaxContent => "ifc_visit_max",
+    }));
+
     let cached_collection = tree
         .warm(node_index)
         .and_then(|w| w.inline_content_cache.as_ref())
@@ -3606,11 +3617,50 @@ fn layout_ifc<T: ParsedFontTrait>(
         // #11 fix: cache validity is keyed on WIDTH only, so a same-width
         // RefreshDom whose text CHANGED would otherwise reuse the stale shaped
         // layout. Require the inline content hash to match too.
-        let cached_ifc = cached_ifc
-            .filter(|c| c.is_valid_for(constraints.available_width_type, resize_has_floats))
-            .filter(|c| c.inline_content_hash == current_content_hash);
+        //
+        // Re-flow triage (AZ_PROFILE=cpu): a steady-state fixed-page-width
+        // resize still ran text_layout_flow 477× — these markers name which
+        // gate rejected the cached layout for every one of those.
+        let cached_ifc = match cached_ifc {
+            None => {
+                drop(crate::probe::Probe::span("ifc_reflow_cold"));
+                None
+            }
+            Some(c) if !c.is_valid_for(constraints.available_width_type, resize_has_floats) => {
+                // Finer buckets: dd = both DEFINITE (then by delta size —
+                // "small" is sub-pixel jitter above the 0.1 eps, a rounding
+                // provenance bug, not a real width change), type = the
+                // constraint TYPE flipped (measure min/max-content vs final
+                // definite), float = the float-gain rule.
+                use Text3AvailableSpace as Avs;
+                let reason = if resize_has_floats && !c.has_floats {
+                    "ifc_reflow_width_floatgain"
+                } else {
+                    match (c.available_width, constraints.available_width_type) {
+                        (Avs::Definite(old), Avs::Definite(new)) => {
+                            if (old - new).abs() < 1.0 {
+                                "ifc_reflow_width_dd_small"
+                            } else {
+                                "ifc_reflow_width_dd_big"
+                            }
+                        }
+                        _ => "ifc_reflow_width_type",
+                    }
+                };
+                drop(crate::probe::Probe::span(reason));
+                None
+            }
+            Some(c) if c.inline_content_hash != current_content_hash => {
+                drop(crate::probe::Probe::span("ifc_reflow_content"));
+                None
+            }
+            Some(c) => Some(c),
+        };
 
         if let Some(cached) = cached_ifc {
+            if cached.line_breaks.is_none() {
+                drop(crate::probe::Probe::span("ifc_reflow_no_linebreaks"));
+            }
             if let Some(ref line_breaks) = cached.line_breaks {
                 // Collect per-item advance widths from cached metrics
                 let old_advances: Vec<f32> = cached.item_metrics.iter()
@@ -3666,6 +3716,7 @@ fn layout_ifc<T: ParsedFontTrait>(
                     return Ok(output);
                 }
                 // Fall through to full layout_flow
+                drop(crate::probe::Probe::span("ifc_reflow_incr_declined"));
             }
         }
     }

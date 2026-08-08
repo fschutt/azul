@@ -1369,12 +1369,19 @@ pub fn layout_taffy_subtree<T: ParsedFontTrait>(
         ));
     }
 
-    // Clear cache to force re-measure
-    for &child_idx in &children {
-        if let Some(child) = tree.warm_mut(child_idx) {
-            child.taffy_cache.clear();
-        }
-    }
+    // NOTE (2026-08-08): the unconditional "clear every child's taffy_cache
+    // to force re-measure" that used to live here (Nov 2025, pre-reconcile)
+    // is GONE. Dirty-driven invalidation now happens once per pass in
+    // layout_document Step 1.2 over the ancestor closure of
+    // `intrinsic_dirty`; everything else is covered by taffy's own
+    // (known_dimensions, available_space, run_mode) cache key. The hammer
+    // was re-running full min/max-content subtree layouts for every flex
+    // child on every pass — 312 of them per steady-state resize on big.md,
+    // each re-breaking every IFC line in the subtree — and, worse, each
+    // measure STORE evicted the Definite entry in the single-slot IFC cache
+    // (`should_replace_with`: width type changed), so the final pass
+    // re-flowed the text AGAIN. Measured: root_layout_pass 25.5 ms → see
+    // scripts/ for the after numbers.
 
     // SAFETY: We pass text_cache as a raw pointer because TaffyBridge needs to call
     // layout_ifc from within compute_child_layout, but we already have &mut ctx and &mut tree.
@@ -2025,10 +2032,32 @@ impl<T: ParsedFontTrait> CacheTree for TaffyBridge<'_, '_, T> {
         input: &LayoutInput,
     ) -> Option<LayoutOutput> {
         let node_idx: usize = node_id.into();
-        self.tree
+        let hit = self.tree
             .warm(node_idx)?
             .taffy_cache
-            .get(input)
+            .get(input);
+        drop(crate::probe::Probe::span(if hit.is_some() {
+            "taffy_cache_get_hit"
+        } else {
+            "taffy_cache_get_miss"
+        }));
+        // AZ_TAFFY_DEBUG: one line per lookup with the full taffy cache key.
+        // Diffing two passes' lines for the same node names WHICH component
+        // (known_dimensions / available_space / run_mode) moved and broke
+        // the key — aggregates can't tell that.
+        if std::env::var_os("AZ_TAFFY_DEBUG").is_some() {
+            eprintln!(
+                "[taffy] {} n{} kd=({:?},{:?}) avail=({:?},{:?}) mode={:?}",
+                if hit.is_some() { "HIT " } else { "MISS" },
+                node_idx,
+                input.known_dimensions.width,
+                input.known_dimensions.height,
+                input.available_space.width,
+                input.available_space.height,
+                input.run_mode,
+            );
+        }
+        hit
     }
 
     fn cache_store(
@@ -2045,6 +2074,7 @@ impl<T: ParsedFontTrait> CacheTree for TaffyBridge<'_, '_, T> {
     }
 
     fn cache_clear(&mut self, node_id: taffy::NodeId) {
+        drop(crate::probe::Probe::span("taffy_cache_clear"));
         let node_idx: usize = node_id.into();
         if let Some(warm) = self.tree.warm_mut(node_idx) {
             warm.taffy_cache.clear();

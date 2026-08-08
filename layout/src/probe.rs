@@ -36,6 +36,7 @@ use core::marker::PhantomData;
 ))]
 mod imp {
     use std::cell::RefCell;
+    use std::sync::atomic::{AtomicU8, Ordering};
     use std::time::Instant;
 
     thread_local! {
@@ -45,16 +46,54 @@ mod imp {
         static DEPTH: std::cell::Cell<u16> = const { std::cell::Cell::new(0) };
     }
 
+    /// Whether spans/samples are RECORDED. The `probe` feature being compiled
+    /// in used to mean "always record" — but the dll builds with `probe` on
+    /// unconditionally, and the event buffer is only drained by the
+    /// `AZ_PROFILE=cpu` report path. Every plain run therefore pushed ~40 B
+    /// per span into a thread-local Vec that nothing ever emptied: unbounded
+    /// growth, invisible to the LayoutCache memory walk (it's a thread-local).
+    /// A 5 s resize drag alone is ~375 relayouts × hundreds of spans.
+    ///
+    /// 0 = uninitialized (resolve from AZ_PROFILE on first probe),
+    /// 1 = recording, 2 = off.
+    static RECORDING: AtomicU8 = AtomicU8::new(0);
+
+    #[inline]
+    fn recording() -> bool {
+        match RECORDING.load(Ordering::Relaxed) {
+            1 => true,
+            2 => false,
+            _ => {
+                // First probe anywhere resolves the mode once. Any profile
+                // mode that can consume events counts; the write is
+                // idempotent so a racing thread resolving the same env is
+                // harmless.
+                let on = azul_core::profile::cpu_enabled()
+                    || azul_core::profile::memory_enabled()
+                    || azul_core::profile::heap_enabled();
+                RECORDING.store(if on { 1 } else { 2 }, Ordering::Relaxed);
+                on
+            }
+        }
+    }
+
+    pub(super) fn set_recording(on: bool) {
+        RECORDING.store(if on { 1 } else { 2 }, Ordering::Relaxed);
+    }
+
     /// RAII guard that records its name + elapsed nanos on drop.
+    /// `start == None` means recording was off when the span opened: the
+    /// guard is inert (no clock read on open, no TLS touch on drop).
     pub struct Span {
         pub(crate) name: &'static str,
-        pub(crate) start: Instant,
+        pub(crate) start: Option<Instant>,
         pub(crate) depth: u16,
     }
 
     impl Drop for Span {
         fn drop(&mut self) {
-            let dur_ns = self.start.elapsed().as_nanos() as u64;
+            let Some(start) = self.start else { return };
+            let dur_ns = start.elapsed().as_nanos() as u64;
             // try_with (not with): the lifted-to-wasm web backend has no real
             // TLS, so `with` hits panic_access_error. These probe accesses are
             // inlined into layout_dom_recursive/layout_document, so they can't
@@ -72,6 +111,9 @@ mod imp {
     }
 
     pub(super) fn open(name: &'static str) -> Span {
+        if !recording() {
+            return Span { name, start: None, depth: 0 };
+        }
         let depth = DEPTH
             .try_with(|d| {
                 let cur = d.get();
@@ -79,10 +121,13 @@ mod imp {
                 cur
             })
             .unwrap_or(0);
-        Span { name, start: Instant::now(), depth }
+        Span { name, start: Some(Instant::now()), depth }
     }
 
     pub(super) fn sample_rss(label: &'static str, bytes: u64) {
+        if !recording() {
+            return;
+        }
         // try_with: see Span::drop — no real TLS in the lifted wasm backend.
         let depth = DEPTH.try_with(std::cell::Cell::get).unwrap_or(0);
         let _ = EVENTS.try_with(|cell| {
@@ -131,6 +176,9 @@ mod imp {
     pub(super) const fn open(_name: &'static str) -> Span {
         Span
     }
+
+    #[inline]
+    pub(super) const fn set_recording(_on: bool) {}
 
     #[inline]
     pub(super) const fn sample_rss(_label: &'static str, _bytes: u64) {}
@@ -189,12 +237,26 @@ pub struct Probe {
 
 impl Probe {
     /// Open a timed span. The returned guard records its name + nanos
-    /// on drop into the thread-local event buffer.
+    /// on drop into the thread-local event buffer — but ONLY while
+    /// recording is on (any `AZ_PROFILE` mode, or [`Probe::set_recording`]).
+    /// With recording off the guard is inert and the call is one relaxed
+    /// atomic load: safe to leave in hot per-node paths.
     #[inline]
     // const only in the no-`probe` stub config; enabled `imp::` calls are non-const
     #[allow(clippy::missing_const_for_fn)]
     #[must_use] pub fn span(name: &'static str) -> Span {
         imp::open(name)
+    }
+
+    /// Force event recording on/off, overriding the lazy `AZ_PROFILE`
+    /// resolution. Tests use this (they assert on drained events without
+    /// setting env vars); a debug server could too. Flipping mid-span only
+    /// perturbs the saturating depth counter, never memory safety.
+    #[inline]
+    // const only in the no-`probe` stub config; enabled `imp::` calls are non-const
+    #[allow(clippy::missing_const_for_fn)]
+    pub fn set_recording(on: bool) {
+        imp::set_recording(on);
     }
 
     /// Record an RSS checkpoint with the given label + byte count. The
@@ -898,8 +960,11 @@ mod autotest_generated {
 
     /// Clear this thread's event buffer so a test's assertions hold even when
     /// the suite runs with `--test-threads=1` (all tests on one thread share
-    /// the same thread-local `EVENTS`).
+    /// the same thread-local `EVENTS`). Also force recording ON: these tests
+    /// assert on drained events, and without `AZ_PROFILE` in the environment
+    /// the lazy gate would otherwise leave every span inert.
     fn reset() {
+        Probe::set_recording(true);
         Probe::drop_events();
         assert_eq!(Probe::peek_len(), 0, "drop_events must leave an empty buffer");
     }

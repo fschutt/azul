@@ -3626,6 +3626,15 @@ impl LayoutWindow {
         if *CPU_ENABLED.get_or_init(azul_core::profile::cpu_enabled) {
             let events = crate::probe::Probe::drain();
             crate::probe::print_drained_events("layout pass", &events);
+        } else {
+            // Recording can be on without the cpu report consuming it (e.g.
+            // AZ_PROFILE=memory records RSS checkpoints; a debug server could
+            // flip `set_recording` at runtime). Whatever buffered this pass
+            // and was not drained above must be discarded HERE or it
+            // accumulates for the life of the thread — the exact leak the
+            // probe recording gate exists to prevent. Clearing an empty Vec
+            // is a no-op, so the plain-run cost is nil.
+            crate::probe::Probe::drop_events();
         }
 
         if *CASCADE_ENABLED.get_or_init(azul_core::profile::cascade_enabled) {

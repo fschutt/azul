@@ -207,7 +207,7 @@ pub fn calculate_intrinsic_sizes<T: ParsedFontTrait>(
     Ok(())
 }
 
-fn compute_dirty_ancestor_closure(
+pub(crate) fn compute_dirty_ancestor_closure(
     tree: &LayoutTree,
     dirty_nodes: &BTreeSet<usize>,
 ) -> std::collections::HashSet<usize> {
