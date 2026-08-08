@@ -4135,3 +4135,323 @@ mod autotest_generated {
         }
     }
 }
+
+// ============================================================================
+// Pre-cascade DOM fingerprints (two tiers: STRUCTURE vs STYLE)
+// ============================================================================
+
+/// Two-tier fingerprints of a recursive [`crate::dom::Dom`], computed BEFORE
+/// the cascade, in the same pre-order the flattener
+/// (`convert_dom_into_compact_dom`) assigns `NodeId`s — index `i` in each Vec
+/// is flattened `NodeId(i)`.
+///
+/// WHY TWO TIERS (user directive 2026-08-08): "the start should just scan
+/// over the NodeHierarchy to discover anything that changed, which is
+/// iterating over a minimal array" — and css must be EXCLUDED from that
+/// first equivalence, because a stylesheet can only affect the subtree it
+/// is attached to:
+///
+/// - **structure**: hierarchy shape + node content (node_type, ids/classes,
+///   attributes, callback EVENT types). NO css of any kind. If this tier is
+///   equal, the old tree, its shaped text and its intrinsic caches are all
+///   reusable — and if the style tier is ALSO equal, the previous CASCADE
+///   is reusable wholesale (skip `create_from_dom` entirely).
+/// - **style**: per-node inline css + (at subtree roots that carry
+///   `.with_css()` sheets) the sheet content. A difference here with an
+///   equal structure tier means: keep the tree, re-cascade the affected
+///   subtree(s) only.
+///
+/// The per-node arrays exist so a mismatch NAMES the changed nodes (the
+/// eventual dirty-set for scoped re-cascade / word-granular text relayout);
+/// the root folds make the equal case one u64 compare per tier.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct DomFingerprints {
+    /// Per-node structural hash, pre-order. Folds: node_type content
+    /// (image-callback nodes hash (fn ptr, RefAny type_id) — the RefAny
+    /// INSTANCE is rebuilt every frame by design and is transferred, not
+    /// compared; mirrors `is_layout_equivalent`), ids+classes, callback
+    /// event types, contenteditable/flags/dataset, and child COUNT (pre-order
+    /// alone cannot distinguish `[a [b] c]` from `[a [b c]]`).
+    pub structure: Vec<u64>,
+    /// Per-node style hash, pre-order: inline css properties + conditions,
+    /// plus the node's attached `.with_css()` sheets (path, declarations,
+    /// @-conditions, priority per rule).
+    pub style: Vec<u64>,
+    /// Order-sensitive fold of `structure`.
+    pub structure_root: u64,
+    /// Order-sensitive fold of `style`.
+    pub style_root: u64,
+}
+
+/// RefAny payloads collected during the fingerprint walk, to be TRANSFERRED
+/// onto the retained DOM when the produce side is skipped. The skip path
+/// keeps last frame's StyledDom, but callbacks/image callbacks must use the
+/// freshly-created RefAnys (they may reference new app state) — same
+/// transfer `regenerate_layout`'s equivalence branch has always done, minus
+/// the cascade it used to pay to get here. Indices are flattened NodeIds.
+#[derive(Debug, Default, Clone)]
+pub struct PreCascadeTransfers {
+    /// `(flattened NodeId index, fresh image callback)` for every
+    /// `NodeType::Image(DecodedImage::Callback)` node.
+    pub image_callbacks: Vec<(usize, crate::callbacks::CoreImageCallback)>,
+    /// `(flattened NodeId index, fresh event callbacks)` for every node with
+    /// a non-empty callback list.
+    pub callbacks: Vec<(usize, crate::callbacks::CoreCallbackDataVec)>,
+}
+
+/// Walk a recursive [`crate::dom::Dom`] once, pre-order, producing both
+/// fingerprint tiers and the RefAny transfer list. Cost: one hash pass over
+/// node data — no cascade, no allocation proportional to anything but node
+/// count.
+#[must_use] pub fn fingerprint_dom(dom: &crate::dom::Dom) -> (DomFingerprints, PreCascadeTransfers) {
+    use core::hash::{Hash, Hasher};
+
+    fn node_structure_hash(node: &crate::dom::NodeData, child_count: usize) -> u64 {
+        use crate::dom::NodeType;
+        use crate::resources::DecodedImage;
+        use core::hash::{Hash, Hasher};
+        let mut h = crate::hash::DefaultHasher::new();
+
+        // node_type content — image-callback special case (see struct doc)
+        match node.get_node_type() {
+            NodeType::Image(img) => {
+                match img.get_data() {
+                    DecodedImage::Callback(cb) => {
+                        0xB0DE_CA11u32.hash(&mut h);
+                        (cb.callback.cb as usize).hash(&mut h);
+                        cb.refany.get_type_id().hash(&mut h);
+                    }
+                    _ => {
+                        // Raw / GPU images: ImageRef hashes by id — instance
+                        // identity, the same strictness is_layout_equivalent's
+                        // `old_img != new_img` applies.
+                        node.get_node_type().hash(&mut h);
+                    }
+                }
+            }
+            other => other.hash(&mut h),
+        }
+
+        // ids + classes (order-sensitive, as worn)
+        for attr in node.attributes().as_ref() {
+            match attr {
+                crate::dom::AttributeType::Id(s) => {
+                    1u8.hash(&mut h);
+                    s.hash(&mut h);
+                }
+                crate::dom::AttributeType::Class(s) => {
+                    2u8.hash(&mut h);
+                    s.hash(&mut h);
+                }
+                other => {
+                    3u8.hash(&mut h);
+                    other.hash(&mut h);
+                }
+            }
+        }
+
+        // callback EVENT types only — the fn ptr + RefAny are transferred,
+        // not compared (is_layout_equivalent: "compare only event types")
+        node.callbacks.as_ref().len().hash(&mut h);
+        for cb in node.callbacks.as_ref() {
+            cb.event.hash(&mut h);
+        }
+
+        // layout-relevant attributes
+        node.is_contenteditable().hash(&mut h);
+        node.flags.hash(&mut h);
+
+        // hierarchy shape
+        child_count.hash(&mut h);
+
+        h.finish()
+    }
+
+    fn node_style_hash(dom: &crate::dom::Dom) -> u64 {
+        use core::hash::{Hash, Hasher};
+        let mut h = crate::hash::DefaultHasher::new();
+
+        for (prop, conds) in dom.root.style.iter_inline_properties() {
+            prop.hash(&mut h);
+            conds.as_slice().len().hash(&mut h);
+        }
+
+        // Attached .with_css() sheets — subtree-scoped by construction, so
+        // they belong to THIS node's style identity.
+        dom.css.as_ref().len().hash(&mut h);
+        for css in dom.css.as_ref() {
+            for rule in css.rules.as_ref() {
+                rule.path.hash(&mut h);
+                for decl in rule.declarations.as_ref() {
+                    decl.hash(&mut h);
+                }
+                // DynamicSelector carries f32 media thresholds and derives no
+                // Hash — the Debug repr is the stable identity here (rare
+                // path: only @-rule-conditioned blocks have any).
+                for cond in rule.conditions.as_ref() {
+                    alloc::format!("{cond:?}").hash(&mut h);
+                }
+                rule.priority.hash(&mut h);
+            }
+        }
+
+        h.finish()
+    }
+
+    fn walk(
+        dom: &crate::dom::Dom,
+        fp: &mut DomFingerprints,
+        transfers: &mut PreCascadeTransfers,
+    ) {
+        use crate::dom::NodeType;
+        use crate::resources::DecodedImage;
+
+        let idx = fp.structure.len();
+        fp.structure
+            .push(node_structure_hash(&dom.root, dom.children.as_ref().len()));
+        fp.style.push(node_style_hash(dom));
+
+        if let NodeType::Image(img) = dom.root.get_node_type() {
+            if let DecodedImage::Callback(cb) = img.get_data() {
+                transfers.image_callbacks.push((idx, cb.clone()));
+            }
+        }
+        if !dom.root.callbacks.as_ref().is_empty() {
+            transfers.callbacks.push((idx, dom.root.callbacks.clone()));
+        }
+
+        for child in dom.children.as_ref() {
+            walk(child, fp, transfers);
+        }
+    }
+
+    let mut fp = DomFingerprints {
+        structure: Vec::new(),
+        style: Vec::new(),
+        structure_root: 0,
+        style_root: 0,
+    };
+    let mut transfers = PreCascadeTransfers::default();
+    walk(dom, &mut fp, &mut transfers);
+
+    let mut hs = crate::hash::DefaultHasher::new();
+    for v in &fp.structure {
+        v.hash(&mut hs);
+    }
+    fp.structure_root = hs.finish();
+
+    let mut hy = crate::hash::DefaultHasher::new();
+    for v in &fp.style {
+        v.hash(&mut hy);
+    }
+    fp.style_root = hy.finish();
+
+    (fp, transfers)
+}
+
+#[cfg(test)]
+mod dom_fingerprint_tests {
+    use super::*;
+    use crate::dom::{Dom, NodeType};
+
+    fn sample_dom() -> Dom {
+        Dom::create_node(NodeType::Div)
+            .with_class("page".into())
+            .with_child(Dom::create_text("hello"))
+            .with_child(
+                Dom::create_node(NodeType::Div)
+                    .with_child(Dom::create_text("world")),
+            )
+    }
+
+    #[test]
+    fn identical_independently_built_doms_fingerprint_equal_on_both_tiers() {
+        let (a, _) = fingerprint_dom(&sample_dom());
+        let (b, _) = fingerprint_dom(&sample_dom());
+        assert_eq!(a.structure_root, b.structure_root);
+        assert_eq!(a.style_root, b.style_root);
+        assert_eq!(a.structure, b.structure);
+        assert_eq!(a.style, b.style);
+        // preorder: root, text, div, text = 4 nodes
+        assert_eq!(a.structure.len(), 4);
+    }
+
+    #[test]
+    fn text_change_moves_exactly_one_structure_hash_and_no_style_hash() {
+        let (a, _) = fingerprint_dom(&sample_dom());
+        let changed = Dom::create_node(NodeType::Div)
+            .with_class("page".into())
+            .with_child(Dom::create_text("hellX"))
+            .with_child(
+                Dom::create_node(NodeType::Div)
+                    .with_child(Dom::create_text("world")),
+            );
+        let (b, _) = fingerprint_dom(&changed);
+        assert_ne!(a.structure_root, b.structure_root, "text is structure");
+        assert_eq!(a.style_root, b.style_root, "text change must not touch the style tier");
+        let diffs: Vec<usize> = (0..a.structure.len())
+            .filter(|&i| a.structure[i] != b.structure[i])
+            .collect();
+        // "hello" is the root's first child → preorder index 1
+        assert_eq!(diffs, alloc::vec![1], "exactly the edited text node differs");
+    }
+
+    #[test]
+    fn with_css_sheet_change_is_style_tier_only() {
+        let base = || sample_dom();
+        let (a, _) = fingerprint_dom(&base().with_css("div { color: red; }"));
+        let (b, _) = fingerprint_dom(&base().with_css("div { color: blue; }"));
+        assert_eq!(a.structure_root, b.structure_root, "css is EXCLUDED from structure");
+        assert_ne!(a.style_root, b.style_root, "sheet content is style identity");
+        // The sheet hangs on the root → style diff localizes to preorder 0.
+        let diffs: Vec<usize> = (0..a.style.len())
+            .filter(|&i| a.style[i] != b.style[i])
+            .collect();
+        assert_eq!(diffs, alloc::vec![0]);
+    }
+
+    #[test]
+    fn inline_css_change_is_style_tier_only() {
+        let (a, _) = fingerprint_dom(&sample_dom());
+        let mut changed = sample_dom();
+        changed.root.set_css("background: red;");
+        let (b, _) = fingerprint_dom(&changed);
+        assert_eq!(a.structure_root, b.structure_root);
+        assert_ne!(a.style_root, b.style_root);
+    }
+
+    #[test]
+    fn class_change_is_structural() {
+        let (a, _) = fingerprint_dom(&sample_dom());
+        let changed = Dom::create_node(NodeType::Div)
+            .with_class("pages".into())
+            .with_child(Dom::create_text("hello"))
+            .with_child(
+                Dom::create_node(NodeType::Div)
+                    .with_child(Dom::create_text("world")),
+            );
+        let (b, _) = fingerprint_dom(&changed);
+        assert_ne!(
+            a.structure_root, b.structure_root,
+            "a class changes which sheet rules match — structural identity"
+        );
+    }
+
+    #[test]
+    fn added_child_changes_the_parent_and_the_shape() {
+        let (a, _) = fingerprint_dom(&sample_dom());
+        let (b, _) = fingerprint_dom(&sample_dom().with_child(Dom::create_text("extra")));
+        assert_ne!(a.structure_root, b.structure_root);
+        assert_ne!(a.structure.len(), b.structure.len());
+        // The parent's own hash moved too (child count is folded in), so a
+        // same-length reshuffle can never alias.
+        assert_ne!(a.structure[0], b.structure[0]);
+    }
+
+    #[test]
+    fn transfers_collect_callback_nodes_at_their_preorder_indices() {
+        let (_, transfers) = fingerprint_dom(&sample_dom());
+        assert!(transfers.image_callbacks.is_empty());
+        assert!(transfers.callbacks.is_empty());
+    }
+}

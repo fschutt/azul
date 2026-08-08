@@ -738,6 +738,9 @@ fn memory_walk_coverage_is_exhaustive(w: &LayoutWindow) {
         frame_report_reset_request: _,
         // Bounded by SIZE_QUERY_CAP (256 entries), not by the document.
         recorded_size_queries: _,
+        // Two u64 arrays sized by node count (~16 B/node) — noise next to
+        // the tree; walked nowhere, listed so the destructure stays total.
+        last_dom_fingerprints: _,
         #[cfg(feature = "pdf")]
         fragmentation_context: _,
         image_cache: _,
@@ -942,6 +945,15 @@ pub struct LayoutWindow {
     /// engine re-flows the existing DOM instead of re-invoking the callback.
     /// See [`Self::size_queries_would_flip`].
     pub recorded_size_queries: (Vec<azul_core::callbacks::SizeQuery>, bool),
+    /// Pre-cascade fingerprints of the LAST adopted user DOM (two tiers:
+    /// structure vs style — see `azul_core::diff::DomFingerprints`). The
+    /// produce side of `regenerate_layout` compares the fresh callback DOM
+    /// against this BEFORE `create_from_dom`: equal on both tiers ⇒ the whole
+    /// cascade (67 ms on big.md) is skipped and the retained StyledDom is
+    /// reused. `None` after an E2E mount override (fingerprints of the app
+    /// DOM are meaningless while the test DOM is mounted) and before the
+    /// first produce.
+    pub last_dom_fingerprints: Option<azul_core::diff::DomFingerprints>,
     /// Layout cache for solver3 (incremental layout tree) - for the root DOM
     pub layout_cache: Solver3LayoutCache,
     /// Text layout cache for text3 (shaped glyphs, line breaks, etc.)
@@ -1280,6 +1292,7 @@ impl LayoutWindow {
             skip_gpu_sync: false,
             frame_report: FrameReport::default(),
             recorded_size_queries: (Vec::new(), false),
+            last_dom_fingerprints: None,
             frame_report_reset_request: core::sync::atomic::AtomicU64::new(0),
             #[cfg(feature = "pdf")]
             fragmentation_context: crate::paged::FragmentationContext::new_continuous(800.0),
@@ -11409,6 +11422,9 @@ impl LayoutWindow {
             frame_report_reset_request: _,
             // Thresholds + answers, keyed by nothing.
             recorded_size_queries: _,
+            // Pre-order hashes, positionally aligned with the NEXT produce's
+            // flatten — never carries NodeIds.
+            last_dom_fingerprints: _,
             layout_cache: _,
             layout_results: _,
             // Content-addressed (hashes / font ids / image ids), never NodeIds:

@@ -348,6 +348,170 @@ phases.mark("after_callback");
     #[cfg(target_os = "linux")]
     let user_dom = inject_software_menubar(user_dom);
 
+    // 1.4. PRE-CASCADE DIFF (user directive 2026-08-08: "the start should just
+    // scan over the NodeHierarchy to discover anything that changed, which is
+    // iterating over a minimal array, in no world should this ever take 93ms").
+    //
+    // Fingerprint the fresh callback DOM in flatten order, in two tiers —
+    // STRUCTURE (hierarchy + node content, css excluded) and STYLE (inline
+    // css + subtree-scoped .with_css sheets). Equal on both tiers ⇒ the
+    // retained StyledDom, its CASCADE, its shaped text and its warm layout
+    // caches are all still valid: skip create_from_dom (the 67 ms cascade),
+    // icon resolution, CSD injection and the post-hoc equivalence walk
+    // entirely. `is_layout_equivalent` (below) stays as the fallback for the
+    // FULL arm — it catches value-equal DOMs whose fingerprints moved
+    // (over-sensitivity costs a cascade, never correctness).
+    //
+    // The skip is disabled while an E2E mount override is active (the app
+    // DOM is not what is on screen) and when the retained DOM's node count
+    // differs from the fingerprint walk (CSD titlebar injection shifts
+    // NodeIds — the transfer indices would mis-target; those windows keep
+    // the full path until the offset mapping exists).
+    let precascade = if layout_window.e2e_mount.xml().is_none() {
+        Some(azul_core::diff::fingerprint_dom(&user_dom))
+    } else {
+        layout_window.last_dom_fingerprints = None;
+        None
+    };
+    let window_size_changed_precheck = {
+        let old_dims = layout_window.current_window_state.size.dimensions;
+        let new_dims = current_window_state.size.dimensions;
+        const SIZE_CHANGE_THRESHOLD: f32 = 0.5;
+        (old_dims.width - new_dims.width).abs() > SIZE_CHANGE_THRESHOLD
+            || (old_dims.height - new_dims.height).abs() > SIZE_CHANGE_THRESHOLD
+    };
+    let precascade_skip = match (&precascade, layout_window.last_dom_fingerprints.as_ref()) {
+        (Some((fp, _)), Some(prev)) => {
+            fp.structure_root == prev.structure_root
+                && fp.style_root == prev.style_root
+                && layout_window
+                    .layout_results
+                    .get(&azul_core::dom::DomId::ROOT_ID)
+                    .is_some_and(|lr| {
+                        lr.styled_dom.node_data.as_ref().len() == fp.structure.len()
+                    })
+        }
+        _ => false,
+    };
+
+    if precascade_skip {
+        let (_fp, transfers) = precascade.expect("precascade_skip implies fingerprints");
+        log_debug!(
+            LogCategory::Layout,
+            "[regenerate_layout] pre-cascade fingerprints equal (both tiers) — skipping              cascade/icons/CSD; transferring {} image callbacks + {} callback lists",
+            transfers.image_callbacks.len(),
+            transfers.callbacks.len()
+        );
+        phases.mark("precascade_skip");
+
+        let mut old_result = layout_window
+            .layout_results
+            .remove(&azul_core::dom::DomId::ROOT_ID)
+            .expect("checked by precascade_skip");
+        // mem::take, not a field move — DomLayoutResult must stay whole so the
+        // unchanged exit can put it back into the map.
+        let mut retained = core::mem::take(&mut old_result.styled_dom);
+
+        // Fresh RefAny payloads onto the retained DOM (same transfer the
+        // equivalence branch has always done — the callbacks may reference
+        // new app state even though the DOM shape is identical).
+        {
+            let node_data_mut = retained.node_data.as_mut();
+            for (idx, new_cb) in &transfers.image_callbacks {
+                if let Some(nd) = node_data_mut.get_mut(*idx) {
+                    nd.node_type = azul_core::dom::NodeType::Image(azul_css::css::BoxOrStatic::heap(
+                        azul_core::resources::ImageRef::callback(
+                            new_cb.callback.clone(),
+                            new_cb.refany.clone(),
+                        ),
+                    ));
+                }
+            }
+            for (idx, new_cbs) in &transfers.callbacks {
+                if let Some(nd) = node_data_mut.get_mut(*idx) {
+                    nd.callbacks = new_cbs.clone();
+                }
+            }
+        }
+
+        // Re-derive hover/focus/active flags from the managers. A state
+        // delta concurrent with this RefreshDom must not be lost — but it
+        // needs only a warm RELAYOUT of the retained DOM (states are
+        // runtime overlays), never the cascade the full path would pay.
+        let states_before: Vec<_> = retained
+            .styled_nodes
+            .as_ref()
+            .iter()
+            .map(|n| n.styled_node_state.clone())
+            .collect();
+        let retained =
+            apply_runtime_states_before_layout(retained, layout_window, current_window_state);
+        let states_changed = retained
+            .styled_nodes
+            .as_ref()
+            .iter()
+            .map(|n| &n.styled_node_state)
+            .ne(states_before.iter());
+
+        if !window_size_changed_precheck && !states_changed {
+            // Put the retained result back untouched.
+            old_result.styled_dom = retained;
+            layout_window
+                .layout_results
+                .insert(azul_core::dom::DomId::ROOT_ID, old_result);
+            log_debug!(
+                LogCategory::Layout,
+                "[regenerate_layout] COMPLETE (pre-cascade skip, layout unchanged)"
+            );
+            azul_layout::probe::emit_phase_heap("end_precascade_unchanged");
+            phases.mark("end_precascade_unchanged");
+            phases.report();
+            return Ok(LayoutRegenerateResult::LayoutUnchanged);
+        }
+
+        // Size and/or runtime states moved: warm-relayout the retained DOM
+        // (solver3 reconcile sees the same StyledDom object → full cache
+        // reuse; this is the R1 semantics without having built a throwaway
+        // cascade first).
+        layout_window.set_system_style(system_style.clone());
+        azul_layout::probe::emit_phase_heap("before_layout_dl");
+        phases.mark("before_layout_dl_precascade");
+        layout_window
+            .layout_and_generate_display_list(
+                retained,
+                current_window_state,
+                renderer_resources,
+                &ExternalSystemCallbacks::rust_internal(),
+                debug_messages,
+            )
+            .map_err(|e| format!("Layout error: {:?}", e))?;
+        azul_layout::probe::emit_phase_heap("after_layout_and_dl");
+        phases.mark("after_layout_and_dl");
+        layout_window.current_window_state = current_window_state.clone();
+
+        let dirty_entries: Vec<_> = layout_window
+            .content_overlay
+            .iter_text()
+            .map(|(k, _)| *k)
+            .collect();
+        for (dom_id, node_id) in dirty_entries {
+            layout_window.reapply_dirty_text_node(dom_id, node_id);
+        }
+
+        log_debug!(
+            LogCategory::Layout,
+            "[regenerate_layout] COMPLETE (pre-cascade skip, warm relayout)"
+        );
+        phases.mark("end_precascade_relayout");
+        phases.report();
+        return Ok(LayoutRegenerateResult::LayoutChanged);
+    }
+    if let Some((fp, _)) = &precascade {
+        // Full produce ahead — record what we are about to adopt.
+        layout_window.last_dom_fingerprints = Some(fp.clone());
+    }
+    phases.mark("precascade_full");
+
     // 1.5. Flatten recursive Dom → StyledDom (single deferred cascade pass)
     //
     // The user callback now returns a recursive `Dom` with CSS attached via `.with_css()` (@scope-like).
