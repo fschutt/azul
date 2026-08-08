@@ -506,6 +506,7 @@ phases.mark("after_callback");
         phases.report();
         return Ok(LayoutRegenerateResult::LayoutChanged);
     }
+    let prev_dom_fingerprints = layout_window.last_dom_fingerprints.take();
     if let Some((fp, _)) = &precascade {
         // Full produce ahead — record what we are about to adopt.
         layout_window.last_dom_fingerprints = Some(fp.clone());
@@ -946,6 +947,35 @@ phases.mark("after_runtime_states");
     }
     azul_layout::probe::emit_phase_heap("after_equivalence_check");
 phases.mark("after_equivalence_check");
+
+    // GRANULAR DIFF (task #15b): the pre-cascade fingerprints name exactly
+    // which pre-order nodes changed. Reconcile can skip re-hashing every
+    // node whose SELF + ANCESTORS are unchanged on BOTH tiers (ancestors
+    // matter: style changes inherit downward). Only when the flattened
+    // node count matches the walk (CSD injection shifts NodeIds — those
+    // windows skip the hint) — the diff then feeds solver3 instead of
+    // being thrown away.
+    if let (Some((new_fp, _)), Some(prev_fp)) = (&precascade, &prev_dom_fingerprints) {
+        let n = styled_dom.node_data.as_ref().len();
+        if new_fp.structure.len() == n
+            && prev_fp.structure.len() == n
+            && new_fp.style.len() == n
+            && prev_fp.style.len() == n
+        {
+            let hierarchy = styled_dom.node_hierarchy.as_container();
+            let mut clean = vec![false; n];
+            for i in 0..n {
+                let self_clean = new_fp.structure[i] == prev_fp.structure[i]
+                    && new_fp.style[i] == prev_fp.style[i];
+                let parent_clean = hierarchy
+                    .get(azul_core::id::NodeId::new(i))
+                    .and_then(|h| h.parent_id())
+                    .map_or(true, |p| clean.get(p.index()).copied().unwrap_or(false));
+                clean[i] = self_clean && parent_clean;
+            }
+            layout_window.layout_cache.dom_diff_clean = Some(clean);
+        }
+    }
 
     // 4. Perform layout with solver3
     log_debug!(

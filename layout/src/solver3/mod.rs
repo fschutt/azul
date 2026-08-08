@@ -526,6 +526,7 @@ pub fn layout_document<T: ParsedFontTrait + Sync + 'static>(
     // (root `subtree_hash` + viewport) is the correct, content-based skip;
     // it costs one ~600 µs reconcile pass but cannot be fooled by address
     // reuse.
+    let _doc_setup_span = crate::probe::Probe::span("doc_setup_to_reconcile");
     let dom_ptr = std::ptr::from_ref::<StyledDom>(new_dom) as usize;
     cache.prev_dom_ptr = dom_ptr;
     cache.prev_viewport = viewport;
@@ -545,6 +546,7 @@ pub fn layout_document<T: ParsedFontTrait + Sync + 'static>(
     // incremental relayouts keep full reconcile — they NEED its fingerprint
     // diff for paint-dirty classification. The dom-id sanity check guards
     // against a stale hint meeting a swapped DOM.
+    drop(_doc_setup_span);
     let resize_only = core::mem::take(&mut cache.resize_only_hint);
     let dom_len_for_hint = new_dom.node_data.as_ref().len();
     let (new_tree_val, mut recon_result) = if resize_only
@@ -567,7 +569,8 @@ pub fn layout_document<T: ParsedFontTrait + Sync + 'static>(
         (tree, r)
     } else {
         cache.last_reconcile_was_skipped = false;
-        cache::reconcile_and_invalidate(&mut ctx_temp, cache, viewport)?
+        let dom_diff_clean = cache.dom_diff_clean.take();
+        cache::reconcile_and_invalidate(&mut ctx_temp, cache, viewport, dom_diff_clean)?
     };
     // The reuse census, persisted where a test can read it — see the field
     // docs on LayoutCache for why this pair is the ONLY external observable
@@ -575,6 +578,7 @@ pub fn layout_document<T: ParsedFontTrait + Sync + 'static>(
     // scratch" (both produce identical pixels).
     cache.last_reconcile_reused = recon_result.reused_nodes;
     cache.last_reconcile_fresh = recon_result.fresh_nodes;
+    cache.last_fingerprint_skips = recon_result.fingerprint_skips;
     // [g56 FIX] Box the LayoutTree onto the HEAP. The lifted `&mut new_tree` passed to
     // calculate_intrinsic_sizes was mis-lifted (callee saw nodes.len()=0 while the caller saw 2)
     // because a stack/SROA'd `new_tree`'s address doesn't survive the cross-function lifted call
@@ -644,7 +648,12 @@ pub fn layout_document<T: ParsedFontTrait + Sync + 'static>(
     // Step 1.3: Compute CSS Counters
     // This must be done after tree generation but before layout,
     // as list markers need counter values during formatting context layout
-    {
+    if resize_only && !cache.counters.is_empty() {
+        // CSS counters are a pure function of the DOM — on a resize-skip
+        // pass the DOM is byte-identical, so last pass's values are THE
+        // values (0.4 ms of ::marker recount per drag frame otherwise).
+        counter_values = cache.counters.clone();
+    } else {
         let _p = crate::probe::Probe::span("compute_counters");
         cache::compute_counters(new_dom, &new_tree, &mut counter_values);
     }
@@ -1199,6 +1208,7 @@ pub fn layout_document<T: ParsedFontTrait + Sync + 'static>(
     cache.scroll_id_to_node_id = scroll_id_to_node_id;
     // + calculated_positions.len in the low bits. If step stays 3, it diverged earlier.
     { let _ = (0xDD00_0004u32 | ((cache.calculated_positions.len() as u32 & 0xfff) << 4)); }
+    let _doc_tail_span = crate::probe::Probe::span("doc_tail_writeback");
     cache.counters = counter_values;
     cache.cache_map = cache_map_back;
     crate::probe::sample_peak_rss("rss:after_layout_document");

@@ -721,7 +721,7 @@ fn compute_layout_with_fragmentation<T: ParsedFontTrait + Sync + 'static>(
         (new_tree, result)
     } else {
         // Incremental path: diff old tree vs new DOM
-        cache::reconcile_and_invalidate(&mut ctx_temp, cache, viewport)?
+        cache::reconcile_and_invalidate(&mut ctx_temp, cache, viewport, None)?
     };
 
     // Step 1.2: Clear Taffy Caches for Dirty Nodes

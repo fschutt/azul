@@ -407,6 +407,17 @@ pub struct LayoutCache {
     /// whose size changed must re-emit its items (a translated background
     /// rect would be the wrong SIZE, not just the wrong place).
     pub previous_sizes: Vec<Option<LogicalSize>>,
+    /// GRANULAR DIFF channel (task #15b, one-shot): per flattened NodeId,
+    /// `true` = the pre-cascade DOM fingerprints proved this node AND every
+    /// ancestor unchanged on BOTH tiers (structure + style). Reconcile may
+    /// then reuse the old node's fingerprint after a cheap state-hash check
+    /// instead of re-hashing node content — the diff feeds the later
+    /// stages instead of being thrown away. Set by the dll's full-produce
+    /// arm; consumed (taken) by `reconcile_and_invalidate`.
+    pub dom_diff_clean: Option<Vec<bool>>,
+    /// Census: fingerprint computations skipped via `dom_diff_clean` in the
+    /// LAST reconcile — the external observable for the channel's tests.
+    pub last_fingerprint_skips: usize,
     /// Reconciliation census of the LAST pass: how many nodes were CLONED
     /// from the previous tree (warm shaped-text + intrinsic caches carried
     /// forward) vs built FRESH (no warm data). This pair is what makes cache
@@ -572,6 +583,10 @@ pub struct ReconciliationResult {
     /// Layout-dirty, with NO warm data. On a same-DOM relayout (a pure
     /// resize) this being anything but 0 means warm caches were thrown away.
     pub fresh_nodes: usize,
+    /// Fingerprint computations skipped because the pre-cascade DOM diff
+    /// proved the node (and its ancestors) unchanged. See
+    /// `LayoutCache::dom_diff_clean`.
+    pub fingerprint_skips: usize,
 }
 
 impl ReconciliationResult {
@@ -938,6 +953,9 @@ pub fn reconcile_and_invalidate<T: ParsedFontTrait>(
     ctx: &mut LayoutContext<'_, T>,
     cache: &LayoutCache,
     viewport: LogicalRect,
+    // GRANULAR DIFF (see LayoutCache::dom_diff_clean) — taken by the
+    // caller (this fn only has &cache) and moved in.
+    dom_diff_clean: Option<Vec<bool>>,
 ) -> Result<(LayoutTree, ReconciliationResult)> {
     let _probe_outer = crate::probe::Probe::span("reconcile_and_invalidate");
     let mut new_tree_builder = LayoutTreeBuilder::new(ctx.viewport_size);
@@ -984,6 +1002,9 @@ pub fn reconcile_and_invalidate<T: ParsedFontTrait>(
         .root
         .into_crate_internal()
         .unwrap_or(NodeId::ZERO);
+    let clean_slice: Option<&[bool]> = dom_diff_clean
+        .as_deref()
+        .filter(|c| c.len() == ctx.styled_dom.node_data.as_ref().len());
     let root_idx = reconcile_recursive(
         ctx.styled_dom,
         root_dom_id,
@@ -994,6 +1015,7 @@ pub fn reconcile_and_invalidate<T: ParsedFontTrait>(
         &mut recon_result,
         ctx.debug_messages,
         false, // the root has no ancestor whose restyle could reach it
+        clean_slice,
     )?;
 
     // Clean up layout roots: if a parent is a layout root, its children don't need to be.
@@ -1209,6 +1231,9 @@ pub fn reconcile_recursive(
     recon: &mut ReconciliationResult,
     debug_messages: &mut Option<Vec<LayoutDebugMessage>>,
     ancestor_style_changed: bool,
+    // GRANULAR DIFF: per-NodeId "self+ancestors unchanged on both
+    // pre-cascade tiers". None = no diff available (full fingerprinting).
+    dom_diff_clean: Option<&[bool]>,
 ) -> Result<usize> {
     // Cache the env check in a `OnceLock<bool>`: this branch
     // fires once per dirty node (hundreds on cold layout),
@@ -1226,13 +1251,50 @@ pub fn reconcile_recursive(
         (true, true, true) => drop(crate::probe::Probe::span("recon_cold_some")),
     }
 
-    // Compute the new multi-field fingerprint instead of a single hash.
+    // Compute the new multi-field fingerprint instead of a single hash —
+    // UNLESS the pre-cascade DOM diff proved this node (and its ancestors)
+    // unchanged on both tiers. The diff cannot see runtime STATE
+    // (hover/focus applied after produce), so a skip still requires the
+    // state hash to match the old fingerprint; content/inline/attr hashing
+    // (the expensive part) is what gets skipped.
+    let diff_clean_here = dom_diff_clean
+        .and_then(|c| c.get(new_dom_id.index()))
+        .copied()
+        .unwrap_or(false);
     let new_fingerprint = {
-        let _p = crate::probe::Probe::span("fingerprint_compute");
-        NodeDataFingerprint::compute(
-            node_data,
-            styled_dom.styled_nodes.as_container().get(new_dom_id).map(|n| &n.styled_node_state),
-        )
+        let mut reused: Option<NodeDataFingerprint> = None;
+        if diff_clean_here {
+            if let Some(old_c) = old_cold {
+                let state_hash = {
+                    use core::hash::{Hash, Hasher};
+                    let mut h = azul_core::hash::DefaultHasher::new();
+                    if let Some(st) = styled_dom
+                        .styled_nodes
+                        .as_container()
+                        .get(new_dom_id)
+                        .map(|n| &n.styled_node_state)
+                    {
+                        st.hash(&mut h);
+                    }
+                    h.finish()
+                };
+                if state_hash == old_c.node_data_fingerprint.state_hash {
+                    recon.fingerprint_skips += 1;
+                    drop(crate::probe::Probe::span("fingerprint_skipped_by_diff"));
+                    reused = Some(old_c.node_data_fingerprint);
+                }
+            }
+        }
+        match reused {
+            Some(fp) => fp,
+            None => {
+                let _p = crate::probe::Probe::span("fingerprint_compute");
+                NodeDataFingerprint::compute(
+                    node_data,
+                    styled_dom.styled_nodes.as_container().get(new_dom_id).map(|n| &n.styled_node_state),
+                )
+            }
+        }
     };
 
     // Compare fingerprints to determine what changed (Layout, Paint, or Nothing).
@@ -1553,6 +1615,7 @@ pub fn reconcile_recursive(
                 recon,
                 debug_messages,
                 subtree_style_changed,
+                dom_diff_clean,
             )?;
             if let Some(child_node) = new_tree_builder.get(reconciled_child_idx) {
                 new_child_hashes.push(child_node.subtree_hash.0);
@@ -1651,6 +1714,7 @@ pub fn reconcile_recursive(
                             recon,
                             debug_messages,
                             subtree_style_changed,
+                dom_diff_clean,
                         )?;
                         if let Some(child_node) = new_tree_builder.get(reconciled_child_idx) {
                             new_child_hashes.push(child_node.subtree_hash.0);
@@ -1691,6 +1755,7 @@ pub fn reconcile_recursive(
                     recon,
                     debug_messages,
                     subtree_style_changed,
+                dom_diff_clean,
                 )?;
                 if let Some(child_node) = new_tree_builder.get(reconciled_child_idx) {
                     new_child_hashes.push(child_node.subtree_hash.0);
@@ -1770,6 +1835,7 @@ pub fn reconcile_recursive(
                     recon,
                     debug_messages,
                     subtree_style_changed,
+                dom_diff_clean,
                 )?;
                 if let Some(child_node) = new_tree_builder.get(reconciled_child_idx) {
                     new_child_hashes.push(child_node.subtree_hash.0);

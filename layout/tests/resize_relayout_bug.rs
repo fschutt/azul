@@ -469,3 +469,66 @@ fn resize_only_hint_skips_reconcile_but_still_resizes() {
         "the hint must be consumed by exactly one pass"
     );
 }
+
+/// GRANULAR DIFF channel (task #15b): when the produce side proves nodes
+/// unchanged (pre-cascade fingerprints, self+ancestors, both tiers),
+/// reconcile must REUSE their old fingerprints instead of re-hashing —
+/// "the structural diff is used in later stages and not thrown away"
+/// (user directive). The dll computes the clean vector; this test injects
+/// it directly (same-DOM passes make every node provably clean) and reads
+/// the census. Without the hint the census must be zero — that asymmetry
+/// is the test's own negative control.
+#[test]
+fn dom_diff_clean_hint_skips_fingerprint_recompute() {
+    let dom = || {
+        Dom::create_div()
+            .with_ids_and_classes(vec![IdOrClass::Class("root".into())].into())
+            .with_child(Dom::create_text("granular diff paragraph one"))
+            .with_child(Dom::create_text("granular diff paragraph two"))
+    };
+    let css_str = r#"* { margin: 0px; } .root { width: 100%; }"#;
+
+    let build = |d: Dom| {
+        let (css, _) = azul_css::parser2::new_from_str(css_str);
+        let mut d = d;
+        StyledDom::create(&mut d, css)
+    };
+
+    let font_cache = FcFontCache::build();
+    let mut lw = LayoutWindow::new(font_cache).unwrap();
+    let rr = RendererResources::default();
+    let cb = ExternalSystemCallbacks::rust_internal();
+    let mut dbg = None;
+    let mut ws = FullWindowState::default();
+    ws.size.dimensions = LogicalSize::new(640.0, 480.0);
+
+    lw.layout_and_generate_display_list(build(dom()), &ws, &rr, &cb, &mut dbg)
+        .unwrap();
+
+    // Pass 2 WITHOUT the hint: full re-fingerprinting, census zero.
+    lw.layout_and_generate_display_list(build(dom()), &ws, &rr, &cb, &mut dbg)
+        .unwrap();
+    assert_eq!(
+        lw.layout_cache.last_fingerprint_skips, 0,
+        "no hint => no skips (the negative control)"
+    );
+
+    // Pass 3 WITH the hint: every DOM-backed node's fingerprint is reused.
+    let n = lw
+        .layout_results
+        .get(&azul_core::dom::DomId::ROOT_ID)
+        .unwrap()
+        .styled_dom
+        .node_data
+        .as_ref()
+        .len();
+    lw.layout_cache.dom_diff_clean = Some(vec![true; n]);
+    lw.layout_and_generate_display_list(build(dom()), &ws, &rr, &cb, &mut dbg)
+        .unwrap();
+    let skips = lw.layout_cache.last_fingerprint_skips;
+    assert!(
+        skips >= n.saturating_sub(1),
+        "with an all-clean hint on an identical DOM, (nearly) every node \
+         must skip fingerprint recompute — got {skips} of {n}"
+    );
+}
