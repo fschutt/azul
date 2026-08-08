@@ -2705,11 +2705,25 @@ fn render_text_prerendered_lcd(
     }
 
     let _p = crate::probe::Probe::span("glyph_lcd_pretile");
-    // Pass 1: collect tiles + overlap check (x-interval overlap between
-    // CONSECUTIVE glyphs on the same row is the case that matters).
-    let mut placed: Vec<(LcdGlyphTile, i32, i32)> = Vec::with_capacity(glyphs.len());
-    let mut prev_end: i32 = i32::MIN;
-    let mut prev_row: i32 = i32::MIN;
+    // Pass 1: build tiles and group glyphs into CONNECTED COMPONENTS by
+    // tile-rect overlap. Singleton components blit their pre-blended tile;
+    // components of ≥2 glyphs are handed to the batch sweep TOGETHER —
+    // their coverage merges in ONE rasterizer exactly as the slow path
+    // merges it (sequential per-glyph compositing would double-blend the
+    // shared pixels), and their pixels touch no tiled glyph's pixels
+    // (components are separated by non-overlap by construction). This
+    // keeps the pixel-identity gate at zero tolerance while recovering the
+    // runs the old all-or-nothing check sent to the full sweep (44 of 158
+    // on big.md — ~4.8 ms of the remaining repaint).
+    struct Placed {
+        tile: LcdGlyphTile,
+        x0: i32,
+        y0: i32,
+        glyph: GlyphInstance,
+        component: usize,
+    }
+    let mut placed: Vec<Placed> = Vec::with_capacity(glyphs.len());
+    let mut next_component = 0usize;
     for glyph in glyphs {
         let gx = (glyph.point.x - scroll_offset.0) * dpi_factor;
         let gy = (glyph.point.y - scroll_offset.1) * dpi_factor;
@@ -2739,19 +2753,65 @@ fn render_text_prerendered_lcd(
         };
         let x0 = int_x + tile.dx;
         let y0 = int_y + tile.dy;
-        if y0 == prev_row && x0 < prev_end {
-            drop(crate::probe::Probe::span("glyph_lcd_pretile_overlap"));
-            return false; // overlapping neighbours — slow path for the run
-        }
-        prev_row = y0;
-        prev_end = x0 + tile.w as i32;
-        placed.push((tile, x0, y0));
+        // Same component as the previous glyph if the tile RECTS intersect
+        // (runs are in x order; vertical bands overlap on one text row).
+        let component = match placed.last() {
+            Some(prev)
+                if x0 < prev.x0 + prev.tile.w as i32
+                    && prev.x0 < x0 + tile.w as i32
+                    && y0 < prev.y0 + prev.tile.h as i32
+                    && prev.y0 < y0 + tile.h as i32 =>
+            {
+                prev.component
+            }
+            _ => {
+                next_component += 1;
+                next_component - 1
+            }
+        };
+        placed.push(Placed { tile, x0, y0, glyph: *glyph, component });
     }
 
-    // Pass 2: opaque copies, clip-aware.
+    // Component sizes → which glyphs sweep.
+    let mut comp_sizes = vec![0usize; next_component];
+    for p in &placed {
+        comp_sizes[p.component] += 1;
+    }
+    let sweep_glyphs: Vec<GlyphInstance> = placed
+        .iter()
+        .filter(|p| comp_sizes[p.component] >= 2)
+        .map(|p| p.glyph)
+        .collect();
+    if !sweep_glyphs.is_empty() {
+        drop(crate::probe::Probe::span("glyph_lcd_pretile_overlap"));
+    }
+
+    // Pass 2a: the overlapping components through the batch sweep (their
+    // pixels are disjoint from every tiled glyph's pixels).
+    if !sweep_glyphs.is_empty() {
+        render_glyphs_lcd(
+            pixmap,
+            clip,
+            &sweep_glyphs,
+            parsed_font,
+            font_hash,
+            ppem,
+            scale,
+            hint_correction,
+            color,
+            dpi_factor,
+            scroll_offset,
+            glyph_cache,
+        );
+    }
+
+    // Pass 2b: opaque tile copies, clip-aware.
     let dst_w = pixmap.width as i32;
     let dst_h = pixmap.height as i32;
-    for (tile, x0, y0) in placed {
+    for Placed { tile, x0, y0, component, .. } in placed {
+        if comp_sizes[component] >= 2 {
+            continue; // painted by the sweep above
+        }
         let tx0 = x0.max(cx0).max(0);
         let ty0 = y0.max(cy0).max(0);
         let tx1 = (x0 + tile.w as i32).min(cx1).min(dst_w);
@@ -7177,6 +7237,52 @@ mod lcd_pretile_tests {
             pen_x += advance;
         }
         out
+    }
+
+    /// Overlap-component splitting: a run with OVERLAPPING glyphs must
+    /// still be pixel-identical — overlapping components are swept
+    /// TOGETHER through the batch rasterizer (merged coverage, exactly the
+    /// slow path's semantics), never composited tile-over-tile.
+    #[test]
+    fn pretile_split_run_with_overlaps_is_pixel_identical() {
+        let Some(font) = load_test_font() else {
+            eprintln!("no system test font — skipping");
+            return;
+        };
+        let (rr, fm, font_hash) = rr_with(&font);
+        let font_size = 24.0;
+        // Compress advances to 40% — forces neighbouring tiles to overlap.
+        let mut glyphs = shape(&font, "WAVAWA overlap", font_size, 8.0, 40.0);
+        let x0 = glyphs.first().map(|g| g.point.x).unwrap_or(0.0);
+        for g in glyphs.iter_mut() {
+            g.point.x = x0 + (g.point.x - x0) * 0.4;
+        }
+        let clip_rect = LogicalRect {
+            origin: LogicalPosition { x: 0.0, y: 0.0 },
+            size: LogicalSize { width: 320.0, height: 60.0 },
+        };
+        let bg = ColorU { r: 255, g: 255, b: 255, a: 255 };
+        let color = ColorU { r: 20, g: 20, b: 20, a: 255 };
+
+        let mut slow = AzulPixmap::new(320, 60).unwrap();
+        slow.fill(bg.r, bg.g, bg.b, 255);
+        let mut gc1 = GlyphCache::new();
+        render_text_with_bg(
+            &glyphs, font_hash, font_size, color, &mut slow, &clip_rect, None,
+            &rr, &fm, 1.0, &mut gc1, (0.0, 0.0), false, None,
+        );
+        let mut fast = AzulPixmap::new(320, 60).unwrap();
+        fast.fill(bg.r, bg.g, bg.b, 255);
+        let mut gc2 = GlyphCache::new();
+        render_text_with_bg(
+            &glyphs, font_hash, font_size, color, &mut fast, &clip_rect, None,
+            &rr, &fm, 1.0, &mut gc2, (0.0, 0.0), false, Some(bg),
+        );
+        let diff = slow.data.iter().zip(fast.data.iter()).filter(|(a, b)| a != b).count();
+        assert_eq!(
+            diff, 0,
+            "split-run path diverges from the sweep on {diff} bytes —              overlapping components must merge coverage, not composite tiles"
+        );
     }
 
     /// The pre-blended tile path must produce EXACTLY the pixels of the

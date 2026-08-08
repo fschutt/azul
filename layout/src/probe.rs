@@ -431,6 +431,12 @@ pub fn sample_peak_rss(label: &'static str) {
     // out-of-image and unliftable. See the `imp` cfg note above.
     #[cfg(all(feature = "probe", not(feature = "web_lift")))]
     {
+        // Self-measurement accounting: each sample reads /proc (or the mach
+        // equivalent) — hundreds of µs each, ×10 checkpoints per pass. This
+        // span makes the PROFILER'S OWN COST a line in its report instead of
+        // silently inflating solver3_layout_document's self-time (~5 ms of
+        // "unattributed" turned out to be largely this).
+        let _p = Probe::span("probe_rss_sample_cost");
         let (current, _virt) = current_rss_bytes();
         let bytes = if current != 0 { current } else { peak_rss_bytes_self() };
         Probe::sample_rss(label, bytes);
