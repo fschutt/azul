@@ -345,6 +345,62 @@ pub struct DisplayList {
 }
 
 impl DisplayList {
+    /// THE display-list ↔ DOM identity invariant, checkable after every
+    /// build or patch.
+    ///
+    /// `node_mapping` is how thirty-plus consumers (damage attribution,
+    /// pagination break lookup, hit-testing, the coming display-list PATCHING)
+    /// resolve an item back to the DOM. A stale or out-of-range id does not
+    /// fail — it succeeds at describing the WRONG node, which is the silent
+    /// corruption class `assert_dom_ids_are_in_range` documents on the tree
+    /// side (a ribbon tab click once repainted rects of unrelated nodes; it
+    /// was only caught because an index happened to trip a bounds check).
+    /// This is the missing display-list-side counterpart, and the hard gate
+    /// the DL-patching work patches AGAINST: every patch must leave this
+    /// invariant intact.
+    ///
+    /// Checks: (1) `node_mapping` covers `items` 1:1; (2) every mapped id
+    /// indexes into `styled_dom`; (3) every item's bounds, where it has any,
+    /// is finite (a NaN origin poisons every damage union it touches).
+    /// Deliberately NOT checked: bounds-within-node-rect — decorations
+    /// (shadows, outlines, selection) legitimately paint outside their node.
+    ///
+    /// # Errors
+    /// Returns a message naming the first offending item index.
+    pub fn validate_node_mapping(
+        &self,
+        styled_dom: &azul_core::styled_dom::StyledDom,
+    ) -> core::result::Result<(), String> {
+        if self.node_mapping.len() != self.items.len() {
+            return Err(format!(
+                "node_mapping covers {} items but the list has {}",
+                self.node_mapping.len(),
+                self.items.len()
+            ));
+        }
+        let dom_len = styled_dom.node_data.as_ref().len();
+        for (i, (item, mapping)) in self.items.iter().zip(self.node_mapping.iter()).enumerate() {
+            if let Some(node_id) = mapping {
+                if node_id.index() >= dom_len {
+                    return Err(format!(
+                        "item {i} maps to NodeId {} but the DOM has {dom_len} nodes",
+                        node_id.index()
+                    ));
+                }
+            }
+            if let Some(b) = item.bounds() {
+                if !b.origin.x.is_finite()
+                    || !b.origin.y.is_finite()
+                    || !b.size.width.is_finite()
+                    || !b.size.height.is_finite()
+                {
+                    return Err(format!("item {i} has non-finite bounds {b:?}"));
+                }
+            }
+        }
+        Ok(())
+    }
+
     /// Patch text glyph data for a specific layout node without rebuilding
     /// the entire display list. Returns the damage rect covering all
     /// affected text items, or None if no matching items found.
