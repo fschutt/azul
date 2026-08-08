@@ -2302,6 +2302,30 @@ fn render_rect(
         u32::from(color.a),
     );
 
+    if border_radius.is_zero() && color.a == 255 {
+        // OPAQUE axis-aligned rect: plain row fill, no compositing at all.
+        // blend_bar still walks agg's per-pixel blend machinery even at full
+        // alpha; on a resize repaint the 2-3 page-sized background fills were
+        // 1.3 ms each (~0.7 GB/s effective — a third of what the trivial row
+        // loop reaches). Clip semantics match blend_bar: intersect with the
+        // clip box, then fill [x0, x1) x [y0, y1).
+        let (mut fx0, mut fy0) = (rect.x as i32, rect.y as i32);
+        let (mut fx1, mut fy1) = (
+            (rect.x + rect.width) as i32,
+            (rect.y + rect.height) as i32,
+        );
+        if let Some(c) = clip {
+            fx0 = fx0.max(c.x as i32);
+            fy0 = fy0.max(c.y as i32);
+            fx1 = fx1.min((c.x + c.width) as i32);
+            fy1 = fy1.min((c.y + c.height) as i32);
+        }
+        if fx1 > fx0 && fy1 > fy0 {
+            pixmap.fill_rect(fx0, fy0, fx1 - fx0, fy1 - fy0, color.r, color.g, color.b, 255);
+        }
+        return;
+    }
+
     if border_radius.is_zero() {
         // Fast path: axis-aligned rectangle — use direct RendererBase::blend_bar
         // instead of the full rasterizer pipeline. This avoids path construction,
