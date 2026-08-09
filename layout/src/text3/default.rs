@@ -184,6 +184,15 @@ impl ParsedFontTrait for FontRef {
         crate::font_ref_to_parsed_font(self).hash
     }
 
+    fn resolve_font_hash(&self, hash: u64) -> Option<Self> {
+        let parsed = crate::font_ref_to_parsed_font(self);
+        if parsed.hash == hash {
+            Some(self.clone())
+        } else {
+            parsed.get_variation_instance_by_hash(hash)
+        }
+    }
+
     fn get_glyph_size(&self, glyph_id: u16, font_size: f32) -> Option<LogicalSize> {
         crate::font_ref_to_parsed_font(self).get_glyph_size(glyph_id, font_size)
     }
@@ -733,6 +742,22 @@ fn shape_text_internal(
     direction: BidiDirection,
     style: &StyleProperties,
 ) -> Result<Vec<Glyph>, LayoutError> {
+    // Variable fonts are converted to a static face on first use of a
+    // coordinate tuple. Shaping, outline decoding, CPU rendering, and PDF
+    // embedding then all operate on the same bytes and share the cached face.
+    if let Some(instance) =
+        parsed_font.get_or_create_variation_instance(&style.font_variations)
+    {
+        return shape_text_internal(
+            crate::font_ref_to_parsed_font(&instance),
+            text,
+            script,
+            language,
+            direction,
+            style,
+        );
+    }
+
     let script_tag = to_opentype_script_tag(script);
     #[cfg(feature = "text_layout_hyphenation")]
     let lang_tag = to_opentype_lang_tag(language);
