@@ -23,11 +23,37 @@ use azul_layout::{
     callbacks::ExternalSystemCallbacks, solver3::display_list::DisplayListItem,
     window::LayoutWindow, window_state::FullWindowState,
 };
+
+/// Pin 4 (plan §2.3): the two runs' GLYPH GEOMETRY is identical — same
+/// glyph ids, same advances (x-deltas), differing only in the block
+/// offset. That identity IS the cache key's promise, and it is what
+/// makes sharing the shaped data sound in the first place: if this
+/// fails, the runs were shaped separately and the cache never fired.
+fn assert_geometry_identical(
+    a: &[(u32, f32, f32)],
+    b: &[(u32, f32, f32)],
+) -> Result<(), String> {
+    if a.is_empty() || a.len() != b.len() {
+        return Err(format!("glyph counts differ: {} vs {}", a.len(), b.len()));
+    }
+    for (i, ((ga, xa, _), (gb, xb, _))) in a.iter().zip(b.iter()).enumerate() {
+        if ga != gb {
+            return Err(format!("glyph id differs at {i}: {ga} vs {gb}"));
+        }
+        // Compare x RELATIVE to each run's first glyph.
+        let ra = xa - a[0].1;
+        let rb = xb - b[0].1;
+        if (ra - rb).abs() > 0.01 {
+            return Err(format!("relative x differs at {i}: {ra} vs {rb}"));
+        }
+    }
+    Ok(())
+}
 use rust_fontconfig::FcFontCache;
 
 /// Two paragraphs with IDENTICAL text (same layout_hash inputs) but
 /// DIFFERENT colours — the cache-sharing trap.
-fn layout_two_same_text_nodes() -> Vec<(Option<usize>, (u8, u8, u8))> {
+fn layout_two_same_text_nodes() -> Vec<(Option<usize>, (u8, u8, u8), Vec<(u32, f32, f32)>)> {
     let mut dom = Dom::create_body()
         .with_child(
             Dom::create_div()
@@ -74,14 +100,22 @@ fn layout_two_same_text_nodes() -> Vec<(Option<usize>, (u8, u8, u8))> {
             DisplayListItem::Text {
                 color,
                 source_node_index,
+                glyphs,
                 ..
-            } => Some((*source_node_index, (color.r, color.g, color.b))),
+            } => Some((
+                *source_node_index,
+                (color.r, color.g, color.b),
+                glyphs
+                    .iter()
+                    .map(|g| (g.index, g.point.x, g.point.y))
+                    .collect::<Vec<_>>(),
+            )),
             _ => None,
         })
         .collect()
 }
 
-fn assert_identity(runs: &[(Option<usize>, (u8, u8, u8))]) -> Result<(), String> {
+fn assert_identity(runs: &[(Option<usize>, (u8, u8, u8), Vec<(u32, f32, f32)>)]) -> Result<(), String> {
     if runs.len() < 2 {
         return Err(format!("expected 2 text runs, got {}", runs.len()));
     }
@@ -101,6 +135,8 @@ fn assert_identity(runs: &[(Option<usize>, (u8, u8, u8))]) -> Result<(), String>
             runs[0].0, runs[1].0
         ));
     }
+    // Pin 4: identical glyph geometry (the cache key's promise).
+    assert_geometry_identical(&runs[0].2, &runs[1].2)?;
     Ok(())
 }
 
