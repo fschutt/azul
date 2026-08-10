@@ -7660,7 +7660,16 @@ pub fn shape_visual_items_with_per_item_cache<T: ParsedFontTrait>(
             // is sound and keeps the reuse. Clusters map back to their item
             // through `source_content_index`.
             let group = &visual_items[idx..coalesce_end];
+            // NEGATIVE-CONTROL KNOB (T2, plan §2.3): AZ_T2_SKIP_RESTAMP=1
+            // hands back the cached entry UNMODIFIED — the exact defect
+            // 8ec9f387d fixed. The identity gate
+            // (tests/text3_shaping_cache_identity.rs) runs once with this
+            // set and requires itself to FAIL; production never sets it.
+            let t2_skip_restamp = std::env::var_os("AZ_T2_SKIP_RESTAMP").is_some();
             shaped.extend(cached.clusters.iter().map(|c| {
+                if t2_skip_restamp {
+                    return c.clone();
+                }
                 let mut c = c.clone();
                 if let ShapedItem::Cluster(ref mut sc) = c {
                     let current = group.iter().find_map(|it| match &it.logical_source {
