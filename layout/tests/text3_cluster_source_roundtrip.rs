@@ -96,6 +96,48 @@ fn assert_source_roundtrip(input: &str, dir: BidiDirection) {
     );
 }
 
+/// Property 3: `source_cluster_id` values are strictly increasing within
+/// a run and unique across the layout — bidi reordering must not collide
+/// them (`VisualItem::run_byte_offset` exists precisely to prevent this).
+fn assert_ids_monotonic_and_unique(input: &str, dir: BidiDirection) {
+    let shaped = shape(input, dir);
+    let mut seen = std::collections::HashSet::new();
+    let mut per_run: HashMap<u32, u32> = HashMap::new();
+    let mut in_logical_order: Vec<(u32, u32)> = Vec::new();
+    for it in &shaped {
+        if let ShapedItem::Cluster(c) = it {
+            let key = (c.source_cluster_id.source_run, c.source_cluster_id.start_byte_in_run);
+            assert!(
+                seen.insert(key),
+                "duplicate source_cluster_id {key:?} (input {input:?})"
+            );
+            in_logical_order.push(key);
+        }
+    }
+    in_logical_order.sort_unstable();
+    for (run, byte) in in_logical_order {
+        let prev = per_run.entry(run).or_insert(0);
+        assert!(
+            byte >= *prev,
+            "non-monotonic byte {byte} after {prev} in run {run} (input {input:?})"
+        );
+        *prev = byte;
+    }
+}
+
+#[test]
+fn ids_unique_and_monotonic_across_corpus() {
+    for (text, dir) in [
+        ("hello world", BidiDirection::Ltr),
+        ("abc \u{05d0}\u{05d1}\u{05d2} def", BidiDirection::Ltr),
+        ("\u{05e9}\u{05dc}\u{05d5}\u{05dd} shalom", BidiDirection::Rtl),
+        ("waffle office ffi", BidiDirection::Ltr),
+        ("co\u{00ad}op\tend", BidiDirection::Ltr),
+    ] {
+        assert_ids_monotonic_and_unique(text, dir);
+    }
+}
+
 #[test]
 fn ascii_reproduces() {
     assert_source_roundtrip("hello world", BidiDirection::Ltr);
