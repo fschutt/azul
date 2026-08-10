@@ -9613,12 +9613,12 @@ impl LayoutWindow {
 
             // Update the inline layout result with the new layout but preserve constraints (warm data)
             if let Some(warm_node) = layout_result.layout_tree.warm_mut(ifc_layout_index) {
-                warm_node.inline_layout_result = Some(CachedInlineLayout::new_with_constraints(
+                warm_node.inline_layout_result = Some(Box::new(CachedInlineLayout::new_with_constraints(
                     Arc::new(new_layout),
                     constraints.available_width,
                     false, // No floats in quick relayout
                     constraints,
-                ));
+                )));
             }
         }
 
@@ -10410,7 +10410,7 @@ impl LayoutWindow {
         layout_tree.warm(layout_idx)?
             .inline_layout_result
             .as_ref()
-            .map(solver3::layout_tree::CachedInlineLayout::clone_layout)
+            .map(|b| b.clone_layout())
     }
 
     /// Edit the text content of a node (used for text input actions)

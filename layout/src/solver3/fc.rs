@@ -3481,12 +3481,12 @@ fn layout_ifc<T: ParsedFontTrait>(
                 base = Some(computed_base);
                 if let Some(w) = tree.warm_mut(node_index) {
                     w.inline_content_cache =
-                        Some(crate::solver3::layout_tree::CachedInlineContent {
+                        Some(Box::new(crate::solver3::layout_tree::CachedInlineContent {
                             content: content.clone(),
                             child_map: child_map.clone(),
                             subtree_fingerprint,
                             content_hash_base: computed_base,
-                        });
+                        }));
                 }
             }
             (res, base)
@@ -3901,7 +3901,7 @@ fn layout_ifc<T: ParsedFontTrait>(
             // this layout when the inline content is genuinely unchanged, and so
             // the store decision above can detect content changes.
             cil.inline_content_hash = current_content_hash;
-            warm_node.inline_layout_result = Some(cil);
+            warm_node.inline_layout_result = Some(Box::new(cil));
             // DL-patching invalidation: this IFC's line layout was
             // recomputed — its text items must re-emit on a patched pass.
             ctx.reflowed_ifcs.insert(node_index);
@@ -7656,7 +7656,7 @@ fn position_table_cells<T: ParsedFontTrait>(
                     // LineShift preserves content; carry the hash so Phase 2d
                     // can still validly fast-path this layout (#11).
                     cil.inline_content_hash = cached_layout.inline_content_hash;
-                    warm_mut.inline_layout_result = Some(cil);
+                    warm_mut.inline_layout_result = Some(Box::new(cil));
                     // Vertical-align adjustment changed item positions
                     // within this cell's IFC — patched passes must re-emit.
                     ctx.reflowed_ifcs.insert(cell_info.node_index);
@@ -11316,7 +11316,7 @@ mod autotest_generated {
         let bp = BoxProps::default();
         let mut warm = vec![LayoutNodeWarm::default(), LayoutNodeWarm::default()];
         // Cell (0) has a child (1) but an inline layout with no items => empty.
-        warm[0].inline_layout_result = Some(empty_inline_layout());
+        warm[0].inline_layout_result = Some(Box::new(empty_inline_layout()));
         let tree = build_tree(
             vec![
                 hot(None, Some(size(10.0, 10.0)), &bp),
@@ -11384,7 +11384,7 @@ mod autotest_generated {
 
         // An inline layout result makes it non-empty even if it has no items.
         let mut warm = vec![LayoutNodeWarm::default()];
-        warm[0].inline_layout_result = Some(empty_inline_layout());
+        warm[0].inline_layout_result = Some(Box::new(empty_inline_layout()));
         let t = build_tree(vec![hot(None, None, &bp)], warm, &[vec![]]);
         assert!(!is_empty_block(&t, 0));
     }

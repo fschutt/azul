@@ -520,9 +520,11 @@ pub struct LayoutNode {
     /// By tracking the constraints, we avoid the bug where a min-content measurement
     /// (with width=0) would be incorrectly reused for final rendering.
     /// (13 accesses — IFC roots / table cells)
-    pub inline_layout_result: Option<CachedInlineLayout>,
-    /// See [`LayoutNodeWarm::inline_content_cache`].
-    pub inline_content_cache: Option<CachedInlineContent>,
+    /// BOXED (rare-data split, 2026-08-11): populated only on IFC roots /
+    /// table cells; the 296-B inline Option was paid by EVERY node.
+    pub inline_layout_result: Option<Box<CachedInlineLayout>>,
+    /// See [`LayoutNodeWarm::inline_content_cache`]. BOXED likewise (88 B).
+    pub inline_content_cache: Option<Box<CachedInlineContent>>,
     /// Cached scrollbar information (calculated during layout)
     /// Used to determine if scrollbars appeared/disappeared requiring reflow
     /// (12 accesses — scrollable containers only)
@@ -737,7 +739,9 @@ pub struct LayoutNodeWarm {
     /// The baseline of this box, measured from its content-box top edge.
     pub baseline: Option<f32>,
     /// Cached inline layout result with the constraints used to compute it.
-    pub inline_layout_result: Option<CachedInlineLayout>,
+    /// BOXED (rare-data split, 2026-08-11): only IFC roots populate this,
+    /// but the 296-B inline Option was paid by EVERY node. 8 B here now.
+    pub inline_layout_result: Option<Box<CachedInlineLayout>>,
     /// Cached result of `collect_and_measure_inline_content` for this IFC
     /// root, valid while the subtree's fingerprints are unchanged.
     ///
@@ -746,7 +750,8 @@ pub struct LayoutNodeWarm {
     /// that went on to reuse the cached line layout — and measured 2 ms per
     /// IFC, 32 ms per pagination: the single largest remaining cost after
     /// the line-breaker and font-signature fixes.
-    pub inline_content_cache: Option<CachedInlineContent>,
+    /// BOXED (rare-data split): IFC roots only; was 88 B inline per node.
+    pub inline_content_cache: Option<Box<CachedInlineContent>>,
     /// Cached scrollbar information
     pub scrollbar_info: Option<ScrollbarRequirements>,
     /// The position relative to parent's content box.
@@ -4313,11 +4318,11 @@ mod autotest_generated {
     fn get_content_size_grows_the_used_size_to_cover_the_inline_items() {
         let mut tree = raw_tree(vec![hot(None)], &[vec![]]);
         tree.nodes[0].used_size = Some(LogicalSize::new(10.0, 10.0));
-        tree.warm[0].inline_layout_result = Some(CachedInlineLayout::new(
+        tree.warm[0].inline_layout_result = Some(Box::new(CachedInlineLayout::new(
             layout_of(vec![tab_item(30.0, 40.0, 25.0, 0)]),
             AvailableSpace::MaxContent,
             false,
-        ));
+        )));
         // item spans x ∈ [25, 55], y ∈ [0, 40]  →  content must cover 55 × 40.
         let cs = tree.get_content_size(0);
         assert_eq!(cs.width, 55.0);
@@ -4328,11 +4333,11 @@ mod autotest_generated {
     fn get_content_size_never_shrinks_below_the_used_size() {
         let mut tree = raw_tree(vec![hot(None)], &[vec![]]);
         tree.nodes[0].used_size = Some(LogicalSize::new(500.0, 500.0));
-        tree.warm[0].inline_layout_result = Some(CachedInlineLayout::new(
+        tree.warm[0].inline_layout_result = Some(Box::new(CachedInlineLayout::new(
             layout_of(vec![tab_item(1.0, 1.0, 0.0, 0)]),
             AvailableSpace::MaxContent,
             false,
-        ));
+        )));
         assert_eq!(tree.get_content_size(0), LogicalSize::new(500.0, 500.0));
     }
 
@@ -4358,11 +4363,11 @@ mod autotest_generated {
     #[test]
     fn get_ifc_root_layout_index_follows_membership_only_for_non_ifc_roots() {
         let mut tree = raw_tree(vec![hot(None), hot(Some(0))], &[vec![1], vec![]]);
-        tree.warm[0].inline_layout_result = Some(CachedInlineLayout::new(
+        tree.warm[0].inline_layout_result = Some(Box::new(CachedInlineLayout::new(
             empty_layout(),
             AvailableSpace::MaxContent,
             false,
-        ));
+        )));
         tree.warm[1].ifc_membership = Some(IfcMembership {
             ifc_id: IfcId(0),
             ifc_root_layout_index: 0,
@@ -4390,11 +4395,11 @@ mod autotest_generated {
     fn get_inline_layout_for_node_walks_membership_then_gives_up_cleanly() {
         let mut tree = raw_tree(vec![hot(None), hot(Some(0)), hot(Some(0))], &[vec![1, 2]]);
         let arc = empty_layout();
-        tree.warm[0].inline_layout_result = Some(CachedInlineLayout::new(
+        tree.warm[0].inline_layout_result = Some(Box::new(CachedInlineLayout::new(
             Arc::clone(&arc),
             AvailableSpace::MaxContent,
             false,
-        ));
+        )));
         tree.warm[1].ifc_membership = Some(IfcMembership {
             ifc_id: IfcId(0),
             ifc_root_layout_index: 0,
@@ -4630,11 +4635,11 @@ mod autotest_generated {
         let bare = tree.memory_report().warm_inline_layout_bytes;
         assert_eq!(bare, 0);
 
-        tree.warm[0].inline_layout_result = Some(CachedInlineLayout::new(
+        tree.warm[0].inline_layout_result = Some(Box::new(CachedInlineLayout::new(
             layout_of(vec![tab_item(1.0, 1.0, 0.0, 0)]),
             AvailableSpace::MaxContent,
             false,
-        ));
+        )));
         assert!(
             tree.memory_report().warm_inline_layout_bytes >= size_of::<UnifiedLayout>(),
             "the UnifiedLayout header must at least be counted"

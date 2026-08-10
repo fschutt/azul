@@ -2156,7 +2156,7 @@ impl CallbackInfo {
         warm_node
             .inline_layout_result
             .as_ref()
-            .map(super::solver3::layout_tree::CachedInlineLayout::get_layout)
+            .map(|b| b.get_layout())
     }
 
     // Public query Api

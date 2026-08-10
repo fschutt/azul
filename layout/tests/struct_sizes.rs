@@ -157,7 +157,7 @@ fn layout_tree_node_struct_sizes_are_pinned() {
     assert_size!(LayoutNodeHot, 80, "Per layout node, touched every pass.");
     assert_size!(
         LayoutNodeWarm,
-        1296,
+        928,
         "Per layout node, and the BIGGEST per-node struct by far - 1329 nodes \
          is 1.7 MB before a single glyph is shaped. Dominated by the taffy \
          measurement cache and the inline Option<CachedInlineLayout>. \
@@ -227,3 +227,4 @@ fn shaped_item_arm_count_is_pinned_for_the_memory_walk() {
          up as a compile error there — update both together."
     );
 }
+

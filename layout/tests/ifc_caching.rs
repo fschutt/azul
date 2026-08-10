@@ -418,7 +418,7 @@ fn test_ifc_layout_produces_item_metrics() {
         .filter_map(|(idx, _)| {
             tree.warm(idx)
                 .and_then(|w| w.inline_layout_result.as_ref())
-                .map(|ilr| (idx, ilr))
+                .map(|ilr| (idx, &**ilr))
         })
         .collect();
 
@@ -470,7 +470,7 @@ fn test_ifc_layout_metrics_have_correct_line_indices() {
         .filter_map(|(idx, _)| {
             tree.warm(idx)
                 .and_then(|w| w.inline_layout_result.as_ref())
-                .map(|ilr| (idx, ilr))
+                .map(|ilr| (idx, &**ilr))
         })
         .collect();
 
@@ -513,7 +513,7 @@ fn test_ifc_layout_metrics_x_offsets_increase_on_same_line() {
         .filter_map(|(idx, _)| {
             tree.warm(idx)
                 .and_then(|w| w.inline_layout_result.as_ref())
-                .map(|ilr| (idx, ilr))
+                .map(|ilr| (idx, &**ilr))
         })
         .collect();
 
@@ -556,7 +556,7 @@ fn test_ifc_layout_metrics_source_node_ids_for_text() {
         .filter_map(|(idx, _)| {
             tree.warm(idx)
                 .and_then(|w| w.inline_layout_result.as_ref())
-                .map(|ilr| (idx, ilr))
+                .map(|ilr| (idx, &**ilr))
         })
         .collect();
 
