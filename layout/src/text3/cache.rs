@@ -5938,12 +5938,12 @@ pub struct LayoutFragment {
 
 /// Represents the final layout distributed across multiple fragments.
 #[derive(Debug, Clone)]
-pub(crate) struct FlowLayout {
+pub struct FlowLayout {
     /// A map from a fragment's unique ID to the layout it contains.
-    pub(crate) fragment_layouts: HashMap<String, Arc<UnifiedLayout>>,
+    pub fragment_layouts: HashMap<String, Arc<UnifiedLayout>>,
     /// Any items that did not fit into the last fragment in the flow chain.
     /// This is useful for pagination or determining if more layout space is needed.
-    pub(crate) remaining_items: Vec<ShapedItem>,
+    pub remaining_items: Vec<ShapedItem>,
 }
 
 /// Inline-axis intrinsic contributions derived from shaped text, without running

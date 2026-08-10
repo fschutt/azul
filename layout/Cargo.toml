@@ -367,11 +367,12 @@ required-features = ["cpurender", "text_layout", "font_loading", "a11y", "widget
 [[test]]
 name = "text3_suite"
 path = "tests/text3/mod.rs"
-# WIP (2026-08-10): the 57 dormant text3 tests, mid-port from the dead
-# FontProviderTrait API generation to the current LoadedFonts pipeline
-# (SHAPED_TEXT_REFACTOR_PLAN.md task T0). Gated off the default battery
-# until the port compiles+passes; build with --features text3-suite-wip.
-required-features = ["text_layout", "text3-suite-wip"]
+# The 57 formerly-dormant text3 tests (SHAPED_TEXT_REFACTOR_PLAN task
+# T0), ported 2026-08-10 from the dead FontProviderTrait generation to
+# the LoadedFonts pipeline via the compat wrappers in tests/text3/mod.rs.
+# 45 live (incl. the only shape-outside + dictionary-hyphenation pins in
+# the repo); 12 #[ignore]d pending old-vs-new behavioral triage.
+required-features = ["text_layout"]
 
 [[test]]
 name = "e2e_json"

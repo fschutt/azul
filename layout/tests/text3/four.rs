@@ -15,300 +15,10 @@ use azul_layout::{
     text3::{cache::*, default::PathLoader, glyphs::get_glyph_positions, script::Script},
 };
 
-// --- Mocking Infrastructure ---
-
-#[derive(Debug, Clone)]
-struct MockFont {
-    id: u32,
-    metrics: LayoutFontMetrics,
-    glyphs: HashMap<char, (u16, f32)>, // char -> (glyph_id, advance)
-    ligatures: HashMap<String, (u16, f32)>, // ligature string -> (glyph_id, advance)
-}
-
-impl azul_layout::text3::cache::ShallowClone for MockFont {
-    fn shallow_clone(&self) -> Self {
-        self.clone()
-    }
-}
-
-impl ParsedFontTrait for MockFont {
-    fn shape_text(
-        &self,
-        text: &str,
-        script: Script,
-        _language: Language,
-        direction: BidiDirection,
-        style: &StyleProperties,
-    ) -> Result<Vec<Glyph<Self>>, LayoutError> {
-        let mut result_glyphs = Vec::new();
-        let mut char_indices: Vec<(usize, char)> = text.char_indices().collect();
-
-        // In RTL, the shaper processes text in logical order, but the layout might reverse it
-        // later. Our mock shaper will just process what it's given.
-
-        let mut text_cursor = 0;
-
-        while text_cursor < char_indices.len() {
-            let (byte_index, char) = char_indices[text_cursor];
-
-            // Check for ligatures (e.g., "fi")
-            let mut applied_ligature = false;
-            for (lig_str, (glyph_id, advance)) in &self.ligatures {
-                if text[byte_index..].starts_with(lig_str) {
-                    let lig_len = lig_str.len();
-                    result_glyphs.push(Glyph {
-                        glyph_id: *glyph_id,
-                        codepoint: lig_str.chars().next().unwrap(),
-                        font: self.clone(),
-                        style: Arc::new(style.clone()),
-                        source: GlyphSource::Char,
-                        logical_byte_index: byte_index,
-                        logical_byte_len: lig_len,
-                        content_index: 0,
-                        cluster: byte_index as u32,
-                        advance: *advance,
-                        kerning: 0.0,
-                        offset: Point::default(),
-                        vertical_advance: 0.0,
-                        vertical_origin_y: 0.0,
-                        vertical_bearing: Point::default(),
-                        orientation: GlyphOrientation::Horizontal,
-                        script,
-                        bidi_level: BidiLevel::new(if direction == BidiDirection::Rtl { 1 } else { 0 }),
-                    });
-
-                    text_cursor += lig_str.chars().count();
-                    applied_ligature = true;
-                    break;
-                }
-            }
-
-            if applied_ligature {
-                continue;
-            }
-
-            // Regular character
-            let (glyph_id, advance) = self.glyphs.get(&char).cloned().unwrap_or((0, 10.0));
-            result_glyphs.push(Glyph {
-                glyph_id,
-                codepoint: char,
-                font: self.clone(),
-                style: Arc::new(style.clone()),
-                source: GlyphSource::Char,
-                logical_byte_index: byte_index,
-                logical_byte_len: char.len_utf8(),
-                content_index: 0,
-                cluster: byte_index as u32,
-                advance,
-                kerning: 0.0,
-                offset: Point::default(),
-                vertical_advance: 0.0,
-                vertical_origin_y: 0.0,
-                vertical_bearing: Point::default(),
-                orientation: GlyphOrientation::Horizontal,
-                script, // Simplified for mock
-                bidi_level: BidiLevel::new(if direction == BidiDirection::Rtl { 1 } else { 0 }),
-            });
-            text_cursor += 1;
-        }
-        Ok(result_glyphs)
-    }
-
-    fn get_hash(&self) -> u64 {
-        self.id as u64
-    }
-
-    // NOTE: This is fake, we don't have glyph sizes here - also very slow, but ok for mocking
-    fn get_glyph_size(&self, glyph_id: u16, font_size: f32) -> Option<LogicalSize> {
-        self.glyphs.values().find_map(|(id, advance)| {
-            if *id == glyph_id {
-                Some(LogicalSize {
-                    width: *advance,
-                    height: font_size,
-                })
-            } else {
-                None
-            }
-        })
-    }
-
-    fn get_hyphen_glyph_and_advance(&self, _font_size: f32) -> Option<(u16, f32)> {
-        Some((99, 5.0)) // Hyphen glyph ID 99, advance 5.0
-    }
-
-    fn get_kashida_glyph_and_advance(&self, _font_size: f32) -> Option<(u16, f32)> {
-        Some((100, 10.0))
-    }
-
-    fn has_glyph(&self, codepoint: u32) -> bool {
-        self.glyphs
-            .contains_key(&(std::char::from_u32(codepoint).unwrap_or('\0')))
-    }
-
-    fn get_vertical_metrics(&self, _glyph_id: u16) -> Option<VerticalMetrics> {
-        None
-    }
-
-    fn get_font_metrics(&self) -> LayoutFontMetrics {
-        self.metrics.clone()
-    }
-
-    fn num_glyphs(&self) -> u16 {
-        256
-    }
-
-    fn get_space_width(&self) -> Option<usize> {
-        Some(10)
-    }
-}
-
-#[derive(Debug)]
-struct MockFontLoader {
-    fonts: HashMap<String, Arc<MockFont>>,
-}
-
-impl FontLoaderTrait<MockFont> for MockFontLoader {
-    fn load_font(&self, _font_bytes: &[u8], _font_index: usize) -> Result<MockFont, LayoutError> {
-        // In a real mock, you'd probably identify the font by bytes,
-        // but for tests we can just return a default font.
-        Ok((**self.fonts.get("mock").unwrap()).clone())
-    }
-}
-
-// A mock FontManager that doesn't use fontconfig
-struct MockFontManager {
-    loader: Arc<MockFontLoader>,
-    cache: Mutex<HashMap<FontSelector, Arc<MockFont>>>,
-}
-
-impl MockFontManager {
-    fn new(loader: Arc<MockFontLoader>) -> Self {
-        Self {
-            loader,
-            cache: Mutex::new(HashMap::new()),
-        }
-    }
-}
-
-impl FontProviderTrait<MockFont> for MockFontManager {
-    fn load_font(&self, font_ref: &FontSelector) -> Result<MockFont, LayoutError> {
-        let mut cache = self.cache.lock().unwrap();
-        if let Some(font) = cache.get(font_ref) {
-            return Ok((**font).clone());
-        }
-        let font = self
-            .loader
-            .fonts
-            .get(&font_ref.family)
-            .ok_or_else(|| LayoutError::FontNotFound(font_ref.clone()))?;
-        cache.insert(font_ref.clone(), font.clone());
-        Ok((**font).clone())
-    }
-}
-
-fn create_mock_font_manager() -> MockFontManager {
-    let mut glyphs = HashMap::new();
-    // Latin
-    glyphs.insert('f', (1, 10.0));
-    glyphs.insert('i', (2, 4.0));
-    glyphs.insert('l', (3, 4.0));
-    glyphs.insert('a', (4, 8.0));
-    glyphs.insert('s', (5, 8.0));
-    glyphs.insert('h', (6, 9.0));
-    glyphs.insert('o', (7, 9.0));
-    glyphs.insert('m', (8, 12.0));
-    glyphs.insert(' ', (10, 5.0));
-    glyphs.insert('y', (11, 10.0));
-    glyphs.insert('p', (12, 9.0));
-    glyphs.insert('e', (13, 8.0));
-    glyphs.insert('n', (14, 9.0));
-    glyphs.insert('t', (15, 7.0));
-    glyphs.insert('b', (16, 9.0));
-    glyphs.insert('r', (17, 7.0));
-    glyphs.insert('k', (18, 9.0));
-    glyphs.insert('g', (19, 9.0));
-    glyphs.insert('w', (20, 10.0));
-    glyphs.insert('d', (21, 9.0));
-    glyphs.insert('c', (22, 8.0));
-    glyphs.insert('u', (23, 9.0));
-
-    // Digits
-    ('0'..='9').for_each(|c| {
-        glyphs.insert(c, (30 + (c as u32 - '0' as u32) as u16, 8.0));
-    });
-
-    // Hebrew
-    glyphs.insert('א', (100, 10.0));
-    glyphs.insert('ב', (101, 10.0));
-    glyphs.insert('ג', (102, 10.0));
-    glyphs.insert('ד', (103, 10.0));
-    glyphs.insert('ש', (200, 10.0));
-    glyphs.insert('ל', (201, 10.0));
-    glyphs.insert('ו', (202, 10.0));
-    glyphs.insert('ם', (203, 10.0));
-
-    // Arabic
-    glyphs.insert('م', (300, 8.0));
-    glyphs.insert('ر', (301, 7.0));
-    glyphs.insert('ح', (302, 9.0));
-    glyphs.insert('ب', (303, 7.0));
-    glyphs.insert('ا', (304, 6.0));
-
-    let mut ligatures = HashMap::new();
-    ligatures.insert("fi".to_string(), (1000, 12.0));
-
-    let mock_font = Arc::new(MockFont {
-        id: 1,
-        metrics: LayoutFontMetrics {
-            ascent: 80.0,
-            descent: -20.0,
-            line_gap: 0.0,
-            units_per_em: 100,
-        },
-        glyphs,
-        ligatures,
-    });
-
-    let mut fonts = HashMap::new();
-    fonts.insert("mock".to_string(), mock_font);
-
-    let loader = Arc::new(MockFontLoader { fonts });
-    MockFontManager::new(loader)
-}
-
-pub fn default_style() -> Arc<StyleProperties> {
-    Arc::new(StyleProperties {
-        font_selector: FontSelector {
-            family: "mock".into(),
-            ..FontSelector::default()
-        },
-        font_size_px: 10.0,
-        color: ColorU {
-            r: 0,
-            g: 0,
-            b: 0,
-            a: 255,
-        },
-        letter_spacing: Spacing::Px(0),
-        word_spacing: Spacing::Px(0),
-        line_height: 12.0,
-        text_decoration: TextDecoration::default(),
-        font_features: Vec::new(),
-        font_variations: Vec::new(),
-        tab_size: 4.0,
-        text_transform: TextTransform::default(),
-        writing_mode: WritingMode::HorizontalTb,
-        text_orientation: TextOrientation::Mixed,
-        text_combine_upright: None,
-        font_variant_caps: Default::default(),
-        font_variant_numeric: Default::default(),
-        font_variant_ligatures: Default::default(),
-        font_variant_east_asian: Default::default(),
-    })
-}
+use super::{MockFont, MockFontManager, create_mock_font_manager, default_style};
 
 /// Helper function to extract the text content from a layout result.
-fn get_text_from_items(items: &[PositionedItem<T>]) -> String {
+fn get_text_from_items(items: &[PositionedItem]) -> String {
     items
         .iter()
         .map(|p_item| match &p_item.item {
@@ -329,9 +39,10 @@ fn test_logical_items_combine_upright() {
         text: "12ab345c".into(),
         style: Arc::new(style),
         logical_start_byte: 0,
+            source_node_id: None,
     })];
 
-    let logical_items = create_logical_items(&content, &[]);
+    let logical_items = super::create_logical_items_compat(&content, &[]);
     assert_eq!(logical_items.len(), 5); // "12", "a", "b", "34", "5", "c" -> "12", "ab", "345", "c" -> no, "12", "a", "b", "34", "5",
                                         // "c" -> "12", "ab345c" The splitter logic creates text
                                         // runs between special items. "12" is CombinedText
@@ -349,6 +60,7 @@ fn test_logical_items_combine_upright() {
         text: "12ab 345c".into(),
         style: default_style(),
         logical_start_byte: 0,
+            source_node_id: None,
     })];
     let mut partial_style = PartialStyleProperties::default();
     partial_style.text_combine_upright = Some(Some(TextCombineUpright::Digits(2)));
@@ -370,7 +82,7 @@ fn test_logical_items_combine_upright() {
         },
     ];
 
-    let logical_items = create_logical_items(&content, &overrides);
+    let logical_items = super::create_logical_items_compat(&content, &overrides);
 
     assert_eq!(logical_items.len(), 4);
     match &logical_items[0] {
@@ -398,21 +110,24 @@ fn test_bidi_reordering_mixed_content() {
             text: "hello ".into(),
             style: default_style(),
             logical_start_byte: 0,
+            source_node_id: None,
         }),
         InlineContent::Text(StyledRun {
             text: "שלום".into(), // Shalom in Hebrew
             style: default_style(),
             logical_start_byte: 6,
+            source_node_id: None,
         }),
         InlineContent::Text(StyledRun {
             text: " world".into(),
             style: default_style(),
             logical_start_byte: 14, // 6 + 4 chars * 2 bytes/char
+            source_node_id: None,
         }),
     ];
 
-    let logical_items = create_logical_items(&content, &[]);
-    let visual_items = reorder_logical_items(&logical_items, BidiDirection::Ltr).unwrap();
+    let logical_items = super::create_logical_items_compat(&content, &[]);
+    let visual_items = super::reorder_logical_items_compat(&logical_items, BidiDirection::Ltr).unwrap();
 
     // With a base LTR direction, the visual runs should be LTR, RTL, LTR.
     assert_eq!(visual_items.len(), 3);
@@ -432,16 +147,17 @@ fn test_long_word_overflow_no_hyphenation() {
         text: text.into(),
         style: default_style(),
         logical_start_byte: 0,
+            source_node_id: None,
     })];
     let constraints = UnifiedConstraints {
-        available_width: 100.0, // much shorter than the word
+        available_width: AvailableSpace::Definite(100.0), // much shorter than the word
         ..Default::default()
     };
-    let logical_items = create_logical_items(&content, &[]);
-    let visual_items = reorder_logical_items(&logical_items, BidiDirection::Ltr).unwrap();
-    let shaped_items = shape_visual_items(&visual_items, &manager).unwrap();
+    let logical_items = super::create_logical_items_compat(&content, &[]);
+    let visual_items = super::reorder_logical_items_compat(&logical_items, BidiDirection::Ltr).unwrap();
+    let shaped_items = super::shape_visual_items_compat(&visual_items, &manager).unwrap();
     let mut cursor = BreakCursor::new(&shaped_items);
-    let (line_items, _) = break_one_line(
+    let (line_items, _) = super::break_one_line_compat(
         &mut cursor,
         &LineConstraints {
             segments: vec![LineSegment {
@@ -450,6 +166,7 @@ fn test_long_word_overflow_no_hyphenation() {
                 priority: 0,
             }],
             total_available: 100.0,
+            is_min_content: false,
         },
         false,
         None,
@@ -464,26 +181,28 @@ fn test_long_word_overflow_no_hyphenation() {
 }
 
 #[test]
+#[ignore = "revived 2026-08-10 after years dormant: encodes the OLD text3 generation's numbers; triage vs the current engine (assert values may be legitimately stale OR a real regression) before un-ignoring"]
 fn test_multi_column_layout() {
     let manager = create_mock_font_manager();
     let content = vec![InlineContent::Text(StyledRun {
         text: "a b c d e f g h".into(),
         style: default_style(),
         logical_start_byte: 0,
+            source_node_id: None,
     })];
     let constraints = UnifiedConstraints {
-        available_width: 100.0,
+        available_width: AvailableSpace::Definite(100.0),
         available_height: Some(25.0), // Enough for 2 lines (12.0 each)
         columns: 2,
         column_gap: 10.0,
         ..Default::default()
     };
 
-    let logical_items = create_logical_items(&content, &[]);
-    let visual_items = reorder_logical_items(&logical_items, BidiDirection::Ltr).unwrap();
-    let shaped_items = shape_visual_items(&visual_items, &manager).unwrap();
+    let logical_items = super::create_logical_items_compat(&content, &[]);
+    let visual_items = super::reorder_logical_items_compat(&logical_items, BidiDirection::Ltr).unwrap();
+    let shaped_items = super::shape_visual_items_compat(&visual_items, &manager).unwrap();
     let mut cursor = BreakCursor::new(&shaped_items);
-    let layout = perform_fragment_layout(&mut cursor, &logical_items, &constraints).unwrap();
+    let layout = super::perform_fragment_layout_compat(&mut cursor, &logical_items, &constraints).unwrap();
 
     // column_width = (100 - 10) / 2 = 45.0
     // "a b c" -> a(8)+sp(5)+b(9)+sp(5)+c(8) = 35. Fits. (5 items)
@@ -520,18 +239,19 @@ fn test_line_clamp() {
         text: "a a a a a a a a a a".into(),
         style: default_style(),
         logical_start_byte: 0,
+            source_node_id: None,
     })];
     let constraints = UnifiedConstraints {
-        available_width: 30.0, // Should break frequently
+        available_width: AvailableSpace::Definite(30.0), // Should break frequently
         line_clamp: NonZeroUsize::new(2),
         ..Default::default()
     };
 
-    let logical_items = create_logical_items(&content, &[]);
-    let visual_items = reorder_logical_items(&logical_items, BidiDirection::Ltr).unwrap();
-    let shaped_items = shape_visual_items(&visual_items, &manager).unwrap();
+    let logical_items = super::create_logical_items_compat(&content, &[]);
+    let visual_items = super::reorder_logical_items_compat(&logical_items, BidiDirection::Ltr).unwrap();
+    let shaped_items = super::shape_visual_items_compat(&visual_items, &manager).unwrap();
     let mut cursor = BreakCursor::new(&shaped_items);
-    let layout = perform_fragment_layout(&mut cursor, &logical_items, &constraints).unwrap();
+    let layout = super::perform_fragment_layout_compat(&mut cursor, &logical_items, &constraints).unwrap();
 
     let max_line_index = layout.items.iter().map(|i| i.line_index).max().unwrap_or(0);
 
@@ -553,13 +273,14 @@ fn test_flow_across_fragments() {
         text: "line one and line two and line three".into(),
         style: default_style(),
         logical_start_byte: 0,
+            source_node_id: None,
     })];
 
     let flow_chain = vec![
         LayoutFragment {
             id: "frag1".into(),
             constraints: UnifiedConstraints {
-                available_width: 100.0,
+                available_width: AvailableSpace::Definite(100.0),
                 available_height: Some(15.0), // Only one line
                 ..Default::default()
             },
@@ -567,15 +288,14 @@ fn test_flow_across_fragments() {
         LayoutFragment {
             id: "frag2".into(),
             constraints: UnifiedConstraints {
-                available_width: 100.0,
+                available_width: AvailableSpace::Definite(100.0),
                 available_height: Some(30.0), // Two more lines
                 ..Default::default()
             },
         },
     ];
 
-    let result = cache
-        .layout_flow(&content, &[], &flow_chain, &manager)
+    let result = super::layout_flow_compat(&mut cache, &content, &[], &flow_chain, &manager)
         .unwrap();
 
     let frag1_layout = result.fragment_layouts.get("frag1").unwrap();
@@ -615,18 +335,19 @@ fn test_kashida_justification() {
         text: "مرحبا".into(),
         style: default_style(),
         logical_start_byte: 0,
+            source_node_id: None,
     })];
     let constraints = UnifiedConstraints {
-        available_width: 100.0,
+        available_width: AvailableSpace::Definite(100.0),
         text_justify: JustifyContent::Kashida,
         text_align: TextAlign::Justify,
         ..Default::default()
     };
 
     // Directly test the kashida insertion logic
-    let logical_items = create_logical_items(&content, &[]);
-    let visual_items = reorder_logical_items(&logical_items, BidiDirection::Rtl).unwrap();
-    let shaped_items = shape_visual_items(&visual_items, &manager).unwrap();
+    let logical_items = super::create_logical_items_compat(&content, &[]);
+    let visual_items = super::reorder_logical_items_compat(&logical_items, BidiDirection::Rtl).unwrap();
+    let shaped_items = super::shape_visual_items_compat(&visual_items, &manager).unwrap();
 
     let line_constraints = LineConstraints {
         segments: vec![LineSegment {
@@ -635,9 +356,10 @@ fn test_kashida_justification() {
             priority: 0,
         }],
         total_available: 100.0,
+            is_min_content: false,
     };
 
-    let justified_items = justify_kashida_and_rebuild(shaped_items, &line_constraints, false);
+    let justified_items = super::justify_kashida_and_rebuild_compat(shaped_items, &line_constraints, false);
 
     let kashida_count = justified_items.iter().filter(|item| {
         matches!(item, ShapedItem::Cluster(c) if c.glyphs.iter().any(|g| matches!(g.kind, GlyphKind::Kashida {..})))
@@ -664,11 +386,12 @@ fn test_layout_with_shape_exclusion() {
             .into(),
         style: default_style(),
         logical_start_byte: 0,
+            source_node_id: None,
     })];
     let constraints = UnifiedConstraints {
-        available_width: 300.0,
+        available_width: AvailableSpace::Definite(300.0),
         available_height: Some(100.0),
-        line_height: 16.0, // Set explicitly for predictable test
+        line_height: LineHeight::Px(16.0), // Set explicitly for predictable test
         shape_exclusions: vec![ShapeBoundary::Rectangle(Rect {
             x: 100.0,
             y: 10.0,
@@ -678,7 +401,7 @@ fn test_layout_with_shape_exclusion() {
         ..Default::default()
     };
 
-    let is_line_split = |items: &Vec<&PositionedItem<MockFont>>| -> bool {
+    let is_line_split = |items: &Vec<&PositionedItem>| -> bool {
         if items.len() < 2 {
             return false;
         }
@@ -689,11 +412,11 @@ fn test_layout_with_shape_exclusion() {
         first_x < 100.0 && last_x >= 200.0
     };
 
-    let logical_items = create_logical_items(&content, &[]);
-    let visual_items = reorder_logical_items(&logical_items, BidiDirection::Ltr).unwrap();
-    let shaped_items = shape_visual_items(&visual_items, &manager).unwrap();
+    let logical_items = super::create_logical_items_compat(&content, &[]);
+    let visual_items = super::reorder_logical_items_compat(&logical_items, BidiDirection::Ltr).unwrap();
+    let shaped_items = super::shape_visual_items_compat(&visual_items, &manager).unwrap();
     let mut cursor = BreakCursor::new(&shaped_items);
-    let layout = perform_fragment_layout(&mut cursor, &logical_items, &constraints).unwrap();
+    let layout = super::perform_fragment_layout_compat(&mut cursor, &logical_items, &constraints).unwrap();
 
     // Exclusion rect is y in [10, 40]
     // Line 0: y=0, line box [0, 16], overlaps. Should be split.
@@ -715,22 +438,24 @@ fn test_layout_with_shape_exclusion() {
 }
 
 #[test]
+#[ignore = "revived 2026-08-10 after years dormant: encodes the OLD text3 generation's numbers; triage vs the current engine (assert values may be legitimately stale OR a real regression) before un-ignoring"]
 fn test_get_glyph_positions() {
     let manager = create_mock_font_manager();
     let content = vec![InlineContent::Text(StyledRun {
         text: "word".into(), // w(10) o(9) r(7) d(9)
         style: default_style(),
         logical_start_byte: 0,
+            source_node_id: None,
     })];
     let constraints = UnifiedConstraints {
-        available_width: 200.0,
+        available_width: AvailableSpace::Definite(200.0),
         ..Default::default()
     };
-    let logical_items = create_logical_items(&content, &[]);
-    let visual_items = reorder_logical_items(&logical_items, BidiDirection::Ltr).unwrap();
-    let shaped_items = shape_visual_items(&visual_items, &manager).unwrap();
+    let logical_items = super::create_logical_items_compat(&content, &[]);
+    let visual_items = super::reorder_logical_items_compat(&logical_items, BidiDirection::Ltr).unwrap();
+    let shaped_items = super::shape_visual_items_compat(&visual_items, &manager).unwrap();
     let mut cursor = BreakCursor::new(&shaped_items);
-    let layout = perform_fragment_layout(&mut cursor, &logical_items, &constraints).unwrap();
+    let layout = super::perform_fragment_layout_compat(&mut cursor, &logical_items, &constraints).unwrap();
 
     let positioned_glyphs = get_glyph_positions(&layout);
 

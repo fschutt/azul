@@ -7,7 +7,7 @@
 /// This test should FAIL initially, demonstrating the bug.
 
 use azul_layout::text3::cache::{
-    InlineContent, LayoutFragment, StyleProperties, StyledRun, TextShapingCache,
+    AvailableSpace, InlineContent, LayoutFragment, StyleProperties, StyledRun, TextShapingCache,
     UnifiedConstraints,
 };
 
@@ -35,13 +35,13 @@ fn test_available_width_should_produce_nonzero_bounds() {
     // Create constraints with a reasonable available_width
     let available_width = 800.0;
     let constraints = UnifiedConstraints {
-        available_width,
+        available_width: AvailableSpace::Definite(available_width),
         available_height: Some(600.0),
         ..Default::default()
     };
 
     println!("\nUnifiedConstraints:");
-    println!("  available_width: {}", constraints.available_width);
+    println!("  available_width: {:?}", constraints.available_width);
     println!("  available_height: {:?}", constraints.available_height);
 
     // Create a single fragment
@@ -53,8 +53,7 @@ fn test_available_width_should_produce_nonzero_bounds() {
     println!("\nCalling layout_flow()...");
 
     // Perform layout
-    let result = text_cache
-        .layout_flow(&content, &[], &fragments, &font_manager)
+    let result = super::layout_flow_compat(&mut text_cache, &content, &[], &fragments, &font_manager)
         .expect("layout_flow should succeed");
 
     println!("layout_flow() completed");
@@ -153,7 +152,7 @@ fn test_available_width_zero_should_produce_zero_bounds() {
     })];
 
     let constraints = UnifiedConstraints {
-        available_width: 0.0, // Zero width
+        available_width: AvailableSpace::Definite(0.0), // Zero width
         available_height: Some(600.0),
         ..Default::default()
     };
@@ -163,8 +162,7 @@ fn test_available_width_zero_should_produce_zero_bounds() {
         constraints,
     }];
 
-    let result = text_cache
-        .layout_flow(&content, &[], &fragments, &font_manager)
+    let result = super::layout_flow_compat(&mut text_cache, &content, &[], &fragments, &font_manager)
         .expect("layout_flow should succeed");
 
     let fragment = result.fragment_layouts.get("test").unwrap();
@@ -190,7 +188,7 @@ fn test_available_width_infinite_should_produce_full_width() {
     })];
 
     let constraints = UnifiedConstraints {
-        available_width: f32::INFINITY,
+        available_width: AvailableSpace::MaxContent,
         available_height: Some(600.0),
         ..Default::default()
     };
@@ -200,8 +198,7 @@ fn test_available_width_infinite_should_produce_full_width() {
         constraints,
     }];
 
-    let result = text_cache
-        .layout_flow(&content, &[], &fragments, &font_manager)
+    let result = super::layout_flow_compat(&mut text_cache, &content, &[], &fragments, &font_manager)
         .expect("layout_flow should succeed");
 
     let fragment = result.fragment_layouts.get("test").unwrap();

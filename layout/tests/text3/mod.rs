@@ -9,7 +9,7 @@ use hyphenation::Language;
 use azul_layout::font_traits::FontLoaderTrait;
 use azul_layout::text3::{
     cache::{
-        BidiLevel, BidiDirection, FontSelector, Glyph,
+        AvailableSpace, BidiLevel, BidiDirection, FontSelector, FontStack, Glyph, LineHeight,
         GlyphOrientation, GlyphSource, LayoutError, LayoutFontMetrics, ParsedFontTrait, Point,
         PositionedItem, ShapedItem, Spacing, StyleProperties, TextDecoration, TextOrientation,
         TextTransform, VerticalMetrics, WritingMode,
@@ -23,6 +23,136 @@ pub mod one;
 pub mod six;
 pub mod three;
 pub mod two;
+
+// --- API-generation compat wrappers -----------------------------------
+// These tests were written against the FontProviderTrait generation of
+// the pipeline (2-arg shape, 3-arg fragment layout). The wrappers adapt
+// them to the current LoadedFonts pipeline; every test uses the same
+// create_mock_font_manager() glyph table, so the wrappers build the
+// LoadedFonts from that fixture directly.
+
+pub fn mock_loaded_fonts() -> azul_layout::text3::cache::LoadedFonts<MockFont> {
+    let manager = create_mock_font_manager();
+    let fonts = manager.loader.fonts.clone();
+    fonts
+        .values()
+        .map(|f| (rust_fontconfig::FontId::new(), (**f).clone()))
+        .collect()
+}
+
+pub fn create_logical_items_compat(
+    content: &[azul_layout::text3::cache::InlineContent],
+    overrides: &[azul_layout::text3::cache::StyleOverride],
+) -> Vec<azul_layout::text3::cache::LogicalItem> {
+    azul_layout::text3::cache::create_logical_items(content, overrides, &mut None)
+}
+
+pub fn reorder_logical_items_compat(
+    items: &[azul_layout::text3::cache::LogicalItem],
+    dir: azul_layout::text3::cache::BidiDirection,
+) -> Result<Vec<azul_layout::text3::cache::VisualItem>, azul_layout::text3::cache::LayoutError> {
+    azul_layout::text3::cache::reorder_logical_items(
+        items,
+        dir,
+        azul_layout::text3::cache::UnicodeBidi::Normal,
+        &mut None,
+    )
+}
+
+pub fn shape_visual_items_compat(
+    items: &[azul_layout::text3::cache::VisualItem],
+    _manager: &MockFontManager,
+) -> Result<Vec<azul_layout::text3::cache::ShapedItem>, azul_layout::text3::cache::LayoutError> {
+    let loaded = mock_loaded_fonts();
+    let chain = std::collections::HashMap::new();
+    let fc = rust_fontconfig::FcFontCache::default();
+    azul_layout::text3::cache::shape_visual_items(items, &chain, &fc, &loaded, &mut None)
+}
+
+pub fn perform_fragment_layout_compat(
+    cursor: &mut azul_layout::text3::cache::BreakCursor<'_>,
+    logical: &[azul_layout::text3::cache::LogicalItem],
+    constraints: &azul_layout::text3::cache::UnifiedConstraints,
+) -> Result<azul_layout::text3::cache::UnifiedLayout, azul_layout::text3::cache::LayoutError> {
+    let loaded = mock_loaded_fonts();
+    azul_layout::text3::cache::perform_fragment_layout(cursor, logical, constraints, &mut None, &loaded)
+}
+
+pub fn break_one_line_compat<'a>(
+    cursor: &mut azul_layout::text3::cache::BreakCursor<'a>,
+    lc: &azul_layout::text3::cache::LineConstraints,
+    is_vertical: bool,
+    hyphenator: Option<&hyphenation::Standard>,
+) -> (Vec<azul_layout::text3::cache::ShapedItem>, bool) {
+    azul_layout::text3::cache::break_one_line(
+        cursor,
+        lc,
+        is_vertical,
+        hyphenator,
+        &mock_loaded_fonts(),
+        Default::default(),
+        Default::default(),
+        Default::default(),
+    )
+}
+
+#[allow(clippy::too_many_arguments)]
+pub fn position_one_line_compat(
+    line_items: &[azul_layout::text3::cache::ShapedItem],
+    lc: &azul_layout::text3::cache::LineConstraints,
+    line_top_y: f32,
+    line_index: usize,
+    text_align: azul_layout::text3::cache::TextAlign,
+    base_direction: azul_layout::text3::cache::BidiDirection,
+    is_last_line: bool,
+    constraints: &azul_layout::text3::cache::UnifiedConstraints,
+) -> (Vec<azul_layout::text3::cache::PositionedItem>, f32) {
+    azul_layout::text3::cache::position_one_line(
+        line_items,
+        lc,
+        line_top_y,
+        line_index,
+        text_align,
+        base_direction,
+        is_last_line,
+        constraints,
+        &mut None,
+        &mock_loaded_fonts(),
+        false,
+    )
+}
+
+pub fn justify_kashida_and_rebuild_compat(
+    items: Vec<azul_layout::text3::cache::ShapedItem>,
+    lc: &azul_layout::text3::cache::LineConstraints,
+    is_vertical: bool,
+) -> Vec<azul_layout::text3::cache::ShapedItem> {
+    azul_layout::text3::cache::justify_kashida_and_rebuild(
+        items,
+        lc,
+        is_vertical,
+        &mut None,
+        &mock_loaded_fonts(),
+    )
+}
+
+pub fn layout_flow_compat(
+    cache: &mut azul_layout::text3::cache::TextShapingCache,
+    content: &[azul_layout::text3::cache::InlineContent],
+    overrides: &[azul_layout::text3::cache::StyleOverride],
+    flow_chain: &[azul_layout::text3::cache::LayoutFragment],
+    _manager: &MockFontManager,
+) -> Result<azul_layout::text3::cache::FlowLayout, azul_layout::text3::cache::LayoutError> {
+    cache.layout_flow(
+        content,
+        overrides,
+        flow_chain,
+        &std::collections::HashMap::new(),
+        &rust_fontconfig::FcFontCache::default(),
+        &mock_loaded_fonts(),
+        &mut None,
+    )
+}
 
 // --- Mocking Infrastructure ---
 
@@ -48,7 +178,7 @@ impl ParsedFontTrait for MockFont {
         _language: Language,
         direction: BidiDirection,
         style: &StyleProperties,
-    ) -> Result<Vec<Glyph<Self>>, LayoutError> {
+    ) -> Result<Vec<Glyph>, LayoutError> {
         let mut result_glyphs = Vec::new();
         let mut char_indices: Vec<(usize, char)> = text.char_indices().collect();
 
@@ -68,7 +198,8 @@ impl ParsedFontTrait for MockFont {
                     result_glyphs.push(Glyph {
                         glyph_id: *glyph_id,
                         codepoint: lig_str.chars().next().unwrap(),
-                        font: self.clone(),
+                        font_hash: self.get_hash(),
+                        font_metrics: self.get_font_metrics(),
                         style: Arc::new(style.clone()),
                         source: GlyphSource::Char,
                         logical_byte_index: byte_index,
@@ -101,7 +232,8 @@ impl ParsedFontTrait for MockFont {
             result_glyphs.push(Glyph {
                 glyph_id,
                 codepoint: char,
-                font: self.clone(),
+                font_hash: self.get_hash(),
+                font_metrics: self.get_font_metrics(),
                 style: Arc::new(style.clone()),
                 source: GlyphSource::Char,
                 logical_byte_index: byte_index,
@@ -203,21 +335,6 @@ impl MockFontManager {
     }
 }
 
-impl FontProviderTrait<MockFont> for MockFontManager {
-    fn load_font(&self, font_ref: &FontSelector) -> Result<MockFont, LayoutError> {
-        let mut cache = self.cache.lock().unwrap();
-        if let Some(font) = cache.get(font_ref) {
-            return Ok((**font).clone());
-        }
-        let font = self
-            .loader
-            .fonts
-            .get(&font_ref.family)
-            .ok_or_else(|| LayoutError::FontNotFound(font_ref.clone()))?;
-        cache.insert(font_ref.clone(), font.clone());
-        Ok((**font).clone())
-    }
-}
 
 pub fn create_mock_font_manager() -> MockFontManager {
     let mut glyphs = HashMap::new();
@@ -279,6 +396,8 @@ pub fn create_mock_font_manager() -> MockFontManager {
         metrics: LayoutFontMetrics {
             ascent: 80.0,
             descent: -20.0,
+            cap_height: Some(70.0),
+            x_height: Some(50.0),
             line_gap: 0.0,
             units_per_em: 100,
         },
@@ -336,6 +455,8 @@ pub fn create_mock_font_loader() -> Arc<MockFontLoader> {
         metrics: LayoutFontMetrics {
             ascent: 80.0,
             descent: -20.0,
+            cap_height: Some(70.0),
+            x_height: Some(50.0),
             line_gap: 0.0,
             units_per_em: 100,
         },
@@ -351,10 +472,10 @@ pub fn create_mock_font_loader() -> Arc<MockFontLoader> {
 
 pub fn default_style() -> Arc<StyleProperties> {
     Arc::new(StyleProperties {
-        font_selector: FontSelector {
+        font_stack: FontStack::Stack(vec![FontSelector {
             family: "mock".into(),
             ..FontSelector::default()
-        },
+        }]),
         font_size_px: 10.0,
         color: ColorU {
             r: 0,
@@ -364,7 +485,7 @@ pub fn default_style() -> Arc<StyleProperties> {
         },
         letter_spacing: Spacing::Px(0),
         word_spacing: Spacing::Px(0),
-        line_height: 12.0,
+        line_height: LineHeight::Px(12.0),
         text_decoration: TextDecoration::default(),
         font_features: Vec::new(),
         font_variations: Vec::new(),
@@ -377,11 +498,12 @@ pub fn default_style() -> Arc<StyleProperties> {
         font_variant_numeric: Default::default(),
         font_variant_ligatures: Default::default(),
         font_variant_east_asian: Default::default(),
+        ..StyleProperties::default()
     })
 }
 
 /// Helper function to extract the text content from a layout result.
-fn get_text_from_items(items: &[PositionedItem<T>]) -> String {
+fn get_text_from_items(items: &[PositionedItem]) -> String {
     items
         .iter()
         .map(|p_item| match &p_item.item {
