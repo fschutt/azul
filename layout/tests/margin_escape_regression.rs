@@ -259,7 +259,7 @@ fn test_sibling_margins_included_in_parent_height() {
 }
 
 #[test]
-#[ignore = "REVIVED 2026-08-10 after the target was silently broken; found a 3-way disagreement needing a browser oracle: this test expects container 360 (traps only the nested-container 40 bottom margin), the engine produces 370 (traps the collapsed 50), strict CSS2.1 arithmetic says 320 (both bottom margins collapse through and escape). The engine's margin collapsing was reftest-oracle-validated 2026-08-04, so decide with the same oracle (render this HTML in Chrome, measure .container height), then fix whichever of the three is wrong."]
+#[ignore = "ENGINE BUG (task #24), oracle-settled 2026-08-10: headless Chromium renders this exact structure with .container height = 320 - the collapsed bottom margin chain (nested-box 50 + nested-container 40 -> 50) must collapse THROUGH the auto-height padding-less container and escape, not add to its height. The engine produces 370 (traps the collapsed 50); the original 360 expectation (trap only the 40) was ALSO wrong; the asserts now encode the oracle 320. Un-ignoring this test is the fix definition of done."]
 fn test_nested_margin_escape() {
     // Complex test: nested containers with multiple margin escapes
     //
@@ -387,9 +387,9 @@ fn test_nested_margin_escape() {
         .expect("nested-container rect");
 
     assert!(
-        (container_rect.size.height - 360.0).abs() < 1.0,
-        "Container should be ~360px (140 box + 50 gap + 130 nested-container + 40 bottom \
-         trap), got {}",
+        (container_rect.size.height - 320.0).abs() < 1.0,
+        "Container should be ~320px per the Chrome oracle (140 box + 50 collapsed gap + \
+         130 nested-container; BOTH bottom margins collapse through and escape), got {}",
         container_rect.size.height
     );
 
