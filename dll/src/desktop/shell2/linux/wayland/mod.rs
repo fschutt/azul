@@ -5197,6 +5197,46 @@ impl WaylandWindow {
                                                     }
                                                 }
                                             }
+                                            // AZ_PRESENT_VERIFY=1: after the
+                                            // partial copy the slot must equal
+                                            // the pixmap EVERYWHERE (copied ∪
+                                            // retained). Any mismatch is slot
+                                            // staleness the catch-up missed —
+                                            // the definitive live diagnostic
+                                            // for "flapping" chrome (task #19).
+                                            if std::env::var_os("AZ_PRESENT_VERIFY").is_some() {
+                                                let mut bad = 0usize;
+                                                let mut first: Option<(usize, usize)> = None;
+                                                'rows: for y in 0..clamp_h as usize {
+                                                    let so = y * src_stride;
+                                                    let doff = y * dst_stride;
+                                                    for x in 0..clamp_w as usize {
+                                                        let s = &src[so + x * 4..so + x * 4 + 4];
+                                                        let d = &buf[doff + x * 4..doff + x * 4 + 4];
+                                                        if d[0] != s[2] || d[1] != s[1] || d[2] != s[0] {
+                                                            bad += 1;
+                                                            if first.is_none() {
+                                                                first = Some((x, y));
+                                                            }
+                                                            if bad > 4096 {
+                                                                break 'rows;
+                                                            }
+                                                        }
+                                                    }
+                                                }
+                                                if bad > 0 {
+                                                    log_error!(
+                                                        LogCategory::Rendering,
+                                                        "[present-verify] slot {} STALE: {}+ px \
+                                                         differ from the pixmap, first at {:?} \
+                                                         ({} copy rects this present)",
+                                                        slot,
+                                                        bad,
+                                                        first,
+                                                        copy_rects.len()
+                                                    );
+                                                }
+                                            }
                                             // Stale bookkeeping: this slot is
                                             // now current; the OTHER slot missed
                                             // this frame's rects.
@@ -5219,6 +5259,7 @@ impl WaylandWindow {
                                                     (*x as i32, *y as i32, *w as i32, *h as i32)
                                                 },
                                             ));
+
                                         } else {
                                             // Both buffers held by the
                                             // compositor — retry next cycle.

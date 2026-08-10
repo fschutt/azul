@@ -2665,6 +2665,134 @@ mod tests {
         )
     }
 
+    /// A ribbon-shaped row: LEFT-anchored group, a flex spacer, then two
+    /// RIGHT-anchored groups (they move by the FULL width delta on resize),
+    /// with a centered label underneath (moves by HALF the delta) — the
+    /// mover-diversity of the live miniword ribbon, in miniature.
+    extern "C" fn harness_layout_ribbon(mut data: RefAny, _info: LayoutCallbackInfo) -> Dom {
+        use azul_css::dynamic_selector::CssPropertyWithConditions as C;
+        use azul_css::props::basic::color::ColorU;
+        use azul_css::props::layout::dimensions::{LayoutHeight, LayoutWidth};
+        use azul_css::props::layout::flex::{LayoutFlexDirection, LayoutFlexGrow};
+        use azul_css::props::property::CssProperty;
+        use azul_css::props::style::background::{
+            StyleBackgroundContent, StyleBackgroundContentVec,
+        };
+        use azul_css::props::style::text::StyleTextAlign;
+
+        let label = data
+            .downcast_ref::<UiState>()
+            .map(|s| s.label.clone())
+            .unwrap_or_default();
+        let bg = |r: u8, g: u8, b: u8| -> StyleBackgroundContentVec {
+            vec![StyleBackgroundContent::Color(ColorU { r, g, b, a: 255 })].into()
+        };
+        let group = |color: StyleBackgroundContentVec, text: &str| {
+            Dom::create_div()
+                .with_css_props(
+                    vec![
+                        C::simple(CssProperty::width(LayoutWidth::px(90.0))),
+                        C::simple(CssProperty::height(LayoutHeight::px(40.0))),
+                        C::simple(CssProperty::background_content(color)),
+                    ]
+                    .into(),
+                )
+                .with_child(Dom::create_text(text))
+        };
+        let spacer = Dom::create_div().with_css_props(
+            vec![C::simple(CssProperty::flex_grow(LayoutFlexGrow::const_new(1)))].into(),
+        );
+        let row = Dom::create_div()
+            .with_css_props(
+                vec![
+                    C::simple(CssProperty::flex_direction(LayoutFlexDirection::Row)),
+                    C::simple(CssProperty::height(LayoutHeight::px(44.0))),
+                ]
+                .into(),
+            )
+            .with_child(group(bg(200, 60, 60), "Clip"))
+            .with_child(spacer)
+            .with_child(group(bg(60, 160, 60), "Font"))
+            .with_child(group(bg(60, 60, 200), "Layout"));
+        let centered = Dom::create_div()
+            .with_css_props(
+                vec![C::simple(CssProperty::text_align(StyleTextAlign::Center))].into(),
+            )
+            .with_child(Dom::create_text(label.as_str()));
+        Dom::create_body().with_child(row).with_child(centered)
+    }
+
+    /// TASK #19 REPRO ATTEMPT: incremental resizes of a multi-mover row must
+    /// stay pixel-identical to a fresh render at every step. The live
+    /// symptom ("LAYOUT tab flapping, groups merging") is stale bands after
+    /// drag steps; if the defect is render-side (damage/blit), this goes red
+    /// with first-diff coordinates. If this stays green, the defect is in
+    /// the wayland PRESENT path (slots/timing), not the renderer.
+    #[test]
+    fn ribbon_row_stays_pixel_true_across_incremental_resizes() {
+        use azul_core::geom::LogicalSize;
+        let state = Arc::new(RefCell::new(RefAny::new(UiState {
+            label: "centered caption".to_string(),
+        })));
+        let mut window = make_window_sized(&state, harness_layout_ribbon, 800.0, 240.0);
+        window.regenerate_layout().expect("initial layout");
+        window.regenerate_layout().expect("settle");
+
+        let mut prev_w = 800.0f32;
+        // Odd step: fractional centered deltas + non-integral mover deltas.
+        for w in [793.0f32, 786.0, 779.0, 772.0, 765.0] {
+            let full = window.common.request_regeneration_for_resize(
+                LogicalSize::new(prev_w, 240.0),
+                LogicalSize::new(w, 240.0),
+            );
+            window.common.current_window_state.size.dimensions = LogicalSize::new(w, 240.0);
+            if full {
+                window.regenerate_layout().expect("regen");
+            } else {
+                let _ = window.common.take_relayout_only();
+                window.relayout_only().expect("relayout");
+            }
+            let incr = window
+                .cpu_backend
+                .last_frame
+                .as_ref()
+                .expect("incremental frame")
+                .clone_pixmap();
+
+            // Fresh window at the same size = ground truth.
+            let fresh_state = Arc::new(RefCell::new(RefAny::new(UiState {
+                label: "centered caption".to_string(),
+            })));
+            let mut fresh = make_window_sized(&fresh_state, harness_layout_ribbon, w, 240.0);
+            fresh.regenerate_layout().expect("fresh layout");
+            let full_frame = fresh
+                .cpu_backend
+                .last_frame
+                .as_ref()
+                .expect("fresh frame")
+                .clone_pixmap();
+
+            assert_eq!(incr.width(), full_frame.width(), "width at {w}");
+            let (a, b) = (incr.data(), full_frame.data());
+            let mut diffs = 0usize;
+            let mut first: Option<(u32, u32)> = None;
+            for i in (0..a.len().min(b.len())).step_by(4) {
+                if a[i] != b[i] || a[i + 1] != b[i + 1] || a[i + 2] != b[i + 2] {
+                    diffs += 1;
+                    if first.is_none() {
+                        let px = (i / 4) as u32;
+                        first = Some((px % incr.width(), px / incr.width()));
+                    }
+                }
+            }
+            assert_eq!(
+                diffs, 0,
+                "step to {w}: incremental frame differs from fresh in {diffs} px,                  first at {first:?} — stale band (the live flapping/merge symptom)"
+            );
+            prev_w = w;
+        }
+    }
+
     /// State for the harvested-breakpoint pin: counts `layout()` invocations.
     #[derive(Debug, Clone)]
     struct BreakpointState {
