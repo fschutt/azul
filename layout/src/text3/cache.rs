@@ -106,62 +106,6 @@ fn ruby_reserved_box(
 /// the inline buffer and the heap pointer into the same bytes, so sizeof
 /// stays `sizeof(ShapedGlyph) + 2*usize` regardless of inline/heap state.
 pub type ShapedGlyphVec = SmallVec<[ShapedGlyph; 1]>;
-/// The SHARED glyph array of a cluster / combined block. Slice 2 of the
-/// compact-record plan (2026-08-10): every holder of a cluster (the two
-/// shaping-cache maps, warm.inline, the positioned copies) used to carry
-/// its OWN SmallVec of 88-B glyphs; behind `Arc`, a cluster clone is a
-/// refcount bump and the shaping-cache HIT path shares the arrays
-/// outright. Mutating paths (hyphenation split, kashida insertion,
-/// text-orientation rewrite, justification) go through `Arc::make_mut` —
-/// copy-on-write, so a shared array is never edited in place (T2 pins
-/// the identity side; the shaping goldens pin the geometry side).
-/// Newtype over `Arc<ShapedGlyphVec>` that stays SOURCE-COMPATIBLE with
-/// the old inline `SmallVec` field for read-only consumers: `Deref` to the
-/// glyph slice gives `.iter()/.len()/[i]`, and `IntoIterator for
-/// &SharedGlyphs` keeps `for g in &cluster.glyphs` compiling — printpdf
-/// 0.12.5 (crates.io, immutable) iterates exactly that way at two sites.
-/// Mutation is EXPLICIT via [`SharedGlyphs::make_mut`] (copy-on-write).
-#[derive(Debug, Clone, PartialEq)]
-pub struct SharedGlyphs(pub Arc<ShapedGlyphVec>);
-
-impl SharedGlyphs {
-    #[must_use] pub fn new(v: ShapedGlyphVec) -> Self {
-        Self(Arc::new(v))
-    }
-    /// Copy-on-write access for the mutating paths (hyphenation split,
-    /// kashida insertion, orientation rewrite, justification).
-    pub fn make_mut(&mut self) -> &mut ShapedGlyphVec {
-        Arc::make_mut(&mut self.0)
-    }
-    /// Pointer identity of the shared array — the memory walk counts each
-    /// array ONCE per pointer.
-    #[must_use] pub fn arc_ptr(&self) -> usize {
-        Arc::as_ptr(&self.0) as usize
-    }
-}
-
-impl core::ops::Deref for SharedGlyphs {
-    type Target = ShapedGlyphVec;
-    fn deref(&self) -> &ShapedGlyphVec {
-        &self.0
-    }
-}
-
-impl<'a> IntoIterator for &'a SharedGlyphs {
-    type Item = &'a ShapedGlyph;
-    type IntoIter = core::slice::Iter<'a, ShapedGlyph>;
-    fn into_iter(self) -> Self::IntoIter {
-        self.0.iter()
-    }
-}
-
-impl From<ShapedGlyphVec> for SharedGlyphs {
-    fn from(v: ShapedGlyphVec) -> Self {
-        Self::new(v)
-    }
-}
-
-pub type SharedShapedGlyphs = SharedGlyphs;
 
 /// CSS `line-height` value.
 ///
@@ -4647,7 +4591,7 @@ pub enum ShapedItem {
     CombinedBlock {
         source: ContentIndex,
         /// The glyphs to be rendered horizontally within the vertical line.
-        glyphs: SharedShapedGlyphs,
+        glyphs: ShapedGlyphVec,
         /// Uniform style of the combined run (tate-chu-yoko is one style;
         /// glyphs no longer carry per-glyph style — see ShapedGlyph).
         style: Arc<StyleProperties>,
@@ -4731,7 +4675,7 @@ pub struct ShapedCluster {
     /// The glyphs that make up this cluster. `SmallVec<[T; 1]>` — inline
     /// single-glyph clusters (the common case for Latin text), spill to
     /// heap only for ligatures / combining marks.
-    pub glyphs: SharedShapedGlyphs,
+    pub glyphs: ShapedGlyphVec,
     /// The total advance width (horizontal) or height (vertical) of the cluster.
     pub advance: f32,
     /// The direction of this cluster, inherited from its `VisualItem`.
@@ -6334,31 +6278,9 @@ impl TextShapingCache {
         // every cluster has exactly one glyph, that DOUBLED the reported glyph
         // bytes. Fixed in `solver3/layout_tree.rs:952` (d41a15dbe); never
         // applied here until now.
-        // Slice 2 (2026-08-10): glyph arrays are SHARED behind Arc, so
-        // they are counted ONCE PER ARC POINTER, not once per cluster —
-        // per-cluster counting would double-count every array the cache
-        // shares with warm.inline / positioned copies (the exact
-        // over-reporting class the truthfulness pass exists to prevent).
-        // Cost per unique array: the Arc header (strong+weak counts),
-        // the SmallVec struct itself, and the spill heap when the array
-        // outgrew the inline slot.
-        const ARC_HDR: usize = 2 * size_of::<usize>();
-        fn glyph_arc_bytes(
-            c: &ShapedCluster,
-            glyph_arcs: &mut std::collections::HashSet<usize>,
-        ) -> usize {
-            if !glyph_arcs.insert(c.glyphs.arc_ptr()) {
-                return 0;
-            }
-            let spill = if c.glyphs.spilled() {
-                c.glyphs.capacity() * size_of::<ShapedGlyph>()
-            } else {
-                0
-            };
-            ARC_HDR + size_of::<ShapedGlyphVec>() + spill
+        fn glyph_spill_bytes(c: &ShapedCluster) -> usize {
+            c.glyphs.capacity().saturating_sub(1) * size_of::<ShapedGlyph>()
         }
-        let mut glyph_arcs: std::collections::HashSet<usize> =
-            std::collections::HashSet::new();
 
         r.shaped_items_entries = self.shaped_items.len();
         for arc in self.shaped_items.values() {
@@ -6370,7 +6292,7 @@ impl TextShapingCache {
             for item in arc.iter() {
                 match item {
                     ShapedItem::Cluster(c) => {
-                        r.shaped_glyph_bytes += glyph_arc_bytes(c, &mut glyph_arcs);
+                        r.shaped_glyph_bytes += glyph_spill_bytes(c);
                         r.shaped_cluster_text_bytes += c.text.capacity();
                         r.cluster_count += 1;
                         style_arcs.insert(Arc::as_ptr(&c.style) as usize);
@@ -6406,7 +6328,7 @@ impl TextShapingCache {
             for item in &arc.clusters {
                 match item {
                     ShapedItem::Cluster(c) => {
-                        r.per_item_shaped_bytes += glyph_arc_bytes(c, &mut glyph_arcs);
+                        r.per_item_shaped_bytes += glyph_spill_bytes(c);
                         r.per_item_shaped_bytes += c.text.capacity();
                         r.cluster_count += 1;
                         style_arcs.insert(Arc::as_ptr(&c.style) as usize);
@@ -8562,7 +8484,7 @@ pub fn shape_visual_items<T: ParsedFontTrait>(
                 shaped.push(ShapedItem::CombinedBlock {
                     style: style.clone(),
                     source: *source,
-                    glyphs: SharedGlyphs::new(shaped_glyphs),
+                    glyphs: shaped_glyphs,
                     bounds,
                     baseline_offset: em_size / 2.0,
                 });
@@ -8706,8 +8628,7 @@ fn shape_text_correctly<T: ParsedFontTrait>(
                             offset: g.offset,
                         }
                     })
-                    .collect::<ShapedGlyphVec>()
-                    .into(),
+                    .collect(),
                 advance,
                 direction,
                 style: style.clone(),
@@ -8764,8 +8685,7 @@ fn shape_text_correctly<T: ParsedFontTrait>(
                         offset: g.offset,
                     }
                 })
-                .collect::<ShapedGlyphVec>()
-                .into(),
+                .collect(),
             advance,
             direction,
             style: style.clone(),
@@ -8846,7 +8766,7 @@ fn apply_text_orientation(
                 let mut new_cluster = cluster.clone();
                 let mut total_vertical_advance = 0.0;
 
-                for glyph in new_cluster.glyphs.make_mut().iter_mut() {
+                for glyph in &mut new_cluster.glyphs {
                     // Use the vertical metrics already computed during shaping
                     // If they're zero, use fallback values
                     if glyph.vertical_advance > 0.0 {
@@ -10069,7 +9989,7 @@ pub struct HyphenationBreak {
                 item_index: u32::MAX,
             },
             source_node_id: None, // Hyphen is generated, not from DOM
-            glyphs: SharedGlyphs::new(smallvec![ShapedGlyph {
+            glyphs: smallvec![ShapedGlyph {
                 kind: GlyphKind::Hyphen,
                 glyph_id: hyphen_glyph_id,
                 font_hash: last_glyph.font_hash,
@@ -10081,7 +10001,7 @@ pub struct HyphenationBreak {
                 offset: Point::default(),
                 vertical_advance: hyphen_advance,
                 vertical_offset: Point::default(),
-            }]),
+            }],
             advance: hyphen_advance,
             direction: BidiDirection::Ltr,
             style: style.clone(),
@@ -10975,7 +10895,7 @@ pub fn justify_kashida_and_rebuild<T: ParsedFontTrait>(
                 item_index: u32::MAX,
             },
             source_node_id: None, // Kashida is generated, not from DOM
-            glyphs: SharedGlyphs::new(smallvec![kashida_glyph]),
+            glyphs: smallvec![kashida_glyph],
             advance: kashida_advance,
             direction: BidiDirection::Ltr,
             style,
@@ -12455,7 +12375,7 @@ mod autotest_generated {
             source_cluster_id: id,
             source_content_index: ci(id.source_run, id.start_byte_in_run),
             source_node_id: None,
-            glyphs: SharedGlyphs::new(glyphs),
+            glyphs,
             advance,
             direction: BidiDirection::Ltr,
             style: st,

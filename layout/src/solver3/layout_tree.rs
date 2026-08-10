@@ -965,8 +965,6 @@ impl LayoutTree {
         // per node that has a cached layout. Counted conservatively.
         let mut style_arcs: alloc::collections::BTreeSet<usize> =
             alloc::collections::BTreeSet::new();
-        let mut glyph_arcs: alloc::collections::BTreeSet<usize> =
-            alloc::collections::BTreeSet::new();
         for w in &self.warm {
             if let Some(cached) = &w.inline_layout_result {
                 // Arc<UnifiedLayout> — count the UnifiedLayout header + its items.
@@ -988,20 +986,9 @@ impl LayoutTree {
                 // work at the wrong target.
                 for item in &cached.layout.items {
                     if let crate::text3::cache::ShapedItem::Cluster(c) = &item.item {
-                        // Slice 2: glyph arrays are shared behind Arc — count
-                        // each array once per POINTER, or the report
-                        // double-counts what the shaping cache also holds.
-                        if glyph_arcs.insert(c.glyphs.arc_ptr()) {
-                            let spill = if c.glyphs.spilled() {
-                                c.glyphs.capacity()
-                                    * size_of::<crate::text3::cache::ShapedGlyph>()
-                            } else {
-                                0
-                            };
-                            report.warm_inline_layout_bytes += 2 * size_of::<usize>()
-                                + size_of::<crate::text3::cache::ShapedGlyphVec>()
-                                + spill;
-                        }
+                        let spilled = c.glyphs.capacity().saturating_sub(1);
+                        report.warm_inline_layout_bytes +=
+                            spilled * size_of::<crate::text3::cache::ShapedGlyph>();
                         report.warm_inline_layout_bytes += c.text.capacity();
                         report.shaped_cluster_count += 1;
                         report.shaped_glyph_count += c.glyphs.len();
