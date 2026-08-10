@@ -773,6 +773,7 @@ mod kp_fix_tests {
 
     fn cl(text: &str, advance: f32) -> ShapedItem {
         ShapedItem::Cluster(ShapedCluster {
+            flags: crate::text3::cache::ClusterFlags::classify(text),
             text: text.to_string(),
             source_cluster_id: GraphemeClusterId { source_run: 0, start_byte_in_run: 0 },
             source_content_index: ContentIndex { run_index: 0, item_index: 0 },
@@ -913,6 +914,7 @@ mod autotest_generated {
 
     fn cl(text: &str, advance: f32) -> ShapedItem {
         ShapedItem::Cluster(ShapedCluster {
+            flags: crate::text3::cache::ClusterFlags::classify(text),
             text: text.to_string(),
             source_cluster_id: GraphemeClusterId {
                 source_run: 0,

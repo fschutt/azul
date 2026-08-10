@@ -585,6 +585,7 @@ mod autotest_generated {
     /// `direction` / `style` / `text` before wrapping it with [`item`].
     fn cluster(text: &str, glyphs: Vec<ShapedGlyph>, st: &Arc<StyleProperties>) -> ShapedCluster {
         ShapedCluster {
+            flags: crate::text3::cache::ClusterFlags::classify(text),
             text: text.to_string(),
             source_cluster_id: GraphemeClusterId {
                 source_run: 0,

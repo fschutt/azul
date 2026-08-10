@@ -49,17 +49,21 @@ fn shaped_text_struct_sizes_are_pinned() {
     // bytes: 200 B x 31,086 clusters = 6.2 MB on one 960-line document.
     assert_size!(
         PositionedItem,
-        192,
+        200,
         "Retained once per CHARACTER of laid-out text. +8 B here is +250 KB \
          on a 31k-character document. 200 -> 192 on 2026-08-10: ShapedGlyph \
          lost its per-glyph Arc<StyleProperties> (style is uniform within a \
-         cluster; the cluster's copy is the single source)."
+         cluster; the cluster's copy is the single source). 192 -> 200 on \
+         2026-08-11: ClusterFlags u16 added (padding rounds to +8) — the \
+         TRANSITIONAL cost of precomputing text classification; refunded \
+         with interest when ShapedCluster::text (24-B String header) is \
+         deleted in the next slice."
     );
 
     // The payload inside PositionedItem.
     assert_size!(
         ShapedItem,
-        176,
+        184,
         "Enum over Cluster / CombinedBlock / Object; the Cluster arm is what \
          nearly every entry is."
     );
@@ -69,7 +73,7 @@ fn shaped_text_struct_sizes_are_pinned() {
     // indices, an Arc<StyleProperties> and the direction.
     assert_size!(
         ShapedCluster,
-        168,
+        176,
         "One per grapheme. The inline SmallVec slot means one ShapedGlyph is \
          already inside this number - do not count it again (that bug \
          inflated the memory report by ~3 MB)."

@@ -371,6 +371,7 @@ mod autotest_generated {
 
     fn cluster(text: &str, id: GraphemeClusterId) -> ShapedCluster {
         ShapedCluster {
+            flags: crate::text3::cache::ClusterFlags::classify(text),
             text: text.to_string(),
             source_cluster_id: id,
             source_content_index: ci(id.source_run, id.start_byte_in_run),

@@ -4659,6 +4659,76 @@ impl ShapedItem {
     }
 }
 
+/// Precomputed classification of a cluster's text — the flags word the
+/// compact-record plan (§1.6) calls for. Computed ONCE at shaping, while
+/// the cluster text is in hand; the line breaker's hot predicates then
+/// read one bit instead of re-decoding UTF-8 on every probe (those scans
+/// ran ~25x per cluster per line-break pass). Also the prerequisite for
+/// deleting `ShapedCluster::text`: classification consumers stop needing
+/// the bytes at all.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Hash)]
+pub struct ClusterFlags(pub u16);
+
+impl ClusterFlags {
+    /// Any `is_word_separator_char` (space family) in the text.
+    pub const WORD_SEPARATOR: u16 = 1 << 0;
+    /// NBSP / NNBSP / WORD JOINER / ZWNBSP anywhere (UAX#14 GL/WJ):
+    /// word-spacing glue that must NOT offer a soft-wrap opportunity.
+    pub const NO_BREAK_SPACE: u16 = 1 << 1;
+    /// U+200B ZERO WIDTH SPACE anywhere: always a wrap opportunity.
+    pub const ZERO_WIDTH_SPACE: u16 = 1 << 2;
+    /// Text starts with U+00AD SOFT HYPHEN.
+    pub const SOFT_HYPHEN_START: u16 = 1 << 3;
+    /// Ends with '-', U+2010 HYPHEN or '/' (UAX#14 HY/BA/SY: break AFTER).
+    pub const ENDS_BREAKABLE: u16 = 1 << 4;
+    /// Any CJK character (implicit break opportunity in word-break:normal).
+    pub const HAS_CJK: u16 = 1 << 5;
+    /// Leading char is a grapheme extender (UAX#29): the cluster merges
+    /// into the preceding base and is not a standalone caret stop.
+    pub const GRAPHEME_CONTINUATION: u16 = 1 << 6;
+
+    #[must_use]
+    pub fn classify(text: &str) -> Self {
+        let mut bits = 0u16;
+        for (i, ch) in text.chars().enumerate() {
+            if is_word_separator_char(ch) {
+                bits |= Self::WORD_SEPARATOR;
+            }
+            if matches!(ch, '\u{00A0}' | '\u{202F}' | '\u{2060}' | '\u{FEFF}') {
+                bits |= Self::NO_BREAK_SPACE;
+            }
+            if ch == '\u{200B}' {
+                bits |= Self::ZERO_WIDTH_SPACE;
+            }
+            if is_cjk_character(ch) {
+                bits |= Self::HAS_CJK;
+            }
+            if i == 0 {
+                if ch == '\u{00AD}' {
+                    bits |= Self::SOFT_HYPHEN_START;
+                }
+                // Grapheme-extender probe: 'x' + ch collapsing to one
+                // grapheme means ch extends the preceding base.
+                let mut probe = String::with_capacity(1 + ch.len_utf8());
+                probe.push('x');
+                probe.push(ch);
+                if probe.graphemes(true).count() == 1 {
+                    bits |= Self::GRAPHEME_CONTINUATION;
+                }
+            }
+        }
+        if text.ends_with('\u{002D}') || text.ends_with('\u{2010}') || text.ends_with('\u{002F}') {
+            bits |= Self::ENDS_BREAKABLE;
+        }
+        Self(bits)
+    }
+
+    #[must_use]
+    pub const fn has(self, bit: u16) -> bool {
+        self.0 & bit != 0
+    }
+}
+
 /// A group of glyphs that corresponds to one or more source characters (a cluster).
 #[derive(Debug, Clone, PartialEq)]
 pub struct ShapedCluster {
@@ -4676,6 +4746,8 @@ pub struct ShapedCluster {
     /// single-glyph clusters (the common case for Latin text), spill to
     /// heap only for ligatures / combining marks.
     pub glyphs: ShapedGlyphVec,
+    /// Precomputed text classification — see [`ClusterFlags`].
+    pub flags: ClusterFlags,
     /// The total advance width (horizontal) or height (vertical) of the cluster.
     pub advance: f32,
     /// The direction of this cluster, inherited from its `VisualItem`.
@@ -8594,6 +8666,7 @@ fn shape_text_correctly<T: ParsedFontTrait>(
             let cluster_text = text.get(start..end).unwrap_or("");
 
             clusters.push(ShapedCluster {
+                flags: ClusterFlags::classify(cluster_text),
                 text: cluster_text.to_string(), // Store original text for hyphenation
                 source_cluster_id: GraphemeClusterId {
                     source_run: source_index.run_index,
@@ -8651,6 +8724,7 @@ fn shape_text_correctly<T: ParsedFontTrait>(
             .sum();
         let cluster_text = text.get(cluster_start_byte_in_text..).unwrap_or("");
         clusters.push(ShapedCluster {
+            flags: ClusterFlags::classify(cluster_text),
             text: cluster_text.to_string(), // Store original text
             source_cluster_id: GraphemeClusterId {
                 source_run: source_index.run_index,
@@ -9979,6 +10053,7 @@ pub struct HyphenationBreak {
             .collect();
 
         let hyphen_item = ShapedItem::Cluster(ShapedCluster {
+            flags: ClusterFlags::classify("-"),
             text: "-".to_string(),
             source_cluster_id: GraphemeClusterId {
                 source_run: u32::MAX,
@@ -10885,6 +10960,7 @@ pub fn justify_kashida_and_rebuild<T: ParsedFontTrait>(
             vertical_offset: Point::default(),
         };
         ShapedItem::Cluster(ShapedCluster {
+            flags: ClusterFlags::classify("\u{0640}"),
             text: "\u{0640}".to_string(),
             source_cluster_id: GraphemeClusterId {
                 source_run: u32::MAX,
@@ -11019,7 +11095,8 @@ fn cluster_is_word_boundary(cluster: &ShapedCluster) -> bool {
 // exclude punctuation and fixed-width spaces (U+3000, U+2000..U+200A)
 pub fn is_word_separator(item: &ShapedItem) -> bool {
     if let ShapedItem::Cluster(c) = item {
-        c.text.chars().any(is_word_separator_char)
+        // Precomputed at shaping — see ClusterFlags.
+        c.flags.has(ClusterFlags::WORD_SEPARATOR)
     } else {
         false
     }
@@ -11031,9 +11108,7 @@ pub fn is_word_separator(item: &ShapedItem) -> bool {
 /// subset of `is_word_separator` — they still contribute Glue, but no break Penalty.
 #[must_use] pub fn is_no_break_space(item: &ShapedItem) -> bool {
     if let ShapedItem::Cluster(c) = item {
-        c.text
-            .chars()
-            .any(|ch| matches!(ch, '\u{00A0}' | '\u{202F}' | '\u{2060}' | '\u{FEFF}'))
+        c.flags.has(ClusterFlags::NO_BREAK_SPACE)
     } else {
         false
     }
@@ -11083,7 +11158,7 @@ const fn is_word_separator_char(c: char) -> bool {
 // +spec:line-breaking:fd3164 - U+200B as explicit word delimiter for scripts without space-separated words
 #[must_use] pub fn is_zero_width_space(item: &ShapedItem) -> bool {
     if let ShapedItem::Cluster(c) = item {
-        c.text.contains('\u{200B}')
+        c.flags.has(ClusterFlags::ZERO_WIDTH_SPACE)
     } else {
         false
     }
@@ -11630,7 +11705,7 @@ const fn is_cjk_character(ch: char) -> bool {
 
 // §5.2 word-break: checks if a cluster contains CJK characters
 fn is_cjk_cluster(cluster: &ShapedCluster) -> bool {
-    cluster.text.chars().any(is_cjk_character)
+    cluster.flags.has(ClusterFlags::HAS_CJK)
 }
 
 // +spec:line-breaking:e1fc9d - word-break normal/break-all/keep-all break opportunity rules
@@ -11651,10 +11726,7 @@ pub(crate) fn is_break_opportunity_with_word_break(item: &ShapedItem, word_break
     // path used by BreakCursor::peek_next_unit, so it must suppress them the same way
     // the dedicated is_break_opportunity() does; otherwise "10\u{00A0}km" wrongly wraps.
     if let ShapedItem::Cluster(c) = item {
-        if c.text
-            .chars()
-            .any(|ch| matches!(ch, '\u{00A0}' | '\u{202F}' | '\u{2060}' | '\u{FEFF}'))
-        {
+        if c.flags.has(ClusterFlags::NO_BREAK_SPACE) {
             return false;
         }
     }
@@ -11676,7 +11748,7 @@ pub(crate) fn is_break_opportunity_with_word_break(item: &ShapedItem, word_break
     // only when hyphens != none. With hyphens:none, soft hyphens do not create break points.
     if hyphens != Hyphens::None {
         if let ShapedItem::Cluster(c) = item {
-            if c.text.starts_with('\u{00AD}') {
+            if c.flags.has(ClusterFlags::SOFT_HYPHEN_START) {
                 return true;
             }
         }
@@ -11689,7 +11761,7 @@ pub(crate) fn is_break_opportunity_with_word_break(item: &ShapedItem, word_break
     // matching browser practice. Mirrors is_break_opportunity(); this predicate drives
     // the greedy BreakCursor path, which previously never broke after a plain hyphen/slash.
     if let ShapedItem::Cluster(c) = item {
-        if c.text.ends_with('\u{002D}') || c.text.ends_with('\u{2010}') || c.text.ends_with('\u{002F}') {
+        if c.flags.has(ClusterFlags::ENDS_BREAKABLE) {
             return true;
         }
     }
@@ -12371,6 +12443,7 @@ mod autotest_generated {
         id: GraphemeClusterId,
     ) -> ShapedItem {
         ShapedItem::Cluster(ShapedCluster {
+            flags: ClusterFlags::classify(text),
             text: text.to_string(),
             source_cluster_id: id,
             source_content_index: ci(id.source_run, id.start_byte_in_run),
