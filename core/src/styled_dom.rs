@@ -2009,6 +2009,34 @@ impl StyledDom {
         }
     }
 
+    /// The viewport-size thresholds (widths, heights, logical px) at which
+    /// any conditional styling in this DOM can flip: the author
+    /// stylesheet's `@media (min-/max-width/height)` bounds plus every
+    /// inline conditional property's `ViewportWidth`/`ViewportHeight`
+    /// bounds (harvested by the compact-cache builder). Sorted, deduped.
+    ///
+    /// `None` when the compact cache has not been built yet (no styling
+    /// pass) — callers should treat that as "unknown" and fall back to a
+    /// conservative policy. The engine's resize decision uses this instead
+    /// of the old hardcoded `CSS_BREAKPOINTS` guess list, which failed both
+    /// ways: a widget breakpoint like the ribbon's 720px was not on it (so
+    /// shrinking onto the mobile layout never regenerated), and its eight
+    /// guessed thresholds fired ~66ms full regenerations on every drag
+    /// across 640/768/1024/...
+    #[must_use]
+    pub fn viewport_breakpoints(&self) -> Option<(Vec<f32>, Vec<f32>)> {
+        let cache = self.get_css_property_cache();
+        let cc = cache.compact_cache.as_ref()?;
+        let (mut w, mut h) = cache.retained_author_css.viewport_breakpoints();
+        w.extend(cc.inline_viewport_w.iter().copied().map(f32::from_bits));
+        h.extend(cc.inline_viewport_h.iter().copied().map(f32::from_bits));
+        w.sort_by_key(|v| v.to_bits());
+        w.dedup_by_key(|v| v.to_bits());
+        h.sort_by_key(|v| v.to_bits());
+        h.dedup_by_key(|v| v.to_bits());
+        Some((w, h))
+    }
+
     /// Migrate runtime CSS overrides (`user_overridden_properties`) from a
     /// previous generation's property cache onto this DOM, following the
     /// reconciliation node matches.

@@ -1176,6 +1176,16 @@ const fn duration_to_millis(duration: Duration) -> u64 {
     duration.as_millis_u64()
 }
 
+/// Does moving from `old` to `new` cross any of `thresholds`? Boundary
+/// semantics mirror the old static-list test: a threshold `bp` is crossed
+/// when `(old <= bp) != (new <= bp)`. Landing exactly ON a threshold counts
+/// as being on its "small" side, so a resize that stops at the pixel still
+/// regenerates once — harmless, and it keeps the two directions symmetric.
+#[must_use]
+pub fn breakpoints_crossed(thresholds: &[f32], old: f32, new: f32) -> bool {
+    thresholds.iter().any(|&bp| (old <= bp) != (new <= bp))
+}
+
 impl LayoutWindow {
     /// Would resizing to `new_size` flip the answer of any window-size query
     /// the last `layout()` run made (`window_width_less_than` & co.)?
@@ -1209,9 +1219,17 @@ impl LayoutWindow {
     /// 1. a recorded window-size query answer flips (`window_width_less_than` & co.)
     ///    ([`Self::size_queries_would_flip`], the sanctioned imperative
     ///    channel — incl. the recording having overflowed);
-    /// 2. an [`azul_core::window::CSS_BREAKPOINTS`] threshold is crossed on
-    ///    either axis, or the orientation flips (the declarative `@media`
-    ///    channel);
+    /// 2. a HARVESTED viewport breakpoint is crossed on either axis, or the
+    ///    orientation flips (the declarative `@media`/conditional-property
+    ///    channel). The thresholds come from the laid-out DOMs themselves
+    ///    ([`azul_core::styled_dom::StyledDom::viewport_breakpoints`]:
+    ///    author `@media` bounds + inline `ViewportWidth`/`Height`
+    ///    conditions). The old hardcoded `CSS_BREAKPOINTS` guess list
+    ///    failed both ways — the ribbon's 720px was not on it (shrinking
+    ///    onto the mobile layout never regenerated), and its eight guessed
+    ///    thresholds fired ~66ms full regenerations on every drag across
+    ///    640/768/1024/... It remains only as the fallback for a DOM with
+    ///    no styling pass yet (unknown ⇒ conservative);
     /// 3. there is no previous layout to reuse.
     ///
     /// Shared by every desktop shell (via
@@ -1229,15 +1247,31 @@ impl LayoutWindow {
         if self.size_queries_would_flip(new_logical) {
             return true;
         }
-        let crossed = |old: f32, new: f32| {
-            azul_core::window::CSS_BREAKPOINTS
-                .iter()
-                .any(|&bp| (old <= bp) != (new <= bp))
-        };
-        if crossed(old_logical.width, new_logical.width)
-            || crossed(old_logical.height, new_logical.height)
-        {
-            return true;
+        for result in self.layout_results.values() {
+            match result.styled_dom.viewport_breakpoints() {
+                Some((w, h)) => {
+                    if breakpoints_crossed(&w, old_logical.width, new_logical.width)
+                        || breakpoints_crossed(&h, old_logical.height, new_logical.height)
+                    {
+                        return true;
+                    }
+                }
+                None => {
+                    // No styling pass yet — unknown, be conservative: the
+                    // static guess list at least catches common thresholds.
+                    if breakpoints_crossed(
+                        azul_core::window::CSS_BREAKPOINTS,
+                        old_logical.width,
+                        new_logical.width,
+                    ) || breakpoints_crossed(
+                        azul_core::window::CSS_BREAKPOINTS,
+                        old_logical.height,
+                        new_logical.height,
+                    ) {
+                        return true;
+                    }
+                }
+            }
         }
         (old_logical.width > old_logical.height) != (new_logical.width > new_logical.height)
     }
@@ -5964,6 +5998,63 @@ impl LayoutWindow {
                 CursorBlinkTimerAction::NoChange
             }
         }
+    }
+
+    /// WINDOW-blur half of the caret-blink pause: stop ticking, keep ALL
+    /// state. Returns `true` when a platform timer was running and the shell
+    /// must tear its OS timer down (timerfd/CFRunLoopTimer/SetTimer).
+    ///
+    /// This deliberately does NOT go through
+    /// [`Self::handle_focus_change_for_cursor_blink`]: that helper derives
+    /// everything from `focus_manager` state and has side effects
+    /// (`clear_editing`, dropping the logical blink flag). Window focus
+    /// churn — an interactive-resize grab on KWin blurs/refocuses the
+    /// window — must never destroy editing state; the caret stays drawn
+    /// solid while blurred, only the tick pauses. The logical flag STAYS
+    /// `true`: that is the pause marker [`Self::resume_cursor_blink_after_window_focus`]
+    /// keys on.
+    pub fn pause_cursor_blink_for_window_blur(&mut self) -> bool {
+        if self.text_edit_manager.blink.is_blink_timer_active()
+            && self
+                .timers
+                .remove(&azul_core::task::CURSOR_BLINK_TIMER_ID)
+                .is_some()
+        {
+            return true;
+        }
+        false
+    }
+
+    /// WINDOW-focus half of the caret-blink pause: if the logical blink is
+    /// active but its timer is gone (i.e. paused by
+    /// [`Self::pause_cursor_blink_for_window_blur`]), recreate the timer,
+    /// re-insert it and hand it to the shell to arm. Idempotent: repeated
+    /// FocusIn events (compositors deliver them liberally around
+    /// interactive resizes) find the timer present and return `None`.
+    ///
+    /// The old path routed refocus through
+    /// `handle_focus_change_for_cursor_blink`, which failed BOTH ways: with
+    /// engine focus on an editable it returned `NoChange` (the pause left
+    /// the logical flag `true`), so the killed OS timer stayed dead and the
+    /// caret never blinked again; with engine focus `None` (an app driving
+    /// the caret via `StartCursorBlinkTimer`) it CLEARED the whole editing
+    /// state — caret and selection wiped by a focus flicker.
+    pub fn resume_cursor_blink_after_window_focus(
+        &mut self,
+        window_state: &FullWindowState,
+    ) -> Option<crate::timer::Timer> {
+        use azul_core::task::CURSOR_BLINK_TIMER_ID;
+        if self.text_edit_manager.blink.is_blink_timer_active()
+            && !self.timers.contains_key(&CURSOR_BLINK_TIMER_ID)
+        {
+            // Fresh phase: the caret shows solid immediately on refocus.
+            let now = Instant::now();
+            self.text_edit_manager.blink.reset_blink_on_input(now);
+            let timer = self.create_cursor_blink_timer(window_state);
+            self.timers.insert(CURSOR_BLINK_TIMER_ID, timer.clone());
+            return Some(timer);
+        }
+        None
     }
 
     /// Finalize pending focus changes after layout pass (W3C "flag and defer" pattern)
@@ -13248,6 +13339,79 @@ mod autotest_generated {
             cb: time_system_now,
         };
         assert_eq!(w.time_until_next_timer_ms(&cb), Some(0));
+    }
+
+    #[test]
+    fn breakpoints_crossed_is_symmetric_and_boundary_inclusive() {
+        use super::breakpoints_crossed;
+        let bp = [720.0_f32];
+        assert!(breakpoints_crossed(&bp, 750.0, 600.0), "shrink across");
+        assert!(breakpoints_crossed(&bp, 600.0, 750.0), "grow across");
+        assert!(!breakpoints_crossed(&bp, 800.0, 730.0), "no crossing above");
+        assert!(!breakpoints_crossed(&bp, 600.0, 700.0), "no crossing below");
+        // Landing exactly ON the threshold counts as its small side.
+        assert!(breakpoints_crossed(&bp, 750.0, 720.0));
+        assert!(!breakpoints_crossed(&bp, 720.0, 600.0));
+        assert!(!breakpoints_crossed(&[], 100.0, 9999.0), "no thresholds, no crossings");
+    }
+
+    #[test]
+    fn window_blur_pauses_the_blink_and_focus_resumes_it_state_intact() {
+        use azul_core::task::CURSOR_BLINK_TIMER_ID;
+        let mut w = fresh_window();
+        // An app (or the engine editing path) armed the blink.
+        w.text_edit_manager.blink.set_blink_timer_active(true);
+        let ws = w.current_window_state.clone();
+        let t = w.create_cursor_blink_timer(&ws);
+        w.timers.insert(CURSOR_BLINK_TIMER_ID, t);
+
+        // Blur: the OS timer dies, ALL state stays.
+        assert!(w.pause_cursor_blink_for_window_blur());
+        assert!(
+            w.text_edit_manager.blink.is_blink_timer_active(),
+            "the logical flag IS the pause marker"
+        );
+        assert!(!w.timers.contains_key(&CURSOR_BLINK_TIMER_ID));
+
+        // Refocus: the timer comes back. THE REGRESSION this pins: the old
+        // path routed refocus through handle_focus_change_for_cursor_blink,
+        // which saw the flag still true and returned NoChange — the killed
+        // OS timer stayed dead and the caret never blinked again after the
+        // first focus churn (KWin blurs/refocuses around resize grabs).
+        let resumed = w.resume_cursor_blink_after_window_focus(&ws);
+        assert!(resumed.is_some(), "a paused blink must restart on focus-in");
+        assert!(w.timers.contains_key(&CURSOR_BLINK_TIMER_ID));
+
+        // Idempotent: a second FocusIn no-ops instead of double-arming.
+        assert!(w.resume_cursor_blink_after_window_focus(&ws).is_none());
+    }
+
+    #[test]
+    fn focus_churn_does_not_clear_editing_state() {
+        // The old refocus path, with engine focus None (an app driving the
+        // caret via StartCursorBlinkTimer), ran clear_editing() — caret and
+        // selection wiped by a focus flicker. The pause/resume pair must
+        // leave the text_edit_manager alone.
+        use azul_core::task::CURSOR_BLINK_TIMER_ID;
+        let mut w = fresh_window();
+        w.text_edit_manager.blink.set_blink_timer_active(true);
+        let ws = w.current_window_state.clone();
+        let t = w.create_cursor_blink_timer(&ws);
+        w.timers.insert(CURSOR_BLINK_TIMER_ID, t);
+        w.pause_cursor_blink_for_window_blur();
+        let _ = w.resume_cursor_blink_after_window_focus(&ws);
+        assert!(
+            w.text_edit_manager.blink.is_blink_timer_active(),
+            "blink state survives focus churn (the old path dropped it)"
+        );
+    }
+
+    #[test]
+    fn blink_pause_and_resume_are_no_ops_without_an_armed_timer() {
+        let mut w = fresh_window();
+        assert!(!w.pause_cursor_blink_for_window_blur());
+        let ws = w.current_window_state.clone();
+        assert!(w.resume_cursor_blink_after_window_focus(&ws).is_none());
     }
 
     #[test]

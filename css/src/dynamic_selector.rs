@@ -1304,6 +1304,40 @@ impl_option!(
 
 impl Eq for CssPropertyWithConditions {}
 
+/// Collect the viewport-size thresholds (logical px) at which this
+/// condition set can change its answer — the width/height bounds of
+/// `ViewportWidth` / `ViewportHeight` selectors (NaN "no bound" ends are
+/// skipped). The engine's resize decision regenerates the DOM when the
+/// window crosses one of these, so the set of HARVESTED thresholds — not a
+/// hardcoded guess list — defines where a resize must re-run the cascade.
+pub fn collect_viewport_thresholds(
+    conds: &[DynamicSelector],
+    widths: &mut Vec<f32>,
+    heights: &mut Vec<f32>,
+) {
+    for c in conds {
+        match c {
+            DynamicSelector::ViewportWidth(r) => {
+                if r.min.is_finite() {
+                    widths.push(r.min);
+                }
+                if r.max.is_finite() {
+                    widths.push(r.max);
+                }
+            }
+            DynamicSelector::ViewportHeight(r) => {
+                if r.min.is_finite() {
+                    heights.push(r.min);
+                }
+                if r.max.is_finite() {
+                    heights.push(r.max);
+                }
+            }
+            _ => {}
+        }
+    }
+}
+
 impl PartialOrd for CssPropertyWithConditions {
     fn partial_cmp(&self, other: &Self) -> Option<core::cmp::Ordering> {
         Some(self.cmp(other))

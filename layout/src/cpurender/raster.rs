@@ -425,8 +425,73 @@ fn render_box_shadow(
     bounds: &LogicalRect,
     shadow: &StyleBoxShadow,
     border_radius: &BorderRadius,
+    clip: Option<AzRect>,
     dpi_factor: f32,
 ) -> Result<(), String> {
+    // Clamp a shadow blit to the active clip. The shadow BLENDS (alpha), so
+    // any write OUTSIDE a damage rect re-darkens retained, already-shadowed
+    // pixels — on a resize drag the page shadow visibly accumulated darker
+    // with every partial repaint. Writers must clip (the LCD fringe law);
+    // the pixels outside the rect are either untouched-and-correct or
+    // covered by another damage rect's own clear+repaint.
+    let clip_px = clip.map(|c| {
+        (
+            c.x as i32,
+            c.y as i32,
+            (c.x + c.width).ceil() as i32,
+            (c.y + c.height).ceil() as i32,
+        )
+    });
+    #[allow(clippy::too_many_arguments)]
+    fn blit_clipped(
+        pixmap: &mut AzulPixmap,
+        clip_px: Option<(i32, i32, i32, i32)>,
+        src: &[u8],
+        src_w: u32,
+        src_h: u32,
+        mut sx: u32,
+        mut sy: u32,
+        mut w: u32,
+        mut h: u32,
+        mut dx: i32,
+        mut dy: i32,
+    ) {
+        if let Some((cx0, cy0, cx1, cy1)) = clip_px {
+            if dx < cx0 {
+                let d = (cx0 - dx) as u32;
+                if d >= w {
+                    return;
+                }
+                sx += d;
+                w -= d;
+                dx = cx0;
+            }
+            if dy < cy0 {
+                let d = (cy0 - dy) as u32;
+                if d >= h {
+                    return;
+                }
+                sy += d;
+                h -= d;
+                dy = cy0;
+            }
+            if dx + w as i32 > cx1 {
+                let over = dx + w as i32 - cx1;
+                if over >= w as i32 {
+                    return;
+                }
+                w -= over as u32;
+            }
+            if dy + h as i32 > cy1 {
+                let over = dy + h as i32 - cy1;
+                if over >= h as i32 {
+                    return;
+                }
+                h -= over as u32;
+            }
+        }
+        blit_buffer_sub(pixmap, src, src_w, src_h, sx, sy, w, h, dx, dy);
+    }
     use azul_css::props::style::box_shadow::BoxShadowClipMode;
 
     let Some(rect) = logical_rect_to_az_rect(bounds, dpi_factor) else {
@@ -608,27 +673,27 @@ fn render_box_shadow(
 
         if hole_x < hole_r && hole_y < hole_b {
             // Top strip (full width).
-            blit_buffer_sub(pixmap, &shadow_data, sw, sh, 0, 0, sw, hole_y, dst_x, dst_y);
+            blit_clipped(pixmap, clip_px, &shadow_data, sw, sh, 0, 0, sw, hole_y, dst_x, dst_y);
             // Bottom strip (full width).
-            blit_buffer_sub(
-                pixmap, &shadow_data, sw, sh, 0, hole_b, sw, sh - hole_b,
+            blit_clipped(
+                pixmap, clip_px, &shadow_data, sw, sh, 0, hole_b, sw, sh - hole_b,
                 dst_x, dst_y + hole_b as i32,
             );
             // Left strip (between top and bottom).
-            blit_buffer_sub(
-                pixmap, &shadow_data, sw, sh, 0, hole_y, hole_x, hole_b - hole_y,
+            blit_clipped(
+                pixmap, clip_px, &shadow_data, sw, sh, 0, hole_y, hole_x, hole_b - hole_y,
                 dst_x, dst_y + hole_y as i32,
             );
             // Right strip (between top and bottom).
-            blit_buffer_sub(
-                pixmap, &shadow_data, sw, sh, hole_r, hole_y, sw - hole_r, hole_b - hole_y,
+            blit_clipped(
+                pixmap, clip_px, &shadow_data, sw, sh, hole_r, hole_y, sw - hole_r, hole_b - hole_y,
                 dst_x + hole_r as i32, dst_y + hole_y as i32,
             );
             return Ok(());
         }
         // Degenerate hole (element fully outside the buffer) — fall through.
     }
-    blit_buffer(pixmap, &shadow_data, sw, sh, dst_x, dst_y);
+    blit_clipped(pixmap, clip_px, &shadow_data, sw, sh, 0, 0, sw, sh, dst_x, dst_y);
 
     Ok(())
 }
@@ -2125,11 +2190,13 @@ real_clip_stack.pop();
             shadow,
             border_radius,
         } => {
+            let clip = *clip_stack.last().unwrap();
             render_box_shadow(
                 pixmap,
                 &scroll_rect(bounds.inner()),
                 shadow,
                 border_radius,
+                clip,
                 dpi_factor,
             )?;
         }
@@ -5403,6 +5470,7 @@ mod autotest_generated {
             &lrect(10.0, 10.0, 20.0, 20.0),
             &shadow(0.0, 0.0, 0.0, BLACK),
             &BorderRadius::default(),
+            None,
             1.0,
         );
         assert!(res.is_ok());
@@ -5418,6 +5486,7 @@ mod autotest_generated {
             &lrect(10.0, 10.0, 20.0, 20.0),
             &shadow(15.0, 2.0, 0.0, BLACK),
             &BorderRadius::default(),
+            None,
             1.0,
         )
         .unwrap();
@@ -5434,6 +5503,7 @@ mod autotest_generated {
             &lrect(5.0, 5.0, 10.0, 10.0),
             &shadow(0.0, 4.0, 0.0, CLEAR),
             &BorderRadius::default(),
+            None,
             1.0,
         );
         assert_eq!(res, Ok(()));
@@ -5451,6 +5521,7 @@ mod autotest_generated {
             &lrect(5.0, 5.0, 10.0, 10.0),
             &shadow(0.0, 1e6, 0.0, BLACK),
             &BorderRadius::default(),
+            None,
             1.0,
         );
         assert_eq!(res, Ok(()));
@@ -5466,6 +5537,7 @@ mod autotest_generated {
             &lrect(5.0, 5.0, 10.0, 10.0),
             &shadow(0.0, 0.0, -1e6, BLACK),
             &BorderRadius::default(),
+            None,
             1.0,
         );
         assert_eq!(res, Ok(()));
@@ -5482,6 +5554,7 @@ mod autotest_generated {
                 &lrect(5.0, 5.0, 10.0, 10.0),
                 &shadow(0.0, 2.0, 0.0, BLACK),
                 &BorderRadius::default(),
+                None,
                 bad,
             );
             assert_eq!(res, Ok(()), "dpi {bad} must not error");
@@ -5494,6 +5567,7 @@ mod autotest_generated {
                 &lrect(0.0, 0.0, bad, bad),
                 &shadow(0.0, 2.0, 0.0, BLACK),
                 &BorderRadius::default(),
+                None,
                 1.0,
             );
             assert_eq!(res, Ok(()), "size {bad} must not error");
@@ -5965,6 +6039,64 @@ mod autotest_generated {
     // ==================================================================
     // compute_content_bounds
     // ==================================================================
+
+    /// A partial-damage repaint must not re-blend a box shadow outside the
+    /// damage rect. The shadow BLENDS (alpha), so an unclipped blit
+    /// re-darkens retained, already-shadowed pixels on every repaint — the
+    /// live-run symptom was the page shadow visibly accumulating darker
+    /// with each resize frame. Starting from a correct frame, repainting a
+    /// small rect that crosses the shadow must change NOTHING anywhere.
+    #[test]
+    fn damaged_repaint_does_not_accumulate_box_shadow_ink() {
+        let rr = RendererResources::default();
+        let fm: FontManager<FontRef> = FontManager::new(rust_fontconfig::FcFontCache::default())
+            .expect("FontManager::new");
+        let shadow_item = DisplayListItem::BoxShadow {
+            bounds: wrect(30.0, 30.0, 40.0, 40.0),
+            shadow: shadow(0.0, 8.0, 0.0, ColorU { r: 0, g: 0, b: 0, a: 120 }),
+            border_radius: BorderRadius::default(),
+        };
+        let rect_item = DisplayListItem::Rect {
+            bounds: wrect(30.0, 30.0, 40.0, 40.0),
+            color: WHITE,
+            border_radius: BorderRadius::default(),
+        };
+        let dl = DisplayList {
+            items: vec![shadow_item, rect_item],
+            ..Default::default()
+        };
+
+        let mut full = AzulPixmap::new(100, 100).unwrap();
+        full.fill(255, 255, 255, 255);
+        let mut gc = GlyphCache::new();
+        render_display_list(&dl, &mut full, 1.0, &rr, &fm, &mut gc).unwrap();
+
+        let mut incr = full.clone_pixmap();
+        let st = CpuRenderState::new(ScrollOffsetMap::new());
+        let mut gc2 = GlyphCache::new();
+        render_display_list_damaged(
+            &dl,
+            &mut incr,
+            1.0,
+            &rr,
+            &fm,
+            &mut gc2,
+            &st,
+            &[lrect(25.0, 25.0, 12.0, 12.0)],
+        )
+        .unwrap();
+
+        let diffs = full
+            .data()
+            .iter()
+            .zip(incr.data().iter())
+            .filter(|(a, b)| a != b)
+            .count();
+        assert_eq!(
+            diffs, 0,
+            "the shadow re-blended outside the damage rect ({diffs} bytes differ)"
+        );
+    }
 
     #[test]
     fn compute_content_bounds_of_an_empty_list_is_none() {
@@ -7166,7 +7298,7 @@ mod shadow_blur_cache_tests {
 
         let mut a = AzulPixmap::new(120, 100).unwrap();
         a.fill(255, 255, 255, 255);
-        render_box_shadow(&mut a, &bounds(20.0, 20.0), &shadow(), &BorderRadius::default(), 1.0)
+        render_box_shadow(&mut a, &bounds(20.0, 20.0), &shadow(), &BorderRadius::default(), None, 1.0)
             .unwrap();
         let (len_after_first, bytes_after_first) = cache_state();
         assert_eq!(len_after_first, 1, "first render must populate one entry");
@@ -7175,7 +7307,7 @@ mod shadow_blur_cache_tests {
         // Same spec, DIFFERENT position — must hit the same entry.
         let mut b = AzulPixmap::new(120, 100).unwrap();
         b.fill(255, 255, 255, 255);
-        render_box_shadow(&mut b, &bounds(50.0, 30.0), &shadow(), &BorderRadius::default(), 1.0)
+        render_box_shadow(&mut b, &bounds(50.0, 30.0), &shadow(), &BorderRadius::default(), None, 1.0)
             .unwrap();
         assert_eq!(cache_state().0, 1, "same-spec shadow must reuse the entry");
 
@@ -7189,7 +7321,7 @@ mod shadow_blur_cache_tests {
         });
         let mut a2 = AzulPixmap::new(120, 100).unwrap();
         a2.fill(255, 255, 255, 255);
-        render_box_shadow(&mut a2, &bounds(20.0, 20.0), &shadow(), &BorderRadius::default(), 1.0)
+        render_box_shadow(&mut a2, &bounds(20.0, 20.0), &shadow(), &BorderRadius::default(), None, 1.0)
             .unwrap();
         assert_eq!(a.data, a2.data, "cached replay must be bit-identical to a fresh render");
     }
@@ -7205,11 +7337,11 @@ mod shadow_blur_cache_tests {
             c.2 = 0;
         });
         let mut p = AzulPixmap::new(120, 100).unwrap();
-        render_box_shadow(&mut p, &bounds(20.0, 20.0), &shadow(), &BorderRadius::default(), 1.0)
+        render_box_shadow(&mut p, &bounds(20.0, 20.0), &shadow(), &BorderRadius::default(), None, 1.0)
             .unwrap();
         let mut s2 = shadow();
         s2.blur_radius = pv(2.0);
-        render_box_shadow(&mut p, &bounds(20.0, 20.0), &s2, &BorderRadius::default(), 1.0)
+        render_box_shadow(&mut p, &bounds(20.0, 20.0), &s2, &BorderRadius::default(), None, 1.0)
             .unwrap();
         let (len, bytes) = cache_state();
         assert_eq!(len, 2, "distinct blur radii are distinct entries");
@@ -7247,7 +7379,7 @@ mod shadow_ring_blit_tests {
         };
         let mut p = AzulPixmap::new(140, 140).unwrap();
         p.fill(255, 255, 255, 255);
-        render_box_shadow(&mut p, &bounds, &shadow, &BorderRadius::default(), 1.0).unwrap();
+        render_box_shadow(&mut p, &bounds, &shadow, &BorderRadius::default(), None, 1.0).unwrap();
 
         let px = |x: u32, y: u32| {
             let i = ((y * 140 + x) * 4) as usize;

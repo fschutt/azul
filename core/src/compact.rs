@@ -729,6 +729,25 @@ impl CssPropertyCache {
                         }
                         non_pseudo => {
                             result.has_dynamic_conditions = true;
+                            // Harvest the thresholds this condition can flip
+                            // at — the resize decision regenerates when the
+                            // window crosses one (dedup/sort happens once,
+                            // after the node loop).
+                            {
+                                let mut w = Vec::new();
+                                let mut h = Vec::new();
+                                azul_css::dynamic_selector::collect_viewport_thresholds(
+                                    core::slice::from_ref(non_pseudo),
+                                    &mut w,
+                                    &mut h,
+                                );
+                                result
+                                    .inline_viewport_w
+                                    .extend(w.into_iter().map(f32::to_bits));
+                                result
+                                    .inline_viewport_h
+                                    .extend(h.into_iter().map(f32::to_bits));
+                            }
                             self.dynamic_context
                                 .as_deref()
                                 .is_some_and(|ctx| non_pseudo.matches(ctx))
@@ -844,6 +863,13 @@ impl CssPropertyCache {
             }
         }
         result.prev_font_hashes = result.tier2b_text.iter().map(|t| t.font_family_hash).collect();
+
+        // Normalize the harvested viewport thresholds once (pushed raw per
+        // node above): sorted + deduped by bit pattern.
+        result.inline_viewport_w.sort_unstable();
+        result.inline_viewport_w.dedup();
+        result.inline_viewport_h.sort_unstable();
+        result.inline_viewport_h.dedup();
 
         result
     }

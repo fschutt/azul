@@ -2665,6 +2665,145 @@ mod tests {
         )
     }
 
+    /// State for the harvested-breakpoint pin: counts `layout()` invocations.
+    #[derive(Debug, Clone)]
+    struct BreakpointState {
+        layouts: usize,
+    }
+
+    /// The ribbon pattern in miniature: an inline conditional property that
+    /// flips the box color at viewport width <= 720 (a threshold that was
+    /// NOT on the old hardcoded CSS_BREAKPOINTS guess list).
+    extern "C" fn harness_layout_breakpoint(mut data: RefAny, _info: LayoutCallbackInfo) -> Dom {
+        use azul_css::dynamic_selector::{
+            CssPropertyWithConditions, DynamicSelector, MinMaxRange,
+        };
+        use azul_css::props::basic::color::ColorU;
+        use azul_css::props::layout::dimensions::{LayoutHeight, LayoutWidth};
+        use azul_css::props::property::CssProperty;
+        use azul_css::props::style::background::{
+            StyleBackgroundContent, StyleBackgroundContentVec,
+        };
+
+        if let Some(mut st) = data.downcast_mut::<BreakpointState>() {
+            st.layouts += 1;
+        }
+        let blue: StyleBackgroundContentVec =
+            vec![StyleBackgroundContent::Color(ColorU { r: 0, g: 0, b: 255, a: 255 })].into();
+        let red: StyleBackgroundContentVec =
+            vec![StyleBackgroundContent::Color(ColorU { r: 255, g: 0, b: 0, a: 255 })].into();
+        let cond_mobile: azul_css::dynamic_selector::DynamicSelectorVec =
+            vec![DynamicSelector::ViewportWidth(MinMaxRange { min: f32::NAN, max: 720.0 })]
+                .into();
+        Dom::create_body().with_child(Dom::create_div().with_css_props(
+            vec![
+                CssPropertyWithConditions::simple(CssProperty::width(LayoutWidth::px(100.0))),
+                CssPropertyWithConditions::simple(CssProperty::height(LayoutHeight::px(50.0))),
+                CssPropertyWithConditions::simple(CssProperty::background_content(blue)),
+                CssPropertyWithConditions::with_conditions(
+                    CssProperty::background_content(red),
+                    cond_mobile,
+                ),
+            ]
+            .into(),
+        ))
+    }
+
+    /// The first non-white Rect color in DOM 0's display list.
+    fn first_box_color(window: &HeadlessWindow) -> Option<(u8, u8, u8)> {
+        use azul_core::dom::DomId;
+        let lw = window.common.layout_window.as_ref()?;
+        let dl = &lw.layout_results.get(&DomId { inner: 0 })?.display_list;
+        dl.items.iter().find_map(|it| match it {
+            DisplayListItem::Rect { color, .. }
+                if !(color.r > 240 && color.g > 240 && color.b > 240) =>
+            {
+                Some((color.r, color.g, color.b))
+            }
+            _ => None,
+        })
+    }
+
+    /// THE HARVESTED-BREAKPOINT PIN (task #20). Shrinking across an inline
+    /// conditional threshold (the ribbon's 720px pattern) must re-invoke
+    /// `layout()` and flip the style; crossing a threshold that exists only
+    /// on the OLD hardcoded guess list (768) must NOT — that list fired a
+    /// ~66ms full regeneration on every drag across 640/768/1024/...
+    #[test]
+    fn resize_regenerates_exactly_at_harvested_breakpoints() {
+        use azul_core::geom::LogicalSize;
+        let state = Arc::new(RefCell::new(RefAny::new(BreakpointState { layouts: 0 })));
+        let mut window = make_window_sized(&state, harness_layout_breakpoint, 800.0, 600.0);
+        window.regenerate_layout().expect("initial layout");
+        window.regenerate_layout().expect("settle");
+        let base = state
+            .borrow_mut()
+            .downcast_ref::<BreakpointState>()
+            .map(|s| s.layouts)
+            .unwrap_or(0);
+        assert!(base > 0, "the layout callback must have run");
+        assert_eq!(first_box_color(&window), Some((0, 0, 255)), "desktop = blue");
+
+        // 800 -> 750 crosses the old guess-list's 768 but NO threshold of
+        // THIS dom: stays incremental, layout() NOT re-invoked.
+        let full = window
+            .common
+            .request_regeneration_for_resize(
+                LogicalSize::new(800.0, 600.0),
+                LogicalSize::new(750.0, 600.0),
+            );
+        window.common.current_window_state.size.dimensions = LogicalSize::new(750.0, 600.0);
+        assert!(
+            !full,
+            "768 is not a threshold of this DOM — the hardcoded guess list must not fire"
+        );
+        // Mirror the shells' dispatch: not-full -> the INCREMENTAL entry
+        // (relayout_only), exactly what wayland's resize arm calls.
+        let _ = window.common.take_relayout_only();
+        window.relayout_only().expect("relayout at 750");
+        let after_750 = state
+            .borrow_mut()
+            .downcast_ref::<BreakpointState>()
+            .map(|s| s.layouts)
+            .unwrap_or(0);
+        assert_eq!(after_750, base, "no layout() re-invoke for a non-crossing resize");
+        assert_eq!(first_box_color(&window), Some((0, 0, 255)), "still blue at 750");
+
+        // 750 -> 600 crosses the harvested 720: full regeneration + flip.
+        let full = window
+            .common
+            .request_regeneration_for_resize(
+                LogicalSize::new(750.0, 600.0),
+                LogicalSize::new(600.0, 600.0),
+            );
+        window.common.current_window_state.size.dimensions = LogicalSize::new(600.0, 600.0);
+        window.regenerate_layout().expect("regen at 600");
+        assert!(full, "crossing the harvested 720 must regenerate (shrink side!)");
+        let after_600 = state
+            .borrow_mut()
+            .downcast_ref::<BreakpointState>()
+            .map(|s| s.layouts)
+            .unwrap_or(0);
+        assert!(after_600 > after_750, "layout() must re-run across the breakpoint");
+        assert_eq!(
+            first_box_color(&window),
+            Some((255, 0, 0)),
+            "mobile style must apply after shrinking across 720"
+        );
+
+        // And back up: 600 -> 800 crosses 720 the other way.
+        let full = window
+            .common
+            .request_regeneration_for_resize(
+                LogicalSize::new(600.0, 600.0),
+                LogicalSize::new(800.0, 600.0),
+            );
+        window.common.current_window_state.size.dimensions = LogicalSize::new(800.0, 600.0);
+        window.regenerate_layout().expect("regen back at 800");
+        assert!(full, "growing back across 720 regenerates too");
+        assert_eq!(first_box_color(&window), Some((0, 0, 255)), "desktop again");
+    }
+
     fn set_box_red(state: &Arc<RefCell<RefAny>>, red: bool) {
         let mut g = state.borrow_mut();
         let r: &mut RefAny = &mut g;

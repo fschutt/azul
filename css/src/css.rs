@@ -55,6 +55,28 @@ impl_vec_clone!(CssRuleBlock, CssRuleBlockVec, CssRuleBlockVecDestructor);
 impl_vec_partialeq!(CssRuleBlock, CssRuleBlockVec);
 
 impl Css {
+    /// The viewport-size thresholds (widths, heights, logical px) at which
+    /// any `@media (min-/max-width/height)` rule in this stylesheet can flip.
+    /// Sorted, deduplicated by bit pattern. Used by the engine's resize
+    /// decision instead of a hardcoded breakpoint list.
+    #[must_use]
+    pub fn viewport_breakpoints(&self) -> (Vec<f32>, Vec<f32>) {
+        let mut w = Vec::new();
+        let mut h = Vec::new();
+        for rule in self.rules.as_ref().iter() {
+            crate::dynamic_selector::collect_viewport_thresholds(
+                rule.conditions.as_ref(),
+                &mut w,
+                &mut h,
+            );
+        }
+        w.sort_by_key(|v| v.to_bits());
+        w.dedup_by_key(|v| v.to_bits());
+        h.sort_by_key(|v| v.to_bits());
+        h.dedup_by_key(|v| v.to_bits());
+        (w, h)
+    }
+
     #[must_use] pub fn is_empty(&self) -> bool {
         self.rules.as_ref().is_empty()
     }
@@ -3457,6 +3479,20 @@ mod autotest_generated {
     }
 
     #[cfg(feature = "parser")]
+    #[test]
+    fn viewport_breakpoints_harvests_media_bounds() {
+        let css = Css::from_string(
+            "@media (max-width: 400px) { .a { width: 10px; } }\n\
+             @media (min-width: 800px) { .b { width: 10px; } }\n\
+             @media (max-height: 300px) { .c { width: 10px; } }\n\
+             .d { width: 10px; }"
+                .into(),
+        );
+        let (w, h) = css.viewport_breakpoints();
+        assert_eq!(w, vec![400.0, 800.0]);
+        assert_eq!(h, vec![300.0]);
+    }
+
     #[test]
     fn from_string_on_empty_and_whitespace_only_input_yields_no_rules() {
         for input in ["", " ", "   ", "\t\n\r\n ", "\u{FEFF}", "\u{00A0}"] {

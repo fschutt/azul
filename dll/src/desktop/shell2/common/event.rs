@@ -5498,24 +5498,27 @@ pub trait PlatformWindow {
                 .iter()
                 .any(|ev| ev.event_type == azul_core::events::EventType::WindowFocusIn);
             if focus_out && !focus_in {
-                if let Some(lw) = self.get_layout_window_mut() {
-                    lw.timers.remove(&azul_core::task::CURSOR_BLINK_TIMER_ID);
+                // Pause: keep ALL editing/blink state, only the OS timer dies.
+                let was_running = self
+                    .get_layout_window_mut()
+                    .map(|lw| lw.pause_cursor_blink_for_window_blur())
+                    .unwrap_or(false);
+                if was_running {
+                    self.stop_timer(azul_core::task::CURSOR_BLINK_TIMER_ID.id);
                 }
-                self.stop_timer(azul_core::task::CURSOR_BLINK_TIMER_ID.id);
             } else if focus_in {
-                let action = self.get_layout_window_mut().map(|lw| {
+                // Resume: state-preserving and idempotent. The old code routed
+                // this through handle_focus_change_for_cursor_blink, which
+                // never restarted the paused timer (logical flag still true →
+                // NoChange) and, with engine focus None (app-driven caret,
+                // or focus churn from a KWin interactive-resize grab),
+                // CLEARED the editing state — caret and selection wiped.
+                let timer = self.get_layout_window_mut().and_then(|lw| {
                     let ws = lw.current_window_state.clone();
-                    let focus = lw.focus_manager.focused_node;
-                    lw.handle_focus_change_for_cursor_blink(focus, &ws)
+                    lw.resume_cursor_blink_after_window_focus(&ws)
                 });
-                match action {
-                    Some(azul_layout::CursorBlinkTimerAction::Start(timer)) => {
-                        self.start_timer(azul_core::task::CURSOR_BLINK_TIMER_ID.id, timer);
-                    }
-                    Some(azul_layout::CursorBlinkTimerAction::Stop) => {
-                        self.stop_timer(azul_core::task::CURSOR_BLINK_TIMER_ID.id);
-                    }
-                    Some(azul_layout::CursorBlinkTimerAction::NoChange) | None => {}
+                if let Some(timer) = timer {
+                    self.start_timer(azul_core::task::CURSOR_BLINK_TIMER_ID.id, timer);
                 }
             }
         }

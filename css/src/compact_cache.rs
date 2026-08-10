@@ -1496,6 +1496,17 @@ pub struct CompactLayoutCache {
     /// cascade walk for that property — its slow path would always return
     /// `None` and fall back to the default. See `DOM_HAS_*` constants.
     pub dom_declared_flags: u32,
+    /// Viewport WIDTH thresholds harvested from every inline conditional
+    /// property in the DOM — where a `ViewportWidth` condition can flip.
+    /// Stored as `f32::to_bits` (this struct derives `Eq`); sorted +
+    /// deduped. Together with the author stylesheet's
+    /// `Css::viewport_breakpoints`, these replace the old hardcoded
+    /// breakpoint guess list in the engine's resize decision (a widget
+    /// breakpoint like the ribbon's 720px was invisible to that list, so
+    /// shrinking onto the mobile layout never regenerated).
+    pub inline_viewport_w: Vec<u32>,
+    /// Viewport HEIGHT thresholds, same contract as `inline_viewport_w`.
+    pub inline_viewport_h: Vec<u32>,
 }
 
 impl CompactLayoutCache {
@@ -1512,6 +1523,8 @@ impl CompactLayoutCache {
             font_hash_to_families: alloc::collections::BTreeMap::new(),
             dom_declared_flags: 0,
             has_dynamic_conditions: false,
+            inline_viewport_w: Vec::new(),
+            inline_viewport_h: Vec::new(),
         }
     }
 
@@ -1528,6 +1541,8 @@ impl CompactLayoutCache {
             font_hash_to_families: alloc::collections::BTreeMap::new(),
             dom_declared_flags: 0,
             has_dynamic_conditions: false,
+            inline_viewport_w: Vec::new(),
+            inline_viewport_h: Vec::new(),
         }
     }
 
