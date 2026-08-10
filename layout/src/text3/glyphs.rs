@@ -74,17 +74,18 @@ pub struct SimpleGlyphRun {
             |positioned_glyphs: &[ShapedGlyph],
              item_origin_x: f32,
              writing_mode: crate::text3::cache::WritingMode,
-             source_node_id: Option<NodeId>| {
+             source_node_id: Option<NodeId>,
+             style: &crate::text3::cache::StyleProperties| {
                 let mut pen_x = item_origin_x;
 
                 for glyph in positioned_glyphs {
-                    let glyph_color = glyph.style.color;
-                    let glyph_background = glyph.style.background_color;
-                    let glyph_background_content = glyph.style.background_content.clone();
-                    let glyph_border = glyph.style.border;
+                    let glyph_color = style.color;
+                    let glyph_background = style.background_color;
+                    let glyph_background_content = style.background_content.clone();
+                    let glyph_border = style.border;
                     let font_hash = glyph.font_hash;
-                    let font_size_px = glyph.style.font_size_px;
-                    let text_decoration = glyph.style.text_decoration;
+                    let font_size_px = style.font_size_px;
+                    let text_decoration = style.text_decoration;
 
                     let absolute_position = LogicalPosition {
                         x: pen_x + glyph.offset.x,
@@ -149,21 +150,17 @@ pub struct SimpleGlyphRun {
         match &item.item {
             ShapedItem::Cluster(cluster) => {
                 let writing_mode = cluster.style.writing_mode;
-                process_glyphs(&cluster.glyphs, item.position.x, writing_mode, cluster.source_node_id);
+                process_glyphs(&cluster.glyphs, item.position.x, writing_mode, cluster.source_node_id, &cluster.style);
             }
-            ShapedItem::CombinedBlock { glyphs, .. } => {
+            ShapedItem::CombinedBlock { glyphs, style, .. } => {
                 // CombinedBlock (tate-chu-yoko) carries raw per-glyph advances/GPOS
                 // offsets, NOT pre-accumulated pen positions. Feed the WHOLE slice to
                 // `process_glyphs` in ONE call so the pen advances between glyphs;
                 // calling it once per glyph reset pen_x each time and stacked every
                 // glyph at the same x (mirrors get_glyph_positions). Use None for
                 // source_node_id (tate-chu-yoko has no single source node).
-                let writing_mode = glyphs
-                    .first()
-                    .map_or_else(crate::text3::cache::WritingMode::default, |g| {
-                        g.style.writing_mode
-                    });
-                process_glyphs(glyphs, item.position.x, writing_mode, None);
+                let writing_mode = style.writing_mode;
+                process_glyphs(glyphs, item.position.x, writing_mode, None, style);
             }
             _ => {}
         }
@@ -314,11 +311,11 @@ pub struct PdfPositionedGlyph {
         let cluster_glyphs_count = cluster.glyphs.len();
 
         for (glyph_idx, glyph) in cluster.glyphs.iter().enumerate() {
-            let glyph_color = glyph.style.color;
-            let glyph_background = glyph.style.background_color;
+            let glyph_color = cluster.style.color;
+            let glyph_background = cluster.style.background_color;
             let font_hash = glyph.font_hash;
-            let font_size_px = glyph.style.font_size_px;
-            let text_decoration = glyph.style.text_decoration;
+            let font_size_px = cluster.style.font_size_px;
+            let text_decoration = cluster.style.text_decoration;
             let line_index = positioned_item.line_index;
             let direction = cluster.direction;
             let writing_mode = cluster.style.writing_mode;
@@ -579,7 +576,6 @@ mod autotest_generated {
             vertical_advance: 0.0,
             vertical_offset: Point { x: 0.0, y: 0.0 },
             script: Script::Latin,
-            style: st.clone(),
             font_hash: FONT_A,
             font_metrics: zero_metrics(),
         }
@@ -615,6 +611,7 @@ mod autotest_generated {
 
     fn combined(glyphs: Vec<ShapedGlyph>) -> ShapedItem {
         ShapedItem::CombinedBlock {
+            style: std::sync::Arc::new(crate::text3::cache::StyleProperties::default()),
             source: ContentIndex {
                 run_index: 0,
                 item_index: 0,
@@ -1014,12 +1011,14 @@ mod autotest_generated {
     fn simple_color_change_splits_the_run() {
         let a = styled(|s| s.color = rgba(255, 0, 0, 255));
         let b = styled(|s| s.color = rgba(0, 0, 255, 255));
-        let l = layout(vec![at(
-            item(cluster("ab", vec![glyph(1, 10.0, &a), glyph(2, 10.0, &b)], &a)),
-            0.0,
-            0.0,
-            0,
-        )]);
+        let l = layout(vec![
+        // (2026-08-10, per-glyph style removed: a style change can only
+        // occur at a CLUSTER boundary — the pipeline splits runs by style
+        // BEFORE shaping — so this fixture uses one cluster per style,
+        // the only shape the engine can actually produce.)
+            at(item(cluster("a", vec![glyph(1, 10.0, &a)], &a)), 0.0, 0.0, 0),
+            at(item(cluster("b", vec![glyph(2, 10.0, &b)], &b)), 10.0, 0.0, 0),
+        ]);
         let runs = get_glyph_runs_simple(&l);
 
         assert_eq!(runs.len(), 2);
@@ -1057,16 +1056,15 @@ mod autotest_generated {
                 overline: false,
             };
         });
-        let l = layout(vec![at(
-            item(cluster(
-                "abc",
-                vec![glyph(1, 10.0, &a), glyph(2, 10.0, &b), glyph(3, 10.0, &c)],
-                &a,
-            )),
-            0.0,
-            0.0,
-            0,
-        )]);
+        let l = layout(vec![
+        // (2026-08-10, per-glyph style removed: a style change can only
+        // occur at a CLUSTER boundary — the pipeline splits runs by style
+        // BEFORE shaping — so this fixture uses one cluster per style,
+        // the only shape the engine can actually produce.)
+            at(item(cluster("a", vec![glyph(1, 10.0, &a)], &a)), 0.0, 0.0, 0),
+            at(item(cluster("b", vec![glyph(2, 10.0, &b)], &b)), 10.0, 0.0, 0),
+            at(item(cluster("c", vec![glyph(3, 10.0, &c)], &c)), 20.0, 0.0, 0),
+        ]);
         let runs = get_glyph_runs_simple(&l);
 
         assert_eq!(runs.len(), 3, "size change and decoration change both break");
@@ -1081,12 +1079,14 @@ mod autotest_generated {
         let b = styled(|s| {
             s.background_content = vec![StyleBackgroundContent::Color(rgba(1, 2, 3, 4))];
         });
-        let l = layout(vec![at(
-            item(cluster("ab", vec![glyph(1, 10.0, &a), glyph(2, 10.0, &b)], &a)),
-            0.0,
-            0.0,
-            0,
-        )]);
+        let l = layout(vec![
+        // (2026-08-10, per-glyph style removed: a style change can only
+        // occur at a CLUSTER boundary — the pipeline splits runs by style
+        // BEFORE shaping — so this fixture uses one cluster per style,
+        // the only shape the engine can actually produce.)
+            at(item(cluster("a", vec![glyph(1, 10.0, &a)], &a)), 0.0, 0.0, 0),
+            at(item(cluster("b", vec![glyph(2, 10.0, &b)], &b)), 10.0, 0.0, 0),
+        ]);
         let runs = get_glyph_runs_simple(&l);
 
         assert_eq!(runs.len(), 2);
@@ -1260,12 +1260,14 @@ mod autotest_generated {
             s.border = Some(border());
             s.color = rgba(0, 255, 0, 255);
         });
-        let l = layout(vec![at(
-            item(cluster("ab", vec![glyph(1, 10.0, &a), glyph(2, 10.0, &b)], &a)),
-            0.0,
-            0.0,
-            0,
-        )]);
+        let l = layout(vec![
+        // (2026-08-10, per-glyph style removed: a style change can only
+        // occur at a CLUSTER boundary — the pipeline splits runs by style
+        // BEFORE shaping — so this fixture uses one cluster per style,
+        // the only shape the engine can actually produce.)
+            at(item(cluster("a", vec![glyph(1, 10.0, &a)], &a)), 0.0, 0.0, 0),
+            at(item(cluster("b", vec![glyph(2, 10.0, &b)], &b)), 10.0, 0.0, 0),
+        ]);
         let runs = get_glyph_runs_simple(&l);
 
         assert_eq!(runs.len(), 2);
@@ -1509,16 +1511,14 @@ mod autotest_generated {
     fn pdf_background_color_change_breaks_the_run() {
         let plain = style();
         let highlighted = styled(|s| s.background_color = Some(rgba(255, 255, 0, 255)));
-        let l = layout(vec![at(
-            item(cluster(
-                "ab",
-                vec![glyph(1, 10.0, &plain), glyph(2, 10.0, &highlighted)],
-                &plain,
-            )),
-            0.0,
-            0.0,
-            0,
-        )]);
+        let l = layout(vec![
+        // (2026-08-10, per-glyph style removed: a style change can only
+        // occur at a CLUSTER boundary — the pipeline splits runs by style
+        // BEFORE shaping — so this fixture uses one cluster per style,
+        // the only shape the engine can actually produce.)
+            at(item(cluster("a", vec![glyph(1, 10.0, &plain)], &plain)), 0.0, 0.0, 0),
+            at(item(cluster("b", vec![glyph(2, 10.0, &highlighted)], &highlighted)), 10.0, 0.0, 0),
+        ]);
         let runs = get_glyph_runs_pdf(&l, &fonts_with(&[FONT_A]));
 
         assert_eq!(runs.len(), 2, "inline <span> background must get its own run");

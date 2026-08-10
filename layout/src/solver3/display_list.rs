@@ -5468,13 +5468,13 @@ where
             // is exactly the case the drop guard exists for.
             let mut primary: Option<(u64, f32)> = None;
             for positioned in &layout.items {
-                let glyphs = match &positioned.item {
-                    ShapedItem::Cluster(c) => &c.glyphs,
-                    ShapedItem::CombinedBlock { glyphs, .. } => glyphs,
+                let (glyphs, arm_style) = match &positioned.item {
+                    ShapedItem::Cluster(c) => (&c.glyphs, &c.style),
+                    ShapedItem::CombinedBlock { glyphs, style, .. } => (glyphs, style),
                     _ => continue,
                 };
                 if let Some(g) = glyphs.iter().find(|g| g.font_hash != 0) {
-                    primary = Some((g.font_hash, g.style.font_size_px));
+                    primary = Some((g.font_hash, arm_style.font_size_px));
                     break;
                 }
             }

@@ -49,15 +49,17 @@ fn shaped_text_struct_sizes_are_pinned() {
     // bytes: 200 B x 31,086 clusters = 6.2 MB on one 960-line document.
     assert_size!(
         PositionedItem,
-        200,
+        192,
         "Retained once per CHARACTER of laid-out text. +8 B here is +250 KB \
-         on a 31k-character document."
+         on a 31k-character document. 200 -> 192 on 2026-08-10: ShapedGlyph \
+         lost its per-glyph Arc<StyleProperties> (style is uniform within a \
+         cluster; the cluster's copy is the single source)."
     );
 
     // The payload inside PositionedItem.
     assert_size!(
         ShapedItem,
-        184,
+        176,
         "Enum over Cluster / CombinedBlock / Object; the Cluster arm is what \
          nearly every entry is."
     );
@@ -67,7 +69,7 @@ fn shaped_text_struct_sizes_are_pinned() {
     // indices, an Arc<StyleProperties> and the direction.
     assert_size!(
         ShapedCluster,
-        176,
+        168,
         "One per grapheme. The inline SmallVec slot means one ShapedGlyph is \
          already inside this number - do not count it again (that bug \
          inflated the memory report by ~3 MB)."
@@ -77,9 +79,11 @@ fn shaped_text_struct_sizes_are_pinned() {
     // for ligatures and combining marks.
     assert_size!(
         ShapedGlyph,
-        96,
+        88,
         "Carries a 32 B LayoutFontMetrics COPY per glyph, which is the same \
-         for every glyph of a font - the obvious shrink candidate."
+         for every glyph of a font - the obvious next shrink candidate. \
+         96 -> 88 on 2026-08-10: the per-glyph Arc<StyleProperties> was \
+         deleted (uniform within a cluster by construction)."
     );
 
     // Per-glyph font metrics, copied into every ShapedGlyph.

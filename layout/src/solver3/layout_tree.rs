@@ -993,9 +993,7 @@ impl LayoutTree {
                         report.shaped_cluster_count += 1;
                         report.shaped_glyph_count += c.glyphs.len();
                         report.shaped_cluster_text_bytes += c.text.capacity();
-                        for g in &c.glyphs {
-                            style_arcs.insert(alloc::sync::Arc::as_ptr(&g.style) as usize);
-                        }
+                        style_arcs.insert(alloc::sync::Arc::as_ptr(&c.style) as usize);
                     }
                 }
             }

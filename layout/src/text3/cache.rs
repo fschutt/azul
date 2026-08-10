@@ -4592,6 +4592,9 @@ pub enum ShapedItem {
         source: ContentIndex,
         /// The glyphs to be rendered horizontally within the vertical line.
         glyphs: ShapedGlyphVec,
+        /// Uniform style of the combined run (tate-chu-yoko is one style;
+        /// glyphs no longer carry per-glyph style — see ShapedGlyph).
+        style: Arc<StyleProperties>,
         bounds: Rect,
         baseline_offset: f32,
     },
@@ -4715,7 +4718,13 @@ pub struct ShapedGlyph {
     /// The vertical offset/bearing for this glyph.
     pub vertical_offset: Point,
     pub script: Script,
-    pub style: Arc<StyleProperties>,
+    // NOTE (§3.3 field disposition, 2026-08-10): `style` was REMOVED from
+    // the per-glyph record — style is uniform within a cluster by
+    // construction (shaping runs are style-coalesced), so the enclosing
+    // `ShapedCluster::style` is the single source. This deletes one
+    // Arc<StyleProperties> per glyph (~94k retained across the holders),
+    // kills the per-glyph Arc-clone loop in the shaping-cache hit
+    // re-stamp, and unblocks sharing whole glyph arrays behind Arc.
     /// Hash of the font - use `LoadedFonts` to look up the actual font when needed
     pub font_hash: u64,
     /// Cached font metrics to avoid font lookup for common operations
@@ -4725,12 +4734,13 @@ pub struct ShapedGlyph {
 impl ShapedGlyph {
     #[must_use] pub fn into_glyph_instance<T: ParsedFontTrait>(
         &self,
+        style: &StyleProperties,
         writing_mode: WritingMode,
         loaded_fonts: &LoadedFonts<T>,
     ) -> GlyphInstance {
         let size = loaded_fonts
             .get_by_hash(self.font_hash)
-            .and_then(|font| font.get_glyph_size(self.glyph_id, self.style.font_size_px))
+            .and_then(|font| font.get_glyph_size(self.glyph_id, style.font_size_px))
             .unwrap_or_default();
 
         let position = if writing_mode.is_advance_horizontal() {
@@ -4758,11 +4768,12 @@ impl ShapedGlyph {
         &self,
         writing_mode: WritingMode,
         absolute_position: LogicalPosition,
+        style: &StyleProperties,
         loaded_fonts: &LoadedFonts<T>,
     ) -> GlyphInstance {
         let size = loaded_fonts
             .get_by_hash(self.font_hash)
-            .and_then(|font| font.get_glyph_size(self.glyph_id, self.style.font_size_px))
+            .and_then(|font| font.get_glyph_size(self.glyph_id, style.font_size_px))
             .unwrap_or_default();
 
         GlyphInstance {
@@ -5876,7 +5887,7 @@ fn get_baseline_for_item(item: &ShapedItem) -> Option<f32> {
         ShapedItem::Cluster(ref cluster) => {
             cluster.glyphs.last().map(|last_glyph| last_glyph
                         .font_metrics
-                        .baseline_scaled(last_glyph.style.font_size_px))
+                        .baseline_scaled(cluster.style.font_size_px))
         }
         ShapedItem::Break { source, break_info } => {
             // Breaks do not contribute to baseline
@@ -6284,17 +6295,15 @@ impl TextShapingCache {
                         r.shaped_glyph_bytes += glyph_spill_bytes(c);
                         r.shaped_cluster_text_bytes += c.text.capacity();
                         r.cluster_count += 1;
-                        for g in &c.glyphs {
-                            style_arcs.insert(Arc::as_ptr(&g.style) as usize);
-                        }
+                        style_arcs.insert(Arc::as_ptr(&c.style) as usize);
                     }
                     // Tate-chu-yoko. Previously skipped entirely: the walk
                     // only matched the `Cluster` arm.
-                    ShapedItem::CombinedBlock { glyphs, .. } => {
+                    ShapedItem::CombinedBlock { glyphs, style, .. } => {
                         r.combined_block_glyph_bytes +=
                             glyphs.capacity() * size_of::<ShapedGlyph>();
-                        for g in glyphs {
-                            style_arcs.insert(Arc::as_ptr(&g.style) as usize);
+                        {
+                            style_arcs.insert(Arc::as_ptr(style) as usize);
                         }
                     }
                     // No heap beyond the `size_of::<ShapedItem>()` already
@@ -6322,16 +6331,12 @@ impl TextShapingCache {
                         r.per_item_shaped_bytes += glyph_spill_bytes(c);
                         r.per_item_shaped_bytes += c.text.capacity();
                         r.cluster_count += 1;
-                        for g in &c.glyphs {
-                            style_arcs.insert(Arc::as_ptr(&g.style) as usize);
-                        }
+                        style_arcs.insert(Arc::as_ptr(&c.style) as usize);
                     }
-                    ShapedItem::CombinedBlock { glyphs, .. } => {
+                    ShapedItem::CombinedBlock { glyphs, style, .. } => {
                         r.combined_block_glyph_bytes +=
                             glyphs.capacity() * size_of::<ShapedGlyph>();
-                        for g in glyphs {
-                            style_arcs.insert(Arc::as_ptr(&g.style) as usize);
-                        }
+                        style_arcs.insert(Arc::as_ptr(style) as usize);
                     }
                     // No heap beyond the `size_of::<ShapedItem>()` already
                     // charged for the slot. Listed explicitly rather than
@@ -7689,10 +7694,11 @@ pub fn shape_visual_items_with_per_item_cache<T: ParsedFontTrait>(
                         _ => None,
                     });
                     if let Some((style, source_node_id)) = current {
+                        // Cluster-level re-stamp: style no longer lives on
+                        // glyphs, so a cache hit is TWO writes per cluster
+                        // instead of an Arc clone per glyph (T2 pins this).
                         sc.source_node_id = source_node_id;
-                        for g in &mut sc.glyphs {
-                            g.style = style.clone();
-                        }
+                        sc.style = style;
                     }
                 }
                 c
@@ -8120,10 +8126,7 @@ pub fn shape_visual_items<T: ParsedFontTrait>(
                             // + this visual run's offset within its logical run (bidi split).
                             cluster.source_cluster_id.source_run = orig_source.run_index;
                             cluster.source_cluster_id.start_byte_in_run = (byte_pos - range_start + *orig_run_offset) as u32;
-                            // Update glyph styles
-                            for glyph in &mut cluster.glyphs {
-                                glyph.style = orig_style.clone();
-                            }
+                            cluster.style = orig_style.clone();
                             if let Some(is_outside) = orig_mpo {
                                 cluster.marker_position_outside = Some(*is_outside);
                             }
@@ -8454,7 +8457,6 @@ pub fn shape_visual_items<T: ParsedFontTrait>(
                         script: g.script,
                         font_hash: g.font_hash,
                         font_metrics: g.font_metrics,
-                        style: g.style,
                         cluster_offset: 0,
                         advance: g.advance,
                         kerning: g.kerning,
@@ -8471,8 +8473,7 @@ pub fn shape_visual_items<T: ParsedFontTrait>(
                 // chosen so the square is centered between the text-over and text-under
                 // baselines of the parent inline box. We approximate by using font_size
                 // as the square height and centering it (baseline_offset = em_size / 2).
-                let em_size = shaped_glyphs.first()
-                    .map_or(style.font_size_px, |g| g.style.font_size_px);
+                let em_size = style.font_size_px;
                 let bounds = Rect {
                     x: 0.0,
                     y: 0.0,
@@ -8481,6 +8482,7 @@ pub fn shape_visual_items<T: ParsedFontTrait>(
                 };
 
                 shaped.push(ShapedItem::CombinedBlock {
+                    style: style.clone(),
                     source: *source,
                     glyphs: shaped_glyphs,
                     bounds,
@@ -8618,7 +8620,6 @@ fn shape_text_correctly<T: ParsedFontTrait>(
                             script: g.script,
                             font_hash: g.font_hash,
                             font_metrics: g.font_metrics,
-                            style: g.style.clone(),
                             cluster_offset,
                             advance: g.advance,
                             kerning: g.kerning,
@@ -8675,7 +8676,6 @@ fn shape_text_correctly<T: ParsedFontTrait>(
                         glyph_id: g.glyph_id,
                         font_hash: g.font_hash,
                         font_metrics: g.font_metrics,
-                        style: g.style.clone(),
                         script: g.script,
                         vertical_advance: g.vertical_advance,
                         vertical_offset: g.vertical_bearing,
@@ -8852,11 +8852,11 @@ fn get_item_vertical_align(item: &ShapedItem) -> Option<VerticalAlign> {
                     if metrics.units_per_em == 0 {
                         return (max_asc, max_desc);
                     }
-                    let scale = glyph.style.font_size_px / f32::from(metrics.units_per_em);
+                    let scale = c.style.font_size_px / f32::from(metrics.units_per_em);
                     let font_ascent = metrics.ascent * scale;
                     let font_descent = (-metrics.descent * scale).max(0.0);
                     let ad = font_ascent + font_descent;
-                    let resolved_lh = c.style.line_height.resolve_with_metrics(glyph.style.font_size_px, &glyph.font_metrics);
+                    let resolved_lh = c.style.line_height.resolve_with_metrics(c.style.font_size_px, &glyph.font_metrics);
                     let half_leading = (resolved_lh - ad) / 2.0;
                     (max_asc.max(font_ascent + half_leading), max_desc.max(font_descent + half_leading))
                 });
@@ -8927,13 +8927,13 @@ fn get_item_vertical_align(item: &ShapedItem) -> Option<VerticalAlign> {
                     if metrics.units_per_em == 0 {
                         return (max_asc, max_desc);
                     }
-                    let scale = glyph.style.font_size_px / f32::from(metrics.units_per_em);
+                    let scale = c.style.font_size_px / f32::from(metrics.units_per_em);
                     let a = metrics.ascent * scale;
                     // Descent in OpenType is typically negative, so we negate it to get a positive
                     // distance.
                     let d = (-metrics.descent * scale).max(0.0);
                     let ad = a + d;
-                    let resolved_lh = glyph.style.line_height.resolve_with_metrics(glyph.style.font_size_px, &glyph.font_metrics);
+                    let resolved_lh = c.style.line_height.resolve_with_metrics(c.style.font_size_px, &glyph.font_metrics);
                     let leading = resolved_lh - ad;
                     let half_leading = leading / 2.0;
                     let item_asc = a + half_leading;
@@ -9999,7 +9999,6 @@ pub struct HyphenationBreak {
                 advance: hyphen_advance,
                 kerning: 0.0,
                 offset: Point::default(),
-                style: style.clone(),
                 vertical_advance: hyphen_advance,
                 vertical_offset: Point::default(),
             }],
@@ -10770,7 +10769,7 @@ pub fn justify_kashida_and_rebuild<T: ParsedFontTrait>(
                             font.clone(),
                             glyph.font_hash,
                             glyph.font_metrics,
-                            glyph.style.clone(),
+                            c.style.clone(),
                         ));
                     }
                 }
@@ -10877,7 +10876,6 @@ pub fn justify_kashida_and_rebuild<T: ParsedFontTrait>(
             glyph_id: kashida_glyph_id,
             font_hash,
             font_metrics,
-            style: style.clone(),
             script: Script::Arabic,
             advance: kashida_advance,
             kerning: 0.0,
@@ -12360,7 +12358,6 @@ mod autotest_generated {
             vertical_advance: advance,
             vertical_offset: Point { x: 0.0, y: 0.0 },
             script: Script::Latin,
-            style: st,
             font_hash: 0xABCD_u64,
             font_metrics: fm,
         }
