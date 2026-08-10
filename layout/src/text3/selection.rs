@@ -375,7 +375,7 @@ mod autotest_generated {
             source_cluster_id: id,
             source_content_index: ci(id.source_run, id.start_byte_in_run),
             source_node_id: None,
-            glyphs: ShapedGlyphVec::new(),
+            glyphs: crate::text3::cache::SharedGlyphs::new(ShapedGlyphVec::new()),
             advance: 10.0,
             direction: BidiDirection::Ltr,
             style: Arc::new(StyleProperties::default()),

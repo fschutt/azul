@@ -49,7 +49,7 @@ fn shaped_text_struct_sizes_are_pinned() {
     // bytes: 200 B x 31,086 clusters = 6.2 MB on one 960-line document.
     assert_size!(
         PositionedItem,
-        192,
+        168,
         "Retained once per CHARACTER of laid-out text. +8 B here is +250 KB \
          on a 31k-character document. 200 -> 192 on 2026-08-10: ShapedGlyph \
          lost its per-glyph Arc<StyleProperties> (style is uniform within a \
@@ -59,7 +59,7 @@ fn shaped_text_struct_sizes_are_pinned() {
     // The payload inside PositionedItem.
     assert_size!(
         ShapedItem,
-        176,
+        152,
         "Enum over Cluster / CombinedBlock / Object; the Cluster arm is what \
          nearly every entry is."
     );
@@ -69,17 +69,20 @@ fn shaped_text_struct_sizes_are_pinned() {
     // indices, an Arc<StyleProperties> and the direction.
     assert_size!(
         ShapedCluster,
-        168,
-        "One per grapheme. The inline SmallVec slot means one ShapedGlyph is \
-         already inside this number - do not count it again (that bug \
-         inflated the memory report by ~3 MB)."
+        80,
+        "One per grapheme. 168 -> 80 on 2026-08-10 slice 2: the glyph
+         SmallVec (which held one 88-B ShapedGlyph INLINE) became a shared
+         Arc pointer — glyphs now live once on the heap and every holder
+         of a cluster clone shares them. The old do-not-double-count note
+         inverts: the walk must now count glyph arrays ONCE PER ARC, not
+         per cluster."
     );
 
     // Inline in the cluster for the common single-glyph case, heap-spilled
     // for ligatures and combining marks.
     assert_size!(
         ShapedGlyph,
-        88,
+        88, // unchanged by slice 2 (the ARRAY is shared, not the glyph)
         "Carries a 32 B LayoutFontMetrics COPY per glyph, which is the same \
          for every glyph of a font - the obvious next shrink candidate. \
          96 -> 88 on 2026-08-10: the per-glyph Arc<StyleProperties> was \
@@ -129,9 +132,14 @@ fn the_shaped_containment_relationships_hold() {
         size_of::<ShapedItem>() <= size_of::<PositionedItem>(),
         "PositionedItem wraps ShapedItem, so it cannot be smaller"
     );
+    // Slice 2 (2026-08-10) INVERTED this relationship on purpose: glyphs
+    // moved out of the cluster into a shared Arc'd array, so a glyph (88 B)
+    // is now BIGGER than the cluster header (80 B). The report's arithmetic
+    // was updated to count glyph arrays once per Arc; this assert pins the
+    // NEW relationship so a regression back to inline storage is loud.
     assert!(
-        size_of::<ShapedGlyph>() < size_of::<ShapedCluster>(),
-        "one glyph lives INLINE in the cluster's SmallVec, so it must fit"
+        size_of::<ShapedGlyph>() > size_of::<ShapedCluster>(),
+        "glyphs live in a SHARED Arc'd array now, not inline in the cluster"
     );
     // Alignment is what turns a 4-byte field into 8 bytes of struct. Pinned
     // so a reordering that adds padding shows up as a size change above

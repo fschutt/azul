@@ -594,7 +594,7 @@ fn test_ifc_layout_replace_preserves_metrics_structure() {
         source_cluster_id: GraphemeClusterId { source_run: 0, start_byte_in_run: 0 },
         source_content_index: ContentIndex { run_index: 0, item_index: 0 },
         source_node_id: Some(azul_core::dom::NodeId::new(3)),
-        glyphs: smallvec::smallvec![],
+        glyphs: azul_layout::text3::cache::SharedGlyphs::new(smallvec::smallvec![]),
         advance: 10.0,
         direction: azul_layout::text3::cache::BidiDirection::Ltr,
         style: Default::default(),

@@ -595,7 +595,7 @@ mod autotest_generated {
                 item_index: 0,
             },
             source_node_id: None,
-            glyphs: glyphs.into_iter().collect(),
+            glyphs: crate::text3::cache::SharedGlyphs::new(glyphs.into_iter().collect()),
             advance: 0.0,
             direction: BidiDirection::Ltr,
             style: st.clone(),
@@ -616,7 +616,7 @@ mod autotest_generated {
                 run_index: 0,
                 item_index: 0,
             },
-            glyphs: glyphs.into_iter().collect(),
+            glyphs: crate::text3::cache::SharedGlyphs::new(glyphs.into_iter().collect()),
             // height 0 keeps the fallback ascent (`0.8 * height`) at exactly 0.
             bounds: Rect {
                 x: 0.0,
