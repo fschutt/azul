@@ -6,20 +6,19 @@
 /// 
 /// This test should FAIL initially, demonstrating the bug.
 
-use crate::text3::{
-    cache::{
-        InlineContent, LayoutCache, LayoutFragment, StyleProperties, StyledRun,
-        UnifiedConstraints,
-    },
-    tests::{create_mock_font_manager, default_style},
+use azul_layout::text3::cache::{
+    InlineContent, LayoutFragment, StyleProperties, StyledRun, TextShapingCache,
+    UnifiedConstraints,
 };
+
+use super::{create_mock_font_manager, default_style};
 
 #[test]
 fn test_available_width_should_produce_nonzero_bounds() {
     println!("TEST: available_width -> bounds");
 
     let font_manager = create_mock_font_manager();
-    let mut text_cache = LayoutCache::new();
+    let mut text_cache = TextShapingCache::new();
 
     // Create a simple text content
     let text = "Hello World";
@@ -144,7 +143,7 @@ fn test_available_width_should_produce_nonzero_bounds() {
 fn test_available_width_zero_should_produce_zero_bounds() {
     // This is the expected behavior: if available_width=0, bounds should be 0
     let font_manager = create_mock_font_manager();
-    let mut text_cache = LayoutCache::new();
+    let mut text_cache = TextShapingCache::new();
 
     let content = vec![InlineContent::Text(StyledRun {
         text: "Hello".to_string(),
@@ -180,7 +179,7 @@ fn test_available_width_zero_should_produce_zero_bounds() {
 #[test]
 fn test_available_width_infinite_should_produce_full_width() {
     let font_manager = create_mock_font_manager();
-    let mut text_cache = LayoutCache::new();
+    let mut text_cache = TextShapingCache::new();
 
     let text = "Hello World";
     let content = vec![InlineContent::Text(StyledRun {

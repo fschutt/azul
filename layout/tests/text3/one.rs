@@ -1,3 +1,4 @@
+use azul_layout::font_traits::FontLoaderTrait;
 // In a new file, e.g., azul/layout/src/text3/tests.rs
 
 use std::{
@@ -9,7 +10,7 @@ use azul_css::props::basic::ColorU;
 use hyphenation::{Language, Load, Standard};
 use rust_fontconfig::{FcWeight, FontId};
 
-use crate::{
+use azul_layout::{
     font::parsed::ParsedFont,
     text3::{cache::*, default::PathLoader, script::Script},
 };
@@ -24,7 +25,7 @@ struct MockFont {
     ligatures: HashMap<String, (u16, f32)>, // ligature string -> (glyph_id, advance)
 }
 
-impl crate::text3::cache::ShallowClone for MockFont {
+impl azul_layout::text3::cache::ShallowClone for MockFont {
     fn shallow_clone(&self) -> Self {
         self.clone()
     }
@@ -36,7 +37,7 @@ impl ParsedFontTrait for MockFont {
         text: &str,
         _script: Script,
         _language: Language,
-        _direction: Direction,
+        _direction: BidiDirection,
         style: &StyleProperties,
     ) -> Result<Vec<Glyph<Self>>, LayoutError> {
         let mut result_glyphs = Vec::new();
@@ -351,7 +352,7 @@ fn test_bug3_rtl_glyph_reversal() {
     // laid out right-to-left. Because the glyph vector is not reversed after
     // shaping, the glyphs will be positioned in logical order (left-to-right).
 
-    let mut cache = LayoutCache::<MockFont>::new();
+    let mut cache = TextShapingCache::<MockFont>::new();
     let manager = create_mock_font_manager();
 
     // "שלום" in logical order
@@ -410,7 +411,7 @@ fn test_bug3_rtl_glyph_reversal() {
 
 #[test]
 fn test_simple_line_break() {
-    let mut cache = LayoutCache::<MockFont>::new();
+    let mut cache = TextShapingCache::<MockFont>::new();
     let manager = create_mock_font_manager();
     let content = vec![InlineContent::Text(StyledRun {
         text: "a a a a a a".into(), // 6 chars * 8px + 5 spaces * 5px = 48 + 25 = 73px
@@ -428,7 +429,7 @@ fn test_simple_line_break() {
 
     // Using layout_flow is complex for mocks, so we'll test stages
     let logical_items = create_logical_items(&content, &[]);
-    let visual_items = reorder_logical_items(&logical_items, Direction::Ltr).unwrap();
+    let visual_items = reorder_logical_items(&logical_items, BidiDirection::Ltr).unwrap();
     let shaped_items = shape_visual_items(&visual_items, &manager).unwrap();
 
     let mut cursor = BreakCursor::new(&shaped_items);
@@ -466,7 +467,7 @@ fn test_justification_inter_word() {
     };
 
     let logical_items = create_logical_items(&content, &[]);
-    let visual_items = reorder_logical_items(&logical_items, Direction::Ltr).unwrap();
+    let visual_items = reorder_logical_items(&logical_items, BidiDirection::Ltr).unwrap();
     let shaped_items = shape_visual_items(&visual_items, &manager).unwrap();
 
     let (positioned, _) = position_one_line(
@@ -482,7 +483,7 @@ fn test_justification_inter_word() {
         0.0,
         0,
         constraints.text_align,
-        Direction::Ltr, // Added base_direction argument
+        BidiDirection::Ltr, // Added base_direction argument
         false,          // Not last line, so justify
         &constraints,
     );
@@ -499,7 +500,7 @@ fn test_justification_inter_word() {
 
 #[test]
 fn test_hyphenation_break() {
-    let mut cache = LayoutCache::<MockFont>::new();
+    let mut cache = TextShapingCache::<MockFont>::new();
     let manager = create_mock_font_manager();
     let hyphenator = Standard::from_embedded(Language::EnglishUS).unwrap();
 
@@ -515,7 +516,7 @@ fn test_hyphenation_break() {
         logical_start_byte: 0,
     })];
     let shaped_items = shape_visual_items(
-        &reorder_logical_items(&create_logical_items(&content, &[]), Direction::Ltr).unwrap(),
+        &reorder_logical_items(&create_logical_items(&content, &[]), BidiDirection::Ltr).unwrap(),
         &manager,
     )
     .unwrap();
@@ -557,7 +558,7 @@ fn test_hyphenation_break() {
 
 #[test]
 fn test_hyphenation_break_2() {
-    let mut cache = LayoutCache::<MockFont>::new();
+    let mut cache = TextShapingCache::<MockFont>::new();
     let manager = create_mock_font_manager();
     let hyphenator = Standard::from_embedded(Language::EnglishUS).unwrap();
 
@@ -571,7 +572,7 @@ fn test_hyphenation_break_2() {
         logical_start_byte: 0,
     })];
     let shaped_items = shape_visual_items(
-        &reorder_logical_items(&create_logical_items(&content, &[]), Direction::Ltr).unwrap(),
+        &reorder_logical_items(&create_logical_items(&content, &[]), BidiDirection::Ltr).unwrap(),
         &manager,
     )
     .unwrap();
@@ -616,7 +617,7 @@ fn test_hyphenation_break_2() {
 
 #[test]
 fn test_empty_input_layout() {
-    let mut cache = LayoutCache::new();
+    let mut cache = TextShapingCache::new();
     let manager = create_mock_font_manager();
     let content = vec![];
     let flow_chain = vec![LayoutFragment {

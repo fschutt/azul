@@ -49,7 +49,9 @@ fn paginate(
         prev_viewport: LogicalRect {
             origin: LogicalPosition::zero(),
             size: LogicalSize::zero(),
+        ..Default::default()
         },
+        ..Default::default()
     };
     let mut text_cache = TextLayoutCache::new();
     let content_size = LogicalSize::new(w, h);
@@ -441,6 +443,7 @@ fn paginate_styled(
             origin: LogicalPosition::zero(),
             size: LogicalSize::zero(),
         },
+        ..Default::default()
     };
     let mut text_cache = TextLayoutCache::new();
     let content_size = LogicalSize::new(w, h);
@@ -701,6 +704,7 @@ fn estimator_node_heights(xml: &str, label: &str) {
             origin: LogicalPosition::zero(),
             size: LogicalSize::zero(),
         },
+        ..Default::default()
     };
     let mut text_cache = TextLayoutCache::new();
     let content_size = LogicalSize::new(602.0, 931.0);
@@ -787,6 +791,7 @@ fn estimator_root_height(xml: &str) -> f32 {
             origin: LogicalPosition::zero(),
             size: LogicalSize::zero(),
         },
+        ..Default::default()
     };
     let mut text_cache = TextLayoutCache::new();
     let content_size = LogicalSize::new(602.0, 931.0);

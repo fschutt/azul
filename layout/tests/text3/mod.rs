@@ -6,9 +6,10 @@ use std::{
 use azul_css::props::basic::ColorU;
 use hyphenation::Language;
 
-use crate::text3::{
+use azul_layout::font_traits::FontLoaderTrait;
+use azul_layout::text3::{
     cache::{
-        BidiLevel, Direction, FontLoaderTrait, FontProviderTrait, FontSelector, Glyph,
+        BidiLevel, BidiDirection, FontSelector, Glyph,
         GlyphOrientation, GlyphSource, LayoutError, LayoutFontMetrics, ParsedFontTrait, Point,
         PositionedItem, ShapedItem, Spacing, StyleProperties, TextDecoration, TextOrientation,
         TextTransform, VerticalMetrics, WritingMode,
@@ -33,7 +34,7 @@ pub struct MockFont {
     ligatures: HashMap<String, (u16, f32)>,
 }
 
-impl crate::text3::cache::ShallowClone for MockFont {
+impl azul_layout::text3::cache::ShallowClone for MockFont {
     fn shallow_clone(&self) -> Self {
         self.clone()
     }
@@ -45,7 +46,7 @@ impl ParsedFontTrait for MockFont {
         text: &str,
         script: Script,
         _language: Language,
-        direction: Direction,
+        direction: BidiDirection,
         style: &StyleProperties,
     ) -> Result<Vec<Glyph<Self>>, LayoutError> {
         let mut result_glyphs = Vec::new();
@@ -82,7 +83,7 @@ impl ParsedFontTrait for MockFont {
                         vertical_bearing: Point::default(),
                         orientation: GlyphOrientation::Horizontal,
                         script,
-                        bidi_level: BidiLevel::new(if direction == Direction::Rtl { 1 } else { 0 }),
+                        bidi_level: BidiLevel::new(if direction == BidiDirection::Rtl { 1 } else { 0 }),
                     });
 
                     text_cursor += lig_str.chars().count();
@@ -115,7 +116,7 @@ impl ParsedFontTrait for MockFont {
                 vertical_bearing: Point::default(),
                 orientation: GlyphOrientation::Horizontal,
                 script, // Simplified for mock
-                bidi_level: BidiLevel::new(if direction == Direction::Rtl { 1 } else { 0 }),
+                bidi_level: BidiLevel::new(if direction == BidiDirection::Rtl { 1 } else { 0 }),
             });
             text_cursor += 1;
         }

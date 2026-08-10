@@ -149,10 +149,15 @@ fn layout_tree_node_struct_sizes_are_pinned() {
     assert_size!(LayoutNodeHot, 80, "Per layout node, touched every pass.");
     assert_size!(
         LayoutNodeWarm,
-        1176,
+        1296,
         "Per layout node, and the BIGGEST per-node struct by far - 1329 nodes \
-         is 1.5 MB before a single glyph is shaped. Dominated by the taffy \
-         measurement cache and the inline Option<CachedInlineLayout>."
+         is 1.7 MB before a single glyph is shaped. Dominated by the taffy \
+         measurement cache and the inline Option<CachedInlineLayout>. \
+         GREW 1176 -> 1296 (2026-08-09, the resize measure-cache pair \
+         measured_content_sizes — a deliberate perf-for-memory trade that \
+         went unnoticed while this pin's target was silently broken). The \
+         planned rare-data split (memory batch item 2) targets exactly this \
+         struct; shrink it there, deliberately, not here."
     );
     assert_size!(LayoutNodeCold, 280, "Per layout node, rarely touched.");
 

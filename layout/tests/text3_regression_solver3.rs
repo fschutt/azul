@@ -106,6 +106,7 @@ fn run_layout(html: &str) -> Solver3LayoutCache {
         cached_display_list: None,
         prev_dom_ptr: 0,
         prev_viewport: LogicalRect { origin: LogicalPosition::zero(), size: LogicalSize::zero() },
+        ..Default::default()
     };
     let mut text_cache = TextLayoutCache::new();
     let content_size = LogicalSize::new(800.0, 600.0);

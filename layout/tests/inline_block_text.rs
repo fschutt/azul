@@ -57,7 +57,9 @@ fn test_inline_block_text_generates_text_items() {
         prev_viewport: LogicalRect {
             origin: LogicalPosition::zero(),
             size: LogicalSize::zero(),
+        ..Default::default()
         },
+        ..Default::default()
     };
     let mut text_cache = TextLayoutCache::new();
 
@@ -280,6 +282,7 @@ fn test_text_wraps_at_constrained_width() {
             origin: LogicalPosition::zero(),
             size: LogicalSize::zero(),
         },
+        ..Default::default()
     };
     let mut text_cache = TextLayoutCache::new();
 
@@ -459,6 +462,7 @@ fn test_inline_text_and_inline_block_on_same_line() {
             origin: LogicalPosition::zero(),
             size: LogicalSize::zero(),
         },
+        ..Default::default()
     };
     let mut text_cache = TextLayoutCache::new();
 
@@ -685,6 +689,7 @@ fn test_body_as_root_inline_block_positioning() {
             origin: LogicalPosition::zero(),
             size: LogicalSize::zero(),
         },
+        ..Default::default()
     };
     let mut text_cache = TextLayoutCache::new();
 

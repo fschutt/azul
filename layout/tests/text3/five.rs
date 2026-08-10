@@ -6,11 +6,7 @@ use azul_core::{
 };
 
 use super::{create_mock_font_manager, default_style, MockFont};
-use crate::text3::{
-    cache::*,
-    edit::{edit_text, TextEdit},
-    tests::MockFontManager,
-};
+use azul_layout::text3::{cache::*, edit::{edit_text, TextEdit}};
 
 #[test]
 fn test_hittest_simple_ltr() {
@@ -25,7 +21,7 @@ fn test_hittest_simple_ltr() {
         ..Default::default()
     };
 
-    let mut cache = LayoutCache::<MockFont>::new();
+    let mut cache = TextShapingCache::<MockFont>::new();
     let flow_chain = vec![LayoutFragment {
         id: "main".into(),
         constraints,
@@ -73,7 +69,7 @@ fn test_get_selection_rects_single_line() {
         ..Default::default()
     };
 
-    let mut cache = LayoutCache::<MockFont>::new();
+    let mut cache = TextShapingCache::<MockFont>::new();
     let flow_chain = vec![LayoutFragment {
         id: "main".into(),
         constraints,
@@ -125,7 +121,7 @@ fn create_test_layout() -> (UnifiedLayout<MockFont>, MockFontManager) {
         ..Default::default()
     };
 
-    let mut cache = LayoutCache::<MockFont>::new();
+    let mut cache = TextShapingCache::<MockFont>::new();
     let flow_chain = vec![LayoutFragment {
         id: "main".into(),
         constraints,
@@ -297,7 +293,7 @@ fn create_test_layout_2() -> (UnifiedLayout<MockFont>, MockFontManager) {
         ..Default::default()
     };
 
-    let mut cache = LayoutCache::<MockFont>::new();
+    let mut cache = TextShapingCache::<MockFont>::new();
     let flow_chain = vec![LayoutFragment {
         id: "main".into(),
         constraints,
@@ -433,7 +429,7 @@ fn test_edit_delete_range_across_runs() {
 
     // STUB: Full multi-run deletion is complex. This test will fail with the stub
     // but demonstrates the required behavior.
-    let (new_content, new_cursor) = crate::text3::edit::delete_range(&content, &range);
+    let (new_content, new_cursor) = azul_layout::text3::edit::delete_range(&content, &range);
 
     // Expected result: a single run "onree"
     // assert_eq!(new_content.len(), 1);

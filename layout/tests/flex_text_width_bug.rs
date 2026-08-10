@@ -78,6 +78,7 @@ fn test_flex_column_child_text_has_nonzero_width() {
             origin: LogicalPosition::zero(),
             size: LogicalSize::zero(),
         },
+        ..Default::default()
     };
     let mut text_cache = TextLayoutCache::new();
 
@@ -202,6 +203,7 @@ fn test_flex_row_text_child_has_intrinsic_width() {
             origin: LogicalPosition::zero(),
             size: LogicalSize::zero(),
         },
+        ..Default::default()
     };
     let mut text_cache = TextLayoutCache::new();
 

@@ -11,7 +11,7 @@ use hyphenation::{Language, Load, Standard};
 use rust_fontconfig::{FcWeight, FontId};
 
 use super::{create_mock_font_manager, default_style, MockFont};
-use crate::{
+use azul_layout::{
     font::parsed::ParsedFont,
     text3::{cache::*, default::PathLoader, script::Script},
 };
@@ -110,7 +110,7 @@ fn test_bidi_reordering_mixed_content() {
     ];
 
     let logical_items = create_logical_items(&content, &[]);
-    let visual_items = reorder_logical_items(&logical_items, Direction::Ltr).unwrap();
+    let visual_items = reorder_logical_items(&logical_items, BidiDirection::Ltr).unwrap();
 
     // The visual order of runs remains the same as the logical order.
     // The second run is simply marked as RTL.
@@ -139,7 +139,7 @@ fn test_long_word_overflow_no_hyphenation() {
         ..Default::default()
     };
     let logical_items = create_logical_items(&content, &[]);
-    let visual_items = reorder_logical_items(&logical_items, Direction::Ltr).unwrap();
+    let visual_items = reorder_logical_items(&logical_items, BidiDirection::Ltr).unwrap();
     let shaped_items = shape_visual_items(&visual_items, &manager).unwrap();
     let mut cursor = BreakCursor::new(&shaped_items);
     let (line_items, _) = break_one_line(
@@ -181,7 +181,7 @@ fn test_multi_column_layout() {
     };
 
     let logical_items = create_logical_items(&content, &[]);
-    let visual_items = reorder_logical_items(&logical_items, Direction::Ltr).unwrap();
+    let visual_items = reorder_logical_items(&logical_items, BidiDirection::Ltr).unwrap();
     let shaped_items = shape_visual_items(&visual_items, &manager).unwrap();
     let mut cursor = BreakCursor::new(&shaped_items);
     let layout = perform_fragment_layout(&mut cursor, &logical_items, &constraints).unwrap();
@@ -243,7 +243,7 @@ fn test_line_clamp() {
     };
 
     let logical_items = create_logical_items(&content, &[]);
-    let visual_items = reorder_logical_items(&logical_items, Direction::Ltr).unwrap();
+    let visual_items = reorder_logical_items(&logical_items, BidiDirection::Ltr).unwrap();
     let shaped_items = shape_visual_items(&visual_items, &manager).unwrap();
     let mut cursor = BreakCursor::new(&shaped_items);
     let layout = perform_fragment_layout(&mut cursor, &logical_items, &constraints).unwrap();
@@ -262,7 +262,7 @@ fn test_line_clamp() {
 
 #[test]
 fn test_flow_across_fragments() {
-    let mut cache = LayoutCache::new();
+    let mut cache = TextShapingCache::new();
     let manager = create_mock_font_manager();
     let content = vec![InlineContent::Text(StyledRun {
         text: "line one and line two and line three".into(),
@@ -340,7 +340,7 @@ fn test_kashida_justification() {
 
     // Directly test the kashida insertion logic
     let logical_items = create_logical_items(&content, &[]);
-    let visual_items = reorder_logical_items(&logical_items, Direction::Rtl).unwrap();
+    let visual_items = reorder_logical_items(&logical_items, BidiDirection::Rtl).unwrap();
     let shaped_items = shape_visual_items(&visual_items, &manager).unwrap();
 
     let line_constraints = LineConstraints {
@@ -407,7 +407,7 @@ fn test_layout_with_shape_exclusion() {
     };
 
     let logical_items = create_logical_items(&content, &[]);
-    let visual_items = reorder_logical_items(&logical_items, Direction::Ltr).unwrap();
+    let visual_items = reorder_logical_items(&logical_items, BidiDirection::Ltr).unwrap();
     let shaped_items = shape_visual_items(&visual_items, &manager).unwrap();
     let mut cursor = BreakCursor::new(&shaped_items);
     let layout = perform_fragment_layout(&mut cursor, &logical_items, &constraints).unwrap();
@@ -488,7 +488,7 @@ fn test_bug3_rtl_glyph_reversal() {
     // laid out right-to-left. Because the glyph vector is not reversed after
     // shaping, the glyphs will be positioned in logical order (left-to-right).
 
-    let mut cache = LayoutCache::<MockFont>::new();
+    let mut cache = TextShapingCache::<MockFont>::new();
     let manager = create_mock_font_manager();
 
     // "שלום" in logical order
@@ -572,7 +572,7 @@ fn test_simple_line_break() {
 
     // Using layout_flow is complex for mocks, so we'll test stages
     let logical_items = create_logical_items(&content, &[]);
-    let visual_items = reorder_logical_items(&logical_items, Direction::Ltr).unwrap();
+    let visual_items = reorder_logical_items(&logical_items, BidiDirection::Ltr).unwrap();
     let shaped_items = shape_visual_items(&visual_items, &manager).unwrap();
 
     let mut cursor = BreakCursor::new(&shaped_items);
@@ -628,7 +628,7 @@ fn test_justification_inter_word() {
     };
 
     let logical_items = create_logical_items(&content, &[]);
-    let visual_items = reorder_logical_items(&logical_items, Direction::Ltr).unwrap();
+    let visual_items = reorder_logical_items(&logical_items, BidiDirection::Ltr).unwrap();
     let shaped_items = shape_visual_items(&visual_items, &manager).unwrap();
 
     let mut cursor = BreakCursor::new(&shaped_items);
@@ -667,7 +667,7 @@ fn test_hyphenation_break() {
         logical_start_byte: 0,
     })];
     let shaped_items = shape_visual_items(
-        &reorder_logical_items(&create_logical_items(&content, &[]), Direction::Ltr).unwrap(),
+        &reorder_logical_items(&create_logical_items(&content, &[]), BidiDirection::Ltr).unwrap(),
         &manager,
     )
     .unwrap();
@@ -722,7 +722,7 @@ fn test_hyphenation_break_2() {
         logical_start_byte: 0,
     })];
     let shaped_items = shape_visual_items(
-        &reorder_logical_items(&create_logical_items(&content, &[]), Direction::Ltr).unwrap(),
+        &reorder_logical_items(&create_logical_items(&content, &[]), BidiDirection::Ltr).unwrap(),
         &manager,
     )
     .unwrap();
@@ -767,7 +767,7 @@ fn test_hyphenation_break_2() {
 
 #[test]
 fn test_empty_input_layout() {
-    let mut cache = LayoutCache::new();
+    let mut cache = TextShapingCache::new();
     let manager = create_mock_font_manager();
     let content = vec![];
     let flow_chain = vec![LayoutFragment {

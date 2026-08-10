@@ -35,7 +35,9 @@ fn run(html: &str, page_h: f32) -> Vec<TokenizedPage> {
         prev_viewport: LogicalRect {
             origin: LogicalPosition::zero(),
             size: LogicalSize::zero(),
+        ..Default::default()
         },
+        ..Default::default()
     };
     let mut text_cache = TextLayoutCache::new();
     let viewport = LogicalRect {

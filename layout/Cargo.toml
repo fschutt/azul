@@ -154,6 +154,8 @@ libmimalloc-sys = { version = "0.1", default-features = false, features = ["exte
 tikv-jemalloc-sys = { version = "0.6", default-features = false, optional = true }
 
 [features]
+# WIP gate for the dormant-test port (see [[test]] text3_suite).
+text3-suite-wip = []
 # Default: Full layout engine with text, fonts, SVG, images, accessibility
 # Uses multithreaded font loading for faster startup on desktop
 default = ["std", "text_layout", "text_layout_hyphenation", "font_loading_multithreaded", "font_async_registry", "svg", "image_decoding", "cpurender", "a11y", "widgets", "extra", "icons"]
@@ -361,6 +363,15 @@ path = "tests/svg_xml_dom.rs"
 name = "contenteditable_e2e"
 path = "tests/contenteditable_e2e.rs"
 required-features = ["cpurender", "text_layout", "font_loading", "a11y", "widgets"]
+
+[[test]]
+name = "text3_suite"
+path = "tests/text3/mod.rs"
+# WIP (2026-08-10): the 57 dormant text3 tests, mid-port from the dead
+# FontProviderTrait API generation to the current LoadedFonts pipeline
+# (SHAPED_TEXT_REFACTOR_PLAN.md task T0). Gated off the default battery
+# until the port compiles+passes; build with --features text3-suite-wip.
+required-features = ["text_layout", "text3-suite-wip"]
 
 [[test]]
 name = "e2e_json"

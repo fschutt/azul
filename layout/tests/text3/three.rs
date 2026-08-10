@@ -1,3 +1,4 @@
+use azul_layout::font_traits::FontLoaderTrait;
 // In a new file, e.g., azul/layout/src/text3/tests.rs
 
 use std::{
@@ -10,7 +11,7 @@ use azul_css::props::basic::ColorU;
 use hyphenation::{Language, Load, Standard};
 use rust_fontconfig::{FcWeight, FontId};
 
-use crate::{
+use azul_layout::{
     font::parsed::ParsedFont,
     text3::{cache::*, default::PathLoader, glyphs::get_glyph_positions, script::Script},
 };
@@ -25,7 +26,7 @@ struct MockFont {
     ligatures: HashMap<String, (u16, f32)>, // ligature string -> (glyph_id, advance)
 }
 
-impl crate::text3::cache::ShallowClone for MockFont {
+impl azul_layout::text3::cache::ShallowClone for MockFont {
     fn shallow_clone(&self) -> Self {
         self.clone()
     }
@@ -37,7 +38,7 @@ impl ParsedFontTrait for MockFont {
         text: &str,
         script: Script,
         _language: Language,
-        direction: Direction,
+        direction: BidiDirection,
         style: &StyleProperties,
     ) -> Result<Vec<Glyph<Self>>, LayoutError> {
         let mut result_glyphs = Vec::new();
@@ -74,7 +75,7 @@ impl ParsedFontTrait for MockFont {
                         vertical_bearing: Point::default(),
                         orientation: GlyphOrientation::Horizontal,
                         script,
-                        bidi_level: BidiLevel::new(if direction == Direction::Rtl { 1 } else { 0 }),
+                        bidi_level: BidiLevel::new(if direction == BidiDirection::Rtl { 1 } else { 0 }),
                     });
 
                     text_cursor += lig_str.chars().count();
@@ -107,7 +108,7 @@ impl ParsedFontTrait for MockFont {
                 vertical_bearing: Point::default(),
                 orientation: GlyphOrientation::Horizontal,
                 script, // Simplified for mock
-                bidi_level: BidiLevel::new(if direction == Direction::Rtl { 1 } else { 0 }),
+                bidi_level: BidiLevel::new(if direction == BidiDirection::Rtl { 1 } else { 0 }),
             });
             text_cursor += 1;
         }
@@ -416,7 +417,7 @@ fn test_bidi_reordering_mixed_content() {
     ];
 
     let logical_items = create_logical_items(&content, &[]);
-    let visual_items = reorder_logical_items(&logical_items, Direction::Ltr).unwrap();
+    let visual_items = reorder_logical_items(&logical_items, BidiDirection::Ltr).unwrap();
 
     // With a base LTR direction, the visual runs should be LTR, RTL, LTR.
     assert_eq!(visual_items.len(), 3);
@@ -442,7 +443,7 @@ fn test_long_word_overflow_no_hyphenation() {
         ..Default::default()
     };
     let logical_items = create_logical_items(&content, &[]);
-    let visual_items = reorder_logical_items(&logical_items, Direction::Ltr).unwrap();
+    let visual_items = reorder_logical_items(&logical_items, BidiDirection::Ltr).unwrap();
     let shaped_items = shape_visual_items(&visual_items, &manager).unwrap();
     let mut cursor = BreakCursor::new(&shaped_items);
     let (line_items, _) = break_one_line(
@@ -484,7 +485,7 @@ fn test_multi_column_layout() {
     };
 
     let logical_items = create_logical_items(&content, &[]);
-    let visual_items = reorder_logical_items(&logical_items, Direction::Ltr).unwrap();
+    let visual_items = reorder_logical_items(&logical_items, BidiDirection::Ltr).unwrap();
     let shaped_items = shape_visual_items(&visual_items, &manager).unwrap();
     let mut cursor = BreakCursor::new(&shaped_items);
     let layout = perform_fragment_layout(&mut cursor, &logical_items, &constraints).unwrap();
@@ -532,7 +533,7 @@ fn test_line_clamp() {
     };
 
     let logical_items = create_logical_items(&content, &[]);
-    let visual_items = reorder_logical_items(&logical_items, Direction::Ltr).unwrap();
+    let visual_items = reorder_logical_items(&logical_items, BidiDirection::Ltr).unwrap();
     let shaped_items = shape_visual_items(&visual_items, &manager).unwrap();
     let mut cursor = BreakCursor::new(&shaped_items);
     let layout = perform_fragment_layout(&mut cursor, &logical_items, &constraints).unwrap();
@@ -551,7 +552,7 @@ fn test_line_clamp() {
 
 #[test]
 fn test_flow_across_fragments() {
-    let mut cache = LayoutCache::new();
+    let mut cache = TextShapingCache::new();
     let manager = create_mock_font_manager();
     let content = vec![InlineContent::Text(StyledRun {
         text: "line one and line two and line three".into(),
@@ -629,7 +630,7 @@ fn test_kashida_justification() {
 
     // Directly test the kashida insertion logic
     let logical_items = create_logical_items(&content, &[]);
-    let visual_items = reorder_logical_items(&logical_items, Direction::Rtl).unwrap();
+    let visual_items = reorder_logical_items(&logical_items, BidiDirection::Rtl).unwrap();
     let shaped_items = shape_visual_items(&visual_items, &manager).unwrap();
 
     let line_constraints = LineConstraints {
@@ -694,7 +695,7 @@ fn test_layout_with_shape_exclusion() {
     };
 
     let logical_items = create_logical_items(&content, &[]);
-    let visual_items = reorder_logical_items(&logical_items, Direction::Ltr).unwrap();
+    let visual_items = reorder_logical_items(&logical_items, BidiDirection::Ltr).unwrap();
     let shaped_items = shape_visual_items(&visual_items, &manager).unwrap();
     let mut cursor = BreakCursor::new(&shaped_items);
     let layout = perform_fragment_layout(&mut cursor, &logical_items, &constraints).unwrap();
@@ -731,7 +732,7 @@ fn test_get_glyph_positions() {
         ..Default::default()
     };
     let logical_items = create_logical_items(&content, &[]);
-    let visual_items = reorder_logical_items(&logical_items, Direction::Ltr).unwrap();
+    let visual_items = reorder_logical_items(&logical_items, BidiDirection::Ltr).unwrap();
     let shaped_items = shape_visual_items(&visual_items, &manager).unwrap();
     let mut cursor = BreakCursor::new(&shaped_items);
     let layout = perform_fragment_layout(&mut cursor, &logical_items, &constraints).unwrap();
@@ -778,7 +779,7 @@ fn test_bidi_with_right_alignment() {
     };
 
     let logical_items = create_logical_items(&content, &[]);
-    let visual_items = reorder_logical_items(&logical_items, Direction::Rtl).unwrap();
+    let visual_items = reorder_logical_items(&logical_items, BidiDirection::Rtl).unwrap();
     let shaped_items = shape_visual_items(&visual_items, &manager).unwrap();
     let mut cursor = BreakCursor::new(&shaped_items);
     let layout = perform_fragment_layout(&mut cursor, &logical_items, &constraints).unwrap();
@@ -811,7 +812,7 @@ fn test_bidi_with_start_alignment() {
     };
 
     let logical_items = create_logical_items(&content, &[]);
-    let visual_items = reorder_logical_items(&logical_items, Direction::Rtl).unwrap();
+    let visual_items = reorder_logical_items(&logical_items, BidiDirection::Rtl).unwrap();
     let shaped_items = shape_visual_items(&visual_items, &manager).unwrap();
     let mut cursor = BreakCursor::new(&shaped_items);
     let layout = perform_fragment_layout(&mut cursor, &logical_items, &constraints).unwrap();
@@ -857,7 +858,7 @@ fn test_inline_object_baseline_alignment() {
     };
 
     let logical_items = create_logical_items(&content, &[]);
-    let visual_items = reorder_logical_items(&logical_items, Direction::Ltr).unwrap();
+    let visual_items = reorder_logical_items(&logical_items, BidiDirection::Ltr).unwrap();
     let shaped_items = shape_visual_items(&visual_items, &manager).unwrap();
     let mut cursor = BreakCursor::new(&shaped_items);
     let layout = perform_fragment_layout(&mut cursor, &logical_items, &constraints).unwrap();
@@ -901,7 +902,7 @@ fn test_text_indent() {
     };
 
     let logical_items = create_logical_items(&content, &[]);
-    let visual_items = reorder_logical_items(&logical_items, Direction::Ltr).unwrap();
+    let visual_items = reorder_logical_items(&logical_items, BidiDirection::Ltr).unwrap();
     let shaped_items = shape_visual_items(&visual_items, &manager).unwrap();
     let mut cursor = BreakCursor::new(&shaped_items);
     let layout = perform_fragment_layout(&mut cursor, &logical_items, &constraints).unwrap();
@@ -936,7 +937,7 @@ fn test_glyph_positions_rtl() {
     };
 
     let logical_items = create_logical_items(&content, &[]);
-    let visual_items = reorder_logical_items(&logical_items, Direction::Rtl).unwrap();
+    let visual_items = reorder_logical_items(&logical_items, BidiDirection::Rtl).unwrap();
     let shaped_items = shape_visual_items(&visual_items, &manager).unwrap();
 
     // IMPORTANT: For RTL, the shaper returns glyphs in logical order, but the positioner
@@ -999,7 +1000,7 @@ fn test_glyph_positions_rtl() {
     };
 
     let logical_items = create_logical_items(&content, &[]);
-    let visual_items = reorder_logical_items(&logical_items, Direction::Rtl).unwrap();
+    let visual_items = reorder_logical_items(&logical_items, BidiDirection::Rtl).unwrap();
     let shaped_items = shape_visual_items(&visual_items, &manager).unwrap();
 
     // IMPORTANT: For RTL, the shaper returns glyphs in logical order, but the positioner
