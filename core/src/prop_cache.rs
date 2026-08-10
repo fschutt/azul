@@ -1154,6 +1154,26 @@ impl CssPropertyCache {
 
         let css_is_empty = css.is_empty();
 
+        // @-rule conditions (@media width/height, theme, OS...) gate whole
+        // rule BLOCKS. Evaluated here against the window's dynamic context —
+        // rules whose conditions do not hold are dropped from this cascade
+        // exactly as if absent, and `StyledDom::set_dynamic_selector_context`
+        // re-runs the cascade when the context changes and the author css
+        // has conditional rules. With NO context yet (a StyledDom no window
+        // has adopted), conditional rules do not apply — the same behaviour
+        // inline conditional properties have always had. (Until 2026-08-10
+        // these conditions were silently IGNORED: an author
+        // `@media (max-width: 720px)` block applied at every viewport.)
+        let dyn_ctx = self.dynamic_context.clone();
+        let rule_applies = |conds: &azul_css::dynamic_selector::DynamicSelectorVec| -> bool {
+            let cs = conds.as_slice();
+            cs.is_empty()
+                || match dyn_ctx.as_deref() {
+                    Some(c) => cs.iter().all(|sel| sel.matches(c)),
+                    None => false,
+                }
+        };
+
         if !css_is_empty {
             css.sort_by_specificity();
 
@@ -1197,6 +1217,9 @@ impl CssPropertyCache {
             // 50K × N clones into per-node css_props Vecs.
             self.global_css_props.clear();
             for rule in &global_only_rules {
+                if !rule_applies(&rule.conditions) {
+                    continue;
+                }
                 if crate::style::rule_ends_with(&rule.path, None) {
                     for d in &rule.declarations {
                         if let CssDeclaration::Static(s) = d {
@@ -1221,6 +1244,9 @@ impl CssPropertyCache {
             macro_rules! filter_rules {($expected_pseudo_selector:expr, $node_id:expr) => {{
                 let mut out: Vec<(u16, u16)> = Vec::new();
                 for (rule_idx, rule_block) in specific_rules.iter().enumerate() {
+                    if !rule_applies(&rule_block.conditions) {
+                        continue;
+                    }
                     if !crate::style::rule_ends_with(&rule_block.path, $expected_pseudo_selector) {
                         continue;
                     }

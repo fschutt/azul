@@ -1,0 +1,35 @@
+{
+  "name": "bug_author_media_unconditional",
+  "description": "AUTHOR @media CONDITIONALITY (task #23, found 2026-08-10 while fixing the shrink-to-mobile bug): restyle()'s rule-matching pushed every Static declaration without ever reading rule.conditions, so an author-stylesheet '@media (max-width: 720px)' block applied at EVERY viewport — at 900px wide the mobile width was already active. (The INLINE conditional channel — NodeData style rules with ViewportWidth conditions, the ribbon's mechanism — evaluated correctly all along; only stylesheet @-rule conditions were dropped.) This scenario pins both halves at a 900px window and then across the breakpoint: the box is 100px wide at 900 (the @media rule must NOT apply), and after shrinking to 600 — which crosses the harvested 720 threshold and therefore regenerates + re-styles — the box is 200px wide (the rule MUST apply). The shrink half also exercises the harvested-breakpoints resize decision end-to-end through the author-css channel.",
+  "setup": {
+    "window_width": 900,
+    "window_height": 400,
+    "dpi": 96
+  },
+  "steps": [
+    {
+      "op": "mount",
+      "html": [
+        "<div id=\"box\"></div>"
+      ],
+      "css": [
+        "#box { width: 100px; height: 40px; background: blue; }",
+        "@media (max-width: 720px) { #box { width: 200px; } }"
+      ]
+    },
+    { "op": "wait_frame" },
+    { "op": "wait", "ms": 120 },
+    { "op": "assert_exists", "selector": "#box" },
+    { "op": "assert_layout", "selector": "#box", "property": "width", "expected": 100, "tolerance": 1 },
+
+    { "op": "resize", "width": 600, "height": 400 },
+    { "op": "wait_frame" },
+    { "op": "wait", "ms": 120 },
+    { "op": "assert_layout", "selector": "#box", "property": "width", "expected": 200, "tolerance": 1 },
+
+    { "op": "resize", "width": 900, "height": 400 },
+    { "op": "wait_frame" },
+    { "op": "wait", "ms": 120 },
+    { "op": "assert_layout", "selector": "#box", "property": "width", "expected": 100, "tolerance": 1 }
+  ]
+}

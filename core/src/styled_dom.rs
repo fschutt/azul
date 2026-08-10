@@ -1992,6 +1992,21 @@ impl StyledDom {
             }
             cache.dynamic_context = Some(Box::new(context));
         }
+        // Author-css @-rule conditions are baked at CASCADE time (restyle
+        // drops non-matching rule blocks), so a context change must re-run
+        // the author cascade — rebuilding the compact cache alone would
+        // keep the stale rule selection. Only DOMs whose stylesheet
+        // actually has conditional rules pay this.
+        let author_conditional = self
+            .get_css_property_cache()
+            .retained_author_css
+            .rules
+            .as_ref()
+            .iter()
+            .any(|r| !r.conditions.as_ref().is_empty());
+        if author_conditional {
+            self.restyle_retained();
+        }
         let needs_rebuild = self
             .get_css_property_cache()
             .compact_cache
