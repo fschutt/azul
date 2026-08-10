@@ -259,7 +259,6 @@ fn test_sibling_margins_included_in_parent_height() {
 }
 
 #[test]
-#[ignore = "ENGINE BUG (task #24), oracle-settled 2026-08-10: headless Chromium renders this exact structure with .container height = 320 - the collapsed bottom margin chain (nested-box 50 + nested-container 40 -> 50) must collapse THROUGH the auto-height padding-less container and escape, not add to its height. The engine produces 370 (traps the collapsed 50); the original 360 expectation (trap only the 40) was ALSO wrong; the asserts now encode the oracle 320. Un-ignoring this test is the fix definition of done."]
 fn test_nested_margin_escape() {
     // Complex test: nested containers with multiple margin escapes
     //
@@ -288,7 +287,11 @@ fn test_nested_margin_escape() {
     //     (Top trap +30 is exactly offset by `total_escaped_top_margin` subtraction.)
     //   - Node 3 height = 130px (just nested-box's border-box; escaped margins don't count).
 
-    let dom = Dom::create_div()
+    // The .container must NOT be the DOM root: the root-node arm folds an
+    // escaped bottom margin into the root's height by design (canvas
+    // semantics), which is a different question from CSS content height.
+    // The Chrome oracle structure (and the .xht this cites) has a body.
+    let dom = Dom::create_body().with_child(Dom::create_div()
         .with_ids_and_classes(vec![IdOrClass::Class("container".into())].into())
         .with_child(
             Dom::create_div()
@@ -310,7 +313,7 @@ fn test_nested_margin_escape() {
                             ),
                         ),
                 ),
-        );
+        ));
 
     let css_str = r#"
         .container {
@@ -367,11 +370,14 @@ fn test_nested_margin_escape() {
         )
         .unwrap();
 
-    let root_id = DomNodeId {
+    let body_id = DomNodeId {
         dom: DomId::ROOT_ID,
         node: NodeHierarchyItemId::from_crate_internal(Some(NodeId::ZERO)),
     };
-    // root_id is .container, first child is .box, second child is .nested-container
+    // body -> .container -> (.box, .nested-container)
+    let root_id = layout_window
+        .get_first_child(body_id)
+        .expect("container not found");
     let box_id = layout_window
         .get_first_child(root_id)
         .expect("box not found");
