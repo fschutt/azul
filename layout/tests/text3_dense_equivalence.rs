@@ -769,6 +769,78 @@ fn dense_word_and_line_movement_agree_with_the_sparse_walk() {
     }
 }
 
+/// (d6g) The FIELD-CHOICE pin for positioned_cluster, on a hand-built
+/// struct where `top_y != baseline_y` — the fakefont corpus cannot
+/// distinguish them (its lines have top == baseline), which made a
+/// baseline→top NC pass the corpus pin below. This is the arm that
+/// actually pins WHICH y the accessor reads (the sparse `position.y`,
+/// i.e. the baseline), plus the out-of-range and source_index reads.
+#[test]
+fn dense_positioned_cluster_reads_the_baseline_not_the_top() {
+    use azul_layout::text3::dense::{ClusterCompact, DenseText, LineRecord};
+    let mut d = DenseText::default();
+    d.clusters.push(ClusterCompact {
+        glyph_id: 0,
+        flags: azul_layout::text3::cache::ClusterFlags(0),
+        advance: 10.0,
+        start_byte: 0,
+        x: 5.0,
+    });
+    d.lines.push(LineRecord {
+        clusters: (0, 1),
+        baseline_y: 40.0,
+        top_y: 28.0,
+        height: 16.0,
+        source_index: 3,
+    });
+    let (x, y, li) = d.positioned_cluster(0).expect("in range");
+    assert!((x - 5.0).abs() < f32::EPSILON, "x reads the cluster");
+    assert!(
+        (y - 40.0).abs() < f32::EPSILON,
+        "y must be the line's baseline_y (the sparse position.y), got {y}"
+    );
+    assert_eq!(li, 3, "line_index reads source_index, not the record ordinal");
+    assert!(d.positioned_cluster(1).is_none(), "out of range is None");
+}
+
+/// (d6g) positioned_cluster pin: every cluster's (x, y, line_index)
+/// reconstruction equals the sparse PositionedItem fields — including
+/// on wrapped multi-line layouts where source_index matters.
+#[test]
+fn dense_positioned_cluster_agrees_with_the_sparse_items() {
+    for (text, width) in [
+        ("hello dense world, punct. and_under scores!", 400.0),
+        ("a longer paragraph that will wrap across multiple lines of text", 120.0),
+    ] {
+        let (layout, content) = layout_of(text, width);
+        let dense = DenseText::from_unified_with_content(&layout, &content);
+        assert_eq!(
+            dense.clusters.len(),
+            layout.items.len(),
+            "corpus must stay pure-cluster for this pin ({text:?})"
+        );
+        for (i, item) in layout.items.iter().enumerate() {
+            let (x, y, li) = dense
+                .positioned_cluster(u32::try_from(i).unwrap())
+                .expect("cluster index in range");
+            assert!(
+                (item.position.x - x).abs() < 0.01,
+                "x[{i}]: sparse {} vs dense {x} ({text:?})",
+                item.position.x
+            );
+            assert!(
+                (item.position.y - y).abs() < 0.01,
+                "y[{i}]: sparse {} vs dense {y} ({text:?})",
+                item.position.y
+            );
+            assert_eq!(
+                item.line_index, li,
+                "line_index[{i}] ({text:?})"
+            );
+        }
+    }
+}
+
 /// (d6f) The dispatcher pin: every (direction, step) arm of
 /// `DenseText::resolve_step` must route to the same movement op the
 /// window's sparse `resolve_step_static` routes to. Wiring-level — the

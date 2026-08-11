@@ -503,6 +503,25 @@ impl DenseText {
         cursor
     }
 
+    /// (d6g) The sparse `PositionedItem` fields for cluster `i`:
+    /// `(x, y, line_index)` where `y` is the containing line's
+    /// `baseline_y` (recorded from `position.y` at build) and
+    /// `line_index` is the line's `source_index` (the sparse ordinal,
+    /// robust to cluster-less lines). `None` when `i` is out of range.
+    #[must_use]
+    pub fn positioned_cluster(&self, i: u32) -> Option<(f32, f32, usize)> {
+        let c = self.clusters.get(i as usize)?;
+        let li = self
+            .lines
+            .partition_point(|l| l.clusters.1 <= i)
+            .min(self.lines.len().checked_sub(1)?);
+        let line = &self.lines[li];
+        if i < line.clusters.0 || i >= line.clusters.1 {
+            return None;
+        }
+        Some((c.x, line.baseline_y, line.source_index as usize))
+    }
+
     /// (d6f) The single (direction, step) dispatch over the dense
     /// movement library — twin of the window's `resolve_step_static`.
     #[must_use]

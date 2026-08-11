@@ -10018,6 +10018,36 @@ impl LayoutWindow {
     ///
     /// Returns `None` only if `logical_items` + reorder + shape itself fails.
     #[allow(clippy::too_many_lines)] // large but cohesive: single-purpose layout/render/parse routine (one branch per case)
+    /// (d6g) Position + line_index for item `i` of a cached inline
+    /// layout: dense reconstruction when the view is retained
+    /// (verify-A/B'd under AZ_DENSE_TEXT=verify), sparse read
+    /// otherwise. The sparse arm dies at the d6 retirement.
+    fn cached_positioned_of(
+        cached: &solver3::layout_tree::CachedInlineLayout,
+        i: usize,
+    ) -> (crate::text3::cache::Point, usize) {
+        let sparse = &cached.layout.items[i];
+        if let Some(d) = cached.dense.as_deref() {
+            if let Some((x, y, li)) = d.positioned_cluster(i as u32) {
+                if std::env::var("AZ_DENSE_TEXT").as_deref() == Ok("verify") {
+                    assert!(
+                        (sparse.position.x - x).abs() < 0.01
+                            && (sparse.position.y - y).abs() < 0.01
+                            && sparse.line_index == li,
+                        "d6g verify: positioned_cluster({i}) diverged: \
+                         sparse ({}, {}, {}) vs dense ({x}, {y}, {li})",
+                        sparse.position.x, sparse.position.y, sparse.line_index,
+                    );
+                }
+                let mut pos = sparse.position;
+                pos.x = x;
+                pos.y = y;
+                return (pos, li);
+            }
+        }
+        (sparse.position, sparse.line_index)
+    }
+
     fn try_incremental_text_relayout(
         &self,
         content: &[InlineContent],
@@ -10090,15 +10120,13 @@ impl LayoutWindow {
                     // Widths unchanged — keep cached positions and line
                     // assignments, swap in the new shaped items so their
                     // glyph data reflects the edit.
-                    let items: Vec<PositionedItem> = cached
-                        .layout
-                        .items
-                        .iter()
-                        .zip(shaped_items)
-                        .map(|(old_positioned, new_shaped)| PositionedItem {
-                            item: new_shaped,
-                            position: old_positioned.position,
-                            line_index: old_positioned.line_index,
+                    let items: Vec<PositionedItem> = shaped_items
+                        .into_iter()
+                        .enumerate()
+                        .map(|(i, new_shaped)| {
+                            let (position, line_index) =
+                                Self::cached_positioned_of(cached, i);
+                            PositionedItem { item: new_shaped, position, line_index }
                         })
                         .collect();
                     return Some((
@@ -10116,23 +10144,17 @@ impl LayoutWindow {
                     // Width changed but the line still fits — shift x
                     // positions of items after `affected_item` on the same
                     // line. Items on later lines keep their positions.
-                    let affected_line = cached.layout.items[affected_item].line_index;
-                    let items: Vec<PositionedItem> = cached
-                        .layout
-                        .items
-                        .iter()
-                        .zip(shaped_items)
+                    let affected_line = Self::cached_positioned_of(cached, affected_item).1;
+                    let items: Vec<PositionedItem> = shaped_items
+                        .into_iter()
                         .enumerate()
-                        .map(|(i, (old_positioned, new_shaped))| {
-                            let mut position = old_positioned.position;
-                            if i > affected_item && old_positioned.line_index == affected_line {
+                        .map(|(i, new_shaped)| {
+                            let (mut position, line_index) =
+                                Self::cached_positioned_of(cached, i);
+                            if i > affected_item && line_index == affected_line {
                                 position.x += delta;
                             }
-                            PositionedItem {
-                                item: new_shaped,
-                                position,
-                                line_index: old_positioned.line_index,
-                            }
+                            PositionedItem { item: new_shaped, position, line_index }
                         })
                         .collect();
                     return Some((
