@@ -53,3 +53,9 @@ table-basic-001
 text-basic-001
 text-in-box-debug-001
 text-overflow-001
+# 2026-08-11 (night text3 campaign, ff2772bec): the ClusterFlags
+# classification + shared-source work turned these two green — per-glyph
+# style deletion made run styling uniform where the splitter previously
+# fragmented inline runs inconsistently.
+inline-background-001
+inline-elements-001
