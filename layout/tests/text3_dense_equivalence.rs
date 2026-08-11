@@ -517,3 +517,92 @@ fn override_segmented_run_offsets_are_item_relative_and_dense_text_correct() {
         }
     }
 }
+
+/// (d4) The dense cursor helpers must agree with the sparse walks they
+/// replace — last-cluster cursor and IFC-wide byte-offset resolution,
+/// over the full corpus incl. wrapped + ligature cases. These pin the
+/// helpers DIRECTLY (window-plumbing coverage is separate — the in-situ
+/// verify asserts there were silent for lack of dense-bearing fixtures,
+/// the same vacuous-NC class d3 hit).
+#[test]
+fn dense_cursor_helpers_agree_with_the_sparse_walks() {
+    use azul_core::selection::{CursorAffinity, TextCursor};
+    for (text, width) in [
+        ("hello dense world", 400.0),
+        ("a longer paragraph that will wrap across multiple lines of text", 120.0),
+        ("waffle office ffi", 400.0),
+    ] {
+        let (layout, content) = layout_of(text, width);
+        let dense = DenseText::from_unified_with_content(&layout, &content);
+
+        // last-cluster cursor vs the sparse rev-scan
+        let sparse_last = layout.items.iter().rev().find_map(|it| match &it.item {
+            ShapedItem::Cluster(c) => Some(TextCursor {
+                cluster_id: c.source_cluster_id,
+                affinity: CursorAffinity::Trailing,
+            }),
+            _ => None,
+        });
+        assert_eq!(
+            dense.last_cluster_cursor(),
+            sparse_last,
+            "last-cluster cursor ({text:?})"
+        );
+
+        // byte_offset_to_cursor vs the sparse accumulation walk, at every
+        // boundary offset the sparse walk produces.
+        let mut acc = 0u32;
+        let mut offsets = vec![0u32];
+        for it in &layout.items {
+            if let ShapedItem::Cluster(c) = &it.item {
+                acc += c.text().len() as u32;
+                offsets.push(acc);
+            }
+        }
+        offsets.push(acc + 100); // past the end
+        for off in offsets {
+            let sparse = {
+                let mut cur = 0u32;
+                let mut found = None;
+                if off == 0 {
+                    found = layout.items.iter().find_map(|it| match &it.item {
+                        ShapedItem::Cluster(c) => Some(TextCursor {
+                            cluster_id: c.source_cluster_id,
+                            affinity: CursorAffinity::Trailing,
+                        }),
+                        _ => None,
+                    });
+                } else {
+                    for it in &layout.items {
+                        if let ShapedItem::Cluster(c) = &it.item {
+                            let end = cur + c.text().len() as u32;
+                            if off >= cur && off <= end {
+                                found = Some(TextCursor {
+                                    cluster_id: c.source_cluster_id,
+                                    affinity: CursorAffinity::Trailing,
+                                });
+                                break;
+                            }
+                            cur = end;
+                        }
+                    }
+                    if found.is_none() {
+                        found = layout.items.iter().rev().find_map(|it| match &it.item {
+                            ShapedItem::Cluster(c) => Some(TextCursor {
+                                cluster_id: c.source_cluster_id,
+                                affinity: CursorAffinity::Trailing,
+                            }),
+                            _ => None,
+                        });
+                    }
+                }
+                found
+            };
+            assert_eq!(
+                dense.byte_offset_to_cursor(off),
+                sparse,
+                "byte offset {off} ({text:?})"
+            );
+        }
+    }
+}

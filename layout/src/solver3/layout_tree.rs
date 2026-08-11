@@ -1358,6 +1358,23 @@ impl LayoutTree {
     }
 
     /// Get inline layout for a node, navigating through IFC membership if needed.
+    /// (d4) The dense view for a node, resolved through the SAME IFC
+    /// membership walk as [`Self::get_inline_layout_for_node`]. `None`
+    /// when no dense view is retained (flag off) or the node has no IFC.
+    #[must_use] pub fn get_dense_for_node(&self, layout_index: usize) -> Option<&Arc<crate::text3::dense::DenseText>> {
+        let warm = self.warm.get(layout_index)?;
+        if let Some(cached) = &warm.inline_layout_result {
+            return cached.dense.as_ref();
+        }
+        if let Some(ifc_membership) = &warm.ifc_membership {
+            let ifc_root_warm = self.warm.get(ifc_membership.ifc_root_layout_index)?;
+            if let Some(cached) = &ifc_root_warm.inline_layout_result {
+                return cached.dense.as_ref();
+            }
+        }
+        None
+    }
+
     #[must_use] pub fn get_inline_layout_for_node(&self, layout_index: usize) -> Option<&Arc<UnifiedLayout>> {
         let warm = self.warm.get(layout_index)?;
 

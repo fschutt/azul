@@ -99,6 +99,11 @@ pub struct LineRecord {
 pub struct ClusterDetail {
     pub cluster: u32,
     pub glyphs: (u32, u32),
+    /// (d4) The cluster's SOURCE byte length. Needed because a
+    /// ligature-fused cluster spans multiple graphemes, so
+    /// "next grapheme boundary" under-measures it; simple clusters
+    /// reconstruct their length grapheme-exactly (T1) and stay 16 B.
+    pub byte_len: u32,
 }
 
 #[repr(C)]
@@ -271,7 +276,11 @@ impl DenseText {
                     });
                 }
                 let end = u32::try_from(dense.detail_glyphs.len()).unwrap_or(u32::MAX);
-                dense.details.push(ClusterDetail { cluster: cluster_index, glyphs: (start, end) });
+                dense.details.push(ClusterDetail {
+                    cluster: cluster_index,
+                    glyphs: (start, end),
+                    byte_len: u32::from(c.source_byte_len),
+                });
             }
 
             dense.clusters.push(ClusterCompact {
@@ -290,6 +299,82 @@ impl DenseText {
             dense.lines.push(rec);
         }
         dense
+    }
+
+    /// (d4) The source byte length of cluster `ci`: the detail table's
+    /// stored length when present (ligature clusters span multiple
+    /// graphemes), else the grapheme at `start_byte` in the run text —
+    /// exact for simple clusters by T1.
+    #[must_use]
+    pub fn cluster_byte_len(&self, ci: u32) -> u32 {
+        use unicode_segmentation::UnicodeSegmentation;
+        if let Ok(i) = self.details.binary_search_by_key(&ci, |d| d.cluster) {
+            return self.details[i].byte_len;
+        }
+        let c = &self.clusters[ci as usize];
+        let run = self
+            .runs
+            .iter()
+            .find(|r| r.clusters.contains(&ci))
+            .expect("cluster belongs to a run by construction");
+        run.text
+            .get(c.start_byte as usize..)
+            .and_then(|s| s.graphemes(true).next())
+            .map_or(0, |g| g.len() as u32)
+    }
+
+    /// (d4) The trailing cursor on the LAST cluster — the dense twin of
+    /// the sparse `items.iter().rev().find_map(Cluster)` scans (which
+    /// skip trailing non-clusters, exactly as taking the last dense
+    /// cluster does). `None` when the layout has no clusters.
+    #[must_use]
+    pub fn last_cluster_cursor(&self) -> Option<azul_core::selection::TextCursor> {
+        let last_ci = u32::try_from(self.clusters.len()).ok()?.checked_sub(1)?;
+        let c = self.clusters.last()?;
+        let run = self.runs.iter().rev().find(|r| r.clusters.contains(&last_ci))?;
+        Some(azul_core::selection::TextCursor {
+            cluster_id: azul_core::selection::GraphemeClusterId {
+                source_run: run.source_run,
+                start_byte_in_run: c.start_byte,
+            },
+            affinity: azul_core::selection::CursorAffinity::Trailing,
+        })
+    }
+
+    /// (d4) Cursor for an IFC-wide byte offset — the dense twin of the
+    /// sparse accumulation walk: clusters in item order, each
+    /// contributing `cluster_byte_len`, first cluster whose span
+    /// contains the offset wins; past-the-end falls to the last cluster.
+    #[must_use]
+    pub fn byte_offset_to_cursor(&self, byte_offset: u32) -> Option<azul_core::selection::TextCursor> {
+        use azul_core::selection::{CursorAffinity, GraphemeClusterId, TextCursor};
+        let cursor_at = |ci: u32| -> Option<TextCursor> {
+            let c = self.clusters.get(ci as usize)?;
+            let run = self.runs.iter().find(|r| r.clusters.contains(&ci))?;
+            Some(TextCursor {
+                cluster_id: GraphemeClusterId {
+                    source_run: run.source_run,
+                    start_byte_in_run: c.start_byte,
+                },
+                affinity: CursorAffinity::Trailing,
+            })
+        };
+        if self.clusters.is_empty() {
+            return None;
+        }
+        if byte_offset == 0 {
+            return cursor_at(0);
+        }
+        let mut acc = 0u32;
+        for ci in 0..self.clusters.len() as u32 {
+            let len = self.cluster_byte_len(ci);
+            let end = acc + len;
+            if byte_offset >= acc && byte_offset <= end {
+                return cursor_at(ci);
+            }
+            acc = end;
+        }
+        cursor_at(self.clusters.len() as u32 - 1)
     }
 }
 

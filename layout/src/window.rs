@@ -6099,7 +6099,13 @@ impl LayoutWindow {
 
         // Initialize cursor at end of text
         // Get the last cluster cursor from text layout
-        let cursor = text_layout.as_ref()
+        // (d4) Dense-first: the last dense cluster IS the last cluster the
+        // sparse rev-scan finds (both skip trailing non-clusters). Under
+        // AZ_DENSE_TEXT=verify the two are asserted equal.
+        let dense_cursor = self
+            .get_dense_for_node(pending.dom_id, pending.text_node_id)
+            .and_then(|d| d.last_cluster_cursor());
+        let sparse_cursor = text_layout.as_ref()
             .and_then(|layout| {
                 layout.items.iter().rev()
                     .find_map(|item| if let ShapedItem::Cluster(c) = &item.item {
@@ -6108,7 +6114,13 @@ impl LayoutWindow {
                             affinity: CursorAffinity::Trailing,
                         })
                     } else { None })
-            })
+            });
+        if std::env::var("AZ_DENSE_TEXT").as_deref() == Ok("verify") {
+            if let (Some(d), Some(s)) = (&dense_cursor, &sparse_cursor) {
+                assert_eq!(d, s, "d4 verify: last-cluster cursor diverged");
+            }
+        }
+        let cursor = dense_cursor.or(sparse_cursor)
             .unwrap_or(TextCursor {
                 cluster_id: GraphemeClusterId { source_run: 0, start_byte_in_run: 0 },
                 affinity: CursorAffinity::Trailing,
@@ -6132,6 +6144,18 @@ impl LayoutWindow {
     /// 2. The node has `ifc_membership` pointing to the IFC root
     ///
     /// This is a thin wrapper around `LayoutTree::get_inline_layout_for_node`.
+    /// (d4) Dense sibling of [`Self::get_inline_layout_for_node`].
+    pub fn get_dense_for_node(
+        &self,
+        dom_id: DomId,
+        node_id: NodeId,
+    ) -> Option<&Arc<crate::text3::dense::DenseText>> {
+        let layout_result = self.layout_results.get(&dom_id)?;
+        let layout_indices = layout_result.layout_tree.dom_to_layout.get(&node_id)?;
+        let layout_index = *layout_indices.first()?;
+        layout_result.layout_tree.get_dense_for_node(layout_index)
+    }
+
     pub fn get_inline_layout_for_node(
         &self,
         dom_id: DomId,
@@ -8632,13 +8656,18 @@ impl LayoutWindow {
                             // Clone the Arc to avoid borrow conflict
                             let inline_layout = self.get_inline_layout_for_node(dom_id, node_id).cloned();
                             if let Some(ref layout) = inline_layout {
-                                let cursor = layout.items.iter().rev()
-                                    .find_map(|item| if let ShapedItem::Cluster(c) = &item.item {
-                                        Some(TextCursor {
-                                            cluster_id: c.source_cluster_id,
-                                            affinity: CursorAffinity::Trailing,
-                                        })
-                                    } else { None })
+                                // (d4) Dense-first, sparse fallback — same
+                                // semantics as the finalize path.
+                                let cursor = self
+                                    .get_dense_for_node(dom_id, node_id)
+                                    .and_then(|d| d.last_cluster_cursor())
+                                    .or_else(|| layout.items.iter().rev()
+                                        .find_map(|item| if let ShapedItem::Cluster(c) = &item.item {
+                                            Some(TextCursor {
+                                                cluster_id: c.source_cluster_id,
+                                                affinity: CursorAffinity::Trailing,
+                                            })
+                                        } else { None }))
                                     .unwrap_or(TextCursor {
                                         cluster_id: GraphemeClusterId { source_run: 0, start_byte_in_run: 0 },
                                         affinity: CursorAffinity::Trailing,
