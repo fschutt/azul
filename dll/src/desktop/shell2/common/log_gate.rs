@@ -325,6 +325,14 @@ macro_rules! log_span {
 mod tests {
     use super::*;
 
+    /// The four tests below mutate PROCESS-WIDE filter/echo/span state;
+    /// in parallel they stomp each other (an_active_span opening the
+    /// filter while a_filtered_span asserts inertness — seen as a 1-in-3
+    /// flake in the 2026-08-12 battery). Every global-touching test
+    /// takes this lock; poisoning is tolerated because a failed test
+    /// must not cascade into false failures of its neighbours.
+    static SERIAL: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
     #[test]
     fn every_category_maps_to_a_distinct_filter_category() {
         let all = [
@@ -355,6 +363,7 @@ mod tests {
     /// filter is — otherwise every call site formats a string for the bin.
     #[test]
     fn no_sink_means_no_logging_however_open_the_filter() {
+        let _serial = SERIAL.lock().unwrap_or_else(|e| e.into_inner());
         log_filter::set_min_level(Some(Level::Trace));
         log_filter::set_stderr_echo(false);
         if !super::super::debug_server::log_active() {
@@ -368,6 +377,7 @@ mod tests {
 
     #[test]
     fn a_silenced_category_is_gated_even_at_error() {
+        let _serial = SERIAL.lock().unwrap_or_else(|e| e.into_inner());
         log_filter::set_stderr_echo(true);
         log_filter::set_min_level(Some(Level::Trace));
         log_filter::set_category(log_filter::Category::Layout, false);
@@ -379,6 +389,7 @@ mod tests {
 
     #[test]
     fn a_filtered_span_is_inert_and_does_not_move_the_depth() {
+        let _serial = SERIAL.lock().unwrap_or_else(|e| e.into_inner());
         log_filter::set_stderr_echo(false);
         log_filter::set_min_level(None);
         let before = span_depth();
@@ -392,6 +403,7 @@ mod tests {
 
     #[test]
     fn an_active_span_indents_and_restores_depth() {
+        let _serial = SERIAL.lock().unwrap_or_else(|e| e.into_inner());
         log_filter::set_stderr_echo(true);
         log_filter::set_min_level(Some(Level::Debug));
         let before = span_depth();
