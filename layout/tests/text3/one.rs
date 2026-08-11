@@ -53,15 +53,15 @@ fn test_bug1_shaping_across_style_boundaries() {
     // Assert that the text run was split into three parts
     assert_eq!(logical_items.len(), 3);
     match &logical_items[0] {
-        LogicalItem::Text { text, .. } => assert_eq!(text, "f"),
+        LogicalItem::Text { text, .. } => assert_eq!(&**text, "f"),
         _ => panic!("Expected text"),
     }
     match &logical_items[1] {
-        LogicalItem::Text { text, .. } => assert_eq!(text, "i"),
+        LogicalItem::Text { text, .. } => assert_eq!(&**text, "i"),
         _ => panic!("Expected text"),
     }
     match &logical_items[2] {
-        LogicalItem::Text { text, .. } => assert_eq!(text, "rst fish"),
+        LogicalItem::Text { text, .. } => assert_eq!(&**text, "rst fish"),
         _ => panic!("Expected text"),
     }
 
@@ -88,7 +88,7 @@ fn test_bug3_rtl_glyph_reversal() {
                 run_index: 0,
                 item_index: 0,
             },
-            text: text.to_string(),
+            text: std::sync::Arc::from(text),
             style: style.clone(),
             marker_position_outside: None,
             source_node_id: None,
@@ -220,7 +220,7 @@ fn test_justification_inter_word() {
 
     let pos_b_final = positioned
         .iter()
-        .find(|p| matches!(&p.item, ShapedItem::Cluster(c) if c.text == "b"))
+        .find(|p| matches!(&p.item, ShapedItem::Cluster(c) if c.text() == "b"))
         .unwrap();
 
     // extra space = 100.0 (available) - 22.0 (8+5+9, current) = 78.0
@@ -279,7 +279,7 @@ fn test_hyphenation_break() {
         .iter()
         .map(|item| {
             if let ShapedItem::Cluster(c) = item {
-                c.text.as_str()
+                c.text()
             } else {
                 ""
             }
@@ -340,7 +340,7 @@ fn test_hyphenation_break_2() {
         .iter()
         .map(|item| {
             if let ShapedItem::Cluster(c) = item {
-                c.text.as_str()
+                c.text()
             } else {
                 ""
             }

@@ -23,7 +23,7 @@ fn get_text_from_items(items: &[PositionedItem]) -> String {
     items
         .iter()
         .map(|p_item| match &p_item.item {
-            ShapedItem::Cluster(c) => c.text.clone(),
+            ShapedItem::Cluster(c) => c.text().to_string(),
             _ => String::new(),
         })
         .collect()
@@ -91,7 +91,7 @@ fn test_logical_items_combine_upright() {
         other => panic!("Expected CombinedText, got {:?}", other),
     }
     match &logical_items[1] {
-        LogicalItem::Text { text, .. } => assert_eq!(text, "ab "),
+        LogicalItem::Text { text, .. } => assert_eq!(&**text, "ab "),
         other => panic!("Expected Text, got {:?}", other),
     }
     match &logical_items[2] {
@@ -99,7 +99,7 @@ fn test_logical_items_combine_upright() {
         other => panic!("Expected CombinedText, got {:?}", other),
     }
     match &logical_items[3] {
-        LogicalItem::Text { text, .. } => assert_eq!(text, "5c"),
+        LogicalItem::Text { text, .. } => assert_eq!(&**text, "5c"),
         other => panic!("Expected Text, got {:?}", other),
     }
 }

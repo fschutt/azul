@@ -10354,7 +10354,7 @@ impl LayoutWindow {
         for item in &text_layout.items {
             if let ShapedItem::Cluster(cluster) = &item.item {
                 // Calculate byte length of this cluster from its text
-                let cluster_byte_length = cluster.text.len() as u32;
+                let cluster_byte_length = cluster.text().len() as u32;
                 let cluster_end_byte = current_byte_offset + cluster_byte_length;
 
                 // Check if our target byte offset falls within this cluster

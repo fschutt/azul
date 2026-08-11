@@ -152,7 +152,7 @@ fn extract_line_text_and_clusters(
     let mut text = String::new();
     let mut cluster_map = Vec::new();
     for c in clusters {
-        let s = c.text.as_str();
+        let s = c.text();
         cluster_map.push((c.source_cluster_id, s.len()));
         text.push_str(s);
     }
@@ -372,7 +372,16 @@ mod autotest_generated {
     fn cluster(text: &str, id: GraphemeClusterId) -> ShapedCluster {
         ShapedCluster {
             flags: crate::text3::cache::ClusterFlags::classify(text),
-            text: text.to_string(),
+            source_text: {
+                // Test helper: pad so the slice at the given id's offset
+                // yields exactly `text` (production stamps a shared Arc
+                // whose offsets are real; tests mint ids freely).
+                let mut s = String::new();
+                for _ in 0..id.start_byte_in_run { s.push(' '); }
+                s.push_str(text);
+                std::sync::Arc::from(s.as_str())
+            },
+            source_byte_len: text.len() as u16,
             source_cluster_id: id,
             source_content_index: ci(id.source_run, id.start_byte_in_run),
             source_node_id: None,
@@ -707,7 +716,7 @@ mod autotest_generated {
         let layout = layout_of(vec![tab(0), cl("a", gid(0, 0), 0), tab(0)]);
         let (idx, found) = find_cluster_at_cursor(&cursor_at(gid(0, 0)), &layout).unwrap();
         assert_eq!(idx, 1, "index must be into layout.items, skipping the tab");
-        assert_eq!(found.text, "a");
+        assert_eq!(found.text(), "a");
     }
 
     /// Duplicate cluster ids are not supposed to happen; if they do, the FIRST
@@ -717,7 +726,7 @@ mod autotest_generated {
         let layout = layout_of(vec![cl("x", gid(0, 0), 0), cl("y", gid(0, 0), 1)]);
         let (idx, found) = find_cluster_at_cursor(&cursor_at(gid(0, 0)), &layout).unwrap();
         assert_eq!(idx, 0);
-        assert_eq!(found.text, "x");
+        assert_eq!(found.text(), "x");
     }
 
     // ------------------------------------------------------------------

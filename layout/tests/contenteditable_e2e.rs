@@ -1008,7 +1008,7 @@ fn contenteditable_overflow_wraps_at_end_not_start() {
         if let azul_layout::text3::cache::ShapedItem::Cluster(c) = &item.item {
             items_per_line.entry(item.line_index)
                 .or_default()
-                .push(c.text.clone());
+                .push(c.text().to_string());
         }
     }
 

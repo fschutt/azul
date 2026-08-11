@@ -314,7 +314,7 @@ pub struct PdfPositionedGlyph {
         // For extracting the correct unicode codepoint per glyph, we need to track
         // which portion of the cluster text each glyph represents.
         // The cluster_offset in ShapedGlyph is the byte offset into cluster.text
-        let cluster_text = &cluster.text;
+        let cluster_text = cluster.text();
         let cluster_glyphs_count = cluster.glyphs.len();
 
         for (glyph_idx, glyph) in cluster.glyphs.iter().enumerate() {
@@ -345,7 +345,7 @@ pub struct PdfPositionedGlyph {
             // the whole cluster text to the first glyph, or split it appropriately
             let unicode_codepoint = if cluster_glyphs_count == 1 {
                 // Simple case: one glyph represents the entire cluster
-                cluster_text.clone()
+                cluster_text.to_string()
             } else {
                 // Multiple glyphs in cluster - try to extract the character at cluster_offset
                 // cluster_offset is the byte offset into the cluster text
@@ -354,12 +354,12 @@ pub struct PdfPositionedGlyph {
                     // Get the character at this byte offset
                     cluster_text[byte_offset..]
                         .chars()
-                        .next().map_or_else(|| cluster_text.clone(), |c| c.to_string())
+                        .next().map_or_else(|| cluster_text.to_string(), |c| c.to_string())
                 } else {
                     // Fallback: if offset is out of range, use the whole cluster for first glyph
                     // or empty for subsequent glyphs (they share the same codepoint)
                     if glyph_idx == 0 {
-                        cluster_text.clone()
+                        cluster_text.to_string()
                     } else {
                         String::new()
                     }
@@ -394,7 +394,7 @@ pub struct PdfPositionedGlyph {
             if let Some(run) = current_run.as_mut() {
                 // Add to existing run
                 run.glyphs.push(pdf_glyph);
-                run.cluster_texts.push(cluster.text.clone());
+                run.cluster_texts.push(cluster.text().to_string());
             } else {
                 // Start a new run
                 current_run = Some(PdfGlyphRun {
@@ -412,7 +412,7 @@ pub struct PdfPositionedGlyph {
                         x: pen_x,
                         y: baseline_y,
                     },
-                    cluster_texts: vec![cluster.text.clone()],
+                    cluster_texts: vec![cluster.text().to_string()],
                 });
             }
 
@@ -593,7 +593,7 @@ mod autotest_generated {
     fn cluster(text: &str, glyphs: Vec<ShapedGlyph>, st: &Arc<StyleProperties>) -> ShapedCluster {
         ShapedCluster {
             flags: crate::text3::cache::ClusterFlags::classify(text),
-            text: text.to_string(),
+            source_text: std::sync::Arc::from(text), source_byte_len: text.len() as u16,
             source_cluster_id: GraphemeClusterId {
                 source_run: 0,
                 start_byte_in_run: 0,

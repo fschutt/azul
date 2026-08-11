@@ -141,10 +141,10 @@ fn dense_view_agrees_with_the_current_model() {
         for (i, (_, c)) in clusters.iter().enumerate() {
             let start = c.source_cluster_id.start_byte_in_run as usize;
             assert!(
-                text[start..].starts_with(c.text.as_str()),
+                text[start..].starts_with(c.text()),
                 "cluster {i} claims byte {start} but the input there does not \
                  start with {:?} ({text:?})",
-                c.text
+                c.text()
             );
         }
 

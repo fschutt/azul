@@ -491,7 +491,7 @@ fn bidi_mixed_run_is_80px_and_reverses_hebrew() {
         .items
         .iter()
         .filter_map(|it| match &it.item {
-            ShapedItem::Cluster(c) if c.text.chars().any(|ch| ('\u{0590}'..='\u{05FF}').contains(&ch)) => {
+            ShapedItem::Cluster(c) if c.text().chars().any(|ch| ('\u{0590}'..='\u{05FF}').contains(&ch)) => {
                 Some((c.source_cluster_id.start_byte_in_run, it.position.x))
             }
             _ => None,

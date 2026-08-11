@@ -968,6 +968,8 @@ impl LayoutTree {
         }
         // Inline layout data lives behind Arc — count Arc heap-shares once
         // per node that has a cached layout. Counted conservatively.
+        let mut text_arcs: alloc::collections::BTreeSet<usize> =
+            alloc::collections::BTreeSet::new();
         let mut style_arcs: alloc::collections::BTreeSet<usize> =
             alloc::collections::BTreeSet::new();
         for w in &self.warm {
@@ -994,10 +996,14 @@ impl LayoutTree {
                         let spilled = c.glyphs.capacity().saturating_sub(1);
                         report.warm_inline_layout_bytes +=
                             spilled * size_of::<crate::text3::cache::ShapedGlyph>();
-                        report.warm_inline_layout_bytes += c.text.capacity();
+                        // 3c: per-cluster text is a SHARED Arc slice now —
+                        // attribute each distinct source Arc's buffer ONCE.
+                        if text_arcs.insert(alloc::sync::Arc::as_ptr(&c.source_text) as *const u8 as usize) {
+                            report.warm_inline_layout_bytes += c.source_text.len();
+                            report.shaped_cluster_text_bytes += c.source_text.len();
+                        }
                         report.shaped_cluster_count += 1;
                         report.shaped_glyph_count += c.glyphs.len();
-                        report.shaped_cluster_text_bytes += c.text.capacity();
                         style_arcs.insert(alloc::sync::Arc::as_ptr(&c.style) as usize);
                     }
                 }

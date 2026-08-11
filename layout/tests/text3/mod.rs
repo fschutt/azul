@@ -507,7 +507,7 @@ fn get_text_from_items(items: &[PositionedItem]) -> String {
     items
         .iter()
         .map(|p_item| match &p_item.item {
-            ShapedItem::Cluster(c) => c.text.clone(),
+            ShapedItem::Cluster(c) => c.text().to_string(),
             _ => String::new(),
         })
         .collect()

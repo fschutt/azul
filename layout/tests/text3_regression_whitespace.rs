@@ -138,7 +138,7 @@ fn cluster_x(layout: &UnifiedLayout, needle: &str) -> f32 {
         .items
         .iter()
         .find_map(|it| match &it.item {
-            ShapedItem::Cluster(c) if c.text == needle => Some(it.position.x),
+            ShapedItem::Cluster(c) if c.text() == needle => Some(it.position.x),
             _ => None,
         })
         .unwrap_or_else(|| panic!("cluster {needle:?} not found"))

@@ -142,7 +142,7 @@ fn dump_multinode_positions() {
                 "run={} byte={} text={:?} x={} y={} adv={} line={}",
                 c.source_cluster_id.source_run,
                 c.source_cluster_id.start_byte_in_run,
-                c.text,
+                c.text(),
                 it.position.x,
                 it.position.y,
                 c.advance,

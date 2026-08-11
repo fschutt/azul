@@ -221,7 +221,7 @@ impl DenseText {
                     // No content available (plain from_unified): fall back
                     // to concatenating surviving clusters, as in step 1.
                     let mut t = String::from(&*r.text);
-                    t.push_str(&c.text);
+                    t.push_str(c.text());
                     r.text = Arc::from(t.as_str());
                 }
             }

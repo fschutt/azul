@@ -69,7 +69,7 @@ fn assert_source_roundtrip(input: &str, dir: BidiDirection) {
             ShapedItem::Cluster(c) => Some((
                 c.source_cluster_id.source_run,
                 c.source_cluster_id.start_byte_in_run,
-                c.text.clone(),
+                c.text().to_string(),
             )),
             _ => None,
         })

@@ -150,8 +150,8 @@ fn convert_items_to_nodes<T: ParsedFontTrait>(
                 }
             }
             ShapedItem::Cluster(cluster)
-                if cluster.text.ends_with('\u{002D}')
-                    || cluster.text.ends_with('\u{2010}') =>
+                if cluster.text().ends_with('\u{002D}')
+                    || cluster.text().ends_with('\u{2010}') =>
             {
                 let width = get_item_measure(item, is_vertical);
                 nodes.push(LayoutNode::Box(item.clone(), width));
@@ -183,8 +183,8 @@ fn convert_items_to_nodes<T: ParsedFontTrait>(
                         //     occurs mid-word, e.g. "well-being").
                         if is_word_separator(peeked_item)
                             || is_zero_width_space(peeked_item)
-                            || next_cluster.text.ends_with('\u{002D}')
-                            || next_cluster.text.ends_with('\u{2010}')
+                            || next_cluster.text().ends_with('\u{002D}')
+                            || next_cluster.text().ends_with('\u{2010}')
                         {
                             break;
                         }
@@ -774,7 +774,7 @@ mod kp_fix_tests {
     fn cl(text: &str, advance: f32) -> ShapedItem {
         ShapedItem::Cluster(ShapedCluster {
             flags: crate::text3::cache::ClusterFlags::classify(text),
-            text: text.to_string(),
+            source_text: std::sync::Arc::from(text), source_byte_len: text.len() as u16,
             source_cluster_id: GraphemeClusterId { source_run: 0, start_byte_in_run: 0 },
             source_content_index: ContentIndex { run_index: 0, item_index: 0 },
             source_node_id: None,
@@ -832,7 +832,7 @@ mod kp_fix_tests {
         let mut found = false;
         for (i, n) in nodes.iter().enumerate() {
             if let LayoutNode::Box(ShapedItem::Cluster(cc), _) = n {
-                if cc.text == "-" {
+                if cc.text() == "-" {
                     match nodes.get(i + 1) {
                         Some(LayoutNode::Penalty { penalty, width, .. }) => {
                             assert!(*width == 0.0 && *penalty > -INFINITY_BADNESS,
@@ -915,7 +915,7 @@ mod autotest_generated {
     fn cl(text: &str, advance: f32) -> ShapedItem {
         ShapedItem::Cluster(ShapedCluster {
             flags: crate::text3::cache::ClusterFlags::classify(text),
-            text: text.to_string(),
+            source_text: std::sync::Arc::from(text), source_byte_len: text.len() as u16,
             source_cluster_id: GraphemeClusterId {
                 source_run: 0,
                 start_byte_in_run: 0,
@@ -1032,7 +1032,7 @@ mod autotest_generated {
                 run_index: 0,
                 item_index: 0,
             },
-            text: "\u{05E9}\u{05DC}\u{05D5}\u{05DD}".to_string(), // "שלום"
+            text: std::sync::Arc::from("\u{05E9}\u{05DC}\u{05D5}\u{05DD}"), // "שלום"
             style: Arc::new(StyleProperties::default()),
             marker_position_outside: None,
             source_node_id: None,
@@ -1059,7 +1059,7 @@ mod autotest_generated {
             .items
             .iter()
             .filter(|it| it.line_index == line)
-            .filter_map(|it| it.item.as_cluster().map(|c| c.text.clone()))
+            .filter_map(|it| it.item.as_cluster().map(|c| c.text().clone()))
             .collect()
     }
 
@@ -1208,7 +1208,7 @@ mod autotest_generated {
                         penalty,
                     },
                 ) => {
-                    assert_eq!(c.text, hyphen.to_string());
+                    assert_eq!(c.text(), hyphen.to_string());
                     assert_eq!(*w, 6.0);
                     assert!(item.is_none(), "no extra hyphen glyph may be inserted");
                     assert_eq!(*width, 0.0);
@@ -1431,7 +1431,7 @@ mod autotest_generated {
             layout
                 .items
                 .iter()
-                .filter(|it| it.item.as_cluster().is_some_and(|cc| cc.text != " "))
+                .filter(|it| it.item.as_cluster().is_some_and(|cc| cc.text() != " "))
                 .count(),
             3
         );
@@ -1481,7 +1481,7 @@ mod autotest_generated {
         let letters = layout
             .items
             .iter()
-            .filter(|it| it.item.as_cluster().is_some_and(|cc| cc.text != " "))
+            .filter(|it| it.item.as_cluster().is_some_and(|cc| cc.text() != " "))
             .count();
         assert_eq!(letters, 4, "all four letters must still be positioned");
     }
@@ -1550,7 +1550,7 @@ mod autotest_generated {
         let letters = layout
             .items
             .iter()
-            .filter(|it| it.item.as_cluster().is_some_and(|c| c.text == "a"))
+            .filter(|it| it.item.as_cluster().is_some_and(|c| c.text() == "a"))
             .count();
         assert_eq!(letters, 900, "no glyph may be lost while wrapping");
         // line_index is emitted in reading order.

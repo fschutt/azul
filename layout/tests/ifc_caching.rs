@@ -591,7 +591,7 @@ fn test_ifc_layout_replace_preserves_metrics_structure() {
     // Create a mock UnifiedLayout with one cluster item
     let cluster = ShapedCluster {
         flags: azul_layout::text3::cache::ClusterFlags::classify("A".to_string().as_ref()),
-        text: "A".to_string(),
+        source_text: std::sync::Arc::from("A"), source_byte_len: 1,
         source_cluster_id: GraphemeClusterId { source_run: 0, start_byte_in_run: 0 },
         source_content_index: ContentIndex { run_index: 0, item_index: 0 },
         source_node_id: Some(azul_core::dom::NodeId::new(3)),

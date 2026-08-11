@@ -4466,8 +4466,11 @@ pub enum LogicalItem {
     Text {
         /// A stable ID pointing back to the original source character.
         source: ContentIndex,
-        /// The text of this specific logical item (often a single grapheme cluster).
-        text: String,
+        /// The text of this specific logical item. §3.2 3c: an `Arc` so
+        /// shaped clusters can share it (`ShapedCluster::source_text`).
+        /// For override-free runs this IS the `StyledRun`'s Arc; override
+        /// / combine-upright segments mint one Arc per segment.
+        text: Arc<str>,
         style: Arc<StyleProperties>,
         /// If this text is a list marker: whether it should be positioned outside
         /// (in the padding gutter) or inside (inline with content).
@@ -4738,9 +4741,24 @@ impl ClusterFlags {
 /// A group of glyphs that corresponds to one or more source characters (a cluster).
 #[derive(Debug, Clone, PartialEq)]
 pub struct ShapedCluster {
-    /// The original text that this cluster was shaped from.
-    /// This is crucial for correct hyphenation.
-    pub text: String,
+    /// §3.2 step 3c: the text this cluster was shaped FROM, as a shared
+    /// `Arc` of the whole LOGICAL ITEM's text (for override-free runs
+    /// that is the `StyledRun`'s own Arc — zero extra allocations). The
+    /// per-cluster `String` copy this replaces was the single largest
+    /// retained-text duplication (one heap alloc per cluster); the
+    /// cluster's own text is the `source_byte_len`-long slice at
+    /// `source_cluster_id.start_byte_in_run` — see [`Self::text`].
+    ///
+    /// NOTE `start_byte_in_run` is relative to the LOGICAL ITEM (the
+    /// bidi re-base adds only the visual fragment's offset within the
+    /// item; a style-override segment's run offset lives in
+    /// `source_content_index.item_index`) — which is exactly why this
+    /// field holds the ITEM text, not unconditionally the run text.
+    pub source_text: Arc<str>,
+    /// Byte length of this cluster's slice in `source_text`. Stored, not
+    /// re-derived: ligature-fused clusters span MULTIPLE graphemes, so
+    /// "next grapheme boundary" cannot reconstruct the slice in general.
+    pub source_byte_len: u16,
     /// The ID of the grapheme cluster this glyph cluster represents.
     pub source_cluster_id: GraphemeClusterId,
     /// The source `ContentIndex` for mapping back to logical items.
@@ -4772,6 +4790,38 @@ pub struct ShapedCluster {
     /// True if this is the last visual fragment of its inline box.
     /// Only the last fragment gets the end-edge border/padding.
     pub is_last_fragment: bool,
+}
+
+impl ShapedCluster {
+    /// The cluster's source text: the `source_byte_len`-long slice of the
+    /// shared item text at `start_byte_in_run`. Replaces the deleted
+    /// per-cluster `String` (§3.2 step 3c); T1 pins slice==shaped-text.
+    /// Out-of-range indices (defensive; ids are shaper-produced) yield "".
+    #[must_use]
+    pub fn text(&self) -> &str {
+        if self.source_cluster_id.start_byte_in_run == u32::MAX {
+            // Synthesized clusters (hyphenation hyphen, kashida) carry the
+            // sentinel id and their own tiny Arc — the whole buffer IS the
+            // cluster text.
+            return &self.source_text;
+        }
+        let start = self.source_cluster_id.start_byte_in_run as usize;
+        self.source_text
+            .get(start..start + self.source_byte_len as usize)
+            .unwrap_or("")
+    }
+}
+
+/// Shared empty `Arc<str>`: the pre-stamp placeholder for
+/// `ShapedCluster::source_text`. `shape_text_correctly` cannot see the
+/// logical item's Arc (it receives a visual-fragment `&str`), so it
+/// stamps this and the shaping loop overwrites it with the real item Arc
+/// right after the bidi re-base — the same site that finalizes
+/// `start_byte_in_run`, which `text()` slices with.
+#[must_use]
+pub fn empty_arc_str() -> Arc<str> {
+    static EMPTY: std::sync::OnceLock<Arc<str>> = std::sync::OnceLock::new();
+    EMPTY.get_or_init(|| Arc::from("")).clone()
 }
 
 /// A single, shaped glyph with its essential metrics.
@@ -5370,7 +5420,7 @@ impl UnifiedLayout {
             .filter_map(|it| {
                 it.item
                     .as_cluster()
-                    .map(|c| (c.source_cluster_id, c.text.as_str()))
+                    .map(|c| (c.source_cluster_id, c.text()))
             })
             .collect();
         stops.sort_by(|a, b| {
@@ -6347,6 +6397,8 @@ impl TextShapingCache {
                 r.shared_bytes_avoided += bytes;
             }
         }
+        let mut text_arcs: alloc::collections::BTreeSet<usize> =
+            alloc::collections::BTreeSet::new();
         let mut style_arcs: alloc::collections::BTreeSet<usize> =
             alloc::collections::BTreeSet::new();
 
@@ -6371,7 +6423,10 @@ impl TextShapingCache {
                 match item {
                     ShapedItem::Cluster(c) => {
                         r.shaped_glyph_bytes += glyph_spill_bytes(c);
-                        r.shaped_cluster_text_bytes += c.text.capacity();
+                        // 3c: shared Arc slice — count each source buffer once.
+                        if text_arcs.insert(Arc::as_ptr(&c.source_text) as *const u8 as usize) {
+                            r.shaped_cluster_text_bytes += c.source_text.len();
+                        }
                         r.cluster_count += 1;
                         style_arcs.insert(Arc::as_ptr(&c.style) as usize);
                     }
@@ -6407,7 +6462,10 @@ impl TextShapingCache {
                 match item {
                     ShapedItem::Cluster(c) => {
                         r.per_item_shaped_bytes += glyph_spill_bytes(c);
-                        r.per_item_shaped_bytes += c.text.capacity();
+                        // 3c: shared Arc slice — count each source buffer once.
+                        if text_arcs.insert(Arc::as_ptr(&c.source_text) as *const u8 as usize) {
+                            r.per_item_shaped_bytes += c.source_text.len();
+                        }
                         r.cluster_count += 1;
                         style_arcs.insert(Arc::as_ptr(&c.style) as usize);
                     }
@@ -6791,7 +6849,7 @@ impl TextShapingCache {
             // Auto-detect from text content; fall back to containing block direction
             let has_strong = logical_items.iter().any(|item| {
                 if let LogicalItem::Text { text, .. } = item {
-                    matches!(unicode_bidi::get_base_direction(text.as_str()),
+                    matches!(unicode_bidi::get_base_direction(&**text),
                         unicode_bidi::Direction::Ltr | unicode_bidi::Direction::Rtl)
                 } else {
                     false
@@ -6986,7 +7044,7 @@ impl TextShapingCache {
         let base_direction = if unicode_bidi_val == UnicodeBidi::Plaintext {
             let has_strong = logical_items.iter().any(|item| {
                 if let LogicalItem::Text { text, .. } = item {
-                    matches!(unicode_bidi::get_base_direction(text.as_str()),
+                    matches!(unicode_bidi::get_base_direction(&**text),
                         unicode_bidi::Direction::Ltr | unicode_bidi::Direction::Rtl)
                 } else {
                     false
@@ -7349,7 +7407,18 @@ pub fn create_logical_items(
                                 run_index: run_idx as u32,
                                 item_index: start as u32,
                             },
-                            text: text_slice.to_string(),
+                            // §3.2 3c: the item text is an Arc so shaped
+                            // clusters can SHARE it. The whole-run chunk
+                            // (the overwhelmingly common case — overrides
+                            // and combine-upright are the only splitters)
+                            // aliases the StyledRun's own Arc: zero new
+                            // allocations; override segments mint one Arc
+                            // per segment, same cost as the old String.
+                            text: if start == 0 && end == text.len() {
+                                run.text.clone()
+                            } else {
+                                Arc::from(text_slice)
+                            },
                             style: style_to_use,
                             marker_position_outside,
                             source_node_id: run.source_node_id,
@@ -7422,7 +7491,7 @@ pub fn create_logical_items(
 #[must_use] pub fn get_base_direction_from_logical(logical_items: &[LogicalItem]) -> BidiDirection {
     let first_strong = logical_items.iter().find_map(|item| {
         if let LogicalItem::Text { text, .. } = item {
-            Some(unicode_bidi::get_base_direction(text.as_str()))
+            Some(unicode_bidi::get_base_direction(&**text))
         } else {
             None
         }
@@ -7496,7 +7565,7 @@ pub fn reorder_logical_items(
         // +spec:display-property:df11ef - atomic inlines treated as neutral bidi characters (U+FFFC)
         // Replaced elements with display:inline are also neutral unless unicode-bidi != normal.
         let text = match item {
-            LogicalItem::Text { text, .. } => text.as_str(),
+            LogicalItem::Text { text, .. } => text,
             LogicalItem::CombinedText { text, .. } => text.as_str(),
             _ => "\u{FFFC}",
         };
@@ -7775,6 +7844,10 @@ pub fn shape_visual_items_with_per_item_cache<T: ParsedFontTrait>(
                         // Cluster-level re-stamp: style no longer lives on
                         // glyphs, so a cache hit is TWO writes per cluster
                         // instead of an Arc clone per glyph (T2 pins this).
+                        // `source_text` is deliberately NOT re-stamped: the
+                        // cache key includes the text, so the cached Arc is
+                        // content-equal to the hitting item's — keeping it
+                        // SHARES one allocation across all equal-text nodes.
                         sc.source_node_id = source_node_id;
                         sc.style = style;
                     }
@@ -8117,7 +8190,9 @@ pub fn shape_visual_items<T: ParsedFontTrait>(
                         .map(|v| v.text.len())
                         .sum();
                     let mut merged_text = String::with_capacity(total_text_len);
-                    // (byte_start, byte_end, style, source, source_node_id, marker_outside, run_byte_offset)
+                    // (byte_start, byte_end, style, source, source_node_id, marker_outside,
+                    //  run_byte_offset, item_text — the logical item's shared Arc,
+                    //  stamped onto each re-attributed cluster as `source_text`)
                     let mut byte_ranges: Vec<(
                         usize, usize,
                         Arc<StyleProperties>,
@@ -8125,6 +8200,7 @@ pub fn shape_visual_items<T: ParsedFontTrait>(
                         Option<NodeId>,
                         Option<bool>,
                         usize,
+                        Arc<str>,
                     )> = Vec::with_capacity(coalesce_count);
 
                     for item in &visual_items[idx..coalesce_end] {
@@ -8133,9 +8209,9 @@ pub fn shape_visual_items<T: ParsedFontTrait>(
                         let end = merged_text.len();
                         if let LogicalItem::Text {
                             style: s, source: src, source_node_id: nid,
-                            marker_position_outside: mpo, ..
+                            marker_position_outside: mpo, text: itext, ..
                         } = &item.logical_source {
-                            byte_ranges.push((start, end, s.clone(), *src, *nid, *mpo, item.run_byte_offset));
+                            byte_ranges.push((start, end, s.clone(), *src, *nid, *mpo, item.run_byte_offset, itext.clone()));
                         }
                     }
 
@@ -8194,7 +8270,7 @@ pub fn shape_visual_items<T: ParsedFontTrait>(
                             byte_pos >= *start && byte_pos < *end
                         });
                         let mut cluster = cluster;
-                        if let Some((range_start, _, orig_style, orig_source, orig_nid, orig_mpo, orig_run_offset)) = orig {
+                        if let Some((range_start, _, orig_style, orig_source, orig_nid, orig_mpo, orig_run_offset, orig_text)) = orig {
                             // Reassign rendering-affecting style (color, background, etc.)
                             cluster.style = orig_style.clone();
                             cluster.source_content_index = *orig_source;
@@ -8205,6 +8281,9 @@ pub fn shape_visual_items<T: ParsedFontTrait>(
                             cluster.source_cluster_id.source_run = orig_source.run_index;
                             cluster.source_cluster_id.start_byte_in_run = (byte_pos - range_start + *orig_run_offset) as u32;
                             cluster.style = orig_style.clone();
+                            // §3.2 3c: the finalized offset is item-relative, so
+                            // stamp the item's shared text Arc it slices into.
+                            cluster.source_text = orig_text.clone();
                             if let Some(is_outside) = orig_mpo {
                                 cluster.marker_position_outside = Some(*is_outside);
                             }
@@ -8298,6 +8377,14 @@ pub fn shape_visual_items<T: ParsedFontTrait>(
                             .source_cluster_id
                             .start_byte_in_run
                             .saturating_add(run_byte_offset);
+                    }
+                }
+
+                // §3.2 3c: offsets are item-relative from here on — stamp
+                // the logical item's shared text Arc that `text()` slices.
+                if let LogicalItem::Text { text: item_text, .. } = &item.logical_source {
+                    for cluster in &mut shaped_clusters {
+                        cluster.source_text = item_text.clone();
                     }
                 }
 
@@ -8618,7 +8705,7 @@ const fn is_hanging_punctuation_char(c: char) -> bool {
 fn is_hanging_punctuation(item: &ShapedItem) -> bool {
     if let ShapedItem::Cluster(c) = item {
         if c.glyphs.len() == 1 {
-            c.text.chars().next().is_some_and(is_hanging_punctuation_char)
+            c.text().chars().next().is_some_and(is_hanging_punctuation_char)
         } else {
             false
         }
@@ -8673,7 +8760,10 @@ fn shape_text_correctly<T: ParsedFontTrait>(
 
             clusters.push(ShapedCluster {
                 flags: ClusterFlags::classify(cluster_text),
-                text: cluster_text.to_string(), // Store original text for hyphenation
+                // §3.2 3c: placeholder — the shaping loop stamps the real
+                // item Arc after the bidi re-base; the LENGTH is final now.
+                source_text: empty_arc_str(),
+                source_byte_len: u16::try_from(cluster_text.len()).unwrap_or(u16::MAX),
                 source_cluster_id: GraphemeClusterId {
                     source_run: source_index.run_index,
                     start_byte_in_run: cluster_id,
@@ -8731,7 +8821,9 @@ fn shape_text_correctly<T: ParsedFontTrait>(
         let cluster_text = text.get(cluster_start_byte_in_text..).unwrap_or("");
         clusters.push(ShapedCluster {
             flags: ClusterFlags::classify(cluster_text),
-            text: cluster_text.to_string(), // Store original text
+            // §3.2 3c: placeholder — stamped by the shaping loop (see above).
+            source_text: empty_arc_str(),
+            source_byte_len: u16::try_from(cluster_text.len()).unwrap_or(u16::MAX),
             source_cluster_id: GraphemeClusterId {
                 source_run: source_index.run_index,
                 start_byte_in_run: cluster_id,
@@ -9296,7 +9388,7 @@ pub fn perform_fragment_layout<T: ParsedFontTrait>(
         let remaining = &cursor.items[cursor.next_item_index..];
         let text: String = remaining.iter()
             .filter_map(|i| i.as_cluster())
-            .map(|c| c.text.as_str())
+            .map(|c| c.text())
             .collect();
         match unicode_bidi::get_base_direction(text.as_str()) {
             unicode_bidi::Direction::Ltr => BidiDirection::Ltr,
@@ -9561,7 +9653,7 @@ pub fn perform_fragment_layout<T: ParsedFontTrait>(
             let line_text_before_rev: String = line_items
                 .iter()
                 .filter_map(|i| i.as_cluster())
-                .map(|c| c.text.as_str())
+                .map(|c| c.text())
                 .collect();
             if let Some(msgs) = debug_messages {
                 msgs.push(LayoutDebugMessage::info(format!(
@@ -9580,7 +9672,7 @@ pub fn perform_fragment_layout<T: ParsedFontTrait>(
                 let after: String = line_items
                     .iter()
                     .filter_map(|i| i.as_cluster())
-                    .map(|c| c.text.as_str())
+                    .map(|c| c.text())
                     .collect();
                 if after != line_text_before_rev {
                     msgs.push(LayoutDebugMessage::info(format!(
@@ -9995,7 +10087,7 @@ pub struct HyphenationBreak {
     let mut current_width = 0.0;
 
     for (cluster_idx, cluster) in word_clusters.iter().enumerate() {
-        for (char_byte_offset, _ch) in cluster.text.char_indices() {
+        for (char_byte_offset, _ch) in cluster.text().char_indices() {
             let glyph_idx = cluster
                 .glyphs
                 .iter()
@@ -10003,7 +10095,7 @@ pub struct HyphenationBreak {
                 .unwrap_or(0);
             let glyph = &cluster.glyphs[glyph_idx];
 
-            let num_chars_in_glyph = cluster.text[glyph.cluster_offset as usize..]
+            let num_chars_in_glyph = cluster.text()[glyph.cluster_offset as usize..]
                 .chars()
                 .count();
             let advance_per_char = if is_vertical {
@@ -10015,7 +10107,7 @@ pub struct HyphenationBreak {
             current_width += advance_per_char;
             char_map.push((cluster_idx, glyph_idx, current_width));
         }
-        word_string.push_str(&cluster.text);
+        word_string.push_str(cluster.text());
     }
 
     // +spec:line-breaking:d7ed93 - language-specific hyphenation rules apply to both auto and explicit (soft hyphen) opportunities
@@ -10060,7 +10152,8 @@ pub struct HyphenationBreak {
 
         let hyphen_item = ShapedItem::Cluster(ShapedCluster {
             flags: ClusterFlags::classify("-"),
-            text: "-".to_string(),
+            source_text: Arc::from("-"),
+            source_byte_len: 1,
             source_cluster_id: GraphemeClusterId {
                 source_run: u32::MAX,
                 start_byte_in_run: u32::MAX,
@@ -10231,7 +10324,7 @@ pub fn position_one_line<T: ParsedFontTrait>(
     let line_text: String = line_items
         .iter()
         .filter_map(|i| i.as_cluster())
-        .map(|c| c.text.as_str())
+        .map(|c| c.text())
         .collect();
     if let Some(msgs) = debug_messages {
         msgs.push(LayoutDebugMessage::info(format!(
@@ -10627,7 +10720,7 @@ pub fn position_one_line<T: ParsedFontTrait>(
             // item_measure is calculated above for marker positioning
             let item_text = item
                 .as_cluster()
-                .map_or("[OBJ]", |c| c.text.as_str());
+                .map_or("[OBJ]", |c| c.text());
             if let Some(msgs) = debug_messages {
                 msgs.push(LayoutDebugMessage::info(format!(
                     "[Pos1Line] Positioning item '{item_text}' at pen_x={main_axis_pen}"
@@ -10967,7 +11060,8 @@ pub fn justify_kashida_and_rebuild<T: ParsedFontTrait>(
         };
         ShapedItem::Cluster(ShapedCluster {
             flags: ClusterFlags::classify("\u{0640}"),
-            text: "\u{0640}".to_string(),
+            source_text: Arc::from("\u{0640}"),
+            source_byte_len: 2,
             source_cluster_id: GraphemeClusterId {
                 source_run: u32::MAX,
                 start_byte_in_run: u32::MAX,
@@ -11038,7 +11132,7 @@ fn measure_trailing_whitespace(items: &[ShapedItem], is_vertical: bool) -> f32 {
 /// distinct from `is_word_separator` which is for word-spacing per §7.1.
 #[must_use] pub fn is_collapsible_whitespace(item: &ShapedItem) -> bool {
     if let ShapedItem::Cluster(c) = item {
-        c.text.chars().all(|ch| matches!(ch,
+        c.text().chars().all(|ch| matches!(ch,
             ' ' | '\t' | '\u{1680}' // Ogham space mark (collapsible per spec)
         ))
     } else {
@@ -11053,7 +11147,7 @@ fn measure_trailing_whitespace(items: &[ShapedItem], is_vertical: bool) -> f32 {
 ///
 /// These scripts should not have letter-spacing applied.
 pub fn is_cursive_script_cluster(c: &ShapedCluster) -> bool {
-    c.text.chars().next().is_some_and(is_cursive_script_char)
+    c.text().chars().next().is_some_and(is_cursive_script_char)
 }
 
 fn is_cursive_script_char(ch: char) -> bool {
@@ -11095,7 +11189,7 @@ pub(crate) fn is_word_char(ch: char) -> bool {
 /// punctuation), i.e. it contains no word characters. Keeps cursor word-motion
 /// consistent with `selection::find_word_boundaries`.
 fn cluster_is_word_boundary(cluster: &ShapedCluster) -> bool {
-    !cluster.text.chars().any(is_word_char)
+    !cluster.text().chars().any(is_word_char)
 }
 
 // exclude punctuation and fixed-width spaces (U+3000, U+2000..U+200A)
@@ -11173,7 +11267,7 @@ const fn is_word_separator_char(c: char) -> bool {
 /// Helper to identify if space can be added after an item.
 fn can_justify_after(item: &ShapedItem) -> bool {
     if let ShapedItem::Cluster(c) = item {
-        c.text.chars().last().is_some_and(|g| {
+        c.text().chars().last().is_some_and(|g| {
             !g.is_whitespace() && classify_character(g as u32) != CharacterClass::Combining
         })
     } else {
@@ -11889,21 +11983,21 @@ fn is_break_opportunity(item: &ShapedItem) -> bool {
     // prevent breaks
     if let ShapedItem::Cluster(c) = item {
         // ZW (zero-width space U+200B) is always a break opportunity
-        if c.text.contains('\u{200B}') {
+        if c.text().contains('\u{200B}') {
             return true;
         }
         // Break-forcing Unicode controls (LS, PS) create break opportunities
-        if c.text.chars().any(is_break_forcing_control) {
+        if c.text().chars().any(is_break_forcing_control) {
             return true;
         }
         // WJ (word joiner U+2060), ZWJ (U+200D), and GL (NBSP U+00A0) suppress breaks
-        if c.text.chars().any(|ch| matches!(ch, '\u{2060}' | '\u{200D}' | '\u{00A0}')) {
+        if c.text().chars().any(|ch| matches!(ch, '\u{2060}' | '\u{200D}' | '\u{00A0}')) {
             return false;
         }
         // +spec:line-breaking:05e09a - U+002D/U+2010 always create soft wrap opportunities regardless of hyphens property
         // are always visible and create a soft wrap opportunity after them, but are NOT
         // hyphenation opportunities (no extra glyph is inserted at the break).
-        if c.text.ends_with('\u{002D}') || c.text.ends_with('\u{2010}') {
+        if c.text().ends_with('\u{002D}') || c.text().ends_with('\u{2010}') {
             return true;
         }
     }
@@ -12033,13 +12127,13 @@ impl<'a> BreakCursor<'a> {
             // Also suppress break if this item starts with a break-suppressing control
             // (WJ/ZWJ/ZWNBSP suppress breaks on both sides per Unicode line breaking)
             let starts_with_suppress = if let ShapedItem::Cluster(c) = item {
-                c.text.chars().next().is_some_and(is_break_suppressing_control)
+                c.text().chars().next().is_some_and(is_break_suppressing_control)
             } else {
                 false
             };
             // If the item is a CJK cluster, check if the break is allowed by strictness
             let cjk_strictness_suppressed = if let ShapedItem::Cluster(c) = item {
-                c.text.chars().next().is_some_and(|ch| {
+                c.text().chars().next().is_some_and(|ch| {
                     !is_cjk_break_allowed_by_strictness(ch, None, self.line_break)
                 })
             } else {
@@ -12053,7 +12147,7 @@ impl<'a> BreakCursor<'a> {
 
             // Check if this item ends with a break-suppressing control character
             if let ShapedItem::Cluster(c) = item {
-                if let Some(last_ch) = c.text.chars().last() {
+                if let Some(last_ch) = c.text().chars().last() {
                     if is_break_suppressing_control(last_ch) {
                         suppress_next_break = true;
                     }
@@ -12450,7 +12544,16 @@ mod autotest_generated {
     ) -> ShapedItem {
         ShapedItem::Cluster(ShapedCluster {
             flags: ClusterFlags::classify(text),
-            text: text.to_string(),
+            source_text: {
+                // Test helper: pad so the slice at the given id's offset
+                // yields exactly `text` (production stamps a shared Arc
+                // whose offsets are real; tests mint ids freely).
+                let mut s = String::new();
+                for _ in 0..id.start_byte_in_run { s.push(' '); }
+                s.push_str(text);
+                std::sync::Arc::from(s.as_str())
+            },
+            source_byte_len: text.len() as u16,
             source_cluster_id: id,
             source_content_index: ci(id.source_run, id.start_byte_in_run),
             source_node_id: None,
@@ -15174,7 +15277,7 @@ mod autotest_generated {
         let vi = |st: Arc<StyleProperties>| VisualItem {
             logical_source: LogicalItem::Text {
                 source: ci(0, 0),
-                text: "a".to_string(),
+                text: std::sync::Arc::from("a"),
                 style: st,
                 marker_position_outside: None,
                 source_node_id: None,
@@ -15633,14 +15736,14 @@ mod autotest_generated {
         assert!(!c.is_done());
 
         assert_eq!(
-            c.peek_next_single_item()[0].as_cluster().unwrap().text,
+            c.peek_next_single_item()[0].as_cluster().unwrap().text(),
             "R",
             "the remainder is served first"
         );
 
         let drained = c.drain_remaining();
         assert_eq!(drained.len(), 3, "remainder + both queued items");
-        assert_eq!(drained[0].as_cluster().unwrap().text, "R");
+        assert_eq!(drained[0].as_cluster().unwrap().text(), "R");
         assert!(c.is_done());
     }
 
@@ -15663,7 +15766,7 @@ mod autotest_generated {
         c.consume(3);
         assert!(c.partial_remainder.is_empty());
         assert_eq!(c.next_item_index, 1);
-        assert_eq!(c.peek_next_single_item()[0].as_cluster().unwrap().text, "b");
+        assert_eq!(c.peek_next_single_item()[0].as_cluster().unwrap().text(), "b");
     }
 
     #[test]
@@ -15678,12 +15781,12 @@ mod autotest_generated {
         let mut c = BreakCursor::new(&items);
         let word = c.peek_next_unit();
         assert_eq!(word.len(), 2, "the word stops at the space");
-        assert_eq!(word[0].as_cluster().unwrap().text, "h");
+        assert_eq!(word[0].as_cluster().unwrap().text(), "h");
 
         c.consume(word.len());
         let space = c.peek_next_unit();
         assert_eq!(space.len(), 1, "a leading break opportunity is a unit on its own");
-        assert_eq!(space[0].as_cluster().unwrap().text, " ");
+        assert_eq!(space[0].as_cluster().unwrap().text(), " ");
 
         c.consume(1);
         assert_eq!(c.peek_next_unit().len(), 2, "the trailing word");
@@ -15747,9 +15850,9 @@ mod autotest_generated {
     fn break_cursor_peek_next_single_item_prefers_the_remainder() {
         let items = vec![cl("a", 8.0)];
         let mut c = BreakCursor::new(&items);
-        assert_eq!(c.peek_next_single_item()[0].as_cluster().unwrap().text, "a");
+        assert_eq!(c.peek_next_single_item()[0].as_cluster().unwrap().text(), "a");
         c.partial_remainder = vec![cl("R", 8.0)];
-        assert_eq!(c.peek_next_single_item()[0].as_cluster().unwrap().text, "R");
+        assert_eq!(c.peek_next_single_item()[0].as_cluster().unwrap().text(), "R");
         assert_eq!(
             c.peek_next_single_item().len(),
             1,

@@ -122,7 +122,7 @@ fn dump_mixed_sizes() {
             let ascent_px = fm.ascent / f32::from(fm.units_per_em) * c.style.font_size_px;
             println!(
                 "run={} text={:?} size={} y={} height={} ascent_px={} baseline_y={}",
-                c.source_cluster_id.source_run, c.text, c.style.font_size_px,
+                c.source_cluster_id.source_run, c.text(), c.style.font_size_px,
                 it.position.y, it.item.bounds().height, ascent_px, it.position.y + ascent_px
             );
         }
