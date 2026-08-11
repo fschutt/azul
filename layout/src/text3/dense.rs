@@ -22,6 +22,8 @@ use alloc::vec::Vec;
 use super::cache::{
     ClusterFlags, LayoutFontMetrics, PositionedItem, ShapedItem, StyleProperties, UnifiedLayout,
 };
+use super::glyphs::PositionedGlyph;
+use super::cache::Point;
 use crate::text3::script::Script;
 
 /// One per shaped cluster. Dense, POD, no Drop glue, no owned heap.
@@ -265,4 +267,93 @@ impl DenseText {
         }
         dense
     }
+}
+
+
+/// §3.2 step 3: the dense twin of [`super::glyphs::get_glyph_positions`]
+/// (the reference walker the other two consumers agree with). Walks the
+/// dense arrays only. Positions agree EXACTLY with the reference for
+/// uniform-font clusters (the run's metrics reproduce the per-item
+/// ascent math); multi-font fallback clusters would need the per-glyph
+/// metrics the detail table deliberately does not carry — the atomics /
+/// combined blocks stay on the sparse side and are not walked here.
+///
+/// `PositionedGlyph.advance` reports the PAINTED advance (incl. kerning,
+/// as the dense model folds it) — the reference reports the base advance
+/// and advances its pen by base+kerning; positions are identical either
+/// way, which is what the agreement gate compares.
+#[must_use]
+pub fn get_glyph_positions_dense(dense: &DenseText) -> Vec<PositionedGlyph> {
+    let mut out = Vec::with_capacity(dense.clusters.len());
+    let mut line_iter = dense.lines.iter().peekable();
+    let mut detail_iter = dense.details.iter().peekable();
+
+    for (ci, run) in dense
+        .runs
+        .iter()
+        .flat_map(|r| (r.clusters.start..r.clusters.end).map(move |i| (i, r)))
+    {
+        let c = &dense.clusters[ci as usize];
+        // Advance the line cursor to the record containing this cluster.
+        while let Some(l) = line_iter.peek() {
+            if ci >= l.clusters.1 {
+                line_iter.next();
+            } else {
+                break;
+            }
+        }
+        let top_y = line_iter.peek().map_or(0.0, |l| l.top_y);
+        // Per-run ascent: the same math the reference derives per item
+        // (metrics + half-leading), amortised — run metrics are uniform.
+        let m = &run.font_metrics;
+        let ascent = if m.units_per_em == 0 {
+            0.0
+        } else {
+            let scale = run.style.font_size_px / f32::from(m.units_per_em);
+            let font_ascent = m.ascent * scale;
+            let font_descent = (-m.descent * scale).max(0.0);
+            let ad = font_ascent + font_descent;
+            let lh = run
+                .style
+                .line_height
+                .resolve_with_metrics(run.style.font_size_px, m);
+            font_ascent + (lh - ad) / 2.0
+        };
+        let baseline_y = top_y + ascent;
+
+        // Detail cluster? (details are in cluster order.)
+        let detail = loop {
+            match detail_iter.peek() {
+                Some(d) if d.cluster < ci => {
+                    detail_iter.next();
+                }
+                Some(d) if d.cluster == ci => break Some(**d),
+                _ => break None,
+            }
+        };
+        match detail {
+            Some(d) => {
+                let mut pen_x = c.x;
+                for dg in &dense.detail_glyphs[d.glyphs.0 as usize..d.glyphs.1 as usize] {
+                    out.push(PositionedGlyph {
+                        glyph_id: dg.glyph_id,
+                        position: Point {
+                            x: pen_x + dg.offset_x,
+                            y: baseline_y - dg.offset_y,
+                        },
+                        advance: dg.advance,
+                    });
+                    pen_x += dg.advance;
+                }
+            }
+            None => {
+                out.push(PositionedGlyph {
+                    glyph_id: c.glyph_id,
+                    position: Point { x: c.x, y: baseline_y },
+                    advance: c.advance,
+                });
+            }
+        }
+    }
+    out
 }

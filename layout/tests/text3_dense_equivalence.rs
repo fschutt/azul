@@ -16,7 +16,8 @@ use azul_layout::text3::cache::{
     AvailableSpace, BidiDirection, BreakCursor, FontStack, InlineContent, LoadedFonts, ShapedItem,
     StyleProperties, StyledRun, UnicodeBidi, UnifiedConstraints, UnifiedLayout,
 };
-use azul_layout::text3::dense::DenseText;
+use azul_layout::text3::dense::{get_glyph_positions_dense, DenseText};
+use azul_layout::text3::glyphs::get_glyph_positions;
 use rust_fontconfig::{FcFontCache, FontBytes, FontFallbackChain, FontId};
 
 #[path = "common/fakefont.rs"]
@@ -123,6 +124,35 @@ fn dense_view_agrees_with_the_current_model() {
             assert!(l.clusters.1 > l.clusters.0, "empty line record");
             assert!(l.clusters.0 >= line_cover, "line ranges ordered");
             line_cover = l.clusters.1;
+        }
+    }
+}
+
+
+/// §3.2 step 3 agreement gate: the dense walker must place every glyph
+/// at EXACTLY the reference walker's position (id + x + y). Advance
+/// semantics differ by design (dense folds kerning into the painted
+/// advance); positions are the contract.
+#[test]
+fn dense_glyph_positions_agree_with_the_reference_walker() {
+    for (text, width) in [
+        ("hello dense world", 400.0),
+        ("a longer paragraph that will wrap across multiple lines of text", 120.0),
+        ("waffle office ffi", 400.0),
+    ] {
+        let (layout, content) = layout_of(text, width);
+        let dense = DenseText::from_unified_with_content(&layout, &content);
+        let reference = get_glyph_positions(&layout);
+        let ours = get_glyph_positions_dense(&dense);
+        assert_eq!(reference.len(), ours.len(), "glyph count ({text:?})");
+        for (i, (r, o)) in reference.iter().zip(ours.iter()).enumerate() {
+            assert_eq!(r.glyph_id, o.glyph_id, "id @{i} ({text:?})");
+            assert!(
+                (r.position.x - o.position.x).abs() < 0.01
+                    && (r.position.y - o.position.y).abs() < 0.01,
+                "position @{i}: ref ({}, {}) vs dense ({}, {}) ({text:?})",
+                r.position.x, r.position.y, o.position.x, o.position.y
+            );
         }
     }
 }
