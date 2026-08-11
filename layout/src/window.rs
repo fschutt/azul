@@ -6113,6 +6113,12 @@ impl LayoutWindow {
                 cluster_id: GraphemeClusterId { source_run: 0, start_byte_in_run: 0 },
                 affinity: CursorAffinity::Trailing,
             });
+        if std::env::var_os("AZ_FOCUS_DEBUG").is_some() {
+            eprintln!(
+                "[finalize_pending_focus] editing initialized: node {:?} cursor {:?} (had_layout={})",
+                pending.text_node_id, cursor, text_layout.is_some()
+            );
+        }
         self.text_edit_manager.initialize_editing(cursor, pending.dom_id, pending.text_node_id, 0);
         true
     }
@@ -8501,25 +8507,31 @@ impl LayoutWindow {
         let node_data_container = styled_dom.node_data.as_container();
         let hierarchy_container = styled_dom.node_hierarchy.as_container();
 
-        // Check if parent itself is a text node
-        let parent_type = node_data_container[parent_node_id].get_node_type();
-        if matches!(parent_type, NodeType::Text(_)) {
-            return Some(parent_node_id);
-        }
-
-        // Find the last text child by iterating through all children
-        let parent_item = &hierarchy_container[parent_node_id];
-        let mut last_text_child: Option<NodeId> = None;
-        let mut current_child = parent_item.first_child_id(parent_node_id);
-        while let Some(child_id) = current_child {
-            let child_type = node_data_container[child_id].get_node_type();
-            if matches!(child_type, NodeType::Text(_)) {
-                last_text_child = Some(child_id);
+        // The whole SUBTREE in document order, not just direct children:
+        // real editable containers nest text under paragraphs
+        // (container > p > text). The direct-child scan returned None
+        // there, the caret then seeded on the block CONTAINER — which has
+        // no inline layout — and programmatic focus produced an editing
+        // state whose caret could never be painted (2026-08-11).
+        let mut last_text: Option<NodeId> = None;
+        let mut stack = vec![parent_node_id];
+        while let Some(n) = stack.pop() {
+            if matches!(node_data_container[n].get_node_type(), NodeType::Text(_)) {
+                last_text = Some(n);
             }
-            current_child = hierarchy_container[child_id].next_sibling_id();
+            // Push children reversed so they pop in document order; the
+            // final overwrite is the last text node of the subtree.
+            let mut children = Vec::new();
+            let mut child = hierarchy_container[n].first_child_id(n);
+            while let Some(c) = child {
+                children.push(c);
+                child = hierarchy_container[c].next_sibling_id();
+            }
+            for c in children.into_iter().rev() {
+                stack.push(c);
+            }
         }
-
-        last_text_child
+        last_text
     }
 
     /// Checks if a node has text content.
@@ -13868,6 +13880,30 @@ mod autotest_generated {
         assert!(
             !win.finalize_pending_focus_changes(),
             "nothing pending => no cursor initialization happened"
+        );
+    }
+
+    #[test]
+    fn find_last_text_child_walks_the_whole_subtree() {
+        // Real editable containers nest text under paragraphs
+        // (container > p > text). The old direct-children scan returned
+        // None here, the caret then seeded on the block container (no
+        // inline layout) and programmatic focus never painted a caret.
+        let dom = StyledDom::create_from_dom(Dom::create_body().with_child(
+            Dom::create_div()
+                .with_child(Dom::create_div().with_child(Dom::create_text("first para")))
+                .with_child(Dom::create_div().with_child(Dom::create_text("last para"))),
+        ));
+        let win = laid_out(dom, 400.0, 300.0);
+        let container = NodeId::new(1); // body(0) > div(1)
+        let found = win
+            .find_last_text_child(DomId::ROOT_ID, container)
+            .expect("subtree walk finds the nested text node");
+        let lr = win.get_layout_result(&DomId::ROOT_ID).unwrap();
+        let ty = lr.styled_dom.node_data.as_container()[found].get_node_type().clone();
+        assert!(
+            matches!(ty, NodeType::Text(ref t) if t.as_str() == "last para"),
+            "must be the LAST text node in document order, got {ty:?}"
         );
     }
 

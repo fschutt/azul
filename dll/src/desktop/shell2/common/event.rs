@@ -2191,14 +2191,45 @@ pub trait PlatformWindow {
             // === Focus ===
 
             CallbackChange::SetFocusTarget { target } => {
-                // Resolve focus target to actual node
+                // Resolve focus target to actual node. A failed resolution
+                // must be AUDIBLE: `.ok().flatten()` used to swallow both
+                // the Err(warning) and the matched-nothing case, and a
+                // dropped programmatic focus is indistinguishable from a
+                // working no-op (the 2026-08-11 caret hunt burned a day on
+                // exactly this silence).
                 let resolved = if let Some(lw) = self.get_layout_window() {
                     let current_focus = lw.focus_manager.get_focused_node().copied();
-                    azul_layout::managers::focus_cursor::resolve_focus_target(
+                    match azul_layout::managers::focus_cursor::resolve_focus_target(
                         target,
                         &lw.layout_results,
                         current_focus,
-                    ).ok().flatten()
+                    ) {
+                        Ok(Some(n)) => {
+                            crate::log_debug!(
+                                crate::desktop::shell2::common::debug_server::LogCategory::Window,
+                                "[SetFocusTarget] resolved {:?} -> node {:?}",
+                                target, n
+                            );
+                            Some(n)
+                        }
+                        Ok(None) => {
+                            crate::log_warn!(
+                                crate::desktop::shell2::common::debug_server::LogCategory::Window,
+                                "[SetFocusTarget] target resolved to NO node \
+                                 (path matched nothing focusable, or layout_results empty): {:?}",
+                                target
+                            );
+                            None
+                        }
+                        Err(w) => {
+                            crate::log_warn!(
+                                crate::desktop::shell2::common::debug_server::LogCategory::Window,
+                                "[SetFocusTarget] resolution FAILED: {:?} (target {:?})",
+                                w, target
+                            );
+                            None
+                        }
+                    }
                 } else {
                     None
                 };
@@ -2226,7 +2257,16 @@ pub trait PlatformWindow {
                         lw.scroll_node_into_view(new_focus, ScrollIntoViewOptions::nearest(), now);
 
                         let ws = lw.current_window_state.clone();
-                        Some(lw.handle_focus_change_for_cursor_blink(Some(new_focus), &ws))
+                        let action = lw.handle_focus_change_for_cursor_blink(Some(new_focus), &ws);
+                        // Finalize the W3C flag-and-defer contenteditable
+                        // focus NOW, exactly as the e2e runner does — the
+                        // handler only sets the PENDING flag, and nothing
+                        // else in the shell ever finalized it: the blink
+                        // timer ticked forever with no cursor and no caret
+                        // was ever painted for programmatic focus
+                        // (2026-08-11 caret hunt).
+                        lw.finalize_pending_focus_changes();
+                        Some(action)
                     } else {
                         None
                     };
@@ -2248,7 +2288,10 @@ pub trait PlatformWindow {
                     let timer_action = if let Some(lw) = self.get_layout_window_mut() {
                         lw.focus_manager.set_focused_node(None);
                         let ws = lw.current_window_state.clone();
-                        Some(lw.handle_focus_change_for_cursor_blink(None, &ws))
+                        let action = lw.handle_focus_change_for_cursor_blink(None, &ws);
+                        // Symmetric with the focus branch above (runner parity).
+                        lw.finalize_pending_focus_changes();
+                        Some(action)
                     } else {
                         None
                     };
