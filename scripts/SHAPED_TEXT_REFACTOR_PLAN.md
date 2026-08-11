@@ -1313,3 +1313,18 @@ FINDINGS the plan's next implementer needs:
    with scripts/rss-baseline.sh AT PLATEAU (the walk's B/cluster cannot
    see malloc-overhead wins; allocator truth rules — batch ruling says
    this is the ONE final measurement).
+
+### §10.4 addendum (2026-08-11 11:05, after flip (a) dbdbdebd7)
+
+Steps (b)/(c) of the §10.3 flip order are NO-OPS: `get_glyph_positions`
+has zero production consumers (reference/tests only) and the PDF export
+walks the DISPLAY LIST, not `get_glyph_runs_pdf` (the twin's value was
+proving 3c's reconstruction, already banked). The campaign therefore
+goes from flip (a) directly to (d), whose honest shape is: make
+`DenseText` the STORED form of `CachedInlineLayout` and serve every
+current `UnifiedLayout` reader from it — direct `layout.items` readers
+are ~21 sites in 5 files (window.rs 7, layout_tree.rs 6,
+display_list.rs 5, paged_layout.rs 2, fc.rs 1) plus the accessor-level
+readers behind `get_inline_layout_for_node` (selection, caret, edit,
+hit-test). Retire the sparse retention LAST, after every reader has a
+dense view; measure at plateau before and after (e).
