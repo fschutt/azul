@@ -1273,3 +1273,43 @@ State these honestly, because three of them are real.
 *No optimisation in this document has been implemented. Check `git log`
 and `git status` before starting — the tree moved twice while this was
 written (§0.4).*
+
+## 10. NIGHT-2 STATUS ADDENDUM (2026-08-11 06:25, written in-repo because §9's unknowns moved)
+
+Implemented and PUSHED through `c04a69b4d` (this section supersedes the
+"nothing implemented" footer above for §2/§3/§4):
+
+- §2 gates: T1 roundtrip (11 props), T2 identity + NC knob, dense
+  equivalence gates ×7 — all live in `layout/tests/`.
+- §3.2 types: `dense.rs` (ClusterCompact 16 B, DenseRun + direction,
+  LineRecord + source_index, detail tables) + dense twins for ALL THREE
+  walkers (positions d61be0d07, simple runs + PDF runs 681bcd5de),
+  each reference-exact over the gate corpus, NCs seen red.
+- §4 partial: ShapedCluster::text DELETED (c04a69b4d) — clusters slice
+  a shared Arc of the LOGICAL ITEM text; walk 323 → 310 B/cluster.
+
+FINDINGS the plan's next implementer needs:
+
+1. `start_byte_in_run` is LOGICAL-ITEM-relative, not run-relative
+   (override segments carry their run offset in `item_index` — see the
+   coalescing re-attribution in cache.rs). DenseText::from_unified's
+   `content.get(source_run)` text mapping is therefore WRONG for
+   override-segmented runs (invisible on all current corpora — no
+   consumer feeds overrides). Fix by keying run text off the ITEM, or
+   folding item_index into the dense builder, BEFORE flipping any
+   production consumer that can see IME/spelling overrides.
+2. Glyph metrics ARE cluster-uniform (one font per shape_text_correctly
+   call; fallback splits text BEFORE shaping) — the slice-1 note saying
+   otherwise was wrong. But a glyph→cluster metrics hoist is a WASH for
+   1-glyph clusters (32 B moves, net 0); the metrics economics only
+   materialise at RUN level, i.e. in the dense flip itself. Do not do a
+   standalone metrics slice; CombinedBlock uniformity still unverified.
+3. The flip order that follows from what exists: (a) build DenseText in
+   `layout_cached_with_dl` next to the sparse layout behind a flag,
+   (b) flip `get_glyph_runs_simple`'s call site (layout_tree.rs:286/314)
+   to the dense twin + A/B e2e over the corpus, (c) flip
+   get_glyph_positions consumers, (d) PDF last (printpdf contract), then
+   (e) stop retaining the positioned-item text path warm and re-measure
+   with scripts/rss-baseline.sh AT PLATEAU (the walk's B/cluster cannot
+   see malloc-overhead wins; allocator truth rules — batch ruling says
+   this is the ONE final measurement).
