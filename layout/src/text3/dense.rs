@@ -323,6 +323,35 @@ impl DenseText {
             .map_or(0, |g| g.len() as u32)
     }
 
+    /// (d6b) The caret-stop list — the PRIMITIVE the whole cursor-movement
+    /// library reduces to (left/right/home/end are offset arithmetic over
+    /// it; selection ranges bound by it). Same output as the sparse
+    /// `UnifiedLayout::grapheme_stops`: cluster ids sorted by
+    /// (run, byte), deduped, grapheme-continuation clusters excluded —
+    /// via the precomputed flag instead of the text probe (the flags are
+    /// pinned equal to the sparse classification by the base gate).
+    #[must_use]
+    pub fn grapheme_stops(&self) -> Vec<azul_core::selection::GraphemeClusterId> {
+        use azul_core::selection::GraphemeClusterId;
+        let mut stops: Vec<GraphemeClusterId> = self
+            .runs
+            .iter()
+            .flat_map(|r| (r.clusters.start..r.clusters.end).map(move |ci| (ci, r)))
+            .filter(|(ci, _)| {
+                !self.clusters[*ci as usize]
+                    .flags
+                    .has(super::cache::ClusterFlags::GRAPHEME_CONTINUATION)
+            })
+            .map(|(ci, r)| GraphemeClusterId {
+                source_run: r.source_run,
+                start_byte_in_run: self.clusters[ci as usize].start_byte,
+            })
+            .collect();
+        stops.sort_by_key(|id| (id.source_run, id.start_byte_in_run));
+        stops.dedup();
+        stops
+    }
+
     /// (d4) The trailing cursor on the LAST cluster — the dense twin of
     /// the sparse `items.iter().rev().find_map(Cluster)` scans (which
     /// skip trailing non-clusters, exactly as taking the last dense

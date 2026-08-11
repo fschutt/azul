@@ -606,3 +606,25 @@ fn dense_cursor_helpers_agree_with_the_sparse_walks() {
         }
     }
 }
+
+/// (d6b) The caret-stop primitive: dense grapheme_stops must equal the
+/// sparse list exactly — incl. a combining-mark case, where the
+/// GRAPHEME_CONTINUATION flag must exclude the mark cluster the same
+/// way the sparse text probe does.
+#[test]
+fn dense_grapheme_stops_agree_with_the_sparse_walk() {
+    for (text, width) in [
+        ("hello dense world", 400.0),
+        ("a longer paragraph that will wrap across multiple lines of text", 120.0),
+        ("waffle office ffi", 400.0),
+        ("cafe\u{0301} au lait", 400.0), // combining acute: continuation cluster
+    ] {
+        let (layout, content) = layout_of(text, width);
+        let dense = DenseText::from_unified_with_content(&layout, &content);
+        assert_eq!(
+            dense.grapheme_stops(),
+            layout.grapheme_stops(),
+            "caret stops ({text:?})"
+        );
+    }
+}

@@ -5413,7 +5413,8 @@ impl UnifiedLayout {
     /// continuations folded into their base (UAX#29). Left/right caret motion
     /// advances over THIS sequence so a base and its combining marks move as one
     /// unit, and so the document start/end are always reachable.
-    fn grapheme_stops(&self) -> Vec<GraphemeClusterId> {
+    #[doc(hidden)] // pub for the dense-equivalence gate only
+    pub fn grapheme_stops(&self) -> Vec<GraphemeClusterId> {
         let mut stops: Vec<(GraphemeClusterId, &str)> = self
             .items
             .iter()
