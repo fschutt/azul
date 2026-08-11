@@ -8981,15 +8981,25 @@ impl LayoutWindow {
                 let text_layout = self.get_node_inline_layout(dom_id, node_id);
 
                 if let Some(inline_layout) = text_layout {
-                    // Convert byte offsets to TextCursor positions
-                    let start_cursor = Self::byte_offset_to_cursor(
-                        inline_layout.as_ref(),
-                        selection.selection_start as u32,
-                    );
-                    let end_cursor = Self::byte_offset_to_cursor(
-                        inline_layout.as_ref(),
-                        selection.selection_end as u32,
-                    );
+                    // (d4b) Dense-first byte→cursor resolution, sparse
+                    // fallback — the dense twin is pinned against the
+                    // sparse walk at every boundary offset (equivalence
+                    // gate dense_cursor_helpers_agree_with_the_sparse_walks).
+                    let dense = self.get_dense_for_node(dom_id, node_id).cloned();
+                    let start_cursor = dense
+                        .as_ref()
+                        .and_then(|d| d.byte_offset_to_cursor(selection.selection_start as u32))
+                        .unwrap_or_else(|| Self::byte_offset_to_cursor(
+                            inline_layout.as_ref(),
+                            selection.selection_start as u32,
+                        ));
+                    let end_cursor = dense
+                        .as_ref()
+                        .and_then(|d| d.byte_offset_to_cursor(selection.selection_end as u32))
+                        .unwrap_or_else(|| Self::byte_offset_to_cursor(
+                            inline_layout.as_ref(),
+                            selection.selection_end as u32,
+                        ));
 
                     {
                         let (start, end) = (start_cursor, end_cursor);
