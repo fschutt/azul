@@ -1005,7 +1005,7 @@ mod tests {
         fn dirty(text: &str) -> DirtyTextNode {
             DirtyTextNode {
                 content: vec![InlineContent::Text(StyledRun {
-                    text: text.to_string(),
+                    text: alloc::sync::Arc::from(text),
                     style: Arc::new(Default::default()),
                     logical_start_byte: 0,
                     source_node_id: None,

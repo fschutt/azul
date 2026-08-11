@@ -259,7 +259,9 @@ pub(crate) fn cursor_byte_offset_in_run(text: &str, cursor: &TextCursor) -> usiz
             let lo = a.min(b);
             let hi = a.max(b);
             if hi <= run.text.len() && lo < hi {
-                run.text.drain(lo..hi);
+                let mut t = String::from(&*run.text);
+                t.drain(lo..hi);
+                run.text = alloc::sync::Arc::from(t.as_str());
                 // Collapse the caret to the start of the deleted region (the low
                 // end), regardless of the original selection direction.
                 cursor_after = TextCursor {
@@ -314,7 +316,9 @@ pub(crate) fn cursor_byte_offset_in_run(text: &str, cursor: &TextCursor) -> usiz
         //    (the collapse point for the caret).
         let head_len = if let Some(InlineContent::Text(run)) = new_content.get_mut(lo_run) {
             let cut = lo_byte.min(run.text.len());
-            run.text.truncate(cut);
+            let mut t = String::from(&*run.text);
+            t.truncate(cut);
+            run.text = alloc::sync::Arc::from(t.as_str());
             cut
         } else {
             0
@@ -323,7 +327,9 @@ pub(crate) fn cursor_byte_offset_in_run(text: &str, cursor: &TextCursor) -> usiz
         // 2. Keep only text[hi_byte..] in the end run.
         if let Some(InlineContent::Text(run)) = new_content.get_mut(hi_run) {
             let cut = hi_byte.min(run.text.len());
-            run.text.drain(..cut);
+            let mut t = String::from(&*run.text);
+            t.drain(..cut);
+            run.text = alloc::sync::Arc::from(t.as_str());
         }
 
         // 3. Drop the intermediate runs. After draining, the end run sits at
@@ -347,7 +353,9 @@ pub(crate) fn cursor_byte_offset_in_run(text: &str, cursor: &TextCursor) -> usiz
         if mergeable {
             if let InlineContent::Text(tail) = new_content.remove(tail_idx) {
                 if let Some(InlineContent::Text(head)) = new_content.get_mut(lo_run) {
-                    head.text.push_str(&tail.text);
+                    let mut t = String::from(&*head.text);
+                    t.push_str(&tail.text);
+                    head.text = alloc::sync::Arc::from(t.as_str());
                 }
             }
         }
@@ -407,7 +415,9 @@ pub fn insert_text(
         };
         
         if byte_offset <= run.text.len() {
-            run.text.insert_str(byte_offset, text_to_insert);
+            let mut t = String::from(&*run.text);
+            t.insert_str(byte_offset, text_to_insert);
+            run.text = alloc::sync::Arc::from(t.as_str());
 
             let new_cursor = TextCursor {
                 cluster_id: GraphemeClusterId {
@@ -504,7 +514,9 @@ pub fn delete_backward(
                 .grapheme_indices(true)
                 .next_back()
                 .map_or(0, |(i, _)| i);
-            run.text.drain(prev_grapheme_start..byte_offset);
+            let mut t = String::from(&*run.text);
+            t.drain(prev_grapheme_start..byte_offset);
+            run.text = alloc::sync::Arc::from(t.as_str());
 
             let new_cursor = TextCursor {
                 cluster_id: GraphemeClusterId {
@@ -519,12 +531,12 @@ pub fn delete_backward(
             match content.get(run_idx - 1).cloned() {
                 // Previous run is text — merge the two runs.
                 Some(InlineContent::Text(prev_run)) => {
-                    let mut merged_text = prev_run.text;
+                    let mut merged_text = String::from(&*prev_run.text);
                     let new_cursor_byte_offset = merged_text.len();
                     merged_text.push_str(&run.text);
 
                     new_content[run_idx - 1] = InlineContent::Text(StyledRun {
-                        text: merged_text,
+                        text: alloc::sync::Arc::from(merged_text.as_str()),
                         style: prev_run.style,
                         logical_start_byte: prev_run.logical_start_byte,
                         source_node_id: prev_run.source_node_id,
@@ -632,7 +644,9 @@ pub fn delete_forward(
                 .grapheme_indices(true)
                 .nth(1)
                 .map_or(run.text.len(), |(i, _)| byte_offset + i);
-            run.text.drain(byte_offset..next_grapheme_end);
+            let mut t = String::from(&*run.text);
+            t.drain(byte_offset..next_grapheme_end);
+            run.text = alloc::sync::Arc::from(t.as_str());
 
             // Cursor position stays at the same byte offset but with Leading affinity
             let new_cursor = TextCursor {
@@ -648,11 +662,11 @@ pub fn delete_forward(
             match content.get(run_idx + 1).cloned() {
                 // Next run is text — merge the two runs.
                 Some(InlineContent::Text(next_run)) => {
-                    let mut merged_text = run.text.clone();
+                    let mut merged_text = String::from(&*run.text);
                     merged_text.push_str(&next_run.text);
 
                     new_content[run_idx] = InlineContent::Text(StyledRun {
-                        text: merged_text,
+                        text: alloc::sync::Arc::from(merged_text.as_str()),
                         style: run.style.clone(),
                         logical_start_byte: run.logical_start_byte,
                         source_node_id: run.source_node_id,
@@ -971,7 +985,7 @@ mod autotest_generated {
 
     fn text(s: &str) -> InlineContent {
         InlineContent::Text(StyledRun {
-            text: s.to_string(),
+            text: alloc::sync::Arc::from(s),
             style: style_a(),
             logical_start_byte: 0,
             source_node_id: None,
@@ -980,7 +994,7 @@ mod autotest_generated {
 
     fn text_styled(s: &str, style: Arc<StyleProperties>) -> InlineContent {
         InlineContent::Text(StyledRun {
-            text: s.to_string(),
+            text: alloc::sync::Arc::from(s),
             style,
             logical_start_byte: 0,
             source_node_id: None,
@@ -999,7 +1013,7 @@ mod autotest_generated {
         content
             .iter()
             .map(|c| match c {
-                InlineContent::Text(r) => r.text.clone(),
+                InlineContent::Text(r) => String::from(&*r.text),
                 _ => "<obj>".to_string(),
             })
             .collect()

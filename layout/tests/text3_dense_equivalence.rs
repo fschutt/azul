@@ -22,7 +22,7 @@ use rust_fontconfig::{FcFontCache, FontBytes, FontFallbackChain, FontId};
 #[path = "common/fakefont.rs"]
 mod fakefont;
 
-fn layout_of(text: &str, width: f32) -> UnifiedLayout {
+fn layout_of(text: &str, width: f32) -> (UnifiedLayout, Vec<InlineContent>) {
     let bytes = fakefont::simple_test_font();
     let arc = Arc::new(FontBytes::Owned(Arc::from(bytes.as_slice())));
     let parsed = ParsedFont::from_bytes(&bytes, 0, &mut Vec::new())
@@ -35,7 +35,7 @@ fn layout_of(text: &str, width: f32) -> UnifiedLayout {
         ..StyleProperties::default()
     });
     let content = vec![InlineContent::Text(StyledRun {
-        text: text.to_string(),
+        text: std::sync::Arc::from(text),
         style,
         logical_start_byte: 0,
         source_node_id: None,
@@ -53,8 +53,9 @@ fn layout_of(text: &str, width: f32) -> UnifiedLayout {
         ..UnifiedConstraints::default()
     };
     let mut cursor = BreakCursor::new(&shaped);
-    perform_fragment_layout(&mut cursor, &logical, &constraints, &mut None, &loaded)
-        .expect("layout")
+    let layout = perform_fragment_layout(&mut cursor, &logical, &constraints, &mut None, &loaded)
+        .expect("layout");
+    (layout, content)
 }
 
 #[test]
@@ -64,8 +65,13 @@ fn dense_view_agrees_with_the_current_model() {
         ("a longer paragraph that will wrap across multiple lines of text", 120.0),
         ("waffle office ffi", 400.0),
     ] {
-        let layout = layout_of(text, width);
-        let dense = DenseText::from_unified(&layout);
+        let (layout, content) = layout_of(text, width);
+        let dense = DenseText::from_unified_with_content(&layout, &content);
+        // §3.2 step 2: the dense run text is the SHARED source Arc — the
+        // full StyledRun text, not the surviving-cluster concatenation.
+        for r in &dense.runs {
+            assert_eq!(&*r.text, text, "run text is the shared source");
+        }
 
         let clusters: Vec<_> = layout
             .items

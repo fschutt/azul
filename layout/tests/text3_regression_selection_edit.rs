@@ -62,7 +62,7 @@ fn make_content(text: &str, font_ref: &FontRef) -> Vec<InlineContent> {
         ..StyleProperties::default()
     };
     vec![InlineContent::Text(StyledRun {
-        text: text.to_string(),
+        text: std::sync::Arc::from(text),
         style: Arc::new(style),
         logical_start_byte: 0,
         source_node_id: None,
@@ -151,7 +151,7 @@ fn text_of(content: &[InlineContent]) -> String {
     content
         .iter()
         .filter_map(|c| match c {
-            InlineContent::Text(run) => Some(run.text.clone()),
+            InlineContent::Text(run) => Some(String::from(&*run.text)),
             _ => None,
         })
         .collect()

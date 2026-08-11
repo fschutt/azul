@@ -61,7 +61,7 @@ fn style_of(font_ref: &FontRef) -> Arc<StyleProperties> {
 
 fn text_run(text: &str, font_ref: &FontRef) -> InlineContent {
     InlineContent::Text(StyledRun {
-        text: text.to_string(),
+        text: std::sync::Arc::from(text),
         style: style_of(font_ref),
         logical_start_byte: 0,
         source_node_id: None,

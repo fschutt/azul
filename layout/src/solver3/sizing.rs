@@ -3325,7 +3325,7 @@ mod autotest_generated {
         items
             .iter()
             .filter_map(|item| match item {
-                InlineContent::Text(run) => Some(run.text.as_str().to_string()),
+                InlineContent::Text(run) => Some(String::from(&*run.text)),
                 _ => None,
             })
             .collect()

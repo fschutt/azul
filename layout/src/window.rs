@@ -9328,7 +9328,7 @@ impl LayoutWindow {
                 let style = self.get_text_style_for_node(dom_id, node_id);
 
                 vec![InlineContent::Text(StyledRun {
-                    text: text.as_str().to_string(),
+                    text: alloc::sync::Arc::from(text.as_str()),
                     style,
                     logical_start_byte: 0,
                     source_node_id: Some(node_id),
@@ -9672,7 +9672,9 @@ impl LayoutWindow {
         let byte_pos = cursor.cluster_id.start_byte_in_run as usize;
         if let Some(InlineContent::Text(run)) = content.get_mut(run_idx) {
             let clamped_pos = byte_pos.min(run.text.len());
-            run.text.insert_str(clamped_pos, &preedit);
+            let mut t = String::from(&*run.text);
+            t.insert_str(clamped_pos, &preedit);
+            run.text = alloc::sync::Arc::from(t.as_str());
         }
 
         // Re-shape text with preedit injected — font fallback handles CJK

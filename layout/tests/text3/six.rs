@@ -23,7 +23,7 @@ fn test_available_width_should_produce_nonzero_bounds() {
     // Create a simple text content
     let text = "Hello World";
     let content = vec![InlineContent::Text(StyledRun {
-        text: text.to_string(),
+        text: std::sync::Arc::from(text),
         style: default_style(),
         logical_start_byte: 0,
         source_node_id: None, // Test content, no DOM node
@@ -145,7 +145,7 @@ fn test_available_width_zero_should_produce_zero_bounds() {
     let mut text_cache = TextShapingCache::new();
 
     let content = vec![InlineContent::Text(StyledRun {
-        text: "Hello".to_string(),
+        text: std::sync::Arc::from("Hello"),
         style: default_style(),
         logical_start_byte: 0,
         source_node_id: None, // Test content, no DOM node
@@ -181,7 +181,7 @@ fn test_available_width_infinite_should_produce_full_width() {
 
     let text = "Hello World";
     let content = vec![InlineContent::Text(StyledRun {
-        text: text.to_string(),
+        text: std::sync::Arc::from(text),
         style: default_style(),
         logical_start_byte: 0,
         source_node_id: None, // Test content, no DOM node

@@ -7829,7 +7829,7 @@ fn slice_inline_content_by_bytes(
                     .find(|&c| run.text.is_char_boundary(c))
                     .unwrap_or(len);
                 if cut_from != 0 || cut_to != len {
-                    run.text = run.text[cut_from..cut_to].to_string();
+                    run.text = alloc::sync::Arc::from(&run.text[cut_from..cut_to]);
                     run.logical_start_byte = 0;
                 }
                 out.push(InlineContent::Text(run));
@@ -9606,7 +9606,7 @@ fn generate_list_marker_segments(
     // Return single segment - font fallback happens during shaping
     // List markers are generated content, not from DOM nodes
     vec![StyledRun {
-        text: marker_text,
+        text: alloc::sync::Arc::from(marker_text.as_str()),
         style: base_style,
         logical_start_byte: 0,
         source_node_id: None,
@@ -9898,7 +9898,7 @@ pub fn split_text_for_whitespace(
                 while let Some(part) = tab_parts.next() {
                     if !part.is_empty() {
                         result.push(InlineContent::Text(StyledRun {
-                            text: part.to_string(),
+                            text: alloc::sync::Arc::from(part),
                             style: Arc::clone(style),
                             logical_start_byte: 0,
                             source_node_id: Some(dom_id),
@@ -9936,7 +9936,7 @@ pub fn split_text_for_whitespace(
 
                 if !collapsed.is_empty() {
                     result.push(InlineContent::Text(StyledRun {
-                        text: collapsed,
+                        text: alloc::sync::Arc::from(collapsed.as_str()),
                         style: Arc::clone(style),
                         logical_start_byte: 0,
                         source_node_id: Some(dom_id),
@@ -10002,7 +10002,7 @@ pub fn split_text_for_whitespace(
 
                 if !final_text.is_empty() {
                     result.push(InlineContent::Text(StyledRun {
-                        text: final_text,
+                        text: alloc::sync::Arc::from(final_text.as_str()),
                         style: Arc::clone(style),
                         logical_start_byte: 0,
                         source_node_id: Some(dom_id),
@@ -10029,7 +10029,7 @@ pub fn split_text_for_whitespace(
     if text_transform != text3::cache::TextTransform::None {
         for item in &mut result {
             if let InlineContent::Text(run) = item {
-                run.text = apply_text_transform(&run.text, text_transform);
+                run.text = alloc::sync::Arc::from(apply_text_transform(&run.text, text_transform).as_str());
             }
         }
     }
@@ -10302,7 +10302,7 @@ mod autotest_generated {
 
     fn text_of(item: &InlineContent) -> Option<&str> {
         match item {
-            InlineContent::Text(run) => Some(run.text.as_str()),
+            InlineContent::Text(run) => Some(&*run.text),
             _ => None,
         }
     }

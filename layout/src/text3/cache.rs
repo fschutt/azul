@@ -2013,7 +2013,13 @@ impl WritingMode {
 // Stage 1: Collection - Styled runs from DOM traversal
 #[derive(Debug, Clone, Hash, PartialEq)]
 pub struct StyledRun {
-    pub text: String,
+    /// The run's source text. `Arc<str>` since the §3.2 campaign step 2:
+    /// this is THE single copy of a style run's text — logical items
+    /// fragment it, shaping consumes it, and the dense model's
+    /// `DenseRun.text` shares it, replacing every per-cluster `String`
+    /// once the compact model takes over. (printpdf constructs zero
+    /// StyledRuns — verified — so the type change is boundary-safe.)
+    pub text: alloc::sync::Arc<str>,
     pub style: Arc<StyleProperties>,
     /// Byte index in the original logical paragraph text
     pub logical_start_byte: usize,
@@ -8423,7 +8429,7 @@ pub fn shape_visual_items<T: ParsedFontTrait>(
                     },
                     baseline_offset: 0.0,
                     content: InlineContent::Text(StyledRun {
-                        text: base_text.clone(),
+                        text: alloc::sync::Arc::from(base_text.as_str()),
                         style: style.clone(),
                         logical_start_byte: 0,
                         source_node_id: None,
@@ -12534,7 +12540,7 @@ mod autotest_generated {
 
     fn text_content(t: &str, st: Arc<StyleProperties>) -> InlineContent {
         InlineContent::Text(StyledRun {
-            text: t.to_string(),
+            text: alloc::sync::Arc::from(t),
             style: st,
             logical_start_byte: 0,
             source_node_id: None,

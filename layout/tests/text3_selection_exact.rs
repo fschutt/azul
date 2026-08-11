@@ -63,7 +63,7 @@ fn spans(texts: &[&str], font_ref: &FontRef) -> Vec<InlineContent> {
         .iter()
         .map(|t| {
             let run = InlineContent::Text(StyledRun {
-                text: (*t).to_string(),
+                text: std::sync::Arc::from(*t),
                 style: Arc::clone(&style),
                 logical_start_byte: byte,
                 source_node_id: None,
@@ -324,7 +324,7 @@ fn rtl_selection_maps_to_right_side() {
         ..StyleProperties::default()
     });
     let content = vec![InlineContent::Text(StyledRun {
-        text: "\u{0628}\u{062A}\u{0645}".to_string(),
+        text: std::sync::Arc::from("\u{0628}\u{062A}\u{0645}"),
         style,
         logical_start_byte: 0,
         source_node_id: None,

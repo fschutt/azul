@@ -36,7 +36,7 @@ fn test_logical_items_combine_upright() {
     style.text_combine_upright = Some(TextCombineUpright::Digits(2));
 
     let content = vec![InlineContent::Text(StyledRun {
-        text: "12ab345c".into(),
+        text: std::sync::Arc::from("12ab345c"),
         style: Arc::new(style),
         logical_start_byte: 0,
             source_node_id: None,
@@ -57,7 +57,7 @@ fn test_logical_items_combine_upright() {
     // 2. Sees 'a'. Scans for next special thing (none). Creates Text("ab345c").
     // Let's adjust the test to this logic.
     let content = vec![InlineContent::Text(StyledRun {
-        text: "12ab 345c".into(),
+        text: std::sync::Arc::from("12ab 345c"),
         style: default_style(),
         logical_start_byte: 0,
             source_node_id: None,
@@ -107,19 +107,19 @@ fn test_logical_items_combine_upright() {
 fn test_bidi_reordering_mixed_content() {
     let content = vec![
         InlineContent::Text(StyledRun {
-            text: "hello ".into(),
+            text: std::sync::Arc::from("hello "),
             style: default_style(),
             logical_start_byte: 0,
             source_node_id: None,
         }),
         InlineContent::Text(StyledRun {
-            text: "שלום".into(), // Shalom in Hebrew
+            text: std::sync::Arc::from("שלום"), // Shalom in Hebrew
             style: default_style(),
             logical_start_byte: 6,
             source_node_id: None,
         }),
         InlineContent::Text(StyledRun {
-            text: " world".into(),
+            text: std::sync::Arc::from(" world"),
             style: default_style(),
             logical_start_byte: 14, // 6 + 4 chars * 2 bytes/char
             source_node_id: None,
@@ -144,7 +144,7 @@ fn test_long_word_overflow_no_hyphenation() {
     let manager = create_mock_font_manager();
     let text = "supercalifragilisticexpialidocious"; // very long word
     let content = vec![InlineContent::Text(StyledRun {
-        text: text.into(),
+        text: std::sync::Arc::from(text),
         style: default_style(),
         logical_start_byte: 0,
             source_node_id: None,
@@ -185,7 +185,7 @@ fn test_long_word_overflow_no_hyphenation() {
 fn test_multi_column_layout() {
     let manager = create_mock_font_manager();
     let content = vec![InlineContent::Text(StyledRun {
-        text: "a b c d e f g h".into(),
+        text: std::sync::Arc::from("a b c d e f g h"),
         style: default_style(),
         logical_start_byte: 0,
             source_node_id: None,
@@ -236,7 +236,7 @@ fn test_multi_column_layout() {
 fn test_line_clamp() {
     let manager = create_mock_font_manager();
     let content = vec![InlineContent::Text(StyledRun {
-        text: "a a a a a a a a a a".into(),
+        text: std::sync::Arc::from("a a a a a a a a a a"),
         style: default_style(),
         logical_start_byte: 0,
             source_node_id: None,
@@ -270,7 +270,7 @@ fn test_flow_across_fragments() {
     let mut cache = TextShapingCache::new();
     let manager = create_mock_font_manager();
     let content = vec![InlineContent::Text(StyledRun {
-        text: "line one and line two and line three".into(),
+        text: std::sync::Arc::from("line one and line two and line three"),
         style: default_style(),
         logical_start_byte: 0,
             source_node_id: None,
@@ -332,7 +332,7 @@ fn test_kashida_justification() {
     let manager = create_mock_font_manager();
     // "مرحبا" -> m(8)+r(7)+h(9)+b(7)+a(6) = 37px
     let content = vec![InlineContent::Text(StyledRun {
-        text: "مرحبا".into(),
+        text: std::sync::Arc::from("مرحبا"),
         style: default_style(),
         logical_start_byte: 0,
             source_node_id: None,
@@ -381,9 +381,9 @@ fn test_kashida_justification() {
 fn test_layout_with_shape_exclusion() {
     let manager = create_mock_font_manager();
     let content = vec![InlineContent::Text(StyledRun {
-        text: "this is some very long text that should wrap around a floated exclusion area in \
+        text: std::sync::Arc::from("this is some very long text that should wrap around a floated exclusion area in \
                the middle"
-            .into(),
+            ),
         style: default_style(),
         logical_start_byte: 0,
             source_node_id: None,
@@ -442,7 +442,7 @@ fn test_layout_with_shape_exclusion() {
 fn test_get_glyph_positions() {
     let manager = create_mock_font_manager();
     let content = vec![InlineContent::Text(StyledRun {
-        text: "word".into(), // w(10) o(9) r(7) d(9)
+        text: std::sync::Arc::from("word"), // w(10) o(9) r(7) d(9)
         style: default_style(),
         logical_start_byte: 0,
             source_node_id: None,

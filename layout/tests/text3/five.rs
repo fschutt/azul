@@ -12,7 +12,7 @@ use azul_layout::text3::{cache::*, edit::{edit_text, TextEdit}};
 fn test_hittest_simple_ltr() {
     let manager = create_mock_font_manager();
     let content = vec![InlineContent::Text(StyledRun {
-        text: "hello".into(), // h=9, e=8, l=4, l=4, o=9
+        text: std::sync::Arc::from("hello"), // h=9, e=8, l=4, l=4, o=9
         style: default_style(),
         logical_start_byte: 0,
             source_node_id: None,
@@ -60,7 +60,7 @@ fn test_hittest_simple_ltr() {
 fn test_get_selection_rects_single_line() {
     let manager = create_mock_font_manager();
     let content = vec![InlineContent::Text(StyledRun {
-        text: "hello world".into(),
+        text: std::sync::Arc::from("hello world"),
         style: default_style(),
         logical_start_byte: 0,
             source_node_id: None,
@@ -111,7 +111,7 @@ fn create_test_layout() -> (UnifiedLayout, MockFontManager) {
     let manager = create_mock_font_manager();
     // Use a single run to ensure "hello world" is treated as one logical unit
     let content = vec![InlineContent::Text(StyledRun {
-        text: "hello world second line".into(),
+        text: std::sync::Arc::from("hello world second line"),
         style: default_style(),
         logical_start_byte: 0,
             source_node_id: None,
@@ -231,7 +231,7 @@ fn test_move_cursor_line_start_end() {
 #[test]
 fn test_edit_insert_char() {
     let content = vec![InlineContent::Text(StyledRun {
-        text: "helo".into(),
+        text: std::sync::Arc::from("helo"),
         style: default_style(),
         logical_start_byte: 0,
             source_node_id: None,
@@ -252,13 +252,13 @@ fn test_edit_insert_char() {
         _ => panic!(),
     };
 
-    assert_eq!(new_text, "hello");
+    assert_eq!(&**new_text, "hello");
 }
 
 #[test]
 fn test_edit_delete_backward() {
     let content = vec![InlineContent::Text(StyledRun {
-        text: "hel lo".into(),
+        text: std::sync::Arc::from("hel lo"),
         style: default_style(),
         logical_start_byte: 0,
             source_node_id: None,
@@ -279,7 +279,7 @@ fn test_edit_delete_backward() {
         _ => panic!(),
     };
 
-    assert_eq!(new_text, "hello");
+    assert_eq!(&**new_text, "hello");
 }
 
 /// Creates a standard multi-line layout for testing navigation.
@@ -287,7 +287,7 @@ fn create_test_layout_2() -> (UnifiedLayout, MockFontManager) {
     let manager = create_mock_font_manager();
     // Use a text that will definitely wrap to test multi-line navigation
     let content = vec![InlineContent::Text(StyledRun {
-        text: "hello beautiful world".into(),
+        text: std::sync::Arc::from("hello beautiful world"),
         style: default_style(),
         logical_start_byte: 0,
             source_node_id: None,
@@ -353,7 +353,7 @@ fn test_move_cursor_left_right_simple() {
 #[test]
 fn test_edit_text_multi_cursor_insert() {
     let content = vec![InlineContent::Text(StyledRun {
-        text: "cat hat".into(),
+        text: std::sync::Arc::from("cat hat"),
         style: default_style(),
         logical_start_byte: 0,
             source_node_id: None,
@@ -383,7 +383,7 @@ fn test_edit_text_multi_cursor_insert() {
         _ => panic!(),
     };
 
-    assert_eq!(new_text, "c at h at");
+    assert_eq!(&**new_text, "c at h at");
 
     // Check that the new cursors are in the correct positions
     assert_eq!(new_selections.len(), 2);
@@ -400,19 +400,19 @@ fn test_edit_text_multi_cursor_insert() {
 fn test_edit_delete_range_across_runs() {
     let content = vec![
         InlineContent::Text(StyledRun {
-            text: "one".into(),
+            text: std::sync::Arc::from("one"),
             style: default_style(),
             logical_start_byte: 0,
             source_node_id: None,
         }),
         InlineContent::Text(StyledRun {
-            text: " two ".into(),
+            text: std::sync::Arc::from(" two "),
             style: default_style(),
             logical_start_byte: 4,
             source_node_id: None,
         }),
         InlineContent::Text(StyledRun {
-            text: "three".into(),
+            text: std::sync::Arc::from("three"),
             style: default_style(),
             logical_start_byte: 9,
             source_node_id: None,
@@ -443,7 +443,7 @@ fn test_edit_delete_range_across_runs() {
     // Expected result: a single run "onree"
     // assert_eq!(new_content.len(), 1);
     // if let InlineContent::Text(run) = &new_content[0] {
-    //     assert_eq!(run.text, "onree");
+    //     assert_eq!(&*run.text, "onree");
     // }
     // assert_eq!(new_cursor.cluster_id.start_byte_in_run, 2);
 }

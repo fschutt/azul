@@ -42,7 +42,7 @@ fn mono_ref() -> FontRef {
 
 fn styled_run(text: &str, size: f32, va: VerticalAlign, font_ref: &FontRef, start: usize) -> InlineContent {
     InlineContent::Text(StyledRun {
-        text: text.to_string(),
+        text: std::sync::Arc::from(text),
         style: Arc::new(StyleProperties {
             font_stack: FontStack::Ref(font_ref.clone()),
             font_size_px: size,

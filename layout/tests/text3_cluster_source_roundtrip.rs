@@ -45,7 +45,7 @@ fn shape(text: &str, dir: BidiDirection) -> Vec<ShapedItem> {
         ..StyleProperties::default()
     });
     let content = vec![InlineContent::Text(StyledRun {
-        text: text.to_string(),
+        text: std::sync::Arc::from(text),
         style,
         logical_start_byte: 0,
         source_node_id: None,

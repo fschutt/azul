@@ -115,6 +115,18 @@ impl DenseText {
     /// the plan's `AtomicItem` design and migrate in a later step.
     #[must_use]
     pub fn from_unified(layout: &UnifiedLayout) -> Self {
+        Self::from_unified_with_content(layout, &[])
+    }
+
+    /// Like [`Self::from_unified`], but with the source content available:
+    /// each `DenseRun.text` becomes an `Arc` CLONE of its `StyledRun`'s
+    /// text (§3.2 step 2) — the true shared source — instead of the
+    /// step-1 concatenation of surviving clusters.
+    #[must_use]
+    pub fn from_unified_with_content(
+        layout: &UnifiedLayout,
+        content: &[super::cache::InlineContent],
+    ) -> Self {
         let mut dense = Self::default();
         let mut current_run: Option<DenseRun> = None;
         let mut current_line: Option<(usize, LineRecord)> = None;
@@ -177,9 +189,21 @@ impl DenseText {
                 });
             }
             if let Some(r) = &mut current_run {
-                let mut t = String::from(&*r.text);
-                t.push_str(&c.text);
-                r.text = Arc::from(t.as_str());
+                if r.text.is_empty() {
+                    // The true shared source: the StyledRun's Arc, aliased.
+                    if let Some(super::cache::InlineContent::Text(sr)) =
+                        content.get(r.source_run as usize)
+                    {
+                        r.text = sr.text.clone();
+                    }
+                }
+                if r.text.is_empty() {
+                    // No content available (plain from_unified): fall back
+                    // to concatenating surviving clusters, as in step 1.
+                    let mut t = String::from(&*r.text);
+                    t.push_str(&c.text);
+                    r.text = Arc::from(t.as_str());
+                }
             }
 
             // Line records from line_index transitions.
