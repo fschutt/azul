@@ -503,6 +503,30 @@ impl DenseText {
         cursor
     }
 
+    /// (d6f) The single (direction, step) dispatch over the dense
+    /// movement library — twin of the window's `resolve_step_static`.
+    #[must_use]
+    pub fn resolve_step(
+        &self,
+        cursor: &azul_core::selection::TextCursor,
+        direction: azul_core::events::SelectionDirection,
+        step: azul_core::events::SelectionStep,
+    ) -> azul_core::selection::TextCursor {
+        use azul_core::events::{SelectionDirection as D, SelectionStep as S};
+        match (direction, step) {
+            (D::Backward, S::Character) => self.move_cursor_left(*cursor),
+            (D::Forward, S::Character) => self.move_cursor_right(*cursor),
+            (D::Backward, S::Word) => self.move_cursor_to_prev_word(*cursor),
+            (D::Forward, S::Word) => self.move_cursor_to_next_word(*cursor),
+            (D::Backward, S::VisualLine) => self.move_cursor_up(*cursor, &mut None),
+            (D::Forward, S::VisualLine) => self.move_cursor_down(*cursor, &mut None),
+            (D::Backward, S::Line) => self.move_cursor_to_line_start(*cursor),
+            (D::Forward, S::Line) => self.move_cursor_to_line_end(*cursor),
+            (D::Backward, S::Document) => self.first_cluster_cursor().unwrap_or(*cursor),
+            (D::Forward, S::Document) => self.last_cluster_cursor().unwrap_or(*cursor),
+        }
+    }
+
     /// (d6e) One word right — mirrors the sparse flow (skip the current
     /// word, then boundary clusters, land Leading on the next word; end
     /// of text falls to the last cluster Trailing).
@@ -727,6 +751,13 @@ impl DenseText {
             return cursor;
         };
         UnifiedLayout::cursor_from_grapheme_offset(&stops, (offset + 1).min(stops.len()))
+    }
+
+    /// (d6f) Leading cursor on the FIRST cluster — sparse
+    /// `get_first_cluster_cursor` twin.
+    #[must_use]
+    pub fn first_cluster_cursor(&self) -> Option<azul_core::selection::TextCursor> {
+        self.cursor_at_index(0, azul_core::selection::CursorAffinity::Leading)
     }
 
     /// (d4) The trailing cursor on the LAST cluster — the dense twin of

@@ -6176,6 +6176,33 @@ impl LayoutWindow {
         layout_result.layout_tree.get_inline_layout_for_node(layout_index)
     }
 
+    /// (d6f) Dense-first step resolution: the dense dispatcher when the
+    /// view is retained (verify-A/B'd against the sparse one under
+    /// AZ_DENSE_TEXT=verify), sparse fallback otherwise. Associated (no
+    /// `&self`) because the call sites run inside `move_all_cursors`
+    /// closures that hold `self.text_edit_manager` mutably — the dense
+    /// Arc is hoisted out of `self` before that borrow starts.
+    fn resolve_step_with(
+        dense: Option<&crate::text3::dense::DenseText>,
+        layout: &UnifiedLayout,
+        cursor: &TextCursor,
+        direction: azul_core::events::SelectionDirection,
+        step: azul_core::events::SelectionStep,
+    ) -> TextCursor {
+        if let Some(d) = dense {
+            let dense_result = d.resolve_step(cursor, direction, step);
+            if std::env::var("AZ_DENSE_TEXT").as_deref() == Ok("verify") {
+                let sparse = Self::resolve_step_static(layout, cursor, direction, step);
+                assert_eq!(
+                    dense_result, sparse,
+                    "d6f verify: step ({direction:?}, {step:?}) diverged"
+                );
+            }
+            return dense_result;
+        }
+        Self::resolve_step_static(layout, cursor, direction, step)
+    }
+
     /// Single dispatch: (direction, step) → `UnifiedLayout` cursor movement.
     fn resolve_step_static(
         layout: &UnifiedLayout,
@@ -6219,6 +6246,10 @@ impl LayoutWindow {
             Some(l) => l.clone(),
             None => return false,
         };
+        // (d6f) Hoisted (and Arc-cloned, severing the `self` borrow)
+        // before `text_edit_manager` is borrowed mutably — the closures
+        // below can then resolve without touching `self`.
+        let dense = self.get_dense_for_node(dom_id, node_id).cloned();
 
         match op.mode {
             SelectionMode::Move | SelectionMode::Extend => {
@@ -6226,7 +6257,7 @@ impl LayoutWindow {
                 if let Some(ref mut mc) = self.text_edit_manager.multi_cursor {
                     for _ in 0..op.repeat.max(1) {
                         mc.move_all_cursors(extend, |c| {
-                            Self::resolve_step_static(&layout, c, op.direction, op.step)
+                            Self::resolve_step_with(dense.as_deref(), &layout, c, op.direction, op.step)
                         });
                     }
                 }
@@ -6239,7 +6270,7 @@ impl LayoutWindow {
                     if let Some(ref mut mc) = self.text_edit_manager.multi_cursor {
                         for _ in 0..op.repeat.max(1) {
                             mc.move_all_cursors(true, |c| {
-                                Self::resolve_step_static(&layout, c, op.direction, op.step)
+                                Self::resolve_step_with(dense.as_deref(), &layout, c, op.direction, op.step)
                             });
                         }
                     }

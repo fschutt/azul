@@ -1328,3 +1328,44 @@ display_list.rs 5, paged_layout.rs 2, fc.rs 1) plus the accessor-level
 readers behind `get_inline_layout_for_node` (selection, caret, edit,
 hit-test). Retire the sparse retention LAST, after every reader has a
 dense view; measure at plateau before and after (e).
+
+### §10.5 external yardstick (2026-08-11, measured on this machine)
+
+LibreOffice Writer 24.x (deb install, first profile run, windowed on
+KDE Wayland, 50 s settle) with the SAME uniq-960 corpus loaded:
+**soffice.bin 206 MB RSS**. miniword at the d6d flag-on plateau:
+**136.0 MB RSS / 73.6 MB heap** → 0.66x LO mid-campaign, with the
+dense+sparse dual retention still in (transitional +2.6 MB) and the
+shaped-text kill (§7k) not yet landed. Method note: capture RSS to a
+file BEFORE any pkill, and never `pkill -f` with a pattern that appears
+in the measuring shell's own command line (it self-kills, exit 144).
+
+Full 2026-08-11 sweep, same corpus, windowed, 30-50 s settle,
+process-TREE RSS (browser-class apps got a styled-HTML render of the
+corpus, one <p>/line + page CSS; editors got the raw txt):
+
+| tier | app | MB RSS |
+|---|---|---|
+| buffer editors (no styled layout, no pagination) | PyGTK3 TextView (minimal) | 49 |
+| | gedit | 93 |
+| | PyQt5 QPlainTextEdit (minimal) | 160 |
+| | kwrite / kate | 196 / 197 |
+| document renderers (styled layout + pagination) | **miniword (azul, CPU)** | **136** |
+| | LibreOffice Writer | 206 |
+| web engines (full doc stack) | Blitz browser (Stylo+Parley+vello_cpu, 1 proc) | 211 |
+| | Servo v0.4 (1 proc) | 289 |
+| | Electron v43 bare BrowserWindow (4 proc) | 324 |
+| | Chromium (4 proc) | 426 |
+| | Firefox (11 proc, fission; 3 proc on txt = 678) | 1166 |
+
+Readings: miniword undercuts every Qt app on the box INCLUDING a
+minimal QPlainTextEdit; only GTK3 buffer widgets doing no document
+work are lighter; every web-tech route to the same UI is 1.55-9x.
+Python rows carry ~15-25 MB interpreter. Electron row is an EMPTY
+shell app — real Electron apps add their bundle on top. Blitz was
+built from source (no prebuilt releases; needed rustls swap in
+blitz-net + fontconfig/ssl dev headers): the closest peer stack
+(Rust, CPU render) and STILL 1.55x azul's RSS. WPS skipped (system
+install). Binary sizes (stripped, self-contained): libazul 34 MB ~
+blitz 39 MB < servo 131 < ff 297 < electron 313 < LO 320 < chromium
+359; system editors 0-7 MB riding 100+ MB shared toolkits.

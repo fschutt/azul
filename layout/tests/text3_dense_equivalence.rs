@@ -768,3 +768,57 @@ fn dense_word_and_line_movement_agree_with_the_sparse_walk() {
         }
     }
 }
+
+/// (d6f) The dispatcher pin: every (direction, step) arm of
+/// `DenseText::resolve_step` must route to the same movement op the
+/// window's sparse `resolve_step_static` routes to. Wiring-level — the
+/// ops themselves are pinned pairwise above; this catches a swapped or
+/// mis-mapped match arm.
+#[test]
+fn dense_resolve_step_dispatches_like_the_sparse_resolver() {
+    use azul_core::events::{SelectionDirection as D, SelectionStep as S};
+    let (layout, content) =
+        layout_of("a longer paragraph that will wrap across multiple lines of text", 120.0);
+    let dense = DenseText::from_unified_with_content(&layout, &content);
+    for id in &dense.grapheme_stops() {
+        for affinity in [
+            azul_core::selection::CursorAffinity::Leading,
+            azul_core::selection::CursorAffinity::Trailing,
+        ] {
+            let cursor = azul_core::selection::TextCursor { cluster_id: *id, affinity };
+            for (direction, step) in [
+                (D::Backward, S::Character),
+                (D::Forward, S::Character),
+                (D::Backward, S::Word),
+                (D::Forward, S::Word),
+                (D::Backward, S::VisualLine),
+                (D::Forward, S::VisualLine),
+                (D::Backward, S::Line),
+                (D::Forward, S::Line),
+                (D::Backward, S::Document),
+                (D::Forward, S::Document),
+            ] {
+                let expected = match (direction, step) {
+                    (D::Backward, S::Character) => dense.move_cursor_left(cursor),
+                    (D::Forward, S::Character) => dense.move_cursor_right(cursor),
+                    (D::Backward, S::Word) => dense.move_cursor_to_prev_word(cursor),
+                    (D::Forward, S::Word) => dense.move_cursor_to_next_word(cursor),
+                    (D::Backward, S::VisualLine) => dense.move_cursor_up(cursor, &mut None),
+                    (D::Forward, S::VisualLine) => dense.move_cursor_down(cursor, &mut None),
+                    (D::Backward, S::Line) => dense.move_cursor_to_line_start(cursor),
+                    (D::Forward, S::Line) => dense.move_cursor_to_line_end(cursor),
+                    (D::Backward, S::Document) => {
+                        dense.first_cluster_cursor().unwrap_or(cursor)
+                    }
+                    (D::Forward, S::Document) => dense.last_cluster_cursor().unwrap_or(cursor),
+                    _ => unreachable!(),
+                };
+                assert_eq!(
+                    dense.resolve_step(&cursor, direction, step),
+                    expected,
+                    "dispatch ({direction:?}, {step:?}) from {id:?}/{affinity:?}"
+                );
+            }
+        }
+    }
+}
