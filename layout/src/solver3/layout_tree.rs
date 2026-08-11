@@ -268,6 +268,11 @@ pub struct CachedInlineLayout {
     /// Enables checking if a width change fits on the same line without
     /// re-running the full line-breaking algorithm.
     pub line_breaks: Option<crate::text3::cache::CachedLineBreaks>,
+    /// §3.2 step (d1): the dense view of `layout`, retained when
+    /// `AZ_DENSE_TEXT` is active (glyph_runs derive from THIS instance).
+    /// Readers migrate from `layout` onto it one by one; the sparse form
+    /// retires when the last reader has moved (plan §10.4).
+    pub dense: Option<Arc<crate::text3::dense::DenseText>>,
     /// Hash of the `InlineContent` this layout was shaped from. The Phase 2d
     /// fast-path reuse in fc.rs keys cache validity on WIDTH only; without this,
     /// a same-width `RefreshDom` whose text CHANGED would reuse the stale shaped
@@ -289,22 +294,40 @@ pub struct CachedInlineLayout {
 /// side by design and the twin would silently DROP their glyphs.
 fn compute_glyph_runs(
     layout: &crate::text3::cache::UnifiedLayout,
-) -> Vec<crate::text3::glyphs::SimpleGlyphRun> {
-    use crate::text3::cache::ShapedItem;
+) -> (
+    Vec<crate::text3::glyphs::SimpleGlyphRun>,
+    Option<Arc<crate::text3::dense::DenseText>>,
+) {
     static MODE: std::sync::OnceLock<u8> = std::sync::OnceLock::new();
     let mode = *MODE.get_or_init(|| match std::env::var("AZ_DENSE_TEXT").as_deref() {
         Ok("1") => 1,
         Ok("verify") => 2,
         _ => 0,
     });
+    compute_glyph_runs_with_mode(layout, mode)
+}
+
+/// Testable core of [`compute_glyph_runs`] — `mode` injected so the d1
+/// retention pin can exercise the dense path without env-var races.
+fn compute_glyph_runs_with_mode(
+    layout: &crate::text3::cache::UnifiedLayout,
+    mode: u8,
+) -> (
+    Vec<crate::text3::glyphs::SimpleGlyphRun>,
+    Option<Arc<crate::text3::dense::DenseText>>,
+) {
+    use crate::text3::cache::ShapedItem;
     if mode == 0
         || layout
             .items
             .iter()
             .any(|it| matches!(it.item, ShapedItem::CombinedBlock { .. }))
     {
-        return crate::text3::glyphs::get_glyph_runs_simple(layout);
+        return (crate::text3::glyphs::get_glyph_runs_simple(layout), None);
     }
+    // §3.2 step (d1): the dense view is RETAINED on the cache entry, not
+    // rebuilt-and-dropped per walk — the readers migrate onto it one by
+    // one, and the sparse `layout` retires when the last one has.
     let dense = crate::text3::dense::DenseText::from_unified(layout);
     let ours = crate::text3::dense::get_glyph_runs_simple_dense(&dense);
     if mode == 2 {
@@ -330,7 +353,7 @@ fn compute_glyph_runs(
             );
         }
     }
-    ours
+    (ours, Some(Arc::new(dense)))
 }
 
 impl CachedInlineLayout {
@@ -341,7 +364,8 @@ impl CachedInlineLayout {
         has_floats: bool,
     ) -> Self {
         let item_metrics = Self::extract_item_metrics(&layout);
-        let glyph_runs = Arc::new(compute_glyph_runs(&layout));
+        let (runs, dense) = compute_glyph_runs(&layout);
+        let glyph_runs = Arc::new(runs);
         Self {
             layout,
             available_width,
@@ -350,6 +374,7 @@ impl CachedInlineLayout {
             glyph_runs,
             item_metrics,
             line_breaks: None,
+            dense,
             inline_content_hash: 0,
         }
     }
@@ -369,7 +394,8 @@ impl CachedInlineLayout {
         let line_breaks = Some(crate::text3::cache::extract_line_breaks(
             &layout.items, available_width_px,
         ));
-        let glyph_runs = Arc::new(compute_glyph_runs(&layout));
+        let (runs, dense) = compute_glyph_runs(&layout);
+        let glyph_runs = Arc::new(runs);
         Self {
             layout,
             available_width,
@@ -378,6 +404,7 @@ impl CachedInlineLayout {
             glyph_runs,
             item_metrics,
             line_breaks,
+            dense,
             inline_content_hash: 0,
         }
     }
@@ -1038,6 +1065,19 @@ impl LayoutTree {
                     * size_of::<crate::text3::cache::PositionedItem>();
                 report.warm_inline_layout_bytes += cached.item_metrics.capacity()
                     * size_of::<InlineItemMetrics>();
+                // (d1): the retained dense view, when AZ_DENSE_TEXT keeps it.
+                // Counted per-field so the sparse-vs-dense split is honest
+                // during the reader migration (both alive = the transitional
+                // cost; the sparse side retires at the end of (d)).
+                if let Some(d) = &cached.dense {
+                    use crate::text3::dense as dn;
+                    report.warm_inline_layout_bytes += size_of::<dn::DenseText>()
+                        + d.clusters.capacity() * size_of::<dn::ClusterCompact>()
+                        + d.runs.capacity() * size_of::<dn::DenseRun>()
+                        + d.lines.capacity() * size_of::<dn::LineRecord>()
+                        + d.details.capacity() * size_of::<dn::ClusterDetail>()
+                        + d.detail_glyphs.capacity() * size_of::<dn::DetailGlyph>();
+                }
                 // Glyphs and per-cluster text.
                 //
                 // ONLY the SPILLED glyphs are counted here. `glyphs` is a
@@ -4053,6 +4093,25 @@ mod autotest_generated {
 
     fn cached(width: AvailableSpace, has_floats: bool) -> CachedInlineLayout {
         CachedInlineLayout::new(empty_layout(), width, has_floats)
+    }
+
+    /// d1 retention wiring: mode 0 stores NO dense view; mode 1 (and 2)
+    /// store one, and the runs it derives equal the reference's. The
+    /// SEMANTIC equality over real shaped content is pinned by
+    /// text3_dense_equivalence + the e2e corpus under AZ_DENSE_TEXT=verify;
+    /// this pins the CACHE wiring (someone dropping the retention or the
+    /// tuple plumbing goes red here).
+    #[test]
+    fn dense_view_is_retained_exactly_when_the_flag_asks() {
+        let l = empty_layout();
+        let (runs0, d0) = compute_glyph_runs_with_mode(&l, 0);
+        assert!(d0.is_none(), "mode 0 must not retain a dense view");
+        let (runs1, d1) = compute_glyph_runs_with_mode(&l, 1);
+        assert!(d1.is_some(), "mode 1 must retain the dense view");
+        let (runs2, d2) = compute_glyph_runs_with_mode(&l, 2);
+        assert!(d2.is_some(), "verify mode must retain the dense view");
+        assert_eq!(runs0.len(), runs1.len());
+        assert_eq!(runs0.len(), runs2.len());
     }
 
     #[test]
