@@ -628,3 +628,39 @@ fn dense_grapheme_stops_agree_with_the_sparse_walk() {
         );
     }
 }
+
+/// (d6c) Left/right movement over EVERY caret stop must match the sparse
+/// walk exactly — incl. the combining-mark case (marks move with their
+/// base) and saturation at both ends.
+#[test]
+fn dense_cursor_movement_agrees_with_the_sparse_walk() {
+    for (text, width) in [
+        ("hello dense world", 400.0),
+        ("a longer paragraph that will wrap across multiple lines of text", 120.0),
+        ("cafe\u{0301} au lait", 400.0),
+    ] {
+        let (layout, content) = layout_of(text, width);
+        let dense = DenseText::from_unified_with_content(&layout, &content);
+        let stops = dense.grapheme_stops();
+        assert!(!stops.is_empty());
+        let mut dbg = None;
+        for id in &stops {
+            for affinity in [
+                azul_core::selection::CursorAffinity::Leading,
+                azul_core::selection::CursorAffinity::Trailing,
+            ] {
+                let cursor = azul_core::selection::TextCursor { cluster_id: *id, affinity };
+                assert_eq!(
+                    dense.move_cursor_left(cursor),
+                    layout.move_cursor_left(cursor, &mut dbg),
+                    "left from {id:?}/{affinity:?} ({text:?})"
+                );
+                assert_eq!(
+                    dense.move_cursor_right(cursor),
+                    layout.move_cursor_right(cursor, &mut dbg),
+                    "right from {id:?}/{affinity:?} ({text:?})"
+                );
+            }
+        }
+    }
+}

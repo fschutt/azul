@@ -5454,7 +5454,8 @@ impl UnifiedLayout {
     /// grapheme, plus 1 for a Trailing affinity. A cursor addressing a folded
     /// combining mark (or otherwise between stops) maps to the nearest preceding
     /// stop.
-    fn grapheme_caret_offset(stops: &[GraphemeClusterId], cursor: &TextCursor) -> Option<usize> {
+    #[doc(hidden)] // pub for the dense movement twins (stops-only logic)
+    pub fn grapheme_caret_offset(stops: &[GraphemeClusterId], cursor: &TextCursor) -> Option<usize> {
         let trailing = usize::from(cursor.affinity == CursorAffinity::Trailing);
         if let Some(idx) = stops.iter().position(|id| *id == cursor.cluster_id) {
             return Some(idx + trailing);
@@ -5469,7 +5470,8 @@ impl UnifiedLayout {
     /// Canonical cursor for a grapheme-stop `offset` (0..=len): interior/first
     /// offsets are the Leading edge of the stop that begins there; `len` is the
     /// Trailing edge of the last stop (the document end).
-    fn cursor_from_grapheme_offset(stops: &[GraphemeClusterId], offset: usize) -> TextCursor {
+    #[doc(hidden)] // pub for the dense movement twins (stops-only logic)
+    pub fn cursor_from_grapheme_offset(stops: &[GraphemeClusterId], offset: usize) -> TextCursor {
         let n = stops.len();
         if offset >= n {
             TextCursor { cluster_id: stops[n - 1], affinity: CursorAffinity::Trailing }

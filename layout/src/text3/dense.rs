@@ -352,6 +352,43 @@ impl DenseText {
         stops
     }
 
+    /// (d6c) One caret stop left — IDENTICAL to the sparse
+    /// `move_cursor_left` by construction: the stops list is pinned equal
+    /// (grapheme_stops gate) and the offset arithmetic is the SAME static
+    /// helper the sparse implementation uses.
+    #[must_use]
+    pub fn move_cursor_left(
+        &self,
+        cursor: azul_core::selection::TextCursor,
+    ) -> azul_core::selection::TextCursor {
+        use super::cache::UnifiedLayout;
+        let stops = self.grapheme_stops();
+        if stops.is_empty() {
+            return cursor;
+        }
+        let Some(offset) = UnifiedLayout::grapheme_caret_offset(&stops, &cursor) else {
+            return cursor;
+        };
+        UnifiedLayout::cursor_from_grapheme_offset(&stops, offset.saturating_sub(1))
+    }
+
+    /// (d6c) One caret stop right — see [`Self::move_cursor_left`].
+    #[must_use]
+    pub fn move_cursor_right(
+        &self,
+        cursor: azul_core::selection::TextCursor,
+    ) -> azul_core::selection::TextCursor {
+        use super::cache::UnifiedLayout;
+        let stops = self.grapheme_stops();
+        if stops.is_empty() {
+            return cursor;
+        }
+        let Some(offset) = UnifiedLayout::grapheme_caret_offset(&stops, &cursor) else {
+            return cursor;
+        };
+        UnifiedLayout::cursor_from_grapheme_offset(&stops, (offset + 1).min(stops.len()))
+    }
+
     /// (d4) The trailing cursor on the LAST cluster — the dense twin of
     /// the sparse `items.iter().rev().find_map(Cluster)` scans (which
     /// skip trailing non-clusters, exactly as taking the last dense
