@@ -2018,8 +2018,14 @@ impl LayoutWindow {
         // final cluster. A byte-length synthetic cursor (one past the last
         // cluster start) resolves to NOTHING in get_selection_rects and the
         // whole node silently loses its highlight.
-        self.get_node_inline_layout(dom_id, node_id)
-            .and_then(|layout| layout.end_cursor())
+        // (d6) Dense-first: last_cluster_cursor IS the end cursor (pinned
+        // against the sparse rev-scan over the corpus); sparse fallback.
+        self.get_dense_for_node(dom_id, node_id)
+            .and_then(|d| d.last_cluster_cursor())
+            .or_else(|| {
+                self.get_node_inline_layout(dom_id, node_id)
+                    .and_then(|layout| layout.end_cursor())
+            })
     }
 
     /// Establish a selection SPANNING MULTIPLE sibling blocks (AZUL-STILL-TODO
