@@ -89,6 +89,40 @@ fn layout_of(text: &str, width: f32) -> (UnifiedLayout, Vec<InlineContent>) {
     (layout, content)
 }
 
+/// (d3) A line mixing font SIZES must record the MAX resolved line
+/// height — the uniform corpus cannot distinguish max from
+/// first-cluster, so this case is what makes the height check bite.
+#[test]
+fn dense_line_height_is_the_max_over_mixed_sizes() {
+    let font_ref = test_font_ref();
+    let content = vec![
+        styled("small ", &font_ref, 0, None, |_| {}),
+        styled("BIG", &font_ref, 6, None, |s| s.font_size_px = 32.0),
+    ];
+    let (layout, content, _) = layout_of_content(content, &font_ref, 400.0);
+    let dense = DenseText::from_unified_with_content(&layout, &content);
+    let clusters: Vec<_> = layout
+        .items
+        .iter()
+        .filter_map(|it| match &it.item {
+            ShapedItem::Cluster(c) => Some((it, c)),
+            _ => None,
+        })
+        .collect();
+    assert!(!dense.lines.is_empty());
+    for l in &dense.lines {
+        let expected: f32 = (l.clusters.0..l.clusters.1)
+            .map(|ci| clusters[ci as usize].0.item.bounds().height)
+            .fold(0.0, f32::max);
+        assert!(expected > 20.0, "the BIG run must dominate ({expected})");
+        assert!(
+            (l.height - expected).abs() < 0.01,
+            "line height {} != max cluster height {expected}",
+            l.height
+        );
+    }
+}
+
 #[test]
 fn dense_view_agrees_with_the_current_model() {
     for (text, width) in [
@@ -148,12 +182,22 @@ fn dense_view_agrees_with_the_current_model() {
             );
         }
 
-        // Every line record covers a non-empty, in-order cluster range.
+        // Every line record covers a non-empty, in-order cluster range,
+        // and (d3) carries the max resolved line height of its clusters —
+        // cross-checked against the sparse items' bounds().height.
         let mut line_cover = 0u32;
         for l in &dense.lines {
             assert!(l.clusters.1 > l.clusters.0, "empty line record");
             assert!(l.clusters.0 >= line_cover, "line ranges ordered");
             line_cover = l.clusters.1;
+            let expected: f32 = (l.clusters.0..l.clusters.1)
+                .map(|ci| clusters[ci as usize].0.item.bounds().height)
+                .fold(0.0, f32::max);
+            assert!(
+                (l.height - expected).abs() < 0.01,
+                "line height {} != max cluster height {expected}",
+                l.height
+            );
         }
     }
 }

@@ -156,6 +156,9 @@ impl DenseText {
         let mut dense = Self::default();
         let mut current_run: Option<DenseRun> = None;
         let mut current_line: Option<(usize, LineRecord)> = None;
+        // The current run's resolved line height — the d3 fill for
+        // `LineRecord.height` (max over the line's clusters).
+        let mut current_run_lh = 0.0f32;
 
         for item in &layout.items {
             let PositionedItem { item: shaped, position, line_index } = item;
@@ -203,6 +206,13 @@ impl DenseText {
                     r.clusters.end = cluster_index;
                     dense.runs.push(r);
                 }
+                current_run_lh = if font_metrics.units_per_em == 0 {
+                    0.0
+                } else {
+                    c.style
+                        .line_height
+                        .resolve_with_metrics(c.style.font_size_px, &font_metrics)
+                };
                 current_run = Some(DenseRun {
                     style: c.style.clone(),
                     font_hash,
@@ -223,6 +233,7 @@ impl DenseText {
             match &mut current_line {
                 Some((idx, rec)) if *idx == *line_index => {
                     rec.clusters.1 = cluster_index + 1;
+                    rec.height = rec.height.max(current_run_lh);
                 }
                 _ => {
                     if let Some((_, rec)) = current_line.take() {
@@ -234,7 +245,9 @@ impl DenseText {
                             clusters: (cluster_index, cluster_index + 1),
                             baseline_y: position.y,
                             top_y: position.y,
-                            height: 0.0,
+                            // d3: filled with the max resolved line height of
+                            // the line's clusters (was always 0.0).
+                            height: current_run_lh,
                             source_index: u32::try_from(*line_index).unwrap_or(u32::MAX),
                         },
                     ));

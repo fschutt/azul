@@ -4993,6 +4993,7 @@ where
                 content_box_rect,
                 viewport_clip_rect,
                 inline_layout,
+                cached_layout.dense.as_deref(),
                 &cached_layout.glyph_runs,
                 node_index,
             );
@@ -5415,6 +5416,7 @@ where
         container_rect: LogicalRect,
         viewport_clip_rect: LogicalRect,
         layout: &Arc<UnifiedLayout>,
+        dense_view: Option<&crate::text3::dense::DenseText>,
         glyph_runs: &[crate::text3::glyphs::SimpleGlyphRun],
         source_node_index: usize,
     ) {
@@ -5466,16 +5468,31 @@ where
             // consumers still read each glyph's own hash; staying at 0 here
             // is now reserved for a layout in which NO glyph resolved, which
             // is exactly the case the drop guard exists for.
+            // §3.2 (d3): from the dense runs when retained (runs carry
+            // font_hash + style directly; hash-0 runs = unresolved, skipped
+            // exactly like the sparse scan). Falls back to the sparse walk
+            // for mixed layouts or when no dense view is retained.
             let mut primary: Option<(u64, f32)> = None;
-            for positioned in &layout.items {
-                let (glyphs, arm_style) = match &positioned.item {
-                    ShapedItem::Cluster(c) => (&c.glyphs, &c.style),
-                    ShapedItem::CombinedBlock { glyphs, style, .. } => (glyphs, style),
-                    _ => continue,
-                };
-                if let Some(g) = glyphs.iter().find(|g| g.font_hash != 0) {
-                    primary = Some((g.font_hash, arm_style.font_size_px));
-                    break;
+            if let Some(d) = dense_view {
+                if d.clusters.len() == layout.items.len() {
+                    primary = d
+                        .runs
+                        .iter()
+                        .find(|r| r.font_hash != 0)
+                        .map(|r| (r.font_hash, r.style.font_size_px));
+                }
+            }
+            if primary.is_none() {
+                for positioned in &layout.items {
+                    let (glyphs, arm_style) = match &positioned.item {
+                        ShapedItem::Cluster(c) => (&c.glyphs, &c.style),
+                        ShapedItem::CombinedBlock { glyphs, style, .. } => (glyphs, style),
+                        _ => continue,
+                    };
+                    if let Some(g) = glyphs.iter().find(|g| g.font_hash != 0) {
+                        primary = Some((g.font_hash, arm_style.font_size_px));
+                        break;
+                    }
                 }
             }
             let (primary_hash, primary_size) = primary.unwrap_or((0, 12.0));
@@ -5714,9 +5731,13 @@ where
 
         // Render inline objects (images, shapes/inline-blocks, etc.)
         // These are positioned by the text3 engine and need to be rendered at their calculated
-        // positions
-        for positioned_item in &layout.items {
-            self.paint_inline_object(builder, container_rect.origin, positioned_item);
+        // positions. §3.2 (d3): a pure-cluster layout (dense len == items
+        // len) has no objects BY CONSTRUCTION — skip the walk entirely.
+        let pure_clusters = dense_view.is_some_and(|d| d.clusters.len() == layout.items.len());
+        if !pure_clusters {
+            for positioned_item in &layout.items {
+                self.paint_inline_object(builder, container_rect.origin, positioned_item);
+            }
         }
     }
 
@@ -5998,18 +6019,53 @@ fn get_scroll_content_size(node: &LayoutNodeHot, warm: Option<&LayoutNodeWarm>) 
     // If this node has text layout, calculate the bounds of all text items
     if let Some(cached_layout) = warm.and_then(|w| w.inline_layout_result.as_ref()) {
         let text_layout = &cached_layout.layout;
-        // Find the maximum extent of all positioned items
-        let mut max_x: f32 = 0.0;
-        let mut max_y: f32 = 0.0;
-
-        for positioned_item in &text_layout.items {
-            let item_bounds = positioned_item.item.bounds();
-            let item_right = positioned_item.position.x + item_bounds.width;
-            let item_bottom = positioned_item.position.y + item_bounds.height;
-
-            max_x = max_x.max(item_right);
-            max_y = max_y.max(item_bottom);
-        }
+        // §3.2 (d3): the extent from the DENSE arrays when retained and the
+        // layout is pure clusters — width from base advances (== the sparse
+        // bounds().width since d2), height from the d3-filled line heights.
+        // Mixed layouts (objects/tabs) keep the sparse walk.
+        let dense_extent = cached_layout.dense.as_ref().and_then(|d| {
+            if d.clusters.len() != text_layout.items.len() {
+                return None;
+            }
+            let max_x = d
+                .clusters
+                .iter()
+                .map(|c| c.x + c.advance)
+                .fold(0.0f32, f32::max);
+            let max_y = d
+                .lines
+                .iter()
+                .map(|l| l.top_y + l.height)
+                .fold(0.0f32, f32::max);
+            Some((max_x, max_y))
+        });
+        let (max_x, max_y) = if let Some((dx, dy)) = dense_extent {
+            if std::env::var("AZ_DENSE_TEXT").as_deref() == Ok("verify") {
+                let mut sx: f32 = 0.0;
+                let mut sy: f32 = 0.0;
+                for positioned_item in &text_layout.items {
+                    let item_bounds = positioned_item.item.bounds();
+                    sx = sx.max(positioned_item.position.x + item_bounds.width);
+                    sy = sy.max(positioned_item.position.y + item_bounds.height);
+                }
+                assert!(
+                    (sx - dx).abs() < 0.01 && (sy - dy).abs() < 0.01,
+                    "d3 verify: scroll extent diverged (sparse {sx}x{sy} vs dense {dx}x{dy})"
+                );
+            }
+            (dx, dy)
+        } else {
+            let mut max_x: f32 = 0.0;
+            let mut max_y: f32 = 0.0;
+            for positioned_item in &text_layout.items {
+                let item_bounds = positioned_item.item.bounds();
+                let item_right = positioned_item.position.x + item_bounds.width;
+                let item_bottom = positioned_item.position.y + item_bounds.height;
+                max_x = max_x.max(item_right);
+                max_y = max_y.max(item_bottom);
+            }
+            (max_x, max_y)
+        };
 
         // Use the maximum extent as content size if it's larger
         content_size.width = content_size.width.max(max_x);
@@ -10652,5 +10708,92 @@ mod autotest_generated {
             .expect("below");
         assert_eq!(item_y(row), 25.0);
         assert_eq!(item_y(below), 160.0 + 25.0);
+    }
+}
+
+#[cfg(test)]
+mod dense_scroll_extent_tests {
+    use super::*;
+    use crate::text3::cache::{
+        BidiDirection, ClusterFlags, ContentIndex, GraphemeClusterId, LayoutFontMetrics,
+        OverflowInfo, PositionedItem, Point, ShapedCluster, ShapedGlyph, ShapedItem,
+        StyleProperties, UnifiedLayout,
+    };
+    use crate::text3::dense::DenseText;
+    use alloc::sync::Arc;
+
+    /// One real cluster with real metrics so the dense extent is NON-zero
+    /// and the sparse-vs-dense A/B is meaningful (an empty layout passes
+    /// the guard vacuously at 0x0 — that is exactly the coverage hole the
+    /// d3 NC exposed: no lib/corpus test reached this path with a dense
+    /// view, so the verify assert could not fire).
+    fn one_cluster_layout() -> UnifiedLayout {
+        let metrics = LayoutFontMetrics {
+            ascent: 800.0,
+            descent: -200.0,
+            cap_height: None,
+            x_height: None,
+            line_gap: 0.0,
+            units_per_em: 1000,
+        };
+        let glyph = ShapedGlyph {
+            kind: crate::text3::cache::GlyphKind::Character,
+            glyph_id: 7,
+            cluster_offset: 0,
+            advance: 10.0,
+            kerning: 0.0,
+            offset: Point::default(),
+            vertical_advance: 0.0,
+            vertical_offset: Point::default(),
+            script: crate::text3::script::Script::Latin,
+            font_hash: 42,
+            font_metrics: metrics,
+        };
+        let cluster = ShapedCluster {
+            flags: ClusterFlags::classify("a"),
+            source_text: std::sync::Arc::from("a"),
+            source_byte_len: 1,
+            source_cluster_id: GraphemeClusterId { source_run: 0, start_byte_in_run: 0 },
+            source_content_index: ContentIndex { run_index: 0, item_index: 0 },
+            source_node_id: None,
+            glyphs: smallvec::smallvec![glyph],
+            advance: 10.0,
+            direction: BidiDirection::Ltr,
+            style: Arc::new(StyleProperties { font_size_px: 16.0, ..StyleProperties::default() }),
+            marker_position_outside: None,
+            is_first_fragment: true,
+            is_last_fragment: true,
+        };
+        UnifiedLayout {
+            items: vec![PositionedItem {
+                item: ShapedItem::Cluster(cluster),
+                position: Point { x: 5.0, y: 3.0 },
+                line_index: 0,
+            }],
+            overflow: OverflowInfo::default(),
+        }
+    }
+
+    #[test]
+    fn scroll_extent_from_dense_matches_the_sparse_walk() {
+        let layout = one_cluster_layout();
+        let dense = DenseText::from_unified(&layout);
+        assert_eq!(dense.clusters.len(), layout.items.len(), "pure-cluster guard");
+
+        // Sparse reference extent.
+        let mut sx: f32 = 0.0;
+        let mut sy: f32 = 0.0;
+        for it in &layout.items {
+            let b = it.item.bounds();
+            sx = sx.max(it.position.x + b.width);
+            sy = sy.max(it.position.y + b.height);
+        }
+        assert!(sx > 14.0 && sy > 10.0, "non-trivial extent ({sx}x{sy})");
+
+        // Dense extent — the exact computation get_scroll_content_size uses.
+        let dx = dense.clusters.iter().map(|c| c.x + c.advance).fold(0.0f32, f32::max);
+        let dy = dense.lines.iter().map(|l| l.top_y + l.height).fold(0.0f32, f32::max);
+        assert!((sx - dx).abs() < 0.01, "width: sparse {sx} vs dense {dx}");
+        assert!((sy - dy).abs() < 0.01, "height: sparse {sy} vs dense {dy}");
     }
 }
