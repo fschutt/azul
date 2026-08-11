@@ -268,6 +268,12 @@ pub struct CachedInlineLayout {
     /// Enables checking if a width change fits on the same line without
     /// re-running the full line-breaking algorithm.
     pub line_breaks: Option<crate::text3::cache::CachedLineBreaks>,
+    /// §3.2 step (d5): the ONE cache-stable Arc the display list carries
+    /// as its TextLayout payload. `TextPayload{dense,sparse}` when the
+    /// dense view is retained, else the `layout` Arc itself (identical
+    /// to the pre-d5 payload). Built at store time so damage ptr_eq
+    /// stays stable across paints.
+    pub payload: Arc<dyn std::any::Any + Send + Sync>,
     /// §3.2 step (d1): the dense view of `layout`, retained when
     /// `AZ_DENSE_TEXT` is active (glyph_runs derive from THIS instance).
     /// Readers migrate from `layout` onto it one by one; the sparse form
@@ -278,6 +284,18 @@ pub struct CachedInlineLayout {
     /// a same-width `RefreshDom` whose text CHANGED would reuse the stale shaped
     /// layout (#11 stale display list). 0 = unknown ⇒ never fast-path-reuse.
     pub inline_content_hash: u64,
+}
+
+/// §3.2 step (d5): the display list's TextLayout payload when the dense
+/// view is retained — BOTH forms behind one cache-stable Arc, so
+/// TextLayout damage diffing (Arc::ptr_eq) keeps firing exactly as
+/// before. Downcasters try this first and fall back to a bare
+/// `UnifiedLayout` payload (the flag-off path). The `sparse` half is
+/// what current consumers read; it empties at the d6 retirement, which
+/// is when the consumers move onto `dense`.
+pub struct TextPayload {
+    pub dense: Arc<crate::text3::dense::DenseText>,
+    pub sparse: Arc<UnifiedLayout>,
 }
 
 /// §3.2 flip step (a): the paint-run computation, routed by `AZ_DENSE_TEXT`.
@@ -423,11 +441,13 @@ impl CachedInlineLayout {
         let (runs, dense) = compute_glyph_runs(&layout);
         let glyph_runs = Arc::new(runs);
         let item_metrics = Self::choose_item_metrics(&layout, dense.as_deref());
+        let payload = Self::build_payload(&layout, dense.as_ref());
         Self {
             layout,
             available_width,
             has_floats,
             constraints: None,
+            payload,
             glyph_runs,
             item_metrics,
             line_breaks: None,
@@ -453,16 +473,35 @@ impl CachedInlineLayout {
         let (runs, dense) = compute_glyph_runs(&layout);
         let glyph_runs = Arc::new(runs);
         let item_metrics = Self::choose_item_metrics(&layout, dense.as_deref());
+        let payload = Self::build_payload(&layout, dense.as_ref());
         Self {
             layout,
             available_width,
             has_floats,
             constraints: Some(constraints),
+            payload,
             glyph_runs,
             item_metrics,
             line_breaks,
             dense,
             inline_content_hash: 0,
+        }
+    }
+
+    /// (d5) The cache-stable DL payload — see the `payload` field.
+    fn build_payload(
+        layout: &Arc<UnifiedLayout>,
+        dense: Option<&Arc<crate::text3::dense::DenseText>>,
+    ) -> Arc<dyn std::any::Any + Send + Sync> {
+        match dense {
+            Some(d) => Arc::new(TextPayload {
+                dense: d.clone(),
+                sparse: layout.clone(),
+            }),
+            None => {
+                let shared: Arc<dyn std::any::Any + Send + Sync> = layout.clone();
+                shared
+            }
         }
     }
 
@@ -4382,8 +4421,11 @@ mod autotest_generated {
         assert!(Arc::ptr_eq(&cloned, &arc), "clone_layout must not deep-copy");
         assert_eq!(
             Arc::strong_count(&arc),
-            3,
-            "the original + the cache's + the clone"
+            4,
+            "the original + the cache's + the clone + the DL payload (d5: \
+             the payload is built ONCE at store time and holds the layout \
+             Arc so TextLayout damage ptr_eq stays stable; 3 -> 4 on \
+             2026-08-11)"
         );
         assert_eq!(c.get_layout().items.len(), 1);
     }

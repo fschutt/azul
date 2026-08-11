@@ -495,7 +495,15 @@ mod engine {
         // printpdf's xml_to_pdf_pages).
         for item in dl.items.iter() {
             if let DisplayListItem::TextLayout { layout, .. } = item {
-                if let Some(unified) = layout.downcast_ref::<UnifiedLayout>() {
+                // (d5) TextPayload carries both forms; the font-collection
+                // walk reads the sparse half until d6, when the dense
+                // run.font_hash walk replaces it.
+                let unified_from_payload = layout
+                    .downcast_ref::<azul_layout::solver3::layout_tree::TextPayload>()
+                    .map(|p| p.sparse.as_ref());
+                if let Some(unified) = unified_from_payload
+                    .or_else(|| layout.downcast_ref::<UnifiedLayout>())
+                {
                     for positioned in &unified.items {
                         if let ShapedItem::Cluster(cluster) = &positioned.item {
                             for glyph in &cluster.glyphs {

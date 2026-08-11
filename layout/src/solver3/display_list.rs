@@ -4994,6 +4994,7 @@ where
                 viewport_clip_rect,
                 inline_layout,
                 cached_layout.dense.as_deref(),
+                &cached_layout.payload,
                 &cached_layout.glyph_runs,
                 node_index,
             );
@@ -5417,6 +5418,7 @@ where
         viewport_clip_rect: LogicalRect,
         layout: &Arc<UnifiedLayout>,
         dense_view: Option<&crate::text3::dense::DenseText>,
+        payload: &Arc<dyn std::any::Any + Send + Sync>,
         glyph_runs: &[crate::text3::glyphs::SimpleGlyphRun],
         source_node_index: usize,
     ) {
@@ -5502,10 +5504,12 @@ where
             // cloned all shaped glyphs per frame). Real text changes replace
             // the cached Arc, so ptr_eq still fires damage then.
             builder.push_text_layout(
-                {
-                    let shared: Arc<dyn std::any::Any + Send + Sync> = layout.clone();
-                    shared
-                },
+                // (d5) The CACHED payload Arc — TextPayload{dense,sparse}
+                // when the dense view is retained, the bare layout Arc
+                // otherwise. Cloned from the cache entry, so ptr_eq damage
+                // diffing sees the same allocation across paints exactly
+                // as before.
+                payload.clone(),
                 actual_bounds,
                 FontHash::from_hash(primary_hash),
                 primary_size,
@@ -6567,6 +6571,21 @@ fn clip_text_layout_item(
 ) -> Option<DisplayListItem> {
     if !rect_intersects(&bounds, page_top, page_bottom) {
         return None;
+    }
+
+    // (d5) TextPayload carries both forms; the clipper keeps reading the
+    // sparse half until the d6 retirement moves it onto the dense arrays.
+    #[cfg(feature = "text_layout")]
+    if let Some(p) = layout.downcast_ref::<crate::solver3::layout_tree::TextPayload>() {
+        return clip_unified_layout(
+            &p.sparse,
+            bounds,
+            font_hash,
+            font_size_px,
+            color,
+            page_top,
+            page_bottom,
+        );
     }
 
     // Try to downcast and filter UnifiedLayout items
@@ -10771,6 +10790,40 @@ mod dense_scroll_extent_tests {
                 line_index: 0,
             }],
             overflow: OverflowInfo::default(),
+        }
+    }
+
+    /// (d5) The pagination clipper must treat a TextPayload payload
+    /// EXACTLY like a bare UnifiedLayout payload — same clip decision,
+    /// same output bounds. This is the only coverage the TextPayload
+    /// arm has (it activates under AZ_DENSE_TEXT only, and no verify
+    /// run paginates), so its NC is required to go red here.
+    #[test]
+    fn clip_text_layout_item_reads_through_the_text_payload() {
+        use crate::solver3::layout_tree::TextPayload;
+        let layout = Arc::new(one_cluster_layout());
+        let dense = Arc::new(DenseText::from_unified(&layout));
+        let bounds = LogicalRect::new(
+            LogicalPosition::new(0.0, 0.0),
+            LogicalSize::new(100.0, 40.0),
+        );
+        let bare: Arc<dyn std::any::Any + Send + Sync> = layout.clone();
+        let wrapped: Arc<dyn std::any::Any + Send + Sync> =
+            Arc::new(TextPayload { dense, sparse: layout });
+        let via_bare = super::clip_text_layout_item(
+            &bare, bounds, FontHash::from_hash(42), 16.0,
+            ColorU { r: 0, g: 0, b: 0, a: 255 }, 0.0, 1000.0,
+        );
+        let via_payload = super::clip_text_layout_item(
+            &wrapped, bounds, FontHash::from_hash(42), 16.0,
+            ColorU { r: 0, g: 0, b: 0, a: 255 }, 0.0, 1000.0,
+        );
+        match (via_bare, via_payload) {
+            (Some(DisplayListItem::TextLayout { bounds: a, .. }),
+             Some(DisplayListItem::TextLayout { bounds: b, .. })) => {
+                assert_eq!(a, b, "payload route must produce identical clip bounds");
+            }
+            other => panic!("both routes must clip to TextLayout items, got {other:?}"),
         }
     }
 
