@@ -170,11 +170,20 @@ pub struct SimpleGlyphRun {
         runs.push(run);
     }
 
-    // +spec:box-model:6c62d3 - suppress margins/borders/padding at inline box split points
-    // CSS 2.2 §9.4.2: When an inline box is split across lines, margins, borders,
-    // and padding have no visible effect at the split points.
-    // Post-process: for runs from the same source_node_id that have borders,
-    // mark intermediate fragments so left_inset()/right_inset() suppress edges.
+    suppress_split_border_fragments(&mut runs);
+
+    runs
+}
+
+/// +spec:box-model:6c62d3 - suppress margins/borders/padding at inline box split points
+/// CSS 2.2 §9.4.2: When an inline box is split across lines, margins, borders,
+/// and padding have no visible effect at the split points.
+/// Post-process: for runs from the same `source_node_id` that have borders,
+/// mark intermediate fragments so `left_inset()`/`right_inset()` suppress edges.
+/// Shared by [`get_glyph_runs_simple`] and its dense twin
+/// (`crate::text3::dense::get_glyph_runs_simple_dense`) so the fragment
+/// semantics cannot drift between the two walkers.
+pub(crate) fn suppress_split_border_fragments(runs: &mut [SimpleGlyphRun]) {
     if runs.len() > 1 {
         let mut i = 0;
         while i < runs.len() {
@@ -209,8 +218,6 @@ pub struct SimpleGlyphRun {
             i += 1;
         }
     }
-
-    runs
 }
 
 /// A glyph run optimized for PDF rendering.

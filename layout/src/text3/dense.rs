@@ -19,10 +19,17 @@
 use alloc::sync::Arc;
 use alloc::vec::Vec;
 
-use super::cache::{
-    ClusterFlags, LayoutFontMetrics, PositionedItem, ShapedItem, StyleProperties, UnifiedLayout,
+use azul_core::{
+    dom::NodeId,
+    geom::{LogicalPosition, LogicalSize},
+    ui_solver::GlyphInstance,
 };
-use super::glyphs::PositionedGlyph;
+
+use super::cache::{
+    BidiDirection, ClusterFlags, LayoutFontMetrics, LoadedFonts, ParsedFontTrait, PositionedItem,
+    ShapedItem, StyleProperties, UnifiedLayout,
+};
+use super::glyphs::{PdfGlyphRun, PdfPositionedGlyph, PositionedGlyph, SimpleGlyphRun};
 use super::cache::Point;
 use crate::text3::script::Script;
 
@@ -61,6 +68,11 @@ pub struct DenseRun {
     /// Range into [`DenseText::clusters`].
     pub clusters: core::ops::Range<u32>,
     pub script: Script,
+    /// Bidi direction — uniform per run BY CONSTRUCTION (the builder
+    /// splits on it): mixed-bidi text in one styled run must not share a
+    /// dense run, both for the PDF walker's run predicate and for RTL
+    /// border-fragment assignment.
+    pub direction: BidiDirection,
 }
 
 /// One per line: replaces per-cluster `line_index` + `position.y`.
@@ -70,6 +82,10 @@ pub struct LineRecord {
     pub baseline_y: f32,
     pub top_y: f32,
     pub height: f32,
+    /// The source `PositionedItem::line_index` — kept because record
+    /// ORDINALS diverge from it when a line carries no clusters (only
+    /// objects), and the PDF walker reports/breaks on the source index.
+    pub source_index: u32,
 }
 
 /// Detail entry for clusters that need more than one glyph or non-zero
@@ -104,7 +120,7 @@ pub struct DenseText {
 
 impl Default for LineRecord {
     fn default() -> Self {
-        Self { clusters: (0, 0), baseline_y: 0.0, top_y: 0.0, height: 0.0 }
+        Self { clusters: (0, 0), baseline_y: 0.0, top_y: 0.0, height: 0.0, source_index: 0 }
     }
 }
 
@@ -165,6 +181,7 @@ impl DenseText {
                         || r.font_hash != font_hash
                         || r.source_run != c.source_cluster_id.source_run
                         || r.source_node != source_node
+                        || r.direction != c.direction
                 }
             };
             if split {
@@ -188,6 +205,7 @@ impl DenseText {
                     text: Arc::from(""),
                     clusters: cluster_index..cluster_index,
                     script,
+                    direction: c.direction,
                 });
             }
             if let Some(r) = &mut current_run {
@@ -224,6 +242,7 @@ impl DenseText {
                             baseline_y: position.y,
                             top_y: position.y,
                             height: 0.0,
+                            source_index: u32::try_from(*line_index).unwrap_or(u32::MAX),
                         },
                     ));
                 }
@@ -356,4 +375,334 @@ pub fn get_glyph_positions_dense(dense: &DenseText) -> Vec<PositionedGlyph> {
         }
     }
     out
+}
+
+/// §3.2 step 4: the dense twin of [`super::glyphs::get_glyph_runs_simple`]
+/// (the paint-path consumer). Same walk as [`get_glyph_positions_dense`];
+/// the run-merge predicate is the REFERENCE's — painted VALUES on the same
+/// baseline, not Arc identity — so two dense runs that split only on style
+/// Arc identity or `source_run` merge back into one paint run exactly as
+/// the reference merges glyphs from different shaping runs. The border
+/// fragment post-process is literally shared
+/// ([`super::glyphs::suppress_split_border_fragments`]), so CSS 2.2 §9.4.2
+/// split-point suppression cannot drift between the walkers.
+///
+/// Same documented limits as the position walker: combined blocks
+/// (tate-chu-yoko) stay on the sparse side per the plan's `AtomicItem`
+/// design, and a multi-font-fallback CLUSTER would split mid-cluster in
+/// the reference but not here (the detail table carries no per-glyph
+/// font hash) — both migrate in a later step; the agreement gate covers
+/// the dense-expressible subset.
+#[allow(clippy::float_cmp)] // intentional exact compare: same predicate as the reference walker
+#[must_use]
+pub fn get_glyph_runs_simple_dense(dense: &DenseText) -> Vec<SimpleGlyphRun> {
+    let mut runs: Vec<SimpleGlyphRun> = Vec::new();
+    let mut current_run: Option<SimpleGlyphRun> = None;
+    let mut current_baseline: Option<f32> = None;
+    let mut line_iter = dense.lines.iter().peekable();
+    let mut detail_iter = dense.details.iter().peekable();
+
+    for (ci, run) in dense
+        .runs
+        .iter()
+        .flat_map(|r| (r.clusters.start..r.clusters.end).map(move |i| (i, r)))
+    {
+        let c = &dense.clusters[ci as usize];
+
+        // Detail cluster? (details are in cluster order.) Resolved FIRST:
+        // a zero-glyph detail cluster contributes nothing and must not
+        // open a run (the reference's per-glyph loop never runs there).
+        let detail = loop {
+            match detail_iter.peek() {
+                Some(d) if d.cluster < ci => {
+                    detail_iter.next();
+                }
+                Some(d) if d.cluster == ci => break Some(**d),
+                _ => break None,
+            }
+        };
+        if detail.is_some_and(|d| d.glyphs.0 == d.glyphs.1) {
+            continue;
+        }
+
+        // Line cursor + per-run ascent: identical to the position walker.
+        while let Some(l) = line_iter.peek() {
+            if ci >= l.clusters.1 {
+                line_iter.next();
+            } else {
+                break;
+            }
+        }
+        let top_y = line_iter.peek().map_or(0.0, |l| l.top_y);
+        let m = &run.font_metrics;
+        let ascent = if m.units_per_em == 0 {
+            0.0
+        } else {
+            let scale = run.style.font_size_px / f32::from(m.units_per_em);
+            let font_ascent = m.ascent * scale;
+            let font_descent = (-m.descent * scale).max(0.0);
+            let ad = font_ascent + font_descent;
+            let lh = run
+                .style
+                .line_height
+                .resolve_with_metrics(run.style.font_size_px, m);
+            font_ascent + (lh - ad) / 2.0
+        };
+        let baseline_y = top_y + ascent;
+
+        let style = &run.style;
+        let source_node_id =
+            (run.source_node != u32::MAX).then(|| NodeId::new(run.source_node as usize));
+
+        // The reference predicate, evaluated per CLUSTER — every compared
+        // field is uniform within a cluster there, so boundaries are
+        // identical.
+        let merges = current_run.as_ref().is_some_and(|r| {
+            current_baseline == Some(baseline_y)
+                && r.font_hash == run.font_hash
+                && r.color == style.color
+                && r.background_color == style.background_color
+                && r.background_content == style.background_content
+                && r.border == style.border
+                && r.font_size_px == style.font_size_px
+                && r.text_decoration == style.text_decoration
+                && r.source_node_id == source_node_id
+        });
+        if !merges {
+            if let Some(prev) = current_run.take() {
+                runs.push(prev);
+            }
+            current_baseline = Some(baseline_y);
+            current_run = Some(SimpleGlyphRun {
+                glyphs: Vec::new(),
+                color: style.color,
+                background_color: style.background_color,
+                background_content: style.background_content.clone(),
+                border: style.border,
+                font_hash: run.font_hash,
+                font_size_px: style.font_size_px,
+                text_decoration: style.text_decoration,
+                is_ime_preview: false,
+                source_node_id,
+            });
+        }
+        let out = &mut current_run
+            .as_mut()
+            .expect("opened above when absent")
+            .glyphs;
+
+        match detail {
+            Some(d) => {
+                let mut pen_x = c.x;
+                for dg in &dense.detail_glyphs[d.glyphs.0 as usize..d.glyphs.1 as usize] {
+                    out.push(GlyphInstance {
+                        index: u32::from(dg.glyph_id),
+                        point: LogicalPosition {
+                            x: pen_x + dg.offset_x,
+                            y: baseline_y - dg.offset_y,
+                        },
+                        size: LogicalSize::default(),
+                    });
+                    pen_x += dg.advance;
+                }
+            }
+            None => {
+                out.push(GlyphInstance {
+                    index: u32::from(c.glyph_id),
+                    point: LogicalPosition { x: c.x, y: baseline_y },
+                    size: LogicalSize::default(),
+                });
+            }
+        }
+    }
+    if let Some(r) = current_run {
+        runs.push(r);
+    }
+
+    super::glyphs::suppress_split_border_fragments(&mut runs);
+    runs
+}
+
+/// §3.2 step 5: the dense twin of [`super::glyphs::get_glyph_runs_pdf`]
+/// (printpdf's frozen contract: `cluster.glyphs` iteration +
+/// `glyph.font_hash`). Same walk as the other dense twins; the run
+/// predicate is the reference's (font, colour, background, size,
+/// decoration, LINE index, direction, writing mode — note: no border, no
+/// background layers, no source node).
+///
+/// The per-cluster TEXT — which the reference reads from
+/// `ShapedCluster::text` — is reconstructed here as the grapheme cluster
+/// at `start_byte` in the run's shared source text: the same
+/// segmentation shaping used to build the cluster, so the two agree
+/// byte-for-byte (the agreement gate pins it, and 3c deletes the
+/// per-cluster copy on the strength of exactly this equivalence).
+/// Styles that rewrite text between source and shaping (text-transform)
+/// keep the sparse walker until the transform story lands.
+///
+/// `PdfPositionedGlyph::advance` reports the PAINTED advance for detail
+/// glyphs (kerning folded, as the dense model stores it) where the
+/// reference reports the base advance — positions are identical either
+/// way, same documented divergence as the position walker.
+#[allow(clippy::float_cmp)] // intentional exact compare: same predicate as the reference walker
+#[allow(clippy::too_many_lines)] // one cohesive walk, mirrors the reference's structure
+#[must_use]
+pub fn get_glyph_runs_pdf_dense<T: ParsedFontTrait>(
+    dense: &DenseText,
+    fonts: &LoadedFonts<T>,
+) -> Vec<PdfGlyphRun<T>> {
+    use unicode_segmentation::UnicodeSegmentation;
+
+    let mut runs: Vec<PdfGlyphRun<T>> = Vec::new();
+    let mut current_run: Option<PdfGlyphRun<T>> = None;
+    let mut line_iter = dense.lines.iter().peekable();
+    let mut detail_iter = dense.details.iter().peekable();
+
+    for (ci, run) in dense
+        .runs
+        .iter()
+        .flat_map(|r| (r.clusters.start..r.clusters.end).map(move |i| (i, r)))
+    {
+        let c = &dense.clusters[ci as usize];
+
+        // Detail resolution first: a zero-glyph cluster contributes
+        // nothing (the reference skips `cluster.glyphs.is_empty()`).
+        let detail = loop {
+            match detail_iter.peek() {
+                Some(d) if d.cluster < ci => {
+                    detail_iter.next();
+                }
+                Some(d) if d.cluster == ci => break Some(**d),
+                _ => break None,
+            }
+        };
+        if detail.is_some_and(|d| d.glyphs.0 == d.glyphs.1) {
+            continue;
+        }
+
+        // A glyph whose font is not loaded is skipped WITHOUT breaking
+        // the open run, exactly as the reference's per-glyph `continue`.
+        let Some(font) = fonts.get_by_hash(run.font_hash) else {
+            continue;
+        };
+
+        // Line cursor: source line index + per-run ascent → baseline.
+        while let Some(l) = line_iter.peek() {
+            if ci >= l.clusters.1 {
+                line_iter.next();
+            } else {
+                break;
+            }
+        }
+        let (top_y, line_index) = line_iter
+            .peek()
+            .map_or((0.0, 0usize), |l| (l.top_y, l.source_index as usize));
+        let m = &run.font_metrics;
+        let ascent = if m.units_per_em == 0 {
+            0.0
+        } else {
+            let scale = run.style.font_size_px / f32::from(m.units_per_em);
+            let font_ascent = m.ascent * scale;
+            let font_descent = (-m.descent * scale).max(0.0);
+            let ad = font_ascent + font_descent;
+            let lh = run
+                .style
+                .line_height
+                .resolve_with_metrics(run.style.font_size_px, m);
+            font_ascent + (lh - ad) / 2.0
+        };
+        let baseline_y = top_y + ascent;
+
+        let style = &run.style;
+
+        // The cluster's source text: the grapheme cluster at start_byte
+        // in the shared run text (see the doc comment).
+        let cluster_text: &str = run
+            .text
+            .get(c.start_byte as usize..)
+            .and_then(|s| s.graphemes(true).next())
+            .unwrap_or("");
+
+        // The reference predicate, evaluated per CLUSTER (all compared
+        // fields are uniform within a cluster in dense scope).
+        let merges = current_run.as_ref().is_some_and(|r| {
+            r.font_hash == run.font_hash
+                && r.color == style.color
+                && r.background_color == style.background_color
+                && r.font_size_px == style.font_size_px
+                && r.text_decoration == style.text_decoration
+                && r.line_index == line_index
+                && r.direction == run.direction
+                && r.writing_mode == style.writing_mode
+        });
+        if !merges {
+            if let Some(prev) = current_run.take() {
+                runs.push(prev);
+            }
+            current_run = Some(PdfGlyphRun {
+                glyphs: Vec::new(),
+                color: style.color,
+                background_color: style.background_color,
+                font: font.clone(),
+                font_hash: run.font_hash,
+                font_size_px: style.font_size_px,
+                text_decoration: style.text_decoration,
+                line_index,
+                direction: run.direction,
+                writing_mode: style.writing_mode,
+                baseline_start: Point { x: c.x, y: baseline_y },
+                cluster_texts: Vec::new(),
+            });
+        }
+        let open = current_run.as_mut().expect("opened above when absent");
+
+        match detail {
+            Some(d) => {
+                let dgs = &dense.detail_glyphs[d.glyphs.0 as usize..d.glyphs.1 as usize];
+                let count = dgs.len();
+                let mut pen_x = c.x;
+                for (glyph_idx, dg) in dgs.iter().enumerate() {
+                    // The reference's per-glyph codepoint split, verbatim.
+                    let unicode_codepoint = if count == 1 {
+                        cluster_text.to_string()
+                    } else {
+                        let byte_offset = dg.cluster_offset as usize;
+                        if byte_offset < cluster_text.len() {
+                            cluster_text[byte_offset..].chars().next().map_or_else(
+                                || cluster_text.to_string(),
+                                |ch| ch.to_string(),
+                            )
+                        } else if glyph_idx == 0 {
+                            cluster_text.to_string()
+                        } else {
+                            String::new()
+                        }
+                    };
+                    open.glyphs.push(PdfPositionedGlyph {
+                        glyph_id: dg.glyph_id,
+                        position: Point {
+                            x: pen_x + dg.offset_x,
+                            y: baseline_y - dg.offset_y,
+                        },
+                        advance: dg.advance,
+                        unicode_codepoint,
+                    });
+                    open.cluster_texts.push(cluster_text.to_string());
+                    pen_x += dg.advance;
+                }
+            }
+            None => {
+                open.glyphs.push(PdfPositionedGlyph {
+                    glyph_id: c.glyph_id,
+                    position: Point { x: c.x, y: baseline_y },
+                    advance: c.advance,
+                    unicode_codepoint: cluster_text.to_string(),
+                });
+                open.cluster_texts.push(cluster_text.to_string());
+            }
+        }
+    }
+    if let Some(r) = current_run {
+        runs.push(r);
+    }
+    runs
 }
