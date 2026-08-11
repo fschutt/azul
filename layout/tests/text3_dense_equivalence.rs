@@ -409,3 +409,67 @@ fn dense_pdf_runs_agree_with_the_reference_walker() {
         }
     }
 }
+
+/// Override-segmentation pin (§10 finding 1): a per-grapheme style
+/// override splits the run into LOGICAL ITEMS, and every offset in the
+/// model is ITEM-relative — `item_index` carries the segment's run
+/// offset. Pins (a) each cluster's text() against the INPUT at
+/// item_index + start_byte_in_run, and (b) the dense runs' text Arcs
+/// against the clusters' own source Arcs (the fb77aff46 rewire; the old
+/// content.get(source_run) mapping fails this for the segments).
+#[test]
+fn override_segmented_run_offsets_are_item_relative_and_dense_text_correct() {
+    use azul_layout::text3::cache::{PartialStyleProperties, StyleOverride, ContentIndex};
+    let font_ref = test_font_ref();
+    let input = "hello world";
+    let red = azul_css::props::basic::ColorU { r: 200, g: 30, b: 30, a: 255 };
+    let overrides = vec![StyleOverride {
+        target: ContentIndex { run_index: 0, item_index: 6 },
+        style: PartialStyleProperties { color: Some(red), ..PartialStyleProperties::default() },
+    }];
+    let content = vec![styled(input, &font_ref, 0, None, |_| {})];
+    let logical = create_logical_items(&content, &overrides, &mut None);
+    let visual = reorder_logical_items(&logical, BidiDirection::Ltr, UnicodeBidi::Normal, &mut None)
+        .expect("bidi");
+    let mut loaded: LoadedFonts<FontRef> = LoadedFonts::new();
+    loaded.insert(FontId::new(), font_ref.clone());
+    let chain: HashMap<_, FontFallbackChain> = HashMap::new();
+    let fc = FcFontCache::default();
+    let shaped = shape_visual_items(&visual, &chain, &fc, &loaded, &mut None).expect("shape");
+    let constraints = UnifiedConstraints {
+        available_width: AvailableSpace::Definite(400.0),
+        ..UnifiedConstraints::default()
+    };
+    let mut cursor = BreakCursor::new(&shaped);
+    let layout = perform_fragment_layout(&mut cursor, &logical, &constraints, &mut None, &loaded)
+        .expect("layout");
+
+    let mut saw_override_segment = false;
+    for it in &layout.items {
+        if let ShapedItem::Cluster(c) = &it.item {
+            let item_start = c.source_content_index.item_index as usize;
+            let start = item_start + c.source_cluster_id.start_byte_in_run as usize;
+            if item_start > 0 {
+                saw_override_segment = true;
+            }
+            assert!(
+                input[start..].starts_with(c.text()),
+                "cluster at item {item_start} + byte {} claims {:?} but input there is {:?}",
+                c.source_cluster_id.start_byte_in_run, c.text(), &input[start..]
+            );
+        }
+    }
+    assert!(saw_override_segment, "the override produced no non-zero item_index segment");
+
+    let dense = DenseText::from_unified(&layout);
+    assert!(dense.runs.len() >= 3, "override splits into >=3 dense runs, got {}", dense.runs.len());
+    for r in &dense.runs {
+        for ci in r.clusters.clone() {
+            let c = &dense.clusters[ci as usize];
+            assert!(
+                r.text.get(c.start_byte as usize..).is_some(),
+                "dense run text too short for cluster byte {}", c.start_byte
+            );
+        }
+    }
+}
