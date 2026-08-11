@@ -3675,7 +3675,7 @@ pub trait PlatformWindow {
                                 .map(|snap| snap.pre.clone())
                                 .unwrap_or_else(|| {
                                     vec![InlineContent::Text(StyledRun {
-                                        text: operation.pre_state.text_content.as_str().to_string(),
+                                        text: std::sync::Arc::from(operation.pre_state.text_content.as_str()),
                                         style: Arc::new(StyleProperties::default()),
                                         logical_start_byte: 0,
                                         source_node_id: None,
@@ -3738,7 +3738,7 @@ pub trait PlatformWindow {
                                         operation.pre_state.text_content.as_str().to_string();
                                     text.push_str(op.text.as_str());
                                     Some(vec![InlineContent::Text(StyledRun {
-                                        text,
+                                        text: std::sync::Arc::from(text.as_str()),
                                         style: Arc::new(StyleProperties::default()),
                                         logical_start_byte: 0,
                                         source_node_id: None,
