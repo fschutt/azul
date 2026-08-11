@@ -42,7 +42,12 @@ pub struct ClusterCompact {
     /// Precomputed classification — the same word the retained cluster
     /// carries since 48c9bbcdf.
     pub flags: ClusterFlags,
-    /// Total advance INCLUDING kerning, as painted.
+    /// The cluster's BASE advance — equal to the sparse cluster's
+    /// `advance` and to `ShapedItem::bounds().width` (d2 redefinition;
+    /// was kerning-folded). Sound because a kerned cluster ALWAYS has a
+    /// detail entry (`needs_detail` includes kerning != 0), and every
+    /// walker derives detail-cluster pens from `DetailGlyph.advance`
+    /// (kerning-folded there), never from this field.
     pub advance: f32,
     /// == `GraphemeClusterId::start_byte_in_run`; the run supplies
     /// `source_run`, so the id reconstructs exactly.
@@ -259,8 +264,7 @@ impl DenseText {
             dense.clusters.push(ClusterCompact {
                 glyph_id: first_glyph.map_or(0, |g| g.glyph_id),
                 flags: c.flags,
-                advance: c.advance
-                    + c.glyphs.iter().map(|g| g.kerning).sum::<f32>(),
+                advance: c.advance,
                 start_byte: c.source_cluster_id.start_byte_in_run,
                 x: position.x,
             });

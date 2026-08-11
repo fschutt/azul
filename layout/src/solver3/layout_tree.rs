@@ -356,6 +356,63 @@ fn compute_glyph_runs_with_mode(
     (ours, Some(Arc::new(dense)))
 }
 
+/// §3.2 step (d2): per-item metrics FROM the dense view. Returns None
+/// unless the layout was PURE clusters (`dense.clusters.len()` must
+/// equal `layout.items.len()` — the dense builder silently skips
+/// objects/tabs/breaks/combined blocks, and `item_metrics` is
+/// index-aligned with ALL items, so a shorter vec would silently
+/// misalign the incremental-relayout decision tree).
+///
+/// Field-for-field vs the sparse extraction (the d2 gate pins this):
+/// advance_width = ClusterCompact.advance (BASE advance == bounds().width
+/// since the d2 redefinition), line_height_contribution = the run's
+/// resolved line height (== ascent+descent by the half-leading identity),
+/// can_break = true (clusters are never ShapedItem::Break), line_index =
+/// LineRecord.source_index, x_offset = ClusterCompact.x.
+fn extract_item_metrics_dense(
+    dense: &crate::text3::dense::DenseText,
+    item_count: usize,
+) -> Option<Vec<InlineItemMetrics>> {
+    if dense.clusters.len() != item_count {
+        return None;
+    }
+    let mut out = Vec::with_capacity(dense.clusters.len());
+    let mut line_iter = dense.lines.iter().peekable();
+    for (ci, run) in dense
+        .runs
+        .iter()
+        .flat_map(|r| (r.clusters.start..r.clusters.end).map(move |i| (i, r)))
+    {
+        let c = &dense.clusters[ci as usize];
+        while let Some(l) = line_iter.peek() {
+            if ci >= l.clusters.1 {
+                line_iter.next();
+            } else {
+                break;
+            }
+        }
+        let line_index = line_iter.peek().map_or(0, |l| l.source_index);
+        let m = &run.font_metrics;
+        let lh = if m.units_per_em == 0 {
+            0.0
+        } else {
+            run.style
+                .line_height
+                .resolve_with_metrics(run.style.font_size_px, m)
+        };
+        out.push(InlineItemMetrics {
+            source_node_id: (run.source_node != u32::MAX)
+                .then(|| NodeId::new(run.source_node as usize)),
+            advance_width: c.advance,
+            line_height_contribution: lh,
+            can_break: true,
+            line_index,
+            x_offset: c.x,
+        });
+    }
+    Some(out)
+}
+
 impl CachedInlineLayout {
     /// Creates a new cached inline layout.
     #[must_use] pub fn new(
@@ -363,9 +420,9 @@ impl CachedInlineLayout {
         available_width: AvailableSpace,
         has_floats: bool,
     ) -> Self {
-        let item_metrics = Self::extract_item_metrics(&layout);
         let (runs, dense) = compute_glyph_runs(&layout);
         let glyph_runs = Arc::new(runs);
+        let item_metrics = Self::choose_item_metrics(&layout, dense.as_deref());
         Self {
             layout,
             available_width,
@@ -386,7 +443,6 @@ impl CachedInlineLayout {
         has_floats: bool,
         constraints: UnifiedConstraints,
     ) -> Self {
-        let item_metrics = Self::extract_item_metrics(&layout);
         let available_width_px = match available_width {
             AvailableSpace::Definite(w) => w,
             _ => f32::MAX,
@@ -396,6 +452,7 @@ impl CachedInlineLayout {
         ));
         let (runs, dense) = compute_glyph_runs(&layout);
         let glyph_runs = Arc::new(runs);
+        let item_metrics = Self::choose_item_metrics(&layout, dense.as_deref());
         Self {
             layout,
             available_width,
@@ -407,6 +464,38 @@ impl CachedInlineLayout {
             dense,
             inline_content_hash: 0,
         }
+    }
+
+    /// (d2) Metrics source selection: dense when retained AND the layout
+    /// is pure clusters; sparse otherwise. Under AZ_DENSE_TEXT=verify the
+    /// dense result is A/B-asserted against the sparse extraction.
+    fn choose_item_metrics(
+        layout: &UnifiedLayout,
+        dense: Option<&crate::text3::dense::DenseText>,
+    ) -> Vec<InlineItemMetrics> {
+        let Some(d) = dense else {
+            return Self::extract_item_metrics(layout);
+        };
+        let Some(from_dense) = extract_item_metrics_dense(d, layout.items.len()) else {
+            return Self::extract_item_metrics(layout);
+        };
+        let verify = std::env::var("AZ_DENSE_TEXT").as_deref() == Ok("verify");
+        if verify {
+            let reference = Self::extract_item_metrics(layout);
+            assert_eq!(reference.len(), from_dense.len(), "d2 verify: metrics count");
+            for (i, (r, o)) in reference.iter().zip(from_dense.iter()).enumerate() {
+                assert!(
+                    r.source_node_id == o.source_node_id
+                        && (r.advance_width - o.advance_width).abs() < 0.01
+                        && (r.line_height_contribution - o.line_height_contribution).abs() < 0.01
+                        && r.can_break == o.can_break
+                        && r.line_index == o.line_index
+                        && (r.x_offset - o.x_offset).abs() < 0.01,
+                    "d2 verify: metrics @{i} diverged (ref {r:?} vs dense {o:?})"
+                );
+            }
+        }
+        from_dense
     }
 
     /// Extracts per-item metrics from a computed `UnifiedLayout`.
