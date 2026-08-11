@@ -136,15 +136,18 @@ impl DenseText {
         Self::from_unified_with_content(layout, &[])
     }
 
-    /// Like [`Self::from_unified`], but with the source content available:
-    /// each `DenseRun.text` becomes an `Arc` CLONE of its `StyledRun`'s
-    /// text (§3.2 step 2) — the true shared source — instead of the
-    /// step-1 concatenation of surviving clusters.
+    /// Identical to [`Self::from_unified`] — the `content` parameter is
+    /// IGNORED since 3c: every cluster carries its logical item's shared
+    /// text Arc (`ShapedCluster::source_text`), which is the text its
+    /// `start_byte` actually indexes (correct for override-segmented
+    /// runs, where the old `content.get(source_run)` mapping was not).
+    /// Kept for signature compatibility with the gate tests.
     #[must_use]
     pub fn from_unified_with_content(
         layout: &UnifiedLayout,
         content: &[super::cache::InlineContent],
     ) -> Self {
+        let _ = content;
         let mut dense = Self::default();
         let mut current_run: Option<DenseRun> = None;
         let mut current_line: Option<(usize, LineRecord)> = None;
@@ -173,11 +176,17 @@ impl DenseText {
             let script = first_glyph.map_or(Script::Latin, |g| g.script);
             let cluster_index = u32::try_from(dense.clusters.len()).unwrap_or(u32::MAX);
 
-            // Run split on any amortised-field change.
+            // Run split on any amortised-field change. The source-text
+            // Arc identity is part of the predicate since 3c: clusters
+            // carry their LOGICAL ITEM's shared Arc (offset-correct for
+            // override-segmented runs, where the old content.get(run)
+            // mapping was wrong — §10 finding 1), and one item's clusters
+            // all share one Arc by construction.
             let split = match &current_run {
                 None => true,
                 Some(r) => {
                     !Arc::ptr_eq(&r.style, &c.style)
+                        || !Arc::ptr_eq(&r.text, &c.source_text)
                         || r.font_hash != font_hash
                         || r.source_run != c.source_cluster_id.source_run
                         || r.source_node != source_node
@@ -195,35 +204,14 @@ impl DenseText {
                     font_metrics,
                     source_run: c.source_cluster_id.source_run,
                     source_node,
-                    // Step 1 carries the run text as the concatenation of
-                    // its SURVIVING clusters' texts — the line breaker
-                    // consumes separator clusters at wrap points, so this
-                    // is NOT the full source text (the equivalence gate
-                    // proved that on its first wrapped case). Later steps
-                    // replace this with the true shared source Arc, which
-                    // is precisely why the plan's run.text design exists.
-                    text: Arc::from(""),
+                    // The cluster's own shared source Arc (3c) — the text
+                    // `ClusterCompact.start_byte` actually indexes into,
+                    // for EVERY case including override segments.
+                    text: c.source_text.clone(),
                     clusters: cluster_index..cluster_index,
                     script,
                     direction: c.direction,
                 });
-            }
-            if let Some(r) = &mut current_run {
-                if r.text.is_empty() {
-                    // The true shared source: the StyledRun's Arc, aliased.
-                    if let Some(super::cache::InlineContent::Text(sr)) =
-                        content.get(r.source_run as usize)
-                    {
-                        r.text = sr.text.clone();
-                    }
-                }
-                if r.text.is_empty() {
-                    // No content available (plain from_unified): fall back
-                    // to concatenating surviving clusters, as in step 1.
-                    let mut t = String::from(&*r.text);
-                    t.push_str(c.text());
-                    r.text = Arc::from(t.as_str());
-                }
             }
 
             // Line records from line_index transitions.
