@@ -664,3 +664,64 @@ fn dense_cursor_movement_agrees_with_the_sparse_walk() {
         }
     }
 }
+
+/// (d6d) Vertical movement + hit testing: from EVERY caret stop under
+/// both affinities, up and down (with fresh AND persisted goal_x) must
+/// match the sparse walk; the hit test itself is probed at every
+/// cluster center. The wrapped corpus gives real multi-line traffic.
+#[test]
+fn dense_vertical_movement_and_hittest_agree_with_the_sparse_walk() {
+    use azul_layout::text3::cache::Point;
+    for (text, width) in [
+        ("hello dense world", 400.0),
+        ("a longer paragraph that will wrap across multiple lines of text", 120.0),
+        ("cafe\u{0301} au lait wraps too when narrow enough for it", 90.0),
+    ] {
+        let (layout, content) = layout_of(text, width);
+        let dense = DenseText::from_unified_with_content(&layout, &content);
+        let stops = dense.grapheme_stops();
+        let mut dbg = None;
+        for id in &stops {
+            for affinity in [
+                azul_core::selection::CursorAffinity::Leading,
+                azul_core::selection::CursorAffinity::Trailing,
+            ] {
+                let cursor = azul_core::selection::TextCursor { cluster_id: *id, affinity };
+                let mut gx_d = None;
+                let mut gx_s = None;
+                assert_eq!(
+                    dense.move_cursor_up(cursor, &mut gx_d),
+                    layout.move_cursor_up(cursor, &mut gx_s, &mut dbg),
+                    "up from {id:?}/{affinity:?} ({text:?})"
+                );
+                assert_eq!(gx_d, gx_s, "up goal_x ({text:?})");
+                let mut gx_d = None;
+                let mut gx_s = None;
+                assert_eq!(
+                    dense.move_cursor_down(cursor, &mut gx_d),
+                    layout.move_cursor_down(cursor, &mut gx_s, &mut dbg),
+                    "down from {id:?}/{affinity:?} ({text:?})"
+                );
+                assert_eq!(gx_d, gx_s, "down goal_x ({text:?})");
+            }
+        }
+        // Hit test at every cluster center (both halves).
+        for it in &layout.items {
+            if let ShapedItem::Cluster(c) = &it.item {
+                let b = it.item.bounds();
+                for frac in [0.25, 0.75] {
+                    let p = Point {
+                        x: it.position.x + b.width * frac,
+                        y: it.position.y + b.height / 2.0,
+                    };
+                    assert_eq!(
+                        dense.hittest_cursor(p),
+                        layout.hittest_cursor(azul_core::geom::LogicalPosition { x: p.x, y: p.y }),
+                        "hittest at ({}, {}) near {:?} ({text:?})",
+                        p.x, p.y, c.source_cluster_id
+                    );
+                }
+            }
+        }
+    }
+}

@@ -352,6 +352,159 @@ impl DenseText {
         stops
     }
 
+    /// (d6d) Point -> cursor hit test — the SAME weighted-distance scan
+    /// as the sparse `hittest_cursor` (vertical distance x2 + horizontal
+    /// outside-distance; closest cluster wins; affinity by midpoint).
+    /// Cluster geometry from the dense arrays: x/width from
+    /// ClusterCompact (base advance == bounds().width), y/height from the
+    /// line record + the run's resolved line height. Also the
+    /// click-to-position primitive.
+    #[must_use]
+    pub fn hittest_cursor(
+        &self,
+        point: super::cache::Point,
+    ) -> Option<azul_core::selection::TextCursor> {
+        use azul_core::selection::{CursorAffinity, GraphemeClusterId, TextCursor};
+        if self.clusters.is_empty() {
+            return None;
+        }
+        let mut best: Option<(f32, u32, &DenseRun, f32)> = None; // (dist, ci, run, x)
+        let mut line_iter = self.lines.iter().peekable();
+        for (ci, run) in self
+            .runs
+            .iter()
+            .flat_map(|r| (r.clusters.start..r.clusters.end).map(move |i| (i, r)))
+        {
+            let c = &self.clusters[ci as usize];
+            while let Some(l) = line_iter.peek() {
+                if ci >= l.clusters.1 {
+                    line_iter.next();
+                } else {
+                    break;
+                }
+            }
+            let (top_y, line_h) = line_iter.peek().map_or((0.0, 0.0), |l| (l.top_y, l.height));
+            let m = &run.font_metrics;
+            let h = if m.units_per_em == 0 {
+                line_h
+            } else {
+                run.style
+                    .line_height
+                    .resolve_with_metrics(run.style.font_size_px, m)
+            };
+            let center_y = top_y + h / 2.0;
+            let vertical = (point.y - center_y).abs();
+            let horizontal = if point.x < c.x {
+                c.x - point.x
+            } else if point.x > c.x + c.advance {
+                point.x - (c.x + c.advance)
+            } else {
+                0.0
+            };
+            let dist = vertical * 2.0 + horizontal;
+            if best.map_or(true, |(d, ..)| dist < d) {
+                best = Some((dist, ci, run, c.x));
+            }
+        }
+        let (_, ci, run, x) = best?;
+        let c = &self.clusters[ci as usize];
+        let affinity = if point.x < x + c.advance / 2.0 {
+            CursorAffinity::Leading
+        } else {
+            CursorAffinity::Trailing
+        };
+        Some(TextCursor {
+            cluster_id: GraphemeClusterId {
+                source_run: run.source_run,
+                start_byte_in_run: c.start_byte,
+            },
+            affinity,
+        })
+    }
+
+    /// (d6d) Locate a cursor's cluster index + its line ordinal.
+    fn find_cursor_cluster(
+        &self,
+        cursor: &azul_core::selection::TextCursor,
+    ) -> Option<(u32, usize)> {
+        for r in &self.runs {
+            if r.source_run != cursor.cluster_id.source_run {
+                continue;
+            }
+            for ci in r.clusters.start..r.clusters.end {
+                if self.clusters[ci as usize].start_byte == cursor.cluster_id.start_byte_in_run {
+                    let line = self
+                        .lines
+                        .iter()
+                        .position(|l| ci >= l.clusters.0 && ci < l.clusters.1)?;
+                    return Some((ci, line));
+                }
+            }
+        }
+        None
+    }
+
+    /// (d6d) One line up, preserving the horizontal goal column — mirrors
+    /// the sparse `move_cursor_up` flow: current cluster by id, goal_x
+    /// seeded from affinity (Trailing = x + advance), target line's
+    /// mid-height, then the weighted hit test.
+    #[must_use]
+    pub fn move_cursor_up(
+        &self,
+        cursor: azul_core::selection::TextCursor,
+        goal_x: &mut Option<f32>,
+    ) -> azul_core::selection::TextCursor {
+        use azul_core::selection::CursorAffinity;
+        let Some((ci, line_ord)) = self.find_cursor_cluster(&cursor) else {
+            return cursor;
+        };
+        if line_ord == 0 {
+            return cursor;
+        }
+        let c = &self.clusters[ci as usize];
+        let current_x = goal_x.unwrap_or_else(|| {
+            let x = match cursor.affinity {
+                CursorAffinity::Leading => c.x,
+                CursorAffinity::Trailing => c.x + c.advance,
+            };
+            *goal_x = Some(x);
+            x
+        });
+        let target = &self.lines[line_ord - 1];
+        let target_y = target.top_y + target.height / 2.0;
+        self.hittest_cursor(super::cache::Point { x: current_x, y: target_y })
+            .unwrap_or(cursor)
+    }
+
+    /// (d6d) One line down — see [`Self::move_cursor_up`].
+    #[must_use]
+    pub fn move_cursor_down(
+        &self,
+        cursor: azul_core::selection::TextCursor,
+        goal_x: &mut Option<f32>,
+    ) -> azul_core::selection::TextCursor {
+        use azul_core::selection::CursorAffinity;
+        let Some((ci, line_ord)) = self.find_cursor_cluster(&cursor) else {
+            return cursor;
+        };
+        if line_ord + 1 >= self.lines.len() {
+            return cursor;
+        }
+        let c = &self.clusters[ci as usize];
+        let current_x = goal_x.unwrap_or_else(|| {
+            let x = match cursor.affinity {
+                CursorAffinity::Leading => c.x,
+                CursorAffinity::Trailing => c.x + c.advance,
+            };
+            *goal_x = Some(x);
+            x
+        });
+        let target = &self.lines[line_ord + 1];
+        let target_y = target.top_y + target.height / 2.0;
+        self.hittest_cursor(super::cache::Point { x: current_x, y: target_y })
+            .unwrap_or(cursor)
+    }
+
     /// (d6c) One caret stop left — IDENTICAL to the sparse
     /// `move_cursor_left` by construction: the stops list is pinned equal
     /// (grapheme_stops gate) and the offset arithmetic is the SAME static
