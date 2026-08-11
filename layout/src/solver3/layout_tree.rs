@@ -275,6 +275,64 @@ pub struct CachedInlineLayout {
     pub inline_content_hash: u64,
 }
 
+/// §3.2 flip step (a): the paint-run computation, routed by `AZ_DENSE_TEXT`.
+///
+/// - unset/`0` — the sparse reference walker (production default).
+/// - `1`      — build [`crate::text3::dense::DenseText`] and walk THAT
+///   (`get_glyph_runs_simple_dense`), the compact model's first production
+///   consumer.
+/// - `verify` — dense path PLUS an A/B assert against the reference; the
+///   e2e corpus run with this set is the flip proof over real layouts.
+///
+/// Layouts containing combined blocks (tate-chu-yoko) fall back to the
+/// reference under the flag: the dense model keeps atomics on the sparse
+/// side by design and the twin would silently DROP their glyphs.
+fn compute_glyph_runs(
+    layout: &crate::text3::cache::UnifiedLayout,
+) -> Vec<crate::text3::glyphs::SimpleGlyphRun> {
+    use crate::text3::cache::ShapedItem;
+    static MODE: std::sync::OnceLock<u8> = std::sync::OnceLock::new();
+    let mode = *MODE.get_or_init(|| match std::env::var("AZ_DENSE_TEXT").as_deref() {
+        Ok("1") => 1,
+        Ok("verify") => 2,
+        _ => 0,
+    });
+    if mode == 0
+        || layout
+            .items
+            .iter()
+            .any(|it| matches!(it.item, ShapedItem::CombinedBlock { .. }))
+    {
+        return crate::text3::glyphs::get_glyph_runs_simple(layout);
+    }
+    let dense = crate::text3::dense::DenseText::from_unified(layout);
+    let ours = crate::text3::dense::get_glyph_runs_simple_dense(&dense);
+    if mode == 2 {
+        let reference = crate::text3::glyphs::get_glyph_runs_simple(layout);
+        assert_eq!(reference.len(), ours.len(), "AZ_DENSE_TEXT=verify: run count diverged");
+        for (i, (r, o)) in reference.iter().zip(ours.iter()).enumerate() {
+            assert!(
+                r.color == o.color
+                    && r.background_color == o.background_color
+                    && r.background_content == o.background_content
+                    && r.border == o.border
+                    && r.font_hash == o.font_hash
+                    && (r.font_size_px - o.font_size_px).abs() < 0.01
+                    && r.text_decoration == o.text_decoration
+                    && r.source_node_id == o.source_node_id
+                    && r.glyphs.len() == o.glyphs.len()
+                    && r.glyphs.iter().zip(o.glyphs.iter()).all(|(a, b)| {
+                        a.index == b.index
+                            && (a.point.x - b.point.x).abs() < 0.01
+                            && (a.point.y - b.point.y).abs() < 0.01
+                    }),
+                "AZ_DENSE_TEXT=verify: run {i} diverged from the reference"
+            );
+        }
+    }
+    ours
+}
+
 impl CachedInlineLayout {
     /// Creates a new cached inline layout.
     #[must_use] pub fn new(
@@ -283,7 +341,7 @@ impl CachedInlineLayout {
         has_floats: bool,
     ) -> Self {
         let item_metrics = Self::extract_item_metrics(&layout);
-        let glyph_runs = Arc::new(crate::text3::glyphs::get_glyph_runs_simple(&layout));
+        let glyph_runs = Arc::new(compute_glyph_runs(&layout));
         Self {
             layout,
             available_width,
@@ -311,7 +369,7 @@ impl CachedInlineLayout {
         let line_breaks = Some(crate::text3::cache::extract_line_breaks(
             &layout.items, available_width_px,
         ));
-        let glyph_runs = Arc::new(crate::text3::glyphs::get_glyph_runs_simple(&layout));
+        let glyph_runs = Arc::new(compute_glyph_runs(&layout));
         Self {
             layout,
             available_width,
