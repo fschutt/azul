@@ -13,6 +13,7 @@
 //! - `selection`: text selection and cursor utilities
 
 pub mod cache;
+pub mod dense;
 pub mod default;
 pub mod edit;
 pub mod glyphs;
