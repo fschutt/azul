@@ -725,3 +725,46 @@ fn dense_vertical_movement_and_hittest_agree_with_the_sparse_walk() {
         }
     }
 }
+
+/// (d6e) Word + line movements: from EVERY caret stop under both
+/// affinities, prev/next word and line start/end must match the sparse
+/// walks — punctuation-as-boundary and end-of-text saturation included.
+#[test]
+fn dense_word_and_line_movement_agree_with_the_sparse_walk() {
+    for (text, width) in [
+        ("hello dense world, punct. and_under scores!", 400.0),
+        ("a longer paragraph that will wrap across multiple lines of text", 120.0),
+    ] {
+        let (layout, content) = layout_of(text, width);
+        let dense = DenseText::from_unified_with_content(&layout, &content);
+        let mut dbg = None;
+        for id in &dense.grapheme_stops() {
+            for affinity in [
+                azul_core::selection::CursorAffinity::Leading,
+                azul_core::selection::CursorAffinity::Trailing,
+            ] {
+                let cursor = azul_core::selection::TextCursor { cluster_id: *id, affinity };
+                assert_eq!(
+                    dense.move_cursor_to_prev_word(cursor),
+                    layout.move_cursor_to_prev_word(cursor, &mut dbg),
+                    "prev-word from {id:?}/{affinity:?} ({text:?})"
+                );
+                assert_eq!(
+                    dense.move_cursor_to_next_word(cursor),
+                    layout.move_cursor_to_next_word(cursor, &mut dbg),
+                    "next-word from {id:?}/{affinity:?} ({text:?})"
+                );
+                assert_eq!(
+                    dense.move_cursor_to_line_start(cursor),
+                    layout.move_cursor_to_line_start(cursor, &mut dbg),
+                    "line-start from {id:?}/{affinity:?} ({text:?})"
+                );
+                assert_eq!(
+                    dense.move_cursor_to_line_end(cursor),
+                    layout.move_cursor_to_line_end(cursor, &mut dbg),
+                    "line-end from {id:?}/{affinity:?} ({text:?})"
+                );
+            }
+        }
+    }
+}

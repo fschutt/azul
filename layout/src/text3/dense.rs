@@ -352,6 +352,193 @@ impl DenseText {
         stops
     }
 
+    /// (d6e) The cluster's source text slice (run text at start_byte for
+    /// cluster_byte_len bytes) — the word-boundary predicate's input.
+    fn cluster_text_slice(&self, ci: u32) -> &str {
+        let c = &self.clusters[ci as usize];
+        let run = self
+            .runs
+            .iter()
+            .find(|r| r.clusters.contains(&ci))
+            .expect("cluster belongs to a run by construction");
+        let start = c.start_byte as usize;
+        let len = self.cluster_byte_len(ci) as usize;
+        run.text.get(start..start + len).unwrap_or("")
+    }
+
+    /// (d6e) Word-boundary predicate — same as the sparse
+    /// `cluster_is_word_boundary`: no word character in the cluster text
+    /// (whitespace AND punctuation are boundaries).
+    fn cluster_is_word_boundary(&self, ci: u32) -> bool {
+        !self
+            .cluster_text_slice(ci)
+            .chars()
+            .any(super::cache::is_word_char)
+    }
+
+    /// (d6e) Visual line start — cluster by id, min-x cluster on its
+    /// line, Leading affinity (mirrors the sparse flow).
+    #[must_use]
+    pub fn move_cursor_to_line_start(
+        &self,
+        cursor: azul_core::selection::TextCursor,
+    ) -> azul_core::selection::TextCursor {
+        use azul_core::selection::{CursorAffinity, GraphemeClusterId, TextCursor};
+        let Some((_, line_ord)) = self.find_cursor_cluster(&cursor) else {
+            return cursor;
+        };
+        let l = &self.lines[line_ord];
+        let best = (l.clusters.0..l.clusters.1)
+            .min_by(|a, b| {
+                self.clusters[*a as usize]
+                    .x
+                    .partial_cmp(&self.clusters[*b as usize].x)
+                    .unwrap_or(core::cmp::Ordering::Equal)
+            });
+        let Some(ci) = best else { return cursor };
+        let run = self.runs.iter().find(|r| r.clusters.contains(&ci));
+        let Some(run) = run else { return cursor };
+        TextCursor {
+            cluster_id: GraphemeClusterId {
+                source_run: run.source_run,
+                start_byte_in_run: self.clusters[ci as usize].start_byte,
+            },
+            affinity: CursorAffinity::Leading,
+        }
+    }
+
+    /// (d6e) Visual line end — max-x cluster on the line, Trailing.
+    #[must_use]
+    pub fn move_cursor_to_line_end(
+        &self,
+        cursor: azul_core::selection::TextCursor,
+    ) -> azul_core::selection::TextCursor {
+        use azul_core::selection::{CursorAffinity, GraphemeClusterId, TextCursor};
+        let Some((_, line_ord)) = self.find_cursor_cluster(&cursor) else {
+            return cursor;
+        };
+        let l = &self.lines[line_ord];
+        let best = (l.clusters.0..l.clusters.1)
+            .max_by(|a, b| {
+                self.clusters[*a as usize]
+                    .x
+                    .partial_cmp(&self.clusters[*b as usize].x)
+                    .unwrap_or(core::cmp::Ordering::Equal)
+            });
+        let Some(ci) = best else { return cursor };
+        let run = self.runs.iter().find(|r| r.clusters.contains(&ci));
+        let Some(run) = run else { return cursor };
+        TextCursor {
+            cluster_id: GraphemeClusterId {
+                source_run: run.source_run,
+                start_byte_in_run: self.clusters[ci as usize].start_byte,
+            },
+            affinity: CursorAffinity::Trailing,
+        }
+    }
+
+    /// (d6e) Cursor at index `ci`, given affinity.
+    fn cursor_at_index(
+        &self,
+        ci: u32,
+        affinity: azul_core::selection::CursorAffinity,
+    ) -> Option<azul_core::selection::TextCursor> {
+        use azul_core::selection::{GraphemeClusterId, TextCursor};
+        let c = self.clusters.get(ci as usize)?;
+        let run = self.runs.iter().find(|r| r.clusters.contains(&ci))?;
+        Some(TextCursor {
+            cluster_id: GraphemeClusterId {
+                source_run: run.source_run,
+                start_byte_in_run: c.start_byte,
+            },
+            affinity,
+        })
+    }
+
+    /// (d6e) One word left — mirrors the sparse two-phase flow (skip
+    /// boundary clusters, then skip the word, land Leading on its first
+    /// cluster). Identical for pure-cluster layouts (the dense domain).
+    #[must_use]
+    pub fn move_cursor_to_prev_word(
+        &self,
+        cursor: azul_core::selection::TextCursor,
+    ) -> azul_core::selection::TextCursor {
+        use azul_core::selection::CursorAffinity;
+        let Some((current, _)) = self.find_cursor_cluster(&cursor) else {
+            return cursor;
+        };
+        let mut pos = if cursor.affinity == CursorAffinity::Leading {
+            current.checked_sub(1)
+        } else {
+            Some(current)
+        };
+        while let Some(p) = pos {
+            if !self.cluster_is_word_boundary(p) {
+                break;
+            }
+            pos = p.checked_sub(1);
+        }
+        while let Some(p) = pos {
+            if self.cluster_is_word_boundary(p) {
+                if p + 1 < self.clusters.len() as u32 {
+                    if let Some(c) = self.cursor_at_index(p + 1, CursorAffinity::Leading) {
+                        return c;
+                    }
+                }
+                break;
+            }
+            if p == 0 {
+                if let Some(c) = self.cursor_at_index(0, CursorAffinity::Leading) {
+                    return c;
+                }
+                break;
+            }
+            pos = p.checked_sub(1);
+        }
+        if pos.is_none() {
+            if let Some(c) = self.cursor_at_index(0, CursorAffinity::Leading) {
+                return c;
+            }
+        }
+        cursor
+    }
+
+    /// (d6e) One word right — mirrors the sparse flow (skip the current
+    /// word, then boundary clusters, land Leading on the next word; end
+    /// of text falls to the last cluster Trailing).
+    #[must_use]
+    pub fn move_cursor_to_next_word(
+        &self,
+        cursor: azul_core::selection::TextCursor,
+    ) -> azul_core::selection::TextCursor {
+        use azul_core::selection::CursorAffinity;
+        let Some((current, _)) = self.find_cursor_cluster(&cursor) else {
+            return cursor;
+        };
+        let len = self.clusters.len() as u32;
+        let start = if cursor.affinity == CursorAffinity::Trailing {
+            current + 1
+        } else {
+            current
+        };
+        if start >= len {
+            return cursor;
+        }
+        let mut pos = start;
+        while pos < len && !self.cluster_is_word_boundary(pos) {
+            pos += 1;
+        }
+        while pos < len {
+            if !self.cluster_is_word_boundary(pos) {
+                if let Some(c) = self.cursor_at_index(pos, CursorAffinity::Leading) {
+                    return c;
+                }
+            }
+            pos += 1;
+        }
+        self.last_cluster_cursor().unwrap_or(cursor)
+    }
+
     /// (d6d) Point -> cursor hit test — the SAME weighted-distance scan
     /// as the sparse `hittest_cursor` (vertical distance x2 + horizontal
     /// outside-distance; closest cluster wins; affinity by midpoint).
