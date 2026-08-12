@@ -164,15 +164,127 @@ pub fn shift_pixbuf(pixmap: &mut AzulPixmap, dx: i32, dy: i32) {
     }
 }
 
+/// (#27) Pixmap storage: owned heap, or BORROWED external memory — a
+/// platform backbuffer such as a mapped Wayland shm slot. All slice
+/// access goes through `Deref`, so the raster/compositor sites are
+/// storage-blind; only construction and resize know the difference
+/// (resize always converts to owned — a borrowed target's size is the
+/// creator's contract). Borrowed storage is NEVER freed here.
+pub(crate) enum PixBuf {
+    Owned(Vec<u8>),
+    /// SAFETY (creator's obligations, see [`AzulPixmap::from_external`]):
+    /// `ptr` stays valid and EXCLUSIVELY ours for the pixmap's lifetime.
+    Borrowed { ptr: *mut u8, len: usize },
+}
+
+impl core::ops::Deref for PixBuf {
+    type Target = [u8];
+    #[inline]
+    fn deref(&self) -> &[u8] {
+        match self {
+            Self::Owned(v) => v,
+            Self::Borrowed { ptr, len } => unsafe {
+                core::slice::from_raw_parts(*ptr, *len)
+            },
+        }
+    }
+}
+
+impl core::ops::DerefMut for PixBuf {
+    #[inline]
+    fn deref_mut(&mut self) -> &mut [u8] {
+        match self {
+            Self::Owned(v) => v,
+            Self::Borrowed { ptr, len } => unsafe {
+                core::slice::from_raw_parts_mut(*ptr, *len)
+            },
+        }
+    }
+}
+
+/// Byte-content equality, storage-blind (tests compare rendered frames).
+impl PartialEq for PixBuf {
+    fn eq(&self, other: &Self) -> bool {
+        **self == **other
+    }
+}
+
+impl Clone for PixBuf {
+    /// Cloning SNAPSHOTS: a borrowed frame clones to an owned copy (the
+    /// clone must not alias the platform buffer).
+    fn clone(&self) -> Self {
+        Self::Owned(self.to_vec())
+    }
+}
+
+impl PixBuf {
+    /// Take the bytes as an owned Vec (borrowed storage copies out).
+    pub(crate) fn into_vec(self) -> Vec<u8> {
+        match self {
+            Self::Owned(v) => v,
+            Self::Borrowed { .. } => self.to_vec(),
+        }
+    }
+}
+
+impl From<Vec<u8>> for PixBuf {
+    fn from(v: Vec<u8>) -> Self {
+        Self::Owned(v)
+    }
+}
+
+impl core::fmt::Debug for PixBuf {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        match self {
+            Self::Owned(v) => write!(f, "PixBuf::Owned({} B)", v.len()),
+            Self::Borrowed { len, .. } => write!(f, "PixBuf::Borrowed({len} B)"),
+        }
+    }
+}
+
+// SAFETY: the raw pointer is only reachable while the creator's
+// validity+exclusivity contract holds (from_external is unsafe); under
+// that contract the buffer is an ordinary exclusive byte region and may
+// move across threads with its pixmap.
+unsafe impl Send for PixBuf {}
+
 /// A simple RGBA pixel buffer. Replaces `tiny_skia::Pixmap`.
 #[derive(Debug)]
 pub struct AzulPixmap {
-    pub(crate) data: Vec<u8>,
+    pub(crate) data: PixBuf,
     pub(crate) width: u32,
     pub(crate) height: u32,
 }
 
 impl AzulPixmap {
+    /// (#27) Wrap EXTERNAL storage — a platform backbuffer such as a
+    /// mapped Wayland shm slot — as a render target, no copy, no
+    /// ownership. Returns `None` on zero dimensions.
+    ///
+    /// # Safety
+    /// The caller guarantees, for the ENTIRE lifetime of the returned
+    /// pixmap (and anything it moves into): `ptr..ptr+width*height*4`
+    /// is valid, writable, and accessed EXCLUSIVELY through this pixmap
+    /// (for shm: the compositor has released the buffer and it will not
+    /// be re-attached while this pixmap lives).
+    pub unsafe fn from_external(ptr: *mut u8, width: u32, height: u32) -> Option<Self> {
+        if width == 0 || height == 0 || ptr.is_null() {
+            return None;
+        }
+        let len = (width as usize).checked_mul(height as usize)?.checked_mul(4)?;
+        Some(Self {
+            data: PixBuf::Borrowed { ptr, len },
+            width,
+            height,
+        })
+    }
+
+    /// (#27) Whether this pixmap renders into borrowed platform memory.
+    #[must_use]
+    pub fn is_external(&self) -> bool {
+        matches!(self.data, PixBuf::Borrowed { .. })
+    }
+
     /// Create a new pixmap filled with opaque white.
     #[must_use] pub fn new(width: u32, height: u32) -> Option<Self> {
         if width == 0 || height == 0 {
@@ -184,9 +296,9 @@ impl AzulPixmap {
         let len = (width as usize)
             .checked_mul(height as usize)
             .and_then(|n| n.checked_mul(4))?;
-        let data = vec![255u8; len]; // opaque white
+        let data = PixBuf::from(vec![255u8; len]); // opaque white
         Some(Self {
-            data,
+            data: data.into(),
             width,
             height,
         })
@@ -301,7 +413,7 @@ impl AzulPixmap {
             new_data[dst..dst + old_stride].copy_from_slice(&self.data[src..src + old_stride]);
         }
 
-        self.data = new_data;
+        self.data = new_data.into();
         self.width = new_width;
         self.height = new_height;
         Some(())
@@ -349,7 +461,7 @@ impl AzulPixmap {
                 .copy_from_slice(&self.data[src..src + copy_cols_bytes]);
         }
 
-        self.data = new_data;
+        self.data = new_data.into();
         self.width = new_width;
         self.height = new_height;
     }
@@ -426,7 +538,7 @@ impl AzulPixmap {
         };
 
         Ok(Self {
-            data,
+            data: data.into(),
             width,
             height,
         })
@@ -3189,3 +3301,47 @@ mod autotest_generated {
     }
 }
 
+
+#[cfg(test)]
+mod pixbuf_tests {
+    use super::*;
+
+    #[test]
+    fn external_pixmap_reads_and_writes_the_callers_memory_and_never_frees_it() {
+        let mut backing = vec![7u8; 4 * 2 * 4];
+        let ptr = backing.as_mut_ptr();
+        {
+            let mut p = unsafe { AzulPixmap::from_external(ptr, 4, 2) }.unwrap();
+            assert!(p.is_external());
+            assert_eq!(p.data.len(), 32);
+            assert!(p.data.iter().all(|&b| b == 7), "reads the caller's bytes");
+            p.data[0] = 42;
+            // Clone SNAPSHOTS to owned — must not alias the backing.
+            let mut c = AzulPixmap { data: p.data.clone(), width: p.width, height: p.height };
+            assert!(!c.is_external());
+            c.data[1] = 99;
+            assert_ne!(backing[1], 99, "clone must not write through");
+        } // drop of the borrowed pixmap must NOT free `backing`
+        assert_eq!(backing[0], 42, "writes went to the caller's memory");
+        assert_eq!(backing[1], 7);
+        drop(backing); // and the Vec is still validly ours to free
+    }
+
+    #[test]
+    fn into_vec_copies_out_of_borrowed_storage() {
+        let mut backing = vec![3u8; 16];
+        let p = unsafe { AzulPixmap::from_external(backing.as_mut_ptr(), 2, 2) }.unwrap();
+        let v = p.data.into_vec();
+        assert_eq!(v, vec![3u8; 16]);
+        backing[0] = 9; // backing untouched and still alive
+        assert_eq!(v[0], 3);
+    }
+
+    #[test]
+    fn from_external_rejects_null_and_zero_dims() {
+        assert!(unsafe { AzulPixmap::from_external(core::ptr::null_mut(), 4, 4) }.is_none());
+        let mut b = [0u8; 16];
+        assert!(unsafe { AzulPixmap::from_external(b.as_mut_ptr(), 0, 2) }.is_none());
+        assert!(unsafe { AzulPixmap::from_external(b.as_mut_ptr(), 2, 0) }.is_none());
+    }
+}

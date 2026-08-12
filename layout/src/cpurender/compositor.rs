@@ -541,7 +541,7 @@ impl CompositorState {
                 let h = layer.pixbuf.height;
                 let snap = snapshot_region(output, px_x, px_y, w, h);
                 let mut backdrop = AzulPixmap {
-                    data: snap,
+                    data: snap.into(),
                     width: w,
                     height: h,
                 };
@@ -683,7 +683,7 @@ impl Layer {
             id,
             pixbuf: AzulPixmap::new(pixel_width.max(1), pixel_height.max(1)).unwrap_or_else(|| {
                 AzulPixmap {
-                    data: vec![0; 4],
+                    data: vec![0; 4].into(),
                     width: 1,
                     height: 1,
                 }

@@ -622,7 +622,7 @@ fn render_box_shadow(
             stack_blur_rgba32(&mut ra, blur_radius, blur_radius);
         }
 
-        let data = std::rc::Rc::new(tmp.data);
+        let data = std::rc::Rc::new(tmp.data.into_vec());
         SHADOW_BLUR_CACHE.with(|c| {
             let mut c = c.borrow_mut();
             let bytes = data.len();
