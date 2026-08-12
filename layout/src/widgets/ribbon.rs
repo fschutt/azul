@@ -32,10 +32,10 @@
 //! [`super::button::Button`] widget with ribbon part styles injected through
 //! `Button`'s public style fields. Embedded `Combo`/`Drop`/`Check` widgets
 //! render exactly as configured — restyle them via their own public
-//! `*_style` fields (see the ribbon example for a Word-2013 combobox).
+//! `*_style` fields (see the ribbon example for an office-2013-style combobox).
 //!
 //! All visual parts of the ribbon itself are exposed on [`RibbonStyle`]
-//! (defaults = Word 2013 look, [`RibbonStyle::word_2013`]); replace any field
+//! (defaults = the Office-2013-era look look, [`RibbonStyle::office_2013`]); replace any field
 //! to re-theme without touching widget code.
 
 use azul_core::{
@@ -123,7 +123,7 @@ const SYSTEM_UI_FAMILIES: &[StyleFontFamily] = &[StyleFontFamily::System(SYSTEM_
 const SYSTEM_UI_FAMILY: StyleFontFamilyVec =
     StyleFontFamilyVec::from_const_slice(SYSTEM_UI_FAMILIES);
 
-// -- Word 2013 palette (seeds RibbonTheme::word_2013) --
+// -- the Office-2013-era look palette (seeds RibbonTheme::office_2013) --
 
 const WHITE: ColorU = ColorU { r: 255, g: 255, b: 255, a: 255 };
 const TRANSPARENT: ColorU = ColorU { r: 0, g: 0, b: 0, a: 0 };
@@ -158,7 +158,7 @@ const W13_FIELD_BORDER: ColorU = ColorU { r: 171, g: 171, b: 171, a: 255 };
 
 /// Color palette from which a full [`RibbonStyle`] is derived via
 /// [`RibbonStyle::from_theme`]. All fields are plain colors, so themes are
-/// trivially constructible over FFI. Presets: [`RibbonTheme::word_2013`]
+/// trivially constructible over FFI. Presets: [`RibbonTheme::office_2013`]
 /// (the default) and [`RibbonTheme::from_system`], which extracts the
 /// colors from the OS theme (accent color, selection color, separators).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -197,9 +197,9 @@ pub struct RibbonTheme {
 }
 
 impl RibbonTheme {
-    /// The Word 2013 palette: white chrome, #2B579A accents, #CDE6F7 hovers.
+    /// The the Office-2013-era look palette: white chrome, #2B579A accents, #CDE6F7 hovers.
     #[must_use]
-    pub const fn word_2013() -> Self {
+    pub const fn office_2013() -> Self {
         Self {
             chrome_bg: WHITE,
             accent: W13_BLUE,
@@ -221,15 +221,15 @@ impl RibbonTheme {
 
     /// Extracts a ribbon palette from the OS theme (accent color, selection
     /// colors, separators). Colors the platform does not report fall back to
-    /// the Word 2013 palette. Pass `SystemStyle::detect()` for the live
+    /// the the Office-2013-era look palette. Pass `SystemStyle::detect()` for the live
     /// system theme, or a preset `SystemStyle` for platform mockups.
     /// Takes the style by value (FFI constructor convention).
     #[must_use]
     pub fn from_system(style: SystemStyle) -> Self {
-        let d = Self::word_2013();
+        let d = Self::office_2013();
         let c = &style.colors;
         // Each ribbon field maps to ONE system color; a color the platform
-        // does not report falls back to that field's own Word 2013 value
+        // does not report falls back to that field's own the Office-2013-era look value
         // (never to another derived value). No color arithmetic on purpose:
         // FFI-observable behavior stays trivial to reason about.
         let accent = c.accent.into_option();
@@ -259,7 +259,7 @@ impl RibbonTheme {
 
 impl Default for RibbonTheme {
     fn default() -> Self {
-        Self::word_2013()
+        Self::office_2013()
     }
 }
 
@@ -375,8 +375,8 @@ fn desktop_only_visibility(display: LayoutDisplay) -> [Cond; 2] {
 // -- Theme -> property-list builders --
 //
 // Every themed ribbon part is built from `RibbonTheme` colors by the
-// functions below; `RibbonStyle::word_2013()` is just
-// `from_theme(&RibbonTheme::word_2013())`, so there is exactly one source
+// functions below; `RibbonStyle::office_2013()` is just
+// `from_theme(&RibbonTheme::office_2013())`, so there is exactly one source
 // of truth for each part's property list.
 
 fn bg_vec(c: ColorU) -> StyleBackgroundContentVec {
@@ -399,7 +399,7 @@ fn cond_text_color(c: ColorU) -> Cond {
     Cond::simple(P::const_text_color(StyleTextColor { inner: c }))
 }
 
-/// Word's control metrics (22px small button, 66px large button, 26px tab)
+/// the classic office-suite control metrics (22px small button, 66px large button, 26px tab)
 /// are BORDER-BOX numbers: they include the padding and the 1px hover
 /// border. CSS defaults to content-box, which inflated every control by its
 /// padding+border - three 22px rows became 78px and overflowed the 68px item
@@ -728,7 +728,7 @@ fn theme_gallery_frame(t: &RibbonTheme) -> CssPropertyWithConditionsVec {
         Cond::simple(P::const_flex_direction(LayoutFlexDirection::Row)),
         Cond::simple(P::const_flex_grow(LayoutFlexGrow::const_new(1))),
         Cond::simple(P::const_height(LayoutHeight::const_px(68))),
-        // The frame IS the gallery viewport (like Word): overflow hidden
+        // The frame IS the gallery viewport (like classic office suites): overflow hidden
         // both clips partially-visible cells and zeroes the frame's
         // automatic minimum size so it yields space to rigid groups.
         // (taffy 0.10 only collapses the minimum for DIRECT scroll
@@ -852,7 +852,7 @@ fn theme_gallery_spinner_icon(t: &RibbonTheme) -> CssPropertyWithConditionsVec {
     ])
 }
 
-/// Word-look combobox parts, injected by [`RibbonStyle::styled_combo_box`].
+/// Office-2013-look combobox parts, injected by [`RibbonStyle::styled_combo_box`].
 fn theme_combo_wrapper_base(_t: &RibbonTheme) -> Vec<Cond> {
     vec![
         Cond::simple(P::const_display(LayoutDisplay::InlineBlock)),
@@ -1115,7 +1115,7 @@ static CLS_GALLERY_SPINNER: &[IdOrClass] =
 
 /// Every visual part of the ribbon chrome as a replaceable property list.
 ///
-/// The default ([`RibbonStyle::word_2013`]) reproduces the Word 2013 look:
+/// The default ([`RibbonStyle::office_2013`]) reproduces the the Office-2013-era look look:
 /// white chrome, #2B579A accents, #CDE6F7 hover fills. Each field is applied
 /// to exactly one DOM part; replace any of them to re-theme that part.
 /// Fields named `*_style` fully replace the part's style; [`Self::checked_style`]
@@ -1217,10 +1217,10 @@ pub struct RibbonStyle {
 }
 
 impl RibbonStyle {
-    /// The Word 2013 look (white chrome, #2B579A accents) - the default.
+    /// The the Office-2013-era look look (white chrome, #2B579A accents) - the default.
     #[must_use]
-    pub fn word_2013() -> Self {
-        Self::from_theme(RibbonTheme::word_2013())
+    pub fn office_2013() -> Self {
+        Self::from_theme(RibbonTheme::office_2013())
     }
 
     /// Derives every part style from the given palette. This is the styling
@@ -1299,7 +1299,7 @@ impl RibbonStyle {
 
     /// Returns a [`ComboBox`] with this ribbon's field look injected through
     /// the combobox's public style fields (flat 1px border, 22px field, 12px
-    /// text - the Word 2013 font-name/font-size pickers). `width` is the
+    /// text - the the Office-2013-era look font-name/font-size pickers). `width` is the
     /// total field width in px. Demonstrates (and exercises) the widget
     /// style-injection API; tweak the returned combobox further by replacing
     /// any of its `*_style` fields.
@@ -1319,14 +1319,14 @@ impl RibbonStyle {
 
 impl Default for RibbonStyle {
     fn default() -> Self {
-        Self::word_2013()
+        Self::office_2013()
     }
 }
 
 // -- Data model --
 
 /// The interactive behaviors the ribbon performs BY ITSELF, without any
-/// application state. Each is the Word default and each can be turned off,
+/// application state. Each is the classic default and each can be turned off,
 /// in which case the corresponding event is still forwarded to the app
 /// callback (if any) but the ribbon does not touch its own chrome.
 ///
@@ -1337,7 +1337,7 @@ impl Default for RibbonStyle {
 #[repr(C)]
 pub struct RibbonBehavior {
     /// Double-clicking a tab header collapses the content band; double
-    /// clicking again restores it (Word: "Collapse the Ribbon").
+    /// clicking again restores it (office-2013: "Collapse the Ribbon").
     pub collapsible: bool,
     /// While collapsed, hovering a tab header peeks the content band and
     /// leaving it hides the band again.
@@ -1355,9 +1355,9 @@ pub struct RibbonBehavior {
 }
 
 impl RibbonBehavior {
-    /// All Word behaviors enabled - the default.
+    /// All classic office-suite behaviors enabled - the default.
     #[must_use]
-    pub const fn word_2013() -> Self {
+    pub const fn office_2013() -> Self {
         Self {
             collapsible: true,
             peek_on_hover: true,
@@ -1383,7 +1383,7 @@ impl RibbonBehavior {
 
 impl Default for RibbonBehavior {
     fn default() -> Self {
-        Self::word_2013()
+        Self::office_2013()
     }
 }
 
@@ -1400,9 +1400,9 @@ pub struct Ribbon {
     pub active_tab: usize,
     /// Optional callback fired when a tab is clicked (receives the tab index).
     pub on_tab_click: OptionRibbonOnTabClick,
-    /// All part styles (defaults to the Word 2013 look).
+    /// All part styles (defaults to the the Office-2013-era look look).
     pub style: RibbonStyle,
-    /// Which interactions the ribbon handles by itself (defaults to Word).
+    /// Which interactions the ribbon handles by itself (defaults to the classic behavior).
     pub behavior: RibbonBehavior,
 }
 
@@ -1447,7 +1447,7 @@ pub struct RibbonGroup {
     /// Optional dialog-box-launcher callback; when set, a small launcher
     /// button is rendered at the right end of the caption row.
     pub launcher: OptionButtonOnClick,
-    /// When set, this group absorbs the remaining ribbon width (Word's
+    /// When set, this group absorbs the remaining ribbon width (the classic office-suite
     /// Styles gallery group stretches; the other groups are content-sized).
     pub fills_space: bool,
 }
@@ -1854,7 +1854,7 @@ impl RibbonGalleryCell {
 
 impl Ribbon {
     /// Creates a new ribbon with the given tabs, the first tab active and the
-    /// Word 2013 default style.
+    /// the Office-2013-era look default style.
     #[must_use]
     pub fn new(tabs: RibbonTabVec) -> Self {
         Self {
@@ -1862,8 +1862,8 @@ impl Ribbon {
             tabs,
             active_tab: 0,
             on_tab_click: None.into(),
-            style: RibbonStyle::word_2013(),
-            behavior: RibbonBehavior::word_2013(),
+            style: RibbonStyle::office_2013(),
+            behavior: RibbonBehavior::office_2013(),
         }
     }
 
@@ -2516,7 +2516,7 @@ fn gallery_dom(gallery: RibbonGallery, s: &RibbonStyle, b: RibbonBehavior) -> Do
         .with_children(DomVec::from_vec(build_cells(false)));
 
     // Spinner column: scroll-up, scroll-down, and the "More" button that
-    // toggles the expansion panel (Word's "More" chevron-over-bar).
+    // toggles the expansion panel (the classic office-suite "More" chevron-over-bar).
     let spinner_icons = ["expand_less", "expand_more", "arrow_drop_down"];
     let spinner_buttons: Vec<Dom> = spinner_icons
         .iter()
@@ -2732,7 +2732,7 @@ fn set_content_visible(info: &mut CallbackInfo, content: DomNodeId, visible: boo
 }
 
 /// Double-click on a tab header toggles the collapsed state of the content
-/// band (Word's "Collapse the Ribbon").
+/// band (the classic office-suite "Collapse the Ribbon").
 extern "C" fn on_ribbon_tab_double_click(mut refany: RefAny, mut info: CallbackInfo) -> Update {
     let hit = info.get_hit_node();
     let Some(content) = content_node_of_tab(&info, hit) else {
@@ -3162,20 +3162,20 @@ mod tests {
     // ------------------------------------------------------------------
 
     #[test]
-    fn ribbon_new_defaults_to_word_2013_with_tab_zero_active() {
+    fn ribbon_new_defaults_to_office_2013_with_tab_zero_active() {
         for count in [0usize, 1, 2, 9] {
             let r = Ribbon::new(tabs(count));
             assert_eq!(r.tabs.len(), count);
             assert_eq!(r.active_tab, 0);
             assert!(r.on_tab_click.is_none());
             assert!(r.app_button.is_none());
-            assert_eq!(r.style, RibbonStyle::word_2013());
+            assert_eq!(r.style, RibbonStyle::office_2013());
         }
     }
 
     #[test]
-    fn ribbon_style_default_is_word_2013() {
-        assert_eq!(RibbonStyle::default(), RibbonStyle::word_2013());
+    fn ribbon_style_default_is_office_2013() {
+        assert_eq!(RibbonStyle::default(), RibbonStyle::office_2013());
     }
 
     #[test]
@@ -3319,7 +3319,7 @@ mod tests {
         assert!(has_class(&ch[4], "__azul-native-ribbon-tab-filler"));
 
         // the active tab carries the active style, the others the plain style
-        let s = RibbonStyle::word_2013();
+        let s = RibbonStyle::office_2013();
         assert_eq!(inline_props(&ch[1]), style_props(&s.tab_style));
         assert_eq!(inline_props(&ch[2]), style_props(&s.tab_active_style));
     }
@@ -3531,7 +3531,7 @@ mod tests {
         assert_eq!(text_of(&ch[1]), Some("Paste"));
         assert_eq!(icon_name_of(&ch[2]), Some("arrow_drop_down"));
 
-        let s = RibbonStyle::word_2013();
+        let s = RibbonStyle::office_2013();
         assert_eq!(inline_props(&node), style_props(&s.large_button_style));
         assert_eq!(inline_props(&ch[0]), style_props(&s.large_icon_style));
         assert_eq!(inline_props(&ch[1]), style_props(&s.large_label_style));
@@ -3551,7 +3551,7 @@ mod tests {
         let rb = small_btn("format_align_left", "").with_toggled(true);
         let node = render_item(RibbonItem::SmallButton(rb));
 
-        let s = RibbonStyle::word_2013();
+        let s = RibbonStyle::office_2013();
         let mut expected = style_props(&s.small_button_style);
         expected.extend(style_props(&s.checked_style));
         assert_eq!(
@@ -3651,7 +3651,7 @@ mod tests {
         }
 
         // selected cell style = base + selected extras appended
-        let s = RibbonStyle::word_2013();
+        let s = RibbonStyle::office_2013();
         let mut expected = style_props(&s.gallery_cell_style);
         expected.extend(style_props(&s.gallery_cell_selected_style));
         assert_eq!(inline_props(&cells[2]), expected);
@@ -3760,7 +3760,7 @@ mod tests {
     fn styled_combo_box_injects_the_ribbon_field_look() {
         use azul_css::StringVec;
 
-        let s = RibbonStyle::word_2013();
+        let s = RibbonStyle::office_2013();
         let combo = s.styled_combo_box(
             StringVec::from_vec(vec![AzString::from("Calibri")]),
             AzString::from("Calibri (Body)"),
@@ -3792,12 +3792,12 @@ mod tests {
     #[test]
     fn from_theme_recolors_the_accent_carrying_parts() {
         let neon = ColorU { r: 255, g: 0, b: 128, a: 255 };
-        let mut theme = RibbonTheme::word_2013();
+        let mut theme = RibbonTheme::office_2013();
         theme.accent = neon;
 
         let s = RibbonStyle::from_theme(theme);
         assert_eq!(s.theme, theme, "the style bundle records its palette");
-        assert_ne!(s, RibbonStyle::word_2013());
+        assert_ne!(s, RibbonStyle::office_2013());
 
         // The app button's fill is the accent color.
         let app_bg = s
@@ -3829,22 +3829,22 @@ mod tests {
     }
 
     #[test]
-    fn word_2013_is_exactly_from_theme_of_the_word_2013_palette() {
+    fn office_2013_is_exactly_from_theme_of_the_office_2013_palette() {
         assert_eq!(
-            RibbonStyle::word_2013(),
-            RibbonStyle::from_theme(RibbonTheme::word_2013()),
+            RibbonStyle::office_2013(),
+            RibbonStyle::from_theme(RibbonTheme::office_2013()),
             "one source of truth: the named preset is just from_theme"
         );
     }
 
     #[test]
-    fn from_system_with_no_reported_colors_falls_back_to_word_2013() {
+    fn from_system_with_no_reported_colors_falls_back_to_office_2013() {
         // SystemStyle::default() may pre-fill platform colors; the fallback
         // contract is about a system that reports NO colors at all.
         let mut sys = SystemStyle::default();
         sys.colors = azul_css::system::SystemColors::default();
-        assert_eq!(RibbonTheme::from_system(sys.clone()), RibbonTheme::word_2013());
-        assert_eq!(RibbonStyle::from_system(sys), RibbonStyle::word_2013());
+        assert_eq!(RibbonTheme::from_system(sys.clone()), RibbonTheme::office_2013());
+        assert_eq!(RibbonStyle::from_system(sys), RibbonStyle::office_2013());
     }
 
     #[test]
@@ -3858,8 +3858,8 @@ mod tests {
         assert_eq!(t.hover_border, reported, "hover border follows the accent");
         assert_eq!(
             t.text,
-            RibbonTheme::word_2013().text,
-            "unreported colors fall back to the Word 2013 palette"
+            RibbonTheme::office_2013().text,
+            "unreported colors fall back to the the Office-2013-era look palette"
         );
     }
 
@@ -3868,15 +3868,15 @@ mod tests {
     // ------------------------------------------------------------------
 
     #[test]
-    fn default_behavior_is_word_2013_and_inert_disables_everything() {
-        assert_eq!(RibbonBehavior::default(), RibbonBehavior::word_2013());
-        let w = RibbonBehavior::word_2013();
+    fn default_behavior_is_office_2013_and_inert_disables_everything() {
+        assert_eq!(RibbonBehavior::default(), RibbonBehavior::office_2013());
+        let w = RibbonBehavior::office_2013();
         assert!(w.collapsible && w.peek_on_hover && w.auto_select_gallery && w.expandable_gallery);
         assert!(w.mobile_tab_overlay);
         let i = RibbonBehavior::inert();
         assert!(!i.collapsible && !i.peek_on_hover && !i.auto_select_gallery && !i.expandable_gallery);
         assert!(!i.mobile_tab_overlay);
-        assert_eq!(Ribbon::new(tabs(1)).behavior, RibbonBehavior::word_2013());
+        assert_eq!(Ribbon::new(tabs(1)).behavior, RibbonBehavior::office_2013());
     }
 
     #[test]
@@ -3918,7 +3918,7 @@ mod tests {
     fn peek_can_be_disabled_while_collapse_stays_on() {
         let behavior = RibbonBehavior {
             peek_on_hover: false,
-            ..RibbonBehavior::word_2013()
+            ..RibbonBehavior::office_2013()
         };
         let dom = Ribbon::new(tabs(1)).with_behavior(behavior).dom();
         let (bar, _) = parts(&dom);
@@ -3967,7 +3967,7 @@ mod tests {
         );
         let behavior = RibbonBehavior {
             expandable_gallery: false,
-            ..RibbonBehavior::word_2013()
+            ..RibbonBehavior::office_2013()
         };
         let dom = Ribbon::new(RibbonTabVec::from_vec(vec![tab]))
             .with_behavior(behavior)
@@ -3981,7 +3981,7 @@ mod tests {
 
     #[test]
     fn auto_select_attaches_cell_handlers_even_without_a_user_callback() {
-        // Word moves the highlight on click regardless of the app; with
+        // The classic behavior moves the highlight on click regardless of the app; with
         // auto_select off and no user callback, nothing is attached.
         let node = render_item(RibbonItem::Gallery(gallery(2)));
         let strip = &node.children.as_ref()[0].children.as_ref()[0];
@@ -4052,7 +4052,7 @@ mod tests {
     /// conditional value comes LAST so it wins (inline CSS is last-match).
     #[test]
     fn the_desktop_tab_strip_is_hidden_under_the_mobile_breakpoint() {
-        let s = RibbonStyle::word_2013();
+        let s = RibbonStyle::office_2013();
 
         let displays: Vec<(&LayoutDisplay, bool)> = s
             .tab_bar_style
@@ -4096,8 +4096,8 @@ mod tests {
     /// independent of text direction, so it is its own system setting.
     #[test]
     fn handedness_flips_the_mobile_group_list_divider() {
-        let right = RibbonStyle::from_theme_handed(RibbonTheme::word_2013(), Handedness::RightHanded);
-        let left = RibbonStyle::from_theme_handed(RibbonTheme::word_2013(), Handedness::LeftHanded);
+        let right = RibbonStyle::from_theme_handed(RibbonTheme::office_2013(), Handedness::RightHanded);
+        let left = RibbonStyle::from_theme_handed(RibbonTheme::office_2013(), Handedness::LeftHanded);
         assert_ne!(right.mobile_group_list_style, left.mobile_group_list_style);
 
         let has = |s: &CssPropertyWithConditionsVec, want_left: bool| {
@@ -4144,7 +4144,7 @@ mod tests {
     #[test]
     fn styled_combo_box_follows_the_style_bundles_theme() {
         let neon = ColorU { r: 1, g: 2, b: 3, a: 255 };
-        let mut theme = RibbonTheme::word_2013();
+        let mut theme = RibbonTheme::office_2013();
         theme.field_border = neon;
 
         let combo = RibbonStyle::from_theme(theme).styled_combo_box(

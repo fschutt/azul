@@ -356,7 +356,7 @@ pub struct FakePageConfig {
     /// Break-awareness policy for pagination (all-off default = plain
     /// interval slicing; printpdf flips the flags on with a changelog entry).
     pub break_policy: crate::solver3::page_breaks::BreakPolicy,
-    /// MS-Word-style per-page setup sequence (`None` = uniform pages from
+    /// office-suite-style per-page setup sequence (`None` = uniform pages from
     /// the fields above).
     pub page_sequence: Option<PageSequence>,
 }
@@ -646,7 +646,7 @@ pub struct PageMargins {
 }
 
 /// ONE page's complete setup — size (orientation = which side is longer),
-/// margins, and header/footer decoration. The MS-Word "page setup" unit.
+/// margins, and header/footer decoration. The classic office suites "page setup" unit.
 #[derive(Debug, Clone)]
 pub struct PageSetup {
     /// Full page size INCLUDING margins (swap the sides for landscape).
@@ -684,7 +684,7 @@ impl PageSetup {
 
 /// The document's page-setup SEQUENCE: one default + sparse overrides.
 ///
-/// The MS-Word model ("default = A4 portrait, 2cm footer, 1.5cm margins;
+/// The classic office suites model ("default = A4 portrait, 2cm footer, 1.5cm margins;
 /// page 345 is landscape"). Resolution precedence per page:
 /// explicit override > first-page setup > odd/even parity > default.
 ///
@@ -703,9 +703,9 @@ pub struct PageSequence {
     pub default: PageSetup,
     /// Explicit per-page overrides (0-based page index). Strongest.
     pub overrides: std::collections::BTreeMap<usize, PageSetup>,
-    /// Word's "different first page".
+    /// the classic office-suite "different first page".
     pub first_page: Option<PageSetup>,
-    /// Word's "different odd & even": odd = 0-based EVEN indices (page 1,
+    /// the classic office-suite "different odd & even": odd = 0-based EVEN indices (page 1,
     /// 3, … in 1-based speech) — stored by the 1-based convention users
     /// think in: `odd_pages` applies to 1-based odd page numbers.
     pub odd_pages: Option<PageSetup>,
@@ -775,7 +775,7 @@ impl PageSequence {
     /// Partition the page sequence into WIDTH SECTIONS — maximal runs of
     /// consecutive pages sharing a content width. This is the fragmentainer
     /// unit for width re-wrap: content lays out ONCE per section at that
-    /// section's width and is cut at the section boundary (the MS-Word model,
+    /// section's width and is cut at the section boundary (the classic office suites model,
     /// where page setup changes at section breaks).
     ///
     /// The last section is open-ended (`page_count: None`): once every

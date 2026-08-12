@@ -1,4 +1,4 @@
-//! Microsoft Office-style status bar widget (Word 2013 look by default).
+//! Microsoft Office-style status bar widget (the Office-2013-era look look by default).
 //!
 //! Models the bottom chrome band of an Office document window:
 //!
@@ -9,7 +9,7 @@
 //!           ─ zoom cluster                StatusBarZoom (− button, slider, + button, "100%")
 //! ```
 //!
-//! Word 2013 reference (bottom of the window):
+//! the Office-2013-era look reference (bottom of the window):
 //! `PAGE 1 OF 1   0 WORDS   [spellcheck]  ENGLISH (UNITED STATES) …
 //!  [read mode] [print layout] [web layout]   − ──────╂────── +  100%`
 //!
@@ -21,8 +21,8 @@
 //! `track_style` / `thumb_style` fields, so dragging it reports values
 //! through the regular [`super::slider::SliderOnValueChange`] callback.
 //!
-//! All visual parts are exposed on [`StatusBarStyle`] (defaults = Word 2013
-//! look, [`StatusBarStyle::word_2013`]); replace any field to re-theme
+//! All visual parts are exposed on [`StatusBarStyle`] (defaults = the Office-2013-era look
+//! look, [`StatusBarStyle::office_2013`]); replace any field to re-theme
 //! without touching widget code. There is no behavior struct: the status bar
 //! has no self-driven chrome interactions — every event is forwarded to the
 //! application callbacks.
@@ -84,7 +84,7 @@ const SYSTEM_UI_FAMILIES: &[StyleFontFamily] = &[StyleFontFamily::System(SYSTEM_
 const SYSTEM_UI_FAMILY: StyleFontFamilyVec =
     StyleFontFamilyVec::from_const_slice(SYSTEM_UI_FAMILIES);
 
-// -- Word 2013 palette (seeds StatusBarTheme::word_2013) --
+// -- the Office-2013-era look palette (seeds StatusBarTheme::office_2013) --
 
 const WHITE: ColorU = ColorU { r: 255, g: 255, b: 255, a: 255 };
 const TRANSPARENT: ColorU = ColorU { r: 0, g: 0, b: 0, a: 0 };
@@ -99,7 +99,7 @@ const W13_RAIL: ColorU = ColorU { r: 165, g: 189, b: 222, a: 255 };
 /// Zoom slider thumb border (#8E9BB3).
 const W13_THUMB_BORDER: ColorU = ColorU { r: 142, g: 155, b: 179, a: 255 };
 
-// -- Metrics (Word 2013, logical px) --
+// -- Metrics (the Office-2013-era look, logical px) --
 
 /// Bar height.
 const BAR_HEIGHT: isize = 23;
@@ -113,7 +113,7 @@ const VIEW_BUTTON_W: isize = 29;
 const ZOOM_BUTTON_W: isize = 21;
 /// Total width of the zoom slider track.
 const ZOOM_TRACK_W: isize = 100;
-/// Zoom thumb size (Word: a small vertical bar).
+/// Zoom thumb size (office-2013: a small vertical bar).
 const ZOOM_THUMB_W: isize = 6;
 const ZOOM_THUMB_H: isize = 11;
 /// Width reserved for the "100%" label.
@@ -123,12 +123,12 @@ const ZOOM_LABEL_W: isize = 42;
 
 /// Color palette from which a full [`StatusBarStyle`] is derived via
 /// [`StatusBarStyle::from_theme`]. All fields are plain colors, so themes
-/// are trivially constructible over FFI. Preset: [`StatusBarTheme::word_2013`]
+/// are trivially constructible over FFI. Preset: [`StatusBarTheme::office_2013`]
 /// (the default).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[repr(C)]
 pub struct StatusBarTheme {
-    /// Bar fill (Word: accent blue).
+    /// Bar fill (office-2013: accent blue).
     pub bar_bg: ColorU,
     /// Text and glyph color on the bar.
     pub text: ColorU,
@@ -147,9 +147,9 @@ pub struct StatusBarTheme {
 }
 
 impl StatusBarTheme {
-    /// The Word 2013 palette: #2B579A bar, white text, lighter-blue hovers.
+    /// The the Office-2013-era look palette: #2B579A bar, white text, lighter-blue hovers.
     #[must_use]
-    pub const fn word_2013() -> Self {
+    pub const fn office_2013() -> Self {
         Self {
             bar_bg: W13_BLUE,
             text: WHITE,
@@ -165,15 +165,15 @@ impl StatusBarTheme {
 
 impl Default for StatusBarTheme {
     fn default() -> Self {
-        Self::word_2013()
+        Self::office_2013()
     }
 }
 
 // -- Theme -> property-list builders --
 //
 // Every themed status-bar part is built from `StatusBarTheme` colors by the
-// functions below; `StatusBarStyle::word_2013()` is just
-// `from_theme(StatusBarTheme::word_2013())`, so there is exactly one source
+// functions below; `StatusBarStyle::office_2013()` is just
+// `from_theme(StatusBarTheme::office_2013())`, so there is exactly one source
 // of truth for each part's property list.
 
 fn bg_vec(c: ColorU) -> StyleBackgroundContentVec {
@@ -428,7 +428,7 @@ fn theme_zoom_label(t: &StatusBarTheme) -> CssPropertyWithConditionsVec {
 
 // -- Style --
 
-/// All part styles of the status bar. Every part defaults to the Word 2013
+/// All part styles of the status bar. Every part defaults to the the Office-2013-era look
 /// look; replace any field for finer control (the same override API as
 /// [`super::ribbon::RibbonStyle`]).
 #[derive(Debug, Clone, PartialEq)]
@@ -477,10 +477,10 @@ pub struct StatusBarStyle {
 }
 
 impl StatusBarStyle {
-    /// The Word 2013 look (#2B579A bar, white text) - the default.
+    /// The the Office-2013-era look look (#2B579A bar, white text) - the default.
     #[must_use]
-    pub fn word_2013() -> Self {
-        Self::from_theme(StatusBarTheme::word_2013())
+    pub fn office_2013() -> Self {
+        Self::from_theme(StatusBarTheme::office_2013())
     }
 
     /// Derives every part style from the given palette.
@@ -513,7 +513,7 @@ impl StatusBarStyle {
 
 impl Default for StatusBarStyle {
     fn default() -> Self {
-        Self::word_2013()
+        Self::office_2013()
     }
 }
 
@@ -521,7 +521,7 @@ impl Default for StatusBarStyle {
 
 /// One left-hand status segment ("PAGE 1 OF 1", "0 WORDS", the language, …).
 /// An empty `icon` means "no icon". With an `on_click` the segment renders
-/// as a flat hover-highlighted button (Word: the segments open panes /
+/// as a flat hover-highlighted button (office-2013: the segments open panes /
 /// toggle counters); without one it is inert text.
 #[derive(Debug, Clone, PartialEq)]
 #[repr(C)]
@@ -596,7 +596,7 @@ impl_vec_clone!(StatusBarSegment, StatusBarSegmentVec, StatusBarSegmentVecDestru
 impl_vec_debug!(StatusBarSegment, StatusBarSegmentVec);
 impl_vec_mut!(StatusBarSegment, StatusBarSegmentVec);
 
-/// One view-switcher button (Word: read mode / print layout / web layout).
+/// One view-switcher button (office-2013: read mode / print layout / web layout).
 #[derive(Debug, Clone, PartialEq)]
 #[repr(C)]
 pub struct StatusBarView {
@@ -649,9 +649,9 @@ impl StatusBarViewSwitcher {
         Self { views, active_view: 0, on_select: None.into() }
     }
 
-    /// The Word 2013 trio: read mode, print layout (active), web layout.
+    /// The the Office-2013-era look trio: read mode, print layout (active), web layout.
     #[must_use]
-    pub fn word_2013() -> Self {
+    pub fn office_2013() -> Self {
         let views = StatusBarViewVec::from_vec(vec![
             StatusBarView::new(AzString::from_const_str("menu_book")),
             StatusBarView::new(AzString::from_const_str("description")),
@@ -702,9 +702,9 @@ impl_option!(
 /// The zoom cluster: − button, slider, + button and the percent label.
 ///
 /// The slider is the existing [`Slider`] widget with `value = percent` over
-/// the linear `[min, max]` window. The Word 2013 default window is
+/// the linear `[min, max]` window. The the Office-2013-era look default window is
 /// `[10, 190]` so the 100% default rests exactly on the center tick (the
-/// real Word slider maps 10–100–500 piecewise; a linear window keeps the
+/// original office-suite slider maps 10–100–500 piecewise; a linear window keeps the
 /// widget dumb — the application decides what a slider value means).
 #[derive(Debug, Clone, PartialEq)]
 #[repr(C)]
@@ -726,9 +726,9 @@ pub struct StatusBarZoom {
 }
 
 impl StatusBarZoom {
-    /// 100% zoom over the Word 2013 `[10, 190]` window, label shown.
+    /// 100% zoom over the the Office-2013-era look `[10, 190]` window, label shown.
     #[must_use]
-    pub fn word_2013() -> Self {
+    pub fn office_2013() -> Self {
         Self {
             percent: 100.0,
             min: 10.0,
@@ -750,7 +750,7 @@ impl StatusBarZoom {
 
 impl Default for StatusBarZoom {
     fn default() -> Self {
-        Self::word_2013()
+        Self::office_2013()
     }
 }
 
@@ -772,7 +772,7 @@ pub struct StatusBar {
     pub views: OptionStatusBarViewSwitcher,
     /// Optional zoom cluster.
     pub zoom: OptionStatusBarZoom,
-    /// All part styles (defaults to the Word 2013 look).
+    /// All part styles (defaults to the the Office-2013-era look look).
     pub style: StatusBarStyle,
 }
 
@@ -801,14 +801,14 @@ static CLS_ZOOM_LABEL: &[IdOrClass] =
 
 impl StatusBar {
     /// Creates a status bar with the given left segments, no view switcher
-    /// and no zoom cluster, in the Word 2013 style.
+    /// and no zoom cluster, in the the Office-2013-era look style.
     #[must_use]
     pub fn new(segments: StatusBarSegmentVec) -> Self {
         Self {
             segments,
             views: None.into(),
             zoom: None.into(),
-            style: StatusBarStyle::word_2013(),
+            style: StatusBarStyle::office_2013(),
         }
     }
 
@@ -1081,24 +1081,24 @@ mod tests {
     // ------------------------------------------------------------------
 
     #[test]
-    fn status_bar_new_defaults_to_word_2013_with_no_clusters() {
+    fn status_bar_new_defaults_to_office_2013_with_no_clusters() {
         for count in [0usize, 1, 3] {
             let s = StatusBar::new(segs(count));
             assert_eq!(s.segments.len(), count);
             assert!(s.views.is_none());
             assert!(s.zoom.is_none());
-            assert_eq!(s.style, StatusBarStyle::word_2013());
+            assert_eq!(s.style, StatusBarStyle::office_2013());
         }
     }
 
     #[test]
-    fn status_bar_style_default_is_word_2013() {
-        assert_eq!(StatusBarStyle::default(), StatusBarStyle::word_2013());
+    fn status_bar_style_default_is_office_2013() {
+        assert_eq!(StatusBarStyle::default(), StatusBarStyle::office_2013());
     }
 
     #[test]
-    fn zoom_word_2013_centers_the_default_percent() {
-        let z = StatusBarZoom::word_2013();
+    fn zoom_office_2013_centers_the_default_percent() {
+        let z = StatusBarZoom::office_2013();
         // 100% must rest exactly on the center tick of the [10, 190] window.
         let fraction = (z.percent - z.min) / (z.max - z.min);
         assert!((fraction - 0.5).abs() < 1e-6);
@@ -1106,8 +1106,8 @@ mod tests {
     }
 
     #[test]
-    fn view_switcher_word_2013_has_three_views_with_print_layout_active() {
-        let v = StatusBarViewSwitcher::word_2013();
+    fn view_switcher_office_2013_has_three_views_with_print_layout_active() {
+        let v = StatusBarViewSwitcher::office_2013();
         assert_eq!(v.views.len(), 3);
         assert_eq!(v.active_view, 1);
         assert!(v.on_select.is_none());
@@ -1120,8 +1120,8 @@ mod tests {
     #[test]
     fn dom_renders_segments_filler_views_and_zoom_in_order() {
         let bar = StatusBar::new(segs(2))
-            .with_views(StatusBarViewSwitcher::word_2013())
-            .with_zoom(StatusBarZoom::word_2013());
+            .with_views(StatusBarViewSwitcher::office_2013())
+            .with_zoom(StatusBarZoom::office_2013());
         let dom = bar.dom();
         // 2 segments + filler + views + zoom
         assert_eq!(dom.children.as_ref().len(), 5);
@@ -1135,7 +1135,7 @@ mod tests {
 
     #[test]
     fn zoom_cluster_without_label_has_three_children() {
-        let mut zoom = StatusBarZoom::word_2013();
+        let mut zoom = StatusBarZoom::office_2013();
         zoom.show_label = false;
         let dom = StatusBar::new(segs(0)).with_zoom(zoom).dom();
         // filler + zoom
@@ -1147,7 +1147,7 @@ mod tests {
 
     #[test]
     fn zoom_track_host_layers_rail_tick_and_slider() {
-        let dom = StatusBar::new(segs(0)).with_zoom(StatusBarZoom::word_2013()).dom();
+        let dom = StatusBar::new(segs(0)).with_zoom(StatusBarZoom::office_2013()).dom();
         let zoom_dom = &dom.children.as_ref()[1];
         let track_host = &zoom_dom.children.as_ref()[1];
         assert_eq!(track_host.children.as_ref().len(), 3);
@@ -1159,13 +1159,13 @@ mod tests {
             Update::DoNothing
         }
         // Without a handler: no callbacks on the buttons.
-        let dom = StatusBar::new(segs(0)).with_views(StatusBarViewSwitcher::word_2013()).dom();
+        let dom = StatusBar::new(segs(0)).with_views(StatusBarViewSwitcher::office_2013()).dom();
         let views = &dom.children.as_ref()[1];
         for btn in views.children.as_ref() {
             assert!(btn.root.callbacks.as_ref().is_empty());
         }
         // With a handler: every button carries one.
-        let mut switcher = StatusBarViewSwitcher::word_2013();
+        let mut switcher = StatusBarViewSwitcher::office_2013();
         switcher.set_on_select(RefAny::new(()), on_select as StatusBarOnViewSelectCallbackType);
         let dom = StatusBar::new(segs(0)).with_views(switcher).dom();
         let views = &dom.children.as_ref()[1];

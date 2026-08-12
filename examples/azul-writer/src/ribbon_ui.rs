@@ -1,0 +1,301 @@
+//! The the Office-2013-era look ribbon composition — HOME tab cloned control-by-control.
+//!
+//! Adapted from the verified `azul/examples/rust/src/ribbon.rs` (pixel-close
+//! against the real the Office-2013-era look HOME tab), rebased onto the raw
+//! `azul_layout::widgets::ribbon` API. The FILE app button opens the
+//! backstage (`crate::on_file_button`).
+
+use azul_core::{callbacks::Update, dom::Dom, refany::RefAny};
+use azul_css::AzString;
+use azul_layout::callbacks::CallbackInfo;
+use azul_layout::widgets::button::ButtonOnClickCallbackType;
+use azul_layout::widgets::combobox::{ComboBoxOnSelectCallbackType, ComboBoxState};
+use azul_layout::widgets::ribbon::{
+    Ribbon, RibbonAppButton, RibbonArrow, RibbonButton, RibbonColumn, RibbonGallery,
+    RibbonGalleryCell, RibbonGalleryOnSelectCallbackType, RibbonGroup, RibbonItem,
+    RibbonOnTabClickCallbackType, RibbonRow, RibbonStyle, RibbonTab, RibbonTabVec,
+};
+
+use crate::AppState;
+
+// ---------------------------------------------------------------------------
+// Callbacks
+// ---------------------------------------------------------------------------
+
+extern "C" fn on_tab_click(mut data: RefAny, _: CallbackInfo, index: usize) -> Update {
+    let Some(mut state) = data.downcast_mut::<AppState>() else {
+        return Update::DoNothing;
+    };
+    state.ribbon_tab = index;
+    Update::RefreshDom
+}
+
+extern "C" fn on_style_select(mut data: RefAny, _: CallbackInfo, index: usize) -> Update {
+    let Some(mut state) = data.downcast_mut::<AppState>() else {
+        return Update::DoNothing;
+    };
+    state.selected_style = index;
+    Update::RefreshDom
+}
+
+extern "C" fn on_toggle_bold(mut data: RefAny, _: CallbackInfo) -> Update {
+    let Some(mut state) = data.downcast_mut::<AppState>() else {
+        return Update::DoNothing;
+    };
+    state.bold = !state.bold;
+    Update::RefreshDom
+}
+
+extern "C" fn on_toggle_italic(mut data: RefAny, _: CallbackInfo) -> Update {
+    let Some(mut state) = data.downcast_mut::<AppState>() else {
+        return Update::DoNothing;
+    };
+    state.italic = !state.italic;
+    Update::RefreshDom
+}
+
+extern "C" fn on_toggle_underline(mut data: RefAny, _: CallbackInfo) -> Update {
+    let Some(mut state) = data.downcast_mut::<AppState>() else {
+        return Update::DoNothing;
+    };
+    state.underline = !state.underline;
+    Update::RefreshDom
+}
+
+/// Payload for the four alignment buttons: shared app state + this button's
+/// alignment index.
+struct AlignPayload {
+    app: RefAny,
+    align: usize,
+}
+
+extern "C" fn on_align(mut data: RefAny, _: CallbackInfo) -> Update {
+    let Some(payload) = data.downcast_ref::<AlignPayload>() else {
+        return Update::DoNothing;
+    };
+    let align = payload.align;
+    let mut app = payload.app.clone();
+    drop(payload);
+    let Some(mut state) = app.downcast_mut::<AppState>() else {
+        return Update::DoNothing;
+    };
+    state.align = align;
+    Update::RefreshDom
+}
+
+extern "C" fn on_font_select(_: RefAny, _: CallbackInfo, state: ComboBoxState) -> Update {
+    println!("[azwriter] font changed: {} (index {})", state.text.as_str(), state.selected);
+    Update::DoNothing
+}
+
+// ---------------------------------------------------------------------------
+// Small builder helpers
+// ---------------------------------------------------------------------------
+
+fn s(v: &str) -> AzString {
+    AzString::from(v)
+}
+
+fn small(icon: &str, label: &str) -> RibbonButton {
+    RibbonButton::new(s(icon), s(label))
+}
+
+fn item(icon: &str, label: &str) -> RibbonItem {
+    RibbonItem::SmallButton(small(icon, label))
+}
+
+fn item_menu(icon: &str, label: &str) -> RibbonItem {
+    RibbonItem::SmallButton(small(icon, label).with_arrow(RibbonArrow::Menu))
+}
+
+fn row(items: Vec<RibbonItem>) -> RibbonItem {
+    RibbonItem::Row(items.into_iter().fold(RibbonRow::new(), |r, it| r.with_item(it)))
+}
+
+fn column(items: Vec<RibbonItem>) -> RibbonItem {
+    RibbonItem::Column(items.into_iter().fold(RibbonColumn::new(), |c, it| c.with_item(it)))
+}
+
+fn cell(preview_css: &str, sample: &str, name: &str) -> RibbonGalleryCell {
+    RibbonGalleryCell::new(Dom::create_text(sample).with_css(preview_css), s(name))
+}
+
+// ---------------------------------------------------------------------------
+// The HOME tab (the the Office-2013-era look default tab, cloned control by control)
+// ---------------------------------------------------------------------------
+
+fn home_tab(state: &AppState, data: &RefAny) -> RibbonTab {
+    let ribbon_style = RibbonStyle::office_2013();
+
+    // -- Clipboard ---------------------------------------------------------
+    let clipboard = RibbonGroup::new(s("Clipboard"))
+        .with_item(RibbonItem::LargeButton(
+            RibbonButton::new(s("content_paste"), s("Paste")).with_arrow(RibbonArrow::Split),
+        ))
+        .with_item(column(vec![
+            item("content_cut", "Cut"),
+            item("content_copy", "Copy"),
+            item("format_paint", "Format Painter"),
+        ]));
+
+    // -- Font ----------------------------------------------------------------
+    let font_names: Vec<AzString> = [
+        "Calibri (Body)",
+        "Calibri Light",
+        "Cambria",
+        "Arial",
+        "Courier New",
+        "Times New Roman",
+    ]
+    .iter()
+    .map(|f| s(f))
+    .collect();
+    let font_sizes: Vec<AzString> =
+        ["8", "9", "10", "11", "12", "14", "18", "24", "36"].iter().map(|f| s(f)).collect();
+
+    let mut name_combo =
+        ribbon_style.styled_combo_box(font_names.into(), s("Calibri (Body)"), 133);
+    name_combo.set_on_select(data.clone(), on_font_select as ComboBoxOnSelectCallbackType);
+    let mut size_combo = ribbon_style.styled_combo_box(font_sizes.into(), s("11"), 45);
+    // WORKAROUND(engine): pin the static UI font (see crate::fonts).
+    crate::fonts::push_ui_font(&mut name_combo.text_style);
+    crate::fonts::push_ui_font(&mut size_combo.text_style);
+
+    let mut bold = small("format_bold", "").with_toggled(state.bold);
+    bold.set_on_click(data.clone(), on_toggle_bold as ButtonOnClickCallbackType);
+    let mut italic = small("format_italic", "").with_toggled(state.italic);
+    italic.set_on_click(data.clone(), on_toggle_italic as ButtonOnClickCallbackType);
+    let mut underline = small("format_underlined", "")
+        .with_toggled(state.underline)
+        .with_arrow(RibbonArrow::Menu);
+    underline.set_on_click(data.clone(), on_toggle_underline as ButtonOnClickCallbackType);
+
+    let font = RibbonGroup::new(s("Font")).with_item(column(vec![
+        row(vec![
+            RibbonItem::Combo(name_combo),
+            RibbonItem::Combo(size_combo),
+            item("text_increase", ""),
+            item("text_decrease", ""),
+            item_menu("text_fields", ""),
+            item("format_clear", ""),
+        ]),
+        row(vec![
+            RibbonItem::SmallButton(bold),
+            RibbonItem::SmallButton(italic),
+            RibbonItem::SmallButton(underline),
+            item("strikethrough_s", ""),
+            item("subscript", ""),
+            item("superscript", ""),
+            RibbonItem::Separator,
+            item_menu("format_shapes", ""),
+            item_menu("border_color", ""),
+            item_menu("format_color_text", ""),
+        ]),
+    ]));
+
+    // -- Paragraph -----------------------------------------------------------
+    let align_icons = [
+        "format_align_left",
+        "format_align_center",
+        "format_align_right",
+        "format_align_justify",
+    ];
+    let mut align_items: Vec<RibbonItem> = Vec::new();
+    for (i, icon) in align_icons.iter().enumerate() {
+        let mut b = small(icon, "").with_toggled(state.align == i);
+        b.set_on_click(
+            RefAny::new(AlignPayload { app: data.clone(), align: i }),
+            on_align as ButtonOnClickCallbackType,
+        );
+        align_items.push(RibbonItem::SmallButton(b));
+    }
+    let mut para_row2 = align_items;
+    para_row2.push(RibbonItem::Separator);
+    para_row2.push(item_menu("format_line_spacing", ""));
+    para_row2.push(RibbonItem::Separator);
+    para_row2.push(item_menu("format_color_fill", ""));
+    para_row2.push(item_menu("border_all", ""));
+
+    let paragraph = RibbonGroup::new(s("Paragraph")).with_item(column(vec![
+        row(vec![
+            item_menu("format_list_bulleted", ""),
+            item_menu("format_list_numbered", ""),
+            item_menu("format_list_numbered_rtl", ""),
+            RibbonItem::Separator,
+            item("format_indent_decrease", ""),
+            item("format_indent_increase", ""),
+            RibbonItem::Separator,
+            item("sort_by_alpha", ""),
+            item("", "\u{00b6}"),
+        ]),
+        row(para_row2),
+    ]));
+
+    // -- Styles (in-ribbon gallery) -------------------------------------------
+    let cells = vec![
+        cell("font-size: 14px; color: #444444;", "AaBbCcDc", "\u{00b6} Normal"),
+        cell("font-size: 14px; color: #444444;", "AaBbCcDc", "\u{00b6} No Spac..."),
+        cell("font-size: 15px; color: #2e74b5;", "AaBbCc", "Heading 1"),
+        cell("font-size: 14px; color: #2e74b5;", "AaBbCcD", "Heading 2"),
+        cell("font-size: 19px; color: #262626;", "AaB", "Title"),
+        cell("font-size: 13px; color: #5a5a5a;", "AaBbCcD", "Subtitle"),
+        cell("font-size: 13px; color: #808080;", "AaBbCcDi", "Subtle Em..."),
+        cell("font-size: 13px; color: #4472c4;", "AaBbCcDi", "Emphasis"),
+    ];
+    let mut gallery = RibbonGallery::new(cells.into()).with_selected(state.selected_style);
+    gallery.set_on_select(data.clone(), on_style_select as RibbonGalleryOnSelectCallbackType);
+
+    let styles = RibbonGroup::new(s("Styles"))
+        .with_item(RibbonItem::Gallery(gallery))
+        .with_fills_space(true);
+
+    // -- Editing ---------------------------------------------------------------
+    let editing = RibbonGroup::new(s("Editing")).with_item(column(vec![
+        item_menu("search", "Find"),
+        item("find_replace", "Replace"),
+        item_menu("highlight_alt", "Select"),
+    ]));
+
+    RibbonTab::new(s("HOME"))
+        .with_group(clipboard)
+        .with_group(font)
+        .with_group(paragraph)
+        .with_group(styles)
+        .with_group(editing)
+}
+
+/// The non-HOME tabs only exist as switchable headers with placeholder
+/// content — the HOME tab is the cloning target.
+fn placeholder_tab(label: &str) -> RibbonTab {
+    RibbonTab::new(s(label)).with_group(
+        RibbonGroup::new(s("Preview"))
+            .with_item(RibbonItem::LargeButton(RibbonButton::new(s("layers"), s(label)))),
+    )
+}
+
+/// Builds the full ribbon (tab strip + active tab content) for the editor
+/// screen. The FILE button opens the backstage.
+pub fn build(state: &AppState, data: &RefAny) -> Dom {
+    let tabs: Vec<RibbonTab> = vec![
+        home_tab(state, data),
+        placeholder_tab("INSERT"),
+        placeholder_tab("DESIGN"),
+        placeholder_tab("PAGE LAYOUT"),
+        placeholder_tab("REFERENCES"),
+        placeholder_tab("MAILINGS"),
+        placeholder_tab("REVIEW"),
+        placeholder_tab("VIEW"),
+    ];
+
+    let mut ribbon = Ribbon::new(RibbonTabVec::from_vec(tabs))
+        .with_app_button(RibbonAppButton::new(s("FILE")).with_on_click(
+            data.clone(),
+            crate::on_file_button as ButtonOnClickCallbackType,
+        ))
+        .with_active_tab(state.ribbon_tab);
+    ribbon.set_on_tab_click(data.clone(), on_tab_click as RibbonOnTabClickCallbackType);
+    // WORKAROUND(engine): pin the static UI font on the ribbon container —
+    // the font inherits into every tab / group / label (see crate::fonts).
+    crate::fonts::push_ui_font(&mut ribbon.style.container_style);
+    ribbon.dom_desktop()
+}

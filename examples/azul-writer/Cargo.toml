@@ -5,22 +5,35 @@ edition = "2021"
 authors = ["Felix Schütt <felix.schuett@maps4print.com>"]
 license = "MIT"
 description = """
-    AzulDoc — the P5 goal app from SUPER_PLAN_2. A document view with an
-    "Export to PDF" button that drives `CallbackInfo::export_to_pdf` →
-    the dll's `printpdf` engine (walks the display list → PDF). Built on
-    the public `azul::` api.json surface. v1 exports the document's layout
-    (solid fills / section backgrounds); text-in-PDF + a markdown editor
-    are follow-ups (the on-screen view already shows text via the renderer).
+    AzWriter — a print-layout document editor demo in the classic
+    office-suite look: title band (quick-access toolbar), ribbon,
+    paginated white-sheet canvas with a 3-page VirtualView window,
+    streaming background pagination, status bar with live page counts,
+    markdown open/save, structural undo/redo through the engine's
+    document-edit changesets, and PDF export via the paged pipeline.
 """
 publish = false
 
 [dependencies]
-# `pdf` makes the export real (printpdf compiled on the desktop host);
-# without it `export_to_pdf` no-ops.
-azul = { path = "../../dll", package = "azul-dll", default-features = false, features = ["link-static", "pdf"] }
+azul-dll = { path = "../../dll", default-features = false, features = ["link-static", "pdf", "debug-server"] }
+azul-layout = { path = "../../layout", default-features = false, features = [
+    "font_loading",
+    "text_layout",
+    "text_layout_hyphenation",
+    "svg",
+    "xml",
+    "cpurender",
+    "image_decoding",
+    "widgets",
+    "extra",
+    "icons",
+    "font_async_registry",
+] }
+azul-core = { path = "../../core" }
+azul-css = { path = "../../css" }
+rust-fontconfig = { version = ">=4.4.7, <4.5", default-features = false }
+pulldown-cmark = { version = "0.9", default-features = false }
 
 [[bin]]
-# Unique binary name too — `azul-doc` is the codegen tool's binary
-# (`cargo run --bin azul-doc -- codegen`), so the demo must not shadow it.
-name = "azul-doc-demo"
+name = "azwriter"
 path = "src/main.rs"

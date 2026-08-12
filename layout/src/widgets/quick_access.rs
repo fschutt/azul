@@ -1,5 +1,5 @@
 //! Microsoft Office-style title band with a Quick Access Toolbar
-//! (Word 2013 look by default).
+//! (the Office-2013-era look look by default).
 //!
 //! Models the top chrome band of an Office document window:
 //!
@@ -7,7 +7,7 @@
 //! QuickAccessBar ─ leading slot            (app logo, any user Dom)
 //!                ─ quick-access actions    QuickAccessAction (save / undo / redo)
 //!                ─ customize arrow         ("▾" menu glyph, optional)
-//!                ─ window title            (centered, "Document1 - Word")
+//!                ─ window title            (centered, "Document1 - AzWriter")
 //!                ─ trailing actions        QuickAccessAction (help, ribbon options)
 //!                ─ window buttons          minimize / maximize / close
 //! ```
@@ -26,7 +26,7 @@
 //! itself, so it stays inert in mockups and screenshot harnesses.
 //!
 //! All visual parts are exposed on [`QuickAccessStyle`] (defaults =
-//! Word 2013 look, [`QuickAccessStyle::word_2013`]); replace any field to
+//! the Office-2013-era look look, [`QuickAccessStyle::office_2013`]); replace any field to
 //! re-theme without touching widget code. There is no behavior struct: the
 //! band has no self-driven chrome interactions.
 
@@ -57,7 +57,7 @@ const SYSTEM_UI_FAMILIES: &[StyleFontFamily] = &[StyleFontFamily::System(SYSTEM_
 const SYSTEM_UI_FAMILY: StyleFontFamilyVec =
     StyleFontFamilyVec::from_const_slice(SYSTEM_UI_FAMILIES);
 
-// -- Word 2013 palette (seeds QuickAccessTheme::word_2013) --
+// -- the Office-2013-era look palette (seeds QuickAccessTheme::office_2013) --
 
 const WHITE: ColorU = ColorU { r: 255, g: 255, b: 255, a: 255 };
 const TRANSPARENT: ColorU = ColorU { r: 0, g: 0, b: 0, a: 0 };
@@ -72,7 +72,7 @@ const W13_PRESSED_BG: ColorU = ColorU { r: 204, g: 204, b: 204, a: 255 };
 /// Close button hover fill (#E81123, the Windows caption red).
 const W13_CLOSE_HOVER: ColorU = ColorU { r: 232, g: 17, b: 35, a: 255 };
 
-// -- Metrics (Word 2013, logical px) --
+// -- Metrics (the Office-2013-era look, logical px) --
 
 /// Band height.
 const BAR_HEIGHT: isize = 28;
@@ -82,7 +82,7 @@ const QAT_ICON_PX: isize = 15;
 const WIN_ICON_PX: isize = 14;
 /// Width of one quick-access button.
 const QAT_BUTTON_W: isize = 26;
-/// Width of one window button (Word: wide flat caption buttons).
+/// Width of one window button (office-2013: wide flat caption buttons).
 const WIN_BUTTON_W: isize = 34;
 /// Title text size.
 const TITLE_PX: isize = 12;
@@ -92,11 +92,11 @@ const TITLE_PX: isize = 12;
 /// Color palette from which a full [`QuickAccessStyle`] is derived via
 /// [`QuickAccessStyle::from_theme`]. All fields are plain colors, so themes
 /// are trivially constructible over FFI. Preset:
-/// [`QuickAccessTheme::word_2013`] (the default).
+/// [`QuickAccessTheme::office_2013`] (the default).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[repr(C)]
 pub struct QuickAccessTheme {
-    /// Band fill (Word: white).
+    /// Band fill (office-2013: white).
     pub bg: ColorU,
     /// Title text color.
     pub text: ColorU,
@@ -113,9 +113,9 @@ pub struct QuickAccessTheme {
 }
 
 impl QuickAccessTheme {
-    /// The Word 2013 palette: white band, gray glyphs, red close hover.
+    /// The the Office-2013-era look palette: white band, gray glyphs, red close hover.
     #[must_use]
-    pub const fn word_2013() -> Self {
+    pub const fn office_2013() -> Self {
         Self {
             bg: WHITE,
             text: W13_TITLE_TEXT,
@@ -130,7 +130,7 @@ impl QuickAccessTheme {
 
 impl Default for QuickAccessTheme {
     fn default() -> Self {
-        Self::word_2013()
+        Self::office_2013()
     }
 }
 
@@ -170,7 +170,7 @@ fn push_row_center(v: &mut Vec<Cond>) {
 
 /// Flat, hover-highlighted button chassis shared by every band control.
 /// The explicit TRANSPARENT border overrides the [`Button`] widget's
-/// default frame (Word's band controls are frameless until hovered).
+/// default frame (the classic office-suite band controls are frameless until hovered).
 fn push_flat_button(v: &mut Vec<Cond>, t: &QuickAccessTheme) {
     v.push(cond_border_box());
     v.push(Cond::simple(P::const_cursor(StyleCursor::Default)));
@@ -277,7 +277,7 @@ fn theme_close_button(t: &QuickAccessTheme) -> CssPropertyWithConditionsVec {
 
 // -- Style --
 
-/// All part styles of the title band. Every part defaults to the Word 2013
+/// All part styles of the title band. Every part defaults to the the Office-2013-era look
 /// look; replace any field for finer control (the same override API as
 /// [`super::ribbon::RibbonStyle`]).
 #[derive(Debug, Clone, PartialEq)]
@@ -307,10 +307,10 @@ pub struct QuickAccessStyle {
 }
 
 impl QuickAccessStyle {
-    /// The Word 2013 look (white band, gray glyphs) - the default.
+    /// The the Office-2013-era look look (white band, gray glyphs) - the default.
     #[must_use]
-    pub fn word_2013() -> Self {
-        Self::from_theme(QuickAccessTheme::word_2013())
+    pub fn office_2013() -> Self {
+        Self::from_theme(QuickAccessTheme::office_2013())
     }
 
     /// Derives every part style from the given palette.
@@ -334,7 +334,7 @@ impl QuickAccessStyle {
 
 impl Default for QuickAccessStyle {
     fn default() -> Self {
-        Self::word_2013()
+        Self::office_2013()
     }
 }
 
@@ -405,15 +405,15 @@ impl_vec_mut!(QuickAccessAction, QuickAccessActionVec);
 #[derive(Debug, Clone)]
 #[repr(C)]
 pub struct QuickAccessBar {
-    /// Optional leading content (Word: the app logo square).
+    /// Optional leading content (office-2013: the app logo square).
     pub leading: azul_core::dom::OptionDom,
-    /// Quick-access actions (Word: save / undo / redo).
+    /// Quick-access actions (office-2013: save / undo / redo).
     pub actions: QuickAccessActionVec,
     /// Renders the "customize quick access toolbar" chevron.
     pub show_menu_arrow: bool,
-    /// The centered window title ("Document1 - Word").
+    /// The centered window title ("Document1 - AzWriter").
     pub title: AzString,
-    /// Actions between the title and the window buttons (Word: help,
+    /// Actions between the title and the window buttons (office-2013: help,
     /// ribbon display options).
     pub trailing_actions: QuickAccessActionVec,
     /// Renders the minimize window button.
@@ -428,7 +428,7 @@ pub struct QuickAccessBar {
     pub on_maximize: OptionButtonOnClick,
     /// Optional close handler.
     pub on_close: OptionButtonOnClick,
-    /// All part styles (defaults to the Word 2013 look).
+    /// All part styles (defaults to the the Office-2013-era look look).
     pub style: QuickAccessStyle,
 }
 
@@ -445,7 +445,7 @@ static CLS_TITLE: &[IdOrClass] =
 
 impl QuickAccessBar {
     /// Creates a band with the given title, no actions and all three
-    /// window buttons, in the Word 2013 style.
+    /// window buttons, in the the Office-2013-era look style.
     #[must_use]
     pub fn new(title: AzString) -> Self {
         Self {
@@ -460,15 +460,15 @@ impl QuickAccessBar {
             on_minimize: None.into(),
             on_maximize: None.into(),
             on_close: None.into(),
-            style: QuickAccessStyle::word_2013(),
+            style: QuickAccessStyle::office_2013(),
         }
     }
 
-    /// The Word 2013 band: save / undo / redo quick-access actions (inert
+    /// The the Office-2013-era look band: save / undo / redo quick-access actions (inert
     /// until callbacks are set), the customize chevron, and help before the
     /// window buttons.
     #[must_use]
-    pub fn word_2013(title: AzString) -> Self {
+    pub fn office_2013(title: AzString) -> Self {
         let mut band = Self::new(title);
         band.actions = QuickAccessActionVec::from_vec(vec![
             QuickAccessAction::new(AzString::from_const_str("save")),
@@ -662,12 +662,12 @@ mod tests {
         assert_eq!(q.trailing_actions.len(), 0);
         assert!(!q.show_menu_arrow);
         assert!(q.show_minimize && q.show_maximize && q.show_close);
-        assert_eq!(q.style, QuickAccessStyle::word_2013());
+        assert_eq!(q.style, QuickAccessStyle::office_2013());
     }
 
     #[test]
-    fn quick_access_word_2013_has_save_undo_redo_and_help() {
-        let q = QuickAccessBar::word_2013(AzString::from("Document1 - Word"));
+    fn quick_access_office_2013_has_save_undo_redo_and_help() {
+        let q = QuickAccessBar::office_2013(AzString::from("Document1 - AzWriter"));
         let icons: Vec<&str> = q.actions.as_slice().iter().map(|a| a.icon.as_str()).collect();
         assert_eq!(icons, ["save", "undo", "redo"]);
         assert!(q.show_menu_arrow);
@@ -675,8 +675,8 @@ mod tests {
     }
 
     #[test]
-    fn quick_access_style_default_is_word_2013() {
-        assert_eq!(QuickAccessStyle::default(), QuickAccessStyle::word_2013());
+    fn quick_access_style_default_is_office_2013() {
+        assert_eq!(QuickAccessStyle::default(), QuickAccessStyle::office_2013());
     }
 
     // ------------------------------------------------------------------
@@ -685,7 +685,7 @@ mod tests {
 
     #[test]
     fn dom_renders_actions_arrow_title_trailing_and_window_buttons_in_order() {
-        let dom = QuickAccessBar::word_2013(AzString::from("t")).dom();
+        let dom = QuickAccessBar::office_2013(AzString::from("t")).dom();
         // 3 actions + arrow + title + 1 trailing + min + max + close
         assert_eq!(dom.children.as_ref().len(), 9);
     }

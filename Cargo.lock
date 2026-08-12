@@ -928,7 +928,12 @@ dependencies = [
 name = "azul-writer"
 version = "0.1.0"
 dependencies = [
+ "azul-core",
+ "azul-css",
  "azul-dll",
+ "azul-layout",
+ "pulldown-cmark",
+ "rust-fontconfig",
 ]
 
 [[package]]

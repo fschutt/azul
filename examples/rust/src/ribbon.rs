@@ -214,11 +214,11 @@ fn cell(preview_css: &str, sample: &str, name: &str) -> RibbonGalleryCell {
 }
 
 // ---------------------------------------------------------------------------
-// The HOME tab (the Word 2013 default tab, cloned control by control)
+// The HOME tab (the the Office-2013-era look default tab, cloned control by control)
 // ---------------------------------------------------------------------------
 
 fn home_tab(state: &DocState, data: &RefAny) -> RibbonTab {
-    let ribbon_style = RibbonStyle::word_2013();
+    let ribbon_style = RibbonStyle::office_2013();
 
     // -- Clipboard ---------------------------------------------------------
     let clipboard = RibbonGroup::new("Clipboard")
@@ -403,7 +403,7 @@ fn title_bar() -> Dom {
             Dom::create_icon("arrow_drop_down").with_css("font-size: 14px; color: #6a6a6a;"),
         );
 
-    let title = Dom::create_text("Document1 - Word")
+    let title = Dom::create_text("Document1 - AzWriter")
         .with_css("flex-grow: 1; text-align: center; font-size: 12px; color: #444444;");
 
     let right = Dom::create_div()
@@ -481,7 +481,7 @@ fn main() {
     let data = RefAny::new(DocState::default());
     let app = App::create(data, AppConfig::create());
     let mut window = WindowCreateOptions::create(layout);
-    window.window_state.title = "Document1 - Word".into();
+    window.window_state.title = "Document1 - AzWriter".into();
     window.window_state.size.dimensions.width = 1388.0;
     window.window_state.size.dimensions.height = 260.0;
     app.run(window);

@@ -55381,12 +55381,12 @@
                             }
                         ],
                         "constructors": {
-                            "word_2013": {
+                            "office_2013": {
                                 "doc": [
                                     "The Word 2013 look (white chrome, #2B579A accents) - the default."
                                 ],
                                 "fn_args": [],
-                                "fn_body": "azul_layout::widgets::ribbon::RibbonStyle::word_2013()"
+                                "fn_body": "azul_layout::widgets::ribbon::RibbonStyle::office_2013()"
                             },
                             "from_theme": {
                                 "doc": [
@@ -55676,12 +55676,12 @@
                             }
                         ],
                         "constructors": {
-                            "word_2013": {
+                            "office_2013": {
                                 "doc": [
                                     "The Word 2013 palette: white chrome, #2B579A accents, #CDE6F7 hovers."
                                 ],
                                 "fn_args": [],
-                                "fn_body": "azul_layout::widgets::ribbon::RibbonTheme::word_2013()"
+                                "fn_body": "azul_layout::widgets::ribbon::RibbonTheme::office_2013()"
                             },
                             "from_system": {
                                 "doc": [
@@ -55735,12 +55735,12 @@
                             }
                         ],
                         "constructors": {
-                            "word_2013": {
+                            "office_2013": {
                                 "doc": [
                                     "All Word behaviors enabled - the default."
                                 ],
                                 "fn_args": [],
-                                "fn_body": "azul_layout::widgets::ribbon::RibbonBehavior::word_2013()"
+                                "fn_body": "azul_layout::widgets::ribbon::RibbonBehavior::office_2013()"
                             },
                             "inert": {
                                 "doc": [

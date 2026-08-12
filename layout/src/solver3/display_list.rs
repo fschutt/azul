@@ -7092,7 +7092,7 @@ pub struct SlicerConfig {
     pub table_headers: TableHeaderTracker,
     /// Break-awareness policy (all-off default = plain interval slicing).
     pub break_policy: BreakPolicy,
-    /// MS-Word-style per-page setup (default + overrides + parity). `None`
+    /// office-suite-style per-page setup (default + overrides + parity). `None`
     /// = every page uses `header_footer` / `page_content_height` uniformly.
     pub page_sequence: Option<crate::solver3::pagination::PageSequence>,
 }
@@ -7302,7 +7302,7 @@ fn paginate_pages_impl(
 
         // Calculate per-page header/footer space. With a page SEQUENCE the
         // decoration comes from THIS page's setup (override/first/parity/
-        // default) — the MS-Word model.
+        // default) — the classic office suites model.
         let hf = config
             .page_sequence
             .as_ref()

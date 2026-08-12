@@ -193,14 +193,14 @@ pub mod progressbar;
 /// Ribbon widget
 pub mod ribbon;
 /// Office-style backstage view (the full-window "FILE" screen): accent nav
-/// column + back ring + app-provided pane content. Word 2013 look by default;
+/// column + back ring + app-provided pane content. the Office-2013-era look look by default;
 /// pairs with the ribbon's `RibbonAppButton`. See `backstage.rs`.
 pub mod backstage;
 /// Office-style status bar: left text segments, view switcher, zoom cluster
-/// (embeds the `slider` widget). Word 2013 look by default. See `statusbar.rs`.
+/// (embeds the `slider` widget). the Office-2013-era look look by default. See `statusbar.rs`.
 pub mod statusbar;
 /// Office-style title band with a Quick Access Toolbar (save/undo/redo),
-/// centered title and window buttons, drawn as DOM. Word 2013 look by
+/// centered title and window buttons, drawn as DOM. the Office-2013-era look look by
 /// default; use `titlebar` instead for native-caption windows. See
 /// `quick_access.rs`.
 pub mod quick_access;

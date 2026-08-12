@@ -237,7 +237,7 @@ pub fn compute_page_breaks_with_report(
     (breaks, warnings)
 }
 
-/// [`compute_page_breaks`] with an MS-Word-style [`PageSequence`].
+/// [`compute_page_breaks`] with an office-suite-style [`PageSequence`].
 ///
 /// Every page's content HEIGHT comes from `setup_for_page(index)` (default /
 /// explicit override / different-first / odd-even parity), so "page 345 is
@@ -353,7 +353,7 @@ fn compute_page_breaks_impl(
     let mut forced_iter = forced.into_iter().peekable();
 
     loop {
-        // Per-page setup (MS-Word model): the sequence overrides the height
+        // Per-page setup (classic office suites model): the sequence overrides the height
         // for THIS page index (explicit / first / parity / default).
         if let Some(seq) = sequence {
             page_height = seq.setup_for_page(page_index).content_height();
@@ -1486,7 +1486,7 @@ mod tests {
         };
 
         // Default 100-high pages, but PAGE 2 (0-based index 1) is 150 high:
-        // breaks at 100, 250, 350, 450 (Word's "page 345 is different").
+        // breaks at 100, 250, 350, 450 (the classic office-suite "page 345 is different").
         let mut seq = PageSequence::uniform(setup(100.0));
         seq.overrides.insert(1, setup(150.0));
         let breaks = compute_page_breaks_with_sequence(&input, &seq, &BreakPolicy::default());

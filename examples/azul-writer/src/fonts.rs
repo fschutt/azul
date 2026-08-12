@@ -1,0 +1,75 @@
+//! UI font override.
+//!
+//! WORKAROUND(engine, see ENGINE-ISSUES.md #1): `font-family: system:ui`
+//! resolves through the Linux fallback chain Cantarell -> Ubuntu -> ... .
+//! On this machine Cantarell is absent and Ubuntu ships as a VARIABLE font
+//! (`Ubuntu[wdth,wght].ttf`); once azul's async font registry finishes
+//! scanning, every `system:ui` text re-resolves onto that face and renders
+//! as .notdef boxes. Until the engine bakes disk-loaded variable fonts the
+//! way `FontManager::register_named_font` already does for memory fonts,
+//! the app pins an installed STATIC family everywhere.
+//!
+//! "Liberation Sans" is metric-compatible with Arial — the closest
+//! stand-in for the Office-2013-era Segoe UI that ships on stock Ubuntu.
+
+use azul_core::dom::Dom;
+use azul_css::dynamic_selector::{CssPropertyWithConditions, CssPropertyWithConditionsVec};
+use azul_css::props::basic::color::ColorU;
+use azul_css::props::basic::font::{StyleFontFamily, StyleFontFamilyVec, StyleFontSize};
+use azul_css::props::property::CssProperty;
+use azul_css::props::style::text::StyleTextColor;
+
+/// The pinned UI family, as a CSS string fragment for `with_css` blocks.
+pub const UI_FONT_CSS: &str = "font-family: \"Liberation Sans\";";
+
+/// One `font-family: "Liberation Sans"` declaration.
+fn ui_font_cond() -> CssPropertyWithConditions {
+    CssPropertyWithConditions::simple(CssProperty::const_font_family(
+        StyleFontFamilyVec::from_vec(vec![StyleFontFamily::System(
+            "Liberation Sans".into(),
+        )]),
+    ))
+}
+
+/// Appends the pinned family to a widget part style. Inline properties
+/// resolve last-match-wins, so the append overrides the widget's
+/// `system:ui` without rebuilding the style bundle.
+pub fn push_ui_font(style: &mut CssPropertyWithConditionsVec) {
+    let mut v: Vec<CssPropertyWithConditions> = style.as_ref().to_vec();
+    v.push(ui_font_cond());
+    *style = CssPropertyWithConditionsVec::from_vec(v);
+}
+
+// -- the Office-2013-era look palette shared by the app-side compositions --
+
+/// Office 2013 accent blue (#2B579A).
+pub const WORD_BLUE: ColorU = ColorU { r: 43, g: 87, b: 154, a: 255 };
+/// Regular chrome text (#444444).
+pub const TEXT: ColorU = ColorU { r: 68, g: 68, b: 68, a: 255 };
+/// Secondary gray (#808080).
+pub const TEXT_GRAY: ColorU = ColorU { r: 128, g: 128, b: 128, a: 255 };
+/// Faint gray (#949494).
+pub const TEXT_FAINT: ColorU = ColorU { r: 148, g: 148, b: 148, a: 255 };
+/// Backstage pane titles (#565656).
+pub const TITLE_GRAY: ColorU = ColorU { r: 86, g: 86, b: 86, a: 255 };
+pub const WHITE: ColorU = ColorU { r: 255, g: 255, b: 255, a: 255 };
+
+/// A text node with programmatic font-size + color (+ the pinned family).
+///
+/// WORKAROUND(engine, see ENGINE-ISSUES.md #4): inline `with_css` strings
+/// on TEXT nodes drop declarations unpredictably once the string carries
+/// more than font-size/color (margins, flex-grow — even the color itself
+/// goes missing). Styling text through `CssPropertyWithConditions` — the
+/// same path the widgets use — is reliable, so every app-side label goes
+/// through this helper; wrapping DIVs own margins and layout.
+pub fn text(contents: &str, size_px: isize, color: ColorU) -> Dom {
+    Dom::create_text(contents).with_css_props(CssPropertyWithConditionsVec::from_vec(vec![
+        CssPropertyWithConditions::simple(CssProperty::const_font_size(StyleFontSize::const_px(
+            size_px,
+        ))),
+        CssPropertyWithConditions::simple(CssProperty::const_text_color(StyleTextColor {
+            inner: color,
+        })),
+        ui_font_cond(),
+    ]))
+}

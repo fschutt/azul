@@ -254,7 +254,7 @@ fn pagination_session_reports_unchanged_prefix_on_identical_re_estimate() {
 
 /// AZUL-STILL-TODO A3: estimation <-> materialization equivalence.
 ///
-/// The v1 contract is BLOCK-GRANULAR (Word semantics): a break can only be
+/// The v1 contract is BLOCK-GRANULAR (office-suite semantics): a break can only be
 /// materialized BEFORE a block, so lossless equivalence holds exactly when
 /// the estimated boundary coincides with a block top. This fixture aligns
 /// them **including sibling margins** — two 260px blocks with 20px collapsed
@@ -364,7 +364,7 @@ fn materialized_breaks_reproduce_the_estimated_boundaries() {
 
 /// Block-granular caveat, characterized: a boundary estimated MID-block
 /// materializes at the spine block's TOP (the whole straddling block moves
-/// to the next page, Word-style) — the boundary snaps, it does not slice.
+/// to the next page, office-suite-style) — the boundary snaps, it does not slice.
 #[test]
 fn midblock_breaks_materialize_at_the_spine_block_top() {
     const CSS: &str = r#"
@@ -898,7 +898,7 @@ const MINIWORD_SAMPLE_XML: &str = r####"<html><head><style>
     em   { font-style: italic; }
 </style></head><body><h1>Project Report</h1>
 <p>This document demonstrates the miniword pipeline: markdown is converted to
-HTML, parsed into a DOM by the azul XML parser, styled with the Word 2013
+HTML, parsed into a DOM by the azul XML parser, styled with the the Office-2013-era look
 document stylesheet, and dynamically paginated by the layout engine.</p>
 <h2>Background</h2>
 <p>The layout engine estimates page breaks with <code>compute_document_pagination</code>,
@@ -910,7 +910,7 @@ the white sheet frame.</p>
 <li>Markdown parsing via <strong>pulldown-cmark</strong></li>
 <li>HTML to DOM through the <em>azul XML parser</em></li>
 <li>Dynamic pagination with the break-token engine</li>
-<li>One DOM per page, Word's page model</li>
+<li>One DOM per page, the classic page model</li>
 </ul>
 <h3>Details</h3>
 <p>Paragraphs flow across pages at block boundaries. Forced breaks, widows and

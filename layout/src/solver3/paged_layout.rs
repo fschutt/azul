@@ -553,7 +553,7 @@ where
         table_headers: Some(&slicer_config.table_headers),
     };
     let breaks = if let Some(sequence) = &slicer_config.page_sequence {
-        // MS-Word model: every page's height from ITS setup.
+        // classic office suites model: every page's height from ITS setup.
         page_breaks::compute_page_breaks_with_sequence(
             &break_input,
             sequence,
@@ -1032,7 +1032,7 @@ fn materialize_sequence_tail(
 /// Fragmentainer-flow pagination with PER-SECTION WIDTH RE-WRAP.
 ///
 /// [`PageSequence::width_sections`] partitions pages into maximal
-/// equal-width runs (the MS-Word model: page setup changes at section
+/// equal-width runs (the classic office suites model: page setup changes at section
 /// breaks). Content lays out ONCE per section at that section's width; when
 /// a section's page budget fills, the document is CUT along the spine of
 /// the first block on the next page ([`spine_path_at_y`] +
@@ -1043,7 +1043,7 @@ fn materialize_sequence_tail(
 ///
 /// Limits (staged): the cut is block-granular (a paragraph straddling a
 /// section boundary moves wholly to the next section rather than splitting
-/// mid-line — Word's behavior for section breaks); floats/positioned boxes
+/// mid-line — the classic office-suite behavior for section breaks); floats/positioned boxes
 /// do not carry across sections.
 ///
 /// # Errors

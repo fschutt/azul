@@ -1,5 +1,5 @@
 //! Microsoft Office-style backstage view widget (the full-window "FILE"
-//! screen, Word 2013 look by default).
+//! screen, the Office-2013-era look look by default).
 //!
 //! Models the component hierarchy of the Office backstage:
 //!
@@ -22,11 +22,11 @@
 //! its arrow uses `Dom::create_icon("arrow_back")` so glyphs resolve through
 //! the registered icon provider (Material Icons by default).
 //!
-//! All visual parts are exposed on [`BackstageStyle`] (defaults = Word 2013
-//! look, [`BackstageStyle::word_2013`]); replace any field to re-theme
+//! All visual parts are exposed on [`BackstageStyle`] (defaults = the Office-2013-era look
+//! look, [`BackstageStyle::office_2013`]); replace any field to re-theme
 //! without touching widget code. [`BackstageBehavior`] holds the
 //! interactions the backstage performs by itself (currently: Escape invokes
-//! the back callback, like Word).
+//! the back callback, like classic office suites).
 
 use azul_core::{
     callbacks::{CoreCallback, CoreCallbackData, Update},
@@ -86,7 +86,7 @@ const SYSTEM_UI_FAMILIES: &[StyleFontFamily] = &[StyleFontFamily::System(SYSTEM_
 const SYSTEM_UI_FAMILY: StyleFontFamilyVec =
     StyleFontFamilyVec::from_const_slice(SYSTEM_UI_FAMILIES);
 
-// -- Word 2013 palette (seeds BackstageTheme::word_2013) --
+// -- the Office-2013-era look palette (seeds BackstageTheme::office_2013) --
 
 const WHITE: ColorU = ColorU { r: 255, g: 255, b: 255, a: 255 };
 const TRANSPARENT: ColorU = ColorU { r: 0, g: 0, b: 0, a: 0 };
@@ -97,7 +97,7 @@ const W13_NAV_HOVER: ColorU = ColorU { r: 52, g: 101, b: 172, a: 255 };
 /// Active nav item fill (#3E6DB5).
 const W13_NAV_ACTIVE: ColorU = ColorU { r: 62, g: 109, b: 181, a: 255 };
 
-// -- Metrics (Word 2013, logical px) --
+// -- Metrics (the Office-2013-era look, logical px) --
 
 /// Nav column width.
 const NAV_WIDTH: isize = 126;
@@ -105,7 +105,7 @@ const NAV_WIDTH: isize = 126;
 const NAV_ITEM_H: isize = 38;
 /// Nav item text size.
 const NAV_TEXT_PX: isize = 13;
-/// Extra gap above a `gap_before` item (Word: before "Account").
+/// Extra gap above a `gap_before` item (office-2013: before "Account").
 const NAV_GAP_H: isize = 22;
 /// Back button ring diameter.
 const BACK_D: isize = 38;
@@ -115,11 +115,11 @@ const BACK_D: isize = 38;
 /// Color palette from which a full [`BackstageStyle`] is derived via
 /// [`BackstageStyle::from_theme`]. All fields are plain colors, so themes
 /// are trivially constructible over FFI. Preset:
-/// [`BackstageTheme::word_2013`] (the default).
+/// [`BackstageTheme::office_2013`] (the default).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[repr(C)]
 pub struct BackstageTheme {
-    /// Nav column fill (Word: accent blue).
+    /// Nav column fill (office-2013: accent blue).
     pub nav_bg: ColorU,
     /// Nav item text and back-arrow color.
     pub nav_text: ColorU,
@@ -134,10 +134,10 @@ pub struct BackstageTheme {
 }
 
 impl BackstageTheme {
-    /// The Word 2013 palette: #2B579A nav, white text, lighter-blue
+    /// The the Office-2013-era look palette: #2B579A nav, white text, lighter-blue
     /// highlights, white content.
     #[must_use]
-    pub const fn word_2013() -> Self {
+    pub const fn office_2013() -> Self {
         Self {
             nav_bg: W13_BLUE,
             nav_text: WHITE,
@@ -151,7 +151,7 @@ impl BackstageTheme {
 
 impl Default for BackstageTheme {
     fn default() -> Self {
-        Self::word_2013()
+        Self::office_2013()
     }
 }
 
@@ -220,7 +220,7 @@ fn theme_nav(t: &BackstageTheme) -> CssPropertyWithConditionsVec {
     ])
 }
 
-/// The circled back arrow. Word: a 2px white ring, transparent fill,
+/// The circled back arrow. office-2013: a 2px white ring, transparent fill,
 /// hover fills like a nav item.
 fn theme_back_button(t: &BackstageTheme) -> CssPropertyWithConditionsVec {
     let mut v = vec![
@@ -276,7 +276,7 @@ fn theme_nav_item_active(t: &BackstageTheme) -> CssPropertyWithConditionsVec {
     CssPropertyWithConditionsVec::from_vec(vec![cond_bg(t.nav_active_bg)])
 }
 
-/// APPENDED to a `gap_before` nav item (Word: the gap before "Account").
+/// APPENDED to a `gap_before` nav item (office-2013: the gap before "Account").
 fn theme_nav_item_gap(_t: &BackstageTheme) -> CssPropertyWithConditionsVec {
     CssPropertyWithConditionsVec::from_vec(vec![Cond::simple(P::const_margin_top(
         LayoutMarginTop::const_px(NAV_GAP_H),
@@ -305,7 +305,7 @@ fn theme_content(t: &BackstageTheme) -> CssPropertyWithConditionsVec {
 
 // -- Style --
 
-/// All part styles of the backstage. Every part defaults to the Word 2013
+/// All part styles of the backstage. Every part defaults to the the Office-2013-era look
 /// look; replace any field for finer control (the same override API as
 /// [`super::ribbon::RibbonStyle`]).
 #[derive(Debug, Clone, PartialEq)]
@@ -335,10 +335,10 @@ pub struct BackstageStyle {
 }
 
 impl BackstageStyle {
-    /// The Word 2013 look (#2B579A nav, white content) - the default.
+    /// The the Office-2013-era look look (#2B579A nav, white content) - the default.
     #[must_use]
-    pub fn word_2013() -> Self {
-        Self::from_theme(BackstageTheme::word_2013())
+    pub fn office_2013() -> Self {
+        Self::from_theme(BackstageTheme::office_2013())
     }
 
     /// Derives every part style from the given palette.
@@ -362,27 +362,27 @@ impl BackstageStyle {
 
 impl Default for BackstageStyle {
     fn default() -> Self {
-        Self::word_2013()
+        Self::office_2013()
     }
 }
 
 // -- Behavior --
 
-/// The interactions the backstage performs BY ITSELF. Each is the Word
+/// The interactions the backstage performs BY ITSELF. Each is the classic
 /// default and each can be turned off.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[repr(C)]
 pub struct BackstageBehavior {
-    /// Pressing Escape invokes the back callback (Word: Esc leaves the
+    /// Pressing Escape invokes the back callback (office-2013: Esc leaves the
     /// backstage). Attached as a window-level key handler on the root, so
     /// it fires regardless of focus. Requires [`Backstage::on_back`].
     pub close_on_escape: bool,
 }
 
 impl BackstageBehavior {
-    /// All Word behaviors enabled - the default.
+    /// All classic office-suite behaviors enabled - the default.
     #[must_use]
-    pub const fn word_2013() -> Self {
+    pub const fn office_2013() -> Self {
         Self { close_on_escape: true }
     }
 
@@ -395,7 +395,7 @@ impl BackstageBehavior {
 
 impl Default for BackstageBehavior {
     fn default() -> Self {
-        Self::word_2013()
+        Self::office_2013()
     }
 }
 
@@ -407,7 +407,7 @@ impl Default for BackstageBehavior {
 pub struct BackstageNavItem {
     /// The item label.
     pub label: AzString,
-    /// Renders an extra gap above this item (Word: before "Account").
+    /// Renders an extra gap above this item (office-2013: before "Account").
     pub gap_before: bool,
 }
 
@@ -459,14 +459,14 @@ pub struct Backstage {
     /// [`BackstageBehavior::close_on_escape`] is set).
     pub on_back: OptionButtonOnClick,
     /// Optional strip rendered above the content, right of the nav column
-    /// (Word: the white title bar area with the window buttons).
+    /// (office-2013: the white title bar area with the window buttons).
     pub title_strip: azul_core::dom::OptionDom,
     /// The active item's pane content (application composition).
     pub content: azul_core::dom::OptionDom,
     /// Which interactions the backstage handles by itself (defaults to
     /// Word).
     pub behavior: BackstageBehavior,
-    /// All part styles (defaults to the Word 2013 look).
+    /// All part styles (defaults to the the Office-2013-era look look).
     pub style: BackstageStyle,
 }
 
@@ -487,8 +487,8 @@ static CLS_RIGHT: &[IdOrClass] =
 static CLS_CONTENT: &[IdOrClass] =
     &[Class(AzString::from_const_str("__azul-native-backstage-content"))];
 
-/// The default Word 2013 nav labels, in order.
-pub const WORD_2013_NAV_LABELS: &[&str] = &[
+/// The default the Office-2013-era look nav labels, in order.
+pub const OFFICE_2013_NAV_LABELS: &[&str] = &[
     "Info", "New", "Open", "Save", "Save As", "Print", "Share", "Export", "Close",
 ];
 
@@ -496,7 +496,7 @@ pub const WORD_2013_NAV_LABELS: &[&str] = &[
 
 impl Backstage {
     /// Creates a backstage with the given nav items, item 0 active, no
-    /// callbacks and no content, in the Word 2013 style.
+    /// callbacks and no content, in the the Office-2013-era look style.
     #[must_use]
     pub fn new(nav_items: BackstageNavItemVec) -> Self {
         Self {
@@ -506,16 +506,16 @@ impl Backstage {
             on_back: None.into(),
             title_strip: None.into(),
             content: None.into(),
-            behavior: BackstageBehavior::word_2013(),
-            style: BackstageStyle::word_2013(),
+            behavior: BackstageBehavior::office_2013(),
+            style: BackstageStyle::office_2013(),
         }
     }
 
-    /// The Word 2013 nav: Info / New / Open / Save / Save As / Print /
+    /// The the Office-2013-era look nav: Info / New / Open / Save / Save As / Print /
     /// Share / Export / Close, then a gap, then Account / Options.
     #[must_use]
-    pub fn word_2013() -> Self {
-        let mut items: Vec<BackstageNavItem> = WORD_2013_NAV_LABELS
+    pub fn office_2013() -> Self {
+        let mut items: Vec<BackstageNavItem> = OFFICE_2013_NAV_LABELS
             .iter()
             .map(|l| BackstageNavItem::new(AzString::from(*l)))
             .collect();
@@ -731,7 +731,7 @@ impl Backstage {
 
 impl Default for Backstage {
     fn default() -> Self {
-        Self::word_2013()
+        Self::office_2013()
     }
 }
 
@@ -811,8 +811,8 @@ mod tests {
     // ------------------------------------------------------------------
 
     #[test]
-    fn backstage_word_2013_has_eleven_items_with_account_gapped() {
-        let b = Backstage::word_2013();
+    fn backstage_office_2013_has_eleven_items_with_account_gapped() {
+        let b = Backstage::office_2013();
         assert_eq!(b.nav_items.len(), 11);
         assert_eq!(b.active_item, 0);
         let items = b.nav_items.as_slice();
@@ -825,14 +825,14 @@ mod tests {
     }
 
     #[test]
-    fn backstage_style_default_is_word_2013() {
-        assert_eq!(BackstageStyle::default(), BackstageStyle::word_2013());
+    fn backstage_style_default_is_office_2013() {
+        assert_eq!(BackstageStyle::default(), BackstageStyle::office_2013());
     }
 
     #[test]
     fn backstage_behavior_default_closes_on_escape() {
-        assert_eq!(BackstageBehavior::default(), BackstageBehavior::word_2013());
-        assert!(BackstageBehavior::word_2013().close_on_escape);
+        assert_eq!(BackstageBehavior::default(), BackstageBehavior::office_2013());
+        assert!(BackstageBehavior::office_2013().close_on_escape);
         assert!(!BackstageBehavior::inert().close_on_escape);
     }
 
@@ -842,7 +842,7 @@ mod tests {
 
     #[test]
     fn dom_renders_nav_and_right_side() {
-        let dom = Backstage::word_2013().dom();
+        let dom = Backstage::office_2013().dom();
         assert_eq!(dom.children.as_ref().len(), 2);
         // Nav: back button + 11 items.
         let nav = &dom.children.as_ref()[0];
@@ -852,7 +852,7 @@ mod tests {
     #[test]
     fn dom_places_the_title_strip_above_the_content() {
         let strip = Dom::create_div();
-        let dom = Backstage::word_2013().with_title_strip(strip).dom();
+        let dom = Backstage::office_2013().with_title_strip(strip).dom();
         let right = &dom.children.as_ref()[1];
         assert_eq!(right.children.as_ref().len(), 2);
     }
@@ -860,13 +860,13 @@ mod tests {
     #[test]
     fn nav_items_get_click_callbacks_only_with_a_select_handler() {
         // Without a handler: inert items.
-        let dom = Backstage::word_2013().dom();
+        let dom = Backstage::office_2013().dom();
         let nav = &dom.children.as_ref()[0];
         for item in nav.children.as_ref().iter().skip(1) {
             assert!(item.root.callbacks.as_ref().is_empty());
         }
         // With a handler: every item carries one.
-        let dom = Backstage::word_2013()
+        let dom = Backstage::office_2013()
             .with_on_nav_select(RefAny::new(()), nav_cb as BackstageOnNavSelectCallbackType)
             .dom();
         let nav = &dom.children.as_ref()[0];
@@ -878,10 +878,10 @@ mod tests {
     #[test]
     fn escape_handler_is_attached_only_with_behavior_and_back_callback() {
         // Behavior on, no back callback: nothing to invoke, no handler.
-        let dom = Backstage::word_2013().dom();
+        let dom = Backstage::office_2013().dom();
         assert!(dom.root.callbacks.as_ref().is_empty());
         // Behavior on + back callback: window-level key handler on the root.
-        let dom = Backstage::word_2013()
+        let dom = Backstage::office_2013()
             .with_on_back(RefAny::new(()), back_cb as super::super::button::ButtonOnClickCallbackType)
             .dom();
         assert_eq!(dom.root.callbacks.as_ref().len(), 1);
@@ -890,7 +890,7 @@ mod tests {
             EventFilter::Window(WindowEventFilter::VirtualKeyDown)
         );
         // Behavior off: no handler even with a back callback.
-        let dom = Backstage::word_2013()
+        let dom = Backstage::office_2013()
             .with_on_back(RefAny::new(()), back_cb as super::super::button::ButtonOnClickCallbackType)
             .with_behavior(BackstageBehavior::inert())
             .dom();
@@ -899,7 +899,7 @@ mod tests {
 
     #[test]
     fn active_item_gets_the_active_class() {
-        let dom = Backstage::word_2013().with_active_item(2).dom();
+        let dom = Backstage::office_2013().with_active_item(2).dom();
         let nav = &dom.children.as_ref()[0];
         // Nav child 0 is the back button; item i is child i+1.
         let active = &nav.children.as_ref()[3];
