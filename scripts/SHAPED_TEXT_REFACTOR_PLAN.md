@@ -1402,6 +1402,20 @@ discriminator. The DL's Text-item copies remain (printpdf freezes the
 variant's `Vec<GlyphInstance>` field); folding them onto the compact
 runs needs the printpdf release chain — ledgered, not attempted.
 
+ANON BLOCKS ATTRIBUTED (2026-08-12, window-size scaling experiment
+800x600 vs 1600x1000 — the giant scales at ~2x W*H*4 while a 1192 kB
+block is size-invariant): they are the CPU present path's TWO
+full-window pixmaps — `CpuBackend.last_frame` (the round-3 retained
+blit source, headless/mod.rs) + the compositor's per-layer pixbuf
+(cpurender/compositor.rs:684) — plus the glyph cache (the invariant
+block). With the 2-slot shm pool (CpuFallbackState, = the azul-fb
+memfd, exactly 2 frames) the presentation total is FOUR window frames.
+All four are design-carried: blit source, compose target, and
+protocol-safe double buffering. A possible -1 frame (compose directly
+into last_frame when single-layer) would touch the present path the
+user just verified live as smooth — parked as a design option, not
+attempted.
+
 LANDED 7a40acb73, full battery green (8255+8321 incl corpus, doc,
 reftest 47/52 baseline, dll 1780). AFTER on the same rig:
 glyph_runs 1188 -> 372 KiB (13 B/inst amortized), cached_display
