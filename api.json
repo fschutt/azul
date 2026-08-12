@@ -12449,12 +12449,14 @@
                             },
                             "update_virtual_view": {
                                 "doc": [
-                                    "Update a VirtualView's VIRTUAL geometry (the scrollbar math) WITHOUT",
-                                    "re-invoking its callback or re-laying-out its child DOM. node_id",
-                                    "addresses the VirtualView node in its parent DOM. Intended for streaming",
-                                    "corrections: a background exact-pagination writeback fixes the",
-                                    "scrollbar's total extent live while the materialized window stays put.",
-                                    "Pass OptionLogicalPosition::None to keep the current scroll offset."
+                                    "Reconfigure a VirtualView's ENTIRE geometry WITHOUT re-invoking its",
+                                    "callback or re-laying-out its child DOM (see the virtual-views guide:",
+                                    "scroll_size/scroll_offset describe the rendered content window,",
+                                    "virtual_scroll_size is what the scrollbar represents,",
+                                    "virtual_scroll_offset is usually zero). Each argument: Some = set,",
+                                    "None = keep the current value. Intended for streaming corrections:",
+                                    "a background exact-pagination writeback fixes the scrollbar's total",
+                                    "extent live while the materialized window stays put."
                                 ],
                                 "fn_args": [
                                     {
@@ -12464,13 +12466,19 @@
                                         "node_id": "DomNodeId"
                                     },
                                     {
-                                        "virtual_scroll_size": "LogicalSize"
+                                        "scroll_size": "OptionLogicalSize"
+                                    },
+                                    {
+                                        "scroll_offset": "OptionLogicalPosition"
+                                    },
+                                    {
+                                        "virtual_scroll_size": "OptionLogicalSize"
                                     },
                                     {
                                         "virtual_scroll_offset": "OptionLogicalPosition"
                                     }
                                 ],
-                                "fn_body": "object.update_virtual_view(node_id, virtual_scroll_size, virtual_scroll_offset)"
+                                "fn_body": "object.update_virtual_view(node_id, scroll_size, scroll_offset, virtual_scroll_size, virtual_scroll_offset)"
                             }
                         },
                         "repr": "C"

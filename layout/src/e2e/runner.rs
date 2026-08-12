@@ -1735,35 +1735,42 @@ impl Runner {
                 ProcessEventResult::ShouldReRenderCurrentWindow
             }
 
-            // #28 (a): mirror of the DLL arm — the two stores a VV invoke
-            // writes (manager + scroll bounds), WITHOUT re-invoking the
-            // callback. Rendered window keeps its last declared size.
+            // #28 (a): mirror of the DLL arm — full-geometry reconfigure
+            // (Some = set, None = keep) via the two stores a VV invoke
+            // writes, WITHOUT re-invoking the callback.
             CallbackChange::SetVirtualViewGeometry {
                 dom_id,
                 node_id,
+                scroll_size,
+                scroll_offset,
                 virtual_scroll_size,
                 virtual_scroll_offset,
             } => {
                 if let Some(internal_node_id) = node_id.into_crate_internal() {
                     let lw = &mut self.layout_window;
-                    let kept_scroll_size = lw
+                    let (kept_scroll, kept_virtual) = lw
                         .virtual_view_manager
-                        .get_declared_sizes(*dom_id, internal_node_id)
-                        .0
-                        .unwrap_or(*virtual_scroll_size);
-                    let _ = lw.virtual_view_manager.update_virtual_view_info(
-                        *dom_id,
-                        internal_node_id,
-                        kept_scroll_size,
-                        *virtual_scroll_size,
-                    );
-                    lw.scroll_manager.update_virtual_scroll_bounds(
-                        *dom_id,
-                        internal_node_id,
-                        *virtual_scroll_size,
-                        (*virtual_scroll_offset).into(),
-                    );
-                    lw.scroll_manager.calculate_scrollbar_states();
+                        .get_declared_sizes(*dom_id, internal_node_id);
+                    let new_virtual: Option<_> = (*virtual_scroll_size).into();
+                    let new_scroll: Option<_> = (*scroll_size).into();
+                    let eff_virtual = new_virtual.or(kept_virtual);
+                    let eff_scroll = new_scroll.or(kept_scroll).or(eff_virtual);
+                    if let (Some(s), Some(v)) = (eff_scroll, eff_virtual) {
+                        let _ = lw.virtual_view_manager.update_virtual_view_info(
+                            *dom_id,
+                            internal_node_id,
+                            s,
+                            v,
+                        );
+                        lw.scroll_manager.update_virtual_scroll_bounds(
+                            *dom_id,
+                            internal_node_id,
+                            v,
+                            (*scroll_offset).into(),
+                        );
+                        lw.scroll_manager.calculate_scrollbar_states();
+                    }
+                    let _ = virtual_scroll_offset;
                 }
                 ProcessEventResult::ShouldReRenderCurrentWindow
             }

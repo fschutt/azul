@@ -2600,37 +2600,45 @@ pub trait PlatformWindow {
             CallbackChange::SetVirtualViewGeometry {
                 dom_id,
                 node_id,
+                scroll_size,
+                scroll_offset,
                 virtual_scroll_size,
                 virtual_scroll_offset,
             } => {
-                // #28 (a): correct a VirtualView's VIRTUAL geometry (the
-                // scrollbar math) WITHOUT re-invoking its callback — exactly
-                // the two stores a normal invoke writes (VirtualViewManager +
-                // ScrollManager), minus the child relayout. The rendered
-                // window (`scroll_size`) keeps its last declared value; only
-                // the virtual extent moves. This is the streaming-pagination
-                // writeback's tool: the background exact count corrects the
-                // scrollbar live while the materialized pages stay put.
+                // #28 (a): reconfigure a VirtualView's ENTIRE geometry (USER
+                // design; guide/en/dom/virtual-views.md) WITHOUT re-invoking
+                // its callback — exactly the two stores a normal invoke
+                // writes (VirtualViewManager + ScrollManager), minus the
+                // child relayout. Each field: Some = set, None = keep. The
+                // scroll manager's offset arg is the RENDERED window's
+                // position in virtual space (what an invoke passes there);
+                // `virtual_scroll_offset` is accepted for API symmetry but
+                // has no separate store today (guide: usually zero).
                 if let Some(internal_node_id) = node_id.into_crate_internal() {
                     if let Some(lw) = self.get_layout_window_mut() {
-                        let kept_scroll_size = lw
+                        let (kept_scroll, kept_virtual) = lw
                             .virtual_view_manager
-                            .get_declared_sizes(*dom_id, internal_node_id)
-                            .0
-                            .unwrap_or(*virtual_scroll_size);
-                        let _ = lw.virtual_view_manager.update_virtual_view_info(
-                            *dom_id,
-                            internal_node_id,
-                            kept_scroll_size,
-                            *virtual_scroll_size,
-                        );
-                        lw.scroll_manager.update_virtual_scroll_bounds(
-                            *dom_id,
-                            internal_node_id,
-                            *virtual_scroll_size,
-                            (*virtual_scroll_offset).into(),
-                        );
-                        lw.scroll_manager.calculate_scrollbar_states();
+                            .get_declared_sizes(*dom_id, internal_node_id);
+                        let new_virtual: Option<_> = (*virtual_scroll_size).into();
+                        let new_scroll: Option<_> = (*scroll_size).into();
+                        let eff_virtual = new_virtual.or(kept_virtual);
+                        let eff_scroll = new_scroll.or(kept_scroll).or(eff_virtual);
+                        if let (Some(s), Some(v)) = (eff_scroll, eff_virtual) {
+                            let _ = lw.virtual_view_manager.update_virtual_view_info(
+                                *dom_id,
+                                internal_node_id,
+                                s,
+                                v,
+                            );
+                            lw.scroll_manager.update_virtual_scroll_bounds(
+                                *dom_id,
+                                internal_node_id,
+                                v,
+                                (*scroll_offset).into(),
+                            );
+                            lw.scroll_manager.calculate_scrollbar_states();
+                        }
+                        let _ = virtual_scroll_offset;
                     }
                 }
                 // Scrollbar geometry changed — repaint only; no display-list

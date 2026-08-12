@@ -19,7 +19,7 @@ use azul_core::{
     resources::UpdateImageType,
     callbacks::{CoreCallback, FocusTarget, FocusTargetPath, HidpiAdjustedBounds, Update},
     dom::{AccessibilityAction, DomId, DomIdVec, DomNodeId, IdOrClass, NodeId, NodeType},
-    geom::{LogicalPosition, LogicalRect, LogicalSize, OptionLogicalPosition, OptionCursorNodePosition, OptionScreenPosition, OptionDragDelta, CursorNodePosition, ScreenPosition, DragDelta},
+    geom::{LogicalPosition, LogicalRect, LogicalSize, OptionLogicalPosition, OptionLogicalSize, OptionCursorNodePosition, OptionScreenPosition, OptionDragDelta, CursorNodePosition, ScreenPosition, DragDelta},
     gl::OptionGlContextPtr,
     gpu::GpuValueCache,
     hit_test::ScrollPosition,
@@ -407,9 +407,15 @@ pub enum CallbackChange {
         dom_id: DomId,
         /// The `VirtualView` node in its parent DOM.
         node_id: NodeHierarchyItemId,
-        virtual_scroll_size: LogicalSize,
-        /// `Some` also repositions the virtual scroll offset (clamped by the
-        /// scroll manager); `None` keeps the current offset.
+        /// The ENTIRE geometry is reconfigurable (USER design; see
+        /// doc/guide/en/dom/virtual-views.md): `scroll_size`/`scroll_offset`
+        /// describe the actual rendered content window,
+        /// `virtual_scroll_size` is what the scrollbar represents,
+        /// `virtual_scroll_offset` is usually zero. Each field: `Some` =
+        /// set, `None` = keep the current value.
+        scroll_size: OptionLogicalSize,
+        scroll_offset: OptionLogicalPosition,
+        virtual_scroll_size: OptionLogicalSize,
         virtual_scroll_offset: OptionLogicalPosition,
     },
     /// Scroll a node into view (W3C scrollIntoView API)
@@ -1081,12 +1087,16 @@ impl CallbackInfo {
     pub fn update_virtual_view(
         &mut self,
         node_id: DomNodeId,
-        virtual_scroll_size: LogicalSize,
+        scroll_size: OptionLogicalSize,
+        scroll_offset: OptionLogicalPosition,
+        virtual_scroll_size: OptionLogicalSize,
         virtual_scroll_offset: OptionLogicalPosition,
     ) {
         self.push_change(CallbackChange::SetVirtualViewGeometry {
             dom_id: node_id.dom,
             node_id: node_id.node,
+            scroll_size,
+            scroll_offset,
             virtual_scroll_size,
             virtual_scroll_offset,
         });
