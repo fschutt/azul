@@ -1402,6 +1402,18 @@ discriminator. The DL's Text-item copies remain (printpdf freezes the
 variant's `Vec<GlyphInstance>` field); folding them onto the compact
 runs needs the printpdf release chain — ledgered, not attempted.
 
+LANDED 7a40acb73, full battery green (8255+8321 incl corpus, doc,
+reftest 47/52 baseline, dll 1780). AFTER on the same rig:
+glyph_runs 1188 -> 372 KiB (13 B/inst amortized), cached_display
+2855 -> 1703 KiB (3492 items x 232 B/slot; dropping ~800 TextLayouts
+also pulled the item + parallel vecs under a power-of-two capacity
+boundary), plateau **120.4 RSS / 59.4 heap** clean (was 121.5/62.3)
+= heap **-34.4%** from the campaign's 90.6 baseline. Anon-mmap
+breakdown (the RSS-heap gap): 25.5 MB in 32 maps, top blocks 9.5 MB +
+8.0 MB + 3.5 MB — pixmap/atlas class (nearly fully resident, too hot
+for stacks); attributing THOSE is the next profiling run
+(AZ_PROFILE=heap w/ probe feature names owners).
+
 RSS − heap anatomy at the same plateau (smaps categories, the "60 MB"
 question): anon mmaps 21.5 MB (glibc mmaps allocations >128 KB
 DIRECTLY — they are malloc bytes that [heap] does not show), binary
