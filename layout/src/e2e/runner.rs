@@ -1735,6 +1735,39 @@ impl Runner {
                 ProcessEventResult::ShouldReRenderCurrentWindow
             }
 
+            // #28 (a): mirror of the DLL arm — the two stores a VV invoke
+            // writes (manager + scroll bounds), WITHOUT re-invoking the
+            // callback. Rendered window keeps its last declared size.
+            CallbackChange::SetVirtualViewGeometry {
+                dom_id,
+                node_id,
+                virtual_scroll_size,
+                virtual_scroll_offset,
+            } => {
+                if let Some(internal_node_id) = node_id.into_crate_internal() {
+                    let lw = &mut self.layout_window;
+                    let kept_scroll_size = lw
+                        .virtual_view_manager
+                        .get_declared_sizes(*dom_id, internal_node_id)
+                        .0
+                        .unwrap_or(*virtual_scroll_size);
+                    let _ = lw.virtual_view_manager.update_virtual_view_info(
+                        *dom_id,
+                        internal_node_id,
+                        kept_scroll_size,
+                        *virtual_scroll_size,
+                    );
+                    lw.scroll_manager.update_virtual_scroll_bounds(
+                        *dom_id,
+                        internal_node_id,
+                        *virtual_scroll_size,
+                        (*virtual_scroll_offset).into(),
+                    );
+                    lw.scroll_manager.calculate_scrollbar_states();
+                }
+                ProcessEventResult::ShouldReRenderCurrentWindow
+            }
+
             CallbackChange::ScrollIntoView { node_id, options } => {
                 let now = self.now();
                 let lw = &mut self.layout_window;

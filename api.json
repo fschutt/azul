@@ -12446,6 +12446,31 @@
                                     "type": "OptionDom"
                                 },
                                 "fn_body": "object.get_dom_subtree(node_id)"
+                            },
+                            "update_virtual_view": {
+                                "doc": [
+                                    "Update a VirtualView's VIRTUAL geometry (the scrollbar math) WITHOUT",
+                                    "re-invoking its callback or re-laying-out its child DOM. node_id",
+                                    "addresses the VirtualView node in its parent DOM. Intended for streaming",
+                                    "corrections: a background exact-pagination writeback fixes the",
+                                    "scrollbar's total extent live while the materialized window stays put.",
+                                    "Pass OptionLogicalPosition::None to keep the current scroll offset."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "refmut"
+                                    },
+                                    {
+                                        "node_id": "DomNodeId"
+                                    },
+                                    {
+                                        "virtual_scroll_size": "LogicalSize"
+                                    },
+                                    {
+                                        "virtual_scroll_offset": "OptionLogicalPosition"
+                                    }
+                                ],
+                                "fn_body": "object.update_virtual_view(node_id, virtual_scroll_size, virtual_scroll_offset)"
                             }
                         },
                         "repr": "C"

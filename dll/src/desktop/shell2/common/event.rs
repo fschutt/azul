@@ -2597,6 +2597,46 @@ pub trait PlatformWindow {
                     ProcessEventResult::ShouldReRenderCurrentWindow
                 }
             }
+            CallbackChange::SetVirtualViewGeometry {
+                dom_id,
+                node_id,
+                virtual_scroll_size,
+                virtual_scroll_offset,
+            } => {
+                // #28 (a): correct a VirtualView's VIRTUAL geometry (the
+                // scrollbar math) WITHOUT re-invoking its callback — exactly
+                // the two stores a normal invoke writes (VirtualViewManager +
+                // ScrollManager), minus the child relayout. The rendered
+                // window (`scroll_size`) keeps its last declared value; only
+                // the virtual extent moves. This is the streaming-pagination
+                // writeback's tool: the background exact count corrects the
+                // scrollbar live while the materialized pages stay put.
+                if let Some(internal_node_id) = node_id.into_crate_internal() {
+                    if let Some(lw) = self.get_layout_window_mut() {
+                        let kept_scroll_size = lw
+                            .virtual_view_manager
+                            .get_declared_sizes(*dom_id, internal_node_id)
+                            .0
+                            .unwrap_or(*virtual_scroll_size);
+                        let _ = lw.virtual_view_manager.update_virtual_view_info(
+                            *dom_id,
+                            internal_node_id,
+                            kept_scroll_size,
+                            *virtual_scroll_size,
+                        );
+                        lw.scroll_manager.update_virtual_scroll_bounds(
+                            *dom_id,
+                            internal_node_id,
+                            *virtual_scroll_size,
+                            (*virtual_scroll_offset).into(),
+                        );
+                        lw.scroll_manager.calculate_scrollbar_states();
+                    }
+                }
+                // Scrollbar geometry changed — repaint only; no display-list
+                // rebuild, no callback re-invocation (the op's whole point).
+                ProcessEventResult::ShouldReRenderCurrentWindow
+            }
 
             CallbackChange::ScrollIntoView { node_id, options } => {
                 let now = azul_core::task::Instant::now();

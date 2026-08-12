@@ -326,3 +326,66 @@ fn reinvoke_signal_carries_document_space_offsets_for_page_math() {
         "bottom edge maps to a sane page: {last}"
     );
 }
+
+/// #28 (a): `SetVirtualViewGeometry` — the streaming-pagination writeback's
+/// op — updates the VirtualView's VIRTUAL geometry (manager + scroll
+/// bounds, i.e. the scrollbar math) WITHOUT re-invoking the callback and
+/// WITHOUT touching the rendered window. This pins the apply sequence both
+/// host arms execute (dll `event.rs` + the e2e runner mirror, which are
+/// line-identical by the runner's port contract).
+#[test]
+fn set_virtual_view_geometry_updates_scrollbar_math_without_reinvoke() {
+    let model = fresh_model();
+    let mut lw = LayoutWindow::new(FcFontCache::build()).unwrap();
+    let mut window_state = FullWindowState::default();
+    window_state.size.dimensions = LogicalSize::new(800.0, 600.0);
+    lw.current_window_state = window_state;
+
+    relayout(&mut lw, &model);
+    let vv_node = NodeId::new(1);
+    let (declared_scroll, declared_virtual) = lw
+        .virtual_view_manager
+        .get_declared_sizes(DomId::ROOT_ID, vv_node);
+    let declared_scroll = declared_scroll.expect("VV invoked once by relayout");
+    let old_virtual = declared_virtual.expect("virtual size declared");
+
+    // Invocation probe: `pages_view` records `captured_signal` on EVERY
+    // invoke — clearing it makes any re-invocation observable.
+    model.lock().unwrap().captured_signal = None;
+
+    // The op's apply sequence — line-identical in both host arms.
+    let new_virtual = LogicalSize::new(old_virtual.width, old_virtual.height * 4.0);
+    let kept = lw
+        .virtual_view_manager
+        .get_declared_sizes(DomId::ROOT_ID, vv_node)
+        .0
+        .unwrap_or(new_virtual);
+    assert_eq!(
+        kept, declared_scroll,
+        "the op preserves the declared window, it does not invent one"
+    );
+    let _ = lw
+        .virtual_view_manager
+        .update_virtual_view_info(DomId::ROOT_ID, vv_node, kept, new_virtual);
+    lw.scroll_manager
+        .update_virtual_scroll_bounds(DomId::ROOT_ID, vv_node, new_virtual, None);
+    lw.scroll_manager.calculate_scrollbar_states();
+
+    // Law 1: the scrollbar math sees the corrected virtual extent…
+    let (after_scroll, after_virtual) = lw
+        .virtual_view_manager
+        .get_declared_sizes(DomId::ROOT_ID, vv_node);
+    assert_eq!(after_virtual, Some(new_virtual), "virtual extent updated");
+    // …while the rendered window stayed put.
+    assert_eq!(
+        after_scroll,
+        Some(declared_scroll),
+        "rendered window untouched"
+    );
+
+    // Law 2: none of it re-invoked the callback.
+    assert!(
+        model.lock().unwrap().captured_signal.is_none(),
+        "SetVirtualViewGeometry must not re-invoke the VirtualView callback"
+    );
+}

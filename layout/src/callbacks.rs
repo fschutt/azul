@@ -393,6 +393,25 @@ pub enum CallbackChange {
         /// Used by the scroll physics timer for rubber-banding/overscroll.
         unclamped: bool,
     },
+    /// #28 (a): update a `VirtualView`'s VIRTUAL geometry (scrollbar math)
+    /// WITHOUT re-invoking its callback or re-laying-out its child DOM.
+    ///
+    /// The streaming-pagination flow: a background thread computes the exact
+    /// page count while the UI shows an estimate; its writeback pushes this
+    /// change to correct the scrollbar live. Applied post-callback as the two
+    /// stores a normal invoke writes (`VirtualViewManager::
+    /// update_virtual_view_info` + `ScrollManager::update_virtual_scroll_
+    /// bounds`) — the rendered window (`scroll_size`) is deliberately NOT
+    /// touched, only the virtual extent.
+    SetVirtualViewGeometry {
+        dom_id: DomId,
+        /// The `VirtualView` node in its parent DOM.
+        node_id: NodeHierarchyItemId,
+        virtual_scroll_size: LogicalSize,
+        /// `Some` also repositions the virtual scroll offset (clamped by the
+        /// scroll manager); `None` keeps the current offset.
+        virtual_scroll_offset: OptionLogicalPosition,
+    },
     /// Scroll a node into view (W3C scrollIntoView API)
     /// The scroll adjustments are calculated and applied when the change is processed
     ScrollIntoView {
@@ -1050,6 +1069,27 @@ impl CallbackInfo {
     /// observe the race between a script ending and this arriving.
     pub fn stop_e2e_json(&mut self, handle: E2eScriptHandle) {
         self.push_change(CallbackChange::StopE2eJson { handle });
+    }
+
+    /// #28 (a): update a `VirtualView`'s VIRTUAL geometry (scrollbar math)
+    /// WITHOUT re-invoking its callback or re-laying-out its child DOM —
+    /// see [`CallbackChange::UpdateVirtualView`]. `node_id` addresses the
+    /// `VirtualView` node in its parent DOM. Intended for streaming
+    /// corrections: a background exact-pagination writeback fixes the
+    /// scrollbar's total extent live while the UI keeps its materialized
+    /// window untouched.
+    pub fn update_virtual_view(
+        &mut self,
+        node_id: DomNodeId,
+        virtual_scroll_size: LogicalSize,
+        virtual_scroll_offset: OptionLogicalPosition,
+    ) {
+        self.push_change(CallbackChange::SetVirtualViewGeometry {
+            dom_id: node_id.dom,
+            node_id: node_id.node,
+            virtual_scroll_size,
+            virtual_scroll_offset,
+        });
     }
 
     /// Snapshot the current app state into the undo history (mini-git commit).
