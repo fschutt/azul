@@ -14604,32 +14604,6 @@
                             }
                         }
                     },
-                    "CustomE2eOpResult": {
-                        "doc": [
-                            "Outcome of a user-defined E2E op.",
-                            "`handled` is 'was this op mine at all', NOT 'did it succeed'. The debug server turns false into an explicit unknown-op error rather than an OK, so a typo'd op name in a scenario fails instead of passing silently."
-                        ],
-                        "external": "azul_core::events::CustomE2eOpResult",
-                        "derive": [
-                            "Debug",
-                            "Clone",
-                            "PartialEq",
-                            "Eq"
-                        ],
-                        "struct_fields": [
-                            {
-                                "handled": {
-                                    "type": "bool"
-                                }
-                            },
-                            {
-                                "json": {
-                                    "type": "String"
-                                }
-                            }
-                        ],
-                        "repr": "C"
-                    },
                     "CustomE2eOpCallbackType": {
                         "doc": [
                             "Handles an E2E op the engine does not implement.",
@@ -14653,32 +14627,74 @@
                             }
                         }
                     },
-                    "CustomE2eOpCallback": {
+                    "SelectionTweenCallbackType": {
                         "doc": [
-                            "Application handler for E2E ops, plus the schema describing them.",
-                            "`op_schema` is DATA, not a second callback: discovery is a field read, needing no invocation and no debug HTTP server. It carries, per op, name / summary / description / the JSON type each argument expects / usage examples / example returns.",
-                            "Those examples and types are what a macro picker renders and what an agent reads instead of taking a screenshot.",
-                            "AzJson is the deliberate interim interface; typed structs come later."
+                            "Returns the selection rectangles to render at progress `info.t`.",
+                            "MUST return exactly `info.current.len()` rectangles - a mismatched length",
+                            "makes the framework fall back to `info.current` unanimated."
                         ],
-                        "external": "azul_core::events::CustomE2eOpCallback",
+                        "external": "azul_core::callbacks::SelectionTweenCallbackType",
+                        "callback_typedef": {
+                            "fn_args": [
+                                {
+                                    "type": "RefAny"
+                                },
+                                {
+                                    "type": "SelectionTweenInfo"
+                                }
+                            ],
+                            "returns": {
+                                "type": "LogicalRectVec"
+                            }
+                        }
+                    },
+                    "CaretTweenInfo": {
+                        "doc": [
+                            "Inputs for one caret-tween evaluation: the previously RENDERED caret rect,",
+                            "the rect the current layout wants, and the linear time progress 0.0..=1.0.",
+                            "Easing / curves are the tween function's job."
+                        ],
+                        "external": "azul_core::callbacks::CaretTweenInfo",
+                        "derive": [
+                            "Debug",
+                            "Clone",
+                            "Copy",
+                            "PartialEq",
+                            "PartialOrd"
+                        ],
                         "struct_fields": [
                             {
-                                "cb": {
-                                    "type": "CustomE2eOpCallbackType"
-                                }
-                            },
-                            {
-                                "ctx": {
-                                    "type": "OptionRefAny"
-                                }
-                            },
-                            {
-                                "op_schema": {
-                                    "type": "Json"
+                                "past": {
+                                    "type": "LogicalRect"
+                                },
+                                "current": {
+                                    "type": "LogicalRect"
+                                },
+                                "t": {
+                                    "type": "f32"
                                 }
                             }
                         ],
                         "repr": "C"
+                    },
+                    "CaretTweenCallbackType": {
+                        "doc": [
+                            "Returns the caret rectangle to render at progress `info.t`"
+                        ],
+                        "external": "azul_core::callbacks::CaretTweenCallbackType",
+                        "callback_typedef": {
+                            "fn_args": [
+                                {
+                                    "type": "RefAny"
+                                },
+                                {
+                                    "type": "CaretTweenInfo"
+                                }
+                            ],
+                            "returns": {
+                                "type": "LogicalRect"
+                            }
+                        }
                     }
                 }
             },
@@ -24035,6 +24051,118 @@
                                 },
                                 "callable": {
                                     "type": "OptionRefAny"
+                                }
+                            }
+                        ],
+                        "repr": "C"
+                    },
+                    "SelectionTweenCallback": {
+                        "doc": [
+                            "C-ABI wrapper over a `SelectionTweenCallbackType` (user-settable selection tween math)"
+                        ],
+                        "external": "azul_core::callbacks::SelectionTweenCallback",
+                        "custom_impls": [
+                            "Clone",
+                            "Debug",
+                            "Eq",
+                            "Hash",
+                            "Ord",
+                            "PartialEq",
+                            "PartialOrd"
+                        ],
+                        "struct_fields": [
+                            {
+                                "cb": {
+                                    "type": "SelectionTweenCallbackType"
+                                },
+                                "ctx": {
+                                    "type": "OptionRefAny"
+                                }
+                            }
+                        ],
+                        "repr": "C"
+                    },
+                    "CaretTweenCallback": {
+                        "doc": [
+                            "C-ABI wrapper over a `CaretTweenCallbackType` (user-settable caret tween math)"
+                        ],
+                        "external": "azul_core::callbacks::CaretTweenCallback",
+                        "custom_impls": [
+                            "Clone",
+                            "Debug",
+                            "Eq",
+                            "Hash",
+                            "Ord",
+                            "PartialEq",
+                            "PartialOrd"
+                        ],
+                        "struct_fields": [
+                            {
+                                "cb": {
+                                    "type": "CaretTweenCallbackType"
+                                },
+                                "ctx": {
+                                    "type": "OptionRefAny"
+                                }
+                            }
+                        ],
+                        "repr": "C"
+                    },
+                    "SelectionTweenInfo": {
+                        "doc": [
+                            "Inputs for one selection-tween evaluation: the previously RENDERED selection",
+                            "band rectangles, the rectangles the current layout wants (display-list order,",
+                            "possibly spanning multiple lines and nodes), and the linear progress 0.0..=1.0."
+                        ],
+                        "external": "azul_core::callbacks::SelectionTweenInfo",
+                        "derive": [
+                            "Debug",
+                            "Clone",
+                            "PartialEq",
+                            "PartialOrd"
+                        ],
+                        "struct_fields": [
+                            {
+                                "past": {
+                                    "type": "LogicalRectVec"
+                                },
+                                "current": {
+                                    "type": "LogicalRectVec"
+                                },
+                                "t": {
+                                    "type": "f32"
+                                }
+                            }
+                        ],
+                        "repr": "C"
+                    },
+                    "CustomE2eOpCallback": {
+                        "doc": [
+                            "Application handler for E2E ops, plus the schema describing them.",
+                            "`op_schema` is DATA, not a second callback: discovery is a field read, needing no invocation and no debug HTTP server. It carries, per op, name / summary / description / the JSON type each argument expects / usage examples / example returns.",
+                            "Those examples and types are what a macro picker renders and what an agent reads instead of taking a screenshot.",
+                            "AzJson is the deliberate interim interface; typed structs come later."
+                        ],
+                        "external": "azul_core::events::CustomE2eOpCallback",
+                        "custom_impls": [
+                            "Clone",
+                            "Default",
+                            "From"
+                        ],
+                        "struct_fields": [
+                            {
+                                "cb": {
+                                    "type": "CustomE2eOpCallbackType"
+                                }
+                            },
+                            {
+                                "ctx": {
+                                    "type": "OptionRefAny"
+                                }
+                            },
+                            {
+                                "op_schema": {
+                                    "type": "Json"
                                 }
                             }
                         ],
@@ -44336,6 +44464,68 @@
                             {
                                 "RightHanded": {},
                                 "LeftHanded": {}
+                            }
+                        ],
+                        "repr": "C"
+                    },
+                    "SystemAnimations": {
+                        "doc": [
+                            "Configuration of the SYSTEM-driven animations: physics-based scrolling and the",
+                            "caret / selection tweens. Lives on `AppConfig` so a platform or application can",
+                            "tune the feel without rebuilding azul. The scroll physics override is applied ON",
+                            "TOP of the platform-discovered `SystemStyle` at `App::create` time (`None` keeps",
+                            "the per-platform preset). Tween durations of 0 disable that tween (caret /",
+                            "selection jumps, the classic behavior). While a tween runs, caret blinking is",
+                            "suppressed (the caret stays solid while it moves)."
+                        ],
+                        "external": "azul_core::resources::SystemAnimations",
+                        "custom_impls": [
+                            "Default"
+                        ],
+                        "derive": [
+                            "Debug",
+                            "Clone"
+                        ],
+                        "struct_fields": [
+                            {
+                                "caret_tween": {
+                                    "type": "CaretTweenCallback"
+                                },
+                                "selection_tween": {
+                                    "type": "SelectionTweenCallback"
+                                },
+                                "caret_tween_data": {
+                                    "type": "RefAny"
+                                },
+                                "selection_tween_data": {
+                                    "type": "RefAny"
+                                },
+                                "scroll_physics": {
+                                    "type": "OptionScrollPhysics"
+                                },
+                                "caret_tween_duration_ms": {
+                                    "type": "u32"
+                                },
+                                "selection_tween_duration_ms": {
+                                    "type": "u32"
+                                },
+                                "focus_ring_duration_ms": {
+                                    "type": "u32",
+                                    "doc": [
+                                        "Focus-ring glide duration in ms. 0 (the DEFAULT) disables the ring entirely -",
+                                        "zero visual change for existing apps. Opted-in apps get a focus outline that",
+                                        "GLIDES between focused elements via the caret_tween interpolator; suppressed",
+                                        "while a text-editing session owns focus."
+                                    ]
+                                },
+                                "caret_scroll_glide": {
+                                    "type": "bool",
+                                    "doc": [
+                                        "Whether scroll-caret-into-view glides via the scroll-physics spring (true, the",
+                                        "Word feel) or jumps instantly (false; SystemAnimations::disabled() sets this",
+                                        "for deterministic e2e screenshots)."
+                                    ]
+                                }
                             }
                         ],
                         "repr": "C"
@@ -92988,6 +93178,9 @@
                         "custom_impls": [
                             "Clone",
                             "Debug",
+                            "Eq",
+                            "Hash",
+                            "Ord",
                             "PartialEq",
                             "PartialOrd"
                         ],
@@ -93012,6 +93205,122 @@
                                 }
                             }
                         ],
+                        "functions": {
+                            "create": {
+                                "doc": [
+                                    "Creates an empty `LogicalRectVec`"
+                                ],
+                                "fn_args": [],
+                                "returns": {
+                                    "type": "LogicalRectVec"
+                                },
+                                "fn_body": "Self::new()"
+                            },
+                            "with_capacity": {
+                                "doc": [
+                                    "Creates a `LogicalRectVec` with a given capacity"
+                                ],
+                                "fn_args": [
+                                    {
+                                        "cap": "usize"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "LogicalRectVec"
+                                },
+                                "fn_body": "Self::with_capacity(cap)"
+                            },
+                            "len": {
+                                "doc": [
+                                    "Returns the number of elements in the Vec"
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "usize"
+                                },
+                                "fn_body": "logical_rect_vec.len()"
+                            },
+                            "capacity": {
+                                "doc": [
+                                    "Returns the capacity of the Vec"
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "usize"
+                                },
+                                "fn_body": "logical_rect_vec.capacity()"
+                            },
+                            "is_empty": {
+                                "doc": [
+                                    "Returns whether the Vec is empty"
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "bool"
+                                },
+                                "fn_body": "logical_rect_vec.is_empty()"
+                            },
+                            "c_get": {
+                                "doc": [
+                                    "Returns a copy of the element at the given index, or None if out of bounds. C-API compatible."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    },
+                                    {
+                                        "index": "usize"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "OptionLogicalRect"
+                                },
+                                "fn_body": "logical_rect_vec.c_get(index).into()"
+                            },
+                            "from_item": {
+                                "doc": [
+                                    "Creates a `LogicalRectVec` containing a single element"
+                                ],
+                                "fn_args": [
+                                    {
+                                        "item": "LogicalRect"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "LogicalRectVec"
+                                },
+                                "fn_body": "Self::from_item(item)"
+                            },
+                            "copy_from_ptr": {
+                                "doc": [
+                                    "Copies elements from a C array into a `LogicalRectVec`. The array must be valid for `len` elements."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "ptr": "*const LogicalRect"
+                                    },
+                                    {
+                                        "len": "usize"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "LogicalRectVec"
+                                },
+                                "fn_body": "unsafe { Self::copy_from_ptr(ptr, len) }"
+                            }
+                        },
                         "repr": "C"
                     },
                     "LayoutRectVecDestructorType": {
@@ -95527,6 +95836,32 @@
                             }
                         ],
                         "repr": "C, u8"
+                    },
+                    "LogicalRectVecSlice": {
+                        "external": "azul_core::geom::LogicalRectVecSlice",
+                        "derive": [
+                            "Debug",
+                            "Clone",
+                            "Copy"
+                        ],
+                        "struct_fields": [
+                            {
+                                "ptr": {
+                                    "type": "LogicalRect",
+                                    "ref_kind": "constptr",
+                                    "doc": [
+                                        "Pointer to the slice data"
+                                    ]
+                                },
+                                "len": {
+                                    "type": "usize",
+                                    "doc": [
+                                        "Number of elements in the slice"
+                                    ]
+                                }
+                            }
+                        ],
+                        "repr": "C"
                     }
                 }
             },
@@ -103386,6 +103721,32 @@
                             }
                         ],
                         "repr": "C, u8"
+                    },
+                    "CustomE2eOpResult": {
+                        "doc": [
+                            "Outcome of a user-defined E2E op.",
+                            "`handled` is 'was this op mine at all', NOT 'did it succeed'. The debug server turns false into an explicit unknown-op error rather than an OK, so a typo'd op name in a scenario fails instead of passing silently."
+                        ],
+                        "external": "azul_core::events::CustomE2eOpResult",
+                        "derive": [
+                            "Debug",
+                            "Clone",
+                            "PartialEq",
+                            "Eq"
+                        ],
+                        "struct_fields": [
+                            {
+                                "handled": {
+                                    "type": "bool"
+                                }
+                            },
+                            {
+                                "json": {
+                                    "type": "String"
+                                }
+                            }
+                        ],
+                        "repr": "C"
                     }
                 }
             },
@@ -103394,217 +103755,6 @@
                     "Application entry point, configuration, and lifecycle management."
                 ],
                 "classes": {
-                    "CaretTweenInfo": {
-                        "doc": [
-                            "Inputs for one caret-tween evaluation: the previously RENDERED caret rect,",
-                            "the rect the current layout wants, and the linear time progress 0.0..=1.0.",
-                            "Easing / curves are the tween function's job."
-                        ],
-                        "external": "azul_core::callbacks::CaretTweenInfo",
-                        "derive": [
-                            "Debug",
-                            "Clone",
-                            "Copy",
-                            "PartialEq",
-                            "PartialOrd"
-                        ],
-                        "struct_fields": [
-                            {
-                                "past": {
-                                    "type": "LogicalRect"
-                                },
-                                "current": {
-                                    "type": "LogicalRect"
-                                },
-                                "t": {
-                                    "type": "f32"
-                                }
-                            }
-                        ],
-                        "repr": "C"
-                    },
-                    "CaretTweenCallbackType": {
-                        "doc": [
-                            "Returns the caret rectangle to render at progress `info.t`"
-                        ],
-                        "external": "azul_core::callbacks::CaretTweenCallbackType",
-                        "callback_typedef": {
-                            "fn_args": [
-                                {
-                                    "type": "RefAny"
-                                },
-                                {
-                                    "type": "CaretTweenInfo"
-                                }
-                            ],
-                            "returns": {
-                                "type": "LogicalRect"
-                            }
-                        }
-                    },
-                    "CaretTweenCallback": {
-                        "doc": [
-                            "C-ABI wrapper over a `CaretTweenCallbackType` (user-settable caret tween math)"
-                        ],
-                        "external": "azul_core::callbacks::CaretTweenCallback",
-                        "custom_impls": [
-                            "Clone",
-                            "Debug",
-                            "Eq",
-                            "Hash",
-                            "Ord",
-                            "PartialEq",
-                            "PartialOrd"
-                        ],
-                        "struct_fields": [
-                            {
-                                "cb": {
-                                    "type": "CaretTweenCallbackType"
-                                },
-                                "ctx": {
-                                    "type": "OptionRefAny"
-                                }
-                            }
-                        ],
-                        "repr": "C"
-                    },
-                    "SelectionTweenInfo": {
-                        "doc": [
-                            "Inputs for one selection-tween evaluation: the previously RENDERED selection",
-                            "band rectangles, the rectangles the current layout wants (display-list order,",
-                            "possibly spanning multiple lines and nodes), and the linear progress 0.0..=1.0."
-                        ],
-                        "external": "azul_core::callbacks::SelectionTweenInfo",
-                        "derive": [
-                            "Debug",
-                            "Clone",
-                            "PartialEq",
-                            "PartialOrd"
-                        ],
-                        "struct_fields": [
-                            {
-                                "past": {
-                                    "type": "LogicalRectVec"
-                                },
-                                "current": {
-                                    "type": "LogicalRectVec"
-                                },
-                                "t": {
-                                    "type": "f32"
-                                }
-                            }
-                        ],
-                        "repr": "C"
-                    },
-                    "SelectionTweenCallbackType": {
-                        "doc": [
-                            "Returns the selection rectangles to render at progress `info.t`.",
-                            "MUST return exactly `info.current.len()` rectangles - a mismatched length",
-                            "makes the framework fall back to `info.current` unanimated."
-                        ],
-                        "external": "azul_core::callbacks::SelectionTweenCallbackType",
-                        "callback_typedef": {
-                            "fn_args": [
-                                {
-                                    "type": "RefAny"
-                                },
-                                {
-                                    "type": "SelectionTweenInfo"
-                                }
-                            ],
-                            "returns": {
-                                "type": "LogicalRectVec"
-                            }
-                        }
-                    },
-                    "SelectionTweenCallback": {
-                        "doc": [
-                            "C-ABI wrapper over a `SelectionTweenCallbackType` (user-settable selection tween math)"
-                        ],
-                        "external": "azul_core::callbacks::SelectionTweenCallback",
-                        "custom_impls": [
-                            "Clone",
-                            "Debug",
-                            "Eq",
-                            "Hash",
-                            "Ord",
-                            "PartialEq",
-                            "PartialOrd"
-                        ],
-                        "struct_fields": [
-                            {
-                                "cb": {
-                                    "type": "SelectionTweenCallbackType"
-                                },
-                                "ctx": {
-                                    "type": "OptionRefAny"
-                                }
-                            }
-                        ],
-                        "repr": "C"
-                    },
-                    "SystemAnimations": {
-                        "doc": [
-                            "Configuration of the SYSTEM-driven animations: physics-based scrolling and the",
-                            "caret / selection tweens. Lives on `AppConfig` so a platform or application can",
-                            "tune the feel without rebuilding azul. The scroll physics override is applied ON",
-                            "TOP of the platform-discovered `SystemStyle` at `App::create` time (`None` keeps",
-                            "the per-platform preset). Tween durations of 0 disable that tween (caret /",
-                            "selection jumps, the classic behavior). While a tween runs, caret blinking is",
-                            "suppressed (the caret stays solid while it moves)."
-                        ],
-                        "external": "azul_core::resources::SystemAnimations",
-                        "custom_impls": [
-                            "Default"
-                        ],
-                        "derive": [
-                            "Debug",
-                            "Clone"
-                        ],
-                        "struct_fields": [
-                            {
-                                "caret_tween": {
-                                    "type": "CaretTweenCallback"
-                                },
-                                "selection_tween": {
-                                    "type": "SelectionTweenCallback"
-                                },
-                                "caret_tween_data": {
-                                    "type": "RefAny"
-                                },
-                                "selection_tween_data": {
-                                    "type": "RefAny"
-                                },
-                                "scroll_physics": {
-                                    "type": "OptionScrollPhysics"
-                                },
-                                "caret_tween_duration_ms": {
-                                    "type": "u32"
-                                },
-                                "selection_tween_duration_ms": {
-                                    "type": "u32"
-                                },
-                                "focus_ring_duration_ms": {
-                                    "type": "u32",
-                                    "doc": [
-                                        "Focus-ring glide duration in ms. 0 (the DEFAULT) disables the ring entirely -",
-                                        "zero visual change for existing apps. Opted-in apps get a focus outline that",
-                                        "GLIDES between focused elements via the caret_tween interpolator; suppressed",
-                                        "while a text-editing session owns focus."
-                                    ]
-                                },
-                                "caret_scroll_glide": {
-                                    "type": "bool",
-                                    "doc": [
-                                        "Whether scroll-caret-into-view glides via the scroll-physics spring (true, the",
-                                        "Word feel) or jumps instantly (false; SystemAnimations::disabled() sets this",
-                                        "for deterministic e2e screenshots)."
-                                    ]
-                                }
-                            }
-                        ],
-                        "repr": "C"
-                    },
                     "AppConfig": {
                         "external": "azul_core::resources::AppConfig",
                         "custom_impls": [
@@ -106392,6 +106542,7 @@
                     "Json": {
                         "external": "azul_core::json::Json",
                         "custom_impls": [
+                            "Default",
                             "Display"
                         ],
                         "derive": [
