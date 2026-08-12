@@ -412,11 +412,12 @@ fn breakdown_line(iter: u32, window: &HeadlessWindow) -> Option<String> {
     let sc = lw.layout_cache.memory_report();
     let sc_tree = sc.tree_report.as_ref();
     let sc_fields = format!(
-        r#""sc_tree":{},"sc_tree_hot":{},"sc_tree_warm":{},"sc_tree_warm_inline":{},"sc_tree_warm_taffy":{},"sc_tree_cold":{},"sc_tree_children_arena":{},"sc_tree_dom_to_layout":{},"sc_cache_map":{},"sc_calculated_pos":{},"sc_previous_pos":{},"sc_float_cache":{},"sc_counters":{},"sc_scroll_ids":{},"sc_scroll_id_to_node":{},"sc_cached_display":{}"#,
+        r#""sc_tree":{},"sc_tree_hot":{},"sc_tree_warm":{},"sc_tree_warm_inline":{},"sc_tree_glyph_runs":{},"sc_tree_warm_taffy":{},"sc_tree_cold":{},"sc_tree_children_arena":{},"sc_tree_dom_to_layout":{},"sc_cache_map":{},"sc_calculated_pos":{},"sc_previous_pos":{},"sc_float_cache":{},"sc_counters":{},"sc_scroll_ids":{},"sc_scroll_id_to_node":{},"sc_cached_display":{}"#,
         sc.tree_bytes,
         sc_tree.map(|t| t.hot_bytes).unwrap_or(0),
         sc_tree.map(|t| t.warm_bytes).unwrap_or(0),
         sc_tree.map(|t| t.warm_inline_layout_bytes).unwrap_or(0),
+        sc_tree.map(|t| t.glyph_run_bytes).unwrap_or(0),
         sc_tree.map(|t| t.warm_taffy_cache_bytes).unwrap_or(0),
         sc_tree.map(|t| t.cold_bytes).unwrap_or(0),
         sc_tree.map(|t| t.children_arena_bytes).unwrap_or(0),

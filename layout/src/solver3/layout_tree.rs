@@ -266,7 +266,12 @@ pub struct CachedInlineLayout {
     /// the bulk of dl_inline_text's 6.8 ms/resize on big.md); computing them
     /// once alongside the layout makes every later paint a lookup. Rides
     /// GlyphSwap reuse for free — a reused layout is a reused run list.
-    pub glyph_runs: Arc<Vec<crate::text3::glyphs::SimpleGlyphRun>>,
+    ///
+    /// (#25) Stored COMPACT — 8 B/glyph instead of the 20 B `GlyphInstance`
+    /// (y and size are per-run-uniform in the simple-run contract; deviants
+    /// ride the exception table). Paint expands into the same offset Vec it
+    /// always built; `AZ_DENSE_TEXT=verify` roundtrip-gates the encoding.
+    pub glyph_runs: Arc<Vec<crate::text3::glyphs::CompactGlyphRun>>,
     /// Per-item metrics for incremental IFC relayout (Phase 2).
     ///
     /// Each entry corresponds to one `PositionedItem` in `layout.items`.
@@ -344,6 +349,30 @@ pub(crate) fn dense_text_mode() -> u8 {
         Ok("verify") => 2,
         _ => 1,
     })
+}
+
+/// #25: converts the transient builder output into the stored compact form.
+/// Under `AZ_DENSE_TEXT=verify` every run is roundtripped and compared
+/// BIT-EXACTLY against its original — the same proof obligation the dense
+/// campaign carried: the stored form must be an encoding, never a rewrite.
+fn compact_glyph_runs(
+    runs: Vec<crate::text3::glyphs::SimpleGlyphRun>,
+) -> Vec<crate::text3::glyphs::CompactGlyphRun> {
+    let verify = dense_text_mode() == 2;
+    runs.into_iter()
+        .map(|r| {
+            if verify {
+                let compact = crate::text3::glyphs::CompactGlyphRun::from(r.clone());
+                assert!(
+                    crate::text3::glyphs::simple_runs_bit_equal(&compact.expand(), &r),
+                    "#25 compact glyph-run roundtrip diverged from the original"
+                );
+                compact
+            } else {
+                crate::text3::glyphs::CompactGlyphRun::from(r)
+            }
+        })
+        .collect()
 }
 
 /// Testable core of [`compute_glyph_runs`] — `mode` injected so the d1
@@ -460,7 +489,7 @@ impl CachedInlineLayout {
         has_floats: bool,
     ) -> Self {
         let (runs, dense) = compute_glyph_runs(&layout);
-        let glyph_runs = Arc::new(runs);
+        let glyph_runs = Arc::new(compact_glyph_runs(runs));
         let item_metrics = Self::choose_item_metrics(&layout, dense.as_deref());
         let (layout, overflow) = Self::retire_sparse(layout, dense.as_deref());
         // Payload built from the STORED form — under the retirement the
@@ -496,7 +525,7 @@ impl CachedInlineLayout {
             &layout.items, available_width_px,
         ));
         let (runs, dense) = compute_glyph_runs(&layout);
-        let glyph_runs = Arc::new(runs);
+        let glyph_runs = Arc::new(compact_glyph_runs(runs));
         let item_metrics = Self::choose_item_metrics(&layout, dense.as_deref());
         let (layout, overflow) = Self::retire_sparse(layout, dense.as_deref());
         // Payload built from the STORED form — under the retirement the
@@ -1214,6 +1243,15 @@ pub struct LayoutTreeMemoryReport {
     /// because one pseudo-element rule defeated the predicate. At 248 B per
     /// StyleProperties that failure is invisible and expensive.
     pub distinct_glyph_style_arcs: usize,
+    /// Paint-run cache (`CachedInlineLayout::glyph_runs`): heap bytes of the
+    /// retained `Vec<SimpleGlyphRun>` lists, each distinct Arc counted once
+    /// (GlyphSwap reuse shares them). This is the store-time derivation that
+    /// makes every paint a lookup — the retained cost of that trade.
+    pub glyph_run_bytes: usize,
+    /// Distinct `SimpleGlyphRun`s behind `glyph_run_bytes`.
+    pub glyph_run_count: usize,
+    /// Total `GlyphInstance`s retained across those runs (the 20 B/each bulk).
+    pub glyph_instance_count: usize,
     pub warm_taffy_cache_bytes: usize,
     pub cold_bytes: usize,
     pub dom_to_layout_bytes: usize,
@@ -1226,6 +1264,7 @@ impl LayoutTreeMemoryReport {
         self.hot_bytes
             + self.warm_bytes
             + self.warm_inline_layout_bytes
+            + self.glyph_run_bytes
             + self.warm_taffy_cache_bytes
             + self.cold_bytes
             + self.dom_to_layout_bytes
@@ -1250,6 +1289,9 @@ impl LayoutTree {
             shaped_glyph_count: 0,
             shaped_cluster_text_bytes: 0,
             distinct_glyph_style_arcs: 0,
+            glyph_run_bytes: 0,
+            glyph_run_count: 0,
+            glyph_instance_count: 0,
             warm_taffy_cache_bytes: 0,
         };
         // HashMap<NodeId, Vec<usize>> — approximate: (key + Vec-header) per entry
@@ -1265,8 +1307,49 @@ impl LayoutTree {
             alloc::collections::BTreeSet::new();
         let mut style_arcs: alloc::collections::BTreeSet<usize> =
             alloc::collections::BTreeSet::new();
+        let mut run_arcs: alloc::collections::BTreeSet<usize> =
+            alloc::collections::BTreeSet::new();
         for w in &self.warm {
             if let Some(cached) = &w.inline_layout_result {
+                // The Box allocation itself — CachedInlineLayout is boxed off
+                // LayoutNodeWarm, so `warm_bytes` above does NOT include it.
+                // This also covers the INLINE `Option<UnifiedConstraints>`.
+                report.warm_inline_layout_bytes += size_of::<CachedInlineLayout>();
+                // Heap Vecs hanging off the inline constraints.
+                if let Some(c) = &cached.constraints {
+                    report.warm_inline_layout_bytes += c.shape_boundaries.capacity()
+                        * size_of::<crate::text3::cache::ShapeBoundary>()
+                        + c.shape_exclusions.capacity()
+                            * size_of::<crate::text3::cache::ShapeBoundary>();
+                }
+                // Cached line breaks (edit fast-path).
+                if let Some(lb) = &cached.line_breaks {
+                    report.warm_inline_layout_bytes +=
+                        lb.line_ranges.capacity() * size_of::<(usize, usize)>()
+                            + lb.line_widths.capacity() * size_of::<f32>();
+                }
+                // The payload Arc: when it is a TextPayload wrapper, that
+                // allocation holds two Arc CLONES of buffers counted
+                // elsewhere — only its own header is new bytes. When it is
+                // the layout Arc itself (flag-off), nothing new to count.
+                if cached.payload.downcast_ref::<TextPayload>().is_some() {
+                    report.warm_inline_layout_bytes += size_of::<TextPayload>();
+                }
+                // Paint-run cache — its own report line (see the field doc).
+                // Distinct Arcs only: GlyphSwap reuse clones the Arc.
+                if run_arcs
+                    .insert(alloc::sync::Arc::as_ptr(&cached.glyph_runs) as *const u8 as usize)
+                {
+                    report.glyph_run_bytes += cached.glyph_runs.capacity()
+                        * size_of::<crate::text3::glyphs::CompactGlyphRun>();
+                    for run in cached.glyph_runs.iter() {
+                        report.glyph_run_bytes += run.glyphs.retained_bytes()
+                            + run.background_content.capacity()
+                                * size_of::<azul_css::props::style::StyleBackgroundContent>();
+                        report.glyph_run_count += 1;
+                        report.glyph_instance_count += run.glyphs.len();
+                    }
+                }
                 // Arc<UnifiedLayout> — count the UnifiedLayout header + its items.
                 report.warm_inline_layout_bytes += size_of::<UnifiedLayout>();
                 report.warm_inline_layout_bytes += cached.layout.items.capacity()
@@ -3965,9 +4048,13 @@ mod autotest_generated {
     use super::*;
     use crate::{
         solver3::geometry::{EdgeSizes, PackedBoxProps},
-        text3::cache::{
-            BreakType, ClearType, InlineBreak, OverflowInfo, Point, PositionedItem, Rect,
-            ShapedItem,
+        text3::{
+            cache::{
+                BidiDirection, BreakType, ClearType, ClusterFlags, GlyphKind, GraphemeClusterId,
+                InlineBreak, LayoutFontMetrics, OverflowInfo, Point, PositionedItem, Rect,
+                ShapedCluster, ShapedGlyph, ShapedItem, StyleProperties,
+            },
+            script::Script,
         },
     };
 
@@ -4076,6 +4163,60 @@ mod autotest_generated {
                     height,
                 },
             },
+            position: Point { x, y: 0.0 },
+            line_index,
+        }
+    }
+
+    /// A positioned text cluster with `n_glyphs` degenerate glyphs, all on
+    /// one shared default style/font — so same-line clusters MERGE into one
+    /// paint run (the report fixtures need runs that actually hold glyphs;
+    /// `tab_item` yields none).
+    fn glyph_cluster_item(text: &str, n_glyphs: usize, x: f32, line_index: usize) -> PositionedItem {
+        let glyphs: Vec<ShapedGlyph> = (0..n_glyphs)
+            .map(|i| ShapedGlyph {
+                kind: GlyphKind::Character,
+                glyph_id: u16::try_from(i + 1).unwrap(),
+                cluster_offset: 0,
+                advance: 6.0,
+                kerning: 0.0,
+                offset: Point { x: 0.0, y: 0.0 },
+                vertical_advance: 0.0,
+                vertical_offset: Point { x: 0.0, y: 0.0 },
+                script: Script::Latin,
+                font_hash: 0xF0F0,
+                font_metrics: LayoutFontMetrics {
+                    ascent: 0.0,
+                    descent: 0.0,
+                    line_gap: 0.0,
+                    units_per_em: 0,
+                    x_height: None,
+                    cap_height: None,
+                },
+            })
+            .collect();
+        PositionedItem {
+            item: ShapedItem::Cluster(ShapedCluster {
+                flags: ClusterFlags::classify(text),
+                source_text: std::sync::Arc::from(text),
+                source_byte_len: u16::try_from(text.len()).unwrap(),
+                source_cluster_id: GraphemeClusterId {
+                    source_run: 0,
+                    start_byte_in_run: 0,
+                },
+                source_content_index: ContentIndex {
+                    run_index: 0,
+                    item_index: 0,
+                },
+                source_node_id: None,
+                glyphs: glyphs.into_iter().collect(),
+                advance: 6.0,
+                direction: BidiDirection::Ltr,
+                style: std::sync::Arc::new(StyleProperties::default()),
+                marker_position_outside: None,
+                is_first_fragment: true,
+                is_last_fragment: true,
+            }),
             position: Point { x, y: 0.0 },
             line_index,
         }
@@ -4982,27 +5123,31 @@ mod autotest_generated {
 
     #[test]
     fn memory_report_total_bytes_at_the_usize_boundary_does_not_overflow() {
-        // Eight fields, each usize::MAX / 8 → exactly usize::MAX - 7. One notch
-        // further and `total_bytes`'s plain `+` chain would overflow-panic in debug.
-        let eighth = usize::MAX / 8;
+        // Nine byte-fields, each usize::MAX / 9 → usize::MAX - 6 (MAX ≡ 6 mod 9).
+        // One notch further and `total_bytes`'s plain `+` chain would
+        // overflow-panic in debug.
+        let ninth = usize::MAX / 9;
         let r = LayoutTreeMemoryReport {
             node_count: 0,
-            hot_bytes: eighth,
-            warm_bytes: eighth,
-            warm_inline_layout_bytes: eighth,
-            warm_taffy_cache_bytes: eighth,
-            cold_bytes: eighth,
-            dom_to_layout_bytes: eighth,
-            children_arena_bytes: eighth,
-            children_offsets_bytes: eighth,
+            hot_bytes: ninth,
+            warm_bytes: ninth,
+            warm_inline_layout_bytes: ninth,
+            glyph_run_bytes: ninth,
+            warm_taffy_cache_bytes: ninth,
+            cold_bytes: ninth,
+            dom_to_layout_bytes: ninth,
+            children_arena_bytes: ninth,
+            children_offsets_bytes: ninth,
             // Counters, not byte totals — `total_bytes` must not add them.
             shaped_cluster_count: 0,
             shaped_glyph_count: 0,
             shaped_cluster_text_bytes: 0,
             distinct_glyph_style_arcs: 0,
+            glyph_run_count: 0,
+            glyph_instance_count: 0,
         };
-        assert_eq!(r.total_bytes(), eighth * 8);
-        assert_eq!(r.total_bytes(), usize::MAX - 7);
+        assert_eq!(r.total_bytes(), ninth * 9);
+        assert_eq!(r.total_bytes(), usize::MAX - 6);
     }
 
     #[test]
@@ -5020,6 +5165,81 @@ mod autotest_generated {
             tree.memory_report().warm_inline_layout_bytes >= size_of::<UnifiedLayout>(),
             "the UnifiedLayout header must at least be counted"
         );
+        // The Box allocation itself is retained heap the `warm` line can't
+        // see (CachedInlineLayout is boxed off LayoutNodeWarm).
+        assert!(
+            tree.memory_report().warm_inline_layout_bytes >= size_of::<CachedInlineLayout>(),
+            "the boxed CachedInlineLayout struct must be counted"
+        );
+    }
+
+    #[test]
+    fn memory_report_itemizes_the_glyph_run_cache() {
+        use crate::text3::glyphs::CompactGlyphRun;
+
+        let mut tree = raw_tree(vec![hot(None), hot(Some(0))], &[vec![1], vec![]]);
+        let r0 = tree.memory_report();
+        assert_eq!(
+            (r0.glyph_run_bytes, r0.glyph_run_count, r0.glyph_instance_count),
+            (0, 0, 0)
+        );
+
+        // Two same-style same-baseline clusters (2 + 1 glyphs) merge into ONE
+        // paint run of 3 instances — the run-merging law, pinned through the
+        // report counters.
+        tree.warm[0].inline_layout_result = Some(Box::new(CachedInlineLayout::new(
+            layout_of(vec![
+                glyph_cluster_item("a", 2, 0.0, 0),
+                glyph_cluster_item("b", 1, 12.0, 0),
+            ]),
+            AvailableSpace::MaxContent,
+            false,
+        )));
+        let r1 = tree.memory_report();
+        assert_eq!(r1.glyph_run_count, 1, "same style+font+baseline must merge");
+        assert_eq!(r1.glyph_instance_count, 3);
+        assert!(
+            r1.glyph_run_bytes
+                >= size_of::<CompactGlyphRun>() + 3 * size_of::<(u32, f32)>(),
+            "bytes must cover the run header and all three compact entries \
+             (got {}, header {})",
+            r1.glyph_run_bytes,
+            size_of::<CompactGlyphRun>(),
+        );
+
+        // Arc-dedup law: a second node SHARING the same run list (GlyphSwap
+        // reuse clones the Arc) must add ZERO bytes and ZERO counts.
+        let shared = tree.warm[0]
+            .inline_layout_result
+            .as_ref()
+            .unwrap()
+            .glyph_runs
+            .clone();
+        let mut second = CachedInlineLayout::new(
+            layout_of(vec![glyph_cluster_item("c", 1, 0.0, 0)]),
+            AvailableSpace::MaxContent,
+            false,
+        );
+        second.glyph_runs = shared;
+        tree.warm[1].inline_layout_result = Some(Box::new(second));
+        let r2 = tree.memory_report();
+        assert_eq!(
+            (r2.glyph_run_bytes, r2.glyph_run_count, r2.glyph_instance_count),
+            (r1.glyph_run_bytes, r1.glyph_run_count, r1.glyph_instance_count),
+            "a shared Arc must not be double-counted"
+        );
+
+        // A DISTINCT run list does count.
+        let third = CachedInlineLayout::new(
+            layout_of(vec![glyph_cluster_item("d", 1, 0.0, 0)]),
+            AvailableSpace::MaxContent,
+            false,
+        );
+        tree.warm[1].inline_layout_result = Some(Box::new(third));
+        let r3 = tree.memory_report();
+        assert_eq!(r3.glyph_run_count, 2);
+        assert_eq!(r3.glyph_instance_count, 4);
+        assert!(r3.glyph_run_bytes > r1.glyph_run_bytes);
     }
 
     #[test]

@@ -362,6 +362,103 @@ pub struct DisplayList {
     pub layout_node_mapping: Vec<Option<(usize, EmitPhase)>>,
 }
 
+impl DisplayList {
+    /// Approximate heap bytes retained by this display list — the
+    /// item vec + parallel vecs + every item's owned heap. The memory
+    /// report used to charge a FLAT 2 KiB for a cached display list;
+    /// on a paginated document the `Text` items alone hold an offset
+    /// COPY of every painted glyph (20 B each), which made the single
+    /// biggest DL cost invisible ("a zero is not a measurement" — and
+    /// so is a constant).
+    ///
+    /// Returns `(bytes, text_instances, item_count)` — the counters that
+    /// explain the byte figure (glyph copies vs item slots), same pattern
+    /// as the cluster counters on the tree report.
+    #[must_use]
+    pub fn retained_bytes(&self) -> (usize, usize, usize) {
+        use core::mem::size_of;
+        let mut bytes = self.items.capacity() * size_of::<DisplayListItem>()
+            + self.node_mapping.capacity() * size_of::<Option<NodeId>>()
+            + self.forced_page_breaks.capacity() * size_of::<ForcedBreak>()
+            + self.fixed_position_item_ranges.capacity() * size_of::<(usize, usize)>()
+            + self
+                .uniform_text_bgs
+                .capacity()
+                * size_of::<Option<(ColorU, WindowLogicalRect)>>()
+            + self
+                .layout_node_mapping
+                .capacity()
+                * size_of::<Option<(usize, EmitPhase)>>();
+        let mut text_instances = 0usize;
+        for item in &self.items {
+            bytes += Self::item_heap_bytes(item, &mut text_instances);
+        }
+        (bytes, text_instances, self.items.len())
+    }
+
+    /// Owned heap hanging off one item. EXHAUSTIVE on purpose — a new
+    /// variant must fail this match so its heap gets classified rather
+    /// than silently uncounted. `Arc`/`ImageRef` fields are CLONES of
+    /// allocations owned (and counted) elsewhere → 0 here.
+    fn item_heap_bytes(item: &DisplayListItem, text_instances: &mut usize) -> usize {
+        use core::mem::size_of;
+        use DisplayListItem as I;
+        match item {
+            I::Text { glyphs, .. } => {
+                *text_instances += glyphs.len();
+                glyphs.capacity() * size_of::<azul_core::ui_solver::GlyphInstance>()
+            }
+            I::ScrollBarStyled { .. } => size_of::<ScrollbarDrawInfo>(),
+            I::LinearGradient { gradient, .. } => {
+                gradient.stops.len()
+                    * size_of::<azul_css::props::style::NormalizedLinearColorStop>()
+            }
+            I::RadialGradient { gradient, .. } => {
+                gradient.stops.len()
+                    * size_of::<azul_css::props::style::NormalizedLinearColorStop>()
+            }
+            I::ConicGradient { gradient, .. } => {
+                gradient.stops.len()
+                    * size_of::<azul_css::props::style::NormalizedRadialColorStop>()
+            }
+            I::PushFilter { filters, .. } | I::PushBackdropFilter { filters, .. } => {
+                filters.capacity() * size_of::<azul_css::props::style::StyleFilter>()
+            }
+            // Arc / ImageRef clones — owned and counted elsewhere.
+            I::TextLayout { .. } | I::Image { .. } | I::PushImageMaskClip { .. } => 0,
+            // Flat payloads: everything lives inline in the enum variant,
+            // already covered by `items.capacity() * size_of::<DisplayListItem>()`.
+            I::Rect { .. }
+            | I::SelectionRect { .. }
+            | I::CursorRect { .. }
+            | I::Border { .. }
+            | I::Underline { .. }
+            | I::Strikethrough { .. }
+            | I::Overline { .. }
+            | I::ScrollBar { .. }
+            | I::VirtualView { .. }
+            | I::VirtualViewPlaceholder { .. }
+            | I::PushClip { .. }
+            | I::PopClip
+            | I::PopImageMaskClip
+            | I::PushScrollFrame { .. }
+            | I::PopScrollFrame
+            | I::PushStackingContext { .. }
+            | I::PopStackingContext
+            | I::PushReferenceFrame { .. }
+            | I::PopReferenceFrame
+            | I::HitTestArea { .. }
+            | I::BoxShadow { .. }
+            | I::PopFilter
+            | I::PopBackdropFilter
+            | I::PushOpacity { .. }
+            | I::PopOpacity
+            | I::PushTextShadow { .. }
+            | I::PopTextShadow => 0,
+        }
+    }
+}
+
 /// Translate a display-list item's geometry by `delta` (DL patching:
 /// same item content, moved node). Every variant the two paint fns can
 /// emit is handled; variants outside `patchable_item` never reach this
@@ -5428,7 +5525,7 @@ where
         layout: &Arc<UnifiedLayout>,
         dense_view: Option<&crate::text3::dense::DenseText>,
         payload: &Arc<dyn std::any::Any + Send + Sync>,
-        glyph_runs: &[crate::text3::glyphs::SimpleGlyphRun],
+        glyph_runs: &[crate::text3::glyphs::CompactGlyphRun],
         source_node_index: usize,
     ) {
         let _p = crate::probe::Probe::span("dl_inline_text");
@@ -5497,7 +5594,18 @@ where
         // Only push TextLayout if layout has actual content
         // This prevents empty TextLayout items with 0x0 bounds at various Y positions
         // from affecting pagination height calculations
-        if layout_bounds.width > 0.0 || layout_bounds.height > 0.0 {
+        //
+        // (#25 / user ruling 2026-08-12) AND only for PAGED (PDF-export)
+        // display lists: `TextLayout` is the type-erased shaped-layout
+        // payload printpdf's bridge and the font-embedding walk consume.
+        // The screen renderers all no-op it (raster: "metadata for
+        // PDF/accessibility — skip"; compositor2: logs and moves on), so
+        // a screen DL was carrying one dead item + payload-Arc clone per
+        // painted IFC. `fragmentation_context.is_some()` IS the
+        // screen-vs-paged discriminator (paged entries own it; the window
+        // path never sets it) — no new target input needed.
+        let is_paged_target = self.ctx.fragmentation_context.is_some();
+        if is_paged_target && (layout_bounds.width > 0.0 || layout_bounds.height > 0.0) {
             // The item-level font is the layout's PRIMARY font: the first
             // shaped glyph that resolved one. This used to be a hardcoded
             // `FontHash::from_hash(0)` placeholder ("will be updated per
@@ -5629,18 +5737,13 @@ where
             // container when overflow is hidden/scroll/auto.
             let clip_rect = viewport_clip_rect;
 
-            // Fix: Offset glyph positions by the container origin.
-            // Text layout is relative to (0,0) of the IFC, but we need absolute coordinates.
+            // Offset glyph positions by the container origin (text layout is
+            // relative to (0,0) of the IFC). (#25) The runs are stored
+            // compact; this expansion builds the same Vec the pre-#25 code
+            // built by copy-then-offset — construct instead of memcpy.
             let offset_glyphs: Vec<GlyphInstance> = glyph_run
                 .glyphs
-                .iter()
-                .map(|g| {
-                    let mut g = *g;
-                    g.point.x += container_rect.origin.x;
-                    g.point.y += container_rect.origin.y;
-                    g
-                })
-                .collect();
+                .to_vec_offset(container_rect.origin.x, container_rect.origin.y);
 
             // Store only the font hash in the display list to keep it lean
             let uniform_bg = if !glyph_run.background_content.is_empty() {

@@ -3,7 +3,7 @@
 
 use azul_core::{
     dom::NodeId,
-    geom::LogicalPosition,
+    geom::{LogicalPosition, LogicalSize},
     ui_solver::GlyphInstance,
 };
 use azul_css::props::basic::ColorU;
@@ -48,6 +48,199 @@ pub struct SimpleGlyphRun {
     pub is_ime_preview: bool,
     /// The source DOM node that generated this text run (for hit-testing)
     pub source_node_id: Option<NodeId>,
+}
+
+/// #25: the STORED form of a paint run's glyphs — 8 B/glyph instead of the
+/// 20 B `GlyphInstance`. Exploits two invariants of the simple-run contract:
+/// `size` is never populated (both builders emit `LogicalSize::default()`),
+/// and `point.y` is the run baseline for every glyph except detail glyphs
+/// with vertical offsets. Anything that deviates goes in `exceptions` as a
+/// FULL instance, so expansion is bit-exact BY CONSTRUCTION — there is no
+/// lossy path, only a smaller encoding for the invariant-conforming bulk.
+#[derive(Debug, Clone, PartialEq, Default)]
+pub struct CompactGlyphs {
+    /// `(glyph index, pen x)` per glyph, in paint order.
+    pub xs: Vec<(u32, f32)>,
+    /// The y (baseline) shared by every non-exception glyph. Bit pattern
+    /// of the first instance's y (float identity — the NaN rule).
+    pub y: f32,
+    /// The size shared by every non-exception glyph (today always
+    /// `LogicalSize::default()` — kept as data, not assumption).
+    pub size: LogicalSize,
+    /// `(position in xs, full original instance)` for glyphs whose y or
+    /// size deviate from the shared values. Sorted by position.
+    pub exceptions: Vec<(u32, GlyphInstance)>,
+}
+
+impl CompactGlyphs {
+    /// Compacts a transient instance list. Exact: `expand()` of the result
+    /// reproduces `v` bit for bit (floats compared as bit patterns when
+    /// choosing the shared y/size — NaNs become exceptions, never a match).
+    #[must_use]
+    pub fn from_instances(v: &[GlyphInstance]) -> Self {
+        let (y, size) = v.first().map_or((0.0, LogicalSize::default()), |g| {
+            (g.point.y, g.size)
+        });
+        let mut xs = Vec::with_capacity(v.len());
+        let mut exceptions = Vec::new();
+        for (i, g) in v.iter().enumerate() {
+            xs.push((g.index, g.point.x));
+            let same_y = g.point.y.to_bits() == y.to_bits();
+            let same_size = g.size.width.to_bits() == size.width.to_bits()
+                && g.size.height.to_bits() == size.height.to_bits();
+            if !(same_y && same_size) {
+                exceptions.push((u32::try_from(i).unwrap_or(u32::MAX), *g));
+            }
+        }
+        Self {
+            xs,
+            y,
+            size,
+            exceptions,
+        }
+    }
+
+    #[must_use]
+    pub fn len(&self) -> usize {
+        self.xs.len()
+    }
+
+    #[must_use]
+    pub fn is_empty(&self) -> bool {
+        self.xs.is_empty()
+    }
+
+    /// Reconstructs instance `i` exactly as it was compacted.
+    #[must_use]
+    pub fn get(&self, i: usize) -> Option<GlyphInstance> {
+        let &(index, x) = self.xs.get(i)?;
+        let iu = u32::try_from(i).unwrap_or(u32::MAX);
+        if let Ok(e) = self.exceptions.binary_search_by_key(&iu, |&(p, _)| p) {
+            return Some(self.exceptions[e].1);
+        }
+        Some(GlyphInstance {
+            index,
+            point: LogicalPosition { x, y: self.y },
+            size: self.size,
+        })
+    }
+
+    #[must_use]
+    pub fn first(&self) -> Option<GlyphInstance> {
+        self.get(0)
+    }
+
+    #[must_use]
+    pub fn last(&self) -> Option<GlyphInstance> {
+        self.get(self.len().wrapping_sub(1))
+    }
+
+    /// Exact expansion, in order.
+    pub fn iter(&self) -> impl Iterator<Item = GlyphInstance> + '_ {
+        (0..self.len()).map(|i| self.get(i).expect("index in range"))
+    }
+
+    /// The paint expansion: every instance translated by `(dx, dy)` — the
+    /// same Vec the DL generator built by copy-then-offset before #25.
+    #[must_use]
+    pub fn to_vec_offset(&self, dx: f32, dy: f32) -> Vec<GlyphInstance> {
+        self.iter()
+            .map(|mut g| {
+                g.point.x += dx;
+                g.point.y += dy;
+                g
+            })
+            .collect()
+    }
+
+    /// Heap bytes retained by this encoding (memory report).
+    #[must_use]
+    pub fn retained_bytes(&self) -> usize {
+        self.xs.capacity() * core::mem::size_of::<(u32, f32)>()
+            + self.exceptions.capacity() * core::mem::size_of::<(u32, GlyphInstance)>()
+    }
+}
+
+/// #25: the STORED paint run — [`SimpleGlyphRun`]'s header with the glyph
+/// list compacted. `SimpleGlyphRun` remains the TRANSIENT form the two
+/// builders produce and the equivalence gates compare; the store chokepoint
+/// (`CachedInlineLayout` construction) converts once, the same shape as the
+/// §3.2 dense retirement.
+#[derive(Debug, Clone)]
+pub struct CompactGlyphRun {
+    pub glyphs: CompactGlyphs,
+    pub color: ColorU,
+    pub background_color: Option<ColorU>,
+    pub background_content: Vec<StyleBackgroundContent>,
+    pub border: Option<InlineBorderInfo>,
+    pub font_hash: u64,
+    pub font_size_px: f32,
+    pub text_decoration: crate::text3::cache::TextDecoration,
+    pub is_ime_preview: bool,
+    pub source_node_id: Option<NodeId>,
+}
+
+impl From<SimpleGlyphRun> for CompactGlyphRun {
+    fn from(r: SimpleGlyphRun) -> Self {
+        Self {
+            glyphs: CompactGlyphs::from_instances(&r.glyphs),
+            color: r.color,
+            background_color: r.background_color,
+            background_content: r.background_content,
+            border: r.border,
+            font_hash: r.font_hash,
+            font_size_px: r.font_size_px,
+            text_decoration: r.text_decoration,
+            is_ime_preview: r.is_ime_preview,
+            source_node_id: r.source_node_id,
+        }
+    }
+}
+
+impl CompactGlyphRun {
+    /// The transient form back — for gates and any reader that wants the
+    /// instance list. Exact inverse of the `From` conversion.
+    #[must_use]
+    pub fn expand(&self) -> SimpleGlyphRun {
+        SimpleGlyphRun {
+            glyphs: self.glyphs.iter().collect(),
+            color: self.color,
+            background_color: self.background_color,
+            background_content: self.background_content.clone(),
+            border: self.border,
+            font_hash: self.font_hash,
+            font_size_px: self.font_size_px,
+            text_decoration: self.text_decoration,
+            is_ime_preview: self.is_ime_preview,
+            source_node_id: self.source_node_id,
+        }
+    }
+}
+
+/// Bit-exact run equality for the #25 roundtrip gate. Floats compare as
+/// BIT PATTERNS — a NaN that survives the compact/expand roundtrip must
+/// count as equal (derived `PartialEq` would call that a divergence and
+/// a lossy roundtrip that maps NaN to NaN would pass; both wrong ways).
+#[must_use]
+pub fn simple_runs_bit_equal(a: &SimpleGlyphRun, b: &SimpleGlyphRun) -> bool {
+    let f = |x: f32, y: f32| x.to_bits() == y.to_bits();
+    a.color == b.color
+        && a.background_color == b.background_color
+        && a.background_content == b.background_content
+        && a.border == b.border
+        && a.font_hash == b.font_hash
+        && f(a.font_size_px, b.font_size_px)
+        && a.text_decoration == b.text_decoration
+        && a.is_ime_preview == b.is_ime_preview
+        && a.source_node_id == b.source_node_id
+        && a.glyphs.len() == b.glyphs.len()
+        && a.glyphs.iter().zip(b.glyphs.iter()).all(|(g, h)| {
+            g.index == h.index
+                && f(g.point.x, h.point.x)
+                && f(g.point.y, h.point.y)
+                && f(g.size.width, h.size.width)
+                && f(g.size.height, h.size.height)
+        })
 }
 
 /// Groups glyphs into runs without requiring font references.
@@ -1627,5 +1820,154 @@ mod autotest_generated {
         assert_eq!(runs[0].glyphs.len(), 2);
         assert!(runs[0].glyphs[1].position.x.is_infinite());
         assert!(runs[0].glyphs[0].advance.is_infinite(), "advance is copied verbatim");
+    }
+
+    // ==================================================================
+    // #25: compact glyph-run roundtrip exactness
+    // ==================================================================
+
+    fn gi(index: u32, x: f32, y: f32, w: f32, h: f32) -> GlyphInstance {
+        GlyphInstance {
+            index,
+            point: LogicalPosition { x, y },
+            size: LogicalSize {
+                width: w,
+                height: h,
+            },
+        }
+    }
+
+    fn roundtrip(v: Vec<GlyphInstance>) -> (CompactGlyphs, Vec<GlyphInstance>) {
+        let c = CompactGlyphs::from_instances(&v);
+        let out: Vec<GlyphInstance> = c.iter().collect();
+        (c, out)
+    }
+
+    /// Bit-exact instance equality (NaN-tolerant — the derived `==` is not).
+    fn instances_bit_equal(a: &[GlyphInstance], b: &[GlyphInstance]) -> bool {
+        let f = |x: f32, y: f32| x.to_bits() == y.to_bits();
+        a.len() == b.len()
+            && a.iter().zip(b.iter()).all(|(g, h)| {
+                g.index == h.index
+                    && f(g.point.x, h.point.x)
+                    && f(g.point.y, h.point.y)
+                    && f(g.size.width, h.size.width)
+                    && f(g.size.height, h.size.height)
+            })
+    }
+
+    #[test]
+    fn compact_glyphs_roundtrips_a_uniform_run_with_no_exceptions() {
+        let v = vec![
+            gi(5, 0.0, 12.5, 0.0, 0.0),
+            gi(9, 6.0, 12.5, 0.0, 0.0),
+            gi(2, 11.0, 12.5, 0.0, 0.0),
+        ];
+        let (c, out) = roundtrip(v.clone());
+        assert!(instances_bit_equal(&v, &out));
+        assert!(
+            c.exceptions.is_empty(),
+            "uniform y/size must compact without exceptions — the whole point \
+             of the encoding (got {} exceptions)",
+            c.exceptions.len()
+        );
+        assert_eq!(c.len(), 3);
+        assert!(instances_bit_equal(&[c.first().unwrap()], &v[..1]));
+        assert!(instances_bit_equal(&[c.last().unwrap()], &v[2..]));
+    }
+
+    #[test]
+    fn compact_glyphs_routes_y_deviants_through_exceptions_exactly() {
+        // A combining mark with a vertical offset: y deviates mid-run.
+        let v = vec![
+            gi(1, 0.0, 10.0, 0.0, 0.0),
+            gi(2, 6.0, 7.25, 0.0, 0.0), // mark, raised
+            gi(3, 6.0, 10.0, 0.0, 0.0),
+        ];
+        let (c, out) = roundtrip(v.clone());
+        assert!(instances_bit_equal(&v, &out));
+        assert_eq!(c.exceptions.len(), 1);
+        assert_eq!(c.exceptions[0].0, 1);
+    }
+
+    #[test]
+    fn compact_glyphs_first_exception_covers_the_shared_slot_choice() {
+        // The FIRST glyph defines the shared y — a later majority does not
+        // re-vote. Glyph 0 deviating from the rest must still roundtrip.
+        let v = vec![
+            gi(1, 0.0, 3.0, 0.0, 0.0),
+            gi(2, 5.0, 9.0, 0.0, 0.0),
+            gi(3, 9.0, 9.0, 0.0, 0.0),
+        ];
+        let (c, out) = roundtrip(v.clone());
+        assert!(instances_bit_equal(&v, &out));
+        // shared y = 3.0 (first), so glyphs 1..3 are the exceptions.
+        assert_eq!(c.exceptions.len(), 2);
+        assert!(instances_bit_equal(&[c.first().unwrap()], &v[..1]));
+        assert!(instances_bit_equal(&[c.last().unwrap()], &v[2..]));
+    }
+
+    #[test]
+    fn compact_glyphs_roundtrips_nan_and_size_deviants() {
+        // NaN y: to_bits comparison makes it an exception (NaN != NaN under
+        // `==`, which would silently mark EVERY glyph exceptional or none).
+        let v = vec![
+            gi(1, 0.0, f32::NAN, 1.0, 2.0),
+            gi(2, 4.0, f32::NAN, 1.0, 2.0),
+            gi(3, 8.0, f32::NAN, 3.0, 2.0), // size deviates too
+        ];
+        let (c, out) = roundtrip(v.clone());
+        assert!(instances_bit_equal(&v, &out));
+        // Same-bit NaNs MATCH the shared slot (bit compare): only the size
+        // deviant is an exception.
+        assert_eq!(c.exceptions.len(), 1);
+        assert_eq!(c.exceptions[0].0, 2);
+    }
+
+    #[test]
+    fn compact_glyphs_empty_run_is_empty() {
+        let (c, out) = roundtrip(Vec::new());
+        assert!(c.is_empty());
+        assert!(out.is_empty());
+        assert!(c.first().is_none());
+        assert!(c.last().is_none());
+        assert_eq!(c.retained_bytes(), 0);
+    }
+
+    #[test]
+    fn compact_glyphs_offset_expansion_matches_manual_offset() {
+        let v = vec![gi(1, 1.0, 2.0, 0.0, 0.0), gi(2, 3.5, 2.0, 0.0, 0.0)];
+        let c = CompactGlyphs::from_instances(&v);
+        let shifted = c.to_vec_offset(10.0, 20.0);
+        let manual: Vec<GlyphInstance> = v
+            .iter()
+            .map(|g| {
+                let mut g = *g;
+                g.point.x += 10.0;
+                g.point.y += 20.0;
+                g
+            })
+            .collect();
+        assert!(instances_bit_equal(&shifted, &manual));
+    }
+
+    #[test]
+    fn compact_run_roundtrip_preserves_the_header() {
+        let style = styled(|s| {
+            s.color = rgba(10, 20, 30, 255);
+        });
+        let l = layout(vec![at(
+            item(cluster("ab", vec![glyph(4, 6.0, &style), glyph(7, 6.0, &style)], &style)),
+            0.0,
+            0.0,
+            0,
+        )]);
+        let runs = get_glyph_runs_simple(&l);
+        assert_eq!(runs.len(), 1);
+        let compact = CompactGlyphRun::from(runs[0].clone());
+        assert!(
+            simple_runs_bit_equal(&compact.expand(), &runs[0]),
+            "builder-produced run must roundtrip bit-exactly"
+        );
     }
 }

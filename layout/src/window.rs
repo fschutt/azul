@@ -3441,6 +3441,16 @@ impl LayoutWindow {
                 eprintln!("[MEM]     hot              {:>6} KiB", tr.hot_bytes / 1024);
                 eprintln!("[MEM]     warm             {:>6} KiB", tr.warm_bytes / 1024);
                 eprintln!("[MEM]     warm.inline      {:>6} KiB  (shaped text in CachedInlineLayout)", tr.warm_inline_layout_bytes / 1024);
+                // The paint-run derivation retained at store time (#25).
+                if tr.glyph_run_count > 0 {
+                    eprintln!(
+                        "[MEM]     glyph_runs       {:>6} KiB  ({} runs, {} instances, {} B/instance amortized)",
+                        tr.glyph_run_bytes / 1024,
+                        tr.glyph_run_count,
+                        tr.glyph_instance_count,
+                        tr.glyph_run_bytes / tr.glyph_instance_count.max(1),
+                    );
+                }
                 // The number that explains the line above. A cluster is one
                 // GRAPHEME, so on Latin text this is the character count of
                 // everything laid out, and `B/cluster` is what a single
@@ -3485,7 +3495,13 @@ impl LayoutWindow {
             eprintln!("[MEM]   float_cache       {:>7} KiB", sc.float_cache_bytes / 1024);
             eprintln!("[MEM]   counters          {:>7} KiB", sc.counters_bytes / 1024);
             eprintln!("[MEM]   scroll_ids        {:>7} KiB", sc.scroll_ids_bytes / 1024);
-            eprintln!("[MEM]   cached_display    {:>7} KiB", sc.cached_display_list_bytes / 1024);
+            eprintln!(
+                "[MEM]   cached_display    {:>7} KiB  ({} items x {} B/slot + {} Text glyph instances — offset copies of glyph_runs)",
+                sc.cached_display_list_bytes / 1024,
+                sc.cached_display_list_items,
+                core::mem::size_of::<crate::solver3::display_list::DisplayListItem>(),
+                sc.cached_display_list_text_instances,
+            );
 
             // text shaping cache breakdown
             let tc = self.text_cache.memory_report();

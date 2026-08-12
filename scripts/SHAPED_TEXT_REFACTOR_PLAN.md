@@ -1380,6 +1380,37 @@ glyph_runs paint cache is the remaining per-glyph retention
 (~5-6 MB, predates the campaign; next big target with LayoutFontMetrics
 sharing).
 
+### §11b post-campaign (#25, 2026-08-12): paint-glyph retention + the RSS anatomy
+
+The report walk was BLIND to every paint-side glyph retention (never
+counted `glyph_runs`, and the cached display list was a flat 2048-byte
+guess). First honest itemization at plateau (windowed uniq-960,
+AZ_PROFILE=memory build, RSS 129.2 profiled):
+
+    glyph_runs        1188 KiB   814 runs / 28,206 instances / 43 B/inst
+                                 (20 B GlyphInstance + Vec-growth slack)
+    cached_display    2855 KiB   the SAME 28,206 instances AGAIN as
+                                 offset copies inside DL Text items
+    warm.inline       6445 KiB   (the campaign's 210 B/cluster)
+
+Fixes: CompactGlyphRun stores (u32,f32) pairs at 8 B/glyph, y/size
+hoisted per run, full-instance exception table for deviants, bit-exact
+roundtrip gated under verify; screen DLs stop emitting TextLayout
+(printpdf/paged metadata; both screen renderers no-op it) — gated on
+`fragmentation_context.is_some()`, the existing screen-vs-paged
+discriminator. The DL's Text-item copies remain (printpdf freezes the
+variant's `Vec<GlyphInstance>` field); folding them onto the compact
+runs needs the printpdf release chain — ledgered, not attempted.
+
+RSS − heap anatomy at the same plateau (smaps categories, the "60 MB"
+question): anon mmaps 21.5 MB (glibc mmaps allocations >128 KB
+DIRECTLY — they are malloc bytes that [heap] does not show), binary
+code/rodata 16.9 MB resident, azul-fb shm frame buffers 4.9 MB
+(= W×H×4×2 buffers, the irreducible shm-client floor; 1920×1080
+double-buffered would be 16.6 MB by construction), wayland-cursor
+theme 1.1 MB, shared libs ~6 MB, mmap'd fonts ~1.7 MB. KDE system
+monitor's "113 MB" ≈ PSS (122 MB profiled here), consistent.
+
 mimalloc A/B (user idea): RUN 2026-08-12, CLOSED — glibc WINS.
 Same corpus/protocol, `-F azul-dll/allocator_mimalloc` (existing
 feature, mimalloc confirmed active via /proc/maps): **127.7 MB RSS

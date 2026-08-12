@@ -498,6 +498,13 @@ pub struct Solver3CacheMemoryReport {
     pub float_cache_bytes: usize,
     pub cache_map_bytes: usize,
     pub cached_display_list_bytes: usize,
+    /// `GlyphInstance`s inside the cached DL's `Text` items — the offset
+    /// COPIES of `glyph_runs` instances. Counter, not a byte total (the
+    /// bytes are inside `cached_display_list_bytes`).
+    pub cached_display_list_text_instances: usize,
+    /// Item slots in the cached DL (each costs `size_of::<DisplayListItem>()`
+    /// inline). Counter, not a byte total.
+    pub cached_display_list_items: usize,
 }
 
 impl Solver3CacheMemoryReport {
@@ -549,6 +556,10 @@ impl LayoutCache {
                     * size_of::<(usize, LogicalPosition)>();
             }
         }
+        let cached_dl = self
+            .cached_display_list
+            .as_ref()
+            .map_or((0, 0, 0), |(_, _, dl)| dl.retained_bytes());
         Solver3CacheMemoryReport {
             tree_bytes,
             tree_report,
@@ -567,7 +578,11 @@ impl LayoutCache {
             }).sum(),
             float_cache_bytes: self.float_cache.len() * 256, // conservative per-FC
             cache_map_bytes,
-            cached_display_list_bytes: if self.cached_display_list.is_some() { 2048 } else { 0 },
+            // Real walk — this was a FLAT 2048 guess, which hid the DL's
+            // per-Text-item glyph copies (20 B/painted glyph) entirely.
+            cached_display_list_bytes: cached_dl.0,
+            cached_display_list_text_instances: cached_dl.1,
+            cached_display_list_items: cached_dl.2,
         }
     }
 }
@@ -3857,6 +3872,9 @@ mod autotest_generated {
             float_cache_bytes: 64,
             cache_map_bytes: 128,
             cached_display_list_bytes: 256,
+            // Counters, not byte totals — must NOT contribute.
+            cached_display_list_text_instances: 512,
+            cached_display_list_items: 1024,
         };
         assert_eq!(r.total_bytes(), 511);
     }
@@ -3882,10 +3900,28 @@ mod autotest_generated {
         cache.float_cache.insert(0, fc::FloatingContext::default());
         cache.scroll_ids.insert(0, 42);
         cache.scroll_id_to_node_id.insert(42, NodeId::ZERO);
+        // A DL with one Text item: the walk must count the item slot AND
+        // its glyph Vec heap — this was a flat 2048 guess before, which
+        // hid every cached DL's real size (the per-glyph copies).
+        let glyphs = vec![azul_core::ui_solver::GlyphInstance::default(); 5];
+        let glyph_heap = glyphs.capacity() * size_of::<azul_core::ui_solver::GlyphInstance>();
+        let mut dl = DisplayList::default();
+        dl.items.push(crate::solver3::display_list::DisplayListItem::Text {
+            glyphs,
+            font_hash: crate::text3::cache::FontHash::from_hash(1),
+            font_size_px: 16.0,
+            color: azul_css::props::basic::ColorU::BLACK,
+            clip_rect: crate::solver3::display_list::WindowLogicalRect(LogicalRect::new(
+                pos(0.0, 0.0),
+                size(10.0, 10.0),
+            )),
+            source_node_index: None,
+        });
+        let dl_expected = dl.retained_bytes();
         cache.cached_display_list = Some((
             SubtreeHash(1),
             LogicalRect::new(pos(0.0, 0.0), size(10.0, 10.0)),
-            std::sync::Arc::new(DisplayList::default()),
+            std::sync::Arc::new(dl),
         ));
 
         let r = cache.memory_report();
@@ -3895,7 +3931,19 @@ mod autotest_generated {
         assert_eq!(r.previous_positions_bytes, size_of::<LogicalPosition>());
         assert!(r.counters_bytes >= "list-item".len());
         assert_eq!(r.float_cache_bytes, 256);
-        assert_eq!(r.cached_display_list_bytes, 2048);
+        assert_eq!(r.cached_display_list_bytes, dl_expected.0);
+        assert_eq!(r.cached_display_list_text_instances, 5);
+        assert_eq!(dl_expected.1, 5);
+        assert_eq!(r.cached_display_list_items, 1);
+        assert_eq!(dl_expected.2, 1);
+        assert!(
+            r.cached_display_list_bytes
+                >= size_of::<crate::solver3::display_list::DisplayListItem>() + glyph_heap,
+            "the Text item slot and its glyph heap must both be visible \
+             (got {}, item {}, glyphs {glyph_heap})",
+            r.cached_display_list_bytes,
+            size_of::<crate::solver3::display_list::DisplayListItem>(),
+        );
         assert_eq!(
             r.total_bytes(),
             r.tree_bytes
