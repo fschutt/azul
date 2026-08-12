@@ -817,6 +817,74 @@ fn dense_expansion_reproduces_the_sparse_items_exactly() {
     }
 }
 
+/// (#25b) The item-index DUAL-MODE law: a layout whose clusters all
+/// carry one CONSTANT `item_index` (the shape produced by paths that
+/// never restamp per cluster) must build the SAME number of dense runs
+/// as the linear original — before the `item_linear` flag it split into
+/// one run PER CLUSTER (~25 KB/IFC of headers) — and expansion must
+/// reproduce the constant index exactly.
+#[test]
+fn constant_item_index_coalesces_and_roundtrips() {
+    let (layout, content) = layout_of("hello dense world constant", 400.0);
+    let baseline_runs = DenseText::from_unified_with_content(&layout, &content)
+        .runs
+        .len();
+
+    // Rewrite every cluster to the degenerate constant-index shape.
+    let mut mutated = layout.clone();
+    for item in &mut mutated.items {
+        if let ShapedItem::Cluster(c) = &mut item.item {
+            c.source_content_index.item_index = 7;
+        }
+    }
+
+    let dense = DenseText::from_unified_with_content(&mutated, &content);
+    assert_eq!(
+        dense.clusters.len(),
+        mutated.items.len(),
+        "pure-cluster fixture required"
+    );
+    assert_eq!(
+        dense.runs.len(),
+        baseline_runs,
+        "constant item_index must coalesce exactly like the linear shape \
+         (pre-#25b this was one run per cluster: {} runs for {} clusters)",
+        dense.runs.len(),
+        dense.clusters.len(),
+    );
+    assert!(
+        dense.runs.iter().any(|r| !r.item_linear),
+        "the constant model must actually have engaged (guard against the \
+         mutation not sticking)"
+    );
+
+    // Exact reconstruction of the constant index through the expander.
+    let expanded = dense.to_unified_items();
+    assert_eq!(expanded.len(), mutated.items.len());
+    for (i, (e, o)) in expanded.iter().zip(mutated.items.iter()).enumerate() {
+        assert_eq!(e, o, "expansion diverges at item {i}");
+    }
+
+    // And the ORIGINAL still roundtrips bit-for-bit. (Writing this pin
+    // surfaced that the REAL corpus is itself constant-per-word —
+    // item_index holds while start_byte advances inside a word — so the
+    // pre-#25b encoding was already splitting one run per cluster inside
+    // every multi-cluster word; the dual mode coalesces ordinary
+    // documents too, not just exotic paths.)
+    let dense_lin = DenseText::from_unified_with_content(&layout, &content);
+    assert!(
+        dense_lin.runs.len() < dense_lin.clusters.len(),
+        "a plain sentence must not degenerate to one run per cluster \
+         ({} runs / {} clusters)",
+        dense_lin.runs.len(),
+        dense_lin.clusters.len(),
+    );
+    let expanded_lin = dense_lin.to_unified_items();
+    for (i, (e, o)) in expanded_lin.iter().zip(layout.items.iter()).enumerate() {
+        assert_eq!(e, o, "linear expansion diverges at item {i}");
+    }
+}
+
 /// (d6g) The FIELD-CHOICE pin for positioned_cluster, on a hand-built
 /// struct where `top_y != baseline_y` — the fakefont corpus cannot
 /// distinguish them (its lines have top == baseline), which made a
@@ -853,6 +921,7 @@ fn dense_positioned_cluster_reads_the_baseline_not_the_top() {
         text: std::sync::Arc::from(""),
         clusters: 0..1,
         item_base: 0,
+        item_linear: true,
         script: azul_layout::text3::script::Script::Latin,
         direction: azul_layout::text3::cache::BidiDirection::Ltr,
     });

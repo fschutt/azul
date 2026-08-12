@@ -95,9 +95,29 @@ impl ProfileFlags {
 pub fn flags() -> ProfileFlags {
     static FLAGS: OnceLock<ProfileFlags> = OnceLock::new();
     *FLAGS.get_or_init(|| {
-        std::env::var("AZ_PROFILE")
+        let f = std::env::var("AZ_PROFILE")
             .map(|v| ProfileFlags::parse(&v))
-            .unwrap_or_default()
+            .unwrap_or_default();
+        // The announce table: a profile mode that silently emits NOTHING
+        // reads as "not looking" and has repeatedly burned real debugging
+        // time ("a zero is not a measurement"). One line, once, at the
+        // single point every mode resolves through.
+        if f.heap && !f.jsonl {
+            eprintln!(
+                "[azul][profile] AZ_PROFILE=heap alone emits nothing: use \
+                 AZ_PROFILE=heap,jsonl with AZ_PROFILE_OUT=<file> for the \
+                 per-phase heap table (and note builds without the `probe` \
+                 feature report heap as 0)."
+            );
+        }
+        if f.heap && f.jsonl && std::env::var("AZ_PROFILE_OUT").is_err() {
+            eprintln!(
+                "[azul][profile] AZ_PROFILE=heap,jsonl is set but \
+                 AZ_PROFILE_OUT is not — no destination, nothing will be \
+                 written."
+            );
+        }
+        f
     })
 }
 

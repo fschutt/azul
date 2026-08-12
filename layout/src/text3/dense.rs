@@ -72,12 +72,20 @@ pub struct DenseRun {
     pub text: Arc<str>,
     /// Range into [`DenseText::clusters`].
     pub clusters: core::ops::Range<u32>,
-    /// (d6h) `ContentIndex.item_index` minus `start_byte`, constant per
-    /// run BY THE SPLIT below — reconstructs a cluster's
-    /// `source_content_index.item_index` as `item_base + start_byte`
-    /// (0 for plain runs; the segment offset for override-segmented
-    /// runs, closing the §10 "item-index-blind" gap).
+    /// (d6h) Reconstructs a cluster's `source_content_index.item_index`:
+    /// `item_base + start_byte` when [`Self::item_linear`], else
+    /// `item_base` verbatim. (0/linear for plain runs; the segment offset
+    /// for override-segmented runs, closing the §10 "item-index-blind"
+    /// gap.)
     pub item_base: u32,
+    /// (#25b) Which item-index model this run follows. `true` = the
+    /// linear post-layout model (`item_base + start_byte`); `false` =
+    /// CONSTANT `item_base` for every cluster — the shape produced by
+    /// paths that never restamp `item_index` per cluster. Before this
+    /// flag, a constant-index run DEGENERATED into one run per cluster
+    /// (the linear delta changed every cluster), ~25 KB/IFC of DenseRun
+    /// headers for zero information.
+    pub item_linear: bool,
     pub script: Script,
     /// Bidi direction — uniform per run BY CONSTRUCTION (the builder
     /// splits on it): mixed-bidi text in one styled run must not share a
@@ -150,6 +158,29 @@ impl Default for LineRecord {
     }
 }
 
+/// (#25b) Finalize a closing run's item-index model from the surviving
+/// viability bases. Linear preferred when both hold (single-cluster runs
+/// then keep the pre-#25b encoding byte-for-byte). At least one base is
+/// always `Some` — the split above opens a fresh run (both seeded) the
+/// moment neither model fits.
+fn close_item_model(r: &mut DenseRun, linear: Option<u32>, constant: Option<u32>) {
+    match (linear, constant) {
+        (Some(b), _) => {
+            r.item_base = b;
+            r.item_linear = true;
+        }
+        (None, Some(b)) => {
+            r.item_base = b;
+            r.item_linear = false;
+        }
+        (None, None) => {
+            debug_assert!(false, "a run closed with no surviving item model");
+            r.item_base = 0;
+            r.item_linear = true;
+        }
+    }
+}
+
 impl DenseText {
     /// Build the dense view from the current model. Clusters keep their
     /// item order; runs split where (style Arc identity, font_hash of the
@@ -180,6 +211,12 @@ impl DenseText {
         // The current run's resolved line height — the d3 fill for
         // `LineRecord.height` (max over the line's clusters).
         let mut current_run_lh = 0.0f32;
+        // (#25b) The open run's still-viable item-index models: LINEAR
+        // base (item_index − start_byte of the seed cluster) and CONSTANT
+        // base (the seed's item_index). `None` = that model already broke
+        // mid-run. Finalized into the run at close by `close_item_model`.
+        let mut item_run_linear_base: Option<u32> = None;
+        let mut item_run_const_base: Option<u32> = None;
 
         for item in &layout.items {
             let PositionedItem { item: shaped, position, line_index } = item;
@@ -211,14 +248,23 @@ impl DenseText {
             // override-segmented runs, where the old content.get(run)
             // mapping was wrong — §10 finding 1), and one item's clusters
             // all share one Arc by construction.
-            // (d6h) The per-run item_base that reconstructs
-            // ContentIndex.item_index; wrapping_sub keeps a malformed
-            // (item_index < start_byte) pair from panicking — the run
-            // split still isolates it.
-            let item_base = c
-                .source_content_index
-                .item_index
-                .wrapping_sub(c.source_cluster_id.start_byte_in_run);
+            // (d6h/#25b) Item-index model viability for the OPEN run.
+            // Two models can reconstruct item_index: LINEAR
+            // (item_base + start_byte — the post-layout restamped shape)
+            // and CONSTANT (item_base verbatim — paths that never restamp
+            // per cluster). The run stays open while EITHER still holds;
+            // close picks linear when both do (single-cluster runs keep
+            // today's encoding). Before this, a constant-index run split
+            // on EVERY cluster (the linear delta changed each time) —
+            // one DenseRun header per cluster for zero information.
+            // wrapping arithmetic keeps a malformed (item_index <
+            // start_byte) pair from panicking — the split still isolates
+            // it when neither model fits.
+            let item_index = c.source_content_index.item_index;
+            let start_byte = c.source_cluster_id.start_byte_in_run;
+            let fits_linear = item_run_linear_base
+                .is_some_and(|b| item_index == b.wrapping_add(start_byte));
+            let fits_const = item_run_const_base.is_some_and(|b| item_index == b);
             let split = match &current_run {
                 None => true,
                 Some(r) => {
@@ -228,14 +274,23 @@ impl DenseText {
                         || r.source_run != c.source_cluster_id.source_run
                         || r.source_node != source_node
                         || r.direction != c.direction
-                        || r.item_base != item_base
+                        || (!fits_linear && !fits_const)
                 }
             };
             if split {
                 if let Some(mut r) = current_run.take() {
                     r.clusters.end = cluster_index;
+                    close_item_model(
+                        &mut r,
+                        item_run_linear_base,
+                        item_run_const_base,
+                    );
                     dense.runs.push(r);
                 }
+                // Fresh run: both models start viable, seeded from this
+                // cluster.
+                item_run_linear_base = Some(item_index.wrapping_sub(start_byte));
+                item_run_const_base = Some(item_index);
                 current_run_lh = if font_metrics.units_per_em == 0 {
                     0.0
                 } else {
@@ -254,10 +309,23 @@ impl DenseText {
                     // for EVERY case including override segments.
                     text: c.source_text.clone(),
                     clusters: cluster_index..cluster_index,
-                    item_base,
+                    // Placeholders — `close_item_model` writes the real
+                    // values from the surviving model at run close.
+                    item_base: 0,
+                    item_linear: true,
                     script,
                     direction: c.direction,
                 });
+            } else {
+                // Staying in the run: a cluster that fits only one model
+                // permanently kills the other (viability is monotonic —
+                // a broken model cannot come back later in the run).
+                if !fits_linear {
+                    item_run_linear_base = None;
+                }
+                if !fits_const {
+                    item_run_const_base = None;
+                }
             }
 
             // Line records from line_index transitions.
@@ -348,6 +416,7 @@ impl DenseText {
         }
         if let Some(mut r) = current_run.take() {
             r.clusters.end = u32::try_from(dense.clusters.len()).unwrap_or(u32::MAX);
+            close_item_model(&mut r, item_run_linear_base, item_run_const_base);
             dense.runs.push(r);
         }
         if let Some((_, rec)) = current_line.take() {
@@ -696,7 +765,13 @@ impl DenseText {
                         },
                         source_content_index: ContentIndex {
                             run_index: run.source_run,
-                            item_index: run.item_base.wrapping_add(c.start_byte),
+                            // (#25b) Two reconstruction models — see
+                            // `DenseRun::item_linear`.
+                            item_index: if run.item_linear {
+                                run.item_base.wrapping_add(c.start_byte)
+                            } else {
+                                run.item_base
+                            },
                         },
                         source_node_id,
                         glyphs,
