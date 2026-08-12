@@ -6251,12 +6251,319 @@ pub enum IncrementalRelayoutResult {
     IncrementalRelayoutResult::GlyphSwap
 }
 
+/// (d7) The compact stored form of a per-item shaped entry: regular
+/// clusters at 16 B (the dense-model record) instead of ~176 B
+/// `ShapedItem`s, with amortized fields once in the header and glyph
+/// details in side tables. ANY cluster that deviates from the header
+/// in an amortized field (glyph-fallback font, mixed direction across
+/// a coalesce group, a foreign text Arc) — and every non-cluster item
+/// — is kept VERBATIM in `atoms`: one total fallback instead of
+/// per-field exception plumbing. `expand()` reproduces the original
+/// item vec EXACTLY (the d7 roundtrip gate pins it); the per-hit
+/// re-stamp then overwrites style/source_node_id exactly as before.
+#[derive(Debug)]
+pub(crate) struct CompactShapedEntry {
+    style: Arc<StyleProperties>,
+    source_text: Arc<str>,
+    font_hash: u64,
+    font_metrics: LayoutFontMetrics,
+    script: Script,
+    direction: BidiDirection,
+    source_run: u32,
+    source_node: Option<NodeId>,
+    item_base: u32,
+    clusters: Vec<super::dense::ClusterCompact>,
+    details: Vec<super::dense::ClusterDetail>,
+    detail_glyphs: Vec<super::dense::DetailGlyph>,
+    /// (expanded_index, verbatim item) — non-clusters and irregulars.
+    atoms: Vec<(u32, ShapedItem)>,
+    /// Expanded sequence length (clusters.len() + atoms.len()).
+    total: u32,
+}
+
+impl CompactShapedEntry {
+    /// Compact `items`. Total: every item lands either in the compact
+    /// arrays or verbatim in `atoms`; expand() is exact either way.
+    pub(crate) fn build(items: &[ShapedItem]) -> Self {
+        use super::dense::{ClusterCompact, ClusterDetail, DetailGlyph};
+        // Header from the first REGULAR-ELIGIBLE cluster.
+        let first = items.iter().find_map(|it| match it {
+            ShapedItem::Cluster(c) => Some(c),
+            _ => None,
+        });
+        let (style, source_text, font_hash, font_metrics, script, direction, source_run, source_node, item_base) =
+            match first {
+                Some(c) => {
+                    let fg = c.glyphs.first();
+                    (
+                        c.style.clone(),
+                        c.source_text.clone(),
+                        fg.map_or(0, |g| g.font_hash),
+                        fg.map_or(
+                            LayoutFontMetrics {
+                                ascent: 0.0,
+                                descent: 0.0,
+                                cap_height: None,
+                                x_height: None,
+                                line_gap: 0.0,
+                                units_per_em: 0,
+                            },
+                            |g| g.font_metrics,
+                        ),
+                        fg.map_or(super::script::Script::Latin, |g| g.script),
+                        c.direction,
+                        c.source_cluster_id.source_run,
+                        c.source_node_id,
+                        c.source_content_index
+                            .item_index
+                            .wrapping_sub(c.source_cluster_id.start_byte_in_run),
+                    )
+                }
+                None => (
+                    Arc::new(StyleProperties::default()),
+                    Arc::from(""),
+                    0,
+                    LayoutFontMetrics {
+                        ascent: 0.0,
+                        descent: 0.0,
+                        cap_height: None,
+                        x_height: None,
+                        line_gap: 0.0,
+                        units_per_em: 0,
+                    },
+                    super::script::Script::Latin,
+                    BidiDirection::Ltr,
+                    0,
+                    None,
+                    0,
+                ),
+            };
+        let mut out = Self {
+            style,
+            source_text,
+            font_hash,
+            font_metrics,
+            script,
+            direction,
+            source_run,
+            source_node,
+            item_base,
+            clusters: Vec::new(),
+            details: Vec::new(),
+            detail_glyphs: Vec::new(),
+            atoms: Vec::new(),
+            total: u32::try_from(items.len()).unwrap_or(u32::MAX),
+        };
+        for (i, item) in items.iter().enumerate() {
+            let idx = u32::try_from(i).unwrap_or(u32::MAX);
+            let ShapedItem::Cluster(c) = item else {
+                out.atoms.push((idx, item.clone()));
+                continue;
+            };
+            // Regularity: EVERY amortized field must match the header,
+            // and every glyph must share the header font/script.
+            let regular = Arc::ptr_eq(&c.style, &out.style)
+                && Arc::ptr_eq(&c.source_text, &out.source_text)
+                && c.direction == out.direction
+                && c.source_cluster_id.source_run == out.source_run
+                && c.source_node_id == out.source_node
+                && c.source_content_index.item_index
+                    == out.item_base.wrapping_add(c.source_cluster_id.start_byte_in_run)
+                && c.marker_position_outside.is_none()
+                // Shaping-stage default: an unfragmented item is BOTH
+                // first and last fragment; the line breaker clears the
+                // flags on split later. (true, true) is the regular
+                // shape HERE — the inverse of the post-layout store.
+                && c.is_first_fragment
+                && c.is_last_fragment
+                && c.glyphs.iter().all(|g| {
+                    g.font_hash == out.font_hash
+                        && g.font_metrics == out.font_metrics
+                        && g.script == out.script
+                })
+                // Simple clusters reconstruct byte_len by grapheme-next
+                // (T1-exact); anything else must carry a detail entry,
+                // which stores byte_len itself.
+                && (Self::needs_detail(c)
+                    || Self::grapheme_len_at(&out.source_text, c.source_cluster_id.start_byte_in_run)
+                        == Some(usize::from(c.source_byte_len)));
+            if !regular {
+                out.atoms.push((idx, item.clone()));
+                continue;
+            }
+            let ci = u32::try_from(out.clusters.len()).unwrap_or(u32::MAX);
+            if Self::needs_detail(c) {
+                let start = u32::try_from(out.detail_glyphs.len()).unwrap_or(u32::MAX);
+                for g in c.glyphs.iter() {
+                    out.detail_glyphs.push(DetailGlyph {
+                        glyph_id: g.glyph_id,
+                        cluster_offset: u16::try_from(g.cluster_offset).unwrap_or(u16::MAX),
+                        advance: g.advance + g.kerning,
+                        offset_x: g.offset.x,
+                        offset_y: g.offset.y,
+                        kerning: g.kerning,
+                        kind: g.kind,
+                        vertical_advance: g.vertical_advance,
+                        vertical_offset_x: g.vertical_offset.x,
+                        vertical_offset_y: g.vertical_offset.y,
+                    });
+                }
+                let end = u32::try_from(out.detail_glyphs.len()).unwrap_or(u32::MAX);
+                out.details.push(ClusterDetail {
+                    cluster: ci,
+                    glyphs: (start, end),
+                    byte_len: u32::from(c.source_byte_len),
+                });
+            }
+            out.clusters.push(ClusterCompact {
+                glyph_id: c.glyphs.first().map_or(0, |g| g.glyph_id),
+                flags: c.flags,
+                advance: c.advance,
+                start_byte: c.source_cluster_id.start_byte_in_run,
+                x: 0.0,
+            });
+        }
+        out
+    }
+
+    fn needs_detail(c: &ShapedCluster) -> bool {
+        // Vertical metrics come from the font's vmtx table — per-glyph
+        // and nonzero for CJK-class fonts even in horizontal text — so
+        // they route to the DETAIL table (which stores them exactly)
+        // rather than atomizing whole clusters.
+        c.glyphs.len() != 1
+            || c.glyphs.first().is_some_and(|g| {
+                g.offset.x != 0.0
+                    || g.offset.y != 0.0
+                    || g.kerning != 0.0
+                    || g.kind != GlyphKind::Character
+                    || g.vertical_advance != 0.0
+                    || g.vertical_offset.x != 0.0
+                    || g.vertical_offset.y != 0.0
+            })
+    }
+
+    fn grapheme_len_at(text: &str, start: u32) -> Option<usize> {
+        use unicode_segmentation::UnicodeSegmentation;
+        text.get(start as usize..)
+            .and_then(|s| s.graphemes(true).next())
+            .map(str::len)
+    }
+
+    /// Exact reconstruction of the original item vec.
+    pub(crate) fn expand(&self) -> Vec<ShapedItem> {
+        let mut out = Vec::with_capacity(self.total as usize);
+        let mut atom_cursor = 0usize;
+        let mut detail_cursor = 0usize;
+        let mut ci = 0u32;
+        for idx in 0..self.total {
+            if let Some((ai, item)) = self.atoms.get(atom_cursor) {
+                if *ai == idx {
+                    out.push(item.clone());
+                    atom_cursor += 1;
+                    continue;
+                }
+            }
+            let c = &self.clusters[ci as usize];
+            while detail_cursor < self.details.len()
+                && self.details[detail_cursor].cluster < ci
+            {
+                detail_cursor += 1;
+            }
+            let detail = self.details.get(detail_cursor).filter(|d| d.cluster == ci);
+            let glyphs: ShapedGlyphVec = match detail {
+                Some(d) => (d.glyphs.0..d.glyphs.1)
+                    .map(|gi| {
+                        let dg = &self.detail_glyphs[gi as usize];
+                        ShapedGlyph {
+                            kind: dg.kind,
+                            glyph_id: dg.glyph_id,
+                            cluster_offset: u32::from(dg.cluster_offset),
+                            advance: dg.advance - dg.kerning,
+                            kerning: dg.kerning,
+                            offset: Point { x: dg.offset_x, y: dg.offset_y },
+                            vertical_advance: dg.vertical_advance,
+                            vertical_offset: Point {
+                                x: dg.vertical_offset_x,
+                                y: dg.vertical_offset_y,
+                            },
+                            script: self.script,
+                            font_hash: self.font_hash,
+                            font_metrics: self.font_metrics,
+                        }
+                    })
+                    .collect(),
+                None => core::iter::once(ShapedGlyph {
+                    kind: GlyphKind::Character,
+                    glyph_id: c.glyph_id,
+                    cluster_offset: 0,
+                    advance: c.advance,
+                    kerning: 0.0,
+                    offset: Point { x: 0.0, y: 0.0 },
+                    vertical_advance: 0.0,
+                    vertical_offset: Point { x: 0.0, y: 0.0 },
+                    script: self.script,
+                    font_hash: self.font_hash,
+                    font_metrics: self.font_metrics,
+                })
+                .collect(),
+            };
+            let byte_len = detail.map_or_else(
+                || {
+                    Self::grapheme_len_at(&self.source_text, c.start_byte)
+                        .unwrap_or(0) as u32
+                },
+                |d| d.byte_len,
+            );
+            out.push(ShapedItem::Cluster(ShapedCluster {
+                source_text: self.source_text.clone(),
+                source_byte_len: u16::try_from(byte_len).unwrap_or(u16::MAX),
+                source_cluster_id: GraphemeClusterId {
+                    source_run: self.source_run,
+                    start_byte_in_run: c.start_byte,
+                },
+                source_content_index: ContentIndex {
+                    run_index: self.source_run,
+                    item_index: self.item_base.wrapping_add(c.start_byte),
+                },
+                source_node_id: self.source_node,
+                glyphs,
+                flags: c.flags,
+                advance: c.advance,
+                direction: self.direction,
+                style: self.style.clone(),
+                marker_position_outside: None,
+                is_first_fragment: true,
+                is_last_fragment: true,
+            }));
+            ci += 1;
+        }
+        out
+    }
+
+    /// Approximate retained bytes, for the memory report.
+    pub(crate) fn retained_bytes(&self) -> usize {
+        use core::mem::size_of;
+        self.clusters.capacity() * size_of::<super::dense::ClusterCompact>()
+            + self.details.capacity() * size_of::<super::dense::ClusterDetail>()
+            + self.detail_glyphs.capacity() * size_of::<super::dense::DetailGlyph>()
+            + self.atoms.capacity() * (size_of::<(u32, ShapedItem)>())
+    }
+
+    #[cfg(test)]
+    pub(crate) fn atom_count(&self) -> usize {
+        self.atoms.len()
+    }
+}
+
 /// Cached shaped result for a single visual item (or coalesced group).
 /// Enables per-item cache hits when only one word changes in a paragraph.
+/// (d7) Stores the COMPACT form; `expand()` materializes on hit, where
+/// the old form cloned every item anyway.
 #[derive(Debug)]
 pub(crate) struct PerItemShapedEntry {
-    /// The shaped clusters for this single item/group.
-    pub(crate) clusters: Vec<ShapedItem>,
+    /// The compacted shaped clusters for this single item/group.
+    pub(crate) compact: CompactShapedEntry,
     /// Sum of advance widths — for fast same-width detection during incremental relayout.
     pub(crate) total_advance: f32,
 }
@@ -6267,8 +6574,12 @@ pub struct TextShapingCache {
     logical_items: HashMap<CacheId, Arc<Vec<LogicalItem>>>,
     // Stage 2 Cache: LogicalItems -> VisualItems
     visual_items: HashMap<CacheId, Arc<Vec<VisualItem>>>,
-    // Stage 3 Cache: VisualItems -> ShapedItems (monolithic, for backward compat)
-    shaped_items: HashMap<CacheId, Arc<Vec<ShapedItem>>>,
+    // (d7) The monolithic Stage-3 cache (VisualItems -> ShapedItems) is
+    // DELETED: it duplicated every cluster held by `per_item_shaped`
+    // (6.1 MB on the 960-line corpus at fat-struct sizes), text edits
+    // always missed it (the key hashes the text), and post-R1/R2 resize
+    // rarely re-enters layout at all. Assembly from the per-item cache
+    // runs each pass; the per-item entries are the single cache copy.
     // Stage 3b Cache: Per-item/coalesce-group shaped results
     // Key: hash(text, bidi_level, script, style.layout_hash())
     per_item_shaped: HashMap<u64, Arc<PerItemShapedEntry>>,
@@ -6372,7 +6683,6 @@ impl TextShapingCache {
         Self {
             logical_items: HashMap::new(),
             visual_items: HashMap::new(),
-            shaped_items: HashMap::new(),
             per_item_shaped: HashMap::new(),
             per_item_accessed: HashSet::new(),
             stage_accessed: HashSet::new(),
@@ -6430,53 +6740,24 @@ impl TextShapingCache {
             c.glyphs.capacity().saturating_sub(1) * size_of::<ShapedGlyph>()
         }
 
-        r.shaped_items_entries = self.shaped_items.len();
-        for arc in self.shaped_items.values() {
-            if !counted.insert(Arc::as_ptr(arc) as *const u8 as usize) {
-                r.shared_bytes_avoided += arc.capacity() * size_of::<ShapedItem>();
-                continue;
-            }
-            r.shaped_items_bytes += arc.capacity() * size_of::<ShapedItem>();
-            for item in arc.iter() {
-                match item {
-                    ShapedItem::Cluster(c) => {
-                        r.shaped_glyph_bytes += glyph_spill_bytes(c);
-                        // 3c: shared Arc slice — count each source buffer once.
-                        if text_arcs.insert(Arc::as_ptr(&c.source_text) as *const u8 as usize) {
-                            r.shaped_cluster_text_bytes += c.source_text.len();
-                        }
-                        r.cluster_count += 1;
-                        style_arcs.insert(Arc::as_ptr(&c.style) as usize);
-                    }
-                    // Tate-chu-yoko. Previously skipped entirely: the walk
-                    // only matched the `Cluster` arm.
-                    ShapedItem::CombinedBlock { glyphs, style, .. } => {
-                        r.combined_block_glyph_bytes +=
-                            glyphs.capacity() * size_of::<ShapedGlyph>();
-                        {
-                            style_arcs.insert(Arc::as_ptr(style) as usize);
-                        }
-                    }
-                    // No heap beyond the `size_of::<ShapedItem>()` already
-                    // charged for the slot. Listed explicitly rather than
-                    // caught by a wildcard so that adding a heap-owning arm
-                    // later fails to compile instead of silently going
-                    // uncounted — which is exactly how `CombinedBlock` was
-                    // missed by the old `if let Cluster`.
-                    ShapedItem::Object { .. }
-                    | ShapedItem::Tab { .. }
-                    | ShapedItem::Break { .. } => {}
-                }
-            }
-        }
+        // (d7) The monolithic stage-3 map is DELETED; these fields stay
+        // in the report as tombstones (0) so historical dumps compare.
+        r.shaped_items_entries = 0;
+        // (the walk below is the single shaped-store walk now)
         r.per_item_shaped_entries = self.per_item_shaped.len();
         for arc in self.per_item_shaped.values() {
             if !counted.insert(Arc::as_ptr(arc) as *const u8 as usize) {
-                r.shared_bytes_avoided += arc.clusters.capacity() * size_of::<ShapedItem>();
+                r.shared_bytes_avoided += arc.compact.retained_bytes();
                 continue;
             }
-            r.per_item_shaped_bytes += arc.clusters.capacity() * size_of::<ShapedItem>();
-            for item in &arc.clusters {
+            // (d7) The compact arrays, plus the shared source text once.
+            r.per_item_shaped_bytes += arc.compact.retained_bytes();
+            r.cluster_count += arc.compact.clusters.len();
+            if text_arcs.insert(Arc::as_ptr(&arc.compact.source_text) as *const u8 as usize) {
+                r.per_item_shaped_bytes += arc.compact.source_text.len();
+            }
+            style_arcs.insert(Arc::as_ptr(&arc.compact.style) as usize);
+            for (_, item) in &arc.compact.atoms {
                 match item {
                     ShapedItem::Cluster(c) => {
                         r.per_item_shaped_bytes += glyph_spill_bytes(c);
@@ -6515,12 +6796,10 @@ impl TextShapingCache {
         r.map_overhead_bytes = hashmap_bytes::<CacheId, Arc<Vec<LogicalItem>>>(
             self.logical_items.len(),
         ) + hashmap_bytes::<CacheId, Arc<Vec<VisualItem>>>(self.visual_items.len())
-            + hashmap_bytes::<CacheId, Arc<Vec<ShapedItem>>>(self.shaped_items.len())
             + hashmap_bytes::<u64, Arc<PerItemShapedEntry>>(self.per_item_shaped.len())
             + ARC_HEADER
                 * (self.logical_items.len()
                     + self.visual_items.len()
-                    + self.shaped_items.len()
                     + self.per_item_shaped.len());
         r
     }
@@ -6541,21 +6820,21 @@ impl TextShapingCache {
             let accessed = &self.stage_accessed;
             self.logical_items.retain(|k, _| accessed.contains(k));
             self.visual_items.retain(|k, _| accessed.contains(k));
-            self.shaped_items.retain(|k, _| accessed.contains(k));
         }
         self.per_item_accessed.clear();
         self.stage_accessed.clear();
         self.generation += 1;
     }
 
-    /// Entry counts of the three stage caches, for tests and the memory
-    /// report.
+    /// Entry counts of the stage caches, for tests and the memory
+    /// report. The third slot is the PER-ITEM shaped store since d7
+    /// (the monolithic stage-3 map is deleted).
     #[must_use]
     pub fn stage_entry_counts(&self) -> (usize, usize, usize) {
         (
             self.logical_items.len(),
             self.visual_items.len(),
-            self.shaped_items.len(),
+            self.per_item_shaped.len(),
         )
     }
 
@@ -6904,28 +7183,17 @@ impl TextShapingCache {
         // Stage 3: Shaping (VisualItem -> ShapedItem)
         // Two-level cache: monolithic (fast path) + per-item (incremental path).
         let _probe_shape = crate::probe::Probe::span("text_shape_stage");
-        let shaped_key = ShapedItemsKey::new(visual_items_id, &visual_items);
-        let shaped_items_id = calculate_id(&shaped_key);
-        self.touch_stage(shaped_items_id);
-        // [g213] web lift uses the real shaped_items HashMap cache (g180 bypass deleted).
-        let shaped_items = if let Some(cached) = self.shaped_items.get(&shaped_items_id) {
-            // Monolithic cache hit — all visual items unchanged
-            cached.clone()
-        } else {
-            // Monolithic miss — use per-item cache for incremental reshaping.
-            // Items not in per-item cache are shaped; cached items are reused.
-            let items = Arc::new(shape_visual_items_with_per_item_cache(
-                &visual_items,
-                &mut self.per_item_shaped,
-                &mut self.per_item_accessed,
-                font_chain_cache,
-                fc_cache,
-                loaded_fonts,
-                debug_messages,
-            )?);
-            self.shaped_items.insert(shaped_items_id, items.clone());
-            items
-        };
+        // (d7) Per-item assembly every pass — the monolithic map is gone
+        // (see the field comment). Hits come from `per_item_shaped`.
+        let shaped_items = Arc::new(shape_visual_items_with_per_item_cache(
+            &visual_items,
+            &mut self.per_item_shaped,
+            &mut self.per_item_accessed,
+            font_chain_cache,
+            fc_cache,
+            loaded_fonts,
+            debug_messages,
+        )?);
 
         // --- Stage 4: Apply Vertical Text Transformations ---
 
@@ -7093,22 +7361,16 @@ impl TextShapingCache {
             .clone();
 
         // Stage 3: Shaping (two-level cache, same as layout_flow)
-        let shaped_key = ShapedItemsKey::new(visual_items_id, &visual_items);
-        let shaped_items_id = calculate_id(&shaped_key);
-        self.touch_stage(shaped_items_id);
-        let shaped_items = if let Some(cached) = self.shaped_items.get(&shaped_items_id) { cached.clone() } else {
-            let items = Arc::new(shape_visual_items_with_per_item_cache(
-                &visual_items,
-                &mut self.per_item_shaped,
-                &mut self.per_item_accessed,
-                font_chain_cache,
-                fc_cache,
-                loaded_fonts,
-                debug_messages,
-            )?);
-            self.shaped_items.insert(shaped_items_id, items.clone());
-            items
-        };
+        // (d7) Per-item assembly every pass (monolithic map deleted).
+        let shaped_items = Arc::new(shape_visual_items_with_per_item_cache(
+            &visual_items,
+            &mut self.per_item_shaped,
+            &mut self.per_item_accessed,
+            font_chain_cache,
+            fc_cache,
+            loaded_fonts,
+            debug_messages,
+        )?);
 
         // Stage 4: Text orientation
         let oriented_items = apply_text_orientation(shaped_items, constraints);
@@ -7836,11 +8098,13 @@ pub fn shape_visual_items_with_per_item_cache<T: ParsedFontTrait>(
             // (tests/text3_shaping_cache_identity.rs) runs once with this
             // set and requires itself to FAIL; production never sets it.
             let t2_skip_restamp = std::env::var_os("AZ_T2_SKIP_RESTAMP").is_some();
-            shaped.extend(cached.clusters.iter().map(|c| {
+            // (d7) Materialize from the compact store — the fat path
+            // cloned every item here anyway, so this is cost-neutral.
+            shaped.extend(cached.compact.expand().into_iter().map(|c| {
                 if t2_skip_restamp {
-                    return c.clone();
+                    return c;
                 }
-                let mut c = c.clone();
+                let mut c = c;
                 if let ShapedItem::Cluster(ref mut sc) = c {
                     let current = group.iter().find_map(|it| match &it.logical_source {
                         LogicalItem::Text {
@@ -7885,7 +8149,7 @@ pub fn shape_visual_items_with_per_item_cache<T: ParsedFontTrait>(
                 }
             }).sum();
             per_item_cache.insert(group_key, Arc::new(PerItemShapedEntry {
-                clusters: group_items.clone(),
+                compact: CompactShapedEntry::build(&group_items),
                 total_advance,
             }));
             shaped.extend(group_items);
@@ -15125,30 +15389,30 @@ mod autotest_generated {
         c.logical_items.insert(2, Arc::new(Vec::new()));
         c.visual_items.insert(1, Arc::new(Vec::new()));
         c.visual_items.insert(2, Arc::new(Vec::new()));
-        c.shaped_items.insert(1, Arc::new(Vec::new()));
-        c.shaped_items.insert(2, Arc::new(Vec::new()));
+        // (d7) The monolithic shaped_items stage is deleted; the third
+        // stage_entry_counts slot now reports the per-item store, which
+        // has its own sweep (covered by the per-item eviction test).
 
         // Generation 0 never evicts — otherwise the very first layout pass
         // would discard the entries it had just produced.
         c.begin_generation();
         assert_eq!(
             c.stage_entry_counts(),
-            (2, 2, 2),
+            (2, 2, 0),
             "gen 0 must keep everything"
         );
 
-        // Touch only id 1. Rolling the generation drops id 2 from all three.
+        // Touch only id 1. Rolling the generation drops id 2 from both.
         c.touch_stage(1);
         c.begin_generation();
         assert_eq!(
             c.stage_entry_counts(),
-            (1, 1, 1),
+            (1, 1, 0),
             "an id not touched this generation must be evicted from every \
              stage cache - these were the unbounded ones"
         );
         assert!(c.logical_items.contains_key(&1));
         assert!(c.visual_items.contains_key(&1));
-        assert!(c.shaped_items.contains_key(&1));
 
         // The accessed set resets, so surviving entries must be re-touched
         // to survive again — otherwise nothing would ever be released.
@@ -15156,9 +15420,81 @@ mod autotest_generated {
         c.begin_generation();
         assert_eq!(
             c.stage_entry_counts(),
-            (1, 1, 1),
+            (1, 1, 0),
             "an empty accessed set skips the sweep rather than clearing all"
         );
+    }
+
+    /// (d7) The compaction roundtrip gate: expand(build(v)) == v
+    /// EXACTLY, across every irregularity class — multi-glyph ligature
+    /// details, kerned glyphs, non-Character kinds, fallback-font
+    /// clusters, marker/fragment flags, and non-cluster atoms — on
+    /// synthetic items where every field is controlled.
+    #[test]
+    fn d7_compact_shaped_entry_roundtrip_is_exact() {
+        let mut base = cl("a", 8.0);
+        if let ShapedItem::Cluster(ref mut c) = base {
+            // The helper models a vmtx font; zero it so THIS cluster
+            // takes the SIMPLE (no-detail) reconstruction arm — the
+            // all-atoms vacuity this gate exists to prevent.
+            c.glyphs[0].vertical_advance = 0.0;
+        }
+        let mut items: Vec<ShapedItem> = vec![base.clone(), cl("b", 9.0)];
+        // Ligature detail: two glyphs in one cluster.
+        if let ShapedItem::Cluster(ref mut c) = items[1] {
+            let mut g2 = c.glyphs[0].clone();
+            g2.cluster_offset = 1;
+            g2.kerning = -0.5;
+            c.glyphs.push(g2);
+        }
+        // Fallback font: same style Arc, different font_hash → atom.
+        let mut fallback = cl("c", 7.0);
+        if let ShapedItem::Cluster(ref mut c) = fallback {
+            c.glyphs[0].font_hash = c.glyphs[0].font_hash.wrapping_add(1);
+        }
+        items.push(fallback);
+        // Marker cluster → atom.
+        let mut marker = cl("d", 6.0);
+        if let ShapedItem::Cluster(ref mut c) = marker {
+            c.marker_position_outside = Some(true);
+        }
+        items.push(marker);
+        // Fragment flags → atom.
+        let mut frag = cl("e", 5.0);
+        if let ShapedItem::Cluster(ref mut c) = frag {
+            c.is_first_fragment = true;
+        }
+        items.push(frag);
+        // Non-cluster atom.
+        items.push(ShapedItem::Break {
+            source: ContentIndex { run_index: 0, item_index: 0 },
+            break_info: InlineBreak {
+                break_type: BreakType::Hard,
+                clear: ClearType::None,
+                content_index: 0,
+            },
+        });
+
+        let compact = CompactShapedEntry::build(&items);
+        assert!(
+            !compact.clusters.is_empty(),
+            "at least the plain 'a' cluster must COMPACT (not atomize) — \
+             an all-atoms entry makes this gate vacuous for the simple-\
+             cluster reconstruction arm"
+        );
+        assert!(
+            compact.atom_count() >= 4,
+            "fallback+marker+fragment+break must all be atoms, got {}",
+            compact.atom_count()
+        );
+        let expanded = compact.expand();
+        assert_eq!(expanded.len(), items.len());
+        for (i, (e, o)) in expanded.iter().zip(items.iter()).enumerate() {
+            assert_eq!(e, o, "roundtrip diverges at item {i}");
+        }
+
+        // Empty entry roundtrips too.
+        assert!(CompactShapedEntry::build(&[]).expand().is_empty());
     }
 
     #[test]
@@ -15167,14 +15503,14 @@ mod autotest_generated {
         c.per_item_shaped.insert(
             1,
             Arc::new(PerItemShapedEntry {
-                clusters: vec![cl("a", 8.0)],
+                compact: CompactShapedEntry::build(&[cl("a", 8.0)]),
                 total_advance: 8.0,
             }),
         );
         c.per_item_shaped.insert(
             2,
             Arc::new(PerItemShapedEntry {
-                clusters: Vec::new(),
+                compact: CompactShapedEntry::build(&[]),
                 total_advance: 0.0,
             }),
         );

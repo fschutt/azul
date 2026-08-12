@@ -7037,7 +7037,11 @@ impl LayoutWindow {
         // Get the text layout result for this node (warm data)
         let warm_node = layout_tree.warm(layout_idx)?;
         let cached_layout = warm_node.inline_layout_result.as_ref()?;
-        let inline_layout = &cached_layout.layout;
+        // (d6h) Materialized: the stored layout may be the retirement
+        // sentinel; geometry runs on the transient expansion. (An
+        // instrumentation pass once clobbered this line — the caret
+        // reveal died sentinel-blind until caret_scroll_glide caught it.)
+        let inline_layout = cached_layout.materialized();
 
         // Get the cursor rect in node-relative coordinates
         let mut cursor_rect = inline_layout.get_cursor_rect(&cursor)?;

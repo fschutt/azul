@@ -5447,7 +5447,36 @@ where
         // Calculate actual content bounds from the layout
         // Use these bounds instead of container_rect to avoid inflated bounds
         // that extend beyond actual text content
-        let layout_bounds = layout.bounds();
+        // (d6h) Sentinel-aware: bounds() over the empty retirement
+        // sentinel gated EVERY TextLayout DL item off — textless PDF
+        // export and missing a11y metadata (caught by
+        // dom_to_pdf_embeds_text_fonts under the d7 default flip). The
+        // dense extent is the same math as the scroll-extent arm.
+        let layout_bounds = if layout.items.is_empty() {
+            match dense_view.filter(|d| !d.clusters.is_empty()) {
+                Some(d) => {
+                    let w = d
+                        .clusters
+                        .iter()
+                        .map(|c| c.x + c.advance)
+                        .fold(0.0f32, f32::max);
+                    let h = d
+                        .lines
+                        .iter()
+                        .map(|l| l.top_y + l.height)
+                        .fold(0.0f32, f32::max);
+                    crate::text3::cache::Rect {
+                        x: 0.0,
+                        y: 0.0,
+                        width: w,
+                        height: h,
+                    }
+                }
+                None => layout.bounds(),
+            }
+        } else {
+            layout.bounds()
+        };
         let actual_bounds = if layout_bounds.width > 0.0 && layout_bounds.height > 0.0 {
             LogicalRect {
                 origin: container_rect.origin,
@@ -5485,7 +5514,11 @@ where
             // for mixed layouts or when no dense view is retained.
             let mut primary: Option<(u64, f32)> = None;
             if let Some(d) = dense_view {
-                if d.clusters.len() == layout.items.len() {
+                // (d6h) Sentinel-aware: empty stored items + non-empty
+                // dense = the retirement form, dense is authoritative.
+                if !d.clusters.is_empty()
+                    && (layout.items.is_empty() || d.clusters.len() == layout.items.len())
+                {
                     primary = d
                         .runs
                         .iter()
@@ -5746,7 +5779,12 @@ where
         // These are positioned by the text3 engine and need to be rendered at their calculated
         // positions. §3.2 (d3): a pure-cluster layout (dense len == items
         // len) has no objects BY CONSTRUCTION — skip the walk entirely.
-        let pure_clusters = dense_view.is_some_and(|d| d.clusters.len() == layout.items.len());
+        // (d6h) Sentinel-aware: the retirement form (empty items, dense
+        // non-empty) is pure-cluster by construction.
+        let pure_clusters = dense_view.is_some_and(|d| {
+            !d.clusters.is_empty()
+                && (layout.items.is_empty() || d.clusters.len() == layout.items.len())
+        });
         if !pure_clusters {
             for positioned_item in &layout.items {
                 self.paint_inline_object(builder, container_rect.origin, positioned_item);
@@ -6037,7 +6075,16 @@ fn get_scroll_content_size(node: &LayoutNodeHot, warm: Option<&LayoutNodeWarm>) 
         // bounds().width since d2), height from the d3-filled line heights.
         // Mixed layouts (objects/tabs) keep the sparse walk.
         let dense_extent = cached_layout.dense.as_ref().and_then(|d| {
-            if d.clusters.len() != text_layout.items.len() {
+            // (d6h) Sentinel-aware: post-retirement the stored items are
+            // EMPTY and dense IS the content — the old equality guard
+            // read n != 0 and rejected the dense arm, zeroing the
+            // extent (no scrollbar, dead caret-reveal; caught by
+            // caret_scroll_glide under the d7 default flip). Mixed
+            // layouts (flag-off with objects/tabs) still fall back.
+            if d.clusters.is_empty() {
+                return None;
+            }
+            if !text_layout.items.is_empty() && d.clusters.len() != text_layout.items.len() {
                 return None;
             }
             let max_x = d

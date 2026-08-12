@@ -425,7 +425,10 @@ fn test_ifc_layout_produces_item_metrics() {
     assert!(!ifc_nodes.is_empty(), "Should have at least one IFC root node");
 
     for (idx, cached) in &ifc_nodes {
-        let layout = cached.get_layout();
+        // (d7) materialized(): the stored layout is the retirement
+        // sentinel under the dense default; item_metrics is index-
+        // aligned with the REAL item list, which the expansion is.
+        let layout = cached.materialized();
 
         // item_metrics length should match layout.items length
         assert_eq!(

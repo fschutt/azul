@@ -331,12 +331,18 @@ fn compute_glyph_runs(
 }
 
 /// The process-wide `AZ_DENSE_TEXT` mode: 0 off, 1 on, 2 verify.
+///
+/// (d7) DEFAULT ON: the dense model is the stored form in production —
+/// the retirement (d6h) plateaued at 65.2 MB heap vs 73.6 flag-off on
+/// the 960-line corpus, with the full battery + flag-on corpus +
+/// flag-on reftests green. `AZ_DENSE_TEXT=0` is the escape hatch;
+/// `verify` retains both forms and A/B-asserts every dense-first arm.
 pub(crate) fn dense_text_mode() -> u8 {
     static MODE: std::sync::OnceLock<u8> = std::sync::OnceLock::new();
     *MODE.get_or_init(|| match std::env::var("AZ_DENSE_TEXT").as_deref() {
-        Ok("1") => 1,
+        Ok("0") | Ok("off") => 0,
         Ok("verify") => 2,
-        _ => 0,
+        _ => 1,
     })
 }
 
@@ -509,6 +515,26 @@ impl CachedInlineLayout {
             dense,
             inline_content_hash: 0,
         }
+    }
+
+    /// (d6h) The stored layout, MATERIALIZED if it is the retirement
+    /// sentinel: dense expands (exact by the d6h expansion gate) into a
+    /// transient sparse copy. The universal accessor for readers that
+    /// measure or walk content; flag-off / verify / non-pure entries
+    /// return the stored Arc untouched.
+    #[must_use]
+    pub fn materialized(&self) -> Arc<UnifiedLayout> {
+        if self.layout.items.is_empty() {
+            if let Some(d) = self.dense.as_deref() {
+                if !d.clusters.is_empty() {
+                    return Arc::new(UnifiedLayout {
+                        items: d.to_unified_items(),
+                        overflow: self.overflow.clone(),
+                    });
+                }
+            }
+        }
+        self.layout.clone()
     }
 
     /// (d6h) THE RETIREMENT: under `AZ_DENSE_TEXT=1`, a pure-cluster

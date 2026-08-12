@@ -995,7 +995,10 @@ fn contenteditable_overflow_wraps_at_end_not_start() {
     for idx in 0..layout_result.layout_tree.nodes.len() {
         if let Some(w) = layout_result.layout_tree.warm(idx) {
             if let Some(ref cached) = w.inline_layout_result {
-                inline_layout = Some(cached.layout.clone());
+                // (d7) materialized(): the stored layout is the
+                // retirement sentinel under the dense default; the
+                // expansion is the sanctioned way to inspect items.
+                inline_layout = Some(cached.materialized());
                 break;
             }
         }

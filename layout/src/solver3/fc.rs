@@ -3686,7 +3686,11 @@ fn layout_ifc<T: ParsedFontTrait>(
                 if matches!(result, text3::cache::IncrementalRelayoutResult::GlyphSwap) {
                     // No items changed — return cached layout directly
                     debug_info!(ctx, "[layout_ifc] Phase 2d: GlyphSwap — reusing cached layout");
-                    let main_frag = &cached.layout;
+                    // (d6h) Materialized: the stored layout may be the
+                    // retirement sentinel; measuring it raw zeroed the
+                    // reuse path's overflow_size (scrollbars vanished on
+                    // every GlyphSwap reuse).
+                    let main_frag = cached.materialized();
                     let frag_bounds = main_frag.bounds();
                     let mut output = LayoutOutput::default();
                     output.overflow_size = LogicalSize::new(frag_bounds.width, frag_bounds.height);
@@ -7087,7 +7091,8 @@ fn compute_cell_baseline(cell_index: usize, tree: &LayoutTree) -> f32 {
     // Check if the cell has inline layout (first in-flow line box)
     if let Some(warm_node) = tree.warm(cell_index) {
         if let Some(ref cached_layout) = warm_node.inline_layout_result {
-            let inline_result = &cached_layout.layout;
+            // (d6h) Materialized: sentinel-safe first-line baseline.
+            let inline_result = cached_layout.materialized();
             // The baseline is the ascent of the first item from the top of the cell
             if let Some(first_item) = inline_result.items.first() {
                 let (item_ascent, _) = text3::cache::get_item_vertical_metrics_approx(&first_item.item);
@@ -7553,7 +7558,8 @@ fn position_table_cells<T: ParsedFontTrait>(
         // We need to compute the y_offset using immutable borrows first, then apply it mutably.
         let vertical_align_adjustment = if let Some(warm_node) = tree.warm(cell_info.node_index) {
             if let Some(ref cached_layout) = warm_node.inline_layout_result {
-                let inline_result = &cached_layout.layout;
+                // (d6h) Materialized: sentinel-safe content measurement.
+                let inline_result = cached_layout.materialized();
 
                 // Get vertical-align property from styled_dom
                 let vertical_align = if let Some(dom_id) = cell_dom_node_id {
@@ -7634,11 +7640,28 @@ fn position_table_cells<T: ParsedFontTrait>(
                     use std::sync::Arc;
                     use crate::text3::cache::{PositionedItem, UnifiedLayout};
 
-                    let adjusted_items: Vec<PositionedItem> = cached_layout.layout
-                        .items
-                        .iter()
+                    // (d6h) Materialize the retirement sentinel before
+                    // adjusting: reading the stored items raw fed EMPTY
+                    // back into the rebuilt cache entry (found via
+                    // caret_scroll_glide under the d7 default flip).
+                    let source_items: Vec<PositionedItem> = if cached_layout.layout.items.is_empty()
+                        && cached_layout
+                            .dense
+                            .as_deref()
+                            .is_some_and(|d| !d.clusters.is_empty())
+                    {
+                        cached_layout
+                            .dense
+                            .as_deref()
+                            .map(|d| d.to_unified_items())
+                            .unwrap_or_default()
+                    } else {
+                        cached_layout.layout.items.clone()
+                    };
+                    let adjusted_items: Vec<PositionedItem> = source_items
+                        .into_iter()
                         .map(|item| PositionedItem {
-                            item: item.item.clone(),
+                            item: item.item,
                             position: text3::cache::Point {
                                 x: item.position.x,
                                 y: item.position.y + y_offset,
