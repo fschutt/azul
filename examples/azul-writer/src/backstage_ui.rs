@@ -19,7 +19,7 @@ use azul_layout::widgets::backstage::{
 use azul_layout::widgets::button::ButtonOnClickCallbackType;
 use azul_layout::widgets::quick_access::QuickAccessBar;
 
-use crate::fonts::{self, TEXT, TEXT_FAINT, TEXT_GRAY, TITLE_GRAY, WHITE, WORD_BLUE};
+use crate::fonts::{self, TEXT, TEXT_FAINT, TEXT_GRAY, TITLE_GRAY, WHITE, OFFICE_BLUE};
 use crate::AppState;
 
 /// Export pane: "Create PDF/XPS Document" (the Office-2013-era wording), wired to
@@ -46,7 +46,7 @@ fn export_pane(state: &AppState, data: &RefAny) -> Dom {
         .with_child(
             Dom::create_div()
                 .with_css("flex-grow: 0; margin-top: 18px; display: flex; flex-direction: column;")
-                .with_child(fonts::text("Create PDF/XPS Document", 16, WORD_BLUE))
+                .with_child(fonts::text("Create PDF/XPS Document", 16, OFFICE_BLUE))
                 .with_child(
                     Dom::create_div()
                         .with_css("flex-grow: 0; margin-top: 6px;")
@@ -178,7 +178,7 @@ fn info_pane(state: &AppState) -> Dom {
 
     pane_frame()
         .with_child(pane_title("Info"))
-        .with_child(boxed("margin-top: 16px;", fonts::text(&name, 20, WORD_BLUE)))
+        .with_child(boxed("margin-top: 16px;", fonts::text(&name, 20, OFFICE_BLUE)))
         .with_child(boxed("", fonts::text(location, 12, TEXT_FAINT)))
         .with_child(
             Dom::create_div()
@@ -265,7 +265,7 @@ fn open_pane(data: &RefAny) -> Dom {
             "display: flex; flex-direction: column; flex-grow: 1; margin-top: 26px; \
              margin-left: 30px;",
         )
-        .with_child(boxed("margin-bottom: 12px;", fonts::text("Recent Documents", 16, WORD_BLUE)))
+        .with_child(boxed("margin-bottom: 12px;", fonts::text("Recent Documents", 16, OFFICE_BLUE)))
         .with_child(recent_row("Welcome", "Desktop"))
         .with_child(recent_row("Project Notes", "Documents"))
         .with_child(recent_row("recipes", "Desktop \u{00bb} Personal"))

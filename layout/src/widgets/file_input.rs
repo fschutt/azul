@@ -404,11 +404,18 @@ mod autotest_generated {
     }
 
     /// The rendered button label. `Button::dom` always appends the label *last*
-    /// (an optional image is pushed as the first child).
+    /// (an optional image is pushed as the first child), block-formatted as
+    /// `<p>` wrapping the text node.
     fn rendered_label(dom: &Dom) -> String {
         let children = dom.children.as_ref();
         let last = children.last().expect("the button has no label child");
-        text_of(last)
+        assert!(
+            matches!(last.root.get_node_type(), NodeType::P),
+            "the button label is not block-formatted (<p>)"
+        );
+        let inner = last.children.as_ref();
+        assert_eq!(inner.len(), 1, "the label <p> wraps exactly one text node");
+        text_of(&inner[0])
             .expect("the button label is not a text node")
             .to_string()
     }

@@ -1980,7 +1980,7 @@ impl Ribbon {
             let mut d = Dom::create_div()
                 .with_ids_and_classes(IdOrClassVec::from_const_slice(CLS_APP_BUTTON))
                 .with_css_props(style.app_button_style.clone())
-                .with_children(DomVec::from_vec(vec![Dom::create_text(ab.label)]));
+                .with_children(DomVec::from_vec(vec![Dom::create_p_with_text(ab.label)]));
             if let Some(oc) = ab.on_click.into_option() {
                 d = d.with_callbacks(vec![CoreCallbackData {
                     event: EventFilter::Hover(HoverEventFilter::MouseUp),
@@ -2017,7 +2017,7 @@ impl Ribbon {
             let mut d = Dom::create_div()
                 .with_ids_and_classes(IdOrClassVec::from_const_slice(classes))
                 .with_css_props(part_style)
-                .with_children(DomVec::from_vec(vec![Dom::create_text(tab.label.clone())]));
+                .with_children(DomVec::from_vec(vec![Dom::create_p_with_text(tab.label.clone())]));
 
             let mut cbs: Vec<CoreCallbackData> = Vec::with_capacity(4);
             if has_callback {
@@ -2111,8 +2111,9 @@ impl Ribbon {
             .with_ids_and_classes(IdOrClassVec::from_const_slice(CLS_MOBILE_TAB_BUTTON))
             .with_css_props(style.mobile_tab_button_style.clone())
             .with_children(DomVec::from_vec(vec![
-                Dom::create_text(active_label)
-                    .with_css_props(style.mobile_tab_label_style.clone()),
+                Dom::create_p()
+                    .with_css_props(style.mobile_tab_label_style.clone())
+                    .with_children(DomVec::from_vec(vec![Dom::create_text(active_label)])),
                 Dom::create_icon(AzString::from_const_str("expand_more"))
                     .with_css_props(style.mobile_tab_arrow_style.clone()),
             ]));
@@ -2153,7 +2154,7 @@ impl Ribbon {
                         CLS_MOBILE_TAB_OVERLAY_ITEM,
                     ))
                     .with_css_props(style.mobile_tab_overlay_item_style.clone())
-                    .with_children(DomVec::from_vec(vec![Dom::create_text(label.clone())]));
+                    .with_children(DomVec::from_vec(vec![Dom::create_p_with_text(label.clone())]));
                 if has_callback {
                     item = item.with_callbacks(vec![CoreCallbackData {
                         event: EventFilter::Hover(HoverEventFilter::MouseUp),
@@ -2194,7 +2195,7 @@ impl Ribbon {
                         CLS_MOBILE_GROUP_LIST_ITEM,
                     ))
                     .with_css_props(item_style)
-                    .with_children(DomVec::from_vec(vec![Dom::create_text(label.clone())]));
+                    .with_children(DomVec::from_vec(vec![Dom::create_p_with_text(label.clone())]));
                 if matches!(mode, RibbonChromeMode::Mobile) {
                     item = item.with_callbacks(vec![CoreCallbackData {
                         event: EventFilter::Hover(HoverEventFilter::MouseUp),
@@ -2428,9 +2429,10 @@ fn group_dom(group: RibbonGroup, s: &RibbonStyle, b: RibbonBehavior) -> Dom {
         );
     }
     footer_children.push(
-        Dom::create_text(label)
+        Dom::create_p()
             .with_ids_and_classes(IdOrClassVec::from_const_slice(CLS_GROUP_LABEL))
-            .with_css_props(s.group_label_style.clone()),
+            .with_css_props(s.group_label_style.clone())
+            .with_children(DomVec::from_vec(vec![Dom::create_text(label)])),
     );
     if let Some(l) = launcher.into_option() {
         footer_children.push(styled_button(
@@ -2482,8 +2484,9 @@ fn gallery_dom(gallery: RibbonGallery, s: &RibbonStyle, b: RibbonBehavior) -> Do
             } else {
                 (CLS_GALLERY_CELL, s.gallery_cell_style.clone())
             };
-            let label = Dom::create_text(cell.label.clone())
-                .with_css_props(s.gallery_cell_label_style.clone());
+            let label = Dom::create_p()
+                .with_css_props(s.gallery_cell_label_style.clone())
+                .with_children(DomVec::from_vec(vec![Dom::create_text(cell.label.clone())]));
             let mut d = Dom::create_div()
                 .with_ids_and_classes(IdOrClassVec::from_const_slice(classes))
                 .with_css_props(cell_style)
@@ -3008,11 +3011,81 @@ mod tests {
             .any(|c| matches!(c, IdOrClass::Class(s) if s.as_str() == name))
     }
 
+    /// Text of a label node, looking through the `<p>` block wrapper the
+    /// label convention mandates (`p > text`).
     fn text_of(node: &Dom) -> Option<&str> {
         match node.root.get_node_type() {
             NodeType::Text(s) => Some(s.as_ref().as_str()),
+            NodeType::P => match node.children.as_ref() {
+                [only] => match only.root.get_node_type() {
+                    NodeType::Text(s) => Some(s.as_ref().as_str()),
+                    _ => None,
+                },
+                _ => None,
+            },
             _ => None,
         }
+    }
+
+    /// USER convention (2026-08-12): widget-emitted text is never a raw
+    /// `create_text` child — every label is `<p>` wrapping exactly one text
+    /// node. Raw text as a direct flex child takes the anonymous-box path
+    /// that made "PAGE LAYOUT" wrap and the group captions de-center live.
+    /// Walks the full desktop + mobile chrome (tabs, captions, buttons,
+    /// gallery, launcher) and flags every Text node under a non-P parent.
+    #[test]
+    fn every_ribbon_label_is_block_formatted_no_raw_text_children() {
+        extern "C" fn noop_launcher_click(
+            _data: RefAny,
+            _info: crate::callbacks::CallbackInfo,
+        ) -> Update {
+            Update::DoNothing
+        }
+        fn walk(node: &Dom, parent_is_p: bool, bad: &mut Vec<String>) {
+            if let NodeType::Text(t) = node.root.get_node_type() {
+                if !parent_is_p {
+                    bad.push(t.as_ref().as_str().to_string());
+                }
+            }
+            let is_p = matches!(node.root.get_node_type(), NodeType::P);
+            for c in node.children.as_ref() {
+                walk(c, is_p, bad);
+            }
+        }
+        let cells = vec![
+            RibbonGalleryCell::new(
+                Dom::create_div(), // user preview content — exempt from the convention
+                "Style 0".into(),
+            ),
+        ];
+        let tab = RibbonTab::new("HOME".into())
+            .with_group(
+                RibbonGroup::new("Clipboard".into())
+                    .with_item(RibbonItem::LargeButton(RibbonButton::new(
+                        "content_paste".into(),
+                        "Paste".into(),
+                    )))
+                    .with_launcher(
+                        RefAny::new(0usize),
+                        noop_launcher_click as crate::widgets::button::ButtonOnClickCallbackType,
+                    ),
+            )
+            .with_group(
+                RibbonGroup::new("Styles".into())
+                    .with_item(RibbonItem::Gallery(RibbonGallery::new(cells.into()))),
+            );
+        let dom = Ribbon::new(RibbonTabVec::from_vec(vec![
+            tab,
+            RibbonTab::new("PAGE LAYOUT".into()),
+        ]))
+        .with_app_button(RibbonAppButton::new("FILE".into()))
+        .dom();
+        let mut bad = Vec::new();
+        walk(&dom, false, &mut bad);
+        assert!(
+            bad.is_empty(),
+            "raw text nodes outside a <p> wrapper: {bad:?}"
+        );
     }
 
     /// The text of a box's single label child (tabs / app button).

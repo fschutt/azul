@@ -206,17 +206,22 @@ fn ribbon_widget_rows_size_to_one_line_text() {
         .get(&DomId::ROOT_ID)
         .expect("root layout result");
 
-    // Locate labels by text content; their parent is the Button container.
+    // Locate labels by text content; the text sits inside its `<p>` block
+    // wrapper (the label box carrying the rect), whose parent is the Button
+    // container.
     let node_data = result.styled_dom.node_data.as_container();
     let hierarchy = result.styled_dom.node_hierarchy.as_container();
     let find_label = |needle: &str| -> (usize, usize) {
         for i in 0..node_data.len() {
             if let NodeType::Text(t) = node_data[NodeId::new(i)].get_node_type() {
                 if t.as_ref().as_str() == needle {
-                    let parent = hierarchy[NodeId::new(i)]
+                    let p = hierarchy[NodeId::new(i)]
                         .parent_id()
-                        .expect("label has a parent");
-                    return (i, parent.index());
+                        .expect("label has a <p> wrapper");
+                    let button = hierarchy[p]
+                        .parent_id()
+                        .expect("the <p> wrapper has a parent");
+                    return (p.index(), button.index());
                 }
             }
         }
@@ -319,10 +324,13 @@ fn ribbon_overflow_shrinks_only_the_gallery() {
         for i in 0..node_data.len() {
             if let NodeType::Text(t) = node_data[NodeId::new(i)].get_node_type() {
                 if t.as_ref().as_str() == needle {
-                    let parent = hierarchy[NodeId::new(i)]
+                    let p = hierarchy[NodeId::new(i)]
                         .parent_id()
-                        .expect("label has a parent");
-                    return (i, parent.index());
+                        .expect("label has a <p> wrapper");
+                    let button = hierarchy[p]
+                        .parent_id()
+                        .expect("the <p> wrapper has a parent");
+                    return (p.index(), button.index());
                 }
             }
         }
@@ -981,7 +989,7 @@ fn hit_test_bounds_match_the_layout_rect_in_a_full_ribbon() {
         .with_css("display: flex; flex-direction: row; align-items: center; height: 30px;")
         .with_child(Dom::create_icon("save"))
         .with_child(Dom::create_icon("undo"))
-        .with_child(Dom::create_text("Document1 - Word"))
+        .with_child(Dom::create_text("Document1 - AzWriter"))
         .with_child(Dom::create_icon("close"));
     let dom = Dom::create_body()
         .with_child(title_bar)

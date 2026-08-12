@@ -491,7 +491,9 @@ impl Button {
             self.label.as_str().is_empty() && (has_icon || has_image || has_trailing_icon);
         if !skip_label {
             button = button.with_child(
-                Dom::create_text(self.label).with_css_props(self.label_style),
+                Dom::create_p()
+                    .with_css_props(self.label_style)
+                    .with_children(azul_core::dom::DomVec::from_vec(vec![Dom::create_text(self.label)])),
             );
         }
 
@@ -606,6 +608,18 @@ mod autotest_generated {
     /// The properties of a rendered node's *inline* style, in declaration order.
     fn inline_properties(dom: &Dom) -> Vec<CssProperty> {
         dom.root.style.iter_inline_properties().map(|(p, _)| p.clone()).collect()
+    }
+
+    /// The label text behind the block wrapper: `<p>` wrapping one text node.
+    fn p_label_of(dom: &Dom) -> Option<&str> {
+        if !matches!(dom.root.get_node_type(), NodeType::P) {
+            return None;
+        }
+        let inner = dom.children.as_ref();
+        if inner.len() != 1 {
+            return None;
+        }
+        text_of(&inner[0])
     }
 
     fn text_of(dom: &Dom) -> Option<&str> {
@@ -1306,8 +1320,8 @@ mod autotest_generated {
             assert_eq!(inline_properties(&dom), container, "{ty:?}: the root inline style is not the container style");
 
             let children = dom.children.as_ref();
-            assert_eq!(children.len(), 1, "{ty:?}: an image-less button is a Button node with exactly one text child");
-            assert_eq!(text_of(&children[0]), Some("OK"), "{ty:?}: the label was mangled");
+            assert_eq!(children.len(), 1, "{ty:?}: an image-less button is a Button node with exactly one <p> label child");
+            assert_eq!(p_label_of(&children[0]), Some("OK"), "{ty:?}: the label was mangled");
             assert_eq!(inline_properties(&children[0]), label_style, "{ty:?}: the label style is not on the label node");
         }
     }
@@ -1322,7 +1336,7 @@ mod autotest_generated {
         let children = dom.children.as_ref();
         assert_eq!(children.len(), 2, "an image button renders the image and the label");
         assert!(matches!(children[0].root.get_node_type(), NodeType::Image(_)), "the image must come first (left of the label)");
-        assert_eq!(text_of(&children[1]), Some("Save"), "the label must be the second child");
+        assert_eq!(p_label_of(&children[1]), Some("Save"), "the label must be the second child");
         assert_eq!(inline_properties(&children[0]), image_style, "the image style is not on the image node");
 
         // `estimated_total_children` is a cache that, if wrong, makes the compact-DOM
@@ -1339,7 +1353,7 @@ mod autotest_generated {
         for ty in ALL_TYPES {
             let dom = btn("x", ty).dom();
             assert_eq!(dom.estimated_total_children, count_descendants(&dom), "{ty:?}: stale estimated_total_children");
-            assert_eq!(dom.estimated_total_children, 1, "{ty:?}: an image-less button has exactly one descendant");
+            assert_eq!(dom.estimated_total_children, 2, "{ty:?}: an image-less button has the <p> label and its text node");
         }
     }
 
@@ -1349,7 +1363,7 @@ mod autotest_generated {
             let dom = btn(&label, ButtonType::Default).dom();
             let children = dom.children.as_ref();
             assert_eq!(children.len(), 1);
-            let text = text_of(&children[0]).expect("the label child is not a text node");
+            let text = p_label_of(&children[0]).expect("the label child is not a <p>-wrapped text node");
             assert_eq!(text, label.as_str(), "a {}-byte label was mangled", label.len());
             assert_eq!(text.len(), label.len(), "a NUL or a wide char truncated the label");
         }

@@ -5762,11 +5762,39 @@ where
                     _ => ifc_uniform_bg,
                 }
             };
+            // Colour is paint-only and deliberately excluded from the text
+            // layout hash, so a cached run can outlive the cascade that
+            // resolved its colour (the deactivated-ribbon-tab KNOWN GAP:
+            // a colour-only change never re-lays the IFC owner, and the
+            // baked value painted stale). Re-resolve against the CURRENT
+            // cascade at build time; the baked colour only serves runs
+            // without a source node (markers, synthesized content).
+            let live_color = glyph_run
+                .source_node_id
+                .and_then(|nid| {
+                    let sd = self.ctx.styled_dom;
+                    let styled_nodes = sd.styled_nodes.as_container();
+                    if nid.index() >= styled_nodes.len() {
+                        return None;
+                    }
+                    let node_state = &styled_nodes[nid].styled_node_state;
+                    Some(
+                        sd.css_property_cache
+                            .ptr
+                            .get_text_color_or_default(
+                                &sd.node_data.as_container()[nid],
+                                &nid,
+                                node_state,
+                            )
+                            .inner,
+                    )
+                })
+                .unwrap_or(glyph_run.color);
             builder.push_text_run(
                 offset_glyphs,
                 FontHash::from_hash(glyph_run.font_hash),
                 glyph_run.font_size_px,
-                glyph_run.color,
+                live_color,
                 clip_rect,
                 Some(source_node_index),
                 uniform_bg,

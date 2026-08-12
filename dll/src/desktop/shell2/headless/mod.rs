@@ -263,6 +263,41 @@ pub struct CpuBackend {
 /// renderer's RGBA byte order). NOTE: in native mode `CpuBackend.last_frame`
 /// stays `None` — tools that read the retained frame (live screenshot dumps)
 /// need `AZ_NATIVE_BACKBUFFER=0`.
+/// #32: in-place R↔B swizzle over `rects` (x, y, w, h in buffer px) of a
+/// tightly-packed 4-byte-per-pixel buffer. Converts the CPU renderer's
+/// R,G,B,A byte order to ARGB8888's B,G,R,A where a compositor never
+/// advertises ABGR8888 (KWin offers ABGR only at 10/16-bit depths). Touching
+/// ONLY the damage rects is sound because writes ⊆ damage is pinned by the
+/// damage-sound laws: every pixel written this frame is converted exactly
+/// once, and retained pixels (converted at their own commit) are never
+/// re-swizzled.
+pub(crate) fn swizzle_rb_in_rects(
+    buf: &mut [u8],
+    stride_bytes: usize,
+    buf_height: usize,
+    rects: &[(i32, i32, i32, i32)],
+) {
+    let row_px = stride_bytes / 4;
+    for &(x, y, w, h) in rects {
+        if w <= 0 || h <= 0 {
+            continue;
+        }
+        let x0 = x.max(0) as usize;
+        let y0 = y.max(0) as usize;
+        let x1 = (x.saturating_add(w) as usize).min(row_px);
+        let y1 = (y.saturating_add(h) as usize).min(buf_height);
+        for row in y0..y1 {
+            let base = row * stride_bytes;
+            for px in x0..x1 {
+                let o = base + px * 4;
+                if o + 4 <= buf.len() {
+                    buf.swap(o, o + 2);
+                }
+            }
+        }
+    }
+}
+
 pub fn native_backbuffer_enabled() -> bool {
     static ON: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
     *ON.get_or_init(|| {
@@ -2867,6 +2902,400 @@ mod tests {
         }
     }
 
+    /// #19 with the REAL ribbon widget (USER ask: "test the ribbon again
+    /// with the new damage-rect op" — this is the headless equivalent of
+    /// `assert_damage_sound`'s covers-changes law, applied at every drag
+    /// step): sweep the width in small odd steps across the group-tiling
+    /// thresholds; the incrementally presented frame must be bit-identical
+    /// to a fresh full render at every width. The earlier law used a
+    /// synthetic row (the "fixture can't express it" gap) — this one builds
+    /// `azul_layout::widgets::ribbon::Ribbon` itself: tabs + labeled groups
+    /// + the small-button columns whose group labels visually "merged" live.
+    #[test]
+    fn real_ribbon_resize_sweep_matches_fresh_at_every_step() {
+        use azul_core::geom::LogicalSize;
+        use azul_layout::widgets::ribbon::{
+            Ribbon, RibbonButton, RibbonColumn, RibbonGroup, RibbonItem, RibbonTab,
+            RibbonTabVec,
+        };
+
+        fn tabs() -> RibbonTabVec {
+            let col = |a: (&str, &str), b: (&str, &str)| {
+                RibbonItem::Column(
+                    RibbonColumn::new()
+                        .with_item(RibbonItem::SmallButton(RibbonButton::new(a.0.into(), a.1.into())))
+                        .with_item(RibbonItem::SmallButton(RibbonButton::new(b.0.into(), b.1.into()))),
+                )
+            };
+            let home = RibbonTab::new("HOME".into())
+                .with_group(
+                    RibbonGroup::new("Clipboard".into())
+                        .with_item(RibbonItem::LargeButton(RibbonButton::new("content_paste".into(), "Paste".into())))
+                        .with_item(col(("content_cut", "Cut"), ("content_copy", "Copy"))),
+                )
+                .with_group(
+                    RibbonGroup::new("Font".into())
+                        .with_item(col(("format_bold", "Bold"), ("format_italic", "Italic")))
+                        .with_item(col(
+                            ("format_underlined", "Underline"),
+                            ("format_color_text", "Color"),
+                        )),
+                )
+                .with_group(RibbonGroup::new("Styles".into()).with_item(RibbonItem::LargeButton(
+                    RibbonButton::new("style".into(), "Styles".into()),
+                )));
+            RibbonTabVec::from_vec(vec![
+                home,
+                RibbonTab::new("INSERT".into()).with_group(
+                    RibbonGroup::new("Preview".into()).with_item(RibbonItem::LargeButton(
+                        RibbonButton::new("layers".into(), "Insert".into()),
+                    )),
+                ),
+                RibbonTab::new("LAYOUT".into()).with_group(
+                    RibbonGroup::new("Preview".into()).with_item(RibbonItem::LargeButton(
+                        RibbonButton::new("layers".into(), "Layout".into()),
+                    )),
+                ),
+            ])
+        }
+        extern "C" fn layout_real_ribbon(_data: RefAny, _info: LayoutCallbackInfo) -> Dom {
+            Dom::create_body().with_child(tabs_dom())
+        }
+        fn tabs_dom() -> Dom {
+            Ribbon::new(tabs()).with_active_tab(0).dom()
+        }
+
+        let state = Arc::new(RefCell::new(RefAny::new(0usize)));
+        let mut window = make_window_sized(&state, layout_real_ribbon, 900.0, 260.0);
+        window.regenerate_layout().expect("initial layout");
+        window.regenerate_layout().expect("settle");
+
+        let mut prev_w = 900.0f32;
+        // Odd 13px steps: fractional group re-tiling + label re-centering at
+        // every step, crossing the widths where groups compress.
+        let mut w = 887.0f32;
+        while w >= 614.0 {
+            let full = window.common.request_regeneration_for_resize(
+                LogicalSize::new(prev_w, 260.0),
+                LogicalSize::new(w, 260.0),
+            );
+            window.common.current_window_state.size.dimensions = LogicalSize::new(w, 260.0);
+            if full {
+                window.regenerate_layout().expect("regen");
+            } else {
+                let _ = window.common.take_relayout_only();
+                window.relayout_only().expect("relayout");
+            }
+            let incr = window
+                .cpu_backend
+                .last_frame
+                .as_ref()
+                .expect("incremental frame")
+                .clone_pixmap();
+
+            let fresh_state = Arc::new(RefCell::new(RefAny::new(0usize)));
+            let mut fresh = make_window_sized(&fresh_state, layout_real_ribbon, w, 260.0);
+            fresh.regenerate_layout().expect("fresh layout");
+            let full_frame = fresh
+                .cpu_backend
+                .last_frame
+                .as_ref()
+                .expect("fresh frame")
+                .clone_pixmap();
+
+            assert_eq!(incr.width(), full_frame.width(), "width at {w}");
+            let (a, b) = (incr.data(), full_frame.data());
+            let mut diffs = 0usize;
+            let mut first: Option<(u32, u32)> = None;
+            for i in (0..a.len().min(b.len())).step_by(4) {
+                if a[i] != b[i] || a[i + 1] != b[i + 1] || a[i + 2] != b[i + 2] {
+                    diffs += 1;
+                    if first.is_none() {
+                        let px = (i / 4) as u32;
+                        first = Some((px % incr.width(), px / incr.width()));
+                    }
+                }
+            }
+            assert_eq!(
+                diffs, 0,
+                "REAL ribbon diverges from fresh render at width {w}: {diffs} px, first {first:?} \
+                 — the live 'merge' class (patched-DL under-damage)"
+            );
+            prev_w = w;
+            w -= 13.0;
+        }
+    }
+
+    /// `make_window_sized` with the REAL system font cache instead of the
+    /// injected deterministic harness font — for laws that must reproduce
+    /// live glyph metrics ("Liberation Sans" fractional advances; the
+    /// fit-test epsilon is metric-dependent).
+    fn make_window_sized_real_fonts(
+        state: &Arc<RefCell<RefAny>>,
+        cb: azul_core::callbacks::LayoutCallbackType,
+        width: f32,
+        height: f32,
+    ) -> HeadlessWindow {
+        use azul_core::icon::{IconProviderHandle, SharedIconProvider};
+        let fc_cache = Arc::new(FcFontCache::build());
+        let icon_provider = SharedIconProvider::from_handle(IconProviderHandle::default());
+        let mut opts = WindowCreateOptions::default();
+        opts.window_state.layout_callback = LayoutCallback {
+            cb,
+            ctx: OptionRefAny::None,
+        };
+        opts.window_state.size.dimensions = LogicalSize::new(width, height);
+        HeadlessWindow::new(
+            opts,
+            state.clone(),
+            event::SharedUndoManager::new(),
+            AppConfig::default(),
+            icon_provider,
+            fc_cache,
+            None,
+        )
+        .unwrap()
+    }
+
+    /// USER 2026-08-12 live report: resizing the azwriter window narrower
+    /// made "PAGE LAYOUT" — the only tab label with internal whitespace —
+    /// suddenly break onto a second line, and the group captions below
+    /// visibly de-centered. Fresh layout at every integer width 600..=1400
+    /// is clean (layout/tests/ribbon_tab_whitespace.rs), so this law walks
+    /// the INCREMENTAL resize path with azwriter parity (nine tabs,
+    /// desktop-only DOM, pinned "Liberation Sans"): 1px steps down and back
+    /// up, on the integer AND the half-pixel lattice. At every step, on the
+    /// live window's own layout: every tab label keeps one-line height and
+    /// every group caption stays centered on its footer.
+    #[test]
+    fn azwriter_ribbon_resize_sweep_keeps_tabs_one_line_and_captions_centered() {
+        use azul_core::dom::{DomId, DomNodeId, NodeId, NodeType};
+        use azul_core::geom::LogicalSize;
+        use azul_layout::widgets::ribbon::{
+            Ribbon, RibbonAppButton, RibbonButton, RibbonColumn, RibbonGroup, RibbonItem,
+            RibbonTab, RibbonTabVec,
+        };
+
+        const TAB_LABELS: &[&str] = &[
+            "HOME", "INSERT", "DESIGN", "PAGE LAYOUT", "REFERENCES", "MAILINGS", "REVIEW", "VIEW",
+        ];
+        const CAPTIONS: &[&str] = &["Clipboard", "Font", "Paragraph", "Styles"];
+
+        extern "C" fn layout_azwriter_ribbon(_data: RefAny, _info: LayoutCallbackInfo) -> Dom {
+            use azul_css::{
+                dynamic_selector::{CssPropertyWithConditions, CssPropertyWithConditionsVec},
+                props::{
+                    basic::font::{StyleFontFamily, StyleFontFamilyVec},
+                    property::CssProperty,
+                },
+            };
+            let col = |labels: [&str; 3]| {
+                RibbonItem::Column(labels.into_iter().fold(RibbonColumn::new(), |c, l| {
+                    c.with_item(RibbonItem::SmallButton(RibbonButton::new(
+                        "content_cut".into(),
+                        l.into(),
+                    )))
+                }))
+            };
+            let home = RibbonTab::new("HOME".into())
+                .with_group(
+                    RibbonGroup::new("Clipboard".into())
+                        .with_item(col(["Cut", "Copy", "Format Painter"])),
+                )
+                .with_group(
+                    RibbonGroup::new("Font".into()).with_item(col(["Grow", "Shrink", "Clear"])),
+                )
+                .with_group(
+                    RibbonGroup::new("Paragraph".into())
+                        .with_item(col(["Bullets", "Numbering", "Sort"])),
+                )
+                .with_group(RibbonGroup::new("Styles".into()).with_item(
+                    RibbonItem::LargeButton(RibbonButton::new("style".into(), "Styles".into())),
+                ));
+            let mut tabs = vec![home];
+            for label in
+                ["INSERT", "DESIGN", "PAGE LAYOUT", "REFERENCES", "MAILINGS", "REVIEW", "VIEW"]
+            {
+                tabs.push(RibbonTab::new(label.into()).with_group(
+                    RibbonGroup::new("Preview".into()).with_item(RibbonItem::LargeButton(
+                        RibbonButton::new("layers".into(), label.into()),
+                    )),
+                ));
+            }
+            let mut ribbon = Ribbon::new(RibbonTabVec::from_vec(tabs))
+                .with_app_button(RibbonAppButton::new("FILE".into()));
+            let mut v = ribbon.style.container_style.as_ref().to_vec();
+            v.push(CssPropertyWithConditions::simple(CssProperty::const_font_family(
+                StyleFontFamilyVec::from_vec(vec![StyleFontFamily::System(
+                    "Liberation Sans".into(),
+                )]),
+            )));
+            ribbon.style.container_style = CssPropertyWithConditionsVec::from_vec(v);
+            Dom::create_body().with_child(ribbon.dom_desktop())
+        }
+
+        fn lw_of(window: &HeadlessWindow) -> &azul_layout::window::LayoutWindow {
+            window.common.layout_window.as_ref().expect("layout window")
+        }
+        // Labels are `<p>`-wrapped text: the text node has no rect of its
+        // own; wrap + centering are read off the text3 UnifiedLayout of the
+        // wrapping `<p>` and its box rect.
+        fn find_text_node(window: &HeadlessWindow, needle: &str) -> Option<usize> {
+            let lw = lw_of(window);
+            let result = lw.layout_results.get(&DomId::ROOT_ID)?;
+            let node_data = result.styled_dom.node_data.as_container();
+            (0..node_data.len()).find(|i| {
+                matches!(
+                    node_data[NodeId::new(*i)].get_node_type(),
+                    NodeType::Text(s) if s.as_ref().as_str() == needle
+                )
+            })
+        }
+        fn parent_of(window: &HeadlessWindow, child: usize) -> Option<NodeId> {
+            let lw = lw_of(window);
+            let result = lw.layout_results.get(&DomId::ROOT_ID)?;
+            let hier = result.styled_dom.node_hierarchy.as_container();
+            hier[NodeId::new(child)].parent_id()
+        }
+        fn rect_of(window: &HeadlessWindow, i: NodeId) -> Option<azul_core::geom::LogicalRect> {
+            let id = DomNodeId {
+                dom: DomId::ROOT_ID,
+                node: azul_core::styled_dom::NodeHierarchyItemId::from_crate_internal(Some(i)),
+            };
+            lw_of(window).get_node_layout_rect(id)
+        }
+
+
+        let state = Arc::new(RefCell::new(RefAny::new(0usize)));
+        let mut window = make_window_sized_real_fonts(&state, layout_azwriter_ribbon, 1000.0, 300.0);
+        window.regenerate_layout().expect("initial layout");
+        window.regenerate_layout().expect("settle");
+
+        // Box-level detectors (static screen text retains no UnifiedLayout —
+        // §3.2 drops it): a wrapped label doubles its `<p>` height; a
+        // de-centered caption is a `<p>` that failed to grow onto its footer.
+        // Both detectors are NC-proven in layout/tests/ribbon_tab_whitespace.rs.
+        let base_h: Vec<f32> = TAB_LABELS
+            .iter()
+            .map(|l| {
+                let i = find_text_node(&window, l).unwrap_or_else(|| panic!("tab {l} @1000"));
+                let p = parent_of(&window, i).expect("tab <p>");
+                rect_of(&window, p).expect("tab <p> rect").size.height
+            })
+            .collect();
+
+        let check = |window: &HeadlessWindow, w: f32| {
+            for (k, l) in TAB_LABELS.iter().enumerate() {
+                let i = find_text_node(window, l)
+                    .unwrap_or_else(|| panic!("tab '{l}' vanished at w={w}"));
+                let p = parent_of(window, i).expect("tab <p>");
+                let r = rect_of(window, p)
+                    .unwrap_or_else(|| panic!("tab '{l}' has no box at w={w}"));
+                assert!(
+                    r.size.height <= base_h[k] * 1.5,
+                    "tab '{l}' WRAPPED at w={w}: <p> height {:.2} vs one-line {:.2} — the live \
+                     PAGE-LAYOUT symptom (resize-path line break diverges from fresh layout)",
+                    r.size.height,
+                    base_h[k]
+                );
+            }
+            for l in CAPTIONS {
+                let i = find_text_node(window, l)
+                    .unwrap_or_else(|| panic!("caption '{l}' vanished at w={w}"));
+                let p = parent_of(window, i).expect("caption <p>");
+                let pr = rect_of(window, p).expect("caption <p> rect");
+                let f = parent_of(window, p.index()).expect("caption footer");
+                let fr = rect_of(window, f).expect("footer rect");
+                let err = (pr.origin.x + pr.size.width / 2.0)
+                    - (fr.origin.x + fr.size.width / 2.0);
+                assert!(
+                    err.abs() <= 1.0,
+                    "caption '{l}' OFF-CENTER by {err:.2}px at w={w} — the live de-centering \
+                     symptom"
+                );
+            }
+        };
+        check(&window, 1000.0);
+
+        // Four lattices: integer down/up, half-pixel down/up. ~1600 resize
+        // steps total, every one through the production resize decision.
+        let phases: [(f32, f32, f32); 4] = [
+            (999.0, 600.0, -1.0),
+            (601.0, 1000.0, 1.0),
+            (999.5, 600.5, -1.0),
+            (601.5, 999.5, 1.0),
+        ];
+        let mut prev_w = 1000.0f32;
+        for (start, end, step) in phases {
+            let mut w = start;
+            loop {
+                if (step < 0.0 && w < end) || (step > 0.0 && w > end) {
+                    break;
+                }
+                let full = window.common.request_regeneration_for_resize(
+                    LogicalSize::new(prev_w, 300.0),
+                    LogicalSize::new(w, 300.0),
+                );
+                window.common.current_window_state.size.dimensions = LogicalSize::new(w, 300.0);
+                if full {
+                    window.regenerate_layout().expect("regen");
+                } else {
+                    let _ = window.common.take_relayout_only();
+                    window.relayout_only().expect("relayout");
+                }
+                check(&window, w);
+                prev_w = w;
+                w += step;
+            }
+        }
+    }
+
+    /// #32: the commit swizzle converts R↔B EXACTLY inside the given rects
+    /// and leaves every other pixel untouched. The pattern has R != B at
+    /// every pixel, so a no-op swizzle fails the inside assertions and an
+    /// overreaching swizzle fails the outside assertions — both failure
+    /// directions are expressible by this fixture.
+    #[test]
+    fn commit_swizzle_converts_rects_exactly_and_nothing_else() {
+        let (w, h) = (8usize, 6usize);
+        let stride = w * 4;
+        let mut buf = vec![0u8; stride * h];
+        for y in 0..h {
+            for x in 0..w {
+                let o = y * stride + x * 4;
+                buf[o] = (10 + x) as u8; // R
+                buf[o + 1] = (100 + y) as u8; // G
+                buf[o + 2] = (200 - x) as u8; // B (never equals R)
+                buf[o + 3] = 255;
+            }
+        }
+        let orig = buf.clone();
+        // Two interior rects + one deliberately out-of-bounds rect (clamped).
+        let rects = [(1, 1, 3, 2), (5, 0, 2, 4), (-2, 4, 4, 50)];
+        swizzle_rb_in_rects(&mut buf, stride, h, &rects);
+        let inside = |x: usize, y: usize| {
+            rects.iter().any(|&(rx, ry, rw, rh)| {
+                (x as i32) >= rx
+                    && (x as i32) < rx + rw
+                    && (y as i32) >= ry
+                    && (y as i32) < ry + rh
+            })
+        };
+        for y in 0..h {
+            for x in 0..w {
+                let o = y * stride + x * 4;
+                if inside(x, y) {
+                    assert_eq!(buf[o], orig[o + 2], "R<-B at {x},{y}");
+                    assert_eq!(buf[o + 2], orig[o], "B<-R at {x},{y}");
+                } else {
+                    assert_eq!(&buf[o..o + 4], &orig[o..o + 4], "untouched outside at {x},{y}");
+                }
+                assert_eq!(buf[o + 1], orig[o + 1], "G untouched at {x},{y}");
+                assert_eq!(buf[o + 3], orig[o + 3], "A untouched at {x},{y}");
+            }
+        }
+    }
+
     /// State for the harvested-breakpoint pin: counts `layout()` invocations.
     #[derive(Debug, Clone)]
     struct BreakpointState {
@@ -3347,11 +3776,11 @@ mod tests {
         // (b) equivalence with the fresh-cache ground truth.
         use azul_layout::solver3::pagination::FakePageConfig;
         let page_size = azul_core::geom::LogicalSize::new(320.0, 180.0);
-        let image_cache = azul_core::resources::ImageCache::default();
+        let img_resources = azul_core::resources::ImageCache::default();
 
         let doc = azul_core::styled_dom::StyledDom::create_from_dom(doc_dom());
         let q = lw
-            .query_pagination(&doc, page_size, FakePageConfig::new(), &image_cache)
+            .query_pagination(&doc, page_size, FakePageConfig::new(), &img_resources)
             .expect("query_pagination");
 
         let doc2 = azul_core::styled_dom::StyledDom::create_from_dom(doc_dom());
@@ -3378,7 +3807,7 @@ mod tests {
             azul_core::dom::DomId::ROOT_ID,
             font_loader,
             FakePageConfig::new(),
-            &image_cache,
+            &img_resources,
             azul_core::task::GetSystemTimeCallback {
                 cb: azul_core::task::get_system_time_libstd,
             },
@@ -4598,22 +5027,20 @@ mod tests {
         }
     }
 
-    /// KNOWN GAP - a deactivated tab keeps the text colour it resolved while
-    /// it was active.
+    /// FIXED (was: KNOWN GAP) - a deactivated tab used to keep the text
+    /// colour it resolved while it was active.
     ///
-    /// After clicking tab 1, tab 0's label paints #2B579A (the Word-blue
-    /// ACTIVE colour) where a fresh render of the same state paints #444444.
-    /// The CASCADE is right in both windows - reading the resolved colour
-    /// out of `styled_dom` for that node gives #444444ff either way - so the
-    /// stale value is baked into a cached inline/text layout that the
-    /// display-list builder paints from instead of re-resolving.
-    ///
-    /// Not the reconciliation identity bug (fixed, see the test above) and
-    /// not the cascade. The next place to look is which cached
-    /// `inline_layout_result` survives a colour-only change:
-    /// `StyleProperties::layout_hash` deliberately excludes colour, and the
-    /// IFC validity key in `solver3::fc` folds in the container properties
-    /// but is only consulted when the owning node is re-laid out.
+    /// After clicking tab 1, tab 0's label painted the accent ACTIVE colour
+    /// where a fresh render paints #444444. The cascade was right in both
+    /// windows; the stale value was baked into the cached glyph runs
+    /// (`StyleProperties::layout_hash` deliberately excludes colour, so a
+    /// colour-only change never re-lays the IFC owner). The `<p>` label
+    /// wrapper widened the hole from "sometimes" to "always": the IFC owner
+    /// became the un-restyled `<p>`, so nothing ever re-laid it. FIX: the
+    /// display-list builder re-resolves each run's colour from the CURRENT
+    /// cascade via `CompactGlyphRun::source_node_id` at build time
+    /// (solver3/display_list.rs, the live_color read before push_text_run);
+    /// the baked colour only serves runs without a source node.
     #[test]
     fn clicking_a_ribbon_tab_re_resolves_the_deactivated_tabs_text_colour() {
         let (window, fresh, x, y, _damage) = switched_and_fresh();

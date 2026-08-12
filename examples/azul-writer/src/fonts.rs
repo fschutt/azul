@@ -43,7 +43,7 @@ pub fn push_ui_font(style: &mut CssPropertyWithConditionsVec) {
 // -- the Office-2013-era look palette shared by the app-side compositions --
 
 /// Office 2013 accent blue (#2B579A).
-pub const WORD_BLUE: ColorU = ColorU { r: 43, g: 87, b: 154, a: 255 };
+pub const OFFICE_BLUE: ColorU = ColorU { r: 43, g: 87, b: 154, a: 255 };
 /// Regular chrome text (#444444).
 pub const TEXT: ColorU = ColorU { r: 68, g: 68, b: 68, a: 255 };
 /// Secondary gray (#808080).
