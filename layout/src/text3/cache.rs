@@ -6697,6 +6697,40 @@ impl TextShapingCache {
         }
     }
 
+    /// #28: fork this cache for a SPECULATIVE layout query (`LayoutWindow::
+    /// query_pagination`). The three stage maps hold `Arc`'d entries keyed by
+    /// CONTENT (the per-item key hashes text/bidi/script/style — never a
+    /// width), so cloning the maps is refcount bumps only: the fork re-shapes
+    /// nothing that the live cache already shaped. Entries the query adds
+    /// (its own constraint's line breaks, new memoizations) land in the fork
+    /// and die with it — the window's cache is never polluted with
+    /// query-constraint entries, which is why this takes `&self` and works
+    /// from read-only callback contexts.
+    #[must_use] pub fn fork_shared(&self) -> Self {
+        Self {
+            logical_items: self.logical_items.clone(),
+            visual_items: self.visual_items.clone(),
+            per_item_shaped: self.per_item_shaped.clone(),
+            per_item_accessed: HashSet::new(),
+            stage_accessed: HashSet::new(),
+            generation: self.generation,
+        }
+    }
+
+    /// Test/pin hook (#28): whether `key` maps to the SAME allocation as in
+    /// `other` — proves a fork shares (not copies) a shaped entry.
+    #[must_use] pub fn per_item_entry_ptr_eq(&self, other: &Self, key: u64) -> bool {
+        match (self.per_item_shaped.get(&key), other.per_item_shaped.get(&key)) {
+            (Some(a), Some(b)) => Arc::ptr_eq(a, b),
+            _ => false,
+        }
+    }
+
+    /// Test/pin hook (#28): the per-item keys currently cached.
+    #[must_use] pub fn per_item_keys(&self) -> Vec<u64> {
+        self.per_item_shaped.keys().copied().collect()
+    }
+
     /// Approximate per-stage heap-byte breakdown.
     #[allow(clippy::field_reassign_with_default)] // struct built incrementally / test setup; a struct literal is not clearer here
     #[must_use] pub fn memory_report(&self) -> TextCacheMemoryReport {

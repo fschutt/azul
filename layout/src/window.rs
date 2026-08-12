@@ -1187,6 +1187,75 @@ pub fn breakpoints_crossed(thresholds: &[f32], old: f32, new: f32) -> bool {
 }
 
 impl LayoutWindow {
+    /// #28: SPECULATIVE pagination query — "what WOULD the page breaks be
+    /// for this content at this page size?" — answered from this window's
+    /// caches WITHOUT committing anything.
+    ///
+    /// The expensive layer is shared, not recomputed: the text cache is
+    /// forked via [`TextShapingCache::fork_shared`] (Arc-map clones; the
+    /// per-item shaping key hashes text/bidi/script/style and never a width,
+    /// so content already shaped for the screen re-shapes NOTHING here), and
+    /// the font manager via `clone_shared` (same parsed-font pool). The
+    /// query's own constraint-dependent work (line breaks at the page width,
+    /// page-break solving) runs in a fresh layout cache; everything the
+    /// query allocates dies at return. Per the USER ruling the result is
+    /// bbox-level only: [`PaginationInfo`] (break positions, page count,
+    /// total content height).
+    ///
+    /// Takes `&self` deliberately — callable from read-only callback
+    /// contexts (`CallbackInfo` holds `&LayoutWindow`); the window's caches
+    /// are never polluted with query-constraint entries.
+    #[must_use]
+    pub fn query_pagination(
+        &self,
+        styled_dom: &azul_core::styled_dom::StyledDom,
+        page_size: azul_core::geom::LogicalSize,
+        page_config: crate::solver3::pagination::FakePageConfig,
+        image_cache: &azul_core::resources::ImageCache,
+    ) -> Option<crate::solver3::page_breaks::PaginationInfo> {
+        use azul_core::geom::LogicalPosition;
+
+        use crate::{
+            paged::FragmentationContext, solver3::paged_layout::compute_document_pagination,
+            text3::default::PathLoader,
+        };
+
+        let mut layout_cache = Solver3LayoutCache::default();
+        let mut text_cache = self.text_cache.fork_shared();
+        let mut font_manager = self.font_manager.clone_shared();
+        let fragmentation_context = FragmentationContext::new_paged(page_size);
+        let viewport = LogicalRect {
+            origin: LogicalPosition::zero(),
+            size: page_size,
+        };
+        let renderer_resources = RendererResources::default();
+        let mut debug_messages = None;
+        let loader = PathLoader::new();
+        let font_loader = |bytes, index| loader.load_font_shared(bytes, index);
+
+        compute_document_pagination(
+            &mut layout_cache,
+            &mut text_cache,
+            fragmentation_context,
+            styled_dom,
+            viewport,
+            &mut font_manager,
+            &BTreeMap::new(),
+            &mut debug_messages,
+            None,
+            &renderer_resources,
+            azul_core::resources::IdNamespace(0),
+            DomId::ROOT_ID,
+            font_loader,
+            page_config,
+            image_cache,
+            azul_core::task::GetSystemTimeCallback {
+                cb: azul_core::task::get_system_time_libstd,
+            },
+        )
+        .ok()
+    }
+
     /// Would resizing to `new_size` flip the answer of any window-size query
     /// the last `layout()` run made (`window_width_less_than` & co.)?
     ///

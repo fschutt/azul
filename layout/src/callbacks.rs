@@ -2125,6 +2125,32 @@ impl CallbackInfo {
         unsafe { (*self.ref_data).layout_window }
     }
 
+    /// #28: "what WOULD the page breaks be for this content at this page
+    /// size?" — a SPECULATIVE pagination query answered from the window's
+    /// live caches (shaping shared read-only, nothing committed, nothing
+    /// polluted). The result is bbox-level only: break positions, page
+    /// count, total content height. See [`LayoutWindow::query_pagination`]
+    /// for the cache-fork mechanics. Intended for app-side lazy pagination:
+    /// lay out a monitor-height prefix eagerly, estimate the page count,
+    /// then correct asynchronously with this query.
+    #[must_use] pub fn query_pagination(
+        &self,
+        styled_dom: &StyledDom,
+        page_size: LogicalSize,
+        page_config: crate::solver3::pagination::FakePageConfig,
+    ) -> Option<crate::solver3::page_breaks::PaginationInfo> {
+        // No ImageCache travels with CallbackInfo; an empty one matches what
+        // app-side pagination (miniword) passes today. Callers that need
+        // image-sized pagination can use `LayoutWindow::query_pagination`
+        // directly with a real cache.
+        self.get_layout_window().query_pagination(
+            styled_dom,
+            page_size,
+            page_config,
+            &azul_core::resources::ImageCache::default(),
+        )
+    }
+
     /// Internal helper: Get the inline text layout for a given node
     ///
     /// This efficiently looks up the text layout by following the chain:

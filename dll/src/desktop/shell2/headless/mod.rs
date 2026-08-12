@@ -3290,6 +3290,102 @@ mod tests {
         );
     }
 
+    /// #28: `LayoutWindow::query_pagination` — the speculative query must
+    /// (a) SHARE the window's shaped-text entries by pointer (fork law:
+    /// cloning the cache maps bumps Arcs, copies no shaped data — the
+    /// memory/speed claim), and (b) agree EXACTLY with the ground-truth
+    /// fresh-cache pagination the app side computes today (the correctness
+    /// claim: forked caches change nothing about the result).
+    #[test]
+    fn query_pagination_matches_fresh_and_shares_shaping() {
+        fn doc_dom() -> Dom {
+            let mut body = Dom::create_body();
+            for i in 0..14usize {
+                body = body.with_child(Dom::create_text(match i % 3 {
+                    0 => "alpha beta gamma delta epsilon zeta eta theta iota kappa",
+                    1 => "the quick brown fox jumps over the lazy dog again and again",
+                    _ => "lorem ipsum dolor sit amet consectetur adipiscing elit sed do",
+                }));
+            }
+            body
+        }
+        extern "C" fn layout_doc(_data: RefAny, _info: LayoutCallbackInfo) -> Dom {
+            doc_dom()
+        }
+
+        let state = Arc::new(RefCell::new(RefAny::new(0usize)));
+        let mut window = make_window_with(&state, layout_doc);
+        window.regenerate_layout().expect("layout");
+        let lw = window.common.layout_window.as_ref().expect("layout window");
+
+        // (a) fork law: every shaped entry is shared, not copied.
+        let keys = lw.text_cache.per_item_keys();
+        assert!(!keys.is_empty(), "screen layout shaped nothing — fixture broken");
+        let fork = lw.text_cache.fork_shared();
+        for k in &keys {
+            assert!(
+                lw.text_cache.per_item_entry_ptr_eq(&fork, *k),
+                "shaped entry {k} was copied, not shared"
+            );
+        }
+
+        // (b) equivalence with the fresh-cache ground truth.
+        use azul_layout::solver3::pagination::FakePageConfig;
+        let page_size = azul_core::geom::LogicalSize::new(320.0, 180.0);
+        let image_cache = azul_core::resources::ImageCache::default();
+
+        let doc = azul_core::styled_dom::StyledDom::create_from_dom(doc_dom());
+        let q = lw
+            .query_pagination(&doc, page_size, FakePageConfig::new(), &image_cache)
+            .expect("query_pagination");
+
+        let doc2 = azul_core::styled_dom::StyledDom::create_from_dom(doc_dom());
+        let mut oracle_cache = azul_layout::Solver3LayoutCache::default();
+        let mut oracle_text = azul_layout::TextLayoutCache::new();
+        let mut fm = lw.font_manager.clone_shared();
+        let loader = azul_layout::text3::default::PathLoader::new();
+        let font_loader = |bytes, index| loader.load_font_shared(bytes, index);
+        let o = azul_layout::solver3::paged_layout::compute_document_pagination(
+            &mut oracle_cache,
+            &mut oracle_text,
+            azul_layout::paged::FragmentationContext::new_paged(page_size),
+            &doc2,
+            azul_core::geom::LogicalRect {
+                origin: azul_core::geom::LogicalPosition::zero(),
+                size: page_size,
+            },
+            &mut fm,
+            &std::collections::BTreeMap::new(),
+            &mut None,
+            None,
+            &azul_core::resources::RendererResources::default(),
+            azul_core::resources::IdNamespace(0),
+            azul_core::dom::DomId::ROOT_ID,
+            font_loader,
+            FakePageConfig::new(),
+            &image_cache,
+            azul_core::task::GetSystemTimeCallback {
+                cb: azul_core::task::get_system_time_libstd,
+            },
+        )
+        .expect("oracle pagination");
+
+        assert!(
+            o.page_count >= 2,
+            "fixture fits one page (page_count {}) — the law never bites",
+            o.page_count
+        );
+        assert_eq!(q.page_count, o.page_count, "page counts diverge");
+        assert_eq!(q.breaks, o.breaks, "break positions diverge");
+        assert_eq!(
+            q.total_content_height.to_bits(),
+            o.total_content_height.to_bits(),
+            "content height diverges ({} vs {})",
+            q.total_content_height,
+            o.total_content_height
+        );
+    }
+
     /// Cache GC must run on IDLE frames and not while the user is typing.
     ///
     /// `GlyphCache::gc()` frees the previous generation — thousands of
