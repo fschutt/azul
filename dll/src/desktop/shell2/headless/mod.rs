@@ -227,6 +227,13 @@ pub struct CpuBackend {
     /// shell branches its present on this (the pixels are already in the
     /// platform buffer; there is nothing to copy).
     pub rendered_native: bool,
+    /// #32: the armed native target is a POOL-ORDER (B,G,R,A) buffer — an
+    /// ARGB8888 wl_shm slot whose commit swizzles the damage rects. In-target
+    /// pixel moves (scroll shift, patch blit) must convert the moved block
+    /// back to renderer order or the commit swizzle double-converts it
+    /// (R/B-swapped scrolled content on the glass). Set by the shell at every
+    /// arming; only read while `rendered_native` is true.
+    pub native_target_pool_order: bool,
     /// Scroll offsets from the previous frame (scroll_id → (x,y)). Used to detect
     /// scroll-offset changes and damage the affected frame's viewport so its
     /// content re-renders at the new offset (#13 — the display list is unchanged
@@ -331,6 +338,7 @@ impl CpuBackend {
             #[cfg(feature = "cpurender")]
             native_target: None,
             rendered_native: false,
+            native_target_pool_order: false,
             #[cfg(feature = "cpurender")]
             previous_scroll_offsets: azul_layout::cpurender::ScrollOffsetMap::new(),
             #[cfg(feature = "cpurender")]
@@ -838,7 +846,12 @@ impl CpuBackend {
                             height: y1 - y0,
                         },
                     };
-                    let strips = cpurender::scroll_shift_region_exact(
+                    let shift_exact = if self.rendered_native && self.native_target_pool_order {
+                        cpurender::scroll_shift_region_exact_pool_order
+                    } else {
+                        cpurender::scroll_shift_region_exact
+                    };
+                    let strips = shift_exact(
                         &mut output,
                         &clip,
                         (-d.0, -d.1),
@@ -921,7 +934,12 @@ impl CpuBackend {
                     *offset,
                     prev_offset,
                 ) {
-                    let strips = cpurender::scroll_shift_region(
+                    let shift = if self.rendered_native && self.native_target_pool_order {
+                        cpurender::scroll_shift_region_pool_order
+                    } else {
+                        cpurender::scroll_shift_region
+                    };
+                    let strips = shift(
                         &mut output,
                         clip,
                         *delta,

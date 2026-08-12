@@ -5134,6 +5134,8 @@ impl WaylandWindow {
                                     match cpu_state.acquire_slot() {
                                         Some(slot) => {
                                             cpu_state.catch_up_slot(slot);
+                                            self.cpu_backend.native_target_pool_order =
+                                                cpu_state.needs_commit_swizzle();
                                             self.cpu_backend.native_target = unsafe {
                                                 azul_layout::cpurender::AzulPixmap::from_external(
                                                     cpu_state.slot_ptr(slot),

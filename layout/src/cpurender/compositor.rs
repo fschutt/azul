@@ -873,7 +873,23 @@ pub fn scroll_shift_region(
     new_offset: (f32, f32),
     dpi_factor: f32,
 ) -> Vec<LogicalRect> {
-    scroll_shift_region_impl(pixmap, clip_bounds, delta, new_offset, dpi_factor, false)
+    scroll_shift_region_impl(pixmap, clip_bounds, delta, new_offset, dpi_factor, false, false)
+}
+
+/// [`scroll_shift_region`] for a NATIVE target in POOL byte order (#32
+/// ARGB8888 commit-swizzle pools): the moved pixels came from a COMMITTED
+/// slot and are B,G,R,A; the commit swizzle converts the whole presented
+/// clip, so the moved block is converted back to renderer order here —
+/// otherwise moved pixels get double-swizzled and scrolled content paints
+/// with R and B swapped on the glass.
+pub fn scroll_shift_region_pool_order(
+    pixmap: &mut AzulPixmap,
+    clip_bounds: &LogicalRect,
+    delta: (f32, f32),
+    new_offset: (f32, f32),
+    dpi_factor: f32,
+) -> Vec<LogicalRect> {
+    scroll_shift_region_impl(pixmap, clip_bounds, delta, new_offset, dpi_factor, false, true)
 }
 
 /// [`scroll_shift_region`] with EXACT strips (no 1-px over-cover). The
@@ -889,7 +905,19 @@ pub fn scroll_shift_region_exact(
     new_offset: (f32, f32),
     dpi_factor: f32,
 ) -> Vec<LogicalRect> {
-    scroll_shift_region_impl(pixmap, clip_bounds, delta, new_offset, dpi_factor, true)
+    scroll_shift_region_impl(pixmap, clip_bounds, delta, new_offset, dpi_factor, true, false)
+}
+
+/// [`scroll_shift_region_exact`] for a pool-order native target — see
+/// [`scroll_shift_region_pool_order`].
+pub fn scroll_shift_region_exact_pool_order(
+    pixmap: &mut AzulPixmap,
+    clip_bounds: &LogicalRect,
+    delta: (f32, f32),
+    new_offset: (f32, f32),
+    dpi_factor: f32,
+) -> Vec<LogicalRect> {
+    scroll_shift_region_impl(pixmap, clip_bounds, delta, new_offset, dpi_factor, true, true)
 }
 
 #[allow(clippy::too_many_lines)]
@@ -900,6 +928,7 @@ fn scroll_shift_region_impl(
     new_offset: (f32, f32),
     dpi_factor: f32,
     exact_strips: bool,
+    unswizzle_rb_moved: bool,
 ) -> Vec<LogicalRect> {
     // Physical shift = difference of the ROUNDED offsets, not the rounded
     // difference. Rounding each frame's delta independently accumulates up to
@@ -951,6 +980,23 @@ fn scroll_shift_region_impl(
         (true, false) => shift_horizontal_1d(data, stride_px, cx0, cy0, cx1, cy1, px_dx),
         (true, true) => shift_diagonal_2d(data, stride_px, cx0, cy0, cx1, cy1, px_dx, px_dy),
         (false, false) => {}
+    }
+
+    // #32 pool-order targets: convert the shifted region back to renderer
+    // byte order (the moved pixels are committed B,G,R,A; the commit swizzle
+    // will re-convert the whole presented clip). The exposed strips are
+    // repainted fresh right after this returns, so including them here is
+    // harmless — the swizzled bytes are overwritten.
+    if unswizzle_rb_moved {
+        for y in cy0..cy1 {
+            let row = (y * stride_px) as usize;
+            for x in cx0..cx1 {
+                let o = (row + x as usize) * 4;
+                if o + 4 <= data.len() {
+                    data.swap(o, o + 2);
+                }
+            }
+        }
     }
 
     // Exposed strip(s) in LOGICAL coords. Over-cover the moving edge by one
@@ -2242,6 +2288,146 @@ mod scroll_shift_tests {
             origin: LogicalPosition::new(x, y),
             size: LogicalSize::new(w, h),
         }
+    }
+
+
+    /// #32 LAW: on a pool-order (B,G,R,A) target, shift + commit-swizzle must
+    /// leave the moved pixels byte-identical to a PLAIN byte-move of the slot
+    /// — a pure move never changes displayed colors. The pool-order variant
+    /// un-swizzles the moved block so the commit swizzle re-converts it; the
+    /// shipped bug (plain variant + commit swizzle) double-converts and paints
+    /// scrolled content with R and B swapped (see the NC below).
+    #[test]
+    fn pool_order_shift_then_commit_swizzle_is_a_pure_byte_move() {
+        let (w, h) = (32u32, 32u32);
+        let clip = rect(0.0, 0.0, 32.0, 32.0);
+        let mk = || {
+            let mut p = AzulPixmap::new(w, h).unwrap();
+            let d = p.data_mut();
+            for y in 0..h as usize {
+                for x in 0..w as usize {
+                    let o = (y * w as usize + x) * 4;
+                    d[o] = (10 + x) as u8; // R
+                    d[o + 1] = (100 + y) as u8; // G
+                    d[o + 2] = (200 - x) as u8; // B (never equals R)
+                    d[o + 3] = 255;
+                }
+            }
+            p
+        };
+        let swizzle_all = |p: &mut AzulPixmap| {
+            let d = p.data_mut();
+            for o in (0..d.len()).step_by(4) {
+                d.swap(o, o + 2);
+            }
+        };
+
+        // Simulated committed slot: pattern in POOL order.
+        let mut slot = mk();
+        swizzle_all(&mut slot);
+        // Reference: a plain byte-move of the same slot (what the compositor
+        // must end up displaying — a move never recolors).
+        let mut reference = mk();
+        swizzle_all(&mut reference);
+        let ref_strips =
+            scroll_shift_region_exact(&mut reference, &clip, (0.0, 8.0), (0.0, 8.0), 1.0);
+
+        // Production path: pool-order shift, then the commit swizzle over the
+        // whole presented clip.
+        let strips =
+            scroll_shift_region_exact_pool_order(&mut slot, &clip, (0.0, 8.0), (0.0, 8.0), 1.0);
+        assert_eq!(strips, ref_strips, "both variants must expose the same strips");
+        swizzle_all(&mut slot); // the commit swizzle (full clip = full pixmap here)
+
+        let in_strip = |x: usize, y: usize| {
+            strips.iter().any(|r| {
+                (x as f32) >= r.origin.x
+                    && (x as f32) < r.origin.x + r.size.width
+                    && (y as f32) >= r.origin.y
+                    && (y as f32) < r.origin.y + r.size.height
+            })
+        };
+        let (a, b) = (slot.data(), reference.data());
+        for y in 0..h as usize {
+            for x in 0..w as usize {
+                if in_strip(x, y) {
+                    continue; // strips are repainted fresh in production
+                }
+                let o = (y * w as usize + x) * 4;
+                assert_eq!(
+                    &a[o..o + 4],
+                    &b[o..o + 4],
+                    "moved pixel recolored at {x},{y} — the double-swizzle bug"
+                );
+            }
+        }
+    }
+
+    /// NEGATIVE CONTROL for the law above: the SHIPPED-BUG combination (plain
+    /// shift + commit swizzle) must DIFFER from the pure byte-move in the
+    /// moved region — proving the law's comparison can fail. If this ever
+    /// passes with equality, the fixture can no longer express the bug and
+    /// the law is vacuous.
+    #[test]
+    fn nc_plain_shift_then_commit_swizzle_recolors_moved_pixels() {
+        let (w, h) = (32u32, 32u32);
+        let clip = rect(0.0, 0.0, 32.0, 32.0);
+        let mk = || {
+            let mut p = AzulPixmap::new(w, h).unwrap();
+            let d = p.data_mut();
+            for y in 0..h as usize {
+                for x in 0..w as usize {
+                    let o = (y * w as usize + x) * 4;
+                    d[o] = (10 + x) as u8;
+                    d[o + 1] = (100 + y) as u8;
+                    d[o + 2] = (200 - x) as u8;
+                    d[o + 3] = 255;
+                }
+            }
+            p
+        };
+        let swizzle_all = |p: &mut AzulPixmap| {
+            let d = p.data_mut();
+            for o in (0..d.len()).step_by(4) {
+                d.swap(o, o + 2);
+            }
+        };
+        let mut slot = mk();
+        swizzle_all(&mut slot);
+        let mut reference = mk();
+        swizzle_all(&mut reference);
+        let strips = scroll_shift_region_exact(&mut reference, &clip, (0.0, 8.0), (0.0, 8.0), 1.0);
+
+        let mut buggy = mk();
+        swizzle_all(&mut buggy);
+        let _ = scroll_shift_region_exact(&mut buggy, &clip, (0.0, 8.0), (0.0, 8.0), 1.0);
+        swizzle_all(&mut buggy); // commit swizzle double-converts the moved block
+
+        let in_strip = |x: usize, y: usize| {
+            strips.iter().any(|r| {
+                (x as f32) >= r.origin.x
+                    && (x as f32) < r.origin.x + r.size.width
+                    && (y as f32) >= r.origin.y
+                    && (y as f32) < r.origin.y + r.size.height
+            })
+        };
+        let (a, b) = (buggy.data(), reference.data());
+        let mut differs = 0usize;
+        for y in 0..h as usize {
+            for x in 0..w as usize {
+                if in_strip(x, y) {
+                    continue;
+                }
+                let o = (y * w as usize + x) * 4;
+                if a[o..o + 4] != b[o..o + 4] {
+                    differs += 1;
+                }
+            }
+        }
+        assert!(
+            differs > 0,
+            "the buggy combination did not recolor anything — the law above is vacuous"
+        );
     }
 
     #[test]
