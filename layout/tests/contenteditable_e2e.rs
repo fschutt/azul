@@ -1770,3 +1770,104 @@ mod structural_roundtrip {
         );
     }
 }
+
+/// #11 workbench: TODAY's incremental-edit baseline. Types 60 chars
+/// into an editable paragraph inside a DOCUMENT-SCALE page (200
+/// sibling paragraphs) and reports per-keystroke edit+render medians.
+/// The historical number was median 21.3 ms with an 8 ms target;
+/// the dense campaign + cascade fixes have all landed since.
+/// Informational (prints; asserts only sanity).
+#[test]
+fn probe_incremental_keystroke_median() {
+    let mut h = ContentEditableHarness::new(800.0, 600.0);
+
+    let mut body = Dom::create_body();
+    let mut editor = Dom::create_div();
+    editor = editor.with_ids_and_classes(cls("editor").into());
+    editor.set_contenteditable(true);
+    editor.set_tab_index(TabIndex::Auto);
+    editor = editor.with_child(Dom::create_text("Start: "));
+    body = body.with_child(editor);
+    for i in 0..200 {
+        body = body.with_child(
+            Dom::create_div().with_child(Dom::create_text(azul_css::AzString::from(
+                format!("Paragraph {i} with a reasonable amount of running text in it"),
+            ))),
+        );
+    }
+
+    h.layout_dom(body, CE_CSS);
+    let _warm = h.render();
+
+    let ce_nodes = h.find_contenteditable_nodes();
+    let dom_id = DomId { inner: 0 };
+    h.focus_node(dom_id, ce_nodes[0]);
+
+    let mut edit_times = Vec::new();
+    let mut render_times = Vec::new();
+    for i in 0..60 {
+        let ch = (b'a' + (i % 26) as u8) as char;
+        let t0 = std::time::Instant::now();
+        let _ = h.type_text(&ch.to_string());
+        let edit_dt = t0.elapsed();
+        let t1 = std::time::Instant::now();
+        let _ = h.render();
+        let render_dt = t1.elapsed();
+        edit_times.push(edit_dt);
+        render_times.push(render_dt);
+    }
+    // The PRODUCTION present path: damage-diff + clipped raster.
+    let mut damage_times = Vec::new();
+    let mut base = h.render();
+    let mut prev_dl = h.clone_display_list();
+    for i in 0..60 {
+        let ch = (b'a' + (i % 26) as u8) as char;
+        let _ = h.type_text(&ch.to_string());
+        let t0 = std::time::Instant::now();
+        let dl_after = h.clone_display_list();
+        let damage = cpurender::compute_display_list_damage(
+            &prev_dl,
+            &dl_after,
+            &cpurender::ScrollOffsetMap::new(),
+            &cpurender::ScrollOffsetMap::new(),
+        );
+        // None = full-repaint fallback (counted at its real cost).
+        match &damage {
+            Some(rects) => h.render_damaged(&mut base, rects),
+            None => base = h.render(),
+        }
+        damage_times.push(t0.elapsed());
+        prev_dl = dl_after;
+    }
+    damage_times.sort();
+    let med_d = damage_times[damage_times.len() / 2];
+    let p90_d = damage_times[damage_times.len() * 9 / 10];
+    eprintln!(
+        "[KEYSTROKE-PROBE] damage-present median={med_d:?} p90={p90_d:?}"
+    );
+
+    edit_times.sort();
+    render_times.sort();
+    let med_e = edit_times[edit_times.len() / 2];
+    let p90_e = edit_times[edit_times.len() * 9 / 10];
+    let med_r = render_times[render_times.len() / 2];
+    let p90_r = render_times[render_times.len() * 9 / 10];
+    eprintln!(
+        "[KEYSTROKE-PROBE] 60 keys @200-para doc: edit median={med_e:?} p90={p90_e:?} | \
+         render median={med_r:?} p90={p90_r:?} | TOTAL median={:?}",
+        med_e + med_r
+    );
+    // The production keystroke = edit + damage-present. Measured
+    // 2026-08-12: edit 4.98 ms + present 113 us on this fixture — the
+    // #11 target (median < 8 ms, from 21.3 ms) is met with margin.
+    // Generous CI bounds that still catch an order-of-magnitude
+    // regression:
+    assert!(
+        med_e < std::time::Duration::from_millis(15),
+        "edit median regressed: {med_e:?} (was ~5 ms; #11 target 8 ms)"
+    );
+    assert!(
+        med_d < std::time::Duration::from_millis(5),
+        "damage-present median regressed: {med_d:?} (was ~113 us)"
+    );
+}
