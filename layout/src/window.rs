@@ -7078,7 +7078,8 @@ impl LayoutWindow {
         let layout_idx = layout_tree.nodes.iter()
             .position(|n| n.dom_node_id == target_node_id)?;
         let warm = layout_tree.warm(layout_idx)?;
-        let inline_layout = &warm.inline_layout_result.as_ref()?.layout;
+        // (d6h) Materialized: sentinel-safe geometry (see the helper).
+        let inline_layout = Self::materialized_inline_layout(warm.inline_layout_result.as_ref()?);
         let calc_pos = self.layout_cache.calculated_positions.get(layout_idx)?;
 
         let mut min_x = f32::MAX;
@@ -10022,29 +10023,54 @@ impl LayoutWindow {
     /// layout: dense reconstruction when the view is retained
     /// (verify-A/B'd under AZ_DENSE_TEXT=verify), sparse read
     /// otherwise. The sparse arm dies at the d6 retirement.
+    /// (d6h) The stored inline layout, MATERIALIZED when it is the
+    /// retirement sentinel: the dense arrays expand (exact by the d6h
+    /// expansion gate) into a transient sparse copy for the human-rate
+    /// geometry readers — caret rect, selection rects, click hittest.
+    /// Flag-off / verify / non-pure layouts return the stored Arc
+    /// untouched.
+    fn materialized_inline_layout(
+        cached: &solver3::layout_tree::CachedInlineLayout,
+    ) -> Arc<UnifiedLayout> {
+        if cached.layout.items.is_empty() {
+            if let Some(d) = cached.dense.as_deref() {
+                if !d.clusters.is_empty() {
+                    return Arc::new(UnifiedLayout {
+                        items: d.to_unified_items(),
+                        overflow: cached.overflow.clone(),
+                    });
+                }
+            }
+        }
+        cached.layout.clone()
+    }
+
     fn cached_positioned_of(
         cached: &solver3::layout_tree::CachedInlineLayout,
         i: usize,
     ) -> (crate::text3::cache::Point, usize) {
-        let sparse = &cached.layout.items[i];
+        // (d6h) Dense FIRST, without touching the sparse items — the
+        // stored layout may be the retirement sentinel (empty), which
+        // must never be indexed. Verify mode retains the real sparse
+        // and the A/B assert stays armed there.
         if let Some(d) = cached.dense.as_deref() {
             if let Some((x, y, li)) = d.positioned_cluster(i as u32) {
                 if std::env::var("AZ_DENSE_TEXT").as_deref() == Ok("verify") {
-                    assert!(
-                        (sparse.position.x - x).abs() < 0.01
-                            && (sparse.position.y - y).abs() < 0.01
-                            && sparse.line_index == li,
-                        "d6g verify: positioned_cluster({i}) diverged: \
-                         sparse ({}, {}, {}) vs dense ({x}, {y}, {li})",
-                        sparse.position.x, sparse.position.y, sparse.line_index,
-                    );
+                    if let Some(sparse) = cached.layout.items.get(i) {
+                        assert!(
+                            (sparse.position.x - x).abs() < 0.01
+                                && (sparse.position.y - y).abs() < 0.01
+                                && sparse.line_index == li,
+                            "d6g verify: positioned_cluster({i}) diverged: \
+                             sparse ({}, {}, {}) vs dense ({x}, {y}, {li})",
+                            sparse.position.x, sparse.position.y, sparse.line_index,
+                        );
+                    }
                 }
-                let mut pos = sparse.position;
-                pos.x = x;
-                pos.y = y;
-                return (pos, li);
+                return (crate::text3::cache::Point { x, y }, li);
             }
         }
+        let sparse = &cached.layout.items[i];
         (sparse.position, sparse.line_index)
     }
 
@@ -10078,9 +10104,17 @@ impl LayoutWindow {
         //     overflow is not supported).
         //   - The new shape output has the same number of items as the
         //     cached positioned items, so we can zip 1:1.
+        // (d6h) The overflow guard reads the CAPTURED overflow (the
+        // stored layout may be the retirement sentinel); the count
+        // guard is dense-first for the same reason.
+        let cached_item_count = if cached.layout.items.is_empty() {
+            cached.dense.as_deref().map_or(0, |d| d.clusters.len())
+        } else {
+            cached.layout.items.len()
+        };
         let incremental_ok = cached.line_breaks.is_some()
-            && cached.layout.overflow.overflow_items.is_empty()
-            && shaped_items.len() == cached.layout.items.len();
+            && cached.overflow.overflow_items.is_empty()
+            && shaped_items.len() == cached_item_count;
 
         if incremental_ok {
             let line_breaks = cached.line_breaks.as_ref().unwrap();
@@ -10518,11 +10552,14 @@ impl LayoutWindow {
             .iter()
             .position(|node| node.dom_node_id == Some(node_id))?;
 
-        // Return the inline layout result (warm data)
+        // Return the inline layout result (warm data).
+        // (d6h) Materialized: sentinel-safe for every geometry/search
+        // caller of this accessor (caret scroll, selection paint,
+        // occurrence search).
         layout_tree.warm(layout_idx)?
             .inline_layout_result
             .as_ref()
-            .map(|b| b.clone_layout())
+            .map(|b| Self::materialized_inline_layout(b))
     }
 
     /// Edit the text content of a node (used for text input actions)
@@ -11003,7 +11040,8 @@ impl LayoutWindow {
         let layout_result = self.layout_results.get(&dom_id)?;
         let tree = &layout_result.layout_tree;
         let cached = tree.warm(layout_idx)?.inline_layout_result.as_ref()?;
-        let focus = cached.layout.hittest_cursor(local_pos)?;
+        // (d6h) Materialized: sentinel-safe click hittest.
+        let focus = Self::materialized_inline_layout(cached).hittest_cursor(local_pos)?;
 
         // Back inside the anchor block: a single-node range again.
         self.text_edit_manager.clear_cross_block_selection();
@@ -11082,7 +11120,8 @@ impl LayoutWindow {
             x: local.x.clamp(0.0, size.width.max(0.0)),
             y: local.y.clamp(0.0, size.height.max(0.0)),
         };
-        let cursor = cached.layout.hittest_cursor(clamped)?;
+        // (d6h) Materialized: sentinel-safe drag hittest.
+        let cursor = Self::materialized_inline_layout(cached).hittest_cursor(clamped)?;
         Some((node_dom_id, cursor))
     }
 

@@ -2997,7 +2997,8 @@ where
         // Get inline layout using the unified helper that handles IFC membership
         // This is critical: text nodes don't have their own inline_layout_result,
         // but they have ifc_membership pointing to their IFC root
-        let Some(layout) = self.positioned_tree.tree.get_inline_layout_for_node(node_index) else {
+        // (d6h) Materialized: sentinel-safe caret/selection geometry.
+        let Some(layout) = self.positioned_tree.tree.materialized_inline_layout_for_node(node_index) else {
             return Ok(());
         };
 
@@ -3108,7 +3109,8 @@ where
         }
 
         // Get inline layout
-        let Some(layout) = self.positioned_tree.tree.get_inline_layout_for_node(node_index) else {
+        // (d6h) Materialized: sentinel-safe caret/selection geometry.
+        let Some(layout) = self.positioned_tree.tree.materialized_inline_layout_for_node(node_index) else {
             return Ok(());
         };
 
@@ -4928,11 +4930,18 @@ where
         // Paint the node's visible content.
         if let Some(cached_layout) = node_warm.and_then(|w| w.inline_layout_result.as_ref()) {
             let inline_layout = &cached_layout.layout;
+            // (d6h) Dense-aware count: the stored sparse may be the
+            // retirement sentinel; logs should report the real content.
+            let logged_item_count = cached_layout
+                .dense
+                .as_deref()
+                .filter(|d| !d.clusters.is_empty())
+                .map_or(inline_layout.items.len(), |d| d.clusters.len());
             debug_info!(
                 self.ctx,
                 "[paint_node] node {} has inline_layout with {} items",
                 node_index,
-                inline_layout.items.len()
+                logged_item_count
             );
 
             if let Some(dom_id) = node.dom_node_id {
@@ -4943,7 +4952,7 @@ where
                     node_index,
                     node_type.get_node_type(),
                     paint_rect,
-                    inline_layout.items.len()
+                    logged_item_count
                 );
             }
 
@@ -6573,10 +6582,27 @@ fn clip_text_layout_item(
         return None;
     }
 
-    // (d5) TextPayload carries both forms; the clipper keeps reading the
-    // sparse half until the d6 retirement moves it onto the dense arrays.
+    // (d5/d6h) TextPayload carries both forms. Post-retirement the
+    // sparse half is the EMPTY sentinel — the clipper materializes the
+    // items from the dense arrays on demand (transient, export-time
+    // only; exactness pinned by the d6h expansion gate).
     #[cfg(feature = "text_layout")]
     if let Some(p) = layout.downcast_ref::<crate::solver3::layout_tree::TextPayload>() {
+        if p.sparse.items.is_empty() && !p.dense.clusters.is_empty() {
+            let expanded = crate::text3::cache::UnifiedLayout {
+                items: p.dense.to_unified_items(),
+                overflow: p.sparse.overflow.clone(),
+            };
+            return clip_unified_layout(
+                &expanded,
+                bounds,
+                font_hash,
+                font_size_px,
+                color,
+                page_top,
+                page_bottom,
+            );
+        }
         return clip_unified_layout(
             &p.sparse,
             bounds,

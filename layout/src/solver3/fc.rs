@@ -5733,6 +5733,11 @@ fn is_cell_empty(tree: &LayoutTree, cell_index: usize) -> bool {
             // Check if inline layout has any rendered content
             // Empty inline layouts have no items (glyphs/fragments)
             // Note: This is a heuristic - full detection requires text content analysis
+            // (d6h) Dense-first: the stored sparse may be the retirement
+            // sentinel (empty) while the dense view carries the content.
+            if let Some(d) = cached_layout.dense.as_deref() {
+                return d.clusters.is_empty();
+            }
             return cached_layout.layout.items.is_empty();
         }
     }

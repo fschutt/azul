@@ -498,6 +498,29 @@ mod engine {
                 // (d5) TextPayload carries both forms; the font-collection
                 // walk reads the sparse half until d6, when the dense
                 // run.font_hash walk replaces it.
+                // (d6h) Post-retirement the payload's sparse half is the
+                // EMPTY sentinel — the font hashes come straight from the
+                // dense runs (one per run instead of one per glyph).
+                if let Some(p) =
+                    layout.downcast_ref::<azul_layout::solver3::layout_tree::TextPayload>()
+                {
+                    if p.sparse.items.is_empty() && !p.dense.clusters.is_empty() {
+                        for run in &p.dense.runs {
+                            let key = FontHash { font_hash: run.font_hash };
+                            if font_data.contains_key(&key) {
+                                continue;
+                            }
+                            if let Some(font_ref) =
+                                font_manager.resolve_font_by_hash(run.font_hash)
+                            {
+                                let parsed =
+                                    azul_layout::font_ref_to_parsed_font(&font_ref).clone();
+                                font_data.insert(key, parsed);
+                            }
+                        }
+                        continue;
+                    }
+                }
                 let unified_from_payload = layout
                     .downcast_ref::<azul_layout::solver3::layout_tree::TextPayload>()
                     .map(|p| p.sparse.as_ref());

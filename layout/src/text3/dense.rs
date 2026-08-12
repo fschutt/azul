@@ -72,6 +72,12 @@ pub struct DenseRun {
     pub text: Arc<str>,
     /// Range into [`DenseText::clusters`].
     pub clusters: core::ops::Range<u32>,
+    /// (d6h) `ContentIndex.item_index` minus `start_byte`, constant per
+    /// run BY THE SPLIT below — reconstructs a cluster's
+    /// `source_content_index.item_index` as `item_base + start_byte`
+    /// (0 for plain runs; the segment offset for override-segmented
+    /// runs, closing the §10 "item-index-blind" gap).
+    pub item_base: u32,
     pub script: Script,
     /// Bidi direction — uniform per run BY CONSTRUCTION (the builder
     /// splits on it): mixed-bidi text in one styled run must not share a
@@ -115,6 +121,16 @@ pub struct DetailGlyph {
     pub advance: f32,
     pub offset_x: f32,
     pub offset_y: f32,
+    /// (d6h) The kerning HALF of `advance` — walkers keep consuming the
+    /// folded `advance`; the sparse expander un-folds via this.
+    pub kerning: f32,
+    /// (d6h) `ShapedGlyph::kind` — non-Character kinds (hyphen …) force
+    /// a detail entry so the expander can reproduce them.
+    pub kind: super::cache::GlyphKind,
+    /// (d6h) Vertical-text pair, exact-roundtrip completeness.
+    pub vertical_advance: f32,
+    pub vertical_offset_x: f32,
+    pub vertical_offset_y: f32,
 }
 
 /// The dense view of a laid-out IFC. Step 1: derived FROM the current
@@ -195,6 +211,14 @@ impl DenseText {
             // override-segmented runs, where the old content.get(run)
             // mapping was wrong — §10 finding 1), and one item's clusters
             // all share one Arc by construction.
+            // (d6h) The per-run item_base that reconstructs
+            // ContentIndex.item_index; wrapping_sub keeps a malformed
+            // (item_index < start_byte) pair from panicking — the run
+            // split still isolates it.
+            let item_base = c
+                .source_content_index
+                .item_index
+                .wrapping_sub(c.source_cluster_id.start_byte_in_run);
             let split = match &current_run {
                 None => true,
                 Some(r) => {
@@ -204,6 +228,7 @@ impl DenseText {
                         || r.source_run != c.source_cluster_id.source_run
                         || r.source_node != source_node
                         || r.direction != c.direction
+                        || r.item_base != item_base
                 }
             };
             if split {
@@ -229,6 +254,7 @@ impl DenseText {
                     // for EVERY case including override segments.
                     text: c.source_text.clone(),
                     clusters: cluster_index..cluster_index,
+                    item_base,
                     script,
                     direction: c.direction,
                 });
@@ -259,11 +285,19 @@ impl DenseText {
                 }
             }
 
-            // Detail side table for multi-glyph / offset clusters.
+            // Detail side table for multi-glyph / offset clusters —
+            // (d6h) non-Character kinds and vertical metrics also force
+            // an entry so the sparse expander loses nothing.
             let needs_detail = c.glyphs.len() != 1
-                || c.glyphs
-                    .first()
-                    .is_some_and(|g| g.offset.x != 0.0 || g.offset.y != 0.0 || g.kerning != 0.0);
+                || c.glyphs.first().is_some_and(|g| {
+                    g.offset.x != 0.0
+                        || g.offset.y != 0.0
+                        || g.kerning != 0.0
+                        || g.kind != super::cache::GlyphKind::Character
+                        || g.vertical_advance != 0.0
+                        || g.vertical_offset.x != 0.0
+                        || g.vertical_offset.y != 0.0
+                });
             if needs_detail {
                 let start = u32::try_from(dense.detail_glyphs.len()).unwrap_or(u32::MAX);
                 for g in c.glyphs.iter() {
@@ -273,6 +307,11 @@ impl DenseText {
                         advance: g.advance + g.kerning,
                         offset_x: g.offset.x,
                         offset_y: g.offset.y,
+                        kerning: g.kerning,
+                        kind: g.kind,
+                        vertical_advance: g.vertical_advance,
+                        vertical_offset_x: g.vertical_offset.x,
+                        vertical_offset_y: g.vertical_offset.y,
                     });
                 }
                 let end = u32::try_from(dense.detail_glyphs.len()).unwrap_or(u32::MAX);
@@ -283,9 +322,25 @@ impl DenseText {
                 });
             }
 
+            // (d6h) Bits 7-10 pack the ShapedCluster fields the compact
+            // record has no room for — DENSE-SIDE ONLY (classify() never
+            // sets them; equivalence pins mask them off).
+            let mut packed = c.flags.0;
+            if c.is_first_fragment {
+                packed |= super::cache::ClusterFlags::DENSE_IS_FIRST_FRAGMENT;
+            }
+            if c.is_last_fragment {
+                packed |= super::cache::ClusterFlags::DENSE_IS_LAST_FRAGMENT;
+            }
+            if let Some(outside) = c.marker_position_outside {
+                packed |= super::cache::ClusterFlags::DENSE_MARKER_SOME;
+                if outside {
+                    packed |= super::cache::ClusterFlags::DENSE_MARKER_OUTSIDE;
+                }
+            }
             dense.clusters.push(ClusterCompact {
                 glyph_id: first_glyph.map_or(0, |g| g.glyph_id),
-                flags: c.flags,
+                flags: super::cache::ClusterFlags(packed),
                 advance: c.advance,
                 start_byte: c.source_cluster_id.start_byte_in_run,
                 x: position.x,
@@ -503,11 +558,43 @@ impl DenseText {
         cursor
     }
 
-    /// (d6g) The sparse `PositionedItem` fields for cluster `i`:
-    /// `(x, y, line_index)` where `y` is the containing line's
-    /// `baseline_y` (recorded from `position.y` at build) and
-    /// `line_index` is the line's `source_index` (the sparse ordinal,
-    /// robust to cluster-less lines). `None` when `i` is out of range.
+    /// (d6h) The per-run resolved ascent — the baseline distance from an
+    /// item's TOP (metrics + half-leading), the same math the walkers
+    /// derive inline. What makes per-item `position.y` reconstructible
+    /// on MIXED-SIZE lines: the d6h expansion gate caught that sparse
+    /// `position.y` is per-item (baseline-aligned tops differ when font
+    /// sizes mix), while the line record's y is only the FIRST item's.
+    #[must_use]
+    pub fn resolved_run_ascent(run: &DenseRun) -> f32 {
+        let m = &run.font_metrics;
+        if m.units_per_em == 0 {
+            return 0.0;
+        }
+        let scale = run.style.font_size_px / f32::from(m.units_per_em);
+        let font_ascent = m.ascent * scale;
+        let font_descent = (-m.descent * scale).max(0.0);
+        let ad = font_ascent + font_descent;
+        let lh = run
+            .style
+            .line_height
+            .resolve_with_metrics(run.style.font_size_px, m);
+        font_ascent + (lh - ad) / 2.0
+    }
+
+    /// The run containing cluster `ci` (runs partition clusters in
+    /// order, so this is a binary search).
+    #[must_use]
+    pub fn run_of(&self, ci: u32) -> Option<&DenseRun> {
+        let idx = self.runs.partition_point(|r| r.clusters.end <= ci);
+        self.runs.get(idx).filter(|r| r.clusters.contains(&ci))
+    }
+
+    /// (d6g, y-semantics fixed in d6h) The sparse `PositionedItem`
+    /// fields for cluster `i`: `(x, y, line_index)`. `y` is the ITEM's
+    /// top — the line record's recorded first-item top, baseline-aligned
+    /// across mixed-size runs via the run ascents (same-run clusters
+    /// reduce to the recorded value). `line_index` is the line's
+    /// `source_index`. `None` when `i` is out of range.
     #[must_use]
     pub fn positioned_cluster(&self, i: u32) -> Option<(f32, f32, usize)> {
         let c = self.clusters.get(i as usize)?;
@@ -519,7 +606,128 @@ impl DenseText {
         if i < line.clusters.0 || i >= line.clusters.1 {
             return None;
         }
-        Some((c.x, line.baseline_y, line.source_index as usize))
+        let first_run = self.run_of(line.clusters.0)?;
+        let my_run = self.run_of(i)?;
+        // Same run ⟹ bit-exact recorded value (no float round-trip).
+        let y = if core::ptr::eq(first_run, my_run) {
+            line.baseline_y
+        } else {
+            line.baseline_y + Self::resolved_run_ascent(first_run)
+                - Self::resolved_run_ascent(my_run)
+        };
+        Some((c.x, y, line.source_index as usize))
+    }
+
+    /// (d6h) FULL sparse materialization: rebuild the `PositionedItem`
+    /// vec these arrays were built from — exact (`PartialEq`) for
+    /// pure-cluster layouts, pinned by the equivalence gate. Transient:
+    /// the page clipper (print/PDF) expands on demand once the retained
+    /// sparse form retires; nothing stores the result.
+    #[must_use]
+    pub fn to_unified_items(&self) -> Vec<PositionedItem> {
+        use super::cache::{
+            ClusterFlags, ContentIndex, GlyphKind, GraphemeClusterId, Point, ShapedCluster,
+            ShapedGlyph, ShapedGlyphVec, ShapedItem,
+        };
+        let mut out = Vec::with_capacity(self.clusters.len());
+        let mut line_cursor = 0usize;
+        let mut detail_cursor = 0usize;
+        for run in &self.runs {
+            let source_node_id =
+                (run.source_node != u32::MAX).then(|| NodeId::new(run.source_node as usize));
+            for ci in run.clusters.clone() {
+                let c = &self.clusters[ci as usize];
+                while line_cursor < self.lines.len() && self.lines[line_cursor].clusters.1 <= ci {
+                    line_cursor += 1;
+                }
+                let line = &self.lines[line_cursor.min(self.lines.len().saturating_sub(1))];
+                while detail_cursor < self.details.len()
+                    && self.details[detail_cursor].cluster < ci
+                {
+                    detail_cursor += 1;
+                }
+                let detail = self.details.get(detail_cursor).filter(|d| d.cluster == ci);
+                let glyphs: ShapedGlyphVec = match detail {
+                    Some(d) => (d.glyphs.0..d.glyphs.1)
+                        .map(|gi| {
+                            let dg = &self.detail_glyphs[gi as usize];
+                            ShapedGlyph {
+                                kind: dg.kind,
+                                glyph_id: dg.glyph_id,
+                                cluster_offset: u32::from(dg.cluster_offset),
+                                advance: dg.advance - dg.kerning,
+                                kerning: dg.kerning,
+                                offset: Point { x: dg.offset_x, y: dg.offset_y },
+                                vertical_advance: dg.vertical_advance,
+                                vertical_offset: Point {
+                                    x: dg.vertical_offset_x,
+                                    y: dg.vertical_offset_y,
+                                },
+                                script: run.script,
+                                font_hash: run.font_hash,
+                                font_metrics: run.font_metrics,
+                            }
+                        })
+                        .collect(),
+                    None => core::iter::once(ShapedGlyph {
+                        kind: GlyphKind::Character,
+                        glyph_id: c.glyph_id,
+                        cluster_offset: 0,
+                        advance: c.advance,
+                        kerning: 0.0,
+                        offset: Point { x: 0.0, y: 0.0 },
+                        vertical_advance: 0.0,
+                        vertical_offset: Point { x: 0.0, y: 0.0 },
+                        script: run.script,
+                        font_hash: run.font_hash,
+                        font_metrics: run.font_metrics,
+                    })
+                    .collect(),
+                };
+                let byte_len = detail.map_or_else(|| self.cluster_byte_len(ci), |d| d.byte_len);
+                let f = c.flags.0;
+                out.push(PositionedItem {
+                    item: ShapedItem::Cluster(ShapedCluster {
+                        source_text: run.text.clone(),
+                        source_byte_len: u16::try_from(byte_len).unwrap_or(u16::MAX),
+                        source_cluster_id: GraphemeClusterId {
+                            source_run: run.source_run,
+                            start_byte_in_run: c.start_byte,
+                        },
+                        source_content_index: ContentIndex {
+                            run_index: run.source_run,
+                            item_index: run.item_base.wrapping_add(c.start_byte),
+                        },
+                        source_node_id,
+                        glyphs,
+                        flags: ClusterFlags(f & ClusterFlags::CLASSIFY_MASK),
+                        advance: c.advance,
+                        direction: run.direction,
+                        style: run.style.clone(),
+                        marker_position_outside: (f & ClusterFlags::DENSE_MARKER_SOME != 0)
+                            .then(|| f & ClusterFlags::DENSE_MARKER_OUTSIDE != 0),
+                        is_first_fragment: f & ClusterFlags::DENSE_IS_FIRST_FRAGMENT != 0,
+                        is_last_fragment: f & ClusterFlags::DENSE_IS_LAST_FRAGMENT != 0,
+                    }),
+                    position: Point {
+                        x: c.x,
+                        // (d6h) Per-item y on mixed-size lines: the
+                        // record holds the line's FIRST item top;
+                        // baseline-align via run ascents. Same run ⟹
+                        // the recorded value bit-exactly.
+                        y: match self.run_of(line.clusters.0) {
+                            Some(fr) if !core::ptr::eq(fr, run) => {
+                                line.baseline_y + Self::resolved_run_ascent(fr)
+                                    - Self::resolved_run_ascent(run)
+                            }
+                            _ => line.baseline_y,
+                        },
+                    },
+                    line_index: line.source_index as usize,
+                });
+            }
+        }
+        out
     }
 
     /// (d6f) The single (direction, step) dispatch over the dense

@@ -150,7 +150,15 @@ fn dense_view_agrees_with_the_current_model() {
 
         for (i, ((item, c), dc)) in clusters.iter().zip(dense.clusters.iter()).enumerate() {
             assert_eq!(dc.start_byte, c.source_cluster_id.start_byte_in_run, "byte @{i}");
-            assert_eq!(dc.flags, c.flags, "flags @{i}");
+            // (d6h) Dense flags additionally pack fragment/marker bits
+            // (7-10); the classification bits must still match exactly.
+            assert_eq!(
+                azul_layout::text3::cache::ClusterFlags(
+                    dc.flags.0 & azul_layout::text3::cache::ClusterFlags::CLASSIFY_MASK
+                ),
+                c.flags,
+                "flags @{i}"
+            );
             assert!((dc.x - item.position.x).abs() < 0.01, "x @{i}");
         }
 
@@ -769,6 +777,46 @@ fn dense_word_and_line_movement_agree_with_the_sparse_walk() {
     }
 }
 
+/// (d6h) THE retirement gate: full sparse materialization from the
+/// dense arrays must reproduce `layout.items` EXACTLY (PartialEq) —
+/// every field, every glyph, every position — on pure-cluster layouts.
+/// Covers single-line, wrapped, ligature (ffi), and mixed-style-run
+/// cases; the mixed case exercises run boundaries + item_base.
+#[test]
+fn dense_expansion_reproduces_the_sparse_items_exactly() {
+    let mut cases: Vec<(String, UnifiedLayout, Vec<InlineContent>)> = Vec::new();
+    for (text, width) in [
+        ("hello dense world", 400.0),
+        ("a longer paragraph that will wrap across multiple lines of text", 120.0),
+        ("waffle office ffi", 400.0),
+    ] {
+        let (layout, content) = layout_of(text, width);
+        cases.push((text.to_string(), layout, content));
+    }
+    {
+        let font_ref = test_font_ref();
+        let content = vec![
+            styled("small ", &font_ref, 0, None, |_| {}),
+            styled("BIG", &font_ref, 6, None, |s| s.font_size_px = 32.0),
+        ];
+        let (layout, content, _) = layout_of_content(content, &font_ref, 400.0);
+        cases.push(("small+BIG two-run".to_string(), layout, content));
+    }
+    for (name, layout, content) in cases {
+        let dense = DenseText::from_unified_with_content(&layout, &content);
+        assert_eq!(
+            dense.clusters.len(),
+            layout.items.len(),
+            "pure-cluster corpus required ({name})"
+        );
+        let expanded = dense.to_unified_items();
+        assert_eq!(expanded.len(), layout.items.len(), "count ({name})");
+        for (i, (e, o)) in expanded.iter().zip(layout.items.iter()).enumerate() {
+            assert_eq!(e, o, "expansion diverges at item {i} ({name})");
+        }
+    }
+}
+
 /// (d6g) The FIELD-CHOICE pin for positioned_cluster, on a hand-built
 /// struct where `top_y != baseline_y` — the fakefont corpus cannot
 /// distinguish them (its lines have top == baseline), which made a
@@ -777,7 +825,7 @@ fn dense_word_and_line_movement_agree_with_the_sparse_walk() {
 /// i.e. the baseline), plus the out-of-range and source_index reads.
 #[test]
 fn dense_positioned_cluster_reads_the_baseline_not_the_top() {
-    use azul_layout::text3::dense::{ClusterCompact, DenseText, LineRecord};
+    use azul_layout::text3::dense::{ClusterCompact, DenseRun, DenseText, LineRecord};
     let mut d = DenseText::default();
     d.clusters.push(ClusterCompact {
         glyph_id: 0,
@@ -785,6 +833,28 @@ fn dense_positioned_cluster_reads_the_baseline_not_the_top() {
         advance: 10.0,
         start_byte: 0,
         x: 5.0,
+    });
+    // (d6h) positioned_cluster resolves the cluster's run for the
+    // mixed-size ascent correction; zero metrics ⟹ ascent 0 ⟹ the
+    // recorded y verbatim, keeping this a pure field-choice pin.
+    d.runs.push(DenseRun {
+        style: std::sync::Arc::new(azul_layout::text3::cache::StyleProperties::default()),
+        font_hash: 0,
+        font_metrics: azul_layout::text3::cache::LayoutFontMetrics {
+            ascent: 0.0,
+            descent: 0.0,
+            cap_height: None,
+            x_height: None,
+            line_gap: 0.0,
+            units_per_em: 0,
+        },
+        source_run: 0,
+        source_node: u32::MAX,
+        text: std::sync::Arc::from(""),
+        clusters: 0..1,
+        item_base: 0,
+        script: azul_layout::text3::script::Script::Latin,
+        direction: azul_layout::text3::cache::BidiDirection::Ltr,
     });
     d.lines.push(LineRecord {
         clusters: (0, 1),
@@ -805,14 +875,29 @@ fn dense_positioned_cluster_reads_the_baseline_not_the_top() {
 
 /// (d6g) positioned_cluster pin: every cluster's (x, y, line_index)
 /// reconstruction equals the sparse PositionedItem fields — including
-/// on wrapped multi-line layouts where source_index matters.
+/// on wrapped multi-line layouts where source_index matters, and (d6h)
+/// on a MIXED-SIZE line, where per-item y differs within one line (the
+/// case the uniform corpus could not express and d6g got wrong).
 #[test]
 fn dense_positioned_cluster_agrees_with_the_sparse_items() {
+    let mut cases: Vec<(String, UnifiedLayout, Vec<InlineContent>)> = Vec::new();
     for (text, width) in [
         ("hello dense world, punct. and_under scores!", 400.0),
         ("a longer paragraph that will wrap across multiple lines of text", 120.0),
     ] {
         let (layout, content) = layout_of(text, width);
+        cases.push((text.to_string(), layout, content));
+    }
+    {
+        let font_ref = test_font_ref();
+        let content = vec![
+            styled("small ", &font_ref, 0, None, |_| {}),
+            styled("BIG", &font_ref, 6, None, |s| s.font_size_px = 32.0),
+        ];
+        let (layout, content, _) = layout_of_content(content, &font_ref, 400.0);
+        cases.push(("small+BIG mixed line".to_string(), layout, content));
+    }
+    for (text, layout, content) in cases {
         let dense = DenseText::from_unified_with_content(&layout, &content);
         assert_eq!(
             dense.clusters.len(),

@@ -4696,6 +4696,21 @@ impl ClusterFlags {
     /// into the preceding base and is not a standalone caret stop.
     pub const GRAPHEME_CONTINUATION: u16 = 1 << 6;
 
+    /// (d6h) Everything below is DENSE-SIDE ONLY: set by
+    /// `DenseText::from_unified` to pack `ShapedCluster` fields the 16 B
+    /// compact record has no room for; `classify()` never sets them and
+    /// sparse↔dense flag comparisons must mask with
+    /// [`Self::CLASSIFY_MASK`].
+    pub const CLASSIFY_MASK: u16 = (1 << 7) - 1;
+    /// `ShapedCluster::is_first_fragment` (dense packing).
+    pub const DENSE_IS_FIRST_FRAGMENT: u16 = 1 << 7;
+    /// `ShapedCluster::is_last_fragment` (dense packing).
+    pub const DENSE_IS_LAST_FRAGMENT: u16 = 1 << 8;
+    /// `ShapedCluster::marker_position_outside.is_some()` (dense packing).
+    pub const DENSE_MARKER_SOME: u16 = 1 << 9;
+    /// `marker_position_outside == Some(true)` (dense packing).
+    pub const DENSE_MARKER_OUTSIDE: u16 = 1 << 10;
+
     #[must_use]
     pub fn classify(text: &str) -> Self {
         let mut bits = 0u16;
@@ -4931,7 +4946,7 @@ impl ShapedGlyph {
 
 // --- Stage 4: Positioned Representation (Final Layout) ---
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct PositionedItem {
     pub item: ShapedItem,
     pub position: Point,

@@ -2141,6 +2141,32 @@ pub fn spine_line_start_at_y(
         return None; // block-boundary break: whole block moves
     }
     let layout = tree.get_inline_layout_for_node(layout_idx)?;
+    // (d6h) Dense-first: the stored sparse may be the retirement
+    // sentinel. LineRecords give the tops in O(lines); the sparse arm
+    // remains as the flag-off path and the verify oracle.
+    if let Some(dense) = tree.get_dense_for_node(layout_idx) {
+        if !dense.clusters.is_empty() {
+            let result = spine_line_start_dense(dense, rel_y);
+            if crate::solver3::layout_tree::dense_text_mode() == 2 {
+                let sparse = spine_line_start_sparse(layout, rel_y);
+                assert_eq!(
+                    result, sparse,
+                    "d6h verify: spine_line_start dense vs sparse diverged at rel_y {rel_y}"
+                );
+            }
+            return result;
+        }
+    }
+    spine_line_start_sparse(layout, rel_y)
+}
+
+/// The sparse fold of [`spine_line_start_at_y`] — the pre-d6h body,
+/// kept as the flag-off path and the verify oracle.
+fn spine_line_start_sparse(
+    layout: &crate::text3::cache::UnifiedLayout,
+    rel_y: f32,
+) -> Option<azul_core::selection::ContentIndex> {
+    use crate::text3::cache::ShapedItem;
     // The line the break lands ON moves to the next page (a sliced line is
     // atomic; a break AT a line top moves that line). Identify it purely by
     // LINE TOPS — per-item heights are not trustworthy on this path — as
@@ -2178,6 +2204,55 @@ pub fn spine_line_start_at_y(
             | ShapedItem::Object { source, .. }
             | ShapedItem::Tab { source, .. }
             | ShapedItem::Break { source, .. } => *source,
+        };
+        if best
+            .as_ref()
+            .is_none_or(|s| (src.run_index, src.item_index) < (s.run_index, s.item_index))
+        {
+            best = Some(src);
+        }
+    }
+    best
+}
+
+/// (d6h) The dense twin of [`spine_line_start_sparse`]: line tops from
+/// `LineRecord` in O(lines). A line's sparse "top" is the MIN per-item y
+/// — on mixed-size lines that is `shared_baseline - max ascent over the
+/// line's runs`, reconstructed here exactly as the expander does.
+fn spine_line_start_dense(
+    dense: &crate::text3::dense::DenseText,
+    rel_y: f32,
+) -> Option<azul_core::selection::ContentIndex> {
+    use crate::text3::dense::DenseText;
+    let line_top = |l: &crate::text3::dense::LineRecord| -> f32 {
+        let Some(first_run) = dense.run_of(l.clusters.0) else {
+            return l.baseline_y;
+        };
+        let base = l.baseline_y + DenseText::resolved_run_ascent(first_run);
+        let mut top = f32::MAX;
+        let mut ci = l.clusters.0;
+        while ci < l.clusters.1 {
+            let Some(r) = dense.run_of(ci) else { break };
+            top = top.min(base - DenseText::resolved_run_ascent(r));
+            ci = r.clusters.end.max(ci + 1);
+        }
+        if top == f32::MAX { l.baseline_y } else { top }
+    };
+    let straddler = dense
+        .lines
+        .iter()
+        .filter(|l| line_top(l) <= rel_y + 0.5)
+        .max_by(|a, b| line_top(a).total_cmp(&line_top(b)))?;
+    if straddler.source_index == 0 {
+        return None;
+    }
+    let mut best: Option<azul_core::selection::ContentIndex> = None;
+    for ci in straddler.clusters.0..straddler.clusters.1 {
+        let c = &dense.clusters[ci as usize];
+        let run = dense.run_of(ci)?;
+        let src = azul_core::selection::ContentIndex {
+            run_index: run.source_run,
+            item_index: c.start_byte,
         };
         if best
             .as_ref()

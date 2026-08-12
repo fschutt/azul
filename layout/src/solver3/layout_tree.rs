@@ -237,8 +237,19 @@ pub struct CachedInlineContent {
 /// - Ensure the final render always uses a layout computed with correct widths
 #[derive(Debug, Clone)]
 pub struct CachedInlineLayout {
-    /// The computed inline layout
+    /// The computed inline layout.
+    ///
+    /// (d6h RETIREMENT) Under `AZ_DENSE_TEXT=1`, when the dense view is
+    /// retained AND covers every item (pure clusters), this holds a
+    /// SHARED EMPTY sentinel instead of the real thing — the ~192 B/item
+    /// sparse retention is the campaign's target. Every production
+    /// reader is dense-first by d1-d6h; `verify` mode retains BOTH and
+    /// A/B-asserts; flag-off is unchanged. `overflow` (below) carries
+    /// the one field the sentinel loses.
     pub layout: Arc<UnifiedLayout>,
+    /// (d6h) The real layout's overflow info, captured at store time —
+    /// the incremental-relayout guard reads it after the sentinel swap.
+    pub overflow: crate::text3::cache::OverflowInfo,
     /// The available width constraint used to compute this layout.
     /// This is the key for cache validity checking.
     /// +spec:writing-modes:1dcba2 - "available width" (CSS2.1) = auto size in inline axis
@@ -316,13 +327,17 @@ fn compute_glyph_runs(
     Vec<crate::text3::glyphs::SimpleGlyphRun>,
     Option<Arc<crate::text3::dense::DenseText>>,
 ) {
+    compute_glyph_runs_with_mode(layout, dense_text_mode())
+}
+
+/// The process-wide `AZ_DENSE_TEXT` mode: 0 off, 1 on, 2 verify.
+pub(crate) fn dense_text_mode() -> u8 {
     static MODE: std::sync::OnceLock<u8> = std::sync::OnceLock::new();
-    let mode = *MODE.get_or_init(|| match std::env::var("AZ_DENSE_TEXT").as_deref() {
+    *MODE.get_or_init(|| match std::env::var("AZ_DENSE_TEXT").as_deref() {
         Ok("1") => 1,
         Ok("verify") => 2,
         _ => 0,
-    });
-    compute_glyph_runs_with_mode(layout, mode)
+    })
 }
 
 /// Testable core of [`compute_glyph_runs`] — `mode` injected so the d1
@@ -441,9 +456,13 @@ impl CachedInlineLayout {
         let (runs, dense) = compute_glyph_runs(&layout);
         let glyph_runs = Arc::new(runs);
         let item_metrics = Self::choose_item_metrics(&layout, dense.as_deref());
+        let (layout, overflow) = Self::retire_sparse(layout, dense.as_deref());
+        // Payload built from the STORED form — under the retirement the
+        // sparse half is the sentinel and consumers expand from dense.
         let payload = Self::build_payload(&layout, dense.as_ref());
         Self {
             layout,
+            overflow,
             available_width,
             has_floats,
             constraints: None,
@@ -473,9 +492,13 @@ impl CachedInlineLayout {
         let (runs, dense) = compute_glyph_runs(&layout);
         let glyph_runs = Arc::new(runs);
         let item_metrics = Self::choose_item_metrics(&layout, dense.as_deref());
+        let (layout, overflow) = Self::retire_sparse(layout, dense.as_deref());
+        // Payload built from the STORED form — under the retirement the
+        // sparse half is the sentinel and consumers expand from dense.
         let payload = Self::build_payload(&layout, dense.as_ref());
         Self {
             layout,
+            overflow,
             available_width,
             has_floats,
             constraints: Some(constraints),
@@ -486,6 +509,37 @@ impl CachedInlineLayout {
             dense,
             inline_content_hash: 0,
         }
+    }
+
+    /// (d6h) THE RETIREMENT: under `AZ_DENSE_TEXT=1`, a pure-cluster
+    /// layout whose dense view is retained stores a SHARED EMPTY
+    /// sentinel in `layout` — the per-item sparse retention (the
+    /// campaign's ~192 B/cluster target) drops here. The real overflow
+    /// info is captured first (the incremental guard reads it).
+    /// `verify` mode (2) retains BOTH so every dense-first arm keeps
+    /// A/B-asserting; flag-off (0) is byte-for-byte unchanged.
+    fn retire_sparse(
+        layout: Arc<UnifiedLayout>,
+        dense: Option<&crate::text3::dense::DenseText>,
+    ) -> (Arc<UnifiedLayout>, crate::text3::cache::OverflowInfo) {
+        let overflow = layout.overflow.clone();
+        // Empty layouts are skipped: nothing to save, and the identity
+        // swap would be pure Arc churn (unit fixtures rely on ptr_eq).
+        let fully_covered = !layout.items.is_empty()
+            && dense.is_some_and(|d| d.clusters.len() == layout.items.len());
+        if dense_text_mode() == 1 && fully_covered {
+            static EMPTY: std::sync::OnceLock<Arc<UnifiedLayout>> = std::sync::OnceLock::new();
+            let sentinel = EMPTY
+                .get_or_init(|| {
+                    Arc::new(UnifiedLayout {
+                        items: Vec::new(),
+                        overflow: crate::text3::cache::OverflowInfo::default(),
+                    })
+                })
+                .clone();
+            return (sentinel, overflow);
+        }
+        (layout, overflow)
     }
 
     /// (d5) The cache-stable DL payload — see the `payload` field.
@@ -1412,6 +1466,31 @@ impl LayoutTree {
             }
         }
         None
+    }
+
+    /// (d6h) The stored inline layout for a node, MATERIALIZED when it
+    /// is the retirement sentinel: dense expands (exact by the d6h
+    /// expansion gate) into a transient copy for geometry readers —
+    /// the caret and selection painters. Flag-off / verify / non-pure
+    /// layouts return the stored Arc untouched.
+    #[must_use]
+    pub fn materialized_inline_layout_for_node(
+        &self,
+        layout_index: usize,
+    ) -> Option<Arc<UnifiedLayout>> {
+        let warm = self.warm(layout_index)?;
+        let cached = warm.inline_layout_result.as_ref()?;
+        if cached.layout.items.is_empty() {
+            if let Some(d) = cached.dense.as_deref() {
+                if !d.clusters.is_empty() {
+                    return Some(Arc::new(UnifiedLayout {
+                        items: d.to_unified_items(),
+                        overflow: cached.overflow.clone(),
+                    }));
+                }
+            }
+        }
+        Some(cached.layout.clone())
     }
 
     #[must_use] pub fn get_inline_layout_for_node(&self, layout_index: usize) -> Option<&Arc<UnifiedLayout>> {
