@@ -385,3 +385,21 @@ fn gallery_overflow_is_clipped_at_paint_time() {
          {leaks:?} — the live-run 'Styles drawn over Editing'"
     );
 }
+
+/// #15 yield probe: what does the CASCADE actually cost at current
+/// scale? (StyledDom::create on the ribbon DOM, timed.) Informational.
+#[test]
+fn probe_cascade_cost() {
+    let (css, _) = azul_css::parser2::new_from_str("");
+    for _ in 0..3 {
+        let mut dom = word_like_ribbon();
+        let t0 = std::time::Instant::now();
+        let styled = StyledDom::create(&mut dom, css.clone());
+        let dt = t0.elapsed();
+        eprintln!(
+            "[CASCADE-PROBE] {} nodes cascaded in {:?}",
+            styled.node_data.as_ref().len(),
+            dt
+        );
+    }
+}

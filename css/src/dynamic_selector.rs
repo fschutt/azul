@@ -886,8 +886,19 @@ pub const DEFAULT_VIEWPORT_WIDTH: f32 = 800.0;
 pub const DEFAULT_VIEWPORT_HEIGHT: f32 = 600.0;
 
 /// Context for evaluating dynamic selectors
+///
+/// `PartialEq` is IMPLEMENTED MANUALLY (not derived): `container_width`
+/// / `container_height` use `f32::NAN` as the "no container" sentinel,
+/// and derived float equality makes NaN != NaN — so two identical
+/// contexts never compared equal, `set_dynamic_selector_context`'s
+/// early return never fired, and EVERY context set paid a full author
+/// restyle (~2-4 ms at document scale, measured by the
+/// media_restyle_cost workbench). The manual impl compares the f32
+/// fields by bit pattern, which treats the NaN sentinel as equal to
+/// itself and is exactly the "did anything change" question this
+/// equality exists to answer.
 #[repr(C)]
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone)]
 pub struct DynamicSelectorContext {
     /// Operating system info
     pub os: OsCondition,
@@ -929,6 +940,31 @@ pub struct DynamicSelectorContext {
     /// Whether the window currently has focus (for :backdrop pseudo-class)
     /// When false, :backdrop styles should be applied
     pub window_focused: bool,
+}
+
+impl PartialEq for DynamicSelectorContext {
+    fn eq(&self, other: &Self) -> bool {
+        // f32 fields by BIT pattern: the NaN "no container" sentinel must
+        // equal itself (see the struct doc — derived float equality made
+        // every context set pay a full restyle).
+        self.os == other.os
+            && self.os_version == other.os_version
+            && self.desktop_env == other.desktop_env
+            && self.de_version == other.de_version
+            && self.theme == other.theme
+            && self.media_type == other.media_type
+            && self.viewport_width.to_bits() == other.viewport_width.to_bits()
+            && self.viewport_height.to_bits() == other.viewport_height.to_bits()
+            && self.container_width.to_bits() == other.container_width.to_bits()
+            && self.container_height.to_bits() == other.container_height.to_bits()
+            && self.container_name == other.container_name
+            && self.prefers_reduced_motion == other.prefers_reduced_motion
+            && self.prefers_high_contrast == other.prefers_high_contrast
+            && self.orientation == other.orientation
+            && self.pseudo_state == other.pseudo_state
+            && self.language == other.language
+            && self.window_focused == other.window_focused
+    }
 }
 
 impl Default for DynamicSelectorContext {

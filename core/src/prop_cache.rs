@@ -1204,12 +1204,21 @@ impl CssPropertyCache {
             //
             // css_props is rebuilt from scratch each restyle (repopulated below,
             // flattened at the end), so replace it with a fresh build-phase vec.
-            // cascaded_props must PRESERVE its contents — restyle READS parents'
-            // cascaded slices to inherit, and it accumulates across restyles with
-            // or_insert dedup — so un-flatten it in place instead of clearing.
+            //
+            // cascaded_props is rebuilt from scratch TOO (2026-08-12): the old
+            // preserve-and-or_insert approach LEAKED properties of rules whose
+            // @-condition turned OFF — a color inherited under a min-width
+            // block survived in every descendant after crossing below it, so
+            // wide and narrow styling applied SIMULTANEOUSLY (the
+            // media_restyle_cost law pin caught it). Preservation is
+            // unnecessary: the inheritance walk is top-down (parents' fresh
+            // slices are written before children read them — the same
+            // ordering css_props relies on), so a fresh build-phase vec
+            // repopulates completely. The historical reason for preserving
+            // was a phase-bug in the old clear, not a data dependency.
             let node_count = self.css_props.len();
             self.css_props = FlatVecVec::new(node_count);
-            self.cascaded_props.ensure_build_phase();
+            self.cascaded_props = FlatVecVec::new(node_count);
 
             // Collect global-only rule declarations ONCE (not per-node).
             // These are stored in self.global_css_props and applied during
