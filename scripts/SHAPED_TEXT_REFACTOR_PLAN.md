@@ -1378,7 +1378,19 @@ Deferred follow-ups (size-only, correctness intact): item_base
 run-split degeneracy on unpopulated-item_index paths (~25 KB/IFC);
 glyph_runs paint cache is the remaining per-glyph retention
 (~5-6 MB, predates the campaign; next big target with LayoutFontMetrics
-sharing); mimalloc A/B (user idea — glibc baseline banked above).
+sharing).
+
+mimalloc A/B (user idea): RUN 2026-08-12, CLOSED — glibc WINS.
+Same corpus/protocol, `-F azul-dll/allocator_mimalloc` (existing
+feature, mimalloc confirmed active via /proc/maps): **127.7 MB RSS
+vs 121.5 glibc** (+6.2 MB, ~5% worse). Expected in hindsight: the
+campaign moved the allocation profile to few large flat arrays +
+segmented caches — glibc's best regime (hence the 6-7% slack / 0
+releasable above) — while mimalloc pays fixed per-segment arena
+overhead. Its tiny `[heap]` figure (760 kB) is an artifact of mmap
+arenas, not a win; RSS is the honest total. glibc stays the default;
+the `allocator_mimalloc`/`allocator_jemalloc` features remain for
+hosts with small-object-churn profiles.
 
 ### §10.5 external yardstick (2026-08-11, measured on this machine)
 
