@@ -212,6 +212,21 @@ pub struct CpuBackend {
     /// the hint is gated on ptr inequality (the retry then takes the plain
     /// diff, which damages the movers normally).
     pub last_patch_shift_dl: usize,
+    /// #27 native backbuffer: when set, the NEXT `render_frame` draws
+    /// DIRECTLY into this externally-owned pixmap (a platform backbuffer,
+    /// e.g. the free Wayland shm slot) instead of the owned `last_frame`.
+    /// Shell contract: the buffer (a) matches the frame's pixel dimensions,
+    /// (b) already holds the previous frame's pixels (cross-slot catch-up),
+    /// (c) outlives the call, and (d) the shell clears this field after the
+    /// call (dangle guard — the mapping dies with the pool). Consumed by
+    /// `render_frame`; `last_frame` stays `None` afterwards. Never set in
+    /// headless/e2e runs.
+    #[cfg(feature = "cpurender")]
+    pub native_target: Option<azul_layout::cpurender::AzulPixmap>,
+    /// True when the LAST `render_frame` drew into a `native_target` — the
+    /// shell branches its present on this (the pixels are already in the
+    /// platform buffer; there is nothing to copy).
+    pub rendered_native: bool,
     /// Scroll offsets from the previous frame (scroll_id → (x,y)). Used to detect
     /// scroll-offset changes and damage the affected frame's viewport so its
     /// content re-renders at the new offset (#13 — the display list is unchanged
@@ -264,6 +279,9 @@ impl CpuBackend {
             last_present_damage: FrameDamage::None,
             last_patch_shift_dl: 0,
             #[cfg(feature = "cpurender")]
+            native_target: None,
+            rendered_native: false,
+            #[cfg(feature = "cpurender")]
             previous_scroll_offsets: azul_layout::cpurender::ScrollOffsetMap::new(),
             #[cfg(feature = "cpurender")]
             previous_vview_dls: std::collections::BTreeMap::new(),
@@ -293,6 +311,9 @@ impl CpuBackend {
     ) -> Vec<azul_core::geom::LogicalRect> {
         use azul_core::dom::DomId;
         use azul_layout::cpurender;
+
+        // #27: describes THIS call only — set at target acquisition below.
+        self.rendered_native = false;
 
         // Every early return below must leave `last_frame_damage` /
         // `last_present_damage` describing THIS call ("nothing changed"), not
@@ -645,22 +666,53 @@ impl CpuBackend {
             all_damage.extend(gpu_damage.rects.iter().copied());
         }
 
-        // Acquire output pixmap — reuse buffer for both grow and shrink
-        let mut output = match self.last_frame.take() {
-            Some(p) if p.width() == pixel_w && p.height() == pixel_h => p,
-            Some(mut p) => {
-                p.resize_reuse(pixel_w, pixel_h, 255, 255, 255, 255);
-                p
+        // #27 native backbuffer: a platform shell may hand the free shm slot
+        // as the render target — the frame is then rasterised IN PLACE inside
+        // the window's own buffer and no owned copy is retained. The shell
+        // guarantees the buffer already holds the PREVIOUS frame (cross-slot
+        // catch-up) and outlives this call; dimensions are re-checked here so
+        // a configure race falls back to the owned path instead of clipping.
+        let native = match self.native_target.take() {
+            Some(ext) if ext.width() == pixel_w && ext.height() == pixel_h => Some(ext),
+            Some(ext) => {
+                log_error!(
+                    LogCategory::Rendering,
+                    "[native-bb] armed target {}x{} != frame {}x{} — owned-path fallback",
+                    ext.width(),
+                    ext.height(),
+                    pixel_w,
+                    pixel_h
+                );
+                None
             }
-            None => match cpurender::AzulPixmap::new(pixel_w, pixel_h) {
-                Some(mut p) => { p.fill(255, 255, 255, 255); p }
-                None => {
-                    // Same contract as the early returns at the top: a call
-                    // that produced no frame must not leave stale damage.
-                    self.last_frame_damage = FrameDamage::None;
-                    self.last_present_damage = FrameDamage::None;
-                    return Vec::new();
+            None => None,
+        };
+        self.rendered_native = native.is_some();
+
+        // Acquire output pixmap — reuse buffer for both grow and shrink
+        let mut output = match native {
+            Some(ext) => {
+                // The platform buffer replaces the retained frame wholesale
+                // (keeping an owned copy would defeat #27).
+                self.last_frame = None;
+                ext
+            }
+            None => match self.last_frame.take() {
+                Some(p) if p.width() == pixel_w && p.height() == pixel_h => p,
+                Some(mut p) => {
+                    p.resize_reuse(pixel_w, pixel_h, 255, 255, 255, 255);
+                    p
                 }
+                None => match cpurender::AzulPixmap::new(pixel_w, pixel_h) {
+                    Some(mut p) => { p.fill(255, 255, 255, 255); p }
+                    None => {
+                        // Same contract as the early returns at the top: a call
+                        // that produced no frame must not leave stale damage.
+                        self.last_frame_damage = FrameDamage::None;
+                        self.last_present_damage = FrameDamage::None;
+                        return Vec::new();
+                    }
+                },
             },
         };
 
@@ -984,7 +1036,14 @@ impl CpuBackend {
         } else {
             scroll_offsets.clone()
         };
-        self.last_frame = Some(output);
+        if output.is_external() {
+            // #27: the pixels live in the platform's backbuffer and the shell
+            // presents them from there. Retaining the borrowed wrapper would
+            // dangle once the shm pool is recreated — keep nothing.
+            self.last_frame = None;
+        } else {
+            self.last_frame = Some(output);
+        }
         self.last_frame_damage = if is_incremental {
             FrameDamage::Rects(all_damage.clone())
         } else {
@@ -3100,6 +3159,135 @@ mod tests {
                  anonymous-box change. damage = {damage:?}"
             );
         }
+    }
+
+    /// #27 native backbuffer: `render_frame` with an armed `native_target`
+    /// draws EXACTLY the pixels the owned path produces — first full frame
+    /// and every incremental follow-up — while retaining nothing: the frame
+    /// lives ONLY in the external buffer (`last_frame` stays `None`, the
+    /// target is consumed). The external buffer stands in for the Wayland shm
+    /// slot; a single buffer trivially satisfies the shell's catch-up
+    /// contract (it always holds frame N−1), so what this pins is the engine
+    /// half: incremental rendering on top of an externally-owned base is
+    /// bit-equal to rendering on the retained pixmap.
+    #[test]
+    fn native_target_render_matches_owned_and_retains_nothing() {
+        #[derive(Debug, Clone)]
+        struct NbState {
+            variant: usize,
+        }
+
+        extern "C" fn layout_nb(mut data: RefAny, _info: LayoutCallbackInfo) -> Dom {
+            use azul_css::dynamic_selector::CssPropertyWithConditions as P;
+            use azul_css::props::basic::color::ColorU;
+            use azul_css::props::layout::dimensions::{LayoutHeight, LayoutWidth};
+            use azul_css::props::property::CssProperty;
+            use azul_css::props::style::background::{
+                StyleBackgroundContent, StyleBackgroundContentVec,
+            };
+
+            let v = data.downcast_ref::<NbState>().map(|s| s.variant).unwrap_or(0);
+            let bg: StyleBackgroundContentVec =
+                vec![StyleBackgroundContent::Color(ColorU { r: 200, g: 30, b: 30, a: 255 })]
+                    .into();
+            // Sizes change per step, item count stays stable → the frames
+            // after the first take the INCREMENTAL path (asserted below).
+            let (w, h) = match v % 3 {
+                0 => (180.0, 90.0),
+                1 => (70.0, 40.0),
+                _ => (220.0, 120.0),
+            };
+            let div = Dom::create_div()
+                .with_css_props(
+                    vec![
+                        P::simple(CssProperty::width(LayoutWidth::px(w))),
+                        P::simple(CssProperty::height(LayoutHeight::px(h))),
+                        P::simple(CssProperty::background_content(bg)),
+                    ]
+                    .into(),
+                )
+                .with_child(Dom::create_text("native backbuffer"));
+            Dom::create_body().with_child(div)
+        }
+
+        let state = Arc::new(RefCell::new(RefAny::new(NbState { variant: 0 })));
+        let mut nat = make_window_with(&state, layout_nb);
+        let mut own = make_window_with(&state, layout_nb);
+        nat.regenerate_layout().expect("nat initial");
+        own.regenerate_layout().expect("own initial");
+
+        // The "slot": a heap buffer standing in for the shm mapping, seeded
+        // with frame 1 so it starts caught-up.
+        let seed = nat
+            .cpu_backend
+            .last_frame
+            .as_ref()
+            .expect("frame 1")
+            .clone_pixmap();
+        let (pw, ph) = (seed.width(), seed.height());
+        let mut slot = seed.data().to_vec();
+        drop(seed);
+
+        let mut saw_incremental = false;
+        for step in 1..6usize {
+            if let Ok(mut b) = state.try_borrow_mut() {
+                if let Some(mut s) = b.downcast_mut::<NbState>() {
+                    s.variant = step;
+                }
+            }
+            // Arm: this frame renders DIRECTLY into the external buffer.
+            nat.cpu_backend.native_target = unsafe {
+                azul_layout::cpurender::AzulPixmap::from_external(slot.as_mut_ptr(), pw, ph)
+            };
+            nat.regenerate_layout().expect("native incremental");
+            assert!(
+                nat.cpu_backend.rendered_native,
+                "step {step}: armed target was not rendered into"
+            );
+            assert!(
+                nat.cpu_backend.last_frame.is_none(),
+                "step {step}: native mode retained an owned frame"
+            );
+            assert!(
+                nat.cpu_backend.native_target.is_none(),
+                "step {step}: target not consumed"
+            );
+            let native_damage = nat.cpu_backend.last_frame_damage.clone();
+            if matches!(native_damage, FrameDamage::Rects(_)) {
+                saw_incremental = true;
+            }
+
+            own.regenerate_layout().expect("owned incremental");
+            let reference = own
+                .cpu_backend
+                .last_frame
+                .as_ref()
+                .expect("owned frame")
+                .clone_pixmap();
+            let b = reference.data();
+            assert_eq!(slot.len(), b.len(), "step {step}: size mismatch");
+            let mut diffs = 0usize;
+            let mut first: Option<(u32, u32)> = None;
+            for i in (0..slot.len()).step_by(4) {
+                if slot[i] != b[i] || slot[i + 1] != b[i + 1] || slot[i + 2] != b[i + 2] {
+                    diffs += 1;
+                    if first.is_none() {
+                        let px = (i / 4) as u32;
+                        first = Some((px % pw, px / pw));
+                    }
+                }
+            }
+            assert_eq!(
+                diffs, 0,
+                "step {step}: external buffer diverges from the owned render at {diffs} px, \
+                 first {first:?} — native damage {native_damage:?}"
+            );
+        }
+        assert!(
+            saw_incremental,
+            "every step took the full-repaint path — the external-base \
+             incremental law was never exercised"
+        );
     }
 
     /// Cache GC must run on IDLE frames and not while the user is typing.

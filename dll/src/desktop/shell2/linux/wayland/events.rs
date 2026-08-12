@@ -82,6 +82,24 @@ static XDG_WM_BASE_LISTENER: xdg_wm_base_listener = xdg_wm_base_listener {
     ping: xdg_wm_base_ping_handler,
 };
 
+/// `wl_shm.format`: records ABGR8888 support (#27 native backbuffer — that
+/// format's memory byte order matches the CPU renderer's RGBA output).
+/// Formats are a property of the compositor, not of a window, so a
+/// process-global flag is correct even with multiple windows.
+extern "C" fn wl_shm_format_handler(
+    _data: *mut c_void,
+    _shm: *mut defines::wl_shm,
+    format: u32,
+) {
+    if format == defines::WL_SHM_FORMAT_ABGR8888 {
+        super::SHM_ABGR8888_ADVERTISED.store(true, core::sync::atomic::Ordering::Relaxed);
+    }
+}
+
+static WL_SHM_LISTENER: wl_shm_listener = wl_shm_listener {
+    format: wl_shm_format_handler,
+};
+
 static WL_SEAT_LISTENER: wl_seat_listener = wl_seat_listener {
     capabilities: seat_capabilities_handler,
     name: seat_name_handler,
@@ -377,6 +395,20 @@ pub(super) extern "C" fn registry_global_handler(
                     1,
                 ) as *mut _
             };
+            // #27 native backbuffer: learn which pixel formats the compositor
+            // accepts. The format events arrive on the next dispatch, i.e.
+            // during window setup's later roundtrips — before the first shm
+            // pool is created. If they never arrive the flag simply stays
+            // false and pools stay ARGB8888 (legacy swizzle path).
+            if !window.shm.is_null() {
+                unsafe {
+                    (window.wayland.wl_proxy_add_listener)(
+                        window.shm as *mut wl_proxy,
+                        &WL_SHM_LISTENER as *const _ as *const c_void,
+                        std::ptr::null_mut(),
+                    );
+                }
+            }
         }
         "xdg_wm_base" => {
             window.xdg_wm_base = unsafe {

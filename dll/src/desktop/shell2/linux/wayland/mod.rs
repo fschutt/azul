@@ -268,6 +268,30 @@ struct ShmSlot {
     stale: Vec<(i32, i32, i32, i32)>,
     /// Too many stale rects accumulated → full copy on next use.
     stale_overflow: bool,
+    /// This slot has held at least one COMPLETE frame (full render or full
+    /// cross-slot copy). Until then partial catch-up is meaningless — the
+    /// slot's other pixels are undefined (#27).
+    valid: bool,
+}
+
+/// Set to `true` by the `wl_shm.format` listener when the compositor
+/// advertises ABGR8888 (bytes R,G,B,A in LE memory = the CPU renderer's
+/// output order). Compositor-global, hence process-global (#27).
+pub(crate) static SHM_ABGR8888_ADVERTISED: core::sync::atomic::AtomicBool =
+    core::sync::atomic::AtomicBool::new(false);
+
+/// #27 native-backbuffer master switch: `AZ_NATIVE_BACKBUFFER=0` forces the
+/// legacy owned-pixmap + swizzle-copy present (also the automatic fallback
+/// when the compositor never advertises ABGR8888). NOTE: in native mode
+/// `CpuBackend.last_frame` stays `None` — tools that read the retained frame
+/// (live screenshot dumps) need `AZ_NATIVE_BACKBUFFER=0`.
+fn native_backbuffer_enabled() -> bool {
+    static ON: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    *ON.get_or_init(|| {
+        std::env::var("AZ_NATIVE_BACKBUFFER")
+            .map(|v| v != "0")
+            .unwrap_or(true)
+    })
 }
 
 struct CpuFallbackState {
@@ -287,6 +311,12 @@ struct CpuFallbackState {
     stride: i32,
     /// Integer buffer scale (`wl_surface.set_buffer_scale`); 1 on non-HiDPI.
     scale: i32,
+    /// Pixel format the pool's buffers were created with:
+    /// `WL_SHM_FORMAT_ABGR8888` (renderer byte order — presents copy rows
+    /// verbatim and the renderer may target a slot DIRECTLY, #27) or the
+    /// mandatory `WL_SHM_FORMAT_ARGB8888` (needs the R↔B swizzle at every
+    /// copy). Fixed for the pool's lifetime.
+    format: u32,
     fd: i32, // Keep fd open until drop
     /// Damage rects (x, y, w, h) of the last render pass, in BUFFER (physical)
     /// coordinates. Filled by the CPU present path from
@@ -5094,19 +5124,133 @@ impl WaylandWindow {
                             let dpi = ws.size.dpi as f32 / 96.0;
 
                             if width > 0.0 && height > 0.0 {
+                                // #27 native backbuffer: with an ABGR8888 pool
+                                // (renderer byte order) the CPU renderer draws
+                                // DIRECTLY into the free shm slot — no owned
+                                // intermediate frame, no swizzle copy. The
+                                // slot is first caught up to the previous
+                                // frame (cross-slot copy of the rects it
+                                // missed) so the incremental model stays
+                                // sound. A size mismatch (configure race)
+                                // skips the arm; that frame takes the legacy
+                                // owned+copy path below and the next re-arms.
+                                let native_expected_w = (width * dpi).ceil() as u32;
+                                let native_expected_h = (height * dpi).ceil() as u32;
+                                let mut native_slot: Option<usize> = None;
+                                let mut native_skip_render = false;
+                                if cpu_state.is_native()
+                                    && cpu_state.width.max(0) as u32 == native_expected_w
+                                    && cpu_state.height.max(0) as u32 == native_expected_h
+                                {
+                                    match cpu_state.acquire_slot() {
+                                        Some(slot) => {
+                                            cpu_state.catch_up_slot(slot);
+                                            self.cpu_backend.native_target = unsafe {
+                                                azul_layout::cpurender::AzulPixmap::from_external(
+                                                    cpu_state.slot_ptr(slot),
+                                                    native_expected_w,
+                                                    native_expected_h,
+                                                )
+                                            };
+                                            native_slot = Some(slot);
+                                        }
+                                        None => {
+                                            // Both buffers compositor-held:
+                                            // nothing is rendered or consumed
+                                            // this cycle, so the release-driven
+                                            // retry re-enters as a clean first
+                                            // attempt (unlike the legacy path,
+                                            // no force-full is needed for
+                                            // correctness — but os_present_
+                                            // requested also wakes the retry).
+                                            self.needs_redraw.raise();
+                                            self.os_present_requested = true;
+                                            present_skipped_buffers_held = true;
+                                            native_skip_render = true;
+                                        }
+                                    }
+                                }
+
                                 // Shared CPU renderer (same path as headless + X11):
                                 // damage diff + scroll-offset feed + thin-strip
                                 // scroll-shift with eligibility + offset-aware render.
                                 // Replaces the logic that used to live here and lacked
                                 // all the scroll machinery (#13/#14).
-                                self.cpu_backend.render_frame(
-                                    layout_window,
-                                    &layout_window.renderer_resources,
-                                    width,
-                                    height,
-                                    dpi,
-                                );
+                                if !native_skip_render {
+                                    self.cpu_backend.render_frame(
+                                        layout_window,
+                                        &layout_window.renderer_resources,
+                                        width,
+                                        height,
+                                        dpi,
+                                    );
+                                }
+                                // Dangle guard: render_frame normally consumes
+                                // the target, but its early returns (no layout
+                                // result, zero size) must not leave a pointer
+                                // into the pool armed across frames — the pool
+                                // dies on resize.
+                                self.cpu_backend.native_target = None;
 
+                                if self.cpu_backend.rendered_native {
+                                    // #27: the frame was rasterised directly
+                                    // into `native_slot`. Present = damage
+                                    // bookkeeping only; the shared attach/
+                                    // commit below picks the slot up via
+                                    // `damage_rects`.
+                                    let force_full = self.os_present_requested
+                                        || !self.common.display_list_initialized;
+                                    self.os_present_requested = false;
+                                    let rects = self
+                                        .cpu_backend
+                                        .last_present_damage
+                                        .to_present_rects_physical(
+                                            dpi,
+                                            native_expected_w,
+                                            native_expected_h,
+                                            force_full,
+                                        );
+                                    if let (Some(rects), Some(slot)) = (rects, native_slot) {
+                                        let full_render = matches!(
+                                            self.cpu_backend.last_frame_damage,
+                                            crate::desktop::shell2::headless::FrameDamage::Full
+                                        );
+                                        if full_render {
+                                            cpu_state.slots[slot].valid = true;
+                                            cpu_state.slots[slot].stale.clear();
+                                            cpu_state.slots[slot].stale_overflow = false;
+                                        } else if !cpu_state.slots[slot].valid {
+                                            // "The first render into a fresh
+                                            // pool is a full repaint" broke:
+                                            // an incremental frame landed on
+                                            // undefined pixels.
+                                            log_error!(
+                                                LogCategory::Rendering,
+                                                "[native-bb] INCREMENTAL render into \
+                                                 never-filled slot {} — undefined pixels \
+                                                 may be on screen",
+                                                slot
+                                            );
+                                        }
+                                        // The OTHER slot missed this frame's
+                                        // changes.
+                                        let other = 1 - slot;
+                                        for (x, y, w, h) in &rects {
+                                            cpu_state.slots[other].stale.push((
+                                                *x as i32, *y as i32, *w as i32, *h as i32,
+                                            ));
+                                        }
+                                        if cpu_state.slots[other].stale.len() > 32 {
+                                            cpu_state.slots[other].stale.clear();
+                                            cpu_state.slots[other].stale_overflow = true;
+                                        }
+                                        cpu_state.damage_rects.extend(rects.iter().map(
+                                            |(x, y, w, h)| {
+                                                (*x as i32, *y as i32, *w as i32, *h as i32)
+                                            },
+                                        ));
+                                    }
+                                } else
                                 // Blit the rendered pixmap into the Wayland shm
                                 // buffer — PARTIALLY: only the present-damage
                                 // rows are converted and copied, and the same
@@ -5171,6 +5315,12 @@ impl WaylandWindow {
                                             let dst_stride =
                                                 (cpu_state.width.max(0) as usize) * 4;
                                             let src_stride = (src_w as usize) * 4;
+                                            // #27: ABGR pool = renderer byte
+                                            // order → rows copy verbatim (this
+                                            // path is then only the configure-
+                                            // race fallback); ARGB needs the
+                                            // R↔B swizzle.
+                                            let straight = cpu_state.is_native();
                                             let src = pixmap.data();
                                             let buf = cpu_state.slot_buffer_mut(slot);
                                             for (rx, ry, rw, rh) in &copy_rects {
@@ -5180,6 +5330,11 @@ impl WaylandWindow {
                                                     let doff = y * dst_stride + (*rx as usize) * 4;
                                                     let n = (*rw as usize) * 4;
                                                     if so + n > src.len() || doff + n > buf.len() {
+                                                        continue;
+                                                    }
+                                                    if straight {
+                                                        buf[doff..doff + n]
+                                                            .copy_from_slice(&src[so..so + n]);
                                                         continue;
                                                     }
                                                     // RGBA → ARGB8888 (BGRA in LE memory)
@@ -5213,7 +5368,12 @@ impl WaylandWindow {
                                                     for x in 0..clamp_w as usize {
                                                         let s = &src[so + x * 4..so + x * 4 + 4];
                                                         let d = &buf[doff + x * 4..doff + x * 4 + 4];
-                                                        if d[0] != s[2] || d[1] != s[1] || d[2] != s[0] {
+                                                        let differs = if straight {
+                                                            d[0] != s[0] || d[1] != s[1] || d[2] != s[2]
+                                                        } else {
+                                                            d[0] != s[2] || d[1] != s[1] || d[2] != s[0]
+                                                        };
+                                                        if differs {
                                                             bad += 1;
                                                             if first.is_none() {
                                                                 first = Some((x, y));
@@ -5242,6 +5402,10 @@ impl WaylandWindow {
                                             // this frame's rects.
                                             cpu_state.slots[slot].stale.clear();
                                             cpu_state.slots[slot].stale_overflow = false;
+                                            // The copy set (rects ∪ stale, or
+                                            // full) always leaves a legacy slot
+                                            // complete (#27 validity model).
+                                            cpu_state.slots[slot].valid = true;
                                             let other = 1 - slot;
                                             for (x, y, w, h) in &rects {
                                                 cpu_state.slots[other]
@@ -6032,6 +6196,17 @@ impl CpuFallbackState {
 
         // Create the pool BEFORE closing the fd - Wayland needs it open
         let pool = unsafe { (wayland.wl_shm_create_pool)(shm, fd, size) };
+        // #27: prefer ABGR8888 (bytes R,G,B,A in LE memory = the CPU
+        // renderer's output order) — presents become straight row copies and
+        // the renderer can draw directly into a slot. ARGB8888 is the
+        // mandatory fallback and keeps the R↔B swizzle.
+        let format = if SHM_ABGR8888_ADVERTISED.load(core::sync::atomic::Ordering::Relaxed)
+            && native_backbuffer_enabled()
+        {
+            WL_SHM_FORMAT_ABGR8888
+        } else {
+            WL_SHM_FORMAT_ARGB8888
+        };
         let buf_bytes = (stride * height) as usize;
         let make_slot = |idx: usize| -> ShmSlot {
             let offset = idx * buf_bytes;
@@ -6042,7 +6217,7 @@ impl CpuFallbackState {
                     width,
                     height,
                     stride,
-                    WL_SHM_FORMAT_ARGB8888,
+                    format,
                 )
             };
             let busy = Box::into_raw(Box::new(false));
@@ -6060,14 +6235,29 @@ impl CpuFallbackState {
                 stale: Vec::new(),
                 // A fresh slot has undefined content: full copy on first use.
                 stale_overflow: true,
+                valid: false,
             }
         };
 
         POOLS_CREATED.fetch_add(1, core::sync::atomic::Ordering::Relaxed);
         wl_trace!(
             "shm pool CREATE pool={pool:p} {width}x{height} stride={stride} scale={scale} \
-             bytes={size} fd={fd} — {}",
+             bytes={size} fd={fd} fmt={} — {}",
+            if format == WL_SHM_FORMAT_ABGR8888 { "ABGR(native)" } else { "ARGB(legacy)" },
             pool_census()
+        );
+        log_debug!(
+            LogCategory::Rendering,
+            "[native-bb] shm pool {}x{}: {}",
+            width,
+            height,
+            if format == WL_SHM_FORMAT_ABGR8888 {
+                "ABGR8888 — renderer targets the slot directly"
+            } else if !native_backbuffer_enabled() {
+                "ARGB8888 (AZ_NATIVE_BACKBUFFER=0)"
+            } else {
+                "ARGB8888 (compositor never advertised ABGR8888)"
+            }
         );
 
         Ok(Self {
@@ -6081,6 +6271,7 @@ impl CpuFallbackState {
             height,
             stride,
             scale,
+            format,
             fd, // Keep fd open - will be closed in Drop
             damage_rects: Vec::new(),
         })
@@ -6119,13 +6310,86 @@ impl CpuFallbackState {
         self.slot_buffer_mut(self.active)
     }
 
+    /// #27: the pool's byte order matches the renderer's — the renderer may
+    /// draw directly into a slot, and copies (fallback frames) skip the
+    /// swizzle.
+    fn is_native(&self) -> bool {
+        self.format == WL_SHM_FORMAT_ABGR8888
+    }
+
+    /// Raw pointer to `slot`'s first pixel inside the pool mapping.
+    fn slot_ptr(&mut self, slot: usize) -> *mut u8 {
+        unsafe { self.data.add(self.slots[slot].offset) }
+    }
+
+    /// #27: bring `slot` up to the last-presented frame by copying the
+    /// regions it missed from the OTHER slot. The renderer's incremental
+    /// model requires its target to already hold the PREVIOUS frame — a slot
+    /// that sat out a present only holds frame N−2. Reading the other slot
+    /// while the compositor displays it is fine (only WRITES to an attached
+    /// buffer violate the protocol), and the slots never overlap.
+    fn catch_up_slot(&mut self, slot: usize) {
+        let other = 1 - slot;
+        if self.slots[slot].stale_overflow {
+            if self.slots[other].valid {
+                let buf_bytes = (self.stride * self.height) as usize;
+                unsafe {
+                    std::ptr::copy_nonoverlapping(
+                        self.data.add(self.slots[other].offset),
+                        self.data.add(self.slots[slot].offset),
+                        buf_bytes,
+                    );
+                }
+                self.slots[slot].valid = true;
+                self.slots[slot].stale.clear();
+                self.slots[slot].stale_overflow = false;
+            }
+            // No valid source (fresh pool): leave the debt marker set. The
+            // first render after pool creation is a full repaint by
+            // construction; the present path marks the slot valid then (or
+            // trips the invalid-partial-present error if that law breaks).
+            return;
+        }
+        let stride = self.stride.max(0) as usize;
+        let (w, h) = (self.width.max(0), self.height.max(0));
+        let stale = std::mem::take(&mut self.slots[slot].stale);
+        for (x, y, rw, rh) in &stale {
+            let x0 = (*x).clamp(0, w) as usize;
+            let y0 = (*y).clamp(0, h) as usize;
+            let x1 = x.saturating_add(*rw).clamp(0, w) as usize;
+            let y1 = y.saturating_add(*rh).clamp(0, h) as usize;
+            if x1 <= x0 || y1 <= y0 {
+                continue;
+            }
+            let n = (x1 - x0) * 4;
+            for row in y0..y1 {
+                let off = row * stride + x0 * 4;
+                unsafe {
+                    std::ptr::copy_nonoverlapping(
+                        self.data.add(self.slots[other].offset + off),
+                        self.data.add(self.slots[slot].offset + off),
+                        n,
+                    );
+                }
+            }
+        }
+    }
+
     fn draw_blue(&mut self) {
+        let native = self.is_native();
         let slice = self.pixel_buffer_mut();
         for chunk in slice.chunks_exact_mut(4) {
-            chunk[0] = 0xFF; // Blue
-            chunk[1] = 0x00; // Green
-            chunk[2] = 0x00; // Red
-            chunk[3] = 0xFF; // Alpha (ARGB format)
+            if native {
+                chunk[0] = 0x00; // R
+                chunk[1] = 0x00; // G
+                chunk[2] = 0xFF; // B
+                chunk[3] = 0xFF; // A (ABGR pool: RGBA byte order)
+            } else {
+                chunk[0] = 0xFF; // Blue
+                chunk[1] = 0x00; // Green
+                chunk[2] = 0x00; // Red
+                chunk[3] = 0xFF; // Alpha (ARGB format)
+            }
         }
     }
 }
@@ -6740,17 +7004,25 @@ impl WaylandPopup {
                             dpi_factor,
                         );
                         if let Some(ref pixmap) = self.cpu_backend.last_frame {
+                            // #27: popups never arm the native target, but
+                            // their pool shares the global format choice — an
+                            // ABGR pool takes rows verbatim.
+                            let straight = cpu_state.is_native();
                             let buf = cpu_state.pixel_buffer_mut();
                             let src = pixmap.data();
                             let copy_len = buf.len().min(src.len());
-                            // RGBA -> ARGB8888: swap R and B for Wayland.
-                            let mut i = 0;
-                            while i + 3 < copy_len {
-                                buf[i] = src[i + 2];     // B
-                                buf[i + 1] = src[i + 1]; // G
-                                buf[i + 2] = src[i];     // R
-                                buf[i + 3] = src[i + 3]; // A
-                                i += 4;
+                            if straight {
+                                buf[..copy_len].copy_from_slice(&src[..copy_len]);
+                            } else {
+                                // RGBA -> ARGB8888: swap R and B for Wayland.
+                                let mut i = 0;
+                                while i + 3 < copy_len {
+                                    buf[i] = src[i + 2];     // B
+                                    buf[i + 1] = src[i + 1]; // G
+                                    buf[i + 2] = src[i];     // R
+                                    buf[i + 3] = src[i + 3]; // A
+                                    i += 4;
+                                }
                             }
                             painted = true;
                         }

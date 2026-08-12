@@ -583,6 +583,21 @@ pub const WL_POINTER_AXIS_VERTICAL_SCROLL: u32 = 0;
 pub const WL_POINTER_AXIS_HORIZONTAL_SCROLL: u32 = 1;
 
 pub const WL_SHM_FORMAT_ARGB8888: u32 = 0;
+/// fourcc 'AB24': u32 A<<24|B<<16|G<<8|R stored little-endian — bytes in
+/// memory are R,G,B,A, exactly the CPU renderer's RGBA output order. When the
+/// compositor advertises it, presents become straight row copies and the
+/// renderer can draw DIRECTLY into a shm slot (#27 native backbuffer).
+/// Optional (only ARGB8888/XRGB8888 are mandatory), so it is feature-detected
+/// via the `wl_shm.format` listener.
+pub const WL_SHM_FORMAT_ABGR8888: u32 = 0x34324241;
+
+/// Listener for `wl_shm.format` advertisements (one event per supported
+/// format, sent right after binding `wl_shm`).
+#[repr(C)]
+#[derive(Copy, Clone)]
+pub struct wl_shm_listener {
+    pub format: extern "C" fn(data: *mut c_void, shm: *mut wl_shm, format: u32),
+}
 
 // Text input protocol v3 (zwp_text_input_v3)
 #[repr(C)]
