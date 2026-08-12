@@ -12790,6 +12790,41 @@
                                     "type": "bool"
                                 },
                                 "fn_body": "object.viewport_bigger_than(width_px)"
+                            },
+                            "get_monitors": {
+                                "doc": [
+                                    "Snapshot of the system's monitors, taken right before this layout pass.",
+                                    "Empty when the platform has not populated monitor info (headless, web,",
+                                    "very early startup)."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "MonitorVec"
+                                },
+                                "fn_body": "object.get_monitors()"
+                            },
+                            "get_max_monitor_size": {
+                                "doc": [
+                                    "The LARGEST monitor size in physical px - the safe upper bound for how",
+                                    "much content could possibly be visible at once. Use it to bound how much",
+                                    "content the first layout() builds (e.g. at most monitor-height text",
+                                    "lines, or monitor-width x monitor-height characters for one unbroken",
+                                    "line), so opening a huge file never builds an unbounded DOM. None when",
+                                    "no monitor info is available."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "OptionLayoutSize"
+                                },
+                                "fn_body": "object.get_max_monitor_size()"
                             }
                         },
                         "repr": "C"

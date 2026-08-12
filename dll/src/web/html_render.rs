@@ -556,6 +556,8 @@ fn call_layout(
         system_fonts: fc_cache.as_ref(),
         system_style,
         active_route,
+        // Web target: no OS monitor enumeration.
+        monitors: azul_core::window::MonitorVec::from_const_slice(&[]),
     };
 
     let mut info = LayoutCallbackInfo::new(

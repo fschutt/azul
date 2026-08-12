@@ -299,6 +299,15 @@ phases.mark("after_font_snapshot");
         system_fonts: &layout_window.font_manager.fc_cache,
         system_style: system_style.clone(),
         active_route: current_window_state.active_route.as_ref(),
+        // #28 (d): monitor snapshot for content-bounding in layout() — the
+        // platforms write the live list into layout_window.monitors; a
+        // poisoned/contended lock degrades to "no info" rather than blocking
+        // the layout pass.
+        monitors: layout_window
+            .monitors
+            .lock()
+            .map(|g| g.clone())
+            .unwrap_or_else(|_| azul_core::window::MonitorVec::from_const_slice(&[])),
     };
 
     let mut callback_info = LayoutCallbackInfo::new_with_reason(

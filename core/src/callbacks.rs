@@ -734,6 +734,14 @@ pub struct LayoutCallbackInfoRefData<'a> {
     /// Active route match (if routing is configured).
     /// Contains the matched pattern and extracted parameters.
     pub active_route: Option<&'a crate::resources::RouteMatch>,
+    /// #28 (d): SNAPSHOT of the system's monitors, taken (locked + cloned)
+    /// by the caller right before invoking the layout callback. A snapshot —
+    /// not the live `Arc<Mutex<…>>` handle — because `azul-core` is `no_std`
+    /// (no Mutex) and the list is read-only during a layout pass anyway.
+    /// Lets `layout()` bound how much content it builds on first layout
+    /// (e.g. at most monitor-height lines / monitor-area characters), so
+    /// opening a huge file can never build an unbounded DOM.
+    pub monitors: crate::window::MonitorVec,
 }
 
 /// What triggered the current `layout()` invocation.
@@ -1030,6 +1038,36 @@ impl LayoutCallbackInfo {
     /// Get a clone of the system style Arc
     #[must_use] pub fn get_system_style(&self) -> Arc<SystemStyle> {
         unsafe { (*self.ref_data).system_style.clone() }
+    }
+
+    /// #28 (d): snapshot of the system's monitors, taken by the caller right
+    /// before this layout pass. Empty when the platform hasn't populated
+    /// monitor info (headless, web, very early startup).
+    #[must_use] pub fn get_monitors(&self) -> crate::window::MonitorVec {
+        unsafe { (*self.ref_data).monitors.clone() }
+    }
+
+    /// #28 (d): the LARGEST monitor size in physical px — the safe upper
+    /// bound for "how much content could possibly be visible at once" when
+    /// the window's own monitor is not yet known at first layout. Apps use
+    /// it to bound how much content the first `layout()` builds (e.g. at
+    /// most monitor-height text lines, or monitor-width × monitor-height
+    /// characters for a single unbroken line), so opening a huge file never
+    /// builds an unbounded DOM. `None` when no monitor info is available.
+    #[must_use] pub fn get_max_monitor_size(&self) -> azul_css::props::basic::OptionLayoutSize {
+        let monitors = unsafe { &(*self.ref_data).monitors };
+        let mut best: Option<azul_css::props::basic::LayoutSize> = None;
+        for m in monitors.as_ref().iter() {
+            let s = m.size;
+            let better = match best {
+                Some(b) => (s.width * s.height) > (b.width * b.height),
+                None => true,
+            };
+            if better {
+                best = Some(s);
+            }
+        }
+        best.into()
     }
 
     const fn internal_get_image_cache(&self) -> &ImageCache {
@@ -1465,8 +1503,45 @@ mod autotest_generated {
                 system_fonts: &self.fonts,
                 system_style: self.style.clone(),
                 active_route: self.route.as_ref(),
+                monitors: crate::window::MonitorVec::from_const_slice(&[]),
             }
         }
+    }
+
+    /// #28 (d): `get_max_monitor_size` returns the LARGEST monitor by area
+    /// (the safe "how much could possibly be visible" bound for first
+    /// layout) and `None` on an empty snapshot (headless/web).
+    #[test]
+    fn max_monitor_size_is_largest_by_area_or_none() {
+        use azul_css::props::basic::LayoutSize;
+
+        use crate::window::{Monitor, MonitorVec};
+
+        let fixture = Fixture::new();
+        let mut rd = fixture.ref_data();
+        rd.monitors = MonitorVec::from_vec(Vec::from([
+            Monitor {
+                size: LayoutSize::new(1920, 1080),
+                ..Monitor::default()
+            },
+            Monitor {
+                size: LayoutSize::new(2560, 1440),
+                ..Monitor::default()
+            },
+            Monitor {
+                size: LayoutSize::new(800, 600),
+                ..Monitor::default()
+            },
+        ]));
+        let info = LayoutCallbackInfo::new(&rd, WindowSize::default(), WindowTheme::LightMode);
+        let max: Option<LayoutSize> = info.get_max_monitor_size().into();
+        assert_eq!(max, Some(LayoutSize::new(2560, 1440)));
+        assert_eq!(info.get_monitors().len(), 3);
+
+        let rd2 = fixture.ref_data(); // empty snapshot
+        let info2 = LayoutCallbackInfo::new(&rd2, WindowSize::default(), WindowTheme::LightMode);
+        let none: Option<LayoutSize> = info2.get_max_monitor_size().into();
+        assert_eq!(none, None);
     }
 
     /// `/user/:id` with a plain and a non-ASCII parameter.
@@ -2675,6 +2750,7 @@ mod size_query_tests {
                 system_fonts: &self.fonts,
                 system_style: self.style.clone(),
                 active_route: None,
+                monitors: crate::window::MonitorVec::from_const_slice(&[]),
             }
         }
     }
