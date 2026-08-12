@@ -3496,6 +3496,8 @@ impl LayoutWindow {
             eprintln!("[MEM]     glyph_bytes     {:>7} KiB", tc.shaped_glyph_bytes / 1024);
             eprintln!("[MEM]     cluster_text    {:>7} KiB", tc.shaped_cluster_text_bytes / 1024);
             eprintln!("[MEM]   per_item_shaped   {:>7} KiB  ({} entries)", tc.per_item_shaped_bytes / 1024, tc.per_item_shaped_entries);
+            eprintln!("[MEM]     composition: {} atoms / {} segments / {} detail glyphs",
+                tc.per_item_atoms, tc.per_item_segments, tc.per_item_detail_glyphs);
             eprintln!("[MEM]   map_overhead      {:>7} KiB  (HashMap tables + Arc headers; ESTIMATE)", tc.map_overhead_bytes / 1024);
             eprintln!("[MEM]   style_arcs        {:>7} KiB  ({} distinct Arc<StyleProperties>)", tc.style_arc_bytes / 1024, tc.distinct_style_arcs);
             // Printed unconditionally, INCLUDING when zero. A shared-Arc

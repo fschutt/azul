@@ -1329,6 +1329,57 @@ readers behind `get_inline_layout_for_node` (selection, caret, edit,
 hit-test). Retire the sparse retention LAST, after every reader has a
 dense view; measure at plateau before and after (e).
 
+### §10.4b THE RETIREMENT PLATEAU (2026-08-12 02:22, f32a3b23b)
+
+uniq-960, windowed, same rig, AZ_DENSE_TEXT=1 (sentinel retirement
+active): **RSS 127.1 MB (VmRSS 127148 kB), [heap] 65.2 MB** — vs 136.0
+/ 73.6 flag-off pre-retirement and 147.9 / 90.6 rig baseline. The
+retained sparse shed ~11 MB (prediction was ~8; Vec/SmallVec overhead
+above the raw 192 B x 31k). RSS tracked heap ~1:1 this time (-8.9 for
+-8.4) — the freed slabs returned to the OS, unlike leg 1's 0.7 factor.
+Campaign to date: heap -28.0%, RSS -14.1%. Remaining: d7 (delete the
+monolithic stage-3 shaped_items map — 6.1 MB fat-era, duplicates
+per_item_shaped; edits always missed it and post-R1/R2 resize rarely
+re-lays-out — then compact per-item entries) + the AZ_DENSE_TEXT
+default flip.
+
+### §11 THE SHED REPORT (2026-08-12, campaign complete)
+
+All numbers: uniq-960 (960-line markdown), windowed KDE Wayland, CPU
+backend, the same rss-baseline rig throughout.
+
+| stage | RSS MB | heap MB | landed |
+|---|---|---|---|
+| rig baseline (RSS_MAP era) | 147.9 | 90.6 | — |
+| slice1 + warm-split + flags + 3c + shared Arcs | 136.0 | 73.6 | dbdbdebd7..c04a69b4d |
+| + dense arrays, dual retention (transitional) | ~138 | ~76.2 | d1-d6g |
+| THE RETIREMENT (sentinel, dense stored form) | 127.1 | 65.2 | f32a3b23b |
+| d7: cache dedup + segmented compaction + DEFAULT ON | **121.5** | **62.3** | 0a5c69230 + d7b |
+
+**TOTAL: heap −28.3 MB (−31.2%), RSS −26.4 MB (−17.9%).**
+
+The structural story: one 960-line document's shaped text was retained
+THREE times (~200 B/cluster sparse in the layout cache, again in the
+monolithic stage-3 shaping cache, again in the per-item shaping
+cache). Now: the layout cache stores 16 B/cluster dense arrays
+(sparse materializes transiently for rare geometry readers), the
+monolithic cache is deleted, and the per-item cache stores segmented
+compact entries (1.2 MiB total, 174 atoms / 706 segments). Allocator
+health at plateau: 6-7% arena slack, 0 releasable — the heap number
+is live data, not fragmentation.
+
+Against the field (same corpus, §10.5 below): miniword 121.5 MB now
+sits −34% under Blitz (211), −41% under LO Writer (206), 2.5-9.6x
+under the Chromium/Electron/Firefox class; the only lighter apps are
+GTK buffer widgets that do no styled layout (gedit 93, bare TextView
+49). Binary: libazul 34 MB stripped ~ Blitz 39 MB.
+
+Deferred follow-ups (size-only, correctness intact): item_base
+run-split degeneracy on unpopulated-item_index paths (~25 KB/IFC);
+glyph_runs paint cache is the remaining per-glyph retention
+(~5-6 MB, predates the campaign; next big target with LayoutFontMetrics
+sharing); mimalloc A/B (user idea — glibc baseline banked above).
+
 ### §10.5 external yardstick (2026-08-11, measured on this machine)
 
 LibreOffice Writer 24.x (deb install, first profile run, windowed on

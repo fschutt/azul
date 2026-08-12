@@ -6251,18 +6251,21 @@ pub enum IncrementalRelayoutResult {
     IncrementalRelayoutResult::GlyphSwap
 }
 
-/// (d7) The compact stored form of a per-item shaped entry: regular
-/// clusters at 16 B (the dense-model record) instead of ~176 B
-/// `ShapedItem`s, with amortized fields once in the header and glyph
-/// details in side tables. ANY cluster that deviates from the header
-/// in an amortized field (glyph-fallback font, mixed direction across
-/// a coalesce group, a foreign text Arc) — and every non-cluster item
-/// — is kept VERBATIM in `atoms`: one total fallback instead of
-/// per-field exception plumbing. `expand()` reproduces the original
-/// item vec EXACTLY (the d7 roundtrip gate pins it); the per-hit
-/// re-stamp then overwrites style/source_node_id exactly as before.
+/// (d7, segmented rework) The compact stored form of a per-item shaped
+/// entry. A coalesce GROUP spans multiple logical items, so amortized
+/// fields change mid-entry — the first single-header design atomized
+/// every cluster after the first text-Arc change and retained ~300
+/// B/cluster on the real corpus (measured 9.1 MiB; the whole point
+/// missed). Headers are now per-SEGMENT (the DenseRun pattern): a new
+/// segment starts whenever any amortized field changes; clusters
+/// compact to 16 B within their segment; glyph irregularities go to
+/// the shared detail tables; only non-cluster items and genuinely
+/// irregular clusters (multi-font glyphs, markers, cleared fragment
+/// flags) stay verbatim in `atoms`. `expand()` reproduces the input
+/// EXACTLY (the d7 roundtrip gate pins it, including a multi-segment
+/// case); the per-hit re-stamp then runs unchanged.
 #[derive(Debug)]
-pub(crate) struct CompactShapedEntry {
+pub(crate) struct CompactSegment {
     style: Arc<StyleProperties>,
     source_text: Arc<str>,
     font_hash: u64,
@@ -6271,83 +6274,35 @@ pub(crate) struct CompactShapedEntry {
     direction: BidiDirection,
     source_run: u32,
     source_node: Option<NodeId>,
-    item_base: u32,
+    /// The segment's `source_content_index.item_index` VERBATIM: at the
+    /// shaping stage it is constant per item-fragment (the split-trace
+    /// showed the linear item_base model drifting on EVERY cluster —
+    /// 31k segments; post-layout dense uses the linear model, this
+    /// stage does not).
+    item_index: u32,
+    /// Range into the entry-wide `clusters` array.
+    clusters: core::ops::Range<u32>,
+}
+
+#[derive(Debug)]
+pub(crate) struct CompactShapedEntry {
+    segments: Vec<CompactSegment>,
     clusters: Vec<super::dense::ClusterCompact>,
     details: Vec<super::dense::ClusterDetail>,
     detail_glyphs: Vec<super::dense::DetailGlyph>,
     /// (expanded_index, verbatim item) — non-clusters and irregulars.
     atoms: Vec<(u32, ShapedItem)>,
-    /// Expanded sequence length (clusters.len() + atoms.len()).
+    /// Expanded sequence length.
     total: u32,
 }
 
 impl CompactShapedEntry {
-    /// Compact `items`. Total: every item lands either in the compact
+    /// Compact `items`. Total: every item lands in a segment's compact
     /// arrays or verbatim in `atoms`; expand() is exact either way.
     pub(crate) fn build(items: &[ShapedItem]) -> Self {
         use super::dense::{ClusterCompact, ClusterDetail, DetailGlyph};
-        // Header from the first REGULAR-ELIGIBLE cluster.
-        let first = items.iter().find_map(|it| match it {
-            ShapedItem::Cluster(c) => Some(c),
-            _ => None,
-        });
-        let (style, source_text, font_hash, font_metrics, script, direction, source_run, source_node, item_base) =
-            match first {
-                Some(c) => {
-                    let fg = c.glyphs.first();
-                    (
-                        c.style.clone(),
-                        c.source_text.clone(),
-                        fg.map_or(0, |g| g.font_hash),
-                        fg.map_or(
-                            LayoutFontMetrics {
-                                ascent: 0.0,
-                                descent: 0.0,
-                                cap_height: None,
-                                x_height: None,
-                                line_gap: 0.0,
-                                units_per_em: 0,
-                            },
-                            |g| g.font_metrics,
-                        ),
-                        fg.map_or(super::script::Script::Latin, |g| g.script),
-                        c.direction,
-                        c.source_cluster_id.source_run,
-                        c.source_node_id,
-                        c.source_content_index
-                            .item_index
-                            .wrapping_sub(c.source_cluster_id.start_byte_in_run),
-                    )
-                }
-                None => (
-                    Arc::new(StyleProperties::default()),
-                    Arc::from(""),
-                    0,
-                    LayoutFontMetrics {
-                        ascent: 0.0,
-                        descent: 0.0,
-                        cap_height: None,
-                        x_height: None,
-                        line_gap: 0.0,
-                        units_per_em: 0,
-                    },
-                    super::script::Script::Latin,
-                    BidiDirection::Ltr,
-                    0,
-                    None,
-                    0,
-                ),
-            };
         let mut out = Self {
-            style,
-            source_text,
-            font_hash,
-            font_metrics,
-            script,
-            direction,
-            source_run,
-            source_node,
-            item_base,
+            segments: Vec::new(),
             clusters: Vec::new(),
             details: Vec::new(),
             detail_glyphs: Vec::new(),
@@ -6360,38 +6315,76 @@ impl CompactShapedEntry {
                 out.atoms.push((idx, item.clone()));
                 continue;
             };
-            // Regularity: EVERY amortized field must match the header,
-            // and every glyph must share the header font/script.
-            let regular = Arc::ptr_eq(&c.style, &out.style)
-                && Arc::ptr_eq(&c.source_text, &out.source_text)
-                && c.direction == out.direction
-                && c.source_cluster_id.source_run == out.source_run
-                && c.source_node_id == out.source_node
-                && c.source_content_index.item_index
-                    == out.item_base.wrapping_add(c.source_cluster_id.start_byte_in_run)
-                && c.marker_position_outside.is_none()
-                // Shaping-stage default: an unfragmented item is BOTH
-                // first and last fragment; the line breaker clears the
-                // flags on split later. (true, true) is the regular
-                // shape HERE — the inverse of the post-layout store.
-                && c.is_first_fragment
-                && c.is_last_fragment
-                && c.glyphs.iter().all(|g| {
-                    g.font_hash == out.font_hash
-                        && g.font_metrics == out.font_metrics
-                        && g.script == out.script
+            let first_glyph = c.glyphs.first();
+            let font_hash = first_glyph.map_or(0, |g| g.font_hash);
+            let font_metrics = first_glyph.map_or(
+                LayoutFontMetrics {
+                    ascent: 0.0,
+                    descent: 0.0,
+                    cap_height: None,
+                    x_height: None,
+                    line_gap: 0.0,
+                    units_per_em: 0,
+                },
+                |g| g.font_metrics,
+            );
+            let script = first_glyph.map_or(super::script::Script::Latin, |g| g.script);
+            let item_index = c.source_content_index.item_index;
+            // Irregular clusters stay verbatim: mixed fonts WITHIN one
+            // cluster, markers, or fragment flags off their shaping-
+            // stage default (true, true) — the line breaker owns those.
+            let irregular = c.marker_position_outside.is_some()
+                || !c.is_first_fragment
+                || !c.is_last_fragment
+                // font_hash IS the font identity (metrics are derived
+                // from it); comparing LayoutFontMetrics by PartialEq
+                // split a segment on EVERY cluster when a metric was
+                // NaN (NaN != NaN) — 31,174 segments for 31k clusters.
+                || c.glyphs.iter().any(|g| {
+                    g.font_hash != font_hash || g.script != script
                 })
-                // Simple clusters reconstruct byte_len by grapheme-next
-                // (T1-exact); anything else must carry a detail entry,
-                // which stores byte_len itself.
-                && (Self::needs_detail(c)
-                    || Self::grapheme_len_at(&out.source_text, c.source_cluster_id.start_byte_in_run)
-                        == Some(usize::from(c.source_byte_len)));
-            if !regular {
+                || (!Self::needs_detail(c)
+                    && Self::grapheme_len_at(
+                        &c.source_text,
+                        c.source_cluster_id.start_byte_in_run,
+                    ) != Some(usize::from(c.source_byte_len)));
+            if irregular {
                 out.atoms.push((idx, item.clone()));
                 continue;
             }
+            // Segment split on any amortized-field change.
             let ci = u32::try_from(out.clusters.len()).unwrap_or(u32::MAX);
+            let fits = out.segments.last().is_some_and(|seg| {
+                Arc::ptr_eq(&seg.style, &c.style)
+                    && Arc::ptr_eq(&seg.source_text, &c.source_text)
+                    && seg.font_hash == font_hash
+                    && seg.script == script
+                    && seg.direction == c.direction
+                    && seg.source_run == c.source_cluster_id.source_run
+                    && seg.source_node == c.source_node_id
+                    && seg.item_index == item_index
+                    // Segments must stay contiguous in the cluster
+                    // array; an intervening atom ends the segment.
+                    && seg.clusters.end == ci
+            });
+            if fits {
+                if let Some(seg) = out.segments.last_mut() {
+                    seg.clusters.end = ci + 1;
+                }
+            } else {
+                out.segments.push(CompactSegment {
+                    style: c.style.clone(),
+                    source_text: c.source_text.clone(),
+                    font_hash,
+                    font_metrics,
+                    script,
+                    direction: c.direction,
+                    source_run: c.source_cluster_id.source_run,
+                    source_node: c.source_node_id,
+                    item_index,
+                    clusters: ci..ci + 1,
+                });
+            }
             if Self::needs_detail(c) {
                 let start = u32::try_from(out.detail_glyphs.len()).unwrap_or(u32::MAX);
                 for g in c.glyphs.iter() {
@@ -6416,7 +6409,7 @@ impl CompactShapedEntry {
                 });
             }
             out.clusters.push(ClusterCompact {
-                glyph_id: c.glyphs.first().map_or(0, |g| g.glyph_id),
+                glyph_id: first_glyph.map_or(0, |g| g.glyph_id),
                 flags: c.flags,
                 advance: c.advance,
                 start_byte: c.source_cluster_id.start_byte_in_run,
@@ -6429,8 +6422,7 @@ impl CompactShapedEntry {
     fn needs_detail(c: &ShapedCluster) -> bool {
         // Vertical metrics come from the font's vmtx table — per-glyph
         // and nonzero for CJK-class fonts even in horizontal text — so
-        // they route to the DETAIL table (which stores them exactly)
-        // rather than atomizing whole clusters.
+        // they route to the DETAIL table rather than atomizing.
         c.glyphs.len() != 1
             || c.glyphs.first().is_some_and(|g| {
                 g.offset.x != 0.0
@@ -6455,6 +6447,7 @@ impl CompactShapedEntry {
         let mut out = Vec::with_capacity(self.total as usize);
         let mut atom_cursor = 0usize;
         let mut detail_cursor = 0usize;
+        let mut seg_cursor = 0usize;
         let mut ci = 0u32;
         for idx in 0..self.total {
             if let Some((ai, item)) = self.atoms.get(atom_cursor) {
@@ -6464,6 +6457,12 @@ impl CompactShapedEntry {
                     continue;
                 }
             }
+            while seg_cursor < self.segments.len()
+                && self.segments[seg_cursor].clusters.end <= ci
+            {
+                seg_cursor += 1;
+            }
+            let seg = &self.segments[seg_cursor];
             let c = &self.clusters[ci as usize];
             while detail_cursor < self.details.len()
                 && self.details[detail_cursor].cluster < ci
@@ -6487,9 +6486,9 @@ impl CompactShapedEntry {
                                 x: dg.vertical_offset_x,
                                 y: dg.vertical_offset_y,
                             },
-                            script: self.script,
-                            font_hash: self.font_hash,
-                            font_metrics: self.font_metrics,
+                            script: seg.script,
+                            font_hash: seg.font_hash,
+                            font_metrics: seg.font_metrics,
                         }
                     })
                     .collect(),
@@ -6502,36 +6501,35 @@ impl CompactShapedEntry {
                     offset: Point { x: 0.0, y: 0.0 },
                     vertical_advance: 0.0,
                     vertical_offset: Point { x: 0.0, y: 0.0 },
-                    script: self.script,
-                    font_hash: self.font_hash,
-                    font_metrics: self.font_metrics,
+                    script: seg.script,
+                    font_hash: seg.font_hash,
+                    font_metrics: seg.font_metrics,
                 })
                 .collect(),
             };
             let byte_len = detail.map_or_else(
                 || {
-                    Self::grapheme_len_at(&self.source_text, c.start_byte)
-                        .unwrap_or(0) as u32
+                    Self::grapheme_len_at(&seg.source_text, c.start_byte).unwrap_or(0) as u32
                 },
                 |d| d.byte_len,
             );
             out.push(ShapedItem::Cluster(ShapedCluster {
-                source_text: self.source_text.clone(),
+                source_text: seg.source_text.clone(),
                 source_byte_len: u16::try_from(byte_len).unwrap_or(u16::MAX),
                 source_cluster_id: GraphemeClusterId {
-                    source_run: self.source_run,
+                    source_run: seg.source_run,
                     start_byte_in_run: c.start_byte,
                 },
                 source_content_index: ContentIndex {
-                    run_index: self.source_run,
-                    item_index: self.item_base.wrapping_add(c.start_byte),
+                    run_index: seg.source_run,
+                    item_index: seg.item_index,
                 },
-                source_node_id: self.source_node,
+                source_node_id: seg.source_node,
                 glyphs,
                 flags: c.flags,
                 advance: c.advance,
-                direction: self.direction,
-                style: self.style.clone(),
+                direction: seg.direction,
+                style: seg.style.clone(),
                 marker_position_outside: None,
                 is_first_fragment: true,
                 is_last_fragment: true,
@@ -6544,7 +6542,8 @@ impl CompactShapedEntry {
     /// Approximate retained bytes, for the memory report.
     pub(crate) fn retained_bytes(&self) -> usize {
         use core::mem::size_of;
-        self.clusters.capacity() * size_of::<super::dense::ClusterCompact>()
+        self.segments.capacity() * size_of::<CompactSegment>()
+            + self.clusters.capacity() * size_of::<super::dense::ClusterCompact>()
             + self.details.capacity() * size_of::<super::dense::ClusterDetail>()
             + self.detail_glyphs.capacity() * size_of::<super::dense::DetailGlyph>()
             + self.atoms.capacity() * (size_of::<(u32, ShapedItem)>())
@@ -6553,6 +6552,11 @@ impl CompactShapedEntry {
     #[cfg(test)]
     pub(crate) fn atom_count(&self) -> usize {
         self.atoms.len()
+    }
+
+    #[cfg(test)]
+    pub(crate) fn segment_count(&self) -> usize {
+        self.segments.len()
     }
 }
 
@@ -6628,6 +6632,9 @@ pub struct TextCacheMemoryReport {
     pub shaped_cluster_text_bytes: usize,
     pub per_item_shaped_entries: usize,
     pub per_item_shaped_bytes: usize,
+    pub per_item_atoms: usize,
+    pub per_item_segments: usize,
+    pub per_item_detail_glyphs: usize,
     /// `HashMap` table allocations plus one `Arc` header per entry.
     ///
     /// Previously uncounted, which is why the itemised lines did not add up
@@ -6750,13 +6757,19 @@ impl TextShapingCache {
                 r.shared_bytes_avoided += arc.compact.retained_bytes();
                 continue;
             }
-            // (d7) The compact arrays, plus the shared source text once.
+            // (d7) The compact arrays, plus each segment's shared source
+            // text once.
             r.per_item_shaped_bytes += arc.compact.retained_bytes();
+            r.per_item_atoms += arc.compact.atoms.len();
+            r.per_item_segments += arc.compact.segments.len();
+            r.per_item_detail_glyphs += arc.compact.detail_glyphs.len();
             r.cluster_count += arc.compact.clusters.len();
-            if text_arcs.insert(Arc::as_ptr(&arc.compact.source_text) as *const u8 as usize) {
-                r.per_item_shaped_bytes += arc.compact.source_text.len();
+            for seg in &arc.compact.segments {
+                if text_arcs.insert(Arc::as_ptr(&seg.source_text) as *const u8 as usize) {
+                    r.per_item_shaped_bytes += seg.source_text.len();
+                }
+                style_arcs.insert(Arc::as_ptr(&seg.style) as usize);
             }
-            style_arcs.insert(Arc::as_ptr(&arc.compact.style) as usize);
             for (_, item) in &arc.compact.atoms {
                 match item {
                     ShapedItem::Cluster(c) => {
@@ -15312,6 +15325,9 @@ mod autotest_generated {
 
         // Powers of two, so a wrong total names the offending field.
         let full = TextCacheMemoryReport {
+            per_item_atoms: 0,
+            per_item_segments: 0,
+            per_item_detail_glyphs: 0,
             logical_items_entries: 1_000_000, // must NOT be counted
             logical_items_bytes: 1,
             visual_items_entries: 1_000_000, // must NOT be counted
@@ -15459,10 +15475,11 @@ mod autotest_generated {
             c.marker_position_outside = Some(true);
         }
         items.push(marker);
-        // Fragment flags → atom.
+        // Fragment flags OFF their shaping-stage (true, true) default →
+        // atom (the line breaker owns cleared flags).
         let mut frag = cl("e", 5.0);
         if let ShapedItem::Cluster(ref mut c) = frag {
-            c.is_first_fragment = true;
+            c.is_first_fragment = false;
         }
         items.push(frag);
         // Non-cluster atom.
@@ -15482,11 +15499,16 @@ mod autotest_generated {
              an all-atoms entry makes this gate vacuous for the simple-\
              cluster reconstruction arm"
         );
-        assert!(
-            compact.atom_count() >= 4,
-            "fallback+marker+fragment+break must all be atoms, got {}",
-            compact.atom_count()
+        // (d7 segmented) The whole-cluster fallback FONT now starts a
+        // new SEGMENT (font is a segment field); only marker, cleared
+        // fragment flags, and the Break remain atoms.
+        assert_eq!(
+            compact.atom_count(),
+            3,
+            "marker+fragment(false)+break are atoms; the fallback-font \
+             cluster must SEGMENT"
         );
+        assert!(compact.segment_count() >= 2, "fallback font segments");
         let expanded = compact.expand();
         assert_eq!(expanded.len(), items.len());
         for (i, (e, o)) in expanded.iter().zip(items.iter()).enumerate() {
@@ -15495,6 +15517,28 @@ mod autotest_generated {
 
         // Empty entry roundtrips too.
         assert!(CompactShapedEntry::build(&[]).expand().is_empty());
+
+        // (d7 segmented) A coalesce-group-like sequence: clusters from
+        // TWO different text Arcs must land in TWO SEGMENTS with zero
+        // extra atoms — the single-header design atomized everything
+        // after the first Arc change (~300 B/cluster on the real
+        // corpus, measured 9.1 MiB; the regression this pin prevents).
+        let mut a1 = cl("x", 4.0);
+        let mut a2 = cl("y", 5.0);
+        for it in [&mut a1, &mut a2] {
+            if let ShapedItem::Cluster(ref mut c) = it {
+                c.glyphs[0].vertical_advance = 0.0;
+            }
+        }
+        let two = vec![a1.clone(), a2.clone()];
+        let compact2 = CompactShapedEntry::build(&two);
+        assert_eq!(compact2.atom_count(), 0, "distinct text Arcs must SEGMENT, not atomize");
+        assert_eq!(compact2.segment_count(), 2);
+        let exp2 = compact2.expand();
+        assert_eq!(exp2.len(), 2);
+        for (i, (e, o)) in exp2.iter().zip(two.iter()).enumerate() {
+            assert_eq!(e, o, "segmented roundtrip diverges at {i}");
+        }
     }
 
     #[test]
