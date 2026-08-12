@@ -91,6 +91,14 @@ extern "C" fn wl_shm_format_handler(
     _shm: *mut defines::wl_shm,
     format: u32,
 ) {
+    // Live-run 2026-08-12: the ABGR flag never flipped on KWin — log every
+    // received format so "listener never fires" and "fires but AB24 absent"
+    // are distinguishable in one run.
+    crate::log_debug!(
+        super::super::super::common::debug_server::LogCategory::Platform,
+        "[native-bb] wl_shm.format advertised: {:#010x}",
+        format
+    );
     if format == defines::WL_SHM_FORMAT_ABGR8888 {
         super::SHM_ABGR8888_ADVERTISED.store(true, core::sync::atomic::Ordering::Relaxed);
     }
@@ -402,11 +410,21 @@ pub(super) extern "C" fn registry_global_handler(
             // false and pools stay ARGB8888 (legacy swizzle path).
             if !window.shm.is_null() {
                 unsafe {
-                    (window.wayland.wl_proxy_add_listener)(
+                    let rc = (window.wayland.wl_proxy_add_listener)(
                         window.shm as *mut wl_proxy,
                         &WL_SHM_LISTENER as *const _ as *const c_void,
                         std::ptr::null_mut(),
                     );
+                    // Live-run 2026-08-12: formats never arrived — a failed
+                    // attach (rc != 0: proxy already has a listener, or
+                    // events already dispatched) must announce itself.
+                    if rc != 0 {
+                        crate::log_warn!(
+                            super::super::super::common::debug_server::LogCategory::Platform,
+                            "[native-bb] wl_shm listener attach FAILED (rc={rc}) — \
+                             format detection dead, pools stay ARGB8888"
+                        );
+                    }
                 }
             }
         }

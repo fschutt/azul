@@ -5127,7 +5127,7 @@ impl WaylandWindow {
                                 let native_expected_h = (height * dpi).ceil() as u32;
                                 let mut native_slot: Option<usize> = None;
                                 let mut native_skip_render = false;
-                                if cpu_state.is_native()
+                                if (cpu_state.is_native() || cpu_state.needs_commit_swizzle())
                                     && cpu_state.width.max(0) as u32 == native_expected_w
                                     && cpu_state.height.max(0) as u32 == native_expected_h
                                 {
@@ -5238,6 +5238,28 @@ impl WaylandWindow {
                                                 (*x as i32, *y as i32, *w as i32, *h as i32)
                                             },
                                         ));
+                                        // #32: ARGB8888 pool — convert this
+                                        // frame's written pixels from the
+                                        // renderer's R,G,B,A to the pool's
+                                        // B,G,R,A in place, exactly once,
+                                        // before the shared attach/commit
+                                        // below picks the slot up.
+                                        if cpu_state.needs_commit_swizzle() {
+                                            let stride = cpu_state.stride.max(0) as usize;
+                                            let h = cpu_state.height.max(0) as usize;
+                                            let int_rects: Vec<(i32, i32, i32, i32)> = rects
+                                                .iter()
+                                                .map(|(x, y, w, h)| {
+                                                    (*x as i32, *y as i32, *w as i32, *h as i32)
+                                                })
+                                                .collect();
+                                            crate::desktop::shell2::headless::swizzle_rb_in_rects(
+                                                cpu_state.slot_buffer_mut(slot),
+                                                stride,
+                                                h,
+                                                &int_rects,
+                                            );
+                                        }
                                     }
                                 } else
                                 // Blit the rendered pixmap into the Wayland shm
@@ -6245,7 +6267,8 @@ impl CpuFallbackState {
             } else if !native_backbuffer_enabled() {
                 "ARGB8888 (AZ_NATIVE_BACKBUFFER=0)"
             } else {
-                "ARGB8888 (compositor never advertised ABGR8888)"
+                "ARGB8888 + commit-swizzle — renderer targets the slot; damage rects \
+                 converted in place (ABGR8888 not advertised at 8-bit)"
             }
         );
 
@@ -6304,6 +6327,16 @@ impl CpuFallbackState {
     /// swizzle.
     fn is_native(&self) -> bool {
         self.format == WL_SHM_FORMAT_ABGR8888
+    }
+
+    /// #32: ARGB8888 pool with native rendering — the renderer still writes
+    /// R,G,B,A bytes directly into the slot; the commit converts ONLY this
+    /// frame's damage rects in place (R↔B). Engages where the compositor
+    /// never advertised ABGR8888 (KWin offers ABGR only at 10/16-bit
+    /// depths). Slot bytes are ALWAYS in pool format after a commit,
+    /// whichever path (native+swizzle or legacy copy) produced them.
+    fn needs_commit_swizzle(&self) -> bool {
+        self.format == WL_SHM_FORMAT_ARGB8888 && native_backbuffer_enabled()
     }
 
     /// Raw pointer to `slot`'s first pixel inside the pool mapping.
