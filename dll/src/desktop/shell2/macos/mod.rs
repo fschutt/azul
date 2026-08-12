@@ -2220,6 +2220,62 @@ impl CPUView {
         drop(fb);
         unsafe { self.setNeedsDisplay(true); }
     }
+
+    /// #27 native backbuffer: hand out the view's retained framebuffer as
+    /// the RENDER TARGET for this frame. Ensures the buffer matches `w`×`h`
+    /// and returns a pointer the caller wraps via
+    /// `AzulPixmap::from_external`. A single persistent buffer always holds
+    /// frame N−1 (updates only ever wrote damage into it), so the engine's
+    /// catch-up contract is met by construction. Render and `drawRect` both
+    /// run on the main thread — no concurrent access — and the pointer stays
+    /// valid because only these paths resize the Vec.
+    pub fn native_target_ptr(&self, w: usize, h: usize) -> Option<*mut u8> {
+        if w == 0 || h == 0 {
+            return None;
+        }
+        let ivars = self.ivars();
+        // A drawRect-established view size that disagrees with the render
+        // size means a rescale is in flight — that frame takes the legacy
+        // copy path (which also handles DPI-mismatch rescaling).
+        let (vw, vh) = (ivars.width.get(), ivars.height.get());
+        if (vw != 0 || vh != 0) && (vw != w || vh != h) {
+            return None;
+        }
+        ivars.width.set(w);
+        ivars.height.set(h);
+        let mut fb = ivars.framebuffer.borrow_mut();
+        fb.resize(w * h * 4, 255);
+        Some(fb.as_mut_ptr())
+    }
+
+    /// #27: invalidate-only present — the frame was rendered DIRECTLY into
+    /// the view framebuffer, so AppKit only needs the dirty rects
+    /// (physical px, top-left origin; converted + Y-flipped like the copy
+    /// path above).
+    pub fn invalidate_present_rects(&self, rects: &[(u32, u32, u32, u32)]) {
+        let ivars = self.ivars();
+        let (view_w, view_h) = (ivars.width.get(), ivars.height.get());
+        if view_w == 0 || view_h == 0 {
+            return;
+        }
+        let bounds = self.bounds();
+        let scale_x = view_w as f64 / bounds.size.width.max(1.0);
+        let scale_y = view_h as f64 / bounds.size.height.max(1.0);
+        for (rx, ry, rw, rh) in rects {
+            let x_pt = f64::from(*rx) / scale_x;
+            let w_pt = f64::from(*rw) / scale_x;
+            let h_pt = f64::from(*rh) / scale_y;
+            // flip: physical top-left origin → view bottom-left origin
+            let y_pt = bounds.size.height - (f64::from(*ry) + f64::from(*rh)) / scale_y;
+            let dirty = objc2_foundation::NSRect::new(
+                objc2_foundation::NSPoint::new(x_pt, y_pt),
+                objc2_foundation::NSSize::new(w_pt, h_pt),
+            );
+            unsafe {
+                let _: () = objc2::msg_send![self, setNeedsDisplayInRect: dirty];
+            }
+        }
+    }
 }
 
 // WindowDelegate - Handles window lifecycle events (close, resize, etc.)
@@ -6358,6 +6414,31 @@ impl MacOSWindow {
                     // damage diff + scroll-offset feed + thin-strip scroll-shift with
                     // eligibility + offset-aware render. Replaces the logic that used
                     // to live here and lacked all the scroll machinery (#13/#14).
+                    // #27 native backbuffer (macOS): render DIRECTLY into the
+                    // CPUView's retained framebuffer — it already holds frame
+                    // N−1 (the update paths only ever copied damage into it),
+                    // and the view consumes the renderer's RGBA order as-is,
+                    // so the whole update_framebuffer copy disappears and the
+                    // owned pixmap is never allocated. A size mismatch
+                    // (rescale in flight) skips the arm; that frame takes the
+                    // legacy copy path below. BLIND-IMPLEMENTED per USER
+                    // directive 2026-08-12 — not yet run on real hardware.
+                    let native_pw = (width * dpi).ceil() as u32;
+                    let native_ph = (height * dpi).ceil() as u32;
+                    if crate::desktop::shell2::headless::native_backbuffer_enabled() {
+                        if let Some(ref cpu_view) = self.cpu_view {
+                            if let Some(ptr) = cpu_view
+                                .native_target_ptr(native_pw as usize, native_ph as usize)
+                            {
+                                self.cpu_backend.native_target = unsafe {
+                                    azul_layout::cpurender::AzulPixmap::from_external(
+                                        ptr, native_pw, native_ph,
+                                    )
+                                };
+                            }
+                        }
+                    }
+
                     self.cpu_backend.render_frame(
                         layout_window,
                         &layout_window.renderer_resources,
@@ -6365,7 +6446,27 @@ impl MacOSWindow {
                         height,
                         dpi,
                     );
+                    // Dangle guard: an early return inside render_frame must
+                    // not leave a pointer into the view framebuffer armed
+                    // across frames.
+                    self.cpu_backend.native_target = None;
 
+                    if self.cpu_backend.rendered_native {
+                        // Pixels are already in the view framebuffer —
+                        // present = invalidate-only.
+                        if let Some(ref cpu_view) = self.cpu_view {
+                            match &self.cpu_backend.last_present_damage {
+                                crate::desktop::shell2::headless::FrameDamage::None => {}
+                                damage => {
+                                    if let Some(rects) = damage.to_present_rects_physical(
+                                        dpi, native_pw, native_ph, false,
+                                    ) {
+                                        cpu_view.invalidate_present_rects(&rects);
+                                    }
+                                }
+                            }
+                        }
+                    } else
                     // Blit the rendered pixmap to the CPUView — damage-aware:
                     // FrameDamage::None → the retained framebuffer is already
                     // correct, copy NOTHING and invalidate NOTHING. This is

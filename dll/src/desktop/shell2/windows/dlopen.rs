@@ -458,6 +458,38 @@ pub struct Gdi32Functions {
         HDC, i32, i32, i32, i32, i32, i32, i32, i32,
         *const core::ffi::c_void, *const BitmapInfoHeader, u32, u32,
     ) -> i32,
+    /// #27 native backbuffer: persistent DIB section the renderer draws into.
+    /// (hdc, lpbmi, usage, ppvBits, hSection, offset) — lpbmi points at a
+    /// `BitmapInfoBitfields` (BI_BITFIELDS + 3 masks) reinterpreted as the
+    /// plain header, exactly how GDI reads it.
+    pub CreateDIBSection: unsafe extern "system" fn(
+        HDC, *const BitmapInfoHeader, u32, *mut *mut core::ffi::c_void,
+        *mut core::ffi::c_void, u32,
+    ) -> *mut core::ffi::c_void,
+    pub CreateCompatibleDC: unsafe extern "system" fn(HDC) -> HDC,
+    pub SelectObject:
+        unsafe extern "system" fn(HDC, *mut core::ffi::c_void) -> *mut core::ffi::c_void,
+    /// (dst, x, y, w, h, src, xSrc, ySrc, rop)
+    pub BitBlt: unsafe extern "system" fn(HDC, i32, i32, i32, i32, HDC, i32, i32, u32) -> BOOL,
+    pub DeleteDC: unsafe extern "system" fn(HDC) -> BOOL,
+    /// Reads one pixel as COLORREF (0x00BBGGRR) — the runtime probe that
+    /// proves the RGBA-mask DIB section is honored on this GDI stack.
+    pub GetPixel: unsafe extern "system" fn(HDC, i32, i32) -> u32,
+}
+
+/// BI_BITFIELDS: `biCompression` value saying "channel masks follow the
+/// header" — how a DIB declares the renderer's R,G,B,A byte order (#27).
+pub const BI_BITFIELDS: u32 = 3;
+
+/// `BITMAPINFO` with the three BI_BITFIELDS channel masks (#27). GDI reads
+/// the masks from the bytes immediately after the header, which is exactly
+/// this layout.
+#[repr(C)]
+#[derive(Copy, Clone)]
+pub struct BitmapInfoBitfields {
+    pub header: BitmapInfoHeader,
+    /// red, green, blue masks (alpha is implied by the remaining byte).
+    pub masks: [u32; 3],
 }
 
 /// BITMAPINFOHEADER for StretchDIBits - describes pixel format of source data
@@ -720,6 +752,12 @@ impl Win32Libraries {
                 DeleteObject: gdi32_dll.get_symbol("DeleteObject")?,
                 CreateRectRgn: gdi32_dll.get_symbol("CreateRectRgn")?,
                 StretchDIBits: gdi32_dll.get_symbol("StretchDIBits")?,
+                CreateDIBSection: gdi32_dll.get_symbol("CreateDIBSection")?,
+                CreateCompatibleDC: gdi32_dll.get_symbol("CreateCompatibleDC")?,
+                SelectObject: gdi32_dll.get_symbol("SelectObject")?,
+                BitBlt: gdi32_dll.get_symbol("BitBlt")?,
+                DeleteDC: gdi32_dll.get_symbol("DeleteDC")?,
+                GetPixel: gdi32_dll.get_symbol("GetPixel")?,
             }
         };
 

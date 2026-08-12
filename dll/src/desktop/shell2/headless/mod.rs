@@ -257,6 +257,21 @@ pub struct CpuBackend {
     pub previous_gpu_opacities: std::collections::HashMap<usize, f32>,
 }
 
+/// #27 native-backbuffer master switch, shared by every platform shell:
+/// `AZ_NATIVE_BACKBUFFER=0` forces the legacy owned-pixmap + copy present
+/// (also the automatic fallback when a platform's buffer can't take the
+/// renderer's RGBA byte order). NOTE: in native mode `CpuBackend.last_frame`
+/// stays `None` — tools that read the retained frame (live screenshot dumps)
+/// need `AZ_NATIVE_BACKBUFFER=0`.
+pub fn native_backbuffer_enabled() -> bool {
+    static ON: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    *ON.get_or_init(|| {
+        std::env::var("AZ_NATIVE_BACKBUFFER")
+            .map(|v| v != "0")
+            .unwrap_or(true)
+    })
+}
+
 impl Default for CpuBackend {
     fn default() -> Self {
         Self::new()

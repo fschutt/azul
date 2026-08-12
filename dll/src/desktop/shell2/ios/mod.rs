@@ -232,6 +232,14 @@ extern "C" fn display_layer(_this: &Object, _cmd: Sel, layer: *mut Object) {
 
     #[cfg(feature = "cpurender")]
     {
+        // #27 native backbuffer: iOS stays LEGACY by design. The present
+        // hands QuartzCore a copy precisely because CA reads the provider
+        // bytes at the ASYNC commit (see the use-after-free note below) —
+        // rendering the next frame directly into a buffer the compositor may
+        // still be reading is the same hazard with fewer copies. Going
+        // native here would need a CA-release-fenced buffer pool (Wayland
+        // slot model with CG data-provider release callbacks as the busy
+        // flags); design when an iOS device run exists to verify it.
         let pixmap = match window.cpu_backend.last_frame.as_ref() {
             Some(p) => p,
             None => return,

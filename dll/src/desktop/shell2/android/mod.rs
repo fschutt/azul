@@ -277,6 +277,14 @@ impl AndroidWindow {
         // EventFilter::Component(AfterMount) callbacks never fire on Android (e.g.
         // the MapWidget's first tile fetch never starts).
 
+        // #27 native backbuffer: Android stays LEGACY by design.
+        // `ANativeWindow_lock` rotates double/triple buffers with NO content
+        // guarantee and no way to preserve a buffer's pixels across cycles
+        // (NDK-documented), so the renderer's incremental base would be
+        // garbage. Going native needs the Wayland slot model keyed by the
+        // returned bits pointer (per-buffer stale tracking + the in/out
+        // dirty-bounds contract); design when a device run exists to verify.
+        //
         // CPU-render the frame — populates `self.cpu_backend.last_frame`
         // so the next `render_frame()` call can blit pixels.
         #[cfg(feature = "cpurender")]

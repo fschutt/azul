@@ -100,6 +100,26 @@ enum RenderMode {
 /// building — the wndproc presents it.
 pub(crate) const WM_APP_FRAME_READY: u32 = 0x8000 + 0x0042; // WM_APP + 0x42
 
+/// #27 native backbuffer (Windows): one persistent RGBA-mask DIB section per
+/// window — the CPU renderer's direct target. Created (and probe-verified)
+/// in the present path; recreated on size change.
+#[cfg(feature = "cpurender")]
+struct NativeDib {
+    mem_dc: dlopen::HDC,
+    bitmap: *mut core::ffi::c_void,
+    old_bitmap: *mut core::ffi::c_void,
+    ptr: *mut u8,
+    w: i32,
+    h: i32,
+}
+
+/// Set to `false` the first time the RGBA-mask probe fails — GDI stacks that
+/// ignore BI_BITFIELDS byte order get the legacy path for the whole process
+/// instead of a per-window retry loop (#27).
+#[cfg(feature = "cpurender")]
+static NATIVE_DIB_SUPPORTED: core::sync::atomic::AtomicBool =
+    core::sync::atomic::AtomicBool::new(true);
+
 pub struct Win32Window {
     /// Win32 window handle
     pub hwnd: HWND,
@@ -122,6 +142,13 @@ pub struct Win32Window {
     /// Cached BGRA conversion buffer reused across CPU frames
     #[cfg(feature = "cpurender")]
     bgra_buffer: Vec<u8>,
+    /// #27 native backbuffer: persistent RGBA-mask DIB section the renderer
+    /// draws into directly (probe-verified per process; see the present
+    /// path). Recreated on size change; the GDI objects of the final DIB are
+    /// reclaimed by the OS at process exit (windows close rarely enough that
+    /// an explicit teardown hook wasn't added — noted for the live review).
+    #[cfg(feature = "cpurender")]
+    native_dib: Option<NativeDib>,
     /// Damage rects for incremental rendering (CPU and GPU)
     /// When non-empty, only these regions need redrawing
     gpu_damage_rects: Vec<azul_core::geom::LogicalRect>,
@@ -593,6 +620,8 @@ impl Win32Window {
             cpu_backend: crate::desktop::shell2::headless::CpuBackend::new(),
             #[cfg(feature = "cpurender")]
             bgra_buffer: Vec::new(),
+            #[cfg(feature = "cpurender")]
+            native_dib: None,
             gpu_damage_rects: Vec::new(),
             common: event::CommonWindowState {
                 layout_window: Some(layout_window),
@@ -929,6 +958,142 @@ impl Win32Window {
                         let dpi = ws.size.dpi as f32 / 96.0;
 
                         if width > 0.0 && height > 0.0 {
+                            // #27 native backbuffer (Windows): a persistent
+                            // RGBA-mask DIB section is the render target —
+                            // the renderer draws into it directly and the
+                            // present BitBlts damage rects from the memory
+                            // DC. Whether GDI honors BI_BITFIELDS masks in
+                            // R=0x000000FF order varies by stack, so a
+                            // one-time RUNTIME PROBE (write a red pixel, read
+                            // it back via GetPixel) decides; failure disables
+                            // native mode for the process and the legacy
+                            // swizzle+StretchDIBits path continues unchanged.
+                            // Single buffer + synchronous BitBlt ⇒ it always
+                            // holds frame N−1 (catch-up by construction).
+                            // BLIND-IMPLEMENTED per USER directive 2026-08-12
+                            // — not yet run on real Windows.
+                            let native_pw = (width * dpi).ceil() as i32;
+                            let native_ph = (height * dpi).ceil() as i32;
+                            if crate::desktop::shell2::headless::native_backbuffer_enabled()
+                                && NATIVE_DIB_SUPPORTED
+                                    .load(core::sync::atomic::Ordering::Relaxed)
+                                && native_pw > 0
+                                && native_ph > 0
+                            {
+                                let needs_new = match self.native_dib {
+                                    Some(ref d) => d.w != native_pw || d.h != native_ph,
+                                    None => true,
+                                };
+                                if needs_new {
+                                    if let Some(d) = self.native_dib.take() {
+                                        unsafe {
+                                            (self.win32.gdi32.SelectObject)(
+                                                d.mem_dc, d.old_bitmap,
+                                            );
+                                            (self.win32.gdi32.DeleteObject)(d.bitmap);
+                                            (self.win32.gdi32.DeleteDC)(d.mem_dc);
+                                        }
+                                    }
+                                    unsafe {
+                                        let wnd_dc = (self.win32.user32.GetDC)(self.hwnd);
+                                        if !wnd_dc.is_null() {
+                                            let bmi = dlopen::BitmapInfoBitfields {
+                                                header: dlopen::BitmapInfoHeader {
+                                                    biSize: core::mem::size_of::<
+                                                        dlopen::BitmapInfoHeader,
+                                                    >()
+                                                        as u32,
+                                                    biWidth: native_pw,
+                                                    // negative = top-down rows,
+                                                    // matching the renderer.
+                                                    biHeight: -native_ph,
+                                                    biPlanes: 1,
+                                                    biBitCount: 32,
+                                                    biCompression: dlopen::BI_BITFIELDS,
+                                                    biSizeImage: 0,
+                                                    biXPelsPerMeter: 0,
+                                                    biYPelsPerMeter: 0,
+                                                    biClrUsed: 0,
+                                                    biClrImportant: 0,
+                                                },
+                                                // R,G,B in the renderer's byte
+                                                // order (alpha = remaining byte).
+                                                masks: [0x0000_00FF, 0x0000_FF00, 0x00FF_0000],
+                                            };
+                                            let mut bits: *mut c_void = core::ptr::null_mut();
+                                            let bitmap = (self.win32.gdi32.CreateDIBSection)(
+                                                wnd_dc,
+                                                &bmi as *const _
+                                                    as *const dlopen::BitmapInfoHeader,
+                                                dlopen::DIB_RGB_COLORS,
+                                                &mut bits,
+                                                core::ptr::null_mut(),
+                                                0,
+                                            );
+                                            if !bitmap.is_null() && !bits.is_null() {
+                                                let mem_dc = (self.win32.gdi32
+                                                    .CreateCompatibleDC)(
+                                                    wnd_dc
+                                                );
+                                                if !mem_dc.is_null() {
+                                                    let old = (self.win32.gdi32.SelectObject)(
+                                                        mem_dc, bitmap,
+                                                    );
+                                                    // PROBE: RGBA red at (0,0)
+                                                    // must read back as COLORREF
+                                                    // red (0x000000FF).
+                                                    let p = bits as *mut u8;
+                                                    *p.add(0) = 0xFF;
+                                                    *p.add(1) = 0x00;
+                                                    *p.add(2) = 0x00;
+                                                    *p.add(3) = 0xFF;
+                                                    let col = (self.win32.gdi32.GetPixel)(
+                                                        mem_dc, 0, 0,
+                                                    );
+                                                    if col & 0x00FF_FFFF == 0x0000_00FF {
+                                                        self.native_dib = Some(NativeDib {
+                                                            mem_dc,
+                                                            bitmap,
+                                                            old_bitmap: old,
+                                                            ptr: bits as *mut u8,
+                                                            w: native_pw,
+                                                            h: native_ph,
+                                                        });
+                                                    } else {
+                                                        log_warn!(
+                                                            LogCategory::Rendering,
+                                                            "[native-bb] GDI ignores RGBA \
+                                                             DIB masks (probe read {:#08x}) \
+                                                             — legacy path for this process",
+                                                            col
+                                                        );
+                                                        NATIVE_DIB_SUPPORTED.store(
+                                                            false,
+                                                            core::sync::atomic::Ordering::Relaxed,
+                                                        );
+                                                        (self.win32.gdi32.SelectObject)(
+                                                            mem_dc, old,
+                                                        );
+                                                        (self.win32.gdi32.DeleteObject)(bitmap);
+                                                        (self.win32.gdi32.DeleteDC)(mem_dc);
+                                                    }
+                                                } else {
+                                                    (self.win32.gdi32.DeleteObject)(bitmap);
+                                                }
+                                            }
+                                            (self.win32.user32.ReleaseDC)(self.hwnd, wnd_dc);
+                                        }
+                                    }
+                                }
+                                if let Some(ref d) = self.native_dib {
+                                    self.cpu_backend.native_target = unsafe {
+                                        azul_layout::cpurender::AzulPixmap::from_external(
+                                            d.ptr, d.w as u32, d.h as u32,
+                                        )
+                                    };
+                                }
+                            }
+
                             // Shared CPU renderer (same path as headless + X11 +
                             // Wayland + macOS): damage diff + scroll-offset feed +
                             // thin-strip scroll-shift with eligibility + offset-aware
@@ -941,6 +1106,50 @@ impl Win32Window {
                                 height,
                                 dpi,
                             );
+                            // Dangle guard: render_frame's early returns must not
+                            // leave a pointer into the DIB armed across frames.
+                            self.cpu_backend.native_target = None;
+
+                            if self.cpu_backend.rendered_native {
+                                // #27: pixels are already in the DIB section —
+                                // present = BitBlt the damage rects. WM_PAINT
+                                // full-rect fallback mirrors the legacy path
+                                // (FrameDamage::None → one full rect).
+                                if let Some(ref d) = self.native_dib {
+                                    let rects = self
+                                        .cpu_backend
+                                        .last_present_damage
+                                        .to_present_rects_physical(
+                                            dpi,
+                                            d.w as u32,
+                                            d.h as u32,
+                                            false,
+                                        )
+                                        .unwrap_or_else(|| {
+                                            vec![(0, 0, d.w as u32, d.h as u32)]
+                                        });
+                                    unsafe {
+                                        let hdc = (self.win32.user32.GetDC)(self.hwnd);
+                                        if !hdc.is_null() {
+                                            for (rx, ry, rw, rh) in rects {
+                                                (self.win32.gdi32.BitBlt)(
+                                                    hdc,
+                                                    rx as i32,
+                                                    ry as i32,
+                                                    rw as i32,
+                                                    rh as i32,
+                                                    d.mem_dc,
+                                                    rx as i32,
+                                                    ry as i32,
+                                                    dlopen::SRCCOPY,
+                                                );
+                                            }
+                                            (self.win32.user32.ReleaseDC)(self.hwnd, hdc);
+                                        }
+                                    }
+                                }
+                                rendered = true;
+                            } else
 
                             // Blit the rendered pixmap to the window via
                             // StretchDIBits — PARTIALLY: only the present-damage

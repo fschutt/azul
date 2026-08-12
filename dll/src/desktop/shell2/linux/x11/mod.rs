@@ -3923,6 +3923,17 @@ impl X11Window {
                                     dpi,
                                 );
 
+                                // #27 native backbuffer: X11 stays LEGACY by
+                                // design. XPutImage requires the image in the
+                                // VISUAL's channel order — BGRX on real
+                                // servers, with no negotiation mechanism like
+                                // wl_shm.format — so the renderer's RGBA can
+                                // never be the upload buffer directly and the
+                                // swizzle below is unavoidable. (An RGBA-mask
+                                // TrueColor visual would qualify, but none
+                                // ship; revisit only if one appears in the
+                                // wild.)
+                                //
                                 // Blit the rendered pixmap to the X11 window —
                                 // PARTIALLY: only the present-damage rects are
                                 // swizzled and uploaded. `render_frame` records

@@ -280,19 +280,8 @@ struct ShmSlot {
 pub(crate) static SHM_ABGR8888_ADVERTISED: core::sync::atomic::AtomicBool =
     core::sync::atomic::AtomicBool::new(false);
 
-/// #27 native-backbuffer master switch: `AZ_NATIVE_BACKBUFFER=0` forces the
-/// legacy owned-pixmap + swizzle-copy present (also the automatic fallback
-/// when the compositor never advertises ABGR8888). NOTE: in native mode
-/// `CpuBackend.last_frame` stays `None` — tools that read the retained frame
-/// (live screenshot dumps) need `AZ_NATIVE_BACKBUFFER=0`.
-fn native_backbuffer_enabled() -> bool {
-    static ON: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
-    *ON.get_or_init(|| {
-        std::env::var("AZ_NATIVE_BACKBUFFER")
-            .map(|v| v != "0")
-            .unwrap_or(true)
-    })
-}
+// #27 master switch (shared across platform shells — see its doc there).
+use crate::desktop::shell2::headless::native_backbuffer_enabled;
 
 struct CpuFallbackState {
     wayland: Rc<Wayland>,
