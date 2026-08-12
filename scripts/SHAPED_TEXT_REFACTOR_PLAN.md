@@ -1437,6 +1437,23 @@ double-buffered would be 16.6 MB by construction), wayland-cursor
 theme 1.1 MB, shared libs ~6 MB, mmap'd fonts ~1.7 MB. KDE system
 monitor's "113 MB" ≈ PSS (122 MB profiled here), consistent.
 
+### §11c #25b (f47dff612): the item-index dual mode — the sleeper win
+
+The "~25 KB/IFC size-only" ledger item was mis-scoped by two orders of
+magnitude: item_index is constant per logical item while start_byte
+advances WITHIN it, so the d6h linear-only item_base split a fresh
+DenseRun (header + 32 B font_metrics copy) on EVERY cluster inside
+every multi-cluster word — ~28k degenerate runs on uniq-960.
+DenseRun.item_linear (builder tracks both reconstruction models, close
+prefers linear, expander branches; NC seen red) coalesces them:
+
+    warm.inline   6445 -> 2501 KiB   (the runs-header waste, gone)
+    plateau       120.4/59.4 -> **109.0 RSS / 51.5 heap**
+
+Campaign totals from the rig baseline 147.9/90.6:
+**RSS -26.3%, heap -43.2%.** Full battery green (8256+8322 incl
+corpus, doc 186, reftest 47/52 baseline, dll 1780).
+
 mimalloc A/B (user idea): RUN 2026-08-12, CLOSED — glibc WINS.
 Same corpus/protocol, `-F azul-dll/allocator_mimalloc` (existing
 feature, mimalloc confirmed active via /proc/maps): **127.7 MB RSS
