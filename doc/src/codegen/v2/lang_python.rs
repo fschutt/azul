@@ -708,9 +708,16 @@ fn create_py_refany_with_json(wrapper: PyDataWrapper) -> azul_core::refany::RefA
         // For callbacks like (RefAny, TimerCallbackInfo) -> Update, we want TimerCallbackInfo
         // For callbacks like (RefAny, ThreadSender, ThreadReceiver) -> (), we want ThreadSender
         for (i, arg) in callback.args.iter().enumerate() {
+            // Only types that actually DEFINE `get_ctx` in the IR can carry
+            // the Python callable. The old "first non-RefAny non-primitive
+            // arg" assumption broke when callback typedefs gained plain-data
+            // args (AzString op names, CaretTweenInfo/SelectionTweenInfo).
             if arg.type_name != "RefAny"
                 && !is_primitive_type(&arg.type_name)
                 && ctx_source_type.is_empty()
+                && ir
+                    .functions_for_class(&arg.type_name)
+                    .any(|f| f.method_name == "get_ctx")
             {
                 ctx_source_type = arg.type_name.clone();
                 ctx_source_arg_name = if i == 0 {
@@ -776,6 +783,20 @@ fn create_py_refany_with_json(wrapper: PyDataWrapper) -> azul_core::refany::RefA
 
         builder.line(&format!("let default = {};", default_expr));
         builder.blank();
+
+        if ctx_source_type.is_empty() {
+            // No argument can carry a Python callable — the callback cannot
+            // be bridged. Emit an ABI-complete stub that returns the default
+            // instead of generating `.get_ctx()` calls on plain-data types
+            // (which do not have it) or dead python-call machinery.
+            builder.line("// No ctx-capable argument in this callback's signature — it cannot");
+            builder.line("// carry a Python callable. ABI-completeness stub: returns the default.");
+            builder.line("return default;");
+            builder.dedent();
+            builder.line("}");
+            builder.blank();
+            return;
+        }
 
         builder.line("let mut data_core = data;");
         builder.line("let py_data_wrapper = match data_core.downcast_ref::<PyDataWrapper>() {");

@@ -3135,6 +3135,15 @@ pub struct CustomE2eOpResult {
     pub json: AzString,
 }
 
+impl Default for CustomE2eOpResult {
+    /// "Not my op": `handled: false` with an empty payload — the value a
+    /// bridge (e.g. the generated Python trampoline) returns when no user
+    /// handler can run. Mirrors the debug server's unknown-op semantics.
+    fn default() -> Self {
+        Self { handled: false, json: AzString::from_const_str("") }
+    }
+}
+
 /// The `extern "C"` callback type for a user-defined E2E op.
 ///
 /// Receives the op name and its arguments as a JSON string, exactly as they
