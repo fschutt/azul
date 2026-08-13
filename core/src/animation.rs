@@ -44,7 +44,13 @@ use alloc::{collections::BTreeMap, vec::Vec};
 
 use azul_css::props::basic::animation::AnimationInterpolationFunction;
 
-use crate::geom::LogicalRect;
+use crate::{
+    diff::{calculate_reconciliation_key, NodeMove},
+    dom::NodeData,
+    geom::LogicalRect,
+    id::NodeId,
+    styled_dom::NodeHierarchyItem,
+};
 
 /// Mass-spring-damper parameters.
 ///
@@ -623,6 +629,58 @@ impl AnimationManager {
     }
 }
 
+/// Turn the diff's correspondence map into `(key, First, Last)` triples.
+///
+/// `node_moves` is what `reconcile_dom` already produced: old `NodeId` ->
+/// new `NodeId` for every node that survived the re-produce. This pairs each
+/// one with its pre-swap and post-solve geometry so [`seed_moves`] can decide
+/// what actually moved.
+///
+/// Geometry is fetched through closures rather than a map parameter because the
+/// two rects live in different crates and different *phases*: First comes from
+/// the previous frame's `LayoutCache` (still alive at the diff seam), Last from
+/// the freshly solved layout, which does not exist until well after that seam.
+/// Passing accessors lets the caller bridge that gap without core depending on
+/// the layout crate.
+///
+/// The key is the **reconciliation key**, the same identity the diff matched on
+/// — not the `NodeId`. A `NodeId` is an array position: it can change for a
+/// node that did not move, and can be reused by an unrelated node. Keying an
+/// animation store on it would make retargeting fire on the wrong element, or
+/// not at all.
+///
+/// Pairs missing either rect are dropped: a node with no previous geometry has
+/// nothing to fly from, and one with no new geometry is not on screen to fly to.
+pub fn correspondences_from_moves<F, L>(
+    node_moves: &[NodeMove],
+    new_node_data: &[NodeData],
+    new_hierarchy: &[NodeHierarchyItem],
+    first_rect: F,
+    last_rect: L,
+) -> Vec<(AnimKey, LogicalRect, LogicalRect)>
+where
+    F: Fn(NodeId) -> Option<LogicalRect>,
+    L: Fn(NodeId) -> Option<LogicalRect>,
+{
+    let mut out = Vec::new();
+    for m in node_moves {
+        let (Some(first), Some(last)) = (first_rect(m.old_node_id), last_rect(m.new_node_id))
+        else {
+            continue;
+        };
+        if m.new_node_id.index() >= new_node_data.len() {
+            continue; // stale correspondence; the new tree does not have this node
+        }
+        let key = AnimKey(calculate_reconciliation_key(
+            new_node_data,
+            new_hierarchy,
+            m.new_node_id,
+        ));
+        out.push((key, first, last));
+    }
+    out
+}
+
 /// Seed (or retarget) a FLIP move for every correspondence whose geometry moved.
 ///
 /// This is the engine entry point for Phase 1: the caller hands over the
@@ -886,6 +944,52 @@ mod tests {
         m.start_exit(key, 0.8, interp);
         assert_eq!(m.get(key).map(|a| a.class), Some(AnimClass::Exit));
         assert_eq!(m.len(), 1);
+    }
+
+    #[test]
+    fn the_anim_key_survives_a_node_id_change() {
+        // THE property the whole store depends on. A keyed node that shifts
+        // position in the array (a sibling was prepended) must keep its
+        // identity — otherwise the second produce looks like a brand-new
+        // animation and retargeting never fires.
+        use crate::dom::NodeData;
+
+        let tree_a = [NodeData::create_div().with_key("hero")];
+        let tree_b = [
+            NodeData::create_div().with_key("spacer"),
+            NodeData::create_div().with_key("hero"),
+        ];
+
+        let key_a = AnimKey(calculate_reconciliation_key(&tree_a, &[], NodeId::ZERO));
+        let key_b = AnimKey(calculate_reconciliation_key(
+            &tree_b,
+            &[],
+            NodeId::new(1),
+        ));
+        assert_eq!(key_a, key_b, "the same keyed node got two different AnimKeys");
+
+        // And a DIFFERENT key must not collide with it.
+        let other = AnimKey(calculate_reconciliation_key(&tree_b, &[], NodeId::ZERO));
+        assert_ne!(key_a, other);
+    }
+
+    #[test]
+    fn correspondences_drop_pairs_with_no_geometry() {
+        use crate::dom::NodeData;
+        let new_data = [NodeData::create_div().with_key("a"), NodeData::create_div().with_key("b")];
+        let moves = [
+            NodeMove { old_node_id: NodeId::ZERO, new_node_id: NodeId::ZERO },
+            NodeMove { old_node_id: NodeId::new(1), new_node_id: NodeId::new(1) },
+        ];
+        let r = rect(0.0, 0.0, 10.0, 10.0);
+        let out = correspondences_from_moves(
+            &moves,
+            &new_data,
+            &[],
+            |id| (id == NodeId::ZERO).then_some(r),   // only node 0 existed before
+            |_| Some(rect(5.0, 0.0, 10.0, 10.0)),
+        );
+        assert_eq!(out.len(), 1, "a node with no previous geometry has nothing to fly from");
     }
 
     #[test]
