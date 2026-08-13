@@ -1,4 +1,11 @@
 # Reftests known to PASS at the time this baseline was recorded.
+#
+# THE REFERENCE ENGINE IS PINNED (rust.yml: `chrome-version: "150"`). This list
+# is only meaningful against a fixed oracle: on 2026-08-13 azul's rendered
+# images were byte-identical between CI and local, yet 8 text cases here
+# flipped purely because CI had drifted to Chrome 152 while the baseline was
+# recorded against 150. If you bump the pin, expect to re-record this file —
+# and check the new failures against azul's own output before believing them.
 # A test listed here MUST keep passing. Making a new test pass is welcome —
 # add it here in the same commit so the gain cannot silently regress later.
 # Removing a name is a deliberate admission of regression; say why.

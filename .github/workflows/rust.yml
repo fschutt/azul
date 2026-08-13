@@ -1013,14 +1013,35 @@ jobs:
             printf '%s -> %s\n' "$fam" "$(fc-match "$fam" 2>/dev/null || echo MISSING)"
           done
 
+      # PIN THE REFERENCE ENGINE. This is a cross-engine reftest: it renders each
+      # case in azul AND in Chrome and compares pixels, so Chrome is not a tool
+      # here, it is the ORACLE. `chrome-version: stable` silently re-points that
+      # oracle every few weeks.
+      #
+      # Measured 2026-08-13 on 60ca70476: azul's rendered images were BYTE-
+      # IDENTICAL between CI and a local run (as were its display lists and
+      # solved layouts, and Chrome's own layout JSON modulo its timestamp) —
+      # yet 8 text-bearing cases flipped from pass to fail. The only variable
+      # was Chrome: 152.0.7977.42 in CI against 150.x locally. Two majors of
+      # Skia text rasterization moved those cases across the 0.5 %
+      # (10368 px) threshold, none of which azul had any part in.
+      #
+      # So the version is pinned, and it is in the cache key: bumping it is a
+      # deliberate, reviewable act that re-generates every reference image and
+      # may require re-recording doc/reftest_baseline.txt. Leaving it floating
+      # means the gate measures Chrome's release cadence rather than azul.
       - name: Setup Chrome
         uses: browser-actions/setup-chrome@v2
+        with:
+          chrome-version: "150"
 
       - name: Cache Chrome reference images
         uses: actions/cache@v6
         with:
           path: doc/target/reftest/reftest_img/*_chrome.webp
-          key: reftest-chrome-images-${{ env.CACHE_BUST }}-${{ hashFiles('doc/working/*.xht') }}
+          # The Chrome major is part of the key: a bump must not silently reuse
+          # reference images rendered by the previous engine.
+          key: reftest-chrome-images-chrome150-${{ env.CACHE_BUST }}-${{ hashFiles('doc/working/*.xht') }}
           restore-keys: |
             reftest-chrome-images-${{ env.CACHE_BUST }}-
 
