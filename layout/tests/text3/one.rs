@@ -1,21 +1,13 @@
-use azul_layout::font_traits::FontLoaderTrait;
 // In a new file, e.g., azul/layout/src/text3/tests.rs
 
-use std::{
-    collections::HashMap,
-    sync::{Arc, Mutex},
-};
+use std::sync::Arc;
 
 use azul_css::props::basic::ColorU;
 use hyphenation::{Language, Load, Standard};
-use rust_fontconfig::{FcWeight, FontId};
 
-use azul_layout::{
-    font::parsed::ParsedFont,
-    text3::{cache::*, default::PathLoader, script::Script},
-};
+use azul_layout::text3::{cache::*, script::Script};
 
-use super::{MockFont, MockFontManager, create_mock_font_manager, default_style};
+use super::{create_mock_font_manager, default_style};
 
 // --- Unit Tests ---
 
@@ -75,7 +67,7 @@ fn test_bug3_rtl_glyph_reversal() {
     // laid out right-to-left. Because the glyph vector is not reversed after
     // shaping, the glyphs will be positioned in logical order (left-to-right).
 
-    let mut cache = TextShapingCache::new();
+    let cache = TextShapingCache::new();
     let manager = create_mock_font_manager();
 
     // "שלום" in logical order
@@ -138,7 +130,7 @@ fn test_bug3_rtl_glyph_reversal() {
 #[test]
 #[ignore = "revived 2026-08-10 after years dormant: encodes the OLD text3 generation's numbers; triage vs the current engine (assert values may be legitimately stale OR a real regression) before un-ignoring"]
 fn test_simple_line_break() {
-    let mut cache = TextShapingCache::new();
+    let cache = TextShapingCache::new();
     let manager = create_mock_font_manager();
     let content = vec![InlineContent::Text(StyledRun {
         text: std::sync::Arc::from("a a a a a a"), // 6 chars * 8px + 5 spaces * 5px = 48 + 25 = 73px
@@ -147,7 +139,7 @@ fn test_simple_line_break() {
             source_node_id: None,
     })];
 
-    let flow_chain = vec![LayoutFragment {
+    let flow_chain = [LayoutFragment {
         id: "main".into(),
         constraints: UnifiedConstraints {
             available_width: AvailableSpace::Definite(50.0),
@@ -230,7 +222,7 @@ fn test_justification_inter_word() {
 
 #[test]
 fn test_hyphenation_break() {
-    let mut cache = TextShapingCache::new();
+    let cache = TextShapingCache::new();
     let manager = create_mock_font_manager();
     let hyphenator = Standard::from_embedded(Language::EnglishUS).unwrap();
 
@@ -290,7 +282,7 @@ fn test_hyphenation_break() {
 
 #[test]
 fn test_hyphenation_break_2() {
-    let mut cache = TextShapingCache::new();
+    let cache = TextShapingCache::new();
     let manager = create_mock_font_manager();
     let hyphenator = Standard::from_embedded(Language::EnglishUS).unwrap();
 

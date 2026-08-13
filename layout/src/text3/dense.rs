@@ -780,7 +780,7 @@ impl DenseText {
                         direction: run.direction,
                         style: run.style.clone(),
                         marker_position_outside: (f & ClusterFlags::DENSE_MARKER_SOME != 0)
-                            .then(|| f & ClusterFlags::DENSE_MARKER_OUTSIDE != 0),
+                            .then_some(f & ClusterFlags::DENSE_MARKER_OUTSIDE != 0),
                         is_first_fragment: f & ClusterFlags::DENSE_IS_FIRST_FRAGMENT != 0,
                         is_last_fragment: f & ClusterFlags::DENSE_IS_LAST_FRAGMENT != 0,
                     }),
@@ -915,7 +915,7 @@ impl DenseText {
                 0.0
             };
             let dist = vertical * 2.0 + horizontal;
-            if best.map_or(true, |(d, ..)| dist < d) {
+            if best.is_none_or(|(d, ..)| dist < d) {
                 best = Some((dist, ci, run, c.x));
             }
         }

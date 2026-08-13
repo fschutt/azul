@@ -2989,10 +2989,10 @@ pub struct E2eOpSchema {
 fn json_has_success_bool(v: &crate::json::Json) -> bool {
     #[cfg(feature = "serde-json")]
     {
-        return v
+        v
             .to_serde_value()
             .get("success")
-            .is_some_and(serde_json::Value::is_boolean);
+            .is_some_and(serde_json::Value::is_boolean)
     }
     #[cfg(not(feature = "serde-json"))]
     {
@@ -3089,7 +3089,7 @@ impl E2eOpSchema {
             // (it re-serializes sorted, which buried `name` and `summary`
             // under `args`/`description`/`examples`). Keep the serialized text
             // and wrap it, rather than round-tripping through the parser.
-            return serde_json::to_string(self)
+            serde_json::to_string(self)
                 .ok()
                 .map(|text| crate::json::Json {
                     value_type: crate::json::JsonType::Object,
@@ -3104,7 +3104,7 @@ impl E2eOpSchema {
                         string_value: AzString::from_const_str(r#"{"ops":[]}"#),
                         ..Default::default()
                     },
-                });
+                })
         }
         #[cfg(not(feature = "serde-json"))]
         crate::json::Json {

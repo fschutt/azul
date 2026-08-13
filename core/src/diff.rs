@@ -4218,7 +4218,7 @@ pub struct PreCascadeTransfers {
                 match img.get_data() {
                     DecodedImage::Callback(cb) => {
                         0xB0DE_CA11u32.hash(&mut h);
-                        (cb.callback.cb as usize).hash(&mut h);
+                        cb.callback.cb.hash(&mut h);
                         cb.refany.get_type_id().hash(&mut h);
                     }
                     _ => {

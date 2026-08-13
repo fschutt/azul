@@ -398,7 +398,7 @@ impl Json {
     pub fn parse(s: &str) -> Result<Self, JsonParseError> {
         let value: serde_json::Value = serde_json::from_str(s).map_err(|e| {
             JsonParseError {
-                message: AzString::from(alloc::format!("{}", e)),
+                message: AzString::from(alloc::format!("{e}")),
                 line: e.line() as u32,
                 column: e.column() as u32,
             }
@@ -410,7 +410,7 @@ impl Json {
     pub fn parse_bytes(bytes: &[u8]) -> Result<Self, JsonParseError> {
         let value: serde_json::Value = serde_json::from_slice(bytes).map_err(|e| {
             JsonParseError {
-                message: AzString::from(alloc::format!("{}", e)),
+                message: AzString::from(alloc::format!("{e}")),
                 line: e.line() as u32,
                 column: e.column() as u32,
             }
@@ -605,9 +605,9 @@ impl Json {
             JsonType::Number => {
                 let num = self.internal.number_value;
                 if let Some(i) = f64_as_i64(num) {
-                    AzString::from(alloc::format!("{}", i))
+                    AzString::from(alloc::format!("{i}"))
                 } else {
-                    AzString::from(alloc::format!("{}", num))
+                    AzString::from(alloc::format!("{num}"))
                 }
             }
             JsonType::String => {

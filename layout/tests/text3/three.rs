@@ -1,22 +1,14 @@
-use azul_layout::font_traits::FontLoaderTrait;
 // In a new file, e.g., azul/layout/src/text3/tests.rs
 
 use std::{
-    collections::HashMap,
     num::NonZeroUsize,
-    sync::{Arc, Mutex},
+    sync::Arc,
 };
 
-use azul_css::props::basic::ColorU;
-use hyphenation::{Language, Load, Standard};
-use rust_fontconfig::{FcWeight, FontId};
 
-use azul_layout::{
-    font::parsed::ParsedFont,
-    text3::{cache::*, default::PathLoader, glyphs::get_glyph_positions, script::Script},
-};
+use azul_layout::text3::{cache::*, glyphs::get_glyph_positions};
 
-use super::{MockFont, MockFontManager, create_mock_font_manager, default_style};
+use super::{create_mock_font_manager, default_style};
 
 /// Helper function to extract the text content from a layout result.
 fn get_text_from_items(items: &[PositionedItem]) -> String {
@@ -88,19 +80,19 @@ fn test_logical_items_combine_upright() {
     assert_eq!(logical_items.len(), 4);
     match &logical_items[0] {
         LogicalItem::CombinedText { text, .. } => assert_eq!(text, "12"),
-        other => panic!("Expected CombinedText, got {:?}", other),
+        other => panic!("Expected CombinedText, got {other:?}"),
     }
     match &logical_items[1] {
         LogicalItem::Text { text, .. } => assert_eq!(&**text, "ab "),
-        other => panic!("Expected Text, got {:?}", other),
+        other => panic!("Expected Text, got {other:?}"),
     }
     match &logical_items[2] {
         LogicalItem::CombinedText { text, .. } => assert_eq!(text, "34"),
-        other => panic!("Expected CombinedText, got {:?}", other),
+        other => panic!("Expected CombinedText, got {other:?}"),
     }
     match &logical_items[3] {
         LogicalItem::Text { text, .. } => assert_eq!(&**text, "5c"),
-        other => panic!("Expected Text, got {:?}", other),
+        other => panic!("Expected Text, got {other:?}"),
     }
 }
 
@@ -601,15 +593,13 @@ fn test_inline_object_baseline_alignment() {
     let expected_text_y = 7.0; // baseline_y (15.0) - text_ascent (8.0)
     assert!(
         (text_item.position.y - expected_text_y).abs() < 1e-5,
-        "text should be at y={}",
-        expected_text_y
+        "text should be at y={expected_text_y}"
     );
 
     let expected_image_y = 0.0; // baseline_y (15.0) - image_ascent (15.0)
     assert!(
         (image_item.position.y - expected_image_y).abs() < 1e-5,
-        "image should be at y={}",
-        expected_image_y
+        "image should be at y={expected_image_y}"
     );
 }
 

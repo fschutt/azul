@@ -2755,7 +2755,7 @@ pub fn calculate_layout_for_subtree_fragment<T: ParsedFontTrait>(
         layout_formatting_context(ctx, tree, text_cache, node_index, &constraints, float_cache)?
     };
     // K30b: hand the subtree's resume state up (None = finished).
-    if let Some(slot) = fragment_out.as_deref_mut() {
+    if let Some(slot) = fragment_out {
         *slot = layout_result.outgoing_token.clone();
     }
     let content_size = layout_result.output.overflow_size;

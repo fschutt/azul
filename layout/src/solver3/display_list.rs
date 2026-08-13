@@ -2753,7 +2753,7 @@ pub struct PatchMoveSummary {
             // by the opaque blits; anything else touching a mover rect
             // would be visibly dragged or stamped over — repaint it.
             !is_ancestor_of_any_mover(i)
-                && old_r.map_or(false, |r| {
+                && old_r.is_some_and(|r| {
                     mover_rects_old.iter().any(|m| intersects(&r, m))
                 })
         } else {
@@ -7582,7 +7582,7 @@ fn paginate_pages_impl(
                 // shifts it (items without geometry keep the base offset).
                 let item_shift = clipped_item
                     .visual_bounds()
-                    .map_or(0.0, &thead_shift_for);
+                    .map_or(0.0, thead_shift_for);
                 let content_y_offset = header_space + item_shift;
                 let final_item = if content_y_offset > 0.0 {
                     offset_display_item_y(&clipped_item, content_y_offset)

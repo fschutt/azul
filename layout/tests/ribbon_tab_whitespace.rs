@@ -295,7 +295,7 @@ fn tab_labels_never_wrap_and_captions_stay_centered() {
 /// NEGATIVE CONTROL for the wrap detector: a `<p>`-wrapped "PAGE LAYOUT"
 /// squeezed into a 40px box CANNOT fit one line — the line counter must see
 /// >= 2 lines. If this fails, the law above is vacuous (a detector that can
-/// never fire proves nothing).
+/// > never fire proves nothing).
 #[test]
 fn nc_squeezed_label_is_detected_as_wrapped() {
     // One-line reference.

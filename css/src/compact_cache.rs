@@ -1395,7 +1395,7 @@ pub struct CompactTextProps {
     /// Split scale by SIGN (parser convention: negative normalized =
     /// absolute px): negative = -px x 10 (line-height: 40px -> -400),
     /// positive = unitless multiple x 1000 (1.2 / 120% -> 1200).
-    /// I16_SENTINEL = unset ("normal").
+    /// `I16_SENTINEL` = unset ("normal").
     pub line_height: i16,
     pub letter_spacing: i16,   // px × 10
     pub word_spacing: i16,     // px × 10

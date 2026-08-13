@@ -3991,7 +3991,7 @@ impl LayoutWindow {
         if *MEM_LR_ENABLED.get_or_init(azul_core::profile::memory_enabled) {
             let mut lr_styled = 0usize;
             let mut lr_tree = 0usize;
-            for (_dom_id, res) in &self.layout_results {
+            for res in self.layout_results.values() {
                 lr_styled += res.styled_dom.memory_report().total_bytes();
                 lr_tree += res.layout_tree.memory_report().total_bytes();
             }

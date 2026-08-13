@@ -63,7 +63,7 @@ impl Css {
     pub fn viewport_breakpoints(&self) -> (Vec<f32>, Vec<f32>) {
         let mut w = Vec::new();
         let mut h = Vec::new();
-        for rule in self.rules.as_ref().iter() {
+        for rule in self.rules.as_ref() {
             crate::dynamic_selector::collect_viewport_thresholds(
                 rule.conditions.as_ref(),
                 &mut w,

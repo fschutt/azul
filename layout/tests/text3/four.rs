@@ -1,21 +1,12 @@
-use azul_layout::font_traits::FontLoaderTrait;
 use std::{
-    collections::HashMap,
     num::NonZeroUsize,
-    sync::{Arc, Mutex},
+    sync::Arc,
 };
 
-use azul_core::geom::LogicalSize;
-use azul_css::props::basic::ColorU;
-use hyphenation::{Language, Load, Standard};
-use rust_fontconfig::{FcWeight, FontId};
 
-use azul_layout::{
-    font::parsed::ParsedFont,
-    text3::{cache::*, default::PathLoader, glyphs::get_glyph_positions, script::Script},
-};
+use azul_layout::text3::{cache::*, glyphs::get_glyph_positions};
 
-use super::{MockFont, MockFontManager, create_mock_font_manager, default_style};
+use super::{create_mock_font_manager, default_style};
 
 /// Helper function to extract the text content from a layout result.
 fn get_text_from_items(items: &[PositionedItem]) -> String {
@@ -87,19 +78,19 @@ fn test_logical_items_combine_upright() {
     assert_eq!(logical_items.len(), 4);
     match &logical_items[0] {
         LogicalItem::CombinedText { text, .. } => assert_eq!(text, "12"),
-        other => panic!("Expected CombinedText, got {:?}", other),
+        other => panic!("Expected CombinedText, got {other:?}"),
     }
     match &logical_items[1] {
         LogicalItem::Text { text, .. } => assert_eq!(&**text, "ab "),
-        other => panic!("Expected Text, got {:?}", other),
+        other => panic!("Expected Text, got {other:?}"),
     }
     match &logical_items[2] {
         LogicalItem::CombinedText { text, .. } => assert_eq!(text, "34"),
-        other => panic!("Expected CombinedText, got {:?}", other),
+        other => panic!("Expected CombinedText, got {other:?}"),
     }
     match &logical_items[3] {
         LogicalItem::Text { text, .. } => assert_eq!(&**text, "5c"),
-        other => panic!("Expected Text, got {:?}", other),
+        other => panic!("Expected Text, got {other:?}"),
     }
 }
 

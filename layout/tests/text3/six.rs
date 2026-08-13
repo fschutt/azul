@@ -7,7 +7,7 @@
 /// This test should FAIL initially, demonstrating the bug.
 
 use azul_layout::text3::cache::{
-    AvailableSpace, InlineContent, LayoutFragment, StyleProperties, StyledRun, TextShapingCache,
+    AvailableSpace, InlineContent, LayoutFragment, StyledRun, TextShapingCache,
     UnifiedConstraints,
 };
 
@@ -29,7 +29,7 @@ fn test_available_width_should_produce_nonzero_bounds() {
         source_node_id: None, // Test content, no DOM node
     })];
 
-    println!("Input text: '{}'", text);
+    println!("Input text: '{text}'");
     println!("Text length: {} characters", text.len());
 
     // Create constraints with a reasonable available_width
@@ -112,8 +112,7 @@ fn test_available_width_should_produce_nonzero_bounds() {
     println!("Checking: items.len() > 0");
     assert!(
         !fragment.items.is_empty(),
-        "FAIL: No items in fragment, expected glyphs for '{}'",
-        text
+        "FAIL: No items in fragment, expected glyphs for '{text}'"
     );
 
     // For horizontal text, glyphs should be positioned horizontally (increasing x)
@@ -123,15 +122,13 @@ fn test_available_width_should_produce_nonzero_bounds() {
         let last_x = fragment.items[fragment.items.len() - 1].position.x;
         
         println!("Checking: horizontal layout (last_x > first_x)");
-        println!("  first_x: {}", first_x);
-        println!("  last_x: {}", last_x);
+        println!("  first_x: {first_x}");
+        println!("  last_x: {last_x}");
         
         assert!(
             last_x > first_x,
-            "FAIL: Text appears to be laid out vertically (first_x={}, last_x={}). \
-             For horizontal text, last_x should be > first_x.",
-            first_x,
-            last_x
+            "FAIL: Text appears to be laid out vertically (first_x={first_x}, last_x={last_x}). \
+             For horizontal text, last_x should be > first_x."
         );
     }
 

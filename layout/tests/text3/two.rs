@@ -1,20 +1,15 @@
 // In a new file, e.g., azul/layout/src/text3/tests.rs
 
 use std::{
-    collections::HashMap,
     num::NonZeroUsize,
-    sync::{Arc, Mutex},
+    sync::Arc,
 };
 
 use azul_css::props::basic::ColorU;
 use hyphenation::{Language, Load, Standard};
-use rust_fontconfig::{FcWeight, FontId};
 
-use super::{create_mock_font_manager, default_style, MockFont};
-use azul_layout::{
-    font::parsed::ParsedFont,
-    text3::{cache::*, default::PathLoader, script::Script},
-};
+use super::{create_mock_font_manager, default_style};
+use azul_layout::text3::{cache::*, script::Script};
 
 // --- Unit Tests ---
 
@@ -75,19 +70,19 @@ fn test_logical_items_combine_upright() {
     assert_eq!(logical_items.len(), 4);
     match &logical_items[0] {
         LogicalItem::CombinedText { text, .. } => assert_eq!(text, "12"),
-        other => panic!("Expected CombinedText, got {:?}", other),
+        other => panic!("Expected CombinedText, got {other:?}"),
     }
     match &logical_items[1] {
         LogicalItem::Text { text, .. } => assert_eq!(&**text, "ab "),
-        other => panic!("Expected Text, got {:?}", other),
+        other => panic!("Expected Text, got {other:?}"),
     }
     match &logical_items[2] {
         LogicalItem::CombinedText { text, .. } => assert_eq!(text, "34"),
-        other => panic!("Expected CombinedText, got {:?}", other),
+        other => panic!("Expected CombinedText, got {other:?}"),
     }
     match &logical_items[3] {
         LogicalItem::Text { text, .. } => assert_eq!(&**text, "5c"),
-        other => panic!("Expected Text, got {:?}", other),
+        other => panic!("Expected Text, got {other:?}"),
     }
 }
 
@@ -501,7 +496,7 @@ fn test_bug3_rtl_glyph_reversal() {
     // laid out right-to-left. Because the glyph vector is not reversed after
     // shaping, the glyphs will be positioned in logical order (left-to-right).
 
-    let mut cache = TextShapingCache::new();
+    let cache = TextShapingCache::new();
     let manager = create_mock_font_manager();
 
     // "שלום" in logical order
@@ -581,7 +576,7 @@ fn test_simple_line_break() {
             source_node_id: None,
     })];
 
-    let flow_chain = vec![LayoutFragment {
+    let flow_chain = [LayoutFragment {
         id: "main".into(),
         constraints: UnifiedConstraints {
             available_width: AvailableSpace::Definite(50.0),

@@ -9,7 +9,7 @@ use hyphenation::Language;
 use azul_layout::font_traits::FontLoaderTrait;
 use azul_layout::text3::{
     cache::{
-        AvailableSpace, BidiLevel, BidiDirection, FontSelector, FontStack, Glyph, LineHeight,
+        BidiLevel, BidiDirection, FontSelector, FontStack, Glyph, LineHeight,
         GlyphOrientation, GlyphSource, LayoutError, LayoutFontMetrics, ParsedFontTrait, Point,
         PositionedItem, ShapedItem, Spacing, StyleProperties, TextDecoration, TextOrientation,
         TextTransform, VerticalMetrics, WritingMode,
@@ -180,7 +180,7 @@ impl ParsedFontTrait for MockFont {
         style: &StyleProperties,
     ) -> Result<Vec<Glyph>, LayoutError> {
         let mut result_glyphs = Vec::new();
-        let mut char_indices: Vec<(usize, char)> = text.char_indices().collect();
+        let char_indices: Vec<(usize, char)> = text.char_indices().collect();
 
         // In RTL, the shaper processes text in logical order, but the layout might reverse it
         // later. Our mock shaper will just process what it's given.
@@ -295,7 +295,7 @@ impl ParsedFontTrait for MockFont {
     }
 
     fn get_font_metrics(&self) -> LayoutFontMetrics {
-        self.metrics.clone()
+        self.metrics
     }
 
     fn num_glyphs(&self) -> u16 {

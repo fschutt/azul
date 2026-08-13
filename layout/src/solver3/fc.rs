@@ -650,54 +650,52 @@ fn layout_flex_grid<T: ParsedFontTrait>(
     };
     let effective_height = if has_explicit_height {
         explicit_height
-    } else {
-        if is_root {
-            match root_border_box.as_ref().map(|s| s.height) {
-                // An auto-height root's `used_size` is content-derived and is
-                // still ZERO here (children have not been laid out yet).
-                // Handing that to taffy as a DEFINITE main size makes a column
-                // flex container think it has -60px of free space, so every
-                // item with the default `flex-shrink: 1` collapses to 0 — a
-                // fixed-height toolbar under `body { display: flex;
-                // flex-direction: column }` simply vanished.
-                //
-                // CSS Flexbox §9.7: a container whose main size is INDEFINITE
-                // sizes items to their hypothetical main size and performs no
-                // shrinking. Leaving the dimension unknown is what makes taffy
-                // content-size the container.
-                Some(h) if h <= 0.0 => None,
-                Some(h) => Some(h),
-                None => {
-                    if constraints.available_size.height.is_finite() {
-                        Some(constraints.available_size.height + height_adjustment)
-                    } else {
-                        None
-                    }
+    } else if is_root {
+        match root_border_box.as_ref().map(|s| s.height) {
+            // An auto-height root's `used_size` is content-derived and is
+            // still ZERO here (children have not been laid out yet).
+            // Handing that to taffy as a DEFINITE main size makes a column
+            // flex container think it has -60px of free space, so every
+            // item with the default `flex-shrink: 1` collapses to 0 — a
+            // fixed-height toolbar under `body { display: flex;
+            // flex-direction: column }` simply vanished.
+            //
+            // CSS Flexbox §9.7: a container whose main size is INDEFINITE
+            // sizes items to their hypothetical main size and performs no
+            // shrinking. Leaving the dimension unknown is what makes taffy
+            // content-size the container.
+            Some(h) if h <= 0.0 => None,
+            Some(h) => Some(h),
+            None => {
+                if constraints.available_size.height.is_finite() {
+                    Some(constraints.available_size.height + height_adjustment)
+                } else {
+                    None
                 }
             }
-        } else {
-            // Non-root height pass-through, mirroring the width arm above,
-            // but ONLY for absolutely/fixed-positioned containers: their
-            // used height was resolved by the §10.6.4 equations (stretch-fit
-            // between insets) BEFORE this run — a >0 value is the DEFINITE
-            // containing-block size, exactly like the width case. Without
-            // this, `inset:0; display:flex; align-items:center` centered
-            // within the CONTENT height (taffy re-derived the main size and
-            // clobbered the solved stretch-fit — miniword ENGINE-ISSUE 5a).
-            // In-flow auto-height containers stay None (content-sized;
-            // their used_size may hold a stale height on warm re-layouts).
-            let is_abs = matches!(
-                crate::solver3::positioning::get_position_type(
-                    ctx.styled_dom,
-                    node.dom_node_id,
-                ),
-                azul_css::props::layout::LayoutPosition::Absolute
-                    | azul_css::props::layout::LayoutPosition::Fixed
-            );
-            match (is_abs, node.used_size.as_ref().map(|s| s.height)) {
-                (true, Some(h)) if h > 0.0 => Some(h),
-                _ => None,
-            }
+        }
+    } else {
+        // Non-root height pass-through, mirroring the width arm above,
+        // but ONLY for absolutely/fixed-positioned containers: their
+        // used height was resolved by the §10.6.4 equations (stretch-fit
+        // between insets) BEFORE this run — a >0 value is the DEFINITE
+        // containing-block size, exactly like the width case. Without
+        // this, `inset:0; display:flex; align-items:center` centered
+        // within the CONTENT height (taffy re-derived the main size and
+        // clobbered the solved stretch-fit — miniword ENGINE-ISSUE 5a).
+        // In-flow auto-height containers stay None (content-sized;
+        // their used_size may hold a stale height on warm re-layouts).
+        let is_abs = matches!(
+            crate::solver3::positioning::get_position_type(
+                ctx.styled_dom,
+                node.dom_node_id,
+            ),
+            azul_css::props::layout::LayoutPosition::Absolute
+                | azul_css::props::layout::LayoutPosition::Fixed
+        );
+        match (is_abs, node.used_size.as_ref().map(|s| s.height)) {
+            (true, Some(h)) if h > 0.0 => Some(h),
+            _ => None,
         }
     };
     let has_effective_width = effective_width.is_some();

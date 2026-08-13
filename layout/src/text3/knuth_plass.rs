@@ -1059,7 +1059,7 @@ mod autotest_generated {
             .items
             .iter()
             .filter(|it| it.line_index == line)
-            .filter_map(|it| it.item.as_cluster().map(|c| c.text().clone()))
+            .filter_map(|it| it.item.as_cluster().map(|c| c.text()))
             .collect()
     }
 

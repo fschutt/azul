@@ -322,7 +322,7 @@ fn reinvoke_signal_carries_document_space_offsets_for_page_math() {
     let last = ((scroll_y + viewport_h) / 100.0).ceil() as usize;
     assert_eq!(first, 2, "top of the viewport is on page 2");
     assert!(
-        last >= 3 && last <= PAGE_COUNT,
+        (3..=PAGE_COUNT).contains(&last),
         "bottom edge maps to a sane page: {last}"
     );
 }
@@ -365,7 +365,7 @@ fn set_virtual_view_geometry_updates_scrollbar_math_without_reinvoke() {
             .virtual_view_manager
             .get_declared_sizes(DomId::ROOT_ID, vv_node);
         let eff_virtual = Some(new_virtual).or(kept_virtual).unwrap();
-        let eff_scroll = None.or(kept_scroll).or(Some(eff_virtual)).unwrap();
+        let eff_scroll = None.or(kept_scroll).unwrap_or(eff_virtual);
         assert_eq!(
             eff_scroll, declared_scroll,
             "None keeps the declared window, it does not invent one"
@@ -393,7 +393,7 @@ fn set_virtual_view_geometry_updates_scrollbar_math_without_reinvoke() {
             .virtual_view_manager
             .get_declared_sizes(DomId::ROOT_ID, vv_node);
         let eff_virtual = None.or(kept_virtual).unwrap();
-        let eff_scroll = Some(phase2_scroll).or(kept_scroll).or(Some(eff_virtual)).unwrap();
+        let eff_scroll = Some(phase2_scroll).or(kept_scroll).unwrap_or(eff_virtual);
         let _ = lw
             .virtual_view_manager
             .update_virtual_view_info(DomId::ROOT_ID, vv_node, eff_scroll, eff_virtual);

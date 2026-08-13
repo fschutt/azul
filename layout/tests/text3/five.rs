@@ -1,11 +1,11 @@
 // In a new file, layout/src/text3/tests4.rs
 
 use azul_core::{
-    geom::{LogicalPosition, LogicalRect, LogicalSize},
+    geom::LogicalPosition,
     selection::*,
 };
 
-use super::{create_mock_font_manager, default_style, MockFont, MockFontManager};
+use super::{create_mock_font_manager, default_style, MockFontManager};
 use azul_layout::text3::{cache::*, edit::{edit_text, TextEdit}};
 
 #[test]
@@ -161,7 +161,7 @@ fn test_move_cursor_up_down() {
 
     if let Some(d) = &debug {
         for msg in d {
-            println!("{}", msg);
+            println!("{msg}");
         }
     }
 
@@ -177,7 +177,7 @@ fn test_move_cursor_up_down() {
 
     if let Some(d) = &debug {
         for msg in d {
-            println!("{}", msg);
+            println!("{msg}");
         }
     }
     assert_eq!(
@@ -205,7 +205,7 @@ fn test_move_cursor_line_start_end() {
 
     if let Some(d) = &debug {
         for msg in d {
-            println!("{}", msg);
+            println!("{msg}");
         }
     }
 
@@ -219,7 +219,7 @@ fn test_move_cursor_line_start_end() {
 
     if let Some(d) = &debug {
         for msg in d {
-            println!("{}", msg);
+            println!("{msg}");
         }
     }
     assert_eq!(

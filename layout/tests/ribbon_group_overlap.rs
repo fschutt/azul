@@ -276,12 +276,7 @@ fn gallery_overflow_is_clipped_at_paint_time() {
         .iter()
         .map(|(_, r)| *r)
         .filter(|r| r.size.width > 100.0)
-        .max_by(|a, b| a.origin.x.partial_cmp(&b.origin.x).unwrap())
-        .map(|r| {
-            // second-to-last group from the right IS Styles in this
-            // fixture (Editing is last); recompute properly:
-            r
-        });
+        .max_by(|a, b| a.origin.x.partial_cmp(&b.origin.x).unwrap());
     // Simpler anchor: the strip node's rect via class walk.
     let node_data = layout_result.styled_dom.node_data.as_container();
     let mut strip_right = None;

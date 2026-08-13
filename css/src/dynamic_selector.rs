@@ -893,7 +893,7 @@ pub const DEFAULT_VIEWPORT_HEIGHT: f32 = 600.0;
 /// contexts never compared equal, `set_dynamic_selector_context`'s
 /// early return never fired, and EVERY context set paid a full author
 /// restyle (~2-4 ms at document scale, measured by the
-/// media_restyle_cost workbench). The manual impl compares the f32
+/// `media_restyle_cost` workbench). The manual impl compares the f32
 /// fields by bit pattern, which treats the NaN sentinel as equal to
 /// itself and is exactly the "did anything change" question this
 /// equality exists to answer.
@@ -1340,8 +1340,9 @@ impl_option!(
 
 impl Eq for CssPropertyWithConditions {}
 
-/// Collect the viewport-size thresholds (logical px) at which this
-/// condition set can change its answer — the width/height bounds of
+/// Collect the viewport-size thresholds at which this set can flip.
+///
+/// The thresholds (logical px) are the width/height bounds of
 /// `ViewportWidth` / `ViewportHeight` selectors (NaN "no bound" ends are
 /// skipped). The engine's resize decision regenerates the DOM when the
 /// window crosses one of these, so the set of HARVESTED thresholds — not a

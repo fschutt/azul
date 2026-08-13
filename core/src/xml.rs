@@ -2311,12 +2311,12 @@ pub use serde_impl::*;
 impl ComponentDataModel {
     /// Serialize this data model to a JSON string.
     pub fn to_json(&self) -> Result<alloc::string::String, alloc::string::String> {
-        serde_json::to_string_pretty(self).map_err(|e| alloc::format!("{}", e))
+        serde_json::to_string_pretty(self).map_err(|e| alloc::format!("{e}"))
     }
 
     /// Deserialize a data model from a JSON string.
     pub fn from_json(json: &str) -> Result<Self, alloc::string::String> {
-        serde_json::from_str(json).map_err(|e| alloc::format!("{}", e))
+        serde_json::from_str(json).map_err(|e| alloc::format!("{e}"))
     }
 }
 

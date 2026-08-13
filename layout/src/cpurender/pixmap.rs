@@ -298,7 +298,7 @@ impl AzulPixmap {
             .and_then(|n| n.checked_mul(4))?;
         let data = PixBuf::from(vec![255u8; len]); // opaque white
         Some(Self {
-            data: data.into(),
+            data: data,
             width,
             height,
         })

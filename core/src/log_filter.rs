@@ -241,7 +241,7 @@ pub fn parse(raw: &str) -> (Option<Level>, alloc::vec::Vec<(Category, bool)>) {
     if lower.is_empty() {
         return (level, overrides);
     }
-    for token in lower.split(|c| c == ',' || c == ';' || c == ' ').filter(|t| !t.is_empty()) {
+    for token in lower.split([',', ';', ' ']).filter(|t| !t.is_empty()) {
         // +name / -name enable or silence a single category.
         if let Some(name) = token.strip_prefix('+') {
             if let Some(cat) = category_from_name(name) {

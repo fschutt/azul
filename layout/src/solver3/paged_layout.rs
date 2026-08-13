@@ -2665,10 +2665,7 @@ where
     }
 
     // Pages before the dirty one are untouched by definition.
-    let mut pages: Vec<TokenizedPage> = token_cache.pages[..first_dirty_page]
-        .iter()
-        .cloned()
-        .collect();
+    let mut pages: Vec<TokenizedPage> = token_cache.pages[..first_dirty_page].to_vec();
     // Resume from the token that ENTERED the dirty page: the previous
     // page's outgoing, which predates the edit.
     let resume_token = if first_dirty_page == 0 {

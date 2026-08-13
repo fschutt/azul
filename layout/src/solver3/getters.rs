@@ -8026,11 +8026,11 @@ mod autotest_generated {
                 .flatten()
                 .map(|s| s.to_ascii_lowercase())
                 .collect();
-            return stack
+            stack
                 .iter()
                 .filter(|s| !alias_names.contains(&s.family.to_ascii_lowercase()))
                 .cloned()
-                .collect();
+                .collect()
         }
         #[cfg(not(all(target_os = "linux", feature = "std")))]
         {
@@ -8235,7 +8235,7 @@ mod autotest_generated {
         let magic_families: Vec<&str> = magic_stack.iter().map(|s| s.family.as_str()).collect();
         assert_eq!(magic_families, typed_families, "both spellings expand identically");
         assert!(
-            !magic_families.iter().any(|f| *f == "system:ui"),
+            !magic_families.contains(&"system:ui"),
             "the literal magic string must never reach fontconfig: {magic_families:?}"
         );
 
