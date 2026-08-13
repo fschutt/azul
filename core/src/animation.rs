@@ -623,6 +623,33 @@ impl AnimationManager {
     }
 }
 
+/// Seed (or retarget) a FLIP move for every correspondence whose geometry moved.
+///
+/// This is the engine entry point for Phase 1: the caller hands over the
+/// old↔new correspondences the diff already produced, paired with the First
+/// (pre-swap) and Last (post-solve) rects, and every pair that actually moved
+/// becomes a composited transform animation. Pairs that did not move are
+/// skipped — seeding an identity FLIP would allocate a GPU key and animate
+/// nothing.
+///
+/// Returns how many animations were started or retargeted, which is exactly the
+/// number of nodes that need a GPU transform key this frame.
+pub fn seed_moves<I>(manager: &mut AnimationManager, correspondences: I, interp: Interp) -> usize
+where
+    I: IntoIterator<Item = (AnimKey, LogicalRect, LogicalRect)>,
+{
+    let mut seeded = 0;
+    for (key, first, last) in correspondences {
+        let transform = flip(first, last);
+        if transform.is_identity() {
+            continue;
+        }
+        manager.start_or_retarget_move(key, transform, interp);
+        seeded += 1;
+    }
+    seeded
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -859,6 +886,49 @@ mod tests {
         m.start_exit(key, 0.8, interp);
         assert_eq!(m.get(key).map(|a| a.class), Some(AnimClass::Exit));
         assert_eq!(m.len(), 1);
+    }
+
+    #[test]
+    fn seed_moves_skips_nodes_that_did_not_move() {
+        // An identity FLIP would take a GPU key and animate nothing.
+        let mut m = AnimationManager::new();
+        let stayed = rect(0.0, 0.0, 10.0, 10.0);
+        let moved_first = rect(0.0, 0.0, 10.0, 10.0);
+        let moved_last = rect(40.0, 0.0, 10.0, 10.0);
+        let seeded = seed_moves(
+            &mut m,
+            [
+                (AnimKey(1), stayed, stayed),
+                (AnimKey(2), moved_first, moved_last),
+            ],
+            Interp::Spring(Spring::SMOOTH),
+        );
+        assert_eq!(seeded, 1, "only the node that moved should animate");
+        assert!(m.get(AnimKey(1)).is_none());
+        assert!(m.get(AnimKey(2)).is_some());
+    }
+
+    #[test]
+    fn seed_moves_retargets_a_key_that_is_already_animating() {
+        // Two produces in quick succession must not stack two animations on
+        // one node — that is the visible "fighting" artefact.
+        let mut m = AnimationManager::new();
+        let interp = Interp::Spring(Spring::SMOOTH);
+        seed_moves(
+            &mut m,
+            [(AnimKey(9), rect(0.0, 0.0, 10.0, 10.0), rect(50.0, 0.0, 10.0, 10.0))],
+            interp,
+        );
+        for _ in 0..5 {
+            m.tick(1.0 / 60.0);
+        }
+        let seeded = seed_moves(
+            &mut m,
+            [(AnimKey(9), rect(0.0, 0.0, 10.0, 10.0), rect(90.0, 0.0, 10.0, 10.0))],
+            interp,
+        );
+        assert_eq!(seeded, 1);
+        assert_eq!(m.len(), 1, "a second produce stacked a second animation");
     }
 
     #[test]
