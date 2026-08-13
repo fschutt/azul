@@ -1043,7 +1043,7 @@ jobs:
           # reference images rendered by the previous engine.
           key: reftest-chrome-images-chrome150-${{ env.CACHE_BUST }}-${{ hashFiles('doc/working/*.xht') }}
           restore-keys: |
-            reftest-chrome-images-${{ env.CACHE_BUST }}-
+            reftest-chrome-images-chrome150-${{ env.CACHE_BUST }}-
 
       - name: Run reftests
         run: cargo run -r -p azul-doc reftest
