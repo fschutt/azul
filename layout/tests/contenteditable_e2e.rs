@@ -1862,6 +1862,14 @@ fn probe_incremental_keystroke_median() {
     // #11 target (median < 8 ms, from 21.3 ms) is met with margin.
     // Generous CI bounds that still catch an order-of-magnitude
     // regression:
+    // Perf medians are meaningless without optimizations: the dev-profile
+    // CI job (debug-assertions + overflow-checks, opt 0) runs this fixture
+    // an order of magnitude slower. The probe's job is catching regressions
+    // in the OPTIMIZED build — report and skip the thresholds elsewhere.
+    if cfg!(debug_assertions) {
+        eprintln!("[probe] dev profile: thresholds skipped (edit {med_e:?}, present {med_d:?})");
+        return;
+    }
     assert!(
         med_e < std::time::Duration::from_millis(15),
         "edit median regressed: {med_e:?} (was ~5 ms; #11 target 8 ms)"

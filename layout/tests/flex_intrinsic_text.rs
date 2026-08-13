@@ -741,7 +741,7 @@ fn fixed_height_children_survive_an_auto_height_flex_root() {
 /// `overflow: hidden` frame) reported a *gallery cell* as the hit node.
 #[test]
 fn hit_testing_a_nodes_own_centre_returns_that_node() {
-    use azul_core::dom::{DomId as CoreDomId, NodeType};
+    use azul_core::dom::DomId as CoreDomId;
     use azul_layout::headless::CpuHitTester;
     use azul_layout::widgets::ribbon::{
         Ribbon, RibbonGallery, RibbonGalleryCell, RibbonGroup, RibbonItem, RibbonTab,
@@ -1755,13 +1755,40 @@ fn glyph_advances_stay_linear_and_unquantized() {
         layout_dom(dom, CSS, 800.0, 600.0)
             .get_node_layout_rect(node_id(1)).expect("10-run").size.width
     };
-    let w40 = {
+    let (w40, expected) = {
         let dom = Dom::create_body().with_child(
             Dom::create_div().with_ids_and_classes(class("m"))
                 .with_child(Dom::create_text("llllllllllllllllllllllllllllllllllllllll")),
         );
-        layout_dom(dom, CSS, 800.0, 600.0)
-            .get_node_layout_rect(node_id(1)).expect("40-run").size.width
+        let lw = layout_dom(dom, CSS, 800.0, 600.0);
+        let w = lw.get_node_layout_rect(node_id(1)).expect("40-run").size.width;
+        // Hermetic expectation: take the font THE LAYOUT ACTUALLY USED,
+        // straight from its own display list, and read the linear design
+        // advance from that font's tables. Re-resolving "Noto Sans" through
+        // a second query can (and did) pick a DIFFERENT Noto cut than the
+        // engine's resolution — the law is "layout == its own font's linear
+        // advance", so the font must come from the layout itself.
+        use azul_layout::solver3::display_list::DisplayListItem;
+        let result = lw.layout_results.get(&DomId::ROOT_ID).expect("layout result");
+        let font_hash = result
+            .display_list
+            .items
+            .iter()
+            .find_map(|i| match i {
+                DisplayListItem::Text { font_hash, .. } => Some(font_hash.font_hash),
+                _ => None,
+            })
+            .expect("a text item in the display list");
+        let font_ref = lw
+            .font_manager
+            .get_font_by_hash(font_hash)
+            .expect("the display list's font hash must resolve in the font manager");
+        let font = azul_layout::font_ref_to_parsed_font(&font_ref);
+        let gid = font.lookup_glyph_index('l' as u32).expect("'l' maps to a glyph");
+        let expected = font.get_horizontal_advance(gid) as f32
+            / font.font_metrics.units_per_em as f32
+            * 14.0;
+        (w, expected)
     };
     let per_glyph_10 = w10 / 10.0;
     let per_glyph_40 = w40 / 40.0;
@@ -1770,14 +1797,13 @@ fn glyph_advances_stay_linear_and_unquantized() {
         "per-glyph advance must not depend on run length (quantization!): \
          10-run {per_glyph_10:.4}px/glyph vs 40-run {per_glyph_40:.4}px/glyph"
     );
-    // Noto Sans 'l' = 258 design units -> 3.612px at 14px. The old hinted
-    // advance quantized this to 4.0px, inflating every run ~0.2px/glyph vs
-    // Chrome. The 1/64 intrinsic ceil may add up to ~0.016px to the BOX.
+    // `expected` computed above from the layout's own font (see the 40-run
+    // block): the anti-quantization law, checked against that font's tables.
     assert!(
-        (3.55..=3.68).contains(&per_glyph_40),
-        "advance must be the linear design advance (~3.612px for 'l' at 14px \
-         Noto Sans), got {per_glyph_40:.4}px - hinted-quantized advances leak \
-         into layout"
+        (per_glyph_40 - expected).abs() < 0.05,
+        "advance must be the resolved font's linear design advance \
+         ({expected:.4}px for 'l' at 14px), got {per_glyph_40:.4}px - \
+         hinted-quantized advances leak into layout"
     );
 }
 

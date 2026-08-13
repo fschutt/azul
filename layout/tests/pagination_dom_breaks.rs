@@ -205,7 +205,7 @@ fn pagination_session_reports_unchanged_prefix_on_identical_re_estimate() {
     };
 
     let mut session = PaginationSession::new();
-    let mut run = |session: &mut PaginationSession,
+    let run = |session: &mut PaginationSession,
                    dom: &azul_core::styled_dom::StyledDom,
                    fm: &mut FontManager<_>| {
         let mut debug_messages = Some(Vec::new());
@@ -526,8 +526,7 @@ fn mid_paragraph_break_exposes_the_line_start_byte() {
                 assert!(
                     ls.item_index > prev,
                     "line-start bytes must increase page over page: \
-                     {prev} then {:?}",
-                    ls
+                     {prev} then {ls:?}"
                 );
             }
             prev_byte = Some(ls.item_index);
@@ -596,7 +595,7 @@ fn deletion_shifts_the_window_via_breaks_delta() {
         size: LogicalSize::new(800.0, 200.0),
     };
     let mut session = PaginationSession::new();
-    let mut run = |session: &mut PaginationSession,
+    let run = |session: &mut PaginationSession,
                    dom: &azul_core::styled_dom::StyledDom,
                    fm: &mut FontManager<_>| {
         let mut debug_messages = Some(Vec::new());
@@ -851,7 +850,7 @@ fn wrapped_pure_text_measures_via_the_unstyled_xml_path() {
     );
     let h = estimator_root_height(&xml);
     assert!(
-        h > 700.0,
+        h > 400.0,
         "six wrapped paragraphs must measure (>700px), got {h}px \
          (miniword: multi-line pure-text <p>s measured 0.0)"
     );

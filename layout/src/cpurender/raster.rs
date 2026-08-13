@@ -2962,6 +2962,14 @@ fn render_text_prerendered_lcd(
         let ty0 = y0.max(cy0).max(0);
         let tx1 = (x0 + tile.w as i32).min(cx1).min(dst_w);
         let ty1 = (y0 + tile.h as i32).min(cy1).min(dst_h);
+        if tx1 <= tx0 || ty1 <= ty0 {
+            // Tile entirely outside the clip/pixmap. Without this, the
+            // negative width cast huge in `(tx1 - tx0) as u32 * 4`:
+            // overflow-checked builds panic ("attempt to multiply with
+            // overflow"), release builds WRAPPED into the bounds guard and
+            // skipped by accident.
+            continue;
+        }
         for ty in ty0..ty1 {
             let src_row = ((ty - y0) as u32 * tile.w * 4) as usize;
             let src_off = src_row + ((tx0 - x0) as u32 * 4) as usize;
@@ -7693,6 +7701,31 @@ mod damaged_vs_plain_text_tests {
             (diff[0] / 4) / 200,
             &plain.data()[diff[0] & !3..(diff[0] & !3) + 4],
             &damaged.data()[diff[0] & !3..(diff[0] & !3) + 4],
+        );
+    }
+}
+
+#[cfg(test)]
+mod pass2b_clamp_tests {
+    /// #29 dev-profile pin: a tile entirely left of the clip yields a
+    /// NEGATIVE clamped width. Pass 2b must skip such tiles before any
+    /// width arithmetic — the pre-fix code computed `(tx1 - tx0) as u32 * 4`
+    /// on it: overflow-checked builds panicked ("attempt to multiply with
+    /// overflow", the maps_render_paints_header_pixels CI failure), release
+    /// builds wrapped into the bounds guard and skipped by luck.
+    #[test]
+    fn off_clip_tile_clamp_is_checked_before_width_math() {
+        let (cx0, cx1, dst_w) = (100i32, 200i32, 800i32);
+        let (x0, tile_w) = (0i32, 32u32);
+        let tx0 = x0.max(cx0).max(0);
+        let tx1 = (x0 + tile_w as i32).min(cx1).min(dst_w);
+        // The hazard is real: the clamped width is negative...
+        assert!(tx1 < tx0, "fixture must express the negative-width case");
+        // ...and the checked equivalent of the pre-fix arithmetic overflows.
+        assert!(
+            ((tx1 - tx0) as u32).checked_mul(4).is_none(),
+            "the pre-fix `(tx1 - tx0) as u32 * 4` would overflow here — the \
+             empty-rect guard in pass 2b must skip before this math runs"
         );
     }
 }
