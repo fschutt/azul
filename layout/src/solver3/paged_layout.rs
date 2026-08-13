@@ -305,17 +305,28 @@ where
         if !font_requirements_unchanged {
             let _p = crate::probe::Probe::span("font_chain_resolve");
             let trace = std::env::var_os("AZ_PAGINATE_TRACE").is_some();
-            // azul_core's clock, NOT std's: `std::time::Instant::now()` PANICS on
-            // wasm32-unknown-unknown, and azul-layout is built for wasm with
-            // `text_layout` (which turns std on, so a `feature = "std"` gate would
-            // not have saved it). `azul_core::task::Instant` exists for this.
-            let t0 = azul_core::task::Instant::now();
+            // Clock reads are GATED ON `trace`, and use azul_core's clock rather
+            // than std's, for two independent reasons:
+            //
+            //   * `std::time::Instant::now()` PANICS on wasm32-unknown-unknown,
+            //     and azul-layout is built for wasm with `text_layout` (which
+            //     turns std on, so a `feature = "std"` gate would not save it).
+            //   * `azul_core::task::Instant` is FFI-shaped: it owns a
+            //     `ManuallyDrop<Box<StdInstant>>`, so every `now()` is a heap
+            //     allocation. Taking one unconditionally on this path made
+            //     `regenerate_layout` grow 1112 B/iter under resize stress and
+            //     tripped the leak regression test — which is exactly what that
+            //     test is for.
+            //
+            // Tracing is off in every normal run, so this costs nothing there.
+            let t0 = trace.then(azul_core::task::Instant::now);
             let platform = azul_css::system::Platform::current();
 
             let chains = collect_and_resolve_font_chains_with_registration(
                 new_dom, &font_manager.fc_cache, font_manager, &platform,
             );
-            let t_resolve = azul_core::task::Instant::now().duration_since(&t0);
+            let t_resolve =
+                t0.map(|t0| azul_core::task::Instant::now().duration_since(&t0));
 
             let required_fonts = collect_font_ids_from_chains(&chains);
             let already_loaded = font_manager.get_loaded_font_ids();
@@ -332,13 +343,13 @@ where
             }
 
             if !fonts_to_load.is_empty() {
-                let t1 = azul_core::task::Instant::now();
+                let t1 = trace.then(azul_core::task::Instant::now);
                 let load_result =
                     load_fonts_from_disk(&fonts_to_load, &font_manager.fc_cache, &font_loader);
                 if trace {
                     eprintln!(
                         "[paginate] load_fonts_from_disk {:?}: {} loaded, {} failed",
-                        azul_core::task::Instant::now().duration_since(&t1),
+                        t1.map(|t1| azul_core::task::Instant::now().duration_since(&t1)),
                         load_result.loaded.len(),
                         load_result.failed.len(),
                     );
