@@ -149,10 +149,10 @@ pub struct CaretTweenTrack {
 /// for the whole selection band geometry).
 #[derive(Debug, Clone)]
 pub struct SelectionTweenTrack {
-    pub from: alloc::vec::Vec<LogicalRect>,
+    pub from: Vec<LogicalRect>,
     /// Geometry the tween is seeking (same retarget contract as
     /// [`CaretTweenTrack::to`]).
-    pub to: alloc::vec::Vec<LogicalRect>,
+    pub to: Vec<LogicalRect>,
     pub start: Instant,
 }
 
@@ -172,7 +172,7 @@ pub struct TextTweenState {
     /// In-flight selection tween, if any.
     pub selection: Option<SelectionTweenTrack>,
     /// Selection rects the last display-list pass RENDERED.
-    pub last_selection: alloc::vec::Vec<LogicalRect>,
+    pub last_selection: Vec<LogicalRect>,
     /// In-flight focus-ring glide (ledger #29; opt-in via
     /// `SystemAnimations.focus_ring_duration_ms`).
     pub focus_ring: Option<CaretTweenTrack>,
@@ -196,7 +196,7 @@ impl Clone for TextTweenState {
 impl TextTweenState {
     /// True while any tween is mid-flight (drives the 16ms tween timer and
     /// forces the caret solid — blinking is suppressed during animation).
-    #[must_use] pub fn is_active(&self) -> bool {
+    #[must_use] pub const fn is_active(&self) -> bool {
         self.caret.is_some() || self.selection.is_some() || self.focus_ring.is_some()
     }
 
@@ -490,7 +490,7 @@ impl TextEditManager {
     }
 
     /// Take the cross-block selection (delete/apply flows consume it).
-    pub fn take_cross_block_selection(&mut self) -> Option<azul_core::selection::TextSelection> {
+    pub const fn take_cross_block_selection(&mut self) -> Option<azul_core::selection::TextSelection> {
         let s = self.cross_block.take();
         if s.is_some() {
             self.display_list_dirty = true;

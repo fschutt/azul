@@ -52,15 +52,19 @@ gleam = "0.15.1"
 azul-css = { path = "css" }
 azul-core = { path = "core" }
 azul-layout = { path = "layout" }
-# agg-rust-azul: pinned to a branch while an LCD-text perf fix is in flight.
-# `blend_solid_hspan` allocated a fresh Vec for the 5-tap coverage
-# distribution on EVERY span, and text produces hundreds of thousands of
-# short spans per frame — the malloc/free pair, not the blending, dominated
-# the LCD glyph sweep (22 ms/frame on a 30-paragraph document, against
-# 0.8 ms for the whole layout pass). Unpin once this is released as a
-# version bump; a git patch trips the "no [patch] on published deps"
-# release gate, so this MUST NOT survive into a publish.
-agg-rust-azul = { git = "https://github.com/fschutt/agg-rust", branch = "perf/lcd-span-scratch-buffer" }
+# agg-rust-azul is NOT patched (2026-08-13). It used to be, on a branch, while
+# the LCD-text perf work was in flight: `blend_solid_hspan` allocated a fresh
+# Vec for the 5-tap coverage distribution on EVERY span, and text produces
+# hundreds of thousands of short spans per frame — the malloc/free pair, not
+# the blending, dominated the LCD glyph sweep (22 ms/frame on a 30-paragraph
+# document, against ~1 ms for the whole warm layout pass).
+#
+# That branch is now RELEASED as agg-rust-azul 1.1.3 and consumed from the
+# registry (layout/Cargo.toml pins it). The patch had to go: `cargo publish`
+# strips [patch], so a published azul-layout would have been built against
+# 1.1.2 — which contains none of the series — and the "no [patch] on published
+# deps" release gate rejected it, correctly. Land changes in the fork, publish,
+# then bump; never re-add a git patch here.
 # printpdf now comes from crates.io (0.12.x — requires azul-css/core 0.0.13 +
 # azul-layout 0.0.13, all published). The azul-* path patches above redirect
 # printpdf's azul deps to this one workspace copy, so there is a single

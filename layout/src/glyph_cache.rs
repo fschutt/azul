@@ -128,7 +128,7 @@ pub struct GlyphCache {
     /// Previous generation, see the type docs.
     cells_prev: HashMap<GlyphCellKey, Option<CachedCells>>,
     /// Pre-blended LCD tiles (uniform-background fast path). `None` entry =
-    /// glyph has no cells. Flat cap with full drop — see MAX_TILE_ENTRIES.
+    /// glyph has no cells. Flat cap with full drop — see `MAX_TILE_ENTRIES`.
     lcd_tiles: HashMap<LcdTileKey, Option<LcdGlyphTile>>,
 }
 
@@ -1628,11 +1628,11 @@ mod autotest_generated {
 /// generator PROVED the run sits on that background (`Text.uniform_bg`),
 /// painting the glyph is an opaque row copy — the per-pixel linear blend
 /// (~6 ms of every big.md repaint) runs once per (glyph, color, bg) ever.
-#[derive(Clone)]
+#[derive(Debug, Clone)]
 pub struct LcdGlyphTile {
     pub w: u32,
     pub h: u32,
-    /// Offset from the glyph's (int_x, int_y) anchor to the tile's top-left.
+    /// Offset from the glyph's (`int_x`, `int_y`) anchor to the tile's top-left.
     pub dx: i32,
     pub dy: i32,
     pub rgba: Vec<u8>,
@@ -1704,7 +1704,7 @@ impl GlyphCache {
 
         // Cells for THIS glyph (cached themselves), cloned so we can borrow
         // self mutably for the insert below.
-        let cells: Vec<agg_rust::rasterizer_cells_aa::CellAa> = self
+        let cells: Vec<CellAa> = self
             .get_or_build_cells_lcd(
                 font_hash, glyph_id, ppem, glyph_x, glyph_y, scale, is_hinted,
                 hint_correction,

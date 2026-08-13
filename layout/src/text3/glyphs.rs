@@ -78,9 +78,8 @@ impl CompactGlyphs {
     /// choosing the shared y/size — NaNs become exceptions, never a match).
     #[must_use]
     pub fn from_instances(v: &[GlyphInstance]) -> Self {
-        let (y, size) = v.first().map_or((0.0, LogicalSize::default()), |g| {
-            (g.point.y, g.size)
-        });
+        let (y, size) =
+            v.first().map_or_else(|| (0.0, LogicalSize::default()), |g| (g.point.y, g.size));
         let mut xs = Vec::with_capacity(v.len());
         let mut exceptions = Vec::new();
         for (i, g) in v.iter().enumerate() {
@@ -101,12 +100,12 @@ impl CompactGlyphs {
     }
 
     #[must_use]
-    pub fn len(&self) -> usize {
+    pub const fn len(&self) -> usize {
         self.xs.len()
     }
 
     #[must_use]
-    pub fn is_empty(&self) -> bool {
+    pub const fn is_empty(&self) -> bool {
         self.xs.is_empty()
     }
 
@@ -155,9 +154,9 @@ impl CompactGlyphs {
 
     /// Heap bytes retained by this encoding (memory report).
     #[must_use]
-    pub fn retained_bytes(&self) -> usize {
-        self.xs.capacity() * core::mem::size_of::<(u32, f32)>()
-            + self.exceptions.capacity() * core::mem::size_of::<(u32, GlyphInstance)>()
+    pub const fn retained_bytes(&self) -> usize {
+        self.xs.capacity() * size_of::<(u32, f32)>()
+            + self.exceptions.capacity() * size_of::<(u32, GlyphInstance)>()
     }
 }
 
@@ -250,13 +249,13 @@ pub fn simple_runs_bit_equal(a: &SimpleGlyphRun, b: &SimpleGlyphRun) -> bool {
 #[must_use] pub fn get_glyph_runs_simple(layout: &UnifiedLayout) -> Vec<SimpleGlyphRun> {
     let mut runs: Vec<SimpleGlyphRun> = Vec::new();
     let mut current_run: Option<SimpleGlyphRun> = None;
-    /// Baseline the open run sits on. Runs merge across layout items when
-    /// their style matches, and the style predicate below has no notion of
-    /// WHERE the glyphs are — so every line of a paragraph merged into one
-    /// run, hence one `DisplayListItem::Text`, hence one damage rect
-    /// covering all of them. Breaking on the baseline makes a line the unit
-    /// of damage, so editing line 3 of a paragraph does not repaint lines
-    /// 1 and 2.
+    // Baseline the open run sits on. Runs merge across layout items when
+    // their style matches, and the style predicate below has no notion of
+    // WHERE the glyphs are — so every line of a paragraph merged into one
+    // run, hence one `DisplayListItem::Text`, hence one damage rect
+    // covering all of them. Breaking on the baseline makes a line the unit
+    // of damage, so editing line 3 of a paragraph does not repaint lines
+    // 1 and 2.
     let mut current_baseline: Option<f32> = None;
 
     for item in &layout.items {

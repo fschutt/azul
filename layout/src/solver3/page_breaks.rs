@@ -210,7 +210,7 @@ pub enum MonolithReason {
 
 /// E21: one element the break pass had to TEAR despite a keep-intact rule.
 /// The exporter surfaces these as "element X could not be kept intact".
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, Copy, PartialEq)]
 pub struct MonolithWarning {
     /// The node whose rule was violated (None = anonymous, e.g. a row range
     /// derived without a node mapping).

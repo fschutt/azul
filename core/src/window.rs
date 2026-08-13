@@ -1562,9 +1562,11 @@ pub struct WaylandTheme {
     pub title_bar_font_size: f32,
 }
 
-/// The global CSS viewport breakpoints the dynamic-selector system evaluates
-/// `@media`-style conditions against, and one of the three signals the resize
-/// fast path checks: crossing any of these (on either axis) re-invokes the
+/// The global CSS viewport breakpoints for `@media`-style conditions.
+///
+/// The dynamic-selector system evaluates against these, and they are one of
+/// the three signals the resize fast path checks: crossing any of these
+/// (on either axis) re-invokes the
 /// app's `layout()`; staying between them re-flows the existing DOM.
 ///
 /// Lived in `azul-dll`'s shell (`shell2::common::CSS_BREAKPOINTS`, still

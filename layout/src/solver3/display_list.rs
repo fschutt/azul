@@ -400,13 +400,13 @@ impl DisplayList {
     /// variant must fail this match so its heap gets classified rather
     /// than silently uncounted. `Arc`/`ImageRef` fields are CLONES of
     /// allocations owned (and counted) elsewhere → 0 here.
-    fn item_heap_bytes(item: &DisplayListItem, text_instances: &mut usize) -> usize {
+    const fn item_heap_bytes(item: &DisplayListItem, text_instances: &mut usize) -> usize {
         use core::mem::size_of;
         use DisplayListItem as I;
         match item {
             I::Text { glyphs, .. } => {
                 *text_instances += glyphs.len();
-                glyphs.capacity() * size_of::<azul_core::ui_solver::GlyphInstance>()
+                glyphs.capacity() * size_of::<GlyphInstance>()
             }
             I::ScrollBarStyled { .. } => size_of::<ScrollbarDrawInfo>(),
             I::LinearGradient { gradient, .. } => {
@@ -422,7 +422,7 @@ impl DisplayList {
                     * size_of::<azul_css::props::style::NormalizedRadialColorStop>()
             }
             I::PushFilter { filters, .. } | I::PushBackdropFilter { filters, .. } => {
-                filters.capacity() * size_of::<azul_css::props::style::StyleFilter>()
+                filters.capacity() * size_of::<StyleFilter>()
             }
             // Arc / ImageRef clones — owned and counted elsewhere.
             I::TextLayout { .. } | I::Image { .. } | I::PushImageMaskClip { .. } => 0,
@@ -462,7 +462,7 @@ impl DisplayList {
 /// Translate a display-list item's geometry by `delta` (DL patching:
 /// same item content, moved node). Every variant the two paint fns can
 /// emit is handled; variants outside `patchable_item` never reach this
-/// (PatchState::build forces their node into the re-emit set).
+/// (`PatchState::build` forces their node into the re-emit set).
 #[must_use]
 pub(crate) fn translate_item(mut item: DisplayListItem, delta: LogicalPosition) -> DisplayListItem {
     use DisplayListItem as I;
@@ -534,7 +534,7 @@ pub(crate) const fn patchable_item(item: &DisplayListItem) -> bool {
 
 /// Runtime toggle for DL patching. 0 = uninitialized (resolve from
 /// `AZ_NO_DL_PATCH` on first read), 1 = enabled, 2 = disabled. A runtime
-/// atomic rather than a latched OnceLock so tests can A/B the patched and
+/// atomic rather than a latched `OnceLock` so tests can A/B the patched and
 /// full paths in one process (the golden-equality gate), and so a live
 /// session can be flipped for diagnosis.
 static DL_PATCHING: core::sync::atomic::AtomicU8 = core::sync::atomic::AtomicU8::new(0);
@@ -597,7 +597,7 @@ impl DisplayList {
     /// Returns a message naming the first offending item index.
     pub fn validate_node_mapping(
         &self,
-        styled_dom: &azul_core::styled_dom::StyledDom,
+        styled_dom: &StyledDom,
     ) -> core::result::Result<(), String> {
         if self.node_mapping.len() != self.items.len() {
             return Err(format!(
@@ -1281,7 +1281,7 @@ impl DisplayListItem {
     }
 
     /// The Pop item that closes this Push marker (None for non-markers).
-    #[must_use] pub fn matching_pop(&self) -> Option<Self> {
+    #[must_use] pub const fn matching_pop(&self) -> Option<Self> {
         match self {
             Self::PushClip { .. } => Some(Self::PopClip),
             Self::PushScrollFrame { .. } => Some(Self::PopScrollFrame),
@@ -1683,7 +1683,7 @@ struct DisplayListBuilder {
     current_layout: Option<(usize, EmitPhase)>,
     layout_node_mapping: Vec<Option<(usize, EmitPhase)>>,
     /// One-shot: the uniform background for the NEXT pushed item (set by
-    /// push_text_run / the patch copy just before pushing a Text item).
+    /// `push_text_run` / the patch copy just before pushing a Text item).
     next_text_bg: Option<(ColorU, WindowLogicalRect)>,
     uniform_text_bgs: Vec<Option<(ColorU, WindowLogicalRect)>>,
 }
@@ -1742,7 +1742,7 @@ impl DisplayListBuilder {
     }
 
     /// Tag subsequent pushes with (layout index, phase). `None` = untagged
-    /// (equivalent to ScWalk for patching purposes — never substituted).
+    /// (equivalent to `ScWalk` for patching purposes — never substituted).
     pub(crate) const fn set_current_layout(&mut self, tag: Option<(usize, EmitPhase)>) {
         self.current_layout = tag;
     }
@@ -2538,8 +2538,8 @@ struct DisplayListGenerator<'a, 'b, T: ParsedFontTrait> {
 pub(crate) struct PatchState<'a> {
     prev: &'a DisplayList,
     /// Per (layout idx, phase): queue of item ranges in `prev`, walk order.
-    runs: std::collections::HashMap<(usize, u8), std::collections::VecDeque<(usize, usize)>>,
-    /// Per layout idx: (new_pos - old_pos).
+    runs: HashMap<(usize, u8), std::collections::VecDeque<(usize, usize)>>,
+    /// Per layout idx: (`new_pos` - `old_pos`).
     deltas: Vec<LogicalPosition>,
     /// Nodes that MUST re-emit (re-flowed IFC, size changed).
     reemit: std::collections::BTreeSet<usize>,
@@ -2598,8 +2598,8 @@ pub struct PatchMoveSummary {
         .min(new_sizes.len());
 
     // Group movers by exact delta bits, weighted by new area.
-    let mut groups: std::collections::HashMap<(u32, u32), f32> =
-        std::collections::HashMap::new();
+    let mut groups: HashMap<(u32, u32), f32> =
+        HashMap::new();
     for i in 0..n {
         if reemit.contains(&i) {
             continue;
@@ -2610,8 +2610,7 @@ pub struct PatchMoveSummary {
             continue;
         }
         let area = new_sizes[i]
-            .map(|s| (s.width * s.height).max(1.0))
-            .unwrap_or(1.0);
+            .map_or(1.0, |s| (s.width * s.height).max(1.0));
         *groups.entry((dx.to_bits(), dy.to_bits())).or_insert(0.0) += area;
     }
     let ((dxb, dyb), _) = groups
@@ -2816,8 +2815,8 @@ impl<'a> PatchState<'a> {
         }
 
         // Contiguous same-(node,phase) runs, in list order.
-        let mut runs: std::collections::HashMap<(usize, u8), std::collections::VecDeque<(usize, usize)>> =
-            std::collections::HashMap::new();
+        let mut runs: HashMap<(usize, u8), std::collections::VecDeque<(usize, usize)>> =
+            HashMap::new();
         let mut i = 0usize;
         while i < prev.items.len() {
             let tag = prev.layout_node_mapping[i];
@@ -2888,7 +2887,7 @@ where
     /// solid opaque color (no gradients/images, no translucency) and no
     /// selection touches the node (selection rects paint between background
     /// and glyphs). No claim for canvas-direct text — the clear color is a
-    /// renderer detail (AZ_DEBUG_FILL can change it).
+    /// renderer detail (`AZ_DEBUG_FILL` can change it).
     fn compute_uniform_text_bg(
         &self,
         source_node_index: usize,
@@ -2907,7 +2906,7 @@ where
         while let Some(idx) = cur {
             if let Some(dom_id) = tree.get(idx).and_then(|n| n.dom_node_id) {
                 let state = self.get_styled_node_state(dom_id);
-                let contents = crate::solver3::getters::get_background_contents(
+                let contents = get_background_contents(
                     self.ctx.styled_dom,
                     dom_id,
                     &state,
@@ -2961,7 +2960,7 @@ where
         let Some(run) = patch
             .runs
             .get_mut(&(node_index, phase as u8))
-            .and_then(|q| q.pop_front())
+            .and_then(std::collections::VecDeque::pop_front)
         else {
             // No cached run for this call. For a node that emitted nothing
             // last pass this is the COMMON case — and emitting nothing again
@@ -4717,22 +4716,17 @@ where
 
         let cell_border = |idx: usize| -> Option<[CollapsedBorder; 4]> {
             let node = self.positioned_tree.tree.get(idx)?;
-            let (t, r, b, l) = collapsed_border_info(self.ctx, node, BorderSource::Cell);
-            Some([t, r, b, l])
+            Some(collapsed_border_info(self.ctx, node, BorderSource::Cell).into())
         };
         let row_border = |idx: usize| -> Option<[CollapsedBorder; 4]> {
             let node = self.positioned_tree.tree.get(idx)?;
-            let (t, r, b, l) = collapsed_border_info(self.ctx, node, BorderSource::Row);
-            Some([t, r, b, l])
+            Some(collapsed_border_info(self.ctx, node, BorderSource::Row).into())
         };
         let table_border: Option<[CollapsedBorder; 4]> = self
             .positioned_tree
             .tree
             .get(table_index)
-            .map(|node| {
-                let (t, r, b, l) = collapsed_border_info(self.ctx, node, BorderSource::Table);
-                [t, r, b, l]
-            });
+            .map(|node| collapsed_border_info(self.ctx, node, BorderSource::Table).into());
         const TOP: usize = 0;
         const RIGHT: usize = 1;
         const BOTTOM: usize = 2;
@@ -4786,7 +4780,7 @@ where
                 };
                 builder.push_rect(
                     LogicalRect::new(
-                        LogicalPosition::new(x - w.width * 0.5, y0),
+                        LogicalPosition::new(w.width.mul_add(-0.5, x), y0),
                         LogicalSize::new(w.width, y1 - y0),
                     ),
                     w.color,
@@ -4830,11 +4824,11 @@ where
                 // Extend the strip by its own half-width at both ends so the
                 // corners where a wider horizontal border meets a narrower
                 // vertical one are filled.
-                let x0 = seg_rect.origin.x - w.width * 0.5;
-                let x1 = seg_rect.origin.x + seg_rect.size.width + w.width * 0.5;
+                let x0 = w.width.mul_add(-0.5, seg_rect.origin.x);
+                let x1 = w.width.mul_add(0.5, seg_rect.origin.x + seg_rect.size.width);
                 builder.push_rect(
                     LogicalRect::new(
-                        LogicalPosition::new(x0, y - w.width * 0.5),
+                        LogicalPosition::new(x0, w.width.mul_add(-0.5, y)),
                         LogicalSize::new(x1 - x0, w.width),
                     ),
                     w.color,
@@ -5746,9 +5740,7 @@ where
                 .to_vec_offset(container_rect.origin.x, container_rect.origin.y);
 
             // Store only the font hash in the display list to keep it lean
-            let uniform_bg = if !glyph_run.background_content.is_empty() {
-                None // gradient/image span background — unprovable
-            } else {
+            let uniform_bg = if glyph_run.background_content.is_empty() {
                 match glyph_run.background_color {
                     // A span's own opaque background covers only the run —
                     // no cheap proven-RECT for the fringe boundary here, so
@@ -5761,6 +5753,8 @@ where
                     Some(c) if c.a > 0 => None, // translucent span bg
                     _ => ifc_uniform_bg,
                 }
+            } else {
+                None // gradient/image span background — unprovable
             };
             // Colour is paint-only and deliberately excluded from the text
             // layout hash, so a cached run can outlive the cascade that
@@ -6767,7 +6761,7 @@ fn clip_text_layout_item(
     #[cfg(feature = "text_layout")]
     if let Some(p) = layout.downcast_ref::<crate::solver3::layout_tree::TextPayload>() {
         if p.sparse.items.is_empty() && !p.dense.clusters.is_empty() {
-            let expanded = crate::text3::cache::UnifiedLayout {
+            let expanded = UnifiedLayout {
                 items: p.dense.to_unified_items(),
                 overflow: p.sparse.overflow.clone(),
             };
@@ -7453,7 +7447,7 @@ fn paginate_pages_impl(
             if b.origin.y >= below_all_y {
                 return sum_all_theads;
             }
-            let x_center = b.origin.x + b.size.width * 0.5;
+            let x_center = b.size.width.mul_add(0.5, b.origin.x);
             bands
                 .iter()
                 .filter(|band| x_center >= band.x_start && x_center < band.x_end)
@@ -7478,7 +7472,7 @@ fn paginate_pages_impl(
         // pages after the first affected one.
         struct OpenMarker {
             item_idx: usize,
-            /// Already emitted into page_items?
+            /// Already emitted into `page_items`?
             emitted: bool,
         }
         let mut marker_stack: Vec<OpenMarker> = Vec::new();

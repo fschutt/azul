@@ -1008,7 +1008,7 @@ fn resolve_font_size_to_px(
 fn css_property_uses_viewport_units(prop: &CssProperty) -> bool {
     use azul_css::props::basic::length::SizeMetric;
     use azul_css::props::basic::pixel::PixelValue;
-    fn pv(p: &PixelValue) -> bool {
+    const fn pv(p: &PixelValue) -> bool {
         matches!(p.metric, SizeMetric::Vw | SizeMetric::Vh | SizeMetric::Vmin | SizeMetric::Vmax)
     }
     fn inner<T: HasInnerPixelValue>(v: &CssPropertyValue<T>) -> bool {

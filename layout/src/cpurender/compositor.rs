@@ -1844,10 +1844,7 @@ fn compute_display_list_damage_impl(
                 DisplayListItem::Border { widths: nw, .. },
             ) = (old_item, new_item)
             {
-                let _refine_gate = refine;
-                if !refine {
-                    // fall through to plain damage below
-                } else {
+                if refine {
                 // Sides have distinct wrapper types; small duplication
                 // (same inner PixelValue) beats a generic bound here.
                 let paints = |w: &crate::solver3::display_list::StyleBorderWidths| {
@@ -1867,6 +1864,8 @@ fn compute_display_list_damage_impl(
                 if !paints(ow) && !paints(nw) {
                     continue;
                 }
+                } else {
+                    // fall through to plain damage below
                 }
             }
             // PushStackingContext carries region metadata (bounds + z);
@@ -1891,9 +1890,7 @@ fn compute_display_list_damage_impl(
                 DisplayListItem::PushClip { bounds: nb, border_radius: nbr },
             ) = (old_item, new_item)
             {
-                if !refine {
-                    // plain damage below
-                } else {
+                if refine {
                 let same_origin = (ob.0.origin.x - nb.0.origin.x).abs() < 0.01
                     && (ob.0.origin.y - nb.0.origin.y).abs() < 0.01;
                 if same_origin && obr == nbr {
@@ -1923,6 +1920,8 @@ fn compute_display_list_damage_impl(
                     }
                     continue;
                 }
+                } else {
+                    // plain damage below
                 }
             }
             if let (
@@ -1930,9 +1929,7 @@ fn compute_display_list_damage_impl(
                 DisplayListItem::Rect { bounds: nb, color: nc, border_radius: nbr },
             ) = (old_item, new_item)
             {
-                if !refine {
-                    // plain damage below
-                } else {
+                if refine {
                 let same_origin = (ob.0.origin.x - nb.0.origin.x).abs() < 0.01
                     && (ob.0.origin.y - nb.0.origin.y).abs() < 0.01;
                 if same_origin && oc == nc && obr == nbr && obr.is_zero() {
@@ -1970,6 +1967,8 @@ fn compute_display_list_damage_impl(
                     }
                     continue;
                 }
+                } else {
+                    // plain damage below
                 }
             }
             // Round-3: a pure translation by the hint's delta, inside its
@@ -2019,8 +2018,8 @@ fn compute_display_list_damage_impl(
             let inflate = |r: LogicalRect| LogicalRect {
                 origin: LogicalPosition { x: r.origin.x - fringe, y: r.origin.y - fringe },
                 size: LogicalSize {
-                    width: r.size.width + 2.0 * fringe,
-                    height: r.size.height + 2.0 * fringe,
+                    width: 2.0f32.mul_add(fringe, r.size.width),
+                    height: 2.0f32.mul_add(fringe, r.size.height),
                 },
             };
             if let Some(ob) = old_item.visual_bounds() {

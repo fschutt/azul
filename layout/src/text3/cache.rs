@@ -405,7 +405,7 @@ impl FontChainKey {
 /// never stored. The old behavior silently SKIPPED such runs: zero shaped
 /// items, zero lines, zero height (miniword: multi-line paragraphs
 /// measured 0.0 depending on which text node came first). Resolving at
-/// miss time uses the same fc_cache query the pre-pass would have used,
+/// miss time uses the same `fc_cache` query the pre-pass would have used,
 /// so the result is identical — just later.
 fn resolve_chain_on_miss(
     key: &FontChainKey,
@@ -416,14 +416,14 @@ fn resolve_chain_on_miss(
         &key.font_families,
         key.weight,
         if key.italic {
-            rust_fontconfig::PatternMatch::True
+            PatternMatch::True
         } else {
-            rust_fontconfig::PatternMatch::False
+            PatternMatch::False
         },
         if key.oblique {
-            rust_fontconfig::PatternMatch::True
+            PatternMatch::True
         } else {
-            rust_fontconfig::PatternMatch::False
+            PatternMatch::False
         },
         None,
         &mut trace,
@@ -2018,8 +2018,8 @@ pub struct StyledRun {
     /// fragment it, shaping consumes it, and the dense model's
     /// `DenseRun.text` shares it, replacing every per-cluster `String`
     /// once the compact model takes over. (printpdf constructs zero
-    /// StyledRuns — verified — so the type change is boundary-safe.)
-    pub text: alloc::sync::Arc<str>,
+    /// `StyledRuns` — verified — so the type change is boundary-safe.)
+    pub text: Arc<str>,
     pub style: Arc<StyleProperties>,
     /// Byte index in the original logical paragraph text
     pub logical_start_byte: usize,
@@ -4602,7 +4602,7 @@ pub enum ShapedItem {
         /// The glyphs to be rendered horizontally within the vertical line.
         glyphs: ShapedGlyphVec,
         /// Uniform style of the combined run (tate-chu-yoko is one style;
-        /// glyphs no longer carry per-glyph style — see ShapedGlyph).
+        /// glyphs no longer carry per-glyph style — see `ShapedGlyph`).
         style: Arc<StyleProperties>,
         bounds: Rect,
         baseline_offset: f32,
@@ -4840,6 +4840,10 @@ pub fn empty_arc_str() -> Arc<str> {
 }
 
 /// A single, shaped glyph with its essential metrics.
+// Deliberately NOT `Copy`: this is ~60 bytes on the hottest path in the
+// engine, and an implicit copy is exactly the kind of silent cost the
+// memory campaign spent weeks removing. Callers clone explicitly.
+#[allow(missing_copy_implementations)]
 #[derive(Debug, Clone, PartialEq)]
 pub struct ShapedGlyph {
     /// The kind of glyph this is (character, hyphen, etc.).
@@ -4965,9 +4969,9 @@ impl UnifiedLayout {
     /// grapheme) — the end-of-text position selections and Ctrl+End use.
     /// `None` for layouts with no text clusters.
     #[must_use]
-    pub fn end_cursor(&self) -> Option<crate::text3::cache::TextCursor> {
+    pub fn end_cursor(&self) -> Option<TextCursor> {
         use azul_core::selection::CursorAffinity;
-        let mut best: Option<azul_core::selection::GraphemeClusterId> = None;
+        let mut best: Option<GraphemeClusterId> = None;
         for item in &self.items {
             if let ShapedItem::Cluster(c) = &item.item {
                 let id = c.source_cluster_id;
@@ -4979,7 +4983,7 @@ impl UnifiedLayout {
                 }
             }
         }
-        Some(crate::text3::cache::TextCursor {
+        Some(TextCursor {
             cluster_id: best?,
             affinity: CursorAffinity::Trailing,
         })
@@ -5429,7 +5433,7 @@ impl UnifiedLayout {
     /// advances over THIS sequence so a base and its combining marks move as one
     /// unit, and so the document start/end are always reachable.
     #[doc(hidden)] // pub for the dense-equivalence gate only
-    pub fn grapheme_stops(&self) -> Vec<GraphemeClusterId> {
+    #[must_use] pub fn grapheme_stops(&self) -> Vec<GraphemeClusterId> {
         let mut stops: Vec<(GraphemeClusterId, &str)> = self
             .items
             .iter()
@@ -5470,7 +5474,7 @@ impl UnifiedLayout {
     /// combining mark (or otherwise between stops) maps to the nearest preceding
     /// stop.
     #[doc(hidden)] // pub for the dense movement twins (stops-only logic)
-    pub fn grapheme_caret_offset(stops: &[GraphemeClusterId], cursor: &TextCursor) -> Option<usize> {
+    #[must_use] pub fn grapheme_caret_offset(stops: &[GraphemeClusterId], cursor: &TextCursor) -> Option<usize> {
         let trailing = usize::from(cursor.affinity == CursorAffinity::Trailing);
         if let Some(idx) = stops.iter().position(|id| *id == cursor.cluster_id) {
             return Some(idx + trailing);
@@ -5486,7 +5490,7 @@ impl UnifiedLayout {
     /// offsets are the Leading edge of the stop that begins there; `len` is the
     /// Trailing edge of the last stop (the document end).
     #[doc(hidden)] // pub for the dense movement twins (stops-only logic)
-    pub fn cursor_from_grapheme_offset(stops: &[GraphemeClusterId], offset: usize) -> TextCursor {
+    #[must_use] pub fn cursor_from_grapheme_offset(stops: &[GraphemeClusterId], offset: usize) -> TextCursor {
         let n = stops.len();
         if offset >= n {
             TextCursor { cluster_id: stops[n - 1], affinity: CursorAffinity::Trailing }
@@ -6256,7 +6260,7 @@ pub enum IncrementalRelayoutResult {
 /// fields change mid-entry — the first single-header design atomized
 /// every cluster after the first text-Arc change and retained ~300
 /// B/cluster on the real corpus (measured 9.1 MiB; the whole point
-/// missed). Headers are now per-SEGMENT (the DenseRun pattern): a new
+/// missed). Headers are now per-SEGMENT (the `DenseRun` pattern): a new
 /// segment starts whenever any amortized field changes; clusters
 /// compact to 16 B within their segment; glyph irregularities go to
 /// the shared detail tables; only non-cluster items and genuinely
@@ -6276,7 +6280,7 @@ pub(crate) struct CompactSegment {
     source_node: Option<NodeId>,
     /// The segment's `source_content_index.item_index` VERBATIM: at the
     /// shaping stage it is constant per item-fragment (the split-trace
-    /// showed the linear item_base model drifting on EVERY cluster —
+    /// showed the linear `item_base` model drifting on EVERY cluster —
     /// 31k segments; post-layout dense uses the linear model, this
     /// stage does not).
     item_index: u32,
@@ -6290,7 +6294,7 @@ pub(crate) struct CompactShapedEntry {
     clusters: Vec<super::dense::ClusterCompact>,
     details: Vec<super::dense::ClusterDetail>,
     detail_glyphs: Vec<super::dense::DetailGlyph>,
-    /// (expanded_index, verbatim item) — non-clusters and irregulars.
+    /// (`expanded_index`, verbatim item) — non-clusters and irregulars.
     atoms: Vec<(u32, ShapedItem)>,
     /// Expanded sequence length.
     total: u32,
@@ -6298,7 +6302,7 @@ pub(crate) struct CompactShapedEntry {
 
 impl CompactShapedEntry {
     /// Compact `items`. Total: every item lands in a segment's compact
-    /// arrays or verbatim in `atoms`; expand() is exact either way.
+    /// arrays or verbatim in `atoms`; `expand()` is exact either way.
     pub(crate) fn build(items: &[ShapedItem]) -> Self {
         use super::dense::{ClusterCompact, ClusterDetail, DetailGlyph};
         let mut out = Self {
@@ -6328,7 +6332,7 @@ impl CompactShapedEntry {
                 },
                 |g| g.font_metrics,
             );
-            let script = first_glyph.map_or(super::script::Script::Latin, |g| g.script);
+            let script = first_glyph.map_or(Script::Latin, |g| g.script);
             let item_index = c.source_content_index.item_index;
             // Irregular clusters stay verbatim: mixed fonts WITHIN one
             // cluster, markers, or fragment flags off their shaping-
@@ -6382,12 +6386,16 @@ impl CompactShapedEntry {
                     source_run: c.source_cluster_id.source_run,
                     source_node: c.source_node_id,
                     item_index,
+                    // `ci..ci + 1`, NOT `ci..=ci`: the field is a half-open
+                    // `Range<u32>`, so clippy::range_plus_one's rewrite does
+                    // not typecheck. The allow keeps `--fix` from re-breaking it.
+                    #[allow(clippy::range_plus_one)]
                     clusters: ci..ci + 1,
                 });
             }
             if Self::needs_detail(c) {
                 let start = u32::try_from(out.detail_glyphs.len()).unwrap_or(u32::MAX);
-                for g in c.glyphs.iter() {
+                for g in &c.glyphs {
                     out.detail_glyphs.push(DetailGlyph {
                         glyph_id: g.glyph_id,
                         cluster_offset: u16::try_from(g.cluster_offset).unwrap_or(u16::MAX),
@@ -6540,7 +6548,7 @@ impl CompactShapedEntry {
     }
 
     /// Approximate retained bytes, for the memory report.
-    pub(crate) fn retained_bytes(&self) -> usize {
+    pub(crate) const fn retained_bytes(&self) -> usize {
         use core::mem::size_of;
         self.segments.capacity() * size_of::<CompactSegment>()
             + self.clusters.capacity() * size_of::<super::dense::ClusterCompact>()
@@ -6611,7 +6619,7 @@ const ARC_HEADER: usize = 2 * size_of::<usize>();
 /// hashbrown sizes for `entries / 0.875` buckets rounded up to a power of two,
 /// each holding a `(K, V)` pair plus one control byte. An ESTIMATE, labelled as
 /// such where it is printed — but far closer than the zero charged before.
-fn hashmap_bytes<K, V>(entries: usize) -> usize {
+const fn hashmap_bytes<K, V>(entries: usize) -> usize {
     if entries == 0 {
         return 0;
     }
@@ -6745,13 +6753,13 @@ impl TextShapingCache {
         // exist in the process. `shared_bytes_avoided` records what the naive
         // walk would have double-charged, so the correction is visible in the
         // output instead of appearing as an unexplained drop.
-        let mut counted: alloc::collections::BTreeSet<usize> =
-            alloc::collections::BTreeSet::new();
+        let mut counted: BTreeSet<usize> =
+            BTreeSet::new();
 
         r.logical_items_entries = self.logical_items.len();
         for arc in self.logical_items.values() {
             let bytes = arc.capacity() * size_of::<LogicalItem>();
-            if counted.insert(Arc::as_ptr(arc) as *const u8 as usize) {
+            if counted.insert(Arc::as_ptr(arc).cast::<u8>() as usize) {
                 r.logical_items_bytes += bytes;
             } else {
                 r.shared_bytes_avoided += bytes;
@@ -6760,16 +6768,16 @@ impl TextShapingCache {
         r.visual_items_entries = self.visual_items.len();
         for arc in self.visual_items.values() {
             let bytes = arc.capacity() * size_of::<VisualItem>();
-            if counted.insert(Arc::as_ptr(arc) as *const u8 as usize) {
+            if counted.insert(Arc::as_ptr(arc).cast::<u8>() as usize) {
                 r.visual_items_bytes += bytes;
             } else {
                 r.shared_bytes_avoided += bytes;
             }
         }
-        let mut text_arcs: alloc::collections::BTreeSet<usize> =
-            alloc::collections::BTreeSet::new();
-        let mut style_arcs: alloc::collections::BTreeSet<usize> =
-            alloc::collections::BTreeSet::new();
+        let mut text_arcs: BTreeSet<usize> =
+            BTreeSet::new();
+        let mut style_arcs: BTreeSet<usize> =
+            BTreeSet::new();
 
         // ONE glyph lives INLINE in the cluster's `SmallVec<[ShapedGlyph; 1]>`
         // and is already inside the `size_of::<ShapedItem>()` charged above.
@@ -6787,7 +6795,7 @@ impl TextShapingCache {
         // (the walk below is the single shaped-store walk now)
         r.per_item_shaped_entries = self.per_item_shaped.len();
         for arc in self.per_item_shaped.values() {
-            if !counted.insert(Arc::as_ptr(arc) as *const u8 as usize) {
+            if !counted.insert(Arc::as_ptr(arc).cast::<u8>() as usize) {
                 r.shared_bytes_avoided += arc.compact.retained_bytes();
                 continue;
             }
@@ -6799,7 +6807,7 @@ impl TextShapingCache {
             r.per_item_detail_glyphs += arc.compact.detail_glyphs.len();
             r.cluster_count += arc.compact.clusters.len();
             for seg in &arc.compact.segments {
-                if text_arcs.insert(Arc::as_ptr(&seg.source_text) as *const u8 as usize) {
+                if text_arcs.insert(Arc::as_ptr(&seg.source_text).cast::<u8>() as usize) {
                     r.per_item_shaped_bytes += seg.source_text.len();
                 }
                 style_arcs.insert(Arc::as_ptr(&seg.style) as usize);
@@ -6809,7 +6817,7 @@ impl TextShapingCache {
                     ShapedItem::Cluster(c) => {
                         r.per_item_shaped_bytes += glyph_spill_bytes(c);
                         // 3c: shared Arc slice — count each source buffer once.
-                        if text_arcs.insert(Arc::as_ptr(&c.source_text) as *const u8 as usize) {
+                        if text_arcs.insert(Arc::as_ptr(&c.source_text).cast::<u8>() as usize) {
                             r.per_item_shaped_bytes += c.source_text.len();
                         }
                         r.cluster_count += 1;
@@ -8570,12 +8578,9 @@ pub fn shape_visual_items<T: ParsedFontTrait>(
                         FontStack::Stack(selectors) => {
                             let cache_key = FontChainKey::from_selectors(selectors);
                             let resolved_on_miss;
-                            let font_chain = match font_chain_cache.get(&cache_key) {
-                                Some(c) => c,
-                                None => {
-                                    resolved_on_miss = resolve_chain_on_miss(&cache_key, fc_cache);
-                                    &resolved_on_miss
-                                }
+                            let font_chain = if let Some(c) = font_chain_cache.get(&cache_key) { c } else {
+                                resolved_on_miss = resolve_chain_on_miss(&cache_key, fc_cache);
+                                &resolved_on_miss
                             };
                             // Per-character font fallback: split text by font coverage
                             shape_with_font_fallback(
@@ -8669,19 +8674,16 @@ pub fn shape_visual_items<T: ParsedFontTrait>(
                         // deduped on the store side), fixed by routing every key build through
                         // FontChainKey::from_selectors. Verified lifted: lookup path = get.)
                         let resolved_on_miss;
-                        let font_chain = match font_chain_cache.get(&cache_key) {
-                            Some(c) => c,
-                            None => {
-                                if let Some(msgs) = debug_messages {
-                                    msgs.push(LayoutDebugMessage::info(format!(
-                                        "[TextLayout] Font chain not pre-resolved for {:?} - \
-                                         resolving on demand",
-                                        cache_key.font_families
-                                    )));
-                                }
-                                resolved_on_miss = resolve_chain_on_miss(&cache_key, fc_cache);
-                                &resolved_on_miss
+                        let font_chain = if let Some(c) = font_chain_cache.get(&cache_key) { c } else {
+                            if let Some(msgs) = debug_messages {
+                                msgs.push(LayoutDebugMessage::info(format!(
+                                    "[TextLayout] Font chain not pre-resolved for {:?} - \
+                                     resolving on demand",
+                                    cache_key.font_families
+                                )));
                             }
+                            resolved_on_miss = resolve_chain_on_miss(&cache_key, fc_cache);
+                            &resolved_on_miss
                         };
 
                         // Per-character font fallback: split text by font coverage
@@ -8845,7 +8847,7 @@ pub fn shape_visual_items<T: ParsedFontTrait>(
                     },
                     baseline_offset: 0.0,
                     content: InlineContent::Text(StyledRun {
-                        text: alloc::sync::Arc::from(base_text.as_str()),
+                        text: Arc::from(base_text.as_str()),
                         style: style.clone(),
                         logical_start_byte: 0,
                         source_node_id: None,
@@ -8905,12 +8907,9 @@ pub fn shape_visual_items<T: ParsedFontTrait>(
                         let cache_key = FontChainKey::from_selectors(selectors);
 
                         let resolved_on_miss;
-                        let font_chain = match font_chain_cache.get(&cache_key) {
-                            Some(c) => c,
-                            None => {
-                                resolved_on_miss = resolve_chain_on_miss(&cache_key, fc_cache);
-                                &resolved_on_miss
-                            }
+                        let font_chain = if let Some(c) = font_chain_cache.get(&cache_key) { c } else {
+                            resolved_on_miss = resolve_chain_on_miss(&cache_key, fc_cache);
+                            &resolved_on_miss
                         };
 
                         // Per-character font fallback for CombinedText
@@ -9717,7 +9716,7 @@ pub fn perform_fragment_layout<T: ParsedFontTrait>(
         let remaining = &cursor.items[cursor.next_item_index..];
         let text: String = remaining.iter()
             .filter_map(|i| i.as_cluster())
-            .map(|c| c.text())
+            .map(ShapedCluster::text)
             .collect();
         match unicode_bidi::get_base_direction(text.as_str()) {
             unicode_bidi::Direction::Ltr => BidiDirection::Ltr,
@@ -9982,7 +9981,7 @@ pub fn perform_fragment_layout<T: ParsedFontTrait>(
             let line_text_before_rev: String = line_items
                 .iter()
                 .filter_map(|i| i.as_cluster())
-                .map(|c| c.text())
+                .map(ShapedCluster::text)
                 .collect();
             if let Some(msgs) = debug_messages {
                 msgs.push(LayoutDebugMessage::info(format!(
@@ -10001,7 +10000,7 @@ pub fn perform_fragment_layout<T: ParsedFontTrait>(
                 let after: String = line_items
                     .iter()
                     .filter_map(|i| i.as_cluster())
-                    .map(|c| c.text())
+                    .map(ShapedCluster::text)
                     .collect();
                 if after != line_text_before_rev {
                     msgs.push(LayoutDebugMessage::info(format!(
@@ -10653,7 +10652,7 @@ pub fn position_one_line<T: ParsedFontTrait>(
     let line_text: String = line_items
         .iter()
         .filter_map(|i| i.as_cluster())
-        .map(|c| c.text())
+        .map(ShapedCluster::text)
         .collect();
     if let Some(msgs) = debug_messages {
         msgs.push(LayoutDebugMessage::info(format!(
@@ -11522,7 +11521,8 @@ fn cluster_is_word_boundary(cluster: &ShapedCluster) -> bool {
 }
 
 // exclude punctuation and fixed-width spaces (U+3000, U+2000..U+200A)
-pub fn is_word_separator(item: &ShapedItem) -> bool {
+#[must_use]
+pub const fn is_word_separator(item: &ShapedItem) -> bool {
     if let ShapedItem::Cluster(c) = item {
         // Precomputed at shaping — see ClusterFlags.
         c.flags.has(ClusterFlags::WORD_SEPARATOR)
@@ -11535,7 +11535,7 @@ pub fn is_word_separator(item: &ShapedItem) -> bool {
 ///
 /// (UAX#14 class GL/WJ): NBSP, NARROW NO-BREAK SPACE, WORD JOINER, ZWNBSP. These are a
 /// subset of `is_word_separator` — they still contribute Glue, but no break Penalty.
-#[must_use] pub fn is_no_break_space(item: &ShapedItem) -> bool {
+#[must_use] pub const fn is_no_break_space(item: &ShapedItem) -> bool {
     if let ShapedItem::Cluster(c) = item {
         c.flags.has(ClusterFlags::NO_BREAK_SPACE)
     } else {
@@ -11585,7 +11585,7 @@ const fn is_word_separator_char(c: char) -> bool {
 ///
 /// Used in scripts like Thai, Lao, and Khmer that don't use spaces between words.
 // +spec:line-breaking:fd3164 - U+200B as explicit word delimiter for scripts without space-separated words
-#[must_use] pub fn is_zero_width_space(item: &ShapedItem) -> bool {
+#[must_use] pub const fn is_zero_width_space(item: &ShapedItem) -> bool {
     if let ShapedItem::Cluster(c) = item {
         c.flags.has(ClusterFlags::ZERO_WIDTH_SPACE)
     } else {
@@ -12133,7 +12133,7 @@ const fn is_cjk_character(ch: char) -> bool {
 }
 
 // §5.2 word-break: checks if a cluster contains CJK characters
-fn is_cjk_cluster(cluster: &ShapedCluster) -> bool {
+const fn is_cjk_cluster(cluster: &ShapedCluster) -> bool {
     cluster.flags.has(ClusterFlags::HAS_CJK)
 }
 

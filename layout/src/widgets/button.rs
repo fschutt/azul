@@ -77,10 +77,10 @@ pub struct Button {
     /// Optional image that is displayed next to the label
     pub image: OptionImageRef,
     /// Optional leading icon name, resolved through the registered icon
-    /// provider (e.g. the builtin Material Icons pack: "content_copy").
+    /// provider (e.g. the builtin Material Icons pack: "`content_copy`").
     /// An empty string means "no icon".
     pub icon: AzString,
-    /// Optional trailing icon name (e.g. "arrow_drop_down" for menu/split
+    /// Optional trailing icon name (e.g. "`arrow_drop_down`" for menu/split
     /// buttons). An empty string means "no trailing icon".
     pub trailing_icon: AzString,
     /// The semantic type of this button (Primary, Success, Danger, etc.)

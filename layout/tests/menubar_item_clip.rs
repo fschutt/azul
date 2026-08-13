@@ -36,7 +36,6 @@ fn fresh_cache() -> Solver3LayoutCache {
         prev_viewport: LogicalRect {
             origin: LogicalPosition::zero(),
             size: LogicalSize::zero(),
-        ..Default::default()
         },
         ..Default::default()
     }

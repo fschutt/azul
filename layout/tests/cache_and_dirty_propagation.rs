@@ -68,7 +68,6 @@ impl TestEnv {
             prev_viewport: LogicalRect {
                 origin: LogicalPosition::zero(),
                 size: LogicalSize::zero(),
-        ..Default::default()
             },
             ..Default::default()
         };

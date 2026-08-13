@@ -333,8 +333,9 @@ pub mod json;
 ///
 /// Stateful manager lives in `azul_layout::managers::keyring`.
 pub mod keyring;
-/// Runtime log filtering: per-level and per-category atomics, parsed from
-/// `AZ_LOG` but changeable while the process runs. Logging is gated HERE and
+/// Runtime log filtering: per-level and per-category atomics.
+///
+/// Parsed from `AZ_LOG` but changeable while the process runs. Logging is gated HERE and
 /// never by a cargo feature — see the module docs for the 2026-08-07 incident
 /// that made a compile-time gate delete the one diagnosis that was needed.
 pub mod log_filter;

@@ -1984,6 +1984,7 @@ impl_vec_mut!(ComponentDataModel, ComponentDataModelVec);
 
 #[cfg(feature = "serde-json")]
 mod serde_impl {
+    #[allow(clippy::wildcard_imports)] // serde impl module mirrors the parent surface
     use super::*;
     use serde::ser::SerializeStruct;
     use serde::{Deserialize, Deserializer, Serialize, Serializer};
@@ -1995,7 +1996,7 @@ mod serde_impl {
     }
 
     fn de_azstring<'de, D: Deserializer<'de>>(deserializer: D) -> Result<AzString, D::Error> {
-        let s = alloc::string::String::deserialize(deserializer)?;
+        let s = String::deserialize(deserializer)?;
         Ok(AzString::from(s.as_str()))
     }
 
@@ -2009,12 +2010,12 @@ mod serde_impl {
 
     impl<'de> Deserialize<'de> for ComponentFieldType {
         fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
-            let s = alloc::string::String::deserialize(deserializer)?;
+            let s = String::deserialize(deserializer)?;
             Ok(string_to_field_type(&s))
         }
     }
 
-    fn field_type_to_string(ft: &ComponentFieldType) -> alloc::string::String {
+    fn field_type_to_string(ft: &ComponentFieldType) -> String {
         match ft {
             ComponentFieldType::String => "String".into(),
             ComponentFieldType::Bool => "bool".into(),
@@ -2045,6 +2046,10 @@ mod serde_impl {
         }
     }
 
+    // A 5-arm strip_prefix dispatch ladder. `option_if_let_else` (nursery)
+    // wants `map_or_else` here, which would nest five closures inside each
+    // other's else-branch — strictly less readable than the ladder.
+    #[allow(clippy::option_if_let_else)]
     fn string_to_field_type(s: &str) -> ComponentFieldType {
         match s {
             "String" | "string" => ComponentFieldType::String,
@@ -2062,9 +2067,8 @@ mod serde_impl {
             "FontRef" | "Font" => ComponentFieldType::FontRef,
             "Dom" | "StyledDom" | "Children" => ComponentFieldType::StyledDom,
             other => {
-                if let Some(inner) = other
-                    .strip_prefix("Option<")
-                    .and_then(|s| s.strip_suffix('>'))
+                if let Some(inner) =
+                    other.strip_prefix("Option<").and_then(|s| s.strip_suffix('>'))
                 {
                     ComponentFieldType::OptionType(ComponentFieldTypeBox::new(
                         string_to_field_type(inner),
@@ -2107,33 +2111,33 @@ mod serde_impl {
         fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
             use serde::ser::SerializeMap;
             match self {
-                ComponentDefaultValue::None => serializer.serialize_none(),
-                ComponentDefaultValue::String(s) => serializer.serialize_str(s.as_str()),
-                ComponentDefaultValue::Bool(b) => serializer.serialize_bool(*b),
-                ComponentDefaultValue::I32(v) => serializer.serialize_i32(*v),
-                ComponentDefaultValue::I64(v) => serializer.serialize_i64(*v),
-                ComponentDefaultValue::U32(v) => serializer.serialize_u32(*v),
-                ComponentDefaultValue::U64(v) => serializer.serialize_u64(*v),
-                ComponentDefaultValue::Usize(v) => serializer.serialize_u64(*v as u64),
-                ComponentDefaultValue::F32(v) => serializer.serialize_f32(*v),
-                ComponentDefaultValue::F64(v) => serializer.serialize_f64(*v),
-                ComponentDefaultValue::ColorU(c) => serializer.serialize_str(&alloc::format!(
+                Self::None => serializer.serialize_none(),
+                Self::String(s) => serializer.serialize_str(s.as_str()),
+                Self::Bool(b) => serializer.serialize_bool(*b),
+                Self::I32(v) => serializer.serialize_i32(*v),
+                Self::I64(v) => serializer.serialize_i64(*v),
+                Self::U32(v) => serializer.serialize_u32(*v),
+                Self::U64(v) => serializer.serialize_u64(*v),
+                Self::Usize(v) => serializer.serialize_u64(*v as u64),
+                Self::F32(v) => serializer.serialize_f32(*v),
+                Self::F64(v) => serializer.serialize_f64(*v),
+                Self::ColorU(c) => serializer.serialize_str(&alloc::format!(
                     "#{:02x}{:02x}{:02x}{:02x}",
                     c.r,
                     c.g,
                     c.b,
                     c.a
                 )),
-                ComponentDefaultValue::ComponentInstance(ci) => {
+                Self::ComponentInstance(ci) => {
                     let mut map = serializer.serialize_map(Some(2))?;
                     map.serialize_entry("library", ci.library.as_str())?;
                     map.serialize_entry("component", ci.component.as_str())?;
                     map.end()
                 }
-                ComponentDefaultValue::CallbackFnPointer(name) => {
+                Self::CallbackFnPointer(name) => {
                     serializer.serialize_str(name.as_str())
                 }
-                ComponentDefaultValue::Json(json_str) => {
+                Self::Json(json_str) => {
                     // Serialize raw JSON string as-is by parsing and re-emitting
                     match serde_json::from_str::<serde_json::Value>(json_str.as_str()) {
                         Ok(v) => v.serialize(serializer),
@@ -2147,26 +2151,20 @@ mod serde_impl {
     impl<'de> Deserialize<'de> for ComponentDefaultValue {
         fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
             let val = serde_json::Value::deserialize(deserializer)?;
+            // NOTE: `Value::Null` is deliberately NOT its own arm — it maps to
+            // `Self::None`, which is exactly what the catch-all below produces.
             Ok(match val {
-                serde_json::Value::Null => ComponentDefaultValue::None,
-                serde_json::Value::Bool(b) => ComponentDefaultValue::Bool(b),
+                serde_json::Value::Bool(b) => Self::Bool(b),
                 serde_json::Value::Number(n) => {
-                    if let Some(i) = n.as_i64() {
-                        if let Ok(v) = i32::try_from(i) {
-                            ComponentDefaultValue::I32(v)
-                        } else {
-                            ComponentDefaultValue::I64(i)
-                        }
-                    } else if let Some(f) = n.as_f64() {
-                        ComponentDefaultValue::F64(f)
-                    } else {
-                        ComponentDefaultValue::None
-                    }
+                    n.as_i64().map_or_else(
+                        || n.as_f64().map_or(Self::None, Self::F64),
+                        |i| i32::try_from(i).map_or(Self::I64(i), Self::I32),
+                    )
                 }
                 serde_json::Value::String(s) => {
-                    ComponentDefaultValue::String(AzString::from(s.as_str()))
+                    Self::String(AzString::from(s.as_str()))
                 }
-                _ => ComponentDefaultValue::None,
+                _ => Self::None,
             })
         }
     }
@@ -2176,8 +2174,8 @@ mod serde_impl {
     impl Serialize for OptionComponentDefaultValue {
         fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
             match self {
-                OptionComponentDefaultValue::Some(v) => v.serialize(serializer),
-                OptionComponentDefaultValue::None => serializer.serialize_none(),
+                Self::Some(v) => v.serialize(serializer),
+                Self::None => serializer.serialize_none(),
             }
         }
     }
@@ -2185,10 +2183,7 @@ mod serde_impl {
     impl<'de> Deserialize<'de> for OptionComponentDefaultValue {
         fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
             let val = Option::<ComponentDefaultValue>::deserialize(deserializer)?;
-            Ok(match val {
-                Some(v) => OptionComponentDefaultValue::Some(v),
-                None => OptionComponentDefaultValue::None,
-            })
+            Ok(val.map_or(Self::None, Self::Some))
         }
     }
 
@@ -2210,7 +2205,7 @@ mod serde_impl {
         fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
             #[derive(Deserialize)]
             struct Helper {
-                name: alloc::string::String,
+                name: String,
                 #[serde(rename = "type", default = "default_type")]
                 field_type: ComponentFieldType,
                 #[serde(default)]
@@ -2218,14 +2213,14 @@ mod serde_impl {
                 #[serde(default)]
                 required: bool,
                 #[serde(default)]
-                description: alloc::string::String,
+                description: String,
             }
-            fn default_type() -> ComponentFieldType {
+            const fn default_type() -> ComponentFieldType {
                 ComponentFieldType::String
             }
 
             let h = Helper::deserialize(deserializer)?;
-            Ok(ComponentDataField {
+            Ok(Self {
                 name: AzString::from(h.name.as_str()),
                 field_type: h.field_type,
                 default_value: h.default,
@@ -2242,7 +2237,7 @@ mod serde_impl {
             let mut s = serializer.serialize_struct("ComponentDataModel", 3)?;
             s.serialize_field("name", self.name.as_str())?;
             s.serialize_field("description", self.description.as_str())?;
-            let fields: alloc::vec::Vec<&ComponentDataField> =
+            let fields: Vec<&ComponentDataField> =
                 self.fields.as_ref().iter().collect();
             s.serialize_field("fields", &fields)?;
             s.end()
@@ -2265,7 +2260,7 @@ mod serde_impl {
             impl<'de> Visitor<'de> for ModelVisitor {
                 type Value = ComponentDataModel;
 
-                fn expecting(&self, f: &mut core::fmt::Formatter) -> core::fmt::Result {
+                fn expecting(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
                     f.write_str("a data model object with `name`, `description` and `fields`")
                 }
 
@@ -2273,11 +2268,11 @@ mod serde_impl {
                     self,
                     mut map: A,
                 ) -> Result<Self::Value, A::Error> {
-                    let mut name: Option<alloc::string::String> = None;
-                    let mut description: Option<alloc::string::String> = None;
-                    let mut fields: Option<alloc::vec::Vec<ComponentDataField>> = None;
+                    let mut name: Option<String> = None;
+                    let mut description: Option<String> = None;
+                    let mut fields: Option<Vec<ComponentDataField>> = None;
 
-                    while let Some(key) = map.next_key::<alloc::string::String>()? {
+                    while let Some(key) = map.next_key::<String>()? {
                         match key.as_str() {
                             "name" => name = Some(map.next_value()?),
                             "description" => description = Some(map.next_value()?),
@@ -2303,19 +2298,29 @@ mod serde_impl {
     }
 }
 
-// Re-export serde impls so they're visible when the feature is enabled
-#[cfg(feature = "serde-json")]
-pub use serde_impl::*;
+// NOTE: no `pub use serde_impl::*` — the module holds only private helpers and
+// trait impls, and trait impls are in scope crate-wide (and for downstream
+// users) regardless of the defining module's visibility.
 
 #[cfg(feature = "serde-json")]
 impl ComponentDataModel {
     /// Serialize this data model to a JSON string.
-    pub fn to_json(&self) -> Result<alloc::string::String, alloc::string::String> {
+    ///
+    /// # Errors
+    ///
+    /// Returns the serializer's error message if the model cannot be
+    /// represented as JSON.
+    pub fn to_json(&self) -> Result<String, String> {
         serde_json::to_string_pretty(self).map_err(|e| alloc::format!("{e}"))
     }
 
     /// Deserialize a data model from a JSON string.
-    pub fn from_json(json: &str) -> Result<Self, alloc::string::String> {
+    ///
+    /// # Errors
+    ///
+    /// Returns the parser's error message if `json` is malformed or does not
+    /// match the data-model shape.
+    pub fn from_json(json: &str) -> Result<Self, String> {
         serde_json::from_str(json).map_err(|e| alloc::format!("{e}"))
     }
 }

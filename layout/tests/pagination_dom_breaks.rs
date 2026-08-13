@@ -49,7 +49,6 @@ fn paginate(
         prev_viewport: LogicalRect {
             origin: LogicalPosition::zero(),
             size: LogicalSize::zero(),
-        ..Default::default()
         },
         ..Default::default()
     };
@@ -668,6 +667,7 @@ fn deletion_shifts_the_window_via_breaks_delta() {
 }
 
 
+#[allow(dead_code)] // diagnostic helper: re-enabled by hand when a break moves
 fn estimator_node_heights(xml: &str, label: &str) {
     let parsed = azul_layout::xml::parse_xml_string(xml).expect("parse");
     let full = azul_layout::xml::dom_from_parsed_xml(azul_layout::xml::Xml {

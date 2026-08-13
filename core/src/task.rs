@@ -101,8 +101,9 @@ pub const CAPABILITY_PUMP_TIMER_ID: TimerId = TimerId { id: 0x0005 };
 /// detection fires (or doesn't — moved/released holds are no-ops).
 pub const LONG_PRESS_TIMER_ID: TimerId = TimerId { id: 0x0006 };
 
-/// Reserved timer ID for the caret / selection tween driver (~16ms). Armed by
-/// the shared event dispatcher whenever a text tween is in flight; the
+/// Reserved timer ID for the caret / selection tween driver (~16ms).
+///
+/// Armed by the shared event dispatcher whenever a text tween is in flight; the
 /// callback terminates itself the tick after the tween state goes idle.
 pub const CARET_TWEEN_TIMER_ID: TimerId = TimerId { id: 0x0007 };
 

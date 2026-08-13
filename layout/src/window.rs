@@ -242,7 +242,8 @@ static SYSTEM_ANIMATIONS: std::sync::OnceLock<azul_core::resources::SystemAnimat
 /// Install the app-global system-animation configuration (first caller wins;
 /// intended to be `App::create`, exactly once per process).
 pub fn set_global_system_animations(sa: azul_core::resources::SystemAnimations) {
-    let _ = SYSTEM_ANIMATIONS.set(sa);
+    // Set-once by contract; a second call losing the race is not an error.
+    drop(SYSTEM_ANIMATIONS.set(sa));
 }
 
 fn global_system_animations() -> &'static azul_core::resources::SystemAnimations {
@@ -253,7 +254,7 @@ fn global_system_animations() -> &'static azul_core::resources::SystemAnimations
 /// `TextTweenState::publish_active`, so the timer can self-terminate.
 #[derive(Debug)]
 pub struct TweenTimerData {
-    pub active: std::sync::Arc<core::sync::atomic::AtomicBool>,
+    pub active: Arc<core::sync::atomic::AtomicBool>,
 }
 
 /// Callback for the caret / selection tween driver timer (~16ms).
@@ -271,12 +272,11 @@ pub struct TweenTimerData {
 
     let active = data
         .downcast_ref::<TweenTimerData>()
-        .map(|d| d.active.load(core::sync::atomic::Ordering::Acquire))
-        .unwrap_or(false);
+        .is_some_and(|d| d.active.load(Ordering::Acquire));
 
     if !active {
         return TimerCallbackReturn {
-            should_update: azul_core::callbacks::Update::DoNothing,
+            should_update: Update::DoNothing,
             should_terminate: TerminateTimer::Terminate,
         };
     }
@@ -284,7 +284,7 @@ pub struct TweenTimerData {
     info.set_cursor_visibility(true);
 
     TimerCallbackReturn {
-        should_update: azul_core::callbacks::Update::DoNothing,
+        should_update: Update::DoNothing,
         should_terminate: TerminateTimer::Continue,
     }
 }
@@ -696,7 +696,7 @@ static LAST_LAYOUT_RESULTS_BYTES: core::sync::atomic::AtomicU64 =
 /// every field has been consciously classified. That is the part that was
 /// actually missing.
 #[allow(dead_code, clippy::used_underscore_binding)]
-fn memory_walk_coverage_is_exhaustive(w: &LayoutWindow) {
+const fn memory_walk_coverage_is_exhaustive(w: &LayoutWindow) {
     let LayoutWindow {
         // WALKED — these contribute to the [MEM] report. VERIFIED against the
         // report body, not asserted: it touches `self.layout_cache` and
@@ -949,7 +949,7 @@ pub struct LayoutWindow {
     /// structure vs style — see `azul_core::diff::DomFingerprints`). The
     /// produce side of `regenerate_layout` compares the fresh callback DOM
     /// against this BEFORE `create_from_dom`: equal on both tiers ⇒ the whole
-    /// cascade (67 ms on big.md) is skipped and the retained StyledDom is
+    /// cascade (67 ms on big.md) is skipped and the retained `StyledDom` is
     /// reused. `None` after an E2E mount override (fingerprints of the app
     /// DOM are meaningless while the test DOM is mounted) and before the
     /// first produce.
@@ -1208,11 +1208,11 @@ impl LayoutWindow {
     #[must_use]
     pub fn query_pagination(
         &self,
-        styled_dom: &azul_core::styled_dom::StyledDom,
-        page_size: azul_core::geom::LogicalSize,
-        page_config: crate::solver3::pagination::FakePageConfig,
-        image_cache: &azul_core::resources::ImageCache,
-    ) -> Option<crate::solver3::page_breaks::PaginationInfo> {
+        styled_dom: &StyledDom,
+        page_size: LogicalSize,
+        page_config: solver3::pagination::FakePageConfig,
+        image_cache: &ImageCache,
+    ) -> Option<solver3::page_breaks::PaginationInfo> {
         use azul_core::geom::LogicalPosition;
 
         use crate::{
@@ -1244,7 +1244,7 @@ impl LayoutWindow {
             &mut debug_messages,
             None,
             &renderer_resources,
-            azul_core::resources::IdNamespace(0),
+            IdNamespace(0),
             DomId::ROOT_ID,
             font_loader,
             page_config,
@@ -1269,7 +1269,7 @@ impl LayoutWindow {
     /// channel BY DEFINITION — that pattern is a bug in the app; the queries
     /// exist precisely so the engine can see the dependency.)
     #[must_use]
-    pub fn size_queries_would_flip(&self, new_size: azul_core::geom::LogicalSize) -> bool {
+    pub fn size_queries_would_flip(&self, new_size: LogicalSize) -> bool {
         let (queries, overflowed) = &self.recorded_size_queries;
         if *overflowed {
             return true;
@@ -1307,8 +1307,8 @@ impl LayoutWindow {
     #[must_use]
     pub fn resize_needs_full_regeneration(
         &self,
-        old_logical: azul_core::geom::LogicalSize,
-        new_logical: azul_core::geom::LogicalSize,
+        old_logical: LogicalSize,
+        new_logical: LogicalSize,
     ) -> bool {
         if self.layout_results.is_empty() {
             return true;
@@ -1719,7 +1719,7 @@ impl LayoutWindow {
                 stale.id
             );
             #[cfg(not(debug_assertions))]
-            let _ = stale;
+            drop(stale);
         }
         id
     }
@@ -1791,7 +1791,7 @@ impl LayoutWindow {
     /// [`Self::mark_pagination_dirty_at_node`] for edits with no node anchor
     /// (content-addressed image ids used by unknown nodes): invalidate from
     /// the top of the document.
-    fn mark_pagination_dirty_everywhere(&mut self) {
+    const fn mark_pagination_dirty_everywhere(&mut self) {
         self.pagination_dirty_from = Some(0.0);
     }
 
@@ -2082,7 +2082,7 @@ impl LayoutWindow {
         &self,
         dom_id: DomId,
         node_id: NodeId,
-    ) -> Option<azul_core::selection::TextCursor> {
+    ) -> Option<TextCursor> {
         // The LAYOUT knows the real grapheme clusters: end = Trailing on the
         // final cluster. A byte-length synthetic cursor (one past the last
         // cluster start) resolves to NOTHING in get_selection_rects and the
@@ -2113,9 +2113,9 @@ impl LayoutWindow {
         &mut self,
         dom_id: DomId,
         anchor_node: NodeId,
-        anchor_cursor: azul_core::selection::TextCursor,
+        anchor_cursor: TextCursor,
         focus_node: NodeId,
-        focus_cursor: azul_core::selection::TextCursor,
+        focus_cursor: TextCursor,
     ) -> bool {
         use azul_core::selection::{
             CursorAffinity, GraphemeClusterId, SelectionAnchor, SelectionFocus, SelectionRange,
@@ -2156,7 +2156,7 @@ impl LayoutWindow {
         let Some(first_end) = self.node_text_end_cursor(dom_id, first) else {
             return false;
         };
-        let mut affected = std::collections::BTreeMap::new();
+        let mut affected = BTreeMap::new();
         affected.insert(first, SelectionRange { start: first_cursor, end: first_end });
         for &m in &middles {
             // Text-less middles (images, rules) contribute a zero-width range
@@ -2172,13 +2172,13 @@ impl LayoutWindow {
             anchor: SelectionAnchor {
                 ifc_root_node_id: anchor_node,
                 cursor: anchor_cursor,
-                char_bounds: azul_core::geom::LogicalRect::zero(),
-                mouse_position: azul_core::geom::LogicalPosition::zero(),
+                char_bounds: LogicalRect::zero(),
+                mouse_position: LogicalPosition::zero(),
             },
             focus: SelectionFocus {
                 ifc_root_node_id: focus_node,
                 cursor: focus_cursor,
-                mouse_position: azul_core::geom::LogicalPosition::zero(),
+                mouse_position: LogicalPosition::zero(),
             },
             affected_nodes: affected,
             is_forward,
@@ -2224,7 +2224,7 @@ impl LayoutWindow {
 
         let sel = self.text_edit_manager.take_cross_block_selection()?;
         let dom_id = sel.dom_id;
-        let mut nodes: Vec<(NodeId, azul_core::selection::SelectionRange)> =
+        let mut nodes: Vec<(NodeId, SelectionRange)> =
             sel.affected_nodes.iter().map(|(n, r)| (*n, *r)).collect();
         if nodes.len() < 2 {
             return None;
@@ -2242,13 +2242,15 @@ impl LayoutWindow {
         for (i, c) in self.get_text_before_textinput(dom_id, first).iter().enumerate() {
             let i = u32::try_from(i).unwrap_or(u32::MAX);
             if let InlineContent::Text(run) = c {
-                if i < cut_run {
-                    first_kept.push_str(&run.text);
-                } else if i == cut_run {
-                    let byte = cursor_byte_offset_in_run(&run.text, &first_range.start)
-                        .min(run.text.len());
-                    first_kept.push_str(&run.text[..byte]);
-                    break;
+                match i.cmp(&cut_run) {
+                    core::cmp::Ordering::Less => first_kept.push_str(&run.text),
+                    core::cmp::Ordering::Equal => {
+                        let byte = cursor_byte_offset_in_run(&run.text, &first_range.start)
+                            .min(run.text.len());
+                        first_kept.push_str(&run.text[..byte]);
+                        break;
+                    }
+                    core::cmp::Ordering::Greater => {}
                 }
             }
         }
@@ -2259,12 +2261,14 @@ impl LayoutWindow {
         for (i, c) in self.get_text_before_textinput(dom_id, last).iter().enumerate() {
             let i = u32::try_from(i).unwrap_or(u32::MAX);
             if let InlineContent::Text(run) = c {
-                if i == cut_run {
-                    let byte = cursor_byte_offset_in_run(&run.text, &last_range.end)
-                        .min(run.text.len());
-                    last_kept.push_str(&run.text[byte..]);
-                } else if i > cut_run {
-                    last_kept.push_str(&run.text);
+                match i.cmp(&cut_run) {
+                    core::cmp::Ordering::Equal => {
+                        let byte = cursor_byte_offset_in_run(&run.text, &last_range.end)
+                            .min(run.text.len());
+                        last_kept.push_str(&run.text[byte..]);
+                    }
+                    core::cmp::Ordering::Greater => last_kept.push_str(&run.text),
+                    core::cmp::Ordering::Less => {}
                 }
             }
         }
@@ -2313,9 +2317,9 @@ impl LayoutWindow {
             // The clone carries the ELEMENT (type, classes, ids, inline css);
             // its dataset/callback state stays with the app's re-render.
             let _ = &mut root;
-            let replacement = azul_core::dom::Dom {
+            let replacement = Dom {
                 root,
-                children: alloc::vec![azul_core::dom::Dom::create_text(merged_text.clone())]
+                children: alloc::vec![Dom::create_text(merged_text)]
                     .into(),
                 css: Vec::new().into(),
                 estimated_total_children: 1,
@@ -2429,9 +2433,9 @@ impl LayoutWindow {
             // First real sibling found: eligible iff its computed display is
             // a flow block. Anything else (inline, table, flex, grid,
             // display:none…) stops the merge — do NOT jump over it.
-            let display = match get_display_property(&lr.styled_dom, Some(sib)) {
-                MultiValue::Exact(v) => v,
-                _ => return None,
+            let MultiValue::Exact(display) = get_display_property(&lr.styled_dom, Some(sib))
+            else {
+                return None;
             };
             return match display {
                 azul_css::props::layout::display::LayoutDisplay::Block
@@ -3543,14 +3547,14 @@ impl LayoutWindow {
                          {} glyphs  ({} B each)",
                         tr.distinct_glyph_style_arcs,
                         tr.shaped_glyph_count,
-                        core::mem::size_of::<crate::text3::cache::StyleProperties>(),
+                        size_of::<StyleProperties>(),
                     );
                     eprintln!(
                         "[MEM]       sizeof        ShapedItem {} B  ShapedCluster {} B  \
                          ShapedGlyph {} B",
-                        core::mem::size_of::<crate::text3::cache::ShapedItem>(),
-                        core::mem::size_of::<crate::text3::cache::ShapedCluster>(),
-                        core::mem::size_of::<crate::text3::cache::ShapedGlyph>(),
+                        size_of::<ShapedItem>(),
+                        size_of::<crate::text3::cache::ShapedCluster>(),
+                        size_of::<crate::text3::cache::ShapedGlyph>(),
                     );
                 }
                 eprintln!("[MEM]     warm.taffy       {:>6} KiB", tr.warm_taffy_cache_bytes / 1024);
@@ -3568,7 +3572,7 @@ impl LayoutWindow {
                 "[MEM]   cached_display    {:>7} KiB  ({} items x {} B/slot + {} Text glyph instances — offset copies of glyph_runs)",
                 sc.cached_display_list_bytes / 1024,
                 sc.cached_display_list_items,
-                core::mem::size_of::<crate::solver3::display_list::DisplayListItem>(),
+                size_of::<solver3::display_list::DisplayListItem>(),
                 sc.cached_display_list_text_instances,
             );
 
@@ -4369,7 +4373,7 @@ impl LayoutWindow {
             return;
         };
         let window_state = self.current_window_state.clone();
-        let system_callbacks = crate::callbacks::ExternalSystemCallbacks::rust_internal();
+        let system_callbacks = ExternalSystemCallbacks::rust_internal();
         let mut debug_messages = None;
         // `layout_and_generate_display_list` takes `&mut self` and a
         // `&RendererResources`, so the field is moved out for the call and
@@ -4387,7 +4391,7 @@ impl LayoutWindow {
         if let Err(e) = result {
             #[cfg(feature = "std")]
             eprintln!("[azul][layout] relayout after a runtime CSS change failed: {e:?}");
-            let _ = e;
+            drop(e);
         }
     }
 
@@ -5418,7 +5422,7 @@ impl LayoutWindow {
             last_run: azul_core::task::OptionInstant::None,
             delay: azul_core::task::OptionDuration::None,
             interval: azul_core::task::OptionDuration::Some(
-                azul_core::task::Duration::from_millis(16),
+                Duration::from_millis(16),
             ),
             timeout: azul_core::task::OptionDuration::None,
             callback: TimerCallback::create(caret_tween_timer_callback),
@@ -5450,7 +5454,7 @@ impl LayoutWindow {
     fn apply_text_tweens(
         &mut self,
         dom_id: DomId,
-        display_list: &mut Arc<solver3::display_list::DisplayList>,
+        display_list: &mut Arc<DisplayList>,
         now: Instant,
     ) {
         use azul_core::callbacks::{CaretTweenInfo, SelectionTweenInfo};
@@ -5506,7 +5510,7 @@ impl LayoutWindow {
         // Only the DOM that owns the editing session is tracked; a rebuild of
         // some OTHER dom (popup, menu) must not disturb the tween. No editing
         // session at all resets tracking (focus lost).
-        let editing_dom = self.text_edit_manager.get_editing_dom_id().or({
+        let editing_dom = self.text_edit_manager.get_editing_dom_id().or_else(|| {
             // Cross-block selections keep rendering while multi_cursor may be
             // parked; treat the rebuilt dom as the editing dom in that case.
             if self.text_edit_manager.cross_block.is_some() {
@@ -5569,68 +5573,65 @@ impl LayoutWindow {
 
         // ---- caret ----
         let mut caret_patch: Option<(usize, LogicalRect)> = None;
-        match caret_idx.filter(|_| text_tweens_ok) {
-            Some(idx) => {
-                let current = match &display_list.items[idx] {
-                    solver3::display_list::DisplayListItem::CursorRect { bounds, .. } => bounds.0,
-                    _ => unreachable!(),
-                };
-                if caret_ms == 0 {
-                    tween.caret = None;
-                    tween.last_caret = Some(current);
-                } else {
-                    match &mut tween.caret {
-                        Some(trk) if trk.to != current => {
-                            // Target moved mid-flight: retarget FROM the
-                            // previously rendered rect, restart the clock.
-                            trk.from = tween.last_caret.unwrap_or(current);
-                            trk.to = current;
-                            trk.start = now.clone();
-                        }
-                        Some(_) => {
-                            // In flight toward a stable target: let t advance.
-                        }
-                        None => {
-                            if let Some(last) = tween.last_caret {
-                                if last != current {
-                                    tween.caret = Some(CaretTweenTrack {
-                                        from: last,
-                                        to: current,
-                                        start: now.clone(),
-                                    });
-                                }
-                            }
-                        }
-                    }
-                    let rendered = match &tween.caret {
-                        Some(trk) => {
-                            let elapsed =
-                                now.duration_since(&trk.start).as_millis_u64() as f32;
-                            let t = elapsed / caret_ms as f32;
-                            if t >= 1.0 {
-                                tween.caret = None;
-                                current
-                            } else {
-                                let info = CaretTweenInfo {
-                                    past: trk.from,
-                                    current,
-                                    t,
-                                };
-                                (cfg.caret_tween.cb)(cfg.caret_tween_data.clone(), info)
-                            }
-                        }
-                        None => current,
-                    };
-                    if rendered != current {
-                        caret_patch = Some((idx, rendered));
-                    }
-                    tween.last_caret = Some(rendered);
-                }
-            }
-            None => {
+        if let Some(idx) = caret_idx.filter(|_| text_tweens_ok) {
+            let current = match &display_list.items[idx] {
+                solver3::display_list::DisplayListItem::CursorRect { bounds, .. } => bounds.0,
+                _ => unreachable!(),
+            };
+            if caret_ms == 0 {
                 tween.caret = None;
-                tween.last_caret = None;
+                tween.last_caret = Some(current);
+            } else {
+                match &mut tween.caret {
+                    Some(trk) if trk.to != current => {
+                        // Target moved mid-flight: retarget FROM the
+                        // previously rendered rect, restart the clock.
+                        trk.from = tween.last_caret.unwrap_or(current);
+                        trk.to = current;
+                        trk.start = now.clone();
+                    }
+                    Some(_) => {
+                        // In flight toward a stable target: let t advance.
+                    }
+                    None => {
+                        if let Some(last) = tween.last_caret {
+                            if last != current {
+                                tween.caret = Some(CaretTweenTrack {
+                                    from: last,
+                                    to: current,
+                                    start: now.clone(),
+                                });
+                            }
+                        }
+                    }
+                }
+                let rendered = match &tween.caret {
+                    Some(trk) => {
+                        let elapsed =
+                            now.duration_since(&trk.start).as_millis_u64() as f32;
+                        let t = elapsed / caret_ms as f32;
+                        if t >= 1.0 {
+                            tween.caret = None;
+                            current
+                        } else {
+                            let info = CaretTweenInfo {
+                                past: trk.from,
+                                current,
+                                t,
+                            };
+                            (cfg.caret_tween.cb)(cfg.caret_tween_data.clone(), info)
+                        }
+                    }
+                    None => current,
+                };
+                if rendered != current {
+                    caret_patch = Some((idx, rendered));
+                }
+                tween.last_caret = Some(rendered);
             }
+        } else {
+            tween.caret = None;
+            tween.last_caret = None;
         }
 
         // ---- selection ----
@@ -5654,8 +5655,8 @@ impl LayoutWindow {
             } else {
                 match &mut tween.selection {
                     Some(trk) if trk.to != current => {
-                        trk.from = tween.last_selection.clone();
-                        trk.to = current.clone();
+                        trk.from.clone_from(&tween.last_selection);
+                        trk.to.clone_from(&current);
                         trk.start = now.clone();
                     }
                     Some(_) => {}
@@ -5728,7 +5729,7 @@ impl LayoutWindow {
                         if let Some(last) = tween.last_focus_ring {
                             if last != current {
                                 tween.focus_ring = Some(
-                                    crate::managers::text_edit::CaretTweenTrack {
+                                    CaretTweenTrack {
                                         from: last,
                                         to: current,
                                         start: now.clone(),
@@ -5746,12 +5747,12 @@ impl LayoutWindow {
                             tween.focus_ring = None;
                             current
                         } else {
-                            let info = azul_core::callbacks::CaretTweenInfo {
+                            let info = CaretTweenInfo {
                                 past: trk.from,
                                 current,
                                 t,
                             };
-                            (cfg.caret_tween.cb)(cfg.caret_tween_data.clone(), info)
+                            (cfg.caret_tween.cb)(cfg.caret_tween_data, info)
                         }
                     }
                     None => current,
@@ -5860,10 +5861,10 @@ impl LayoutWindow {
                         )),
                     },
                     border_radius: azul_css::props::style::border_radius::StyleBorderRadius {
-                        top_left: azul_css::props::basic::PixelValue::px(2.0),
-                        top_right: azul_css::props::basic::PixelValue::px(2.0),
-                        bottom_left: azul_css::props::basic::PixelValue::px(2.0),
-                        bottom_right: azul_css::props::basic::PixelValue::px(2.0),
+                        top_left: PixelValue::px(2.0),
+                        top_right: PixelValue::px(2.0),
+                        bottom_left: PixelValue::px(2.0),
+                        bottom_right: PixelValue::px(2.0),
                     },
                 });
                 dl_mut.node_mapping.push(None);
@@ -6101,7 +6102,7 @@ impl LayoutWindow {
     /// [`Self::handle_focus_change_for_cursor_blink`]: that helper derives
     /// everything from `focus_manager` state and has side effects
     /// (`clear_editing`, dropping the logical blink flag). Window focus
-    /// churn — an interactive-resize grab on KWin blurs/refocuses the
+    /// churn — an interactive-resize grab on `KWin` blurs/refocuses the
     /// window — must never destroy editing state; the caret stays drawn
     /// solid while blurred, only the tick pauses. The logical flag STAYS
     /// `true`: that is the pause marker [`Self::resume_cursor_blink_after_window_focus`]
@@ -6122,7 +6123,7 @@ impl LayoutWindow {
     /// active but its timer is gone (i.e. paused by
     /// [`Self::pause_cursor_blink_for_window_blur`]), recreate the timer,
     /// re-insert it and hand it to the shell to arm. Idempotent: repeated
-    /// FocusIn events (compositors deliver them liberally around
+    /// `FocusIn` events (compositors deliver them liberally around
     /// interactive resizes) find the timer present and return `None`.
     ///
     /// The old path routed refocus through
@@ -6135,7 +6136,7 @@ impl LayoutWindow {
     pub fn resume_cursor_blink_after_window_focus(
         &mut self,
         window_state: &FullWindowState,
-    ) -> Option<crate::timer::Timer> {
+    ) -> Option<Timer> {
         use azul_core::task::CURSOR_BLINK_TIMER_ID;
         if self.text_edit_manager.blink.is_blink_timer_active()
             && !self.timers.contains_key(&CURSOR_BLINK_TIMER_ID)
@@ -6265,7 +6266,7 @@ impl LayoutWindow {
 
     /// (d6f) Dense-first step resolution: the dense dispatcher when the
     /// view is retained (verify-A/B'd against the sparse one under
-    /// AZ_DENSE_TEXT=verify), sparse fallback otherwise. Associated (no
+    /// `AZ_DENSE_TEXT=verify`), sparse fallback otherwise. Associated (no
     /// `&self`) because the call sites run inside `move_all_cursors`
     /// closures that hold `self.text_edit_manager` mutably — the dense
     /// Arc is hoisted out of `self` before that borrow starts.
@@ -9508,7 +9509,7 @@ impl LayoutWindow {
                 let style = self.get_text_style_for_node(dom_id, node_id);
 
                 vec![InlineContent::Text(StyledRun {
-                    text: alloc::sync::Arc::from(text.as_str()),
+                    text: Arc::from(text.as_str()),
                     style,
                     logical_start_byte: 0,
                     source_node_id: Some(node_id),
@@ -9854,7 +9855,7 @@ impl LayoutWindow {
             let clamped_pos = byte_pos.min(run.text.len());
             let mut t = String::from(&*run.text);
             t.insert_str(clamped_pos, &preedit);
-            run.text = alloc::sync::Arc::from(t.as_str());
+            run.text = Arc::from(t.as_str());
         }
 
         // Re-shape text with preedit injected — font fallback handles CJK
@@ -9918,7 +9919,7 @@ impl LayoutWindow {
         let cache_map = std::mem::take(&mut self.layout_cache.cache_map);
 
         let mut ctx = LayoutContext {
-            reflowed_ifcs: std::collections::BTreeSet::new(),
+            reflowed_ifcs: BTreeSet::new(),
             style_cache: Default::default(),
             scrollbar_style_cache: core::cell::RefCell::new(HashMap::new()),
             styled_dom,
@@ -9997,7 +9998,7 @@ impl LayoutWindow {
                 // relayout path has the twin call before its own store.
                 let mut display_list = Arc::new(display_list);
                 {
-                    let now = (crate::callbacks::ExternalSystemCallbacks::rust_internal()
+                    let now = (ExternalSystemCallbacks::rust_internal()
                         .get_system_time_fn
                         .cb)();
                     self.apply_text_tweens(dom_id, &mut display_list, now);
@@ -10110,9 +10111,9 @@ impl LayoutWindow {
     ///
     /// Returns `None` only if `logical_items` + reorder + shape itself fails.
     #[allow(clippy::too_many_lines)] // large but cohesive: single-purpose layout/render/parse routine (one branch per case)
-    /// (d6g) Position + line_index for item `i` of a cached inline
+    /// (d6g) Position + `line_index` for item `i` of a cached inline
     /// layout: dense reconstruction when the view is retained
-    /// (verify-A/B'd under AZ_DENSE_TEXT=verify), sparse read
+    /// (verify-A/B'd under `AZ_DENSE_TEXT=verify`), sparse read
     /// otherwise. The sparse arm dies at the d6 retirement.
     /// (d6h) The stored inline layout, MATERIALIZED when it is the
     /// retirement sentinel: the dense arrays expand (exact by the d6h
@@ -11166,7 +11167,7 @@ impl LayoutWindow {
         &self,
         dom_id: DomId,
         position: LogicalPosition,
-    ) -> Option<(NodeId, azul_core::selection::TextCursor)> {
+    ) -> Option<(NodeId, TextCursor)> {
         let layout_result = self.layout_results.get(&dom_id)?;
         let tree = &layout_result.layout_tree;
         let mut best: Option<(f32, NodeId, LogicalPosition)> = None; // (y-distance, node, local)
@@ -11369,7 +11370,7 @@ impl LayoutWindow {
         // selection).
         if let Some(cb) = self.text_edit_manager.get_cross_block_selection() {
             if cb.dom_id == *dom_id {
-                let mut nodes: Vec<(NodeId, azul_core::selection::SelectionRange)> =
+                let mut nodes: Vec<(NodeId, SelectionRange)> =
                     cb.affected_nodes.iter().map(|(n, r)| (*n, *r)).collect();
                 nodes.sort_by_key(|(n, _)| n.index());
                 let mut parts: Vec<String> = Vec::with_capacity(nodes.len());
@@ -11859,7 +11860,7 @@ impl LayoutWindow {
                 rejected.id
             );
             #[cfg(not(debug_assertions))]
-            let _ = rejected;
+            drop(rejected);
             *document_edit_notified = None;
         }
         let _ = document_edit_notified;

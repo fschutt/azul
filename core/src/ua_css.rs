@@ -104,7 +104,7 @@ static DISPLAY_NONE: CssProperty =
 
 /// break-before: page (the canonical `<pagebreak/>` element)
 static BREAK_BEFORE_PAGE: CssProperty = CssProperty::BreakBefore(CssPropertyValue::Exact(
-    azul_css::props::layout::fragmentation::PageBreak::Page,
+    PageBreak::Page,
 ));
 
 /// display: table

@@ -207,7 +207,7 @@ pub struct InlineItemMetrics {
 #[derive(Debug, Clone)]
 pub struct CachedInlineContent {
     /// The collected inline content (text runs, atomics, markers).
-    pub content: alloc::vec::Vec<crate::text3::cache::InlineContent>,
+    pub content: Vec<crate::text3::cache::InlineContent>,
     /// `ContentIndex` -> child layout-node index, as collection built it.
     pub child_map: std::collections::HashMap<crate::text3::cache::ContentIndex, usize>,
     /// Validity key: the fingerprints of the IFC root and its descendants,
@@ -263,9 +263,9 @@ pub struct CachedInlineLayout {
     /// Glyph runs derived from `layout` at STORE time (a pure function of
     /// it — see `get_glyph_runs_simple`). The display-list generator used to
     /// re-derive these on EVERY paint of every IFC (the run-grouping walk was
-    /// the bulk of dl_inline_text's 6.8 ms/resize on big.md); computing them
+    /// the bulk of `dl_inline_text`'s 6.8 ms/resize on big.md); computing them
     /// once alongside the layout makes every later paint a lookup. Rides
-    /// GlyphSwap reuse for free — a reused layout is a reused run list.
+    /// `GlyphSwap` reuse for free — a reused layout is a reused run list.
     ///
     /// (#25) Stored COMPACT — 8 B/glyph instead of the 20 B `GlyphInstance`
     /// (y and size are per-run-uniform in the simple-run contract; deviants
@@ -285,13 +285,13 @@ pub struct CachedInlineLayout {
     /// re-running the full line-breaking algorithm.
     pub line_breaks: Option<crate::text3::cache::CachedLineBreaks>,
     /// §3.2 step (d5): the ONE cache-stable Arc the display list carries
-    /// as its TextLayout payload. `TextPayload{dense,sparse}` when the
+    /// as its `TextLayout` payload. `TextPayload{dense,sparse}` when the
     /// dense view is retained, else the `layout` Arc itself (identical
-    /// to the pre-d5 payload). Built at store time so damage ptr_eq
+    /// to the pre-d5 payload). Built at store time so damage `ptr_eq`
     /// stays stable across paints.
     pub payload: Arc<dyn std::any::Any + Send + Sync>,
     /// §3.2 step (d1): the dense view of `layout`, retained when
-    /// `AZ_DENSE_TEXT` is active (glyph_runs derive from THIS instance).
+    /// `AZ_DENSE_TEXT` is active (`glyph_runs` derive from THIS instance).
     /// Readers migrate from `layout` onto it one by one; the sparse form
     /// retires when the last reader has moved (plan §10.4).
     pub dense: Option<Arc<crate::text3::dense::DenseText>>,
@@ -302,13 +302,14 @@ pub struct CachedInlineLayout {
     pub inline_content_hash: u64,
 }
 
-/// §3.2 step (d5): the display list's TextLayout payload when the dense
+/// §3.2 step (d5): the display list's `TextLayout` payload when the dense
 /// view is retained — BOTH forms behind one cache-stable Arc, so
-/// TextLayout damage diffing (Arc::ptr_eq) keeps firing exactly as
+/// `TextLayout` damage diffing (`Arc::ptr_eq`) keeps firing exactly as
 /// before. Downcasters try this first and fall back to a bare
 /// `UnifiedLayout` payload (the flag-off path). The `sparse` half is
 /// what current consumers read; it empties at the d6 retirement, which
 /// is when the consumers move onto `dense`.
+#[derive(Debug)]
 pub struct TextPayload {
     pub dense: Arc<crate::text3::dense::DenseText>,
     pub sparse: Arc<UnifiedLayout>,
@@ -327,7 +328,7 @@ pub struct TextPayload {
 /// reference under the flag: the dense model keeps atomics on the sparse
 /// side by design and the twin would silently DROP their glyphs.
 fn compute_glyph_runs(
-    layout: &crate::text3::cache::UnifiedLayout,
+    layout: &UnifiedLayout,
 ) -> (
     Vec<crate::text3::glyphs::SimpleGlyphRun>,
     Option<Arc<crate::text3::dense::DenseText>>,
@@ -345,7 +346,7 @@ fn compute_glyph_runs(
 pub(crate) fn dense_text_mode() -> u8 {
     static MODE: std::sync::OnceLock<u8> = std::sync::OnceLock::new();
     *MODE.get_or_init(|| match std::env::var("AZ_DENSE_TEXT").as_deref() {
-        Ok("0") | Ok("off") => 0,
+        Ok("0" | "off") => 0,
         Ok("verify") => 2,
         _ => 1,
     })
@@ -378,7 +379,7 @@ fn compact_glyph_runs(
 /// Testable core of [`compute_glyph_runs`] — `mode` injected so the d1
 /// retention pin can exercise the dense path without env-var races.
 fn compute_glyph_runs_with_mode(
-    layout: &crate::text3::cache::UnifiedLayout,
+    layout: &UnifiedLayout,
     mode: u8,
 ) -> (
     Vec<crate::text3::glyphs::SimpleGlyphRun>,
@@ -432,11 +433,11 @@ fn compute_glyph_runs_with_mode(
 /// misalign the incremental-relayout decision tree).
 ///
 /// Field-for-field vs the sparse extraction (the d2 gate pins this):
-/// advance_width = ClusterCompact.advance (BASE advance == bounds().width
-/// since the d2 redefinition), line_height_contribution = the run's
+/// `advance_width` = ClusterCompact.advance (BASE advance == bounds().width
+/// since the d2 redefinition), `line_height_contribution` = the run's
 /// resolved line height (== ascent+descent by the half-leading identity),
-/// can_break = true (clusters are never ShapedItem::Break), line_index =
-/// LineRecord.source_index, x_offset = ClusterCompact.x.
+/// `can_break` = true (clusters are never `ShapedItem::Break`), `line_index` =
+/// `LineRecord.source_index`, `x_offset` = ClusterCompact.x.
 fn extract_item_metrics_dense(
     dense: &crate::text3::dense::DenseText,
     item_count: usize,
@@ -602,20 +603,17 @@ impl CachedInlineLayout {
         layout: &Arc<UnifiedLayout>,
         dense: Option<&Arc<crate::text3::dense::DenseText>>,
     ) -> Arc<dyn std::any::Any + Send + Sync> {
-        match dense {
-            Some(d) => Arc::new(TextPayload {
-                dense: d.clone(),
-                sparse: layout.clone(),
-            }),
-            None => {
-                let shared: Arc<dyn std::any::Any + Send + Sync> = layout.clone();
-                shared
-            }
+        if let Some(d) = dense { Arc::new(TextPayload {
+            dense: d.clone(),
+            sparse: layout.clone(),
+        }) } else {
+            let shared: Arc<dyn std::any::Any + Send + Sync> = layout.clone();
+            shared
         }
     }
 
     /// (d2) Metrics source selection: dense when retained AND the layout
-    /// is pure clusters; sparse otherwise. Under AZ_DENSE_TEXT=verify the
+    /// is pure clusters; sparse otherwise. Under `AZ_DENSE_TEXT=verify` the
     /// dense result is A/B-asserted against the sparse extraction.
     fn choose_item_metrics(
         layout: &UnifiedLayout,
@@ -873,7 +871,7 @@ pub struct LayoutNode {
     /// entries did not survive to the NEXT pass — 312 full min/max-content
     /// subtree re-layouts per steady resize on big.md, each re-breaking
     /// every IFC line in the subtree AND evicting the Definite entry of
-    /// the single-slot IFC cache on the way (the 429 text_layout_flow
+    /// the single-slot IFC cache on the way (the 429 `text_layout_flow`
     /// calls). (2 accesses — Taffy bridge measure path)
     pub measured_content_sizes: (Option<LayoutOutput>, Option<LayoutOutput>),
     /// Pre-computed CSS properties needed during layout.
@@ -1239,13 +1237,13 @@ pub struct LayoutTreeMemoryReport {
     /// code), so a healthy number here is single digits no matter how many
     /// glyphs there are. A count that tracks the GLYPH count means the
     /// sharing predicate has silently stopped sharing — Stylo hit exactly
-    /// this, ending up with 109k ComputedValues where 2,200 were expected
+    /// this, ending up with 109k `ComputedValues` where 2,200 were expected
     /// because one pseudo-element rule defeated the predicate. At 248 B per
-    /// StyleProperties that failure is invisible and expensive.
+    /// `StyleProperties` that failure is invisible and expensive.
     pub distinct_glyph_style_arcs: usize,
     /// Paint-run cache (`CachedInlineLayout::glyph_runs`): heap bytes of the
     /// retained `Vec<SimpleGlyphRun>` lists, each distinct Arc counted once
-    /// (GlyphSwap reuse shares them). This is the store-time derivation that
+    /// (`GlyphSwap` reuse shares them). This is the store-time derivation that
     /// makes every paint a lookup — the retained cost of that trade.
     pub glyph_run_bytes: usize,
     /// Distinct `SimpleGlyphRun`s behind `glyph_run_bytes`.
@@ -1338,7 +1336,7 @@ impl LayoutTree {
                 // Paint-run cache — its own report line (see the field doc).
                 // Distinct Arcs only: GlyphSwap reuse clones the Arc.
                 if run_arcs
-                    .insert(alloc::sync::Arc::as_ptr(&cached.glyph_runs) as *const u8 as usize)
+                    .insert(Arc::as_ptr(&cached.glyph_runs).cast::<u8>() as usize)
                 {
                     report.glyph_run_bytes += cached.glyph_runs.capacity()
                         * size_of::<crate::text3::glyphs::CompactGlyphRun>();
@@ -1387,13 +1385,13 @@ impl LayoutTree {
                             spilled * size_of::<crate::text3::cache::ShapedGlyph>();
                         // 3c: per-cluster text is a SHARED Arc slice now —
                         // attribute each distinct source Arc's buffer ONCE.
-                        if text_arcs.insert(alloc::sync::Arc::as_ptr(&c.source_text) as *const u8 as usize) {
+                        if text_arcs.insert(Arc::as_ptr(&c.source_text).cast::<u8>() as usize) {
                             report.warm_inline_layout_bytes += c.source_text.len();
                             report.shaped_cluster_text_bytes += c.source_text.len();
                         }
                         report.shaped_cluster_count += 1;
                         report.shaped_glyph_count += c.glyphs.len();
-                        style_arcs.insert(alloc::sync::Arc::as_ptr(&c.style) as usize);
+                        style_arcs.insert(Arc::as_ptr(&c.style) as usize);
                     }
                 }
             }
@@ -3021,7 +3019,7 @@ impl LayoutTreeBuilder {
     /// id through then produced a layout node claiming to be a DOM node
     /// that has moved, or (when the DOM shrank) one that no longer exists:
     /// `compute_counters` panicked indexing `node_data[52]` on a 37-node
-    /// StyledDom, and every quieter consumer — style lookups, node rects,
+    /// `StyledDom`, and every quieter consumer — style lookups, node rects,
     /// damage attribution — silently read a DIFFERENT node's data.
     ///
     /// Passing `None` keeps the node anonymous (no DOM identity), which is
@@ -3629,7 +3627,7 @@ fn collect_box_props(
         // Percentage basis axis for margin/padding (writing-modes-4 §7.2).
         vertical_writing_mode: matches!(
             get_writing_mode(styled_dom, dom_id, &node_state),
-            crate::solver3::getters::MultiValue::Exact(
+            MultiValue::Exact(
                 azul_css::props::layout::wrapping::LayoutWritingMode::VerticalRl
                     | azul_css::props::layout::wrapping::LayoutWritingMode::VerticalLr
             )

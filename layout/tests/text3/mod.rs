@@ -1,3 +1,13 @@
+// Root of the `text3_suite` test target (see layout/Cargo.toml).
+//
+// This is the ported text3 corpus: 57 formerly-dormant tests moved onto the
+// LoadedFonts pipeline. Its style differs from library code on purpose —
+// intermediate bindings are kept to document what a step computes even when
+// the assertion only reads one of them, and the shared helpers below are used
+// by some submodules and not others. Those are exactly the lints below, and
+// they carry no signal here.
+#![allow(unused_variables, dead_code, clippy::field_reassign_with_default)]
+
 use std::{
     collections::HashMap,
     sync::{Arc, Mutex},

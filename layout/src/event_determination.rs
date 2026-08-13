@@ -271,6 +271,7 @@ fn get_all_hovered_nodes(
 /// `LayoutWindow::document_edit_event_provider`; the dispatcher marks the
 /// notification delivered after determination, so subsequent passes stay
 /// silent while the same edit is pending.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct DocumentEditEventProvider {
     /// (changeset target node, changeset id), if an edit is pending.
     pub pending: Option<(DomNodeId, u64)>,

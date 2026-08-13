@@ -152,11 +152,11 @@ fn cond_bg_active(c: ColorU) -> Cond {
     Cond::on_active(P::const_background_content(bg_vec(c)))
 }
 
-fn cond_text_color(c: ColorU) -> Cond {
+const fn cond_text_color(c: ColorU) -> Cond {
     Cond::simple(P::const_text_color(StyleTextColor { inner: c }))
 }
 
-fn cond_border_box() -> Cond {
+const fn cond_border_box() -> Cond {
     Cond::simple(P::const_box_sizing(LayoutBoxSizing::BorderBox))
 }
 
@@ -280,7 +280,7 @@ fn theme_close_button(t: &QuickAccessTheme) -> CssPropertyWithConditionsVec {
 /// All part styles of the title band. Every part defaults to the the Office-2013-era look
 /// look; replace any field for finer control (the same override API as
 /// [`super::ribbon::RibbonStyle`]).
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 #[repr(C)]
 pub struct QuickAccessStyle {
     /// The palette this style bundle was derived from. Kept for consumers
@@ -411,7 +411,7 @@ pub struct QuickAccessBar {
     pub actions: QuickAccessActionVec,
     /// Renders the "customize quick access toolbar" chevron.
     pub show_menu_arrow: bool,
-    /// The centered window title ("Document1 - AzWriter").
+    /// The centered window title ("Document1 - `AzWriter`").
     pub title: AzString,
     /// Actions between the title and the window buttons (office-2013: help,
     /// ribbon display options).
@@ -513,7 +513,7 @@ impl QuickAccessBar {
     /// Renders the band.
     #[must_use]
     pub fn dom(self) -> Dom {
-        let QuickAccessBar {
+        let Self {
             leading,
             actions,
             show_menu_arrow,
@@ -587,7 +587,7 @@ impl QuickAccessBar {
 
         Dom::create_div()
             .with_ids_and_classes(IdOrClassVec::from_const_slice(CLS_QAB))
-            .with_css_props(style.bar_style.clone())
+            .with_css_props(style.bar_style)
             .with_children(DomVec::from_vec(children))
     }
 }

@@ -103762,6 +103762,9 @@
                             "`handled` is 'was this op mine at all', NOT 'did it succeed'. The debug server turns false into an explicit unknown-op error rather than an OK, so a typo'd op name in a scenario fails instead of passing silently."
                         ],
                         "external": "azul_core::events::CustomE2eOpResult",
+                        "custom_impls": [
+                            "Default"
+                        ],
                         "derive": [
                             "Debug",
                             "Clone",

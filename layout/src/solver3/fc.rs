@@ -132,7 +132,7 @@ impl OverflowBehavior {
 }
 
 /// K30b: the fragmentainer the current layout call is filling (design:
-/// scripts/BREAK_TOKENS_DESIGN.md §4.3). `None` = continuous media — every
+/// `scripts/BREAK_TOKENS_DESIGN.md` §4.3). `None` = continuous media — every
 /// existing path passes `None` and behaves bit-for-bit as before.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct FragmentainerSpace<'a> {
@@ -686,12 +686,12 @@ fn layout_flex_grid<T: ParsedFontTrait>(
         // In-flow auto-height containers stay None (content-sized;
         // their used_size may hold a stale height on warm re-layouts).
         let is_abs = matches!(
-            crate::solver3::positioning::get_position_type(
+            get_position_type(
                 ctx.styled_dom,
                 node.dom_node_id,
             ),
-            azul_css::props::layout::LayoutPosition::Absolute
-                | azul_css::props::layout::LayoutPosition::Fixed
+            LayoutPosition::Absolute
+                | LayoutPosition::Fixed
         );
         match (is_abs, node.used_size.as_ref().map(|s| s.height)) {
             (true, Some(h)) if h > 0.0 => Some(h),
@@ -1386,7 +1386,7 @@ fn layout_bfc<T: ParsedFontTrait>(
     // K30b part 2: per-child resume tokens (ResumeIn entries). A child in
     // this map continues from ITS token in a re-laid subtree; BreakBefore
     // children (and Inline tokens, v1) lay out from scratch.
-    let fragment_resume_tokens: alloc::collections::BTreeMap<
+    let fragment_resume_tokens: BTreeMap<
         usize,
         &crate::solver3::break_token::BreakToken,
     > = constraints
@@ -1417,13 +1417,12 @@ fn layout_bfc<T: ParsedFontTrait>(
         .as_ref()
         .and_then(|fs| fs.resume)
         .and_then(|tok| tok.children.first())
-        .map(|entry| match entry {
+        .is_some_and(|entry| match entry {
             crate::solver3::break_token::ChildBreakEntry::BreakBefore { forced, .. } => !*forced,
             // A ResumeIn child CONTINUES mid-box: its top decoration/margin
             // belongs to its first fragment — nothing to apply here anyway.
             crate::solver3::break_token::ChildBreakEntry::ResumeIn { .. } => true,
-        })
-        .unwrap_or(false);
+        });
 
     // Fragment passes mark every child they DON'T place with a sentinel
     // relative position: the positioning descent then computes far-negative
@@ -1483,7 +1482,7 @@ fn layout_bfc<T: ParsedFontTrait>(
                 tree.get(child_index).and_then(|n| n.dom_node_id),
             ) != azul_css::props::layout::fragmentation::PageBreak::Auto
         {
-            let later: alloc::vec::Vec<usize> = pos_children
+            let later: Vec<usize> = pos_children
                 .iter()
                 .copied()
                 .skip_while(|&c| c != child_index)
@@ -1554,7 +1553,7 @@ fn layout_bfc<T: ParsedFontTrait>(
                 )?;
                 fragment_child_resumed = true;
                 if let Some(cont) = child_out {
-                    let later: alloc::vec::Vec<usize> = pos_children
+                    let later: Vec<usize> = pos_children
                         .iter()
                         .copied()
                         .skip_while(|&c| c != child_index)
@@ -1570,7 +1569,7 @@ fn layout_bfc<T: ParsedFontTrait>(
                     let mut children =
                         alloc::vec![crate::solver3::break_token::ChildBreakEntry::ResumeIn {
                             child: child_index,
-                            token: alloc::boxed::Box::new(cont),
+                            token: Box::new(cont),
                         }];
                     children.extend(later.into_iter().map(|child| {
                         crate::solver3::break_token::ChildBreakEntry::BreakBefore {
@@ -1680,7 +1679,7 @@ fn layout_bfc<T: ParsedFontTrait>(
                         + float_rect.size.main(writing_mode);
                     let fits = float_bottom <= fs.remaining_block_extent + 0.01;
                     if !fits && fragment_placed_content {
-                        let later: alloc::vec::Vec<usize> = pos_children
+                        let later: Vec<usize> = pos_children
                             .iter()
                             .copied()
                             .skip_while(|&c| c != child_index)
@@ -2260,7 +2259,7 @@ fn layout_bfc<T: ParsedFontTrait>(
                             Some(&mut child_out),
                         )?;
                         if let Some(cont) = child_out {
-                            let later: alloc::vec::Vec<usize> = pos_children
+                            let later: Vec<usize> = pos_children
                                 .iter()
                                 .copied()
                                 .skip_while(|&c| c != child_index)
@@ -2277,7 +2276,7 @@ fn layout_bfc<T: ParsedFontTrait>(
                             let mut children = alloc::vec![
                                 crate::solver3::break_token::ChildBreakEntry::ResumeIn {
                                     child: child_index,
-                                    token: alloc::boxed::Box::new(cont),
+                                    token: Box::new(cont),
                                 }
                             ];
                             children.extend(later.into_iter().map(|child| {
@@ -2301,7 +2300,7 @@ fn layout_bfc<T: ParsedFontTrait>(
                 }
                 FitDecision::MonolithOverflow => {}
                 FitDecision::BreakBeforeHere => {
-                    let later: alloc::vec::Vec<usize> = pos_children
+                    let later: Vec<usize> = pos_children
                         .iter()
                         .copied()
                         .skip_while(|&c| c != child_index)
@@ -2365,7 +2364,7 @@ fn layout_bfc<T: ParsedFontTrait>(
                             let mut children = alloc::vec![
                                 crate::solver3::break_token::ChildBreakEntry::ResumeIn {
                                     child: child_index,
-                                    token: alloc::boxed::Box::new(cont),
+                                    token: Box::new(cont),
                                 }
                             ];
                             children.extend(later.into_iter().map(|child| {
@@ -3208,9 +3207,9 @@ fn layout_bfc<T: ParsedFontTrait>(
 /// produces content bounds - the incremental cache-reuse arms included -
 /// or measure passes that hit the cache size the box untrimmed.
 fn apply_text_box_trim(
-    styled_dom: &azul_core::styled_dom::StyledDom,
+    styled_dom: &StyledDom,
     ifc_root_dom_id: NodeId,
-    cached_constraints: &crate::text3::cache::UnifiedConstraints,
+    cached_constraints: &UnifiedConstraints,
     has_items: bool,
     output: &mut LayoutOutput,
 ) {
@@ -3453,42 +3452,39 @@ fn layout_ifc<T: ParsedFontTrait>(
     // `content_hash_base` rides with the collection: hashed ONCE per rebuild,
     // reused by every subsequent visit (see CachedInlineContent::content_hash_base
     // for the 29 ms this replaces).
-    let (collect_result, content_hash_base) = match cached_collection {
-        Some((content, child_map, base)) => {
-            drop(crate::probe::Probe::span("ifc_collect_cached"));
-            (Ok((content, child_map)), Some(base))
-        }
-        None => {
-            let _p = crate::probe::Probe::span("ifc_collect_content");
-            let res = collect_and_measure_inline_content(
-                ctx,
-                text_cache,
-                tree,
-                node_index,
-                constraints,
-            );
-            let mut base = None;
-            if let Ok((content, child_map)) = res.as_ref() {
-                let computed_base = {
-                    let _p = crate::probe::Probe::span("ifc_content_hash_base");
-                    use std::hash::{Hash, Hasher};
-                    let mut h = std::collections::hash_map::DefaultHasher::new();
-                    content.hash(&mut h);
-                    h.finish()
-                };
-                base = Some(computed_base);
-                if let Some(w) = tree.warm_mut(node_index) {
-                    w.inline_content_cache =
-                        Some(Box::new(crate::solver3::layout_tree::CachedInlineContent {
-                            content: content.clone(),
-                            child_map: child_map.clone(),
-                            subtree_fingerprint,
-                            content_hash_base: computed_base,
-                        }));
-                }
+    let (collect_result, content_hash_base) = if let Some((content, child_map, base)) = cached_collection {
+        drop(crate::probe::Probe::span("ifc_collect_cached"));
+        (Ok((content, child_map)), Some(base))
+    } else {
+        let _p = crate::probe::Probe::span("ifc_collect_content");
+        let res = collect_and_measure_inline_content(
+            ctx,
+            text_cache,
+            tree,
+            node_index,
+            constraints,
+        );
+        let mut base = None;
+        if let Ok((content, child_map)) = res.as_ref() {
+            let computed_base = {
+                let _p = crate::probe::Probe::span("ifc_content_hash_base");
+                use std::hash::{Hash, Hasher};
+                let mut h = std::collections::hash_map::DefaultHasher::new();
+                content.hash(&mut h);
+                h.finish()
+            };
+            base = Some(computed_base);
+            if let Some(w) = tree.warm_mut(node_index) {
+                w.inline_content_cache =
+                    Some(Box::new(crate::solver3::layout_tree::CachedInlineContent {
+                        content: content.clone(),
+                        child_map: child_map.clone(),
+                        subtree_fingerprint,
+                        content_hash_base: computed_base,
+                    }));
             }
-            (res, base)
         }
+        (res, base)
     };
     // [g133 az-web-lift DIAG] which early-return fires in POSITIONING's layout_ifc.
     #[cfg(feature = "web_lift")]
@@ -3690,9 +3686,14 @@ fn layout_ifc<T: ParsedFontTrait>(
                     // every GlyphSwap reuse).
                     let main_frag = cached.materialized();
                     let frag_bounds = main_frag.bounds();
-                    let mut output = LayoutOutput::default();
-                    output.overflow_size = LogicalSize::new(frag_bounds.width, frag_bounds.height);
-                    output.baseline = main_frag.last_baseline();
+                    let mut output = LayoutOutput {
+                        overflow_size: LogicalSize::new(
+                            frag_bounds.width,
+                            frag_bounds.height,
+                        ),
+                        baseline: main_frag.last_baseline(),
+                        ..Default::default()
+                    };
                     // The cache-reuse exit must trim like the full path: a
                     // measure pass that lands here would otherwise size the
                     // box untrimmed while the final pass trims (see
@@ -3777,9 +3778,10 @@ fn layout_ifc<T: ParsedFontTrait>(
                 node_index
             );
 
-            let mut output = LayoutOutput::default();
-            output.overflow_size = LogicalSize::new(0.0, 0.0);
-            return Ok(output);
+            return Ok(LayoutOutput {
+                overflow_size: LogicalSize::new(0.0, 0.0),
+                ..Default::default()
+            });
         }
     };
     // Phase 4: Integrate results back into the solver3 layout tree.
@@ -7651,7 +7653,7 @@ fn position_table_cells<T: ParsedFontTrait>(
                         cached_layout
                             .dense
                             .as_deref()
-                            .map(|d| d.to_unified_items())
+                            .map(text3::dense::DenseText::to_unified_items)
                             .unwrap_or_default()
                     } else {
                         cached_layout.layout.items.clone()
@@ -7855,7 +7857,7 @@ fn slice_inline_content_by_bytes(
                     .find(|&c| run.text.is_char_boundary(c))
                     .unwrap_or(len);
                 if cut_from != 0 || cut_to != len {
-                    run.text = alloc::sync::Arc::from(&run.text[cut_from..cut_to]);
+                    run.text = Arc::from(&run.text[cut_from..cut_to]);
                     run.logical_start_byte = 0;
                 }
                 out.push(InlineContent::Text(run));
@@ -9632,7 +9634,7 @@ fn generate_list_marker_segments(
     // Return single segment - font fallback happens during shaping
     // List markers are generated content, not from DOM nodes
     vec![StyledRun {
-        text: alloc::sync::Arc::from(marker_text.as_str()),
+        text: Arc::from(marker_text.as_str()),
         style: base_style,
         logical_start_byte: 0,
         source_node_id: None,
@@ -9924,7 +9926,7 @@ pub fn split_text_for_whitespace(
                 while let Some(part) = tab_parts.next() {
                     if !part.is_empty() {
                         result.push(InlineContent::Text(StyledRun {
-                            text: alloc::sync::Arc::from(part),
+                            text: Arc::from(part),
                             style: Arc::clone(style),
                             logical_start_byte: 0,
                             source_node_id: Some(dom_id),
@@ -9962,7 +9964,7 @@ pub fn split_text_for_whitespace(
 
                 if !collapsed.is_empty() {
                     result.push(InlineContent::Text(StyledRun {
-                        text: alloc::sync::Arc::from(collapsed.as_str()),
+                        text: Arc::from(collapsed.as_str()),
                         style: Arc::clone(style),
                         logical_start_byte: 0,
                         source_node_id: Some(dom_id),
@@ -10028,7 +10030,7 @@ pub fn split_text_for_whitespace(
 
                 if !final_text.is_empty() {
                     result.push(InlineContent::Text(StyledRun {
-                        text: alloc::sync::Arc::from(final_text.as_str()),
+                        text: Arc::from(final_text.as_str()),
                         style: Arc::clone(style),
                         logical_start_byte: 0,
                         source_node_id: Some(dom_id),
@@ -10055,7 +10057,7 @@ pub fn split_text_for_whitespace(
     if text_transform != text3::cache::TextTransform::None {
         for item in &mut result {
             if let InlineContent::Text(run) = item {
-                run.text = alloc::sync::Arc::from(apply_text_transform(&run.text, text_transform).as_str());
+                run.text = Arc::from(apply_text_transform(&run.text, text_transform).as_str());
             }
         }
     }

@@ -1771,10 +1771,13 @@ pub fn rss_census() -> Option<RssCensus> {
                     c.heap_kib += kib;
                 } else if name.starts_with("[stack") || name == "[vdso]" || name == "[vvar]" {
                     c.stacks_kib += kib;
-                } else if name.ends_with(".ttf")
-                    || name.ends_with(".ttc")
-                    || name.ends_with(".otf")
-                    || name.ends_with(".pfb")
+                } else if std::path::Path::new(name.as_str())
+                    .extension()
+                    .is_some_and(|e| {
+                        ["ttf", "ttc", "otf", "pfb"]
+                            .iter()
+                            .any(|w| e.eq_ignore_ascii_case(w))
+                    })
                 {
                     c.font_files_kib += kib;
                     c.font_mappings += 1;

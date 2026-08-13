@@ -83,7 +83,7 @@ pub struct DenseRun {
     /// CONSTANT `item_base` for every cluster — the shape produced by
     /// paths that never restamp `item_index` per cluster. Before this
     /// flag, a constant-index run DEGENERATED into one run per cluster
-    /// (the linear delta changed every cluster), ~25 KB/IFC of DenseRun
+    /// (the linear delta changed every cluster), ~25 KB/IFC of `DenseRun`
     /// headers for zero information.
     pub item_linear: bool,
     pub script: Script,
@@ -109,7 +109,7 @@ pub struct LineRecord {
 
 /// Detail entry for clusters that need more than one glyph or non-zero
 /// GPOS offsets (ligatures, combining marks, kashida).
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct ClusterDetail {
     pub cluster: u32,
     pub glyphs: (u32, u32),
@@ -183,8 +183,8 @@ fn close_item_model(r: &mut DenseRun, linear: Option<u32>, constant: Option<u32>
 
 impl DenseText {
     /// Build the dense view from the current model. Clusters keep their
-    /// item order; runs split where (style Arc identity, font_hash of the
-    /// first glyph, source_run, source_node) change; lines come from the
+    /// item order; runs split where (style Arc identity, `font_hash` of the
+    /// first glyph, `source_run`, `source_node`) change; lines come from the
     /// items' `line_index`. Non-cluster items (objects, breaks, combined
     /// blocks, tabs) are SKIPPED here — they stay on the sparse side per
     /// the plan's `AtomicItem` design and migrate in a later step.
@@ -368,7 +368,7 @@ impl DenseText {
                 });
             if needs_detail {
                 let start = u32::try_from(dense.detail_glyphs.len()).unwrap_or(u32::MAX);
-                for g in c.glyphs.iter() {
+                for g in &c.glyphs {
                     dense.detail_glyphs.push(DetailGlyph {
                         glyph_id: g.glyph_id,
                         cluster_offset: u16::try_from(g.cluster_offset).unwrap_or(u16::MAX),
@@ -395,20 +395,20 @@ impl DenseText {
             // sets them; equivalence pins mask them off).
             let mut packed = c.flags.0;
             if c.is_first_fragment {
-                packed |= super::cache::ClusterFlags::DENSE_IS_FIRST_FRAGMENT;
+                packed |= ClusterFlags::DENSE_IS_FIRST_FRAGMENT;
             }
             if c.is_last_fragment {
-                packed |= super::cache::ClusterFlags::DENSE_IS_LAST_FRAGMENT;
+                packed |= ClusterFlags::DENSE_IS_LAST_FRAGMENT;
             }
             if let Some(outside) = c.marker_position_outside {
-                packed |= super::cache::ClusterFlags::DENSE_MARKER_SOME;
+                packed |= ClusterFlags::DENSE_MARKER_SOME;
                 if outside {
-                    packed |= super::cache::ClusterFlags::DENSE_MARKER_OUTSIDE;
+                    packed |= ClusterFlags::DENSE_MARKER_OUTSIDE;
                 }
             }
             dense.clusters.push(ClusterCompact {
                 glyph_id: first_glyph.map_or(0, |g| g.glyph_id),
-                flags: super::cache::ClusterFlags(packed),
+                flags: ClusterFlags(packed),
                 advance: c.advance,
                 start_byte: c.source_cluster_id.start_byte_in_run,
                 x: position.x,
@@ -464,7 +464,7 @@ impl DenseText {
             .filter(|(ci, _)| {
                 !self.clusters[*ci as usize]
                     .flags
-                    .has(super::cache::ClusterFlags::GRAPHEME_CONTINUATION)
+                    .has(ClusterFlags::GRAPHEME_CONTINUATION)
             })
             .map(|(ci, r)| GraphemeClusterId {
                 source_run: r.source_run,
@@ -476,8 +476,8 @@ impl DenseText {
         stops
     }
 
-    /// (d6e) The cluster's source text slice (run text at start_byte for
-    /// cluster_byte_len bytes) — the word-boundary predicate's input.
+    /// (d6e) The cluster's source text slice (run text at `start_byte` for
+    /// `cluster_byte_len` bytes) — the word-boundary predicate's input.
     fn cluster_text_slice(&self, ci: u32) -> &str {
         let c = &self.clusters[ci as usize];
         let run = self
@@ -869,13 +869,13 @@ impl DenseText {
     /// as the sparse `hittest_cursor` (vertical distance x2 + horizontal
     /// outside-distance; closest cluster wins; affinity by midpoint).
     /// Cluster geometry from the dense arrays: x/width from
-    /// ClusterCompact (base advance == bounds().width), y/height from the
+    /// `ClusterCompact` (base advance == bounds().width), y/height from the
     /// line record + the run's resolved line height. Also the
     /// click-to-position primitive.
     #[must_use]
     pub fn hittest_cursor(
         &self,
-        point: super::cache::Point,
+        point: Point,
     ) -> Option<azul_core::selection::TextCursor> {
         use azul_core::selection::{CursorAffinity, GraphemeClusterId, TextCursor};
         if self.clusters.is_empty() {
@@ -914,7 +914,7 @@ impl DenseText {
             } else {
                 0.0
             };
-            let dist = vertical * 2.0 + horizontal;
+            let dist = vertical.mul_add(2.0, horizontal);
             if best.is_none_or(|(d, ..)| dist < d) {
                 best = Some((dist, ci, run, c.x));
             }
@@ -958,7 +958,7 @@ impl DenseText {
     }
 
     /// (d6d) One line up, preserving the horizontal goal column — mirrors
-    /// the sparse `move_cursor_up` flow: current cluster by id, goal_x
+    /// the sparse `move_cursor_up` flow: current cluster by id, `goal_x`
     /// seeded from affinity (Trailing = x + advance), target line's
     /// mid-height, then the weighted hit test.
     #[must_use]
@@ -985,7 +985,7 @@ impl DenseText {
         });
         let target = &self.lines[line_ord - 1];
         let target_y = target.top_y + target.height / 2.0;
-        self.hittest_cursor(super::cache::Point { x: current_x, y: target_y })
+        self.hittest_cursor(Point { x: current_x, y: target_y })
             .unwrap_or(cursor)
     }
 
@@ -1014,13 +1014,13 @@ impl DenseText {
         });
         let target = &self.lines[line_ord + 1];
         let target_y = target.top_y + target.height / 2.0;
-        self.hittest_cursor(super::cache::Point { x: current_x, y: target_y })
+        self.hittest_cursor(Point { x: current_x, y: target_y })
             .unwrap_or(cursor)
     }
 
     /// (d6c) One caret stop left — IDENTICAL to the sparse
     /// `move_cursor_left` by construction: the stops list is pinned equal
-    /// (grapheme_stops gate) and the offset arithmetic is the SAME static
+    /// (`grapheme_stops` gate) and the offset arithmetic is the SAME static
     /// helper the sparse implementation uses.
     #[must_use]
     pub fn move_cursor_left(
@@ -1484,50 +1484,47 @@ pub fn get_glyph_runs_pdf_dense<T: ParsedFontTrait>(
         }
         let open = current_run.as_mut().expect("opened above when absent");
 
-        match detail {
-            Some(d) => {
-                let dgs = &dense.detail_glyphs[d.glyphs.0 as usize..d.glyphs.1 as usize];
-                let count = dgs.len();
-                let mut pen_x = c.x;
-                for (glyph_idx, dg) in dgs.iter().enumerate() {
-                    // The reference's per-glyph codepoint split, verbatim.
-                    let unicode_codepoint = if count == 1 {
+        if let Some(d) = detail {
+            let dgs = &dense.detail_glyphs[d.glyphs.0 as usize..d.glyphs.1 as usize];
+            let count = dgs.len();
+            let mut pen_x = c.x;
+            for (glyph_idx, dg) in dgs.iter().enumerate() {
+                // The reference's per-glyph codepoint split, verbatim.
+                let unicode_codepoint = if count == 1 {
+                    cluster_text.to_string()
+                } else {
+                    let byte_offset = dg.cluster_offset as usize;
+                    if byte_offset < cluster_text.len() {
+                        cluster_text[byte_offset..].chars().next().map_or_else(
+                            || cluster_text.to_string(),
+                            |ch| ch.to_string(),
+                        )
+                    } else if glyph_idx == 0 {
                         cluster_text.to_string()
                     } else {
-                        let byte_offset = dg.cluster_offset as usize;
-                        if byte_offset < cluster_text.len() {
-                            cluster_text[byte_offset..].chars().next().map_or_else(
-                                || cluster_text.to_string(),
-                                |ch| ch.to_string(),
-                            )
-                        } else if glyph_idx == 0 {
-                            cluster_text.to_string()
-                        } else {
-                            String::new()
-                        }
-                    };
-                    open.glyphs.push(PdfPositionedGlyph {
-                        glyph_id: dg.glyph_id,
-                        position: Point {
-                            x: pen_x + dg.offset_x,
-                            y: baseline_y - dg.offset_y,
-                        },
-                        advance: dg.advance,
-                        unicode_codepoint,
-                    });
-                    open.cluster_texts.push(cluster_text.to_string());
-                    pen_x += dg.advance;
-                }
-            }
-            None => {
+                        String::new()
+                    }
+                };
                 open.glyphs.push(PdfPositionedGlyph {
-                    glyph_id: c.glyph_id,
-                    position: Point { x: c.x, y: baseline_y },
-                    advance: c.advance,
-                    unicode_codepoint: cluster_text.to_string(),
+                    glyph_id: dg.glyph_id,
+                    position: Point {
+                        x: pen_x + dg.offset_x,
+                        y: baseline_y - dg.offset_y,
+                    },
+                    advance: dg.advance,
+                    unicode_codepoint,
                 });
                 open.cluster_texts.push(cluster_text.to_string());
+                pen_x += dg.advance;
             }
+        } else {
+            open.glyphs.push(PdfPositionedGlyph {
+                glyph_id: c.glyph_id,
+                position: Point { x: c.x, y: baseline_y },
+                advance: c.advance,
+                unicode_codepoint: cluster_text.to_string(),
+            });
+            open.cluster_texts.push(cluster_text.to_string());
         }
     }
     if let Some(r) = current_run {

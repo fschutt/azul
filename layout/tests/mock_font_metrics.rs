@@ -46,7 +46,6 @@ fn empty_cache() -> Solver3LayoutCache {
         prev_viewport: LogicalRect {
             origin: LogicalPosition::zero(),
             size: LogicalSize::zero(),
-        ..Default::default()
         },
         // Newer cache fields (resize-skip hints, fingerprint channels,
         // patch-move export...) — defaults are the empty/cold state.

@@ -43,7 +43,6 @@ fn run_layout(html: &str) -> Solver3LayoutCache {
         prev_viewport: LogicalRect {
             origin: LogicalPosition::zero(),
             size: LogicalSize::zero(),
-        ..Default::default()
         },
         ..Default::default()
     };

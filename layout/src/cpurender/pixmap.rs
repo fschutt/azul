@@ -170,7 +170,7 @@ pub fn shift_pixbuf(pixmap: &mut AzulPixmap, dx: i32, dy: i32) {
 /// storage-blind; only construction and resize know the difference
 /// (resize always converts to owned — a borrowed target's size is the
 /// creator's contract). Borrowed storage is NEVER freed here.
-pub(crate) enum PixBuf {
+pub enum PixBuf {
     Owned(Vec<u8>),
     /// SAFETY (creator's obligations, see [`AzulPixmap::from_external`]):
     /// `ptr` stays valid and EXCLUSIVELY ours for the pixmap's lifetime.
@@ -281,7 +281,7 @@ impl AzulPixmap {
 
     /// (#27) Whether this pixmap renders into borrowed platform memory.
     #[must_use]
-    pub fn is_external(&self) -> bool {
+    pub const fn is_external(&self) -> bool {
         matches!(self.data, PixBuf::Borrowed { .. })
     }
 
@@ -298,7 +298,7 @@ impl AzulPixmap {
             .and_then(|n| n.checked_mul(4))?;
         let data = PixBuf::from(vec![255u8; len]); // opaque white
         Some(Self {
-            data: data,
+            data,
             width,
             height,
         })
@@ -956,6 +956,8 @@ pub fn agg_fill_gradient_clipped<G: GradientFunction>(
 // ============================================================================
 
 /// Alpha-blend one premultiplied-alpha RGBA buffer onto another at (dx, dy).
+#[allow(clippy::cast_possible_wrap, clippy::cast_sign_loss)] // bounded pixel/coord/colour/glyph cast
+///
 #[allow(clippy::cast_possible_wrap, clippy::cast_sign_loss)] // bounded pixel/coord/colour/glyph cast
 /// [`blit_buffer`] restricted to a sub-rectangle of the SOURCE buffer.
 /// `(sx, sy, w, h)` select the source region; `(dx, dy)` is where that

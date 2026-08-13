@@ -214,8 +214,7 @@ pub extern "C" fn scroll_physics_timer_callback(
                         let base = physics
                             .animate_targets
                             .get(&key)
-                            .map(|(t, _)| *t)
-                            .unwrap_or(info.current_offset);
+                            .map_or(info.current_offset, |(t, _)| *t);
                         // Clamp into the scrollable range: a wheel click at
                         // the boundary must not build up an off-range target
                         // (chaining to the parent scroller happens at

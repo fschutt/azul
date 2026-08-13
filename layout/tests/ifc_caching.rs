@@ -356,7 +356,6 @@ fn layout_html_and_get_tree(html: &str) -> azul_layout::Solver3LayoutCache {
         prev_viewport: LogicalRect {
             origin: LogicalPosition::zero(),
             size: LogicalSize::zero(),
-        ..Default::default()
         },
         ..Default::default()
     };

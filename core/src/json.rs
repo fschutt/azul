@@ -394,32 +394,42 @@ impl<'de> serde::Deserialize<'de> for Json {
 
 #[cfg(feature = "serde-json")]
 impl Json {
-    /// Parse JSON from a string
+    /// Parse JSON from a string.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`JsonParseError`] (message plus line/column) if `s` is not
+    /// well-formed JSON.
     pub fn parse(s: &str) -> Result<Self, JsonParseError> {
         let value: serde_json::Value = serde_json::from_str(s).map_err(|e| {
             JsonParseError {
                 message: AzString::from(alloc::format!("{e}")),
-                line: e.line() as u32,
-                column: e.column() as u32,
+                line: u32::try_from(e.line()).unwrap_or(u32::MAX),
+                column: u32::try_from(e.column()).unwrap_or(u32::MAX),
             }
         })?;
         Ok(Self::from_serde_value(value))
     }
 
-    /// Parse JSON from bytes (UTF-8)
+    /// Parse JSON from bytes (UTF-8).
+    ///
+    /// # Errors
+    ///
+    /// Returns [`JsonParseError`] (message plus line/column) if `bytes` is not
+    /// well-formed UTF-8 JSON.
     pub fn parse_bytes(bytes: &[u8]) -> Result<Self, JsonParseError> {
         let value: serde_json::Value = serde_json::from_slice(bytes).map_err(|e| {
             JsonParseError {
                 message: AzString::from(alloc::format!("{e}")),
-                line: e.line() as u32,
-                column: e.column() as u32,
+                line: u32::try_from(e.line()).unwrap_or(u32::MAX),
+                column: u32::try_from(e.column()).unwrap_or(u32::MAX),
             }
         })?;
         Ok(Self::from_serde_value(value))
     }
 
-    /// Convert from serde_json::Value
-    pub fn from_serde_value(value: serde_json::Value) -> Self {
+    /// Convert from `serde_json::Value`
+    #[must_use] pub fn from_serde_value(value: serde_json::Value) -> Self {
         match value {
             serde_json::Value::Null => Self::null(),
             serde_json::Value::Bool(b) => Self::bool(b),
@@ -450,20 +460,21 @@ impl Json {
         }
     }
 
-    /// Convert this Json to a serde_json::Value
+    /// Convert this Json to a `serde_json::Value`
+    #[must_use]
     pub fn to_serde_value(&self) -> serde_json::Value {
         match self.value_type {
             JsonType::Null => serde_json::Value::Null,
             JsonType::Bool => serde_json::Value::Bool(self.internal.bool_value),
             JsonType::Number => {
                 let num = self.internal.number_value;
-                if let Some(i) = f64_as_i64(num) {
-                    serde_json::Value::Number(serde_json::Number::from(i))
-                } else {
-                    serde_json::Number::from_f64(num)
-                        .map(serde_json::Value::Number)
-                        .unwrap_or(serde_json::Value::Null)
-                }
+                f64_as_i64(num).map_or_else(
+                    || {
+                        serde_json::Number::from_f64(num)
+                            .map_or(serde_json::Value::Null, serde_json::Value::Number)
+                    },
+                    |i| serde_json::Value::Number(serde_json::Number::from(i)),
+                )
             }
             JsonType::String => serde_json::Value::String(self.internal.string_value.as_str().to_string()),
             JsonType::Array | JsonType::Object => {
@@ -474,11 +485,13 @@ impl Json {
     }
 
     /// Create a JSON array from a vector of JSON values
-    pub fn array(values: JsonVec) -> Self {
+    // By-value is the C-ABI shape: the generated bindings hand ownership in.
+    #[allow(clippy::needless_pass_by_value)]
+    #[must_use] pub fn array(values: JsonVec) -> Self {
         let serde_array: Vec<serde_json::Value> = values
             .as_slice()
             .iter()
-            .map(|j| j.to_serde_value())
+            .map(Self::to_serde_value)
             .collect();
         let json_str = serde_json::to_string(&serde_json::Value::Array(serde_array))
             .unwrap_or_else(|_| "[]".to_string());
@@ -493,7 +506,9 @@ impl Json {
     }
 
     /// Create a JSON object from key-value pairs
-    pub fn object(entries: JsonKeyValueVec) -> Self {
+    // By-value is the C-ABI shape: the generated bindings hand ownership in.
+    #[allow(clippy::needless_pass_by_value)]
+    #[must_use] pub fn object(entries: JsonKeyValueVec) -> Self {
         let mut map = serde_json::Map::new();
         for kv in entries.as_slice() {
             map.insert(kv.key.as_str().to_string(), kv.value.to_serde_value());
@@ -511,7 +526,7 @@ impl Json {
     }
 
     /// Get the number of elements (for arrays) or keys (for objects)
-    pub fn len(&self) -> usize {
+    #[must_use] pub fn len(&self) -> usize {
         match self.value_type {
             JsonType::Array => {
                 if let Ok(serde_json::Value::Array(arr)) = serde_json::from_str(self.internal.string_value.as_str()) {
@@ -532,12 +547,12 @@ impl Json {
     }
 
     /// Check if empty (for arrays/objects)
-    pub fn is_empty(&self) -> bool {
+    #[must_use] pub fn is_empty(&self) -> bool {
         self.len() == 0
     }
 
     /// Get array element by index
-    pub fn get_index(&self, index: usize) -> Option<Json> {
+    #[must_use] pub fn get_index(&self, index: usize) -> Option<Self> {
         if self.value_type != JsonType::Array { return None; }
         let value: serde_json::Value = serde_json::from_str(self.internal.string_value.as_str()).ok()?;
         if let serde_json::Value::Array(arr) = value {
@@ -548,7 +563,7 @@ impl Json {
     }
 
     /// Get object value by key
-    pub fn get_key(&self, key: &str) -> Option<Json> {
+    #[must_use] pub fn get_key(&self, key: &str) -> Option<Self> {
         if self.value_type != JsonType::Object { return None; }
         let value: serde_json::Value = serde_json::from_str(self.internal.string_value.as_str()).ok()?;
         if let serde_json::Value::Object(obj) = value {
@@ -559,7 +574,7 @@ impl Json {
     }
 
     /// Get all keys of an object
-    pub fn keys(&self) -> Vec<AzString> {
+    #[must_use] pub fn keys(&self) -> Vec<AzString> {
         if self.value_type != JsonType::Object { return Vec::new(); }
         let value: serde_json::Value = match serde_json::from_str(self.internal.string_value.as_str()) {
             Ok(v) => v,
@@ -584,7 +599,7 @@ impl Json {
     }
 
     /// Convert object to Vec<JsonKeyValue>
-    pub fn to_object(&self) -> Option<JsonKeyValueVec> {
+    #[must_use] pub fn to_object(&self) -> Option<JsonKeyValueVec> {
         if self.value_type != JsonType::Object { return None; }
         let value: serde_json::Value = serde_json::from_str(self.internal.string_value.as_str()).ok()?;
         if let serde_json::Value::Object(obj) = value {
@@ -597,18 +612,17 @@ impl Json {
         }
     }
 
-    /// Serialize to JSON string (returns AzString)
-    pub fn to_json_string(&self) -> AzString {
+    /// Serialize to JSON string (returns `AzString`)
+    #[must_use] pub fn to_json_string(&self) -> AzString {
         match self.value_type {
             JsonType::Null => AzString::from(alloc::string::String::from("null")),
             JsonType::Bool => AzString::from(if self.internal.bool_value { alloc::string::String::from("true") } else { alloc::string::String::from("false") }),
             JsonType::Number => {
                 let num = self.internal.number_value;
-                if let Some(i) = f64_as_i64(num) {
-                    AzString::from(alloc::format!("{i}"))
-                } else {
-                    AzString::from(alloc::format!("{num}"))
-                }
+                f64_as_i64(num).map_or_else(
+                    || AzString::from(alloc::format!("{num}")),
+                    |i| AzString::from(alloc::format!("{i}")),
+                )
             }
             JsonType::String => {
                 let escaped = serde_json::to_string(self.internal.string_value.as_str()).unwrap_or_default();
@@ -621,42 +635,45 @@ impl Json {
     }
 
     /// Serialize to pretty-printed JSON string
-    pub fn to_string_pretty(&self) -> AzString {
+    #[must_use] pub fn to_string_pretty(&self) -> AzString {
         match self.value_type {
             JsonType::Null | JsonType::Bool | JsonType::Number | JsonType::String => {
                 self.to_json_string()
             }
             JsonType::Array | JsonType::Object => {
-                if let Ok(value) = serde_json::from_str::<serde_json::Value>(self.internal.string_value.as_str()) {
-                    AzString::from(serde_json::to_string_pretty(&value).unwrap_or_default())
-                } else {
-                    self.internal.string_value.clone()
-                }
+                serde_json::from_str::<serde_json::Value>(self.internal.string_value.as_str())
+                    .map_or_else(
+                        |_| self.internal.string_value.clone(),
+                        |value| {
+                            AzString::from(
+                                serde_json::to_string_pretty(&value).unwrap_or_default(),
+                            )
+                        },
+                    )
             }
         }
     }
 
     /// Access a nested value using a JSON Pointer (RFC 6901).
-    pub fn jq(&self, path: &str) -> Json {
+    #[must_use] pub fn jq(&self, path: &str) -> Self {
         match self.value_type {
             JsonType::Null | JsonType::Bool | JsonType::Number | JsonType::String => {
-                if path.is_empty() { self.clone() } else { Json::null() }
+                if path.is_empty() { self.clone() } else { Self::null() }
             }
             JsonType::Array | JsonType::Object => {
                 let value: serde_json::Value = match serde_json::from_str(self.internal.string_value.as_str()) {
                     Ok(v) => v,
-                    Err(_) => return Json::null(),
+                    Err(_) => return Self::null(),
                 };
-                match value.pointer(path) {
-                    Some(v) => Self::from_serde_value(v.clone()),
-                    None => Json::null(),
-                }
+                value
+                    .pointer(path)
+                    .map_or_else(Self::null, |v| Self::from_serde_value(v.clone()))
             }
         }
     }
 
     /// Access nested values using a JSON Pointer with wildcard support.
-    pub fn jq_all(&self, path: &str) -> JsonVec {
+    #[must_use] pub fn jq_all(&self, path: &str) -> JsonVec {
         let result = match self.value_type {
             JsonType::Null | JsonType::Bool | JsonType::Number | JsonType::String => {
                 if path.is_empty() { vec![self.clone()] } else { vec![] }
@@ -682,12 +699,12 @@ impl Json {
     /// deeper than any real document nesting while staying well inside the stack.
     const JQ_MAX_WILDCARD_DEPTH: usize = 512;
 
-    /// Recursive helper for jq_all that handles wildcards.
+    /// Recursive helper for `jq_all` that handles wildcards.
     ///
     /// Non-wildcard components are walked in a loop so a long linear pointer can
     /// never overflow the stack; only `*` fan-out recurses, bounded by
     /// [`JQ_MAX_WILDCARD_DEPTH`](Self::JQ_MAX_WILDCARD_DEPTH).
-    fn jq_all_recursive(value: &serde_json::Value, path: &str) -> Vec<Json> {
+    fn jq_all_recursive(value: &serde_json::Value, path: &str) -> Vec<Self> {
         Self::jq_all_recursive_depth(value, path, 0)
     }
 
@@ -695,7 +712,7 @@ impl Json {
         value: &serde_json::Value,
         path: &str,
         depth: usize,
-    ) -> Vec<Json> {
+    ) -> Vec<Self> {
         // Guard the wildcard recursion; exceeding the cap yields no match rather
         // than crashing.
         if depth > Self::JQ_MAX_WILDCARD_DEPTH {
@@ -713,10 +730,8 @@ impl Json {
                 return vec![];
             }
             let rest = &path[1..];
-            let (component, remaining) = match rest.find('/') {
-                Some(idx) => (&rest[..idx], &rest[idx..]),
-                None => (rest, ""),
-            };
+            let (component, remaining) =
+                rest.find('/').map_or((rest, ""), |idx| (&rest[..idx], &rest[idx..]));
 
             if component == "*" {
                 let mut results = Vec::new();

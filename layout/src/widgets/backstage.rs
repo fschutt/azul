@@ -169,11 +169,11 @@ fn cond_bg_hover(c: ColorU) -> Cond {
     Cond::on_hover(P::const_background_content(bg_vec(c)))
 }
 
-fn cond_text_color(c: ColorU) -> Cond {
+const fn cond_text_color(c: ColorU) -> Cond {
     Cond::simple(P::const_text_color(StyleTextColor { inner: c }))
 }
 
-fn cond_border_box() -> Cond {
+const fn cond_border_box() -> Cond {
     Cond::simple(P::const_box_sizing(LayoutBoxSizing::BorderBox))
 }
 
@@ -308,7 +308,7 @@ fn theme_content(t: &BackstageTheme) -> CssPropertyWithConditionsVec {
 /// All part styles of the backstage. Every part defaults to the the Office-2013-era look
 /// look; replace any field for finer control (the same override API as
 /// [`super::ribbon::RibbonStyle`]).
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 #[repr(C)]
 pub struct BackstageStyle {
     /// The palette this style bundle was derived from. Kept for consumers
@@ -402,7 +402,7 @@ impl Default for BackstageBehavior {
 // -- Data model --
 
 /// One backstage nav item ("Info", "Open", …).
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 #[repr(C)]
 pub struct BackstageNavItem {
     /// The item label.
@@ -525,13 +525,13 @@ impl Backstage {
     }
 
     /// Sets the active nav item.
-    pub fn set_active_item(&mut self, active_item: usize) {
+    pub const fn set_active_item(&mut self, active_item: usize) {
         self.active_item = active_item;
     }
 
     /// Builder method: sets the active nav item and returns `self`.
     #[must_use]
-    pub fn with_active_item(mut self, active_item: usize) -> Self {
+    pub const fn with_active_item(mut self, active_item: usize) -> Self {
         self.set_active_item(active_item);
         self
     }
@@ -610,7 +610,7 @@ impl Backstage {
 
     /// Builder method: replaces the behavior set.
     #[must_use]
-    pub fn with_behavior(mut self, behavior: BackstageBehavior) -> Self {
+    pub const fn with_behavior(mut self, behavior: BackstageBehavior) -> Self {
         self.behavior = behavior;
         self
     }
@@ -625,7 +625,7 @@ impl Backstage {
     /// Renders the backstage.
     #[must_use]
     pub fn dom(self) -> Dom {
-        let Backstage {
+        let Self {
             nav_items,
             active_item,
             on_nav_select,
@@ -708,7 +708,7 @@ impl Backstage {
 
         let mut root = Dom::create_div()
             .with_ids_and_classes(IdOrClassVec::from_const_slice(CLS_BACKSTAGE))
-            .with_css_props(style.root_style.clone())
+            .with_css_props(style.root_style)
             .with_children(DomVec::from_vec(vec![nav, right]));
 
         // Escape leaves the backstage (window-level, focus-independent).

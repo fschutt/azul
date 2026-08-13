@@ -395,7 +395,7 @@ fn cond_bg_active(c: ColorU) -> Cond {
     Cond::on_active(P::const_background_content(bg_vec(c)))
 }
 
-fn cond_text_color(c: ColorU) -> Cond {
+const fn cond_text_color(c: ColorU) -> Cond {
     Cond::simple(P::const_text_color(StyleTextColor { inner: c }))
 }
 
@@ -404,7 +404,7 @@ fn cond_text_color(c: ColorU) -> Cond {
 /// border. CSS defaults to content-box, which inflated every control by its
 /// padding+border - three 22px rows became 78px and overflowed the 68px item
 /// area, painting over the group caption.
-fn cond_border_box() -> Cond {
+const fn cond_border_box() -> Cond {
     Cond::simple(P::const_box_sizing(LayoutBoxSizing::BorderBox))
 }
 
@@ -1121,7 +1121,7 @@ static CLS_GALLERY_SPINNER: &[IdOrClass] =
 /// Fields named `*_style` fully replace the part's style; [`Self::checked_style`]
 /// and [`Self::gallery_cell_selected_style`] are *appended* to the base button /
 /// cell style (inline CSS resolves last-wins, so appended properties override).
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 #[repr(C)]
 pub struct RibbonStyle {
     /// The palette this style bundle was derived from. Kept for
@@ -1453,26 +1453,30 @@ pub struct RibbonGroup {
 }
 
 /// One control slot inside a [`RibbonGroup`].
+// `#[repr(C, u8)]` — this enum crosses the C ABI and is mirrored in api.json.
+// Boxing the large variant to equalise sizes would change the generated
+// bindings for every language, so the size spread is deliberate.
+#[allow(clippy::large_enum_variant)]
 #[derive(Debug, Clone)]
 #[repr(C, u8)]
 pub enum RibbonItem {
-    /// Full-height button: icon over label (RibbonX `button[size=large]`).
+    /// Full-height button: icon over label (`RibbonX` `button[size=large]`).
     LargeButton(RibbonButton),
-    /// One-row button: icon beside optional label (RibbonX `button`).
+    /// One-row button: icon beside optional label (`RibbonX` `button`).
     SmallButton(RibbonButton),
-    /// Vertical packing box (RibbonX `box[boxStyle=vertical]`).
+    /// Vertical packing box (`RibbonX` `box[boxStyle=vertical]`).
     Column(RibbonColumn),
-    /// Horizontal packing box (RibbonX `box`/`buttonGroup`).
+    /// Horizontal packing box (`RibbonX` `box`/`buttonGroup`).
     Row(RibbonRow),
-    /// Embeds the existing [`ComboBox`] widget (RibbonX `comboBox`).
+    /// Embeds the existing [`ComboBox`] widget (`RibbonX` `comboBox`).
     Combo(ComboBox),
-    /// Embeds the existing [`DropDown`] widget (RibbonX `dropDown`).
+    /// Embeds the existing [`DropDown`] widget (`RibbonX` `dropDown`).
     Drop(DropDown),
-    /// Embeds the existing [`CheckBox`] widget (RibbonX `checkBox`).
+    /// Embeds the existing [`CheckBox`] widget (`RibbonX` `checkBox`).
     Check(CheckBox),
-    /// In-ribbon gallery with spinner column (RibbonX `gallery`).
+    /// In-ribbon gallery with spinner column (`RibbonX` `gallery`).
     Gallery(RibbonGallery),
-    /// Thin vertical rule (RibbonX `separator`).
+    /// Thin vertical rule (`RibbonX` `separator`).
     Separator,
     /// Arbitrary user content.
     Custom(Dom),
@@ -1500,13 +1504,13 @@ pub struct RibbonRow {
 #[repr(C)]
 pub struct RibbonButton {
     /// Icon name resolved via the icon provider (Material Icons ships
-    /// builtin, e.g. "content_paste"). Empty string = no icon.
+    /// builtin, e.g. "`content_paste`"). Empty string = no icon.
     pub icon: AzString,
     /// Button label. Empty string = icon-only button.
     pub label: AzString,
     /// Drop-down decoration: none, menu arrow or split-button arrow.
     pub arrow: RibbonArrow,
-    /// Renders the button in the toggled-on state (RibbonX `toggleButton`).
+    /// Renders the button in the toggled-on state (`RibbonX` `toggleButton`).
     pub toggled: bool,
     /// Optional click callback (same family as [`Button::on_click`]).
     pub on_click: OptionButtonOnClick,
@@ -1519,9 +1523,9 @@ pub enum RibbonArrow {
     /// Plain button without an arrow.
     #[default]
     None,
-    /// The whole button opens a menu (RibbonX `menu`).
+    /// The whole button opens a menu (`RibbonX` `menu`).
     Menu,
-    /// Primary action + separate arrow region (RibbonX `splitButton`).
+    /// Primary action + separate arrow region (`RibbonX` `splitButton`).
     /// Rendered identically to `Menu`; the split behavior is the caller's.
     Split,
 }
@@ -1892,13 +1896,13 @@ impl Ribbon {
     }
 
     /// Replaces the self-driven behavior set (collapse, peek, gallery).
-    pub fn set_behavior(&mut self, behavior: RibbonBehavior) {
+    pub const fn set_behavior(&mut self, behavior: RibbonBehavior) {
         self.behavior = behavior;
     }
 
     /// Builder method: replaces the behavior set and returns `self`.
     #[must_use]
-    pub fn with_behavior(mut self, behavior: RibbonBehavior) -> Self {
+    pub const fn with_behavior(mut self, behavior: RibbonBehavior) -> Self {
         self.set_behavior(behavior);
         self
     }
@@ -1962,7 +1966,7 @@ impl Ribbon {
     }
 
     fn build_chrome(self, mode: RibbonChromeMode) -> Dom {
-        let Ribbon { app_button, tabs, active_tab, on_tab_click, style, behavior } = self;
+        let Self { app_button, tabs, active_tab, on_tab_click, style, behavior } = self;
         let has_callback = on_tab_click.is_some();
 
         // Labels are needed by both chromes; `tabs` is consumed below.
@@ -2269,7 +2273,7 @@ impl Ribbon {
         };
         let mut container = Dom::create_div()
             .with_ids_and_classes(IdOrClassVec::from_const_slice(CLS_RIBBON))
-            .with_css_props(style.container_style.clone())
+            .with_css_props(style.container_style)
             .with_children(DomVec::from_vec(children));
         // The chrome state (collapse flag) lives on the container as a
         // DATASET so it follows node identity across RefreshDom rebuilds
@@ -2279,7 +2283,11 @@ impl Ribbon {
         // when a chrome behavior is active - an inert ribbon has no chrome
         // state to persist (and `Dom` equality stays meaningful for it).
         if behavior.collapsible || behavior.peek_on_hover {
-            container.root.set_dataset(azul_core::refany::OptionRefAny::Some(chrome.clone()));
+            container.root.set_dataset(azul_core::refany::OptionRefAny::Some(chrome));
+            // The `as` is NOT trivial: it coerces the fn ITEM to a fn POINTER,
+            // which is what `DatasetMergeCallback: From<...>` is implemented for.
+            // Dropping it fails to satisfy the bound.
+            #[allow(trivial_casts)]
             container.root.set_merge_callback(
                 keep_old_ribbon_chrome as azul_core::dom::DatasetMergeCallbackType,
             );
@@ -2395,7 +2403,7 @@ fn item_dom(item: RibbonItem, s: &RibbonStyle, b: RibbonBehavior) -> Dom {
 /// an explicit floor. The explicit `min-width` is load-bearing — it
 /// replaces the flex automatic minimum size, which taffy 0.10 does not
 /// collapse across the nested group > items > gallery-frame chain (see
-/// layout/tests/flex_intrinsic_text.rs).
+/// `layout/tests/flex_intrinsic_text.rs`).
 static GROUP_FILL_STYLE: &[Cond] = &[
     Cond::simple(P::const_flex_grow(LayoutFlexGrow::const_new(1))),
     Cond::simple(P::const_flex_shrink(LayoutFlexShrink {
@@ -2664,7 +2672,7 @@ extern "C" fn on_ribbon_mobile_group_click(mut refany: RefAny, mut info: Callbac
                         b.apply_if.as_ref().is_empty() && b.property.get_type() == ty
                     });
                     if !in_base {
-                        info.set_css_property(entry, azul_css::props::property::CssProperty::initial(ty));
+                        info.set_css_property(entry, props::property::CssProperty::initial(ty));
                     }
                 }
             }
@@ -2676,7 +2684,7 @@ extern "C" fn on_ribbon_mobile_group_click(mut refany: RefAny, mut info: Callbac
 }
 
 /// Dataset merge for the ribbon container: chrome state (collapse) must
-/// survive app-driven rebuilds (any callback returning RefreshDom - the
+/// survive app-driven rebuilds (any callback returning `RefreshDom` - the
 /// ribbon's own tab switch does), so keep the OLD allocation wholesale.
 /// `diff::transfer_states` then re-points every tab callback refany (they
 /// are clones of this dataset) onto the kept allocation, so the handlers

@@ -29,7 +29,7 @@
 //! repagination (a collision that stopped early would ship stale pages).
 //!
 //! Provenance note: the token SHAPE follows public architecture prose
-//! (css-break-3, the RenderingNG fragmentation article, the LayoutNG
+//! (css-break-3, the `RenderingNG` fragmentation article, the `LayoutNG`
 //! README); no engine implementation source was consulted. See the design
 //! doc §9.
 
@@ -140,7 +140,7 @@ impl InlineBreakToken {
     /// token should not exist (it encodes "no progress"); the page loop's
     /// progress guard treats it as a hard stop.
     #[must_use]
-    pub fn is_degenerate_start(&self) -> bool {
+    pub const fn is_degenerate_start(&self) -> bool {
         self.next_item_index == 0 && self.partial_remainder.is_empty()
     }
 }
@@ -233,6 +233,7 @@ pub fn tail_token(
 /// skipped with zero side effects). `None` for a childless token —
 /// defensive: such a token encodes no work and resuming from it is a
 /// no-op, which the page loop's progress guard turns into a stop.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct ResumePlan {
     pub first_unfinished: usize,
 }
@@ -320,7 +321,10 @@ fn fingerprint_into(mut h: u64, token: &BreakToken) -> u64 {
     }
 }
 
-fn shaped_item_source(item: &ShapedItem) -> Option<azul_core::selection::ContentIndex> {
+// Returns Option to mirror the other `*_source` accessors and to stay
+// source-compatible if a future `ShapedItem` variant has no content index.
+#[allow(clippy::unnecessary_wraps)]
+const fn shaped_item_source(item: &ShapedItem) -> Option<azul_core::selection::ContentIndex> {
     match item {
         ShapedItem::Cluster(c) => Some(c.source_content_index),
         ShapedItem::CombinedBlock { source, .. }

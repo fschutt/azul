@@ -422,7 +422,7 @@ where
     // Paged Layout
 
     // Perform layout with fragmentation context (layout only, no display list)
-    let _p_layout = crate::probe::Probe::span("paged_layout_pass");
+    let p_layout = crate::probe::Probe::span("paged_layout_pass");
     compute_layout_with_fragmentation(
         cache,
         text_cache,
@@ -491,7 +491,7 @@ where
     // - CSS fragmentation properties are respected
 
     // Step 1: Generate ONE complete display list (infinite canvas)
-    drop(_p_layout);
+    drop(p_layout);
     let _p_dl = crate::probe::Probe::span("paged_display_list");
     let full_display_list = generate_display_list(
         &mut ctx,
@@ -784,9 +784,9 @@ fn compute_layout_with_fragmentation<T: ParsedFontTrait + Sync + 'static>(
     }
 
     // --- Step 2: Incremental Layout Loop ---
-    let _p_clone_pos = crate::probe::Probe::span("frag_clone_positions");
+    let p_clone_pos = crate::probe::Probe::span("frag_clone_positions");
     let mut calculated_positions = cache.calculated_positions.clone();
-    drop(_p_clone_pos);
+    drop(p_clone_pos);
     let mut loop_count = 0;
     loop {
         loop_count += 1;
@@ -2053,7 +2053,7 @@ pub struct StructuralBreak {
 #[cfg(feature = "text_layout")]
 #[must_use]
 pub fn pagination_to_dom_breaks(
-    cache: &crate::solver3::cache::LayoutCache,
+    cache: &LayoutCache,
     styled_dom: &StyledDom,
     pagination: &crate::solver3::page_breaks::PaginationInfo,
 ) -> Option<Vec<StructuralBreak>> {
@@ -2123,7 +2123,7 @@ fn spine_layout_hit_at_y(
 /// in the block's content box. `None` when the break sits at a block
 /// boundary, the block has no inline layout, or every line is below `y`
 /// (then the whole block moves — the block-granular contract).
-pub fn spine_line_start_at_y(
+#[must_use] pub fn spine_line_start_at_y(
     tree: &crate::solver3::layout_tree::LayoutTree,
     positions: &crate::solver3::PositionVec,
     styled_dom: &StyledDom,
@@ -2171,8 +2171,8 @@ fn spine_line_start_sparse(
     // atomic; a break AT a line top moves that line). Identify it purely by
     // LINE TOPS — per-item heights are not trustworthy on this path — as
     // the line with the largest top not above the break.
-    let mut line_tops: alloc::collections::BTreeMap<usize, f32> =
-        alloc::collections::BTreeMap::new();
+    let mut line_tops: BTreeMap<usize, f32> =
+        BTreeMap::new();
     for item in &layout.items {
         let entry = line_tops.entry(item.line_index).or_insert(f32::MAX);
         *entry = entry.min(item.position.y);
@@ -2276,7 +2276,7 @@ pub struct TokenizedPage {
     /// sliced): only nodes laid on this page have assigned positions —
     /// everything else sits at the unassigned sentinel and is dropped by
     /// `push_item`. Page-local coordinates (the fragmentainer origin is 0).
-    pub display_list: crate::solver3::display_list::DisplayList,
+    pub display_list: DisplayList,
 }
 
 /// K30b part 2 / K30c skeleton: the NG-style page loop. Lays the document
@@ -2692,7 +2692,7 @@ where
 /// The per-page delta of a re-estimation, for the editor's lazy re-break
 /// loop: pages whose breaks are bit-for-bit unchanged keep their DOM
 /// subtrees untouched; patching starts at `first_changed_page`.
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct BreaksDelta {
     /// Breaks (compared by exact `y` AND `kind`) identical to the previous
     /// estimate up to this index. On the first estimate this is 0.
@@ -2714,10 +2714,14 @@ pub struct BreaksDelta {
 ///           -> patch own DOM only from first_changed_page on
 ///           -> session.dom_breaks(new_dom) for the structural positions
 /// ```
+// Holds the layout + text caches, neither of which is `Debug` (they are
+// large, self-referential-ish caches whose contents are meaningless in a
+// debug print). Deriving would force `Debug` onto both cache types.
+#[allow(missing_debug_implementations)]
 #[cfg(feature = "text_layout")]
 pub struct PaginationSession {
-    pub layout_cache: crate::solver3::cache::LayoutCache,
-    pub text_cache: crate::font_traits::TextLayoutCache,
+    pub layout_cache: LayoutCache,
+    pub text_cache: TextLayoutCache,
     pub previous: Option<crate::solver3::page_breaks::PaginationInfo>,
 }
 
@@ -2733,8 +2737,8 @@ impl PaginationSession {
     #[must_use]
     pub fn new() -> Self {
         Self {
-            layout_cache: crate::solver3::cache::LayoutCache::default(),
-            text_cache: crate::font_traits::TextLayoutCache::new(),
+            layout_cache: LayoutCache::default(),
+            text_cache: TextLayoutCache::new(),
             previous: None,
         }
     }
@@ -2812,7 +2816,7 @@ impl PaginationSession {
 
     /// The latest estimate (after at least one [`Self::re_estimate`]).
     #[must_use]
-    pub fn info(&self) -> Option<&crate::solver3::page_breaks::PaginationInfo> {
+    pub const fn info(&self) -> Option<&crate::solver3::page_breaks::PaginationInfo> {
         self.previous.as_ref()
     }
 

@@ -108,8 +108,10 @@ static INITIALISED: AtomicBool = AtomicBool::new(false);
 /// sink.
 static STDERR_ECHO: AtomicBool = AtomicBool::new(false);
 
-/// The five level switches, exposed individually because that is how they are
-/// usually flipped from a debugger or a callback: `log_filter::DEBUG.store(true, ..)`.
+/// The five level switches, exposed individually.
+///
+/// Individual statics are how these are usually flipped from a debugger or a
+/// callback: `log_filter::DEBUG.store(true, ..)`.
 /// They are derived from [`MIN_LEVEL`] and kept in step by [`recompute`].
 pub static TRACE: AtomicBool = AtomicBool::new(false);
 /// See [`TRACE`].
@@ -233,7 +235,7 @@ pub fn category_from_name(name: &str) -> Option<Category> {
 /// Split out from [`init_from_env`] so it is testable without touching the
 /// process environment.
 #[must_use]
-pub fn parse(raw: &str) -> (Option<Level>, alloc::vec::Vec<(Category, bool)>) {
+pub fn parse(raw: &str) -> (Option<Level>, Vec<(Category, bool)>) {
     use alloc::vec::Vec;
     let mut level = Some(Level::Debug); // unset / unrecognised -> Debug (the historical default)
     let mut overrides: Vec<(Category, bool)> = Vec::new();

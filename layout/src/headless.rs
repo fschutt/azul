@@ -651,7 +651,7 @@ impl CpuHitTester {
     /// Test/introspection helper: programmatically-scrollable-only containers
     /// (`overflow: hidden`) must never appear here.
     #[must_use]
-    pub fn debug_scroll_container_nodes(&self) -> Vec<azul_core::id::NodeId> {
+    pub fn debug_scroll_container_nodes(&self) -> Vec<NodeId> {
         self.scroll_containers.iter().map(|e| e.node_id).collect()
     }
 
@@ -721,9 +721,9 @@ impl CpuHitTester {
                     .get(node_id)
                     .is_some_and(|sn| {
                         let st = &sn.styled_node_state;
-                        crate::solver3::getters::get_overflow_x(styled_dom, node_id, st)
+                        get_overflow_x(styled_dom, node_id, st)
                             .allows_user_scrolling()
-                            || crate::solver3::getters::get_overflow_y(styled_dom, node_id, st)
+                            || get_overflow_y(styled_dom, node_id, st)
                                 .allows_user_scrolling()
                     });
                 if !user_scrollable {

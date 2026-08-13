@@ -51,17 +51,31 @@ var myDataTypeID = C.uint64_t(uintptr(unsafe.Pointer(&myDataTypeToken)))
 func myDataDestructor(_ unsafe.Pointer) {}
 
 func myDataUpcast(model myDataModel) C.AzRefAny {
-	local := model // stack copy; AzRefAny_newC copies the bytes
 	typeName := []byte("MyDataModel")
 	cTypeName := C.AzString_fromUtf8((*C.uint8_t)(unsafe.Pointer(&typeName[0])), C.size_t(len(typeName)))
+
+	// The payload MUST live in C memory. Handing `unsafe.Pointer(&local)` —
+	// a pointer into Go's stack — to C inside `AzGlVoidPtrConst` trips cgo's
+	// pointer check (it crashed the macOS arm64 board in cgoCheckArg), and the
+	// stack slot would be dead the moment this function returns anyway.
+	// `AzRefAny_newC` copies the bytes out, so a scratch C allocation that we
+	// free on the way out is exactly the right lifetime.
+	size := C.size_t(unsafe.Sizeof(model))
+	buf := C.malloc(size)
+	if buf == nil {
+		panic("out of memory allocating the RefAny payload")
+	}
+	defer C.free(buf)
+	*(*myDataModel)(buf) = model // write THROUGH the C pointer; no Go pointer crosses
+
 	ptr := C.AzGlVoidPtrConst{
-		ptr:            unsafe.Pointer(&local),
+		ptr:            buf,
 		run_destructor: C.bool(false),
 	}
 	return C.AzRefAny_newC(
 		ptr,
-		C.size_t(unsafe.Sizeof(local)),
-		C.size_t(unsafe.Alignof(local)),
+		size,
+		C.size_t(unsafe.Alignof(model)),
 		myDataTypeID,
 		cTypeName,
 		C.make_my_data_destructor(),

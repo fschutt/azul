@@ -1313,7 +1313,7 @@ get_css_property!(
 /// compact fast path the mapping already happened at build time, in
 /// declaration order (equal-specificity last-wins); this slow-path fallback
 /// uses "physical if declared, else logical" as the cascade approximation.
-pub fn get_overflow_x(
+#[must_use] pub fn get_overflow_x(
     styled_dom: &StyledDom,
     node_id: NodeId,
     node_state: &StyledNodeState,
@@ -1339,7 +1339,7 @@ pub fn get_overflow_x(
 }
 
 /// Physical `overflow-y`; see [`get_overflow_x`] for the logical fallback.
-pub fn get_overflow_y(
+#[must_use] pub fn get_overflow_y(
     styled_dom: &StyledDom,
     node_id: NodeId,
     node_state: &StyledNodeState,
@@ -2803,16 +2803,16 @@ get_css_property!(
 /// RESULT VALUE. Measured before this: 672 distinct `Arc<StyleProperties>`
 /// backing 31,086 glyphs on one markdown document, where the document has
 /// on the order of ten distinct text styles. Stylo shipped the same defect
-/// (109k ComputedValues where 2,200 were expected) and it is invisible
+/// (109k `ComputedValues` where 2,200 were expected) and it is invisible
 /// without counting the pointers, which is what `AZ_PROFILE=memory` now
 /// does.
 #[derive(Default, Debug)]
 pub struct StyleCache {
-    by_node: std::collections::HashMap<
-        (u32, azul_core::styled_dom::StyledNodeState, u32, u32),
+    by_node: HashMap<
+        (u32, StyledNodeState, u32, u32),
         std::sync::Arc<StyleProperties>,
     >,
-    by_value: std::collections::HashMap<u64, Vec<std::sync::Arc<StyleProperties>>>,
+    by_value: HashMap<u64, Vec<std::sync::Arc<StyleProperties>>>,
 }
 
 /// [`get_style_properties`], memoised in a caller-owned per-document cache
@@ -2863,16 +2863,13 @@ pub fn get_style_properties_cached(
         h.finish()
     };
     let bucket = cache.by_value.entry(value_hash).or_default();
-    let shared = match bucket.iter().find(|existing| ***existing == built) {
-        Some(existing) => {
-            drop(crate::probe::Probe::span("style_props_value_shared"));
-            std::sync::Arc::clone(existing)
-        }
-        None => {
-            let fresh = std::sync::Arc::new(built);
-            bucket.push(std::sync::Arc::clone(&fresh));
-            fresh
-        }
+    let shared = if let Some(existing) = bucket.iter().find(|existing| ***existing == built) {
+        drop(crate::probe::Probe::span("style_props_value_shared"));
+        std::sync::Arc::clone(existing)
+    } else {
+        let fresh = std::sync::Arc::new(built);
+        bucket.push(std::sync::Arc::clone(&fresh));
+        fresh
     };
     cache.by_node.insert(key, std::sync::Arc::clone(&shared));
     shared
@@ -3485,10 +3482,10 @@ get_css_property_pixel!(
         let node_data = &styled_dom.node_data.as_container()[id];
         azul_core::ua_css::get_ua_property(
             node_data.get_node_type(),
-            azul_css::props::property::CssPropertyType::BreakBefore,
+            CssPropertyType::BreakBefore,
         )
         .and_then(|p| {
-            if let azul_css::props::property::CssProperty::BreakBefore(v) = p {
+            if let CssProperty::BreakBefore(v) = p {
                 v.get_property().copied()
             } else {
                 None
@@ -3748,7 +3745,7 @@ fn extract_xml_tag(block: &str, tag: &str) -> Option<String> {
 
 /// Push `family` onto the selector stack, preceded by the system's
 /// fontconfig alias preferences when it is a CSS generic family (see
-/// fontconfig_generic_aliases).
+/// `fontconfig_generic_aliases`).
 fn push_family_with_system_aliases(
     stack: &mut Vec<FontSelector>,
     family: String,
@@ -4618,7 +4615,7 @@ fn available_family_names(fc_cache: &FcFontCache) -> std::collections::BTreeSet<
 /// and keeps its warning.
 ///
 /// KNOWN TRADE-OFF: a family that is both authored AND on the system's
-/// prefer list (Arial, DejaVu Sans, ...) is pruned silently when absent.
+/// prefer list (Arial, `DejaVu` Sans, ...) is pruned silently when absent.
 /// Its absence is what alias lists exist to absorb, so it is not a
 /// diagnostic worth a warning.
 fn prune_absent_alias_candidates(
@@ -4670,7 +4667,7 @@ fn should_prune_family(
 ) -> ResolvedFontChains {
     let _probe = crate::probe::Probe::span("font_chain_resolve");
     let mut chains = HashMap::new();
-    let _trace_t0 = std::env::var_os("AZ_PAGINATE_TRACE")
+    let trace_t0 = std::env::var_os("AZ_PAGINATE_TRACE")
         .is_some()
         .then(std::time::Instant::now);
     let mut unresolved: std::collections::BTreeSet<String> = std::collections::BTreeSet::new();
@@ -4830,7 +4827,7 @@ fn should_prune_family(
         unresolved_families: unresolved,
         last_resort_chains: 0,
     };
-    if let Some(t0) = _trace_t0 {
+    if let Some(t0) = trace_t0 {
         eprintln!(
             "[paginate]   resolve_font_chains_with_registry {:?}: {} chain(s), {} \
              unresolved family name(s), {total_pruned} absent alias candidate(s) pruned",
@@ -4858,7 +4855,7 @@ fn should_prune_family(
 /// hit and ignores the rest — one clone instead of N.
 fn first_font_in_cache(
     fc_cache: &FcFontCache,
-) -> Option<(rust_fontconfig::FcPattern, rust_fontconfig::FontId)> {
+) -> Option<(rust_fontconfig::FcPattern, FontId)> {
     let mut first = None;
     fc_cache.for_each_pattern(|pattern, id| {
         if first.is_none() {
@@ -4879,9 +4876,8 @@ fn first_font_in_cache(
 /// `query_matches`/`find_unicode_fallbacks` yields an empty chain even though a fallback
 /// font IS registered, the text node measures 0 → `LayoutError::InvalidTree`.
 fn ensure_chains_nonempty(resolved: &mut ResolvedFontChains, fc_cache: &FcFontCache) {
-    let fallback_id = match first_font_in_cache(fc_cache) {
-        Some((_pattern, id)) => id,
-        None => return,
+    let Some((_pattern, fallback_id)) = first_font_in_cache(fc_cache) else {
+        return;
     };
     let keys: Vec<FontChainKeyOrRef> = resolved.chains.keys().cloned().collect();
     let mut rebuilt: HashMap<FontChainKeyOrRef, FontFallbackChain> =

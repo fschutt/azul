@@ -721,12 +721,12 @@ pub struct CssPropertyCache {
     pub user_overridden_properties: Vec<Vec<(CssPropertyType, CssProperty)>>,
     /// The window's dynamic-selector context (viewport size, theme, OS,
     /// media type...), provided by the layout funnel before the first
-    /// layout. `None` = context UNKNOWN (a freshly created StyledDom that no
+    /// layout. `None` = context UNKNOWN (a freshly created `StyledDom` that no
     /// window has adopted yet): non-pseudo-state conditions then evaluate to
     /// "does not apply", which is the same behaviour they always had before
     /// contexts were wired through. Pseudo-state conditions never depend on
     /// this field.
-    pub dynamic_context: Option<Box<azul_css::dynamic_selector::DynamicSelectorContext>>,
+    pub dynamic_context: Option<Box<DynamicSelectorContext>>,
 
     // non-default CSS properties that were cascaded from the parent,
     // unified across all pseudo-states (Normal, Hover, Active, Focus, Dragging, DragOver).
@@ -1168,10 +1168,9 @@ impl CssPropertyCache {
         let rule_applies = |conds: &azul_css::dynamic_selector::DynamicSelectorVec| -> bool {
             let cs = conds.as_slice();
             cs.is_empty()
-                || match dyn_ctx.as_deref() {
-                    Some(c) => cs.iter().all(|sel| sel.matches(c)),
-                    None => false,
-                }
+                || dyn_ctx
+                    .as_deref()
+                    .is_some_and(|c| cs.iter().all(|sel| sel.matches(c)))
         };
 
         if !css_is_empty {
@@ -3433,6 +3432,7 @@ impl CssPropertyCache {
     /// must be in the cascade maps so they can be inherited by child text nodes.
     ///
     /// Uses a bitset per node to avoid O(n²) scanning of property vecs.
+    #[allow(clippy::too_many_lines)] // cohesive single-pass walker; splitting adds state-threading
     pub fn apply_ua_css(&mut self, node_data: &[NodeData]) {
         use azul_css::props::property::CssPropertyType;
         use azul_css::dynamic_selector::PseudoStateType;

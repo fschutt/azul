@@ -57,7 +57,6 @@ fn test_inline_block_text_generates_text_items() {
         prev_viewport: LogicalRect {
             origin: LogicalPosition::zero(),
             size: LogicalSize::zero(),
-        ..Default::default()
         },
         ..Default::default()
     };

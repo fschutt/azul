@@ -4140,18 +4140,19 @@ mod autotest_generated {
 // Pre-cascade DOM fingerprints (two tiers: STRUCTURE vs STYLE)
 // ============================================================================
 
-/// Two-tier fingerprints of a recursive [`crate::dom::Dom`], computed BEFORE
-/// the cascade, in the same pre-order the flattener
+/// Two-tier fingerprints of a recursive [`crate::dom::Dom`].
+///
+/// Computed BEFORE the cascade, in the same pre-order the flattener
 /// (`convert_dom_into_compact_dom`) assigns `NodeId`s — index `i` in each Vec
 /// is flattened `NodeId(i)`.
 ///
 /// WHY TWO TIERS (user directive 2026-08-08): "the start should just scan
-/// over the NodeHierarchy to discover anything that changed, which is
+/// over the `NodeHierarchy` to discover anything that changed, which is
 /// iterating over a minimal array" — and css must be EXCLUDED from that
 /// first equivalence, because a stylesheet can only affect the subtree it
 /// is attached to:
 ///
-/// - **structure**: hierarchy shape + node content (node_type, ids/classes,
+/// - **structure**: hierarchy shape + node content (`node_type`, ids/classes,
 ///   attributes, callback EVENT types). NO css of any kind. If this tier is
 ///   equal, the old tree, its shaped text and its intrinsic caches are all
 ///   reusable — and if the style tier is ALSO equal, the previous CASCADE
@@ -4166,8 +4167,8 @@ mod autotest_generated {
 /// the root folds make the equal case one u64 compare per tier.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct DomFingerprints {
-    /// Per-node structural hash, pre-order. Folds: node_type content
-    /// (image-callback nodes hash (fn ptr, RefAny type_id) — the RefAny
+    /// Per-node structural hash, pre-order. Folds: `node_type` content
+    /// (image-callback nodes hash (fn ptr, `RefAny` `type_id`) — the `RefAny`
     /// INSTANCE is rebuilt every frame by design and is transferred, not
     /// compared; mirrors `is_layout_equivalent`), ids+classes, callback
     /// event types, contenteditable/flags/dataset, and child COUNT (pre-order
@@ -4183,12 +4184,13 @@ pub struct DomFingerprints {
     pub style_root: u64,
 }
 
-/// RefAny payloads collected during the fingerprint walk, to be TRANSFERRED
-/// onto the retained DOM when the produce side is skipped. The skip path
-/// keeps last frame's StyledDom, but callbacks/image callbacks must use the
-/// freshly-created RefAnys (they may reference new app state) — same
+/// `RefAny` payloads collected during the fingerprint walk.
+///
+/// Transferred onto the retained DOM when the produce side is skipped. The skip path
+/// keeps last frame's `StyledDom`, but callbacks/image callbacks must use the
+/// freshly-created `RefAnys` (they may reference new app state) — same
 /// transfer `regenerate_layout`'s equivalence branch has always done, minus
-/// the cascade it used to pay to get here. Indices are flattened NodeIds.
+/// the cascade it used to pay to get here. Indices are flattened `NodeIds`.
 #[derive(Debug, Default, Clone)]
 pub struct PreCascadeTransfers {
     /// `(flattened NodeId index, fresh image callback)` for every
@@ -4199,14 +4201,16 @@ pub struct PreCascadeTransfers {
     pub callbacks: Vec<(usize, crate::callbacks::CoreCallbackDataVec)>,
 }
 
-/// Walk a recursive [`crate::dom::Dom`] once, pre-order, producing both
-/// fingerprint tiers and the RefAny transfer list. Cost: one hash pass over
+/// Walk a recursive [`crate::dom::Dom`] once, pre-order.
+///
+/// Produces both fingerprint tiers and the `RefAny` transfer list. Cost: one hash pass over
 /// node data — no cascade, no allocation proportional to anything but node
 /// count.
+#[allow(clippy::too_many_lines)] // cohesive single-pass walker; splitting adds state-threading
 #[must_use] pub fn fingerprint_dom(dom: &crate::dom::Dom) -> (DomFingerprints, PreCascadeTransfers) {
     use core::hash::{Hash, Hasher};
 
-    fn node_structure_hash(node: &crate::dom::NodeData, child_count: usize) -> u64 {
+    fn node_structure_hash(node: &NodeData, child_count: usize) -> u64 {
         use crate::dom::NodeType;
         use crate::resources::DecodedImage;
         use core::hash::{Hash, Hasher};

@@ -119,7 +119,7 @@ pub enum ScrollInputDevice {
     Accessibility,
     /// An automated test driver (e2e harness, CI scenarios).
     TestDriver,
-    /// API-driven (scroll_to / scroll_to_animated from app code).
+    /// API-driven (`scroll_to` / `scroll_to_animated` from app code).
     Programmatic,
     /// Origin unknown (legacy producers). Treated like `MouseWheel` for
     /// curve selection on discrete inputs.

@@ -53,9 +53,10 @@ fn document_scale_dom() -> (Dom, &'static str) {
 }
 
 fn ctx_with_width(w: f32) -> DynamicSelectorContext {
-    let mut ctx = DynamicSelectorContext::default();
-    ctx.viewport_width = w;
-    ctx
+    DynamicSelectorContext {
+        viewport_width: w,
+        ..Default::default()
+    }
 }
 
 /// Baseline measurement: initial cascade, then the crossing restyle in

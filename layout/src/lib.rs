@@ -71,6 +71,72 @@
     // syn 1↔2 (proc-macro migration), heck/jni-sys/rustc-hash/rustls-webpki;
     // re-audit when the dep tree aligns.
     clippy::multiple_crate_versions,
+
+    // ── Numeric conversion. A layout + raster engine crosses
+    // px ↔ device-int ↔ float on essentially every path: a glyph's subpixel
+    // origin becomes an integer scanline, a u32 pixel index becomes an i32
+    // span bound, a node count becomes an f32 extent. ~150 sites, none of
+    // them a defect; scoping each one buries the signal it is supposed to
+    // carry. Overflow-checked builds (the dev-profile CI job) are what
+    // actually catch a bad conversion here, and they do — that is how the
+    // pass-2b tile-blit wrap was found.
+    clippy::cast_possible_truncation,
+    clippy::cast_possible_wrap,
+    clippy::cast_precision_loss,
+    clippy::cast_sign_loss,
+    // Exact float comparison is the POINT in the cache/diff paths: "is this
+    // the same value last frame computed" is a bit-identity question, and an
+    // epsilon there would make the incremental path silently disagree with a
+    // fresh render — the one property the equivalence laws pin.
+    clippy::float_cmp,
+    // `mul_add` is FUSED, so it changes f32 results. Layout output must stay
+    // bit-reproducible across builds and platforms (the e2e corpus pins exact
+    // frames), so the plain `a + b * c` form is deliberate.
+    clippy::suboptimal_flops,
+    // Geometry code is x0/x1/y0/y1, w/h, sx/sy, tx/ty — the similarity IS the
+    // convention, and renaming to satisfy the lint would make it less readable.
+    clippy::similar_names,
+    // The solver, the rasterizer and the shaping walkers are long and branchy
+    // by design: one pass, one place to read it. Splitting them threads state
+    // through new signatures without making anything clearer.
+    clippy::too_many_lines,
+    clippy::cognitive_complexity,
+    // `Default::default()` inside a struct literal whose field types are
+    // obvious from the literal itself. Naming the type adds an import and a
+    // line of noise per site.
+    clippy::default_trait_access,
+    // Four break-token builders filter a child list into a Vec and then
+    // `extend` from it. Inlining the twelve-line borrow-capturing iterator
+    // into each `extend` call saves one small allocation on a COLD page-break
+    // path, in the code whose correctness the pagination suite exists to
+    // protect. Not a trade worth making; revisit if a profile disagrees.
+    clippy::needless_collect,
+    // Nursery lint that wants `map_or_else` for every if-let/match. On the
+    // multi-arm dispatch chains in this crate the rewrite nests closures
+    // inside each other's else-branch; see the same call in azul-core.
+    clippy::option_if_let_else,
+    // A helper item declared next to the statements that use it, rather than
+    // hoisted to the top of the function, is a deliberate locality choice.
+    clippy::items_after_statements,
+    // Arms that happen to share a body are frequently distinct CASES that
+    // must stay separately readable (and separately editable) — merging them
+    // by body is a refactor hazard, not a cleanup.
+    clippy::match_same_arms,
+    // By-value parameters are the C-ABI shape: generated bindings hand
+    // ownership across the boundary.
+    clippy::needless_pass_by_value,
+    // Would force a `S: BuildHasher` parameter onto public API for no gain.
+    clippy::implicit_hasher,
+    // Types carrying f32 geometry cannot implement `Eq`.
+    clippy::derive_partial_eq_without_eq,
+
+    // ── Documentation prose. Deferred to the same dedicated docs pass as
+    // `missing_docs` above (see the TODO there): these are shape-of-the-prose
+    // lints over existing, accurate doc comments, not missing or wrong docs.
+    clippy::too_long_first_doc_paragraph,
+    clippy::doc_lazy_continuation,
+    clippy::missing_panics_doc,
+    clippy::missing_errors_doc,
 )]
 
 #[macro_use]

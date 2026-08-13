@@ -391,9 +391,9 @@ pub struct LayoutCache {
     /// The fully laid-out tree from the previous frame. This is our primary cache.
     pub tree: Option<LayoutTree>,
     /// One-shot latch: the next `layout_document` call is a RESIZE-ONLY
-    /// relayout of the SAME StyledDom object (set by the dll's
+    /// relayout of the SAME `StyledDom` object (set by the dll's
     /// `incremental_relayout_for_resize`, consumed unconditionally at entry).
-    /// Skips reconcile + cache_map remap wholesale — see the Step-1 branch
+    /// Skips reconcile + `cache_map` remap wholesale — see the Step-1 branch
     /// in `layout_document` for the contract and the dom-id sanity guard.
     pub resize_only_hint: bool,
     /// Census: did the LAST `layout_document` take the resize-only
@@ -401,13 +401,13 @@ pub struct LayoutCache {
     /// "skipped the walk" from "walked and found everything clean" (both
     /// produce identical pixels and identical reuse censuses).
     pub last_reconcile_was_skipped: bool,
-    /// used_size of every layout node as of the PREVIOUS pass — captured at
-    /// the resize-skip branch (the pass overwrites used_size in the shared
+    /// `used_size` of every layout node as of the PREVIOUS pass — captured at
+    /// the resize-skip branch (the pass overwrites `used_size` in the shared
     /// tree object). DL patching diffs these against the new sizes: a node
     /// whose size changed must re-emit its items (a translated background
     /// rect would be the wrong SIZE, not just the wrong place).
     pub previous_sizes: Vec<Option<LogicalSize>>,
-    /// GRANULAR DIFF channel (task #15b, one-shot): per flattened NodeId,
+    /// GRANULAR DIFF channel (task #15b, one-shot): per flattened `NodeId`,
     /// `true` = the pre-cascade DOM fingerprints proved this node AND every
     /// ancestor unchanged on BOTH tiers (structure + style). Reconcile may
     /// then reuse the old node's fingerprint after a cheap state-hash check
@@ -1067,7 +1067,7 @@ pub fn reconcile_and_invalidate<T: ParsedFontTrait>(
 }
 
 /// Every `dom_node_id` in a freshly reconciled tree must address a node of
-/// the StyledDom it was reconciled against.
+/// the `StyledDom` it was reconciled against.
 ///
 /// WHY THIS IS AN ASSERTION AND NOT A `Result`. A tree that survives with a
 /// stale id does not fail — it succeeds at describing the WRONG node. Some
@@ -1179,13 +1179,13 @@ StyleWhiteSpace::PreLine)
 /// re-collections per resize with a bit-identical DOM, ~12 ms). The ordinal
 /// IS the identity: wrappers exist only for inline runs, runs are ordered by
 /// child position, so the Nth wrapper under a node corresponds to the Nth run
-/// — the same matching `layout_document`'s cache_map remap already performs
+/// — the same matching `layout_document`'s `cache_map` remap already performs
 /// post-hoc for the size caches.
 ///
 /// Only SELF-VALIDATING or content-derived caches are carried:
 /// `inline_content_cache` re-validates itself against the subtree
 /// fingerprint, and `intrinsic_sizes` are content-derived with the children
-/// verified identical. Layout-derived state (inline_layout_result, used
+/// verified identical. Layout-derived state (`inline_layout_result`, used
 /// sizes, baselines) stays `None` and re-derives through the CB-size-keyed
 /// caches like any other clean node.
 ///
@@ -1230,7 +1230,7 @@ fn try_reuse_anon_wrapper(
     }
     if let (Some(old_warm), Some(new_node)) = (t.warm(old_anon), new_tree_builder.get_mut(anon_idx))
     {
-        new_node.inline_content_cache = old_warm.inline_content_cache.clone();
+        new_node.inline_content_cache.clone_from(&old_warm.inline_content_cache);
         new_node.intrinsic_sizes = old_warm.intrinsic_sizes;
     }
     true
@@ -1288,7 +1288,7 @@ pub fn reconcile_recursive(
             if let Some(old_c) = old_cold {
                 let state_hash = {
                     use core::hash::{Hash, Hasher};
-                    let mut h = azul_core::hash::DefaultHasher::new();
+                    let mut h = DefaultHasher::new();
                     if let Some(st) = styled_dom
                         .styled_nodes
                         .as_container()
@@ -1306,15 +1306,12 @@ pub fn reconcile_recursive(
                 }
             }
         }
-        match reused {
-            Some(fp) => fp,
-            None => {
-                let _p = crate::probe::Probe::span("fingerprint_compute");
-                NodeDataFingerprint::compute(
-                    node_data,
-                    styled_dom.styled_nodes.as_container().get(new_dom_id).map(|n| &n.styled_node_state),
-                )
-            }
+        if let Some(fp) = reused { fp } else {
+            let _p = crate::probe::Probe::span("fingerprint_compute");
+            NodeDataFingerprint::compute(
+                node_data,
+                styled_dom.styled_nodes.as_container().get(new_dom_id).map(|n| &n.styled_node_state),
+            )
         }
     };
 
@@ -2756,7 +2753,7 @@ pub fn calculate_layout_for_subtree_fragment<T: ParsedFontTrait>(
     };
     // K30b: hand the subtree's resume state up (None = finished).
     if let Some(slot) = fragment_out {
-        *slot = layout_result.outgoing_token.clone();
+        slot.clone_from(&layout_result.outgoing_token);
     }
     let content_size = layout_result.output.overflow_size;
 

@@ -450,9 +450,10 @@ pub struct TextInputEventData {
     pub old_text: String,
 }
 
-/// Carried by `EventType::DocumentEdit` events: identifies WHICH pending
-/// structural changeset this notification is for (the app acks with the same
-/// id via `mark_document_edit_applied`). The full changeset is intentionally
+/// Identifies WHICH pending structural changeset a notification is for.
+///
+/// Carried by `EventType::DocumentEdit` events; the app acks with the same
+/// id via `mark_document_edit_applied`. The full changeset is intentionally
 /// NOT copied onto the event — it stays single-instance in the window
 /// (one-pending-changeset model).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -2902,7 +2903,7 @@ impl Default for PostFilterCallback {
 /// Spelled out rather than left to prose, because this is read by machines:
 /// an agent choosing arguments and a UI validating a macro form both need the
 /// type, not a sentence describing it.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[cfg_attr(feature = "serde-json", derive(serde::Serialize, serde::Deserialize))]
 #[cfg_attr(feature = "serde-json", serde(rename_all = "lowercase"))]
 pub enum E2eOpArgType {
@@ -2986,6 +2987,10 @@ pub struct E2eOpSchema {
 /// Deliberately requires a BOOLEAN, not merely the key: `"success": "yes"` and
 /// `"success": null` are the shapes a hand-written schema actually produces,
 /// and each would otherwise pass while telling a consumer nothing.
+// Only the `not(serde-json)` arm is const-eligible (it is a literal `true`);
+// the serde arm calls `to_serde_value`, which allocates. Marking the fn `const`
+// would therefore stop compiling in the configuration that actually parses.
+#[allow(clippy::missing_const_for_fn)]
 fn json_has_success_bool(v: &crate::json::Json) -> bool {
     #[cfg(feature = "serde-json")]
     {
@@ -3050,6 +3055,12 @@ impl E2eOpSchema {
     /// malformed when an op is finally invoked has failed at its one job. An
     /// app shipping an unusable advertisement is a bug in the app, and its own
     /// startup is the cheapest place to catch it.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`E2eSchemaError`] if the schema is malformed: a duplicate or
+    /// empty op name, or an argument whose declared type is not a valid JSON
+    /// type name.
     pub fn validate(&self) -> Result<(), E2eSchemaError> {
         let mut seen: Vec<&str> = Vec::new();
         for (i, op) in self.ops.iter().enumerate() {
@@ -3089,22 +3100,22 @@ impl E2eOpSchema {
             // (it re-serializes sorted, which buried `name` and `summary`
             // under `args`/`description`/`examples`). Keep the serialized text
             // and wrap it, rather than round-tripping through the parser.
-            serde_json::to_string(self)
-                .ok()
-                .map(|text| crate::json::Json {
-                    value_type: crate::json::JsonType::Object,
-                    internal: crate::json::JsonInternal {
-                        string_value: AzString::from(text),
-                        ..Default::default()
-                    },
-                })
-                .unwrap_or_else(|| crate::json::Json {
+            serde_json::to_string(self).ok().map_or_else(
+                || crate::json::Json {
                     value_type: crate::json::JsonType::Object,
                     internal: crate::json::JsonInternal {
                         string_value: AzString::from_const_str(r#"{"ops":[]}"#),
                         ..Default::default()
                     },
-                })
+                },
+                |text| crate::json::Json {
+                    value_type: crate::json::JsonType::Object,
+                    internal: crate::json::JsonInternal {
+                        string_value: AzString::from(text),
+                        ..Default::default()
+                    },
+                },
+            )
         }
         #[cfg(not(feature = "serde-json"))]
         crate::json::Json {

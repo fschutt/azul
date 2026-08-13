@@ -335,7 +335,7 @@ pub struct UnresolvedBoxProps {
     pub border: UnresolvedEdge<PixelValue>,
     /// css-writing-modes-4 §7.2: margin/padding percentages resolve against
     /// the containing block's INLINE size. Captured at collection time from
-    /// the node's writing mode so late re-resolution (resolve_box_props with
+    /// the node's writing mode so late re-resolution (`resolve_box_props` with
     /// the real containing block) picks the right axis without re-reading
     /// the cascade.
     pub vertical_writing_mode: bool,

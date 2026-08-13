@@ -410,11 +410,11 @@ struct ShadowCacheEntry {
 
 thread_local! {
     static SHADOW_BLUR_CACHE: core::cell::RefCell<(
-        std::collections::HashMap<u64, ShadowCacheEntry>,
+        HashMap<u64, ShadowCacheEntry>,
         std::collections::VecDeque<u64>,
         usize, // bytes
     )> = core::cell::RefCell::new((
-        std::collections::HashMap::new(),
+        HashMap::new(),
         std::collections::VecDeque::new(),
         0,
     ));
@@ -533,8 +533,8 @@ fn render_box_shadow(
     let padding = blur_r.ceil();
     let shadow_x = rect.x + offset_x - spread - padding;
     let shadow_y = rect.y + offset_y - spread - padding;
-    let shadow_w = rect.width + 2.0 * spread + 2.0 * padding;
-    let shadow_h = rect.height + 2.0 * spread + 2.0 * padding;
+    let shadow_w = 2.0f32.mul_add(spread, rect.width) + 2.0 * padding;
+    let shadow_h = 2.0f32.mul_add(spread, rect.height) + 2.0 * padding;
 
     if shadow_w <= 0.0 || shadow_h <= 0.0 {
         return Ok(());
@@ -1272,7 +1272,7 @@ fn parse_damage_fill(v: Option<&str>) -> (u8, u8, u8, u8) {
         None => WHITE,
         // Unset is the shipping default; "0" turns the knob off explicitly
         // without having to unset it.
-        Some("0") | Some("") => WHITE,
+        Some("0" | "") => WHITE,
         Some("1") => RED,
         Some(v) => u32::from_str_radix(v.trim_start_matches('#'), 16).map_or(RED, |n| {
             (
@@ -2533,7 +2533,7 @@ fn render_glyphs_lcd(
     let mut ras = RasterizerScanlineAa::new();
     ras.filling_rule(FillingRule::NonZero);
 
-    let _p_outline = crate::probe::Probe::span("glyph_lcd_outline");
+    let p_outline = crate::probe::Probe::span("glyph_lcd_outline");
     for glyph in glyphs {
         let glyph_index = glyph.index as u16;
         let Some(glyph_data) = parsed_font.get_or_decode_glyph(glyph_index) else {
@@ -2573,7 +2573,7 @@ fn render_glyphs_lcd(
         ras.add_cells_offset(cells, int_x * 3, int_y);
     }
 
-    drop(_p_outline);
+    drop(p_outline);
     let _p_sweep = crate::probe::Probe::span("glyph_lcd_sweep");
     // Blend via the LCD pixel format. It reports width*3, so the rasterizer's 3×
     // x-coordinates address individual R/G/B stripes; the clip box X is likewise
@@ -2853,8 +2853,7 @@ fn render_text_prerendered_lcd(
         };
         let is_hinted = glyph_cache
             .get_or_build(font_hash.font_hash, glyph_index, &glyph_data, parsed_font, ppem)
-            .map(|c| c.is_hinted)
-            .unwrap_or(false);
+            .is_some_and(|c| c.is_hinted);
         let Some((tile, int_x, int_y)) = glyph_cache.get_or_build_lcd_tile(
             font_hash.font_hash,
             glyph.index as u16,

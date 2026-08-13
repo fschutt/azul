@@ -2677,12 +2677,12 @@ impl NodeData {
         use azul_css::css::{rule_priority, CssDeclaration, CssPath, CssRuleBlock};
 
         let ty = prop.get_type();
-        let mut rules = core::mem::take(&mut self.style.rules).into_library_owned_vec();
+        let mut rules = mem::take(&mut self.style.rules).into_library_owned_vec();
         for rule in &mut rules {
             if !rule.conditions.as_ref().is_empty() {
                 continue;
             }
-            let mut decls = core::mem::take(&mut rule.declarations).into_library_owned_vec();
+            let mut decls = mem::take(&mut rule.declarations).into_library_owned_vec();
             decls.retain(|d| match d {
                 CssDeclaration::Static(p) => p.get_type() != ty,
                 CssDeclaration::Dynamic(_) => true,

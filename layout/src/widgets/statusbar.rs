@@ -192,11 +192,11 @@ fn cond_bg_active(c: ColorU) -> Cond {
     Cond::on_active(P::const_background_content(bg_vec(c)))
 }
 
-fn cond_text_color(c: ColorU) -> Cond {
+const fn cond_text_color(c: ColorU) -> Cond {
     Cond::simple(P::const_text_color(StyleTextColor { inner: c }))
 }
 
-fn cond_border_box() -> Cond {
+const fn cond_border_box() -> Cond {
     Cond::simple(P::const_box_sizing(LayoutBoxSizing::BorderBox))
 }
 
@@ -431,7 +431,7 @@ fn theme_zoom_label(t: &StatusBarTheme) -> CssPropertyWithConditionsVec {
 /// All part styles of the status bar. Every part defaults to the the Office-2013-era look
 /// look; replace any field for finer control (the same override API as
 /// [`super::ribbon::RibbonStyle`]).
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 #[repr(C)]
 pub struct StatusBarStyle {
     /// The palette this style bundle was derived from. Kept for consumers
@@ -520,10 +520,11 @@ impl Default for StatusBarStyle {
 // -- Data model --
 
 /// One left-hand status segment ("PAGE 1 OF 1", "0 WORDS", the language, …).
+///
 /// An empty `icon` means "no icon". With an `on_click` the segment renders
 /// as a flat hover-highlighted button (office-2013: the segments open panes /
 /// toggle counters); without one it is inert text.
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 #[repr(C)]
 pub struct StatusBarSegment {
     /// Optional leading icon name, resolved through the registered icon
@@ -597,7 +598,7 @@ impl_vec_debug!(StatusBarSegment, StatusBarSegmentVec);
 impl_vec_mut!(StatusBarSegment, StatusBarSegmentVec);
 
 /// One view-switcher button (office-2013: read mode / print layout / web layout).
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 #[repr(C)]
 pub struct StatusBarView {
     /// Icon name, resolved through the registered icon provider.
@@ -662,7 +663,7 @@ impl StatusBarViewSwitcher {
 
     /// Builder method: sets the active view index.
     #[must_use]
-    pub fn with_active_view(mut self, active_view: usize) -> Self {
+    pub const fn with_active_view(mut self, active_view: usize) -> Self {
         self.active_view = active_view;
         self
     }
@@ -742,7 +743,7 @@ impl StatusBarZoom {
 
     /// Builder method: sets the zoom percent.
     #[must_use]
-    pub fn with_percent(mut self, percent: f32) -> Self {
+    pub const fn with_percent(mut self, percent: f32) -> Self {
         self.percent = percent;
         self
     }
@@ -846,7 +847,7 @@ impl StatusBar {
     /// Renders the status bar.
     #[must_use]
     pub fn dom(self) -> Dom {
-        let StatusBar { segments, views, zoom, style } = self;
+        let Self { segments, views, zoom, style } = self;
         let mut children: Vec<Dom> = Vec::with_capacity(segments.len() + 3);
 
         for seg in segments.into_library_owned_vec() {
@@ -869,7 +870,7 @@ impl StatusBar {
 
         Dom::create_div()
             .with_ids_and_classes(IdOrClassVec::from_const_slice(CLS_STATUSBAR))
-            .with_css_props(style.bar_style.clone())
+            .with_css_props(style.bar_style)
             .with_children(DomVec::from_vec(children))
     }
 }

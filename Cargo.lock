@@ -174,8 +174,9 @@ dependencies = [
 
 [[package]]
 name = "agg-rust-azul"
-version = "1.1.2"
-source = "git+https://github.com/fschutt/agg-rust?branch=perf%2Flcd-span-scratch-buffer#4a2be0044194f2d329d1f1e2bf673bcb2e021f52"
+version = "1.1.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "0c1f15930648e5bd700fd2b9a46f0405bd45b3fc817a4b1a6a4b1c756e532cf6"
 
 [[package]]
 name = "aho-corasick"

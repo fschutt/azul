@@ -1037,7 +1037,6 @@ fn dense_resolve_step_dispatches_like_the_sparse_resolver() {
                         dense.first_cluster_cursor().unwrap_or(cursor)
                     }
                     (D::Forward, S::Document) => dense.last_cluster_cursor().unwrap_or(cursor),
-                    _ => unreachable!(),
                 };
                 assert_eq!(
                     dense.resolve_step(&cursor, direction, step),

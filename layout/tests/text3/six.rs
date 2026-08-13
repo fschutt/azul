@@ -4,8 +4,7 @@
 /// the returned FragmentLayout has bounds.width=0, causing text to be positioned
 /// vertically instead of horizontally.
 /// 
-/// This test should FAIL initially, demonstrating the bug.
-
+// This test should FAIL initially, demonstrating the bug.
 use azul_layout::text3::cache::{
     AvailableSpace, InlineContent, LayoutFragment, StyledRun, TextShapingCache,
     UnifiedConstraints,

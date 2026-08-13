@@ -209,7 +209,7 @@ pub struct LayoutContext<'a, T: ParsedFontTrait> {
     /// reuses the address, so the second document was served the first
     /// one's styles. Ownership makes that unrepresentable rather than
     /// merely unlikely.
-    pub style_cache: crate::solver3::getters::StyleCache,
+    pub style_cache: getters::StyleCache,
     #[cfg(feature = "text_layout")]
     pub font_manager: &'a crate::font_traits::FontManager<T>,
     #[cfg(not(feature = "text_layout"))]
@@ -223,7 +223,7 @@ pub struct LayoutContext<'a, T: ParsedFontTrait> {
     /// When Some, layout respects page boundaries and generates one `DisplayList` per page
     pub fragmentation_context: Option<&'a mut crate::paged::FragmentationContext>,
     /// Per-pass record: layout-tree indices of IFC roots whose LINE LAYOUT
-    /// was recomputed this pass (`layout_flow` ran — GlyphSwap reuse does
+    /// was recomputed this pass (`layout_flow` ran — `GlyphSwap` reuse does
     /// NOT count). The DL-patching invalidation signal: a re-flowed IFC's
     /// text items changed shape and must re-emit; everything else can be
     /// copied+translated. Drained into the patch machinery by
@@ -526,7 +526,7 @@ pub fn layout_document<T: ParsedFontTrait + Sync + 'static>(
     // (root `subtree_hash` + viewport) is the correct, content-based skip;
     // it costs one ~600 µs reconcile pass but cannot be fooled by address
     // reuse.
-    let _doc_setup_span = crate::probe::Probe::span("doc_setup_to_reconcile");
+    let doc_setup_span = crate::probe::Probe::span("doc_setup_to_reconcile");
     let dom_ptr = std::ptr::from_ref::<StyledDom>(new_dom) as usize;
     cache.prev_dom_ptr = dom_ptr;
     cache.prev_viewport = viewport;
@@ -546,7 +546,7 @@ pub fn layout_document<T: ParsedFontTrait + Sync + 'static>(
     // incremental relayouts keep full reconcile — they NEED its fingerprint
     // diff for paint-dirty classification. The dom-id sanity check guards
     // against a stale hint meeting a swapped DOM.
-    drop(_doc_setup_span);
+    drop(doc_setup_span);
     let resize_only = core::mem::take(&mut cache.resize_only_hint);
     let dom_len_for_hint = new_dom.node_data.as_ref().len();
     let (new_tree_val, mut recon_result) = if resize_only
@@ -652,7 +652,7 @@ pub fn layout_document<T: ParsedFontTrait + Sync + 'static>(
         // CSS counters are a pure function of the DOM — on a resize-skip
         // pass the DOM is byte-identical, so last pass's values are THE
         // values (0.4 ms of ::marker recount per drag frame otherwise).
-        counter_values = cache.counters.clone();
+        counter_values.clone_from(&cache.counters);
     } else {
         let _p = crate::probe::Probe::span("compute_counters");
         cache::compute_counters(new_dom, &new_tree, &mut counter_values);
@@ -1174,8 +1174,13 @@ pub fn layout_document<T: ParsedFontTrait + Sync + 'static>(
             let new_sizes: Vec<Option<LogicalSize>> =
                 new_tree.nodes.iter().map(|n| n.used_size).collect();
             let mut reemit_full = ctx.reflowed_ifcs.clone();
-            for i in 0..new_sizes.len().min(cache.previous_sizes.len()) {
-                if cache.previous_sizes[i] != new_sizes[i] {
+            for (i, (prev, new)) in cache
+                .previous_sizes
+                .iter()
+                .zip(new_sizes.iter())
+                .enumerate()
+            {
+                if prev != new {
                     reemit_full.insert(i);
                 }
             }
@@ -1186,11 +1191,11 @@ pub fn layout_document<T: ParsedFontTrait + Sync + 'static>(
                     new_tree
                         .get(i)
                         .and_then(|node| node.dom_node_id)
-                        .map(|dom_id| {
+                        .is_some_and(|dom_id| {
                             let state = &ctx.styled_dom.styled_nodes.as_container()
                                 [dom_id]
                                 .styled_node_state;
-                            crate::solver3::getters::get_background_color(
+                            getters::get_background_color(
                                 ctx.styled_dom,
                                 dom_id,
                                 state,
@@ -1198,7 +1203,6 @@ pub fn layout_document<T: ParsedFontTrait + Sync + 'static>(
                             .a
                                 == 255
                         })
-                        .unwrap_or(false)
                 })
                 .collect();
             cache.last_patch_move = display_list::compute_patch_move_summary(

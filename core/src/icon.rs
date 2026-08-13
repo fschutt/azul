@@ -289,7 +289,7 @@ impl IconProviderInner {
     /// entry that resolves wins, so markup can express per-platform
     /// fallbacks: `<icon>ios:open_menu,kde:three-lines,menu</icon>`.
     /// Icon names are case-insensitive; pack names are case-sensitive.
-    pub fn lookup_spec(&self, spec: &str) -> Option<RefAny> {
+    #[must_use] pub fn lookup_spec(&self, spec: &str) -> Option<RefAny> {
         // Verbatim first: a registered name is always found as-is (names may
         // legally contain ':', ',' or whitespace). The spec syntax below only
         // applies when nothing is registered under the literal name.
@@ -308,10 +308,10 @@ impl IconProviderInner {
                 None => (None, entry),
             };
             let name_lower = name.to_lowercase();
-            let found = match pack {
-                Some(p) => self.icons.get(p).and_then(|pack| pack.get(&name_lower)),
-                None => self.icons.values().find_map(|pack| pack.get(&name_lower)),
-            };
+            let found = pack.map_or_else(
+                || self.icons.values().find_map(|pack| pack.get(&name_lower)),
+                |p| self.icons.get(p).and_then(|pack| pack.get(&name_lower)),
+            );
             if let Some(data) = found {
                 return Some(data.clone());
             }
@@ -510,7 +510,7 @@ enum CachedIconResolution {
     /// splicing uses only its root (see `apply_multi_node_replacement`) — but
     /// stored complete so implementing real splicing later cannot be silently
     /// truncated by this cache.
-    Subtree(StyledDom),
+    Subtree(Box<StyledDom>),
 }
 
 /// One cached resolution. `original`/`original_styled` are the KEY (together
@@ -695,7 +695,10 @@ fn collect_icon_nodes(styled_dom: &StyledDom) -> Vec<CollectedIcon> {
                 specs.push(String::new());
             }
             NodeType::Text(text) => {
-                let Some(parent) = hierarchy.get(idx).and_then(|h| h.parent_id()) else {
+                let Some(parent) = hierarchy
+                    .get(idx)
+                    .and_then(crate::styled_dom::NodeHierarchyItem::parent_id)
+                else {
                     continue;
                 };
                 let Some(&icon_pos) = unnamed_icon_pos.get(&parent.index()) else {
@@ -771,7 +774,7 @@ fn extract_single_node_styled_dom(styled_dom: &StyledDom, node_idx: usize) -> St
 /// On a HIT nothing is built at all: no single-node extraction (which clones
 /// the node's inline `Css` and allocates a throwaway `CssPropertyCache`), no
 /// pack lookup, no resolver call, no cascade. The 66-icon ribbon that
-/// motivated this (RSS_MAP §36c) turns from 66 resolver round-trips per DOM
+/// motivated this (`RSS_MAP` §36c) turns from 66 resolver round-trips per DOM
 /// regeneration into 66 key comparisons.
 fn resolve_collected_icons(
     icons: &[CollectedIcon],
@@ -840,7 +843,7 @@ fn normalize_replacement(replacement: StyledDom) -> CachedIconResolution {
             };
             CachedIconResolution::SingleNode { node_type, style, accessibility, styled_node }
         }
-        _ => CachedIconResolution::Subtree(replacement),
+        _ => CachedIconResolution::Subtree(Box::new(replacement)),
     }
 }
 
@@ -875,7 +878,7 @@ fn apply_cached_resolution(
             }
         }
         CachedIconResolution::Subtree(replacement) => {
-            apply_multi_node_replacement(styled_dom, node_idx, replacement);
+            apply_multi_node_replacement(styled_dom, node_idx, *replacement);
         }
     }
 }

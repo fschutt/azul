@@ -2197,7 +2197,7 @@ impl CallbackInfo {
             styled_dom,
             page_size,
             page_config,
-            &azul_core::resources::ImageCache::default(),
+            &ImageCache::default(),
         )
     }
 

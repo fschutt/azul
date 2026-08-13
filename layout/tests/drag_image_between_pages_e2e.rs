@@ -66,7 +66,6 @@ fn paginate(html: &str) -> Vec<DisplayList> {
         prev_viewport: LogicalRect {
             origin: LogicalPosition::zero(),
             size: LogicalSize::zero(),
-        ..Default::default()
         },
         ..Default::default()
     };

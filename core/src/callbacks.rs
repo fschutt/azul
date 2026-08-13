@@ -253,10 +253,11 @@ impl CaretTweenCallback {
     }
 }
 
-/// Inputs for one selection-tween evaluation: the full PAST and CURRENT
-/// selection band geometry (all rectangles of the selection highlight, in
-/// display-list order — spanning multiple lines and, for a cross-block
-/// selection, multiple nodes).
+/// Inputs for one selection-tween evaluation.
+///
+/// Carries the full PAST and CURRENT selection band geometry: all rectangles
+/// of the selection highlight, in display-list order — spanning multiple
+/// lines and, for a cross-block selection, multiple nodes.
 #[derive(Debug, Clone, PartialEq, PartialOrd)]
 #[repr(C)]
 pub struct SelectionTweenInfo {
@@ -318,13 +319,17 @@ fn trapezoid_ease(t: f32) -> f32 {
 }
 
 #[inline]
+// Plain `a + (b - a) * e`, NOT mul_add: fused multiply-add changes f32
+// results, and tween geometry must be bit-reproducible across builds (the
+// e2e corpus pins pixel-exact frames).
+#[allow(clippy::suboptimal_flops)]
 fn lerp_rect(from: LogicalRect, to: LogicalRect, e: f32) -> LogicalRect {
     LogicalRect {
         origin: LogicalPosition {
             x: from.origin.x + (to.origin.x - from.origin.x) * e,
             y: from.origin.y + (to.origin.y - from.origin.y) * e,
         },
-        size: crate::geom::LogicalSize {
+        size: LogicalSize {
             width: from.size.width + (to.size.width - from.size.width) * e,
             height: from.size.height + (to.size.height - from.size.height) * e,
         },
@@ -333,6 +338,7 @@ fn lerp_rect(from: LogicalRect, to: LogicalRect, e: f32) -> LogicalRect {
 
 /// Default caret tween: trapezoidal-velocity lerp of origin and size
 /// (hard rise, linear cruise, hard fall — see [`trapezoid_ease`]).
+#[must_use]
 pub extern "C" fn default_caret_tween(_data: RefAny, info: CaretTweenInfo) -> LogicalRect {
     lerp_rect(info.past, info.current, trapezoid_ease(info.t))
 }
@@ -340,6 +346,7 @@ pub extern "C" fn default_caret_tween(_data: RefAny, info: CaretTweenInfo) -> Lo
 /// Default selection tween: trapezoidal-velocity lerp, rectangles paired by
 /// index. Rectangles with no past counterpart (selection grew) appear at
 /// their final geometry immediately.
+#[must_use]
 pub extern "C" fn default_selection_tween(
     _data: RefAny,
     info: SelectionTweenInfo,
@@ -351,10 +358,7 @@ pub extern "C" fn default_selection_tween(
         .as_ref()
         .iter()
         .enumerate()
-        .map(|(i, cur)| match past.get(i) {
-            Some(p) => lerp_rect(*p, *cur, e),
-            None => *cur,
-        })
+        .map(|(i, cur)| past.get(i).map_or(*cur, |p| lerp_rect(*p, *cur, e)))
         .collect();
     out.into()
 }
@@ -796,8 +800,9 @@ pub struct LayoutCallbackInfo {
     _abi_mut: *mut c_void,
 }
 
-/// One recorded window-size query made by a `layout()` callback — see
-/// [`LayoutCallbackInfo::window_width_less_than`] & co. The engine replays
+/// One recorded window-size query made by a `layout()` callback.
+///
+/// See [`LayoutCallbackInfo::window_width_less_than`] & co. The engine replays
 /// these against a
 /// prospective new size to decide whether a resize could change the DOM at
 /// all: if no recorded answer flips (and no CSS breakpoint is crossed), the
@@ -821,8 +826,10 @@ pub enum SizeQueryAxis {
     Height,
 }
 
-/// The comparison a [`SizeQuery`] performed. Four variants rather than a
-/// greater/smaller bool because the recorded operator must REPLAY EXACTLY:
+/// The comparison a [`SizeQuery`] performed.
+///
+/// Four variants rather than a greater/smaller bool because the recorded
+/// operator must REPLAY EXACTLY:
 /// `window_width_less_than` is a strict `<` while `window_width_between`'s
 /// lower bound is `>=`, and collapsing either onto the other misjudges a
 /// resize landing precisely on the queried boundary — the one pixel the app
@@ -845,7 +852,7 @@ impl SizeQuery {
     /// to detect a flip. MUST mirror the operators of the recording methods
     /// exactly (see [`SizeQueryOp`]), or the engine would skip a `layout()`
     /// re-invocation right at the boundary the app asked about.
-    #[must_use] pub fn answer_at(&self, size: crate::geom::LogicalSize) -> bool {
+    #[must_use] pub fn answer_at(&self, size: LogicalSize) -> bool {
         let dim = match self.axis {
             SizeQueryAxis::Width => size.width,
             SizeQueryAxis::Height => size.height,
@@ -859,7 +866,7 @@ impl SizeQuery {
     }
 
     /// Would this query's answer differ at `size` from the recorded one?
-    #[must_use] pub fn flips_at(&self, size: crate::geom::LogicalSize) -> bool {
+    #[must_use] pub fn flips_at(&self, size: LogicalSize) -> bool {
         self.answer_at(size) != self.answer
     }
 }
@@ -884,14 +891,14 @@ mod size_query_recorder {
 
     /// More distinct thresholds than any real breakpoint scheme uses; a
     /// callback exceeding this is generating them programmatically.
-    pub const SIZE_QUERY_CAP: usize = 256;
+    pub(super) const SIZE_QUERY_CAP: usize = 256;
 
     std::thread_local! {
         static RECORDED: core::cell::RefCell<(Vec<SizeQuery>, bool)> =
             const { core::cell::RefCell::new((Vec::new(), false)) };
     }
 
-    pub fn record(q: SizeQuery) {
+    pub(super) fn record(q: SizeQuery) {
         RECORDED.with(|r| {
             let mut r = r.borrow_mut();
             if r.0.len() >= SIZE_QUERY_CAP {
@@ -905,7 +912,7 @@ mod size_query_recorder {
     /// Drain the recording. Returns `(queries, overflowed)`; `overflowed`
     /// means the cap was hit and the list is INCOMPLETE — treat every resize
     /// as potentially DOM-changing.
-    pub fn take() -> (Vec<SizeQuery>, bool) {
+    pub(super) fn take() -> (Vec<SizeQuery>, bool) {
         RECORDED.with(|r| {
             let mut r = r.borrow_mut();
             let overflowed = r.1;
@@ -928,6 +935,7 @@ fn record_size_query(q: SizeQuery) {
 fn record_size_query(_q: SizeQuery) {}
 
 /// Drain the size queries recorded since the last drain on THIS thread.
+///
 /// Call immediately after a `layout()` callback returns, on the same thread.
 /// `(queries, overflowed)` — on `overflowed == true` the list is incomplete
 /// and the caller must treat the callback as size-dependent everywhere.
@@ -1056,13 +1064,10 @@ impl LayoutCallbackInfo {
     /// builds an unbounded DOM. `None` when no monitor info is available.
     #[must_use] pub fn get_max_monitor_size(&self) -> azul_css::props::basic::OptionLayoutSize {
         let monitors = unsafe { &(*self.ref_data).monitors };
-        let mut best: Option<azul_css::props::basic::LayoutSize> = None;
-        for m in monitors.as_ref().iter() {
+        let mut best: Option<LayoutSize> = None;
+        for m in monitors.as_ref() {
             let s = m.size;
-            let better = match best {
-                Some(b) => (s.width * s.height) > (b.width * b.height),
-                None => true,
-            };
+            let better = best.is_none_or(|b| (s.width * s.height) > (b.width * b.height));
             if better {
                 best = Some(s);
             }
@@ -1154,6 +1159,7 @@ impl LayoutCallbackInfo {
     // DOM is a bug in the app: the engine cannot see that read, so the DOM
     // goes stale across exactly the resizes the app cared about.
 
+    #[allow(clippy::unused_self)] // C-ABI-shaped method: receiver kept for API symmetry
     fn record_width_query(&self, op: SizeQueryOp, threshold_px: f32, answer: bool) -> bool {
         record_size_query(SizeQuery {
             axis: SizeQueryAxis::Width,
@@ -1164,6 +1170,7 @@ impl LayoutCallbackInfo {
         answer
     }
 
+    #[allow(clippy::unused_self)] // C-ABI-shaped method: receiver kept for API symmetry
     fn record_height_query(&self, op: SizeQueryOp, threshold_px: f32, answer: bool) -> bool {
         record_size_query(SizeQuery {
             axis: SizeQueryAxis::Height,

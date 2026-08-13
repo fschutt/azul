@@ -1940,8 +1940,8 @@ fn grid_items_from_xml_markup_fill_consecutive_cells() {
     </body></html>"#;
     use azul_layout::xml::domxml_from_str;
     use azul_core::xml::ComponentMap;
-    let mut component_map = ComponentMap::default();
-    let dom_xml = domxml_from_str(XML, &mut component_map);
+    let component_map = ComponentMap::default();
+    let dom_xml = domxml_from_str(XML, &component_map);
     // The XML path styles internally (the page's <style> is applied).
     let styled_dom = dom_xml.parsed_dom;
     let mut layout_window = LayoutWindow::new(FcFontCache::build()).unwrap();

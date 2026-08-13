@@ -482,9 +482,9 @@ pub struct SystemAnimations {
     /// Default: ease-out cubic lerp, rectangles paired by index.
     pub selection_tween: crate::callbacks::SelectionTweenCallback,
     /// User data passed to `caret_tween` on every invocation.
-    pub caret_tween_data: crate::refany::RefAny,
+    pub caret_tween_data: RefAny,
     /// User data passed to `selection_tween` on every invocation.
-    pub selection_tween_data: crate::refany::RefAny,
+    pub selection_tween_data: RefAny,
     /// Overrides `SystemStyle.scroll_physics` (momentum, overscroll /
     /// rubber-band, wheel-vs-trackpad curves). `None` = platform default.
     pub scroll_physics: OptionScrollPhysics,
@@ -532,12 +532,12 @@ impl Default for SystemAnimations {
             caret_tween: crate::callbacks::CaretTweenCallback::create(
                 crate::callbacks::default_caret_tween,
             ),
-            caret_tween_data: crate::refany::RefAny::new(()),
+            caret_tween_data: RefAny::new(()),
             selection_tween_duration_ms: 60,
             selection_tween: crate::callbacks::SelectionTweenCallback::create(
                 crate::callbacks::default_selection_tween,
             ),
-            selection_tween_data: crate::refany::RefAny::new(()),
+            selection_tween_data: RefAny::new(()),
             caret_scroll_glide: true,
             // Opt-in: 0 = no ring (existing apps unchanged). The Word app
             // enables it at hookup.

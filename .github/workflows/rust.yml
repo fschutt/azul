@@ -996,6 +996,23 @@ jobs:
         if: steps.codegen-cache.outputs.cache-hit != 'true'
         run: cargo run -r -p azul-doc codegen all
 
+      # The reftest pins BOTH engines to Noto Sans / Noto Serif / Noto Sans Mono
+      # via a generated fonts.conf (see `write_hermetic_fontconfig`). That
+      # pinning is only hermetic if the families actually exist: the bare
+      # ubuntu-22.04 image ships neither Noto Serif nor Noto Sans Mono, so
+      # `serif`/`monospace` silently resolved to whatever else was installed
+      # and every text-bearing test diverged from the baseline recorded on a
+      # machine that HAS them (35/52 in CI vs 47/52 locally — 12 text tests).
+      - name: Install the fonts the hermetic fontconfig pins
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y fonts-noto-core fonts-noto-mono
+          fc-cache -f
+          echo "--- families the reftest pins ---"
+          for fam in "Noto Sans" "Noto Serif" "Noto Sans Mono"; do
+            printf '%s -> %s\n' "$fam" "$(fc-match "$fam" 2>/dev/null || echo MISSING)"
+          done
+
       - name: Setup Chrome
         uses: browser-actions/setup-chrome@v2
 

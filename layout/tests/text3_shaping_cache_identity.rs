@@ -53,7 +53,10 @@ use rust_fontconfig::FcFontCache;
 
 /// Two paragraphs with IDENTICAL text (same layout_hash inputs) but
 /// DIFFERENT colours — the cache-sharing trap.
-fn layout_two_same_text_nodes() -> Vec<(Option<usize>, (u8, u8, u8), Vec<(u32, f32, f32)>)> {
+/// (item index, RGB, [(glyph id, x, y)]) for one text run.
+type RunIdentity = (Option<usize>, (u8, u8, u8), Vec<(u32, f32, f32)>);
+
+fn layout_two_same_text_nodes() -> Vec<RunIdentity> {
     let mut dom = Dom::create_body()
         .with_child(
             Dom::create_div()
@@ -115,7 +118,7 @@ fn layout_two_same_text_nodes() -> Vec<(Option<usize>, (u8, u8, u8), Vec<(u32, f
         .collect()
 }
 
-fn assert_identity(runs: &[(Option<usize>, (u8, u8, u8), Vec<(u32, f32, f32)>)]) -> Result<(), String> {
+fn assert_identity(runs: &[RunIdentity]) -> Result<(), String> {
     if runs.len() < 2 {
         return Err(format!("expected 2 text runs, got {}", runs.len()));
     }
