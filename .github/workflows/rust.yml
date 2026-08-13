@@ -1562,7 +1562,29 @@ jobs:
       - name: Install MinGW (Windows)
         if: steps.cache-valid.outputs.skip != 'true' && matrix.os == 'windows-2022'
         shell: bash
-        run: choco install mingw -y
+        run: |
+          # The windows-2022 image already ships MinGW-w64 (MSYS2,
+          # C:\msys64\mingw64\bin). Prefer it: `choco install mingw` hits
+          # community.chocolatey.org on EVERY run and takes the whole job down
+          # when that flakes — seen 2026-08-14, "mingw package files install
+          # failed with exit code 1", nothing to do with the code under test.
+          # Fall back to choco (with retries) only if no gcc is present.
+          if command -v gcc >/dev/null 2>&1; then
+            echo "gcc already on PATH: $(gcc --version | head -1)"
+            exit 0
+          fi
+          if [ -x /c/msys64/mingw64/bin/gcc.exe ]; then
+            echo "using the image's MinGW-w64 at C:\msys64\mingw64\bin"
+            echo "C:\msys64\mingw64\bin" >> "$GITHUB_PATH"
+            exit 0
+          fi
+          for attempt in 1 2 3; do
+            if choco install mingw -y --no-progress; then exit 0; fi
+            echo "::warning::choco install mingw failed (attempt $attempt/3); retrying"
+            sleep 15
+          done
+          echo "::error::MinGW unavailable: no gcc on PATH, none in the image, and choco failed 3x"
+          exit 1
 
       - name: Install coreutils (macOS)
         if: steps.cache-valid.outputs.skip != 'true' && matrix.os == 'macos-14'
@@ -2123,7 +2145,29 @@ jobs:
       - name: Install MinGW (Windows)
         if: matrix.os == 'windows-2022'
         shell: bash
-        run: choco install mingw -y
+        run: |
+          # The windows-2022 image already ships MinGW-w64 (MSYS2,
+          # C:\msys64\mingw64\bin). Prefer it: `choco install mingw` hits
+          # community.chocolatey.org on EVERY run and takes the whole job down
+          # when that flakes — seen 2026-08-14, "mingw package files install
+          # failed with exit code 1", nothing to do with the code under test.
+          # Fall back to choco (with retries) only if no gcc is present.
+          if command -v gcc >/dev/null 2>&1; then
+            echo "gcc already on PATH: $(gcc --version | head -1)"
+            exit 0
+          fi
+          if [ -x /c/msys64/mingw64/bin/gcc.exe ]; then
+            echo "using the image's MinGW-w64 at C:\msys64\mingw64\bin"
+            echo "C:\msys64\mingw64\bin" >> "$GITHUB_PATH"
+            exit 0
+          fi
+          for attempt in 1 2 3; do
+            if choco install mingw -y --no-progress; then exit 0; fi
+            echo "::warning::choco install mingw failed (attempt $attempt/3); retrying"
+            sleep 15
+          done
+          echo "::error::MinGW unavailable: no gcc on PATH, none in the image, and choco failed 3x"
+          exit 1
 
       - name: Install coreutils (macOS)
         if: matrix.os == 'macos-14'
@@ -2708,7 +2752,29 @@ jobs:
       - name: Install MinGW (Windows)
         if: matrix.os == 'windows-2022' && matrix.family.key != 'rust'
         shell: bash
-        run: choco install mingw -y
+        run: |
+          # The windows-2022 image already ships MinGW-w64 (MSYS2,
+          # C:\msys64\mingw64\bin). Prefer it: `choco install mingw` hits
+          # community.chocolatey.org on EVERY run and takes the whole job down
+          # when that flakes — seen 2026-08-14, "mingw package files install
+          # failed with exit code 1", nothing to do with the code under test.
+          # Fall back to choco (with retries) only if no gcc is present.
+          if command -v gcc >/dev/null 2>&1; then
+            echo "gcc already on PATH: $(gcc --version | head -1)"
+            exit 0
+          fi
+          if [ -x /c/msys64/mingw64/bin/gcc.exe ]; then
+            echo "using the image's MinGW-w64 at C:\msys64\mingw64\bin"
+            echo "C:\msys64\mingw64\bin" >> "$GITHUB_PATH"
+            exit 0
+          fi
+          for attempt in 1 2 3; do
+            if choco install mingw -y --no-progress; then exit 0; fi
+            echo "::warning::choco install mingw failed (attempt $attempt/3); retrying"
+            sleep 15
+          done
+          echo "::error::MinGW unavailable: no gcc on PATH, none in the image, and choco failed 3x"
+          exit 1
 
       # OCaml: lang_ocaml WORKS once dune + ctypes are present. setup-ocaml is
       # Linux/macOS only; only the scripting family needs it.
