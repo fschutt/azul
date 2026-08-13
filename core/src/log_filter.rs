@@ -235,7 +235,11 @@ pub fn category_from_name(name: &str) -> Option<Category> {
 /// Split out from [`init_from_env`] so it is testable without touching the
 /// process environment.
 #[must_use]
-pub fn parse(raw: &str) -> (Option<Level>, Vec<(Category, bool)>) {
+// The path stays QUALIFIED: `use alloc::vec::Vec` below is in scope for the
+// BODY, not the signature, and without `std` there is no prelude `Vec`.
+// clippy::unused_qualifications sees only the std build, where it resolves.
+#[allow(unused_qualifications)]
+pub fn parse(raw: &str) -> (Option<Level>, alloc::vec::Vec<(Category, bool)>) {
     use alloc::vec::Vec;
     let mut level = Some(Level::Debug); // unset / unrecognised -> Debug (the historical default)
     let mut overrides: Vec<(Category, bool)> = Vec::new();

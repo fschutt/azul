@@ -55432,7 +55432,8 @@
                         "derive": [
                             "Debug",
                             "Clone",
-                            "PartialEq"
+                            "PartialEq",
+                            "Eq"
                         ],
                         "struct_fields": [
                             {
