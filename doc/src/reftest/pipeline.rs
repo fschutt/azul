@@ -151,6 +151,25 @@ impl ReftestPipeline {
   <alias><family>Georgia</family><prefer><family>Noto Serif</family></prefer></alias>
   <alias><family>Courier</family><prefer><family>Noto Sans Mono</family></prefer></alias>
   <alias><family>Courier New</family><prefer><family>Noto Sans Mono</family></prefer></alias>
+
+  <!-- Pin the RASTERISATION, not just the family. Measured 2026-08-14: azul's
+       rendered images were byte-identical between CI and a local run, but
+       Chrome's were not, even on the same pinned Chrome 150.0.7871.124 with a
+       cold reference cache. Sampling the differing pixels of
+       cascade-specificity-001 showed why — CI produced blends with G == B
+       (grayscale AA) while local produced independent per-channel values
+       (subpixel/LCD AA, each channel sampled at its own x-offset). fontconfig
+       had no opinion on either machine, so each inherited its own default, and
+       eight text-heavy cases sat close enough to the 0.5% threshold to flip.
+       Stating antialias/rgba/hinting makes the oracle's text rasterisation a
+       property of this file rather than of whoever's machine ran it. -->
+  <match target="font">
+    <edit name="antialias" mode="assign"><bool>true</bool></edit>
+    <edit name="rgba"      mode="assign"><const>rgb</const></edit>
+    <edit name="hinting"   mode="assign"><bool>true</bool></edit>
+    <edit name="hintstyle" mode="assign"><const>hintslight</const></edit>
+    <edit name="lcdfilter" mode="assign"><const>lcddefault</const></edit>
+  </match>
 </fontconfig>
 "#,
             cache = cache_dir.display()
