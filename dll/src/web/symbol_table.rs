@@ -164,6 +164,39 @@ pub enum FnClass {
     /// HashMaps hash + probe consistently. The seed needn't be random — only
     /// consistent within the process (no HashDoS threat here).
     HashmapRandomKeys,
+    /// `std::env::var_os(key) -> Option<OsString>` — reads the host process
+    /// environment block, which does NOT exist in wasm. As a plain `Leaf` it
+    /// becomes an env import whose stub returns 0 and, crucially, NEVER WRITES
+    /// THE SRET BUFFER, so the caller reads an uninitialised `Option<OsString>`
+    /// off the guest stack: a garbage `Some(ptr,cap,len)`. The first consumer
+    /// (`OsStr::to_str` → `core::str::from_utf8`) then walks a wild slice and
+    /// traps `memory access out of bounds`. Observed 2026-08-14 as the REAL
+    /// solveLayoutReal OOB via `ScrollManager::new`'s `AZ_NATURAL_SCROLL`
+    /// override. Helper IR gives it a body that writes `None` (`Option<OsString>`
+    /// uses the null-pointer niche, so all-zero IS `None`) — semantically the
+    /// right answer in a browser: no environment ⇒ variable unset.
+    EnvVarOs,
+    /// MSVC's stack-probe thunk (`__chkstk` / `_alloca_probe` /
+    /// `_chkstk`). EVERY function whose frame is >= one page uses the
+    /// idiom `mov eax, <frame_size>; call __chkstk; sub rsp, rax`. Its
+    /// Win-x64 contract is: RAX in = frame size, and it **returns with
+    /// RAX UNCHANGED** (it only touches guard pages, via
+    /// `mov r11, gs:[0x10]` = TEB StackLimit, and probes downwards).
+    ///
+    /// As a plain `Leaf` its stub RETURNS 0, so `sub rsp, rax` becomes
+    /// `sub rsp, 0` and **the frame is never allocated**: the function's
+    /// locals then overlap every callee's frame, and each call scribbles
+    /// over them. Observed 2026-08-14 as the real `solveLayoutReal` OOB —
+    /// its `StyledDom` local (0x200(%rsp), frame 0x3698) read back as
+    /// ASCII fragments of font/CSS strings left by `with_memory_fonts` /
+    /// `LayoutWindow::new`, and the FNV loop over `prev_font_hashes` then
+    /// dereferenced `0x2C005B02`. Systemic: it hits EVERY fn with a large
+    /// frame (also pulled in by `LayoutWindow::from_font_manager`).
+    ///
+    /// wasm has no guard pages, so the probing is pointless here; the
+    /// only semantics that matters is "leave RAX alone". Helper IR gives
+    /// it an empty body that does NOT write the return slot.
+    ChkStk,
     /// Known leaf with no real body to lift — typed extern goes to
     /// the WASM as an env import. (System libraries, libc, libdyld,
     /// libpthread, mangled Rust runtime internals like
@@ -786,6 +819,8 @@ impl SymbolTable {
                     | FnClass::CallIndirectLayout4
                     | FnClass::ResolveCallback
                     | FnClass::HashmapRandomKeys
+                    | FnClass::EnvVarOs
+                    | FnClass::ChkStk
                     | FnClass::NeverLift
                     // LibcMemcpy is *always* out-of-image (it IS a
                     // libsystem symbol) — but it has a synthetic
@@ -2364,15 +2399,24 @@ fn classify_for_name(name: &str, api: &HashMap<String, ApiFnClass>) -> FnClass {
     //    macOS-style `___rust_alloc`, Linux-style `__rust_alloc`,
     //    and v0-mangled wrappers.
     let stripped = name.trim_start_matches('_');
-    // Windows x64 stack probe (compendium A2): MSVC emits a `__chkstk`
-    // call in the prologue of every fn with a frame > 4 KiB. On x64
-    // the probe does NOT adjust RSP (RAX carries the size; only guard
-    // pages get touched) — wasm linear memory needs no guard probing,
-    // so a plain no-op Leaf IS "SP as if the probe ran". (The x86-32
-    // `_chkstk` variant DOES move ESP and must never be Leaf'd; this
-    // port targets x64 only.)
-    if stripped == "chkstk" {
-        return FnClass::Leaf;
+    // Windows x64 stack probe (compendium A2): MSVC emits a `__chkstk` /
+    // `_alloca_probe` call in the prologue of every fn with a frame > 4 KiB.
+    //
+    // 2026-08-14: this used to `return FnClass::Leaf` here, on the reasoning
+    // that "the probe does NOT adjust RSP, and wasm needs no guard probing, so
+    // a no-op Leaf IS 'SP as if the probe ran'". That is HALF RIGHT AND FATAL:
+    // the probe doesn't move RSP, but it DOES return RAX unchanged, and the
+    // caller's very next instruction is `sub rsp, rax`. A Leaf stub RETURNS 0,
+    // so the frame silently collapses to zero bytes and every callee then
+    // overwrites this function's locals. (Observed as the solveLayoutReal OOB:
+    // its `StyledDom` local read back as ASCII fragments of font/CSS strings.)
+    // `FnClass::ChkStk` gets an EMPTY helper body that leaves RAX alone.
+    //
+    // NOTE `stripped` has already had leading underscores trimmed, so the real
+    // symbol `_alloca_probe` arrives here as `alloca_probe` — matching on
+    // `_alloca_probe` would never fire. Variants: `_alloca_probe_16`, `_chkstk`.
+    if stripped == "chkstk" || stripped.starts_with("alloca_probe") {
+        return FnClass::ChkStk;
     }
     // Order matters: `rust_alloc_zeroed` must match BEFORE `rust_alloc`
     // (which is a prefix). Similarly `rust_realloc` is a separate
@@ -2441,6 +2485,16 @@ fn classify_for_name(name: &str, api: &HashMap<String, ApiFnClass>) -> FnClass {
     // dedicated helper that returns a FIXED non-zero seed so all lifted HashMaps
     // are internally consistent. (Matched on the std module path, not a one-off
     // mangled-name fragment — this is a known std primitive needing a real stub.)
+    // `std::env::var_os` reads the host process environment block, which does not
+    // exist in wasm. Left as a Leaf, its stub returns 0 and never writes the sret
+    // `Option<OsString>`, so the caller consumes uninitialised guest stack as a
+    // garbage `Some(ptr,cap,len)` and the first `to_str()`/`from_utf8` walks a wild
+    // slice → `memory access out of bounds`. Give it a real "None" body instead.
+    if stripped.contains("env::var_os") || stripped.contains("env..var_os") {
+        return FnClass::EnvVarOs;
+    }
+    // (The MSVC stack-probe thunks __chkstk / _alloca_probe are classified as
+    // FnClass::ChkStk at the very top of this fn, before any other rule.)
     if stripped.contains("hashmap_random_keys") {
         return FnClass::HashmapRandomKeys;
     }

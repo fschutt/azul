@@ -7771,6 +7771,51 @@ fn emit_helper_ir(
                     x1_off = ret_hi_off,
                 ));
             }
+            // EnvVarOs: `std::env::var_os(key) -> Option<OsString>`.
+            //   Windows x64: hidden sret pointer in ARG[0] (RCX); the callee also
+            //   returns that pointer in RAX. There is no process environment in
+            //   wasm, so the semantically correct answer is ALWAYS `None`.
+            //   `Option<OsString>` = `Option<Vec<u8>>`-shaped {ptr,cap,len} = 24 B
+            //   using the null-pointer niche, so writing 24 zero bytes IS `None`.
+            //   Without this the Leaf stub leaves the sret buffer untouched and the
+            //   caller reads stack garbage as `Some(..)` → `from_utf8` OOB.
+            // __chkstk / _alloca_probe: probe guard pages, return RAX UNCHANGED.
+            // wasm has no guard pages, so the correct body is *empty* — and it must
+            // NOT write the return slot, because the caller's next instruction is
+            // `sub rsp, rax`. The default Leaf stub writes 0 there, which silently
+            // deletes the whole stack frame (see FnClass::ChkStk).
+            Some(SymFnClass::ChkStk) => {
+                branch_stubs.push_str(&format!(
+                    "; __chkstk/_alloca_probe no-op (RAX left untouched: caller does `sub rsp, rax`) for {sym}\n\
+                     define linkonce_odr ptr @{sym}(ptr %state, i64 %pc, ptr %memory) alwaysinline {{\n  \
+                       ret ptr %memory\n\
+                     }}\n",
+                    sym = ext.sym_name,
+                ));
+            }
+            Some(SymFnClass::EnvVarOs) => {
+                branch_stubs.push_str(&format!(
+                    "; std::env::var_os → None (no process environment in wasm) for {sym}\n\
+                     define linkonce_odr ptr @{sym}(ptr %state, i64 %pc, ptr %memory) alwaysinline {{\n  \
+                       %sretp_{n} = getelementptr inbounds i8, ptr %state, i64 {x0_off}\n  \
+                       %sret64_{n} = load i64, ptr %sretp_{n}, align 8\n  \
+                       %sret32_{n} = trunc i64 %sret64_{n} to i32\n  \
+                       %dst_{n} = inttoptr i32 %sret32_{n} to ptr\n  \
+                       store i64 0, ptr %dst_{n}, align 8\n  \
+                       %d8_{n} = getelementptr inbounds i8, ptr %dst_{n}, i64 8\n  \
+                       store i64 0, ptr %d8_{n}, align 8\n  \
+                       %d16_{n} = getelementptr inbounds i8, ptr %dst_{n}, i64 16\n  \
+                       store i64 0, ptr %d16_{n}, align 8\n  \
+                       %retp_{n} = getelementptr inbounds i8, ptr %state, i64 {ret_off}\n  \
+                       store i64 %sret64_{n}, ptr %retp_{n}, align 8\n  \
+                       ret ptr %memory\n\
+                     }}\n",
+                    sym = ext.sym_name,
+                    n = n_suffix,
+                    x0_off = x0_off,
+                    ret_off = ret_off,
+                ));
+            }
             // BumpRealloc: __rust_realloc(old_ptr, old_size, align, new_size).
             //   X0=old_ptr, X1=old_size, X2=align (ignored), X3=new_size.
             //   Returns: new_ptr in X0.
