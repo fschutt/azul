@@ -9975,18 +9975,25 @@ fn run_tool_once(prog: &Path, args: &[&str], fn_name: &str) -> Result<(), Transp
                     fn_name: fn_name.to_string(),
                     reason: format!("spawn {}: {e}", prog.display()),
                 })?;
-            let _ = std::fs::remove_file(&path);
             if !out.status.success() {
+                // KEEP the flagfile on failure: it is the EXACT reproducer
+                // (bytes + extra_data) for a lifter crash, and those crashes are
+                // only reachable via the devirt path, so they cannot be
+                // reproduced from the function bytes alone. Deleting it first
+                // (as this did) threw away the one artifact needed to debug it.
                 return Err(TranspileError {
                     fn_name: fn_name.to_string(),
                     reason: format!(
-                        "{} failed (flagfile): {}\nstderr: {}",
+                        "{} failed (flagfile): {}\nrepro: {} --flagfile={}\nstderr: {}",
                         prog.display(),
                         out.status,
+                        prog.display(),
+                        path.display(),
                         String::from_utf8_lossy(&out.stderr).trim()
                     ),
                 });
             }
+            let _ = std::fs::remove_file(&path);
             return Ok(());
         }
     }
