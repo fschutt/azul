@@ -605,6 +605,15 @@ impl AnimationManager {
         self.active.get(&key)
     }
 
+    /// Every in-flight animation with its key.
+    ///
+    /// The compositor needs this each frame to turn identity-keyed animation
+    /// state into per-`NodeId` GPU values; it cannot ask for keys it does not
+    /// already know about.
+    pub fn iter(&self) -> impl Iterator<Item = (AnimKey, &ActiveAnim)> {
+        self.active.iter().map(|(k, v)| (*k, v))
+    }
+
     /// Advance every animation and drop the ones that arrived.
     ///
     /// Returns the keys that finished this tick, so the caller can release the
@@ -679,6 +688,39 @@ where
         out.push((key, first, last));
     }
     out
+}
+
+/// The `AnimKey` → current `NodeId` mapping for this frame's correspondences.
+///
+/// Animation state is keyed by reconciliation identity so it can outlive a
+/// rebuild, but the compositor writes GPU values per `NodeId`. Something has to
+/// bridge the two, and it has to be rebuilt every layout: the key is stable
+/// across rebuilds precisely because the NodeId is not.
+///
+/// Kept separate from [`correspondences_from_moves`] rather than folded into its
+/// return type, because the two have different lifetimes — the correspondences
+/// are consumed once at seed time, this map is read every frame until the
+/// animation settles.
+#[must_use]
+pub fn anim_keys_for_moves(
+    node_moves: &[NodeMove],
+    new_node_data: &[NodeData],
+    new_hierarchy: &[NodeHierarchyItem],
+) -> Vec<(AnimKey, NodeId)> {
+    node_moves
+        .iter()
+        .filter(|m| m.new_node_id.index() < new_node_data.len())
+        .map(|m| {
+            (
+                AnimKey(calculate_reconciliation_key(
+                    new_node_data,
+                    new_hierarchy,
+                    m.new_node_id,
+                )),
+                m.new_node_id,
+            )
+        })
+        .collect()
 }
 
 /// Seed (or retarget) a FLIP move for every correspondence whose geometry moved.

@@ -743,6 +743,8 @@ const fn memory_walk_coverage_is_exhaustive(w: &LayoutWindow) {
         // document ten times larger does not make this bigger; only ten times
         // as much simultaneous motion would, which is user-driven.
         animations: _,
+        // Rebuilt wholesale each layout; one entry per animating node.
+        anim_key_to_node: _,
         // Two u64 arrays sized by node count (~16 B/node) — noise next to
         // the tree; walked nowhere, listed so the destructure stays total.
         last_dom_fingerprints: _,
@@ -969,6 +971,17 @@ pub struct LayoutWindow {
     /// reconciliation key precisely so an in-flight animation survives the
     /// NodeId churn a rebuild causes — see `azul_core::animation`.
     pub animations: azul_core::animation::AnimationManager,
+    /// `AnimKey` → current `NodeId`, rebuilt on every layout.
+    ///
+    /// The animation store is keyed by reconciliation identity so state can
+    /// outlive a rebuild; the GPU cache is keyed by `NodeId`, which cannot.
+    /// This is the bridge, and it is deliberately rebuilt rather than migrated:
+    /// after a rebuild the old NodeIds are meaningless, so a stale entry here
+    /// would write a transform onto whatever unrelated node inherited the slot.
+    pub anim_key_to_node: alloc::collections::BTreeMap<
+        azul_core::animation::AnimKey,
+        azul_core::dom::NodeId,
+    >,
     pub layout_cache: Solver3LayoutCache,
     /// Text layout cache for text3 (shaped glyphs, line breaks, etc.)
     pub text_cache: TextLayoutCache,
@@ -1414,6 +1427,7 @@ impl LayoutWindow {
             #[cfg(feature = "pdf")]
             fragmentation_context: crate::paged::FragmentationContext::new_continuous(800.0),
             animations: azul_core::animation::AnimationManager::new(),
+            anim_key_to_node: alloc::collections::BTreeMap::new(),
             layout_cache: Solver3LayoutCache {
                 tree: None,
                 resize_only_hint: false,
@@ -6612,6 +6626,58 @@ impl LayoutWindow {
         moved
     }
 
+    /// Advance layout animations by `dt` seconds and publish the result to the
+    /// GPU value cache. Returns true while anything is still moving, which is
+    /// the caller's signal to schedule another frame.
+    ///
+    /// This is what makes a DOM transition cost a GPU key instead of a relayout:
+    /// the solved layout is already at the destination, and the animation writes
+    /// the *offset back toward where the node came from*, shrinking to zero. The
+    /// display list is not rebuilt, and neither is the layout.
+    ///
+    /// Writes into `css_current_transform_values` / `current_opacity_values` —
+    /// the same maps the CSS `transform` property feeds, and the same ones the
+    /// CPU rasteriser, the hit-tester and the a11y snapshot already read. An
+    /// animated node is therefore hit-testable at its *animated* position for
+    /// free, rather than at a phantom pre-animation rect.
+    pub fn tick_animations(&mut self, dt: f32) -> bool {
+        if self.animations.is_empty() {
+            return false;
+        }
+        let finished = self.animations.tick(dt);
+
+        let dom_id = DomId::ROOT_ID;
+        let cache = self.gpu_state_manager.caches.entry(dom_id).or_default();
+
+        for (key, anim) in self.animations.iter() {
+            let Some(node_id) = self.anim_key_to_node.get(&key).copied() else {
+                // The key is animating but its node is not in the CURRENT tree —
+                // a rebuild dropped it. Phase 2 (exit retention) is what will
+                // give these somewhere to composite; until then there is nothing
+                // to write and skipping is correct, not a lost frame.
+                continue;
+            };
+            let t = anim.current_transform();
+            cache
+                .css_current_transform_values
+                .insert(node_id, flip_to_matrix(t));
+            cache
+                .current_opacity_values
+                .insert(node_id, anim.current_opacity());
+        }
+
+        // A settled animation must stop contributing a transform, or the node
+        // stays permanently offset by its last sampled value.
+        for key in finished {
+            if let Some(node_id) = self.anim_key_to_node.get(&key).copied() {
+                cache.css_current_transform_values.remove(&node_id);
+                cache.current_opacity_values.remove(&node_id);
+            }
+        }
+
+        !self.animations.is_empty()
+    }
+
     #[allow(clippy::too_many_lines)] // one cohesive fade state machine per scrollbar; no natural split
     pub fn synchronize_scrollbar_opacity(
         gpu_state_manager: &mut GpuStateManager,
@@ -11797,6 +11863,8 @@ impl LayoutWindow {
             // deliberately not by NodeId — that is what lets an animation
             // survive the NodeId churn of a rebuild. Nothing to remap here.
             animations: _,
+            // REBUILT each layout, never migrated — see the field docs.
+            anim_key_to_node: _,
             layout_cache: _,
             layout_results: _,
             // Content-addressed (hashes / font ids / image ids), never NodeIds:
@@ -14214,4 +14282,20 @@ fn alloc_format_merge(first_kept: &str, last_kept: &str) -> String {
     s.push_str(first_kept);
     s.push_str(last_kept);
     s
+}
+
+/// A FLIP transform as the row-major 4x4 the GPU value cache stores.
+///
+/// Scale is applied about the node's own origin and then translated, matching
+/// what the FLIP maths produced: `first` and `last` are both top-left rects, so
+/// the offset is already expressed from the same corner the scale grows from.
+fn flip_to_matrix(t: azul_core::animation::FlipTransform) -> azul_core::transform::ComputedTransform3D {
+    azul_core::transform::ComputedTransform3D {
+        m: [
+            [t.scale_x, 0.0, 0.0, 0.0],
+            [0.0, t.scale_y, 0.0, 0.0],
+            [0.0, 0.0, 1.0, 0.0],
+            [t.translate_x, t.translate_y, 0.0, 1.0],
+        ],
+    }
 }
