@@ -75,6 +75,10 @@ name = "anim"
 path = "src/anim.rs"
 
 [[example]]
+name = "transitions"
+path = "src/transitions.rs"
+
+[[example]]
 name = "icu_demo"
 path = "src/icu_demo.rs"
 required-features = ["icu"]
