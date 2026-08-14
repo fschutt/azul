@@ -37,11 +37,31 @@ echo "launching $PKG/$ACT"
 adb logcat -c
 adb shell am start -W -n "$PKG/$ACT"
 sleep 8
-# A crash on launch is the failure this whole job exists to catch.
-if adb logcat -d | grep -E "FATAL EXCEPTION|ClassNotFoundException|E AndroidRuntime"; then
+# A crash on launch is the failure this whole job exists to catch — but it must
+# be OUR crash. This grep was unfiltered, so any FATAL anywhere on the emulator
+# failed the job: 0.2.0 was reported as "the published APK crashed on launch"
+# on the strength of com.android.dialer / com.android.voicemail throwing in a
+# completely unrelated process. The APK was fine.
+#
+# A Java crash block always names its process ("Process: <pkg>, PID: ..."), so
+# scoping to $PKG is both precise and cheap. `pidof` below stays as the positive
+# check, and is the stronger of the two: a native SIGSEGV writes no
+# AndroidRuntime block at all, and only "is it still alive?" catches that.
+adb logcat -d > /tmp/logcat.txt || true
+if grep -E "FATAL EXCEPTION|ClassNotFoundException|E AndroidRuntime" /tmp/logcat.txt \
+     | grep -q "$PKG"; then
+  echo "::group::crash block for $PKG"
+  grep -B 5 -A 40 -E "FATAL EXCEPTION" /tmp/logcat.txt | grep -A 40 "$PKG" || true
+  echo "::endgroup::"
   echo "::error::the published APK crashed on launch"
   exit 1
 fi
 adb shell pidof "$PKG" >/dev/null \
-  || { echo "::error::$PKG is not running 8s after launch"; exit 1; }
+  || {
+    echo "::group::logcat tail (app died with no Java crash block — look for a native abort)"
+    tail -200 /tmp/logcat.txt || true
+    echo "::endgroup::"
+    echo "::error::$PKG is not running 8s after launch"
+    exit 1
+  }
 echo "APK installed, launched via its LAUNCHER activity, and still alive"
