@@ -2680,6 +2680,28 @@ pub trait EventProvider {
 #[derive(Debug, Clone, PartialEq, Eq)]
 #[must_use = "SystemChange must be processed through apply_system_change()"]
 pub enum SystemChange {
+    /// Advance layout animations by an EXACT step, bypassing the wall clock.
+    ///
+    /// Only the E2E surface emits this. A headless scenario cannot sample real
+    /// time: the same test would land on a different point of the curve on a
+    /// fast machine than a slow one, so any assertion mid-flight would be
+    /// flaky. Stepping by a fixed `dt` makes the trajectory a pure function of
+    /// how many times this ran.
+    ///
+    /// A `SystemChange` rather than a direct call because `CallbackInfo` hands
+    /// out `&LayoutWindow` only — mutation is required to go through this
+    /// channel, which is also where the mutable window actually exists.
+    /// Microseconds per step (16_666 = one 60 Hz frame). Integer, because
+    /// `SystemChange` is `Eq` and because an exact integer step is what makes
+    /// a replayed scenario reproduce bit-for-bit.
+    TickAnimations {
+        /// Microseconds to advance per step.
+        dt_micros: u32,
+        /// Number of steps, so a scenario can run an animation to completion in
+        /// one op instead of repeating itself.
+        steps: u32,
+    },
+
     // === Text Selection ===
 
     /// Process a mouse click for text selection (single/double/triple click).
