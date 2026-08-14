@@ -386,6 +386,42 @@ function failSync(msg) { console.error('FAIL:', msg); process.exit(1); }
             // [2d solver] After hydrate, run the real layout solver (the browser
             // path) + report positioned-rects count — the cache geometric hit-test
             // reads. Exercises the full post-hydrate path end-to-end.
+            // [AZ-DIAG REVERT] repro probes — run BEFORE the solve so a solve trap
+            // doesn't hide them. probeFontDir is side-effect free; probeFmt may trap,
+            // so its progress marker (0x40910) is read afterwards either way.
+            try {
+                const P = s => (mini.AzStartup_probeFontDir(s) >>> 0);
+                const hx = v => '0x' + v.toString(16);
+                console.log('[2d-fontdir] ptr=' + hx(P(0)) + ' len=' + P(1) + ' numTables=' + P(2) +
+                    ' matched_r=' + hx(P(3)) + ' (expect 0x7c)');
+                console.log('[2d-fontdir2] be32@124(tag)=' + hx(P(4)) + ' (expect 0x68656164)' +
+                    '  be32@132(off)=' + hx(P(5)) + ' (expect 0x16f9c)' +
+                    '  raw32@132=' + hx(P(6)) + '  b[132]=' + hx(P(7)) + ' b[135]=' + hx(P(8)));
+                console.log('[2d-fontdir3] loop+tailcall result=' + hx(P(99)) + ' (expect 0x16f9c)');
+            } catch (e) { console.log('[2d-fontdir] TRAPPED: ' + (e.message || e)); }
+            // AZ_SKIP_FMT=1: a TRAPPING export never runs its epilogue, so its
+            // `global.set 0` (shadow-stack pointer) is never restored — the frame
+            // is 134592 bytes and SP starts at 196608, so ONE leaked frame makes
+            // every LATER exported call underflow SP and trap OOB on its first
+            // frame write. Skip probeFmt to measure the solve WITHOUT that leak.
+            try {
+                const fm = (mini.AzStartup_probeFmt && !process.env.AZ_SKIP_FMT)
+                    ? mini.AzStartup_probeFmt(255) >>> 0 : -1;
+                console.log('[2d-fmt] total_len=' + fm + ' (all 5 format! shapes OK)');
+            } catch (e) {
+                console.log('[2d-fmt] TRAPPED: ' + (e.message || e));
+                // The wasm frames name the failing function — that is the whole point.
+                console.log('[2d-fmt-stack] ' + String(e.stack || '').split('\n').slice(0, 6).join(' | '));
+            }
+            // Read the progress marker straight out of linear memory: AzStartup_peekU32
+            // is itself a lifted fn and can trap, which would hide the marker.
+            try {
+                const dvf = new DataView(memory.buffer);
+                const m = dvf.getUint32(0x40910, true) >>> 0;
+                console.log('[2d-fmt-mark] 0x' + m.toString(16) + ' → last COMPLETED step=' + (m & 0xff) +
+                    ' len=' + (m >>> 16) +
+                    '  [1=Display<u32> 2=Display<String> 3=LowerHex<usize> 4=Debug<(u8,u8)> 5=Display<f32>]');
+            } catch (e) { console.log('[2d-fmt-mark] read failed: ' + (e.message || e)); }
             try {
                 const solveFn = mini.AzStartup_solveLayoutReal || mini.AzStartup_solveLayout;
                 if (typeof solveFn === 'function') {
@@ -432,6 +468,76 @@ function failSync(msg) { console.error('FAIL:', msg); process.exit(1); }
                 const u = (a) => dv2.getUint32(a, true);
                 console.log('[2d-hashmap] sanity BTm(' + u(0x40700) + ',' + u(0x40704) + '=2,161) BTmStr(' + u(0x40708) + ',' + u(0x4070C) + '=2,20) Vec(' + u(0x40710) + ',' + u(0x40714) + '=2,5)');
                 console.log('[2d-sse] sse1movemask(0x' + u(0x40718).toString(16) + ' want ffff) pcmpeqb(0x' + u(0x4071C).toString(16) + ' want 15) set1(0x' + u(0x40720).toString(16) + ' want ffff) memset+movdqu(0x' + u(0x40724).toString(16) + ' want ffff) memsetByte(0x' + u(0x40728).toString(16) + ' want ff) HM(' + u(0x4072C) + ' want 2)  [0xdead000N=trapped before]');
+                // [AZ-DIAG 2026-08-13 REVERT] format! decomposition (which write returns Err → the fmt mis-lift)
+                console.log('[2d-fmt] write_str(408A0)=0x'+u(0x408A0).toString(16)+' write!int(408A4)=0x'+u(0x408A4).toString(16)+
+                    ' write!lit(408A8)=0x'+u(0x408A8).toString(16)+' len(408AC)='+u(0x408AC)+
+                    '  [B0B00001=Ok B0B0000E=Err → the FIRST Err isolates the mis-lifted write path]');
+                // [AZ-DIAG 2026-08-13 REVERT] alloc / unreachable-tag markers (layout-real.js addrs):
+                // is the func[124] "unreachable" a handle_alloc_error (bump alloc returned null)?
+                const retLo=u(0x40040),retHi=u(0x40044),nlLo=u(0x40048),nlHi=u(0x4004C),utag=u(0x40050),aszLo=u(0x40030),acnt=u(0x40038);
+                console.log('[2d-alloc] last_alloc_ret=0x'+retHi.toString(16)+retLo.toString(16).padStart(8,'0')+
+                    ' NeverLift_reached=0x'+nlHi.toString(16)+nlLo.toString(16).padStart(8,'0')+' (0x37993a0=handle_alloc_error)'+
+                    ' last_alloc_size='+aszLo+' alloc_count='+acnt+
+                    ' | unreachable_tag=0x'+utag.toString(16)+((utag>>>16)===0x554e?(' → LIVE unreachable id='+(utag&0xffff)):' (not tagged)'));
+                // [AZ-DIAG 2026-08-14 REVERT] __az_indirect_dispatch no-match diagnostics:
+                // 0x40158 = unk-hit COUNTER (pre-existing); 0x40900 = last unmatched target PC.
+                // [AZ-DIAG 2026-08-14 REVERT] decode the font-parse failure reason:
+                // eventloop.rs packs the first 12 bytes of warns[0].message at 0x40658/5C/60
+                // when ParsedFont::from_bytes returns None (0x40650 == 0xF051DEAD).
+                if (u(0x40650) === 0xF051DEAD) {
+                    const wb = [];
+                    for (const a of [0x40658, 0x4065C, 0x40660]) {
+                        const w = u(a);
+                        for (let s = 0; s < 32; s += 8) { const c = (w >>> s) & 0xFF; if (c) wb.push(c); }
+                    }
+                    console.log('[2d-fontparse] FAILED: warns=' + u(0x40654) +
+                        ' msg[0..12]="' + String.fromCharCode.apply(null, wb) + '"');
+                } else {
+                    console.log('[2d-fontparse] ok tag=0x' + u(0x40650).toString(16) +
+                        ' upem=' + u(0x40654) + ' asc=' + (u(0x40658)|0) + ' desc=' + (u(0x4065C)|0));
+                }
+                // weak_noop(4041C) = emit_helper_ir's per-object WEAK no-op
+                // __az_indirect_dispatch, which just counts and returns. It is
+                // supposed to be overridden at link time by the strong switch
+                // (az_indirect_dispatch.o). If THIS is non-zero the indirect call
+                // never reached the real dispatcher at all — and unk_hits stays 0,
+                // which is why `unk_hits=0` alone must NEVER be read as
+                // "dispatch is fine" (it read 0 straight through the
+                // Formatter::pad tail-call failure).
+                // [AZ-DIAG REVERT] compact_cache.prev_font_hashes — the Vec the FNV
+                // loop in layout_dom_recursive_impl walks when it OOBs.
+                console.log('[2d-cc] prev_font_hashes len(405F0)=' + u(0x405F0) +
+                    ' ptr(405F4)=0x' + u(0x405F4).toString(16) +
+                    ' tier2b_text len(405F8)=' + u(0x405F8) +
+                    ' node_count(405FC)=' + u(0x405FC) +
+                    '  [len should == node_count; wild ptr vs huge len = different bugs]');
+                // [AZ-DIAG REVERT] same Vec, but as layout_dom_recursive_impl sees it
+                // (after the by-value StyledDom move). Differs from [2d-cc] => the move
+                // corrupted it; identical => the loop's own lift is at fault.
+                // Bisect inside solveLayoutReal: top(405F4) -> A(40640, after
+                // with_memory_fonts) -> B(40644, after LayoutWindow::new) -> pre-call.
+                // First slot that stops matching 0xa03d300 names the callee that
+                // scribbles over the caller's frame.
+                console.log('[2d-bisect] A_after_memfonts(40640)=0x' + u(0x40640).toString(16) +
+                    ' B_after_LayoutWindow_new(40644)=0x' + u(0x40644).toString(16) +
+                    '  [both should equal the [2d-cc] ptr]');
+                // Sampled in solveLayoutReal IMMEDIATELY BEFORE the call.
+                console.log('[2d-pre] cc_is_some(40630)=0x' + u(0x40630).toString(16) +
+                    ' len(40634)=' + u(0x40634) +
+                    ' ptr(40638)=0x' + u(0x40638).toString(16));
+                // Middle frame (layout_dom_recursive) — pins WHICH by-value copy corrupts.
+                console.log('[2d-ldr] cc_is_some(40620)=0x' + u(0x40620).toString(16) +
+                    ' len(40624)=' + u(0x40624) +
+                    ' ptr(40628)=0x' + u(0x40628).toString(16));
+                console.log('[2d-ldri] cc_is_some(40610)=' + u(0x40610) +
+                    ' len(40614)=' + u(0x40614) +
+                    ' ptr(40618)=0x' + u(0x40618).toString(16) +
+                    ' ptr_hi(4061C)=0x' + u(0x4061C).toString(16));
+                console.log('[2d-dispatch] unk_hits(40158)=' + u(0x40158) +
+                    ' last_unmatched_pc(40900)=0x' + u(0x40900).toString(16) +
+                    ' weak_noop_hits(4041C)=' + u(0x4041C) +
+                    '  [pc=0 → slot not mirrored; pc=native → not translated;' +
+                    ' pc=synth → target not lifted; weak_noop>0 → strong dispatcher not linked]');
                 console.log('[2d] solveLayout TRAPPED: ' + (e.stack || e.message));
             }
         }
