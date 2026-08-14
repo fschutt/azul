@@ -3541,6 +3541,25 @@ pub trait PlatformWindow {
     ) -> ProcessEventResult {
 
         match change {
+            SystemChange::TickAnimations { dt_micros, steps } => {
+                let dt = *dt_micros as f32 / 1_000_000.0;
+                let mut still = false;
+                if let Some(layout_window) = self.get_layout_window_mut() {
+                    for _ in 0..(*steps).max(1) {
+                        // `tick_animations`, NOT `tick_animations_now`: bypassing
+                        // the wall clock is the entire purpose.
+                        still = layout_window.tick_animations(dt);
+                    }
+                }
+                return if still {
+                    ProcessEventResult::ShouldUpdateDisplayListCurrentWindow
+                } else {
+                    // Settled on this step: one more frame is still owed, so the
+                    // final (identity) transform actually reaches the screen.
+                    ProcessEventResult::ShouldUpdateDisplayListCurrentWindow
+                };
+            }
+
             // === Text Selection ===
 
             SystemChange::TextSelectionClick { position, timestamp } => {
