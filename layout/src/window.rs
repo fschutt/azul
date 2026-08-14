@@ -6721,6 +6721,57 @@ impl LayoutWindow {
             }
         }
 
+        // CSS DIFF, alongside the DOM diff and for the same reason: the DOM diff
+        // knows which node became which, and NOTHING about whether its style
+        // moved. Two identical trees with different stylesheets are
+        // indistinguishable to it, which is why a CSS-only remount currently
+        // keeps stale geometry (e2e/bug-css-only-remount.json).
+        //
+        // Compared per matched pair over the union of both sides' property
+        // types, so a property that was REMOVED counts as a change too — a
+        // dropped `width` is every bit as layout-affecting as a changed one.
+        // Classified with the engine's own `relayout_scope`, and the widest
+        // scope wins (the enum is ordered None < IfcOnly < SizingOnly < Full).
+        let mut restyled: Vec<(NodeId, azul_css::props::property::RelayoutScope)> = Vec::new();
+        if let Some(old_result) = self.layout_results.get(&dom_id) {
+            let old_cache = &old_result.styled_dom.css_property_cache.ptr;
+            let new_cache = &styled_dom.css_property_cache.ptr;
+            let old_states = old_result.styled_dom.styled_nodes.as_ref();
+            let new_states = styled_dom.styled_nodes.as_ref();
+
+            for m in &diff.node_moves {
+                let (Some(old_nd), Some(new_nd)) = (
+                    old_node_data.get(m.old_node_id.index()),
+                    new_node_data.get(m.new_node_id.index()),
+                ) else {
+                    continue;
+                };
+                let (Some(old_state), Some(new_state)) = (
+                    old_states.get(m.old_node_id.index()),
+                    new_states.get(m.new_node_id.index()),
+                ) else {
+                    continue;
+                };
+
+                let mut worst = azul_css::props::property::RelayoutScope::None;
+                for ty in azul_css::props::property::CssPropertyType::ALL {
+                    let before =
+                        old_cache.get_property(old_nd, &m.old_node_id, &old_state.styled_node_state, ty);
+                    let after =
+                        new_cache.get_property(new_nd, &m.new_node_id, &new_state.styled_node_state, ty);
+                    if before != after {
+                        // IFC membership is not known here; `false` is the
+                        // conservative reading for the classifier's font/text
+                        // arm, which upgrades rather than downgrades.
+                        worst = worst.max(ty.relayout_scope(false));
+                    }
+                }
+                if worst != azul_css::props::property::RelayoutScope::None {
+                    restyled.push((m.new_node_id, worst));
+                }
+            }
+        }
+
         if !diff.node_moves.is_empty() {
             let mut old_mut = old_node_data.clone();
             azul_core::diff::transfer_states(&mut old_mut, &mut new_node_data, &diff.node_moves);
@@ -6739,6 +6790,7 @@ impl LayoutWindow {
 
         PendingReconciliation {
             node_moves: diff.node_moves,
+            restyled,
             mounted,
             unmounted,
             first_rects,
@@ -14562,6 +14614,22 @@ pub struct PendingReconciliation {
     /// Where each departing node was, so an exit has somewhere to animate FROM
     /// after its tree is gone.
     pub exit_rects: BTreeMap<NodeId, LogicalRect>,
+    /// Matched nodes whose CASCADE OUTPUT changed, and by how much.
+    ///
+    /// The DOM diff answers "which node became which"; it says nothing about
+    /// STYLE, so two structurally identical trees with different stylesheets
+    /// look identical to it. That is a real defect — see
+    /// `e2e/bug-css-only-remount.json`, where remounting the same markup with
+    /// `#sidebar { width: 40px }` instead of `200px` leaves the solved geometry
+    /// at 200px, because nothing downstream is told the cascade moved.
+    ///
+    /// Each entry is a NEW `NodeId` paired with the widest
+    /// [`RelayoutScope`](azul_css::props::property::RelayoutScope) among the
+    /// properties that changed on it. Reusing the engine's existing classifier
+    /// rather than inventing a second taxonomy is deliberate: a paint-only
+    /// change (colour, shadow) must NOT invalidate geometry, and conflating the
+    /// two would throw away the reuse this is meant to enable.
+    pub restyled: Vec<(NodeId, azul_css::props::property::RelayoutScope)>,
     /// The new tree, needed by `finish` to compute reconciliation keys.
     pub new_node_data: Vec<azul_core::dom::NodeData>,
     /// The new hierarchy, same reason.
@@ -14585,3 +14653,108 @@ fn layout_rect_to_logical(r: azul_css::props::basic::LayoutRect) -> LogicalRect 
 /// Scale an entering node starts at: close enough to 1 that it reads as a
 /// settle rather than a zoom, far enough from it to be visible at all.
 const ENTER_FROM_SCALE: f32 = 0.94;
+
+/// A subtree that has left the DOM but is still on screen, animating away.
+///
+/// # Why the whole previous frame is retained
+///
+/// The departing nodes are `NodeId`s into the OLD arena; the moment that arena
+/// goes, so do their styled data, their solved geometry and their display list.
+/// Retaining the previous `DomLayoutResult` keeps all three with **exactly one
+/// owner**, which is the property that matters here: this codebase has a
+/// double-free history (see the clone/drop audit) and the failure mode for a
+/// retained subtree is precisely two owners racing to free it. Nothing is
+/// cloned, nothing is reference-counted across the boundary, and the old frame
+/// is MOVED in rather than copied.
+///
+/// # Why it stays LIVE rather than becoming a snapshot
+///
+/// A pixel snapshot would freeze a video the instant it started sliding away —
+/// wrong for exactly the case exits exist for (a media card leaving a feed).
+/// Because the retained frame owns the real `StyledDom`, the departing subtree
+/// keeps its `RefAny` state and its timers keep firing until it is dropped.
+///
+/// # What a zombie must NOT do
+///
+/// It is visual only in the sense that matters for INPUT: it is excluded from
+/// the hit-test tag tree, so a click passes through to DOM B. Logic sees DOM B
+/// alone. A zombie never receives events, never re-enters layout, and never has
+/// its state migrated — `transfer_states` runs before it is created and only
+/// ever touches MATCHED nodes, which by definition a departing node is not.
+#[derive(Debug)]
+pub struct Zombie {
+    /// The previous frame, moved out whole. Sole owner of the departing state.
+    pub retained: DomLayoutResult,
+    /// Departing node → the exit animation driving it.
+    pub exits: BTreeMap<NodeId, azul_core::animation::AnimKey>,
+}
+
+impl Zombie {
+    /// True once every exit it is waiting on has settled, i.e. it may be
+    /// dropped. Checked against the live manager rather than a private timer so
+    /// there is ONE clock, and the drop happens at t=1 exactly.
+    #[must_use]
+    pub fn is_done(&self, animations: &azul_core::animation::AnimationManager) -> bool {
+        self.exits
+            .values()
+            .all(|k| animations.get(*k).is_none_or(azul_core::animation::ActiveAnim::is_finished))
+    }
+}
+
+#[cfg(test)]
+mod reconciliation_tests {
+    use azul_css::props::property::{CssPropertyType, RelayoutScope};
+
+    /// The CSS diff's whole value is telling "must relayout" from "repaint
+    /// only". If a colour change came back as `SizingOnly` or worse, every
+    /// restyle would invalidate geometry and the reuse this exists to enable
+    /// would be gone.
+    #[test]
+    fn paint_only_properties_do_not_demand_relayout() {
+        for ty in [
+            CssPropertyType::TextColor,
+            CssPropertyType::BackgroundContent,
+            CssPropertyType::Opacity,
+            CssPropertyType::Transform,
+        ] {
+            assert_eq!(
+                ty.relayout_scope(false),
+                RelayoutScope::None,
+                "{ty:?} must be repaint-only"
+            );
+        }
+    }
+
+    /// And the converse: a geometry property must never be classified as
+    /// paint-only, or `bug_css_only_remount` would stay broken even once the
+    /// diff is consulted.
+    #[test]
+    fn sizing_properties_demand_relayout() {
+        for ty in [
+            CssPropertyType::Width,
+            CssPropertyType::Height,
+            CssPropertyType::PaddingLeft,
+            CssPropertyType::MinWidth,
+        ] {
+            assert_ne!(
+                ty.relayout_scope(false),
+                RelayoutScope::None,
+                "{ty:?} changes geometry and must invalidate layout"
+            );
+        }
+    }
+
+    /// The widest scope must win when several properties change at once — the
+    /// merge is a `max`, and it only works because the enum is ordered
+    /// None < IfcOnly < SizingOnly < Full.
+    #[test]
+    fn relayout_scope_ordering_makes_max_meaningful() {
+        assert!(RelayoutScope::None < RelayoutScope::IfcOnly);
+        assert!(RelayoutScope::IfcOnly < RelayoutScope::SizingOnly);
+        assert!(RelayoutScope::SizingOnly < RelayoutScope::Full);
+        assert_eq!(
+            RelayoutScope::None.max(RelayoutScope::Full),
+            RelayoutScope::Full
+        );
+    }
+}

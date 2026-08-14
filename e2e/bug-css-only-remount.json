@@ -1,0 +1,66 @@
+{
+  "name": "bug_css_only_remount",
+  "expect": "fail",
+  "description": "CSS-ONLY REMOUNT DOES NOT RELAYOUT. Two mounts with IDENTICAL html and only a changed stylesheet (#sidebar width 200px -> 40px) leave the solved geometry at 200px. Found 2026-08-14 while writing the animation transition test: every FLIP came out identity because First and Last were both 200, so nothing animated. The width is deliberately 40px rather than 0px, to separate two candidate causes \u2014 if 0px were the problem (a dropped/ignored zero-length declaration) this test would pass, and the fact that it fails at 40px means the new stylesheet is not reaching layout at all. That points at reuse: the second mount produces a structurally identical tree, and whatever decides the geometry can be kept is not consulting the cascade. The fix is a CSS diff alongside the DOM diff at reconciliation time, so a matched node whose layout-affecting properties changed cannot have its geometry reused.",
+  "setup": {
+    "window_width": 400,
+    "window_height": 300,
+    "dpi": 96
+  },
+  "steps": [
+    {
+      "op": "mount",
+      "html": [
+        "<div id=\"root\">",
+        "  <div id=\"sidebar\">side</div>",
+        "  <div id=\"card\">card</div>",
+        "</div>"
+      ],
+      "css": [
+        "html, body { margin: 0; padding: 0; width: 100%; height: 100%; }",
+        "#root { width: 100%; height: 100%; display: flex; flex-direction: row; }",
+        "#sidebar { width: 200px; height: 100%; background: #333; }",
+        "#card { flex-grow: 1; height: 100%; background: #666; }"
+      ]
+    },
+    {
+      "op": "wait_frame"
+    },
+    {
+      "op": "get_node_layout",
+      "selector": "#sidebar"
+    },
+    {
+      "op": "assert_response",
+      "type": "node_layout",
+      "contains": "\"width\":200.0"
+    },
+    {
+      "op": "mount",
+      "html": [
+        "<div id=\"root\">",
+        "  <div id=\"sidebar\">side</div>",
+        "  <div id=\"card\">card</div>",
+        "</div>"
+      ],
+      "css": [
+        "html, body { margin: 0; padding: 0; width: 100%; height: 100%; }",
+        "#root { width: 100%; height: 100%; display: flex; flex-direction: row; }",
+        "#sidebar { width: 40px; height: 100%; background: #333; }",
+        "#card { flex-grow: 1; height: 100%; background: #666; }"
+      ]
+    },
+    {
+      "op": "wait_frame"
+    },
+    {
+      "op": "get_node_layout",
+      "selector": "#sidebar"
+    },
+    {
+      "op": "assert_response",
+      "type": "node_layout",
+      "contains": "\"width\":40.0"
+    }
+  ]
+}
