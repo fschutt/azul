@@ -1510,11 +1510,28 @@ mod autotest_generated {
         sample_peak_rss("autotest_peak_rss");
         let events = Probe::drain();
         if Probe::enabled() {
-            assert_eq!(events.len(), 1);
-            assert_eq!(events[0].name, "autotest_peak_rss");
+            // `sample_peak_rss` deliberately wraps its /proc (or mach) read in
+            // a `probe_rss_sample_cost` span so the profiler's own cost shows
+            // up as a line in its own report. So the drain holds TWO events,
+            // and the assertion has to be about the labelled Rss sample, not
+            // about the buffer length — the old `events.len() == 1` could only
+            // ever pass on the `!Probe::enabled()` path, i.e. never with the
+            // `probe` feature actually on, which is the only configuration
+            // where this test tests anything.
+            let rss: Vec<&Event> = events
+                .iter()
+                .filter(|ev| ev.name == "autotest_peak_rss")
+                .collect();
+            assert_eq!(rss.len(), 1, "drained: {events:?}");
             assert!(
-                rss_bytes(&events[0]).is_some(),
+                rss_bytes(rss[0]).is_some(),
                 "sample_peak_rss must emit an Rss-kind event"
+            );
+            assert!(
+                events
+                    .iter()
+                    .any(|ev| ev.name == "probe_rss_sample_cost"),
+                "the self-measurement span must still be recorded: {events:?}"
             );
         } else {
             assert!(events.is_empty());
