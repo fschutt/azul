@@ -1098,6 +1098,19 @@ phases.mark("after_layout_and_dl");
                     .map(layout_rect_to_logical)
             },
         );
+        // Rebuild the identity→NodeId bridge BEFORE seeding, so a key seeded
+        // this frame is already resolvable when the first tick composites it.
+        // Rebuilt wholesale: after a rebuild the previous NodeIds are
+        // meaningless, and a surviving stale entry would push this frame's
+        // transform onto whatever unrelated node inherited the array slot.
+        layout_window.anim_key_to_node = azul_core::animation::anim_keys_for_moves(
+            &anim_node_moves,
+            &anim_new_node_data,
+            &anim_new_hierarchy,
+        )
+        .into_iter()
+        .collect();
+
         let seeded = azul_core::animation::seed_moves(
             &mut layout_window.animations,
             correspondences,
