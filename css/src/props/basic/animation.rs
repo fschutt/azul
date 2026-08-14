@@ -47,6 +47,82 @@ pub struct SvgCubicCurve {
     pub ctrl_2: SvgPoint,
     pub end: SvgPoint,
 }
+/// Mass-spring-damper parameters for [`AnimationInterpolationFunction::Spring`].
+///
+/// Lives here rather than in `azul-core` because it is part of a `#[repr(C)]`
+/// CSS enum that crosses the C ABI; `azul-core` re-exports it so the animation
+/// engine can keep talking about `Spring` without reaching across layers.
+#[derive(Debug, Copy, Clone, PartialEq)]
+#[repr(C)]
+pub struct SpringCurve {
+    /// Pull toward the target. Higher = faster, more eager.
+    pub stiffness: f32,
+    /// Resistance. Higher = less overshoot; at critical damping, none.
+    pub damping: f32,
+    /// Inertia. Higher = more sluggish, more overshoot for a given stiffness.
+    pub mass: f32,
+}
+
+impl SpringCurve {
+    /// No overshoot, quick settle. The safe default for UI motion.
+    pub const SMOOTH: Self = Self { stiffness: 170.0, damping: 26.0, mass: 1.0 };
+    /// Soft and slow; for large surfaces where snappiness reads as jarring.
+    pub const GENTLE: Self = Self { stiffness: 120.0, damping: 20.0, mass: 1.0 };
+    /// Fast with a slight overshoot; for small controls that should feel crisp.
+    pub const SNAPPY: Self = Self { stiffness: 260.0, damping: 20.0, mass: 1.0 };
+
+    /// The damping ratio: < 1 under-damped (overshoots), 1 critical, > 1 over-damped.
+    #[must_use]
+    pub fn damping_ratio(&self) -> f32 {
+        let denom = 2.0 * (self.stiffness * self.mass).sqrt();
+        if denom == 0.0 { 0.0 } else { self.damping / denom }
+    }
+
+    /// One integration step. Returns the new `(value, velocity)`.
+    ///
+    /// `dt` is clamped: a stalled frame (tab restored, breakpoint hit) must not
+    /// hand the integrator a huge step and fling the value off to infinity.
+    #[must_use]
+    pub fn step(&self, value: f32, target: f32, velocity: f32, dt: f32) -> (f32, f32) {
+        let dt = dt.clamp(0.0, Self::MAX_STEP_SECS);
+        if self.mass <= 0.0 {
+            // Degenerate parameters: snap rather than divide by zero.
+            return (target, 0.0);
+        }
+        // Semi-implicit Euler: velocity first, then position FROM THE NEW
+        // velocity. That ordering is what makes this stable where explicit
+        // Euler is not.
+        let force = -self.stiffness * (value - target) - self.damping * velocity;
+        let new_velocity = velocity + (force / self.mass) * dt;
+        let new_value = value + new_velocity * dt;
+        (new_value, new_velocity)
+    }
+
+    /// Longest step handed to the integrator, in seconds (~3 frames at 60 Hz).
+    pub const MAX_STEP_SECS: f32 = 0.05;
+
+    /// Whether the spring has effectively arrived.
+    ///
+    /// Both conditions are required: near the target AND barely moving. Position
+    /// alone would settle at the peak of an overshoot, mid-flight.
+    #[must_use]
+    pub fn is_settled(&self, value: f32, target: f32, velocity: f32) -> bool {
+        (value - target).abs() < Self::EPSILON_VALUE && velocity.abs() < Self::EPSILON_VELOCITY
+    }
+
+    /// Distance below which a spring counts as arrived (~a sixteenth of a device px).
+    pub const EPSILON_VALUE: f32 = 0.06;
+    /// Speed below which a spring counts as stopped, in units/second.
+    pub const EPSILON_VELOCITY: f32 = 0.06;
+}
+
+
+impl Default for SpringCurve {
+    fn default() -> Self {
+        Self::SMOOTH
+    }
+}
+
 #[allow(variant_size_differences)] // repr(C,u8) FFI enum: boxing the large variant would change the C ABI (api.json bindings); size disparity accepted
 /// Represents an animation timing function.
 #[derive(Debug, Copy, Clone, PartialEq)]
@@ -58,6 +134,15 @@ pub enum AnimationInterpolationFunction {
     EaseOut,
     EaseInOut,
     CubicBezier(SvgCubicCurve),
+    /// A physical spring rather than a fixed-duration curve.
+    ///
+    /// Unlike every other variant this one has NO duration: it runs until the
+    /// mass settles. That is the point — a spring can be retargeted mid-flight
+    /// while preserving position AND velocity, so an interrupted animation
+    /// bends toward the new target instead of restarting from a standstill.
+    /// A bezier cannot express that, which is why engine-driven layout
+    /// transitions default to this.
+    Spring(SpringCurve),
 }
 
 /// An axis-aligned rectangle with optional rounded corners.
@@ -513,10 +598,32 @@ impl AnimationInterpolationFunction {
                 end: SvgPoint { x: 1.0, y: 1.0 },
             },
             Self::CubicBezier(c) => c,
+            // A spring HAS no equivalent curve — its shape depends on the
+            // velocity it carries at the moment it is sampled, which a fixed
+            // curve cannot represent. `ease-in-out` is returned as the closest
+            // fixed stand-in for callers that can only think in curves (CSS
+            // serialisation, the SVG path preview); anything actually animating
+            // a spring must integrate it instead — see
+            // `azul_core::animation::Spring::step`.
+            Self::Spring(_) => Self::EaseInOut.get_curve(),
         }
     }
 
+    /// Whether this function is a physical spring, and therefore has no
+    /// duration and cannot be evaluated as a curve.
+    ///
+    /// Callers that own a timeline must branch on this: asking a spring for its
+    /// value at `t` silently gives them an ease-in-out instead.
+    #[must_use]
+    pub const fn is_spring(self) -> bool {
+        matches!(self, Self::Spring(_))
+    }
+
     /// Evaluates the interpolation function at time `t`, returning the eased value.
+    ///
+    /// For a spring this evaluates the ease-in-out stand-in from
+    /// [`Self::get_curve`]; integrate the spring instead if you need its real
+    /// trajectory.
     #[must_use] pub fn evaluate(self, t: f64) -> f32 {
         f64_to_f32(self.get_curve().get_y_at_t(t))
     }

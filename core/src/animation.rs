@@ -26,13 +26,21 @@
 //! starting another discards the current velocity — the element visibly snaps.
 //! A spring integrates from the current `(value, velocity)`, so a retarget mid
 //! flight continues smoothly. That is the whole reason drag-release and
-//! rapid A→B→C feel right, and it is why this is in the core rather than
-//! expressed as another `AnimationInterpolationFunction`.
+//! rapid A→B→C feel right.
 //!
-//! `AnimationInterpolationFunction` is `#[repr(C)]` and mirrored in `api.json`,
-//! so adding a `Spring` variant to it would be an ABI break. [`Interp`] wraps
-//! that enum instead of extending it: curves stay exactly as they are, springs
-//! live alongside, and no binding regenerates.
+//! `Spring` is a real `#[repr(C)]` variant of `AnimationInterpolationFunction`,
+//! so a spring is expressible in CSS and across the C ABI like any other timing
+//! function — not a Rust-only concept bolted beside one. [`SpringCurve`] lives
+//! in `azul-css` next to the enum it belongs to and is re-exported here as
+//! [`Spring`], so there is exactly one definition of a type that crosses the
+//! ABI.
+//!
+//! That variant is unlike the others in one way worth knowing: it has **no
+//! duration**, so it cannot be evaluated at a normalised `t`. Anything holding a
+//! timeline must branch on `is_spring()`; `AnimChannel` does this by dispatching
+//! on [`Interp`], which is why springs never reach [`ease`].
+//!
+//! [`SpringCurve`]: azul_css::props::basic::animation::SpringCurve
 //!
 //! # no_std
 //!
@@ -54,79 +62,17 @@ use crate::{
 
 /// Mass-spring-damper parameters.
 ///
+/// Re-exported from `azul_css` so there is ONE definition: the spring is part
+/// of `AnimationInterpolationFunction`, which crosses the C ABI, and a second
+/// structurally-identical `Spring` in core would be a silent ABI trap the day
+/// one of them gained a field.
+///
 /// Integrated with semi-implicit (symplectic) Euler, which is the cheap,
 /// stable choice for interactive springs: it does not blow up at the frame
 /// rates a UI actually sees, and unlike the closed-form solution it needs no
 /// case split on the damping regime.
-#[derive(Debug, Clone, Copy, PartialEq)]
-#[repr(C)]
-pub struct Spring {
-    /// Pull toward the target. Higher = faster, more eager.
-    pub stiffness: f32,
-    /// Resistance. Higher = less overshoot; at critical damping, none.
-    pub damping: f32,
-    /// Inertia. Higher = more sluggish, more overshoot for a given stiffness.
-    pub mass: f32,
-}
+pub use azul_css::props::basic::animation::SpringCurve as Spring;
 
-impl Default for Spring {
-    fn default() -> Self {
-        Self::SMOOTH
-    }
-}
-
-impl Spring {
-    /// No overshoot, quick settle. The safe default for UI motion.
-    pub const SMOOTH: Self = Self { stiffness: 170.0, damping: 26.0, mass: 1.0 };
-    /// Soft and slow; for large surfaces where snappiness reads as jarring.
-    pub const GENTLE: Self = Self { stiffness: 120.0, damping: 20.0, mass: 1.0 };
-    /// Fast with a slight overshoot; for small controls that should feel crisp.
-    pub const SNAPPY: Self = Self { stiffness: 260.0, damping: 20.0, mass: 1.0 };
-
-    /// The damping ratio: < 1 under-damped (overshoots), 1 critical, > 1 over-damped.
-    #[must_use]
-    pub fn damping_ratio(&self) -> f32 {
-        let denom = 2.0 * (self.stiffness * self.mass).sqrt();
-        if denom == 0.0 { 0.0 } else { self.damping / denom }
-    }
-
-    /// One integration step. Returns the new `(value, velocity)`.
-    ///
-    /// `dt` is clamped: a stalled frame (tab restored, breakpoint hit) must not
-    /// hand the integrator a huge step and fling the value off to infinity.
-    #[must_use]
-    pub fn step(&self, value: f32, target: f32, velocity: f32, dt: f32) -> (f32, f32) {
-        let dt = dt.clamp(0.0, Self::MAX_STEP_SECS);
-        if self.mass <= 0.0 {
-            // Degenerate parameters: snap rather than divide by zero.
-            return (target, 0.0);
-        }
-        // Semi-implicit Euler: velocity first, then position FROM THE NEW
-        // velocity. That ordering is what makes this stable where explicit
-        // Euler is not.
-        let force = -self.stiffness * (value - target) - self.damping * velocity;
-        let new_velocity = velocity + (force / self.mass) * dt;
-        let new_value = value + new_velocity * dt;
-        (new_value, new_velocity)
-    }
-
-    /// Longest step handed to the integrator, in seconds (~3 frames at 60 Hz).
-    pub const MAX_STEP_SECS: f32 = 0.05;
-
-    /// Whether the spring has effectively arrived.
-    ///
-    /// Both conditions are required: near the target AND barely moving. Position
-    /// alone would settle at the peak of an overshoot, mid-flight.
-    #[must_use]
-    pub fn is_settled(&self, value: f32, target: f32, velocity: f32) -> bool {
-        (value - target).abs() < Self::EPSILON_VALUE && velocity.abs() < Self::EPSILON_VELOCITY
-    }
-
-    /// Distance below which a spring counts as arrived (~a sixteenth of a device px).
-    pub const EPSILON_VALUE: f32 = 0.06;
-    /// Speed below which a spring counts as stopped, in units/second.
-    pub const EPSILON_VELOCITY: f32 = 0.06;
-}
 
 /// How a channel is driven.
 ///
@@ -290,6 +236,15 @@ pub fn ease(function: AnimationInterpolationFunction, t: f32) -> f32 {
         AnimationInterpolationFunction::CubicBezier(curve) => {
             cubic_bezier_y(curve.ctrl_1.x, curve.ctrl_1.y, curve.ctrl_2.x, curve.ctrl_2.y, t)
         }
+        // A spring has no `t`. Reaching here means a caller put a spring where a
+        // duration-based curve was expected: `AnimChannel` dispatches on
+        // `Interp`, so a spring never takes this path — it integrates in
+        // `Spring::step` instead, from its live (value, velocity).
+        //
+        // The ease-in-out stand-in matches `AnimationInterpolationFunction::
+        // get_curve`, so the two disagree nowhere, and it degrades to plausible
+        // motion rather than a panic or a frozen element.
+        AnimationInterpolationFunction::Spring(_) => cubic_bezier_y(0.42, 0.0, 0.58, 1.0, t),
     }
 }
 
@@ -754,6 +709,22 @@ where
 mod tests {
     use super::*;
     use crate::geom::{LogicalPosition, LogicalRect, LogicalSize};
+
+    /// `Spring` is a real `AnimationInterpolationFunction` variant now, so it
+    /// must survive the C-ABI enum's own accessors rather than panicking or
+    /// silently answering as some other curve.
+    #[test]
+    fn spring_is_a_first_class_interpolation_function() {
+        let f = AnimationInterpolationFunction::Spring(Spring::SNAPPY);
+        assert!(f.is_spring());
+        assert!(!AnimationInterpolationFunction::EaseInOut.is_spring());
+        // No duration to evaluate against: it answers as the documented
+        // ease-in-out stand-in, and `get_curve`/`ease` must not disagree.
+        assert_eq!(f.get_curve(), AnimationInterpolationFunction::EaseInOut.get_curve());
+        for t in [0.0_f32, 0.25, 0.5, 0.75, 1.0] {
+            assert!((ease(f, t) - ease(AnimationInterpolationFunction::EaseInOut, t)).abs() < 1e-6);
+        }
+    }
 
     fn rect(x: f32, y: f32, w: f32, h: f32) -> LogicalRect {
         LogicalRect {
