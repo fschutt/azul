@@ -64,6 +64,10 @@ impl_result!(
 
 impl Url {
     /// Parse a URL from a string
+    ///
+    /// # Errors
+    ///
+    /// Returns a `UrlParseError` if `s` is not a valid absolute URL.
     #[cfg(feature = "url")]
     pub fn parse(s: &str) -> Result<Self, UrlParseError> {
         use ::url::Url as UrlParser;
@@ -136,6 +140,11 @@ impl Url {
     }
 
     /// Join a relative path to this URL
+    ///
+    /// # Errors
+    ///
+    /// Returns a `UrlParseError` if this URL's `href` is not parseable as a
+    /// base, or if `path` cannot be resolved against it.
     #[cfg(feature = "url")]
     pub fn join(&self, path: &str) -> Result<Self, UrlParseError> {
         use ::url::Url as UrlParser;

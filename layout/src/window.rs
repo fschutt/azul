@@ -3918,7 +3918,7 @@ impl LayoutWindow {
                 // bare ratio would repeat the exact error this pair of numbers
                 // exists to expose: an "accounted" line that silently omits a
                 // known owner reads as coverage it does not have.
-                let lr = LAST_LAYOUT_RESULTS_BYTES.load(Ordering::Relaxed);
+                let lr = LAST_LAYOUT_RESULTS_BYTES.load(Relaxed);
                 eprintln!("[MEM] accounted / rss = {:.1}% (layout_cache walk only) — the gap is allocator overhead + unreturned transient pages + fonts/images + misc",
                     grand_total as f64 * 100.0 / (rss as f64).max(1.0));
                 if lr > 0 {
@@ -9366,6 +9366,11 @@ impl LayoutWindow {
     ) -> (Vec<crate::callbacks::CallbackChange>, Update) {
         use crate::callbacks::{CallbackInfo, CallbackChange};
 
+        // Dispatch span: until this existed, all 118 probe spans lived in
+        // layout/font/render, so "is the *app's own* code slow" — a timer
+        // callback doing work on the UI thread — was uninstrumented.
+        let _timer_span = crate::probe::Probe::span("dispatch.timer");
+
         let mut update = Update::DoNothing;
         let mut all_changes = Vec::new();
         let mut should_terminate = TerminateTimer::Continue;
@@ -9460,6 +9465,10 @@ impl LayoutWindow {
             callbacks::{CallbackInfo, CallbackChange},
             thread::{OptionThreadReceiveMsg, ThreadReceiveMsg, ThreadWriteBackMsg},
         };
+
+        // Dispatch span, sibling of `dispatch.timer`: covers the writeback
+        // callbacks worker threads run on the UI thread once per frame.
+        let _thread_span = crate::probe::Probe::span("dispatch.threads");
 
         let mut update = Update::DoNothing;
         let mut all_changes = Vec::new();

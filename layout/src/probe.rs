@@ -84,6 +84,7 @@ mod imp {
     /// RAII guard that records its name + elapsed nanos on drop.
     /// `start == None` means recording was off when the span opened: the
     /// guard is inert (no clock read on open, no TLS touch on drop).
+    #[derive(Debug)]
     pub struct Span {
         pub(crate) name: &'static str,
         pub(crate) start: Option<Instant>,
@@ -459,7 +460,13 @@ fn peak_rss_bytes_self() -> u64 {
         let raw = ru.ru_maxrss as u64;
         if cfg!(target_os = "macos") { raw } else { raw.saturating_mul(1024) }
     }
-    #[cfg(not(unix))]
+    // Windows has no getrusage; `PeakWorkingSetSize` is the direct equivalent
+    // of `ru_maxrss` and is already in bytes.
+    #[cfg(all(target_os = "windows", not(miri)))]
+    {
+        windows_memory_counters().map_or(0, |c| c.peak_working_set)
+    }
+    #[cfg(not(any(unix, all(target_os = "windows", not(miri)))))]
     {
         0
     }
@@ -617,8 +624,88 @@ pub fn current_rss_bytes() -> (u64, u64) {
             size.saturating_mul(page),
         )
     }
-    #[cfg(not(any(target_os = "macos", all(target_os = "linux", not(miri)))))]
+    // Windows: `K32GetProcessMemoryInfo` is the documented equivalent.
+    // WorkingSetSize is the RSS analogue (what Task Manager calls "Memory
+    // (active private working set)"'s superset), PrivateUsage is the commit
+    // charge — the closest thing to the "virtual" slot the other arms fill.
+    //
+    // Until this arm existed every Windows build reported (0, 0), which made
+    // "startup RSS after an update" — the one metric the telemetry rollout
+    // gate is built on — silently meaningless on the majority desktop
+    // platform (`core/src/profile.rs` documented this as a known hole).
+    #[cfg(all(target_os = "windows", not(miri)))]
+    {
+        windows_memory_counters().map_or((0, 0), |c| (c.working_set, c.private_usage))
+    }
+    #[cfg(not(any(
+        target_os = "macos",
+        all(target_os = "linux", not(miri)),
+        all(target_os = "windows", not(miri))
+    )))]
     { (0, 0) }
+}
+
+/// Snapshot of `PROCESS_MEMORY_COUNTERS_EX`, in bytes.
+#[cfg(all(feature = "probe", target_os = "windows", not(miri)))]
+pub(crate) struct WindowsMemoryCounters {
+    /// `WorkingSetSize` — resident bytes; the RSS analogue.
+    pub working_set: u64,
+    /// `PeakWorkingSetSize` — high-water mark of the above.
+    pub peak_working_set: u64,
+    /// `PrivateUsage` — commit charge (private bytes).
+    pub private_usage: u64,
+}
+
+/// Reads `PROCESS_MEMORY_COUNTERS_EX` for the current process.
+///
+/// `K32GetProcessMemoryInfo` lives directly in `kernel32.dll` (Windows 7+),
+/// so this needs no `psapi.dll` import library and no `windows-sys`
+/// dependency — matching how the macOS arm above hand-declares `task_info`.
+///
+/// Returns `None` if the call fails.
+#[cfg(all(feature = "probe", target_os = "windows", not(miri)))]
+pub(crate) fn windows_memory_counters() -> Option<WindowsMemoryCounters> {
+    // Layout per the Win32 header. On 64-bit the two leading DWORDs pack into
+    // the first 8 bytes with no tail padding before the first SIZE_T, so the
+    // struct maps 1:1; `cb` is validated by the callee against what we pass.
+    #[repr(C)]
+    struct ProcessMemoryCountersEx {
+        cb: u32,
+        page_fault_count: u32,
+        peak_working_set_size: usize,
+        working_set_size: usize,
+        quota_peak_paged_pool_usage: usize,
+        quota_paged_pool_usage: usize,
+        quota_peak_non_paged_pool_usage: usize,
+        quota_non_paged_pool_usage: usize,
+        pagefile_usage: usize,
+        peak_pagefile_usage: usize,
+        private_usage: usize,
+    }
+
+    #[link(name = "kernel32")]
+    extern "system" {
+        fn GetCurrentProcess() -> *mut core::ffi::c_void;
+        fn K32GetProcessMemoryInfo(
+            process: *mut core::ffi::c_void,
+            counters: *mut ProcessMemoryCountersEx,
+            cb: u32,
+        ) -> i32;
+    }
+
+    unsafe {
+        let mut counters: ProcessMemoryCountersEx = core::mem::zeroed();
+        let cb = u32::try_from(core::mem::size_of::<ProcessMemoryCountersEx>()).ok()?;
+        counters.cb = cb;
+        if K32GetProcessMemoryInfo(GetCurrentProcess(), &mut counters, cb) == 0 {
+            return None;
+        }
+        Some(WindowsMemoryCounters {
+            working_set: counters.working_set_size as u64,
+            peak_working_set: counters.peak_working_set_size as u64,
+            private_usage: counters.private_usage as u64,
+        })
+    }
 }
 
 /// Heap bytes currently held by the libc allocator (`mstats.bytes_used`).
@@ -887,11 +974,11 @@ pub fn emit_phase_heap(label: &str) {
         .append(true)
         .open(p)
     {
-        let _ = writeln!(
+        drop(writeln!(
             f,
             r#"{{"ev":"phase","call":{},"label":"{}","heap":{}}}"#,
             call_id, label, heap
-        );
+        ));
     }
 }
 
@@ -918,11 +1005,11 @@ pub fn emit_phase_heap_extra(label: &str, extra: u64) {
         .append(true)
         .open(p)
     {
-        let _ = writeln!(
+        drop(writeln!(
             f,
             r#"{{"ev":"phase","call":0,"label":"{}","heap":{},"extra":{}}}"#,
             label, heap, extra
-        );
+        ));
     }
 }
 

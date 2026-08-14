@@ -440,55 +440,87 @@ fn make_agent(timeout_secs: u64, disable_tls_cert_verification: bool) -> ureq::A
         .new_agent()
 }
 
+/// HTTP verb for [`http_request_with_config`].
+///
+/// Rust-side only — this type deliberately has no C-ABI mirror in `api.json`;
+/// the C bindings keep the pre-existing `HttpRequestConfig::http_get` /
+/// `download_bytes` entry points.
+#[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
+pub enum HttpMethod {
+    Get,
+    Head,
+    Post,
+    Put,
+    Patch,
+    Delete,
+}
+
+impl HttpMethod {
+    /// The uppercase wire name of the verb.
+    #[must_use]
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Get => "GET",
+            Self::Head => "HEAD",
+            Self::Post => "POST",
+            Self::Put => "PUT",
+            Self::Patch => "PATCH",
+            Self::Delete => "DELETE",
+        }
+    }
+
+    /// Whether this verb carries a request body.
+    ///
+    /// Mirrors ureq's request typestate split: `POST`/`PUT`/`PATCH` build a
+    /// `WithBody` request terminated by `send()`, while `GET`/`HEAD`/`DELETE`
+    /// build a `WithoutBody` one terminated by `call()`.
+    #[must_use]
+    pub const fn takes_body(self) -> bool {
+        matches!(self, Self::Post | Self::Put | Self::Patch)
+    }
+}
+
+impl fmt::Display for HttpMethod {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(self.as_str())
+    }
+}
+
+/// Maps a ureq transport error onto the C-ABI-safe [`HttpError`].
 #[cfg(feature = "http")]
-pub fn http_get_with_config(url: &str, config: &HttpRequestConfig) -> HttpResult<HttpResponse> {
-    use std::io::Read;
-
-    let agent = make_agent(config.timeout_secs, config.disable_tls_cert_verification);
-
-    // Build the request
-    let mut request = agent.get(url);
-
-    // Add user agent
-    if !config.user_agent.as_str().is_empty() {
-        request = request.header("User-Agent", config.user_agent.as_str());
-    }
-
-    // Add custom headers
-    for header in config.headers.as_slice() {
-        request = request.header(header.name.as_str(), header.value.as_str());
-    }
-
-    // Execute request — map transport errors to specific HttpError variants
-    let response = request.call().map_err(|e| {
-        match &e {
-            ureq::Error::Timeout(_) => HttpError::Timeout,
-            ureq::Error::HostNotFound => HttpError::connection_failed(
-                format!("DNS resolution failed for {}", url).into(),
-            ),
-            ureq::Error::ConnectionFailed => HttpError::connection_failed(
-                format!("Connection failed: {}", url).into(),
-            ),
-            ureq::Error::Io(io_err) => HttpError::io_error(
-                format!("{}", io_err).into(),
-            ),
-            ureq::Error::BadUri(msg) => HttpError::invalid_url(
-                format!("{}: {}", url, msg).into(),
-            ),
-            ureq::Error::Tls(msg) => HttpError::tls_error(
-                format!("TLS error: {}", msg).into(),
-            ),
-            // Catch-all for feature-gated variants (Rustls, Pem, etc.)
-            _ => {
-                let msg = e.to_string();
-                if msg.starts_with("rustls:") || msg.contains("TLS") || msg.contains("certificate") {
-                    HttpError::tls_error(msg.into())
-                } else {
-                    HttpError::other(msg.into())
-                }
+fn map_ureq_error(url: &str, e: &ureq::Error) -> HttpError {
+    match e {
+        ureq::Error::Timeout(_) => HttpError::Timeout,
+        ureq::Error::HostNotFound => {
+            HttpError::connection_failed(format!("DNS resolution failed for {url}").into())
+        }
+        ureq::Error::ConnectionFailed => {
+            HttpError::connection_failed(format!("Connection failed: {url}").into())
+        }
+        ureq::Error::Io(io_err) => HttpError::io_error(format!("{io_err}").into()),
+        ureq::Error::BadUri(msg) => HttpError::invalid_url(format!("{url}: {msg}").into()),
+        ureq::Error::Tls(msg) => HttpError::tls_error(format!("TLS error: {msg}").into()),
+        // Catch-all for feature-gated variants (Rustls, Pem, etc.)
+        _ => {
+            let msg = e.to_string();
+            if msg.starts_with("rustls:") || msg.contains("TLS") || msg.contains("certificate") {
+                HttpError::tls_error(msg.into())
+            } else {
+                HttpError::other(msg.into())
             }
         }
-    })?;
+    }
+}
+
+/// Turns a ureq response into the C-ABI [`HttpResponse`], enforcing
+/// `config.max_response_size` both on the advertised `Content-Length` and on
+/// the actual number of bytes read.
+#[cfg(feature = "http")]
+fn decode_response(
+    response: ureq::http::Response<ureq::Body>,
+    config: &HttpRequestConfig,
+) -> HttpResult<HttpResponse> {
+    use std::io::Read;
 
     let status_code = response.status().as_u16();
     let content_type = AzString::from(
@@ -504,7 +536,7 @@ pub fn http_get_with_config(url: &str, config: &HttpRequestConfig) -> HttpResult
 
     // Collect response headers
     let mut headers = Vec::new();
-    for (name, value) in response.headers().iter() {
+    for (name, value) in response.headers() {
         if let Ok(v) = value.to_str() {
             headers.push(HttpHeader::new(name.to_string(), v.to_string()));
         }
@@ -538,6 +570,101 @@ pub fn http_get_with_config(url: &str, config: &HttpRequestConfig) -> HttpResult
     })
 }
 
+/// Generic HTTP request with an optional body — the single code path every
+/// verb-specific helper in this module funnels through.
+///
+/// `content_type` is applied only when a body is present; explicit entries in
+/// `config.headers` are applied afterwards and therefore win. To gzip a
+/// request body, compress it yourself and pass
+/// `HttpRequestConfig::with_header("Content-Encoding", "gzip")`.
+///
+/// Note that 4xx/5xx are returned as an `Ok(HttpResponse)` with the status
+/// code set (the agent is built with `http_status_as_error(false)`); only
+/// transport failures produce an `Err`.
+///
+/// # Errors
+///
+/// Returns an `HttpError` on DNS/connect/TLS/IO failure, on timeout, if the
+/// response exceeds `config.max_response_size`, or if the `http` feature is
+/// disabled.
+#[cfg(feature = "http")]
+pub fn http_request_with_config(
+    method: HttpMethod,
+    url: &str,
+    body: Option<&[u8]>,
+    content_type: &str,
+    config: &HttpRequestConfig,
+) -> HttpResult<HttpResponse> {
+    let agent = make_agent(config.timeout_secs, config.disable_tls_cert_verification);
+
+    // ureq 3.x splits the request builder by typestate: `WithoutBody` for
+    // GET/HEAD/DELETE (terminated by `.call()`) and `WithBody` for
+    // POST/PUT/PATCH (terminated by `.send()`). The two are different types,
+    // so the header application is written out per branch.
+    let response = if method.takes_body() {
+        let mut request = match method {
+            HttpMethod::Put => agent.put(url),
+            HttpMethod::Patch => agent.patch(url),
+            // `takes_body()` admits only POST/PUT/PATCH here.
+            _ => agent.post(url),
+        };
+        if !config.user_agent.as_str().is_empty() {
+            request = request.header("User-Agent", config.user_agent.as_str());
+        }
+        if !content_type.is_empty() {
+            request = request.header("Content-Type", content_type);
+        }
+        for header in config.headers.as_slice() {
+            request = request.header(header.name.as_str(), header.value.as_str());
+        }
+        request
+            .send(body.unwrap_or(&[]))
+            .map_err(|e| map_ureq_error(url, &e))?
+    } else {
+        let mut request = match method {
+            HttpMethod::Head => agent.head(url),
+            HttpMethod::Delete => agent.delete(url),
+            // `takes_body()` admits only GET/HEAD/DELETE here.
+            _ => agent.get(url),
+        };
+        if !config.user_agent.as_str().is_empty() {
+            request = request.header("User-Agent", config.user_agent.as_str());
+        }
+        for header in config.headers.as_slice() {
+            request = request.header(header.name.as_str(), header.value.as_str());
+        }
+        request.call().map_err(|e| map_ureq_error(url, &e))?
+    };
+
+    decode_response(response, config)
+}
+
+/// Stub: `http` feature disabled.
+///
+/// # Errors
+///
+/// Always returns an `HttpError` — the networking feature is disabled.
+#[cfg(not(feature = "http"))]
+pub fn http_request_with_config(
+    _method: HttpMethod,
+    _url: &str,
+    _body: Option<&[u8]>,
+    _content_type: &str,
+    _config: &HttpRequestConfig,
+) -> HttpResult<HttpResponse> {
+    Err(HttpError::other("http feature not enabled".into()))
+}
+
+/// HTTP GET request with custom configuration.
+///
+/// # Errors
+///
+/// See [`http_request_with_config`].
+#[cfg(feature = "http")]
+pub fn http_get_with_config(url: &str, config: &HttpRequestConfig) -> HttpResult<HttpResponse> {
+    http_request_with_config(HttpMethod::Get, url, None, "", config)
+}
+
 /// Stub: `http` feature disabled.
 #[cfg(not(feature = "http"))]
 /// # Errors
@@ -545,6 +672,46 @@ pub fn http_get_with_config(url: &str, config: &HttpRequestConfig) -> HttpResult
 /// Returns an `HttpError` if the request fails (network/status error, or the networking feature is disabled).
 pub fn http_get_with_config(_url: &str, _config: &HttpRequestConfig) -> HttpResult<HttpResponse> {
     Err(HttpError::other("http feature not enabled".into()))
+}
+
+/// HTTP POST with the default configuration.
+///
+/// # Errors
+///
+/// See [`http_request_with_config`].
+pub fn http_post(url: &str, body: &[u8], content_type: &str) -> HttpResult<HttpResponse> {
+    http_post_with_config(url, body, content_type, &HttpRequestConfig::default())
+}
+
+/// HTTP POST with custom configuration.
+///
+/// This is the transport under the telemetry uploader (OTLP/HTTP JSON), crash
+/// bundle upload and the update-manifest fetch.
+///
+/// # Errors
+///
+/// See [`http_request_with_config`].
+pub fn http_post_with_config(
+    url: &str,
+    body: &[u8],
+    content_type: &str,
+    config: &HttpRequestConfig,
+) -> HttpResult<HttpResponse> {
+    http_request_with_config(HttpMethod::Post, url, Some(body), content_type, config)
+}
+
+/// HTTP PUT with custom configuration.
+///
+/// # Errors
+///
+/// See [`http_request_with_config`].
+pub fn http_put_with_config(
+    url: &str,
+    body: &[u8],
+    content_type: &str,
+    config: &HttpRequestConfig,
+) -> HttpResult<HttpResponse> {
+    http_request_with_config(HttpMethod::Put, url, Some(body), content_type, config)
 }
 
 /// Download a URL to bytes (convenience wrapper with default config)
