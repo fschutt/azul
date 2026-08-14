@@ -7038,11 +7038,26 @@ impl LayoutWindow {
                 continue;
             };
             let t = anim.current_transform();
+            // A reference frame requires BOTH a key and a value: the display
+            // list builder emits `PushReferenceFrame` only when
+            // `css_transform_keys` AND `css_current_transform_values` both have
+            // an entry for the node. Keys are otherwise minted from the CSS
+            // `transform` property, which an animating node generally does not
+            // have — so writing only the value published a transform nothing
+            // could read, and the element jumped instead of moving.
             cache
-                .css_current_transform_values
+                .anim_transform_keys
+                .entry(node_id)
+                .or_insert_with(azul_core::resources::TransformKey::unique);
+            cache
+                .anim_current_transform_values
                 .insert(node_id, flip_to_matrix(t));
             cache
-                .current_opacity_values
+                .anim_opacity_keys
+                .entry(node_id)
+                .or_insert_with(azul_core::resources::OpacityKey::unique);
+            cache
+                .anim_current_opacity_values
                 .insert(node_id, anim.current_opacity());
         }
 
@@ -7062,8 +7077,14 @@ impl LayoutWindow {
         // stays permanently offset by its last sampled value.
         for key in finished {
             if let Some(node_id) = self.anim_key_to_node.get(&key).copied() {
-                cache.css_current_transform_values.remove(&node_id);
-                cache.current_opacity_values.remove(&node_id);
+                // Release the key as well as the value. Leaving the key behind
+                // would keep emitting a reference frame for a node that is no
+                // longer animating — a permanent per-node cost for a finished
+                // animation.
+                cache.anim_current_transform_values.remove(&node_id);
+                cache.anim_transform_keys.remove(&node_id);
+                cache.anim_current_opacity_values.remove(&node_id);
+                cache.anim_opacity_keys.remove(&node_id);
             }
         }
 

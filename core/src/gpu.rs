@@ -54,6 +54,22 @@ pub struct GpuValueCache {
     pub css_transform_keys: HashMap<NodeId, TransformKey>,
     /// Current CSS transform values (keyed by node ID)
     pub css_current_transform_values: HashMap<NodeId, ComputedTransform3D>,
+    /// ANIMATION transform keys (keyed by node ID).
+    ///
+    /// A separate channel from `css_transform_keys` on purpose. That map is
+    /// OWNED by `synchronize`, which adds and removes entries to match the
+    /// DOM's CSS `transform` property — so an animation writing into it has its
+    /// keys evicted on the very next frame, and the element snaps instead of
+    /// moving. Scrollbar thumbs already have their own channel for the same
+    /// reason; this follows that precedent rather than fighting the cascade for
+    /// one map.
+    pub anim_transform_keys: HashMap<NodeId, TransformKey>,
+    /// Current animation transform values (keyed by node ID).
+    pub anim_current_transform_values: HashMap<NodeId, ComputedTransform3D>,
+    /// Animation opacity keys (keyed by node ID).
+    pub anim_opacity_keys: HashMap<NodeId, OpacityKey>,
+    /// Current animation opacity values (keyed by node ID).
+    pub anim_current_opacity_values: HashMap<NodeId, f32>,
     /// CSS opacity keys (keyed by node ID)
     pub opacity_keys: HashMap<NodeId, OpacityKey>,
     /// Current CSS opacity values (keyed by node ID)
