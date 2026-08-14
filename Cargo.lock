@@ -629,8 +629,20 @@ dependencies = [
 [[package]]
 name = "azul-core"
 version = "0.0.13"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "ab0b7a3437b72d2e458b8362eb69fd4f9f136465ab750590c398ccf97f976a9e"
 dependencies = [
- "azul-css",
+ "azul-css 0.0.13",
+ "gl-context-loader",
+ "libm",
+ "rust-fontconfig",
+]
+
+[[package]]
+name = "azul-core"
+version = "0.0.14"
+dependencies = [
+ "azul-css 0.0.14",
  "gl-context-loader",
  "libm",
  "rust-fontconfig",
@@ -642,6 +654,16 @@ dependencies = [
 [[package]]
 name = "azul-css"
 version = "0.0.13"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "5ca878356a1620147ee57559bdd3d7f8fd0d02925211e6f2553c6d24d39eb7d4"
+dependencies = [
+ "azul-simplecss",
+ "libm",
+]
+
+[[package]]
+name = "azul-css"
+version = "0.0.14"
 dependencies = [
  "azul-simplecss",
  "libm",
@@ -658,9 +680,9 @@ dependencies = [
  "aegis",
  "android-activity",
  "android_logger",
- "azul-core",
- "azul-css",
- "azul-layout",
+ "azul-core 0.0.14",
+ "azul-css 0.0.14",
+ "azul-layout 0.0.14",
  "backtrace",
  "base64 0.22.1",
  "bitflags 2.13.1",
@@ -739,9 +761,9 @@ name = "azul-doc"
 version = "0.0.8"
 dependencies = [
  "anyhow",
- "azul-core",
- "azul-css",
- "azul-layout",
+ "azul-core 0.0.14",
+ "azul-css 0.0.14",
+ "azul-layout 0.0.14",
  "base64 0.22.1",
  "brotli",
  "cargo-license",
@@ -785,7 +807,7 @@ dependencies = [
 name = "azul-examples"
 version = "0.0.1"
 dependencies = [
- "azul-css",
+ "azul-css 0.0.14",
  "azul-dll",
  "serde",
  "serde_derive",
@@ -802,12 +824,38 @@ dependencies = [
 [[package]]
 name = "azul-layout"
 version = "0.0.13"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "fbae4e82c24f18174095b719475bec3a39f326a0176d477699e31f07e9bec98d"
+dependencies = [
+ "allsorts-azul",
+ "azul-core 0.0.13",
+ "azul-css 0.0.13",
+ "base64 0.22.1",
+ "hyphenation",
+ "lru 0.16.4",
+ "roxmltree",
+ "rust-fontconfig",
+ "serde",
+ "smallvec",
+ "taffy",
+ "thiserror 2.0.18",
+ "tinyvec",
+ "unicode-bidi",
+ "unicode-normalization",
+ "unicode-segmentation",
+ "xmlparser",
+ "xmlwriter",
+]
+
+[[package]]
+name = "azul-layout"
+version = "0.0.14"
 dependencies = [
  "accesskit",
  "agg-rust-azul",
  "allsorts-azul",
- "azul-core",
- "azul-css",
+ "azul-core 0.0.14",
+ "azul-css 0.0.14",
  "base64 0.22.1",
  "brotli-decompressor",
  "chrono",
@@ -825,7 +873,7 @@ dependencies = [
  "intl-memoizer",
  "libc",
  "libmimalloc-sys",
- "lru",
+ "lru 0.18.2",
  "lyon",
  "material-icons",
  "objc2 0.6.4",
@@ -929,10 +977,10 @@ dependencies = [
 name = "azul-writer"
 version = "0.1.0"
 dependencies = [
- "azul-core",
- "azul-css",
+ "azul-core 0.0.14",
+ "azul-css 0.0.14",
  "azul-dll",
- "azul-layout",
+ "azul-layout 0.0.14",
  "pulldown-cmark",
  "rust-fontconfig",
 ]
@@ -2297,7 +2345,7 @@ dependencies = [
  "libc",
  "option-ext",
  "redox_users",
- "windows-sys 0.61.2",
+ "windows-sys 0.59.0",
 ]
 
 [[package]]
@@ -2519,7 +2567,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "39cab71617ae0d63f51a36d69f866391735b51691dbda63cf6f96d042b63efeb"
 dependencies = [
  "libc",
- "windows-sys 0.61.2",
+ "windows-sys 0.59.0",
 ]
 
 [[package]]
@@ -4370,6 +4418,12 @@ dependencies = [
 
 [[package]]
 name = "lru"
+version = "0.16.4"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "7f66e8d5d03f609abc3a39e6f08e4164ebf1447a732906d39eb9b99b7919ef39"
+
+[[package]]
+name = "lru"
 version = "0.18.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "5d2f2f9b4ba7e6b24d95e7e899329d35be83bcded72c8540cdd5368932d1d90a"
@@ -5917,9 +5971,9 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "8830a8a6c6431286333c8a64d109f7f0e7e050270c8b8eba0a4c541626059da5"
 dependencies = [
  "allsorts-azul",
- "azul-core",
- "azul-css",
- "azul-layout",
+ "azul-core 0.0.13",
+ "azul-css 0.0.13",
+ "azul-layout 0.0.13",
  "base64 0.22.1",
  "flate2",
  "getrandom 0.4.3",
@@ -6471,7 +6525,7 @@ dependencies = [
  "errno",
  "libc",
  "linux-raw-sys 0.12.1",
- "windows-sys 0.61.2",
+ "windows-sys 0.59.0",
 ]
 
 [[package]]
@@ -7097,10 +7151,10 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "32497e9a4c7b38532efcdebeef879707aa9f794296a4f0244f6f69e9bc8574bd"
 dependencies = [
  "fastrand",
- "getrandom 0.4.3",
+ "getrandom 0.3.4",
  "once_cell",
  "rustix 1.1.4",
- "windows-sys 0.61.2",
+ "windows-sys 0.59.0",
 ]
 
 [[package]]
@@ -7975,8 +8029,8 @@ name = "webrender"
 version = "0.62.0"
 dependencies = [
  "allocator-api2",
- "azul-core",
- "azul-css",
+ "azul-core 0.0.14",
+ "azul-css 0.0.14",
  "bincode 2.0.1",
  "bitflags 2.13.1",
  "brotli",
@@ -8007,7 +8061,7 @@ name = "webrender_api"
 version = "0.62.0"
 dependencies = [
  "app_units",
- "azul-core",
+ "azul-core 0.0.14",
  "bitflags 2.13.1",
  "byteorder",
  "crossbeam-channel",
@@ -8073,7 +8127,7 @@ version = "0.1.11"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c2a7b1c03c876122aa43f3020e6c3c3ee5c05081c9a00739faf7503aeba10d22"
 dependencies = [
- "windows-sys 0.61.2",
+ "windows-sys 0.59.0",
 ]
 
 [[package]]
@@ -8407,9 +8461,9 @@ name = "wr_azul_glyph_rasterizer"
 version = "0.1.0"
 dependencies = [
  "agg-rust-azul",
- "azul-core",
- "azul-css",
- "azul-layout",
+ "azul-core 0.0.14",
+ "azul-css 0.0.14",
+ "azul-layout 0.0.14",
  "env_logger",
  "euclid",
  "fxhash",

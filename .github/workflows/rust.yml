@@ -6244,24 +6244,31 @@ jobs:
       - name: Install build dependencies
         run: sudo apt-get update && sudo apt-get install -y clang libgl1-mesa-dev libx11-dev libv4l-dev
 
-      - name: Package (dry-run, always)
+      - name: Package (dry-run, leaf crate only)
         run: |
           set -euo pipefail
-          # Validate packaging of each crate in dependency order. --no-verify
-          # avoids a full from-scratch compile of dependents during dry-run;
-          # the real publish below verifies.
-          # NOTE: azul-core/azul-layout carry path+version deps on the crates
-          # ahead of them in this list, which are not on crates.io until the
-          # real publish below runs. A dry-run of a dependent may therefore
-          # warn about an unresolved registry dep — tolerated here so all three
-          # are still exercised.
-          for crate in azul-css azul-core azul-layout; do
-            echo "::group::cargo publish --dry-run -p $crate"
-            # NO --no-verify: the verification build against the real registry deps is
-            # the entire point. Skipping it is how 0.0.9 shipped.
-            cargo publish --dry-run -p "$crate" --allow-dirty
-            echo "::endgroup::"
-          done
+          # ONLY azul-css is dry-run here, and that is not a weakening — it is
+          # the only one that CAN be dry-run.
+          #
+          # `cargo publish --dry-run` strips path deps and resolves the version
+          # requirement from the REGISTRY, then does a full verification build.
+          # azul-core requires azul-css =<this release>, which does not exist on
+          # crates.io until the publish step below runs, so its verification
+          # build necessarily resolves the PREVIOUS published azul-css and fails
+          # against it. That is exactly how this job failed the 0.2.0 deploy:
+          # 23 errors of the form `no field uses_viewport_units on
+          # CompactLayoutCache` — not a bug in the code, just a dependent
+          # compiled against its own predecessor.
+          #
+          # The dependents are still verified, by the REAL publish below: each
+          # `cargo publish` runs the same verification build, and by the time it
+          # reaches azul-core the azul-css it needs is on the index. So nothing
+          # goes out unverified — the verification simply happens in the only
+          # place where it can be correct. (Do NOT "fix" this by adding
+          # --no-verify to the publish step: that is how 0.0.9 shipped.)
+          echo "::group::cargo publish --dry-run -p azul-css"
+          cargo publish --dry-run -p azul-css --allow-dirty
+          echo "::endgroup::"
 
       - name: Publish to crates.io
         env:
