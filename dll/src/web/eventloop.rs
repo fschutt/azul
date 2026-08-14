@@ -1642,9 +1642,6 @@ pub unsafe extern "C" fn AzStartup_solveLayoutReal(
     let mut fc_fonts = Vec::new();
     fc_fonts.push((fc_pattern, fc_font));
     fc_cache.with_memory_fonts(fc_fonts);
-    // DIAG (2026-06-24, REVERT): enable rust-fontconfig's find_unicode_fallbacks gated markers
-    // (0x40830) — wasm-only, so the native pre-render path leaves them off.
-    rust_fontconfig::AZ_IN_WASM_SOLVE.store(true, core::sync::atomic::Ordering::Relaxed);
     // PROBE0 (2026-06-24): minimal REAL-TYPE HashMap insert. HashMap<String,u32> uses a LIFTED
     // reserve_rehash (unlike the u32_u32 STUB that gives the false HM=0). The chain_cache
     // (HashMap<FontChainCacheKey,_>) insert TRAPS + the layout HANGS → both the hashbrown SwissTable

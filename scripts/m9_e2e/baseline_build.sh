@@ -3,7 +3,11 @@ set -o pipefail
 cd /c/Users/felix/Development/azul
 LOG=/c/rb/baseline_build.log; : > "$LOG"
 echo "=== build dll $(date +%H:%M:%S) ===" | tee -a "$LOG"
-export RUSTC_BOOTSTRAP=1 RUSTFLAGS="-Zunstable-options -Cpanic=immediate-abort" CARGO_BUILD_JOBS=6
+# NOTE (2026-08-13): master pins rustc 1.88.0 (rust-toolchain.toml, CI parity), which
+# predates `-Cpanic=immediate-abort` (newer-nightly only) — it now errors. Use plain
+# `-Cpanic=abort`: functionally identical for lifting (both suppress unwinding/landing
+# pads; immediate-abort was only a panic-path code-size win).
+export RUSTC_BOOTSTRAP=1 RUSTFLAGS="-Zunstable-options -Cpanic=abort" CARGO_BUILD_JOBS=6
 cargo build -p azul-dll --release --no-default-features --features "build-dll web web-transpiler" \
   -Z build-std=std,panic_abort --target x86_64-pc-windows-msvc 2>&1 | tail -5 | tee -a "$LOG"
 grep -q "error\[" "$LOG" && { echo "COMPILE-ERROR"|tee -a "$LOG"; exit 1; }

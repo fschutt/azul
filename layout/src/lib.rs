@@ -107,8 +107,12 @@ use xmlwriter as _;
 /// With the `web_lift` feature enabled, `addr` must be a valid, writable wasm
 /// linear-memory address (within the 0x40000–0xF0000 diagnostic band). Without
 /// the feature this is a no-op and always safe.
+// NOTE: not `const` — `write_volatile` is inherently non-const (volatile side
+// effects can't be modelled by the const-evaluator). A June lint-cleanup made this
+// `const fn`, which compiles only when `web_lift` is OFF (empty no-op body); with
+// `web_lift` ON it fails E0015. The `const` was never needed (no const callers).
 #[inline]
-pub const unsafe fn az_mark(_addr: u32, _val: u32) {
+pub unsafe fn az_mark(_addr: u32, _val: u32) {
     #[cfg(feature = "web_lift")]
     core::ptr::write_volatile(_addr as usize as *mut u32, _val);
 }
@@ -121,8 +125,9 @@ pub const unsafe fn az_mark(_addr: u32, _val: u32) {
 /// With the `web_lift` feature enabled, `addr` must be a valid, readable wasm
 /// linear-memory address (within the 0x40000–0xF0000 diagnostic band). Without
 /// the feature this is a no-op that returns 0 and is always safe.
+// NOT `const` — `read_volatile` is inherently non-const (see `az_mark`).
 #[inline]
-#[must_use] pub const unsafe fn az_mark_read(_addr: u32) -> u32 {
+#[must_use] pub unsafe fn az_mark_read(_addr: u32) -> u32 {
     #[cfg(feature = "web_lift")]
     return core::ptr::read_volatile(_addr as usize as *const u32);
     #[cfg(not(feature = "web_lift"))]
