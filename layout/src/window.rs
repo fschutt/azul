@@ -6964,6 +6964,18 @@ impl LayoutWindow {
                 azul_core::animation::Interp::Spring(azul_core::animation::Spring::SMOOTH),
             );
         }
+
+        // Publish the STARTING values immediately, with a zero-length step.
+        //
+        // The GPU keys are minted here, not on the first real tick, and the
+        // order matters: the display-list builder only emits
+        // `PushReferenceFrame` for a node that already HAS a key, so a list
+        // rebuilt between seeding and the first tick would contain no reference
+        // frames and every later value update would drive nothing. `dt = 0`
+        // moves no animation; it only makes the frame-zero state visible.
+        if !self.animations.is_empty() {
+            self.tick_animations(0.0);
+        }
     }
 
     /// Whether a layout animation is still in flight and the shell must keep
@@ -10400,6 +10412,7 @@ impl LayoutWindow {
         // Get GPU cache for this DOM
         let gpu_cache = self.gpu_state_manager.get_or_create_cache(dom_id).clone();
 
+
         // Get cursor state for display list generation. A tween in flight
         // forces the caret solid (blinking is suppressed while animating).
         let cursor_is_visible = self.text_edit_manager.should_draw_cursor()
@@ -10447,6 +10460,7 @@ impl LayoutWindow {
             self.id_namespace,
             dom_id,
         );
+
 
         // Restore the cache_map back to layout_cache
         self.layout_cache.cache_map = std::mem::take(&mut ctx.cache_map);
