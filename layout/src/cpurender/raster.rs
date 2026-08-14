@@ -7749,7 +7749,7 @@ mod layer_path_text_tests {
         layered.fill(255, 255, 255, 255);
         let mut gc3 = GlyphCache::new();
         let mut comp = CompositorState::new(200, 40);
-        comp.allocate_layers_from_display_list(&dl, 1.0);
+        comp.allocate_layers_from_display_list(&dl, 1.0, &std::collections::HashMap::new());
         comp.render_layers(&dl, 1.0, &rr, &fm, &mut gc3, &state).unwrap();
         comp.composite_frame(&mut layered, 1.0);
         let ldiff = plain.data().iter().zip(layered.data().iter()).filter(|(a, b)| a != b).count();

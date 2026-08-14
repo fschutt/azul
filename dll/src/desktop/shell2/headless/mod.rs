@@ -1062,7 +1062,11 @@ impl CpuBackend {
         } else {
             // Full render
             output.fill(255, 255, 255, 255);
-            compositor.allocate_layers_from_display_list(display_list, dpi_factor);
+            compositor.allocate_layers_from_display_list(
+                display_list,
+                dpi_factor,
+                &render_state.transforms,
+            );
             if let Err(e) = compositor.render_layers(
                 display_list, dpi_factor, renderer_resources,
                 &layout_window.font_manager, &mut self.glyph_cache,

@@ -151,6 +151,7 @@ impl CompositorState {
         &mut self,
         display_list: &DisplayList,
         dpi_factor: f32,
+        live_transforms: &HashMap<usize, azul_core::transform::ComputedTransform3D>,
     ) {
         // Remove all non-root layers from previous frame
         let root_id = self.root_layer;
@@ -163,6 +164,9 @@ impl CompositorState {
         }
 
         let mut layer_stack: Vec<LayerId> = vec![root_id];
+        // One entry per open `PushReferenceFrame`, recording whether it actually
+        // promoted a layer, so `PopReferenceFrame` pops exactly what was pushed.
+        let mut ref_frame_promoted: Vec<bool> = Vec::new();
         let mut i = 0;
 
         while i < display_list.items.len() {
@@ -260,17 +264,31 @@ impl CompositorState {
                     }
                 }
                 DisplayListItem::PushReferenceFrame {
+                    transform_key,
                     initial_transform,
                     bounds,
-                    ..
                 } => {
-                    let m = &initial_transform.m;
+                    // `initial_transform` is the matrix as of display-list BUILD
+                    // time. A GPU-animated transform (drag, CSS transition, or a
+                    // diff-driven FLIP) is republished every frame WITHOUT the
+                    // list being rebuilt, so the live value is authoritative and
+                    // the baked one is only the fallback for a key nothing has
+                    // published. Reading the baked matrix here is what made
+                    // engine-driven transitions invisible: a FLIP starts at
+                    // identity, so no layer was promoted, and the per-item walk
+                    // does not apply transforms at all — it only maintains a
+                    // stack that the layer path consumes.
+                    let m = live_transforms
+                        .get(&transform_key.id)
+                        .map_or(&initial_transform.m, |t| &t.m);
                     let is_identity = (m[0][0] - 1.0).abs() < IDENTITY_EPSILON
                         && m[0][1].abs() < IDENTITY_EPSILON
                         && m[1][0].abs() < IDENTITY_EPSILON
                         && (m[1][1] - 1.0).abs() < IDENTITY_EPSILON
                         && m[3][0].abs() < IDENTITY_EPSILON
                         && m[3][1].abs() < IDENTITY_EPSILON;
+                    // Record the decision so the matching pop can be exact.
+                    ref_frame_promoted.push(!is_identity);
                     if !is_identity {
                         let b = *bounds.inner();
                         let pw = (b.size.width * dpi_factor).ceil().max(1.0) as u32;
@@ -297,13 +315,16 @@ impl CompositorState {
                     }
                 }
                 DisplayListItem::PopReferenceFrame => {
-                    if layer_stack.len() > 1 {
-                        let top_id = *layer_stack.last().unwrap();
-                        if let Some(layer) = self.layers.get(&top_id) {
-                            if !layer.transform.is_identity(IDENTITY_EPSILON_F64) {
-                                layer_stack.pop();
-                            }
-                        }
+                    // Pair with the push by RECORDED DECISION, never by asking
+                    // whether the top layer's transform looks non-identity: an
+                    // identity frame nested inside a moved one allocates
+                    // nothing, and a value test would then pop the PARENT and
+                    // composite everything after it into the wrong layer. A FLIP
+                    // sits at identity both at rest and at the instant it
+                    // settles, so that mispairing is reachable in ordinary
+                    // playback rather than only from a hand-built list.
+                    if ref_frame_promoted.pop() == Some(true) && layer_stack.len() > 1 {
+                        layer_stack.pop();
                     }
                 }
                 // `backdrop-filter` (superplan g4): allocate a layer mirroring
@@ -2700,7 +2721,7 @@ mod backdrop_filter_tests {
         };
 
         let mut comp = CompositorState::new(w, h);
-        comp.allocate_layers_from_display_list(&dl, 1.0);
+        comp.allocate_layers_from_display_list(&dl, 1.0, &HashMap::new());
 
         // A backdrop-filter layer must have been allocated.
         assert!(
@@ -3951,7 +3972,7 @@ mod autotest_generated {
     #[test]
     fn allocate_layers_on_empty_display_list_keeps_only_the_root() {
         let mut c = CompositorState::new(64, 64);
-        c.allocate_layers_from_display_list(&dlist(vec![]), 1.0);
+        c.allocate_layers_from_display_list(&dlist(vec![]), 1.0, &HashMap::new());
         assert_eq!(c.layers.len(), 1);
         let root = c.layers.get(&c.root_layer).unwrap();
         assert_eq!(root.display_list_range, (0, 0));
@@ -3982,7 +4003,7 @@ mod autotest_generated {
     #[test]
     fn allocate_layers_at_dpi_one_creates_one_layer_per_group() {
         let mut c = CompositorState::new(64, 64);
-        c.allocate_layers_from_display_list(&layer_soup(), 1.0);
+        c.allocate_layers_from_display_list(&layer_soup(), 1.0, &HashMap::new());
         assert_eq!(c.layers.len(), 4, "root + scroll + opacity + blur");
         let root = c.layers.get(&c.root_layer).unwrap();
         assert_eq!(root.children.len(), 3, "all three are direct children of the root");
@@ -3992,7 +4013,7 @@ mod autotest_generated {
     fn allocate_layers_at_degenerate_dpi_creates_no_layers() {
         for dpi in [0.0_f32, -2.0, f32::NAN] {
             let mut c = CompositorState::new(64, 64);
-            c.allocate_layers_from_display_list(&layer_soup(), dpi);
+            c.allocate_layers_from_display_list(&layer_soup(), dpi, &HashMap::new());
             assert_eq!(
                 c.layers.len(),
                 1,
@@ -4005,7 +4026,7 @@ mod autotest_generated {
     fn allocate_layers_zero_sized_scroll_frame_is_skipped() {
         let mut c = CompositorState::new(64, 64);
         let list = dlist(vec![push_scroll(1, 0.0, 0.0, 0.0, 0.0), DisplayListItem::PopScrollFrame]);
-        c.allocate_layers_from_display_list(&list, 1.0);
+        c.allocate_layers_from_display_list(&list, 1.0, &HashMap::new());
         assert_eq!(c.layers.len(), 1, "a 0×0 clip cannot get a pixbuf");
     }
 
@@ -4017,7 +4038,7 @@ mod autotest_generated {
             opaque_rect(0.0, 0.0, 10.0, 10.0),
             DisplayListItem::PopScrollFrame,
         ]);
-        c.allocate_layers_from_display_list(&list, 1.0);
+        c.allocate_layers_from_display_list(&list, 1.0, &HashMap::new());
         assert_eq!(c.layers.len(), 2);
         let l = c.layers.values().find(|l| l.scroll_id == Some(7)).expect("scroll layer");
         assert_eq!(l.display_list_range, (1, 2), "range is (push+1, matching pop)");
@@ -4037,7 +4058,7 @@ mod autotest_generated {
             DisplayListItem::PopBackdropFilter,
             DisplayListItem::PopScrollFrame,
         ]);
-        c.allocate_layers_from_display_list(&list, 1.0);
+        c.allocate_layers_from_display_list(&list, 1.0, &HashMap::new());
         assert_eq!(c.layers.len(), 1, "stray pops are ignored, the root survives");
     }
 
@@ -4048,7 +4069,7 @@ mod autotest_generated {
             push_scroll(1, 0.0, 0.0, 20.0, 20.0),
             opaque_rect(0.0, 0.0, 5.0, 5.0),
         ]);
-        c.allocate_layers_from_display_list(&list, 1.0);
+        c.allocate_layers_from_display_list(&list, 1.0, &HashMap::new());
         let l = c.layers.values().find(|l| l.scroll_id == Some(1)).unwrap();
         assert_eq!(l.display_list_range, (1, 2), "an unmatched push clamps to items.len()");
     }
@@ -4065,7 +4086,7 @@ mod autotest_generated {
                 },
                 DisplayListItem::PopOpacity,
             ]);
-            c.allocate_layers_from_display_list(&list, 1.0);
+            c.allocate_layers_from_display_list(&list, 1.0, &HashMap::new());
             assert_eq!(c.layers.len(), 1, "opacity {op} needs no layer");
         }
         let mut c = CompositorState::new(64, 64);
@@ -4076,7 +4097,7 @@ mod autotest_generated {
             },
             DisplayListItem::PopOpacity,
         ]);
-        c.allocate_layers_from_display_list(&list, 1.0);
+        c.allocate_layers_from_display_list(&list, 1.0, &HashMap::new());
         assert_eq!(c.layers.len(), 2, "a negative opacity still needs its own layer");
     }
 
@@ -4084,7 +4105,7 @@ mod autotest_generated {
     fn allocate_layers_identity_reference_frame_is_not_promoted() {
         let mut c = CompositorState::new(64, 64);
         let ident = dlist(vec![ref_frame(1), DisplayListItem::PopReferenceFrame]);
-        c.allocate_layers_from_display_list(&ident, 1.0);
+        c.allocate_layers_from_display_list(&ident, 1.0, &HashMap::new());
         assert_eq!(c.layers.len(), 1, "an identity transform needs no layer");
 
         let mut c2 = CompositorState::new(64, 64);
@@ -4096,10 +4117,101 @@ mod autotest_generated {
             },
             DisplayListItem::PopReferenceFrame,
         ]);
-        c2.allocate_layers_from_display_list(&moved, 1.0);
+        c2.allocate_layers_from_display_list(&moved, 1.0, &HashMap::new());
         assert_eq!(c2.layers.len(), 2, "a non-identity transform gets its own layer");
         let l = c2.layers.values().find(|l| l.id != c2.root_layer).unwrap();
         assert!(!l.transform.is_identity(IDENTITY_EPSILON_F64));
+    }
+
+    /// The matrix baked into a `PushReferenceFrame` is the value at display-list
+    /// BUILD time. An animated transform changes every frame without the list
+    /// being rebuilt, so layer allocation must read the LIVE value.
+    ///
+    /// This is the failure that made engine-driven transitions invisible: the
+    /// FLIP seeds a node at identity on the frame the DOM changes, so the baked
+    /// matrix is identity, so no layer was promoted — and every later sample
+    /// landed in a `transform_stack` that `render_single_item` never reads,
+    /// because transforms are realised by layers, not by the item walk. The node
+    /// jumped from its old rect to its new one with nothing in between.
+    #[test]
+    fn allocate_layers_reference_frame_reads_the_live_transform_not_the_baked_one() {
+        let mut live: HashMap<usize, ComputedTransform3D> = HashMap::new();
+        live.insert(1, translate(120.0, 0.0));
+
+        // Baked identity, live moved: the node IS displaced this frame.
+        let mut c = CompositorState::new(64, 64);
+        c.allocate_layers_from_display_list(
+            &dlist(vec![ref_frame(1), DisplayListItem::PopReferenceFrame]),
+            1.0,
+            &live,
+        );
+        assert_eq!(c.layers.len(), 2, "a live-animated frame must be promoted to a layer");
+        let l = c.layers.values().find(|l| l.id != c.root_layer).unwrap();
+        assert!(
+            (l.transform.tx - 120.0).abs() < 0.001,
+            "layer must carry the LIVE matrix, got tx={}",
+            l.transform.tx
+        );
+    }
+
+    /// The reverse direction, and the one that leaves visible damage: a settled
+    /// animation publishes identity, and if allocation still trusted the baked
+    /// matrix the node would stay permanently offset by a stale sample.
+    #[test]
+    fn allocate_layers_live_identity_retires_a_baked_transform() {
+        let mut live: HashMap<usize, ComputedTransform3D> = HashMap::new();
+        live.insert(1, ComputedTransform3D::IDENTITY);
+        let mut c = CompositorState::new(64, 64);
+        c.allocate_layers_from_display_list(
+            &dlist(vec![
+                DisplayListItem::PushReferenceFrame {
+                    transform_key: TransformKey { id: 1 },
+                    initial_transform: translate(20.0, 10.0),
+                    bounds: wlr(0.0, 0.0, 20.0, 20.0),
+                },
+                DisplayListItem::PopReferenceFrame,
+            ]),
+            1.0,
+            &live,
+        );
+        assert_eq!(c.layers.len(), 1, "a settled animation must not keep its layer");
+    }
+
+    /// Push/pop pairing must not be inferred from the transform VALUE.
+    ///
+    /// Allocation skips identity frames, and the pop arm used to decide whether
+    /// to pop by asking whether the top layer's transform was non-identity — so
+    /// an identity frame nested inside a moved one popped the PARENT, and every
+    /// item after it composited into the wrong layer. A FLIP passes through
+    /// identity exactly (at rest, and at the instant it settles), so this is
+    /// reachable in normal playback rather than only by a hand-built list.
+    #[test]
+    fn allocate_layers_identity_child_frame_does_not_pop_its_moved_parent() {
+        let mut live: HashMap<usize, ComputedTransform3D> = HashMap::new();
+        live.insert(1, translate(30.0, 0.0)); // outer: moving
+        live.insert(2, ComputedTransform3D::IDENTITY); // inner: at rest
+
+        let mut c = CompositorState::new(64, 64);
+        c.allocate_layers_from_display_list(
+            &dlist(vec![
+                ref_frame(1),
+                ref_frame(2),
+                DisplayListItem::PopReferenceFrame, // inner — allocated nothing
+                opaque_rect(0.0, 0.0, 5.0, 5.0),    // still inside the OUTER frame
+                DisplayListItem::PopReferenceFrame, // outer
+                opaque_rect(0.0, 0.0, 5.0, 5.0),    // back at the root
+            ]),
+            1.0,
+            &live,
+        );
+        assert_eq!(c.layers.len(), 2, "only the moved outer frame gets a layer");
+        let outer_id = *c.layers.get(&c.root_layer).unwrap().children.first().unwrap();
+        let outer = c.layers.get(&outer_id).unwrap();
+        let (start, end) = outer.display_list_range;
+        assert!(
+            start <= 3 && end > 3,
+            "the rect at index 3 sits inside the outer frame, but its layer spans {start}..{end}"
+        );
     }
 
     #[test]
@@ -4112,7 +4224,7 @@ mod autotest_generated {
             DisplayListItem::PopScrollFrame,
             DisplayListItem::PopScrollFrame,
         ]);
-        c.allocate_layers_from_display_list(&list, 1.0);
+        c.allocate_layers_from_display_list(&list, 1.0, &HashMap::new());
         assert_eq!(c.layers.len(), 3);
         let root = c.layers.get(&c.root_layer).unwrap();
         assert_eq!(root.children.len(), 1, "only the outer frame hangs off the root");
@@ -4128,9 +4240,9 @@ mod autotest_generated {
     #[test]
     fn allocate_layers_is_idempotent_across_frames() {
         let mut c = CompositorState::new(64, 64);
-        c.allocate_layers_from_display_list(&layer_soup(), 1.0);
+        c.allocate_layers_from_display_list(&layer_soup(), 1.0, &HashMap::new());
         let first = c.layers.len();
-        c.allocate_layers_from_display_list(&layer_soup(), 1.0);
+        c.allocate_layers_from_display_list(&layer_soup(), 1.0, &HashMap::new());
         assert_eq!(c.layers.len(), first, "re-allocating must not leak last frame's layers");
         let root = c.layers.get(&c.root_layer).unwrap();
         assert_eq!(root.children.len(), 3, "root children are rebuilt, not appended to");
@@ -4147,7 +4259,7 @@ mod autotest_generated {
             },
             DisplayListItem::PopBackdropFilter,
         ]);
-        c.allocate_layers_from_display_list(&list, 1.0);
+        c.allocate_layers_from_display_list(&list, 1.0, &HashMap::new());
         let l = c.layers.values().find(|l| l.is_backdrop_filter).expect("backdrop layer");
         assert_eq!(
             at(&l.pixbuf, 0, 0),
@@ -4164,7 +4276,7 @@ mod autotest_generated {
             },
             DisplayListItem::PopBackdropFilter,
         ]);
-        c2.allocate_layers_from_display_list(&empty, 1.0);
+        c2.allocate_layers_from_display_list(&empty, 1.0, &HashMap::new());
         assert_eq!(c2.layers.len(), 1, "no filters → no layer");
     }
 
@@ -4246,7 +4358,7 @@ mod autotest_generated {
     fn render_layers_on_an_empty_display_list_is_ok() {
         let mut c = CompositorState::new(8, 8);
         let list = dlist(vec![]);
-        c.allocate_layers_from_display_list(&list, 1.0);
+        c.allocate_layers_from_display_list(&list, 1.0, &HashMap::new());
         let (rr, mut gc, st) = render_deps();
         assert!(c.render_layers(&list, 1.0, &rr, &test_font_manager(), &mut gc, &st).is_ok());
     }
@@ -4261,7 +4373,7 @@ mod autotest_generated {
             16.0,
             ColorU { r: 0, g: 0, b: 255, a: 255 },
         )]);
-        c.allocate_layers_from_display_list(&list, 1.0);
+        c.allocate_layers_from_display_list(&list, 1.0, &HashMap::new());
         let (rr, mut gc, st) = render_deps();
         c.render_layers(&list, 1.0, &rr, &test_font_manager(), &mut gc, &st).unwrap();
         let root = c.layers.get(&c.root_layer).unwrap();
@@ -4286,7 +4398,7 @@ mod autotest_generated {
                 8.0,
                 ColorU { r: 0, g: 0, b: 255, a: 255 },
             )]);
-            c.allocate_layers_from_display_list(&list, dpi);
+            c.allocate_layers_from_display_list(&list, dpi, &HashMap::new());
             let (rr, mut gc, st) = render_deps();
             assert!(
                 c.render_layers(&list, dpi, &rr, &test_font_manager(), &mut gc, &st).is_ok(),
@@ -4305,7 +4417,7 @@ mod autotest_generated {
     fn render_layers_skips_a_layer_range_past_the_end_of_the_list() {
         let mut c = CompositorState::new(8, 8);
         let list = dlist(vec![opaque_rect(0.0, 0.0, 8.0, 8.0)]);
-        c.allocate_layers_from_display_list(&list, 1.0);
+        c.allocate_layers_from_display_list(&list, 1.0, &HashMap::new());
         // Simulate a stale range left over from a longer display list.
         let root_id = c.root_layer;
         c.layers.get_mut(&root_id).unwrap().display_list_range = (999, 1000);
@@ -4326,7 +4438,7 @@ mod autotest_generated {
             8.0,
             ColorU { r: 0, g: 255, b: 0, a: 255 },
         )]);
-        c.allocate_layers_from_display_list(&list, 1.0);
+        c.allocate_layers_from_display_list(&list, 1.0, &HashMap::new());
         let root_id = c.root_layer;
         c.layers.get_mut(&root_id).unwrap().display_list_range = (0, 9999);
         let (rr, mut gc, st) = render_deps();
@@ -4339,7 +4451,7 @@ mod autotest_generated {
     fn composite_frame_handles_degenerate_dpi_and_undersized_output() {
         let mut c = CompositorState::new(16, 16);
         let list = dlist(vec![]);
-        c.allocate_layers_from_display_list(&list, 1.0);
+        c.allocate_layers_from_display_list(&list, 1.0, &HashMap::new());
         let (rr, mut gc, st) = render_deps();
         c.render_layers(&list, 1.0, &rr, &test_font_manager(), &mut gc, &st).unwrap();
 
@@ -4368,7 +4480,7 @@ mod autotest_generated {
             rect_item(0.0, 0.0, 16.0, 16.0, ColorU { r: 255, g: 0, b: 0, a: 255 }),
             DisplayListItem::PopOpacity,
         ]);
-        c.allocate_layers_from_display_list(&list, 1.0);
+        c.allocate_layers_from_display_list(&list, 1.0, &HashMap::new());
         let (rr, mut gc, st) = render_deps();
         c.render_layers(&list, 1.0, &rr, &test_font_manager(), &mut gc, &st).unwrap();
         let mut out = AzulPixmap::new(16, 16).unwrap();
@@ -4387,7 +4499,7 @@ mod autotest_generated {
     fn scroll_layer_with_an_unknown_id_is_ok() {
         let mut c = CompositorState::new(32, 32);
         let list = dlist(vec![]);
-        c.allocate_layers_from_display_list(&list, 1.0);
+        c.allocate_layers_from_display_list(&list, 1.0, &HashMap::new());
         let (rr, mut gc, _st) = render_deps();
         assert!(
             c.scroll_layer(4242, (0.0, 10.0), &list, 1.0, &rr, &test_font_manager(), &mut gc).is_ok(),
@@ -4403,7 +4515,7 @@ mod autotest_generated {
             opaque_rect(0.0, 0.0, 32.0, 200.0),
             DisplayListItem::PopScrollFrame,
         ]);
-        c.allocate_layers_from_display_list(&list, 1.0);
+        c.allocate_layers_from_display_list(&list, 1.0, &HashMap::new());
         let (rr, mut gc, _st) = render_deps();
         c.scroll_layer(1, (0.0, 0.4), &list, 1.0, &rr, &test_font_manager(), &mut gc).unwrap();
         let l = c.layers.values().find(|l| l.scroll_id == Some(1)).unwrap();
@@ -4419,7 +4531,7 @@ mod autotest_generated {
             opaque_rect(0.0, 0.0, 32.0, 200.0),
             DisplayListItem::PopScrollFrame,
         ]);
-        c.allocate_layers_from_display_list(&list, 1.0);
+        c.allocate_layers_from_display_list(&list, 1.0, &HashMap::new());
         let (rr, mut gc, _st) = render_deps();
         c.scroll_layer(1, (0.0, 10.0), &list, 1.0, &rr, &test_font_manager(), &mut gc).unwrap();
         let l = c.layers.values().find(|l| l.scroll_id == Some(1)).unwrap();
