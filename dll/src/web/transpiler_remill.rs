@@ -4680,6 +4680,18 @@ mod x86_scan {
             .filter(|i| i.is_ip_rel_memory_operand())
             .map(|i| {
                 let sz = i.memory_size().size();
+                if i.mnemonic() == Mnemonic::Lea {
+                    // [FIX 2026-08-14] `lea` doesn't access memory, so memory_size()==0
+                    // and this used to mirror just 8 bytes at the target. But a `lea`
+                    // materializes the BASE of a struct / vtable / fn-ptr table that
+                    // LATER instructions index into — e.g. `core::fmt::write` does
+                    // `lea rax,[rip+vtable]` then `callq *0x18(%rax)`, reading at +0x18,
+                    // which fell OUTSIDE the 8 mirrored bytes → the guest read 0 → the
+                    // indirect dispatch got target_pc=0 → `default` no-op → fmt::write
+                    // returned Err → format_inner `.expect` → unwrap_failed. Mirror a
+                    // window instead so indexed reads off the base are covered.
+                    return (i.ip_rel_memory_address() as usize, LEA_MIRROR_WINDOW);
+                }
                 (
                     i.ip_rel_memory_address() as usize,
                     if sz == 0 { 8 } else { sz },
@@ -4687,6 +4699,28 @@ mod x86_scan {
             })
             .collect()
     }
+
+    /// Bytes mirrored at a `lea`-materialized data base (vtables / fn-ptr tables /
+    /// const structs indexed by later instructions, and — critically — SWITCH
+    /// JUMP TABLES). These ranges are deduped and only cover addresses the lifted
+    /// code actually references.
+    ///
+    /// 2026-08-14: was 128 B, which covers a Rust vtable but only **32 entries**
+    /// of an i32 jump table. Rust `match` lowers to tables far larger than that
+    /// (`build_compact_cache_with_inheritance` has one guarded by `cmp $0x74` =
+    /// 117 entries = 468 B), so the tail of every big table was truncated. That
+    /// broke BOTH consumers:
+    ///   - devirt (`build_extra_data` feeds these same ranges to remill): the
+    ///     entry read fails past the window, so only the first 32 arms become
+    ///     `switch` cases — 16 of that fn's 23 tables produced no switch at all
+    ///     and fell through to `__remill_missing_block`, which RETURNS, silently
+    ///     skipping the whole `match` body and leaving struct fields unwritten;
+    ///   - the runtime data mirror: the guest's `movslq (%Rb,%Ri,4)` for any
+    ///     index >= 32 read UNMIRRORED (zero) memory, so the computed target was
+    ///     `table_base + 0` — a jump into the table data itself.
+    /// Measured on that function: 128 B => 7 devirt switches, 1024 B => 20.
+    /// 1024 B = 256 table entries, which covers real-world `match` arms.
+    const LEA_MIRROR_WINDOW: usize = 1024;
 
     /// Direct near `call rel32` / tail-`jmp rel32` targets — sibling
     /// of `scan_arm64_bl_b_targets` (B7). Calls always count; jmps
@@ -9163,8 +9197,19 @@ fn build_extra_data(bytes: &[u8], fn_addr: usize, lift_addr: u64) -> String {
         if len == 0 || len > 65536 {
             continue;
         }
-        if total + len > 1_000_000 {
-            break; // bound the CLI arg size
+        if total + len > 8_000_000 {
+            // Bound the arg size. Raised from 1 MB with LEA_MIRROR_WINDOW 128->1024:
+            // this `break` DROPS every remaining region, and a dropped region is a
+            // jump table remill then can't read — i.e. a silently skipped `match`.
+            // run_tool switches to a --flagfile once the args are long, so the old
+            // command-line limit no longer applies.
+            eprintln!(
+                "[azul-web]   ⚠ extra_data cap hit at {} regions ({} bytes) — later \
+                 jump tables will NOT devirtualize",
+                regions.len(),
+                total
+            );
+            break;
         }
         // SAFETY: (raddr, len) are adrp+ldr-referenced ranges in the live dylib's
         // read-only data — the same ranges the wasm data-mirror reads.
