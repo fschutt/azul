@@ -256,6 +256,31 @@ fn dense_simple_runs_agree_with_the_reference_walker() {
             400.0,
         ),
         (
+            // MIXED FONT SIZES ON ONE LINE — the case every other entry in
+            // this list misses, because they all use one size.
+            //
+            // The dense model stores ONE y per line (`ClusterCompact.x` says
+            // so outright: "Inline-axis position within the IFC; y comes from
+            // the line"), frozen from whichever cluster opened the
+            // `LineRecord`. The sparse reference uses each ITEM's own solved
+            // `position.y`. Those agree only while every cluster on a line
+            // shares a y — true for uniform text, false the moment one run is
+            // taller, because a taller run sits on a different baseline.
+            //
+            // Found 2026-08-14 from OUTSIDE azul: printpdf's ligature tests
+            // passed against azul rev aaa700097 and failed against master,
+            // and `AZ_DENSE_TEXT=verify` localised it to a glyph whose y was
+            // off by 1.98px with identical index, x, font and node. Dense has
+            // been the DEFAULT since 0a5c69230, so that is what ships; the
+            // verify gate that catches it is opt-in and no CI job sets it.
+            "mixed-sizes-one-line",
+            vec![
+                styled("small ", &font_ref, 0, None, |_| {}),
+                styled("BIG", &font_ref, 6, None, |s| s.font_size_px = 32.0),
+            ],
+            400.0,
+        ),
+        (
             // Identical style VALUES in two runs with DISTINCT Arcs: the
             // dense model splits runs on Arc identity, the reference
             // merges on values — the twin must merge back.
@@ -922,6 +947,9 @@ fn dense_positioned_cluster_reads_the_baseline_not_the_top() {
         clusters: 0..1,
         item_base: 0,
         item_linear: true,
+        // The run's own solved y == the line's recorded baseline here (one
+        // run on the line), so this stays a pure field-choice pin.
+        y: 40.0,
         script: azul_layout::text3::script::Script::Latin,
         direction: azul_layout::text3::cache::BidiDirection::Ltr,
     });

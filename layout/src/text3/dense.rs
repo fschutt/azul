@@ -92,6 +92,21 @@ pub struct DenseRun {
     /// dense run, both for the PDF walker's run predicate and for RTL
     /// border-fragment assignment.
     pub direction: BidiDirection,
+    /// The item's own solved block-axis position (`PositionedItem.position.y`),
+    /// amortised per run because the builder splits on it.
+    ///
+    /// This exists because "y comes from the line" is FALSE. `LineRecord`
+    /// stores one y, frozen from whichever cluster opened the line, and every
+    /// walker that reconstructed a baseline as `line.top_y + ascent` silently
+    /// assumed every cluster on the line shared that y. A line mixing font
+    /// sizes breaks it: the taller run sits on a different baseline, and its
+    /// glyphs were emitted 12.8px off at 16px/32px (and 1.98px off on the
+    /// real-world mixed-font line that exposed this). The sparse reference
+    /// always used the ITEM's own `position.y`; this is that value, kept at
+    /// run granularity so the amortisation still holds — runs are ~1 per 42
+    /// clusters, and y changes exactly where the run already splits (style,
+    /// font metrics), so in practice this costs no extra runs at all.
+    pub y: f32,
 }
 
 /// One per line: replaces per-cluster `line_index` + `position.y`.
@@ -274,6 +289,11 @@ impl DenseText {
                         || r.source_run != c.source_cluster_id.source_run
                         || r.source_node != source_node
                         || r.direction != c.direction
+                        // The item's own y is amortised on the run, so a
+                        // change in it MUST open a new run — otherwise the
+                        // run's y would silently describe only its first
+                        // cluster, which is the per-line freeze one level down.
+                        || (r.y - position.y).abs() > 0.001
                         || (!fits_linear && !fits_const)
                 }
             };
@@ -315,6 +335,7 @@ impl DenseText {
                     item_linear: true,
                     script,
                     direction: c.direction,
+                    y: position.y,
                 });
             } else {
                 // Staying in the run: a cluster that fits only one model
@@ -1167,7 +1188,9 @@ pub fn get_glyph_positions_dense(dense: &DenseText) -> Vec<PositionedGlyph> {
                 .resolve_with_metrics(run.style.font_size_px, m);
             font_ascent + (lh - ad) / 2.0
         };
-        let baseline_y = top_y + ascent;
+        // The RUN's own solved y, not the line's: a line mixing sizes puts
+        // its taller run on a different baseline (see DenseRun::y).
+        let baseline_y = run.y + ascent;
 
         // Detail cluster? (details are in cluster order.)
         let detail = loop {
@@ -1277,7 +1300,9 @@ pub fn get_glyph_runs_simple_dense(dense: &DenseText) -> Vec<SimpleGlyphRun> {
                 .resolve_with_metrics(run.style.font_size_px, m);
             font_ascent + (lh - ad) / 2.0
         };
-        let baseline_y = top_y + ascent;
+        // The RUN's own solved y, not the line's: a line mixing sizes puts
+        // its taller run on a different baseline (see DenseRun::y).
+        let baseline_y = run.y + ascent;
 
         let style = &run.style;
         let source_node_id =
@@ -1439,7 +1464,9 @@ pub fn get_glyph_runs_pdf_dense<T: ParsedFontTrait>(
                 .resolve_with_metrics(run.style.font_size_px, m);
             font_ascent + (lh - ad) / 2.0
         };
-        let baseline_y = top_y + ascent;
+        // The RUN's own solved y, not the line's: a line mixing sizes puts
+        // its taller run on a different baseline (see DenseRun::y).
+        let baseline_y = run.y + ascent;
 
         let style = &run.style;
 
