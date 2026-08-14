@@ -1285,6 +1285,18 @@ impl Runner {
             // Cancelling in the headless runner: nothing here was started by
             // ExecuteE2eJson (it refuses, below), so there is never a handle
             // to cancel. A no-op, not an error — see `stop_e2e_json`.
+            // The headless runner is where the animation e2e tests actually
+            // execute, so this arm is the one that matters: it steps the
+            // integrator by an exact `dt` with no wall clock involved, which is
+            // what makes a mid-flight assertion reproducible.
+            CallbackChange::TickAnimations { dt_micros, steps } => {
+                let dt = *dt_micros as f32 / 1_000_000.0;
+                for _ in 0..(*steps).max(1) {
+                    self.layout_window.tick_animations(dt);
+                }
+                ProcessEventResult::ShouldUpdateDisplayListCurrentWindow
+            }
+
             CallbackChange::StopE2eJson { .. } => ProcessEventResult::DoNothing,
 
             CallbackChange::ExecuteE2eJson { .. } => {
