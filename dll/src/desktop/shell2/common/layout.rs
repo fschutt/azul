@@ -676,6 +676,18 @@ phases.mark("after_recompute_cache");
     // empty→full path (headless_lifecycle test) ever exercised it. The `.to_vec()`
     // clones below release the `layout_results` borrow before the later
     // `update_managers_with_node_moves(layout_window, …)` &mut borrow.
+    // Filled at the diff seam below, consumed after the solve (see 3.5b / 5b).
+    // Locals rather than window state: First and Last are two points in THIS
+    // function, and parking them on `LayoutWindow` would invite a later frame
+    // to read a stale half-pair.
+    let mut anim_first_rects: std::collections::BTreeMap<
+        azul_core::dom::NodeId,
+        azul_core::geom::LogicalRect,
+    > = std::collections::BTreeMap::new();
+    let mut anim_node_moves: Vec<azul_core::diff::NodeMove> = Vec::new();
+    let mut anim_new_node_data: Vec<azul_core::dom::NodeData> = Vec::new();
+    let mut anim_new_hierarchy: Vec<azul_core::styled_dom::NodeHierarchyItem> = Vec::new();
+
     {
         let (old_node_data, old_hierarchy): (
             Vec<azul_core::dom::NodeData>,
@@ -746,6 +758,30 @@ phases.mark("after_recompute_cache");
                 diff_result.node_moves.len()
             );
         }
+
+        // 3.5b. CAPTURE "FIRST" FOR ENGINE-DRIVEN LAYOUT ANIMATION
+        //
+        // This is the only moment both geometries are reachable: the old
+        // layout_results still hold the PREVIOUS frame's solved rects, and
+        // `node_moves` says which old node became which new one. The matching
+        // "Last" rects do not exist yet — the new tree has not been solved — so
+        // First is stashed here and the pair is completed after the solve.
+        //
+        // No application involvement: an app that returns a different DOM gets
+        // the transition for free, because the diff already knows what moved.
+        // Nothing is seeded yet, so a frame that ends up not animating has paid
+        // only for this map.
+        anim_first_rects = diff_result
+            .node_moves
+            .iter()
+            .filter_map(|m| {
+                let r = layout_window.get_node_bounds(azul_core::dom::DomId::ROOT_ID, m.old_node_id)?;
+                Some((m.old_node_id, layout_rect_to_logical(r)))
+            })
+            .collect();
+        anim_node_moves = diff_result.node_moves.clone();
+        anim_new_node_data = styled_dom.node_data.as_ref().to_vec();
+        anim_new_hierarchy = styled_dom.node_hierarchy.as_ref().to_vec();
 
         // 3.6. UPDATE MANAGERS WITH NEW NODE IDS
         // The node_moves tell us which old NodeIds map to which new NodeIds.
@@ -1038,6 +1074,44 @@ phases.mark("after_layout_and_dl");
         "[regenerate_layout] Layout completed, {} DOMs",
         layout_window.layout_results.len()
     );
+
+    // 5b. SEED LAYOUT ANIMATIONS ("Last" is now solved)
+    //
+    // The other half of 3.5b. Every diff correspondence whose rect actually
+    // changed becomes a FLIP; identity transforms are skipped by `seed_moves`
+    // so a static frame allocates nothing. Keyed by reconciliation identity, so
+    // a node that keeps animating across several rebuilds is RETARGETED — the
+    // spring keeps its position and velocity instead of snapping and restarting.
+    if !anim_node_moves.is_empty() {
+        // Collected BEFORE seeding: the "Last" accessor borrows `layout_window`
+        // to read the freshly solved rects, and seeding borrows it mutably to
+        // reach the manager. Two statements, so the read is finished before the
+        // write starts.
+        let correspondences = azul_core::animation::correspondences_from_moves(
+            &anim_node_moves,
+            &anim_new_node_data,
+            &anim_new_hierarchy,
+            |old_id| anim_first_rects.get(&old_id).copied(),
+            |new_id| {
+                layout_window
+                    .get_node_bounds(azul_core::dom::DomId::ROOT_ID, new_id)
+                    .map(layout_rect_to_logical)
+            },
+        );
+        let seeded = azul_core::animation::seed_moves(
+            &mut layout_window.animations,
+            correspondences,
+            azul_core::animation::Interp::Spring(azul_core::animation::Spring::SMOOTH),
+        );
+        if seeded > 0 {
+            log_debug!(
+                LogCategory::Layout,
+                "[regenerate_layout] Seeded {} layout animation(s) from {} node move(s)",
+                seeded,
+                anim_node_moves.len()
+            );
+        }
+    }
 
     // 5. Register scrollable nodes and calculate scrollbar states
     register_scroll_nodes(layout_window);
@@ -1548,4 +1622,18 @@ fn inject_software_menubar(user_dom: azul_core::dom::Dom) -> azul_core::dom::Dom
     // Html root (not Body) so we don't double-nest <body> / double the UA margin.
     // Order: menu bar first, then the user's content below it.
     Dom::create_html().with_children(DomVec::from_vec(vec![menubar, user_dom]))
+}
+
+/// `LayoutRect` (integer origin, used by the layout query API) → `LogicalRect`
+/// (float, what the FLIP maths wants).
+///
+/// The layout query rounds positions to whole pixels on the way out; a FLIP
+/// computed from those is at worst half a pixel off at the START of a
+/// transition, which is invisible and converges to the exact solved rect
+/// because the animation's endpoint is the layout, not this rect.
+fn layout_rect_to_logical(r: azul_css::props::basic::LayoutRect) -> azul_core::geom::LogicalRect {
+    azul_core::geom::LogicalRect {
+        origin: azul_core::geom::LogicalPosition::new(r.origin.x as f32, r.origin.y as f32),
+        size: azul_core::geom::LogicalSize::new(r.size.width as f32, r.size.height as f32),
+    }
 }
