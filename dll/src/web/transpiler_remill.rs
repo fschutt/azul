@@ -2146,56 +2146,51 @@ impl RemillTranspiler {
             }
 
             // WEB-LIFT FIX (2026-06-02): enqueue CROSS-FUNCTION TAIL-CALL targets.
-            // ARM64 `b <addr>` (opcode bits[31:26]==0b000101) to an address OUTSIDE this fn's
-            // [addr, addr+size) is a TAIL CALL (e.g. to a shared `_OUTLINED_FUNCTION_N`
-            // epilogue/thunk the machine-outliner emitted). remill lowers such a `b` to
-            // `__remill_missing_block(target)` — NOT a `sub_<hex>` call extern — so
-            // parse_extern_sub_declares (below) never sees it and the target fn is never
-            // lifted → at runtime __az_indirect_dispatch has no `switch` case → MISSING_BLOCK
-            // trap (the systemic "small-fn missing_blocks" root). Lift these targets so the
-            // dispatcher routes the `br` to them. (intra-fn `b` = a normal loop/if branch, skip.)
+            // A `b <addr>` (arm64) / `jmp <rel>` (x86-64) into a DISTINCT function's entry
+            // is a TAIL CALL (e.g. `<String as Display>::fmt` = 15 bytes of argument
+            // shuffling then `jmp core::fmt::Formatter::pad`, or a shared outlined
+            // epilogue/thunk). remill lowers it to `__remill_missing_block(target)` —
+            // NOT a `sub_<hex>` call extern — so parse_extern_sub_declares (below) never
+            // sees it and the target fn is never lifted. `__remill_missing_block` RETURNS
+            // rather than traps, so the caller silently receives GARBAGE in RAX (the
+            // systemic "small-fn missing_blocks" root). Lift these targets.
+            //
+            // 2026-08-14: this scan used to hard-code the AArch64 `b` encoding
+            // (bits[31:26]==0b000101, fixed 4-byte stride), so on the Windows x86-64 port
+            // it matched nothing and NO tail-call target was ever enqueued. That is why
+            // `core::fmt::Formatter::pad` was absent from the entire lift: it is reached
+            // ONLY by tail-jmp from the Display thunks, so `<String as Display>::fmt`
+            // returned garbage, `core::fmt::write` read it as `Err`, and
+            // `format_inner`'s `.expect` hit `unreachable` — i.e. every `format!` of a
+            // string was broken. Now arch-dispatched via scan_guest_tail_call_targets.
             {
                 let mut tail_deps: Vec<(String, usize, usize)> = Vec::new();
                 if let Some(table) = symbol_table::get() {
-                    let mut off = 0usize;
-                    while off + 4 <= size {
-                        let instr = u32::from_le_bytes([
-                            fn_bytes_slice[off],
-                            fn_bytes_slice[off + 1],
-                            fn_bytes_slice[off + 2],
-                            fn_bytes_slice[off + 3],
-                        ]);
-                        if (instr >> 26) == 0x5 {
-                            // imm26 (signed) * 4, PC-relative to this instruction.
-                            let simm = (((instr & 0x03FF_FFFF) as i64) << 38) >> 38;
-                            let target =
-                                (addr.wrapping_add(off) as i64).wrapping_add(simm * 4) as usize;
-                            // A `b` is a cross-fn TAIL CALL iff its target is a DISTINCT
-                            // function's START. `table.lookup` is EXACT (by_addr.get) → it
-                            // returns Some ONLY for a symbol start, so an intra-fn `b` to a
-                            // mid-fn label yields None and is skipped. We DON'T range-test
-                            // [addr,addr+size) because symbol `size`s are often over-estimated
-                            // (spanning adjacent tiny outlined fns) — that made real tail-calls
-                            // look intra-fn and get dropped (the leftover OUTLINED epilogue trap).
-                            if let Some(e) = table.lookup(target) {
-                                if e.canonical_addr != addr
-                                    && e.classification.is_recursable()
-                                    && !visited.contains(&e.canonical_addr)
-                                {
-                                    tail_deps.push((
-                                        e.canonical_name.clone(),
-                                        e.canonical_addr,
-                                        if e.size > 0 { e.size } else { super::LIFT_READ_WINDOW },
-                                    ));
-                                }
+                    for target in scan_guest_tail_call_targets(fn_bytes_slice, addr) {
+                        // A jump is a cross-fn TAIL CALL iff its target is a DISTINCT
+                        // function's START. `table.lookup` is EXACT (by_addr.get) → it
+                        // returns Some ONLY for a symbol start, so an intra-fn branch to a
+                        // mid-fn label yields None and is skipped. We DON'T range-test
+                        // [addr,addr+size) because symbol `size`s are often over-estimated
+                        // (spanning adjacent tiny outlined fns) — that made real tail-calls
+                        // look intra-fn and get dropped (the leftover OUTLINED epilogue trap).
+                        if let Some(e) = table.lookup(target) {
+                            if e.canonical_addr != addr
+                                && e.classification.is_recursable()
+                                && !visited.contains(&e.canonical_addr)
+                            {
+                                tail_deps.push((
+                                    e.canonical_name.clone(),
+                                    e.canonical_addr,
+                                    if e.size > 0 { e.size } else { super::LIFT_READ_WINDOW },
+                                ));
                             }
                         }
-                        off += 4;
                     }
                 }
                 for (nm, a, sz) in tail_deps {
                     eprintln!(
-                        "[azul-web]   tail-call dep: b → {}@0x{:x} size={} (from {})",
+                        "[azul-web]   tail-call dep: → {}@0x{:x} size={} (from {})",
                         nm, a, sz, name,
                     );
                     queue.push_back(TransitiveLiftTarget::Dep { name: nm, addr: a, size: sz });
@@ -4725,6 +4720,36 @@ mod x86_scan {
         out
     }
 
+    /// Cross-function TAIL-CALL targets: `jmp <rel>` into another
+    /// function's entry — the x86-64 sibling of arm64's `b <addr>`.
+    /// remill lowers such a `jmp` to `__remill_missing_block(target)`
+    /// rather than a `sub_<hex>` call extern, so the IR walk never sees
+    /// it and the callee is never lifted.
+    ///
+    /// Returns EVERY unconditional near-branch target; the caller
+    /// filters through the SymbolTable, whose `lookup` is exact
+    /// (by-address), so an intra-fn `jmp` to a mid-fn label yields None
+    /// and drops out. Deliberately NOT range-filtered against
+    /// [fn_addr, fn_addr+len): symbol sizes are frequently
+    /// over-estimated (spanning adjacent tiny thunks), which would make
+    /// real tail calls look intra-fn and hide them again.
+    pub fn tail_jmp_targets(fn_bytes: &[u8], fn_addr: usize) -> Vec<usize> {
+        let mut out: Vec<usize> = decode_all(fn_bytes, fn_addr)
+            .iter()
+            .filter(|i| {
+                i.flow_control() == FlowControl::UnconditionalBranch
+                    && matches!(
+                        i.op0_kind(),
+                        OpKind::NearBranch16 | OpKind::NearBranch32 | OpKind::NearBranch64
+                    )
+            })
+            .map(|i| i.near_branch_target() as usize)
+            .collect();
+        out.sort_unstable();
+        out.dedup();
+        out
+    }
+
     /// Code addresses materialized by `lea reg, [rip+disp]` — the x86
     /// sibling of `scan_arm64_adrp_add_code_targets` (fn-ptr / vtable
     /// materialization later consumed by an indirect call). Returns
@@ -4968,6 +4993,45 @@ fn scan_guest_data_accesses(fn_bytes: &[u8], fn_addr: usize) -> Vec<(usize, usiz
     return scan_arm64_adrp_accesses(fn_bytes, fn_addr);
     #[cfg(target_arch = "x86_64")]
     return x86_scan::riprel_accesses(fn_bytes, fn_addr);
+    #[cfg(not(any(target_arch = "aarch64", target_arch = "x86_64")))]
+    {
+        let _ = (fn_bytes, fn_addr);
+        Vec::new()
+    }
+}
+
+/// CROSS-FUNCTION TAIL-CALL targets only (arm64 `b` ↔ x86-64 `jmp`).
+///
+/// Kept separate from `scan_guest_branch_targets` because direct CALLs
+/// (`bl` / `call rel32`) already surface as `sub_<hex>` externs in the
+/// lifted IR and are enqueued by `parse_extern_sub_declares`; only the
+/// tail-jump form is invisible there.
+#[cfg(feature = "web-transpiler")]
+fn scan_guest_tail_call_targets(fn_bytes: &[u8], fn_addr: usize) -> Vec<usize> {
+    #[cfg(target_arch = "aarch64")]
+    {
+        // imm26 (signed) * 4, PC-relative to the instruction itself.
+        let mut out = Vec::new();
+        let mut off = 0usize;
+        while off + 4 <= fn_bytes.len() {
+            let instr = u32::from_le_bytes([
+                fn_bytes[off],
+                fn_bytes[off + 1],
+                fn_bytes[off + 2],
+                fn_bytes[off + 3],
+            ]);
+            if (instr >> 26) == 0x5 {
+                let simm = (((instr & 0x03FF_FFFF) as i64) << 38) >> 38;
+                out.push((fn_addr.wrapping_add(off) as i64).wrapping_add(simm * 4) as usize);
+            }
+            off += 4;
+        }
+        out.sort_unstable();
+        out.dedup();
+        return out;
+    }
+    #[cfg(target_arch = "x86_64")]
+    return x86_scan::tail_jmp_targets(fn_bytes, fn_addr);
     #[cfg(not(any(target_arch = "aarch64", target_arch = "x86_64")))]
     {
         let _ = (fn_bytes, fn_addr);
