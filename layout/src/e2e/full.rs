@@ -12844,6 +12844,23 @@ pub fn process_debug_event(
                     let data = ScreenshotData {
                         data: data_uri.as_str().to_string(),
                     };
+                    // A base64 blob in a JSON response is not something a human
+                    // can look at. With AZ_E2E_SHOT_DIR set, every screenshot is
+                    // also written to disk, numbered in capture order — which is
+                    // what makes a mid-animation sequence inspectable at all.
+                    // Unset (the default, and always in CI) this does nothing.
+                    #[cfg(feature = "std")]
+                    if let Some(dir) = std::env::var_os("AZ_E2E_SHOT_DIR") {
+                        let dir = std::path::PathBuf::from(dir);
+                        let _ = std::fs::create_dir_all(&dir);
+                        static SHOT_N: core::sync::atomic::AtomicUsize =
+                            core::sync::atomic::AtomicUsize::new(0);
+                        let n = SHOT_N.fetch_add(1, core::sync::atomic::Ordering::Relaxed);
+                        let raw = data.data.rsplit(",").next().unwrap_or("");
+                        if let Ok(bytes) = base64_decode_for_shot(raw) {
+                            let _ = std::fs::write(dir.join(format!("shot-{n:03}.png")), bytes);
+                        }
+                    }
                     send_ok(request, None, Some(ResponseData::Screenshot(data)));
                 }
                 Err(e) => {
@@ -13004,7 +13021,7 @@ pub fn process_debug_event(
                     opacity: anim.current_opacity(),
                     finished: anim.is_finished(),
                     published: cache
-                        .map(|c| c.css_current_transform_values.contains_key(node_id))
+                        .map(|c| c.anim_current_transform_values.contains_key(node_id))
                         .unwrap_or(false),
                 });
             }
@@ -17170,4 +17187,36 @@ mod non_interference_can_fail {
         );
     }
 
+}
+
+/// Decode a base64 payload for `AZ_E2E_SHOT_DIR`. Standard alphabet, padding
+/// tolerated; anything malformed is skipped rather than panicking a test run.
+#[cfg(feature = "std")]
+fn base64_decode_for_shot(input: &str) -> Result<Vec<u8>, ()> {
+    const T: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+    let mut lut = [255u8; 256];
+    let mut i = 0;
+    while i < 64 {
+        lut[T[i] as usize] = i as u8;
+        i += 1;
+    }
+    let mut out = Vec::with_capacity(input.len() / 4 * 3);
+    let mut acc: u32 = 0;
+    let mut bits = 0u32;
+    for b in input.bytes() {
+        if b == b'=' || b.is_ascii_whitespace() {
+            continue;
+        }
+        let v = lut[b as usize];
+        if v == 255 {
+            return Err(());
+        }
+        acc = (acc << 6) | u32::from(v);
+        bits += 6;
+        if bits >= 8 {
+            bits -= 8;
+            out.push((acc >> bits) as u8);
+        }
+    }
+    Ok(out)
 }

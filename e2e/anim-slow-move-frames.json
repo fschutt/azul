@@ -1,0 +1,74 @@
+{
+  "name": "anim_slow_move_frames",
+  "description": "MID-ANIMATION FRAMES of an engine-driven move. Removing #sidebar makes #card slide left; the animation is then stepped in exact 16.666 ms increments with a screenshot after each, so the intermediate transforms are captured rather than inferred. This is the visual counterpart to anim_dom_transition, which asserts the numbers: here the assertion is that the transform is DECREASING frame over frame and reaches identity, i.e. the card is actually travelling rather than jumping. Run with AZ_E2E_SHOT_DIR=/some/dir to also write the PNGs, which is how the sequence is eyeballed.",
+  "setup": {
+    "window_width": 400,
+    "window_height": 300,
+    "dpi": 96
+  },
+  "steps": [
+    {
+      "op": "mount",
+      "html": [
+        "<div id=\"root\">",
+        "  <div id=\"sidebar\">side</div>",
+        "  <div id=\"card\">card</div>",
+        "</div>"
+      ],
+      "css": [
+        "html, body { margin: 0; padding: 0; width: 100%; height: 100%; }",
+        "#root { width: 100%; height: 100%; display: flex; flex-direction: row; }",
+        "#sidebar { width: 200px; height: 100%; background: #2d6cdf; }",
+        "#card { flex-grow: 1; height: 100%; background: #e8484f; }"
+      ]
+    },
+    { "op": "wait_frame" },
+    { "op": "take_screenshot" },
+
+    {
+      "op": "mount",
+      "html": [
+        "<div id=\"root\">",
+        "  <div id=\"card\">card</div>",
+        "</div>"
+      ],
+      "css": [
+        "html, body { margin: 0; padding: 0; width: 100%; height: 100%; }",
+        "#root { width: 100%; height: 100%; display: flex; flex-direction: row; }",
+        "#sidebar { width: 200px; height: 100%; background: #2d6cdf; }",
+        "#card { flex-grow: 1; height: 100%; background: #e8484f; }"
+      ]
+    },
+    { "op": "wait_frame" },
+
+    { "op": "get_animations" },
+    { "op": "assert_response", "type": "animations", "contains": "\"finished\":false" },
+    { "op": "take_screenshot" },
+
+    { "op": "tick_animations", "dt_micros": 16666, "steps": 2 },
+    { "op": "wait_frame" },
+    { "op": "take_screenshot" },
+
+    { "op": "tick_animations", "dt_micros": 16666, "steps": 2 },
+    { "op": "wait_frame" },
+    { "op": "take_screenshot" },
+
+    { "op": "tick_animations", "dt_micros": 16666, "steps": 4 },
+    { "op": "wait_frame" },
+    { "op": "take_screenshot" },
+
+    { "op": "tick_animations", "dt_micros": 16666, "steps": 8 },
+    { "op": "wait_frame" },
+    { "op": "take_screenshot" },
+
+    { "op": "tick_animations", "dt_micros": 16666, "steps": 200 },
+    { "op": "wait_frame" },
+    { "op": "take_screenshot" },
+
+    { "op": "get_animations" },
+    { "op": "assert_response", "type": "animations", "contains": "\"active\":0" },
+    { "op": "assert_exists", "selector": "#card" },
+    { "op": "assert_not_exists", "selector": "#sidebar" },
+    { "op": "assert_manager_invariants" }
+  ]
+}

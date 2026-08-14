@@ -1084,6 +1084,22 @@ impl CpuRenderState {
                     transforms.insert(key.id, *value);
                 }
             }
+            // ANIMATION transforms — a separate channel from the CSS one,
+            // because `synchronize` owns `css_transform_keys` and evicts
+            // anything not backed by a CSS `transform` property. Extracted the
+            // same way: the rasteriser looks values up by KEY id, so an
+            // animated node is indistinguishable from a CSS-transformed one at
+            // this point, which is the intent.
+            for (node_id, key) in &cache.anim_transform_keys {
+                if let Some(value) = cache.anim_current_transform_values.get(node_id) {
+                    transforms.insert(key.id, *value);
+                }
+            }
+            for (node_id, key) in &cache.anim_opacity_keys {
+                if let Some(value) = cache.anim_current_opacity_values.get(node_id) {
+                    opacities.insert(key.id, *value);
+                }
+            }
             // CSS transforms
             for (node_id, key) in &cache.css_transform_keys {
                 if let Some(value) = cache.css_current_transform_values.get(node_id) {

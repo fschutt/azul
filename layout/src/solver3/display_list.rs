@@ -3432,8 +3432,21 @@ where
         // If so, wrap in a reference frame so WebRender can animate it on the GPU.
         let has_reference_frame = node.dom_node_id.and_then(|dom_id| {
             self.gpu_value_cache.and_then(|cache| {
-                let key = cache.css_transform_keys.get(&dom_id)?;
-                let transform = cache.css_current_transform_values.get(&dom_id)?;
+                // CSS transform first, then the ANIMATION channel. An
+                // engine-driven transition animates nodes that have no CSS
+                // `transform` of their own, so without this second lookup they
+                // get no reference frame and the element jumps to its
+                // destination instead of travelling there.
+                let (key, transform) = cache
+                    .css_transform_keys
+                    .get(&dom_id)
+                    .zip(cache.css_current_transform_values.get(&dom_id))
+                    .or_else(|| {
+                        cache
+                            .anim_transform_keys
+                            .get(&dom_id)
+                            .zip(cache.anim_current_transform_values.get(&dom_id))
+                    })?;
                 Some((*key, *transform))
             })
         });
