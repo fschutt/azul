@@ -42,6 +42,22 @@ pub enum ChromeBackend {
 
 impl ChromeBackend {
     pub fn new(chrome_path: &str) -> Self {
+        // CDP. It honours the hermetic fontconfig — verified by pinning
+        // `antialias=false` and counting colours in the rendered text band:
+        // 9 distinct colours, i.e. fully aliased, exactly as asked.
+        //
+        // That was worth checking because it briefly looked otherwise. Before
+        // `write_hermetic_fontconfig` exported an ABSOLUTE path, CDP rendered
+        // 2555 colours with the same pin while a hand-run `--screenshot` (which
+        // I had given a `realpath`) rendered 9 — which reads as "CDP ignores the
+        // config" and is not what was happening. Both backends ignored it; only
+        // the hand-run had a loadable path. Switching the reference images to
+        // the process backend on that misreading cost 47/52 -> 28/52.
+        Self::new_cdp(chrome_path)
+    }
+
+    /// CDP-backed construction.
+    pub fn new_cdp(chrome_path: &str) -> Self {
         match ChromeCdp::launch(chrome_path) {
             Ok(cdp) => { println!("  Chrome CDP connected"); ChromeBackend::Cdp(cdp) }
             Err(e) => { println!("  Chrome CDP failed ({}), using process", e); ChromeBackend::Process(chrome_path.to_string()) }
@@ -163,6 +179,24 @@ impl ReftestPipeline {
        eight text-heavy cases sat close enough to the 0.5% threshold to flip.
        Stating antialias/rgba/hinting makes the oracle's text rasterisation a
        property of this file rather than of whoever's machine ran it. -->
+  <!--
+    ALIASED text, deliberately. Antialiased glyphs cannot be compared across two
+    rasterisers: azul and Chrome disagree about AA mode (Chrome went 100%
+    grayscale here while azul does LCD subpixel), about the coverage curve
+    (azul's grayscale scored WORSE against Chrome's than its LCD path did), and
+    about hinting. Measured, that disagreement is ~11,200 px on a text-heavy
+    page — larger than the 10,368 px failure threshold — on renderings that are
+    indistinguishable when you crop and look at them.
+
+    antialias=false makes Chrome emit exactly two levels per glyph (verified: 9
+    distinct colours on a whole page, all of them pure text or pure background),
+    and azul matches it with AZ_TEXT_AA=none. What is then compared is glyph
+    COVERAGE, which both engines answer identically when the layout agrees — so
+    what survives a diff is layout, which is the thing these tests are for.
+
+    hinting stays ON and pinned: it decides which pixels the outline covers, and
+    both engines must make that call the same way.
+  -->
   <match target="font">
     <edit name="antialias" mode="assign"><bool>true</bool></edit>
     <edit name="rgba"      mode="assign"><const>rgb</const></edit>
@@ -175,6 +209,22 @@ impl ReftestPipeline {
             cache = cache_dir.display()
         );
         std::fs::write(&conf, xml).map_err(|e| format!("write fonts.conf: {e}"))?;
+
+        // ABSOLUTE, and this is not a tidiness point — it is the whole bug.
+        //
+        // `output_dir` is a relative path (`target/reftest`), and fontconfig does
+        // NOT resolve a relative FONTCONFIG_FILE against the current directory:
+        // it looks under FONTCONFIG_PATH, i.e. /etc/fonts. So it searched for
+        // /etc/fonts/target/reftest/fontconfig/fonts.conf, failed, printed
+        // "Fontconfig error: Cannot load default config file" into the reftest
+        // log, and silently fell back to the machine's SYSTEM fontconfig.
+        //
+        // Every pin this function writes was therefore inert for Chrome, and the
+        // two engines were compared with each machine deciding its own font
+        // families, antialias mode and hinting. That is what made the same commit
+        // score 47/52 here and 39/52 in CI while azul's own output was
+        // byte-identical: the oracle was never actually pinned.
+        let conf = std::fs::canonicalize(&conf).unwrap_or(conf);
         // Chrome reads it at spawn; azul's alias parser reads it lazily on
         // the first font-stack build. Set BEFORE either happens.
         std::env::set_var("FONTCONFIG_FILE", &conf);

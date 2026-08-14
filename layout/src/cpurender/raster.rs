@@ -2460,26 +2460,105 @@ fn render_rect(
 
 }
 
-/// Default for the RGB LCD subpixel-AA text path: **ON**.
+/// How text is antialiased. One knob, four values, read from `AZ_TEXT_AA`.
 ///
-/// LCD rendering distributes glyph coverage across the R/G/B stripes of each
-/// physical pixel, giving crisper text on the common case. It ASSUMES a
-/// **horizontal-RGB subpixel order** and an **opaque background** (a BGR panel
-/// would need the R/B taps swapped, and text composited onto a transparent layer
-/// must use the grayscale path — see `render_text_shadow`, which forces it). It
-/// also turns black text into the familiar faintly-fringed subpixel look. Set
-/// `AZ_TEXT_LCD=0` to force the grayscale path.
-pub const TEXT_LCD_DEFAULT: bool = true;
+/// This replaces the two overlapping switches that used to live here
+/// (`AZ_TEXT_LCD=0` and `AZ_LCD_BLEND=legacy`), which could express the same
+/// state two ways and gave no way at all to ask for aliased text.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum TextAa {
+    /// RGB LCD subpixel AA with the linear (luminance-correct) blend. Default.
+    ///
+    /// Distributes coverage across the R/G/B stripes of each physical pixel,
+    /// which is crisper on a real panel. ASSUMES horizontal-RGB subpixel order
+    /// and an opaque background: a BGR panel needs the R/B taps swapped, and
+    /// text over a transparent layer must use `Grayscale` (`render_text_shadow`
+    /// forces it). Black text gets the familiar faint colour fringes.
+    Lcd,
+    /// LCD subpixel AA with the pre-linear-blend behaviour, kept so a rendering
+    /// change can be A/B'd against the old output.
+    Legacy,
+    /// Single grayscale coverage per pixel. No colour fringing, no subpixel-order
+    /// assumption. Correct over transparent backgrounds.
+    Grayscale,
+    /// No antialiasing: coverage is thresholded at 50%, so every pixel is either
+    /// fully text or fully background.
+    ///
+    /// This exists for **cross-engine comparison**. Antialiased text cannot be
+    /// compared between two rasterisers: azul and Chrome disagree on AA mode,
+    /// coverage curve and hinting, which costs ~11k pixels on a text-heavy page
+    /// — more than the reftest threshold — while looking identical. Thresholding
+    /// throws all of that away and leaves glyph COVERAGE, which is a question
+    /// both engines answer the same way when the layout agrees.
+    ///
+    /// The trade is real and worth stating: aliasing amplifies genuine sub-pixel
+    /// disagreement, because a half-pixel shift flips a whole pixel by 255
+    /// instead of nudging a blend. Do not ship this to users.
+    None,
+}
 
-/// Whether to render text via the RGB LCD subpixel-AA path. On by default (see
-/// [`TEXT_LCD_DEFAULT`]); set `AZ_TEXT_LCD=0` to disable. Read once.
-fn text_lcd_enabled() -> bool {
-    static V: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
-    *V.get_or_init(|| {
-        std::env::var("AZ_TEXT_LCD")
-            .map(|s| !(s == "0" || s.eq_ignore_ascii_case("false")))
-            .unwrap_or(TEXT_LCD_DEFAULT)
+/// Default text antialiasing: LCD subpixel.
+pub const TEXT_AA_DEFAULT: TextAa = TextAa::Lcd;
+
+/// Text antialiasing mode from `AZ_TEXT_AA` (`lcd` | `legacy` | `grayscale` |
+/// `none`). Unset or unrecognised gives [`TEXT_AA_DEFAULT`]. Read once.
+pub fn text_aa() -> TextAa {
+    static V: std::sync::OnceLock<TextAa> = std::sync::OnceLock::new();
+    *V.get_or_init(|| match std::env::var("AZ_TEXT_AA") {
+        Ok(s) if s.eq_ignore_ascii_case("none") || s == "0" => TextAa::None,
+        Ok(s) if s.eq_ignore_ascii_case("grayscale") || s.eq_ignore_ascii_case("greyscale") => {
+            TextAa::Grayscale
+        }
+        Ok(s) if s.eq_ignore_ascii_case("legacy") => TextAa::Legacy,
+        Ok(s) if s.eq_ignore_ascii_case("lcd") => TextAa::Lcd,
+        _ => TEXT_AA_DEFAULT,
     })
+}
+
+/// Whether text takes the RGB LCD subpixel path.
+fn text_lcd_enabled() -> bool {
+    matches!(text_aa(), TextAa::Lcd | TextAa::Legacy)
+}
+
+/// Whether glyph coverage is thresholded to 0/255 (see [`TextAa::None`]).
+fn text_aliased() -> bool {
+    text_aa() == TextAa::None
+}
+
+/// `render_scanlines_aa_solid` with the coverage thresholded at 50%.
+///
+/// agg's rasteriser here is the "nogamma" variant, so there is no gamma LUT to
+/// hang a threshold function on and no `render_scanlines_bin_solid` in the
+/// fork. Thresholding the covers as they are handed to the blender is the same
+/// thing one step later, and reuses the identical span walk.
+fn render_scanlines_aliased_solid<PF: agg_rust::pixfmt_rgba::PixelFormat>(
+    ras: &mut RasterizerScanlineAa,
+    sl: &mut ScanlineU8,
+    ren: &mut RendererBase<PF>,
+    color: &PF::ColorType,
+) {
+    use agg_rust::rasterizer_scanline_aa::Scanline;
+    if !ras.rewind_scanlines() {
+        return;
+    }
+    sl.reset(ras.min_x(), ras.max_x());
+    let mut solid: Vec<u8> = Vec::new();
+    while ras.sweep_scanline(sl) {
+        let y = sl.y();
+        let covers = sl.covers();
+        for span in sl.begin() {
+            if span.len <= 0 {
+                continue;
+            }
+            let len = span.len as usize;
+            let src = &covers[span.cover_offset..span.cover_offset + len];
+            solid.clear();
+            // >= 128 is "the pixel centre is inside the outline", the same
+            // half-open rule agg's own bin rasteriser uses.
+            solid.extend(src.iter().map(|&c| if c >= 128 { 255u8 } else { 0u8 }));
+            ren.blend_solid_hspan(span.x, y, span.len, color, &solid);
+        }
+    }
 }
 
 /// RGB LCD subpixel-AA glyph run. Rasterizes each glyph at **3× horizontal
@@ -2662,7 +2741,12 @@ fn lcd_linear_params() -> Option<agg_rust::pixfmt_lcd::LcdBlendParams> {
     use std::sync::OnceLock;
     static V: OnceLock<Option<agg_rust::pixfmt_lcd::LcdBlendParams>> = OnceLock::new();
     *V.get_or_init(|| {
-        if std::env::var("AZ_LCD_BLEND").is_ok_and(|v| v.eq_ignore_ascii_case("legacy")) {
+        // `AZ_TEXT_AA=legacy` selects the pre-linear-blend path. The old
+        // `AZ_LCD_BLEND=legacy` spelling is still honoured so existing scripts
+        // and captures keep working.
+        if text_aa() == TextAa::Legacy
+            || std::env::var("AZ_LCD_BLEND").is_ok_and(|v| v.eq_ignore_ascii_case("legacy"))
+        {
             return None;
         }
         let parse = |k: &str, default: u8| {
@@ -3128,8 +3212,11 @@ fn render_text(
 
     // Single render pass for all glyphs in this text run
     let mut sl = ScanlineU8::new();
-    render_scanlines_aa_solid(&mut ras, &mut sl, &mut rb, &agg_color);
-
+    if text_aliased() {
+        render_scanlines_aliased_solid(&mut ras, &mut sl, &mut rb, &agg_color);
+    } else {
+        render_scanlines_aa_solid(&mut ras, &mut sl, &mut rb, &agg_color);
+    }
 }
 
 /// Paint a single `text-shadow` for a glyph run.
@@ -6273,12 +6360,39 @@ mod autotest_generated {
     // ==================================================================
 
     #[test]
-    fn text_lcd_enabled_is_read_once_and_stable() {
-        let first = text_lcd_enabled();
-        assert_eq!(first, text_lcd_enabled(), "the OnceLock must not flip");
-        if std::env::var("AZ_TEXT_LCD").is_err() {
-            assert_eq!(first, TEXT_LCD_DEFAULT, "unset env -> the documented default");
+    fn text_aa_is_read_once_and_stable() {
+        let first = text_aa();
+        assert_eq!(first, text_aa(), "the OnceLock must not flip");
+        if std::env::var("AZ_TEXT_AA").is_err() {
+            assert_eq!(first, TEXT_AA_DEFAULT, "unset env -> the documented default");
         }
+        // The derived predicates must agree with the mode, or a caller can end
+        // up on the LCD path while the blend thinks it is aliased.
+        assert_eq!(
+            text_lcd_enabled(),
+            matches!(first, TextAa::Lcd | TextAa::Legacy)
+        );
+        assert_eq!(text_aliased(), first == TextAa::None);
+        assert!(
+            !(text_aliased() && text_lcd_enabled()),
+            "aliased and LCD are mutually exclusive"
+        );
+    }
+
+    /// The threshold is the whole point of `TextAa::None`: partial coverage must
+    /// collapse to 0 or 255 and nothing in between may survive.
+    #[test]
+    fn aliased_threshold_is_half_open_at_128() {
+        let covers: [u8; 6] = [0, 1, 127, 128, 254, 255];
+        let out: Vec<u8> = covers
+            .iter()
+            .map(|&c| if c >= 128 { 255u8 } else { 0u8 })
+            .collect();
+        assert_eq!(out, vec![0, 0, 0, 255, 255, 255]);
+        assert!(
+            out.iter().all(|&v| v == 0 || v == 255),
+            "no intermediate coverage may survive thresholding"
+        );
     }
 
     // ==================================================================

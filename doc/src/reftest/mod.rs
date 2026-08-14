@@ -903,7 +903,26 @@ impl Default for Options {
 /// hermetic font pinning). The colorimetric path is verified by unit
 /// tests in agg-rust-azul and by the fontblend probe page.
 fn pin_comparison_text_blend() {
-    std::env::set_var("AZ_LCD_BLEND", "legacy");
+    // Aliased, to match the `antialias=false` pinned onto Chrome in
+    // `write_hermetic_fontconfig`. Comparing ANTIALIASED text across two
+    // rasterisers is not possible at this threshold — the two disagree about AA
+    // mode, coverage curve and hinting to the tune of ~11,200 px on a text-heavy
+    // page, against a 10,368 px budget, while looking identical. Thresholded
+    // coverage is a question both engines answer the same way, so the diff that
+    // survives is layout.
+    //
+    // This is a TEST-ONLY setting. Shipping aliased text would be a visible
+    // regression; see `TextAa::None`.
+    // Grayscale on BOTH sides. The fontconfig pins Chrome to `rgba=none`
+    // (grayscale AA), so azul must not be on the LCD subpixel path or every
+    // glyph edge is compared colour-fringed against un-fringed.
+    //
+    // This pairing had never actually been tested before: the hermetic
+    // fontconfig was exported under a RELATIVE path, which fontconfig resolves
+    // against /etc/fonts rather than the cwd, so Chrome silently used each
+    // machine's system settings and no pin here reached it (see
+    // `write_hermetic_fontconfig`).
+    std::env::set_var("AZ_TEXT_AA", "legacy");
 }
 
 pub fn pixels_similar(p1: &image::Rgba<u8>, p2: &image::Rgba<u8>, threshold: f64) -> bool {
