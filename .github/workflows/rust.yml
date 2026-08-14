@@ -7095,8 +7095,8 @@ jobs:
 
   # ---------------------------------------------------------------------------
   # 8a. LuaRocks — LuaJIT FFI binding. Uses the GENERATED rockspec
-  #     (target/codegen/azul-1-1.rockspec). `luarocks pack` validates; upload
-  #     gated on LUAROCKS_API_KEY.
+  #     (target/codegen/azul-$AZUL_VERSION-1.rockspec). `luarocks pack`
+  #     validates; upload gated on LUAROCKS_API_KEY.
   # ---------------------------------------------------------------------------
   luarocks:
     name: LuaRocks (lua binding) [stub]
@@ -7152,7 +7152,7 @@ jobs:
           # the native lib is distributed separately. Stamp the version.
           cp target/codegen/azul.lua "$pkg/azul.lua"
           sed "s/^version = .*/version = \"${AZUL_VERSION}-1\"/" \
-            target/codegen/azul-1-1.rockspec > "$pkg/azul-${AZUL_VERSION}-1.rockspec"
+            "target/codegen/azul-${AZUL_VERSION}-1.rockspec" > "$pkg/azul-${AZUL_VERSION}-1.rockspec"
           echo "::group::rockspec"
           cat "$pkg/azul-${AZUL_VERSION}-1.rockspec"
           echo "::endgroup::"
