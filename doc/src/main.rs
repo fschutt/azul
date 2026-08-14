@@ -1590,8 +1590,36 @@ fn main() -> anyhow::Result<()> {
             // command did before (it returned Ok(()) unconditionally, so 0/44 and
             // 44/44 were the same green). So: whatever passed when the baseline
             // was recorded must keep passing.
-            let baseline_path =
-                PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("reftest_baseline.txt");
+            // Two baselines, because the comparison has an environmental floor
+            // it cannot see past. Chrome hints identical glyph outlines
+            // differently on different machines — same font FILE (md5-verified
+            // identical), same version, same fontconfig, same rasteriser flags,
+            // same glyph POSITIONS, renderings indistinguishable to the eye —
+            // and that costs ~11k px on a text-heavy page. azul's own output is
+            // byte-identical across machines (0 px), so this is entirely the
+            // oracle moving under us.
+            //
+            // Measured on this machine and on CI's own uploaded images, the
+            // eight text-heavy tests that only ever failed in CI reach 14,122 px
+            // there, while the smallest GENUINE azul bug is 14,792 px here. A
+            // 670 px window, against 300-500 px of run-to-run drift: no single
+            // threshold and no fuzz tolerance separates the two populations in
+            // both environments at once (0.20 tolerance was tried — it puts four
+            // of the five real bugs under the gate).
+            //
+            // So each environment gets the strongest gate it can actually hold.
+            // Locally all 47 must keep passing; CI holds the 39 it can render
+            // deterministically. The eight are NOT forgiven — they are recorded
+            // in the CI file as comments, and they still gate every local run.
+            //
+            // The real fix is to commit the reference images so the oracle stops
+            // being regenerated per-machine; this keeps master honest until then.
+            let ci_baseline = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("reftest_baseline_ci.txt");
+            let baseline_path = if std::env::var_os("CI").is_some() && ci_baseline.is_file() {
+                ci_baseline
+            } else {
+                PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("reftest_baseline.txt")
+            };
             let baseline_text = std::fs::read_to_string(&baseline_path).map_err(|e| {
                 anyhow::anyhow!("cannot read reftest baseline {}: {e}", baseline_path.display())
             })?;
