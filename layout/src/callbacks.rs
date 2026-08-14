@@ -306,6 +306,16 @@ pub enum CallbackChange {
     /// Add a new timer to the window
     AddTimer { timer_id: TimerId, timer: Timer },
     /// Remove an existing timer
+    /// Advance layout animations by an EXACT step, bypassing the wall clock.
+    ///
+    /// Emitted only by the E2E `tick_animations` op. A headless scenario cannot
+    /// sample real time — the same test would land on a different point of the
+    /// curve on a fast machine than a slow one — so stepping by a fixed `dt`
+    /// makes the trajectory a pure function of how many steps ran.
+    ///
+    /// Integer microseconds, not `f32` seconds: an exact integer step is what
+    /// lets a replayed scenario reproduce bit-for-bit.
+    TickAnimations { dt_micros: u32, steps: u32 },
     RemoveTimer { timer_id: TimerId },
 
     // Thread Management

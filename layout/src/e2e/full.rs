@@ -153,6 +153,10 @@ pub enum ResponseData {
     NodeCssProperties(NodeCssPropertiesResponse),
     /// Node layout
     NodeLayout(NodeLayoutResponse),
+    /// In-flight layout animations
+    Animations(AnimationsResponse),
+    /// Result of stepping layout animations
+    TickAnimations(TickAnimationsResponse),
     /// All nodes layout
     AllNodesLayout(AllNodesLayoutResponse),
     /// The current DOM (nested tree + HTML), see `DebugEvent::GetDom`
@@ -976,6 +980,42 @@ pub struct NodeCssPropertiesResponse {
     pub node_id: u64,
     pub property_count: usize,
     pub properties: Vec<String>,
+}
+
+/// One in-flight layout animation, as `get_animations` reports it.
+#[cfg(feature = "std")]
+#[derive(Debug, Clone, Copy, serde::Serialize)]
+pub struct AnimationNodeJson {
+    pub node_id: u64,
+    pub translate_x: f32,
+    pub translate_y: f32,
+    pub scale_x: f32,
+    pub scale_y: f32,
+    pub opacity: f32,
+    pub finished: bool,
+    /// Whether the value reached `css_current_transform_values` — the map the
+    /// rasteriser and hit-tester read. Proves the animation is on screen and
+    /// not merely bookkept.
+    pub published: bool,
+}
+
+/// Response for `GetAnimations`.
+#[cfg(feature = "std")]
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct AnimationsResponse {
+    /// How many animations are in flight.
+    pub active: usize,
+    pub nodes: Vec<AnimationNodeJson>,
+}
+
+/// Response for `TickAnimations`.
+#[cfg(feature = "std")]
+#[derive(Debug, Clone, Copy, serde::Serialize)]
+pub struct TickAnimationsResponse {
+    pub dt_micros: u32,
+    pub steps: u32,
+    /// Animations still in flight AFTER the steps were applied.
+    pub active: usize,
 }
 
 /// Response for GetNodeLayout
@@ -2059,6 +2099,26 @@ pub enum DebugEvent {
         #[serde(default)]
         text: Option<String>,
     },
+    /// Advance layout animations by an EXACT step, bypassing the wall clock.
+    ///
+    /// `{ "op": "tick_animations", "dt_micros": 16666, "steps": 4 }`
+    ///
+    /// A headless scenario cannot sample real time — the same test would land
+    /// on a different point of the curve on a fast machine than a slow one, so
+    /// any mid-flight assertion would be flaky. Stepping by a fixed `dt` makes
+    /// the trajectory a pure function of how many steps ran.
+    TickAnimations {
+        /// Microseconds per step. Defaults to one 60 Hz frame (16_666).
+        #[serde(default)]
+        dt_micros: Option<u32>,
+        /// Steps to take, so an animation can be run to completion in one op.
+        #[serde(default)]
+        steps: Option<u32>,
+    },
+    /// Report in-flight layout animations and the transform each contributes.
+    ///
+    /// `{ "op": "get_animations" }`
+    GetAnimations,
     /// Get all nodes with their layout info
     GetAllNodesLayout,
     /// Get detailed DOM tree structure
@@ -12901,6 +12961,57 @@ pub fn process_debug_event(
             );
         }
 
+        DebugEvent::TickAnimations { dt_micros, steps } => {
+            let dt_micros = dt_micros.unwrap_or(16_666);
+            let steps = steps.unwrap_or(1).max(1);
+            // Mutation goes through the sanctioned channel: CallbackInfo hands
+            // out `&LayoutWindow` only, and `apply_system_change` is where the
+            // mutable window lives.
+            callback_info.push_change(
+                azul_layout::callbacks::CallbackChange::TickAnimations { dt_micros, steps },
+            );
+            let active = callback_info.get_layout_window().animations.len();
+            send_ok(
+                request,
+                None,
+                Some(ResponseData::TickAnimations(TickAnimationsResponse {
+                    dt_micros,
+                    steps,
+                    active,
+                })),
+            );
+            return true;
+        }
+        DebugEvent::GetAnimations => {
+            let lw = callback_info.get_layout_window();
+            let cache = lw.gpu_state_manager.caches.get(&ROOT_DOM_ID);
+            let mut nodes = Vec::new();
+            for (key, node_id) in &lw.anim_key_to_node {
+                let Some(anim) = lw.animations.get(*key) else {
+                    continue;
+                };
+                let t = anim.current_transform();
+                nodes.push(AnimationNodeJson {
+                    node_id: node_id.index() as u64,
+                    translate_x: t.translate_x,
+                    translate_y: t.translate_y,
+                    scale_x: t.scale_x,
+                    scale_y: t.scale_y,
+                    opacity: anim.current_opacity(),
+                    finished: anim.is_finished(),
+                    published: cache
+                        .map(|c| c.css_current_transform_values.contains_key(node_id))
+                        .unwrap_or(false),
+                });
+            }
+            let active = lw.animations.len();
+            send_ok(
+                request,
+                None,
+                Some(ResponseData::Animations(AnimationsResponse { active, nodes })),
+            );
+            return needs_update;
+        }
         DebugEvent::GetNodeLayout {
             node_id,
             selector,

@@ -1973,6 +1973,20 @@ pub trait PlatformWindow {
         use azul_core::callbacks::Update;
 
         match change {
+            CallbackChange::TickAnimations { dt_micros, steps } => {
+                let dt = *dt_micros as f32 / 1_000_000.0;
+                if let Some(layout_window) = self.get_layout_window_mut() {
+                    for _ in 0..(*steps).max(1) {
+                        // `tick_animations`, NOT `tick_animations_now`:
+                        // bypassing the wall clock is the entire purpose.
+                        layout_window.tick_animations(dt);
+                    }
+                }
+                // A settled step still owes one frame, so the final (identity)
+                // transform actually reaches the screen.
+                return ProcessEventResult::ShouldUpdateDisplayListCurrentWindow;
+            }
+
             // NOT YET EXECUTED ON THE DESKTOP SHELL.
             //
             // `E2eSession` — which owns the continuation slot a script has to
@@ -3541,25 +3555,6 @@ pub trait PlatformWindow {
     ) -> ProcessEventResult {
 
         match change {
-            SystemChange::TickAnimations { dt_micros, steps } => {
-                let dt = *dt_micros as f32 / 1_000_000.0;
-                let mut still = false;
-                if let Some(layout_window) = self.get_layout_window_mut() {
-                    for _ in 0..(*steps).max(1) {
-                        // `tick_animations`, NOT `tick_animations_now`: bypassing
-                        // the wall clock is the entire purpose.
-                        still = layout_window.tick_animations(dt);
-                    }
-                }
-                return if still {
-                    ProcessEventResult::ShouldUpdateDisplayListCurrentWindow
-                } else {
-                    // Settled on this step: one more frame is still owed, so the
-                    // final (identity) transform actually reaches the screen.
-                    ProcessEventResult::ShouldUpdateDisplayListCurrentWindow
-                };
-            }
-
             // === Text Selection ===
 
             SystemChange::TextSelectionClick { position, timestamp } => {

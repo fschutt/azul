@@ -389,6 +389,12 @@ const OP_POLICY: &[(&str, Option<DenyReason>)] = &[
     // scenarios from using it, and asserting a memory budget from a scenario
     // is the entire reason it exists.
     ("get_profile_report", None),
+    // ALLOW: read-only, and the ONLY way a scenario can observe a transition.
+    ("get_animations", None),
+    // ALLOW: a deterministic stepper. It exists precisely so a generated
+    // scenario can advance an animation without sampling the wall clock, which
+    // is what would otherwise make every mid-flight assertion flaky.
+    ("tick_animations", None),
     // -- ALLOW: MOCK INPUT — the primary drive surface ----------------------
     ("mouse_move",                None),
     ("mouse_down",                None),
