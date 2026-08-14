@@ -1005,6 +1005,10 @@ pub struct AnimationNodeJson {
 pub struct AnimationsResponse {
     /// How many animations are in flight.
     pub active: usize,
+    /// Retained departing subtrees still on screen. Must return to 0 once the
+    /// exits settle — a zombie that outlives its animation is a leak, and one
+    /// that vanishes early took its state with it mid-flight.
+    pub zombies: usize,
     pub nodes: Vec<AnimationNodeJson>,
 }
 
@@ -13005,10 +13009,15 @@ pub fn process_debug_event(
                 });
             }
             let active = lw.animations.len();
+            let zombies = lw.zombies.len();
             send_ok(
                 request,
                 None,
-                Some(ResponseData::Animations(AnimationsResponse { active, nodes })),
+                Some(ResponseData::Animations(AnimationsResponse {
+                    active,
+                    zombies,
+                    nodes,
+                })),
             );
             return needs_update;
         }
