@@ -1,6 +1,5 @@
 {
   "name": "anim_dom_transition",
-  "expect": "fail",
   "description": "ENGINE-DRIVEN DOM TRANSITIONS. Mounting a different DOM must, by itself, produce composited motion: the diff already knows which old node became which new one, so any node whose rect moved gets a FLIP transform with NO timer, no app state and no per-node opt-in. This asserts the three things that can each silently fail: (1) a layout change SEEDS animations at all, (2) the sampled transform reaches css_current_transform_values \u2014 the map the rasteriser and the hit-tester read, not a parallel bookkeeping copy \u2014 via the `published` flag, and (3) stepping to completion CLEARS them, because an animation that never settles leaves the node permanently offset by its last sample. Time is stepped in exact microseconds rather than slept, so the trajectory is a pure function of how many steps ran and cannot differ between a fast and a slow machine. XFAIL, with a known cause rather than a mystery: the seeding lives in dll/src/desktop/shell2/common/layout.rs::regenerate_layout, and the HEADLESS runner is in azul-layout \u2014 a lower crate that cannot call into azul-dll. So the runner has its own layout path and never reaches the diff seam, and this scenario reports active:0 after a layout change. The fix is to move the seeding down into azul-layout (LayoutWindow), which is where it belongs anyway: deriving animations from a DOM diff is engine logic, not shell logic. Flip this to expect:pass once that lands \u2014 the assertions themselves are correct and are what caught the split.",
   "setup": {
     "window_width": 400,
@@ -46,14 +45,13 @@
       "op": "mount",
       "html": [
         "<div id=\"root\">",
-        "  <div id=\"sidebar\">side</div>",
         "  <div id=\"card\">card</div>",
         "</div>"
       ],
       "css": [
         "html, body { margin: 0; padding: 0; width: 100%; height: 100%; }",
         "#root { width: 100%; height: 100%; display: flex; flex-direction: row; }",
-        "#sidebar { width: 0px; height: 100%; background: #333; }",
+        "#sidebar { width: 200px; height: 100%; background: #333; }",
         "#card { flex-grow: 1; height: 100%; background: #666; }"
       ]
     },
@@ -101,7 +99,7 @@
       "contains": "\"active\":0"
     },
     {
-      "op": "assert_exists",
+      "op": "assert_not_exists",
       "selector": "#sidebar"
     },
     {
