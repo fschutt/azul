@@ -738,6 +738,11 @@ const fn memory_walk_coverage_is_exhaustive(w: &LayoutWindow) {
         frame_report_reset_request: _,
         // Bounded by SIZE_QUERY_CAP (256 entries), not by the document.
         recorded_size_queries: _,
+        // One small entry per node animating RIGHT NOW, not per node in the
+        // document, and `tick` removes an entry as soon as it settles. A
+        // document ten times larger does not make this bigger; only ten times
+        // as much simultaneous motion would, which is user-driven.
+        animations: _,
         // Two u64 arrays sized by node count (~16 B/node) — noise next to
         // the tree; walked nowhere, listed so the destructure stays total.
         last_dom_fingerprints: _,
@@ -955,6 +960,15 @@ pub struct LayoutWindow {
     /// first produce.
     pub last_dom_fingerprints: Option<azul_core::diff::DomFingerprints>,
     /// Layout cache for solver3 (incremental layout tree) - for the root DOM
+    /// Engine-driven layout animations, keyed by RECONCILIATION identity rather
+    /// than `NodeId`.
+    ///
+    /// Seeded in `regenerate_layout` from the correspondences the DOM diff
+    /// already computes: if a node matched across the diff and its rect moved,
+    /// that is a FLIP, with no involvement from the application. The key is the
+    /// reconciliation key precisely so an in-flight animation survives the
+    /// NodeId churn a rebuild causes — see `azul_core::animation`.
+    pub animations: azul_core::animation::AnimationManager,
     pub layout_cache: Solver3LayoutCache,
     /// Text layout cache for text3 (shaped glyphs, line breaks, etc.)
     pub text_cache: TextLayoutCache,
@@ -1399,6 +1413,7 @@ impl LayoutWindow {
             frame_report_reset_request: core::sync::atomic::AtomicU64::new(0),
             #[cfg(feature = "pdf")]
             fragmentation_context: crate::paged::FragmentationContext::new_continuous(800.0),
+            animations: azul_core::animation::AnimationManager::new(),
             layout_cache: Solver3LayoutCache {
                 tree: None,
                 resize_only_hint: false,
@@ -11778,6 +11793,10 @@ impl LayoutWindow {
             // Pre-order hashes, positionally aligned with the NEXT produce's
             // flatten — never carries NodeIds.
             last_dom_fingerprints: _,
+            // Keyed by RECONCILIATION key (a u64 hash of the node's identity),
+            // deliberately not by NodeId — that is what lets an animation
+            // survive the NodeId churn of a rebuild. Nothing to remap here.
+            animations: _,
             layout_cache: _,
             layout_results: _,
             // Content-addressed (hashes / font ids / image ids), never NodeIds:
