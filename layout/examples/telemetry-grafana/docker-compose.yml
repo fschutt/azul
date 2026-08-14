@@ -1,0 +1,87 @@
+# Local observability stack for the azul telemetry demo.
+#
+#   azul app  --OTLP/HTTP JSON-->  otel-collector  --+--> VictoriaMetrics (metrics)
+#   (bearer token)                                   +--> Loki            (logs)
+#                                                            ^
+#                                                            |
+#                                                         Grafana (provisioned)
+#
+# Why a collector at all: the client speaks the OTLP spec's **JSON** encoding,
+# and VictoriaMetrics accepts OTLP only as protobuf. The collector is the
+# re-encoding shim — which is also where the real deployment puts the bearer
+# token check, so the auth path in the demo is the same one production uses.
+#
+# Everything binds to 127.0.0.1 only. Nothing here is hardened for exposure.
+#
+#   ./run-stack.sh up      # start
+#   ./run-stack.sh logs    # follow
+#   ./run-stack.sh down    # stop and delete the volumes
+
+# `version` is obsolete for `docker compose` v2 (which prints a harmless
+# warning) but REQUIRED by the still-widespread docker-compose 1.29 Python
+# client — without it that client parses the file as the v1 schema and rejects
+# the `services:` key outright.
+version: "3.8"
+
+services:
+  victoriametrics:
+    image: docker.io/victoriametrics/victoria-metrics:v1.111.0
+    container_name: azul-telemetry-vm
+    command:
+      - "-storageDataPath=/vmdata"
+      - "-retentionPeriod=30d"
+      - "-httpListenAddr=:8428"
+    ports:
+      - "127.0.0.1:8428:8428"
+    volumes:
+      - vmdata:/vmdata
+    restart: unless-stopped
+
+  loki:
+    image: docker.io/grafana/loki:3.3.2
+    container_name: azul-telemetry-loki
+    # The image's stock single-binary config already enables the OTLP
+    # ingestion endpoint at /otlp/v1/logs on a TSDB schema.
+    command: ["-config.file=/etc/loki/local-config.yaml"]
+    ports:
+      - "127.0.0.1:3100:3100"
+    restart: unless-stopped
+
+  otel-collector:
+    image: docker.io/otel/opentelemetry-collector-contrib:0.116.1
+    container_name: azul-telemetry-collector
+    command: ["--config=/etc/otelcol/config.yaml"]
+    volumes:
+      - ./otel-collector-config.yaml:/etc/otelcol/config.yaml:ro,z
+    ports:
+      # OTLP/HTTP — this is the AZ_TELEMETRY_ENDPOINT the demo posts to.
+      - "127.0.0.1:4318:4318"
+    depends_on:
+      - victoriametrics
+      - loki
+    restart: unless-stopped
+
+  grafana:
+    image: docker.io/grafana/grafana:11.4.0
+    container_name: azul-telemetry-grafana
+    environment:
+      # Demo convenience only: open the dashboard without logging in.
+      GF_AUTH_ANONYMOUS_ENABLED: "true"
+      GF_AUTH_ANONYMOUS_ORG_ROLE: "Admin"
+      GF_AUTH_DISABLE_LOGIN_FORM: "true"
+      GF_SECURITY_ADMIN_PASSWORD: "admin"
+      GF_USERS_DEFAULT_THEME: "light"
+      # Land straight on the provisioned dashboard.
+      GF_DASHBOARDS_DEFAULT_HOME_DASHBOARD_PATH: "/var/lib/grafana/dashboards/azul-telemetry.json"
+    ports:
+      - "127.0.0.1:3000:3000"
+    volumes:
+      - ./grafana/provisioning:/etc/grafana/provisioning:ro,z
+      - ./grafana/dashboards:/var/lib/grafana/dashboards:ro,z
+    depends_on:
+      - victoriametrics
+      - loki
+    restart: unless-stopped
+
+volumes:
+  vmdata:

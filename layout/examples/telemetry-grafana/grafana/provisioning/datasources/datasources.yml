@@ -1,0 +1,22 @@
+apiVersion: 1
+
+datasources:
+  # VictoriaMetrics is Prometheus-API compatible, so the built-in Prometheus
+  # datasource reads it with no plugin install.
+  - name: azul-metrics
+    uid: azul-metrics
+    type: prometheus
+    access: proxy
+    url: http://victoriametrics:8428
+    isDefault: true
+    jsonData:
+      httpMethod: POST
+      timeInterval: 15s
+
+  - name: azul-logs
+    uid: azul-logs
+    type: loki
+    access: proxy
+    url: http://loki:3100
+    jsonData:
+      maxLines: 500

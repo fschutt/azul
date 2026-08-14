@@ -1,0 +1,75 @@
+# OpenTelemetry Collector config for the azul telemetry demo.
+#
+# Receives OTLP/HTTP **JSON** (what azul-layout's telemetry client speaks),
+# checks the bearer token, and fans out:
+#   metrics -> VictoriaMetrics via Prometheus remote-write
+#   logs    -> Loki via its native OTLP endpoint
+#
+# In the deployed design this box is the ingest Worker: same position, same
+# two jobs (authenticate + re-encode), plus scrubbing and per-tier policy.
+
+extensions:
+  # Server-side bearer auth. The demo client sends
+  # `Authorization: Bearer <AZ_TELEMETRY_TOKEN>`; anything else gets a 401,
+  # which the client's queue treats as poison and drops (a wrong token is not
+  # a transient failure).
+  bearertokenauth/server:
+    scheme: "Bearer"
+    token: "azul-demo-token"
+
+receivers:
+  otlp:
+    protocols:
+      http:
+        endpoint: 0.0.0.0:4318
+        auth:
+          authenticator: bearertokenauth/server
+
+processors:
+  # Bound the damage a burst can do to the collector itself.
+  memory_limiter:
+    check_interval: 2s
+    limit_mib: 256
+    spike_limit_mib: 64
+  batch:
+    timeout: 5s
+    send_batch_size: 512
+
+exporters:
+  # VictoriaMetrics speaks the Prometheus remote-write protocol natively.
+  prometheusremotewrite:
+    endpoint: http://victoriametrics:8428/api/v1/write
+    tls:
+      insecure: true
+    # Resource attributes stay OUT of the metric labels on purpose. The four
+    # labels the client attaches per data point (version, channel, os, arch)
+    # are the entire cardinality budget; promoting resource attributes would
+    # add `service_instance_id`-shaped per-user labels, which is exactly what
+    # the metric design forbids.
+    resource_to_telemetry_conversion:
+      enabled: false
+
+  # Loki 3.x ingests OTLP logs directly; the exporter appends /v1/logs.
+  otlphttp/loki:
+    endpoint: http://loki:3100/otlp
+    tls:
+      insecure: true
+
+  # Uncomment to watch the decoded payloads scroll past:
+  # debug:
+  #   verbosity: detailed
+
+service:
+  extensions: [bearertokenauth/server]
+  pipelines:
+    metrics:
+      receivers: [otlp]
+      processors: [memory_limiter, batch]
+      exporters: [prometheusremotewrite]
+    logs:
+      receivers: [otlp]
+      processors: [memory_limiter, batch]
+      exporters: [otlphttp/loki]
+  telemetry:
+    logs:
+      level: info

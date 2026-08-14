@@ -1,0 +1,363 @@
+{
+  "uid": "azul-telemetry",
+  "title": "Azul Telemetry",
+  "description": "Release health for an azul app: adoption, crash rate, startup time and RAM per version, frame work by scope, and per-phase timings bridged from Probe. Every panel answers one of the questions the telemetry design was built for.",
+  "tags": ["azul", "telemetry"],
+  "timezone": "browser",
+  "schemaVersion": 39,
+  "version": 1,
+  "editable": true,
+  "refresh": "10s",
+  "time": { "from": "now-30m", "to": "now" },
+  "templating": {
+    "list": [
+      {
+        "name": "channel",
+        "label": "Channel",
+        "type": "query",
+        "datasource": { "type": "prometheus", "uid": "azul-metrics" },
+        "query": "label_values(app_sessions_started_total, channel)",
+        "includeAll": true,
+        "multi": true,
+        "current": { "text": "All", "value": "$__all" },
+        "refresh": 2
+      }
+    ]
+  },
+  "panels": [
+    {
+      "id": 1,
+      "type": "stat",
+      "title": "Sessions",
+      "description": "app_sessions_started_total — one per app run. The denominator of every release-health ratio.",
+      "datasource": { "type": "prometheus", "uid": "azul-metrics" },
+      "gridPos": { "h": 4, "w": 6, "x": 0, "y": 0 },
+      "options": {
+        "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false },
+        "colorMode": "value",
+        "graphMode": "area",
+        "textMode": "auto"
+      },
+      "fieldConfig": {
+        "defaults": { "unit": "short", "color": { "mode": "fixed", "fixedColor": "text" } },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": { "type": "prometheus", "uid": "azul-metrics" },
+          "expr": "sum(app_sessions_started_total{channel=~\"$channel\"})",
+          "legendFormat": "sessions"
+        }
+      ]
+    },
+    {
+      "id": 2,
+      "type": "stat",
+      "title": "Panics",
+      "description": "app_panics_total. Run the demo with --panic-at N to produce a real one.",
+      "datasource": { "type": "prometheus", "uid": "azul-metrics" },
+      "gridPos": { "h": 4, "w": 6, "x": 6, "y": 0 },
+      "options": {
+        "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false },
+        "colorMode": "value",
+        "graphMode": "area",
+        "textMode": "auto"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "green", "value": null },
+              { "color": "red", "value": 1 }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": { "type": "prometheus", "uid": "azul-metrics" },
+          "expr": "sum(app_panics_total{channel=~\"$channel\"}) or vector(0)",
+          "legendFormat": "panics"
+        }
+      ]
+    },
+    {
+      "id": 3,
+      "type": "stat",
+      "title": "Versions seen",
+      "description": "Distinct values of the `version` label. Two or more means the release-comparison panels below have something to compare.",
+      "datasource": { "type": "prometheus", "uid": "azul-metrics" },
+      "gridPos": { "h": 4, "w": 6, "x": 12, "y": 0 },
+      "options": {
+        "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false },
+        "colorMode": "value",
+        "graphMode": "none",
+        "textMode": "auto"
+      },
+      "fieldConfig": { "defaults": { "unit": "short" }, "overrides": [] },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": { "type": "prometheus", "uid": "azul-metrics" },
+          "expr": "count(count by (version) (app_sessions_started_total{channel=~\"$channel\"}))",
+          "legendFormat": "versions"
+        }
+      ]
+    },
+    {
+      "id": 4,
+      "type": "stat",
+      "title": "Current RSS",
+      "description": "app_rss_bytes gauge, most recent sample.",
+      "datasource": { "type": "prometheus", "uid": "azul-metrics" },
+      "gridPos": { "h": 4, "w": 6, "x": 18, "y": 0 },
+      "options": {
+        "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false },
+        "colorMode": "value",
+        "graphMode": "area",
+        "textMode": "auto"
+      },
+      "fieldConfig": { "defaults": { "unit": "bytes" }, "overrides": [] },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": { "type": "prometheus", "uid": "azul-metrics" },
+          "expr": "max(app_rss_bytes{channel=~\"$channel\"})",
+          "legendFormat": "rss"
+        }
+      ]
+    },
+
+    {
+      "id": 10,
+      "type": "timeseries",
+      "title": "Startup time by version (p50 / p95)",
+      "description": "histogram_quantile over increase(app_startup_seconds_bucket) across the selected range. increase() rather than rate() because this histogram gets exactly ONE observation per app run: a sliding rate window is empty whenever no process started inside it, while increase() sums across the process restarts (which look like counter resets) over the whole picker range.",
+      "datasource": { "type": "prometheus", "uid": "azul-metrics" },
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 4 },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "custom": { "drawStyle": "line", "lineWidth": 2, "fillOpacity": 8, "showPoints": "never" }
+        },
+        "overrides": []
+      },
+      "options": { "legend": { "displayMode": "table", "placement": "bottom", "calcs": ["lastNotNull"] } },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": { "type": "prometheus", "uid": "azul-metrics" },
+          "expr": "histogram_quantile(0.50, sum by (le, version) (increase(app_startup_seconds_bucket{channel=~\"$channel\"}[$__range])))",
+          "legendFormat": "p50 {{version}}"
+        },
+        {
+          "refId": "B",
+          "datasource": { "type": "prometheus", "uid": "azul-metrics" },
+          "expr": "histogram_quantile(0.95, sum by (le, version) (increase(app_startup_seconds_bucket{channel=~\"$channel\"}[$__range])))",
+          "legendFormat": "p95 {{version}}"
+        }
+      ]
+    },
+    {
+      "id": 11,
+      "type": "timeseries",
+      "title": "Startup RSS by version (p50)",
+      "description": "\"Did 1.4.2 raise RAM right after startup?\" — the rollout gate. Same increase()-over-the-range reasoning as the startup-time panel.",
+      "datasource": { "type": "prometheus", "uid": "azul-metrics" },
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 4 },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "bytes",
+          "custom": { "drawStyle": "line", "lineWidth": 2, "fillOpacity": 8, "showPoints": "never" }
+        },
+        "overrides": []
+      },
+      "options": { "legend": { "displayMode": "table", "placement": "bottom", "calcs": ["lastNotNull"] } },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": { "type": "prometheus", "uid": "azul-metrics" },
+          "expr": "histogram_quantile(0.50, sum by (le, version) (increase(app_startup_rss_bytes_bucket{channel=~\"$channel\"}[$__range])))",
+          "legendFormat": "p50 {{version}}"
+        }
+      ]
+    },
+
+    {
+      "id": 12,
+      "type": "timeseries",
+      "title": "Adoption — sessions by version",
+      "description": "sum by (version) of app_sessions_started_total. \"Which users updated?\" is this curve.",
+      "datasource": { "type": "prometheus", "uid": "azul-metrics" },
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 12 },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "custom": { "drawStyle": "line", "lineWidth": 2, "fillOpacity": 20, "stacking": { "mode": "normal" }, "showPoints": "never" }
+        },
+        "overrides": []
+      },
+      "options": { "legend": { "displayMode": "table", "placement": "bottom", "calcs": ["lastNotNull"] } },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": { "type": "prometheus", "uid": "azul-metrics" },
+          "expr": "sum by (version) (app_sessions_started_total{channel=~\"$channel\"})",
+          "legendFormat": "{{version}}"
+        }
+      ]
+    },
+    {
+      "id": 13,
+      "type": "timeseries",
+      "title": "Panics per session by version",
+      "description": "increase(app_panics_total) / increase(app_sessions_started_total). This ratio is the rollout gate: do not raise rollout_percent until the new version's rate is at or below the old one's.",
+      "datasource": { "type": "prometheus", "uid": "azul-metrics" },
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 12 },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percentunit",
+          "min": 0,
+          "custom": { "drawStyle": "line", "lineWidth": 2, "fillOpacity": 8, "showPoints": "auto" }
+        },
+        "overrides": []
+      },
+      "options": { "legend": { "displayMode": "table", "placement": "bottom", "calcs": ["lastNotNull"] } },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": { "type": "prometheus", "uid": "azul-metrics" },
+          "expr": "sum by (version) (increase(app_panics_total{channel=~\"$channel\"}[10m])) / clamp_min(sum by (version) (increase(app_sessions_started_total{channel=~\"$channel\"}[10m])), 1)",
+          "legendFormat": "{{version}}"
+        }
+      ]
+    },
+
+    {
+      "id": 14,
+      "type": "timeseries",
+      "title": "Frame work by scope",
+      "description": "rate(app_frame_relayout_scope_total) by scope. \"Did the update make rendering do more work?\"",
+      "datasource": { "type": "prometheus", "uid": "azul-metrics" },
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 20 },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "ops",
+          "custom": { "drawStyle": "line", "lineWidth": 2, "fillOpacity": 20, "stacking": { "mode": "normal" }, "showPoints": "never" }
+        },
+        "overrides": []
+      },
+      "options": { "legend": { "displayMode": "table", "placement": "bottom", "calcs": ["lastNotNull"] } },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": { "type": "prometheus", "uid": "azul-metrics" },
+          "expr": "sum by (scope) (rate(app_frame_relayout_scope_total{channel=~\"$channel\"}[1m]))",
+          "legendFormat": "{{scope}}"
+        }
+      ]
+    },
+    {
+      "id": 15,
+      "type": "timeseries",
+      "title": "Phase duration p95 (from Probe spans)",
+      "description": "histogram_quantile over app_phase_seconds_bucket. Fed by telemetry::drain_probe_events() — the same Probe::span guards the layout engine uses, exported as metrics.",
+      "datasource": { "type": "prometheus", "uid": "azul-metrics" },
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 20 },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "custom": { "drawStyle": "line", "lineWidth": 2, "fillOpacity": 8, "showPoints": "never" }
+        },
+        "overrides": []
+      },
+      "options": { "legend": { "displayMode": "table", "placement": "bottom", "calcs": ["lastNotNull", "max"] } },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": { "type": "prometheus", "uid": "azul-metrics" },
+          "expr": "histogram_quantile(0.95, sum by (le, phase) (rate(app_phase_seconds_bucket{channel=~\"$channel\"}[5m])))",
+          "legendFormat": "{{phase}}"
+        }
+      ]
+    },
+
+    {
+      "id": 16,
+      "type": "timeseries",
+      "title": "Resident set size",
+      "description": "app_rss_bytes gauge, sliced by version. On Windows this reads K32GetProcessMemoryInfo's WorkingSetSize — before this branch it read 0.",
+      "datasource": { "type": "prometheus", "uid": "azul-metrics" },
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 28 },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "bytes",
+          "custom": { "drawStyle": "line", "lineWidth": 2, "fillOpacity": 8, "showPoints": "never" }
+        },
+        "overrides": []
+      },
+      "options": { "legend": { "displayMode": "table", "placement": "bottom", "calcs": ["lastNotNull", "max"] } },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": { "type": "prometheus", "uid": "azul-metrics" },
+          "expr": "max by (version, checkpoint) (app_rss_bytes{channel=~\"$channel\"})",
+          "legendFormat": "{{version}} {{checkpoint}}"
+        }
+      ]
+    },
+    {
+      "id": 17,
+      "type": "timeseries",
+      "title": "Document size worked on (p95 nodes)",
+      "description": "An app-defined histogram (demo_document_nodes) recorded through the public telemetry::observe API — the same path an app would use for doc-size buckets.",
+      "datasource": { "type": "prometheus", "uid": "azul-metrics" },
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 28 },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "custom": { "drawStyle": "line", "lineWidth": 2, "fillOpacity": 8, "showPoints": "never" }
+        },
+        "overrides": []
+      },
+      "options": { "legend": { "displayMode": "list", "placement": "bottom", "calcs": [] } },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": { "type": "prometheus", "uid": "azul-metrics" },
+          "expr": "histogram_quantile(0.95, sum by (le, version) (rate(demo_document_nodes_bucket{channel=~\"$channel\"}[5m])))",
+          "legendFormat": "{{version}}"
+        }
+      ]
+    },
+
+    {
+      "id": 20,
+      "type": "logs",
+      "title": "Log records (OTLP -> Loki)",
+      "description": "Structured log records shipped on the same OTLP connection as the metrics, at consent tier >= metrics and severity >= WARN. The client_id rides here — never on a metric label.",
+      "datasource": { "type": "loki", "uid": "azul-logs" },
+      "gridPos": { "h": 10, "w": 24, "x": 0, "y": 36 },
+      "options": {
+        "showTime": true,
+        "showLabels": true,
+        "sortOrder": "Descending",
+        "wrapLogMessage": true,
+        "enableLogDetails": true
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": { "type": "loki", "uid": "azul-logs" },
+          "expr": "{service_name=\"azul-telemetry-demo\"}",
+          "queryType": "range"
+        }
+      ]
+    }
+  ]
+}
