@@ -1470,12 +1470,33 @@ pub fn get_glyph_runs_pdf_dense<T: ParsedFontTrait>(
 
         let style = &run.style;
 
-        // The cluster's source text: the grapheme cluster at start_byte
-        // in the shared run text (see the doc comment).
+        // The cluster's source text: `cluster_byte_len` bytes at start_byte in
+        // the shared run text.
+        //
+        // NOT "the next grapheme". A LIGATURE-FUSED cluster spans several
+        // graphemes — "fi" is two — so a grapheme walk returns "f" and the
+        // second character is lost. That is what `ClusterDetail.byte_len`
+        // exists to record, in its own words: "a ligature-fused cluster spans
+        // multiple graphemes, so 'next grapheme boundary' under-measures it".
+        // The sparse expander and the word-boundary predicate both ask
+        // `cluster_byte_len`; this walker asked the graphemes, and the
+        // difference reached users as PDF text: every ligated word came out of
+        // pdftotext with its second letter missing — "Configure" -> "Confgure",
+        // "filter" -> "flter", "offline" -> "offine" — because the ToUnicode
+        // entry for the ligature glyph said "f".
+        let start = c.start_byte as usize;
+        let len = dense.cluster_byte_len(ci) as usize;
         let cluster_text: &str = run
             .text
-            .get(c.start_byte as usize..)
-            .and_then(|s| s.graphemes(true).next())
+            .get(start..start.saturating_add(len))
+            // A byte length that is not a char boundary would slice-panic;
+            // fall back to the old grapheme walk rather than take the process
+            // down over a malformed record.
+            .or_else(|| {
+                run.text
+                    .get(start..)
+                    .and_then(|s| s.graphemes(true).next())
+            })
             .unwrap_or("");
 
         // The reference predicate, evaluated per CLUSTER (all compared
