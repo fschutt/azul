@@ -396,7 +396,11 @@ impl CpuBackend {
             ));
         } else {
             output.fill(255, 255, 255, 255);
-            compositor.allocate_layers_from_display_list(display_list, dpi_factor);
+            compositor.allocate_layers_from_display_list(
+                display_list,
+                dpi_factor,
+                &render_state.transforms,
+            );
             drop(compositor.render_layers(
                 display_list,
                 dpi_factor,
