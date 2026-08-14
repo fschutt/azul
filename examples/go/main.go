@@ -1,4 +1,7 @@
 // CGO_CFLAGS="-I." CGO_LDFLAGS="-L." go build && LD_LIBRARY_PATH=. ./hello-world
+//
+// On unix the binary re-execs itself once with GODEBUG=invalidptr=0 before
+// main runs; see godebug_unix.go for why by-value azul structs need it.
 
 package main
 
