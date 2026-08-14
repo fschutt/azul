@@ -743,6 +743,10 @@ const fn memory_walk_coverage_is_exhaustive(w: &LayoutWindow) {
         // document ten times larger does not make this bigger; only ten times
         // as much simultaneous motion would, which is user-driven.
         animations: _,
+        // CAN grow with content — a zombie retains a whole previous frame — but
+        // only while something is animating OUT, and it is dropped the moment
+        // that finishes. Bounded by concurrent exits, not by document size.
+        zombies: _,
         // Rebuilt wholesale each layout; one entry per animating node.
         anim_key_to_node: _,
         last_anim_tick: _,
@@ -972,6 +976,11 @@ pub struct LayoutWindow {
     /// reconciliation key precisely so an in-flight animation survives the
     /// NodeId churn a rebuild causes — see `azul_core::animation`.
     pub animations: azul_core::animation::AnimationManager,
+    /// Subtrees that have left the DOM but are still on screen, animating out.
+    ///
+    /// Empty in the overwhelmingly common case. A frame with no unmounts never
+    /// creates one, so nothing here costs anything until something leaves.
+    pub zombies: Vec<Zombie>,
     /// `AnimKey` → current `NodeId`, rebuilt on every layout.
     ///
     /// The animation store is keyed by reconciliation identity so state can
@@ -1433,6 +1442,7 @@ impl LayoutWindow {
             #[cfg(feature = "pdf")]
             fragmentation_context: crate::paged::FragmentationContext::new_continuous(800.0),
             animations: azul_core::animation::AnimationManager::new(),
+            zombies: Vec::new(),
             anim_key_to_node: alloc::collections::BTreeMap::new(),
             last_anim_tick: None,
             layout_cache: Solver3LayoutCache {
@@ -6701,23 +6711,65 @@ impl LayoutWindow {
             }
         }
 
-        // Mount / Unmount come straight from the diff; nothing needs detecting.
-        let mut mounted = Vec::new();
-        let mut unmounted = Vec::new();
+        // Mount / Unmount, derived STRUCTURALLY from the correspondence.
+        //
+        // NOT from `diff.events`: those are a callback DISPATCH list, gated on
+        // `has_mount_callback` / `has_unmount_callback`, so a plain <div> with
+        // no lifecycle handler generates nothing. Reading enters and exits from
+        // them meant they only fired for nodes that happened to have callbacks
+        // registered — which is to say, almost never.
+        //
+        // A node absent from `node_moves` is by definition unmatched: present
+        // in one tree and not the other.
+        let matched_old: BTreeSet<NodeId> = diff.node_moves.iter().map(|m| m.old_node_id).collect();
+        let matched_new: BTreeSet<NodeId> = diff.node_moves.iter().map(|m| m.new_node_id).collect();
+
+        // Only SUBTREE ROOTS animate. A descendant of an entering node is drawn
+        // inside its ancestor's transform, so animating it as well would apply
+        // the effect twice and cost a GPU key per node in the subtree.
+        let is_root = |id: NodeId, hier: &[azul_core::styled_dom::NodeHierarchyItem],
+                       unmatched: &BTreeSet<NodeId>| -> bool {
+            hier.get(id.index()).is_none_or(|item| {
+                // `parent` is a 1-based index with 0 meaning "no parent".
+                item.parent
+                    .checked_sub(1)
+                    .is_none_or(|p| !unmatched.contains(&NodeId::new(p)))
+            })
+        };
+
+        let unmatched_new: BTreeSet<NodeId> = (0..new_node_data.len())
+            .map(NodeId::new)
+            .filter(|id| !matched_new.contains(id))
+            .collect();
+        let unmatched_old: BTreeSet<NodeId> = (0..old_node_data.len())
+            .map(NodeId::new)
+            .filter(|id| !matched_old.contains(id))
+            .collect();
+
+        // An INITIAL mount is not a transition. With no previous tree every node
+        // is unmatched, so without this the whole application fades in on
+        // startup — which no one asked for and which the diff already
+        // distinguishes as `InitialMount`.
+        let mounted: Vec<NodeId> = if old_node_data.is_empty() {
+            Vec::new()
+        } else {
+            unmatched_new
+                .iter()
+                .copied()
+                .filter(|id| is_root(*id, &new_hierarchy, &unmatched_new))
+                .collect()
+        };
+        let unmounted: Vec<NodeId> = unmatched_old
+            .iter()
+            .copied()
+            .filter(|id| is_root(*id, &old_hierarchy, &unmatched_old))
+            .collect();
+
+        // Departing geometry, captured before the old arena goes.
         let mut exit_rects = BTreeMap::new();
-        for ev in &diff.events {
-            let Some(node) = ev.target.node.into_crate_internal() else {
-                continue;
-            };
-            match ev.event_type {
-                azul_core::events::EventType::Mount => mounted.push(node),
-                azul_core::events::EventType::Unmount => {
-                    if let Some(r) = self.get_node_bounds(dom_id, node) {
-                        exit_rects.insert(node, layout_rect_to_logical(r));
-                    }
-                    unmounted.push(node);
-                }
-                _ => {}
+        for node in &unmounted {
+            if let Some(r) = self.get_node_bounds(dom_id, *node) {
+                exit_rects.insert(*node, layout_rect_to_logical(r));
             }
         }
 
@@ -6786,6 +6838,56 @@ impl LayoutWindow {
 
             let map = crate::managers::NodeIdMap::from_node_moves(&diff.node_moves);
             self.remap_node_ids(dom_id, &map);
+        }
+
+        // RETAIN departing nodes, so an exit has something to animate.
+        //
+        // The previous frame is MOVED OUT of `layout_results` — not cloned, not
+        // reference-counted across the boundary. That gives the zombie sole
+        // ownership, which is the property that matters: this codebase has a
+        // double-free history, and the failure mode for a retained subtree is
+        // two owners racing to free it. Had it been left in place, the very next
+        // `layout()` would overwrite the entry and drop the departing state out
+        // from under the animation.
+        //
+        // Only frames that actually unmount something take this path, so the
+        // common case is untouched and keeps its incremental-layout entry.
+        //
+        // Hit-testing needs no special case: it walks `layout_results`, and the
+        // zombie is no longer in there. Input therefore passes straight through
+        // to DOM B, and logic never sees the departing tree — which is exactly
+        // the required behaviour, obtained by construction rather than by a
+        // filter someone has to remember.
+        if !unmounted.is_empty() {
+            if let Some(retained) = self.layout_results.remove(&dom_id) {
+                let mut exits = BTreeMap::new();
+                for node in &unmounted {
+                    if node.index() >= old_node_data.len() {
+                        continue;
+                    }
+                    // Keyed off the OLD tree: a departing node has no entry in
+                    // the new one to derive an identity from.
+                    let key = azul_core::animation::AnimKey(
+                        azul_core::diff::calculate_reconciliation_key(
+                            &old_node_data,
+                            &old_hierarchy,
+                            *node,
+                        ),
+                    );
+                    // An exit always wins over whatever was in flight: the node
+                    // is leaving, so continuing toward a layout position it will
+                    // never occupy is wrong.
+                    self.animations.start_exit(
+                        key,
+                        EXIT_TO_SCALE,
+                        azul_core::animation::Interp::Spring(
+                            azul_core::animation::Spring::SMOOTH,
+                        ),
+                    );
+                    exits.insert(*node, key);
+                }
+                self.zombies.push(Zombie { retained, exits });
+            }
         }
 
         PendingReconciliation {
@@ -6943,6 +7045,18 @@ impl LayoutWindow {
                 .current_opacity_values
                 .insert(node_id, anim.current_opacity());
         }
+
+        // Reap zombies whose exits have all settled.
+        //
+        // `retain` DROPS the removed `Zombie`, and with it the retained frame
+        // and every `RefAny` the departing subtree owned — exactly once, here,
+        // at t=1. Never via DOM A's teardown, because A's entry was MOVED out of
+        // `layout_results` at retention time and this is now its only owner.
+        //
+        // Until this moment the subtree is fully alive: its state exists and any
+        // timer holding a clone of that state keeps firing, so a video sliding
+        // away keeps playing instead of freezing on its last frame.
+        self.zombies.retain(|z| !z.is_done(&self.animations));
 
         // A settled animation must stop contributing a transform, or the node
         // stays permanently offset by its last sampled value.
@@ -12141,6 +12255,10 @@ impl LayoutWindow {
             // deliberately not by NodeId — that is what lets an animation
             // survive the NodeId churn of a rebuild. Nothing to remap here.
             animations: _,
+            // Holds a RETIRED tree whose NodeIds address an arena that is no
+            // longer current. Remapping them would be actively wrong: they must
+            // keep addressing the frame they were captured from.
+            zombies: _,
             // REBUILT each layout, never migrated — see the field docs.
             anim_key_to_node: _,
             // One timestamp; carries no NodeId.
@@ -14702,6 +14820,74 @@ impl Zombie {
 }
 
 #[cfg(test)]
+mod zombie_tests {
+    use azul_core::animation::{AnimKey, AnimationManager, Interp, Spring};
+
+    /// A zombie is done only when EVERY exit it waits on has settled. One
+    /// straggler must keep the whole retained frame alive, or a subtree gets
+    /// freed while part of it is still on screen.
+    #[test]
+    fn a_zombie_waits_for_its_slowest_exit() {
+        let mut m = AnimationManager::new();
+        let fast = AnimKey(1);
+        let slow = AnimKey(2);
+        m.start_exit(fast, 0.9, Interp::Curve {
+            function: azul_css::props::basic::animation::AnimationInterpolationFunction::Linear,
+            duration_secs: 0.01,
+        });
+        m.start_exit(slow, 0.9, Interp::Curve {
+            function: azul_css::props::basic::animation::AnimationInterpolationFunction::Linear,
+            duration_secs: 10.0,
+        });
+
+        let exits: alloc::collections::BTreeMap<_, _> =
+            [(azul_core::dom::NodeId::new(0), fast), (azul_core::dom::NodeId::new(1), slow)]
+                .into_iter()
+                .collect();
+
+        // Advance past the fast one but nowhere near the slow one.
+        m.tick(0.05);
+        assert!(m.get(fast).is_none_or(|a| a.is_finished()), "fast exit should be done");
+        let all_done = exits
+            .values()
+            .all(|k| m.get(*k).is_none_or(azul_core::animation::ActiveAnim::is_finished));
+        assert!(!all_done, "the zombie must NOT be reaped while one exit is mid-flight");
+
+        // Run the slow one out too.
+        for _ in 0..400 {
+            m.tick(0.05);
+        }
+        let all_done = exits
+            .values()
+            .all(|k| m.get(*k).is_none_or(azul_core::animation::ActiveAnim::is_finished));
+        assert!(all_done, "every exit settled, so the zombie is reapable");
+    }
+
+    /// An exit REPLACES whatever was in flight. A node that was sliding
+    /// somewhere and is then removed must stop travelling toward a position it
+    /// will never occupy.
+    #[test]
+    fn an_exit_overrides_an_in_flight_move() {
+        let mut m = AnimationManager::new();
+        let key = AnimKey(7);
+        m.start_or_retarget_move(
+            key,
+            azul_core::animation::FlipTransform {
+                translate_x: 100.0,
+                translate_y: 0.0,
+                scale_x: 1.0,
+                scale_y: 1.0,
+            },
+            Interp::Spring(Spring::SMOOTH),
+        );
+        m.start_exit(key, 0.9, Interp::Spring(Spring::SMOOTH));
+        let anim = m.get(key).expect("still animating");
+        assert_eq!(anim.class, azul_core::animation::AnimClass::Exit);
+        assert_eq!(m.len(), 1, "an exit replaces, it does not stack a second animation");
+    }
+}
+
+#[cfg(test)]
 mod reconciliation_tests {
     use azul_css::props::property::{CssPropertyType, RelayoutScope};
 
@@ -14758,3 +14944,7 @@ mod reconciliation_tests {
         );
     }
 }
+
+/// Scale a departing node shrinks to. Paired with the opacity fade in
+/// `ActiveAnim::exit`, so it reads as receding rather than collapsing.
+const EXIT_TO_SCALE: f32 = 0.92;
