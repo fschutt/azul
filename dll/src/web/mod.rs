@@ -99,6 +99,10 @@ pub const EVENTLOOP_SYMBOLS: &[&str] = &[
     // M11 Sprint 1.C / Sprint 2: layout solver + positioned-rect
     // cache. AzStartup_hitTest now consumes the cache for real
     // bbox-walk dispatch.
+    // [AZ-DIAG REVERT] in-wasm repro probes (sfnt table-directory walk +
+    // formatter matrix) used to localise the remaining solveLayoutReal trap.
+    "AzStartup_probeFontDir",
+    "AzStartup_probeFmt",
     "AzStartup_solveLayout",
     // M12.7: real layout solver (LayoutWindow::layout_and_generate_display_list
     // → taffy block/flex/grid). Same signature as solveLayout.

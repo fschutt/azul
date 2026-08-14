@@ -415,7 +415,10 @@ pub fn signature_for_eventloop_fn(name: &str) -> Option<CallbackSignature> {
         | "AzStartup_getPositionedRectsLen"
         | "AzStartup_getPositionedRectsPtr"
         // M12.7 debug: peek(addr: u32) -> u32 — same 1-arg ABI.
-        | "AzStartup_peekU32" => Some(CallbackSignature {
+        | "AzStartup_peekU32"
+        // [AZ-DIAG REVERT] repro probes — same (u32) -> u32 ABI.
+        | "AzStartup_probeFontDir"
+        | "AzStartup_probeFmt" => Some(CallbackSignature {
             kind: name.to_string(),
             // (state_or_addr: u32) -> u32
             args: vec![wreg_arg(0)],
@@ -1672,12 +1675,21 @@ impl RemillTranspiler {
                 }
             }
 
+            // [AZ-DIAG REVERT] AZ_LLC_O1 forces the wasm BACKEND to -O1 (RegStackify on
+            // so wasm locals still fit — -O0 blows the local limit) while keeping the
+            // opt -O2 IR. Splits an -O2-only wasm-backend miscompile (solve RETURNS at
+            // -O1) from a deeper -O1-level/isel/semantic cause (solve still OOB).
+            let llc_opt: &str = if std::env::var_os("AZ_LLC_O1").is_some() {
+                "-O1"
+            } else {
+                opt_flag_for(fn_name)
+            };
             run_tool(
                 tools.llc,
                 &[
                     "-mtriple=wasm32-unknown-unknown",
                     "-filetype=obj",
-                    opt_flag_for(fn_name),
+                    llc_opt,
                     "-o",
                     obj_path.to_str().expect("scratch path is utf-8"),
                     opt_ir_path.to_str().expect("scratch path is utf-8"),
@@ -1863,8 +1875,19 @@ impl RemillTranspiler {
             // crosses .o boundaries also gets DCE'd.
             "--gc-sections".to_string(),
         ];
+        // [AZ-DIAG REVERT] AZ_MINI_KEEP_NAMES keeps the function-names custom section in
+        // the OPTIMIZED (--lto-O3) mini wasm so V8 stack traces show `sub_<addr>` names
+        // instead of `wasm-function[N]` — lets us identify the trapping fn without the
+        // (lost) index→name tooling. Unlike AZ_WASM_DEBUG (--lto-O0 → local-count-too-large
+        // → won't instantiate), this stays at --lto-O3 and only skips --strip-all + wasm-opt.
+        let keep_names = std::env::var_os("AZ_MINI_KEEP_NAMES").is_some();
         if !debug_link {
-            args.push("--strip-all".to_string());
+            // keep_names: just OMIT --strip-all (wasm-ld keeps the name section by
+            // default). Do NOT pass --keep-section=name — this wasm-ld rejects it as
+            // an unknown argument → empty 8-byte wasm.
+            if !keep_names {
+                args.push("--strip-all".to_string());
+            }
             // M10-F2: --lto-O3 enables LTO with size-aware codegen.
             // wasm-ld passes the LTO opt level to LLVM; -O3 (not -Oz)
             // gives the best size in our measurements because LTO
@@ -1922,8 +1945,8 @@ impl RemillTranspiler {
         // locals, merge-blocks, ...) shave another 10-20% on lifted
         // wasm. Best-effort: if wasm-opt isn't installed or fails,
         // serve the un-opt'd wasm.
-        let opt_bytes = if debug_link {
-            None
+        let opt_bytes = if debug_link || keep_names {
+            None // keep_names: wasm-opt strips the name section — skip it to preserve names
         } else {
             postprocess_wasm_opt(&wasm_path, output_stem)
         };
@@ -2635,7 +2658,12 @@ impl RemillTranspiler {
                 label = label, c = c
             ));
         }
-        ir.push_str("unk:\n  %uc = call i32 @__remill_read_memory_32(ptr %memory, i64 262488)\n  %uc1 = add i32 %uc, 1\n  %um = call ptr @__remill_write_memory_32(ptr %memory, i64 262488, i32 %uc1)\n  ret ptr %um\n}\n");
+        // `unk` = no switch case matched. It already counts hits at 0x40158 (262488);
+        // ALSO record the unmatched target PC at 0x40900 (264448) — that value names the
+        // broken layer outright: 0 ⇒ the fn-ptr slot was never mirrored (guest read zero);
+        // a NATIVE addr (0x7ff8…) ⇒ mirrored but not native→synth translated; a plausible
+        // SYNTH addr ⇒ translated but the target was never lifted (no case emitted).
+        ir.push_str("unk:\n  %uc = call i32 @__remill_read_memory_32(ptr %memory, i64 262488)\n  %uc1 = add i32 %uc, 1\n  %um = call ptr @__remill_write_memory_32(ptr %memory, i64 262488, i32 %uc1)\n  %pclo = trunc i64 %pcm to i32\n  %um2 = call ptr @__remill_write_memory_32(ptr %um, i64 264448, i32 %pclo)\n  ret ptr %um2\n}\n");
         let disp_o = self.scratch_dir.join("az_indirect_dispatch.o");
         if self.use_native_remill() {
             #[cfg(feature = "web-transpiler-static")]
