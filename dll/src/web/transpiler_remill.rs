@@ -2487,6 +2487,48 @@ impl RemillTranspiler {
                     },
                 });
             }
+            // [FIX 2026-08-13] The IR-walk above only sees `sub_<hex>` externs =
+            // STATIC call targets. INDIRECT-dispatch targets (vtable / trait-object /
+            // core::fmt::Arguments fn-pointers) are RUNTIME values, so they never
+            // appear as externs and stay unlifted → the `__az_indirect_dispatch`
+            // switch has no case → hits its `default` no-op → e.g. core::fmt::write's
+            // arg-formatter dispatch silently fails → fmt::write returns Err →
+            // format_inner `.expect` → core::result::unwrap_failed (the solveLayoutReal
+            // trap). Discover them by scanning THIS fn's bytes: code-lea'd fn-ptrs
+            // (rt::Argument formatters, materialized inline for runtime args) + fn-ptrs
+            // inside referenced const data (Formatter-write / trait-object vtables).
+            // Enqueue the recursable ones exactly like the IR-walk deps above.
+            {
+                let fn_bytes = unsafe { std::slice::from_raw_parts(addr as *const u8, size) };
+                let mut ptr_targets = scan_guest_code_addr_targets(fn_bytes, addr);
+                ptr_targets.extend(scan_guest_data_code_ptrs(fn_bytes, addr));
+                if let Some(table) = symbol_table::get() {
+                    for t in ptr_targets {
+                        let Some(entry) = table.resolve(t) else {
+                            continue;
+                        };
+                        if entry.classification.is_boundary_import() {
+                            used_boundaries.insert(entry.canonical_addr);
+                            continue;
+                        }
+                        if !entry.classification.is_recursable() {
+                            continue;
+                        }
+                        if visited.contains(&entry.canonical_addr) {
+                            continue;
+                        }
+                        queue.push_back(TransitiveLiftTarget::Dep {
+                            name: entry.canonical_name.clone(),
+                            addr: entry.canonical_addr,
+                            size: if entry.size > 0 {
+                                entry.size
+                            } else {
+                                super::LIFT_READ_WINDOW
+                            },
+                        });
+                    }
+                }
+            }
         }
 
         // M10-D: append per-root extra exports (boundary-lift's
@@ -3553,6 +3595,101 @@ fn inject_user_binary_data_segments(
             output_stem,
         );
         return;
+    }
+    // [FIX 2026-08-14] Rewrite embedded CODE POINTERS in mirrored const data from
+    // NATIVE → SYNTH. Vtables / trait objects / `fmt::Arguments` store ABSOLUTE NATIVE
+    // function addresses. The lifted code loads one and calls
+    // `__remill_function_call(target_pc = <that value>)`, but `__az_indirect_dispatch`
+    // switches on SYNTH addresses (see `dispatcher_csynths`) — so a native value matches
+    // NO case and falls into the `default` no-op. That is why `core::fmt::write`'s
+    // arg-formatter dispatch silently did nothing → returned `Err` → `format_inner`'s
+    // `.expect` → `core::result::unwrap_failed` = the solveLayoutReal trap. Lifting the
+    // formatters (the fn-ptr discovery fix) is necessary but NOT sufficient: the pointer
+    // the guest actually dispatches on must be in the same address space as the switch.
+    // [FIX 2026-08-14] TRANSITIVE DATA MIRROR (one level). A `mov rax,[rip+X]` records
+    // only the 8 bytes at X, but the VALUE there points at ANOTHER const table whose
+    // slots the guest then indexes — e.g. `fmt::Arguments` holds a pointer to a slice of
+    // `rt::Argument{value_ptr, formatter_fn}`. That pointed-to table was never mirrored,
+    // so its `formatter_fn` slots read 0 → indirect dispatch no-op. Follow data pointers
+    // found in the already-mirrored bytes and mirror a window at each target, so the
+    // rewrite pass below can translate the fn-ptrs they contain.
+    {
+        let mut extra: Vec<(u32, Vec<u8>)> = Vec::new();
+        let mut seen: std::collections::HashSet<usize> = std::collections::HashSet::new();
+        const FOLLOW_WINDOW: usize = 128;
+        const MAX_FOLLOW: usize = 4096;
+        for (off, bytes) in segments.iter() {
+            let mut i = ((8 - (*off as usize % 8)) % 8) as usize;
+            while i + 8 <= bytes.len() && extra.len() < MAX_FOLLOW {
+                let v = u64::from_le_bytes(bytes[i..i + 8].try_into().unwrap()) as usize;
+                i += 8;
+                if v <= 0x1_0000 || table.resolve(v).is_some() {
+                    continue; // not a pointer, or already a known code/symbol addr
+                }
+                let Some(img) = table
+                    .image_rebases()
+                    .iter()
+                    .find(|r| v >= r.native_base && v < r.native_end)
+                else {
+                    continue;
+                };
+                let base = v & !7usize; // 8-align the table start
+                if !seen.insert(base) {
+                    continue;
+                }
+                let end = base.saturating_add(FOLLOW_WINDOW).min(img.native_end);
+                if end < base + 8 {
+                    continue;
+                }
+                let Some(synth) = table.native_to_synth(base) else {
+                    continue;
+                };
+                // SAFETY: [base, end) ⊂ a loaded image, mapped for the process lifetime.
+                let data =
+                    unsafe { core::slice::from_raw_parts(base as *const u8, end - base) }.to_vec();
+                extra.push((synth as u32, data));
+            }
+        }
+        if !extra.is_empty() {
+            eprintln!(
+                "[azul-web] data-mirror ({}): +{} transitively-referenced const table(s)",
+                output_stem,
+                extra.len(),
+            );
+            segments.extend(extra);
+        }
+    }
+    {
+        use crate::web::symbol_table::SymKind;
+        let mut rewritten = 0usize;
+        for (off, bytes) in segments.iter_mut() {
+            // Align to the SEGMENT'S address, not to its start: a segment can begin at
+            // any synth offset, so scanning from index 0 in 8-byte steps would probe
+            // misaligned words and miss every real pointer.
+            let mut i = ((8 - (*off as usize % 8)) % 8) as usize;
+            while i + 8 <= bytes.len() {
+                let v = u64::from_le_bytes(bytes[i..i + 8].try_into().unwrap()) as usize;
+                // Cheap reject before the map lookup: real code addresses are large.
+                if v > 0x1_0000 {
+                    if let Some(e) = table.resolve(v) {
+                        if matches!(e.kind, SymKind::Function) {
+                            if let Some(s) = table.native_to_synth(e.canonical_addr) {
+                                bytes[i..i + 8].copy_from_slice(&(s as u64).to_le_bytes());
+                                rewritten += 1;
+                            }
+                        }
+                    }
+                }
+                i += 8;
+            }
+        }
+        if rewritten > 0 {
+            eprintln!(
+                "[azul-web] data-mirror ({}): rewrote {} embedded code pointer(s) \
+                 native→synth (vtable / fn-ptr dispatch targets)",
+                output_stem, rewritten,
+            );
+        }
     }
     let total_bytes: usize = segments.iter().map(|(_, b)| b.len()).sum();
     let pre_len = wasm.len();
@@ -4766,6 +4903,98 @@ mod x86_scan {
         out
     }
 
+    /// Code pointers stored INSIDE const data that a function references via
+    /// `lea reg,[rip+disp]` — the fn-ptrs in vtables / trait objects /
+    /// `core::fmt::Arguments` that `lea_code_targets` (a CODE scan) cannot see
+    /// because they live in DATA, not materialized by a code-lea. They are
+    /// dispatched at runtime via `call [reg+disp]`; without lifting them the
+    /// `__az_indirect_dispatch` switch hits its `default` no-op (e.g.
+    /// `core::fmt::write`'s arg-formatter dispatch silently fails → fmt::write
+    /// returns `Err` → `format_inner`'s `.expect` → `core::result::unwrap_failed`
+    /// = the solveLayoutReal trap). For each `lea` whose target is const DATA
+    /// (not itself a code fn), scan a bounded window of that data — clamped to
+    /// the owning loaded image so the read never walks off the mapping — for
+    /// 8-byte-aligned values that resolve to recursable `.text` functions.
+    pub fn data_referenced_code_ptrs(fn_bytes: &[u8], fn_addr: usize) -> Vec<usize> {
+        use crate::web::symbol_table::SymKind;
+        let Some(table) = crate::web::symbol_table::get() else {
+            return Vec::new();
+        };
+        let images = table.image_rebases();
+        const WINDOW: usize = 512;
+        let mut out = Vec::new();
+        for insn in decode_all(fn_bytes, fn_addr) {
+            if insn.mnemonic() != Mnemonic::Lea || !insn.is_ip_rel_memory_operand() {
+                continue;
+            }
+            let d = insn.ip_rel_memory_address() as usize;
+            // A lea whose target is itself a code fn is `lea_code_targets`' job.
+            if table
+                .resolve(d)
+                .is_some_and(|e| matches!(e.kind, SymKind::Function))
+            {
+                continue;
+            }
+            // Only read DATA that lives inside a loaded image (mapped for the
+            // process lifetime); clamp the window to the image end.
+            let Some(img) = images
+                .iter()
+                .find(|r| d >= r.native_base && d < r.native_end)
+            else {
+                continue;
+            };
+            // 8-byte aligned start (vtables/fn-ptr arrays always are).
+            if d % 8 != 0 {
+                continue;
+            }
+            let end = d.saturating_add(WINDOW).min(img.native_end);
+            if end < d + 8 {
+                continue;
+            }
+            // SAFETY: [d, end) ⊂ [native_base, native_end) of a loaded image,
+            // which the loader keeps mapped for the process lifetime.
+            let data = unsafe { core::slice::from_raw_parts(d as *const u8, end - d) };
+            // Walk 8-byte slots collecting function pointers, stopping once we hit a
+            // long enough run of NON-pointer slots — that's where the table ends and
+            // unrelated data begins. This bounds the scan (a flat 512B sweep at every
+            // .rdata lea over-approximates the dep set badly and blows the transitive-
+            // depth cap) WITHOUT missing interleaved tables.
+            //
+            // Tolerance matters: real Rust metadata is NOT a dense fn-ptr array. A
+            // vtable is [drop_in_place, size, align, method…] (2 non-fn slots right
+            // after the first hit), and enum/variant tables interleave name strings +
+            // size/align between fn-ptrs (observed in azul.dll: 4 non-fn slots between
+            // consecutive formatters). Breaking at the FIRST gap would capture only
+            // `drop_in_place` and silently drop every method — the exact class of miss
+            // this fix exists to prevent. So allow a short desert, then stop.
+            const MAX_SLOTS: usize = 64;
+            const MAX_CONSECUTIVE_MISSES: usize = 6;
+            let mut i = 0usize;
+            let mut slots = 0usize;
+            let mut misses = 0usize;
+            while i + 8 <= data.len() && slots < MAX_SLOTS {
+                let v = u64::from_le_bytes(data[i..i + 8].try_into().unwrap()) as usize;
+                let is_fn = table.resolve(v).is_some_and(|e| {
+                    matches!(e.kind, SymKind::Function) && e.classification.is_recursable()
+                });
+                if is_fn {
+                    out.push(v);
+                    misses = 0;
+                } else {
+                    misses += 1;
+                    if misses >= MAX_CONSECUTIVE_MISSES {
+                        break;
+                    }
+                }
+                i += 8;
+                slots += 1;
+            }
+        }
+        out.sort_unstable();
+        out.dedup();
+        out
+    }
+
     /// Resolve Windows IAT indirect calls/jumps to DIRECT calls so the
     /// dep walk lifts the cross-image callee — the PE analog of the
     /// macOS PLT-stub chase (compendium A2). MSVC lowers every call to
@@ -4936,6 +5165,19 @@ fn scan_guest_code_addr_targets(fn_bytes: &[u8], fn_addr: usize) -> Vec<usize> {
     }
 }
 
+/// Code pointers living INSIDE const data a fn references (vtable / trait-object /
+/// fmt::Arguments fn-ptrs) — the DATA sibling of `scan_guest_code_addr_targets`
+/// (which only sees code-lea'd pointers). x86-only for now (Windows web-lift).
+fn scan_guest_data_code_ptrs(fn_bytes: &[u8], fn_addr: usize) -> Vec<usize> {
+    #[cfg(target_arch = "x86_64")]
+    return x86_scan::data_referenced_code_ptrs(fn_bytes, fn_addr);
+    #[cfg(not(target_arch = "x86_64"))]
+    {
+        let _ = (fn_bytes, fn_addr);
+        Vec::new()
+    }
+}
+
 /// Per-call options for [`RemillTranspiler::lift_with_transitive_deps_ex`].
 ///
 /// M11 Sprint 1 added this so the eventloop pipeline can route
@@ -4969,7 +5211,17 @@ impl Default for LiftOpts {
             extra_objects: Vec::new(),
             extra_exports_passthrough: Vec::new(),
             memory_mode: MemoryMode::ImportMemory,
-            max_recursive_depth: 256,
+            // [FIX 2026-08-14] Was 256 — too low once fn-pointer discovery (vtable /
+            // trait-object / fmt::Arguments targets, see `data_referenced_code_ptrs`)
+            // legitimately widens the closure: the per-cb lifts (`on_click`, `layout`)
+            // blew the cap and fell back to NO-OP STUBS, so calling the layout cb trapped
+            // with "null function or function signature mismatch" at initLayoutCache.
+            // Hitting the cap is fatal-by-fallback, not a graceful truncation, so it must
+            // sit above the real closure size. `AZ_CB_MAX_DEPTH` overrides.
+            max_recursive_depth: std::env::var("AZ_CB_MAX_DEPTH")
+                .ok()
+                .and_then(|s| s.parse().ok())
+                .unwrap_or(8192),
             output_stem: "transitive-lift".to_string(),
         }
     }
