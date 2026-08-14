@@ -1351,7 +1351,8 @@ impl Win32Window {
                 // Early-return optimization
                 if self.common.display_list_initialized {
                     let scroll_active = self.common.layout_window.as_ref()
-                        .map(|lw| lw.scroll_manager.has_active_animations())
+                        .map(|lw| lw.scroll_manager.has_active_animations()
+                            || lw.needs_animation_frame())
                         .unwrap_or(false);
                     let scrollbar_fade = self.common.layout_window.as_ref()
                         .map(|lw| lw.gpu_state_manager.scrollbar_fade_active)
