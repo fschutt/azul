@@ -418,7 +418,19 @@ fn compute_glyph_runs_with_mode(
                             && (a.point.x - b.point.x).abs() < 0.01
                             && (a.point.y - b.point.y).abs() < 0.01
                     }),
-                "AZ_DENSE_TEXT=verify: run {i} diverged from the reference"
+                "AZ_DENSE_TEXT=verify: run {i} diverged from the reference\n  \
+                 color {:?}/{:?} bg {:?}/{:?} font_hash {:?}/{:?} size {}/{} \
+                 deco {:?}/{:?} node {:?}/{:?}\n  glyph count {} vs {}\n  \
+                 ref glyphs {:?}\n  our glyphs {:?}",
+                r.color, o.color,
+                r.background_color, o.background_color,
+                r.font_hash, o.font_hash,
+                r.font_size_px, o.font_size_px,
+                r.text_decoration, o.text_decoration,
+                r.source_node_id, o.source_node_id,
+                r.glyphs.len(), o.glyphs.len(),
+                r.glyphs.iter().map(|g| (g.index, g.point.x, g.point.y)).collect::<Vec<_>>(),
+                o.glyphs.iter().map(|g| (g.index, g.point.x, g.point.y)).collect::<Vec<_>>(),
             );
         }
     }
