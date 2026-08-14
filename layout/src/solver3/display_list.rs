@@ -3450,7 +3450,6 @@ where
                 Some((*key, *transform))
             })
         });
-
         // Push a stacking context for WebRender
         // Get the node's bounds for the stacking context
         let node_pos = self
@@ -3745,8 +3744,20 @@ where
             // Check if this child has a GPU transform (CSS transform or drag)
             let child_ref_frame = child_node.dom_node_id.and_then(|dom_id| {
                 self.gpu_value_cache.and_then(|cache| {
-                    let key = cache.css_transform_keys.get(&dom_id)?;
-                    let transform = cache.css_current_transform_values.get(&dom_id)?;
+                    // CSS transform first, then the ANIMATION channel — an
+                    // engine-driven transition animates nodes that have no CSS
+                    // `transform` of their own, and without this they get no
+                    // reference frame and jump to their destination.
+                    let (key, transform) = cache
+                        .css_transform_keys
+                        .get(&dom_id)
+                        .zip(cache.css_current_transform_values.get(&dom_id))
+                        .or_else(|| {
+                            cache
+                                .anim_transform_keys
+                                .get(&dom_id)
+                                .zip(cache.anim_current_transform_values.get(&dom_id))
+                        })?;
                     Some((*key, *transform))
                 })
             });
@@ -3824,8 +3835,20 @@ where
             // Check if this child has a GPU transform (CSS transform or drag)
             let child_ref_frame = child_node.dom_node_id.and_then(|dom_id| {
                 self.gpu_value_cache.and_then(|cache| {
-                    let key = cache.css_transform_keys.get(&dom_id)?;
-                    let transform = cache.css_current_transform_values.get(&dom_id)?;
+                    // CSS transform first, then the ANIMATION channel — an
+                    // engine-driven transition animates nodes that have no CSS
+                    // `transform` of their own, and without this they get no
+                    // reference frame and jump to their destination.
+                    let (key, transform) = cache
+                        .css_transform_keys
+                        .get(&dom_id)
+                        .zip(cache.css_current_transform_values.get(&dom_id))
+                        .or_else(|| {
+                            cache
+                                .anim_transform_keys
+                                .get(&dom_id)
+                                .zip(cache.anim_current_transform_values.get(&dom_id))
+                        })?;
                     Some((*key, *transform))
                 })
             });
@@ -3891,8 +3914,20 @@ where
             // Check if this child has a GPU transform (CSS transform or drag)
             let child_ref_frame = child_node.dom_node_id.and_then(|dom_id| {
                 self.gpu_value_cache.and_then(|cache| {
-                    let key = cache.css_transform_keys.get(&dom_id)?;
-                    let transform = cache.css_current_transform_values.get(&dom_id)?;
+                    // CSS transform first, then the ANIMATION channel — an
+                    // engine-driven transition animates nodes that have no CSS
+                    // `transform` of their own, and without this they get no
+                    // reference frame and jump to their destination.
+                    let (key, transform) = cache
+                        .css_transform_keys
+                        .get(&dom_id)
+                        .zip(cache.css_current_transform_values.get(&dom_id))
+                        .or_else(|| {
+                            cache
+                                .anim_transform_keys
+                                .get(&dom_id)
+                                .zip(cache.anim_current_transform_values.get(&dom_id))
+                        })?;
                     Some((*key, *transform))
                 })
             });

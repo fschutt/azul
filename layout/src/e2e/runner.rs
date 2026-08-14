@@ -2540,6 +2540,28 @@ impl Runner {
         if let Some(pending) = pending {
             self.layout_window
                 .finish_reconciliation(DomId::ROOT_ID, &pending);
+
+            // REBUILD the display list once, if anything started animating.
+            //
+            // Ordering makes this unavoidable: the display list is produced by
+            // `layout_and_generate_display_list`, but a FLIP cannot be computed
+            // until AFTER layout (it needs Last geometry), so the list above was
+            // built while no animation keys existed — and the builder only emits
+            // `PushReferenceFrame` for a node that HAS a key. Without this pass
+            // the per-frame transform updates have nothing to drive and the
+            // element jumps to its destination instead of travelling there.
+            //
+            // Once per transition START, not per frame: every subsequent frame
+            // is a pure GPU-key update, which is the property the whole design
+            // rests on.
+            if !self.layout_window.animations.is_empty() {
+                // DISPLAY LIST only — the solved layout is reused untouched.
+                // `regenerate_display_list_for_dom` also hands the builder the
+                // GPU value cache, which is what lets it see the animation keys
+                // minted a moment ago and emit the reference frames.
+                self.layout_window
+                    .regenerate_display_list_for_dom(DomId::ROOT_ID);
+            }
         }
 
         self.render_and_record();
