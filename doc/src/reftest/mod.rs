@@ -660,6 +660,17 @@ pub fn generate_chrome_screenshot(
         // otherwise — a 15px x full-height strip azul never paints
         // (16,200 diff px on grid-alignment-001, the whole margin).
         .arg("--hide-scrollbars")
+        // Pin the RASTERISER, not just the engine version and the fonts.
+        // Left to itself Chrome picks a text backend from what the machine
+        // offers, so a box with a GPU draws LCD-subpixel glyphs while a bare
+        // CI runner draws grayscale ones. Measured on cascade-specificity-001:
+        // these two flags alone move 11,201 px — against a 10,368 px (0.5%)
+        // threshold, with the CI-only failures landing at 10,439-14,613. That
+        // is the whole "regression": the oracle rendered differently, and the
+        // marginal text tests tipped over. Both flags must stay for the
+        // recorded baseline to mean anything on another machine.
+        .arg("--disable-gpu")
+        .arg("--disable-lcd-text")
         .arg(format!("--screenshot={}", output_file.display()))
         .arg(format!("--window-size={},{}", width, height))
         .arg(format!("file://{}", canonical_path.display()))
@@ -690,6 +701,17 @@ pub fn generate_chrome_screenshot_with_debug(
         // otherwise — a 15px x full-height strip azul never paints
         // (16,200 diff px on grid-alignment-001, the whole margin).
         .arg("--hide-scrollbars")
+        // Pin the RASTERISER, not just the engine version and the fonts.
+        // Left to itself Chrome picks a text backend from what the machine
+        // offers, so a box with a GPU draws LCD-subpixel glyphs while a bare
+        // CI runner draws grayscale ones. Measured on cascade-specificity-001:
+        // these two flags alone move 11,201 px — against a 10,368 px (0.5%)
+        // threshold, with the CI-only failures landing at 10,439-14,613. That
+        // is the whole "regression": the oracle rendered differently, and the
+        // marginal text tests tipped over. Both flags must stay for the
+        // recorded baseline to mean anything on another machine.
+        .arg("--disable-gpu")
+        .arg("--disable-lcd-text")
         .arg(format!("--screenshot={}", output_file.display()))
         .arg(format!("--window-size={},{}", width, height))
         .arg(format!("file://{}", canonical_path.display()))
