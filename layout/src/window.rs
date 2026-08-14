@@ -745,6 +745,7 @@ const fn memory_walk_coverage_is_exhaustive(w: &LayoutWindow) {
         animations: _,
         // Rebuilt wholesale each layout; one entry per animating node.
         anim_key_to_node: _,
+        last_anim_tick: _,
         // Two u64 arrays sized by node count (~16 B/node) — noise next to
         // the tree; walked nowhere, listed so the destructure stays total.
         last_dom_fingerprints: _,
@@ -982,6 +983,11 @@ pub struct LayoutWindow {
         azul_core::animation::AnimKey,
         azul_core::dom::NodeId,
     >,
+    /// Timestamp of the last animation tick, for deriving `dt`.
+    ///
+    /// `None` while nothing animates, which is also what keeps the clock read
+    /// off the idle path — see [`Self::tick_animations_now`].
+    pub last_anim_tick: Option<azul_core::task::Instant>,
     pub layout_cache: Solver3LayoutCache,
     /// Text layout cache for text3 (shaped glyphs, line breaks, etc.)
     pub text_cache: TextLayoutCache,
@@ -1428,6 +1434,7 @@ impl LayoutWindow {
             fragmentation_context: crate::paged::FragmentationContext::new_continuous(800.0),
             animations: azul_core::animation::AnimationManager::new(),
             anim_key_to_node: alloc::collections::BTreeMap::new(),
+            last_anim_tick: None,
             layout_cache: Solver3LayoutCache {
                 tree: None,
                 resize_only_hint: false,
@@ -6624,6 +6631,33 @@ impl LayoutWindow {
             .is_empty();
         }
         moved
+    }
+
+    /// [`Self::tick_animations`] with `dt` taken from the wall clock.
+    ///
+    /// The clock is read ONLY when something is actually animating.
+    /// `azul_core::task::Instant` owns a `ManuallyDrop<Box<..>>`, so an
+    /// unconditional `now()` on a per-frame path is a heap allocation every
+    /// frame forever — that exact mistake cost a leak-test failure on the
+    /// pagination path (593d43ea0). An idle window must not pay for a feature
+    /// it is not using.
+    ///
+    /// The first tick after an idle period has no previous timestamp and is
+    /// treated as a single 16 ms frame rather than a zero: starting at zero
+    /// would waste a frame, and using the true elapsed idle time would teleport
+    /// the animation to its end.
+    pub fn tick_animations_now(&mut self) -> bool {
+        if self.animations.is_empty() {
+            self.last_anim_tick = None;
+            return false;
+        }
+        let now = azul_core::task::Instant::now();
+        let dt = self
+            .last_anim_tick
+            .as_ref()
+            .map_or(1.0 / 60.0, |prev| now.duration_since(prev).as_millis_u64() as f32 / 1000.0);
+        self.last_anim_tick = Some(now);
+        self.tick_animations(dt)
     }
 
     /// Advance layout animations by `dt` seconds and publish the result to the
@@ -11865,6 +11899,8 @@ impl LayoutWindow {
             animations: _,
             // REBUILT each layout, never migrated — see the field docs.
             anim_key_to_node: _,
+            // One timestamp; carries no NodeId.
+            last_anim_tick: _,
             layout_cache: _,
             layout_results: _,
             // Content-addressed (hashes / font ids / image ids), never NodeIds:

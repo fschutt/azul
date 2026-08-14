@@ -1558,6 +1558,12 @@ pub fn generate_frame(
     document_id: DocumentId,
     gl_context: &azul_core::gl::OptionGlContextPtr,
 ) {
+    // Advance layout animations before the display list is translated, so this
+    // frame shows the transform sampled for THIS frame rather than the previous
+    // one. Cheap and self-gating: with nothing animating it is one `is_empty`
+    // check and no clock read.
+    let _still_animating = layout_window.tick_animations_now();
+
     // Process any pending VirtualView updates requested by callbacks
     // This must happen BEFORE wr_translate2::generate_frame() so that the VirtualView
     // callbacks can be re-invoked and their layout results are available
