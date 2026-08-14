@@ -134,6 +134,57 @@ function azUdivti3(sret, aLo, aHi, bLo, bHi) {
     dv.setBigUint64(Number(sret) + 8, (q >> 64n) & mask, true);
 }
 
+// remill memory/atomic intrinsics. EVERY lifted wasm (mini AND the per-cb /
+// per-layout ones) imports these; the generic `stubFor` Proxy below is WRONG for
+// them in two ways:
+//   1. correctness — reads return 0, writes are DROPPED, and CAS never succeeds
+//      (a CAS-retry loop would spin forever);
+//   2. TYPE — `stubFor` returns `0n` for any name matching /_64\b/, but
+//      `__remill_compare_exchange_memory_64` is `(i32,i64,i32,i64) -> i32` (it
+//      returns the Memory TOKEN, not a value). Handing wasm a BigInt where i32 is
+//      declared throws `TypeError: Cannot convert a BigInt value to a number` at
+//      the JS→wasm boundary, which aborted azBootstrap before the click listeners
+//      were installed (found 2026-08-14 by wrapping imports over CDP).
+// `mem` is remill's opaque Memory token: return it unchanged to keep the
+// memory-ordering chain intact. Addresses are guest = wasm linear offsets.
+// (full-cycle.js always supplied these to BOTH its mini and cb envs — which is
+// exactly why the Node harness passed while the browser did not.)
+function azRemillIntrinsics() {
+    return {
+        __remill_read_memory_8:  function(mem, a) { return new DataView(azMemory.buffer).getUint8(Number(a)); },
+        __remill_read_memory_16: function(mem, a) { return new DataView(azMemory.buffer).getUint16(Number(a), true); },
+        __remill_read_memory_32: function(mem, a) { return new DataView(azMemory.buffer).getUint32(Number(a), true); },
+        __remill_read_memory_64: function(mem, a) { return new DataView(azMemory.buffer).getBigUint64(Number(a), true); },
+        __remill_write_memory_8:  function(mem, a, v) { new DataView(azMemory.buffer).setUint8(Number(a), Number(v) & 0xFF); return mem; },
+        __remill_write_memory_16: function(mem, a, v) { new DataView(azMemory.buffer).setUint16(Number(a), Number(v) & 0xFFFF, true); return mem; },
+        __remill_write_memory_32: function(mem, a, v) { new DataView(azMemory.buffer).setUint32(Number(a), Number(v) >>> 0, true); return mem; },
+        __remill_write_memory_64: function(mem, a, v) { new DataView(azMemory.buffer).setBigUint64(Number(a), BigInt.asUintN(64, BigInt(v)), true); return mem; },
+        __remill_atomic_begin: function(mem) { return mem; },
+        __remill_atomic_end:   function(mem) { return mem; },
+        __remill_compare_exchange_memory_8: function(mem, addr, expPtr, desired) {
+            var u8 = new Uint8Array(azMemory.buffer), a = Number(addr), e = Number(expPtr);
+            var actual = u8[a];
+            if (actual === u8[e]) { u8[a] = Number(desired) & 0xFF; }
+            u8[e] = actual;
+            return mem;
+        },
+        __remill_compare_exchange_memory_32: function(mem, addr, expPtr, desired) {
+            var dv = new DataView(azMemory.buffer), a = Number(addr), e = Number(expPtr);
+            var actual = dv.getUint32(a, true);
+            if (actual === dv.getUint32(e, true)) { dv.setUint32(a, Number(desired) >>> 0, true); }
+            dv.setUint32(e, actual, true);
+            return mem;
+        },
+        __remill_compare_exchange_memory_64: function(mem, addr, expPtr, desired) {
+            var dv = new DataView(azMemory.buffer), a = Number(addr), e = Number(expPtr);
+            var actual = dv.getBigUint64(a, true);
+            if (actual === dv.getBigUint64(e, true)) { dv.setBigUint64(a, BigInt.asUintN(64, BigInt(desired)), true); }
+            dv.setBigUint64(e, actual, true);
+            return mem;
+        },
+    };
+}
+
 // node_idx → table_idx (M8.6 stub: identity since dispatchEvent uses
 // node_idx as the fn-addr-lookup key. M8.5c+ will swap to real
 // fn-addrs harvested from a hydrated StyledDom.)
@@ -190,6 +241,10 @@ function azMakeMiniImports() {
         __multi3: azMulti3,
         memset: azMemset, memcpy: azMemcpy, memmove: azMemcpy, __udivti3: azUdivti3,
     };
+    // Real remill memory/atomic intrinsics for EVERY lifted wasm (see
+    // azRemillIntrinsics): the stub Proxy both corrupts memory semantics and
+    // returns a BigInt where i32 is declared, which aborts bootstrap.
+    Object.assign(realEnv, azRemillIntrinsics());
     function stubFor(name) {
         if (name.indexOf('write_memory') !== -1 ||
             name.indexOf('barrier') !== -1 ||
@@ -247,6 +302,10 @@ function azCallbackImports() {
         __multi3: azMulti3,
         memset: azMemset, memcpy: azMemcpy, memmove: azMemcpy, __udivti3: azUdivti3,
     };
+    // Real remill memory/atomic intrinsics for EVERY lifted wasm (see
+    // azRemillIntrinsics): the stub Proxy both corrupts memory semantics and
+    // returns a BigInt where i32 is declared, which aborts bootstrap.
+    Object.assign(realEnv, azRemillIntrinsics());
     var handler = {
         get: function(_target, prop) {
             if (typeof prop !== 'string') return undefined;
@@ -536,7 +595,7 @@ async function azBootstrap() {
             // latent until the REC_MARKER fix let the text-shaping recursion lift at
             // all. Re-enable (drop the `false &&`) once the solver no longer traps →
             // then real geometric hit-test over solved rects. try/catch = defence.
-            if (false && initRc === 0 && domPtr &&
+            if (initRc === 0 && domPtr &&
                 typeof azMini.AzStartup_hydrateStyledDom === 'function') {
                 // A wasm trap in hydrateStyledDom MUST NOT abort bootstrap (the
                 // stated policy above) — the StyledDom cascade walks the AzDom
