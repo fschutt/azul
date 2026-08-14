@@ -161,6 +161,14 @@ use lru as _;
 use unicode_normalization as _;
 #[cfg(feature = "xml")]
 use xmlwriter as _;
+// `rustls` / `webpki-roots`: selected through ureq's `rustls-no-provider` +
+// `rustls-webpki-roots` features and reached only via `ureq::tls::*`, so this
+// crate never names them — but it must depend on them to pin the versions
+// ureq resolves against (see the `http` feature).
+#[cfg(feature = "http")]
+use rustls as _;
+#[cfg(feature = "http")]
+use webpki_roots as _;
 
 /// Web-lift diagnostic marker: a volatile store of `val` to the absolute wasm
 /// linear-memory address `addr` (the 0x40000–0xF0000 free band the e2e harness
@@ -226,6 +234,27 @@ pub mod resource_handles;
 /// Optional probe instrumentation. With the `probe` feature off this
 /// is a tiny module of no-op stubs and pays zero cost.
 pub mod probe;
+/// Opt-in telemetry client: consent tiers, OTLP/HTTP JSON encoding, a
+/// disk-backed ping queue and an uploader. Requires the `telemetry`
+/// feature (std-only); collection stays *off* at runtime until a consent
+/// tier is configured, so linking it in does not by itself send anything.
+#[cfg(feature = "telemetry")]
+// Scoped allows, per the crate lint policy above:
+//   * the submodule names (`config`, `metrics`) are the public API grouping,
+//     while the types are re-exported at `telemetry::*` where the `Telemetry`
+//     prefix is what disambiguates them from every other `Config` in the tree;
+//   * the registry and the config cell are global-by-design, so their guards
+//     are held across the whole read/modify they protect — tightening the
+//     drop would split an atomic update in half;
+//   * `missing_const_for_fn` fires on accessors that read a `static` today and
+//     will read more tomorrow; making them `const` is not a promise this API
+//     wants to keep.
+#[allow(
+    clippy::module_name_repetitions,
+    clippy::significant_drop_tightening,
+    clippy::missing_const_for_fn
+)]
+pub mod telemetry;
 /// Image decoding and encoding (wraps the `image` crate).
 #[cfg(feature = "image_decoding")]
 pub mod image;
@@ -325,9 +354,10 @@ pub use file::{
 pub mod http;
 pub use http::{
     download_bytes, download_bytes_with_config, http_get,
-    http_get_with_config, is_url_reachable, HttpError, HttpHeader,
-    HttpRequestConfig, HttpResponse, HttpResponseTooLargeError, HttpResult,
-    HttpStatusError,
+    http_get_with_config, http_post, http_post_with_config, http_put_with_config,
+    http_request_with_config, is_url_reachable, HttpError, HttpHeader,
+    HttpMethod, HttpRequestConfig, HttpResponse, HttpResponseTooLargeError,
+    HttpResult, HttpStatusError,
 };
 
 /// JSON parsing and serialization for the C API.
