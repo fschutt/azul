@@ -152,6 +152,17 @@ const MAX_WARMUP_ITERATIONS: u32 = 4000;
 const WARMUP_SETTLED_BYTES: u64 =
     MAX_BYTES_PER_ITER * (SIZES_LEN as u64) * (WARMUP_CYCLES as u64);
 
+/// Ceiling on the NEWEST warmup block, as a multiple of
+/// [`WARMUP_SETTLED_BYTES`], before warmup may declare itself settled.
+///
+/// `min(growth, prev_growth)` exists to cancel a one-off allocator zone
+/// reservation, and it must keep doing that — hence a multiple rather than
+/// equality. But without any ceiling the min() rule is satisfied by a single
+/// quiet block, so warmup could stop on a block 138x over threshold and enter
+/// measurement while the heap was still climbing. 4x admits an allocator step
+/// (those are one block wide) and rejects a climb.
+const WARMUP_LAST_BLOCK_CEILING_MULT: u64 = 4;
+
 /// `SIZES.len()`, as a const so `WARMUP_SETTLED_BYTES` can be computed at
 /// compile time. Asserted against the real array in the measurement body.
 const SIZES_LEN: usize = 4;
@@ -255,6 +266,11 @@ struct Measurement {
     rss_first_steady_per_iter: u64,
     /// Absolute malloc heap at the end of the run.
     final_heap: u64,
+    /// Whether the heap figure is self-consistent enough to draw a verdict
+    /// from — see the instrument self-validation in `measure`. False means the
+    /// allocator reported more live heap than the process has resident memory,
+    /// so heap-based assertions are skipped and only RSS gates.
+    heap_trustworthy: bool,
 }
 
 /// Run the resize-stress scenario and measure it.
@@ -442,7 +458,21 @@ fn measure(iterations: u32, deliberate_leak_bytes: usize) -> Measurement {
             // reset the counter forever and run to the cap. Take the minimum of
             // the last two blocks instead — a step is cancelled by the quiet
             // block beside it, while a still-filling cache has no quiet block.
-            if growth.min(prev_growth) < WARMUP_SETTLED_BYTES {
+            // The min() rule cancels a one-off allocator step, but on its own it
+            // also lets warmup STOP on a huge block as long as the block before
+            // it was quiet — measurement then begins mid-climb. That is not
+            // hypothetical: on 2026-08-14 this printed
+            //   "warmup: 448 iterations, settled (last block 35337 B/iter,
+            //    threshold 256 B/iter)"
+            // and went straight into sampling, 138x over its own threshold,
+            // while calling itself settled. So the newest block gets a ceiling
+            // too: generous enough that a genuine one-off step still settles
+            // (that is what min() is for), tight enough that warmup cannot end
+            // on a block that is still climbing hard.
+            let step_cancelled = growth.min(prev_growth) < WARMUP_SETTLED_BYTES;
+            let last_block_quiet =
+                growth < WARMUP_SETTLED_BYTES.saturating_mul(WARMUP_LAST_BLOCK_CEILING_MULT);
+            if step_cancelled && last_block_quiet {
                 settled += 1;
             } else {
                 settled = 0;
@@ -552,12 +582,45 @@ fn measure(iterations: u32, deliberate_leak_bytes: usize) -> Measurement {
         rss_per_iter,
     );
 
+    // INSTRUMENT SELF-VALIDATION.
+    //
+    // Live malloc'd bytes must be backed by resident pages, so a heap figure
+    // far ABOVE RSS is not a measurement of live heap — it is the allocator
+    // reporting zone capacity or freed-but-unreturned regions. Without this
+    // check the excess gets attributed to azul, which is precisely what
+    // happened on 2026-08-14: macOS reported `baseline=105098 KiB` of heap in a
+    // process whose RSS was `33090 KiB`, three times more live heap than the
+    // process had memory, and the run failed claiming `regenerate_layout`
+    // leaked 1431 B/iter. The same job, same code, same thresholds passed on
+    // the next commit — which a 1431 B/iter retention cannot do and a
+    // misreporting instrument does routinely.
+    //
+    // The slack is deliberately loose (2x + 32 MiB): this is not a tightness
+    // check, it is a "the number is physically impossible" check. When it
+    // trips, the HEAP verdict is unusable and is dropped — but RSS is measured
+    // independently and still gates, so the test does not become vacuous. The
+    // report says plainly which verdicts were live, because a silent downgrade
+    // to half a test is how a gate stops meaning anything.
+    let heap_trustworthy = final_heap <= final_rss.saturating_mul(2).saturating_add(32 << 20);
+    if !heap_trustworthy {
+        eprintln!(
+            "[leak_regression] HEAP INSTRUMENT REJECTED: {} KiB of reported heap in a process \
+             with {} KiB RSS. Live heap cannot exceed resident memory, so this figure is not \
+             live heap and no leak verdict is drawn from it. The RSS verdict below still \
+             gates. (macOS mstats().bytes_used counts zone capacity; glibc mallinfo2 \
+             .uordblks counts the main arena only.)",
+            final_heap / 1024,
+            final_rss / 1024,
+        );
+    }
+
     Measurement {
         first_window_per_iter,
         per_iter,
         rss_per_iter,
         rss_first_steady_per_iter: rss_a,
         final_heap,
+        heap_trustworthy,
     }
 }
 
@@ -566,7 +629,7 @@ fn regenerate_layout_does_not_leak_under_resize_stress() {
     let m = measure(STRESS_ITERATIONS, 0);
 
     assert!(
-        m.per_iter < MAX_BYTES_PER_ITER,
+        !m.heap_trustworthy || m.per_iter < MAX_BYTES_PER_ITER,
         "regenerate_layout resize loop leaked {} bytes/iter (>{} allowed) in \
          STEADY STATE — and this is the MINIMUM of two consecutive {}-iteration \
          windows, each sampled at a matched point in the size cycle after {} \
@@ -574,7 +637,10 @@ fn regenerate_layout_does_not_leak_under_resize_stress() {
          expansion can produce that: a one-off lands in one window and is \
          cancelled by the other. Growth in BOTH means something is retained per \
          call. This is the rust-fontconfig build_queue-accumulation leak or an \
-         equivalent regression.",
+         equivalent regression. (The heap instrument passed self-validation, so \
+         this figure is a real one — check RSS in the line above for \
+         corroboration; the two should agree in sign and rough magnitude, and \
+         if they do not, suspect the measurement before the code.)",
         m.per_iter,
         MAX_BYTES_PER_ITER,
         STRESS_ITERATIONS,
@@ -582,7 +648,7 @@ fn regenerate_layout_does_not_leak_under_resize_stress() {
     );
 
     assert!(
-        m.first_window_per_iter < MAX_FIRST_WINDOW_BYTES_PER_ITER,
+        !m.heap_trustworthy || m.first_window_per_iter < MAX_FIRST_WINDOW_BYTES_PER_ITER,
         "the first measured window grew {} bytes/iter (>{} allowed). Steady \
          state is {} B/iter, so this is not an unbounded leak — but {} warmup \
          cycles plus {} iterations were not enough for it to settle, which \
