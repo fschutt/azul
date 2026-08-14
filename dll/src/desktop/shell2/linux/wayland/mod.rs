@@ -5709,12 +5709,15 @@ impl WaylandWindow {
         self.frame_callback_pending = true;
         self.frame_callback_armed_at = Some(std::time::Instant::now());
 
-        // If any scrollbar is actively fading (0 < opacity < 1), schedule another
-        // frame so the fade-out animation runs to completion.
-        let needs_fade_frame = self.common.layout_window.as_ref()
-            .map(|lw| lw.gpu_state_manager.scrollbar_fade_active)
+        // If any scrollbar is actively fading (0 < opacity < 1), or a layout
+        // animation is still in flight, schedule another frame so the animation
+        // runs to completion. Without this a DOM transition would advance only
+        // on frames something ELSE happened to request, which looks like a
+        // stutter rather than a slide.
+        let needs_anim_frame = self.common.layout_window.as_ref()
+            .map(|lw| lw.gpu_state_manager.scrollbar_fade_active || lw.needs_animation_frame())
             .unwrap_or(false);
-        if needs_fade_frame {
+        if needs_anim_frame {
             self.request_redraw();
         }
     }

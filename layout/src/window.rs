@@ -6633,6 +6633,19 @@ impl LayoutWindow {
         moved
     }
 
+    /// Whether a layout animation is still in flight and the shell must keep
+    /// asking for frames.
+    ///
+    /// Each platform shell already ORs together its "keep redrawing" reasons
+    /// (scroll easing, scrollbar fade, pending virtual-view updates). This is
+    /// one more, exposed as a method so a shell adopts the whole feature by
+    /// naming it rather than by reaching into `animations` and having to know
+    /// what "in flight" means.
+    #[must_use]
+    pub fn needs_animation_frame(&self) -> bool {
+        !self.animations.is_empty()
+    }
+
     /// [`Self::tick_animations`] with `dt` taken from the wall clock.
     ///
     /// The clock is read ONLY when something is actually animating.
