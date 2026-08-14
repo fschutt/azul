@@ -6633,6 +6633,185 @@ impl LayoutWindow {
         moved
     }
 
+    /// Reconcile a NEW tree against the one this window currently holds, and
+    /// migrate everything that can be migrated.
+    ///
+    /// Call while BOTH trees exist — i.e. before `styled_dom` replaces the
+    /// window's current layout. Only meaningful on the regenerate path: a
+    /// relayout keeps ONE tree, so nothing changes identity and there is
+    /// nothing here to compute. That is also why this cannot be called by
+    /// mistake from `relayout_only` — there is no second tree to pass it.
+    ///
+    /// Does, in order:
+    ///
+    /// 1. `reconcile_dom` — which old node became which new one,
+    /// 2. `transfer_states` — RefAny state follows identity,
+    /// 3. `migrate_user_overrides_from` — runtime CSS patches follow identity,
+    /// 4. `remap_node_ids` — focus, scroll, hover, text-edit and every other
+    ///    node-keyed manager,
+    /// 5. capture First (and departing) geometry before it is lost.
+    ///
+    /// Steps 2-4 are one rule: **anything that can be remapped moves; only what
+    /// has no counterpart is dropped.** `remap_node_ids` enforces the "can't
+    /// forget" half at compile time — a new `LayoutWindow` field fails to build
+    /// until it is classified node-keyed or exempt.
+    pub fn begin_reconciliation(
+        &mut self,
+        dom_id: DomId,
+        styled_dom: &mut StyledDom,
+        now: azul_core::task::Instant,
+    ) -> PendingReconciliation {
+        // Clone the old tree out first: it releases the `layout_results` borrow
+        // before the `&mut self` work below, and the old arena is about to be
+        // discarded anyway.
+        let (old_node_data, old_hierarchy) = match self.layout_results.get(&dom_id) {
+            Some(r) => (
+                r.styled_dom.node_data.as_ref().to_vec(),
+                r.styled_dom.node_hierarchy.as_ref().to_vec(),
+            ),
+            // No previous frame: every node is an InitialMount. Diffing against
+            // an EMPTY old tree (rather than skipping) is what makes first-frame
+            // AfterMount callbacks fire.
+            None => (Vec::new(), Vec::new()),
+        };
+
+        let mut new_node_data: Vec<azul_core::dom::NodeData> =
+            styled_dom.node_data.as_ref().to_vec();
+        let new_hierarchy: Vec<azul_core::styled_dom::NodeHierarchyItem> =
+            styled_dom.node_hierarchy.as_ref().to_vec();
+
+        let empty_layout = azul_core::OrderedMap::default();
+        let diff = azul_core::diff::reconcile_dom(
+            &old_node_data,
+            &new_node_data,
+            &old_hierarchy,
+            &new_hierarchy,
+            &empty_layout,
+            &empty_layout,
+            dom_id,
+            now,
+        );
+
+        // Geometry captured BEFORE the swap, because the old solved rects die
+        // with the old tree.
+        let mut first_rects = BTreeMap::new();
+        for m in &diff.node_moves {
+            if let Some(r) = self.get_node_bounds(dom_id, m.old_node_id) {
+                first_rects.insert(m.old_node_id, layout_rect_to_logical(r));
+            }
+        }
+
+        // Mount / Unmount come straight from the diff; nothing needs detecting.
+        let mut mounted = Vec::new();
+        let mut unmounted = Vec::new();
+        let mut exit_rects = BTreeMap::new();
+        for ev in &diff.events {
+            let Some(node) = ev.target.node.into_crate_internal() else {
+                continue;
+            };
+            match ev.event_type {
+                azul_core::events::EventType::Mount => mounted.push(node),
+                azul_core::events::EventType::Unmount => {
+                    if let Some(r) = self.get_node_bounds(dom_id, node) {
+                        exit_rects.insert(node, layout_rect_to_logical(r));
+                    }
+                    unmounted.push(node);
+                }
+                _ => {}
+            }
+        }
+
+        if !diff.node_moves.is_empty() {
+            let mut old_mut = old_node_data.clone();
+            azul_core::diff::transfer_states(&mut old_mut, &mut new_node_data, &diff.node_moves);
+            styled_dom.node_data = new_node_data.clone().into();
+
+            if let Some(old) = self.layout_results.get(&dom_id) {
+                styled_dom.migrate_user_overrides_from(
+                    &old.styled_dom.css_property_cache.ptr,
+                    &diff.node_moves,
+                );
+            }
+
+            let map = crate::managers::NodeIdMap::from_node_moves(&diff.node_moves);
+            self.remap_node_ids(dom_id, &map);
+        }
+
+        PendingReconciliation {
+            node_moves: diff.node_moves,
+            mounted,
+            unmounted,
+            first_rects,
+            exit_rects,
+            new_node_data,
+            new_hierarchy,
+        }
+    }
+
+    /// Complete the reconciliation once the new tree has been solved.
+    ///
+    /// *Last* geometry exists now, so each matched pair can be turned into a
+    /// FLIP, and nodes that appeared can start their enter. Seeds nothing for a
+    /// pair whose rect did not change — an identity FLIP would allocate a GPU
+    /// key and animate nothing.
+    ///
+    /// Exits are NOT handled here: a departing node has no place in the new
+    /// tree to composite against, so it needs retention (see the zombie path),
+    /// which is a different mechanism from "sample a transform for a node that
+    /// exists".
+    pub fn finish_reconciliation(&mut self, dom_id: DomId, pending: &PendingReconciliation) {
+        // Rebuilt wholesale: after a rebuild the previous NodeIds are
+        // meaningless, and a surviving stale entry would push this frame's
+        // transform onto whatever unrelated node inherited the array slot.
+        self.anim_key_to_node = azul_core::animation::anim_keys_for_moves(
+            &pending.node_moves,
+            &pending.new_node_data,
+            &pending.new_hierarchy,
+        )
+        .into_iter()
+        .collect();
+
+        if !pending.node_moves.is_empty() {
+            // Collected BEFORE seeding: the Last accessor borrows self to read
+            // the freshly solved rects, and seeding borrows it mutably.
+            let correspondences = azul_core::animation::correspondences_from_moves(
+                &pending.node_moves,
+                &pending.new_node_data,
+                &pending.new_hierarchy,
+                |old_id| pending.first_rects.get(&old_id).copied(),
+                |new_id| self.get_node_bounds(dom_id, new_id).map(layout_rect_to_logical),
+            );
+            azul_core::animation::seed_moves(
+                &mut self.animations,
+                correspondences,
+                azul_core::animation::Interp::Spring(azul_core::animation::Spring::SMOOTH),
+            );
+        }
+
+        // Enters: a node that appeared has no First to fly from, so it fades and
+        // scales up in place instead. Keyed the same way as a move, so a node
+        // that appears and is immediately displaced retargets rather than
+        // running two animations over each other.
+        for node_id in &pending.mounted {
+            if node_id.index() >= pending.new_node_data.len() {
+                continue;
+            }
+            let key = azul_core::animation::AnimKey(
+                azul_core::diff::calculate_reconciliation_key(
+                    &pending.new_node_data,
+                    &pending.new_hierarchy,
+                    *node_id,
+                ),
+            );
+            self.anim_key_to_node.insert(key, *node_id);
+            self.animations.start_enter(
+                key,
+                ENTER_FROM_SCALE,
+                azul_core::animation::Interp::Spring(azul_core::animation::Spring::SMOOTH),
+            );
+        }
+    }
+
     /// Whether a layout animation is still in flight and the shell must keep
     /// asking for frames.
     ///
@@ -14348,3 +14527,61 @@ fn flip_to_matrix(t: azul_core::animation::FlipTransform) -> azul_core::transfor
         ],
     }
 }
+
+/// Everything the DOM diff learned, captured while BOTH trees are still alive.
+///
+/// Produced by [`LayoutWindow::begin_reconciliation`] and consumed by
+/// [`LayoutWindow::finish_reconciliation`]. The split is forced by physics
+/// rather than taste: *First* — where a node WAS — is readable only while the
+/// previous frame's `layout_results` are alive, and *Last* — where it lands —
+/// does not exist until the new tree has been solved. Everything
+/// identity-related therefore happens in `begin`, and only the geometry
+/// completion waits for `finish`.
+///
+/// This type exists at all because `regenerate_layout` is implemented TWICE —
+/// once in the desktop shell and once, hand-ported, in the headless E2E runner
+/// — and the ported copy had no reconciliation at all. Every behaviour keyed on
+/// `node_moves` (state transfer, manager remap, CSS-override migration,
+/// animation) was therefore live in one and absent in the other, with nothing
+/// to catch the drift. One shared implementation removes the place where
+/// behaviour can silently go missing.
+#[derive(Debug, Default)]
+pub struct PendingReconciliation {
+    /// Matched pairs: this old `NodeId` became that new one.
+    pub node_moves: Vec<azul_core::diff::NodeMove>,
+    /// In the NEW tree with no counterpart in the old one — an ENTER.
+    pub mounted: Vec<NodeId>,
+    /// In the OLD tree with no counterpart in the new one — an EXIT.
+    ///
+    /// These `NodeId`s address the tree that is about to be discarded, so they
+    /// are only meaningful to something that captured what it needs before the
+    /// swap (the zombie's rect, below).
+    pub unmounted: Vec<NodeId>,
+    /// Where each matched OLD node was, before the swap.
+    pub first_rects: BTreeMap<NodeId, LogicalRect>,
+    /// Where each departing node was, so an exit has somewhere to animate FROM
+    /// after its tree is gone.
+    pub exit_rects: BTreeMap<NodeId, LogicalRect>,
+    /// The new tree, needed by `finish` to compute reconciliation keys.
+    pub new_node_data: Vec<azul_core::dom::NodeData>,
+    /// The new hierarchy, same reason.
+    pub new_hierarchy: Vec<azul_core::styled_dom::NodeHierarchyItem>,
+}
+
+/// `LayoutRect` (integer origin, what the layout query returns) → `LogicalRect`
+/// (float, what the FLIP maths wants).
+///
+/// The query rounds to whole pixels on the way out, so a FLIP computed from it
+/// is at worst half a pixel off at the START of a transition — invisible, and
+/// it converges exactly, because the animation's endpoint is the solved layout
+/// rather than this rect.
+fn layout_rect_to_logical(r: azul_css::props::basic::LayoutRect) -> LogicalRect {
+    LogicalRect {
+        origin: LogicalPosition::new(r.origin.x as f32, r.origin.y as f32),
+        size: LogicalSize::new(r.size.width as f32, r.size.height as f32),
+    }
+}
+
+/// Scale an entering node starts at: close enough to 1 that it reads as a
+/// settle rather than a zoom, far enough from it to be visible at all.
+const ENTER_FROM_SCALE: f32 = 0.94;

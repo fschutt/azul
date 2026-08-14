@@ -2473,9 +2473,17 @@ impl Runner {
             .e2e_mount
             .take_dirty()
             .then(|| self.layout_window.e2e_mount.xml().map(str::to_string));
+        // Whether this pass produces a genuinely NEW tree. Only then is there
+        // anything to reconcile: the `None` arm below reuses the SAME
+        // `StyledDom` (it is taken back out of `layout_results`), so diffing it
+        // against itself would be meaningless work.
+        let mut is_new_tree = false;
         let styled_dom = match mount_change {
             Some(Some(xml)) => match azul_layout::xml::parse_xml_to_styled_dom(&xml) {
-                Ok(sd) => Some(sd),
+                Ok(sd) => {
+                    is_new_tree = true;
+                    Some(sd)
+                }
                 Err(_) => None,
             },
             Some(None) => {
@@ -2511,7 +2519,29 @@ impl Runner {
         // compact cache on the composed tree.
         styled_dom.recompute_inheritance_and_compact_cache();
 
+        // RECONCILE. This runner is a hand-port of the desktop
+        // `regenerate_layout` and, until now, omitted this step entirely — so
+        // nothing keyed on `node_moves` (state transfer, manager remap,
+        // CSS-override migration, animation) was exercised by ANY headless
+        // test. Both implementations now call the same pair.
+        let now = self.now();
+        let pending = if is_new_tree {
+            Some(
+                self.layout_window
+                    .begin_reconciliation(DomId::ROOT_ID, &mut styled_dom, now),
+            )
+        } else {
+            None
+        };
+
         self.layout(styled_dom);
+
+        // Last geometry exists now, so pairs complete and enters start.
+        if let Some(pending) = pending {
+            self.layout_window
+                .finish_reconciliation(DomId::ROOT_ID, &pending);
+        }
+
         self.render_and_record();
     }
 
