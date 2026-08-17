@@ -941,6 +941,8 @@ name = "azul-writer"
 version = "0.1.0"
 dependencies = [
  "azul-dll",
+ "serde",
+ "serde_json",
 ]
 
 [[package]]
