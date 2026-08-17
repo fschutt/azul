@@ -685,6 +685,70 @@ impl DisplayList {
     /// (`LayoutWindow::apply_content_change`, paint tier): geometry is
     /// unchanged, only the content identity moves — the backend display-list
     /// diff sees the `ImageRef` id change and damages exactly these bounds.
+    /// Patch PAINT COLOURS in place for a node's SUBTREE — the per-tick fast
+    /// path of a paint-only `animation` transition. Items attributed (via
+    /// `node_mapping`) to a node id in `range` whose colour equals `from`
+    /// take `to`; the from-match is what implements inheritance without a
+    /// cascade pass (a descendant with its OWN explicit colour differs from
+    /// `from` and is untouched). Returns the damage union, `None` when
+    /// nothing matched (the caller falls back to a full rebuild).
+    pub fn patch_paint_colors(
+        &mut self,
+        range: core::ops::Range<usize>,
+        from: azul_css::props::basic::color::ColorU,
+        to: azul_css::props::basic::color::ColorU,
+        patch_text: bool,
+        patch_background: bool,
+    ) -> Option<LogicalRect> {
+        let mut damage: Option<LogicalRect> = None;
+        let mut grow = |bounds: LogicalRect| {
+            damage = Some(damage.map_or(bounds, |d| {
+                let x = d.origin.x.min(bounds.origin.x);
+                let y = d.origin.y.min(bounds.origin.y);
+                let right = (d.origin.x + d.size.width).max(bounds.origin.x + bounds.size.width);
+                let bottom = (d.origin.y + d.size.height).max(bounds.origin.y + bounds.size.height);
+                LogicalRect {
+                    origin: LogicalPosition { x, y },
+                    size: LogicalSize {
+                        width: right - x,
+                        height: bottom - y,
+                    },
+                }
+            }));
+        };
+        for (idx, item) in self.items.iter_mut().enumerate() {
+            let Some(node) = self.node_mapping.get(idx).copied().flatten() else {
+                continue;
+            };
+            if !range.contains(&node.index()) {
+                continue;
+            }
+            match item {
+                DisplayListItem::Text {
+                    color, clip_rect, ..
+                } if patch_text && *color == from => {
+                    *color = to;
+                    grow(*clip_rect.inner());
+                }
+                DisplayListItem::Underline { color, bounds, .. }
+                | DisplayListItem::Strikethrough { color, bounds, .. }
+                    if patch_text && *color == from =>
+                {
+                    *color = to;
+                    grow(*bounds.inner());
+                }
+                DisplayListItem::Rect { color, bounds, .. }
+                    if patch_background && *color == from =>
+                {
+                    *color = to;
+                    grow(*bounds.inner());
+                }
+                _ => {}
+            }
+        }
+        damage
+    }
+
     pub fn patch_node_image(&mut self, node: NodeId, image: &ImageRef) -> Option<LogicalRect> {
         let mut damage: Option<LogicalRect> = None;
 
@@ -5844,15 +5908,41 @@ where
                     if nid.index() >= styled_nodes.len() {
                         return None;
                     }
+                    let cache = &sd.css_property_cache.ptr;
+                    let node_data = sd.node_data.as_container();
+                    // ANCESTOR USER OVERRIDES participate in inheritance: an
+                    // `animation: color ..` transition overrides `color` on a
+                    // CONTAINER, and the precomputed inherited tables cannot
+                    // see it — the text painted the stale colour (found by
+                    // the css_anim_perf_transition damage law: the "colour
+                    // transition" repainted nothing). Walk self -> root: the
+                    // nearest override wins unless a closer node declares its
+                    // OWN colour, which re-roots inheritance below it.
+                    let hierarchy = sd.node_hierarchy.as_container();
+                    let ty = azul_css::props::property::CssPropertyType::TextColor;
+                    let mut cur = Some(nid);
+                    while let Some(n) = cur {
+                        if let Some(azul_css::props::property::CssProperty::TextColor(v)) =
+                            cache.get_user_override(&n, &ty)
+                        {
+                            if let Some(c) = v.get_property() {
+                                return Some(c.inner);
+                            }
+                            break;
+                        }
+                        if n.index() < node_data.len()
+                            && cache.has_own_declaration(&node_data[n], &n, &ty)
+                        {
+                            break;
+                        }
+                        cur = hierarchy
+                            .get(n)
+                            .and_then(azul_core::styled_dom::NodeHierarchyItem::parent_id);
+                    }
                     let node_state = &styled_nodes[nid].styled_node_state;
                     Some(
-                        sd.css_property_cache
-                            .ptr
-                            .get_text_color_or_default(
-                                &sd.node_data.as_container()[nid],
-                                &nid,
-                                node_state,
-                            )
+                        cache
+                            .get_text_color_or_default(&node_data[nid], &nid, node_state)
                             .inner,
                     )
                 })

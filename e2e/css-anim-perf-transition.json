@@ -1,0 +1,105 @@
+{
+  "name": "css_anim_perf_transition",
+  "description": "PAINT-ONLY TRANSITION TICKS PATCH THE DISPLAY LIST, THEY DO NOT REBUILD IT. `animation: color 1s linear` walks the text colour red->blue; each tick must rewrite the transitioning node's DL items in place (dl_rebuilds stays 0 after the counter reset) and the DL diff turns exactly those items into damage - bounded rects, never a full-frame repaint. This is the difference between 'cheap on small docs' and 'cheap, period': a rebuild re-emits every item of a big document per tick, a patch touches one node.",
+  "setup": {
+    "window_width": 400,
+    "window_height": 300,
+    "dpi": 96
+  },
+  "steps": [
+    {
+      "op": "mount",
+      "html": [
+        "<div id=\"root\">",
+        "  <div id=\"label\">The colour of this text animates</div>",
+        "  <div id=\"filler\"><p>Filler content so the label is a small part of the frame and a full repaint is distinguishable from a patched one by area.</p></div>",
+        "</div>"
+      ],
+      "css": [
+        "html, body { margin: 0; padding: 0; width: 100%; height: 100%; }",
+        "#root { width: 100%; height: 100%; background: #ffffff; }",
+        "#label { color: #ff0000; font-size: 16px; height: 40px; animation: color 1s linear; }",
+        "#filler { color: #222222; font-size: 14px; }"
+      ]
+    },
+    {
+      "op": "wait_frame"
+    },
+    {
+      "op": "mount",
+      "html": [
+        "<div id=\"root\">",
+        "  <div id=\"label\">The colour of this text animates</div>",
+        "  <div id=\"filler\"><p>Filler content so the label is a small part of the frame and a full repaint is distinguishable from a patched one by area.</p></div>",
+        "</div>"
+      ],
+      "css": [
+        "html, body { margin: 0; padding: 0; width: 100%; height: 100%; }",
+        "#root { width: 100%; height: 100%; background: #ffffff; }",
+        "#label { color: #0000ff; font-size: 16px; height: 40px; }",
+        "#filler { color: #222222; font-size: 14px; }"
+      ]
+    },
+    {
+      "op": "wait_frame"
+    },
+    {
+      "op": "get_animations"
+    },
+    {
+      "op": "assert_response",
+      "type": "animations",
+      "contains": "\"transitions\":1"
+    },
+    {
+      "op": "reset_frame_counters"
+    },
+    {
+      "op": "tick_animations",
+      "dt_micros": 16666,
+      "steps": 6
+    },
+    {
+      "op": "wait_frame"
+    },
+    {
+      "op": "get_frame_report"
+    },
+    {
+      "op": "assert_response",
+      "type": "frame_report",
+      "contains": "\"dl_rebuilds\":0"
+    },
+    {
+      "op": "assert_damage",
+      "which": "paint",
+      "kind": "rects",
+      "max_area_ratio": 0.35
+    },
+    {
+      "op": "tick_animations",
+      "dt_micros": 16666,
+      "steps": 60
+    },
+    {
+      "op": "wait_frame"
+    },
+    {
+      "op": "get_animations"
+    },
+    {
+      "op": "assert_response",
+      "type": "animations",
+      "contains": "\"transitions\":0"
+    },
+    {
+      "op": "assert_manager_invariants"
+    },
+    {
+      "op": "wait_frame"
+    },
+    {
+      "op": "assert_state_machines_idle"
+    }
+  ]
+}

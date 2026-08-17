@@ -540,6 +540,14 @@ pub struct FrameReport {
     /// display list every frame), and a callback-API mutation runs a full
     /// relayout while the counter stays `0`.
     pub layout_passes: u32,
+    /// Number of FULL display-list builds through
+    /// `regenerate_display_list_for_dom` since the last counter reset — the
+    /// per-tick cost a paint-only transition avoids by PATCHING the DL in
+    /// place instead (a rebuild re-emits every item on a big document; a
+    /// patch rewrites the changed node's items and the DL diff turns exactly
+    /// those into damage). Cached-DL hits inside `layout_document` do not
+    /// count: serving the cache is not building.
+    pub dl_rebuilds: u32,
     /// `true` if `MAX_EVENT_RECURSION_DEPTH` was ever hit since the last reset.
     /// Today the engine only `log_warn`s on this; this flag is what lets a test
     /// turn an invalidation loop into a red assertion instead of a silent cap.
@@ -610,6 +618,7 @@ impl FrameReport {
         self.relayout_iterations = 0;
         self.dom_regenerations = 0;
         self.layout_passes = 0;
+        self.dl_rebuilds = 0;
         self.hit_depth_cap = false;
         self.frames_since_reset = 0;
         self.accumulated_paint_damage = FrameDamage::None;
@@ -756,6 +765,7 @@ const fn memory_walk_coverage_is_exhaustive(w: &LayoutWindow) {
         // clones each. Bounded by concurrent transitions.
         css_transitions: _,
         transition_relayout: _,
+        transition_patched: _,
         zombie_relayouts: _,
         last_anim_tick: _,
         // Two u64 arrays sized by node count (~16 B/node) — noise next to
@@ -1010,6 +1020,12 @@ pub struct LayoutWindow {
     /// to an incremental relayout. Consumed by
     /// [`Self::take_transition_relayout`].
     pub transition_relayout: bool,
+    /// One-shot flag: the last tick PATCHED every transitioning value into
+    /// the display list in place (colours), so the frame driver may skip the
+    /// DL rebuild entirely and just re-render — the per-tick cost of a
+    /// paint-only transition becomes one subtree item-walk plus the damaged
+    /// strip. Consumed by [`Self::take_transition_patched`].
+    pub transition_patched: bool,
     /// Cumulative count of retained-tree re-solves driven by zombie tracks
     /// (`width`/`height` channels). The e2e law for the USER's distinction:
     /// a pure slide must leave this at 0, a shrinking exit must not.
@@ -1487,6 +1503,7 @@ impl LayoutWindow {
             zombie_relayouts: 0,
             css_transitions: Vec::new(),
             transition_relayout: false,
+            transition_patched: false,
             live_tracks: alloc::collections::BTreeMap::new(),
             last_anim_tick: None,
             layout_cache: Solver3LayoutCache {
@@ -6930,6 +6947,7 @@ impl LayoutWindow {
                                     delay_s: anim.delay.millis() as f32 / 1000.0,
                                     timing: anim.timing,
                                     scope: ty.relayout_scope(false),
+                                    last_color: None,
                                 });
                             }
                         }
@@ -7434,6 +7452,14 @@ impl LayoutWindow {
         core::mem::take(&mut self.transition_relayout)
     }
 
+    /// One-shot: did the last tick patch EVERY transitioning value into the
+    /// display list in place? The frame driver then skips the DL rebuild and
+    /// just re-renders — the DL diff turns the patched items into damage.
+    #[must_use]
+    pub fn take_transition_patched(&mut self) -> bool {
+        core::mem::take(&mut self.transition_patched)
+    }
+
     /// [`Self::tick_animations`] with `dt` taken from the wall clock.
     ///
     /// The clock is read ONLY when something is actually animating.
@@ -7725,6 +7751,14 @@ impl LayoutWindow {
             let mut dirty: Vec<(azul_core::dom::NodeId, azul_css::props::property::RelayoutScope)> =
                 Vec::new();
             let mut needs_relayout = false;
+            // (node, from-colour, to-colour, is_text) — executed after the
+            // loop so the styled_dom borrow is released first.
+            let mut patch_jobs: Vec<(
+                azul_core::dom::NodeId,
+                azul_css::props::basic::color::ColorU,
+                azul_css::props::basic::color::ColorU,
+                bool,
+            )> = Vec::new();
             if let Some(result) = self.layout_results.get_mut(&DomId::ROOT_ID) {
                 for (tr, rect) in self.css_transitions.iter_mut().zip(rects) {
                     if tr.delay_s > 0.0 {
@@ -7741,37 +7775,115 @@ impl LayoutWindow {
                     } else {
                         (tr.t + dt / tr.duration_s).min(1.0)
                     };
-                    let prop = if tr.t >= 1.0 {
+                    let (w, h) = rect.map_or((0.0, 0.0), |r| (r.size.width, r.size.height));
+                    let resolver = azul_css::props::basic::animation::InterpolateResolver {
+                        interpolate_func: tr.timing.to_interpolation(),
+                        // Parent dims are not tracked here; percent
+                        // endpoints resolve against the node's own rect,
+                        // which covers the width/height transitions that
+                        // actually occur.
+                        parent_rect_width: w,
+                        parent_rect_height: h,
+                        current_rect_width: w,
+                        current_rect_height: h,
+                    };
+                    // The value the frame must SHOW (at t=1 that is `to`
+                    // itself); the override written is Initial at t=1 so the
+                    // cascaded target shows through afterwards.
+                    let shown = tr.from.interpolate(&tr.to, tr.t.min(1.0), &resolver);
+                    let over = if tr.t >= 1.0 {
                         azul_css::props::property::CssProperty::initial(tr.prop_type)
                     } else {
-                        let (w, h) = rect.map_or((0.0, 0.0), |r| (r.size.width, r.size.height));
-                        let resolver = azul_css::props::basic::animation::InterpolateResolver {
-                            interpolate_func: tr.timing.to_interpolation(),
-                            // Parent dims are not tracked here; percent
-                            // endpoints resolve against the node's own rect,
-                            // which covers the width/height transitions that
-                            // actually occur.
-                            parent_rect_width: w,
-                            parent_rect_height: h,
-                            current_rect_width: w,
-                            current_rect_height: h,
-                        };
-                        tr.from.interpolate(&tr.to, tr.t, &resolver)
+                        shown.clone()
                     };
-                    let _ = result
-                        .styled_dom
-                        .restyle_user_property(&tr.node, core::slice::from_ref(&prop));
-                    dirty.push((tr.node, tr.scope));
-                    if tr.scope != azul_css::props::property::RelayoutScope::None {
-                        needs_relayout = true;
+
+                    // THE PATCH FAST PATH: colour-carrying paint transitions
+                    // rewrite their display-list items in place — no cascade
+                    // recompute, no DL rebuild. The from-match doubles as the
+                    // inheritance filter (descendants with their OWN colour
+                    // differ and stay untouched), so the override can take
+                    // the LEAN channel that skips inheritance recompute.
+                    let patchable = tr.scope == azul_css::props::property::RelayoutScope::None;
+                    let colors = transition_patch_color(&shown).and_then(|(to_c, is_text)| {
+                        let from_c = match tr.last_color {
+                            Some(c) => c,
+                            None => transition_patch_color(&tr.from)?.0,
+                        };
+                        Some((from_c, to_c, is_text))
+                    });
+                    match (patchable, colors) {
+                        (true, Some((from_c, to_c, is_text))) => {
+                            result
+                                .styled_dom
+                                .set_user_property_override_fast(&tr.node, core::slice::from_ref(&over));
+                            if from_c != to_c {
+                                patch_jobs.push((tr.node, from_c, to_c, is_text));
+                                tr.last_color = Some(to_c);
+                            }
+                        }
+                        _ => {
+                            let _ = result
+                                .styled_dom
+                                .restyle_user_property(&tr.node, core::slice::from_ref(&over));
+                            dirty.push((tr.node, tr.scope));
+                            if tr.scope != azul_css::props::property::RelayoutScope::None {
+                                needs_relayout = true;
+                            }
+                        }
                     }
+                }
+
+                if !patch_jobs.is_empty() {
+                    let subtree_ends: Vec<(azul_core::dom::NodeId, usize)> = {
+                        let hierarchy = result.styled_dom.node_hierarchy.as_container();
+                        patch_jobs
+                            .iter()
+                            // `subtree_len` counts DESCENDANTS — +1 for the
+                            // node itself, or a colour on a container never
+                            // reaches the text child that actually paints it.
+                            .map(|(n, ..)| (*n, n.index() + hierarchy.subtree_len(*n) + 1))
+                            .collect()
+                    };
+                    let dl = std::sync::Arc::make_mut(&mut result.display_list);
+                    for ((node, from_c, to_c, is_text), (_, end)) in
+                        patch_jobs.iter().zip(subtree_ends)
+                    {
+                        let dmg = dl.patch_paint_colors(
+                            node.index()..end,
+                            *from_c,
+                            *to_c,
+                            *is_text,
+                            !*is_text,
+                        );
+                        if dmg.is_none() {
+                            // Nothing matched (the item paints somewhere this
+                            // walk can't see): this node must take the rebuild
+                            // path or its colour freezes at `from`.
+                            dirty.push((*node, azul_css::props::property::RelayoutScope::None));
+                        }
+                    }
+                }
+            }
+            if !patch_jobs.is_empty() {
+                // The solver's structural-identity DL cache holds the
+                // PRE-PATCH arc (make_mut cloned): swap in the patched one or
+                // the next cache hit resurrects the stale colours.
+                let patched = self
+                    .layout_results
+                    .get(&DomId::ROOT_ID)
+                    .map(|r| r.display_list.clone());
+                if let (Some(patched), Some(cached)) =
+                    (patched, self.layout_cache.cached_display_list.as_mut())
+                {
+                    cached.3 = patched;
                 }
             }
             self.css_transitions.retain(|tr| tr.t < 1.0);
             if needs_relayout {
                 self.transition_relayout = true;
             }
-            if !dirty.is_empty() {
+            let dirty_empty = dirty.is_empty();
+            if !dirty_empty {
                 match &mut self.pending_css_dirty {
                     Some((dom, list)) if *dom == DomId::ROOT_ID => list.extend(dirty),
                     None => self.pending_css_dirty = Some((DomId::ROOT_ID, dirty)),
@@ -7779,6 +7891,11 @@ impl LayoutWindow {
                     // transition driver only runs the ROOT dom today.
                     Some(_) => {}
                 }
+            }
+            // The rebuild-free frame is only sound when NOTHING ELSE needs
+            // one: a mixed tick (patchable + unpatchable) rebuilds.
+            if !patch_jobs.is_empty() && dirty_empty && self.pending_css_dirty.is_none() {
+                self.transition_patched = true;
             }
         }
 
@@ -11406,6 +11523,8 @@ impl LayoutWindow {
             LayoutContext,
         };
 
+        self.frame_report.dl_rebuilds = self.frame_report.dl_rebuilds.saturating_add(1);
+
         // Get all the data we need from the layout result
         let Some(layout_result) = self.layout_results.get(&dom_id) else {
             return;
@@ -13342,6 +13461,7 @@ impl LayoutWindow {
             // must follow or the override would be orphaned mid-flight.
             css_transitions,
             transition_relayout: _,
+            transition_patched: _,
             // A cumulative counter, no node ids.
             zombie_relayouts: _,
             // CSS-diff staging is keyed by NEW-tree NodeIds computed in the
@@ -15945,6 +16065,29 @@ pub struct CssTransition {
     /// the display-list rebuild, anything wider asks the frame driver for an
     /// incremental relayout per tick.
     pub scope: azul_css::props::property::RelayoutScope,
+    /// The colour the display list currently SHOWS for this transition (the
+    /// patch's from-match). `None` until the first patched tick — then the
+    /// `from` endpoint's colour.
+    pub last_color: Option<azul_css::props::basic::color::ColorU>,
+}
+
+/// A colour-carrying paint transition prop: `(colour, is_text)` —
+/// `TextColor` and single-solid `background` are the patchable set; anything
+/// else (gradients, images, borders) falls back to the DL rebuild.
+fn transition_patch_color(
+    prop: &azul_css::props::property::CssProperty,
+) -> Option<(azul_css::props::basic::color::ColorU, bool)> {
+    use azul_css::props::property::CssProperty;
+    match prop {
+        CssProperty::TextColor(v) => Some((v.get_property()?.inner, true)),
+        CssProperty::BackgroundContent(v) => match v.get_property()?.as_ref() {
+            [azul_css::props::style::background::StyleBackgroundContent::Color(c)] => {
+                Some((*c, false))
+            }
+            _ => None,
+        },
+        _ => None,
+    }
 }
 
 #[derive(Debug)]
@@ -16782,6 +16925,86 @@ impl LayoutWindow {
     #[must_use]
     pub fn has_zombies(&self) -> bool {
         !self.zombies.is_empty()
+    }
+
+    /// The LOGICAL rects zombie exits paint THIS frame — what lets the
+    /// renderer keep its incremental path while exits are on screen: per
+    /// frame the damage is `previous ∪ current` of these (restore the live
+    /// frame where the exit was, paint it where it is), not a forced full
+    /// composite. Conservative bounding boxes: translate applied, rotation/
+    /// scale inflated about the cut centre, clipped exits intersected with
+    /// their frozen box.
+    #[must_use]
+    pub fn zombie_paint_rects(&self) -> Vec<LogicalRect> {
+        let mut out = Vec::new();
+        for z in &self.zombies {
+            for (node, key) in &z.exits {
+                let (Some(anim), Some(rect)) = (self.animations.get(*key), z.rects.get(node))
+                else {
+                    continue;
+                };
+                let t = anim.current_transform();
+                if anim.current_opacity() <= 0.0 {
+                    continue;
+                }
+                out.push(LogicalRect::new(
+                    LogicalPosition::new(
+                        rect.origin.x + t.translate_x,
+                        rect.origin.y + t.translate_y,
+                    ),
+                    rect.size,
+                ));
+            }
+            for (node, tr) in &z.tracks {
+                let Some(frozen) = z.rects.get(node) else { continue };
+                let rect = z.live_rects.get(node).unwrap_or(frozen);
+                let s = z
+                    .tick_samples
+                    .get(node)
+                    .copied()
+                    .unwrap_or_else(|| tr.sample());
+                if s.opacity <= 0.0 {
+                    continue;
+                }
+                let mut w = s.width.map_or(rect.size.width, |w| w.min(rect.size.width));
+                let mut h = s
+                    .height
+                    .map_or(rect.size.height, |h| h.min(rect.size.height));
+                // Rotation/scale inflate the bbox about the centre.
+                let (sin, cos) = s.rotate_deg.to_radians().sin_cos();
+                let (hw, hh) = (w / 2.0 * s.scale_x.abs(), h / 2.0 * s.scale_y.abs());
+                let ihw = hw * cos.abs() + hh * sin.abs();
+                let ihh = hw * sin.abs() + hh * cos.abs();
+                w = ihw * 2.0;
+                h = ihh * 2.0;
+                let cx = rect.origin.x
+                    + s.translate_x
+                    + rect.size.width.min(s.width.unwrap_or(rect.size.width)) / 2.0;
+                let cy = rect.origin.y
+                    + s.translate_y
+                    + rect.size.height.min(s.height.unwrap_or(rect.size.height)) / 2.0;
+                let mut r = LogicalRect::new(
+                    LogicalPosition::new(cx - w / 2.0, cy - h / 2.0),
+                    LogicalSize::new(w, h),
+                );
+                if s.clip {
+                    let x0 = r.origin.x.max(frozen.origin.x);
+                    let y0 = r.origin.y.max(frozen.origin.y);
+                    let x1 = (r.origin.x + r.size.width).min(frozen.origin.x + frozen.size.width);
+                    let y1 =
+                        (r.origin.y + r.size.height).min(frozen.origin.y + frozen.size.height);
+                    if x1 <= x0 || y1 <= y0 {
+                        continue;
+                    }
+                    r = LogicalRect::new(
+                        LogicalPosition::new(x0, y0),
+                        LogicalSize::new(x1 - x0, y1 - y0),
+                    );
+                }
+                out.push(r);
+            }
+        }
+        out
     }
 }
 

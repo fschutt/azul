@@ -343,6 +343,9 @@ pub struct DamageRectJson {
 #[cfg(feature = "std")]
 #[derive(Debug, Clone, serde::Serialize)]
 pub struct FrameReportResponse {
+    /// Full display-list builds since the last reset — 0 across a paint-only
+    /// transition tick proves the DL was PATCHED, not rebuilt.
+    pub dl_rebuilds: u32,
     pub frame_index: u64,
     /// `"none"`, `"rects"` or `"full"`.
     pub paint_damage_kind: String,
@@ -5190,6 +5193,7 @@ fn build_frame_report_response(
     };
     FrameReportResponse {
         frame_index: report.frame_index,
+        dl_rebuilds: report.dl_rebuilds,
         paint_damage_kind: damage_kind_str(&report.paint_damage).to_string(),
         paint_damage_rects: to_json(&report.paint_damage),
         paint_damage_area_ratio: report.paint_damage.area(window_area) / window_area,
@@ -13039,7 +13043,13 @@ pub fn process_debug_event(
                     active,
                 })),
             );
-            return true;
+            // NOT needs_update: that would escalate every tick to a FULL DOM
+            // regeneration (layout callback re-run!), drowning the cheap
+            // paths this op exists to exercise. The queued TickAnimations
+            // change already returns the exact result the tick needs —
+            // DL-only for GPU-value animations, incremental relayout for
+            // layout-scoped transitions, nothing for an idle tick.
+            return false;
         }
         DebugEvent::GetAnimations => {
             let lw = callback_info.get_layout_window();

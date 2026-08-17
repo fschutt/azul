@@ -1460,6 +1460,37 @@ impl StyledDom {
     /// last `restyle` (`CssPropertyCache::retained_author_css`). Call after a
     /// structural DOM mutation (e.g. inserting a node) so new nodes receive
     /// author CSS; a no-op when no author stylesheet was ever attached.
+    /// The PER-TICK override channel: write `user_overridden_properties`
+    /// WITHOUT recomputing inheritance or the compact cache. Sound only when
+    /// the caller supplies the pixels itself (the transition driver patches
+    /// the display list with the interpolated value directly) — every other
+    /// caller wants [`Self::restyle_user_property`]. At t=1 the override is
+    /// removed and the (correctly cascaded) target shows through.
+    pub fn set_user_property_override_fast(&mut self, node_id: &NodeId, new_properties: &[CssProperty]) {
+        let node_count = self.node_data.as_ref().len();
+        if node_id.index() >= node_count {
+            return;
+        }
+        let cache = self.get_css_property_cache_mut();
+        if cache.user_overridden_properties.len() < node_count {
+            cache.user_overridden_properties.resize(node_count, Vec::new());
+        }
+        for new_prop in new_properties {
+            let prop_type = new_prop.get_type();
+            let vec = &mut cache.user_overridden_properties[node_id.index()];
+            if new_prop.is_initial() {
+                if let Ok(idx) = vec.binary_search_by_key(&prop_type, |(k, _)| *k) {
+                    vec.remove(idx);
+                }
+            } else {
+                match vec.binary_search_by_key(&prop_type, |(k, _)| *k) {
+                    Ok(idx) => vec[idx].1 = new_prop.clone(),
+                    Err(idx) => vec.insert(idx, (prop_type, new_prop.clone())),
+                }
+            }
+        }
+    }
+
     pub fn restyle_retained(&mut self) {
         let css = self
             .css_property_cache
@@ -1958,9 +1989,16 @@ impl StyledDom {
         // an 18px blank strip). Overrides are user-interaction-rate, so the
         // rebuild is not a per-frame cost; the animation channel
         // (colour/opacity/transform) keeps the fast path untouched.
+        // INHERITED paint props need the recompute too: a `color` override on
+        // a container is READ by its text children through the precomputed
+        // inheritance tables, so skipping the recompute left descendants at
+        // the stale colour — a colour transition on a DIV animated nothing
+        // visible (found by the css_anim_perf_transition damage law). The
+        // per-tick animation channel avoids this whole fn via
+        // `set_user_property_override_fast` + display-list patching.
         if new_properties
             .iter()
-            .any(|p| p.get_type().can_trigger_relayout())
+            .any(|p| p.get_type().can_trigger_relayout() || p.get_type().is_inheritable())
         {
             self.recompute_inheritance_and_compact_cache();
             self.get_css_property_cache_mut()
