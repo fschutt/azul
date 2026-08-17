@@ -17,9 +17,9 @@
 //! Three transitions, one per button, exercising different shapes of change:
 //!
 //! 1. **Sidebar** — a REAL unmount with a declared presence animation:
-//!    `-azul-animation-out: flyOutRight 0.5s` plays on the retained subtree
-//!    (it slides out through its own right edge, narrowing, clipped to its
-//!    old box) while the content, laid out at its final width immediately,
+//!    `-azul-animation-out: flyOutLeft 0.5s` plays on the retained subtree
+//!    (a LEFT sidebar leaves through the window's LEFT edge, narrowing,
+//!    clipped to its old box) while the content, laid out at its final width immediately,
 //!    slides into the space; `-azul-animation-in: flyInLeft 0.5s` brings it
 //!    back. The names resolve stylesheet `@keyframes` first, then AppConfig
 //!    native functions, then the builtin table used here.
@@ -82,15 +82,16 @@ const BTN: &str = "padding: 8px 14px; margin-right: 10px; border-radius: 6px; \
     background: #2a2a3a; color: #e6e6f0; font-size: 14px;";
 const BODY: &str = "display: flex; flex-direction: row; flex-grow: 1;";
 // The presence animations ARE the stylesheet: unmounting the node plays
-// `flyOutRight` on the retained zombie (slides out through its own right
-// edge, narrowing, clipped to its old box), remounting plays `flyInLeft`.
+// `flyOutLeft` on the retained zombie (a LEFT sidebar leaves through the
+// window's LEFT edge — content slides left, narrowing, clipped to its old
+// box), remounting plays `flyInLeft` (back in from the same edge).
 // Both names come from the builtin table — no @keyframes required; a
 // stylesheet @keyframes or an AppConfig-registered native function of the
 // same name would shadow them (resolution order: CSS, then app, then
 // builtins).
 const SIDEBAR_OPEN: &str = "width: 220px; background: #1b1b26; \
     border-right: 1px solid #2a2a3a; padding: 16px; display: flex; \
-    flex-direction: column; -azul-animation-out: flyOutRight 0.5s; \
+    flex-direction: column; -azul-animation-out: flyOutLeft 0.5s; \
     -azul-animation-in: flyInLeft 0.5s;";
 const CONTENT: &str = "flex-grow: 1; padding: 24px; display: flex; \
     flex-direction: column;";
