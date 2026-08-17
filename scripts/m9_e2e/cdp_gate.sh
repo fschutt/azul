@@ -24,6 +24,11 @@ for i in $(seq 1 400); do
   [ "$a" = "0" ] && { echo "SERVER DIED" | tee -a "$LOG"; tail -6 /c/rb/server_cdp.log | tee -a "$LOG"; exit 1; }
   sleep 10
 done
+# Timeout must ABORT, not fall through: without READY the click gate would run
+# against whatever stale tab/server answers, producing convincing-looking
+# results from the WRONG build (observed once: "counter=127" artifact).
+grep -qE "Listening on" /c/rb/server_cdp.log 2>/dev/null || {
+  echo "TIMEOUT: server never printed 'Listening on' — aborting gate" | tee -a "$LOG"; exit 1; }
 echo "link-fails: $(grep -icE '0xc0000142|falling back to 8-byte' /c/rb/server_cdp.log)" | tee -a "$LOG"
 grep -oE "azul-mini: lifted \+ linked [0-9]+ bytes \([0-9]+ exports" /c/rb/server_cdp.log | tail -1 | tee -a "$LOG"
 # x86 tail-call discovery (2026-08-14): these two lines are the fix's verdict.
