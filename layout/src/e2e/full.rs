@@ -1009,6 +1009,9 @@ pub struct AnimationsResponse {
     /// exits settle — a zombie that outlives its animation is a leak, and one
     /// that vanishes early took its state with it mid-flight.
     pub zombies: usize,
+    /// Diff-triggered `animation` transitions in flight. Same lifecycle law
+    /// as `zombies`: must return to 0 once every override settles.
+    pub transitions: usize,
     pub nodes: Vec<AnimationNodeJson>,
 }
 
@@ -13043,12 +13046,14 @@ pub fn process_debug_event(
             }
             let active = lw.animations.len();
             let zombies = lw.zombies.len();
+            let transitions = lw.css_transitions.len();
             send_ok(
                 request,
                 None,
                 Some(ResponseData::Animations(AnimationsResponse {
                     active,
                     zombies,
+                    transitions,
                     nodes,
                 })),
             );

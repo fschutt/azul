@@ -1983,8 +1983,16 @@ pub trait PlatformWindow {
                     }
                 }
                 // A settled step still owes one frame, so the final (identity)
-                // transform actually reaches the screen.
-                return ProcessEventResult::ShouldUpdateDisplayListCurrentWindow;
+                // transform actually reaches the screen. A layout-affecting
+                // `animation` transition escalates to a real relayout.
+                let needs_relayout = self
+                    .get_layout_window_mut()
+                    .is_some_and(azul_layout::window::LayoutWindow::take_transition_relayout);
+                return if needs_relayout {
+                    ProcessEventResult::ShouldIncrementalRelayout
+                } else {
+                    ProcessEventResult::ShouldUpdateDisplayListCurrentWindow
+                };
             }
 
             // NOT YET EXECUTED ON THE DESKTOP SHELL.

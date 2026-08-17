@@ -25246,6 +25246,15 @@
                                 },
                                 "StringSet": {
                                     "type": "StringSetValue"
+                                },
+                                "Animation": {
+                                    "type": "StyleAnimationValue"
+                                },
+                                "AnimationIn": {
+                                    "type": "StyleAnimationValue"
+                                },
+                                "AnimationOut": {
+                                    "type": "StyleAnimationValue"
                                 }
                             }
                         ],
@@ -27202,6 +27211,14 @@
                                     "type": "CssRuleBlockVec",
                                     "doc": [
                                         "All rule blocks, in source order. Sort by `(priority, specificity)` via `sort_by_specificity` to put them in cascade order."
+                                    ]
+                                }
+                            },
+                            {
+                                "keyframes": {
+                                    "type": "KeyframesVec",
+                                    "doc": [
+                                        "All top-level `@keyframes` blocks of the stylesheet, resolvable by name from `animation` / `-azul-animation-in` / `-azul-animation-out`."
                                     ]
                                 }
                             }
@@ -37657,7 +37674,10 @@
                                 "CounterIncrement": {},
                                 "ListStyleType": {},
                                 "ListStylePosition": {},
-                                "StringSet": {}
+                                "StringSet": {},
+                                "Animation": {},
+                                "AnimationIn": {},
+                                "AnimationOut": {}
                             }
                         ],
                         "repr": "C"
@@ -44525,6 +44545,136 @@
                                         "Word feel) or jumps instantly (false; SystemAnimations::disabled() sets this",
                                         "for deterministic e2e screenshots)."
                                     ]
+                                }
+                            }
+                        ],
+                        "repr": "C"
+                    },
+                    "AnimationTiming": {
+                        "doc": [
+                            "Timing keyword for `animation` / `-azul-animation-in` / `-azul-animation-out`: CSS easing keywords plus the engine's spring presets."
+                        ],
+                        "external": "azul_css::props::basic::animation::AnimationTiming",
+                        "derive": [
+                            "Debug",
+                            "Copy",
+                            "Clone",
+                            "PartialEq",
+                            "Eq",
+                            "PartialOrd",
+                            "Ord",
+                            "Hash",
+                            "Default"
+                        ],
+                        "enum_fields": [
+                            {
+                                "Ease": {},
+                                "Linear": {},
+                                "EaseIn": {},
+                                "EaseOut": {},
+                                "EaseInOut": {},
+                                "Spring": {},
+                                "SpringGentle": {},
+                                "SpringSnappy": {}
+                            }
+                        ],
+                        "repr": "C"
+                    },
+                    "StyleAnimation": {
+                        "doc": [
+                            "Value of `animation` (diff-triggered transitions), `-azul-animation-in` (mount) and `-azul-animation-out` (unmount): `<name> <duration> [<timing>]`. The name is `all`/a property name (for `animation`), a `@keyframes` name, or a registered native animation function."
+                        ],
+                        "external": "azul_css::props::basic::animation::StyleAnimation",
+                        "derive": [
+                            "Debug",
+                            "Clone",
+                            "PartialEq",
+                            "Eq",
+                            "PartialOrd",
+                            "Ord",
+                            "Hash"
+                        ],
+                        "custom_impls": [
+                            "Default"
+                        ],
+                        "struct_fields": [
+                            {
+                                "name": {
+                                    "type": "String"
+                                }
+                            },
+                            {
+                                "duration": {
+                                    "type": "CssDuration"
+                                }
+                            },
+                            {
+                                "timing": {
+                                    "type": "AnimationTiming"
+                                }
+                            }
+                        ],
+                        "repr": "C"
+                    },
+                    "StyleAnimationValue": {
+                        "doc": [
+                            "Type alias for CssPropertyValue < StyleAnimation >"
+                        ],
+                        "external": "azul_css::props::property::StyleAnimationValue",
+                        "type_alias": {
+                            "target": "CssPropertyValue",
+                            "generic_args": [
+                                "StyleAnimation"
+                            ]
+                        }
+                    },
+                    "KeyframeStop": {
+                        "doc": [
+                            "One stop of a `@keyframes` block (`from` = 0, `to` = 1000, `12.5%` = 125). Permille rather than a float percentage so the type stays Eq-capable."
+                        ],
+                        "external": "azul_css::css::KeyframeStop",
+                        "derive": [
+                            "Debug",
+                            "Clone",
+                            "PartialEq",
+                            "Eq",
+                            "Default"
+                        ],
+                        "struct_fields": [
+                            {
+                                "permille": {
+                                    "type": "u16"
+                                }
+                            },
+                            {
+                                "props": {
+                                    "type": "CssPropertyVec"
+                                }
+                            }
+                        ],
+                        "repr": "C"
+                    },
+                    "Keyframes": {
+                        "doc": [
+                            "A named `@keyframes` block: `@keyframes flyOutRight { from {..} to {..} }`. Stops are sorted by `permille` ascending at parse time."
+                        ],
+                        "external": "azul_css::css::Keyframes",
+                        "derive": [
+                            "Debug",
+                            "Clone",
+                            "PartialEq",
+                            "Eq",
+                            "Default"
+                        ],
+                        "struct_fields": [
+                            {
+                                "name": {
+                                    "type": "String"
+                                }
+                            },
+                            {
+                                "stops": {
+                                    "type": "KeyframeStopVec"
                                 }
                             }
                         ],
@@ -95897,6 +96047,238 @@
                             }
                         ],
                         "repr": "C, u8"
+                    },
+                    "KeyframeStopVec": {
+                        "doc": [
+                            "Wrapper over a Rust-allocated `Vec<KeyframeStop>"
+                        ],
+                        "external": "azul_css::css::KeyframeStopVec",
+                        "custom_impls": [
+                            "Clone",
+                            "Debug",
+                            "PartialEq"
+                        ],
+                        "custom_destructor": true,
+                        "derive": [
+                            "Debug"
+                        ],
+                        "struct_fields": [
+                            {
+                                "ptr": {
+                                    "type": "KeyframeStop",
+                                    "ref_kind": "constptr"
+                                },
+                                "len": {
+                                    "type": "usize"
+                                },
+                                "cap": {
+                                    "type": "usize"
+                                },
+                                "destructor": {
+                                    "type": "KeyframeStopVecDestructor"
+                                }
+                            }
+                        ],
+                        "functions": {
+                            "create": {
+                                "doc": [
+                                    "Creates an empty `KeyframeStopVec`"
+                                ],
+                                "fn_args": [],
+                                "returns": {
+                                    "type": "KeyframeStopVec"
+                                },
+                                "fn_body": "KeyframeStopVec::new()"
+                            },
+                            "len": {
+                                "doc": [
+                                    "Returns the number of elements in the Vec"
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "usize"
+                                },
+                                "fn_body": "object.len()"
+                            },
+                            "is_empty": {
+                                "doc": [
+                                    "Returns whether the Vec is empty"
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "bool"
+                                },
+                                "fn_body": "object.is_empty()"
+                            },
+                            "from_item": {
+                                "doc": [
+                                    "Creates a `KeyframeStopVec` containing a single element"
+                                ],
+                                "fn_args": [
+                                    {
+                                        "item": "KeyframeStop"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "KeyframeStopVec"
+                                },
+                                "fn_body": "KeyframeStopVec::from_item(item)"
+                            }
+                        },
+                        "repr": "C"
+                    },
+                    "KeyframeStopVecDestructor": {
+                        "external": "azul_css::css::KeyframeStopVecDestructor",
+                        "derive": [
+                            "Debug"
+                        ],
+                        "enum_fields": [
+                            {
+                                "DefaultRust": {},
+                                "NoDestructor": {},
+                                "External": {
+                                    "type": "KeyframeStopVecDestructorType"
+                                },
+                                "AlreadyDestroyed": {}
+                            }
+                        ],
+                        "repr": "C, u8"
+                    },
+                    "KeyframeStopVecDestructorType": {
+                        "external": "azul_css::css::KeyframeStopVecDestructorType",
+                        "callback_typedef": {
+                            "fn_args": [
+                                {
+                                    "type": "KeyframeStopVec",
+                                    "ref_kind": "mutptr"
+                                }
+                            ],
+                            "returns": null
+                        }
+                    },
+                    "KeyframesVec": {
+                        "doc": [
+                            "Wrapper over a Rust-allocated `Vec<Keyframes>"
+                        ],
+                        "external": "azul_css::css::KeyframesVec",
+                        "custom_impls": [
+                            "Clone",
+                            "Debug",
+                            "PartialEq"
+                        ],
+                        "custom_destructor": true,
+                        "derive": [
+                            "Debug"
+                        ],
+                        "struct_fields": [
+                            {
+                                "ptr": {
+                                    "type": "Keyframes",
+                                    "ref_kind": "constptr"
+                                },
+                                "len": {
+                                    "type": "usize"
+                                },
+                                "cap": {
+                                    "type": "usize"
+                                },
+                                "destructor": {
+                                    "type": "KeyframesVecDestructor"
+                                }
+                            }
+                        ],
+                        "functions": {
+                            "create": {
+                                "doc": [
+                                    "Creates an empty `KeyframesVec`"
+                                ],
+                                "fn_args": [],
+                                "returns": {
+                                    "type": "KeyframesVec"
+                                },
+                                "fn_body": "KeyframesVec::new()"
+                            },
+                            "len": {
+                                "doc": [
+                                    "Returns the number of elements in the Vec"
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "usize"
+                                },
+                                "fn_body": "object.len()"
+                            },
+                            "is_empty": {
+                                "doc": [
+                                    "Returns whether the Vec is empty"
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "bool"
+                                },
+                                "fn_body": "object.is_empty()"
+                            },
+                            "from_item": {
+                                "doc": [
+                                    "Creates a `KeyframesVec` containing a single element"
+                                ],
+                                "fn_args": [
+                                    {
+                                        "item": "Keyframes"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "KeyframesVec"
+                                },
+                                "fn_body": "KeyframesVec::from_item(item)"
+                            }
+                        },
+                        "repr": "C"
+                    },
+                    "KeyframesVecDestructor": {
+                        "external": "azul_css::css::KeyframesVecDestructor",
+                        "derive": [
+                            "Debug"
+                        ],
+                        "enum_fields": [
+                            {
+                                "DefaultRust": {},
+                                "NoDestructor": {},
+                                "External": {
+                                    "type": "KeyframesVecDestructorType"
+                                },
+                                "AlreadyDestroyed": {}
+                            }
+                        ],
+                        "repr": "C, u8"
+                    },
+                    "KeyframesVecDestructorType": {
+                        "external": "azul_css::css::KeyframesVecDestructorType",
+                        "callback_typedef": {
+                            "fn_args": [
+                                {
+                                    "type": "KeyframesVec",
+                                    "ref_kind": "mutptr"
+                                }
+                            ],
+                            "returns": null
+                        }
                     }
                 }
             },

@@ -114,6 +114,23 @@ pub fn blit_pixmap_affine(
     m: &agg_rust::trans_affine::TransAffine,
     opacity: f32,
 ) {
+    blit_pixmap_affine_clipped(src, dst, m, opacity, None);
+}
+
+/// [`blit_pixmap_affine`] with an optional DEST-space clip rect
+/// `(x0, y0, x1, y1)` in device pixels. The clip is what keeps a keyframed
+/// exit inside its own box: `-azul-animation-out` may translate the retained
+/// content, and without a clip the slide paints over neighbouring components
+/// (the sliding-out scrollbar over the body margin was the reported case).
+#[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss, clippy::cast_precision_loss)]
+// bounded pixel/coord/colour casts
+pub fn blit_pixmap_affine_clipped(
+    src: &AzulPixmap,
+    dst: &mut AzulPixmap,
+    m: &agg_rust::trans_affine::TransAffine,
+    opacity: f32,
+    clip: Option<(i32, i32, i32, i32)>,
+) {
     let sw = src.width as i32;
     let sh = src.height as i32;
     let dw = dst.width as i32;
@@ -147,10 +164,16 @@ pub fn blit_pixmap_affine(
     if !(min_x.is_finite() && min_y.is_finite() && max_x.is_finite() && max_y.is_finite()) {
         return;
     }
-    let x0 = (min_x.floor() as i32).max(0);
-    let y0 = (min_y.floor() as i32).max(0);
-    let x1 = (max_x.ceil() as i32).min(dw);
-    let y1 = (max_y.ceil() as i32).min(dh);
+    let mut x0 = (min_x.floor() as i32).max(0);
+    let mut y0 = (min_y.floor() as i32).max(0);
+    let mut x1 = (max_x.ceil() as i32).min(dw);
+    let mut y1 = (max_y.ceil() as i32).min(dh);
+    if let Some((cx0, cy0, cx1, cy1)) = clip {
+        x0 = x0.max(cx0);
+        y0 = y0.max(cy0);
+        x1 = x1.min(cx1);
+        y1 = y1.min(cy1);
+    }
 
     for dy in y0..y1 {
         for dx in x0..x1 {
