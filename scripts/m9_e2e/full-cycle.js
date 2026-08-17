@@ -551,12 +551,49 @@ function failSync(msg) { console.error('FAIL:', msg); process.exit(1); }
                     const dvp = new DataView(memory.buffer);
                     const ring = [...Array(16)].map((_, i) => dvp.getUint32(0x40160 + i * 4, true))
                         .filter(v => v !== 0).map(v => '0x' + v.toString(16));
+                    // Bump-allocator state: cursor u32 @0x40020; last requested
+                    // size u64 @0x40030(262192... note: helper stores new_size at
+                    // 262192=0x40030); alloc counter u64 @0x40038(262200). The
+                    // helper has NO limit check — a garbage-huge size WRAPS the
+                    // u32 cursor and every later alloc returns nonsense.
+                    console.log('[2d-bump] cursor(40020)=0x' + dvp.getUint32(0x40020, true).toString(16) +
+                        ' last_req_size(40030)=0x' + dvp.getBigUint64(0x40030, true).toString(16) +
+                        ' allocs(40038)=' + dvp.getBigUint64(0x40038, true));
                     console.log('[2d-post-solve] unk=' + dvp.getUint32(0x40158, true) +
                         ' upc=0x' + dvp.getUint32(0x40900, true).toString(16) +
                         ' mb_count=' + dvp.getUint32(0x400FC, true) +
                         ' mb_last=0x' + dvp.getUint32(0x400F8, true).toString(16) +
                         ' ring=[' + ring.join(' ') + ']');
                 } catch (e2) { console.log('[2d-post-solve] read failed'); }
+                // AZ_SCAN_FRAME=1: recover layout_document's still-intact frame
+                // via its spilled alloc-guard constant 0x7FFFFFFFFFFFFFF8 at
+                // [rsp+0x278] (written once at fn entry, only cmp'd after), then
+                // dump the three cloned-vec (ptr,len) pairs the capacity checks
+                // read at [rsp+0xE0..0x118]. The garbage count is the lead.
+                if (process.env.AZ_SCAN_FRAME === '1') {
+                    try {
+                        const dvs = new DataView(memory.buffer);
+                        const n = memory.buffer.byteLength - 8;
+                        const hits = [];
+                        for (let a = 0; a <= n; a += 8) {
+                            if (dvs.getUint32(a, true) === 0xFFFFFFF8 &&
+                                dvs.getUint32(a + 4, true) === 0x7FFFFFFF) hits.push(a);
+                        }
+                        console.log('[2d-frame] guard-const hits: ' +
+                            hits.map(a => '0x' + a.toString(16)).join(' '));
+                        for (const a of hits) {
+                            const fr = a - 0x278;
+                            const q = o => dvs.getBigUint64(fr + o, true);
+                            console.log('[2d-frame] fr=0x' + fr.toString(16) +
+                                ' vec1(ptr=0x' + q(0xE0).toString(16) + ',len=0x' + q(0xE8).toString(16) + ')' +
+                                ' vec2(ptr=0x' + q(0xF8).toString(16) + ',len=0x' + q(0x100).toString(16) + ')' +
+                                ' vec3(ptr=0x' + q(0x110).toString(16) + ',len=0x' + q(0x118).toString(16) + ')' +
+                                ' [270]=0x' + q(0x270).toString(16) +
+                                ' [68]=0x' + q(0x68).toString(16) +
+                                ' [10]=0x' + q(0x10).toString(16));
+                        }
+                    } catch (e3) { console.log('[2d-frame] scan failed: ' + (e3.message || e3)); }
+                }
             }
         }
     }
