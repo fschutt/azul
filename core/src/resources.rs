@@ -479,6 +479,13 @@ pub struct ZombieAnimInfo {
     /// The viewport the tree was laid out in.
     pub viewport: crate::geom::LogicalRect,
     pub dpi_factor: f32,
+    /// The animation's velocity ENTERING this frame, logical px/s — the
+    /// derivative of the previous two samples (one-frame lag; zero on the
+    /// first frame and for enter/live tracks today). The read half of the
+    /// momentum API for native functions: reversing with continuity means
+    /// producing frames that start at this speed.
+    pub velocity_x: f32,
+    pub velocity_y: f32,
 }
 
 /// One frame of a native presence animation, returned by a

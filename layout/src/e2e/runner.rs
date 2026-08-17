@@ -1289,6 +1289,18 @@ impl Runner {
             // execute, so this arm is the one that matters: it steps the
             // integrator by an exact `dt` with no wall clock involved, which is
             // what makes a mid-flight assertion reproducible.
+            CallbackChange::SetAnimationMomentum {
+                node,
+                velocity_x,
+                velocity_y,
+            } => {
+                if let Some(n) = node.node.into_crate_internal() {
+                    self.layout_window
+                        .apply_animation_momentum(n, *velocity_x, *velocity_y);
+                }
+                ProcessEventResult::ShouldUpdateDisplayListCurrentWindow
+            }
+
             CallbackChange::TickAnimations { dt_micros, steps } => {
                 // Idle-transparent: `tick_ms` routes through here on EVERY
                 // scenario (one engine clock), so a tick with nothing to

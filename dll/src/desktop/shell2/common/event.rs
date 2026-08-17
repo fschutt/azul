@@ -1973,6 +1973,19 @@ pub trait PlatformWindow {
         use azul_core::callbacks::Update;
 
         match change {
+            CallbackChange::SetAnimationMomentum {
+                node,
+                velocity_x,
+                velocity_y,
+            } => {
+                if let Some(n) = node.node.into_crate_internal() {
+                    if let Some(layout_window) = self.get_layout_window_mut() {
+                        layout_window.apply_animation_momentum(n, *velocity_x, *velocity_y);
+                    }
+                }
+                return ProcessEventResult::ShouldUpdateDisplayListCurrentWindow;
+            }
+
             CallbackChange::TickAnimations { dt_micros, steps } => {
                 let dt = *dt_micros as f32 / 1_000_000.0;
                 if let Some(layout_window) = self.get_layout_window_mut() {
