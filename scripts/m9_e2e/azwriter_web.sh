@@ -39,8 +39,12 @@ for i in $(seq 1 500); do
   [ "$a" = "0" ] && { echo "DIED $(date +%H:%M:%S)" | tee -a "$LOG"; tail -25 /c/rb/azwriter_server.log | tee -a "$LOG"; exit 1; }
   sleep 10
 done
-echo "8byte-stub/link-fails: $(grep -icE '0xc0000142|falling back to 8-byte' /c/rb/azwriter_server.log)" | tee -a "$LOG"
+echo "8byte-stub/link-fails: $(grep -icE '0xc0000142|falling back to 8-byte|falling back to stub' /c/rb/azwriter_server.log)" | tee -a "$LOG"
 grep -oE "azul-mini: lifted \+ linked [0-9]+ bytes \([0-9]+ exports|transitive lift complete: [0-9]+ functions" /c/rb/azwriter_server.log | tail -3 | tee -a "$LOG"
+# The mini link line is the load-bearing sanity check: run 1 shipped an 8-byte
+# stub mini (dlsym on a static exe) that the old greps never caught.
+grep -q "azul-mini: lifted + linked" /c/rb/azwriter_server.log || \
+  echo "WARNING: no 'azul-mini: lifted + linked' line — mini is a stub, bootstrap WILL fail" | tee -a "$LOG"
 sleep 3
 echo "=== CDP screenshot $(date +%H:%M:%S) ===" | tee -a "$LOG"
 "/c/Users/felix/tools/node/node.exe" --experimental-websocket \
