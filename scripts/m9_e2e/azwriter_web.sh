@@ -7,16 +7,20 @@ set -o pipefail
 cd /c/Users/felix/Development/azul
 LOG=/c/rb/azwriter_web.log; : > "$LOG"
 
-# 1. wait for the (already running) cargo build to finish
+# 1. wait for the (already running) cargo build to finish.
+# 2026-08-17: the binary now builds with the dll's lift-friendly recipe
+# (build-std + -Cpanic=abort + explicit target triple), so it lands under the
+# target-triple dir, not target/release.
+BIN=target/x86_64-pc-windows-msvc/release/azul-doc-demo.exe
 for i in $(seq 1 240); do
-  [ -f target/release/azul-doc-demo.exe ] && break
+  [ -f "$BIN" ] && break
   a=$(ps -W 2>/dev/null | grep -icE 'cargo|rustc')
   [ "$a" = "0" ] && break
   sleep 15
 done
-if [ ! -f target/release/azul-doc-demo.exe ]; then
-  echo "BUILD-MISSING: azul-doc-demo.exe not produced" | tee -a "$LOG"
-  tail -25 /c/rb/azwriter_build.log 2>/dev/null | tee -a "$LOG"
+if [ ! -f "$BIN" ]; then
+  echo "BUILD-MISSING: $BIN not produced" | tee -a "$LOG"
+  tail -25 /c/rb/azwriter_build2.log 2>/dev/null | tee -a "$LOG"
   exit 1
 fi
 echo "=== binary ready $(date +%H:%M:%S) ===" | tee -a "$LOG"
@@ -27,7 +31,7 @@ export PATH="$PWD/third_party/remill/dependencies/install/bin:$PATH"
 export AZ_BACKEND=web://127.0.0.1:8801 AZ_LIFT_CACHE=1 AZ_REMILL_KEEP_SCRATCH=1
 export AZ_MINI_MAX_DEPTH=16384 AZ_CB_MAX_DEPTH=8192
 echo "=== lifting AzWriter (first run is cold; can take a while) $(date +%H:%M:%S) ===" | tee -a "$LOG"
-nohup ./target/release/azul-doc-demo.exe > /c/rb/azwriter_server.log 2>&1 &
+nohup "./$BIN" > /c/rb/azwriter_server.log 2>&1 &
 
 for i in $(seq 1 500); do
   grep -qE "Listening on" /c/rb/azwriter_server.log 2>/dev/null && { echo "READY $(date +%H:%M:%S)" | tee -a "$LOG"; break; }

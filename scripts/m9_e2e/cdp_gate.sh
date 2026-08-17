@@ -33,6 +33,19 @@ echo "tail-call deps found: $(grep -icE 'tail-call dep: ' /c/rb/server_cdp.log)"
 echo "Formatter::pad lifted: $(grep -icE 'Formatter::pad[^_]' /c/rb/server_cdp.log)" | tee -a "$LOG"
 grep -oE "transitive lift complete: [0-9]+ functions" /c/rb/server_cdp.log | tail -1 | tee -a "$LOG"
 sleep 3
+# Edge headless does not survive reboots — relaunch if :9222 is down (otherwise
+# the click gate dies with "fetch failed" while the lift results are fine).
+if ! curl -s -o /dev/null --max-time 3 http://127.0.0.1:9222/json/version; then
+  echo "(re)starting Edge headless on :9222" | tee -a "$LOG"
+  nohup "/c/Program Files (x86)/Microsoft/Edge/Application/msedge.exe" \
+    --headless=new --remote-debugging-port=9222 --disable-gpu --no-first-run \
+    --user-data-dir="$(cygpath -w "${TEMP:-/tmp}/az-edge-headless" 2>/dev/null || echo /tmp/az-edge-headless)" \
+    about:blank >/dev/null 2>&1 &
+  for i in $(seq 1 20); do
+    curl -s -o /dev/null --max-time 2 http://127.0.0.1:9222/json/version && break
+    sleep 1
+  done
+fi
 echo "=== CDP CLICK GATE $(date +%H:%M:%S) ===" | tee -a "$LOG"
 "/c/Users/felix/tools/node/node.exe" --experimental-websocket scripts/cdp_click_hw.js 2>&1 | tail -8 | tee -a "$LOG"
 echo "=== MARKERS (probeFmt + solve) $(date +%H:%M:%S) ===" | tee -a "$LOG"
