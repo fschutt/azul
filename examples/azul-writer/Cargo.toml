@@ -37,6 +37,10 @@ ctor = "0.2"
 # uses link-static).
 [target.'cfg(target_os = "ios")'.dependencies]
 azul = { path = "../../dll", package = "azul-dll", default-features = false, features = ["link-static", "pdf"] }
+# JSON reflection for the web backend: DocState derives Serialize/Deserialize
+# and a tiny bridge maps serde_json text <-> azul's Json type (see main.rs).
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
 
 # rlib = what the desktop/iOS bin links; cdylib = the Android NativeActivity lib.
 [lib]

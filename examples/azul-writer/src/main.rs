@@ -10,17 +10,23 @@
 //! editor / live preview are follow-ups.
 
 use azul::error::ResultRefAnyString;
-use azul::json::{Json, JsonKeyValue};
-use azul::option::{OptionBool, OptionJson, OptionString};
+use azul::json::Json;
 use azul::pdf::Pdf;
 use azul::prelude::*;
-use azul::vec::JsonKeyValueVec;
 
+#[derive(serde::Serialize, serde::Deserialize)]
+#[serde(default)]
 struct DocState {
     /// Where the PDF is written (temp dir). Shown after export.
     export_path: String,
     /// Set once an export has been triggered (drives the status line).
     exported: bool,
+}
+
+impl Default for DocState {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl DocState {
@@ -128,38 +134,35 @@ extern "C" fn on_export(mut data: RefAny, _info: CallbackInfo) -> Update {
 /// `AZ_REFLECT_JSON` toJson half. The web backend requires this on the root
 /// `RefAny`: the server serializes app state into the pre-rendered HTML and
 /// the wasm client rebuilds it via [`doc_state_from_json`].
+///
+/// serde does the actual field mapping (`#[derive(Serialize)]` on DocState);
+/// this fn only bridges serde_json text into azul's `Json` value. The Az
+/// result/option enums implement Drop, so the parsed payload is cloned out of
+/// a match-by-reference instead of moved.
 extern "C" fn doc_state_to_json(mut refany: RefAny) -> Json {
-    match refany.downcast_ref::<DocState>() {
-        Some(s) => {
-            let entries = [
-                JsonKeyValue::create("export_path", Json::string(s.export_path.as_str())),
-                JsonKeyValue::create("exported", Json::bool(s.exported)),
-            ];
-            Json::object(JsonKeyValueVec::copy_from_array(&entries[0], entries.len()))
-        }
-        None => Json::null(),
+    let text = match refany.downcast_ref::<DocState>() {
+        Some(s) => match serde_json::to_string(&*s) {
+            Ok(t) => t,
+            Err(_) => return Json::null(),
+        },
+        None => return Json::null(),
+    };
+    match &Json::parse(text.as_str()) {
+        azul::error::ResultJsonJsonParseError::Ok(j) => j.clone(),
+        azul::error::ResultJsonJsonParseError::Err(_) => Json::null(),
     }
 }
 
 /// JSON deserializer for [`DocState`] — runs INSIDE the lifted wasm on the
-/// web client to rebuild the app state the server serialized. Missing fields
-/// fall back to defaults rather than erroring: the state is display-only
-/// (`export_path` is a server-side path string; the status flag).
+/// web client to rebuild the app state the server serialized. `Json` →
+/// text → serde (`#[derive(Deserialize)]` + `#[serde(default)]`, so missing
+/// fields fall back to defaults rather than erroring).
 extern "C" fn doc_state_from_json(json: Json) -> ResultRefAnyString {
-    // The Az option enums implement Drop, so payloads must be read by
-    // reference rather than moved out of the match.
-    let export_path = match &json.get_key("export_path") {
-        OptionJson::Some(j) => match &j.as_string() {
-            OptionString::Some(s) => s.as_str().to_string(),
-            OptionString::None => String::new(),
-        },
-        OptionJson::None => String::new(),
+    let state: DocState = match serde_json::from_str(json.to_string().as_str()) {
+        Ok(s) => s,
+        Err(e) => return ResultRefAnyString::err(format!("DocState: {e}").as_str()),
     };
-    let exported = match &json.get_key("exported") {
-        OptionJson::Some(j) => matches!(j.as_bool(), OptionBool::Some(true)),
-        OptionJson::None => false,
-    };
-    let mut r = RefAny::new(DocState { export_path, exported });
+    let mut r = RefAny::new(state);
     // Re-register on the reconstructed RefAny so later serialize round-trips
     // (state sync, undo snapshots) keep working on the client too.
     r.set_serialize_fn(doc_state_to_json as usize);
