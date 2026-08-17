@@ -434,6 +434,21 @@ function failSync(msg) { console.error('FAIL:', msg); process.exit(1); }
                     const solved = (typeof mini.AzStartup_isLayoutSolved === 'function') ? mini.AzStartup_isLayoutSolved(state) : -1;
                     const rectsLen = (typeof mini.AzStartup_getPositionedRectsLen === 'function') ? mini.AzStartup_getPositionedRectsLen(state) : -1;
                     console.log('[2d] solveLayout rc=' + solveRc + ' solved=' + solved + ' rects_len=' + rectsLen);
+                    // AZ_DUMP_RECTS=1: print the positioned-rect cache (4 u32 per
+                    // node: x,y,w,h) so a click can be aimed INSIDE a real rect.
+                    if (process.env.AZ_DUMP_RECTS === '1' && rectsLen > 0 &&
+                        typeof mini.AzStartup_getPositionedRectsPtr === 'function') {
+                        const rp = mini.AzStartup_getPositionedRectsPtr(state) >>> 0;
+                        const dvr2 = new DataView(memory.buffer);
+                        for (let i = 0; i < Math.min(rectsLen, 32); i++) {
+                            const o = rp + i * 16;
+                            console.log('[2d-rect] node=' + i +
+                                ' x=' + dvr2.getUint32(o, true) +
+                                ' y=' + dvr2.getUint32(o + 4, true) +
+                                ' w=' + dvr2.getUint32(o + 8, true) +
+                                ' h=' + dvr2.getUint32(o + 12, true));
+                        }
+                    }
                     const dv3 = new DataView(memory.buffer); const u3 = (a) => dv3.getUint32(a, true);
                     console.log('[2d-sse-ok] sse1movemask(0x' + u3(0x40718).toString(16) + ' want ffff) pcmpeqb(0x' + u3(0x4071C).toString(16) + ' want 15) set1(0x' + u3(0x40720).toString(16) + ' want ffff) memset+movdqu(0x' + u3(0x40724).toString(16) + ' want ffff) memsetByte(0x' + u3(0x40728).toString(16) + ' want ff) HM(' + u3(0x4072C) + ' want 2)');
                     console.log('[2d-solvemarkers] css(0x' + u3(0x40578).toString(16) + ') fontParse(0x' + u3(0x40670).toString(16) + ') resolveChain(0x' + u3(0x40690).toString(16) + ')');
@@ -601,19 +616,26 @@ function failSync(msg) { console.error('FAIL:', msg); process.exit(1); }
     // === STEP 3: synthesize click event ===
     // Event layout (20 bytes):
     //   0..4   NODE_IDX  = 0xFFFFFFFF (sentinel → wasm hit-tests)
-    //   4..8   X (f32 bits)            = 100.0
-    //   8..12  Y (f32 bits)            = 100.0
+    //   4..8   X integer px (M11 Sprint 2: loader encodes Math.floor(clientX);
+    //          AzStartup_hitTest compares u32s — f32 BITS here made x read as
+    //          1120403456 and every real-geometry hit-test miss)
+    //   8..12  Y integer px
     //   12..16 BUTTON_OR_KEY           = 0 (left)
     //   16..20 MODIFIERS               = 0
+    // (100,22) is inside hello-world's button row (node3: y 16..30) and
+    // outside the label row (node0: y 8..22, exclusive end) per AZ_DUMP_RECTS.
+    // Override with AZ_CLICK_X / AZ_CLICK_Y.
+    const clickX = Number(process.env.AZ_CLICK_X || 100);
+    const clickY = Number(process.env.AZ_CLICK_Y || 22);
     const evtLen = 20;
     const evtPtr = mini.AzStartup_alloc(evtLen);
     const evtDv = new DataView(memory.buffer, evtPtr, evtLen);
     evtDv.setUint32(0, 0xFFFFFFFF, true);
-    evtDv.setFloat32(4, 100.0, true);
-    evtDv.setFloat32(8, 100.0, true);
+    evtDv.setUint32(4, clickX, true);
+    evtDv.setUint32(8, clickY, true);
     evtDv.setUint32(12, 0, true);
     evtDv.setUint32(16, 0, true);
-    console.log('[3] click event synthesized at (100,100) with NODE_IDX=SENTINEL');
+    console.log('[3] click event synthesized at (' + clickX + ',' + clickY + ') integer px, NODE_IDX=SENTINEL');
 
     // === STEP 4: dispatch → hit-test → cb invoke ===
     const outLenPtr = mini.AzStartup_alloc(4);
