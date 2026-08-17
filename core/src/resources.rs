@@ -457,28 +457,38 @@ impl_option!(RouteMatch, OptionRouteMatch, copy = false, [Debug, Clone, PartialE
     })
 }
 
-/// Everything a registered native animation function may inspect while
-/// producing one frame of a presence animation (`-azul-animation-in` /
-/// `-azul-animation-out: fooFunc 1s`).
+/// The ZOMBIE-SPECIFIC half of what a native animation function receives —
+/// the other half is a full [`TimerCallbackInfo`] (USER ruling 2026-08-17),
+/// so a callback can also reach the LIVE dom, queue changes, read momentum,
+/// measure any node… full customizability, not a keyhole.
 ///
-/// The pointers are BORROWED for the duration of the call — a function may
-/// walk the tree (e.g. measure its own component's text mid-exit) but must
-/// not store them: for an exit the tree is the RETAINED zombie frame, freed
-/// when the animation completes.
+/// The pointers here are BORROWED for the duration of the call — a function
+/// may walk the retained tree (e.g. measure its own component's text
+/// mid-exit) but must not store them: for an exit the tree is the retained
+/// zombie frame, freed when the animation completes.
 #[derive(Debug)]
 #[repr(C)]
 pub struct ZombieAnimInfo {
-    /// The `StyledDom` the node lives in — the retained tree for exits, the
-    /// live tree for enters. Never null during a call.
+    /// The `StyledDom` the ANIMATED node lives in — the retained tree for
+    /// exits, the live tree for enters. Never null during a call. (The live
+    /// dom is separately reachable through the `TimerCallbackInfo`.)
     pub styled_dom: *const crate::styled_dom::StyledDom,
     /// The animated node's index in THAT tree.
     pub node_id: u64,
-    /// The node's rect in logical px: the FROZEN rect for exits, the solved
-    /// rect for enters.
+    /// The node's rect in logical px: the retained rect for exits, the
+    /// solved rect for enters.
     pub rect: crate::geom::LogicalRect,
     /// The viewport the tree was laid out in.
     pub viewport: crate::geom::LogicalRect,
     pub dpi_factor: f32,
+    /// RAW LINEAR progress 0..=1. The engine does NOT pre-apply easing for
+    /// native functions: the DECLARED timing arrives in `timing` below, and
+    /// the callback owns the math — apply it via `AnimationTiming::evaluate`
+    /// or substitute its own curve entirely.
+    pub t: f32,
+    /// The timing the CSS requested (`ease`, `spring`, a
+    /// `cubic-bezier(...)` point list, …).
+    pub timing: azul_css::props::basic::animation::AnimationTiming,
     /// The animation's velocity ENTERING this frame, logical px/s — the
     /// derivative of the previous two samples (one-frame lag; zero on the
     /// first frame and for enter/live tracks today). The read half of the
@@ -519,10 +529,15 @@ impl Default for ZombieFrame {
     }
 }
 
-/// `extern "C"` entry point of a native presence animation: called once per
-/// frame with eased progress `t` in `0..=1`; returns the frame to show.
-pub type ZombieAnimCallbackType =
-    extern "C" fn(&mut RefAny, &ZombieAnimInfo, f32) -> ZombieFrame;
+/// TYPE-ERASED `extern "C"` entry point of a native presence animation.
+///
+/// Stored as `usize` for the same reason as [`crate::callbacks::CoreCallback`]:
+/// the REAL signature takes a `&mut TimerCallbackInfo` (full live-dom access,
+/// USER ruling 2026-08-17), and that type lives in `azul-layout`, above this
+/// crate. azul-layout defines the typed alias and casts on invocation:
+///
+/// `extern "C" fn(&mut RefAny, &mut TimerCallbackInfo, &ZombieAnimInfo) -> ZombieFrame`
+pub type ZombieAnimCallbackType = usize;
 
 /// See [`ZombieAnimCallbackType`].
 #[repr(C)]
@@ -530,13 +545,41 @@ pub type ZombieAnimCallbackType =
 pub struct ZombieAnimCallback {
     pub cb: ZombieAnimCallbackType,
 }
-crate::impl_callback_traits!(ZombieAnimCallback);
 
-/// One registered native animation function: resolvable by NAME from
-/// `-azul-animation-in` / `-azul-animation-out`, after stylesheet
-/// `@keyframes` (author wins) and before the builtin table (an app may
-/// shadow `flyOutRight`).
-#[derive(Debug, Clone)]
+impl core::fmt::Debug for ZombieAnimCallback {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        write!(f, "ZombieAnimCallback @ 0x{:x}", self.cb)
+    }
+}
+impl core::hash::Hash for ZombieAnimCallback {
+    fn hash<H: core::hash::Hasher>(&self, state: &mut H) {
+        state.write_usize(self.cb);
+    }
+}
+impl PartialEq for ZombieAnimCallback {
+    fn eq(&self, other: &Self) -> bool {
+        self.cb == other.cb
+    }
+}
+impl Eq for ZombieAnimCallback {}
+impl PartialOrd for ZombieAnimCallback {
+    fn partial_cmp(&self, other: &Self) -> Option<core::cmp::Ordering> {
+        Some(self.cmp(other))
+    }
+}
+impl Ord for ZombieAnimCallback {
+    fn cmp(&self, other: &Self) -> core::cmp::Ordering {
+        self.cb.cmp(&other.cb)
+    }
+}
+
+/// A COMPONENT-ATTACHED native animation function: lives on the node's own
+/// `NodeData` (USER ruling 2026-08-17 — a sidebar widget ships its fly-out
+/// next to its own DOM, not in app-global state; the global AppConfig
+/// registry this replaced was "a bit unclean"). Resolvable by NAME from that
+/// node's `-azul-animation-in` / `-azul-animation-out`, AFTER stylesheet
+/// `@keyframes` — the web mechanism stays the only default name source.
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[repr(C)]
 pub struct AnimationFunction {
     pub name: AzString,
@@ -544,23 +587,6 @@ pub struct AnimationFunction {
     /// Passed to `callback` on every invocation.
     pub data: RefAny,
 }
-
-impl_vec!(
-    AnimationFunction,
-    AnimationFunctionVec,
-    AnimationFunctionVecDestructor,
-    AnimationFunctionVecDestructorType,
-    AnimationFunctionVecSlice,
-    OptionAnimationFunction
-);
-impl_vec_debug!(AnimationFunction, AnimationFunctionVec);
-impl_vec_clone!(AnimationFunction, AnimationFunctionVec, AnimationFunctionVecDestructor);
-impl_option!(
-    AnimationFunction,
-    OptionAnimationFunction,
-    copy = false,
-    [Debug, Clone]
-);
 
 /// Configuration of the SYSTEM-driven animations: physics-based scrolling
 /// and the caret / selection tweens. Lives on [`AppConfig`] so a platform or
@@ -590,10 +616,7 @@ pub struct SystemAnimations {
     pub caret_tween_data: RefAny,
     /// User data passed to `selection_tween` on every invocation.
     pub selection_tween_data: RefAny,
-    /// Native presence-animation functions, resolvable by name from
-    /// `-azul-animation-in` / `-azul-animation-out` (`fooFunc 1s`). Resolved
-    /// AFTER stylesheet `@keyframes` and BEFORE the builtin table.
-    pub animation_functions: AnimationFunctionVec,
+
     /// Overrides `SystemStyle.scroll_physics` (momentum, overscroll /
     /// rubber-band, wheel-vs-trackpad curves). `None` = platform default.
     pub scroll_physics: OptionScrollPhysics,
@@ -642,7 +665,6 @@ impl Default for SystemAnimations {
                 crate::callbacks::default_caret_tween,
             ),
             caret_tween_data: RefAny::new(()),
-            animation_functions: AnimationFunctionVec::from_const_slice(&[]),
             selection_tween_duration_ms: 60,
             selection_tween: crate::callbacks::SelectionTweenCallback::create(
                 crate::callbacks::default_selection_tween,

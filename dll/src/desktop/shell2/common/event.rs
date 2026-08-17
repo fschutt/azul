@@ -1995,6 +1995,30 @@ pub trait PlatformWindow {
                         layout_window.tick_animations(dt);
                     }
                 }
+                // Sample the tracks for THIS tick — may invoke COMPONENT
+                // animation functions; their changes apply like timer
+                // changes. Idempotent per tick (guarded), so the present
+                // path's own sampling cannot double-invoke.
+                let track_changes = {
+                    let borrows = self.prepare_callback_invocation();
+                    let system_callbacks = ExternalSystemCallbacks::rust_internal();
+                    let frame_start = (system_callbacks.get_system_time_fn.cb)();
+                    borrows.layout_window.run_track_frames(
+                        dt,
+                        frame_start,
+                        &borrows.window_handle,
+                        borrows.gl_context_ptr,
+                        borrows.system_style.clone(),
+                        &system_callbacks,
+                        borrows.previous_window_state,
+                        borrows.current_window_state,
+                        borrows.renderer_resources,
+                    )
+                };
+                let mut extra = ProcessEventResult::DoNothing;
+                for change in &track_changes {
+                    extra = extra.max(self.apply_user_change(change));
+                }
                 // A settled step still owes one frame, so the final (identity)
                 // transform actually reaches the screen. A layout-affecting
                 // `animation` transition escalates to a real relayout.
@@ -2002,14 +2026,14 @@ pub trait PlatformWindow {
                     Some(lw) => (lw.take_transition_relayout(), lw.take_transition_patched()),
                     None => (false, false),
                 };
-                return if needs_relayout {
+                return extra.max(if needs_relayout {
                     ProcessEventResult::ShouldIncrementalRelayout
                 } else if patched {
                     // The DL was patched in place — re-render only.
                     ProcessEventResult::ShouldReRenderCurrentWindow
                 } else {
                     ProcessEventResult::ShouldUpdateDisplayListCurrentWindow
-                };
+                });
             }
 
             // NOT YET EXECUTED ON THE DESKTOP SHELL.

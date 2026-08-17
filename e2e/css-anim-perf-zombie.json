@@ -1,6 +1,6 @@
 {
   "name": "css_anim_perf_zombie",
-  "description": "A SLIDING ZOMBIE NEVER FORCES A FULL FRAME. While an exit is on screen the renderer used to disable BOTH the skip and the incremental path - every zombie frame was a full composite. The per-frame truth is the union of the zombie's previous and current painted rects (restore the live frame where it was, paint it where it is). The fixture pins exactly that: the sidebar is an ABSOLUTE overlay, so unmounting it moves nothing else (no reconciliation move, no spring) - the only animation on screen is the exit, and every frame of it must report RECTS damage, never full. (A moved reference frame is also rect-damage now: its content bbox at the old and new matrix, about the frame origin - the previous blanket needs_full made every spring tick a full repaint.)",
+  "description": "A SLIDING ZOMBIE NEVER FORCES A FULL FRAME. While an exit is on screen the renderer used to disable BOTH the skip and the incremental path - every zombie frame was a full composite. The per-frame truth is the union of the zombie's previous and current painted rects (restore the live frame where it was, paint it where it is). The fixture pins exactly that: the sidebar is an ABSOLUTE overlay, so unmounting it moves nothing else (no reconciliation move, no spring) - the only animation on screen is the exit, and every frame of it must report RECTS damage, never full. (A moved reference frame is also rect-damage now: its content bbox at the old and new matrix, about the frame origin - the previous blanket needs_full made every spring tick a full repaint.) (Names are @keyframes-declared: there are NO engine builtins - USER ruling - and no default slides; an undeclared unmount just disappears.)",
   "setup": {
     "window_width": 400,
     "window_height": 300,
@@ -16,6 +16,7 @@
       ],
       "css": [
         "html, body { margin: 0; padding: 0; width: 100%; height: 100%; }",
+        "@keyframes flyOutLeft { from { transform: translateX(0px); } to { transform: translateX(-100%); } }",
         "#root { width: 100%; height: 100%; background: #cc3333; }",
         "#sidebar { position: absolute; left: 0px; top: 0px; width: 200px; height: 100%; background: #2255aa; -azul-animation-out: flyOutLeft 1s; }"
       ]

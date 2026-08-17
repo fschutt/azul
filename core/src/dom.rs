@@ -1943,6 +1943,13 @@ pub struct NodeDataExt {
     /// Enables the debugger to reconstruct the component invocation tree from the
     /// flat rendered DOM, and enables code generation roundtrips.
     pub component_origin: Option<ComponentOrigin>,
+    /// COMPONENT-ATTACHED presence-animation functions, resolvable by NAME
+    /// from this node's `-azul-animation-in` / `-azul-animation-out` (after
+    /// stylesheet `@keyframes` — the web mechanism stays the only default
+    /// name source). This replaced the global AppConfig registry (USER
+    /// ruling 2026-08-17): a sidebar widget ships its fly-out next to its
+    /// own DOM, not in app-global state.
+    pub animation_callbacks: Vec<crate::resources::AnimationFunction>,
 }
 
 /// A callback function used to merge the state of an old dataset into a new one.
@@ -2615,6 +2622,37 @@ impl NodeData {
         self.node_type = node_type;
     }
     #[inline]
+    /// The node's component-attached animation functions (empty for the
+    /// ~100% of nodes that have none — no `extra` allocation is made by
+    /// reading).
+    #[must_use]
+    pub fn animation_callbacks(&self) -> &[crate::resources::AnimationFunction] {
+        self.extra
+            .as_ref()
+            .map_or(&[], |e| e.animation_callbacks.as_slice())
+    }
+
+    /// Attach a presence-animation function under `name`, resolvable from
+    /// this node's `-azul-animation-in` / `-azul-animation-out` after
+    /// stylesheet `@keyframes`. `callback` is the TYPE-ERASED
+    /// `azul_layout::callbacks::ZombieAnimCallbackType` fn pointer cast to
+    /// `usize` (see [`crate::resources::ZombieAnimCallbackType`]).
+    pub fn add_animation_callback(
+        &mut self,
+        name: AzString,
+        callback: crate::resources::ZombieAnimCallback,
+        data: RefAny,
+    ) {
+        self.extra
+            .get_or_insert_with(|| Box::new(NodeDataExt::default()))
+            .animation_callbacks
+            .push(crate::resources::AnimationFunction {
+                name,
+                callback,
+                data,
+            });
+    }
+
     pub fn set_dataset(&mut self, data: OptionRefAny) {
         match data {
             OptionRefAny::None => {
@@ -6065,6 +6103,18 @@ impl Dom {
     #[inline]
     #[must_use] pub fn with_dataset(mut self, data: OptionRefAny) -> Self {
         self.root.set_dataset(data);
+        self
+    }
+
+    /// Attach a presence-animation function to this node — see
+    /// [`NodeData::add_animation_callback`].
+    #[must_use] pub fn with_animation_callback(
+        mut self,
+        name: AzString,
+        callback: crate::resources::ZombieAnimCallback,
+        data: RefAny,
+    ) -> Self {
+        self.root.add_animation_callback(name, callback, data);
         self
     }
     #[inline]

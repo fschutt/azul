@@ -1317,10 +1317,39 @@ impl Runner {
                 for _ in 0..(*steps).max(1) {
                     self.layout_window.tick_animations(dt);
                 }
+                // Sample the tracks for THIS frame — may invoke COMPONENT
+                // animation functions with a full TimerCallbackInfo; their
+                // queued changes apply exactly like timer changes.
+                let track_changes = {
+                    let frame_start = self.now();
+                    let Self {
+                        layout_window,
+                        window_state,
+                        previous_window_state,
+                        renderer_resources,
+                        system_callbacks,
+                        ..
+                    } = self;
+                    layout_window.run_track_frames(
+                        dt,
+                        frame_start,
+                        &RawWindowHandle::Unsupported,
+                        &OptionGlContextPtr::None,
+                        Arc::new(SystemStyle::default()),
+                        system_callbacks,
+                        previous_window_state,
+                        window_state,
+                        renderer_resources,
+                    )
+                };
+                let mut extra = ProcessEventResult::DoNothing;
+                for ch in &track_changes {
+                    extra = extra.max(self.apply_user_change(ch));
+                }
                 // A layout-affecting `animation` transition (width, margins)
                 // must re-solve, not just repaint — the display-list rebuild
                 // reads geometry the solver has not recomputed yet.
-                if self.layout_window.take_transition_relayout() {
+                extra.max(if self.layout_window.take_transition_relayout() {
                     ProcessEventResult::ShouldIncrementalRelayout
                 } else if self.layout_window.take_transition_patched() {
                     // Every transitioning value was PATCHED into the DL in
@@ -1329,7 +1358,7 @@ impl Runner {
                     ProcessEventResult::ShouldReRenderCurrentWindow
                 } else {
                     ProcessEventResult::ShouldUpdateDisplayListCurrentWindow
-                }
+                })
             }
 
             CallbackChange::StopE2eJson { .. } => ProcessEventResult::DoNothing,

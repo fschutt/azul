@@ -1,6 +1,6 @@
 {
   "name": "css_zombie_relayout",
-  "description": "THE ZOMBIE IS NOT FROZEN - IT IS UNREACHABLE. A width-driving @keyframes exit (`shrinkOut`: width 200px -> 40px, no translate) must RE-SOLVE the retained tree at the sampled width each changed frame, so its text rewraps mid-exit; a pure slide (css_animation_out) must never pay that. The counter is nonzero-asserted rather than exact: the runner's redraw pump ticks animations on the WALL clock between ops, so the solve count is real but not step-deterministic. The final two reads must MATCH (post-completion ticks sample the clamped final width, hit `applied_sizes`, and cost nothing) - pinned by asserting the counter is nonzero at completion and that a pure slide (css_animation_out) stays at exactly 0. Callbacks meanwhile operate only on the new DOM - the zombie never re-enters hit-testing (unchanged by this feature; retention already removes it from layout_results).",
+  "description": "THE ZOMBIE IS NOT FROZEN - IT IS UNREACHABLE. A width-driving @keyframes exit (`shrinkOut`: width 200px -> 40px, no translate) must RE-SOLVE the retained tree at the sampled width each changed frame, so its text rewraps mid-exit; a pure slide (css_animation_out) must never pay that. The counter is nonzero-asserted rather than exact: the runner's redraw pump ticks animations on the WALL clock between ops, so the solve count is real but not step-deterministic. The final two reads must MATCH (post-completion ticks sample the clamped final width, hit `applied_sizes`, and cost nothing) - pinned by asserting the counter is nonzero once frames have been driven (sampling is FRAME-driven via run_track_frames since the TimerCallbackInfo rework - the seed itself no longer solves) and that a pure slide (css_animation_out) stays at exactly 0. Callbacks meanwhile operate only on the new DOM - the zombie never re-enters hit-testing (unchanged by this feature; retention already removes it from layout_results).",
   "setup": {
     "window_width": 400,
     "window_height": 300,
@@ -57,14 +57,6 @@
       "op": "assert_response",
       "type": "animations",
       "contains": "\"zombies\":1"
-    },
-    {
-      "op": "get_animations"
-    },
-    {
-      "op": "assert_response",
-      "type": "animations",
-      "not_contains": "\"zombie_relayouts\":0,"
     },
     {
       "op": "tick_animations",
