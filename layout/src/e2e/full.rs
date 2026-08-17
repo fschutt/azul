@@ -346,6 +346,9 @@ pub struct FrameReportResponse {
     /// Full display-list builds since the last reset — 0 across a paint-only
     /// transition tick proves the DL was PATCHED, not rebuilt.
     pub dl_rebuilds: u32,
+    /// Whether the last display-list build was the per-IFC PATCH (splice +
+    /// re-emit) — true after a text edit, false after a structural change.
+    pub last_dl_build_patched: bool,
     pub frame_index: u64,
     /// `"none"`, `"rects"` or `"full"`.
     pub paint_damage_kind: String,
@@ -5194,6 +5197,7 @@ fn build_frame_report_response(
     FrameReportResponse {
         frame_index: report.frame_index,
         dl_rebuilds: report.dl_rebuilds,
+        last_dl_build_patched: report.last_dl_build_patched,
         paint_damage_kind: damage_kind_str(&report.paint_damage).to_string(),
         paint_damage_rects: to_json(&report.paint_damage),
         paint_damage_area_ratio: report.paint_damage.area(window_area) / window_area,

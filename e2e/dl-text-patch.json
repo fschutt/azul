@@ -1,0 +1,82 @@
+{
+  "name": "dl_text_patch",
+  "description": "PER-IFC DISPLAY-LIST PATCHING FOR TEXT CONTENT CHANGES (USER mandate 2026-08-17). Editing a text node's content re-shapes and relayouts its IFC - that work is REAL and layout_passes counts it - but the display-list build must be the PATCH: unchanged nodes splice their item runs from the previous DL, only the reflowed IFC (and size-changed nodes) re-emit, and the damage is the touched strip, not the frame. The gate: a STRUCTURE-PRESERVED reconcile (zero fresh nodes, zero drops, no CSS dirt). The NC inside this scenario: a CSS-dirty pass (set_node_css_override changing width) must NOT splice - restyled items changed paint without reflowing, so the same marker must read false (full emission).",
+  "setup": {
+    "window_width": 400,
+    "window_height": 300,
+    "dpi": 96
+  },
+  "steps": [
+    {
+      "op": "mount",
+      "html": [
+        "<div id=\"root\">",
+        "  <p id=\"para\">The quick brown fox jumps over the lazy dog</p>",
+        "  <p id=\"other\">A second paragraph that must not re-emit</p>",
+        "</div>"
+      ],
+      "css": [
+        "html, body { margin: 0; padding: 0; width: 100%; height: 100%; }",
+        "#root { width: 100%; height: 100%; background: #ffffff; }",
+        "p { font-size: 16px; color: #222222; }"
+      ]
+    },
+    {
+      "op": "wait_frame"
+    },
+    {
+      "op": "reset_frame_counters"
+    },
+    {
+      "op": "set_node_text",
+      "text": "Completely different words in the very same paragraph",
+      "node_id": 5
+    },
+    {
+      "op": "wait_frame"
+    },
+    {
+      "op": "get_frame_report"
+    },
+    {
+      "op": "assert_response",
+      "type": "frame_report",
+      "contains": "\"last_dl_build_patched\":true"
+    },
+    {
+      "op": "assert_damage",
+      "which": "paint",
+      "kind": "rects",
+      "max_area_ratio": 0.5
+    },
+    {
+      "op": "reset_frame_counters"
+    },
+    {
+      "op": "set_node_css_override",
+      "node_id": 5,
+      "property": "width",
+      "value": "200px"
+    },
+    {
+      "op": "wait_frame"
+    },
+    {
+      "op": "get_frame_report"
+    },
+    {
+      "op": "assert_response",
+      "type": "frame_report",
+      "contains": "\"last_dl_build_patched\":false"
+    },
+    {
+      "op": "assert_manager_invariants"
+    },
+    {
+      "op": "wait_frame"
+    },
+    {
+      "op": "assert_state_machines_idle"
+    }
+  ]
+}
