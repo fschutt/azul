@@ -14695,6 +14695,28 @@
                                 "type": "LogicalRect"
                             }
                         }
+                    },
+                    "ZombieAnimCallbackType": {
+                        "doc": [
+                            "Called once per frame with the registered data, the analysis info and eased progress t in 0..=1; returns the frame to show."
+                        ],
+                        "external": "azul_core::resources::ZombieAnimCallbackType",
+                        "callback_typedef": {
+                            "fn_args": [
+                                {
+                                    "type": "RefAny"
+                                },
+                                {
+                                    "type": "ZombieAnimInfo"
+                                },
+                                {
+                                    "type": "f32"
+                                }
+                            ],
+                            "returns": {
+                                "type": "ZombieFrame"
+                            }
+                        }
                     }
                 }
             },
@@ -44520,6 +44542,12 @@
                                 "selection_tween_data": {
                                     "type": "RefAny"
                                 },
+                                "animation_functions": {
+                                    "type": "AnimationFunctionVec",
+                                    "doc": [
+                                        "Native presence-animation functions, resolvable by name from `-azul-animation-in` / `-azul-animation-out` (`fooFunc 1s`). Resolution order: stylesheet `@keyframes`, then this registry, then the builtin table."
+                                    ]
+                                },
                                 "scroll_physics": {
                                     "type": "OptionScrollPhysics"
                                 },
@@ -44675,6 +44703,147 @@
                             {
                                 "stops": {
                                     "type": "KeyframeStopVec"
+                                }
+                            }
+                        ],
+                        "repr": "C"
+                    },
+                    "ZombieAnimInfo": {
+                        "doc": [
+                            "Everything a registered native animation function may inspect while producing one frame of a presence animation (`-azul-animation-in` / `-azul-animation-out: fooFunc 1s`). Pointers are BORROWED for the call: walk the tree (e.g. measure text), never store them - for an exit the tree is the retained zombie frame, freed when the animation completes."
+                        ],
+                        "external": "azul_core::resources::ZombieAnimInfo",
+                        "derive": [
+                            "Debug"
+                        ],
+                        "struct_fields": [
+                            {
+                                "styled_dom": {
+                                    "type": "StyledDom",
+                                    "ref_kind": "constptr",
+                                    "doc": [
+                                        "The tree the node lives in - retained for exits, live for enters. Never null during a call."
+                                    ]
+                                }
+                            },
+                            {
+                                "node_id": {
+                                    "type": "u64"
+                                }
+                            },
+                            {
+                                "rect": {
+                                    "type": "LogicalRect",
+                                    "doc": [
+                                        "The node's rect in logical px: frozen for exits, solved for enters."
+                                    ]
+                                }
+                            },
+                            {
+                                "viewport": {
+                                    "type": "LogicalRect"
+                                }
+                            },
+                            {
+                                "dpi_factor": {
+                                    "type": "f32"
+                                }
+                            }
+                        ],
+                        "repr": "C"
+                    },
+                    "ZombieFrame": {
+                        "doc": [
+                            "One frame of a native presence animation. Absolute values, not deltas: translation in logical px about the node's origin, opacity (0.0 skips the node), an optional absolute painted width (left-anchored narrowing for exits) and whether to clip the exit to its frozen rect."
+                        ],
+                        "external": "azul_core::resources::ZombieFrame",
+                        "derive": [
+                            "Debug",
+                            "Copy",
+                            "Clone",
+                            "PartialEq"
+                        ],
+                        "custom_impls": [
+                            "Default"
+                        ],
+                        "struct_fields": [
+                            {
+                                "translate_x": {
+                                    "type": "f32"
+                                }
+                            },
+                            {
+                                "translate_y": {
+                                    "type": "f32"
+                                }
+                            },
+                            {
+                                "opacity": {
+                                    "type": "f32"
+                                }
+                            },
+                            {
+                                "width": {
+                                    "type": "OptionF32"
+                                }
+                            },
+                            {
+                                "clip_to_frozen_rect": {
+                                    "type": "bool"
+                                }
+                            }
+                        ],
+                        "repr": "C"
+                    },
+                    "ZombieAnimCallback": {
+                        "doc": [
+                            "C-ABI wrapper over a `ZombieAnimCallbackType` (native presence-animation frame function)"
+                        ],
+                        "external": "azul_core::resources::ZombieAnimCallback",
+                        "custom_impls": [
+                            "Clone",
+                            "Debug",
+                            "Eq",
+                            "Hash",
+                            "Ord",
+                            "PartialEq",
+                            "PartialOrd"
+                        ],
+                        "struct_fields": [
+                            {
+                                "cb": {
+                                    "type": "ZombieAnimCallbackType"
+                                }
+                            }
+                        ],
+                        "repr": "C"
+                    },
+                    "AnimationFunction": {
+                        "doc": [
+                            "One registered native animation function: resolvable by NAME from `-azul-animation-in` / `-azul-animation-out`. Resolution order (USER ruling): stylesheet `@keyframes` first, then this registry, then the builtin table (an app may shadow `flyOutRight`)."
+                        ],
+                        "external": "azul_core::resources::AnimationFunction",
+                        "derive": [
+                            "Debug",
+                            "Clone"
+                        ],
+                        "struct_fields": [
+                            {
+                                "name": {
+                                    "type": "String"
+                                }
+                            },
+                            {
+                                "callback": {
+                                    "type": "ZombieAnimCallback"
+                                }
+                            },
+                            {
+                                "data": {
+                                    "type": "RefAny",
+                                    "doc": [
+                                        "Passed to `callback` on every invocation."
+                                    ]
                                 }
                             }
                         ],
@@ -96274,6 +96443,121 @@
                             "fn_args": [
                                 {
                                     "type": "KeyframesVec",
+                                    "ref_kind": "mutptr"
+                                }
+                            ],
+                            "returns": null
+                        }
+                    },
+                    "AnimationFunctionVec": {
+                        "doc": [
+                            "Wrapper over a Rust-allocated `Vec<AnimationFunction>"
+                        ],
+                        "external": "azul_core::resources::AnimationFunctionVec",
+                        "custom_impls": [
+                            "Clone",
+                            "Debug"
+                        ],
+                        "custom_destructor": true,
+                        "derive": [
+                            "Debug"
+                        ],
+                        "struct_fields": [
+                            {
+                                "ptr": {
+                                    "type": "AnimationFunction",
+                                    "ref_kind": "constptr"
+                                },
+                                "len": {
+                                    "type": "usize"
+                                },
+                                "cap": {
+                                    "type": "usize"
+                                },
+                                "destructor": {
+                                    "type": "AnimationFunctionVecDestructor"
+                                }
+                            }
+                        ],
+                        "functions": {
+                            "create": {
+                                "doc": [
+                                    "Creates an empty `AnimationFunctionVec`"
+                                ],
+                                "fn_args": [],
+                                "returns": {
+                                    "type": "AnimationFunctionVec"
+                                },
+                                "fn_body": "AnimationFunctionVec::new()"
+                            },
+                            "len": {
+                                "doc": [
+                                    "Returns the number of elements in the Vec"
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "usize"
+                                },
+                                "fn_body": "object.len()"
+                            },
+                            "is_empty": {
+                                "doc": [
+                                    "Returns whether the Vec is empty"
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "bool"
+                                },
+                                "fn_body": "object.is_empty()"
+                            },
+                            "from_item": {
+                                "doc": [
+                                    "Creates a `AnimationFunctionVec` containing a single element"
+                                ],
+                                "fn_args": [
+                                    {
+                                        "item": "AnimationFunction"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "AnimationFunctionVec"
+                                },
+                                "fn_body": "AnimationFunctionVec::from_item(item)"
+                            }
+                        },
+                        "repr": "C"
+                    },
+                    "AnimationFunctionVecDestructor": {
+                        "external": "azul_core::resources::AnimationFunctionVecDestructor",
+                        "derive": [
+                            "Debug"
+                        ],
+                        "enum_fields": [
+                            {
+                                "DefaultRust": {},
+                                "NoDestructor": {},
+                                "External": {
+                                    "type": "AnimationFunctionVecDestructorType"
+                                },
+                                "AlreadyDestroyed": {}
+                            }
+                        ],
+                        "repr": "C, u8"
+                    },
+                    "AnimationFunctionVecDestructorType": {
+                        "external": "azul_core::resources::AnimationFunctionVecDestructorType",
+                        "callback_typedef": {
+                            "fn_args": [
+                                {
+                                    "type": "AnimationFunctionVec",
                                     "ref_kind": "mutptr"
                                 }
                             ],
