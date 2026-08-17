@@ -443,6 +443,21 @@ impl ActiveAnim {
     /// Was fade+shrink-in-place; same USER ruling as [`flip`]: a departing
     /// sidebar slides away to its edge — it does not dissolve.
     #[must_use]
+    /// Reverse a presence animation IN FLIGHT: the channels retarget from
+    /// their CURRENT values (velocity preserved — `Channel::retarget`'s whole
+    /// feature) toward the new destination. `Exit` + a slide target turns an
+    /// entering node around; `Enter` + identity catches an exiting node
+    /// (the remount-mid-exit catch: the zombie is dropped and the LIVE node
+    /// travels home from wherever the exit had carried it).
+    pub fn retarget_presence(&mut self, class: AnimClass, to_x: f32, to_y: f32) {
+        self.class = class;
+        self.translate_x.retarget(to_x);
+        self.translate_y.retarget(to_y);
+        self.scale_x.retarget(1.0);
+        self.scale_y.retarget(1.0);
+        self.opacity.retarget(1.0);
+    }
+
     pub fn exit_slide(to_x: f32, to_y: f32, interp: Interp) -> Self {
         Self {
             class: AnimClass::Exit,
@@ -560,12 +575,24 @@ impl AnimationManager {
             .or_insert_with(|| ActiveAnim::enter_slide(from.0, from.1, interp));
     }
 
-    /// Start an exit animation, replacing whatever was in flight.
-    ///
-    /// An exit always wins: the node is leaving, so continuing to animate it
-    /// toward a layout position it will never occupy is wrong.
+    /// Start an exit animation. An exit always WINS — the node is leaving, so
+    /// continuing toward a layout position it will never occupy is wrong —
+    /// but it does not RESTART: if an animation is already in flight under
+    /// this key (a node unmounted mid-enter, or mid-move), the channels
+    /// RETARGET from their current value with velocity preserved, so the
+    /// node turns around instead of snapping to its laid-out position first.
     pub fn start_exit(&mut self, key: AnimKey, to: (f32, f32), interp: Interp) {
-        self.active.insert(key, ActiveAnim::exit_slide(to.0, to.1, interp));
+        match self.active.get_mut(&key) {
+            Some(anim) => anim.retarget_presence(AnimClass::Exit, to.0, to.1),
+            None => {
+                self.active.insert(key, ActiveAnim::exit_slide(to.0, to.1, interp));
+            }
+        }
+    }
+
+    /// Mutable access to an in-flight animation — the mid-flight-catch hook.
+    pub fn get_mut(&mut self, key: AnimKey) -> Option<&mut ActiveAnim> {
+        self.active.get_mut(&key)
     }
 
     /// Read the current state for a key.

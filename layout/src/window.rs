@@ -7004,6 +7004,7 @@ impl LayoutWindow {
                 let mut exits = BTreeMap::new();
                 let mut rects = BTreeMap::new();
                 let mut tracks = BTreeMap::new();
+                let mut retained_keys = BTreeMap::new();
                 let exit_viewport = retained.viewport;
                 // Cloned once: `effective_system_animations` borrows all of
                 // `self`, and the loop below needs `self.animations` mutably.
@@ -7050,6 +7051,23 @@ impl LayoutWindow {
                             if track.iterations_left.is_none() {
                                 track.iterations_left = Some(1);
                             }
+                            // A node unmounting MID-ENTER keeps its current
+                            // offsets: the out-track starts from wherever the
+                            // in-track had carried it instead of snapping to
+                            // the laid-out position first.
+                            if let Some(lt) = self.live_tracks.get(node) {
+                                track.override_start(&lt.sample());
+                            }
+                            retained_keys.insert(
+                                *node,
+                                azul_core::animation::AnimKey(
+                                    azul_core::diff::calculate_reconciliation_key(
+                                        &old_node_data,
+                                        &old_hierarchy,
+                                        *node,
+                                    ),
+                                ),
+                            );
                             tracks.insert(*node, track);
                             continue;
                         }
@@ -7081,6 +7099,7 @@ impl LayoutWindow {
                         ),
                     );
                     exits.insert(*node, key);
+                    retained_keys.insert(*node, key);
                 }
                 self.zombies.push(Zombie {
                     retained,
@@ -7091,6 +7110,7 @@ impl LayoutWindow {
                     scratch_cache: Solver3LayoutCache::default(),
                     scratch_text: TextLayoutCache::new(),
                     live_rects: BTreeMap::new(),
+                    retained_keys,
                     applied_sizes: BTreeMap::new(),
                     frozen_scroll,
                     #[cfg(feature = "cpurender")]
@@ -7167,6 +7187,104 @@ impl LayoutWindow {
         let anim_registry = self.effective_system_animations().animation_functions.clone();
         for node_id in &pending.mounted {
             if node_id.index() >= pending.new_node_data.len() {
+                continue;
+            }
+            // THE MID-FLIGHT CATCH: a mount whose reconciliation identity
+            // matches a node still animating OUT in a zombie claims it —
+            // the zombie entry is dropped (no double image: a fresh enter
+            // next to a still-leaving retained copy) and the LIVE node
+            // continues the motion in reverse. USER spec 2026-08-17:
+            // "structural hash is the same, another CSS diff comes in while
+            // the animation is playing -> do NOT recreate the sidebar, but
+            // in-flight change the zombie animation from -out to -in".
+            let mount_key = azul_core::animation::AnimKey(
+                azul_core::diff::calculate_reconciliation_key(
+                    &pending.new_node_data,
+                    &pending.new_hierarchy,
+                    *node_id,
+                ),
+            );
+            let mut caught_track: Option<(TrackSample, AnimTrack)> = None;
+            let mut caught_slide = false;
+            for z in &mut self.zombies {
+                let Some(old_node) = z
+                    .retained_keys
+                    .iter()
+                    .find_map(|(n, k)| (*k == mount_key).then_some(*n))
+                else {
+                    continue;
+                };
+                if let Some(tr) = z.tracks.remove(&old_node) {
+                    let sample = z
+                        .tick_samples
+                        .remove(&old_node)
+                        .unwrap_or_else(|| tr.sample());
+                    caught_track = Some((sample, tr));
+                } else if z.exits.remove(&old_node).is_some() {
+                    caught_slide = true;
+                }
+                z.rects.remove(&old_node);
+                z.retained_keys.remove(&old_node);
+                z.live_rects.remove(&old_node);
+                z.applied_sizes.remove(&old_node);
+                break;
+            }
+            if let Some((sample, out_track)) = caught_track {
+                self.anim_key_to_node.insert(mount_key, *node_id);
+                // A declared `-azul-animation-in` drives the return, seeded
+                // from the exit's current state; otherwise the out-track
+                // plays back in reverse. Either way: continuity, no snap.
+                let named_in = self.layout_results.get(&dom_id).and_then(|r| {
+                    let sd = &r.styled_dom;
+                    let nd = sd.node_data.as_ref().get(node_id.index())?;
+                    let st = sd.styled_nodes.as_ref().get(node_id.index())?;
+                    let prop = sd.css_property_cache.ptr.get_property(
+                        nd,
+                        node_id,
+                        &st.styled_node_state,
+                        &azul_css::props::property::CssPropertyType::AnimationIn,
+                    )?;
+                    let azul_css::props::property::CssProperty::AnimationIn(v) = prop else {
+                        return None;
+                    };
+                    let rect = self
+                        .get_node_bounds(dom_id, *node_id)
+                        .map(layout_rect_to_logical)?;
+                    v.get_property()?.as_ref().iter().find_map(|anim| {
+                        resolve_named_track(
+                            anim,
+                            &sd.css_property_cache.ptr.retained_author_css,
+                            &anim_registry,
+                            rect,
+                        )
+                    })
+                });
+                let track = match named_in {
+                    Some(mut t) => {
+                        t.override_start(&sample);
+                        t
+                    }
+                    None => reverse_out_track(&sample, &out_track),
+                };
+                self.live_tracks.insert(*node_id, track);
+                continue;
+            }
+            if caught_slide {
+                // The manager still holds the exit under this SAME key
+                // (identity survives the rebuild): retarget it home with
+                // velocity preserved instead of minting a fresh enter.
+                self.anim_key_to_node.insert(mount_key, *node_id);
+                if let Some(anim) = self.animations.get_mut(mount_key) {
+                    let () = anim.retarget_presence(azul_core::animation::AnimClass::Enter, 0.0, 0.0);
+                } else {
+                    self.animations.start_enter(
+                        mount_key,
+                        (0.0, 0.0),
+                        azul_core::animation::Interp::Spring(
+                            azul_core::animation::Spring::SMOOTH,
+                        ),
+                    );
+                }
                 continue;
             }
             // `-azul-animation-in` on the NEW cascade wins over the default
@@ -9318,10 +9436,12 @@ mod tests {
     }
 
     /// `flyOutRight` is the USER's reference exit: shift right by the full
-    /// width while narrowing to zero — the sidebar leaves through its own
-    /// right edge instead of squashing or fading.
+    /// width, leaving through the node's own right edge. It is
+    /// TRANSLATE-ONLY: the frozen-rect clip narrows the visible strip as it
+    /// travels, and a `width` channel would instead mean REAL layout width —
+    /// the per-frame retained-tree re-solve a pure slide must never pay for.
     #[test]
-    fn builtin_fly_out_right_shifts_right_and_narrows_to_zero() {
+    fn builtin_fly_out_right_is_translate_only_the_clip_narrows() {
         use azul_css::props::basic::animation::AnimationTiming;
         let rect = LogicalRect::new(
             LogicalPosition::new(0.0, 0.0),
@@ -9332,13 +9452,15 @@ mod tests {
         tr.t = 0.0;
         let start = tr.sample();
         assert_eq!(start.translate_x, 0.0);
-        assert_eq!(start.width, Some(300.0));
+        assert_eq!(start.width, None, "no width channel: the FROZEN path");
         tr.t = 1.0;
         let end = tr.sample();
         assert_eq!(end.translate_x, 300.0);
-        assert_eq!(end.width, Some(0.0));
-        // Presence exits keep full opacity (USER ruling: no fade).
+        assert_eq!(end.width, None);
+        // Presence exits keep full opacity (USER ruling: no fade) and clip
+        // to their frozen box (a slide must not paint over neighbours).
         assert_eq!(end.opacity, 1.0);
+        assert!(end.clip);
         assert!(builtin_track("noSuchAnimation", rect, 1.0, AnimationTiming::Linear).is_none());
     }
 
@@ -15739,6 +15861,10 @@ pub struct Zombie {
     /// The re-solved rect per relayouting node (cut source). Absent = the
     /// frozen rect (translate-only exits never pay for a solve).
     pub live_rects: BTreeMap<NodeId, LogicalRect>,
+    /// Reconciliation identity per retained node (slide AND track exits) —
+    /// what lets a REMOUNT recognize its own in-flight zombie and catch it
+    /// instead of double-painting a fresh enter next to a still-leaving copy.
+    pub retained_keys: BTreeMap<NodeId, azul_core::animation::AnimKey>,
     /// The size last APPLIED to the retained tree per node, so a tick whose
     /// sample matches skips the solve (and the seed tick at t=0, sampling
     /// the frozen size, costs nothing).
@@ -15922,6 +16048,31 @@ impl AnimTrack {
             height: Self::sample_channel(&self.height, self.t, timing),
             clip: true,
         }
+    }
+
+    /// Seed this track's t=0 state from a CURRENT sample — the continuity
+    /// primitive for both catch directions (a remount claiming a mid-exit
+    /// zombie, a mid-enter node unmounting). Channels the sample holds at
+    /// identity and the track never mentions stay untouched.
+    pub fn override_start(&mut self, s: &TrackSample) {
+        fn with_start(ch: &mut Vec<(f32, f32)>, start: f32, end: f32, identity: f32) {
+            if ch.is_empty() {
+                if (start - identity).abs() > f32::EPSILON {
+                    ch.push((0.0, start));
+                    ch.push((1.0, end));
+                }
+            } else if ch[0].0 <= f32::EPSILON {
+                ch[0].1 = start;
+            } else {
+                ch.insert(0, (0.0, start));
+            }
+        }
+        with_start(&mut self.translate_x, s.translate_x, 0.0, 0.0);
+        with_start(&mut self.translate_y, s.translate_y, 0.0, 0.0);
+        with_start(&mut self.scale_x, s.scale_x, 1.0, 1.0);
+        with_start(&mut self.scale_y, s.scale_y, 1.0, 1.0);
+        with_start(&mut self.rotate_deg, s.rotate_deg, 0.0, 0.0);
+        with_start(&mut self.opacity, s.opacity, 1.0, 1.0);
     }
 
     /// [`Self::sample`], but a `Native` source calls its registered function
@@ -16207,6 +16358,33 @@ pub fn resolve_named_track(
         }
     }
     builtin_track(anim.name.as_str(), rect, duration_s, anim.timing).map(finish)
+}
+
+/// The reverse of an out-track caught mid-flight with NO declared
+/// `-azul-animation-in`: travel back to identity from the current sample,
+/// over the time the exit had already spent (same average pace), same
+/// timing keyword. Width/height do not reverse — the live node's size is
+/// layout's business again the moment it exists.
+#[must_use]
+pub fn reverse_out_track(current: &TrackSample, out: &AnimTrack) -> AnimTrack {
+    let mut back = AnimTrack {
+        source: TrackSource::Compiled,
+        t: 0.0,
+        duration_s: (out.duration_s * out.t).max(0.05),
+        delay_s: 0.0,
+        iterations_left: Some(1),
+        timing: out.timing,
+        translate_x: Vec::new(),
+        translate_y: Vec::new(),
+        scale_x: Vec::new(),
+        scale_y: Vec::new(),
+        rotate_deg: Vec::new(),
+        opacity: Vec::new(),
+        width: Vec::new(),
+        height: Vec::new(),
+    };
+    back.override_start(current);
+    back
 }
 
 /// A keyframed animation on a LIVE node (`-azul-animation-in`): publishes
