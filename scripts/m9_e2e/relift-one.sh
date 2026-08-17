@@ -21,7 +21,7 @@ cd /c/Users/felix/Development/azul
 DLL=examples/c/azul.dll
 OBJ=third_party/remill/dependencies/install/bin/llvm-objdump.exe
 LIFT=/c/rb/remill/bin/lift/remill-lift-17.exe
-MODULE_BASE=0x7FFA2B950000
+MODULE_BASE=0x7FFD0BFB0000
 SYNTH_BIAS=0x10F000
 TEXT_LO=0x1000; TEXT_HI=0x147AA9A       # RVA range of .text
 RDATA_LO=0x147A000; RDATA_HI=0x1E807D0  # RVA range of .rdata
