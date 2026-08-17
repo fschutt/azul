@@ -8491,7 +8491,26 @@ define linkonce_odr ptr @__remill_function_call(ptr %state, i64 %pc, ptr %memory
   ret ptr %fcr
 }}
 define linkonce_odr ptr @__remill_jump(ptr %state, i64 %pc, ptr %memory) alwaysinline {{
-  ret ptr %memory
+  ; [FIX 2026-08-17] Dispatch the indirect JUMP — this was `ret ptr %memory`,
+  ; i.e. a SILENT no-op, and it swallowed every register-indirect TAIL-CALL.
+  ; Rust at -O lowers dyn-trait tail positions to exactly that shape:
+  ;   mov rdx,[rdx+8]      ; Formatter.buf.vtable
+  ;   mov r8,[rdx+0x20]    ; the write_char slot (translated to a SYNTH entry
+  ;                        ;  by the data-pointer rewrite)
+  ;   jmp r8
+  ; With the no-op, the wrapper skipped the entire tail callee and returned
+  ; with garbage AL — observed as `<char as Display>::fmt` "returning" the
+  ; char itself, so core::fmt::write saw Err and format_inner's .expect blew
+  ; up: EVERY `format!` with a formatted argument failed, silently (no trap,
+  ; no unk count). Route to the dispatcher exactly like __remill_function_call
+  ; above (its "M12.7 FIX" line): entry-PC targets hit their case and run; a
+  ; genuinely unknown PC falls to `unk`, which counts at 0x40158 and records
+  ; the PC at 0x40900 — visible instead of silent. A jump is a continuation
+  ; (no return address involved), so returning the callee's memory token here
+  ; and letting the caller's own `ret` propagate is exactly the tail-call
+  ; semantics; the callee's RAX is already in State.
+  %jr = call ptr @__az_indirect_dispatch(ptr %state, i64 %pc, ptr %memory)
+  ret ptr %jr
 }}
 define linkonce_odr ptr @__remill_missing_block(ptr %state, i64 %pc, ptr %memory) alwaysinline {{
   ; NOTE: must RETURN (not trap) — the cascade/hydration path has hot missing_blocks
