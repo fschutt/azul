@@ -525,83 +525,124 @@ impl CompositorState {
 
     /// Composite all layers bottom-up into the final output pixmap.
     pub fn composite_frame(&self, output: &mut AzulPixmap, dpi_factor: f32) {
-        // Start from root layer
-        self.composite_layer_recursive(self.root_layer, output, 0.0, 0.0, dpi_factor);
+        // Start from root layer, with an identity device transform.
+        self.composite_layer_recursive(
+            self.root_layer,
+            output,
+            TransAffine::new(),
+            dpi_factor,
+        );
     }
 
+    /// `parent_m` maps the PARENT's local device-pixel space to output
+    /// device-pixel space — identity for children of the root (the root blits
+    /// at the origin, untransformed, exactly as before).
+    ///
+    /// A layer's own mapping composes THREE pieces, applied to a layer-local
+    /// pixel in this order: the layer's live transform (its translation is in
+    /// LOGICAL units, so it is device-scaled here; the linear part is
+    /// unit-free), then placement at `bounds.origin`, then the parent chain.
+    /// Before this, the recursion carried plain offsets and `layer.transform`
+    /// was NEVER READ at composite time — allocation promoted a transformed
+    /// layer and stored its live matrix, rendering rasterised its content,
+    /// and the final blit put the pixels back at the untransformed layout
+    /// position. That silent drop is why a mid-animation frame with a
+    /// provably-correct engine state (sampled tx=176, 143, 85, 27 across
+    /// ticks) produced byte-identical screenshots: every layer of the
+    /// pipeline agreed except the last one.
+    ///
+    /// Children inherit `this_m`, so a scrollbar or opacity layer INSIDE an
+    /// animated subtree travels with it.
     #[allow(clippy::cast_possible_truncation)] // bounded pixel/coord/colour/glyph cast
     fn composite_layer_recursive(
         &self,
         layer_id: LayerId,
         output: &mut AzulPixmap,
-        parent_offset_x: f32,
-        parent_offset_y: f32,
+        parent_m: TransAffine,
         dpi_factor: f32,
     ) {
         let Some(layer) = self.layers.get(&layer_id) else {
             return;
         };
 
-        let abs_x = parent_offset_x + layer.bounds.origin.x;
-        let abs_y = parent_offset_y + layer.bounds.origin.y;
+        // this_m: layer-local device pixels -> output device pixels.
+        let this_m = if layer_id == self.root_layer {
+            // The root blits at the origin, untransformed — same special case
+            // the offset-based recursion had.
+            parent_m
+        } else {
+            let t = &layer.transform;
+            let dpi = f64::from(dpi_factor);
+            // The layer's live transform with its logical translation scaled
+            // to device pixels (linear part is unit-free)...
+            let mut m = TransAffine::new_custom(t.sx, t.shy, t.shx, t.sy, t.tx * dpi, t.ty * dpi);
+            // ...then placed at bounds.origin (agg multiply = "apply self,
+            // THEN the argument")...
+            m.multiply(&TransAffine::new_custom(1.0, 0.0, 0.0, 1.0,
+                f64::from(layer.bounds.origin.x) * dpi,
+                f64::from(layer.bounds.origin.y) * dpi,
+            ));
+            // ...then through the parent chain.
+            m.multiply(&parent_m);
+            m
+        };
+
+        // Pure-integer-translation fast path — bit-identical to the old
+        // offset blit for every untransformed layer (which is all of them,
+        // outside an active animation / drag).
+        let is_pure_translation = (this_m.sx - 1.0).abs() < IDENTITY_EPSILON_F64
+            && this_m.shy.abs() < IDENTITY_EPSILON_F64
+            && this_m.shx.abs() < IDENTITY_EPSILON_F64
+            && (this_m.sy - 1.0).abs() < IDENTITY_EPSILON_F64
+            && (this_m.tx - this_m.tx.round()).abs() < 1e-6
+            && (this_m.ty - this_m.ty.round()).abs() < 1e-6;
+        let px_x = this_m.tx.round() as i32;
+        let px_y = this_m.ty.round() as i32;
 
         // For root layer, just blit directly
         if layer_id == self.root_layer {
             blit_pixmap(&layer.pixbuf, output, 0, 0, 1.0);
+        } else if layer.is_backdrop_filter && !layer.filters.is_empty() {
+            // `backdrop-filter`: the backdrop (parent + earlier siblings) is
+            // ALREADY composited into `output` at this point (bottom-up
+            // order). Snapshot the region under the layer's bounds, run the
+            // filter on that copy, write it back, THEN blit the layer's own
+            // (unfiltered) content on top. Snapshot placement uses the
+            // translation of the full mapping, so a backdrop-filter layer
+            // inside a moved subtree filters the pixels actually under it.
+            let w = layer.pixbuf.width;
+            let h = layer.pixbuf.height;
+            let snap = snapshot_region(output, px_x, px_y, w, h);
+            let mut backdrop = AzulPixmap {
+                data: snap.into(),
+                width: w,
+                height: h,
+            };
+            apply_layer_filters(&mut backdrop, &layer.filters, dpi_factor);
+            write_region(output, &backdrop.data, w, h, px_x, px_y);
+            blit_pixmap(&layer.pixbuf, output, px_x, px_y, layer.opacity);
         } else {
-            let px_x = (abs_x * dpi_factor) as i32;
-            let px_y = (abs_y * dpi_factor) as i32;
-
-            if layer.is_backdrop_filter && !layer.filters.is_empty() {
-                // `backdrop-filter`: the backdrop (parent + earlier siblings) is
-                // ALREADY composited into `output` at this point (bottom-up
-                // order). Snapshot the region under the layer's bounds, run the
-                // filter on that copy, write it back, THEN blit the layer's own
-                // (unfiltered) content on top.
-                let w = layer.pixbuf.width;
-                let h = layer.pixbuf.height;
-                let snap = snapshot_region(output, px_x, px_y, w, h);
-                let mut backdrop = AzulPixmap {
-                    data: snap.into(),
-                    width: w,
-                    height: h,
-                };
-                apply_layer_filters(&mut backdrop, &layer.filters, dpi_factor);
-                write_region(output, &backdrop.data, w, h, px_x, px_y);
-                blit_pixmap(&layer.pixbuf, output, px_x, px_y, layer.opacity);
+            // Apply filters at composite time (to the layer's own content).
+            let src = if layer.filters.is_empty() {
+                None
             } else {
-                // Apply filters at composite time (to the layer's own content).
-                let src = if layer.filters.is_empty() {
-                    None
-                } else {
-                    let mut filtered = layer.pixbuf.clone_pixmap();
-                    apply_layer_filters(&mut filtered, &layer.filters, dpi_factor);
-                    Some(filtered)
-                };
+                let mut filtered = layer.pixbuf.clone_pixmap();
+                apply_layer_filters(&mut filtered, &layer.filters, dpi_factor);
+                Some(filtered)
+            };
 
-                let src_pixbuf = src.as_ref().unwrap_or(&layer.pixbuf);
+            let src_pixbuf = src.as_ref().unwrap_or(&layer.pixbuf);
+            if is_pure_translation {
                 blit_pixmap(src_pixbuf, output, px_x, px_y, layer.opacity);
+            } else {
+                super::pixmap::blit_pixmap_affine(src_pixbuf, output, &this_m, layer.opacity);
             }
         }
 
-        // Composite children in z-order
+        // Composite children in z-order, inheriting this layer's mapping.
         let children: Vec<LayerId> = layer.children.clone();
         for child_id in &children {
-            self.composite_layer_recursive(
-                *child_id,
-                output,
-                if layer_id == self.root_layer {
-                    0.0
-                } else {
-                    abs_x
-                },
-                if layer_id == self.root_layer {
-                    0.0
-                } else {
-                    abs_y
-                },
-                dpi_factor,
-            );
+            self.composite_layer_recursive(*child_id, output, this_m, dpi_factor);
         }
     }
 

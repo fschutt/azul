@@ -476,8 +476,17 @@ pub struct LayoutCache {
     /// display-list generation entirely. Cleared whenever
     /// `mark_dirty` fires on any node (since the root's upstream
     /// invalidation chain clears its ancestors).
-    pub cached_display_list:
-        Option<(SubtreeHash, LogicalRect, std::sync::Arc<super::display_list::DisplayList>)>,
+    /// The third key component (`u64`) is the GPU-key-population fingerprint
+    /// (`GpuValueCache::dl_emission_fingerprint`): the emitted list is a
+    /// function of which nodes carry transform/opacity keys, and diff-driven
+    /// animation mints keys AFTER a layout pass — matching on (hash, viewport)
+    /// alone served the pre-key list back and made animations invisible.
+    pub cached_display_list: Option<(
+        SubtreeHash,
+        LogicalRect,
+        u64,
+        std::sync::Arc<super::display_list::DisplayList>,
+    )>,
     /// Raw pointer of the `StyledDom` from the previous layout pass. When the
     /// same `&StyledDom` reference is passed again AND the viewport is unchanged,
     /// skip reconcile entirely and return the cached display list (saves ~0.8 ms).
@@ -559,7 +568,7 @@ impl LayoutCache {
         let cached_dl = self
             .cached_display_list
             .as_ref()
-            .map_or((0, 0, 0), |(_, _, dl)| dl.retained_bytes());
+            .map_or((0, 0, 0), |(_, _, _, dl)| dl.retained_bytes());
         Solver3CacheMemoryReport {
             tree_bytes,
             tree_report,
@@ -3918,6 +3927,7 @@ mod autotest_generated {
         cache.cached_display_list = Some((
             SubtreeHash(1),
             LogicalRect::new(pos(0.0, 0.0), size(10.0, 10.0)),
+            0,
             std::sync::Arc::new(dl),
         ));
 
@@ -3965,6 +3975,7 @@ mod autotest_generated {
         cache.cached_display_list = Some((
             SubtreeHash(9),
             LogicalRect::new(pos(0.0, 0.0), size(1.0, 1.0)),
+            0,
             std::sync::Arc::new(DisplayList::default()),
         ));
         cache.prev_dom_ptr = 0xDEAD_BEEF;

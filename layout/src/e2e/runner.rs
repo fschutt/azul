@@ -2994,6 +2994,9 @@ fn fail_result(test: &E2eTest, reason: &str) -> E2eTestResult {
 /// results) — the same value the HTTP `run_e2e_tests` command produces.
 #[must_use]
 pub fn run_e2e_test(test: &E2eTest) -> E2eTestResult {
+    if std::env::var_os("AZ_ANIM_DEBUG").is_some() {
+        eprintln!("[scenario] {}", test.name);
+    }
     // Start this scenario on a clean clock. The `tick_ms` / `wait` ops advance a
     // clock scoped to the calling thread, and worker threads are reused across
     // scenarios — without this reset the next scenario scheduled onto this

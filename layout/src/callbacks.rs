@@ -3461,7 +3461,7 @@ impl CallbackInfo {
     ///
     /// Returns an error message if the screenshot cannot be captured or encoded.
     pub fn take_screenshot(&self, dom_id: DomId) -> Result<alloc::vec::Vec<u8>, AzString> {
-        use crate::cpurender::{render_with_font_manager_and_scroll, CpuRenderState, RenderOptions, ScrollOffsetMap};
+        use crate::cpurender::CpuRenderState;
 
         let layout_window = self.get_layout_window();
         let renderer_resources = &layout_window.renderer_resources;
@@ -3513,21 +3513,50 @@ impl CallbackInfo {
         .with_system_style(layout_window.system_style.clone())
         .with_virtual_view_display_lists(vview_dls);
 
-        let opts = RenderOptions {
-            width,
-            height,
-            dpi_factor,
-        };
+        #[cfg(feature = "std")]
+        if std::env::var_os("AZ_ANIM_DEBUG").is_some() {
+            let refs = display_list.items.iter().filter(|i| matches!(i,
+                crate::solver3::display_list::DisplayListItem::PushReferenceFrame { .. })).count();
+            let vals: alloc::vec::Vec<String> = render_state.transforms.iter()
+                .map(|(k, t)| alloc::format!("{k}=>tx{}", t.m[3][0])).collect();
+            eprintln!("[shot] dl_items={} refframes={refs} transforms={vals:?}",
+                display_list.items.len());
+        }
 
+        // COMPOSITED render, not the flat item walk. The flat rasteriser's
+        // per-item pass maintains a transform stack that nothing consumes —
+        // transforms (drag, CSS `transform`, scrollbar thumbs, diff-driven
+        // animation) are realised exclusively by the compositor's layer
+        // promotion. Rendering a screenshot through the flat walk therefore
+        // produced pixels where every transformed node sat at its LAYOUT
+        // position: a mid-animation screenshot was byte-identical to the
+        // settled one, which is exactly how the transition e2e captured six
+        // identical "mid-flight" frames while the engine state was provably
+        // animating. The present path (headless CpuBackend and the shells)
+        // composites; a screenshot must go through the same door.
+        let pixel_w = (width * dpi_factor).ceil().max(1.0) as u32;
+        let pixel_h = (height * dpi_factor).ceil().max(1.0) as u32;
         let mut glyph_cache = crate::glyph_cache::GlyphCache::new();
-        let pixmap = render_with_font_manager_and_scroll(
+        let mut compositor = crate::cpurender::CompositorState::new(pixel_w, pixel_h);
+        compositor.allocate_layers_from_display_list(
             display_list,
-            renderer_resources,
-            &layout_window.font_manager,
-            opts,
-            &mut glyph_cache,
-            &render_state,
-        ).map_err(AzString::from)?;
+            dpi_factor,
+            &render_state.transforms,
+        );
+        compositor
+            .render_layers(
+                display_list,
+                dpi_factor,
+                renderer_resources,
+                &layout_window.font_manager,
+                &mut glyph_cache,
+                &render_state,
+            )
+            .map_err(AzString::from)?;
+        let mut pixmap = crate::cpurender::AzulPixmap::new(pixel_w, pixel_h)
+            .ok_or_else(|| AzString::from("pixmap alloc failed"))?;
+        pixmap.fill(255, 255, 255, 255);
+        compositor.composite_frame(&mut pixmap, dpi_factor);
 
         // Encode to PNG
         let png_data = pixmap
