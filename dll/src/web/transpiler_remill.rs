@@ -3517,6 +3517,7 @@ fn inject_user_binary_data_segments(
     {
         use crate::web::symbol_table::SymKind;
         let mut rewritten = 0usize;
+        let mut rewritten_data = 0usize;
         for (off, bytes) in segments.iter_mut() {
             // Align to the SEGMENT'S address, not to its start: a segment can begin at
             // any synth offset, so scanning from index 0 in 8-byte steps would probe
@@ -3533,16 +3534,28 @@ fn inject_user_binary_data_segments(
                                 rewritten += 1;
                             }
                         }
+                    } else if let Some(s) = table.native_to_synth(v) {
+                        // 2026-08-17: ALSO translate DATA pointers (values inside a
+                        // tracked image that resolve to no symbol) — .rdata is full of
+                        // const structs pointing at neighbouring .rdata: &str slices,
+                        // nested const records, and hashbrown's RawTable template whose
+                        // `ctrl` holds &EMPTY_GROUP. Function-only left those native;
+                        // the guest truncates a native to 0x2B..0x2D_xxxxxx and traps
+                        // OOB past the 512 MB memory. (Values already translated by
+                        // collect_synth_data_pages are small synth offsets, far outside
+                        // any image's native range, so re-translation cannot fire.)
+                        bytes[i..i + 8].copy_from_slice(&(s as u64).to_le_bytes());
+                        rewritten_data += 1;
                     }
                 }
                 i += 8;
             }
         }
-        if rewritten > 0 {
+        if rewritten > 0 || rewritten_data > 0 {
             eprintln!(
-                "[azul-web] data-mirror ({}): rewrote {} embedded code pointer(s) \
-                 native→synth (vtable / fn-ptr dispatch targets)",
-                output_stem, rewritten,
+                "[azul-web] data-mirror ({}): rewrote {} embedded code pointer(s) + {} \
+                 data pointer(s) native→synth",
+                output_stem, rewritten, rewritten_data,
             );
         }
     }
@@ -3751,14 +3764,22 @@ fn collect_synth_data_pages(
                 let mut run = raw_page[start..end].to_vec();
                 let mut translated_in_run = 0usize;
                 let run_off_in_page = start;
-                for chunk_start in (0..run.len()).step_by(8) {
+                // Translate at 8-byte-aligned PAGE offsets. 2026-08-17: this used to
+                // step `chunk_start` by 8 from 0 and then skip when
+                // `(run_off_in_page + chunk_start) % 8 != 0` — for a run starting at an
+                // unaligned page offset those two conditions can NEVER both hold
+                // (chunk_start ≡ 0 mod 8, so the sum stays ≡ run_off mod 8), i.e. the
+                // WHOLE run silently skipped translation. Every native pointer inside
+                // such a run reached the guest untranslated, truncating to
+                // 0x2B..0x2D_xxxxxx (past the 512 MB memory) on first deref — observed
+                // as hashbrown's `ctrl` (the RawTable const template's &EMPTY_GROUP)
+                // trapping rustc_entry's group load. 468 such pointers in one mini.
+                // Start at the first aligned offset instead (pages are 4 KiB-aligned in
+                // synth space, so page-relative alignment == absolute alignment).
+                let align_skip = (8 - (run_off_in_page % 8)) % 8;
+                for chunk_start in (align_skip..run.len()).step_by(8) {
                     if chunk_start + 8 > run.len() {
                         break;
-                    }
-                    // Only translate at 8-byte aligned offsets within
-                    // the page (matches the original page-mirror logic).
-                    if (run_off_in_page + chunk_start) % 8 != 0 {
-                        continue;
                     }
                     let value = u64::from_le_bytes([
                         run[chunk_start],
