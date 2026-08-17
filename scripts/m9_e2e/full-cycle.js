@@ -413,14 +413,19 @@ function failSync(msg) { console.error('FAIL:', msg); process.exit(1); }
                 // The wasm frames name the failing function — that is the whole point.
                 console.log('[2d-fmt-stack] ' + String(e.stack || '').split('\n').slice(0, 6).join(' | '));
             }
-            // Read the progress marker straight out of linear memory: AzStartup_peekU32
-            // is itself a lifted fn and can trap, which would hide the marker.
+            // Staged non-panicking decomposition markers (see AzStartup_probeFmt):
+            // slot i at 0x40910+4i. AN00_0000|len = stage N Ok (len = cumulative
+            // String length); ANAA_DEAD = stage N returned Err; 0 = never reached
+            // (trapped inside the stage).
             try {
                 const dvf = new DataView(memory.buffer);
-                const m = dvf.getUint32(0x40910, true) >>> 0;
-                console.log('[2d-fmt-mark] 0x' + m.toString(16) + ' → last COMPLETED step=' + (m & 0xff) +
-                    ' len=' + (m >>> 16) +
-                    '  [1=Display<u32> 2=Display<String> 3=LowerHex<usize> 4=Debug<(u8,u8)> 5=Display<f32>]');
+                const names = ['1 write_str', '2 pieces-only', '3 {char}', '4 {str}',
+                               '5 {u8}', '6 {u32:x}', '7 {u32}', '8 format!',
+                               '9 {f32}', '10 {f32:.2}', '11 {:?}Some', '12 {:>5}',
+                               '13 composite'];
+                const parts = names.map((n, i) =>
+                    n + '=0x' + (dvf.getUint32(0x40910 + i * 4, true) >>> 0).toString(16));
+                console.log('[2d-fmt-mark] ' + parts.join('  '));
             } catch (e) { console.log('[2d-fmt-mark] read failed: ' + (e.message || e)); }
             try {
                 const solveFn = mini.AzStartup_solveLayoutReal || mini.AzStartup_solveLayout;
