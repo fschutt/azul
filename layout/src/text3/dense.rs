@@ -377,7 +377,35 @@ impl DenseText {
             // Detail side table for multi-glyph / offset clusters —
             // (d6h) non-Character kinds and vertical metrics also force
             // an entry so the sparse expander loses nothing.
+            //
+            // A cluster without a detail entry is reconstructed ENTIRELY from
+            // the compact record, and the compact record has no byte length —
+            // `cluster_byte_len` falls back to "the next grapheme at
+            // start_byte". So a detail is also required whenever the cluster's
+            // true `source_byte_len` is NOT that grapheme length. The case
+            // that makes this reachable is a LIGATURE: "fi" fused into
+            // exactly one glyph with no offsets, no kerning, kind Character —
+            // satisfying none of the other clauses — while spanning TWO
+            // graphemes. Without this clause every such cluster silently
+            // shrank to its first grapheme on the way through the dense
+            // model, and pdftotext read "Confgure" out of documents that
+            // said "Configure". `ShapedCluster::source_byte_len`'s doc states
+            // the invariant: "Stored, not re-derived: ligature-fused clusters
+            // span MULTIPLE graphemes, so 'next grapheme boundary' cannot
+            // reconstruct the slice in general." This mirrors the READ-side
+            // fallback exactly, so predicate and fallback cannot disagree.
+            let compact_len_reconstructible = {
+                use unicode_segmentation::UnicodeSegmentation;
+                let start = c.source_cluster_id.start_byte_in_run as usize;
+                let grapheme_len = c
+                    .source_text
+                    .get(start..)
+                    .and_then(|s| s.graphemes(true).next())
+                    .map_or(0, str::len);
+                usize::from(c.source_byte_len) == grapheme_len
+            };
             let needs_detail = c.glyphs.len() != 1
+                || !compact_len_reconstructible
                 || c.glyphs.first().is_some_and(|g| {
                     g.offset.x != 0.0
                         || g.offset.y != 0.0

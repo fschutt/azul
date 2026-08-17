@@ -1075,3 +1075,123 @@ fn dense_resolve_step_dispatches_like_the_sparse_resolver() {
         }
     }
 }
+
+/// A LIGATURE-FUSED cluster must record its full source byte length.
+///
+/// An `fi` ligature is exactly ONE glyph with no offsets, no kerning, kind
+/// `Character` and no vertical metrics — so it satisfies none of the clauses
+/// `needs_detail` used to check, got no `ClusterDetail`, and
+/// `cluster_byte_len` fell through to its grapheme fallback: "the next
+/// grapheme at start_byte", which for "fi" is "f", length 1. Every consumer
+/// of the length then saw a 1-byte cluster, and the difference reached users
+/// as PDF text — pdftotext extracted "Confgure", "flter", "offine", each
+/// ligated word missing the SECOND letter of its ligature pair, because the
+/// ToUnicode entry said "f". `ShapedCluster::source_byte_len`'s own doc
+/// states the invariant being violated: "Stored, not re-derived:
+/// ligature-fused clusters span MULTIPLE graphemes, so 'next grapheme
+/// boundary' cannot reconstruct the slice in general."
+///
+/// HAND-BUILT sparse input, not a shaped one: the fakefont performs no GSUB
+/// ligature substitution, so no shaped corpus can produce a single-glyph
+/// multi-grapheme cluster — which is precisely how 19 green cases coexisted
+/// with this bug. (Found 2026-08-14 from OUTSIDE azul, by printpdf's
+/// html_visual_subset_glyphs suite against a real font.)
+#[test]
+fn ligature_cluster_records_its_full_byte_length() {
+    use azul_core::selection::{ContentIndex, GraphemeClusterId};
+    use azul_layout::text3::cache::{
+        ClusterFlags, GlyphKind, LayoutFontMetrics, OverflowInfo, Point, PositionedItem,
+        ShapedCluster, ShapedGlyph,
+    };
+    use azul_layout::text3::script::Script;
+
+    let text: Arc<str> = Arc::from("fine");
+    let style = Arc::new(StyleProperties::default());
+    let metrics = LayoutFontMetrics {
+        ascent: 0.0,
+        descent: 0.0,
+        cap_height: None,
+        x_height: None,
+        line_gap: 0.0,
+        units_per_em: 0,
+    };
+    let glyph = |id: u16| ShapedGlyph {
+        kind: GlyphKind::Character,
+        glyph_id: id,
+        cluster_offset: 0,
+        advance: 10.0,
+        kerning: 0.0,
+        offset: Point { x: 0.0, y: 0.0 },
+        vertical_advance: 0.0,
+        vertical_offset: Point { x: 0.0, y: 0.0 },
+        script: Script::Latin,
+        font_hash: 7,
+        font_metrics: metrics,
+    };
+    let cluster = |start: u32, len: u16, glyph_id: u16| ShapedCluster {
+        source_text: text.clone(),
+        source_byte_len: len,
+        source_cluster_id: GraphemeClusterId { source_run: 0, start_byte_in_run: start },
+        source_content_index: ContentIndex { run_index: 0, item_index: start },
+        source_node_id: None,
+        glyphs: [glyph(glyph_id)].into_iter().collect(),
+        flags: ClusterFlags(0),
+        advance: 10.0,
+        direction: BidiDirection::Ltr,
+        style: style.clone(),
+        marker_position_outside: None,
+        is_first_fragment: false,
+        is_last_fragment: false,
+    };
+    let layout = UnifiedLayout {
+        items: vec![
+            // "fi" FUSED into one glyph: byte length 2, ONE plain glyph.
+            PositionedItem {
+                item: ShapedItem::Cluster(cluster(0, 2, 100)),
+                position: Point { x: 0.0, y: 12.0 },
+                line_index: 0,
+            },
+            // "n" and "e", ordinary single-grapheme clusters.
+            PositionedItem {
+                item: ShapedItem::Cluster(cluster(2, 1, 101)),
+                position: Point { x: 10.0, y: 12.0 },
+                line_index: 0,
+            },
+            PositionedItem {
+                item: ShapedItem::Cluster(cluster(3, 1, 102)),
+                position: Point { x: 20.0, y: 12.0 },
+                line_index: 0,
+            },
+        ],
+        overflow: OverflowInfo::default(),
+    };
+
+    let d = DenseText::from_unified(&layout);
+    assert_eq!(d.clusters.len(), 3);
+
+    // The fused cluster is not reconstructible from the compact record, so it
+    // MUST carry a detail entry with its true byte length; the plain clusters
+    // must NOT (the predicate stays tight — details are the exception path).
+    assert_eq!(
+        d.details.len(),
+        1,
+        "exactly the fused cluster needs a detail entry, got {:?}",
+        d.details
+    );
+    assert_eq!(d.details[0].cluster, 0);
+    assert_eq!(d.details[0].byte_len, 2, "the detail must record the FUSED length");
+
+    assert_eq!(d.cluster_byte_len(0), 2, "fused cluster spans 2 source bytes");
+    assert_eq!(d.cluster_byte_len(1), 1);
+    assert_eq!(d.cluster_byte_len(2), 1);
+
+    // Roundtrip: the sparse expansion must reproduce the fused length and
+    // therefore the cluster's own text slice.
+    let expanded = d.to_unified_items();
+    assert_eq!(expanded.len(), 3);
+    let ShapedItem::Cluster(rc) = &expanded[0].item else {
+        panic!("expanded[0] must be a cluster");
+    };
+    assert_eq!(rc.source_byte_len, 2, "roundtrip lost the fused byte length");
+    assert_eq!(rc.text(), "fi", "the cluster's own text slice must be the full ligature");
+}
