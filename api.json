@@ -14732,7 +14732,7 @@
                     },
                     "ZombieAnimCallbackType": {
                         "doc": [
-                            "Called once per frame with the registered data, the analysis info and eased progress t in 0..=1; returns the frame to show."
+                            "Called once per frame with the registered data, a FULL TimerCallbackInfo (live dom, change queue, momentum API - everything a timer callback can do) and the zombie-specific ZombieAnimInfo (RAW linear t, the DECLARED timing, entry velocity). The callback owns the easing math: apply the requested timing via AnimationTiming::evaluate(info.t) or substitute its own; returns the frame to show."
                         ],
                         "external": "azul_core::resources::ZombieAnimCallbackType",
                         "callback_typedef": {
@@ -14741,10 +14741,11 @@
                                     "type": "RefAny"
                                 },
                                 {
-                                    "type": "ZombieAnimInfo"
+                                    "type": "TimerCallbackInfo",
+                                    "ref_kind": "refmut"
                                 },
                                 {
-                                    "type": "f32"
+                                    "type": "ZombieAnimInfo"
                                 }
                             ],
                             "returns": {
@@ -17800,6 +17801,29 @@
                                     }
                                 ],
                                 "fn_body": "object.set_contenteditable(contenteditable)"
+                            },
+                            "with_animation_callback": {
+                                "doc": [
+                                    "Attach a presence-animation function to this node, resolvable by name from its -azul-animation-in / -azul-animation-out (after stylesheet @keyframes). The component-local replacement for the removed global registry."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "value"
+                                    },
+                                    {
+                                        "name": "String"
+                                    },
+                                    {
+                                        "callback": "ZombieAnimCallback"
+                                    },
+                                    {
+                                        "data": "RefAny"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "Dom"
+                                },
+                                "fn_body": "object.with_animation_callback(name, callback, data)"
                             }
                         },
                         "repr": "C"
@@ -18543,6 +18567,26 @@
                                     "type": "IdOrClassVec"
                                 },
                                 "fn_body": "object.get_ids_and_classes()"
+                            },
+                            "add_animation_callback": {
+                                "doc": [
+                                    "Attach a presence-animation function to this node - see Dom::with_animation_callback."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "refmut"
+                                    },
+                                    {
+                                        "name": "String"
+                                    },
+                                    {
+                                        "callback": "ZombieAnimCallback"
+                                    },
+                                    {
+                                        "data": "RefAny"
+                                    }
+                                ],
+                                "fn_body": "object.add_animation_callback(name, callback, data)"
                             }
                         },
                         "repr": "C"
@@ -44576,12 +44620,6 @@
                                 "selection_tween_data": {
                                     "type": "RefAny"
                                 },
-                                "animation_functions": {
-                                    "type": "AnimationFunctionVec",
-                                    "doc": [
-                                        "Native presence-animation functions, resolvable by name from `-azul-animation-in` / `-azul-animation-out` (`fooFunc 1s`). Resolution order: stylesheet `@keyframes`, then this registry, then the builtin table."
-                                    ]
-                                },
                                 "scroll_physics": {
                                     "type": "OptionScrollPhysics"
                                 },
@@ -44614,7 +44652,7 @@
                     },
                     "AnimationTiming": {
                         "doc": [
-                            "Timing keyword for `animation` / `-azul-animation-in` / `-azul-animation-out`: CSS easing keywords plus the engine's spring presets."
+                            "Timing for animation / -azul-animation-in / -azul-animation-out: the CSS keywords, the engine's spring presets, and a custom cubic-bezier(...) point list (permille-encoded so the type stays Eq-capable). Native animation functions receive the DECLARED timing plus raw linear progress and own the math - AnimationTiming::evaluate is the one-call way to honour it."
                         ],
                         "external": "azul_css::props::basic::animation::AnimationTiming",
                         "derive": [
@@ -44637,14 +44675,36 @@
                                 "EaseInOut": {},
                                 "Spring": {},
                                 "SpringGentle": {},
-                                "SpringSnappy": {}
+                                "SpringSnappy": {},
+                                "CubicBezier": {
+                                    "type": "AnimationTimingBezier"
+                                }
                             }
                         ],
-                        "repr": "C"
+                        "repr": "C, u8",
+                        "functions": {
+                            "evaluate": {
+                                "doc": [
+                                    "Eased progress for raw linear t - how a native animation function honours the CSS-requested timing."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "value"
+                                    },
+                                    {
+                                        "t": "f32"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "f32"
+                                },
+                                "fn_body": "object.evaluate(t)"
+                            }
+                        }
                     },
                     "StyleAnimation": {
                         "doc": [
-                            "One entry of `animation` / `-azul-animation-in` / `-azul-animation-out`: `<name> <duration> [<delay>] [<timing>] [infinite | <count>]`, e.g. `flyOutRight 1s`, `all 2s ease-out`, `spin 1s linear infinite`, `fooFunc 500ms 200ms spring`."
+                            "One entry of animation / -azul-animation-in / -azul-animation-out: <name> <duration> [<delay>] [<timing>] [infinite | <count>] [no-clip], e.g. flyOutLeft 1s, all 2s ease-out, spin 1s linear infinite, myFn 500ms cubic-bezier(0.4, 0, 0.2, 1) no-clip."
                         ],
                         "external": "azul_css::props::basic::animation::StyleAnimation",
                         "derive": [
@@ -44686,6 +44746,14 @@
                             {
                                 "timing": {
                                     "type": "AnimationTiming"
+                                }
+                            },
+                            {
+                                "clip": {
+                                    "type": "bool",
+                                    "doc": [
+                                        "Whether a presence EXIT driven by this animation is clipped to the node's retained rect. true when omitted; the CSS keyword no-clip clears it. Native functions may override per frame via ZombieFrame::clip_to_frozen_rect."
+                                    ]
                                 }
                             }
                         ],
@@ -44797,6 +44865,19 @@
                                 }
                             },
                             {
+                                "t": {
+                                    "type": "f32",
+                                    "doc": [
+                                        "RAW LINEAR progress 0..=1 - the engine does NOT pre-apply easing for native functions; the declared timing arrives in `timing` and the callback owns the math."
+                                    ]
+                                }
+                            },
+                            {
+                                "timing": {
+                                    "type": "AnimationTiming"
+                                }
+                            },
+                            {
                                 "velocity_x": {
                                     "type": "f32",
                                     "doc": [
@@ -44880,7 +44961,7 @@
                     },
                     "AnimationFunction": {
                         "doc": [
-                            "One registered native animation function: resolvable by NAME from `-azul-animation-in` / `-azul-animation-out`. Resolution order (USER ruling): stylesheet `@keyframes` first, then this registry, then the builtin table (an app may shadow `flyOutRight`)."
+                            "A COMPONENT-ATTACHED native animation function: lives on the node's own NodeData (Dom::with_animation_callback / NodeData::add_animation_callback) - a sidebar widget ships its fly-out next to its own DOM, not in app-global state. Resolvable by NAME from that node's -azul-animation-in / -azul-animation-out, AFTER stylesheet @keyframes (the web mechanism stays the only default name source; there are no engine builtins)."
                         ],
                         "external": "azul_core::resources::AnimationFunction",
                         "derive": [
@@ -44948,6 +45029,45 @@
                                 "StyleAnimationVec"
                             ]
                         }
+                    },
+                    "AnimationTimingBezier": {
+                        "doc": [
+                            "cubic-bezier(x1, y1, x2, y2) control points in PERMILLE (Eq-safe; CSS clamps x to [0,1] = 0..=1000, y may overshoot and is signed)."
+                        ],
+                        "external": "azul_css::props::basic::animation::AnimationTimingBezier",
+                        "derive": [
+                            "Debug",
+                            "Copy",
+                            "Clone",
+                            "PartialEq",
+                            "Eq",
+                            "PartialOrd",
+                            "Ord",
+                            "Hash"
+                        ],
+                        "struct_fields": [
+                            {
+                                "x1": {
+                                    "type": "u16"
+                                }
+                            },
+                            {
+                                "y1": {
+                                    "type": "i16"
+                                }
+                            },
+                            {
+                                "x2": {
+                                    "type": "u16"
+                                }
+                            },
+                            {
+                                "y2": {
+                                    "type": "i16"
+                                }
+                            }
+                        ],
+                        "repr": "C"
                     }
                 }
             },
@@ -96543,121 +96663,6 @@
                             "fn_args": [
                                 {
                                     "type": "KeyframesVec",
-                                    "ref_kind": "mutptr"
-                                }
-                            ],
-                            "returns": null
-                        }
-                    },
-                    "AnimationFunctionVec": {
-                        "doc": [
-                            "Wrapper over a Rust-allocated `Vec<AnimationFunction>"
-                        ],
-                        "external": "azul_core::resources::AnimationFunctionVec",
-                        "custom_impls": [
-                            "Clone",
-                            "Debug"
-                        ],
-                        "custom_destructor": true,
-                        "derive": [
-                            "Debug"
-                        ],
-                        "struct_fields": [
-                            {
-                                "ptr": {
-                                    "type": "AnimationFunction",
-                                    "ref_kind": "constptr"
-                                },
-                                "len": {
-                                    "type": "usize"
-                                },
-                                "cap": {
-                                    "type": "usize"
-                                },
-                                "destructor": {
-                                    "type": "AnimationFunctionVecDestructor"
-                                }
-                            }
-                        ],
-                        "functions": {
-                            "create": {
-                                "doc": [
-                                    "Creates an empty `AnimationFunctionVec`"
-                                ],
-                                "fn_args": [],
-                                "returns": {
-                                    "type": "AnimationFunctionVec"
-                                },
-                                "fn_body": "AnimationFunctionVec::new()"
-                            },
-                            "len": {
-                                "doc": [
-                                    "Returns the number of elements in the Vec"
-                                ],
-                                "fn_args": [
-                                    {
-                                        "self": "ref"
-                                    }
-                                ],
-                                "returns": {
-                                    "type": "usize"
-                                },
-                                "fn_body": "object.len()"
-                            },
-                            "is_empty": {
-                                "doc": [
-                                    "Returns whether the Vec is empty"
-                                ],
-                                "fn_args": [
-                                    {
-                                        "self": "ref"
-                                    }
-                                ],
-                                "returns": {
-                                    "type": "bool"
-                                },
-                                "fn_body": "object.is_empty()"
-                            },
-                            "from_item": {
-                                "doc": [
-                                    "Creates a `AnimationFunctionVec` containing a single element"
-                                ],
-                                "fn_args": [
-                                    {
-                                        "item": "AnimationFunction"
-                                    }
-                                ],
-                                "returns": {
-                                    "type": "AnimationFunctionVec"
-                                },
-                                "fn_body": "AnimationFunctionVec::from_item(item)"
-                            }
-                        },
-                        "repr": "C"
-                    },
-                    "AnimationFunctionVecDestructor": {
-                        "external": "azul_core::resources::AnimationFunctionVecDestructor",
-                        "derive": [
-                            "Debug"
-                        ],
-                        "enum_fields": [
-                            {
-                                "DefaultRust": {},
-                                "NoDestructor": {},
-                                "External": {
-                                    "type": "AnimationFunctionVecDestructorType"
-                                },
-                                "AlreadyDestroyed": {}
-                            }
-                        ],
-                        "repr": "C, u8"
-                    },
-                    "AnimationFunctionVecDestructorType": {
-                        "external": "azul_core::resources::AnimationFunctionVecDestructorType",
-                        "callback_typedef": {
-                            "fn_args": [
-                                {
-                                    "type": "AnimationFunctionVec",
                                     "ref_kind": "mutptr"
                                 }
                             ],

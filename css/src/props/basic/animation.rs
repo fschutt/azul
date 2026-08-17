@@ -2272,6 +2272,28 @@ mod autotest_generated {
         assert_eq!(v[1].duration.millis(), 2000);
         assert_eq!(v[1].timing, AnimationTiming::EaseOut);
 
+        // `no-clip` clears the exit clip (USER ruling: configurable,
+        // default clipped).
+        let n = parse_style_animation("slideOut 1s no-clip").unwrap();
+        assert!(!n.clip);
+        assert!(parse_style_animation("slideOut 1s").unwrap().clip, "default clipped");
+
+        // A custom cubic-bezier POINT LIST, permille-encoded (Eq-safe), and
+        // the paren-aware tokenizer keeps `cubic-bezier(0.4, 0, 0.2, 1)`
+        // one token despite its inner spaces.
+        let cb = parse_style_animation("swoosh 1s cubic-bezier(0.4, 0, 0.2, 1)").unwrap();
+        match cb.timing {
+            AnimationTiming::CubicBezier(b) => {
+                assert_eq!((b.x1, b.y1, b.x2, b.y2), (400, 0, 200, 1000));
+            }
+            other => panic!("expected a bezier, got {other:?}"),
+        }
+        // The curve is usable math: endpoints anchor at 0 and 1.
+        assert!(cb.timing.evaluate(0.0).abs() < 1e-3);
+        assert!((cb.timing.evaluate(1.0) - 1.0).abs() < 1e-3);
+        // CSS clamps x to [0,1]: out-of-range is a rejection, not a clamp.
+        assert!(parse_style_animation("bad 1s cubic-bezier(1.5, 0, 0.2, 1)").is_err());
+
         // Two names in one entry cannot both be the name.
         assert!(parse_style_animation("foo bar 1s").is_err());
         assert!(parse_style_animation_vec("").is_err());
@@ -2356,15 +2378,30 @@ mod autotest_generated {
 // `AnimationManager` clock.
 // ---------------------------------------------------------------------------
 
-/// Timing keyword for [`StyleAnimation`].
-///
-/// Deliberately a FIELDLESS twin of [`AnimationInterpolationFunction`]: this
-/// one lives inside `CssProperty`, which derives `Eq + Hash + Ord`, and the
-/// full enum carries f32 curve parameters that cannot. Converted via
-/// [`Self::to_interpolation`] at the engine boundary. `cubic-bezier(...)`
-/// custom curves are therefore not expressible from CSS yet — keywords only.
-#[derive(Debug, Default, Copy, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
+/// A `cubic-bezier(x1, y1, x2, y2)` control-point pair in PERMILLE, so the
+/// timing enum stays `Eq + Hash + Ord`-capable (it lives inside
+/// `CssProperty`). CSS clamps the x coordinates to `[0, 1]` (0..=1000 here);
+/// the y coordinates may overshoot, so they are signed (±32.767 in curve
+/// space — far beyond any real easing).
+#[derive(Debug, Copy, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
 #[repr(C)]
+pub struct AnimationTimingBezier {
+    pub x1: u16,
+    pub y1: i16,
+    pub x2: u16,
+    pub y2: i16,
+}
+
+/// Timing for [`StyleAnimation`]: the CSS keywords, the engine's spring
+/// presets, and a custom `cubic-bezier(...)` point list — permille-encoded
+/// (see [`AnimationTimingBezier`]) because this enum lives inside
+/// `CssProperty`, which derives `Eq + Hash + Ord`, and raw f32 control
+/// points cannot. Converted via [`Self::to_interpolation`] at the engine
+/// boundary; native animation functions receive the DECLARED timing on
+/// `ZombieAnimInfo` together with raw linear progress, so a callback can
+/// apply this math — or its own — via [`Self::evaluate`].
+#[derive(Debug, Default, Copy, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
+#[repr(C, u8)]
 pub enum AnimationTiming {
     #[default]
     Ease,
@@ -2376,12 +2413,14 @@ pub enum AnimationTiming {
     Spring,
     SpringGentle,
     SpringSnappy,
+    /// `cubic-bezier(x1, y1, x2, y2)`, control points in permille.
+    CubicBezier(AnimationTimingBezier),
 }
 
 impl AnimationTiming {
-    /// The runtime interpolation this keyword stands for.
+    /// The runtime interpolation this timing stands for.
     #[must_use]
-    pub const fn to_interpolation(self) -> AnimationInterpolationFunction {
+    pub fn to_interpolation(self) -> AnimationInterpolationFunction {
         match self {
             Self::Ease => AnimationInterpolationFunction::Ease,
             Self::Linear => AnimationInterpolationFunction::Linear,
@@ -2391,25 +2430,80 @@ impl AnimationTiming {
             Self::Spring => AnimationInterpolationFunction::Spring(SpringCurve::SMOOTH),
             Self::SpringGentle => AnimationInterpolationFunction::Spring(SpringCurve::GENTLE),
             Self::SpringSnappy => AnimationInterpolationFunction::Spring(SpringCurve::SNAPPY),
+            Self::CubicBezier(b) => {
+                AnimationInterpolationFunction::CubicBezier(SvgCubicCurve {
+                    start: SvgPoint { x: 0.0, y: 0.0 },
+                    ctrl_1: SvgPoint {
+                        x: f32::from(b.x1) / 1000.0,
+                        y: f32::from(b.y1) / 1000.0,
+                    },
+                    ctrl_2: SvgPoint {
+                        x: f32::from(b.x2) / 1000.0,
+                        y: f32::from(b.y2) / 1000.0,
+                    },
+                    end: SvgPoint { x: 1.0, y: 1.0 },
+                })
+            }
         }
     }
 
+    /// Eased progress for raw linear `t` — the one-call way for a native
+    /// animation function to honour the timing the CSS requested.
     #[must_use]
-    pub const fn as_css_str(self) -> &'static str {
+    pub fn evaluate(self, t: f32) -> f32 {
+        self.to_interpolation().evaluate(f64::from(t))
+    }
+
+    #[must_use]
+    pub fn as_css_string(self) -> alloc::string::String {
+        use alloc::string::ToString;
         match self {
-            Self::Ease => "ease",
-            Self::Linear => "linear",
-            Self::EaseIn => "ease-in",
-            Self::EaseOut => "ease-out",
-            Self::EaseInOut => "ease-in-out",
-            Self::Spring => "spring",
-            Self::SpringGentle => "spring-gentle",
-            Self::SpringSnappy => "spring-snappy",
+            Self::Ease => "ease".to_string(),
+            Self::Linear => "linear".to_string(),
+            Self::EaseIn => "ease-in".to_string(),
+            Self::EaseOut => "ease-out".to_string(),
+            Self::EaseInOut => "ease-in-out".to_string(),
+            Self::Spring => "spring".to_string(),
+            Self::SpringGentle => "spring-gentle".to_string(),
+            Self::SpringSnappy => "spring-snappy".to_string(),
+            Self::CubicBezier(b) => alloc::format!(
+                "cubic-bezier({}, {}, {}, {})",
+                f32::from(b.x1) / 1000.0,
+                f32::from(b.y1) / 1000.0,
+                f32::from(b.x2) / 1000.0,
+                f32::from(b.y2) / 1000.0,
+            ),
         }
     }
 
     #[must_use]
     pub fn from_css_str(s: &str) -> Option<Self> {
+        if let Some(inner) = s
+            .strip_prefix("cubic-bezier(")
+            .and_then(|r| r.strip_suffix(')'))
+        {
+            let mut nums = inner.split(',').map(str::trim);
+            let x1: f32 = nums.next()?.parse().ok()?;
+            let y1: f32 = nums.next()?.parse().ok()?;
+            let x2: f32 = nums.next()?.parse().ok()?;
+            let y2: f32 = nums.next()?.parse().ok()?;
+            if nums.next().is_some() {
+                return None;
+            }
+            // CSS: x must be in [0, 1]; reject instead of clamping so a typo
+            // is a warning, not a silently different curve.
+            if !(0.0..=1.0).contains(&x1) || !(0.0..=1.0).contains(&x2) {
+                return None;
+            }
+            #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+            // bounded by the range checks above / i16 saturation below
+            return Some(Self::CubicBezier(AnimationTimingBezier {
+                x1: (x1 * 1000.0).round() as u16,
+                y1: (y1 * 1000.0).round().clamp(-32767.0, 32767.0) as i16,
+                x2: (x2 * 1000.0).round() as u16,
+                y2: (y2 * 1000.0).round().clamp(-32767.0, 32767.0) as i16,
+            }));
+        }
         Some(match s {
             "ease" => Self::Ease,
             "linear" => Self::Linear,
@@ -2460,8 +2554,15 @@ pub struct StyleAnimation {
     pub delay: crate::props::basic::time::CssDuration,
     /// `infinite` or a play count; `1` when omitted.
     pub iterations: AnimationIterationCount,
-    /// Timing keyword; `ease` when omitted.
+    /// Timing; `ease` when omitted.
     pub timing: AnimationTiming,
+    /// Whether a presence EXIT driven by this animation is clipped to the
+    /// node's retained rect (so its motion cannot paint over neighbouring
+    /// components). `true` when omitted; the CSS keyword `no-clip` clears it
+    /// (USER ruling 2026-08-17: configurable, default clipped). Native
+    /// animation functions may still override per frame via
+    /// `ZombieFrame::clip_to_frozen_rect`.
+    pub clip: bool,
 }
 
 impl Default for StyleAnimation {
@@ -2472,6 +2573,7 @@ impl Default for StyleAnimation {
             delay: crate::props::basic::time::CssDuration::from_millis(0),
             iterations: AnimationIterationCount::Count(1),
             timing: AnimationTiming::Ease,
+            clip: true,
         }
     }
 }
@@ -2496,7 +2598,10 @@ impl crate::css::PrintAsCssValue for StyleAnimation {
             AnimationIterationCount::Infinite => out.push_str(" infinite"),
         }
         out.push(' ');
-        out.push_str(self.timing.as_css_str());
+        out.push_str(&self.timing.as_css_string());
+        if !self.clip {
+            out.push_str(" no-clip");
+        }
         out
         .trim()
         .to_string()
@@ -2559,7 +2664,35 @@ pub fn parse_style_animation(input: &str) -> Result<StyleAnimation, StyleAnimati
     let mut delay: Option<crate::props::basic::time::CssDuration> = None;
     let mut timing: Option<AnimationTiming> = None;
     let mut iterations: Option<AnimationIterationCount> = None;
-    for tok in input.split_whitespace() {
+    let mut clip: Option<bool> = None;
+    // Paren-aware token scan: `cubic-bezier(0.4, 0, 0.2, 1)` contains spaces
+    // and must arrive as ONE token, so whitespace only splits at depth 0.
+    let mut tokens: alloc::vec::Vec<&str> = alloc::vec::Vec::new();
+    {
+        let bytes = input.as_bytes();
+        let mut depth = 0usize;
+        let mut start: Option<usize> = None;
+        for (i, b) in bytes.iter().enumerate() {
+            match b {
+                b'(' => depth += 1,
+                b')' => depth = depth.saturating_sub(1),
+                b' ' | b'\t' | b'\n' | b'\r' if depth == 0 => {
+                    if let Some(st) = start.take() {
+                        tokens.push(&input[st..i]);
+                    }
+                    continue;
+                }
+                _ => {}
+            }
+            if start.is_none() {
+                start = Some(i);
+            }
+        }
+        if let Some(st) = start {
+            tokens.push(&input[st..]);
+        }
+    }
+    for tok in tokens {
         if let Ok(d) = crate::props::basic::time::parse_duration(tok) {
             if duration.is_none() {
                 duration = Some(d);
@@ -2570,6 +2703,10 @@ pub fn parse_style_animation(input: &str) -> Result<StyleAnimation, StyleAnimati
             }
         } else if let Some(t) = AnimationTiming::from_css_str(tok) {
             if timing.replace(t).is_some() {
+                return Err(StyleAnimationParseError::Empty(input));
+            }
+        } else if tok.eq_ignore_ascii_case("no-clip") {
+            if clip.replace(false).is_some() {
                 return Err(StyleAnimationParseError::Empty(input));
             }
         } else if tok.eq_ignore_ascii_case("infinite") {
@@ -2592,6 +2729,7 @@ pub fn parse_style_animation(input: &str) -> Result<StyleAnimation, StyleAnimati
         delay: delay.unwrap_or(crate::props::basic::time::CssDuration::from_millis(0)),
         iterations: iterations.unwrap_or_default(),
         timing: timing.unwrap_or(AnimationTiming::Ease),
+        clip: clip.unwrap_or(true),
     })
 }
 
@@ -2665,12 +2803,13 @@ impl crate::codegen::format::FormatAsRustCode for StyleAnimation {
     fn format_as_rust_code(&self, _tabs: usize) -> alloc::string::String {
         use crate::codegen::format::FormatAsRustCode as _;
         alloc::format!(
-            "StyleAnimation {{ name: AzString::from_const_str({:?}), duration: {}, delay: {}, iterations: AnimationIterationCount::{:?}, timing: AnimationTiming::{:?} }}",
+            "StyleAnimation {{ name: AzString::from_const_str({:?}), duration: {}, delay: {}, iterations: AnimationIterationCount::{:?}, timing: AnimationTiming::{:?}, clip: {} }}",
             self.name.as_str(),
             self.duration.format_as_rust_code(0),
             self.delay.format_as_rust_code(0),
             self.iterations,
-            self.timing
+            self.timing,
+            self.clip
         )
     }
 }

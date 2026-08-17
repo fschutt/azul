@@ -1564,6 +1564,36 @@ pub fn generate_frame(
     // check and no clock read.
     let _still_animating = layout_window.tick_animations_now();
 
+    // Sample the keyframed tracks for THIS frame — may invoke COMPONENT
+    // animation functions with a full TimerCallbackInfo. This path has no
+    // change dispatcher, so their queued changes are parked on the window
+    // and the event pass drains them at its next start (one frame of
+    // latency, same order guarantees as timer changes).
+    if layout_window.has_track_work() {
+        let system_callbacks = ExternalSystemCallbacks::rust_internal();
+        let frame_start = (system_callbacks.get_system_time_fn.cb)();
+        let cur = layout_window.current_window_state.clone();
+        let prev = layout_window.previous_window_state.clone();
+        let style = layout_window
+            .system_style
+            .clone()
+            .unwrap_or_else(|| std::sync::Arc::new(azul_css::system::SystemStyle::default()));
+        let rr = std::mem::take(&mut layout_window.renderer_resources);
+        let changes = layout_window.run_track_frames(
+            1.0 / 60.0,
+            frame_start,
+            &azul_core::window::RawWindowHandle::Unsupported,
+            gl_context,
+            style,
+            &system_callbacks,
+            &prev,
+            &cur,
+            &rr,
+        );
+        layout_window.renderer_resources = rr;
+        layout_window.pending_track_changes.extend(changes);
+    }
+
     // Process any pending VirtualView updates requested by callbacks
     // This must happen BEFORE wr_translate2::generate_frame() so that the VirtualView
     // callbacks can be re-invoked and their layout results are available

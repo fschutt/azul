@@ -757,6 +757,24 @@ pub fn css_properties_need_relayout(properties: &CssPropertyVec) -> bool {
 /// Main callback type for UI event handling
 pub type CallbackType = extern "C" fn(RefAny, CallbackInfo) -> Update;
 
+/// The TYPED signature of a component-attached presence-animation function
+/// (`-azul-animation-in` / `-azul-animation-out: myFn 1s` next to a
+/// `NodeData::add_animation_callback("myFn", ..)`). Stored type-erased as
+/// `usize` in `azul_core::resources::ZombieAnimCallback` (the CoreCallback
+/// pattern — `TimerCallbackInfo` lives in this crate, above azul-core).
+///
+/// Receives the registered data, a FULL `TimerCallbackInfo` (the live dom,
+/// change queue, momentum API, node measurement — everything a timer can
+/// do), and the zombie-specific `ZombieAnimInfo` (the retained tree, rect,
+/// RAW linear `t`, the DECLARED timing, entry velocity). The callback owns
+/// the easing math: apply the requested timing via
+/// `AnimationTiming::evaluate(info.t)` or substitute its own.
+pub type ZombieAnimFnType = extern "C" fn(
+    &mut RefAny,
+    &mut crate::timer::TimerCallbackInfo,
+    &azul_core::resources::ZombieAnimInfo,
+) -> azul_core::resources::ZombieFrame;
+
 /// Stores a function pointer that is executed when the given UI element is hit
 ///
 /// Must return an `Update` that denotes if the screen should be redrawn.

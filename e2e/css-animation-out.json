@@ -1,6 +1,6 @@
 {
   "name": "css_animation_out",
-  "description": "-azul-animation-out DRIVES THE ZOMBIE. #sidebar declares `-azul-animation-out: flyOutRight 1s` (builtin table; no @keyframes needed). Unmounting it retains the subtree as a zombie whose motion comes from the compiled track (translate right + width narrowing + clip to the frozen rect), NOT the default slide. The zombie must survive mid-flight ticks and reap exactly when the track completes - a zombie that outlives its animation is a leak, one that dies early truncates the exit. Companion pins: window::tests::builtin_fly_out_right_shifts_right_and_narrows_to_zero (track shape) and stylesheet_keyframes_shadow_the_builtin_table (author @keyframes take precedence over the builtin of the same name). DISCRIMINATOR: a track-driven exit runs on the compiled track alone - the manager holds NO spring for it - so right after the remount the manager holds exactly ONE animation (the CARD's move as it takes over the vacated space) - active:1,zombies:1. The default-slide fallback adds a SECOND spring for the sidebar exit (active:2), which is exactly what the NC sabotage (seeding disabled) produced when this assert was first tightened. Also the USER's cost distinction: a pure slide is the FROZEN path - zombie_relayouts must stay 0 for the whole exit.",
+  "description": "-azul-animation-out DRIVES THE ZOMBIE. #sidebar declares `-azul-animation-out: flyOutRight 1s` (builtin table; no @keyframes needed). Unmounting it retains the subtree as a zombie whose motion comes from the compiled track (translate right + width narrowing + clip to the frozen rect), NOT the default slide. The zombie must survive mid-flight ticks and reap exactly when the track completes - a zombie that outlives its animation is a leak, one that dies early truncates the exit. Companion pins: window::tests::builtin_fly_out_right_shifts_right_and_narrows_to_zero (track shape) and stylesheet_keyframes_shadow_the_builtin_table (author @keyframes take precedence over the builtin of the same name). DISCRIMINATOR (post no-defaults ruling): retention itself is the tell - a seeded track means zombies:1 for the whole 1s exit; a failed resolution means NO retention at all (zombies:0 instantly), which is exactly what the NC sabotage produces. (Names are @keyframes-declared: there are NO engine builtins - USER ruling - and no default slides; an undeclared unmount just disappears.)",
   "setup": {
     "window_width": 400,
     "window_height": 300,
@@ -17,8 +17,9 @@
       ],
       "css": [
         "html, body { margin: 0; padding: 0; width: 100%; height: 100%; }",
+        "@keyframes flyOutLeft { from { transform: translateX(0px); } to { transform: translateX(-100%); } }",
         "#root { width: 100%; height: 100%; display: flex; flex-direction: row; }",
-        "#sidebar { width: 200px; height: 100%; background: #2255aa; -azul-animation-out: flyOutRight 1s; }",
+        "#sidebar { width: 200px; height: 100%; background: #2255aa; -azul-animation-out: flyOutLeft 1s; }",
         "#card { flex-grow: 1; height: 100%; background: #cc3333; }"
       ]
     },
@@ -63,7 +64,7 @@
     {
       "op": "assert_response",
       "type": "animations",
-      "contains": "\"active\":1,"
+      "contains": "\"zombies\":1"
     },
     {
       "op": "get_animations"

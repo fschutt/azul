@@ -767,6 +767,8 @@ const fn memory_walk_coverage_is_exhaustive(w: &LayoutWindow) {
         transition_relayout: _,
         transition_patched: _,
         zombie_relayouts: _,
+        pending_track_changes: _,
+        tracks_sampled_since_tick: _,
         last_anim_tick: _,
         // Two u64 arrays sized by node count (~16 B/node) — noise next to
         // the tree; walked nowhere, listed so the destructure stays total.
@@ -1030,6 +1032,15 @@ pub struct LayoutWindow {
     /// (`width`/`height` channels). The e2e law for the USER's distinction:
     /// a pure slide must leave this at 0, a shrinking exit must not.
     pub zombie_relayouts: u64,
+    /// Changes queued by COMPONENT animation functions on the live-shell
+    /// present path (`generate_frame` has no change dispatcher of its own);
+    /// the event pass drains them at its next start — one frame of latency,
+    /// documented on `run_track_frames`.
+    pub pending_track_changes: Vec<crate::callbacks::CallbackChange>,
+    /// One-shot guard: `run_track_frames` samples at most once per tick, so
+    /// a debug-op tick followed by a present cannot double-invoke component
+    /// animation functions in one frame.
+    pub tracks_sampled_since_tick: bool,
     /// `-azul-animation-in` tracks on LIVE nodes, node -> compiled keyframes.
     /// Published into the anim GPU channels each tick (the same maps the
     /// manager animations write, so the DL/compositor path is shared), and
@@ -1501,6 +1512,8 @@ impl LayoutWindow {
             zombies: Vec::new(),
             anim_key_to_node: alloc::collections::BTreeMap::new(),
             zombie_relayouts: 0,
+            pending_track_changes: Vec::new(),
+            tracks_sampled_since_tick: false,
             css_transitions: Vec::new(),
             transition_relayout: false,
             transition_patched: false,
@@ -6994,136 +7007,123 @@ impl LayoutWindow {
             self.css_transitions.push(tr);
         }
 
-        // RETAIN departing nodes, so an exit has something to animate.
+        // RETAIN departing nodes that DECLARED an exit, so it has something
+        // to animate. Retention is opt-in (USER ruling 2026-08-17): a node
+        // without `-azul-animation-out` just disappears — no zombie, no
+        // automatic slide. Sidebar-style fly-outs are something user or
+        // library code CONFIGURES, not an engine default.
         //
-        // The previous frame is MOVED OUT of `layout_results` — not cloned, not
-        // reference-counted across the boundary. That gives the zombie sole
-        // ownership, which is the property that matters: this codebase has a
-        // double-free history, and the failure mode for a retained subtree is
-        // two owners racing to free it. Had it been left in place, the very next
-        // `layout()` would overwrite the entry and drop the departing state out
-        // from under the animation.
+        // When something does animate out, the previous frame is MOVED OUT of
+        // `layout_results` — not cloned, not reference-counted across the
+        // boundary. That gives the zombie sole ownership, which is the
+        // property that matters: this codebase has a double-free history, and
+        // the failure mode for a retained subtree is two owners racing to
+        // free it. Had it been left in place, the very next `layout()` would
+        // overwrite the entry and drop the departing state out from under the
+        // animation.
         //
-        // Only frames that actually unmount something take this path, so the
-        // common case is untouched and keeps its incremental-layout entry.
+        // Hit-testing needs no special case: it walks `layout_results`, and
+        // the zombie is no longer in there. Input therefore passes straight
+        // through to DOM B, and logic never sees the departing tree — which
+        // is exactly the required behaviour, obtained by construction rather
+        // than by a filter someone has to remember.
         //
-        // Hit-testing needs no special case: it walks `layout_results`, and the
-        // zombie is no longer in there. Input therefore passes straight through
-        // to DOM B, and logic never sees the departing tree — which is exactly
-        // the required behaviour, obtained by construction rather than by a
-        // filter someone has to remember.
+        // Declarations resolve against the OLD cascade BEFORE anything is
+        // moved: only if at least one track resolves does retention happen at
+        // all — the common no-declaration unmount keeps its incremental
+        // layout entry untouched.
+        let mut exit_tracks: BTreeMap<NodeId, AnimTrack> = BTreeMap::new();
         if !unmounted.is_empty() {
+            if let Some(old_result) = self.layout_results.get(&dom_id) {
+                for node in &unmounted {
+                    if node.index() >= old_node_data.len() {
+                        continue;
+                    }
+                    // A node that never laid out has no rect to animate from
+                    // — it disappears like an undeclared one.
+                    let Some(rect) = exit_rects.get(node) else { continue };
+                    let named = old_node_data.get(node.index()).and_then(|nd| {
+                        let st = old_result
+                            .styled_dom
+                            .styled_nodes
+                            .as_ref()
+                            .get(node.index())?;
+                        let prop = old_result.styled_dom.css_property_cache.ptr.get_property(
+                            nd,
+                            node,
+                            &st.styled_node_state,
+                            &azul_css::props::property::CssPropertyType::AnimationOut,
+                        )?;
+                        let azul_css::props::property::CssProperty::AnimationOut(v) = prop
+                        else {
+                            return None;
+                        };
+                        // A LIST of animations: the first entry whose name
+                        // resolves wins (CSS-fallback style). An entry whose
+                        // name resolves NOWHERE contributes nothing — all
+                        // unresolvable = no retention.
+                        v.get_property()?.as_ref().iter().find_map(|anim| {
+                            resolve_named_track(
+                                anim,
+                                &old_result
+                                    .styled_dom
+                                    .css_property_cache
+                                    .ptr
+                                    .retained_author_css,
+                                nd,
+                                *rect,
+                            )
+                        })
+                    });
+                    if let Some(mut track) = named {
+                        // An infinite EXIT would never reap its zombie —
+                        // clamp to one run (documented on the field).
+                        if track.iterations_left.is_none() {
+                            track.iterations_left = Some(1);
+                        }
+                        // A node unmounting MID-ENTER keeps its current
+                        // offsets: the out-track starts from wherever the
+                        // in-track had carried it instead of snapping to
+                        // the laid-out position first.
+                        if let Some(lt) = self.live_tracks.get(node) {
+                            track.override_start(&lt.sample());
+                        }
+                        exit_tracks.insert(*node, track);
+                    }
+                }
+            }
+        }
+        if !exit_tracks.is_empty() {
             if let Some(retained) = self.layout_results.remove(&dom_id) {
                 // Freeze the scroll state the retained frame was showing —
                 // the manager is remapped to the new tree right after this.
                 let frozen_scroll = self
                     .scroll_manager
                     .build_scroll_offset_map(dom_id, &retained.scroll_ids);
-                let mut exits = BTreeMap::new();
                 let mut rects = BTreeMap::new();
-                let mut tracks = BTreeMap::new();
                 let mut retained_keys = BTreeMap::new();
-                let exit_viewport = retained.viewport;
-                // Cloned once: `effective_system_animations` borrows all of
-                // `self`, and the loop below needs `self.animations` mutably.
-                let anim_registry = self.effective_system_animations().animation_functions.clone();
-                for node in &unmounted {
-                    if node.index() >= old_node_data.len() {
-                        continue;
-                    }
+                for node in exit_tracks.keys() {
                     if let Some(r) = exit_rects.get(node) {
                         rects.insert(*node, *r);
                     }
-                    // `-azul-animation-out` on the OLD cascade wins over the
-                    // default slide: the author named the exit. Resolved
-                    // against the stylesheet's @keyframes first (author wins),
-                    // then the builtin table; an unknown name falls back to
-                    // the default slide rather than freezing the node.
-                    if let Some(rect) = exit_rects.get(node) {
-                        let named = old_node_data.get(node.index()).and_then(|nd| {
-                            let st = retained.styled_dom.styled_nodes.as_ref().get(node.index())?;
-                            let prop = retained.styled_dom.css_property_cache.ptr.get_property(
-                                nd,
-                                node,
-                                &st.styled_node_state,
-                                &azul_css::props::property::CssPropertyType::AnimationOut,
-                            )?;
-                            let azul_css::props::property::CssProperty::AnimationOut(v) = prop
-                            else {
-                                return None;
-                            };
-                            // A LIST of animations: the first entry whose
-                            // name resolves wins (CSS-fallback style).
-                            v.get_property()?.as_ref().iter().find_map(|anim| {
-                                resolve_named_track(
-                                    anim,
-                                    &retained.styled_dom.css_property_cache.ptr.retained_author_css,
-                                    &anim_registry,
-                                    *rect,
-                                )
-                            })
-                        });
-                        if let Some(mut track) = named {
-                            // An infinite EXIT would never reap its zombie —
-                            // clamp to one run (documented on the field).
-                            if track.iterations_left.is_none() {
-                                track.iterations_left = Some(1);
-                            }
-                            // A node unmounting MID-ENTER keeps its current
-                            // offsets: the out-track starts from wherever the
-                            // in-track had carried it instead of snapping to
-                            // the laid-out position first.
-                            if let Some(lt) = self.live_tracks.get(node) {
-                                track.override_start(&lt.sample());
-                            }
-                            retained_keys.insert(
+                    // Keyed off the OLD tree — what lets a REMOUNT recognize
+                    // and catch this exit mid-flight.
+                    retained_keys.insert(
+                        *node,
+                        azul_core::animation::AnimKey(
+                            azul_core::diff::calculate_reconciliation_key(
+                                &old_node_data,
+                                &old_hierarchy,
                                 *node,
-                                azul_core::animation::AnimKey(
-                                    azul_core::diff::calculate_reconciliation_key(
-                                        &old_node_data,
-                                        &old_hierarchy,
-                                        *node,
-                                    ),
-                                ),
-                            );
-                            tracks.insert(*node, track);
-                            continue;
-                        }
-                    }
-                    // Where this exit travels: fully off the nearest edge of
-                    // the viewport it was living in. A node with no captured
-                    // rect (never laid out) exits instantly via a zero slide.
-                    let slide = exit_rects
-                        .get(node)
-                        .map(|r| slide_to_nearest_edge(*r, exit_viewport))
-                        .unwrap_or((0.0, 0.0));
-                    // Keyed off the OLD tree: a departing node has no entry in
-                    // the new one to derive an identity from.
-                    let key = azul_core::animation::AnimKey(
-                        azul_core::diff::calculate_reconciliation_key(
-                            &old_node_data,
-                            &old_hierarchy,
-                            *node,
+                            ),
                         ),
                     );
-                    // An exit always wins over whatever was in flight: the node
-                    // is leaving, so continuing toward a layout position it will
-                    // never occupy is wrong.
-                    self.animations.start_exit(
-                        key,
-                        slide,
-                        azul_core::animation::Interp::Spring(
-                            azul_core::animation::Spring::SMOOTH,
-                        ),
-                    );
-                    exits.insert(*node, key);
-                    retained_keys.insert(*node, key);
                 }
                 self.zombies.push(Zombie {
                     retained,
-                    exits,
+                    exits: BTreeMap::new(),
                     rects,
-                    tracks,
+                    tracks: exit_tracks,
                     tick_samples: BTreeMap::new(),
                     scratch_cache: Solver3LayoutCache::default(),
                     scratch_text: TextLayoutCache::new(),
@@ -7195,15 +7195,12 @@ impl LayoutWindow {
             );
         }
 
-        // Enters: a node that appeared has no First to fly from, so it SLIDES
-        // IN from the nearest viewport edge to its solved rect — the mirror of
-        // the exit default, so a sidebar re-opens the way it left (USER ruling
-        // 2026-08-17: presence changes travel at full size and full opacity;
-        // no fade, no scale). Keyed the same way as a move, so a node that
-        // appears and is immediately displaced retargets rather than running
-        // two animations over each other.
-        let enter_viewport = self.layout_results.get(&dom_id).map(|r| r.viewport);
-        let anim_registry = self.effective_system_animations().animation_functions.clone();
+        // Enters are opt-in like exits (USER ruling 2026-08-17): a mounted
+        // node with no `-azul-animation-in` just APPEARS in place — no
+        // automatic slide. The loop still does two things for every mount:
+        // resolve a declared in-animation into a live track, and CATCH a
+        // matching in-flight zombie so a remount reverses instead of
+        // double-painting.
         for node_id in &pending.mounted {
             if node_id.index() >= pending.new_node_data.len() {
                 continue;
@@ -7274,7 +7271,7 @@ impl LayoutWindow {
                         resolve_named_track(
                             anim,
                             &sd.css_property_cache.ptr.retained_author_css,
-                            &anim_registry,
+                            nd,
                             rect,
                         )
                     })
@@ -7332,37 +7329,14 @@ impl LayoutWindow {
                     resolve_named_track(
                         anim,
                         &sd.css_property_cache.ptr.retained_author_css,
-                        &anim_registry,
+                        nd,
                         rect,
                     )
                 })
             });
             if let Some(track) = named_in {
                 self.live_tracks.insert(*node_id, track);
-                continue;
             }
-            let key = azul_core::animation::AnimKey(
-                azul_core::diff::calculate_reconciliation_key(
-                    &pending.new_node_data,
-                    &pending.new_hierarchy,
-                    *node_id,
-                ),
-            );
-            self.anim_key_to_node.insert(key, *node_id);
-            // The slide-from offset: the vector that WOULD take the solved
-            // rect off its nearest edge — entering is that path reversed.
-            let from = match (
-                self.get_node_bounds(dom_id, *node_id).map(layout_rect_to_logical),
-                enter_viewport,
-            ) {
-                (Some(rect), Some(vp)) => slide_to_nearest_edge(rect, vp),
-                _ => (0.0, 0.0),
-            };
-            self.animations.start_enter(
-                key,
-                from,
-                azul_core::animation::Interp::Spring(azul_core::animation::Spring::SMOOTH),
-            );
         }
 
         // Publish the STARTING values immediately, with a zero-length step.
@@ -7506,6 +7480,7 @@ impl LayoutWindow {
             return false;
         }
         let finished = self.animations.tick(dt);
+        self.tracks_sampled_since_tick = false;
 
         // Solved bounds for every transitioning node, read BEFORE the GPU
         // cache borrow below (get_node_bounds needs `&self` whole).
@@ -7515,29 +7490,6 @@ impl LayoutWindow {
             .map(|tr| {
                 self.get_node_bounds(DomId::ROOT_ID, tr.node)
                     .map(layout_rect_to_logical)
-            })
-            .collect();
-        // Same for the live (`-azul-animation-in`) tracks: a NATIVE track's
-        // function receives a ZombieAnimInfo built from the LIVE tree. Raw
-        // pointer + copies, so nothing here outlives the borrow below.
-        let live_infos: Vec<Option<azul_core::resources::ZombieAnimInfo>> = self
-            .live_tracks
-            .keys()
-            .map(|node| {
-                let r = self.layout_results.get(&DomId::ROOT_ID)?;
-                let rect = self
-                    .get_node_bounds(DomId::ROOT_ID, *node)
-                    .map(layout_rect_to_logical)?;
-                Some(azul_core::resources::ZombieAnimInfo {
-                    styled_dom: &r.styled_dom,
-                    node_id: node.index() as u64,
-                    rect,
-                    viewport: r.viewport,
-                    dpi_factor: self.current_window_state.size.get_hidpi_factor().inner.get(),
-                    // Enter/live tracks carry no derivative history today.
-                    velocity_x: 0.0,
-                    velocity_y: 0.0,
-                })
             })
             .collect();
 
@@ -7576,158 +7528,25 @@ impl LayoutWindow {
                 .insert(node_id, anim.current_opacity());
         }
 
-        // Keyframed tracks advance on the SAME dt — one clock. Each zombie
-        // track is sampled HERE, once per frame (stored in `tick_samples`
-        // for the compositor), and a sample that drives `width`/`height`
-        // RE-SOLVES the retained tree at that size: the zombie is not
-        // frozen, it is merely unreachable — text rewraps mid-exit while
-        // callbacks already operate on the new DOM. Translate-only exits
-        // never enter this branch and stay on the frozen-snapshot path
-        // (the sliding-sidebar ruling: no relayout for a pure slide).
-        let zombie_dpi = self.current_window_state.size.get_hidpi_factor().inner.get();
+        // Keyframed tracks advance their CLOCKS here — one engine clock —
+        // and nothing else: SAMPLING (which may invoke a component's native
+        // animation function with a full TimerCallbackInfo, and may re-solve
+        // a retained tree) lives in [`Self::run_track_frames`], which the
+        // frame drivers call right after ticking with the parameter pile a
+        // real CallbackInfo needs.
         for z in &mut self.zombies {
-            if z.tracks.is_empty() {
-                continue;
-            }
-            for (node, tr) in &mut z.tracks {
+            for tr in z.tracks.values_mut() {
                 tr.tick(dt);
-                let (vel_x, vel_y) = z.velocities.get(node).copied().unwrap_or((0.0, 0.0));
-                let info = z.rects.get(node).map(|rect| {
-                    azul_core::resources::ZombieAnimInfo {
-                        styled_dom: &z.retained.styled_dom,
-                        node_id: node.index() as u64,
-                        rect: *rect,
-                        viewport: z.retained.viewport,
-                        dpi_factor: zombie_dpi,
-                        velocity_x: vel_x,
-                        velocity_y: vel_y,
-                    }
-                });
-                let sample = tr.sample_for(info.as_ref());
-                if dt > 0.0 {
-                    if let Some(prev) = z.tick_samples.get(node) {
-                        z.velocities.insert(
-                            *node,
-                            (
-                                (sample.translate_x - prev.translate_x) / dt,
-                                (sample.translate_y - prev.translate_y) / dt,
-                            ),
-                        );
-                    }
-                }
-                let wants = (sample.width, sample.height);
-                if (wants.0.is_some() || wants.1.is_some())
-                    && z.applied_sizes.get(node) != Some(&wants)
-                {
-                    let mut props: Vec<azul_css::props::property::CssProperty> = Vec::new();
-                    if let Some(w) = sample.width {
-                        props.push(azul_css::props::property::CssProperty::width(
-                            azul_css::props::layout::LayoutWidth::Px(
-                                azul_css::props::basic::pixel::PixelValue::px(w),
-                            ),
-                        ));
-                    }
-                    if let Some(h) = sample.height {
-                        props.push(azul_css::props::property::CssProperty::height(
-                            azul_css::props::layout::LayoutHeight::Px(
-                                azul_css::props::basic::pixel::PixelValue::px(h),
-                            ),
-                        ));
-                    }
-                    let _ = z.retained.styled_dom.restyle_user_property(node, &props);
-                    let dirty = [(
-                        *node,
-                        azul_css::props::property::CssPropertyType::Width.relayout_scope(false),
-                    )];
-                    let external = ExternalSystemCallbacks::rust_internal();
-                    let solved = solver3::layout_document(
-                        &mut z.scratch_cache,
-                        &mut z.scratch_text,
-                        &z.retained.styled_dom,
-                        z.retained.viewport,
-                        &self.font_manager,
-                        &BTreeMap::new(),
-                        &BTreeMap::new(),
-                        &mut None,
-                        None,
-                        &self.renderer_resources,
-                        self.id_namespace,
-                        z.retained.styled_dom.dom_id,
-                        false,
-                        Vec::new(),
-                        None,
-                        &self.image_cache,
-                        Some(&self.content_overlay),
-                        self.system_style.clone(),
-                        external.get_system_time_fn,
-                        &dirty,
-                    );
-                    if let Ok(dl) = solved {
-                        z.retained.display_list = dl;
-                        z.applied_sizes.insert(*node, wants);
-                        if let Some(tree) = z.scratch_cache.tree.as_ref() {
-                            for (idx, tn) in tree.nodes.iter().enumerate() {
-                                if tn.dom_node_id == Some(*node) {
-                                    if let (Some(size), Some(pos)) = (
-                                        tn.used_size,
-                                        solver3::pos_get(
-                                            &z.scratch_cache.calculated_positions,
-                                            idx,
-                                        ),
-                                    ) {
-                                        z.live_rects.insert(*node, LogicalRect::new(pos, size));
-                                    }
-                                    break;
-                                }
-                            }
-                        }
-                        // The snapshot shows the OLD solve — drop it so the
-                        // compositor re-renders the re-solved frame.
-                        let _ = z.snapshot.take();
-                        self.zombie_relayouts += 1;
-                    }
-                }
-                z.tick_samples.insert(*node, sample);
             }
         }
+
+        // Live (`-azul-animation-in`) tracks: clock only, same reasoning.
+        // GPU publishing happens in `run_track_frames`; a track that FINISHES
+        // is removed here and its keys released, so a settled enter cannot
+        // stay permanently offset by its last sample.
         let mut done_live: Vec<azul_core::dom::NodeId> = Vec::new();
-        for ((node_id, tr), info) in self.live_tracks.iter_mut().zip(live_infos) {
+        for (node_id, tr) in &mut self.live_tracks {
             tr.tick(dt);
-            let s = tr.sample_for(info.as_ref());
-            cache
-                .anim_transform_keys
-                .entry(*node_id)
-                .or_insert_with(azul_core::resources::TransformKey::unique);
-            // Row-vector affine with scale/rotate about the node's CENTER,
-            // folded into the translation row (logical units, like the
-            // manager's flip matrices).
-            let (sin, cos) = s.rotate_deg.to_radians().sin_cos();
-            let (a, b) = (s.scale_x * cos, s.scale_x * sin);
-            let (c, d) = (-s.scale_y * sin, s.scale_y * cos);
-            let (cx, cy) = info.as_ref().map_or((0.0, 0.0), |i| {
-                (i.rect.size.width / 2.0, i.rect.size.height / 2.0)
-            });
-            cache.anim_current_transform_values.insert(
-                *node_id,
-                azul_core::transform::ComputedTransform3D {
-                    m: [
-                        [a, b, 0.0, 0.0],
-                        [c, d, 0.0, 0.0],
-                        [0.0, 0.0, 1.0, 0.0],
-                        [
-                            cx + s.translate_x - cx * a - cy * c,
-                            cy + s.translate_y - cx * b - cy * d,
-                            0.0,
-                            1.0,
-                        ],
-                    ],
-                },
-            );
-            cache
-                .anim_opacity_keys
-                .entry(*node_id)
-                .or_insert_with(azul_core::resources::OpacityKey::unique);
-            cache.anim_current_opacity_values.insert(*node_id, s.opacity);
             if tr.is_done() {
                 done_live.push(*node_id);
             }
@@ -9176,6 +8995,327 @@ impl LayoutResult {
 }
 
 impl LayoutWindow {
+    /// Sample every keyframed track ONCE for this frame — the phase that may
+    /// call COMPONENT code, so it runs from the frame drivers (which own the
+    /// parameter pile a real `CallbackInfo` needs), not from the tick.
+    /// [`Self::tick_animations`] advances clocks; this produces frames:
+    /// compiled tracks sample their stop lists, native tracks invoke their
+    /// node-attached function with a FULL `TimerCallbackInfo` (live dom,
+    /// change queue, momentum API — USER ruling 2026-08-17) plus the
+    /// zombie-specific `ZombieAnimInfo` (RAW linear `t`, the DECLARED
+    /// timing, entry velocity — the callback owns the easing math).
+    /// Width/height-driving zombie samples re-solve the retained tree here.
+    /// Returns the changes native callbacks queued, for the driver to
+    /// process exactly like timer changes.
+    #[allow(clippy::too_many_arguments, clippy::too_many_lines)]
+    #[allow(clippy::cast_precision_loss)] // node index -> u64 id
+    pub fn run_track_frames(
+        &mut self,
+        dt: f32,
+        frame_start: Instant,
+        current_window_handle: &RawWindowHandle,
+        gl_context: &OptionGlContextPtr,
+        system_style: Arc<azul_css::system::SystemStyle>,
+        system_callbacks: &ExternalSystemCallbacks,
+        previous_window_state: &Option<FullWindowState>,
+        current_window_state: &FullWindowState,
+        renderer_resources: &RendererResources,
+    ) -> Vec<crate::callbacks::CallbackChange> {
+        use crate::callbacks::{CallbackInfo, CallbackInfoRefData};
+
+        let has_tracks = !self.live_tracks.is_empty()
+            || self.zombies.iter().any(|z| !z.tracks.is_empty());
+        if !has_tracks || self.tracks_sampled_since_tick {
+            return Vec::new();
+        }
+        self.tracks_sampled_since_tick = true;
+
+        let zombie_dpi = current_window_state.size.get_hidpi_factor().inner.get();
+        let callback_changes = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
+        struct SampledTrack {
+            zombie_idx: Option<usize>,
+            node: NodeId,
+            sample: TrackSample,
+        }
+        let mut sampled: Vec<SampledTrack> = Vec::new();
+
+        // ---- PHASE A: shared `self` — build infos, invoke component code ----
+        {
+            let current_scroll_states_nested = self.get_nested_scroll_states(DomId::ROOT_ID);
+            let ref_data = CallbackInfoRefData {
+                layout_window: self,
+                renderer_resources,
+                previous_window_state,
+                current_window_state,
+                gl_context,
+                current_scroll_manager: &current_scroll_states_nested,
+                current_window_handle,
+                system_callbacks,
+                system_style,
+                monitors: self.monitors.clone(),
+                #[cfg(feature = "icu")]
+                icu_localizer: self.icu_localizer.clone(),
+                ctx: OptionRefAny::None,
+            };
+            let base_info = CallbackInfo::new(
+                &ref_data,
+                &callback_changes,
+                DomNodeId {
+                    dom: DomId::ROOT_ID,
+                    node: NodeHierarchyItemId::from_crate_internal(None),
+                },
+                OptionLogicalPosition::None,
+                OptionLogicalPosition::None,
+            );
+            let sample_track = |tr: &AnimTrack,
+                                info: &azul_core::resources::ZombieAnimInfo,
+                                live_node: Option<NodeId>|
+             -> TrackSample {
+                match &tr.source {
+                    TrackSource::Compiled => tr.sample(),
+                    TrackSource::Native { callback, data } => {
+                        // The usize is a `ZombieAnimFnType` minted by
+                        // `add_animation_callback` — the CoreCallback cast.
+                        let cb: crate::callbacks::ZombieAnimFnType =
+                            unsafe { core::mem::transmute(callback.cb) };
+                        // Clone the handle, not the payload: RefAny is
+                        // refcounted; the contract is `&mut` on ITS data.
+                        let mut data = data.clone();
+                        let mut tci = crate::timer::TimerCallbackInfo {
+                            callback_info: base_info,
+                            node_id: match live_node {
+                                Some(n) => azul_core::dom::OptionDomNodeId::Some(DomNodeId {
+                                    dom: DomId::ROOT_ID,
+                                    node: NodeHierarchyItemId::from_crate_internal(Some(n)),
+                                }),
+                                // A zombie's node is not IN the live tree.
+                                None => azul_core::dom::OptionDomNodeId::None,
+                            },
+                            frame_start: frame_start.clone(),
+                            call_count: tr.frames_run,
+                            is_about_to_finish: tr.t >= 1.0,
+                            _abi_ref: core::ptr::null(),
+                            _abi_mut: core::ptr::null_mut(),
+                        };
+                        let frame = cb(&mut data, &mut tci, info);
+                        TrackSample {
+                            translate_x: frame.translate_x,
+                            translate_y: frame.translate_y,
+                            scale_x: 1.0,
+                            scale_y: 1.0,
+                            rotate_deg: 0.0,
+                            opacity: frame.opacity,
+                            width: frame.width.into_option(),
+                            height: None,
+                            clip: frame.clip_to_frozen_rect,
+                        }
+                    }
+                }
+            };
+            for (zi, z) in self.zombies.iter().enumerate() {
+                for (node, tr) in &z.tracks {
+                    let Some(frozen) = z.rects.get(node) else { continue };
+                    let (vx, vy) = z.velocities.get(node).copied().unwrap_or((0.0, 0.0));
+                    let info = azul_core::resources::ZombieAnimInfo {
+                        styled_dom: &z.retained.styled_dom,
+                        node_id: node.index() as u64,
+                        rect: *z.live_rects.get(node).unwrap_or(frozen),
+                        viewport: z.retained.viewport,
+                        dpi_factor: zombie_dpi,
+                        t: tr.t,
+                        timing: tr.timing,
+                        velocity_x: vx,
+                        velocity_y: vy,
+                    };
+                    sampled.push(SampledTrack {
+                        zombie_idx: Some(zi),
+                        node: *node,
+                        sample: sample_track(tr, &info, None),
+                    });
+                }
+            }
+            for (node, tr) in &self.live_tracks {
+                let Some(r) = self.layout_results.get(&DomId::ROOT_ID) else { continue };
+                let Some(rect) = self
+                    .get_node_bounds(DomId::ROOT_ID, *node)
+                    .map(layout_rect_to_logical)
+                else {
+                    continue;
+                };
+                let info = azul_core::resources::ZombieAnimInfo {
+                    styled_dom: &r.styled_dom,
+                    node_id: node.index() as u64,
+                    rect,
+                    viewport: r.viewport,
+                    dpi_factor: zombie_dpi,
+                    t: tr.t,
+                    timing: tr.timing,
+                    // Live tracks keep no derivative history today.
+                    velocity_x: 0.0,
+                    velocity_y: 0.0,
+                };
+                sampled.push(SampledTrack {
+                    zombie_idx: None,
+                    node: *node,
+                    sample: sample_track(tr, &info, Some(*node)),
+                });
+            }
+        } // shared borrow ends here
+
+        // ---- PHASE B: mut `self` — apply samples ----
+        for SampledTrack {
+            zombie_idx,
+            node,
+            sample,
+        } in sampled
+        {
+            match zombie_idx {
+                Some(zi) => {
+                    let Some(z) = self.zombies.get_mut(zi) else { continue };
+                    if let Some(tr) = z.tracks.get_mut(&node) {
+                        tr.frames_run = tr.frames_run.saturating_add(1);
+                    }
+                    if dt > 0.0 {
+                        if let Some(prev) = z.tick_samples.get(&node) {
+                            z.velocities.insert(
+                                node,
+                                (
+                                    (sample.translate_x - prev.translate_x) / dt,
+                                    (sample.translate_y - prev.translate_y) / dt,
+                                ),
+                            );
+                        }
+                    }
+                    // Width/height samples mean REAL layout: re-solve the
+                    // retained tree at the sampled size (the zombie is
+                    // unreachable, not frozen).
+                    let wants = (sample.width, sample.height);
+                    if (wants.0.is_some() || wants.1.is_some())
+                        && z.applied_sizes.get(&node) != Some(&wants)
+                    {
+                        let mut props: Vec<azul_css::props::property::CssProperty> = Vec::new();
+                        if let Some(w) = sample.width {
+                            props.push(azul_css::props::property::CssProperty::width(
+                                azul_css::props::layout::LayoutWidth::Px(
+                                    azul_css::props::basic::pixel::PixelValue::px(w),
+                                ),
+                            ));
+                        }
+                        if let Some(h) = sample.height {
+                            props.push(azul_css::props::property::CssProperty::height(
+                                azul_css::props::layout::LayoutHeight::Px(
+                                    azul_css::props::basic::pixel::PixelValue::px(h),
+                                ),
+                            ));
+                        }
+                        let _ = z.retained.styled_dom.restyle_user_property(&node, &props);
+                        let dirty = [(
+                            node,
+                            azul_css::props::property::CssPropertyType::Width
+                                .relayout_scope(false),
+                        )];
+                        let external = ExternalSystemCallbacks::rust_internal();
+                        let solved = solver3::layout_document(
+                            &mut z.scratch_cache,
+                            &mut z.scratch_text,
+                            &z.retained.styled_dom,
+                            z.retained.viewport,
+                            &self.font_manager,
+                            &BTreeMap::new(),
+                            &BTreeMap::new(),
+                            &mut None,
+                            None,
+                            renderer_resources,
+                            self.id_namespace,
+                            z.retained.styled_dom.dom_id,
+                            false,
+                            Vec::new(),
+                            None,
+                            &self.image_cache,
+                            Some(&self.content_overlay),
+                            self.system_style.clone(),
+                            external.get_system_time_fn,
+                            &dirty,
+                        );
+                        if let Ok(dl) = solved {
+                            z.retained.display_list = dl;
+                            z.applied_sizes.insert(node, wants);
+                            if let Some(tree) = z.scratch_cache.tree.as_ref() {
+                                for (idx, tn) in tree.nodes.iter().enumerate() {
+                                    if tn.dom_node_id == Some(node) {
+                                        if let (Some(size), Some(pos)) = (
+                                            tn.used_size,
+                                            solver3::pos_get(
+                                                &z.scratch_cache.calculated_positions,
+                                                idx,
+                                            ),
+                                        ) {
+                                            z.live_rects
+                                                .insert(node, LogicalRect::new(pos, size));
+                                        }
+                                        break;
+                                    }
+                                }
+                            }
+                            let _ = z.snapshot.take();
+                            self.zombie_relayouts += 1;
+                        }
+                    }
+                    z.tick_samples.insert(node, sample);
+                }
+                None => {
+                    if let Some(tr) = self.live_tracks.get_mut(&node) {
+                        tr.frames_run = tr.frames_run.saturating_add(1);
+                    }
+                    let cache = self.gpu_state_manager.caches.entry(DomId::ROOT_ID).or_default();
+                    let s = sample;
+                    cache
+                        .anim_transform_keys
+                        .entry(node)
+                        .or_insert_with(azul_core::resources::TransformKey::unique);
+                    // Row-vector affine with scale/rotate about the node's
+                    // CENTRE, folded into the translation row (logical
+                    // units, like the manager's flip matrices).
+                    let (sin, cos) = s.rotate_deg.to_radians().sin_cos();
+                    let (a, b) = (s.scale_x * cos, s.scale_x * sin);
+                    let (c, d) = (-s.scale_y * sin, s.scale_y * cos);
+                    let (cx, cy) = self
+                        .get_node_bounds(DomId::ROOT_ID, node)
+                        .map(layout_rect_to_logical)
+                        .map_or((0.0, 0.0), |r| (r.size.width / 2.0, r.size.height / 2.0));
+                    let cache = self.gpu_state_manager.caches.entry(DomId::ROOT_ID).or_default();
+                    cache.anim_current_transform_values.insert(
+                        node,
+                        azul_core::transform::ComputedTransform3D {
+                            m: [
+                                [a, b, 0.0, 0.0],
+                                [c, d, 0.0, 0.0],
+                                [0.0, 0.0, 1.0, 0.0],
+                                [
+                                    cx + s.translate_x - cx * a - cy * c,
+                                    cy + s.translate_y - cx * b - cy * d,
+                                    0.0,
+                                    1.0,
+                                ],
+                            ],
+                        },
+                    );
+                    cache
+                        .anim_opacity_keys
+                        .entry(node)
+                        .or_insert_with(azul_core::resources::OpacityKey::unique);
+                    cache.anim_current_opacity_values.insert(node, s.opacity);
+                }
+            }
+        }
+
+        callback_changes
+            .lock()
+            .map(|mut g| core::mem::take(&mut *g))
+            .unwrap_or_default()
+    }
+
+
     /// Runs a single timer, similar to `CallbacksOfHitTest.call()`
     ///
     /// NOTE: The timer has to be selected first by the calling code and verified
@@ -9587,6 +9727,8 @@ mod tests {
             duration_s: 1.0,
             delay_s: 0.0,
             iterations_left: Some(1),
+            clip: true,
+            frames_run: 0,
             timing: AnimationTiming::Linear,
             translate_x: vec![(0.25, 0.0), (0.75, 100.0)],
             translate_y: vec![],
@@ -9612,215 +9754,122 @@ mod tests {
         assert_eq!(tr.sample().width, None);
     }
 
-    /// `flyOutRight` is the USER's reference exit: shift right by the full
-    /// width, leaving through the node's own right edge. It is
-    /// TRANSLATE-ONLY: the frozen-rect clip narrows the visible strip as it
-    /// travels, and a `width` channel would instead mean REAL layout width —
-    /// the per-frame retained-tree re-solve a pure slide must never pay for.
+    /// There are NO engine builtins (USER ruling): a name that neither the
+    /// stylesheet nor the node's own attached callbacks define resolves to
+    /// NOTHING — the dom just disappears without an animation.
     #[test]
-    fn builtin_fly_out_right_is_translate_only_the_clip_narrows() {
-        use azul_css::props::basic::animation::AnimationTiming;
+    fn unknown_names_resolve_to_no_animation_at_all() {
+        use azul_css::props::basic::animation::{AnimationTiming, StyleAnimation};
+        use azul_css::props::basic::time::CssDuration;
         let rect = LogicalRect::new(
             LogicalPosition::new(0.0, 0.0),
             LogicalSize::new(300.0, 500.0),
         );
-        let mut tr = builtin_track("flyOutRight", rect, 1.0, AnimationTiming::Linear)
-            .expect("flyOutRight is a builtin");
-        tr.t = 0.0;
-        let start = tr.sample();
-        assert_eq!(start.translate_x, 0.0);
-        assert_eq!(start.width, None, "no width channel: the FROZEN path");
-        tr.t = 1.0;
-        let end = tr.sample();
-        assert_eq!(end.translate_x, 300.0);
-        assert_eq!(end.width, None);
-        // Presence exits keep full opacity (USER ruling: no fade) and clip
-        // to their frozen box (a slide must not paint over neighbours).
-        assert_eq!(end.opacity, 1.0);
-        assert!(end.clip);
-        assert!(builtin_track("noSuchAnimation", rect, 1.0, AnimationTiming::Linear).is_none());
-    }
-
-    /// `animation-delay` holds the t=0 state; the clock only starts moving
-    /// once the delay is consumed — the staggered-list-entrance primitive.
-    #[test]
-    fn track_delay_holds_frame_zero_then_plays() {
-        use azul_css::props::basic::animation::AnimationTiming;
-        let mut tr = AnimTrack {
-            source: TrackSource::Compiled,
-            t: 0.0,
-            duration_s: 1.0,
-            delay_s: 0.5,
-            iterations_left: Some(1),
+        let anim = StyleAnimation {
+            name: "flyOutRight".into(), // used to be an engine builtin
+            duration: CssDuration::from_millis(1000),
+            delay: CssDuration::from_millis(0),
+            iterations: Default::default(),
             timing: AnimationTiming::Linear,
-            translate_x: vec![(0.0, 0.0), (1.0, 100.0)],
-            translate_y: vec![],
-            scale_x: vec![],
-            scale_y: vec![],
-            rotate_deg: vec![],
-            opacity: vec![],
-            width: vec![],
-            height: vec![],
+            clip: true,
         };
-        tr.tick(0.3);
-        assert_eq!(tr.t, 0.0, "still delaying");
-        assert!(!tr.is_done());
-        // 0.4s: 0.2 finishes the delay, 0.2 plays.
-        tr.tick(0.4);
-        assert!((tr.t - 0.2).abs() < 1e-6, "t={}", tr.t);
-        tr.tick(1.0);
-        assert!(tr.is_done());
+        let empty_css = azul_css::css::Css::default();
+        let bare = azul_core::dom::NodeData::default();
+        assert!(
+            resolve_named_track(&anim, &empty_css, &bare, rect).is_none(),
+            "no builtins: an undeclared name must animate nothing"
+        );
     }
 
-    /// `infinite` loops for ever (the CSS spinner) and a finite count plays
-    /// exactly N times — the loop wraps `t` instead of clamping it.
+    /// The component-attached native path: `NodeData::add_animation_callback`
+    /// + `-azul-animation-out: myFn ..` resolves to a Native track carrying
+    /// the (type-erased) fn pointer and its RefAny data, with the DECLARED
+    /// timing and clip riding along — invocation itself (TimerCallbackInfo +
+    /// raw-t contract) is exercised end-to-end by the e2e corpus.
     #[test]
-    fn iteration_counts_loop_and_infinite_never_finishes() {
-        use azul_css::props::basic::animation::AnimationTiming;
-        let mk = |iters: Option<u16>| AnimTrack {
-            source: TrackSource::Compiled,
-            t: 0.0,
-            duration_s: 1.0,
-            delay_s: 0.0,
-            iterations_left: iters,
-            timing: AnimationTiming::Linear,
-            translate_x: vec![(0.0, 0.0), (1.0, 100.0)],
-            translate_y: vec![],
-            scale_x: vec![],
-            scale_y: vec![],
-            rotate_deg: vec![],
-            opacity: vec![],
-            width: vec![],
-            height: vec![],
-        };
-        let mut inf = mk(None);
-        inf.tick(0.75);
-        assert!((inf.t - 0.75).abs() < 1e-6);
-        inf.tick(0.5);
-        assert!((inf.t - 0.25).abs() < 1e-6, "wrapped, t={}", inf.t);
-        assert!(!inf.is_done(), "infinite never finishes");
-
-        let mut three = mk(Some(3));
-        three.tick(2.5);
-        assert_eq!(three.iterations_left, Some(1));
-        assert!((three.t - 0.5).abs() < 1e-6, "third lap at 0.5, t={}", three.t);
-        three.tick(0.6);
-        assert!(three.is_done(), "three laps done");
-        assert_eq!(three.t, 1.0);
-    }
-
-    /// The USER's "fooFunc 1s": a registered NATIVE animation function is
-    /// resolvable by name, receives eased progress + a ZombieAnimInfo it can
-    /// analyze (rect, viewport, the tree), and its returned frame drives the
-    /// sample verbatim — including opting OUT of the frozen-rect clip.
-    /// Precedence: it SHADOWS the builtin of the same name, and stylesheet
-    /// `@keyframes` shadow IT.
-    #[test]
-    fn native_animation_functions_resolve_by_name_and_drive_the_sample() {
-        use azul_core::resources::{
-            AnimationFunction, AnimationFunctionVec, ZombieAnimCallback, ZombieAnimInfo,
-            ZombieFrame,
-        };
+    fn node_attached_animation_functions_resolve_by_name() {
+        use azul_core::resources::{ZombieAnimCallback, ZombieAnimInfo, ZombieFrame};
         use azul_css::props::basic::animation::{AnimationTiming, StyleAnimation};
         use azul_css::props::basic::time::CssDuration;
 
-        extern "C" fn half_width_no_clip(
-            data: &mut RefAny,
+        extern "C" fn half_width(
+            _data: &mut RefAny,
+            _tci: &mut crate::timer::TimerCallbackInfo,
             info: &ZombieAnimInfo,
-            t: f32,
         ) -> ZombieFrame {
-            // The registered data is reachable and mutable...
-            if let Some(mut calls) = data.downcast_mut::<u32>() {
-                *calls += 1;
-            }
-            // ...and the info is real: derive the frame FROM the rect.
             ZombieFrame {
-                translate_x: info.rect.size.width * t,
+                translate_x: info.rect.size.width * info.timing.evaluate(info.t),
                 translate_y: 0.0,
                 opacity: 1.0,
                 width: azul_css::OptionF32::Some(info.rect.size.width / 2.0),
                 clip_to_frozen_rect: false,
             }
         }
+        let typed: crate::callbacks::ZombieAnimFnType = half_width;
 
-        let registry = AnimationFunctionVec::from_vec(vec![AnimationFunction {
-            name: "flyOutRight".into(), // shadows the BUILTIN of this name
-            callback: ZombieAnimCallback { cb: half_width_no_clip },
-            data: RefAny::new(0u32),
-        }]);
+        let mut node = azul_core::dom::NodeData::default();
+        node.add_animation_callback(
+            "myFn".into(),
+            ZombieAnimCallback { cb: typed as usize },
+            RefAny::new(0u32),
+        );
         let rect = LogicalRect::new(
             LogicalPosition::new(0.0, 0.0),
             LogicalSize::new(300.0, 500.0),
         );
         let anim = StyleAnimation {
-            name: "flyOutRight".into(),
+            name: "myFn".into(),
             duration: CssDuration::from_millis(1000),
             delay: CssDuration::from_millis(0),
             iterations: Default::default(),
             timing: AnimationTiming::Linear,
+            clip: false, // the CSS `no-clip` keyword
         };
-
-        // Native shadows the builtin (empty stylesheet).
         let empty_css = azul_css::css::Css::default();
-        let mut tr = resolve_named_track(&anim, &empty_css, &registry, rect).expect("resolves");
+        let tr = resolve_named_track(&anim, &empty_css, &node, rect).expect("resolves");
         assert!(matches!(tr.source, TrackSource::Native { .. }));
-        tr.t = 0.5;
-        let info = ZombieAnimInfo {
-            styled_dom: core::ptr::null(),
-            node_id: 0,
-            rect,
-            viewport: rect,
-            dpi_factor: 1.0,
-            velocity_x: 0.0,
-            velocity_y: 0.0,
-        };
-        let s = tr.sample_for(Some(&info));
-        assert_eq!(s.translate_x, 150.0, "the function's math ran on the real rect");
-        assert_eq!(s.width, Some(150.0));
-        assert!(!s.clip, "the function opted out of the clip");
-        // Without info the native source degrades to identity, not a crash.
-        let blind = tr.sample_for(None);
-        assert_eq!(blind.translate_x, 0.0);
+        assert!(!tr.clip, "the declared no-clip rode into the track");
 
-        // Stylesheet @keyframes STILL shadow the native registration.
+        // Stylesheet @keyframes STILL shadow the attached function — the web
+        // mechanism is the first (and only default) name source.
         let (css, _w) = azul_css::parser2::new_from_str(
-            "@keyframes flyOutRight { from { opacity: 1; } to { opacity: 0; } }",
+            "@keyframes myFn { from { opacity: 1; } to { opacity: 0; } }",
         );
-        let tr2 = resolve_named_track(&anim, &css, &registry, rect).expect("resolves");
+        let tr2 = resolve_named_track(&anim, &css, &node, rect).expect("resolves");
         assert!(matches!(tr2.source, TrackSource::Compiled));
     }
 
-    /// Author `@keyframes` win over the builtin table for the SAME name, and
-    /// percent endpoints resolve against the node's frozen rect.
+    /// Stylesheet `@keyframes` are the web-default name source, resolved
+    /// LAST-definition-wins, with percent endpoints resolved against the
+    /// node's rect.
     #[test]
-    fn stylesheet_keyframes_shadow_the_builtin_table() {
+    fn stylesheet_keyframes_resolve_last_definition_wins() {
         use azul_css::props::basic::animation::{AnimationTiming, StyleAnimation};
         use azul_css::props::basic::time::CssDuration;
 
-        let css_src = "@keyframes flyOutRight { from { opacity: 1; } to { opacity: 0; } }";
+        let css_src = "@keyframes fade { from { opacity: 0.5; } to { opacity: 0.6; } }\n\
+                       @keyframes fade { from { opacity: 1; } to { opacity: 0; } }";
         let (css, _warnings) = azul_css::parser2::new_from_str(css_src);
-        assert_eq!(css.keyframes.as_ref().len(), 1, "the @keyframes block must parse");
+        assert_eq!(css.keyframes.as_ref().len(), 2, "both blocks parse");
 
         let rect = LogicalRect::new(
             LogicalPosition::new(0.0, 0.0),
             LogicalSize::new(300.0, 500.0),
         );
         let anim = StyleAnimation {
-            name: "flyOutRight".into(),
+            name: "fade".into(),
             duration: CssDuration::from_millis(1000),
             delay: CssDuration::from_millis(0),
             iterations: Default::default(),
             timing: AnimationTiming::Linear,
+            clip: true,
         };
-        let registry = azul_core::resources::AnimationFunctionVec::from_const_slice(&[]);
-        let mut tr = resolve_named_track(&anim, &css, &registry, rect).expect("resolves");
-        // The AUTHOR version fades and does NOT translate — proving the
-        // stylesheet shadowed the builtin of the same name.
+        let bare = azul_core::dom::NodeData::default();
+        let mut tr = resolve_named_track(&anim, &css, &bare, rect).expect("resolves");
         tr.t = 1.0;
         let end = tr.sample();
-        assert_eq!(end.opacity, 0.0);
+        assert_eq!(end.opacity, 0.0, "the LAST @keyframes fade wins (CSS rule)");
         assert_eq!(end.translate_x, 0.0);
-        assert!(tr.width.is_empty());
     }
 
     /// NEGATIVE CONTROL for the font-resolution skip on the WINDOW path.
@@ -13464,6 +13513,12 @@ impl LayoutWindow {
             transition_patched: _,
             // A cumulative counter, no node ids.
             zombie_relayouts: _,
+            // Opaque queued changes + a bool; nothing node-keyed to remap
+            // (a change referencing a NodeId is applied against whatever
+            // tree is live when the dispatcher drains it, like timer
+            // changes).
+            pending_track_changes: _,
+            tracks_sampled_since_tick: _,
             // CSS-diff staging is keyed by NEW-tree NodeIds computed in the
             // same reconciliation that produces the remap — it is consumed by
             // the very next layout pass and never survives a second remap.
@@ -15909,25 +15964,6 @@ fn alloc_format_merge(first_kept: &str, last_kept: &str) -> String {
 /// Scale is applied about the node's own origin and then translated, matching
 /// what the FLIP maths produced: `first` and `last` are both top-left rects, so
 /// the offset is already expressed from the same corner the scale grows from.
-/// The slide vector that takes `rect` fully off the nearest viewport edge —
-/// the default direction for presence changes (USER ruling 2026-08-17: a
-/// sidebar hugging the left edge slides out LEFT, at full size and full
-/// opacity; it does not shrink or dissolve). "Nearest" by travel distance,
-/// so a toast at the bottom leaves downward and a header leaves upward.
-fn slide_to_nearest_edge(rect: LogicalRect, viewport: LogicalRect) -> (f32, f32) {
-    let left = -(rect.origin.x + rect.size.width - viewport.origin.x);
-    let right = viewport.origin.x + viewport.size.width - rect.origin.x;
-    let up = -(rect.origin.y + rect.size.height - viewport.origin.y);
-    let down = viewport.origin.y + viewport.size.height - rect.origin.y;
-    let horizontal = if left.abs() <= right.abs() { left } else { right };
-    let vertical = if up.abs() <= down.abs() { up } else { down };
-    if horizontal.abs() <= vertical.abs() {
-        (horizontal, 0.0)
-    } else {
-        (0.0, vertical)
-    }
-}
-
 fn flip_to_matrix(t: azul_core::animation::FlipTransform) -> azul_core::transform::ComputedTransform3D {
     azul_core::transform::ComputedTransform3D {
         m: [
@@ -16224,6 +16260,13 @@ pub struct AnimTrack {
     /// Presence EXITS are clamped to `Some(1)` at seed time — an infinite
     /// exit would never reap its zombie.
     pub iterations_left: Option<u16>,
+    /// Whether an EXIT driven by this track clips to its retained rect —
+    /// the CSS `no-clip` keyword clears it (USER ruling: configurable,
+    /// default clipped). Native functions override per frame.
+    pub clip: bool,
+    /// Frames sampled so far — what a native function sees as
+    /// `TimerCallbackInfo::call_count`.
+    pub frames_run: usize,
     pub timing: azul_css::props::basic::animation::AnimationTiming,
     /// (t, value) per channel, each sorted by t ascending.
     pub translate_x: Vec<(f32, f32)>,
@@ -16309,7 +16352,7 @@ impl AnimTrack {
             opacity: Self::sample_channel(&self.opacity, self.t, timing).unwrap_or(1.0),
             width: Self::sample_channel(&self.width, self.t, timing),
             height: Self::sample_channel(&self.height, self.t, timing),
-            clip: true,
+            clip: self.clip,
         }
     }
 
@@ -16338,33 +16381,6 @@ impl AnimTrack {
         with_start(&mut self.opacity, s.opacity, 1.0, 1.0);
     }
 
-    /// [`Self::sample`], but a `Native` source calls its registered function
-    /// with eased progress and `info`. Falls back to the (empty) compiled
-    /// channels when the caller has no info to offer — identity, effectively.
-    #[must_use]
-    pub fn sample_for(&self, info: Option<&azul_core::resources::ZombieAnimInfo>) -> TrackSample {
-        match (&self.source, info) {
-            (TrackSource::Native { callback, data }, Some(info)) => {
-                let eased = self.timing.to_interpolation().evaluate(f64::from(self.t));
-                // Clone the handle, not the payload: RefAny is refcounted, and
-                // the callback contract is `&mut` on ITS registered data.
-                let mut data = data.clone();
-                let frame = (callback.cb)(&mut data, info, eased);
-                TrackSample {
-                    translate_x: frame.translate_x,
-                    translate_y: frame.translate_y,
-                    scale_x: 1.0,
-                    scale_y: 1.0,
-                    rotate_deg: 0.0,
-                    opacity: frame.opacity,
-                    width: frame.width.into_option(),
-                    height: None,
-                    clip: frame.clip_to_frozen_rect,
-                }
-            }
-            _ => self.sample(),
-        }
-    }
 }
 
 /// Compile a parsed `@keyframes` block into an [`AnimTrack`], resolving
@@ -16387,6 +16403,8 @@ pub fn compile_keyframes_track(
         duration_s,
         delay_s: 0.0,
         iterations_left: Some(1),
+        clip: true,
+        frames_run: 0,
         timing,
         translate_x: Vec::new(),
         translate_y: Vec::new(),
@@ -16522,62 +16540,20 @@ pub fn compile_keyframes_track(
     track
 }
 
-/// The built-in animation-function table — available without any `@keyframes`
-/// in the stylesheet, so `-azul-animation-out: flyOutRight 1s` works out of
-/// the box. Names are resolved AFTER stylesheet keyframes (author wins).
-#[must_use]
-pub fn builtin_track(
-    name: &str,
-    rect: LogicalRect,
-    duration_s: f32,
-    timing: azul_css::props::basic::animation::AnimationTiming,
-) -> Option<AnimTrack> {
-    let w = rect.size.width;
-    let h = rect.size.height;
-    let mk = |txs: Vec<(f32, f32)>, tys: Vec<(f32, f32)>, ops: Vec<(f32, f32)>, ws: Vec<(f32, f32)>| AnimTrack {
-        source: TrackSource::Compiled,
-        t: 0.0,
-        duration_s,
-        delay_s: 0.0,
-        iterations_left: Some(1),
-        timing,
-        translate_x: txs,
-        translate_y: tys,
-        scale_x: Vec::new(),
-        scale_y: Vec::new(),
-        rotate_deg: Vec::new(),
-        opacity: ops,
-        width: ws,
-        height: Vec::new(),
-    };
-    Some(match name {
-        // The USER's reference exit: shift right, narrow to zero, clipped to
-        // the frozen box — the sidebar leaves through its own right edge.
-        // Translate-only: the frozen-rect clip already narrows the visible
-        // strip as it travels, and a pure slide must stay on the FROZEN
-        // path (no per-frame solve) — the USER's sliding-sidebar ruling.
-        // A `width` channel (from @keyframes) means REAL layout width and
-        // re-solves the retained tree instead.
-        "flyOutRight" => mk(vec![(0.0, 0.0), (1.0, w)], vec![], vec![], vec![]),
-        "flyOutLeft" => mk(vec![(0.0, 0.0), (1.0, -w)], vec![], vec![], vec![]),
-        "flyOutUp" => mk(vec![], vec![(0.0, 0.0), (1.0, -h)], vec![], vec![]),
-        "flyOutDown" => mk(vec![], vec![(0.0, 0.0), (1.0, h)], vec![], vec![]),
-        "flyInLeft" => mk(vec![(0.0, -w), (1.0, 0.0)], vec![], vec![], vec![]),
-        "flyInRight" => mk(vec![(0.0, w), (1.0, 0.0)], vec![], vec![], vec![]),
-        "fadeOut" => mk(vec![], vec![], vec![(0.0, 1.0), (1.0, 0.0)], vec![]),
-        "fadeIn" => mk(vec![], vec![], vec![(0.0, 0.0), (1.0, 1.0)], vec![]),
-        _ => return None,
-    })
-}
-
 /// Resolve a `-azul-animation-in/-out` name: stylesheet `@keyframes` first
 /// (author wins), then the builtin table. `None` = unknown name; the caller
 /// falls back to the default slide and logs.
 #[must_use]
+/// Resolve a `-azul-animation-in`/`-out` name into a track. There are NO
+/// engine builtins (USER ruling 2026-08-17): the WEB mechanism — stylesheet
+/// `@keyframes`, LAST definition of a name winning — is the only default
+/// name source, and beyond it a name can only mean a function the COMPONENT
+/// attached to its own node (`NodeData::add_animation_callback`). A name
+/// resolving nowhere animates nothing.
 pub fn resolve_named_track(
     anim: &azul_css::props::basic::animation::StyleAnimation,
     retained_css: &azul_css::css::Css,
-    registry: &azul_core::resources::AnimationFunctionVec,
+    node_data: &azul_core::dom::NodeData,
     rect: LogicalRect,
 ) -> Option<AnimTrack> {
     let duration_s = anim.duration.millis() as f32 / 1000.0;
@@ -16587,6 +16563,7 @@ pub fn resolve_named_track(
             azul_css::props::basic::animation::AnimationIterationCount::Count(n) => Some(n.max(1)),
             azul_css::props::basic::animation::AnimationIterationCount::Infinite => None,
         };
+        track.clip = anim.clip;
         track
     };
     // Reverse: the LAST `@keyframes` definition of a name wins (CSS rule).
@@ -16595,9 +16572,7 @@ pub fn resolve_named_track(
             return Some(finish(compile_keyframes_track(kf, rect, duration_s, anim.timing)));
         }
     }
-    // App-registered native functions come after the stylesheet (author
-    // wins) and before the builtins (an app may shadow `flyOutRight`).
-    for f in registry.as_ref() {
+    for f in node_data.animation_callbacks() {
         if f.name.as_str() == anim.name.as_str() {
             return Some(finish(AnimTrack {
                 source: TrackSource::Native {
@@ -16608,6 +16583,8 @@ pub fn resolve_named_track(
                 duration_s,
                 delay_s: 0.0,
                 iterations_left: Some(1),
+                clip: anim.clip,
+                frames_run: 0,
                 timing: anim.timing,
                 translate_x: Vec::new(),
                 translate_y: Vec::new(),
@@ -16620,7 +16597,7 @@ pub fn resolve_named_track(
             }));
         }
     }
-    builtin_track(anim.name.as_str(), rect, duration_s, anim.timing).map(finish)
+    None
 }
 
 /// The reverse of an out-track caught mid-flight with NO declared
@@ -16636,6 +16613,8 @@ pub fn reverse_out_track(current: &TrackSample, out: &AnimTrack) -> AnimTrack {
         duration_s: (out.duration_s * out.t).max(0.05),
         delay_s: 0.0,
         iterations_left: Some(1),
+        clip: out.clip,
+        frames_run: 0,
         timing: out.timing,
         translate_x: Vec::new(),
         translate_y: Vec::new(),
