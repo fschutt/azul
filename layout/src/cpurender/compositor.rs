@@ -1443,8 +1443,106 @@ pub struct GpuValueDamage {
         return out;
     }
 
-    for item in &display_list.items {
+    // A moved reference frame damages its CONTENT at both the old and the
+    // new position. The content extent is the union of the visual bounds of
+    // everything down to the matching Pop (nested frames' pixels ride along),
+    // transformed by each matrix ABOUT THE FRAME ORIGIN — the same convention
+    // the compositor renders with. Only a non-affine matrix (perspective) is
+    // genuinely unknowable and keeps the full-repaint fallback; the previous
+    // blanket needs_full made EVERY spring/move tick a full-frame repaint.
+    fn affine_rect_about(
+        m: &azul_core::transform::ComputedTransform3D,
+        origin: azul_core::geom::LogicalPosition,
+        r: azul_core::geom::LogicalRect,
+    ) -> Option<azul_core::geom::LogicalRect> {
+        let mm = &m.m;
+        let affine = mm[0][2] == 0.0
+            && mm[0][3] == 0.0
+            && mm[1][2] == 0.0
+            && mm[1][3] == 0.0
+            && (mm[3][3] - 1.0).abs() < f32::EPSILON;
+        if !affine {
+            return None;
+        }
+        let (mut min_x, mut min_y) = (f32::MAX, f32::MAX);
+        let (mut max_x, mut max_y) = (f32::MIN, f32::MIN);
+        for (cx, cy) in [
+            (r.origin.x, r.origin.y),
+            (r.origin.x + r.size.width, r.origin.y),
+            (r.origin.x, r.origin.y + r.size.height),
+            (r.origin.x + r.size.width, r.origin.y + r.size.height),
+        ] {
+            let (px, py) = (cx - origin.x, cy - origin.y);
+            let x = px * mm[0][0] + py * mm[1][0] + mm[3][0] + origin.x;
+            let y = px * mm[0][1] + py * mm[1][1] + mm[3][1] + origin.y;
+            min_x = min_x.min(x);
+            min_y = min_y.min(y);
+            max_x = max_x.max(x);
+            max_y = max_y.max(y);
+        }
+        Some(azul_core::geom::LogicalRect::new(
+            azul_core::geom::LogicalPosition::new(min_x, min_y),
+            azul_core::geom::LogicalSize::new(max_x - min_x, max_y - min_y),
+        ))
+    }
+
+    let identity = azul_core::transform::ComputedTransform3D {
+        m: [
+            [1.0, 0.0, 0.0, 0.0],
+            [0.0, 1.0, 0.0, 0.0],
+            [0.0, 0.0, 1.0, 0.0],
+            [0.0, 0.0, 0.0, 1.0],
+        ],
+    };
+    let items = &display_list.items;
+    for (idx, item) in items.iter().enumerate() {
         match item {
+            DisplayListItem::PushReferenceFrame {
+                transform_key,
+                bounds,
+                ..
+            } if changed_t.contains(&transform_key.id) => {
+                // Content extent: union to the matching Pop.
+                let mut depth = 0usize;
+                let mut content: Option<azul_core::geom::LogicalRect> = None;
+                for it in &items[idx..] {
+                    match it {
+                        DisplayListItem::PushReferenceFrame { .. } => depth += 1,
+                        DisplayListItem::PopReferenceFrame => {
+                            depth = depth.saturating_sub(1);
+                            if depth == 0 {
+                                break;
+                            }
+                        }
+                        _ => {}
+                    }
+                    if let Some(b) = it.visual_bounds() {
+                        content = Some(content.map_or(b, |c| {
+                            let x0 = c.origin.x.min(b.origin.x);
+                            let y0 = c.origin.y.min(b.origin.y);
+                            let x1 = (c.origin.x + c.size.width).max(b.origin.x + b.size.width);
+                            let y1 = (c.origin.y + c.size.height).max(b.origin.y + b.size.height);
+                            azul_core::geom::LogicalRect::new(
+                                azul_core::geom::LogicalPosition::new(x0, y0),
+                                azul_core::geom::LogicalSize::new(x1 - x0, y1 - y0),
+                            )
+                        }));
+                    }
+                }
+                let content = content.unwrap_or(*bounds.inner());
+                let old_m = old_transforms.get(&transform_key.id).unwrap_or(&identity);
+                let new_m = new_transforms.get(&transform_key.id).unwrap_or(&identity);
+                match (
+                    affine_rect_about(old_m, bounds.inner().origin, content),
+                    affine_rect_about(new_m, bounds.inner().origin, content),
+                ) {
+                    (Some(a), Some(b)) => {
+                        out.rects.push(a);
+                        out.rects.push(b);
+                    }
+                    _ => out.needs_full = true,
+                }
+            }
             DisplayListItem::ScrollBarStyled { info } => {
                 let thumb_moved = info
                     .thumb_transform_key
@@ -1454,11 +1552,6 @@ pub struct GpuValueDamage {
                     // The whole bar bounds cover the thumb's old AND new
                     // position — precise and cheap.
                     out.rects.push(info.bounds.0);
-                }
-            }
-            DisplayListItem::PushReferenceFrame { transform_key, .. } => {
-                if changed_t.contains(&transform_key.id) {
-                    out.needs_full = true;
                 }
             }
             DisplayListItem::PushOpacity {
@@ -3697,7 +3790,7 @@ mod autotest_generated {
     }
 
     #[test]
-    fn gpu_value_damage_changed_transform_on_a_reference_frame_needs_full_repaint() {
+    fn gpu_value_damage_changed_transform_on_a_reference_frame_damages_both_positions() {
         let list = dlist(vec![ref_frame(3), DisplayListItem::PopReferenceFrame]);
         let mut old_t: HashMap<usize, ComputedTransform3D> = HashMap::new();
         old_t.insert(3, ComputedTransform3D::IDENTITY);
@@ -3705,7 +3798,14 @@ mod autotest_generated {
         new_t.insert(3, translate(20.0, 0.0));
         let o: HashMap<usize, f32> = HashMap::new();
         let d = gpu_value_damage(&list, &old_t, &o, &new_t, &o);
-        assert!(d.needs_full, "a moved reference frame's content extent is unknowable");
+        // The content extent IS knowable (the frame's items + its own
+        // bounds), so a moved frame damages its content at the OLD and the
+        // NEW matrix — the previous blanket needs_full made every spring
+        // tick a full-frame repaint.
+        assert!(!d.needs_full, "affine moves must not full-repaint");
+        assert_eq!(d.rects.len(), 2, "old position + new position");
+        let dx = (d.rects[1].origin.x - d.rects[0].origin.x).abs();
+        assert!((dx - 20.0).abs() < 0.01, "the two rects are 20px apart, got {dx}");
     }
 
     #[test]
@@ -3715,10 +3815,13 @@ mod autotest_generated {
         old_t.insert(3, translate(5.0, 5.0));
         let new_t: HashMap<usize, ComputedTransform3D> = HashMap::new();
         let o: HashMap<usize, f32> = HashMap::new();
+        let d = gpu_value_damage(&list, &old_t, &o, &new_t, &o);
         assert!(
-            gpu_value_damage(&list, &old_t, &o, &new_t, &o).needs_full,
-            "a key present in old but absent in new is a change"
+            !d.rects.is_empty() || d.needs_full,
+            "a key present in old but absent in new is a change (the frame \
+             settles to identity, damaging its old offset position)"
         );
+        assert!(!d.needs_full, "the settle is affine — rect damage, not full");
     }
 
     #[test]

@@ -48,6 +48,11 @@ pub(super) struct CpuBackend {
     pub(super) last_present_damage: FrameDamage,
     /// Scroll offsets of the previous frame (`scroll_id` → (x,y)).
     pub(super) previous_scroll_offsets: cpurender::ScrollOffsetMap,
+    /// Where zombie exits painted LAST frame (logical px). Per frame the
+    /// zombie contribution to damage is `previous ∪ current`: restore the
+    /// live pixels where an exit was, paint it where it is — the reap frame
+    /// (zombies gone, previous non-empty) erases the leftovers the same way.
+    pub(super) previous_zombie_rects: Vec<azul_core::geom::LogicalRect>,
     /// Previous frame's `VirtualView` child-DOM display lists.
     pub(super) previous_vview_dls: BTreeMap<DomId, Arc<DisplayList>>,
     /// GPU-animated values of the previous frame, for the frame-to-frame diff.
@@ -73,6 +78,7 @@ impl CpuBackend {
             last_frame_damage: FrameDamage::None,
             last_present_damage: FrameDamage::None,
             previous_scroll_offsets: cpurender::ScrollOffsetMap::new(),
+            previous_zombie_rects: Vec::new(),
             previous_vview_dls: BTreeMap::new(),
             previous_gpu_transforms: std::collections::HashMap::new(),
             previous_gpu_opacities: std::collections::HashMap::new(),
@@ -181,10 +187,23 @@ impl CpuBackend {
         );
         let has_gpu_damage = !gpu_damage.rects.is_empty() || gpu_damage.needs_full;
         // Retained exits repaint every tick without any display-list item
-        // changing — while they are on screen, no frame may be skipped and no
-        // incremental reuse is sound (their pixels move outside the DL-diff
-        // rects).
+        // changing — their per-frame truth is `previous ∪ current` painted
+        // rects: restore the live frame where the exit WAS, paint it where
+        // it IS. That keeps the incremental path (and even the reap frame's
+        // cleanup) on bounded damage instead of forcing full composites for
+        // the whole exit duration.
         let zombies_active = layout_window.has_zombies();
+        let zombie_rects = if zombies_active {
+            layout_window.zombie_paint_rects()
+        } else {
+            Vec::new()
+        };
+        let zombie_damage: Vec<azul_core::geom::LogicalRect> = self
+            .previous_zombie_rects
+            .iter()
+            .chain(zombie_rects.iter())
+            .copied()
+            .collect();
         self.previous_gpu_transforms = gpu_transforms;
         self.previous_gpu_opacities = gpu_opacities;
 
@@ -280,7 +299,7 @@ impl CpuBackend {
                     && !has_scroll
                     && !has_vview_damage
                     && !has_gpu_damage
-                    && !zombies_active =>
+                    && zombie_damage.is_empty() =>
             {
                 // Nothing changed — skip rendering entirely.
                 //
@@ -302,7 +321,7 @@ impl CpuBackend {
             // forced to `None`, the match fell through to `_`, the buffer was
             // filled white and everything was repainted — `FrameDamage::Full`
             // for a window that only grew by a strip.
-            Some(mut rects) if can_reuse_previous_frame && !zombies_active => {
+            Some(mut rects) if can_reuse_previous_frame => {
                 rects.extend(resize_damage);
                 all_damage = rects;
                 is_incremental = true;
@@ -318,6 +337,9 @@ impl CpuBackend {
         }
         if is_incremental && !gpu_damage.rects.is_empty() {
             all_damage.extend(gpu_damage.rects.iter().copied());
+        }
+        if is_incremental && !zombie_damage.is_empty() {
+            all_damage.extend(zombie_damage.iter().copied());
         }
 
         // Acquire output pixmap — reuse buffer for both grow and shrink
@@ -400,6 +422,16 @@ impl CpuBackend {
                 &render_state,
                 &all_damage,
             ));
+            // Exits paint ON TOP of the restored live pixels; their current
+            // rects are inside `all_damage` by construction.
+            if zombies_active {
+                layout_window.composite_zombies_cpu(
+                    &mut output,
+                    dpi_factor,
+                    renderer_resources,
+                    &mut self.glyph_cache,
+                );
+            }
         } else {
             output.fill(255, 255, 255, 255);
             compositor.allocate_layers_from_display_list(
@@ -426,6 +458,7 @@ impl CpuBackend {
             );
         }
 
+        self.previous_zombie_rects = zombie_rects;
         self.previous_display_list = Some(display_list.clone());
         self.previous_scroll_offsets = if is_incremental {
             next_scroll_baseline

@@ -1322,6 +1322,11 @@ impl Runner {
                 // reads geometry the solver has not recomputed yet.
                 if self.layout_window.take_transition_relayout() {
                     ProcessEventResult::ShouldIncrementalRelayout
+                } else if self.layout_window.take_transition_patched() {
+                    // Every transitioning value was PATCHED into the DL in
+                    // place: no rebuild, just re-render — the DL diff turns
+                    // the patched items into bounded damage.
+                    ProcessEventResult::ShouldReRenderCurrentWindow
                 } else {
                     ProcessEventResult::ShouldUpdateDisplayListCurrentWindow
                 }

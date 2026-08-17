@@ -2015,6 +2015,47 @@ impl CssPropertyCache {
             .is_overflow_hidden()
     }
 
+    /// The node's USER OVERRIDE for a property, if any — the runtime layer a
+    /// transition writes. Public so the display-list builder's inheritance
+    /// walk can consult ancestors (the precomputed inherited tables cannot
+    /// see a runtime override on an ancestor).
+    #[must_use]
+    pub fn get_user_override(
+        &self,
+        node_id: &NodeId,
+        css_property_type: &CssPropertyType,
+    ) -> Option<&CssProperty> {
+        let v = self.user_overridden_properties.get(node_id.index())?;
+        v.binary_search_by_key(css_property_type, |(k, _)| *k)
+            .ok()
+            .map(|idx| &v[idx].1)
+    }
+
+    /// Does this node DECLARE the property itself (inline style or a matched
+    /// stylesheet rule, any pseudo-state)? Inherited values do NOT count —
+    /// this is the "inheritance re-roots here" test for the ancestor-override
+    /// walk: below a node with its own `color`, an animated ancestor colour
+    /// must not leak through.
+    #[must_use]
+    pub fn has_own_declaration(
+        &self,
+        node_data: &NodeData,
+        node_id: &NodeId,
+        css_property_type: &CssPropertyType,
+    ) -> bool {
+        if node_data
+            .style
+            .iter_inline_properties()
+            .any(|(p, _)| p.get_type() == *css_property_type)
+        {
+            return true;
+        }
+        self.css_props
+            .get_slice(node_id.index())
+            .iter()
+            .any(|p| p.prop_type == *css_property_type)
+    }
+
     pub fn get_text_color_or_default(
         &self,
         node_data: &NodeData,

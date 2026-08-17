@@ -262,6 +262,9 @@ pub struct CpuBackend {
         std::collections::HashMap<usize, azul_core::transform::ComputedTransform3D>,
     #[cfg(feature = "cpurender")]
     pub previous_gpu_opacities: std::collections::HashMap<usize, f32>,
+    /// Where zombie exits painted LAST frame (logical px) — see the
+    /// zombie-damage computation in `render_frame`.
+    pub previous_zombie_rects: Vec<azul_core::geom::LogicalRect>,
 }
 
 /// #27 native-backbuffer master switch, shared by every platform shell:
@@ -345,6 +348,7 @@ impl CpuBackend {
             previous_vview_dls: std::collections::BTreeMap::new(),
             #[cfg(feature = "cpurender")]
             previous_gpu_transforms: std::collections::HashMap::new(),
+            previous_zombie_rects: Vec::new(),
             #[cfg(feature = "cpurender")]
             previous_gpu_opacities: std::collections::HashMap::new(),
         }
@@ -486,9 +490,23 @@ impl CpuBackend {
             &gpu_opacities,
         );
         let has_gpu_damage = !gpu_damage.rects.is_empty() || gpu_damage.needs_full;
-        // Zombie exits repaint every tick with no display-list change — no
-        // skipped frames and no incremental reuse while they are on screen.
+        // Zombie exits repaint every tick with no display-list change — their
+        // per-frame contribution is `previous ∪ current` painted rects
+        // (restore the live frame where the exit was, paint it where it is;
+        // the reap frame erases the leftovers the same way), which keeps the
+        // incremental path alive for the whole exit.
         let zombies_active = layout_window.has_zombies();
+        let zombie_rects = if zombies_active {
+            layout_window.zombie_paint_rects()
+        } else {
+            Vec::new()
+        };
+        let zombie_damage: Vec<azul_core::geom::LogicalRect> = self
+            .previous_zombie_rects
+            .iter()
+            .chain(zombie_rects.iter())
+            .copied()
+            .collect();
         // Values are painted this frame whichever path runs (incremental
         // repaints read the CURRENT cache; skip only happens when unchanged).
         self.previous_gpu_transforms = gpu_transforms;
@@ -657,7 +675,7 @@ impl CpuBackend {
                     && !has_scroll
                     && !has_vview_damage
                     && !has_gpu_damage
-                    && !zombies_active
+                    && zombie_damage.is_empty()
                     // A pending patch MOVE with empty damage is NOT an idle
                     // frame — skipping would swallow the translation.
                     && patch_moved_union.is_none() =>
@@ -702,7 +720,7 @@ impl CpuBackend {
             // forced to `None`, the match fell through to `_`, the buffer was
             // filled white and everything was repainted — `FrameDamage::Full`
             // for a window that only grew by a strip.
-            Some(mut rects) if can_reuse_previous_frame && !zombies_active => {
+            Some(mut rects) if can_reuse_previous_frame => {
                 // Incremental: changed items + (scroll strips added below)
                 rects.extend(resize_damage);
                 all_damage = rects;
@@ -726,6 +744,9 @@ impl CpuBackend {
         // GPU-value changes (thumb move / fade tick) repaint their bound items.
         if is_incremental && !gpu_damage.rects.is_empty() {
             all_damage.extend(gpu_damage.rects.iter().copied());
+        }
+        if is_incremental && !zombie_damage.is_empty() {
+            all_damage.extend(zombie_damage.iter().copied());
         }
 
         // #27 native backbuffer: a platform shell may hand the free shm slot
@@ -1063,6 +1084,16 @@ impl CpuBackend {
                 renderer_resources, &layout_window.font_manager,
                 &mut self.glyph_cache, &render_state, &all_damage,
             );
+            // Exits paint ON TOP of the restored live pixels; their current
+            // rects are inside `all_damage` by construction.
+            if zombies_active {
+                layout_window.composite_zombies_cpu(
+                    &mut output,
+                    dpi_factor,
+                    renderer_resources,
+                    &mut self.glyph_cache,
+                );
+            }
         } else {
             // Full render
             output.fill(255, 255, 255, 255);
@@ -1112,6 +1143,7 @@ impl CpuBackend {
             }
         }
 
+        self.previous_zombie_rects = zombie_rects;
         self.previous_display_list = Some(display_list.clone());
         // Full render paints EVERY frame at its current offset → baseline is
         // the current offsets. Incremental: only shifted frames advanced.

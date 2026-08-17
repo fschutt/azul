@@ -1998,11 +1998,15 @@ pub trait PlatformWindow {
                 // A settled step still owes one frame, so the final (identity)
                 // transform actually reaches the screen. A layout-affecting
                 // `animation` transition escalates to a real relayout.
-                let needs_relayout = self
-                    .get_layout_window_mut()
-                    .is_some_and(azul_layout::window::LayoutWindow::take_transition_relayout);
+                let (needs_relayout, patched) = match self.get_layout_window_mut() {
+                    Some(lw) => (lw.take_transition_relayout(), lw.take_transition_patched()),
+                    None => (false, false),
+                };
                 return if needs_relayout {
                     ProcessEventResult::ShouldIncrementalRelayout
+                } else if patched {
+                    // The DL was patched in place — re-render only.
+                    ProcessEventResult::ShouldReRenderCurrentWindow
                 } else {
                     ProcessEventResult::ShouldUpdateDisplayListCurrentWindow
                 };
