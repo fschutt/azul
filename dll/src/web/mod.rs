@@ -57,72 +57,98 @@ fn shards_enabled() -> bool {
 ///
 /// Keep in sync with the `#[no_mangle] pub extern "C"` exports in
 /// [`eventloop`]. Wired into the lift loop in M8.2.
-pub const EVENTLOOP_SYMBOLS: &[&str] = &[
-    "AzStartup_alloc",
-    "AzStartup_free",
+///
+/// One macro generates BOTH the name list and
+/// [`eventloop_symbol_addr`], the static-link-safe address resolver:
+/// `dlsym_self` needs a PE export table, but a host exe that links
+/// azul-dll statically (azul-writer's `link-static`) exports nothing,
+/// so every `dlsym(AzStartup_*)` returned null and the mini fell back
+/// to the 8-byte stub — the whole eventloop surface vanished while
+/// the layout-callback modules (registered by address at runtime)
+/// lifted fine. These functions are in THIS crate, so `fn as usize`
+/// is exact in every link mode; no export table, no dlsym, no PDB.
+macro_rules! eventloop_symbols {
+    ($($name:ident),* $(,)?) => {
+        pub const EVENTLOOP_SYMBOLS: &[&str] = &[$(stringify!($name)),*];
+
+        /// Resolve an eventloop symbol to its in-process address the
+        /// direct way (same-crate `fn as usize`). Superset-safe: names
+        /// outside the generated list return `None`.
+        fn eventloop_symbol_addr(name: &str) -> Option<usize> {
+            match name {
+                $(stringify!($name) => Some(eventloop::$name as usize),)*
+                _ => None,
+            }
+        }
+    };
+}
+
+eventloop_symbols![
+    AzStartup_alloc,
+    AzStartup_free,
     // WEB-FONT-VIA-JS: JS registers a fallback-font buffer it wrote into wasm memory.
-    "AzStartup_setFallbackFont",
-    "AzStartup_init",
-    "AzStartup_hydrate",
-    "AzStartup_dispatchEvent",
-    "AzStartup_registerStateDeserializer",
+    AzStartup_setFallbackFont,
+    AzStartup_init,
+    AzStartup_hydrate,
+    AzStartup_dispatchEvent,
+    AzStartup_registerStateDeserializer,
     // M9-2: Layout-cb wasm-side LayoutCallbackInfo builder.
-    "AzStartup_buildLayoutInfo",
+    AzStartup_buildLayoutInfo,
     // M9-3: Layout-cb dispatch infrastructure.
-    "AzStartup_setLayoutCbTableIdx",
-    "AzStartup_setRefAny",
-    "AzStartup_initLayoutCache",
-    "AzStartup_getCurrentDomPtr",
-    "AzStartup_getLastLayoutStatus",
-    "AzStartup_getCascadeProbe",
-    "AzStartup_pokeLastLayout",
+    AzStartup_setLayoutCbTableIdx,
+    AzStartup_setRefAny,
+    AzStartup_initLayoutCache,
+    AzStartup_getCurrentDomPtr,
+    AzStartup_getLastLayoutStatus,
+    AzStartup_getCascadeProbe,
+    AzStartup_pokeLastLayout,
     // M9-4: WASM-side hit-test (stub, returns last registered cb node).
-    "AzStartup_registerCbNode",
+    AzStartup_registerCbNode,
     // 2026-06-10: per-EventFilter dispatch — registerCbNode + the event kind.
-    "AzStartup_registerCbNodeKind",
-    "AzStartup_hitTest",
+    AzStartup_registerCbNodeKind,
+    AzStartup_hitTest,
     // M9-5: TLV patch emission.
-    "AzStartup_buildCounterPatch",
+    AzStartup_buildCounterPatch,
     // M9-6: wasm-resident dispatch state setters.
-    "AzStartup_setModelPtr",
-    "AzStartup_setDisplayNode",
+    AzStartup_setModelPtr,
+    AzStartup_setDisplayNode,
     // M11 Sprint 1: StyledDom hydrate — runs the cascade
     // (`StyledDom::create(&mut dom, Css::empty())`) wasm-side via
     // the S1.A transitive lift pipeline. `getStyledDomNodeCount`
     // returns the StyledDom's node count for cross-checking
     // against `getDomNodeCount` (the raw AzDom walker).
-    "AzStartup_hydrateStyledDom",
-    "AzStartup_isStyledDomHydrated",
-    "AzStartup_getDomNodeCount",
-    "AzStartup_getStyledDomNodeCount",
-    "AzStartup_getStyledDomPtr",
+    AzStartup_hydrateStyledDom,
+    AzStartup_isStyledDomHydrated,
+    AzStartup_getDomNodeCount,
+    AzStartup_getStyledDomNodeCount,
+    AzStartup_getStyledDomPtr,
     // M11 Sprint 1.C / Sprint 2: layout solver + positioned-rect
     // cache. AzStartup_hitTest now consumes the cache for real
     // bbox-walk dispatch.
     // [AZ-DIAG REVERT] in-wasm repro probes (sfnt table-directory walk +
     // formatter matrix) used to localise the remaining solveLayoutReal trap.
-    "AzStartup_probeFontDir",
-    "AzStartup_probeFmt",
-    "AzStartup_solveLayout",
+    AzStartup_probeFontDir,
+    AzStartup_probeFmt,
+    AzStartup_solveLayout,
     // M12.7: real layout solver (LayoutWindow::layout_and_generate_display_list
     // → taffy block/flex/grid). Same signature as solveLayout.
-    "AzStartup_solveLayoutReal",
-    "AzStartup_isLayoutSolved",
-    "AzStartup_getPositionedRectsLen",
-    "AzStartup_getPositionedRectsPtr",
+    AzStartup_solveLayoutReal,
+    AzStartup_isLayoutSolved,
+    AzStartup_getPositionedRectsLen,
+    AzStartup_getPositionedRectsPtr,
     // M12.7 debug: peek a u32 from wasm linear memory (reads the diag
     // markers the layout solver writes via write_volatile).
-    "AzStartup_peekU32",
+    AzStartup_peekU32,
     // M11 Sprint 3: relayout + generalized patch builder for
     // SetText / SetAttr / SetInlineStyle / RemoveNode / InsertNode.
     // The JS decoder switches on kind.
-    "AzStartup_relayout",
-    "AzStartup_buildPatch",
+    AzStartup_relayout,
+    AzStartup_buildPatch,
     // M11 Sprint 5: VirtualView infrastructure (threshold + provider
     // table-idx). Full auto-virtualization pending Box::new init gap.
-    "AzStartup_setAutoVirtualizeThreshold",
-    "AzStartup_getAutoVirtualizeThreshold",
-    "AzStartup_setVirtualViewProvider",
+    AzStartup_setAutoVirtualizeThreshold,
+    AzStartup_getAutoVirtualizeThreshold,
+    AzStartup_setVirtualViewProvider,
 ];
 
 use std::collections::{BTreeMap, HashMap};
@@ -924,9 +950,13 @@ fn lift_eventloop_mini_wasm() -> Vec<u8> {
     }
     let mut targets: Vec<(String, usize, usize)> = Vec::with_capacity(EVENTLOOP_SYMBOLS.len());
     for sym_name in EVENTLOOP_SYMBOLS {
-        let Some(addr) = dlsym_self(sym_name) else {
+        // Direct same-crate `fn as usize` first (works for statically
+        // linked host exes, which have no export table); dlsym only as
+        // a belt-and-suspenders fallback for names not in the macro
+        // list (there are none today).
+        let Some(addr) = eventloop_symbol_addr(sym_name).or_else(|| dlsym_self(sym_name)) else {
             eprintln!(
-                "[azul-web] azul-mini: dlsym({}) returned null — falling back to stub",
+                "[azul-web] azul-mini: could not resolve {} (direct + dlsym) — falling back to stub",
                 sym_name,
             );
             return generate_mini_wasm_stub();
