@@ -6899,6 +6899,7 @@ impl LayoutWindow {
                     .build_scroll_offset_map(dom_id, &retained.scroll_ids);
                 let mut exits = BTreeMap::new();
                 let mut rects = BTreeMap::new();
+                let exit_viewport = retained.viewport;
                 for node in &unmounted {
                     if node.index() >= old_node_data.len() {
                         continue;
@@ -6906,6 +6907,13 @@ impl LayoutWindow {
                     if let Some(r) = exit_rects.get(node) {
                         rects.insert(*node, *r);
                     }
+                    // Where this exit travels: fully off the nearest edge of
+                    // the viewport it was living in. A node with no captured
+                    // rect (never laid out) exits instantly via a zero slide.
+                    let slide = exit_rects
+                        .get(node)
+                        .map(|r| slide_to_nearest_edge(*r, exit_viewport))
+                        .unwrap_or((0.0, 0.0));
                     // Keyed off the OLD tree: a departing node has no entry in
                     // the new one to derive an identity from.
                     let key = azul_core::animation::AnimKey(
@@ -6920,7 +6928,7 @@ impl LayoutWindow {
                     // never occupy is wrong.
                     self.animations.start_exit(
                         key,
-                        EXIT_TO_SCALE,
+                        slide,
                         azul_core::animation::Interp::Spring(
                             azul_core::animation::Spring::SMOOTH,
                         ),
@@ -6995,10 +7003,14 @@ impl LayoutWindow {
             );
         }
 
-        // Enters: a node that appeared has no First to fly from, so it fades and
-        // scales up in place instead. Keyed the same way as a move, so a node
-        // that appears and is immediately displaced retargets rather than
-        // running two animations over each other.
+        // Enters: a node that appeared has no First to fly from, so it SLIDES
+        // IN from the nearest viewport edge to its solved rect — the mirror of
+        // the exit default, so a sidebar re-opens the way it left (USER ruling
+        // 2026-08-17: presence changes travel at full size and full opacity;
+        // no fade, no scale). Keyed the same way as a move, so a node that
+        // appears and is immediately displaced retargets rather than running
+        // two animations over each other.
+        let enter_viewport = self.layout_results.get(&dom_id).map(|r| r.viewport);
         for node_id in &pending.mounted {
             if node_id.index() >= pending.new_node_data.len() {
                 continue;
@@ -7011,9 +7023,18 @@ impl LayoutWindow {
                 ),
             );
             self.anim_key_to_node.insert(key, *node_id);
+            // The slide-from offset: the vector that WOULD take the solved
+            // rect off its nearest edge — entering is that path reversed.
+            let from = match (
+                self.get_node_bounds(dom_id, *node_id).map(layout_rect_to_logical),
+                enter_viewport,
+            ) {
+                (Some(rect), Some(vp)) => slide_to_nearest_edge(rect, vp),
+                _ => (0.0, 0.0),
+            };
             self.animations.start_enter(
                 key,
-                ENTER_FROM_SCALE,
+                from,
                 azul_core::animation::Interp::Spring(azul_core::animation::Spring::SMOOTH),
             );
         }
@@ -14805,6 +14826,25 @@ fn alloc_format_merge(first_kept: &str, last_kept: &str) -> String {
 /// Scale is applied about the node's own origin and then translated, matching
 /// what the FLIP maths produced: `first` and `last` are both top-left rects, so
 /// the offset is already expressed from the same corner the scale grows from.
+/// The slide vector that takes `rect` fully off the nearest viewport edge —
+/// the default direction for presence changes (USER ruling 2026-08-17: a
+/// sidebar hugging the left edge slides out LEFT, at full size and full
+/// opacity; it does not shrink or dissolve). "Nearest" by travel distance,
+/// so a toast at the bottom leaves downward and a header leaves upward.
+fn slide_to_nearest_edge(rect: LogicalRect, viewport: LogicalRect) -> (f32, f32) {
+    let left = -(rect.origin.x + rect.size.width - viewport.origin.x);
+    let right = viewport.origin.x + viewport.size.width - rect.origin.x;
+    let up = -(rect.origin.y + rect.size.height - viewport.origin.y);
+    let down = viewport.origin.y + viewport.size.height - rect.origin.y;
+    let horizontal = if left.abs() <= right.abs() { left } else { right };
+    let vertical = if up.abs() <= down.abs() { up } else { down };
+    if horizontal.abs() <= vertical.abs() {
+        (horizontal, 0.0)
+    } else {
+        (0.0, vertical)
+    }
+}
+
 fn flip_to_matrix(t: azul_core::animation::FlipTransform) -> azul_core::transform::ComputedTransform3D {
     azul_core::transform::ComputedTransform3D {
         m: [
@@ -14888,7 +14928,6 @@ fn layout_rect_to_logical(r: azul_css::props::basic::LayoutRect) -> LogicalRect 
 
 /// Scale an entering node starts at: close enough to 1 that it reads as a
 /// settle rather than a zoom, far enough from it to be visible at all.
-const ENTER_FROM_SCALE: f32 = 0.94;
 
 /// A subtree that has left the DOM but is still on screen, animating away.
 ///
@@ -15121,11 +15160,11 @@ mod zombie_tests {
         let mut m = AnimationManager::new();
         let fast = AnimKey(1);
         let slow = AnimKey(2);
-        m.start_exit(fast, 0.9, Interp::Curve {
+        m.start_exit(fast, (-50.0, 0.0), Interp::Curve {
             function: azul_css::props::basic::animation::AnimationInterpolationFunction::Linear,
             duration_secs: 0.01,
         });
-        m.start_exit(slow, 0.9, Interp::Curve {
+        m.start_exit(slow, (-50.0, 0.0), Interp::Curve {
             function: azul_css::props::basic::animation::AnimationInterpolationFunction::Linear,
             duration_secs: 10.0,
         });
@@ -15170,7 +15209,7 @@ mod zombie_tests {
             },
             Interp::Spring(Spring::SMOOTH),
         );
-        m.start_exit(key, 0.9, Interp::Spring(Spring::SMOOTH));
+        m.start_exit(key, (-50.0, 0.0), Interp::Spring(Spring::SMOOTH));
         let anim = m.get(key).expect("still animating");
         assert_eq!(anim.class, azul_core::animation::AnimClass::Exit);
         assert_eq!(m.len(), 1, "an exit replaces, it does not stack a second animation");
@@ -15235,6 +15274,3 @@ mod reconciliation_tests {
     }
 }
 
-/// Scale a departing node shrinks to. Paired with the opacity fade in
-/// `ActiveAnim::exit`, so it reads as receding rather than collapsing.
-const EXIT_TO_SCALE: f32 = 0.92;

@@ -344,20 +344,22 @@ impl FlipTransform {
 /// Degenerate Last extents fall back to scale 1 rather than producing infinities:
 /// a zero-sized target is a collapsed or not-yet-measured node, and a NaN
 /// transform would poison the display list.
+/// POSITION ONLY — a USER ruling (2026-08-17), not an omission, and also what
+/// the design doc's Move row specifies ("FLIP: transform Δ→identity"). A
+/// matched node whose size changed has already RELAYOUTED at its final size;
+/// scaling it from the old size squashes freshly laid-out content (text set
+/// for the wide layout rendered at half width) for the whole flight. Content
+/// never distorts unless the user explicitly animates CSS `transform`, which
+/// is a pure transform without relayout — there, distortion is the point.
+/// A move travels; it does not morph.
 #[must_use]
 pub fn flip(first: LogicalRect, last: LogicalRect) -> FlipTransform {
-    let scale_x =
-        if last.size.width.abs() < f32::EPSILON { 1.0 } else { first.size.width / last.size.width };
-    let scale_y = if last.size.height.abs() < f32::EPSILON {
-        1.0
-    } else {
-        first.size.height / last.size.height
-    };
+    let _ = (first.size, last.size); // sizes are layout's job, not the animation's
     FlipTransform {
         translate_x: first.origin.x - last.origin.x,
         translate_y: first.origin.y - last.origin.y,
-        scale_x: if scale_x.is_finite() { scale_x } else { 1.0 },
-        scale_y: if scale_y.is_finite() { scale_y } else { 1.0 },
+        scale_x: 1.0,
+        scale_y: 1.0,
     }
 }
 
@@ -416,29 +418,39 @@ impl ActiveAnim {
         }
     }
 
-    /// An enter: fade and scale up to identity.
+    /// An enter: SLIDE IN from `(from_x, from_y)` to identity, full opacity,
+    /// full size.
+    ///
+    /// Was fade+scale-up; changed by the same USER ruling as [`flip`]:
+    /// presence changes travel, content never distorts or ghosts. The offset
+    /// is the caller's choice — the engine default slides from the nearest
+    /// viewport edge, so a sidebar re-opens the way it left.
     #[must_use]
-    pub fn enter(from_scale: f32, interp: Interp) -> Self {
+    pub fn enter_slide(from_x: f32, from_y: f32, interp: Interp) -> Self {
         Self {
             class: AnimClass::Enter,
-            translate_x: channel(0.0, 0.0, interp),
-            translate_y: channel(0.0, 0.0, interp),
-            scale_x: channel(from_scale, 1.0, interp),
-            scale_y: channel(from_scale, 1.0, interp),
-            opacity: channel(0.0, 1.0, interp),
+            translate_x: channel(from_x, 0.0, interp),
+            translate_y: channel(from_y, 0.0, interp),
+            scale_x: channel(1.0, 1.0, interp),
+            scale_y: channel(1.0, 1.0, interp),
+            opacity: channel(1.0, 1.0, interp),
         }
     }
 
-    /// An exit: fade and scale away. Only visible with exit-retention.
+    /// An exit: SLIDE OUT from identity to `(to_x, to_y)`, full opacity,
+    /// full size. Only visible with exit-retention.
+    ///
+    /// Was fade+shrink-in-place; same USER ruling as [`flip`]: a departing
+    /// sidebar slides away to its edge — it does not dissolve.
     #[must_use]
-    pub fn exit(to_scale: f32, interp: Interp) -> Self {
+    pub fn exit_slide(to_x: f32, to_y: f32, interp: Interp) -> Self {
         Self {
             class: AnimClass::Exit,
-            translate_x: channel(0.0, 0.0, interp),
-            translate_y: channel(0.0, 0.0, interp),
-            scale_x: channel(1.0, to_scale, interp),
-            scale_y: channel(1.0, to_scale, interp),
-            opacity: channel(1.0, 0.0, interp),
+            translate_x: channel(0.0, to_x, interp),
+            translate_y: channel(0.0, to_y, interp),
+            scale_x: channel(1.0, 1.0, interp),
+            scale_y: channel(1.0, 1.0, interp),
+            opacity: channel(1.0, 1.0, interp),
         }
     }
 
@@ -542,16 +554,18 @@ impl AnimationManager {
     }
 
     /// Start an enter animation, unless this key is already animating.
-    pub fn start_enter(&mut self, key: AnimKey, from_scale: f32, interp: Interp) {
-        self.active.entry(key).or_insert_with(|| ActiveAnim::enter(from_scale, interp));
+    pub fn start_enter(&mut self, key: AnimKey, from: (f32, f32), interp: Interp) {
+        self.active
+            .entry(key)
+            .or_insert_with(|| ActiveAnim::enter_slide(from.0, from.1, interp));
     }
 
     /// Start an exit animation, replacing whatever was in flight.
     ///
     /// An exit always wins: the node is leaving, so continuing to animate it
     /// toward a layout position it will never occupy is wrong.
-    pub fn start_exit(&mut self, key: AnimKey, to_scale: f32, interp: Interp) {
-        self.active.insert(key, ActiveAnim::exit(to_scale, interp));
+    pub fn start_exit(&mut self, key: AnimKey, to: (f32, f32), interp: Interp) {
+        self.active.insert(key, ActiveAnim::exit_slide(to.0, to.1, interp));
     }
 
     /// Read the current state for a key.
@@ -744,11 +758,17 @@ mod tests {
     }
 
     #[test]
-    fn flip_inverts_a_pure_scale() {
-        // Doubled in size: the element must be drawn at half scale to look unchanged.
+    fn flip_never_scales_a_size_change() {
+        // USER ruling 2026-08-17 (was `flip_inverts_a_pure_scale`, asserting
+        // 0.5): a resized node has already RELAYOUTED at its final size, and
+        // drawing it at half scale for the flight squashes freshly laid-out
+        // content — a card growing from half-width to full-width rendered its
+        // text visibly compressed for the whole transition. Size is layout's
+        // job; the animation only travels.
         let f = flip(rect(0.0, 0.0, 50.0, 20.0), rect(0.0, 0.0, 100.0, 40.0));
-        assert_eq!(f.scale_x, 0.5);
-        assert_eq!(f.scale_y, 0.5);
+        assert_eq!(f.scale_x, 1.0);
+        assert_eq!(f.scale_y, 1.0);
+        assert!(f.is_identity(), "same origin, changed size: nothing to animate");
     }
 
     #[test]
@@ -929,7 +949,7 @@ mod tests {
     #[test]
     fn the_manager_reports_and_drops_finished_animations() {
         let mut m = AnimationManager::new();
-        m.start_enter(AnimKey(1), 0.9, Interp::Curve {
+        m.start_enter(AnimKey(1), (-120.0, 0.0), Interp::Curve {
             function: AnimationInterpolationFunction::Linear,
             duration_secs: 0.1,
         });
@@ -954,7 +974,7 @@ mod tests {
         let interp = Interp::Spring(Spring::SMOOTH);
         m.start_or_retarget_move(key, flip(rect(0.0, 0.0, 10.0, 10.0), rect(50.0, 0.0, 10.0, 10.0)), interp);
         assert_eq!(m.get(key).map(|a| a.class), Some(AnimClass::Move));
-        m.start_exit(key, 0.8, interp);
+        m.start_exit(key, (-120.0, 0.0), interp);
         assert_eq!(m.get(key).map(|a| a.class), Some(AnimClass::Exit));
         assert_eq!(m.len(), 1);
     }
@@ -1053,8 +1073,8 @@ mod tests {
         let mut m = AnimationManager::new();
         let key = AnimKey(5);
         let interp = Interp::Spring(Spring::SMOOTH);
-        m.start_exit(key, 0.5, interp);
-        m.start_enter(key, 0.5, interp);
+        m.start_exit(key, (-120.0, 0.0), interp);
+        m.start_enter(key, (-120.0, 0.0), interp);
         assert_eq!(m.get(key).map(|a| a.class), Some(AnimClass::Exit));
     }
 }
