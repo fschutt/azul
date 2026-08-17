@@ -2507,11 +2507,39 @@ fn classify_for_name(name: &str, api: &HashMap<String, ApiFnClass>) -> FnClass {
     // so the transitive lifter stops at the `generate_display_list` entry
     // and never descends into the painters (~300+ fns: glyph emission,
     // gradients, borders, tables, images, …) — a large lift-surface +
-    // lift-time reduction. The mangled Rust module path contains
-    // lowercase `display_list`; the `Az*` C API uses camelCase
-    // `DisplayList`, so framework symbols are unaffected.
-    if name.contains("display_list") {
-        return FnClass::Leaf;
+    // lift-time reduction.
+    //
+    // 2026-08-17: this rule was `name.contains("display_list")`, which is
+    // FOUR distinct bugs in one substring:
+    //   1. `set_skip_display_list` — the SETTER of the very gate that makes
+    //      this cut sound — matched and was stubbed, so the gate byte
+    //      (0x…e84290) was never written, `layout_document` "correctly"
+    //      called the stubbed `generate_display_list`, and its unwritten
+    //      sret was consumed as a DisplayList (stale hasher seeds became
+    //      vec lens → `alloc::raw_vec` capacity_overflow panic). This was
+    //      also the true cause of the "static store/load is unreliable in
+    //      the lifted wasm" lore (window.rs `skip_gpu_sync`) — the store
+    //      never EXECUTED; the mechanism was fine.
+    //   2. `alloc::vec` clone/drop and `alloc::raw_vec::grow_one`
+    //      instantiations on `DisplayListItem` — std generics matched via
+    //      their type PARAMETER and were stubbed (clone leaves its sret
+    //      unwritten → garbage vec headers on a LIVE path).
+    //   3. `core::slice::sort::*` instantiations on
+    //      `(DomId, Arc<DisplayList>)` — used by headless `render_frame`'s
+    //      results-map sort, reachable regardless of the skip flag.
+    //   4. Only luck (empty vecs, 1-element sorts) kept 2/3 from trapping.
+    // Cut ONLY the module path `display_list::` (the `::` excludes
+    // `set_skip_display_list`), and exempt std/alloc/core generics that
+    // merely mention display-list TYPES as parameters. Trait impls on
+    // display-list types (`<azul_layout::…::display_list::T as …>::…`)
+    // still match and stay cut — they are painter surface.
+    {
+        let is_std_generic = name.starts_with("alloc::")
+            || name.starts_with("core::")
+            || name.starts_with("std::");
+        if name.contains("display_list::") && !is_std_generic {
+            return FnClass::Leaf;
+        }
     }
     // M12.7: azul_layout/azul_core `probe` is profiling instrumentation
     // (timing `Span`s). `Span::drop` reads a THREAD-LOCAL event buffer; the
