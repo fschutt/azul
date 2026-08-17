@@ -204,6 +204,7 @@ fn test_app_path_menubar_not_clipped() {
         None,
         Some(system_style),
         azul_core::task::GetSystemTimeCallback { cb: azul_core::task::get_system_time_libstd },
+    &[],
     )
     .expect("layout_document should succeed");
 
@@ -302,6 +303,7 @@ fn test_probe_words_glyph_counts() {
         azul_core::resources::IdNamespace(0), DomId::ROOT_ID, true, Vec::new(), None,
         &azul_core::resources::ImageCache::default(), None, Some(system_style),
         azul_core::task::GetSystemTimeCallback { cb: azul_core::task::get_system_time_libstd },
+    &[],
     ).expect("layout");
 
     // Map each text node to its word via tree order; dump glyph counts.

@@ -265,7 +265,12 @@ fn maps_render_paints_header_pixels() {
 
     // Replicate CpuBackend::render_frame's FULL-RENDER path exactly.
     let mut compositor = cpurender::CompositorState::new(640, 480);
-    compositor.allocate_layers_from_display_list(&root.display_list, dpi, &HashMap::new(), &HashMap::new());
+    compositor.allocate_layers_from_display_list(
+        &root.display_list,
+        dpi,
+        &std::collections::HashMap::new(),
+        &std::collections::HashMap::new(),
+    );
     compositor
         .render_layers(
             &root.display_list,
@@ -406,7 +411,12 @@ fn virtual_view_child_clip_cannot_escape_composite_bounds() {
         .with_virtual_view_display_lists(vview_dls);
 
     let mut compositor = cpurender::CompositorState::new(640, 480);
-    compositor.allocate_layers_from_display_list(&parent_dl, 1.0, &HashMap::new(), &HashMap::new());
+    compositor.allocate_layers_from_display_list(
+        &parent_dl,
+        1.0,
+        &std::collections::HashMap::new(),
+        &std::collections::HashMap::new(),
+    );
     compositor
         .render_layers(&parent_dl, 1.0, &renderer_resources, &test_font_manager(), &mut glyph_cache, &render_state)
         .expect("render_layers");

@@ -91,6 +91,7 @@ mod inline_intrinsic_width_tests {
             true,  // cursor_is_visible
             Vec::new(),  // cursor_locations
             None,  // system_style
+        &[],
         );
 
         assert!(
@@ -205,6 +206,7 @@ mod inline_intrinsic_width_tests {
             Vec::new(),  // cursor_locations
             None,  // system_style
             azul_core::task::GetSystemTimeCallback { cb: azul_core::task::get_system_time_libstd },
+        &[],
         );
 
         assert!(result.is_ok(), "Layout should succeed");

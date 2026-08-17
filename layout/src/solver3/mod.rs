@@ -440,6 +440,16 @@ pub fn layout_document<T: ParsedFontTrait + Sync + 'static>(
     content_overlay: Option<&crate::overlay::ContentOverlay>,
     system_style: Option<std::sync::Arc<azul_css::system::SystemStyle>>,
     get_system_time_fn: azul_core::task::GetSystemTimeCallback,
+    // The CSS DIFF, folded into the solver's own dirtiness. The solver's
+    // reconcile compares DOM structure/content and is BLIND to a changed
+    // stylesheet over an identical tree — a CSS-only remount reused stale
+    // geometry (200px measured where the new sheet said 40px) and the
+    // structural-identity DL cache served stale paint. Each entry is a node
+    // whose computed style changed, with the WORST `RelayoutScope` across
+    // its changed properties; `RelayoutScope::None` entries are paint-only
+    // changes (colour/background/...) that must repaint without a single
+    // layout pass — the aggressive-caching half of this contract.
+    css_dirty: &[(NodeId, azul_css::props::property::RelayoutScope)],
 ) -> Result<std::sync::Arc<DisplayList>> {
     use crate::window::LayoutWindow;
 
@@ -622,7 +632,8 @@ pub fn layout_document<T: ParsedFontTrait + Sync + 'static>(
         // list across ticks while values flow through the GPU channel is the
         // point of the design.
         let gpu_fp = gpu_value_cache.map_or(0, azul_core::gpu::GpuValueCache::dl_emission_fingerprint);
-        if new_root_hash == Some(*cached_hash)
+        if css_dirty.is_empty()
+            && new_root_hash == Some(*cached_hash)
             && *cached_viewport == viewport
             && *cached_gpu_fp == gpu_fp
         {
@@ -632,6 +643,41 @@ pub fn layout_document<T: ParsedFontTrait + Sync + 'static>(
                 eprintln!("[dlcache] HIT fp={gpu_fp:x} items={}", cached_dl.items.len());
             }
             return Ok(cached_dl.clone());
+        }
+    }
+
+    // --- Step 1.15: fold the CSS DIFF into the solver's dirtiness ---
+    //
+    // Mirrors the reconcile classifier exactly (layout-affecting ->
+    // intrinsic_dirty + layout_roots, the same pair a DirtyFlag::Layout node
+    // gets). Paint-only entries (`RelayoutScope::None`) deliberately insert
+    // NOTHING: with the Step 1.1 cache bypassed above, a clean reconcile
+    // falls into the early-exit below, which reuses the whole tree and
+    // re-emits the display list from the NEW styled_dom — repaint with zero
+    // layout work. IfcOnly is treated as SizingOnly: over-invalidation is
+    // correct (the IFC re-shapes inside the sizing pass); under-invalidation
+    // is the 200px bug.
+    if !css_dirty.is_empty() {
+        let needs_layout_work = css_dirty
+            .iter()
+            .any(|(_, scope)| *scope != azul_css::props::property::RelayoutScope::None);
+        if needs_layout_work {
+            let mut dom_to_tree: std::collections::HashMap<NodeId, usize> =
+                std::collections::HashMap::with_capacity(new_tree.nodes.len());
+            for (idx, node) in new_tree.nodes.iter().enumerate() {
+                if let Some(d) = node.dom_node_id {
+                    dom_to_tree.insert(d, idx);
+                }
+            }
+            for (dom_id_dirty, scope) in css_dirty {
+                if *scope == azul_css::props::property::RelayoutScope::None {
+                    continue;
+                }
+                if let Some(&idx) = dom_to_tree.get(dom_id_dirty) {
+                    recon_result.intrinsic_dirty.insert(idx);
+                    recon_result.layout_roots.insert(idx);
+                }
+            }
         }
     }
 
@@ -808,6 +854,12 @@ pub fn layout_document<T: ParsedFontTrait + Sync + 'static>(
     // robust. (rc=5 post-reconcile, step=2: this was the failing `?`.)
     if recon_result.is_clean() && cache.tree.is_some() {
         debug_log!(ctx, "No changes, returning existing display list");
+        // The reuse census must describe THIS pass: zero sizing work, full
+        // tree reuse. Leaving the previous pass's numbers in place made a
+        // paint-only repaint look like it charged the cold pass's layout
+        // work (the census is load-bearing — tests assert on it).
+        cache.last_intrinsic_dirty = 0;
+        cache.last_reconcile_reused = recon_result.reused_nodes;
         let tree = cache.tree.as_ref().ok_or(LayoutError::InvalidTree)?;
 
         // Use cached scroll IDs if available, otherwise compute them
@@ -825,7 +877,7 @@ pub fn layout_document<T: ParsedFontTrait + Sync + 'static>(
         if SKIP_DISPLAY_LIST.load(core::sync::atomic::Ordering::Relaxed) {
             return Ok(std::sync::Arc::new(DisplayList::default()));
         }
-        return generate_display_list(
+        let dl = generate_display_list(
             &mut ctx,
             tree,
             &cache.calculated_positions,
@@ -836,7 +888,20 @@ pub fn layout_document<T: ParsedFontTrait + Sync + 'static>(
             id_namespace,
             dom_id,
         )
-        .map(std::sync::Arc::new);
+        .map(std::sync::Arc::new)?;
+        // Refresh the structural-identity cache with what was JUST emitted.
+        // This early exit re-emits precisely because something the cache key
+        // could not see changed (a paint-only CSS diff, a GPU-key mint):
+        // leaving the old entry in place would serve STALE PAINT on the next
+        // call, and not storing at all would re-emit every frame for the
+        // whole life of an animation.
+        let root_hash = tree.cold(tree.root).map(|c| c.subtree_hash);
+        let gpu_fp = gpu_value_cache
+            .map_or(0, azul_core::gpu::GpuValueCache::dl_emission_fingerprint);
+        if let Some(h) = root_hash {
+            cache.cached_display_list = Some((h, viewport, gpu_fp, dl.clone()));
+        }
+        return Ok(dl);
     }
 
     { let _ = (0xDD00_0003u32); }
@@ -2513,6 +2578,7 @@ mod autotest_generated {
                 azul_core::task::GetSystemTimeCallback {
                     cb: azul_core::task::get_system_time_libstd,
                 },
+                &[],
             )
         }
 
@@ -2554,7 +2620,113 @@ mod autotest_generated {
                 azul_core::task::GetSystemTimeCallback {
                     cb: azul_core::task::get_system_time_libstd,
                 },
+                &[],
             )
+        }
+
+        /// [`run`] with a caller-supplied CSS diff — the css_dirty channel.
+        fn run_with_css(
+            cache: &mut LayoutCache,
+            dom: &StyledDom,
+            viewport: LogicalRect,
+            css_dirty: &[(azul_core::dom::NodeId, azul_css::props::property::RelayoutScope)],
+        ) -> Result<std::sync::Arc<DisplayList>> {
+            let mut text_cache = TextLayoutCache::new();
+            let font_manager: FontManager<FontRef> =
+                FontManager::new(rust_fontconfig::FcFontCache::default())
+                    .expect("FontManager over an empty font cache");
+            let renderer_resources = RendererResources::default();
+            let image_cache = azul_core::resources::ImageCache::default();
+            let mut debug_messages = None;
+
+            layout_document(
+                cache,
+                &mut text_cache,
+                dom,
+                viewport,
+                &font_manager,
+                &BTreeMap::new(),
+                &BTreeMap::new(),
+                &mut debug_messages,
+                None,
+                &renderer_resources,
+                azul_core::resources::IdNamespace(0),
+                DomId::ROOT_ID,
+                false,
+                Vec::new(),
+                None,
+                &image_cache,
+                None,
+                None,
+                azul_core::task::GetSystemTimeCallback {
+                    cb: azul_core::task::get_system_time_libstd,
+                },
+                css_dirty,
+            )
+        }
+
+        /// The AGGRESSIVE-CACHING CONTRACT of the CSS-diff channel, both
+        /// directions:
+        ///
+        /// A PAINT-ONLY diff (`RelayoutScope::None` — colour, background)
+        /// must bypass the structural-identity DL cache (fresh paint) while
+        /// charging ZERO layout work — geometry byte-identical, no intrinsic
+        /// recomputation. A SIZING diff must actually re-solve. And an EMPTY
+        /// diff over the unchanged DOM must still hit the cache (the same
+        /// Arc) — including right after a paint-only pass, which requires the
+        /// early-exit path to have refreshed the cache with what it emitted,
+        /// or the NEXT hit would serve the stale-paint list.
+        #[test]
+        fn css_diff_paint_repaints_without_layout_and_sizing_relayouts() {
+            use azul_css::props::property::RelayoutScope;
+
+            let dom = simple_dom();
+            let mut cache = LayoutCache::default();
+            let viewport = rect(0.0, 0.0, 800.0, 600.0);
+
+            let Ok(first) = run(&mut cache, &dom, viewport) else {
+                return; // font-less environment
+            };
+            let positions_before = cache.calculated_positions.clone();
+
+            // Paint-only: fresh list (repainted), identical geometry, zero
+            // sizing work.
+            let div = azul_core::dom::NodeId::new(1);
+            let second = run_with_css(&mut cache, &dom, viewport, &[(div, RelayoutScope::None)])
+                .expect("paint-only pass");
+            assert!(
+                !std::sync::Arc::ptr_eq(&first, &second),
+                "a paint-only diff must re-emit the display list (stale paint otherwise)"
+            );
+            assert_eq!(
+                cache.last_intrinsic_dirty, 0,
+                "a paint-only diff must charge ZERO sizing work"
+            );
+            assert_eq!(
+                cache.calculated_positions, positions_before,
+                "a paint-only diff must not move anything"
+            );
+
+            // Unchanged pass right after: must HIT (same Arc as the SECOND
+            // list — the early-exit refreshed the cache with what it emitted).
+            let third = run(&mut cache, &dom, viewport).expect("unchanged pass");
+            assert!(
+                std::sync::Arc::ptr_eq(&second, &third),
+                "an unchanged pass after a paint-only repaint must hit the DL cache \
+                 with the REPAINTED list, not re-emit or serve the stale one"
+            );
+
+            // Sizing: must actually re-solve.
+            let fourth = run_with_css(&mut cache, &dom, viewport, &[(div, RelayoutScope::SizingOnly)])
+                .expect("sizing pass");
+            assert!(
+                !std::sync::Arc::ptr_eq(&third, &fourth),
+                "a sizing diff must not serve the cached list"
+            );
+            assert!(
+                cache.last_intrinsic_dirty >= 1,
+                "a sizing diff must charge sizing work for the dirty node"
+            );
         }
 
         /// The structural-identity DL cache must MISS when the GPU-KEY

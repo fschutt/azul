@@ -806,6 +806,8 @@ const fn memory_walk_coverage_is_exhaustive(w: &LayoutWindow) {
         post_filter: _,
         custom_e2e_op: _,
         routes: _,
+        // Transient CSS-diff staging — plain data, no Drop obligations.
+        pending_css_dirty: _,
         #[cfg(feature = "icu")]
         icu_localizer: _,
     } = w;
@@ -997,6 +999,18 @@ pub struct LayoutWindow {
     /// `None` while nothing animates, which is also what keeps the clock read
     /// off the idle path — see [`Self::tick_animations_now`].
     pub last_anim_tick: Option<azul_core::task::Instant>,
+    /// The CSS DIFF of the most recent `begin_reconciliation`, waiting to be
+    /// consumed by the NEXT layout pass of that DOM: node -> worst
+    /// `RelayoutScope` across its changed properties (including `None` =
+    /// paint-only entries). `layout_document` folds it into the solver's own
+    /// dirtiness — the solver's reconcile diffs DOM structure/content and is
+    /// blind to a changed stylesheet over an identical tree, which is how a
+    /// CSS-only remount kept measuring 200px against a 40px stylesheet.
+    /// Taken (cleared) by the pass that consumes it.
+    pub pending_css_dirty: Option<(
+        DomId,
+        Vec<(NodeId, azul_css::props::property::RelayoutScope)>,
+    )>,
     pub layout_cache: Solver3LayoutCache,
     /// Text layout cache for text3 (shaped glyphs, line breaks, etc.)
     pub text_cache: TextLayoutCache,
@@ -1430,6 +1444,7 @@ impl LayoutWindow {
     /// so adding a field touches one site instead of three).
     fn from_font_manager(font_manager: FontManager<FontRef>) -> Self {
         Self {
+            pending_css_dirty: None,
             e2e_mount: E2eMountOverride::default(),
             #[cfg(feature = "e2e-server")]
             e2e_scratch: std::sync::Mutex::new(crate::e2e::E2eScratch::default()),
@@ -3005,6 +3020,7 @@ impl LayoutWindow {
             Some(&self.content_overlay),
             self.system_style.clone(),
             external.get_system_time_fn,
+            &[],
         );
         if layout_result.is_err() {
             return LogicalSize::zero();
@@ -3456,6 +3472,16 @@ impl LayoutWindow {
             || self.text_edit_manager.tween.is_active();
         let cursor_locations = self.text_edit_manager.build_cursor_locations();
 
+        // Consume the CSS diff staged by `begin_reconciliation` — exactly one
+        // pass eats it, and only for the DOM it was computed against.
+        let css_dirty_for_this_pass: Vec<(NodeId, azul_css::props::property::RelayoutScope)> =
+            match &self.pending_css_dirty {
+                Some((d, _)) if *d == dom_id => {
+                    self.pending_css_dirty.take().map(|(_, v)| v).unwrap_or_default()
+                }
+                _ => Vec::new(),
+            };
+
         let mut display_list = {
             let _p = crate::probe::Probe::span("solver3_layout_document");
             solver3::layout_document(
@@ -3478,6 +3504,7 @@ impl LayoutWindow {
                 Some(&self.content_overlay),
                 self.system_style.clone(),
                 system_callbacks.get_system_time_fn,
+                &css_dirty_for_this_pass,
             )?
         };
 
@@ -6806,19 +6833,24 @@ impl LayoutWindow {
                 };
 
                 let mut worst = azul_css::props::property::RelayoutScope::None;
+                let mut changed_any = false;
                 for ty in azul_css::props::property::CssPropertyType::ALL {
                     let before =
                         old_cache.get_property(old_nd, &m.old_node_id, &old_state.styled_node_state, ty);
                     let after =
                         new_cache.get_property(new_nd, &m.new_node_id, &new_state.styled_node_state, ty);
                     if before != after {
+                        changed_any = true;
                         // IFC membership is not known here; `false` is the
                         // conservative reading for the classifier's font/text
                         // arm, which upgrades rather than downgrades.
                         worst = worst.max(ty.relayout_scope(false));
                     }
                 }
-                if worst != azul_css::props::property::RelayoutScope::None {
+                // Paint-only changes (worst == None) are recorded too: they
+                // must bust the structural-identity DL cache (repaint) even
+                // though they charge no layout work.
+                if changed_any {
                     restyled.push((m.new_node_id, worst));
                 }
             }
@@ -6905,6 +6937,11 @@ impl LayoutWindow {
                 });
             }
         }
+
+        // Stage the CSS diff for the layout pass that follows this
+        // reconciliation — `layout_dom_recursive_impl` consumes it exactly
+        // once for this DOM.
+        self.pending_css_dirty = Some((dom_id, restyled.clone()));
 
         PendingReconciliation {
             node_moves: diff.node_moves,
@@ -12338,6 +12375,10 @@ impl LayoutWindow {
             zombies: _,
             // REBUILT each layout, never migrated — see the field docs.
             anim_key_to_node: _,
+            // CSS-diff staging is keyed by NEW-tree NodeIds computed in the
+            // same reconciliation that produces the remap — it is consumed by
+            // the very next layout pass and never survives a second remap.
+            pending_css_dirty: _,
             // One timestamp; carries no NodeId.
             last_anim_tick: _,
             layout_cache: _,

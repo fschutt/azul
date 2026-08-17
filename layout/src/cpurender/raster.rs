@@ -4129,6 +4129,7 @@ pub fn render_component_preview(
         None, // content overlay: no live window in headless preview
         system_style.clone(),
         get_system_time_fn,
+        &[],
     )
     .map_err(|e| format!("Layout failed: {e:?}"))?;
 
