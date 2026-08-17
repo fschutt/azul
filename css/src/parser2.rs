@@ -681,13 +681,186 @@ impl fmt::Display for CssParseError<'_> {
 /// [`CssParseWarnMsg`] items rather than causing a hard failure, so the caller
 /// always receives a (possibly empty) stylesheet.
 #[must_use] pub fn new_from_str(css_string: &str) -> (Css, Vec<CssParseWarnMsg<'_>>) {
-    let mut tokenizer = Tokenizer::new(css_string);
-    let (rules, warnings) = new_from_str_inner(css_string, &mut tokenizer);
+    // `@keyframes` blocks are extracted TEXTUALLY before tokenization and
+    // parsed by their own small grammar (`from`/`to`/`<pct>%` stop selectors
+    // + ordinary declarations). The rule tokenizer's selector vocabulary has
+    // no percentage form, and threading one through it for the sake of one
+    // at-rule would complicate every selector arm — a balanced-brace scan is
+    // exact here because keyframe bodies cannot contain nested braces beyond
+    // their stop blocks. The extracted ranges are blanked (not removed) so
+    // every other rule keeps its byte offsets for error locations.
+    let (ranges, keyframes) = extract_keyframes(css_string);
+    if ranges.is_empty() {
+        // Common case: no @keyframes — the untouched single-pass parse.
+        let mut tokenizer = Tokenizer::new(css_string);
+        let (rules, warnings) = new_from_str_inner(css_string, &mut tokenizer);
+        return (
+            Css { rules: rules.into(), keyframes: keyframes.into() },
+            warnings,
+        );
+    }
+    // With @keyframes present, parse each non-keyframes SEGMENT of the
+    // original string separately and concatenate. Segments are `&css_string`
+    // slices, so every warning keeps borrowing the caller's string — the
+    // token-skipping and blank-a-copy designs both failed here (the tokenizer
+    // does not advance past an unknown token like `50%`, and a blanked copy
+    // cannot outlive the returned warnings). Extraction is TOP-LEVEL only
+    // (brace depth 0), which is what keeps each segment brace-balanced;
+    // `@keyframes` nested inside `@media` is not supported yet and parses as
+    // it would have before this feature existed.
+    let mut rules = Vec::new();
+    let mut warnings = Vec::new();
+    let mut cursor = 0usize;
+    fn parse_segment<'a>(
+        css_string: &'a str,
+        seg_start: usize,
+        seg_end: usize,
+        rules: &mut Vec<CssRuleBlock>,
+        warnings: &mut Vec<CssParseWarnMsg<'a>>,
+    ) {
+        let seg = &css_string[seg_start..seg_end];
+        if seg.trim().is_empty() {
+            return;
+        }
+        let mut tokenizer = Tokenizer::new(seg);
+        let (seg_rules, mut seg_warnings) = new_from_str_inner(seg, &mut tokenizer);
+        for w in &mut seg_warnings {
+            w.location.start.original_pos += seg_start;
+            w.location.end.original_pos += seg_start;
+        }
+        rules.extend(seg_rules);
+        warnings.extend(seg_warnings);
+    }
+    for (start, end) in &ranges {
+        parse_segment(css_string, cursor, *start, &mut rules, &mut warnings);
+        cursor = *end;
+    }
+    parse_segment(css_string, cursor, css_string.len(), &mut rules, &mut warnings);
 
     (
-        Css { rules: rules.into() },
+        Css { rules: rules.into(), keyframes: keyframes.into() },
         warnings,
     )
+}
+
+/// Scan for `@keyframes <name> { ... }` blocks: parse each into [`Keyframes`]
+/// and report its byte range so the rule tokenizer can skip over it.
+fn extract_keyframes(css: &str) -> (Vec<(usize, usize)>, Vec<crate::css::Keyframes>) {
+    let bytes = css.as_bytes();
+    let mut ranges = Vec::new();
+    let mut keyframes = Vec::new();
+    let mut i = 0;
+    while let Some(rel) = css[i..].find("@keyframes") {
+        let at = i + rel;
+        // TOP-LEVEL only: an occurrence inside another block (e.g. @media)
+        // is left for the rule parser — segmenting through it would split a
+        // balanced outer block in two.
+        if bytes[..at].iter().fold(0i64, |d, &b| match b {
+            b'{' => d + 1,
+            b'}' => d - 1,
+            _ => d,
+        }) != 0
+        {
+            i = at + "@keyframes".len();
+            continue;
+        }
+        let after_kw = at + "@keyframes".len();
+        // name = up to the opening brace
+        let Some(brace_rel) = css[after_kw..].find('{') else { break };
+        let brace = after_kw + brace_rel;
+        let name = css[after_kw..brace].trim().to_string();
+        // balanced-brace scan for the block end
+        let mut depth = 0usize;
+        let mut end = None;
+        for (j, &b) in bytes.iter().enumerate().skip(brace) {
+            match b {
+                b'{' => depth += 1,
+                b'}' => {
+                    depth -= 1;
+                    if depth == 0 {
+                        end = Some(j);
+                        break;
+                    }
+                }
+                _ => {}
+            }
+        }
+        let Some(end) = end else { break };
+        if !name.is_empty() {
+            let body = &css[brace + 1..end];
+            keyframes.push(parse_keyframes_body(name, body));
+        }
+        ranges.push((at, end + 1));
+        i = end + 1;
+    }
+    (ranges, keyframes)
+}
+
+/// Parse the inside of a `@keyframes` block: a sequence of
+/// `<stops> { <declarations> }` where `<stops>` is a comma list of
+/// `from` (0), `to` (1000) or `<number>%` (permille). Unknown stop selectors
+/// and unparsable declarations are SKIPPED, matching the rule parser's
+/// warn-and-continue posture. Stops are sorted by permille; duplicate
+/// selectors in one comma list share the declaration set.
+fn parse_keyframes_body(name: alloc::string::String, body: &str) -> crate::css::Keyframes {
+    use crate::css::{KeyframeStop, Keyframes};
+    let mut stops: Vec<KeyframeStop> = Vec::new();
+    let mut rest = body;
+    while let Some(open) = rest.find('{') {
+        let selector_text = &rest[..open];
+        let Some(close_rel) = rest[open + 1..].find('}') else { break };
+        let close = open + 1 + close_rel;
+        let decls = &rest[open + 1..close];
+
+        let mut props: Vec<crate::props::property::CssProperty> = Vec::new();
+        for decl in decls.split(';') {
+            let decl = decl.trim();
+            if decl.is_empty() {
+                continue;
+            }
+            let Some((key, value)) = decl.split_once(':') else {
+                continue;
+            };
+            let key_map = crate::props::property::get_css_key_map();
+            let Some(ty) =
+                crate::props::property::CssPropertyType::from_str(key.trim(), &key_map)
+            else {
+                continue;
+            };
+            if let Ok(prop) = crate::props::property::parse_css_property(ty, value.trim()) {
+                props.push(prop);
+            }
+        }
+
+        for sel in selector_text.split(',') {
+            let sel = sel.trim();
+            let permille: Option<u16> = match sel {
+                "from" => Some(0),
+                "to" => Some(1000),
+                s => s.strip_suffix('%').and_then(|n| {
+                    n.trim().parse::<f32>().ok().and_then(|pct| {
+                        if (0.0..=100.0).contains(&pct) {
+                            Some((pct * 10.0).round() as u16)
+                        } else {
+                            None
+                        }
+                    })
+                }),
+            };
+            if let Some(permille) = permille {
+                stops.push(KeyframeStop {
+                    permille,
+                    props: props.clone().into(),
+                });
+            }
+        }
+        rest = &rest[close + 1..];
+    }
+    stops.sort_by_key(|s| s.permille);
+    Keyframes {
+        name: name.into(),
+        stops: stops.into(),
+    }
 }
 
 /// Returns the location of where the parser is currently in the document
@@ -1368,6 +1541,7 @@ fn parse_lang_condition(content: &str) -> Option<DynamicSelector> {
 const MAX_NESTING_DEPTH: usize = 1024;
 
 #[allow(clippy::too_many_lines, clippy::cognitive_complexity)] // large but cohesive: single-purpose CSS parser/formatter/dispatch table (one branch per property/variant)
+
 fn new_from_str_inner<'a>(
     css_string: &'a str,
     tokenizer: &mut Tokenizer<'a>,
@@ -3797,5 +3971,95 @@ mod autotest_generated {
         let (rules, warnings) = css_blocks_to_stylesheet(Vec::new(), "");
         assert!(rules.is_empty());
         assert!(warnings.is_empty());
+    }
+}
+
+#[cfg(test)]
+mod keyframes_tests {
+    use super::*;
+
+    /// `@keyframes` parse + the rule parser skipping the block: the stops
+    /// come out sorted with their properties, and the rules AROUND the block
+    /// still parse as if it were not there (same count, same declarations).
+    #[test]
+    fn keyframes_parse_and_do_not_disturb_rules() {
+        let css = r#"
+            div { width: 50px; }
+            @keyframes flyOutRight {
+                from { transform: translateX(0px); opacity: 1; }
+                50% { opacity: 0.75; }
+                to { transform: translateX(200px); width: 0px; }
+            }
+            p { height: 10px; }
+        "#;
+        let (parsed, warnings) = new_from_str(css);
+        assert!(
+            warnings.is_empty(),
+            "keyframes must not produce rule-parser warnings: {warnings:#?}"
+        );
+        assert_eq!(parsed.keyframes.as_ref().len(), 1);
+        let kf = &parsed.keyframes.as_ref()[0];
+        assert_eq!(kf.name.as_str(), "flyOutRight");
+        let stops = kf.stops.as_ref();
+        assert_eq!(stops.len(), 3);
+        assert_eq!(stops[0].permille, 0);
+        assert_eq!(stops[1].permille, 500);
+        assert_eq!(stops[2].permille, 1000);
+        assert_eq!(stops[0].props.as_ref().len(), 2, "from: transform + opacity");
+        assert_eq!(stops[2].props.as_ref().len(), 2, "to: transform + width");
+
+        // The surrounding rules are intact — the block was skipped, not
+        // half-tokenised into junk selectors.
+        let (no_kf, _) = new_from_str("div { width: 50px; } p { height: 10px; }");
+        assert_eq!(parsed.rules.as_ref().len(), no_kf.rules.as_ref().len());
+    }
+
+    /// The three animation properties parse through the ordinary declaration
+    /// path with name/duration/timing, and `-azul-`-prefixed names resolve.
+    #[test]
+    fn animation_properties_parse() {
+        let css = r#"
+            #sidebar {
+                -azul-animation-out: flyOutRight 1s;
+                -azul-animation-in: flyInLeft 500ms spring;
+                animation: all 2s ease-out;
+            }
+        "#;
+        let (parsed, warnings) = new_from_str(css);
+        assert!(warnings.is_empty(), "{warnings:#?}");
+        let rules = parsed.rules.as_ref();
+        assert_eq!(rules.len(), 1);
+        let decls = rules[0].declarations.as_ref();
+        assert_eq!(decls.len(), 3, "{decls:#?}");
+        let mut found_out = false;
+        let mut found_all = false;
+        for d in decls {
+            let crate::css::CssDeclaration::Static(prop) = d else {
+                continue;
+            };
+            if let crate::props::property::CssProperty::AnimationOut(v) = prop {
+                let a = v.get_property().cloned().unwrap_or_default();
+                assert_eq!(a.name.as_str(), "flyOutRight");
+                assert_eq!(
+                    a.duration,
+                    crate::props::basic::time::CssDuration::from_millis(1000)
+                );
+                found_out = true;
+            }
+            if let crate::props::property::CssProperty::Animation(v) = prop {
+                let a = v.get_property().cloned().unwrap_or_default();
+                assert_eq!(a.name.as_str(), "all");
+                assert_eq!(
+                    a.duration,
+                    crate::props::basic::time::CssDuration::from_millis(2000)
+                );
+                assert_eq!(
+                    a.timing,
+                    crate::props::basic::animation::AnimationTiming::EaseOut
+                );
+                found_all = true;
+            }
+        }
+        assert!(found_out && found_all);
     }
 }

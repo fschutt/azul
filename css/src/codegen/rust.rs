@@ -476,6 +476,7 @@ mod tests {
         let block = CssRuleBlock::new(path, vec![]);
         Css {
             rules: vec![block].into(),
+            keyframes: crate::css::KeyframesVec::from_const_slice(&[]),
         }
     }
 

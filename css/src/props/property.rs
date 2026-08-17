@@ -80,7 +80,7 @@ const COMBINED_CSS_PROPERTIES_KEY_MAP: [(CombinedCssPropertyType, &str); 27] = [
     (CombinedCssPropertyType::InsetInline, "inset-inline"),
 ];
 
-const CSS_PROPERTY_KEY_MAP: [(CssPropertyType, &str); 187] = [
+const CSS_PROPERTY_KEY_MAP: [(CssPropertyType, &str); 190] = [
     (CssPropertyType::Display, "display"),
     (CssPropertyType::Float, "float"),
     (CssPropertyType::BoxSizing, "box-sizing"),
@@ -260,6 +260,9 @@ const CSS_PROPERTY_KEY_MAP: [(CssPropertyType, &str); 187] = [
     (CssPropertyType::PerspectiveOrigin, "perspective-origin"),
     (CssPropertyType::TransformOrigin, "transform-origin"),
     (CssPropertyType::BackfaceVisibility, "backface-visibility"),
+    (CssPropertyType::Animation, "animation"),
+    (CssPropertyType::AnimationIn, "-azul-animation-in"),
+    (CssPropertyType::AnimationOut, "-azul-animation-out"),
     (CssPropertyType::MixBlendMode, "mix-blend-mode"),
     (CssPropertyType::Filter, "filter"),
     (CssPropertyType::BackdropFilter, "backdrop-filter"),
@@ -316,6 +319,7 @@ const CSS_PROPERTY_KEY_MAP: [(CssPropertyType, &str); 187] = [
 // Type aliases for `CssPropertyValue<T>`
 pub type CaretColorValue = CssPropertyValue<CaretColor>;
 pub type CaretAnimationDurationValue = CssPropertyValue<CaretAnimationDuration>;
+pub type StyleAnimationValue = CssPropertyValue<crate::props::basic::animation::StyleAnimation>;
 pub type CaretWidthValue = CssPropertyValue<CaretWidth>;
 pub type SelectionBackgroundColorValue = CssPropertyValue<SelectionBackgroundColor>;
 pub type SelectionColorValue = CssPropertyValue<SelectionColor>;
@@ -600,6 +604,14 @@ impl CombinedCssPropertyType {
 pub enum CssProperty {
     CaretColor(CaretColorValue),
     CaretAnimationDuration(CaretAnimationDurationValue),
+    /// `animation: all 2s [timing]` — diff-driven transitions; the OLD tree's
+    /// value governs (USER spec 2026-08-17).
+    Animation(StyleAnimationValue),
+    /// `-azul-animation-in: <name> <duration> [timing]` — runs on mount.
+    AnimationIn(StyleAnimationValue),
+    /// `-azul-animation-out: <name> <duration> [timing]` — runs on unmount,
+    /// against the retained (frozen) zombie subtree.
+    AnimationOut(StyleAnimationValue),
     CaretWidth(CaretWidthValue),
     SelectionBackgroundColor(SelectionBackgroundColorValue),
     SelectionColor(SelectionColorValue),
@@ -855,6 +867,9 @@ pub enum RelayoutScope {
 pub enum CssPropertyType {
     CaretColor,
     CaretAnimationDuration,
+    Animation,
+    AnimationIn,
+    AnimationOut,
     CaretWidth,
     SelectionBackgroundColor,
     SelectionColor,
@@ -1046,6 +1061,9 @@ impl CssPropertyType {
     pub const ALL: &[Self] = &[
         Self::CaretColor,
         Self::CaretAnimationDuration,
+        Self::Animation,
+        Self::AnimationIn,
+        Self::AnimationOut,
         Self::CaretWidth,
         Self::SelectionBackgroundColor,
         Self::SelectionColor,
@@ -1276,6 +1294,9 @@ impl CssPropertyType {
         match self {
             Self::CaretColor => "caret-color",
             Self::CaretAnimationDuration => "caret-animation-duration",
+            Self::Animation => "animation",
+            Self::AnimationIn => "-azul-animation-in",
+            Self::AnimationOut => "-azul-animation-out",
             Self::CaretWidth => "-azul-caret-width",
             Self::SelectionBackgroundColor => "-azul-selection-background-color",
             Self::SelectionColor => "-azul-selection-color",
@@ -1552,7 +1573,7 @@ impl CssPropertyType {
     /// Returns whether this property can trigger a re-layout (important for incremental layout and
     /// caching layouted DOMs).
     #[must_use] pub const fn can_trigger_relayout(&self) -> bool {
-        use self::CssPropertyType::{TextColor, Cursor, BackgroundContent, BackgroundPosition, BackgroundSize, BackgroundRepeat, BorderTopLeftRadius, BorderTopRightRadius, BorderBottomLeftRadius, BorderBottomRightRadius, BorderTopColor, BorderRightColor, BorderLeftColor, BorderBottomColor, BorderTopStyle, BorderRightStyle, BorderLeftStyle, BorderBottomStyle, ColumnRuleColor, ColumnRuleStyle, BoxShadowLeft, BoxShadowRight, BoxShadowTop, BoxShadowBottom, BoxDecorationBreak, ScrollbarTrack, ScrollbarThumb, ScrollbarButton, ScrollbarCorner, ScrollbarResizer, Opacity, Transform, TransformOrigin, PerspectiveOrigin, BackfaceVisibility, MixBlendMode, Filter, BackdropFilter, TextShadow, Clip};
+        use self::CssPropertyType::{Animation, AnimationIn, AnimationOut, TextColor, Cursor, BackgroundContent, BackgroundPosition, BackgroundSize, BackgroundRepeat, BorderTopLeftRadius, BorderTopRightRadius, BorderBottomLeftRadius, BorderBottomRightRadius, BorderTopColor, BorderRightColor, BorderLeftColor, BorderBottomColor, BorderTopStyle, BorderRightStyle, BorderLeftStyle, BorderBottomStyle, ColumnRuleColor, ColumnRuleStyle, BoxShadowLeft, BoxShadowRight, BoxShadowTop, BoxShadowBottom, BoxDecorationBreak, ScrollbarTrack, ScrollbarThumb, ScrollbarButton, ScrollbarCorner, ScrollbarResizer, Opacity, Transform, TransformOrigin, PerspectiveOrigin, BackfaceVisibility, MixBlendMode, Filter, BackdropFilter, TextShadow, Clip};
 
         // Since the border can be larger than the content,
         // in which case the content needs to be re-layouted, assume true for Border
@@ -1602,6 +1623,12 @@ impl CssPropertyType {
             | BackdropFilter
             | TextShadow
             | Clip
+            // The animation properties are META: they DESCRIBE motion, they
+            // are not motion. Changing them must never charge a layout pass
+            // (the transition driver reads them at the diff seam).
+            | Animation
+            | AnimationIn
+            | AnimationOut
         )
     }
 
@@ -1628,7 +1655,7 @@ impl CssPropertyType {
     /// (has inline formatting context membership). When true, font/text
     /// property changes trigger IFC-only relayout instead of being ignored.
     #[must_use] pub const fn relayout_scope(&self, node_is_ifc_member: bool) -> RelayoutScope {
-        use CssPropertyType::{TextColor, Cursor, BackgroundContent, BackgroundPosition, BackgroundSize, BackgroundRepeat, BorderTopColor, BorderRightColor, BorderLeftColor, BorderBottomColor, BorderTopStyle, BorderRightStyle, BorderLeftStyle, BorderBottomStyle, BorderTopLeftRadius, BorderTopRightRadius, BorderBottomLeftRadius, BorderBottomRightRadius, ColumnRuleColor, ColumnRuleStyle, BoxShadowLeft, BoxShadowRight, BoxShadowTop, BoxShadowBottom, BoxDecorationBreak, ScrollbarTrack, ScrollbarThumb, ScrollbarButton, ScrollbarCorner, ScrollbarResizer, Opacity, Transform, TransformOrigin, PerspectiveOrigin, BackfaceVisibility, MixBlendMode, Filter, BackdropFilter, TextShadow, SelectionBackgroundColor, SelectionColor, SelectionRadius, CaretColor, CaretAnimationDuration, CaretWidth, TextOverflow, ObjectFit, ObjectPosition, Clip, FontFamily, FontSize, FontWeight, FontStyle, LetterSpacing, WordSpacing, LineHeight, TextAlign, TextJustify, TextIndent, WhiteSpace, TabSize, Hyphens, WordBreak, OverflowWrap, LineBreak, TextAlignLast, TextOrientation, HyphenationLanguage, TextCombineUpright, TextDecoration, HangingPunctuation, InitialLetter, LineClamp, Direction, VerticalAlign, UnicodeBidi, TextBoxTrim, TextBoxEdge, DominantBaseline, AlignmentBaseline, BaselineSource, LineFitEdge, InitialLetterAlign, InitialLetterWrap, Width, Height, MinWidth, MinHeight, MaxWidth, MaxHeight, PaddingTop, PaddingRight, PaddingBottom, PaddingLeft, PaddingInlineStart, PaddingInlineEnd, BorderTopWidth, BorderRightWidth, BorderBottomWidth, BorderLeftWidth, BoxSizing, ScrollbarWidth, ScrollbarVisibility, ScrollbarGutter, OverflowClipMargin};
+        use CssPropertyType::{Animation, AnimationIn, AnimationOut, TextColor, Cursor, BackgroundContent, BackgroundPosition, BackgroundSize, BackgroundRepeat, BorderTopColor, BorderRightColor, BorderLeftColor, BorderBottomColor, BorderTopStyle, BorderRightStyle, BorderLeftStyle, BorderBottomStyle, BorderTopLeftRadius, BorderTopRightRadius, BorderBottomLeftRadius, BorderBottomRightRadius, ColumnRuleColor, ColumnRuleStyle, BoxShadowLeft, BoxShadowRight, BoxShadowTop, BoxShadowBottom, BoxDecorationBreak, ScrollbarTrack, ScrollbarThumb, ScrollbarButton, ScrollbarCorner, ScrollbarResizer, Opacity, Transform, TransformOrigin, PerspectiveOrigin, BackfaceVisibility, MixBlendMode, Filter, BackdropFilter, TextShadow, SelectionBackgroundColor, SelectionColor, SelectionRadius, CaretColor, CaretAnimationDuration, CaretWidth, TextOverflow, ObjectFit, ObjectPosition, Clip, FontFamily, FontSize, FontWeight, FontStyle, LetterSpacing, WordSpacing, LineHeight, TextAlign, TextJustify, TextIndent, WhiteSpace, TabSize, Hyphens, WordBreak, OverflowWrap, LineBreak, TextAlignLast, TextOrientation, HyphenationLanguage, TextCombineUpright, TextDecoration, HangingPunctuation, InitialLetter, LineClamp, Direction, VerticalAlign, UnicodeBidi, TextBoxTrim, TextBoxEdge, DominantBaseline, AlignmentBaseline, BaselineSource, LineFitEdge, InitialLetterAlign, InitialLetterWrap, Width, Height, MinWidth, MinHeight, MaxWidth, MaxHeight, PaddingTop, PaddingRight, PaddingBottom, PaddingLeft, PaddingInlineStart, PaddingInlineEnd, BorderTopWidth, BorderRightWidth, BorderBottomWidth, BorderLeftWidth, BoxSizing, ScrollbarWidth, ScrollbarVisibility, ScrollbarGutter, OverflowClipMargin};
         match self {
             // Pure paint — never triggers relayout
             TextColor
@@ -1679,7 +1706,12 @@ impl CssPropertyType {
             | TextOverflow
             | ObjectFit
             | ObjectPosition
-            | Clip => RelayoutScope::None,
+            | Clip
+            // Meta-properties describing animations — never layout by
+            // themselves (see can_trigger_relayout).
+            | Animation
+            | AnimationIn
+            | AnimationOut => RelayoutScope::None,
 
             // Font/text properties — IFC-only if inside inline context,
             // otherwise no layout impact (block with only block children
@@ -1802,6 +1834,7 @@ pub enum CssParsingError<'a> {
     Cursor(CursorParseError<'a>),
     CaretColor(CssColorParseError<'a>),
     CaretAnimationDuration(DurationParseError<'a>),
+    Animation(crate::props::basic::animation::StyleAnimationParseError<'a>),
     CaretWidth(CssPixelValueParseError<'a>),
     SelectionBackgroundColor(CssColorParseError<'a>),
     SelectionColor(CssColorParseError<'a>),
@@ -1975,6 +2008,7 @@ pub enum CssParsingErrorOwned {
     Cursor(CursorParseErrorOwned),
     CaretColor(CssColorParseErrorOwned),
     CaretAnimationDuration(DurationParseErrorOwned),
+    Animation(crate::props::basic::animation::StyleAnimationParseErrorOwned),
     CaretWidth(CssPixelValueParseErrorOwned),
     SelectionBackgroundColor(CssColorParseErrorOwned),
     SelectionColor(CssColorParseErrorOwned),
@@ -2071,6 +2105,7 @@ impl_debug_as_display!(CssParsingError<'a>);
 impl_display! { CssParsingError<'a>, {
     CaretColor(e) => format!("Invalid caret-color: {}", e),
     CaretAnimationDuration(e) => format!("Invalid caret-animation-duration: {}", e),
+    Animation(e) => format!("Invalid animation: {}", e),
     CaretWidth(e) => format!("Invalid -azul-caret-width: {}", e),
     SelectionBackgroundColor(e) => format!("Invalid -azul-selection-background-color: {}", e),
     SelectionColor(e) => format!("Invalid -azul-selection-color: {}", e),
@@ -2210,6 +2245,13 @@ impl_from!(
     DurationParseError<'a>,
     CssParsingError::CaretAnimationDuration
 );
+impl<'a> From<crate::props::basic::animation::StyleAnimationParseError<'a>>
+    for CssParsingError<'a>
+{
+    fn from(e: crate::props::basic::animation::StyleAnimationParseError<'a>) -> Self {
+        CssParsingError::Animation(e)
+    }
+}
 impl_from!(CssBorderParseError<'a>, CssParsingError::Border);
 impl_from!(CssBorderRadiusParseError<'a>, CssParsingError::BorderRadius);
 impl_from!(LayoutPaddingParseError<'a>, CssParsingError::Padding);
@@ -2544,6 +2586,9 @@ impl CssParsingError<'_> {
             CssParsingError::CaretAnimationDuration(e) => {
                 CssParsingErrorOwned::CaretAnimationDuration(e.to_contained())
             }
+            CssParsingError::Animation(e) => {
+                CssParsingErrorOwned::Animation(e.to_contained())
+            }
             CssParsingError::SelectionBackgroundColor(e) => {
                 CssParsingErrorOwned::SelectionBackgroundColor(e.to_contained())
             }
@@ -2814,6 +2859,9 @@ impl CssParsingErrorOwned {
             Self::CaretWidth(e) => CssParsingError::CaretWidth(e.to_shared()),
             Self::CaretAnimationDuration(e) => {
                 CssParsingError::CaretAnimationDuration(e.to_shared())
+            }
+            Self::Animation(e) => {
+                CssParsingError::Animation(e.to_shared())
             }
             Self::SelectionBackgroundColor(e) => {
                 CssParsingError::SelectionBackgroundColor(e.to_shared())
@@ -3096,6 +3144,15 @@ pub fn parse_css_property(
             CssPropertyType::CaretAnimationDuration => {
                 parse_caret_animation_duration(value)?.into()
             }
+            CssPropertyType::Animation => CssProperty::Animation(CssPropertyValue::Exact(
+                crate::props::basic::animation::parse_style_animation(value)?,
+            )),
+            CssPropertyType::AnimationIn => CssProperty::AnimationIn(CssPropertyValue::Exact(
+                crate::props::basic::animation::parse_style_animation(value)?,
+            )),
+            CssPropertyType::AnimationOut => CssProperty::AnimationOut(CssPropertyValue::Exact(
+                crate::props::basic::animation::parse_style_animation(value)?,
+            )),
             CssPropertyType::SelectionBackgroundColor => {
                 parse_selection_background_color(value)?.into()
             }
@@ -4478,6 +4535,9 @@ impl CssProperty {
             Self::CaretColor(v) => v.get_css_value_fmt(),
             Self::CaretWidth(v) => v.get_css_value_fmt(),
             Self::CaretAnimationDuration(v) => v.get_css_value_fmt(),
+            Self::Animation(v) => v.get_css_value_fmt(),
+            Self::AnimationIn(v) => v.get_css_value_fmt(),
+            Self::AnimationOut(v) => v.get_css_value_fmt(),
             Self::SelectionBackgroundColor(v) => v.get_css_value_fmt(),
             Self::SelectionColor(v) => v.get_css_value_fmt(),
             Self::SelectionRadius(v) => v.get_css_value_fmt(),
@@ -4953,6 +5013,9 @@ impl CssProperty {
             Self::CaretColor(_) => CssPropertyType::CaretColor,
             Self::CaretWidth(_) => CssPropertyType::CaretWidth,
             Self::CaretAnimationDuration(_) => CssPropertyType::CaretAnimationDuration,
+            Self::Animation(_) => CssPropertyType::Animation,
+            Self::AnimationIn(_) => CssPropertyType::AnimationIn,
+            Self::AnimationOut(_) => CssPropertyType::AnimationOut,
             Self::SelectionBackgroundColor(_) => CssPropertyType::SelectionBackgroundColor,
             Self::SelectionColor(_) => CssPropertyType::SelectionColor,
             Self::SelectionRadius(_) => CssPropertyType::SelectionRadius,
@@ -6635,11 +6698,14 @@ impl CssProperty {
     #[allow(clippy::match_same_arms)]
     #[allow(clippy::too_many_lines)] // large but cohesive: single-purpose CSS parser/formatter/dispatch table (one branch per property/variant)
     #[must_use] pub const fn is_initial(&self) -> bool {
-        use self::CssProperty::{CaretColor, CaretWidth, CaretAnimationDuration, SelectionBackgroundColor, SelectionColor, SelectionRadius, TextJustify, TextColor, FontSize, FontFamily, TextAlign, LetterSpacing, TextIndent, InitialLetter, LineClamp, HangingPunctuation, TextCombineUpright, UnicodeBidi, TextBoxTrim, TextBoxEdge, DominantBaseline, AlignmentBaseline, BaselineSource, LineFitEdge, InitialLetterAlign, InitialLetterWrap, ScrollbarGutter, OverflowClipMargin, Clip, ExclusionMargin, HyphenationLanguage, LineHeight, WordSpacing, TabSize, Cursor, Display, Float, BoxSizing, Width, Height, MinWidth, MinHeight, MaxWidth, MaxHeight, Position, Top, Right, Left, Bottom, ZIndex, FlexWrap, FlexDirection, FlexGrow, FlexShrink, FlexBasis, JustifyContent, AlignItems, AlignContent, ColumnGap, RowGap, GridTemplateColumns, GridTemplateRows, GridAutoFlow, JustifySelf, JustifyItems, Gap, GridGap, AlignSelf, Font, GridAutoColumns, GridAutoRows, GridColumn, GridRow, GridTemplateAreas, WritingMode, Clear, BackgroundContent, BackgroundPosition, BackgroundSize, BackgroundRepeat, OverflowX, OverflowY, OverflowBlock, OverflowInline, PaddingTop, PaddingLeft, PaddingRight, PaddingBottom, PaddingInlineStart, PaddingInlineEnd, MarginTop, MarginLeft, MarginRight, MarginBottom, BorderTopLeftRadius, BorderTopRightRadius, BorderBottomLeftRadius, BorderBottomRightRadius, BorderTopColor, BorderRightColor, BorderLeftColor, BorderBottomColor, BorderTopStyle, BorderRightStyle, BorderLeftStyle, BorderBottomStyle, BorderTopWidth, BorderRightWidth, BorderLeftWidth, BorderBottomWidth, BoxShadowLeft, BoxShadowRight, BoxShadowTop, BoxShadowBottom, ScrollbarTrack, ScrollbarThumb, ScrollbarButton, ScrollbarCorner, ScrollbarResizer, ScrollbarWidth, ScrollbarColor, ScrollbarVisibility, ScrollbarFadeDelay, ScrollbarFadeDuration, Opacity, Visibility, Transform, TransformOrigin, PerspectiveOrigin, BackfaceVisibility, MixBlendMode, Filter, BackdropFilter, TextShadow, WhiteSpace, Direction, UserSelect, TextDecoration, Hyphens, WordBreak, OverflowWrap, LineBreak, TextOverflow, ObjectFit, ObjectPosition, AspectRatio, TextOrientation, TextAlignLast, TextTransform, BreakBefore, BreakAfter, BreakInside, Orphans, Widows, BoxDecorationBreak, ColumnCount, ColumnWidth, ColumnSpan, ColumnFill, ColumnRuleWidth, ColumnRuleStyle, ColumnRuleColor, FlowInto, FlowFrom, ShapeOutside, ShapeInside, ClipPath, ShapeMargin, ShapeImageThreshold, Content, CounterReset, CounterIncrement, ListStyleType, ListStylePosition, StringSet, TableLayout, BorderCollapse, BorderSpacing, CaptionSide, EmptyCells, FontWeight, FontStyle, VerticalAlign};
+        use self::CssProperty::{Animation, AnimationIn, AnimationOut, CaretColor, CaretWidth, CaretAnimationDuration, SelectionBackgroundColor, SelectionColor, SelectionRadius, TextJustify, TextColor, FontSize, FontFamily, TextAlign, LetterSpacing, TextIndent, InitialLetter, LineClamp, HangingPunctuation, TextCombineUpright, UnicodeBidi, TextBoxTrim, TextBoxEdge, DominantBaseline, AlignmentBaseline, BaselineSource, LineFitEdge, InitialLetterAlign, InitialLetterWrap, ScrollbarGutter, OverflowClipMargin, Clip, ExclusionMargin, HyphenationLanguage, LineHeight, WordSpacing, TabSize, Cursor, Display, Float, BoxSizing, Width, Height, MinWidth, MinHeight, MaxWidth, MaxHeight, Position, Top, Right, Left, Bottom, ZIndex, FlexWrap, FlexDirection, FlexGrow, FlexShrink, FlexBasis, JustifyContent, AlignItems, AlignContent, ColumnGap, RowGap, GridTemplateColumns, GridTemplateRows, GridAutoFlow, JustifySelf, JustifyItems, Gap, GridGap, AlignSelf, Font, GridAutoColumns, GridAutoRows, GridColumn, GridRow, GridTemplateAreas, WritingMode, Clear, BackgroundContent, BackgroundPosition, BackgroundSize, BackgroundRepeat, OverflowX, OverflowY, OverflowBlock, OverflowInline, PaddingTop, PaddingLeft, PaddingRight, PaddingBottom, PaddingInlineStart, PaddingInlineEnd, MarginTop, MarginLeft, MarginRight, MarginBottom, BorderTopLeftRadius, BorderTopRightRadius, BorderBottomLeftRadius, BorderBottomRightRadius, BorderTopColor, BorderRightColor, BorderLeftColor, BorderBottomColor, BorderTopStyle, BorderRightStyle, BorderLeftStyle, BorderBottomStyle, BorderTopWidth, BorderRightWidth, BorderLeftWidth, BorderBottomWidth, BoxShadowLeft, BoxShadowRight, BoxShadowTop, BoxShadowBottom, ScrollbarTrack, ScrollbarThumb, ScrollbarButton, ScrollbarCorner, ScrollbarResizer, ScrollbarWidth, ScrollbarColor, ScrollbarVisibility, ScrollbarFadeDelay, ScrollbarFadeDuration, Opacity, Visibility, Transform, TransformOrigin, PerspectiveOrigin, BackfaceVisibility, MixBlendMode, Filter, BackdropFilter, TextShadow, WhiteSpace, Direction, UserSelect, TextDecoration, Hyphens, WordBreak, OverflowWrap, LineBreak, TextOverflow, ObjectFit, ObjectPosition, AspectRatio, TextOrientation, TextAlignLast, TextTransform, BreakBefore, BreakAfter, BreakInside, Orphans, Widows, BoxDecorationBreak, ColumnCount, ColumnWidth, ColumnSpan, ColumnFill, ColumnRuleWidth, ColumnRuleStyle, ColumnRuleColor, FlowInto, FlowFrom, ShapeOutside, ShapeInside, ClipPath, ShapeMargin, ShapeImageThreshold, Content, CounterReset, CounterIncrement, ListStyleType, ListStylePosition, StringSet, TableLayout, BorderCollapse, BorderSpacing, CaptionSide, EmptyCells, FontWeight, FontStyle, VerticalAlign};
         match self {
             CaretColor(c) => c.is_initial(),
             CaretWidth(c) => c.is_initial(),
             CaretAnimationDuration(c) => c.is_initial(),
+            Animation(c) => c.is_initial(),
+            AnimationIn(c) => c.is_initial(),
+            AnimationOut(c) => c.is_initial(),
             SelectionBackgroundColor(c) => c.is_initial(),
             SelectionColor(c) => c.is_initial(),
             SelectionRadius(c) => c.is_initial(),
@@ -7167,6 +7233,18 @@ impl CssProperty {
         CssProperty::CaretAnimationDuration(p) => format!(
             "CssProperty::CaretAnimationDuration({})",
             print_css_property_value(p, tabs, "CaretAnimationDuration")
+        ),
+        CssProperty::Animation(p) => format!(
+            "CssProperty::Animation({})",
+            print_css_property_value(p, tabs, "StyleAnimation")
+        ),
+        CssProperty::AnimationIn(p) => format!(
+            "CssProperty::AnimationIn({})",
+            print_css_property_value(p, tabs, "StyleAnimation")
+        ),
+        CssProperty::AnimationOut(p) => format!(
+            "CssProperty::AnimationOut({})",
+            print_css_property_value(p, tabs, "StyleAnimation")
         ),
         CssProperty::SelectionBackgroundColor(p) => format!(
             "CssProperty::SelectionBackgroundColor({})",

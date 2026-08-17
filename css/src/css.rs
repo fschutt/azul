@@ -31,7 +31,77 @@ pub struct Css {
     /// All rule blocks, in source order. Sort by `(priority, specificity)`
     /// via `sort_by_specificity` to put them in cascade order.
     pub rules: CssRuleBlockVec,
+    /// Every `@keyframes` block in this stylesheet, in source order. Web
+    /// compatibility sugar: internally each named track compiles to an
+    /// animation-function invocation (`animation` / `-azul-animation-in` /
+    /// `-azul-animation-out` reference these by name).
+    pub keyframes: KeyframesVec,
 }
+
+/// One stop of a `@keyframes` block (`from` = 0, `to` = 1000, `12.5%` = 125).
+///
+/// Permille rather than an f32 percentage so the type stays `Eq`-capable —
+/// `Css` must remain `Eq`/`Ord` (NodeData carries it), and 0.1% resolution is
+/// beyond anything a keyframe needs.
+#[derive(Debug, Default, PartialEq, Clone)]
+#[repr(C)]
+pub struct KeyframeStop {
+    /// 0..=1000 position of this stop.
+    pub permille: u16,
+    /// The property values at this stop.
+    pub props: crate::props::property::CssPropertyVec,
+}
+
+impl Eq for KeyframeStop {}
+
+/// A named `@keyframes` block: `@keyframes flyOutRight { from {..} to {..} }`.
+#[derive(Debug, Default, PartialEq, Clone)]
+#[repr(C)]
+pub struct Keyframes {
+    pub name: crate::AzString,
+    /// Sorted by `permille` ascending at parse time.
+    pub stops: KeyframeStopVec,
+}
+
+impl Eq for Keyframes {}
+
+crate::impl_vec!(
+    KeyframeStop,
+    KeyframeStopVec,
+    KeyframeStopVecDestructor,
+    KeyframeStopVecDestructorType,
+    KeyframeStopVecSlice,
+    OptionKeyframeStop
+);
+crate::impl_vec_mut!(KeyframeStop, KeyframeStopVec);
+crate::impl_vec_debug!(KeyframeStop, KeyframeStopVec);
+crate::impl_vec_clone!(KeyframeStop, KeyframeStopVec, KeyframeStopVecDestructor);
+crate::impl_vec_partialeq!(KeyframeStop, KeyframeStopVec);
+crate::impl_option!(
+    KeyframeStop,
+    OptionKeyframeStop,
+    copy = false,
+    [Debug, Clone, PartialEq]
+);
+
+crate::impl_vec!(
+    Keyframes,
+    KeyframesVec,
+    KeyframesVecDestructor,
+    KeyframesVecDestructorType,
+    KeyframesVecSlice,
+    OptionKeyframes
+);
+crate::impl_vec_mut!(Keyframes, KeyframesVec);
+crate::impl_vec_debug!(Keyframes, KeyframesVec);
+crate::impl_vec_clone!(Keyframes, KeyframesVec, KeyframesVecDestructor);
+crate::impl_vec_partialeq!(Keyframes, KeyframesVec);
+crate::impl_option!(
+    Keyframes,
+    OptionKeyframes,
+    copy = false,
+    [Debug, Clone, PartialEq]
+);
 
 impl_option!(
     Css,
@@ -84,6 +154,7 @@ impl Css {
     #[must_use] pub fn new(rules: Vec<CssRuleBlock>) -> Self {
         Self {
             rules: rules.into(),
+            keyframes: KeyframesVec::from_const_slice(&[]),
         }
     }
 
@@ -152,6 +223,7 @@ impl From<Vec<CssRuleBlock>> for Css {
     fn from(rules: Vec<CssRuleBlock>) -> Self {
         Self {
             rules: rules.into(),
+            keyframes: KeyframesVec::from_const_slice(&[]),
         }
     }
 }
@@ -209,7 +281,7 @@ impl From<crate::dynamic_selector::CssPropertyWithConditionsVec> for Css {
                 priority: rule_priority::INLINE,
             });
         }
-        Self { rules: rules.into() }
+        Self { rules: rules.into(), keyframes: KeyframesVec::from_const_slice(&[]) }
     }
 }
 
