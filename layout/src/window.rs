@@ -749,6 +749,13 @@ const fn memory_walk_coverage_is_exhaustive(w: &LayoutWindow) {
         zombies: _,
         // Rebuilt wholesale each layout; one entry per animating node.
         anim_key_to_node: _,
+        // One compiled track per node currently animating IN — a handful of
+        // f32 stop lists; bounded by concurrent enters.
+        live_tracks: _,
+        // One entry per property currently transitioning; two CssProperty
+        // clones each. Bounded by concurrent transitions.
+        css_transitions: _,
+        transition_relayout: _,
         last_anim_tick: _,
         // Two u64 arrays sized by node count (~16 B/node) — noise next to
         // the tree; walked nowhere, listed so the destructure stays total.
@@ -994,6 +1001,19 @@ pub struct LayoutWindow {
         azul_core::animation::AnimKey,
         azul_core::dom::NodeId,
     >,
+    /// Diff-triggered `animation` transitions in flight (ROOT dom). See
+    /// [`CssTransition`] for the governing semantics.
+    pub css_transitions: Vec<CssTransition>,
+    /// One-shot flag: the last tick applied a LAYOUT-affecting transition
+    /// value, so the frame driver must escalate from a display-list rebuild
+    /// to an incremental relayout. Consumed by
+    /// [`Self::take_transition_relayout`].
+    pub transition_relayout: bool,
+    /// `-azul-animation-in` tracks on LIVE nodes, node -> compiled keyframes.
+    /// Published into the anim GPU channels each tick (the same maps the
+    /// manager animations write, so the DL/compositor path is shared), and
+    /// the keys are released at t=1. ROOT dom, like the manager bridge above.
+    pub live_tracks: alloc::collections::BTreeMap<azul_core::dom::NodeId, AnimTrack>,
     /// Timestamp of the last animation tick, for deriving `dt`.
     ///
     /// `None` while nothing animates, which is also what keeps the clock read
@@ -1459,6 +1479,9 @@ impl LayoutWindow {
             animations: azul_core::animation::AnimationManager::new(),
             zombies: Vec::new(),
             anim_key_to_node: alloc::collections::BTreeMap::new(),
+            css_transitions: Vec::new(),
+            transition_relayout: false,
+            live_tracks: alloc::collections::BTreeMap::new(),
             last_anim_tick: None,
             layout_cache: Solver3LayoutCache {
                 tree: None,
@@ -6812,12 +6835,12 @@ impl LayoutWindow {
         // Classified with the engine's own `relayout_scope`, and the widest
         // scope wins (the enum is ordered None < IfcOnly < SizingOnly < Full).
         let mut restyled: Vec<(NodeId, azul_css::props::property::RelayoutScope)> = Vec::new();
+        let mut captured_transitions: Vec<CssTransition> = Vec::new();
         if let Some(old_result) = self.layout_results.get(&dom_id) {
             let old_cache = &old_result.styled_dom.css_property_cache.ptr;
             let new_cache = &styled_dom.css_property_cache.ptr;
             let old_states = old_result.styled_dom.styled_nodes.as_ref();
             let new_states = styled_dom.styled_nodes.as_ref();
-
             for m in &diff.node_moves {
                 let (Some(old_nd), Some(new_nd)) = (
                     old_node_data.get(m.old_node_id.index()),
@@ -6832,6 +6855,27 @@ impl LayoutWindow {
                     continue;
                 };
 
+                // `animation` on the OLD cascade (USER ruling 2026-08-17:
+                // the OLD tree governs — a diff that ADDS `animation` while
+                // changing a property does not retro-animate that change)
+                // turns covered property changes into timed transitions
+                // instead of instant updates. Because a mid-flight override
+                // lives in the old cache too, `before` reads the CURRENT
+                // animated value — retargeting falls out for free.
+                let old_anim = old_cache
+                    .get_property(
+                        old_nd,
+                        &m.old_node_id,
+                        &old_state.styled_node_state,
+                        &azul_css::props::property::CssPropertyType::Animation,
+                    )
+                    .and_then(|p| match p {
+                        azul_css::props::property::CssProperty::Animation(v) => {
+                            v.get_property().cloned()
+                        }
+                        _ => None,
+                    });
+
                 let mut worst = azul_css::props::property::RelayoutScope::None;
                 let mut changed_any = false;
                 for ty in azul_css::props::property::CssPropertyType::ALL {
@@ -6845,6 +6889,38 @@ impl LayoutWindow {
                         // conservative reading for the classifier's font/text
                         // arm, which upgrades rather than downgrades.
                         worst = worst.max(ty.relayout_scope(false));
+
+                        if let Some(anim) = &old_anim {
+                            // The animation meta-properties themselves never
+                            // transition — `animation` appearing/disappearing
+                            // is a mode switch, not a value to tween.
+                            let meta = matches!(
+                                ty,
+                                azul_css::props::property::CssPropertyType::Animation
+                                    | azul_css::props::property::CssPropertyType::AnimationIn
+                                    | azul_css::props::property::CssPropertyType::AnimationOut
+                            );
+                            let covered = anim.name.as_str() == "all"
+                                || anim.name.as_str() == ty.to_str();
+                            if covered && !meta {
+                                captured_transitions.push(CssTransition {
+                                    node: m.new_node_id,
+                                    prop_type: *ty,
+                                    from: before.map_or_else(
+                                        || azul_css::props::property::CssProperty::auto(*ty),
+                                        Clone::clone,
+                                    ),
+                                    to: after.map_or_else(
+                                        || azul_css::props::property::CssProperty::auto(*ty),
+                                        Clone::clone,
+                                    ),
+                                    t: 0.0,
+                                    duration_s: anim.duration.millis() as f32 / 1000.0,
+                                    timing: anim.timing,
+                                    scope: ty.relayout_scope(false),
+                                });
+                            }
+                        }
                     }
                 }
                 // Paint-only changes (worst == None) are recorded too: they
@@ -6870,6 +6946,22 @@ impl LayoutWindow {
 
             let map = crate::managers::NodeIdMap::from_node_moves(&diff.node_moves);
             self.remap_node_ids(dom_id, &map);
+        }
+
+        // Frame-0 of every captured transition: override the NEW tree to the
+        // `from` value BEFORE its first layout, so a transition never flashes
+        // its target. The override rides the same user-override channel that
+        // `migrate_user_overrides_from` just migrated, and the per-tick driver
+        // in `tick_animations` walks it to `to` and then removes it.
+        for tr in &captured_transitions {
+            let _ = styled_dom.restyle_user_property(&tr.node, core::slice::from_ref(&tr.from));
+        }
+        for tr in captured_transitions {
+            // One transition per (node, property): a retarget replaces the
+            // in-flight entry (its `from` already reads the current value).
+            self.css_transitions
+                .retain(|t| !(t.node == tr.node && t.prop_type == tr.prop_type));
+            self.css_transitions.push(tr);
         }
 
         // RETAIN departing nodes, so an exit has something to animate.
@@ -6899,6 +6991,7 @@ impl LayoutWindow {
                     .build_scroll_offset_map(dom_id, &retained.scroll_ids);
                 let mut exits = BTreeMap::new();
                 let mut rects = BTreeMap::new();
+                let mut tracks = BTreeMap::new();
                 let exit_viewport = retained.viewport;
                 for node in &unmounted {
                     if node.index() >= old_node_data.len() {
@@ -6906,6 +6999,35 @@ impl LayoutWindow {
                     }
                     if let Some(r) = exit_rects.get(node) {
                         rects.insert(*node, *r);
+                    }
+                    // `-azul-animation-out` on the OLD cascade wins over the
+                    // default slide: the author named the exit. Resolved
+                    // against the stylesheet's @keyframes first (author wins),
+                    // then the builtin table; an unknown name falls back to
+                    // the default slide rather than freezing the node.
+                    if let Some(rect) = exit_rects.get(node) {
+                        let named = old_node_data.get(node.index()).and_then(|nd| {
+                            let st = retained.styled_dom.styled_nodes.as_ref().get(node.index())?;
+                            let prop = retained.styled_dom.css_property_cache.ptr.get_property(
+                                nd,
+                                node,
+                                &st.styled_node_state,
+                                &azul_css::props::property::CssPropertyType::AnimationOut,
+                            )?;
+                            let azul_css::props::property::CssProperty::AnimationOut(v) = prop
+                            else {
+                                return None;
+                            };
+                            resolve_named_track(
+                                v.get_property()?,
+                                &retained.styled_dom.css_property_cache.ptr.retained_author_css,
+                                *rect,
+                            )
+                        });
+                        if let Some(track) = named {
+                            tracks.insert(*node, track);
+                            continue;
+                        }
                     }
                     // Where this exit travels: fully off the nearest edge of
                     // the viewport it was living in. A node with no captured
@@ -6939,6 +7061,7 @@ impl LayoutWindow {
                     retained,
                     exits,
                     rects,
+                    tracks,
                     frozen_scroll,
                     #[cfg(feature = "cpurender")]
                     snapshot: core::cell::OnceCell::new(),
@@ -7015,6 +7138,37 @@ impl LayoutWindow {
             if node_id.index() >= pending.new_node_data.len() {
                 continue;
             }
+            // `-azul-animation-in` on the NEW cascade wins over the default
+            // slide-in, same precedence as the exit side. The track drives
+            // the anim GPU channels from the node's SOLVED rect — layout is
+            // final; only presentation animates (USER ruling). Unknown names
+            // fall back to the default slide.
+            let named_in = self.layout_results.get(&dom_id).and_then(|r| {
+                let sd = &r.styled_dom;
+                let nd = sd.node_data.as_ref().get(node_id.index())?;
+                let st = sd.styled_nodes.as_ref().get(node_id.index())?;
+                let prop = sd.css_property_cache.ptr.get_property(
+                    nd,
+                    node_id,
+                    &st.styled_node_state,
+                    &azul_css::props::property::CssPropertyType::AnimationIn,
+                )?;
+                let azul_css::props::property::CssProperty::AnimationIn(v) = prop else {
+                    return None;
+                };
+                let rect = self
+                    .get_node_bounds(dom_id, *node_id)
+                    .map(layout_rect_to_logical)?;
+                resolve_named_track(
+                    v.get_property()?,
+                    &sd.css_property_cache.ptr.retained_author_css,
+                    rect,
+                )
+            });
+            if let Some(track) = named_in {
+                self.live_tracks.insert(*node_id, track);
+                continue;
+            }
             let key = azul_core::animation::AnimKey(
                 azul_core::diff::calculate_reconciliation_key(
                     &pending.new_node_data,
@@ -7047,7 +7201,7 @@ impl LayoutWindow {
         // rebuilt between seeding and the first tick would contain no reference
         // frames and every later value update would drive nothing. `dt = 0`
         // moves no animation; it only makes the frame-zero state visible.
-        if !self.animations.is_empty() {
+        if !self.animations.is_empty() || !self.live_tracks.is_empty() {
             self.tick_animations(0.0);
         }
     }
@@ -7062,7 +7216,27 @@ impl LayoutWindow {
     /// what "in flight" means.
     #[must_use]
     pub fn needs_animation_frame(&self) -> bool {
-        !self.animations.is_empty()
+        !self.animations.is_empty() || self.has_track_work()
+    }
+
+    /// True while any compiled keyframes track (`-azul-animation-in` on a
+    /// live node, `-azul-animation-out` on a zombie) is still running — the
+    /// shells' and the tick guard's signal that `dt` must keep flowing even
+    /// when the manager has no spring in flight.
+    #[must_use]
+    pub fn has_track_work(&self) -> bool {
+        !self.live_tracks.is_empty()
+            || !self.css_transitions.is_empty()
+            || self.zombies.iter().any(|z| !z.tracks.is_empty())
+    }
+
+    /// One-shot: did the last [`Self::tick_animations`] apply a
+    /// LAYOUT-affecting transition value? The frame driver escalates from a
+    /// display-list rebuild to an incremental relayout exactly when this
+    /// fires — paint-only transitions never pay for layout.
+    #[must_use]
+    pub fn take_transition_relayout(&mut self) -> bool {
+        core::mem::take(&mut self.transition_relayout)
     }
 
     /// [`Self::tick_animations`] with `dt` taken from the wall clock.
@@ -7079,7 +7253,7 @@ impl LayoutWindow {
     /// would waste a frame, and using the true elapsed idle time would teleport
     /// the animation to its end.
     pub fn tick_animations_now(&mut self) -> bool {
-        if self.animations.is_empty() {
+        if self.animations.is_empty() && !self.has_track_work() {
             self.last_anim_tick = None;
             return false;
         }
@@ -7107,10 +7281,21 @@ impl LayoutWindow {
     /// animated node is therefore hit-testable at its *animated* position for
     /// free, rather than at a phantom pre-animation rect.
     pub fn tick_animations(&mut self, dt: f32) -> bool {
-        if self.animations.is_empty() {
+        if self.animations.is_empty() && !self.has_track_work() {
             return false;
         }
         let finished = self.animations.tick(dt);
+
+        // Solved bounds for every transitioning node, read BEFORE the GPU
+        // cache borrow below (get_node_bounds needs `&self` whole).
+        let transition_rects: Vec<Option<LogicalRect>> = self
+            .css_transitions
+            .iter()
+            .map(|tr| {
+                self.get_node_bounds(DomId::ROOT_ID, tr.node)
+                    .map(layout_rect_to_logical)
+            })
+            .collect();
 
         let dom_id = DomId::ROOT_ID;
         let cache = self.gpu_state_manager.caches.entry(dom_id).or_default();
@@ -7147,6 +7332,110 @@ impl LayoutWindow {
                 .insert(node_id, anim.current_opacity());
         }
 
+        // Keyframed tracks advance on the SAME dt — one clock. Zombie
+        // tracks are sampled at composite time; live (`-azul-animation-in`)
+        // tracks publish through the anim GPU channels right here, exactly
+        // like the manager animations above, and release their keys at t=1.
+        for z in &mut self.zombies {
+            for tr in z.tracks.values_mut() {
+                tr.tick(dt);
+            }
+        }
+        let mut done_live: Vec<azul_core::dom::NodeId> = Vec::new();
+        for (node_id, tr) in &mut self.live_tracks {
+            tr.tick(dt);
+            let s = tr.sample();
+            cache
+                .anim_transform_keys
+                .entry(*node_id)
+                .or_insert_with(azul_core::resources::TransformKey::unique);
+            cache.anim_current_transform_values.insert(
+                *node_id,
+                azul_core::transform::ComputedTransform3D {
+                    m: [
+                        [1.0, 0.0, 0.0, 0.0],
+                        [0.0, 1.0, 0.0, 0.0],
+                        [0.0, 0.0, 1.0, 0.0],
+                        [s.translate_x, s.translate_y, 0.0, 1.0],
+                    ],
+                },
+            );
+            cache
+                .anim_opacity_keys
+                .entry(*node_id)
+                .or_insert_with(azul_core::resources::OpacityKey::unique);
+            cache.anim_current_opacity_values.insert(*node_id, s.opacity);
+            if tr.is_done() {
+                done_live.push(*node_id);
+            }
+        }
+        for node_id in done_live {
+            self.live_tracks.remove(&node_id);
+            cache.anim_current_transform_values.remove(&node_id);
+            cache.anim_transform_keys.remove(&node_id);
+            cache.anim_current_opacity_values.remove(&node_id);
+            cache.anim_opacity_keys.remove(&node_id);
+        }
+
+        // Diff-triggered `animation` transitions: walk each override
+        // `from -> to` on this same clock; at t=1 drop the override (the
+        // cascade already holds the target, so removal IS the final value).
+        // Paint-only scopes ride the display-list rebuild the frame driver
+        // does anyway; layout-affecting scopes raise `transition_relayout`
+        // so the driver escalates to an incremental relayout.
+        if !self.css_transitions.is_empty() {
+            let rects = transition_rects;
+            let mut dirty: Vec<(azul_core::dom::NodeId, azul_css::props::property::RelayoutScope)> =
+                Vec::new();
+            let mut needs_relayout = false;
+            if let Some(result) = self.layout_results.get_mut(&DomId::ROOT_ID) {
+                for (tr, rect) in self.css_transitions.iter_mut().zip(rects) {
+                    tr.t = if tr.duration_s <= 0.0 {
+                        1.0
+                    } else {
+                        (tr.t + dt / tr.duration_s).min(1.0)
+                    };
+                    let prop = if tr.t >= 1.0 {
+                        azul_css::props::property::CssProperty::initial(tr.prop_type)
+                    } else {
+                        let (w, h) = rect.map_or((0.0, 0.0), |r| (r.size.width, r.size.height));
+                        let resolver = azul_css::props::basic::animation::InterpolateResolver {
+                            interpolate_func: tr.timing.to_interpolation(),
+                            // Parent dims are not tracked here; percent
+                            // endpoints resolve against the node's own rect,
+                            // which covers the width/height transitions that
+                            // actually occur.
+                            parent_rect_width: w,
+                            parent_rect_height: h,
+                            current_rect_width: w,
+                            current_rect_height: h,
+                        };
+                        tr.from.interpolate(&tr.to, tr.t, &resolver)
+                    };
+                    let _ = result
+                        .styled_dom
+                        .restyle_user_property(&tr.node, core::slice::from_ref(&prop));
+                    dirty.push((tr.node, tr.scope));
+                    if tr.scope != azul_css::props::property::RelayoutScope::None {
+                        needs_relayout = true;
+                    }
+                }
+            }
+            self.css_transitions.retain(|tr| tr.t < 1.0);
+            if needs_relayout {
+                self.transition_relayout = true;
+            }
+            if !dirty.is_empty() {
+                match &mut self.pending_css_dirty {
+                    Some((dom, list)) if *dom == DomId::ROOT_ID => list.extend(dirty),
+                    None => self.pending_css_dirty = Some((DomId::ROOT_ID, dirty)),
+                    // A pending diff for another DOM is not merged into — the
+                    // transition driver only runs the ROOT dom today.
+                    Some(_) => {}
+                }
+            }
+        }
+
         // Reap zombies whose exits have all settled.
         //
         // `retain` DROPS the removed `Zombie`, and with it the retained frame
@@ -7174,7 +7463,7 @@ impl LayoutWindow {
             }
         }
 
-        !self.animations.is_empty()
+        !self.animations.is_empty() || self.has_track_work()
     }
 
     #[allow(clippy::too_many_lines)] // one cohesive fade state machine per scrollbar; no natural split
@@ -8822,6 +9111,91 @@ impl LayoutWindow {
 mod tests {
     use super::*;
     use crate::{thread::Thread, timer::Timer};
+
+    /// The channel sampler is piecewise WITH per-segment easing and clamps
+    /// outside the defined stops — the CSS `@keyframes` contract. Linear
+    /// timing makes midpoints exactly checkable.
+    #[test]
+    fn anim_track_samples_per_segment_and_clamps_outside_the_stops() {
+        use azul_css::props::basic::animation::AnimationTiming;
+        let mut tr = AnimTrack {
+            t: 0.0,
+            duration_s: 1.0,
+            timing: AnimationTiming::Linear,
+            translate_x: vec![(0.25, 0.0), (0.75, 100.0)],
+            translate_y: vec![],
+            opacity: vec![],
+            width: vec![],
+        };
+        // Before the first stop: clamp to it, no extrapolation.
+        tr.t = 0.0;
+        assert_eq!(tr.sample().translate_x, 0.0);
+        // Segment midpoint under linear timing.
+        tr.t = 0.5;
+        let mid = tr.sample().translate_x;
+        assert!((mid - 50.0).abs() < 0.01, "expected 50 at the midpoint, got {mid}");
+        // Past the last stop: clamp again.
+        tr.t = 1.0;
+        assert_eq!(tr.sample().translate_x, 100.0);
+        // Channels with no stops report their identity defaults.
+        assert_eq!(tr.sample().opacity, 1.0);
+        assert_eq!(tr.sample().width, None);
+    }
+
+    /// `flyOutRight` is the USER's reference exit: shift right by the full
+    /// width while narrowing to zero — the sidebar leaves through its own
+    /// right edge instead of squashing or fading.
+    #[test]
+    fn builtin_fly_out_right_shifts_right_and_narrows_to_zero() {
+        use azul_css::props::basic::animation::AnimationTiming;
+        let rect = LogicalRect::new(
+            LogicalPosition::new(0.0, 0.0),
+            LogicalSize::new(300.0, 500.0),
+        );
+        let mut tr = builtin_track("flyOutRight", rect, 1.0, AnimationTiming::Linear)
+            .expect("flyOutRight is a builtin");
+        tr.t = 0.0;
+        let start = tr.sample();
+        assert_eq!(start.translate_x, 0.0);
+        assert_eq!(start.width, Some(300.0));
+        tr.t = 1.0;
+        let end = tr.sample();
+        assert_eq!(end.translate_x, 300.0);
+        assert_eq!(end.width, Some(0.0));
+        // Presence exits keep full opacity (USER ruling: no fade).
+        assert_eq!(end.opacity, 1.0);
+        assert!(builtin_track("noSuchAnimation", rect, 1.0, AnimationTiming::Linear).is_none());
+    }
+
+    /// Author `@keyframes` win over the builtin table for the SAME name, and
+    /// percent endpoints resolve against the node's frozen rect.
+    #[test]
+    fn stylesheet_keyframes_shadow_the_builtin_table() {
+        use azul_css::props::basic::animation::{AnimationTiming, StyleAnimation};
+        use azul_css::props::basic::time::CssDuration;
+
+        let css_src = "@keyframes flyOutRight { from { opacity: 1; } to { opacity: 0; } }";
+        let (css, _warnings) = azul_css::parser2::new_from_str(css_src);
+        assert_eq!(css.keyframes.as_ref().len(), 1, "the @keyframes block must parse");
+
+        let rect = LogicalRect::new(
+            LogicalPosition::new(0.0, 0.0),
+            LogicalSize::new(300.0, 500.0),
+        );
+        let anim = StyleAnimation {
+            name: "flyOutRight".into(),
+            duration: CssDuration::from_millis(1000),
+            timing: AnimationTiming::Linear,
+        };
+        let mut tr = resolve_named_track(&anim, &css, rect).expect("resolves");
+        // The AUTHOR version fades and does NOT translate — proving the
+        // stylesheet shadowed the builtin of the same name.
+        tr.t = 1.0;
+        let end = tr.sample();
+        assert_eq!(end.opacity, 0.0);
+        assert_eq!(end.translate_x, 0.0);
+        assert!(tr.width.is_empty());
+    }
 
     /// NEGATIVE CONTROL for the font-resolution skip on the WINDOW path.
     ///
@@ -12396,6 +12770,15 @@ impl LayoutWindow {
             zombies: _,
             // REBUILT each layout, never migrated — see the field docs.
             anim_key_to_node: _,
+            // In-flight `-azul-animation-in` tracks FOLLOW their node across
+            // the rebuild (remapped below); a track whose node unmounted is
+            // dropped — the exit path owns whatever happens to it next.
+            live_tracks,
+            // Same for in-flight transitions: the override they drive was
+            // migrated by `migrate_user_overrides_from`, so the transition
+            // must follow or the override would be orphaned mid-flight.
+            css_transitions,
+            transition_relayout: _,
             // CSS-diff staging is keyed by NEW-tree NodeIds computed in the
             // same reconciliation that produces the remap — it is consumed by
             // the very next layout pass and never survives a second remap.
@@ -12489,6 +12872,21 @@ impl LayoutWindow {
         }
         let _ = document_edit_notified;
 
+        // Tracks are seeded for the ROOT dom only (like the manager anim
+        // bridge), so only a root remap touches them.
+        if dom == DomId::ROOT_ID {
+            *live_tracks = core::mem::take(live_tracks)
+                .into_iter()
+                .filter_map(|(n, t)| map.resolve(n).map(|nn| (nn, t)))
+                .collect();
+            css_transitions.retain_mut(|tr| match map.resolve(tr.node) {
+                Some(nn) => {
+                    tr.node = nn;
+                    true
+                }
+                None => false,
+            });
+        }
         scroll_manager.remap_node_ids(dom, map);
         gesture_drag_manager.remap_node_ids(dom, map);
         focus_manager.remap_node_ids(dom, map);
@@ -14956,6 +15354,31 @@ fn layout_rect_to_logical(r: azul_css::props::basic::LayoutRect) -> LogicalRect 
 /// alone. A zombie never receives events, never re-enters layout, and never has
 /// its state migrated — `transfer_states` runs before it is created and only
 /// ever touches MATCHED nodes, which by definition a departing node is not.
+/// One diff-triggered `animation` transition in flight: a property override
+/// walking `from -> to` on the engine clock, then dropped at t=1 so the
+/// (already-cascaded) target value shows through.
+///
+/// USER-ruled semantics (2026-08-17): the OLD tree governs. `[animation: all
+/// 2s; color: red] -> [color: blue]` animates red->blue even though the new
+/// tree dropped `animation`; the reverse direction (new tree ADDS
+/// `animation`) does not retro-animate the same diff.
+#[derive(Debug, Clone)]
+pub struct CssTransition {
+    /// NEW-tree node id (remapped if a further rebuild happens mid-flight).
+    pub node: NodeId,
+    pub prop_type: azul_css::props::property::CssPropertyType,
+    pub from: azul_css::props::property::CssProperty,
+    pub to: azul_css::props::property::CssProperty,
+    /// 0..=1 progress on the one engine clock.
+    pub t: f32,
+    pub duration_s: f32,
+    pub timing: azul_css::props::basic::animation::AnimationTiming,
+    /// The property's relayout classification, captured once: `None` rides
+    /// the display-list rebuild, anything wider asks the frame driver for an
+    /// incremental relayout per tick.
+    pub scope: azul_css::props::property::RelayoutScope,
+}
+
 #[derive(Debug)]
 pub struct Zombie {
     /// The previous frame, moved out whole. Sole owner of the departing state.
@@ -14966,6 +15389,11 @@ pub struct Zombie {
     /// exit renders FROM. Captured at retention time because the retained
     /// tree is never laid out again.
     pub rects: BTreeMap<NodeId, LogicalRect>,
+    /// `-azul-animation-out` tracks, node -> compiled keyframes. A node with a
+    /// track here is DRIVEN BY IT — no default slide runs underneath (two
+    /// motions would compose). Ticked by `tick_animations` (one clock),
+    /// sampled at composite time.
+    pub tracks: BTreeMap<NodeId, AnimTrack>,
     /// The scroll offsets the retained frame was showing at retention time,
     /// FROZEN — the scroll manager is remapped to the new tree immediately
     /// after, so reading it live would scroll a frame that no longer exists.
@@ -14989,7 +15417,268 @@ impl Zombie {
         self.exits
             .values()
             .all(|k| animations.get(*k).is_none_or(azul_core::animation::ActiveAnim::is_finished))
+            && self.tracks.values().all(AnimTrack::is_done)
     }
+}
+
+/// One sampled frame of a keyframed animation: the channels a track can
+/// drive. For ZOMBIES all four apply (`width` narrows the painted cut,
+/// left-anchored — the live layout already owns the vacated space; `clip`
+/// keeps the slide inside the frozen box). For LIVE nodes (enters) the
+/// translate/opacity channels publish through the GPU animation maps and
+/// `width` is ignored — animating live width is the layout-affecting
+/// transition fork, not a presence animation.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct TrackSample {
+    pub translate_x: f32,
+    pub translate_y: f32,
+    pub opacity: f32,
+    /// Absolute width in logical px; `None` = the frozen width.
+    pub width: Option<f32>,
+}
+
+/// A compiled `@keyframes` (or builtin) track: per-channel stop lists with
+/// per-SEGMENT easing, ticked on the one `AnimationManager` clock.
+///
+/// Channels are compiled independently, CSS-style: a stop that does not
+/// mention `opacity` does not create an opacity stop — each channel
+/// interpolates between the stops that DEFINE it and clamps outside them.
+#[derive(Debug, Clone)]
+pub struct AnimTrack {
+    /// 0..=1 progress. Advanced by `tick_animations` (dt / duration).
+    pub t: f32,
+    /// Seconds for one full run; a zero duration completes on the first tick.
+    pub duration_s: f32,
+    pub timing: azul_css::props::basic::animation::AnimationTiming,
+    /// (t, value) per channel, each sorted by t ascending.
+    pub translate_x: Vec<(f32, f32)>,
+    pub translate_y: Vec<(f32, f32)>,
+    pub opacity: Vec<(f32, f32)>,
+    pub width: Vec<(f32, f32)>,
+}
+
+impl AnimTrack {
+    #[must_use]
+    pub fn is_done(&self) -> bool {
+        self.t >= 1.0
+    }
+
+    pub fn tick(&mut self, dt: f32) {
+        if self.duration_s <= 0.0 {
+            self.t = 1.0;
+        } else {
+            self.t = (self.t + dt / self.duration_s).min(1.0);
+        }
+    }
+
+    /// Piecewise sample of one channel at eased-per-segment `t`.
+    fn sample_channel(stops: &[(f32, f32)], t: f32, timing: azul_css::props::basic::animation::AnimationTiming) -> Option<f32> {
+        let first = stops.first()?;
+        if t <= first.0 {
+            return Some(first.1);
+        }
+        let last = stops.last()?;
+        if t >= last.0 {
+            return Some(last.1);
+        }
+        for w in stops.windows(2) {
+            let (t0, v0) = w[0];
+            let (t1, v1) = w[1];
+            if t >= t0 && t <= t1 {
+                let span = (t1 - t0).max(f32::EPSILON);
+                // CSS semantics: the timing function eases each SEGMENT.
+                let local = timing.to_interpolation().evaluate(f64::from((t - t0) / span));
+                return Some(v0 + (v1 - v0) * local);
+            }
+        }
+        Some(last.1)
+    }
+
+    #[must_use]
+    pub fn sample(&self) -> TrackSample {
+        let timing = self.timing;
+        TrackSample {
+            translate_x: Self::sample_channel(&self.translate_x, self.t, timing).unwrap_or(0.0),
+            translate_y: Self::sample_channel(&self.translate_y, self.t, timing).unwrap_or(0.0),
+            opacity: Self::sample_channel(&self.opacity, self.t, timing).unwrap_or(1.0),
+            width: Self::sample_channel(&self.width, self.t, timing),
+        }
+    }
+}
+
+/// Compile a parsed `@keyframes` block into an [`AnimTrack`], resolving
+/// percentages against the node's rect (translate % of width/height, width %
+/// of the frozen width — the same resolution `ComputedTransform3D` uses).
+#[must_use]
+pub fn compile_keyframes_track(
+    kf: &azul_css::css::Keyframes,
+    rect: LogicalRect,
+    duration_s: f32,
+    timing: azul_css::props::basic::animation::AnimationTiming,
+) -> AnimTrack {
+    use azul_css::props::property::CssProperty;
+    use azul_css::props::style::transform::StyleTransform;
+    const DEFAULT_FONT_SIZE: f32 = 16.0;
+
+    let mut track = AnimTrack {
+        t: 0.0,
+        duration_s,
+        timing,
+        translate_x: Vec::new(),
+        translate_y: Vec::new(),
+        opacity: Vec::new(),
+        width: Vec::new(),
+    };
+    for stop in kf.stops.as_ref() {
+        let t = f32::from(stop.permille) / 1000.0;
+        for prop in stop.props.as_ref() {
+            match prop {
+                CssProperty::Transform(v) => {
+                    let Some(transforms) = v.get_property() else { continue };
+                    let (mut tx, mut ty) = (0.0f32, 0.0f32);
+                    for tr in transforms.as_ref() {
+                        match tr {
+                            StyleTransform::Translate(t2) => {
+                                tx += t2.x.to_pixels_internal(
+                                    rect.size.width,
+                                    DEFAULT_FONT_SIZE,
+                                    DEFAULT_FONT_SIZE,
+                                );
+                                ty += t2.y.to_pixels_internal(
+                                    rect.size.height,
+                                    DEFAULT_FONT_SIZE,
+                                    DEFAULT_FONT_SIZE,
+                                );
+                            }
+                            StyleTransform::TranslateX(px) => {
+                                tx += px.to_pixels_internal(
+                                    rect.size.width,
+                                    DEFAULT_FONT_SIZE,
+                                    DEFAULT_FONT_SIZE,
+                                );
+                            }
+                            StyleTransform::TranslateY(px) => {
+                                ty += px.to_pixels_internal(
+                                    rect.size.height,
+                                    DEFAULT_FONT_SIZE,
+                                    DEFAULT_FONT_SIZE,
+                                );
+                            }
+                            // Scale/rotate on zombies: not driven yet — the
+                            // channels here are the ones the USER spec names
+                            // (translate, width, opacity, clip). Extending to
+                            // the full transform set is additive.
+                            _ => {}
+                        }
+                    }
+                    track.translate_x.push((t, tx));
+                    track.translate_y.push((t, ty));
+                }
+                CssProperty::Opacity(v) => {
+                    if let Some(op) = v.get_property() {
+                        track.opacity.push((t, op.inner.normalized()));
+                    }
+                }
+                CssProperty::Width(v) => {
+                    // Only concrete Px/percent stops drive the cut — Auto and
+                    // the content-sized keywords have no meaning on a frozen
+                    // zombie (there is no solver running for it).
+                    if let Some(azul_css::props::layout::LayoutWidth::Px(px)) = v.get_property() {
+                        track.width.push((
+                            t,
+                            px.to_pixels_internal(
+                                rect.size.width,
+                                DEFAULT_FONT_SIZE,
+                                DEFAULT_FONT_SIZE,
+                            ),
+                        ));
+                    }
+                }
+                _ => {}
+            }
+        }
+    }
+    for ch in [
+        &mut track.translate_x,
+        &mut track.translate_y,
+        &mut track.opacity,
+        &mut track.width,
+    ] {
+        ch.sort_by(|a, b| a.0.partial_cmp(&b.0).unwrap_or(core::cmp::Ordering::Equal));
+    }
+    track
+}
+
+/// The built-in animation-function table — available without any `@keyframes`
+/// in the stylesheet, so `-azul-animation-out: flyOutRight 1s` works out of
+/// the box. Names are resolved AFTER stylesheet keyframes (author wins).
+#[must_use]
+pub fn builtin_track(
+    name: &str,
+    rect: LogicalRect,
+    duration_s: f32,
+    timing: azul_css::props::basic::animation::AnimationTiming,
+) -> Option<AnimTrack> {
+    let w = rect.size.width;
+    let h = rect.size.height;
+    let mk = |txs: Vec<(f32, f32)>, tys: Vec<(f32, f32)>, ops: Vec<(f32, f32)>, ws: Vec<(f32, f32)>| AnimTrack {
+        t: 0.0,
+        duration_s,
+        timing,
+        translate_x: txs,
+        translate_y: tys,
+        opacity: ops,
+        width: ws,
+    };
+    Some(match name {
+        // The USER's reference exit: shift right, narrow to zero, clipped to
+        // the frozen box — the sidebar leaves through its own right edge.
+        "flyOutRight" => mk(
+            vec![(0.0, 0.0), (1.0, w)],
+            vec![],
+            vec![],
+            vec![(0.0, w), (1.0, 0.0)],
+        ),
+        "flyOutLeft" => mk(
+            vec![(0.0, 0.0), (1.0, -w)],
+            vec![],
+            vec![],
+            vec![(0.0, w), (1.0, 0.0)],
+        ),
+        "flyOutUp" => mk(vec![], vec![(0.0, 0.0), (1.0, -h)], vec![], vec![]),
+        "flyOutDown" => mk(vec![], vec![(0.0, 0.0), (1.0, h)], vec![], vec![]),
+        "flyInLeft" => mk(vec![(0.0, -w), (1.0, 0.0)], vec![], vec![], vec![]),
+        "flyInRight" => mk(vec![(0.0, w), (1.0, 0.0)], vec![], vec![], vec![]),
+        "fadeOut" => mk(vec![], vec![], vec![(0.0, 1.0), (1.0, 0.0)], vec![]),
+        "fadeIn" => mk(vec![], vec![], vec![(0.0, 0.0), (1.0, 1.0)], vec![]),
+        _ => return None,
+    })
+}
+
+/// Resolve a `-azul-animation-in/-out` name: stylesheet `@keyframes` first
+/// (author wins), then the builtin table. `None` = unknown name; the caller
+/// falls back to the default slide and logs.
+#[must_use]
+pub fn resolve_named_track(
+    anim: &azul_css::props::basic::animation::StyleAnimation,
+    retained_css: &azul_css::css::Css,
+    rect: LogicalRect,
+) -> Option<AnimTrack> {
+    let duration_s = anim.duration.millis() as f32 / 1000.0;
+    for kf in retained_css.keyframes.as_ref() {
+        if kf.name.as_str() == anim.name.as_str() {
+            return Some(compile_keyframes_track(kf, rect, duration_s, anim.timing));
+        }
+    }
+    builtin_track(anim.name.as_str(), rect, duration_s, anim.timing)
+}
+
+/// A keyframed animation on a LIVE node (`-azul-animation-in`): publishes
+/// translate/opacity through the GPU animation channels each tick.
+#[derive(Debug, Clone)]
+pub struct LiveTrack {
+    pub node: NodeId,
+    pub track: AnimTrack,
 }
 
 #[cfg(feature = "cpurender")]
@@ -15026,7 +15715,7 @@ impl LayoutWindow {
 
         let mut drew = false;
         for zombie in &self.zombies {
-            if zombie.exits.is_empty() {
+            if zombie.exits.is_empty() && zombie.tracks.is_empty() {
                 continue;
             }
             let pw = output.width;
@@ -15078,26 +15767,76 @@ impl LayoutWindow {
                 }
             };
 
+            // Per departing node: how it is driven this frame. Manager
+            // slides travel to the viewport edge and MAY leave the frozen box
+            // (that is the point — no clip); keyframed tracks are clipped to
+            // the frozen rect so a translated exit cannot paint over
+            // neighbouring components (the sliding-out scrollbar over the
+            // body margin), and their width channel narrows the painted cut.
+            struct ExitJob {
+                node: NodeId,
+                scale_x: f32,
+                scale_y: f32,
+                translate_x: f32,
+                translate_y: f32,
+                opacity: f32,
+                /// Absolute cut width in logical px (left-anchored narrowing).
+                width_cut: Option<f32>,
+                /// Clip the blit to the frozen rect (keyframed tracks only).
+                clipped: bool,
+            }
+            let mut jobs: Vec<ExitJob> = Vec::new();
             for (node, key) in &zombie.exits {
                 let Some(anim) = self.animations.get(*key) else {
                     continue;
                 };
-                let Some(rect) = zombie.rects.get(node) else {
+                let t = anim.current_transform();
+                jobs.push(ExitJob {
+                    node: *node,
+                    scale_x: t.scale_x,
+                    scale_y: t.scale_y,
+                    translate_x: t.translate_x,
+                    translate_y: t.translate_y,
+                    opacity: anim.current_opacity(),
+                    width_cut: None,
+                    clipped: false,
+                });
+            }
+            for (node, tr) in &zombie.tracks {
+                let sample = tr.sample();
+                jobs.push(ExitJob {
+                    node: *node,
+                    scale_x: 1.0,
+                    scale_y: 1.0,
+                    translate_x: sample.translate_x,
+                    translate_y: sample.translate_y,
+                    opacity: sample.opacity,
+                    width_cut: sample.width,
+                    clipped: true,
+                });
+            }
+
+            for job in jobs {
+                let Some(rect) = zombie.rects.get(&job.node) else {
                     continue;
                 };
-                let t = anim.current_transform();
-                let opacity = anim.current_opacity();
-                if opacity <= 0.0 {
+                if job.opacity <= 0.0 {
                     continue;
                 }
 
                 // Cut the node's frozen rect out of the snapshot (device px).
                 let sx0 = (rect.origin.x * dpi_factor).floor().max(0.0) as u32;
                 let sy0 = (rect.origin.y * dpi_factor).floor().max(0.0) as u32;
-                let sw = ((rect.size.width * dpi_factor).ceil() as u32)
+                let mut sw = ((rect.size.width * dpi_factor).ceil() as u32)
                     .min(snapshot.width.saturating_sub(sx0));
                 let sh = ((rect.size.height * dpi_factor).ceil() as u32)
                     .min(snapshot.height.saturating_sub(sy0));
+                // The width channel narrows the cut LEFT-ANCHORED: the live
+                // layout already owns the vacated right-hand span, the zombie
+                // just paints less of itself as it goes.
+                if let Some(w) = job.width_cut {
+                    sw = sw.min((w * dpi_factor).ceil().max(0.0) as u32);
+                }
                 if sw == 0 || sh == 0 {
                     continue;
                 }
@@ -15117,12 +15856,12 @@ impl LayoutWindow {
                 // frame origin, translation in logical units).
                 let dpi = f64::from(dpi_factor);
                 let mut m = agg_rust::trans_affine::TransAffine::new_custom(
-                    f64::from(t.scale_x),
+                    f64::from(job.scale_x),
                     0.0,
                     0.0,
-                    f64::from(t.scale_y),
-                    f64::from(t.translate_x) * dpi,
-                    f64::from(t.translate_y) * dpi,
+                    f64::from(job.scale_y),
+                    f64::from(job.translate_x) * dpi,
+                    f64::from(job.translate_y) * dpi,
                 );
                 m.multiply(&agg_rust::trans_affine::TransAffine::new_custom(
                     1.0,
@@ -15132,7 +15871,17 @@ impl LayoutWindow {
                     f64::from(rect.origin.x) * dpi,
                     f64::from(rect.origin.y) * dpi,
                 ));
-                crate::cpurender::blit_pixmap_affine(&cut, output, &m, opacity);
+                let clip = if job.clipped {
+                    Some((
+                        (rect.origin.x * dpi_factor).floor() as i32,
+                        (rect.origin.y * dpi_factor).floor() as i32,
+                        ((rect.origin.x + rect.size.width) * dpi_factor).ceil() as i32,
+                        ((rect.origin.y + rect.size.height) * dpi_factor).ceil() as i32,
+                    ))
+                } else {
+                    None
+                };
+                crate::cpurender::blit_pixmap_affine_clipped(&cut, output, &m, job.opacity, clip);
                 drew = true;
             }
         }

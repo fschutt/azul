@@ -1,0 +1,82 @@
+{
+  "name": "css_animation_transition",
+  "description": "DIFF-TRIGGERED `animation` TRANSITIONS, OLD-TREE-GOVERNS (USER ruling 2026-08-17). Mount 1 declares `animation: all 1s linear` on #sidebar; mount 2 changes width 200px -> 40px AND DROPS the `animation` declaration - the transition must still run (the OLD cascade owned the animation), driven by a per-tick user-override on the one engine clock. Frame 0 must still measure 200px (a transition never flashes its target), the linear midpoint must measure ~120px (proving the per-tick incremental-relayout escalation actually re-solves layout), and the override must dissolve at t=1 leaving the cascaded 40px. Mount 3 then RE-ADDS `animation` while changing the width back - the old tree (mount 2) had no `animation`, so the change must SNAP with zero transitions: the reverse direction never retro-animates.",
+  "setup": {
+    "window_width": 400,
+    "window_height": 300,
+    "dpi": 96
+  },
+  "steps": [
+    {
+      "op": "mount",
+      "html": [
+        "<div id=\"root\">",
+        "  <div id=\"sidebar\">side</div>",
+        "  <div id=\"card\">card</div>",
+        "</div>"
+      ],
+      "css": [
+        "html, body { margin: 0; padding: 0; width: 100%; height: 100%; }",
+        "#root { width: 100%; height: 100%; display: flex; flex-direction: row; }",
+        "#sidebar { width: 200px; height: 100%; background: #2255aa; animation: all 1s linear; }",
+        "#card { flex-grow: 1; height: 100%; background: #cc3333; }"
+      ]
+    },
+    { "op": "wait_frame" },
+    { "op": "get_animations" },
+    { "op": "assert_response", "type": "animations", "contains": "\"transitions\":0" },
+    {
+      "op": "mount",
+      "html": [
+        "<div id=\"root\">",
+        "  <div id=\"sidebar\">side</div>",
+        "  <div id=\"card\">card</div>",
+        "</div>"
+      ],
+      "css": [
+        "html, body { margin: 0; padding: 0; width: 100%; height: 100%; }",
+        "#root { width: 100%; height: 100%; display: flex; flex-direction: row; }",
+        "#sidebar { width: 40px; height: 100%; background: #2255aa; }",
+        "#card { flex-grow: 1; height: 100%; background: #cc3333; }"
+      ]
+    },
+    { "op": "wait_frame" },
+    { "op": "get_animations" },
+    { "op": "assert_response", "type": "animations", "contains": "\"transitions\":1" },
+    { "op": "get_node_layout", "selector": "#sidebar" },
+    { "op": "assert_response", "type": "node_layout", "contains": "\"width\":200.0" },
+    { "op": "tick_animations", "dt_micros": 16666, "steps": 30 },
+    { "op": "wait_frame" },
+    { "op": "get_node_layout", "selector": "#sidebar" },
+    { "op": "assert_response", "type": "node_layout", "contains": "\"width\":120.0" },
+    { "op": "tick_animations", "dt_micros": 16666, "steps": 45 },
+    { "op": "wait_frame" },
+    { "op": "get_animations" },
+    { "op": "assert_response", "type": "animations", "contains": "\"transitions\":0" },
+    { "op": "get_node_layout", "selector": "#sidebar" },
+    { "op": "assert_response", "type": "node_layout", "contains": "\"width\":40.0" },
+    {
+      "op": "mount",
+      "html": [
+        "<div id=\"root\">",
+        "  <div id=\"sidebar\">side</div>",
+        "  <div id=\"card\">card</div>",
+        "</div>"
+      ],
+      "css": [
+        "html, body { margin: 0; padding: 0; width: 100%; height: 100%; }",
+        "#root { width: 100%; height: 100%; display: flex; flex-direction: row; }",
+        "#sidebar { width: 200px; height: 100%; background: #2255aa; animation: all 1s linear; }",
+        "#card { flex-grow: 1; height: 100%; background: #cc3333; }"
+      ]
+    },
+    { "op": "wait_frame" },
+    { "op": "get_animations" },
+    { "op": "assert_response", "type": "animations", "contains": "\"transitions\":0" },
+    { "op": "get_node_layout", "selector": "#sidebar" },
+    { "op": "assert_response", "type": "node_layout", "contains": "\"width\":200.0" },
+    { "op": "assert_manager_invariants" },
+    { "op": "wait_frame" },
+    { "op": "assert_state_machines_idle" }
+  ]
+}

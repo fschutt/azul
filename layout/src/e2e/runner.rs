@@ -1296,7 +1296,8 @@ impl Runner {
                 // that turned every timer-driven damage assertion
                 // (caret blink's "idle frame does no work") into FULL damage.
                 let had_work = !self.layout_window.animations.is_empty()
-                    || self.layout_window.has_zombies();
+                    || self.layout_window.has_zombies()
+                    || self.layout_window.has_track_work();
                 if !had_work {
                     return ProcessEventResult::DoNothing;
                 }
@@ -1304,7 +1305,14 @@ impl Runner {
                 for _ in 0..(*steps).max(1) {
                     self.layout_window.tick_animations(dt);
                 }
-                ProcessEventResult::ShouldUpdateDisplayListCurrentWindow
+                // A layout-affecting `animation` transition (width, margins)
+                // must re-solve, not just repaint — the display-list rebuild
+                // reads geometry the solver has not recomputed yet.
+                if self.layout_window.take_transition_relayout() {
+                    ProcessEventResult::ShouldIncrementalRelayout
+                } else {
+                    ProcessEventResult::ShouldUpdateDisplayListCurrentWindow
+                }
             }
 
             CallbackChange::StopE2eJson { .. } => ProcessEventResult::DoNothing,
