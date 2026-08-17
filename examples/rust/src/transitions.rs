@@ -16,9 +16,13 @@
 //!
 //! Three transitions, one per button, exercising different shapes of change:
 //!
-//! 1. **Sidebar** — a container's width changes, so everything to its right
-//!    slides. Nothing about the moved nodes changed except where layout put
-//!    them, which is the pure FLIP case.
+//! 1. **Sidebar** — a REAL unmount with a declared presence animation:
+//!    `-azul-animation-out: flyOutRight 0.5s` plays on the retained subtree
+//!    (it slides out through its own right edge, narrowing, clipped to its
+//!    old box) while the content, laid out at its final width immediately,
+//!    slides into the space; `-azul-animation-in: flyInLeft 0.5s` brings it
+//!    back. The names resolve stylesheet `@keyframes` first, then AppConfig
+//!    native functions, then the builtin table used here.
 //! 2. **Screen swap** — two "pages" of an SPA. The header card is present in
 //!    both but lands somewhere different, so it flies between positions instead
 //!    of disappearing and reappearing. This is the case that needs
@@ -32,8 +36,8 @@
 //!
 //!     cargo run --release --example transitions
 //!
-//! Then click the buttons. Nothing in this file mentions duration, easing or
-//! frames.
+//! Then click the buttons. The only mention of time in this file is the two
+//! declarative `0.5s` durations in the sidebar's CSS.
 
 use azul::prelude::*;
 use azul::widgets::Button;
@@ -77,14 +81,17 @@ const TOOLBAR: &str = "display: flex; flex-direction: row; padding: 12px; \
 const BTN: &str = "padding: 8px 14px; margin-right: 10px; border-radius: 6px; \
     background: #2a2a3a; color: #e6e6f0; font-size: 14px;";
 const BODY: &str = "display: flex; flex-direction: row; flex-grow: 1;";
+// The presence animations ARE the stylesheet: unmounting the node plays
+// `flyOutRight` on the retained zombie (slides out through its own right
+// edge, narrowing, clipped to its old box), remounting plays `flyInLeft`.
+// Both names come from the builtin table — no @keyframes required; a
+// stylesheet @keyframes or an AppConfig-registered native function of the
+// same name would shadow them (resolution order: CSS, then app, then
+// builtins).
 const SIDEBAR_OPEN: &str = "width: 220px; background: #1b1b26; \
     border-right: 1px solid #2a2a3a; padding: 16px; display: flex; \
-    flex-direction: column;";
-// The ONLY difference that drives transition 1. Width 0 + no padding, so the
-// content area grows into the space and everything in it slides left.
-const SIDEBAR_SHUT: &str = "width: 0px; background: #1b1b26; \
-    border-right: 1px solid #2a2a3a; padding: 0px; display: flex; \
-    flex-direction: column; overflow: hidden;";
+    flex-direction: column; -azul-animation-out: flyOutRight 0.5s; \
+    -azul-animation-in: flyInLeft 0.5s;";
 const CONTENT: &str = "flex-grow: 1; padding: 24px; display: flex; \
     flex-direction: column;";
 const CARD: &str = "background: #202030; border-radius: 10px; padding: 18px; \
@@ -195,18 +202,19 @@ extern "C" fn layout(data: RefAny, _: LayoutCallbackInfo) -> Dom {
     toolbar.add_child(button("Swap screen", on_swap_screen, &data));
     toolbar.add_child(button("Reorder list", on_shuffle, &data));
 
-    let mut sidebar = div_with_id(
-        "sidebar",
-        if state.sidebar_open { SIDEBAR_OPEN } else { SIDEBAR_SHUT },
-    );
+    let mut body = Dom::create_div().with_css(BODY);
+    // Transition 1 is a REAL unmount: closed means the node does not exist.
+    // The engine retains the departing subtree and plays its declared
+    // `-azul-animation-out`; the content area is laid out at its final width
+    // immediately (text reflows once, no squash) while the exit paints on
+    // top. Reopening mounts a fresh node, driven by `-azul-animation-in`.
     if state.sidebar_open {
+        let mut sidebar = div_with_id("sidebar", SIDEBAR_OPEN);
         for item in ["Inbox", "Drafts", "Archive", "Trash"] {
             sidebar.add_child(Dom::create_text(item).with_css(SIDE_ITEM));
         }
+        body.add_child(sidebar);
     }
-
-    let mut body = Dom::create_div().with_css(BODY);
-    body.add_child(sidebar);
     body.add_child(match state.screen {
         Screen::Overview => overview(&state),
         Screen::Detail => detail(&state),
