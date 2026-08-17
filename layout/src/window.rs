@@ -10512,7 +10512,33 @@ impl LayoutWindow {
                     self.apply_text_tweens(dom_id, &mut display_list, now);
                 }
                 if let Some(layout_result) = self.layout_results.get_mut(&dom_id) {
-                    layout_result.display_list = display_list;
+                    layout_result.display_list = display_list.clone();
+                }
+                // Refresh the solver's structural-identity DL cache with the
+                // SAME list, keyed on the fingerprint of the gpu cache this
+                // regeneration consumed. Without this the two DL authorities
+                // diverge: this path writes `layout_results` only, so the next
+                // `layout_document` of the unchanged DOM would hit its cache
+                // and serve the list from BEFORE this regeneration — which is
+                // exactly how a freshly seeded animation lost its reference
+                // frames one frame after gaining them (the runner regenerates
+                // here after `finish_reconciliation` mints the keys, then the
+                // first tick's relayout resurrected the pre-key list).
+                if let Some(layout_result) = self.layout_results.get(&dom_id) {
+                    if let Some(cached) = self.layout_cache.cached_display_list.as_mut() {
+                        let root_hash = layout_result
+                            .layout_tree
+                            .cold(layout_result.layout_tree.root)
+                            .map(|c| c.subtree_hash);
+                        if let Some(h) = root_hash {
+                            *cached = (
+                                h,
+                                cached.1,
+                                gpu_cache.dl_emission_fingerprint(),
+                                display_list,
+                            );
+                        }
+                    }
                 }
                 // The repaint `TextEditManager::mark_dirty` asked for has now
                 // been delivered — this is the display-list-only path that

@@ -606,12 +606,31 @@ pub fn layout_document<T: ParsedFontTrait + Sync + 'static>(
     // This fires on re-renders of an unchanged DOM: the reconcile
     // pass still walks and hashes the tree, but that's ~600 µs vs
     // the ~4 ms it would otherwise cost to re-emit the display list.
-    if let Some((cached_hash, cached_viewport, cached_dl)) = &cache.cached_display_list {
+    if let Some((cached_hash, cached_viewport, cached_gpu_fp, cached_dl)) =
+        &cache.cached_display_list
+    {
         let new_root_hash = new_tree
             .cold(new_tree.root)
             .map(|c| c.subtree_hash);
-        if new_root_hash == Some(*cached_hash) && *cached_viewport == viewport {
+        // The GPU-KEY-POPULATION fingerprint is the third key component. The
+        // emitted list is a function of which nodes carry transform/opacity
+        // keys (`PushReferenceFrame` exists exactly for keyed nodes), and
+        // diff-driven animation mints its keys AFTER the first layout — so on
+        // (hash, viewport) alone this hit served the PRE-KEY list back:
+        // no reference frames, no GPU damage, a frozen animation. Population
+        // only, not values: values change every tick, and serving this cached
+        // list across ticks while values flow through the GPU channel is the
+        // point of the design.
+        let gpu_fp = gpu_value_cache.map_or(0, azul_core::gpu::GpuValueCache::dl_emission_fingerprint);
+        if new_root_hash == Some(*cached_hash)
+            && *cached_viewport == viewport
+            && *cached_gpu_fp == gpu_fp
+        {
             let _p = crate::probe::Probe::span("display_list_cache_hit");
+            #[cfg(feature = "std")]
+            if std::env::var_os("AZ_ANIM_DEBUG").is_some() {
+                eprintln!("[dlcache] HIT fp={gpu_fp:x} items={}", cached_dl.items.len());
+            }
             return Ok(cached_dl.clone());
         }
     }
@@ -1150,7 +1169,7 @@ pub fn layout_document<T: ParsedFontTrait + Sync + 'static>(
             && cache.previous_sizes.len() == new_tree.nodes.len()
             && cache.calculated_positions.len() == calculated_positions.len()
         {
-            cache.cached_display_list.as_ref().and_then(|(_, _, prev_dl)| {
+            cache.cached_display_list.as_ref().and_then(|(_, _, _, prev_dl)| {
                 let new_sizes: Vec<Option<LogicalSize>> =
                     new_tree.nodes.iter().map(|n| n.used_size).collect();
                 display_list::PatchState::build(
@@ -1248,7 +1267,19 @@ pub fn layout_document<T: ParsedFontTrait + Sync + 'static>(
     // post-build patches (`patch_node_image` / `patch_text_glyphs` / the
     // virtual-view placeholder swap) go through `Arc::make_mut`.
     let display_list = std::sync::Arc::new(display_list);
-    cache.cached_display_list = Some((root_subtree_hash, viewport, display_list.clone()));
+    // Record the population fingerprint of the SAME GpuValueCache the emission
+    // above consumed (the &-param is immutable for the whole pass, so entry
+    // fingerprint == emission fingerprint). Keys minted after this call — the
+    // scrollbar registration in the caller, animation seeding — change the
+    // manager's cache, the next call's fingerprint differs, and the cache
+    // correctly misses once and re-seeds.
+    let gpu_fp = gpu_value_cache.map_or(0, azul_core::gpu::GpuValueCache::dl_emission_fingerprint);
+    #[cfg(feature = "std")]
+    if std::env::var_os("AZ_ANIM_DEBUG").is_some() {
+        eprintln!("[dlcache] STORE fp={gpu_fp:x} items={}", display_list.items.len());
+    }
+    cache.cached_display_list =
+        Some((root_subtree_hash, viewport, gpu_fp, display_list.clone()));
 
     cache.tree = Some(*new_tree); // [g56] unbox the heap LayoutTree back into the cache
     cache.previous_positions = std::mem::replace(&mut cache.calculated_positions, calculated_positions);
@@ -2483,6 +2514,131 @@ mod autotest_generated {
                     cb: azul_core::task::get_system_time_libstd,
                 },
             )
+        }
+
+        /// [`run`] with a caller-supplied `GpuValueCache` — for the tests that
+        /// pin how the DL cache reacts to the KEY POPULATION changing.
+        fn run_with_gpu(
+            cache: &mut LayoutCache,
+            dom: &StyledDom,
+            viewport: LogicalRect,
+            gpu: &azul_core::gpu::GpuValueCache,
+        ) -> Result<std::sync::Arc<DisplayList>> {
+            let mut text_cache = TextLayoutCache::new();
+            let font_manager: FontManager<FontRef> =
+                FontManager::new(rust_fontconfig::FcFontCache::default())
+                    .expect("FontManager over an empty font cache");
+            let renderer_resources = RendererResources::default();
+            let image_cache = azul_core::resources::ImageCache::default();
+            let mut debug_messages = None;
+
+            layout_document(
+                cache,
+                &mut text_cache,
+                dom,
+                viewport,
+                &font_manager,
+                &BTreeMap::new(),
+                &BTreeMap::new(),
+                &mut debug_messages,
+                Some(gpu),
+                &renderer_resources,
+                azul_core::resources::IdNamespace(0),
+                DomId::ROOT_ID,
+                false,
+                Vec::new(),
+                None,
+                &image_cache,
+                None,
+                None,
+                azul_core::task::GetSystemTimeCallback {
+                    cb: azul_core::task::get_system_time_libstd,
+                },
+            )
+        }
+
+        /// The structural-identity DL cache must MISS when the GPU-KEY
+        /// POPULATION changes, in BOTH directions.
+        ///
+        /// Diff-driven animation mints its transform keys AFTER the first
+        /// layout of the new DOM (First/Last need solved rects), then the
+        /// shell regenerates the display list. The very next relayout of the
+        /// UNCHANGED DOM used to hit this cache on (root hash, viewport)
+        /// alone and serve the PRE-KEY list back — no `PushReferenceFrame`,
+        /// so no GPU damage, so a frozen animation and byte-identical
+        /// screenshots from the first tick on. The reverse direction is the
+        /// retirement leak: a settled animation retires its key, and a cache
+        /// hit would keep a reference frame whose fallback matrix is the
+        /// BAKED mid-flight transform.
+        #[test]
+        fn dl_cache_misses_when_the_gpu_key_population_changes() {
+            use azul_core::gpu::GpuValueCache;
+            use azul_core::resources::TransformKey;
+            use azul_core::transform::ComputedTransform3D;
+
+            let count_refframes = |dl: &DisplayList| {
+                dl.items
+                    .iter()
+                    .filter(|i| {
+                        matches!(i, crate::solver3::display_list::DisplayListItem::PushReferenceFrame { .. })
+                    })
+                    .count()
+            };
+
+            let dom = simple_dom();
+            let mut cache = LayoutCache::default();
+            let viewport = rect(0.0, 0.0, 800.0, 600.0);
+            let empty_gpu = GpuValueCache::default();
+
+            let Ok(first) = run_with_gpu(&mut cache, &dom, viewport, &empty_gpu) else {
+                // Font-less environment — nothing to compare (same escape as
+                // the sibling tests).
+                return;
+            };
+            assert!(cache.cached_display_list.is_some(), "cold pass must seed the DL cache");
+            assert_eq!(count_refframes(&first), 0, "no keys, no reference frames");
+
+            // A key is minted for a node — as animation seeding does, AFTER
+            // this DOM has already been laid out and cached.
+            let mut animated_gpu = GpuValueCache::default();
+            let animated_node = azul_core::dom::NodeId::new(1); // the div
+            animated_gpu
+                .anim_transform_keys
+                .insert(animated_node, TransformKey::unique());
+            animated_gpu.anim_current_transform_values.insert(
+                animated_node,
+                ComputedTransform3D::new_translation(120.0, 0.0, 0.0),
+            );
+
+            let second = run_with_gpu(&mut cache, &dom, viewport, &animated_gpu)
+                .expect("warm relayout with keys");
+            assert_eq!(
+                count_refframes(&second),
+                1,
+                "a freshly keyed node must get a reference frame — 0 means the \
+                 cache served the pre-key display list back"
+            );
+
+            // Retirement: the key goes away, the frame must too. A stale hit
+            // here would leave a reference frame falling back to its BAKED
+            // (mid-flight) matrix — a node permanently offset by its last
+            // sampled position.
+            let third = run_with_gpu(&mut cache, &dom, viewport, &empty_gpu)
+                .expect("warm relayout after retirement");
+            assert_eq!(
+                count_refframes(&third),
+                0,
+                "a retired key must not leave a stale reference frame"
+            );
+
+            // And the cache still WORKS when nothing changed: same population
+            // twice in a row is a hit (same Arc, not merely equal contents).
+            let fourth = run_with_gpu(&mut cache, &dom, viewport, &empty_gpu)
+                .expect("warm relayout, unchanged population");
+            assert!(
+                std::sync::Arc::ptr_eq(&third, &fourth),
+                "an unchanged population must still hit the cache"
+            );
         }
 
         /// Regression: an EMPTY, unstyled div (the MicrophoneWidget pattern —

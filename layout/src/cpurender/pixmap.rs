@@ -90,6 +90,161 @@ pub fn blit_pixmap(src: &AzulPixmap, dst: &mut AzulPixmap, px_x: i32, px_y: i32,
     }
 }
 
+/// Blit `src` into `dst` through an affine map from SRC DEVICE-PIXEL
+/// coordinates to DST DEVICE-PIXEL coordinates.
+///
+/// This is how a composited layer with a live transform (drag, CSS
+/// `transform`, diff-driven animation) reaches the screen on the CPU path:
+/// the layer's pixbuf holds its content at LAYOUT position in layer-local
+/// space, and this maps every pixel through the layer's matrix at composite
+/// time. `blit_pixmap` above is the identity fast path — for years it was the
+/// ONLY path, which is why a transformed layer rendered at its layout
+/// position no matter what its matrix said.
+///
+/// Inverse mapping with bilinear sampling: iterate the dest-space bounding box
+/// of the transformed src rect, map each dest pixel back through the inverted
+/// matrix, sample src bilinearly (edge-clamped), blend with `opacity`. A
+/// non-invertible matrix (degenerate scale) draws nothing — a collapsed layer
+/// has no area.
+#[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss, clippy::cast_precision_loss)]
+// bounded pixel/coord/colour casts
+pub fn blit_pixmap_affine(
+    src: &AzulPixmap,
+    dst: &mut AzulPixmap,
+    m: &agg_rust::trans_affine::TransAffine,
+    opacity: f32,
+) {
+    let sw = src.width as i32;
+    let sh = src.height as i32;
+    let dw = dst.width as i32;
+    let dh = dst.height as i32;
+    if sw == 0 || sh == 0 || dw == 0 || dh == 0 {
+        return;
+    }
+    let op = (opacity * 255.0).clamp(0.0, 255.0) as u32;
+    if op == 0 {
+        return;
+    }
+
+    let mut inv = *m;
+    // agg's invert() on a degenerate matrix produces non-finite values; the
+    // finite-check below skips those pixels, so the collapsed-layer case
+    // degrades to "draws nothing" rather than UB or garbage.
+    inv.invert();
+
+    // Dest-space bounding box of the four transformed src corners.
+    let corners = [(0.0, 0.0), (sw as f64, 0.0), (0.0, sh as f64), (sw as f64, sh as f64)];
+    let (mut min_x, mut min_y) = (f64::INFINITY, f64::INFINITY);
+    let (mut max_x, mut max_y) = (f64::NEG_INFINITY, f64::NEG_INFINITY);
+    for (cx, cy) in corners {
+        let (mut x, mut y) = (cx, cy);
+        m.transform(&mut x, &mut y);
+        min_x = min_x.min(x);
+        min_y = min_y.min(y);
+        max_x = max_x.max(x);
+        max_y = max_y.max(y);
+    }
+    if !(min_x.is_finite() && min_y.is_finite() && max_x.is_finite() && max_y.is_finite()) {
+        return;
+    }
+    let x0 = (min_x.floor() as i32).max(0);
+    let y0 = (min_y.floor() as i32).max(0);
+    let x1 = (max_x.ceil() as i32).min(dw);
+    let y1 = (max_y.ceil() as i32).min(dh);
+
+    for dy in y0..y1 {
+        for dx in x0..x1 {
+            // Sample at the dest pixel CENTER, mapped back to src space.
+            let (mut fx, mut fy) = (f64::from(dx) + 0.5, f64::from(dy) + 0.5);
+            inv.transform(&mut fx, &mut fy);
+            if !(fx.is_finite() && fy.is_finite()) {
+                return;
+            }
+            // Back to texel space (pixel centers at n + 0.5).
+            let sx_f = fx - 0.5;
+            let sy_f = fy - 0.5;
+            // Outside the src rect entirely (with the half-texel skirt the
+            // bilinear kernel needs) → transparent, nothing to blend.
+            if sx_f <= -1.0 || sy_f <= -1.0 || sx_f >= f64::from(sw) || sy_f >= f64::from(sh) {
+                continue;
+            }
+            let x_lo = sx_f.floor() as i32;
+            let y_lo = sy_f.floor() as i32;
+            let wx = (sx_f - f64::from(x_lo)) as f32;
+            let wy = (sy_f - f64::from(y_lo)) as f32;
+
+            // Edge-clamped 2x2 fetch. Weights of taps that clamp collapse
+            // onto the edge texel, which is the standard clamp-to-edge rule.
+            let fetch = |x: i32, y: i32| -> [f32; 4] {
+                let cx = x.clamp(0, sw - 1);
+                let cy = y.clamp(0, sh - 1);
+                let i = ((cy * sw + cx) * 4) as usize;
+                [
+                    f32::from(src.data[i]),
+                    f32::from(src.data[i + 1]),
+                    f32::from(src.data[i + 2]),
+                    f32::from(src.data[i + 3]),
+                ]
+            };
+            let p00 = fetch(x_lo, y_lo);
+            let p10 = fetch(x_lo + 1, y_lo);
+            let p01 = fetch(x_lo, y_lo + 1);
+            let p11 = fetch(x_lo + 1, y_lo + 1);
+            // Outside-the-rect taps are transparent, not clamped: without
+            // this the border row of an opaque layer smears outward to the
+            // whole bbox edge instead of fading over one pixel.
+            let zero_if_out = |x: i32, y: i32, p: [f32; 4]| -> [f32; 4] {
+                if x < 0 || y < 0 || x >= sw || y >= sh {
+                    [0.0, 0.0, 0.0, 0.0]
+                } else {
+                    p
+                }
+            };
+            let p00 = zero_if_out(x_lo, y_lo, p00);
+            let p10 = zero_if_out(x_lo + 1, y_lo, p10);
+            let p01 = zero_if_out(x_lo, y_lo + 1, p01);
+            let p11 = zero_if_out(x_lo + 1, y_lo + 1, p11);
+
+            let lerp2 = |a: [f32; 4], b: [f32; 4], t: f32| -> [f32; 4] {
+                [
+                    a[0] + (b[0] - a[0]) * t,
+                    a[1] + (b[1] - a[1]) * t,
+                    a[2] + (b[2] - a[2]) * t,
+                    a[3] + (b[3] - a[3]) * t,
+                ]
+            };
+            let top = lerp2(p00, p10, wx);
+            let bot = lerp2(p01, p11, wx);
+            let px = lerp2(top, bot, wy);
+
+            let sa = ((px[3] as u32) * op) / 255;
+            if sa == 0 {
+                continue;
+            }
+            let di = ((dy * dw + dx) * 4) as usize;
+            if di + 3 >= dst.data.len() {
+                continue;
+            }
+            let (sr, sg, sb) = (px[0] as u32, px[1] as u32, px[2] as u32);
+            if sa >= 255 {
+                dst.data[di] = sr as u8;
+                dst.data[di + 1] = sg as u8;
+                dst.data[di + 2] = sb as u8;
+                dst.data[di + 3] = 255;
+            } else {
+                let inv_sa = 255 - sa;
+                dst.data[di] = ((sr * sa + u32::from(dst.data[di]) * inv_sa) / 255) as u8;
+                dst.data[di + 1] =
+                    ((sg * sa + u32::from(dst.data[di + 1]) * inv_sa) / 255) as u8;
+                dst.data[di + 2] =
+                    ((sb * sa + u32::from(dst.data[di + 2]) * inv_sa) / 255) as u8;
+                dst.data[di + 3] =
+                    ((sa + u32::from(dst.data[di + 3]) * inv_sa / 255).min(255)) as u8;
+            }
+        }
+    }
+}
+
 /// Shift pixel data in a pixmap by (dx, dy) pixels, clearing exposed regions.
 #[allow(clippy::cast_possible_wrap, clippy::cast_sign_loss)] // bounded pixel/coord/colour/glyph cast
 pub fn shift_pixbuf(pixmap: &mut AzulPixmap, dx: i32, dy: i32) {

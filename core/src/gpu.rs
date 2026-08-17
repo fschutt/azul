@@ -109,6 +109,82 @@ impl GpuValueCache {
         Self::default()
     }
 
+    /// Fingerprint of the KEY POPULATION the display-list builder consumes —
+    /// which nodes carry which transform/opacity keys, and (for the channels
+    /// the builder `zip`s with their value map) whether a value exists.
+    ///
+    /// This exists because the solver's structural-identity display-list cache
+    /// keyed on (root subtree hash, viewport) alone, and the emitted list is
+    /// ALSO a function of this population: `PushReferenceFrame` is emitted for
+    /// a node exactly when it has a key+value pair. Diff-driven animation
+    /// mints its keys AFTER the first layout (First/Last need solved rects),
+    /// so the very next relayout of the unchanged DOM hit the cache and served
+    /// the PRE-KEY display list back — no reference frames, so no GPU damage,
+    /// so the animation was invisible and every subsequent screenshot froze.
+    ///
+    /// Deliberately a population fingerprint, not a value fingerprint: values
+    /// change every animation tick, and serving the cached list across ticks
+    /// is the entire point of routing animation through GPU keys. The hash
+    /// covers exactly the maps the builder reads: css/anim transform keys
+    /// (plus the keysets of their value maps — a key without a value emits
+    /// nothing), scrollbar v/h thumb transform keys, and scrollbar v/h
+    /// opacity keys. In-process comparison only, so hasher stability across
+    /// runs is not required; iteration order is normalised by sorting.
+    #[must_use]
+    pub fn dl_emission_fingerprint(&self) -> u64 {
+        let mut entries: Vec<(u8, u64, u64)> = Vec::with_capacity(
+            self.css_transform_keys.len()
+                + self.anim_transform_keys.len()
+                + self.css_current_transform_values.len()
+                + self.anim_current_transform_values.len()
+                + self.transform_keys.len()
+                + self.h_transform_keys.len()
+                + self.scrollbar_v_opacity_keys.len()
+                + self.scrollbar_h_opacity_keys.len(),
+        );
+        for (n, k) in &self.css_transform_keys {
+            entries.push((0, n.index() as u64, k.id as u64));
+        }
+        for n in self.css_current_transform_values.keys() {
+            entries.push((1, n.index() as u64, 0));
+        }
+        for (n, k) in &self.anim_transform_keys {
+            entries.push((2, n.index() as u64, k.id as u64));
+        }
+        for n in self.anim_current_transform_values.keys() {
+            entries.push((3, n.index() as u64, 0));
+        }
+        for (n, k) in &self.transform_keys {
+            entries.push((4, n.index() as u64, k.id as u64));
+        }
+        for (n, k) in &self.h_transform_keys {
+            entries.push((5, n.index() as u64, k.id as u64));
+        }
+        for ((d, n), k) in &self.scrollbar_v_opacity_keys {
+            entries.push((6, (d.inner as u64) << 32 | n.index() as u64, k.id as u64));
+        }
+        for ((d, n), k) in &self.scrollbar_h_opacity_keys {
+            entries.push((7, (d.inner as u64) << 32 | n.index() as u64, k.id as u64));
+        }
+        entries.sort_unstable();
+        // FNV-1a over the sorted entry words. Hand-rolled because this file
+        // builds under no_std (where `HashMap` above is really `BTreeMap` and
+        // `DefaultHasher` does not exist) — and in-process comparison needs
+        // no cryptographic strength, only sensitivity to every entry.
+        const FNV_OFFSET: u64 = 0xcbf2_9ce4_8422_2325;
+        const FNV_PRIME: u64 = 0x0000_0100_0000_01b3;
+        let mut h: u64 = FNV_OFFSET;
+        for (tag, a, b) in entries {
+            for word in [u64::from(tag), a, b] {
+                h ^= word;
+                h = h.wrapping_mul(FNV_PRIME);
+            }
+        }
+        // An empty population must not collide with "no cache entry" sentinels
+        // downstream; FNV_OFFSET is a fine non-zero value for it.
+        h
+    }
+
     /// Synchronizes the cache with the current `StyledDom`, generating change events
     /// for CSS transform and opacity additions, modifications, and removals.
     ///
