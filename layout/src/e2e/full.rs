@@ -1016,6 +1016,9 @@ pub struct AnimationsResponse {
     /// channels. A pure slide leaves this at 0 (the frozen path); a
     /// shrinking exit re-solves per changed frame.
     pub zombie_relayouts: u64,
+    /// Keyframed tracks currently driving LIVE nodes (`-azul-animation-in`
+    /// and caught-mid-exit reversals).
+    pub live_tracks: usize,
     pub nodes: Vec<AnimationNodeJson>,
 }
 
@@ -13064,6 +13067,7 @@ pub fn process_debug_event(
             let zombies = lw.zombies.len();
             let transitions = lw.css_transitions.len();
             let zombie_relayouts = lw.zombie_relayouts;
+            let live_tracks = lw.live_tracks.len();
             send_ok(
                 request,
                 None,
@@ -13072,6 +13076,7 @@ pub fn process_debug_event(
                     zombies,
                     transitions,
                     zombie_relayouts,
+                    live_tracks,
                     nodes,
                 })),
             );
