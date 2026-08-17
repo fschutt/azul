@@ -486,6 +486,9 @@ impl CpuBackend {
             &gpu_opacities,
         );
         let has_gpu_damage = !gpu_damage.rects.is_empty() || gpu_damage.needs_full;
+        // Zombie exits repaint every tick with no display-list change — no
+        // skipped frames and no incremental reuse while they are on screen.
+        let zombies_active = layout_window.has_zombies();
         // Values are painted this frame whichever path runs (incremental
         // repaints read the CURRENT cache; skip only happens when unchanged).
         self.previous_gpu_transforms = gpu_transforms;
@@ -654,6 +657,7 @@ impl CpuBackend {
                     && !has_scroll
                     && !has_vview_damage
                     && !has_gpu_damage
+                    && !zombies_active
                     // A pending patch MOVE with empty damage is NOT an idle
                     // frame — skipping would swallow the translation.
                     && patch_moved_union.is_none() =>
@@ -698,7 +702,7 @@ impl CpuBackend {
             // forced to `None`, the match fell through to `_`, the buffer was
             // filled white and everything was repainted — `FrameDamage::Full`
             // for a window that only grew by a strip.
-            Some(mut rects) if can_reuse_previous_frame => {
+            Some(mut rects) if can_reuse_previous_frame && !zombies_active => {
                 // Incremental: changed items + (scroll strips added below)
                 rects.extend(resize_damage);
                 all_damage = rects;
@@ -1066,6 +1070,7 @@ impl CpuBackend {
                 display_list,
                 dpi_factor,
                 &render_state.transforms,
+                &render_state.opacities,
             );
             if let Err(e) = compositor.render_layers(
                 display_list, dpi_factor, renderer_resources,
@@ -1079,6 +1084,13 @@ impl CpuBackend {
                 );
             }
             compositor.composite_frame(&mut output, dpi_factor);
+            // The design doc's invariant: the rendered frame is B ∪ zombies.
+            layout_window.composite_zombies_cpu(
+                &mut output,
+                dpi_factor,
+                renderer_resources,
+                &mut self.glyph_cache,
+            );
         }
 
         // AZ_DUMP_FRAME_DIR=/tmp/frames dumps every rendered CPU frame as a

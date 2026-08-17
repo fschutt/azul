@@ -1206,7 +1206,14 @@ pub enum DisplayListItem {
     /// Push an opacity layer.
     PushOpacity {
         bounds: WindowLogicalRect,
+        /// The BAKED (CSS) opacity — the value at display-list build time.
         opacity: f32,
+        /// GPU binding for ANIMATED opacity (enter/exit fades, diff-driven
+        /// animation). Same contract as `PushReferenceFrame.transform_key`:
+        /// the display list carries the KEY, the per-tick value lives in the
+        /// `GpuValueCache` animation channel, so the cached list serves every
+        /// tick while the fade advances. `None` for plain CSS opacity.
+        opacity_key: Option<azul_core::resources::OpacityKey>,
     },
     /// Pop an opacity layer.
     PopOpacity,
@@ -1375,8 +1382,13 @@ impl DisplayListItem {
              Self::PushScrollFrame { clip_bounds: b2, scroll_id: s2, .. }) => b1 == b2 && s1 == s2,
             (Self::PushStackingContext { z_index: z1, bounds: b1 },
              Self::PushStackingContext { z_index: z2, bounds: b2 }) => z1 == z2 && b1 == b2,
-            (Self::PushOpacity { bounds: b1, opacity: o1 },
-             Self::PushOpacity { bounds: b2, opacity: o2 }) => b1 == b2 && o1 == o2,
+            (Self::PushOpacity { bounds: b1, opacity: o1, opacity_key: k1 },
+             Self::PushOpacity { bounds: b2, opacity: o2, opacity_key: k2 }) => {
+                // The key participates: two lists binding different keys draw
+                // from different animation channels and are NOT interchangeable
+                // (same rule the GPU-damage diff relies on).
+                b1 == b2 && o1 == o2 && k1 == k2
+            }
             // Pop items with no fields are always equal (discriminant already matched)
             (Self::PopClip, Self::PopClip)
             | (Self::PopImageMaskClip, Self::PopImageMaskClip)
@@ -3488,10 +3500,23 @@ where
                 self.ctx.styled_dom, dom_id, node_state,
             );
 
-            if opacity < 1.0 {
+            // ANIMATED opacity binds a key from the animation channel — the
+            // exact twin of `has_reference_frame` for transforms: the list
+            // carries the key, the value flows per tick through the GPU cache,
+            // and an enter/exit fade needs a layer even while the BAKED CSS
+            // opacity is 1.0.
+            let anim_opacity_key = self.gpu_value_cache.and_then(|cache| {
+                cache
+                    .anim_opacity_keys
+                    .get(&dom_id)
+                    .zip(cache.anim_current_opacity_values.get(&dom_id))
+                    .map(|(k, _)| *k)
+            });
+            if opacity < 1.0 || anim_opacity_key.is_some() {
                 builder.push_item(DisplayListItem::PushOpacity {
                     bounds: node_bounds.into(),
                     opacity,
+                    opacity_key: anim_opacity_key,
                 });
                 pushed_opacity = true;
             }
@@ -8005,10 +8030,13 @@ pub(crate) fn offset_display_item_y(item: &DisplayListItem, y_offset: f32) -> Di
             }
         }
         DisplayListItem::PopBackdropFilter => DisplayListItem::PopBackdropFilter,
-        DisplayListItem::PushOpacity { bounds, opacity } => DisplayListItem::PushOpacity {
-            bounds: offset_rect_y(bounds.into_inner(), y_offset).into(),
-            opacity: *opacity,
-        },
+        DisplayListItem::PushOpacity { bounds, opacity, opacity_key } => {
+            DisplayListItem::PushOpacity {
+                bounds: offset_rect_y(bounds.into_inner(), y_offset).into(),
+                opacity: *opacity,
+                opacity_key: *opacity_key,
+            }
+        }
         DisplayListItem::PopOpacity => DisplayListItem::PopOpacity,
         DisplayListItem::ScrollBarStyled { info } => {
             let mut offset_info = (**info).clone();
@@ -8902,7 +8930,7 @@ mod autotest_generated {
             DisplayListItem::PopOpacity,
             DisplayListItem::PopTextShadow,
             DisplayListItem::PushStackingContext { z_index: 0, bounds: WindowLogicalRect::zero() },
-            DisplayListItem::PushOpacity { bounds: WindowLogicalRect::zero(), opacity: 0.5 },
+            DisplayListItem::PushOpacity { bounds: WindowLogicalRect::zero(), opacity: 0.5, opacity_key: None },
             DisplayListItem::PushTextShadow { shadow: StyleBoxShadow::default() },
         ];
         for item in &state {

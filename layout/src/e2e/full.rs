@@ -12425,6 +12425,22 @@ pub fn process_debug_event(
                 format!("[E2E] tick_ms: +{ms} ms (clock offset now {total} ms)"),
                 None,
             );
+            // Engine time is ONE clock. A real shell ticks the animation
+            // manager every rendered frame, so advancing the test clock by
+            // N ms must advance animations by the same N ms — otherwise a
+            // scenario that remounts a DOM (which retains exit zombies, by
+            // design, on EVERY unmount) and then `tick_ms 2000`s to settle
+            // its timers is left with zombies that never finish, and every
+            // idle assertion after it fails on perpetual zombie damage.
+            // Fixed 16.6 ms substeps because the spring integrator is
+            // semi-implicit Euler — one 2000 ms step is outside its stable
+            // region, and a real shell never hands it more than a frame.
+            callback_info.push_change(
+                azul_layout::callbacks::CallbackChange::TickAnimations {
+                    dt_micros: 16_666,
+                    steps: u32::try_from((*ms).div_ceil(16).max(1)).unwrap_or(u32::MAX),
+                },
+            );
             // Force a frame so that time-driven state (fade / momentum / blink /
             // animation) actually advances and re-renders; an idle engine then
             // reports FrameDamage::None, which is what `assert_idle_stable` asserts.

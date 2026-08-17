@@ -3542,6 +3542,7 @@ impl CallbackInfo {
             display_list,
             dpi_factor,
             &render_state.transforms,
+            &render_state.opacities,
         );
         compositor
             .render_layers(
@@ -3557,6 +3558,14 @@ impl CallbackInfo {
             .ok_or_else(|| AzString::from("pixmap alloc failed"))?;
         pixmap.fill(255, 255, 255, 255);
         compositor.composite_frame(&mut pixmap, dpi_factor);
+        // B ∪ retained-A-zombies: exits are part of the frame a screenshot
+        // must show, same as the present path.
+        layout_window.composite_zombies_cpu(
+            &mut pixmap,
+            dpi_factor,
+            renderer_resources,
+            &mut glyph_cache,
+        );
 
         // Encode to PNG
         let png_data = pixmap

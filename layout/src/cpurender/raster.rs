@@ -2218,7 +2218,12 @@ real_clip_stack.pop();
         }
 
         // --- Opacity layers ---
-        DisplayListItem::PushOpacity { bounds, opacity } => {
+        DisplayListItem::PushOpacity { bounds, opacity, opacity_key } => {
+            // Live value first — the damaged/incremental path must fade at the
+            // same opacity the composited path shows.
+            let opacity = &opacity_key
+                .and_then(|k| render_state.opacities.get(&k.id).copied())
+                .unwrap_or(*opacity);
             let rect = logical_rect_to_az_rect(&scroll_rect(bounds.inner()), dpi_factor);
             if let Some(r) = rect {
                 let snap = snapshot_region(
@@ -6607,6 +6612,7 @@ mod autotest_generated {
                 DisplayListItem::PushOpacity {
                     bounds: wrect(0.0, 0.0, 4.0, 4.0),
                     opacity: op,
+                        opacity_key: None,
                 },
                 DisplayListItem::Rect {
                     bounds: wrect(0.0, 0.0, 4.0, 4.0),
@@ -6655,6 +6661,7 @@ mod autotest_generated {
             &DisplayListItem::PushOpacity {
                 bounds: wrect(0.0, 0.0, f32::NAN, 0.0),
                 opacity: 0.5,
+                    opacity_key: None,
             },
             &mut p,
             &mut st,
@@ -7749,7 +7756,7 @@ mod layer_path_text_tests {
         layered.fill(255, 255, 255, 255);
         let mut gc3 = GlyphCache::new();
         let mut comp = CompositorState::new(200, 40);
-        comp.allocate_layers_from_display_list(&dl, 1.0, &std::collections::HashMap::new());
+        comp.allocate_layers_from_display_list(&dl, 1.0, &std::collections::HashMap::new(), &std::collections::HashMap::new());
         comp.render_layers(&dl, 1.0, &rr, &fm, &mut gc3, &state).unwrap();
         comp.composite_frame(&mut layered, 1.0);
         let ldiff = plain.data().iter().zip(layered.data().iter()).filter(|(a, b)| a != b).count();

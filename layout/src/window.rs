@@ -6860,10 +6860,19 @@ impl LayoutWindow {
         // filter someone has to remember.
         if !unmounted.is_empty() {
             if let Some(retained) = self.layout_results.remove(&dom_id) {
+                // Freeze the scroll state the retained frame was showing —
+                // the manager is remapped to the new tree right after this.
+                let frozen_scroll = self
+                    .scroll_manager
+                    .build_scroll_offset_map(dom_id, &retained.scroll_ids);
                 let mut exits = BTreeMap::new();
+                let mut rects = BTreeMap::new();
                 for node in &unmounted {
                     if node.index() >= old_node_data.len() {
                         continue;
+                    }
+                    if let Some(r) = exit_rects.get(node) {
+                        rects.insert(*node, *r);
                     }
                     // Keyed off the OLD tree: a departing node has no entry in
                     // the new one to derive an identity from.
@@ -6886,7 +6895,14 @@ impl LayoutWindow {
                     );
                     exits.insert(*node, key);
                 }
-                self.zombies.push(Zombie { retained, exits });
+                self.zombies.push(Zombie {
+                    retained,
+                    exits,
+                    rects,
+                    frozen_scroll,
+                    #[cfg(feature = "cpurender")]
+                    snapshot: core::cell::OnceCell::new(),
+                });
             }
         }
 
@@ -14866,6 +14882,22 @@ pub struct Zombie {
     pub retained: DomLayoutResult,
     /// Departing node → the exit animation driving it.
     pub exits: BTreeMap<NodeId, azul_core::animation::AnimKey>,
+    /// The departing nodes' FROZEN rects in the retained frame — where each
+    /// exit renders FROM. Captured at retention time because the retained
+    /// tree is never laid out again.
+    pub rects: BTreeMap<NodeId, LogicalRect>,
+    /// The scroll offsets the retained frame was showing at retention time,
+    /// FROZEN — the scroll manager is remapped to the new tree immediately
+    /// after, so reading it live would scroll a frame that no longer exists.
+    pub frozen_scroll: std::collections::HashMap<u64, (f32, f32)>,
+    /// Lazily rendered pixels of the retained frame (device px, and the dpi
+    /// they were rendered at). Interior-mutable because every render entry
+    /// point holds `&LayoutWindow`; single-threaded by the same contract as
+    /// the rest of the render path. A dpi mismatch mid-exit (vanishingly
+    /// rare: exits last fractions of a second) falls back to rendering fresh
+    /// for that frame instead of poisoning the cache.
+    #[cfg(feature = "cpurender")]
+    pub snapshot: core::cell::OnceCell<(u32, crate::cpurender::AzulPixmap)>,
 }
 
 impl Zombie {
@@ -14877,6 +14909,162 @@ impl Zombie {
         self.exits
             .values()
             .all(|k| animations.get(*k).is_none_or(azul_core::animation::ActiveAnim::is_finished))
+    }
+}
+
+#[cfg(feature = "cpurender")]
+impl LayoutWindow {
+    /// Draw the retained exits over an already-composited frame — the second
+    /// half of the design doc's load-bearing invariant: *"The display list
+    /// rendered is B ∪ retained-A-zombies."* Without this the retention
+    /// machinery was provably correct (zombies counted, ticked, reaped
+    /// exactly once) and completely invisible: a removed sidebar vanished on
+    /// the frame of removal, leaving a blank strip where it should have been
+    /// animating out.
+    ///
+    /// Per zombie: the retained frame is rendered ONCE (lazily, at the
+    /// requested dpi, with its FROZEN scroll offsets — the live scroll
+    /// manager was remapped to the new tree at retention), then each exiting
+    /// node's frozen rect is cut from that snapshot and blitted through its
+    /// exit animation's current transform and opacity. Sampling reads the
+    /// SAME `AnimationManager` the tick advances, so there is one clock and
+    /// the last composited frame is the t=1 state the reap removes.
+    ///
+    /// Zombies stay non-interactive for free: hit-testing walks
+    /// `layout_results`, which the retained frame was MOVED OUT of.
+    ///
+    /// Returns whether anything was drawn (callers use it for damage
+    /// bookkeeping).
+    pub fn composite_zombies_cpu(
+        &self,
+        output: &mut crate::cpurender::AzulPixmap,
+        dpi_factor: f32,
+        renderer_resources: &azul_core::resources::RendererResources,
+        glyph_cache: &mut crate::glyph_cache::GlyphCache,
+    ) -> bool {
+        use crate::cpurender::{AzulPixmap, CompositorState, CpuRenderState};
+
+        let mut drew = false;
+        for zombie in &self.zombies {
+            if zombie.exits.is_empty() {
+                continue;
+            }
+            let pw = output.width;
+            let ph = output.height;
+            let dpi_bits = dpi_factor.to_bits();
+
+            // Render the retained frame at this dpi — once per zombie in the
+            // common case (OnceCell). On a dpi mismatch mid-exit, render
+            // fresh for this frame rather than poisoning the cache.
+            let mut render_retained = || -> Option<AzulPixmap> {
+                let dl = &zombie.retained.display_list;
+                let mut compositor = CompositorState::new(pw, ph);
+                let empty_t = std::collections::HashMap::new();
+                let empty_o = std::collections::HashMap::new();
+                compositor.allocate_layers_from_display_list(dl, dpi_factor, &empty_t, &empty_o);
+                let render_state = CpuRenderState::new(zombie.frozen_scroll.clone())
+                    .with_system_style(self.system_style.clone());
+                compositor
+                    .render_layers(
+                        dl,
+                        dpi_factor,
+                        renderer_resources,
+                        &self.font_manager,
+                        glyph_cache,
+                        &render_state,
+                    )
+                    .ok()?;
+                let mut px = AzulPixmap::new(pw, ph)?;
+                px.fill(255, 255, 255, 255);
+                compositor.composite_frame(&mut px, dpi_factor);
+                Some(px)
+            };
+
+            let fresh; // keeps a mismatched-dpi render alive for this frame
+            let snapshot: &AzulPixmap = match zombie.snapshot.get() {
+                Some((bits, px)) if *bits == dpi_bits => px,
+                Some(_) => {
+                    let Some(px) = render_retained() else { continue };
+                    fresh = px;
+                    &fresh
+                }
+                None => {
+                    let Some(px) = render_retained() else { continue };
+                    let _ = zombie.snapshot.set((dpi_bits, px));
+                    match zombie.snapshot.get() {
+                        Some((_, px)) => px,
+                        None => continue,
+                    }
+                }
+            };
+
+            for (node, key) in &zombie.exits {
+                let Some(anim) = self.animations.get(*key) else {
+                    continue;
+                };
+                let Some(rect) = zombie.rects.get(node) else {
+                    continue;
+                };
+                let t = anim.current_transform();
+                let opacity = anim.current_opacity();
+                if opacity <= 0.0 {
+                    continue;
+                }
+
+                // Cut the node's frozen rect out of the snapshot (device px).
+                let sx0 = (rect.origin.x * dpi_factor).floor().max(0.0) as u32;
+                let sy0 = (rect.origin.y * dpi_factor).floor().max(0.0) as u32;
+                let sw = ((rect.size.width * dpi_factor).ceil() as u32)
+                    .min(snapshot.width.saturating_sub(sx0));
+                let sh = ((rect.size.height * dpi_factor).ceil() as u32)
+                    .min(snapshot.height.saturating_sub(sy0));
+                if sw == 0 || sh == 0 {
+                    continue;
+                }
+                let Some(mut cut) = AzulPixmap::new(sw, sh) else {
+                    continue;
+                };
+                for row in 0..sh {
+                    let src_off = (((sy0 + row) * snapshot.width + sx0) * 4) as usize;
+                    let dst_off = (row * sw * 4) as usize;
+                    let len = (sw * 4) as usize;
+                    cut.data[dst_off..dst_off + len]
+                        .copy_from_slice(&snapshot.data[src_off..src_off + len]);
+                }
+
+                // rect-local pixels -> output pixels, the SAME composition
+                // convention the live layer path uses (transform about the
+                // frame origin, translation in logical units).
+                let dpi = f64::from(dpi_factor);
+                let mut m = agg_rust::trans_affine::TransAffine::new_custom(
+                    f64::from(t.scale_x),
+                    0.0,
+                    0.0,
+                    f64::from(t.scale_y),
+                    f64::from(t.translate_x) * dpi,
+                    f64::from(t.translate_y) * dpi,
+                );
+                m.multiply(&agg_rust::trans_affine::TransAffine::new_custom(
+                    1.0,
+                    0.0,
+                    0.0,
+                    1.0,
+                    f64::from(rect.origin.x) * dpi,
+                    f64::from(rect.origin.y) * dpi,
+                ));
+                crate::cpurender::blit_pixmap_affine(&cut, output, &m, opacity);
+                drew = true;
+            }
+        }
+        drew
+    }
+
+    /// Whether any retained exits are still compositing — render paths use
+    /// this to force a full frame while zombies are on screen (their pixels
+    /// change every tick without any display-list item changing).
+    #[must_use]
+    pub fn has_zombies(&self) -> bool {
+        !self.zombies.is_empty()
     }
 }
 

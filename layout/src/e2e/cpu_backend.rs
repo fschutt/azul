@@ -180,6 +180,11 @@ impl CpuBackend {
             &gpu_opacities,
         );
         let has_gpu_damage = !gpu_damage.rects.is_empty() || gpu_damage.needs_full;
+        // Retained exits repaint every tick without any display-list item
+        // changing — while they are on screen, no frame may be skipped and no
+        // incremental reuse is sound (their pixels move outside the DL-diff
+        // rects).
+        let zombies_active = layout_window.has_zombies();
         self.previous_gpu_transforms = gpu_transforms;
         self.previous_gpu_opacities = gpu_opacities;
 
@@ -274,7 +279,8 @@ impl CpuBackend {
                     && resize_damage.is_empty()
                     && !has_scroll
                     && !has_vview_damage
-                    && !has_gpu_damage =>
+                    && !has_gpu_damage
+                    && !zombies_active =>
             {
                 // Nothing changed — skip rendering entirely.
                 //
@@ -296,7 +302,7 @@ impl CpuBackend {
             // forced to `None`, the match fell through to `_`, the buffer was
             // filled white and everything was repainted — `FrameDamage::Full`
             // for a window that only grew by a strip.
-            Some(mut rects) if can_reuse_previous_frame => {
+            Some(mut rects) if can_reuse_previous_frame && !zombies_active => {
                 rects.extend(resize_damage);
                 all_damage = rects;
                 is_incremental = true;
@@ -400,6 +406,7 @@ impl CpuBackend {
                 display_list,
                 dpi_factor,
                 &render_state.transforms,
+                &render_state.opacities,
             );
             drop(compositor.render_layers(
                 display_list,
@@ -410,6 +417,13 @@ impl CpuBackend {
                 &render_state,
             ));
             compositor.composite_frame(&mut output, dpi_factor);
+            // The design doc's invariant: the rendered frame is B ∪ zombies.
+            layout_window.composite_zombies_cpu(
+                &mut output,
+                dpi_factor,
+                renderer_resources,
+                &mut self.glyph_cache,
+            );
         }
 
         self.previous_display_list = Some(display_list.clone());

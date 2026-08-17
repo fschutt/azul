@@ -166,6 +166,14 @@ impl GpuValueCache {
         for ((d, n), k) in &self.scrollbar_h_opacity_keys {
             entries.push((7, (d.inner as u64) << 32 | n.index() as u64, k.id as u64));
         }
+        // Animated opacity binds `PushOpacity.opacity_key`, so its population
+        // shapes the emitted list the same way animated transforms do.
+        for (n, k) in &self.anim_opacity_keys {
+            entries.push((8, n.index() as u64, k.id as u64));
+        }
+        for n in self.anim_current_opacity_values.keys() {
+            entries.push((9, n.index() as u64, 0));
+        }
         entries.sort_unstable();
         // FNV-1a over the sorted entry words. Hand-rolled because this file
         // builds under no_std (where `HashMap` above is really `BTreeMap` and
