@@ -12479,6 +12479,40 @@
                                     }
                                 ],
                                 "fn_body": "object.update_virtual_view(node_id, scroll_size, scroll_offset, virtual_scroll_size, virtual_scroll_offset)"
+                            },
+                            "get_animation_momentum": {
+                                "doc": [
+                                    "Current animation MOMENTUM of a node: the velocity (logical px/s) of its in-flight presence/move animation, None while nothing animates it. Springs carry velocity across retargets by design; reversing a direction is set_animation_momentum with the negation."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    },
+                                    {
+                                        "node_id": "DomNodeId"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "OptionLogicalPosition"
+                                },
+                                "fn_body": "object.get_animation_momentum(node_id).into()"
+                            },
+                            "set_animation_momentum": {
+                                "doc": [
+                                    "Queue a momentum write for after this callback returns: kick the node's in-flight animation with velocity (logical px/s), or start an identity-anchored spring carrying it when nothing is animating."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "refmut"
+                                    },
+                                    {
+                                        "node_id": "DomNodeId"
+                                    },
+                                    {
+                                        "velocity": "LogicalPosition"
+                                    }
+                                ],
+                                "fn_body": "object.set_animation_momentum(node_id, velocity)"
                             }
                         },
                         "repr": "C"
@@ -44759,6 +44793,19 @@
                             },
                             {
                                 "dpi_factor": {
+                                    "type": "f32"
+                                }
+                            },
+                            {
+                                "velocity_x": {
+                                    "type": "f32",
+                                    "doc": [
+                                        "The animation's velocity ENTERING this frame, logical px/s - the derivative of the previous two samples (one-frame lag; zero on the first frame and for enter/live tracks today). The momentum read for native functions."
+                                    ]
+                                }
+                            },
+                            {
+                                "velocity_y": {
                                     "type": "f32"
                                 }
                             }

@@ -316,6 +316,16 @@ pub enum CallbackChange {
     /// Integer microseconds, not `f32` seconds: an exact integer step is what
     /// lets a replayed scenario reproduce bit-for-bit.
     TickAnimations { dt_micros: u32, steps: u32 },
+    /// Create/overwrite animation MOMENTUM on a node: kick its in-flight
+    /// presence/move animation with the given velocity (logical px/s), or
+    /// start an identity-anchored spring carrying that velocity when nothing
+    /// is animating. Reversing a direction is `set(-get())` — see
+    /// [`CallbackInfo::get_animation_momentum`].
+    SetAnimationMomentum {
+        node: DomNodeId,
+        velocity_x: f32,
+        velocity_y: f32,
+    },
     RemoveTimer { timer_id: TimerId },
 
     // Thread Management
@@ -2256,6 +2266,38 @@ impl CallbackInfo {
     /// Get the logical position of a node, or `None` if the node doesn't exist
     #[must_use] pub fn get_node_position(&self, node_id: DomNodeId) -> Option<LogicalPosition> {
         self.get_layout_window().get_node_position(node_id)
+    }
+
+    /// Current animation MOMENTUM of a node: the velocity (logical px/s) of
+    /// its in-flight presence/move animation. `None` while nothing animates
+    /// the node. Springs carry velocity across retargets by design, so this
+    /// is the value a custom animation function reads to hand motion off
+    /// smoothly (or to reverse it: push the negation back via
+    /// [`Self::set_animation_momentum`]).
+    #[must_use]
+    pub fn get_animation_momentum(&self, node_id: DomNodeId) -> Option<LogicalPosition> {
+        let lw = self.get_layout_window();
+        let node = node_id.node.into_crate_internal()?;
+        let key = lw
+            .anim_key_to_node
+            .iter()
+            .find_map(|(k, n)| (*n == node).then_some(*k))?;
+        let anim = lw.animations.get(key)?;
+        Some(LogicalPosition::new(
+            anim.translate_x.velocity,
+            anim.translate_y.velocity,
+        ))
+    }
+
+    /// Queue a momentum write for after this callback returns: kick the
+    /// node's in-flight animation with `velocity` (logical px/s), or start an
+    /// identity-anchored spring carrying it when nothing is animating.
+    pub fn set_animation_momentum(&mut self, node_id: DomNodeId, velocity: LogicalPosition) {
+        self.push_change(CallbackChange::SetAnimationMomentum {
+            node: node_id,
+            velocity_x: velocity.x,
+            velocity_y: velocity.y,
+        });
     }
 
     /// Get the hit test bounds of a node from the display list

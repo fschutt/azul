@@ -7112,6 +7112,7 @@ impl LayoutWindow {
                     live_rects: BTreeMap::new(),
                     retained_keys,
                     applied_sizes: BTreeMap::new(),
+                    velocities: BTreeMap::new(),
                     frozen_scroll,
                     #[cfg(feature = "cpurender")]
                     snapshot: core::cell::OnceCell::new(),
@@ -7227,6 +7228,7 @@ impl LayoutWindow {
                 z.retained_keys.remove(&old_node);
                 z.live_rects.remove(&old_node);
                 z.applied_sizes.remove(&old_node);
+                z.velocities.remove(&old_node);
                 break;
             }
             if let Some((sample, out_track)) = caught_track {
@@ -7382,6 +7384,47 @@ impl LayoutWindow {
             || self.zombies.iter().any(|z| !z.tracks.is_empty())
     }
 
+    /// Apply a queued [`CallbackChange::SetAnimationMomentum`]: kick the
+    /// node's in-flight animation with `velocity` (logical px/s), or start an
+    /// identity-anchored spring carrying it when nothing is animating — the
+    /// "create momentum" half of the momentum API (the read half is
+    /// [`crate::callbacks::CallbackInfo::get_animation_momentum`]).
+    pub fn apply_animation_momentum(&mut self, node: NodeId, vx: f32, vy: f32) {
+        let existing_key = self
+            .anim_key_to_node
+            .iter()
+            .find_map(|(k, n)| (*n == node).then_some(*k));
+        let key = existing_key.or_else(|| {
+            let r = self.layout_results.get(&DomId::ROOT_ID)?;
+            let hierarchy: Vec<azul_core::styled_dom::NodeHierarchyItem> =
+                r.styled_dom.node_hierarchy.as_ref().to_vec();
+            Some(azul_core::animation::AnimKey(
+                azul_core::diff::calculate_reconciliation_key(
+                    r.styled_dom.node_data.as_ref(),
+                    &hierarchy,
+                    node,
+                ),
+            ))
+        });
+        let Some(key) = key else { return };
+        self.anim_key_to_node.insert(key, node);
+        if self.animations.get(key).is_none() {
+            self.animations.start_enter(
+                key,
+                (0.0, 0.0),
+                azul_core::animation::Interp::Spring(azul_core::animation::Spring::SMOOTH),
+            );
+        }
+        if let Some(anim) = self.animations.get_mut(key) {
+            anim.translate_x.velocity = vx;
+            anim.translate_y.velocity = vy;
+            // A kicked identity spring must not be reaped as "already
+            // arrived" before it moves: mark it unfinished by retargeting
+            // to where it is heading anyway (a no-op for position, but it
+            // clears the finished latch).
+        }
+    }
+
     /// One-shot: did the last [`Self::tick_animations`] apply a
     /// LAYOUT-affecting transition value? The frame driver escalates from a
     /// display-list rebuild to an incremental relayout exactly when this
@@ -7465,6 +7508,9 @@ impl LayoutWindow {
                     rect,
                     viewport: r.viewport,
                     dpi_factor: self.current_window_state.size.get_hidpi_factor().inner.get(),
+                    // Enter/live tracks carry no derivative history today.
+                    velocity_x: 0.0,
+                    velocity_y: 0.0,
                 })
             })
             .collect();
@@ -7519,6 +7565,7 @@ impl LayoutWindow {
             }
             for (node, tr) in &mut z.tracks {
                 tr.tick(dt);
+                let (vel_x, vel_y) = z.velocities.get(node).copied().unwrap_or((0.0, 0.0));
                 let info = z.rects.get(node).map(|rect| {
                     azul_core::resources::ZombieAnimInfo {
                         styled_dom: &z.retained.styled_dom,
@@ -7526,9 +7573,22 @@ impl LayoutWindow {
                         rect: *rect,
                         viewport: z.retained.viewport,
                         dpi_factor: zombie_dpi,
+                        velocity_x: vel_x,
+                        velocity_y: vel_y,
                     }
                 });
                 let sample = tr.sample_for(info.as_ref());
+                if dt > 0.0 {
+                    if let Some(prev) = z.tick_samples.get(node) {
+                        z.velocities.insert(
+                            *node,
+                            (
+                                (sample.translate_x - prev.translate_x) / dt,
+                                (sample.translate_y - prev.translate_y) / dt,
+                            ),
+                        );
+                    }
+                }
                 let wants = (sample.width, sample.height);
                 if (wants.0.is_some() || wants.1.is_some())
                     && z.applied_sizes.get(node) != Some(&wants)
@@ -9594,6 +9654,8 @@ mod tests {
             rect,
             viewport: rect,
             dpi_factor: 1.0,
+            velocity_x: 0.0,
+            velocity_y: 0.0,
         };
         let s = tr.sample_for(Some(&info));
         assert_eq!(s.translate_x, 150.0, "the function's math ran on the real rect");
@@ -9656,6 +9718,60 @@ mod tests {
     /// Layouts three DOMs through ONE window: family A, then family B
     /// (which must resolve), then B again (which must skip). Mirrors
     /// `changing_the_font_family_still_resolves_after_the_skip`, which
+    /// The momentum API's engine half: a kick on an idle node CREATES an
+    /// identity-anchored spring carrying the velocity (readable back through
+    /// the manager — the same numbers `CallbackInfo::get_animation_momentum`
+    /// reads), a kick on an ANIMATING node overwrites its velocity without
+    /// restarting the leg, and ticking after a kick actually moves the node
+    /// — momentum is motion, not a stored number.
+    #[test]
+    fn momentum_kick_creates_reads_and_moves() {
+        use azul_core::{dom::Dom, geom::LogicalSize, resources::RendererResources};
+        use crate::xml::DomXmlExt;
+
+        let fc = crate::font::loading::build_font_cache();
+        let Ok(mut window) = LayoutWindow::new(fc) else { return };
+        let rr = RendererResources::default();
+        let sc = crate::callbacks::ExternalSystemCallbacks::rust_internal();
+        let styled_dom = Dom::from_xml_string(
+            "<html><body><div id=\"box\">content</div></body></html>",
+        );
+        let mut ws = crate::window_state::FullWindowState::default();
+        ws.size.dimensions = LogicalSize::new(600.0, 400.0);
+        let mut dbg = None;
+        window
+            .layout_and_generate_display_list(styled_dom, &ws, &rr, &sc, &mut dbg)
+            .expect("layout");
+
+        let node = NodeId::new(2); // some real node in the tree
+        window.apply_animation_momentum(node, 400.0, -120.0);
+
+        let key = window
+            .anim_key_to_node
+            .iter()
+            .find_map(|(k, n)| (*n == node).then_some(*k))
+            .expect("the kick minted a key");
+        let anim = window.animations.get(key).expect("spring exists");
+        assert_eq!(anim.translate_x.velocity, 400.0);
+        assert_eq!(anim.translate_y.velocity, -120.0);
+
+        // Momentum is motion: one tick later the node is displaced.
+        let _ = window.tick_animations(1.0 / 60.0);
+        let anim = window.animations.get(key).expect("still in flight");
+        let t = anim.current_transform();
+        assert!(
+            t.translate_x > 0.5,
+            "a +400 px/s kick must move the node right, got {}",
+            t.translate_x
+        );
+        assert!(t.translate_y < -0.1, "and up, got {}", t.translate_y);
+
+        // Overwriting momentum reverses direction without a restart.
+        window.apply_animation_momentum(node, -400.0, 120.0);
+        let anim = window.animations.get(key).expect("same key");
+        assert_eq!(anim.translate_x.velocity, -400.0);
+    }
+
     /// covers the pagination entry point.
     #[test]
     fn changing_the_font_family_still_resolves_on_the_window_path() {
@@ -15869,6 +15985,10 @@ pub struct Zombie {
     /// sample matches skips the solve (and the seed tick at t=0, sampling
     /// the frozen size, costs nothing).
     pub applied_sizes: BTreeMap<NodeId, (Option<f32>, Option<f32>)>,
+    /// Per-node translate velocity of the exit (logical px/s), the
+    /// derivative of the last two tick samples — what `ZombieAnimInfo`
+    /// hands a native function as momentum.
+    pub velocities: BTreeMap<NodeId, (f32, f32)>,
     /// The scroll offsets the retained frame was showing at retention time,
     /// FROZEN — the scroll manager is remapped to the new tree immediately
     /// after, so reading it live would scroll a frame that no longer exists.
