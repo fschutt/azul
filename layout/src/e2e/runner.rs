@@ -1290,6 +1290,16 @@ impl Runner {
             // integrator by an exact `dt` with no wall clock involved, which is
             // what makes a mid-flight assertion reproducible.
             CallbackChange::TickAnimations { dt_micros, steps } => {
+                // Idle-transparent: `tick_ms` routes through here on EVERY
+                // scenario (one engine clock), so a tick with nothing to
+                // animate must not charge the window a display-list pass —
+                // that turned every timer-driven damage assertion
+                // (caret blink's "idle frame does no work") into FULL damage.
+                let had_work = !self.layout_window.animations.is_empty()
+                    || self.layout_window.has_zombies();
+                if !had_work {
+                    return ProcessEventResult::DoNothing;
+                }
                 let dt = *dt_micros as f32 / 1_000_000.0;
                 for _ in 0..(*steps).max(1) {
                     self.layout_window.tick_animations(dt);

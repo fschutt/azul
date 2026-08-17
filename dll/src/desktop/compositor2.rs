@@ -2069,18 +2069,31 @@ pub fn translate_displaylist_to_wr(
                 // backdrop_filter doesn't push a stacking context, no pop needed
             }
 
-            DisplayListItem::PushOpacity { bounds, opacity } => {
+            DisplayListItem::PushOpacity { bounds, opacity, opacity_key } => {
                 log_debug!(
                     LogCategory::DisplayList,
-                    "[compositor2] PushOpacity: bounds={:?}, opacity={}",
+                    "[compositor2] PushOpacity: bounds={:?}, opacity={}, key={:?}",
                     bounds,
-                    opacity
+                    opacity,
+                    opacity_key
                 );
                 let current_spatial_id = current_spatial!();
-                let opacity_filter = WrFilterOp::Opacity(
-                    PropertyBinding::Value(*opacity),
-                    *opacity,
-                );
+                // An animated group binds its key so the fade advances GPU-side
+                // without a display-list rebuild — the same
+                // PropertyBindingKey scheme the scrollbar fade uses above.
+                let opacity_filter = match opacity_key {
+                    Some(k) => WrFilterOp::Opacity(
+                        PropertyBinding::Binding(
+                            webrender::api::PropertyBindingKey::new(k.id as u64),
+                            *opacity,
+                        ),
+                        *opacity,
+                    ),
+                    None => WrFilterOp::Opacity(
+                        PropertyBinding::Value(*opacity),
+                        *opacity,
+                    ),
+                };
                 // Use zero origin: children use absolute coordinates.
                 builder.push_simple_stacking_context_with_filters(
                     LayoutPoint::zero(),

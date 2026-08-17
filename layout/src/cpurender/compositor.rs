@@ -152,6 +152,7 @@ impl CompositorState {
         display_list: &DisplayList,
         dpi_factor: f32,
         live_transforms: &HashMap<usize, azul_core::transform::ComputedTransform3D>,
+        live_opacities: &HashMap<usize, f32>,
     ) {
         // Remove all non-root layers from previous frame
         let root_id = self.root_layer;
@@ -167,6 +168,11 @@ impl CompositorState {
         // One entry per open `PushReferenceFrame`, recording whether it actually
         // promoted a layer, so `PopReferenceFrame` pops exactly what was pushed.
         let mut ref_frame_promoted: Vec<bool> = Vec::new();
+        // Same recorded pairing for opacity groups: the pop arm used to decide
+        // by VALUE-testing the top layer (`opacity < 1.0`), which mispairs the
+        // moment a group's effective opacity passes through exactly 1.0 —
+        // reachable every time an enter fade completes.
+        let mut opacity_promoted: Vec<bool> = Vec::new();
         let mut i = 0;
 
         while i < display_list.items.len() {
@@ -201,35 +207,42 @@ impl CompositorState {
                         layer_stack.pop();
                     }
                 }
-                DisplayListItem::PushOpacity { bounds, opacity } => {
-                    if *opacity < 1.0 {
-                        let b = *bounds.inner();
-                        let pw = (b.size.width * dpi_factor).ceil() as u32;
-                        let ph = (b.size.height * dpi_factor).ceil() as u32;
-                        if pw > 0 && ph > 0 {
-                            let new_id = self.alloc_layer_id();
-                            let mut layer = Layer::new(new_id, b, pw, ph);
-                            layer.opacity = *opacity;
-                            let end = find_matching_pop(&display_list.items, i, MatchKind::Opacity);
-                            layer.display_list_range = (i + 1, end);
-                            self.layers.insert(new_id, layer);
-                            let parent_id = *layer_stack.last().unwrap();
-                            if let Some(parent) = self.layers.get_mut(&parent_id) {
-                                parent.children.push(new_id);
-                            }
-                            layer_stack.push(new_id);
+                DisplayListItem::PushOpacity { bounds, opacity, opacity_key } => {
+                    // The LIVE value wins over the baked one — an enter/exit
+                    // fade republishes its opacity every tick without the list
+                    // being rebuilt, exactly like animated transforms. The
+                    // baked value is only the fallback for an unkeyed (plain
+                    // CSS opacity) group.
+                    let effective = opacity_key
+                        .and_then(|k| live_opacities.get(&k.id).copied())
+                        .unwrap_or(*opacity);
+                    let b = *bounds.inner();
+                    let pw = (b.size.width * dpi_factor).ceil() as u32;
+                    let ph = (b.size.height * dpi_factor).ceil() as u32;
+                    let promote = effective < 1.0 && pw > 0 && ph > 0;
+                    opacity_promoted.push(promote);
+                    if promote {
+                        let new_id = self.alloc_layer_id();
+                        let mut layer = Layer::new(new_id, b, pw, ph);
+                        layer.opacity = effective;
+                        let end = find_matching_pop(&display_list.items, i, MatchKind::Opacity);
+                        layer.display_list_range = (i + 1, end);
+                        self.layers.insert(new_id, layer);
+                        let parent_id = *layer_stack.last().unwrap();
+                        if let Some(parent) = self.layers.get_mut(&parent_id) {
+                            parent.children.push(new_id);
                         }
+                        layer_stack.push(new_id);
                     }
                 }
                 DisplayListItem::PopOpacity => {
-                    // Only pop if the top layer was an opacity layer
-                    if layer_stack.len() > 1 {
-                        let top_id = *layer_stack.last().unwrap();
-                        if let Some(layer) = self.layers.get(&top_id) {
-                            if layer.opacity < 1.0 && layer.scroll_id.is_none() {
-                                layer_stack.pop();
-                            }
-                        }
+                    // Pair by RECORDED DECISION, never by value-testing the top
+                    // layer — the same fix `PopReferenceFrame` got: an opacity
+                    // group whose live value has reached exactly 1.0 (a settled
+                    // fade) allocated nothing, and a value test would pop its
+                    // PARENT instead.
+                    if opacity_promoted.pop() == Some(true) && layer_stack.len() > 1 {
+                        layer_stack.pop();
                     }
                 }
                 DisplayListItem::PushFilter { bounds, filters } => {
@@ -1446,6 +1459,18 @@ pub struct GpuValueDamage {
             DisplayListItem::PushReferenceFrame { transform_key, .. } => {
                 if changed_t.contains(&transform_key.id) {
                     out.needs_full = true;
+                }
+            }
+            DisplayListItem::PushOpacity {
+                bounds,
+                opacity_key: Some(k),
+                ..
+            } => {
+                // A faded group repaints inside its own bounds — precise,
+                // unlike a moved reference frame whose content extent is
+                // unknowable from the item.
+                if changed_o.contains(&k.id) {
+                    out.rects.push(*bounds.inner());
                 }
             }
             _ => {}
@@ -2762,7 +2787,7 @@ mod backdrop_filter_tests {
         };
 
         let mut comp = CompositorState::new(w, h);
-        comp.allocate_layers_from_display_list(&dl, 1.0, &HashMap::new());
+        comp.allocate_layers_from_display_list(&dl, 1.0, &HashMap::new(), &HashMap::new());
 
         // A backdrop-filter layer must have been allocated.
         assert!(
@@ -4013,7 +4038,7 @@ mod autotest_generated {
     #[test]
     fn allocate_layers_on_empty_display_list_keeps_only_the_root() {
         let mut c = CompositorState::new(64, 64);
-        c.allocate_layers_from_display_list(&dlist(vec![]), 1.0, &HashMap::new());
+        c.allocate_layers_from_display_list(&dlist(vec![]), 1.0, &HashMap::new(), &HashMap::new());
         assert_eq!(c.layers.len(), 1);
         let root = c.layers.get(&c.root_layer).unwrap();
         assert_eq!(root.display_list_range, (0, 0));
@@ -4028,6 +4053,7 @@ mod autotest_generated {
             DisplayListItem::PushOpacity {
                 bounds: wlr(0.0, 0.0, 20.0, 20.0),
                 opacity: 0.5,
+                    opacity_key: None,
             },
             DisplayListItem::PopOpacity,
             DisplayListItem::PushFilter {
@@ -4044,7 +4070,7 @@ mod autotest_generated {
     #[test]
     fn allocate_layers_at_dpi_one_creates_one_layer_per_group() {
         let mut c = CompositorState::new(64, 64);
-        c.allocate_layers_from_display_list(&layer_soup(), 1.0, &HashMap::new());
+        c.allocate_layers_from_display_list(&layer_soup(), 1.0, &HashMap::new(), &HashMap::new());
         assert_eq!(c.layers.len(), 4, "root + scroll + opacity + blur");
         let root = c.layers.get(&c.root_layer).unwrap();
         assert_eq!(root.children.len(), 3, "all three are direct children of the root");
@@ -4054,7 +4080,7 @@ mod autotest_generated {
     fn allocate_layers_at_degenerate_dpi_creates_no_layers() {
         for dpi in [0.0_f32, -2.0, f32::NAN] {
             let mut c = CompositorState::new(64, 64);
-            c.allocate_layers_from_display_list(&layer_soup(), dpi, &HashMap::new());
+            c.allocate_layers_from_display_list(&layer_soup(), dpi, &HashMap::new(), &HashMap::new());
             assert_eq!(
                 c.layers.len(),
                 1,
@@ -4067,7 +4093,7 @@ mod autotest_generated {
     fn allocate_layers_zero_sized_scroll_frame_is_skipped() {
         let mut c = CompositorState::new(64, 64);
         let list = dlist(vec![push_scroll(1, 0.0, 0.0, 0.0, 0.0), DisplayListItem::PopScrollFrame]);
-        c.allocate_layers_from_display_list(&list, 1.0, &HashMap::new());
+        c.allocate_layers_from_display_list(&list, 1.0, &HashMap::new(), &HashMap::new());
         assert_eq!(c.layers.len(), 1, "a 0×0 clip cannot get a pixbuf");
     }
 
@@ -4079,7 +4105,7 @@ mod autotest_generated {
             opaque_rect(0.0, 0.0, 10.0, 10.0),
             DisplayListItem::PopScrollFrame,
         ]);
-        c.allocate_layers_from_display_list(&list, 1.0, &HashMap::new());
+        c.allocate_layers_from_display_list(&list, 1.0, &HashMap::new(), &HashMap::new());
         assert_eq!(c.layers.len(), 2);
         let l = c.layers.values().find(|l| l.scroll_id == Some(7)).expect("scroll layer");
         assert_eq!(l.display_list_range, (1, 2), "range is (push+1, matching pop)");
@@ -4099,7 +4125,7 @@ mod autotest_generated {
             DisplayListItem::PopBackdropFilter,
             DisplayListItem::PopScrollFrame,
         ]);
-        c.allocate_layers_from_display_list(&list, 1.0, &HashMap::new());
+        c.allocate_layers_from_display_list(&list, 1.0, &HashMap::new(), &HashMap::new());
         assert_eq!(c.layers.len(), 1, "stray pops are ignored, the root survives");
     }
 
@@ -4110,7 +4136,7 @@ mod autotest_generated {
             push_scroll(1, 0.0, 0.0, 20.0, 20.0),
             opaque_rect(0.0, 0.0, 5.0, 5.0),
         ]);
-        c.allocate_layers_from_display_list(&list, 1.0, &HashMap::new());
+        c.allocate_layers_from_display_list(&list, 1.0, &HashMap::new(), &HashMap::new());
         let l = c.layers.values().find(|l| l.scroll_id == Some(1)).unwrap();
         assert_eq!(l.display_list_range, (1, 2), "an unmatched push clamps to items.len()");
     }
@@ -4124,10 +4150,11 @@ mod autotest_generated {
                 DisplayListItem::PushOpacity {
                     bounds: wlr(0.0, 0.0, 20.0, 20.0),
                     opacity: op,
+                        opacity_key: None,
                 },
                 DisplayListItem::PopOpacity,
             ]);
-            c.allocate_layers_from_display_list(&list, 1.0, &HashMap::new());
+            c.allocate_layers_from_display_list(&list, 1.0, &HashMap::new(), &HashMap::new());
             assert_eq!(c.layers.len(), 1, "opacity {op} needs no layer");
         }
         let mut c = CompositorState::new(64, 64);
@@ -4135,10 +4162,11 @@ mod autotest_generated {
             DisplayListItem::PushOpacity {
                 bounds: wlr(0.0, 0.0, 20.0, 20.0),
                 opacity: -3.0,
+                    opacity_key: None,
             },
             DisplayListItem::PopOpacity,
         ]);
-        c.allocate_layers_from_display_list(&list, 1.0, &HashMap::new());
+        c.allocate_layers_from_display_list(&list, 1.0, &HashMap::new(), &HashMap::new());
         assert_eq!(c.layers.len(), 2, "a negative opacity still needs its own layer");
     }
 
@@ -4146,7 +4174,7 @@ mod autotest_generated {
     fn allocate_layers_identity_reference_frame_is_not_promoted() {
         let mut c = CompositorState::new(64, 64);
         let ident = dlist(vec![ref_frame(1), DisplayListItem::PopReferenceFrame]);
-        c.allocate_layers_from_display_list(&ident, 1.0, &HashMap::new());
+        c.allocate_layers_from_display_list(&ident, 1.0, &HashMap::new(), &HashMap::new());
         assert_eq!(c.layers.len(), 1, "an identity transform needs no layer");
 
         let mut c2 = CompositorState::new(64, 64);
@@ -4158,7 +4186,7 @@ mod autotest_generated {
             },
             DisplayListItem::PopReferenceFrame,
         ]);
-        c2.allocate_layers_from_display_list(&moved, 1.0, &HashMap::new());
+        c2.allocate_layers_from_display_list(&moved, 1.0, &HashMap::new(), &HashMap::new());
         assert_eq!(c2.layers.len(), 2, "a non-identity transform gets its own layer");
         let l = c2.layers.values().find(|l| l.id != c2.root_layer).unwrap();
         assert!(!l.transform.is_identity(IDENTITY_EPSILON_F64));
@@ -4185,6 +4213,7 @@ mod autotest_generated {
             &dlist(vec![ref_frame(1), DisplayListItem::PopReferenceFrame]),
             1.0,
             &live,
+            &HashMap::new(),
         );
         assert_eq!(c.layers.len(), 2, "a live-animated frame must be promoted to a layer");
         let l = c.layers.values().find(|l| l.id != c.root_layer).unwrap();
@@ -4214,6 +4243,7 @@ mod autotest_generated {
             ]),
             1.0,
             &live,
+            &HashMap::new(),
         );
         assert_eq!(c.layers.len(), 1, "a settled animation must not keep its layer");
     }
@@ -4226,6 +4256,87 @@ mod autotest_generated {
     /// item after it composited into the wrong layer. A FLIP passes through
     /// identity exactly (at rest, and at the instant it settles), so this is
     /// reachable in normal playback rather than only by a hand-built list.
+    /// The opacity twin of the live-transform pins: a keyed group's LIVE
+    /// value decides promotion, in both directions, and pop pairing is by
+    /// recorded decision.
+    ///
+    /// An enter/exit fade binds `opacity_key` while the BAKED value is 1.0 —
+    /// so without the live lookup a mid-fade group allocated no layer at all
+    /// (the fade was invisible), and once the fade settles at exactly 1.0 the
+    /// old value-testing pop arm popped the PARENT instead of the group.
+    #[test]
+    fn allocate_layers_live_opacity_decides_promotion_both_directions() {
+        use azul_core::resources::OpacityKey;
+        let key = OpacityKey { id: 5 };
+        let group = |baked: f32| {
+            dlist(vec![
+                DisplayListItem::PushOpacity {
+                    bounds: wlr(0.0, 0.0, 20.0, 20.0),
+                    opacity: baked,
+                    opacity_key: Some(key),
+                },
+                opaque_rect(0.0, 0.0, 5.0, 5.0),
+                DisplayListItem::PopOpacity,
+            ])
+        };
+        let no_t: HashMap<usize, ComputedTransform3D> = HashMap::new();
+
+        // Mid-fade: baked 1.0, live 0.4 — the group MUST get a layer at the
+        // live value.
+        let mut live_o: HashMap<usize, f32> = HashMap::new();
+        live_o.insert(5, 0.4);
+        let mut c = CompositorState::new(64, 64);
+        c.allocate_layers_from_display_list(&group(1.0), 1.0, &no_t, &live_o);
+        assert_eq!(c.layers.len(), 2, "a mid-fade keyed group needs a layer");
+        let l = c.layers.values().find(|l| l.id != c.root_layer).unwrap();
+        assert!((l.opacity - 0.4).abs() < 0.001, "layer must carry the LIVE opacity");
+
+        // Settled fade: live 1.0 beats baked 0.5 — no layer.
+        let mut live_one: HashMap<usize, f32> = HashMap::new();
+        live_one.insert(5, 1.0);
+        let mut c2 = CompositorState::new(64, 64);
+        c2.allocate_layers_from_display_list(&group(0.5), 1.0, &no_t, &live_one);
+        assert_eq!(c2.layers.len(), 1, "a settled fade must not keep its layer");
+    }
+
+    /// Pop pairing for opacity groups is by recorded decision: a keyed group
+    /// whose live value is exactly 1.0 (a completed fade) allocates nothing,
+    /// and its `PopOpacity` must NOT pop the enclosing moved reference frame.
+    #[test]
+    fn allocate_layers_completed_fade_does_not_pop_its_moved_parent() {
+        use azul_core::resources::OpacityKey;
+        let mut live_t: HashMap<usize, ComputedTransform3D> = HashMap::new();
+        live_t.insert(1, translate(30.0, 0.0));
+        let mut live_o: HashMap<usize, f32> = HashMap::new();
+        live_o.insert(9, 1.0); // the fade has completed
+
+        let mut c = CompositorState::new(64, 64);
+        c.allocate_layers_from_display_list(
+            &dlist(vec![
+                ref_frame(1),
+                DisplayListItem::PushOpacity {
+                    bounds: wlr(0.0, 0.0, 10.0, 10.0),
+                    opacity: 1.0,
+                    opacity_key: Some(OpacityKey { id: 9 }),
+                },
+                DisplayListItem::PopOpacity, // allocated nothing
+                opaque_rect(0.0, 0.0, 5.0, 5.0), // still inside the FRAME
+                DisplayListItem::PopReferenceFrame,
+            ]),
+            1.0,
+            &live_t,
+            &live_o,
+        );
+        assert_eq!(c.layers.len(), 2, "only the moved frame gets a layer");
+        let frame_id = *c.layers.get(&c.root_layer).unwrap().children.first().unwrap();
+        let frame = c.layers.get(&frame_id).unwrap();
+        let (start, end) = frame.display_list_range;
+        assert!(
+            start <= 3 && end > 3,
+            "the rect at index 3 sits inside the frame, but its layer spans {start}..{end}"
+        );
+    }
+
     #[test]
     fn allocate_layers_identity_child_frame_does_not_pop_its_moved_parent() {
         let mut live: HashMap<usize, ComputedTransform3D> = HashMap::new();
@@ -4244,6 +4355,7 @@ mod autotest_generated {
             ]),
             1.0,
             &live,
+            &HashMap::new(),
         );
         assert_eq!(c.layers.len(), 2, "only the moved outer frame gets a layer");
         let outer_id = *c.layers.get(&c.root_layer).unwrap().children.first().unwrap();
@@ -4265,7 +4377,7 @@ mod autotest_generated {
             DisplayListItem::PopScrollFrame,
             DisplayListItem::PopScrollFrame,
         ]);
-        c.allocate_layers_from_display_list(&list, 1.0, &HashMap::new());
+        c.allocate_layers_from_display_list(&list, 1.0, &HashMap::new(), &HashMap::new());
         assert_eq!(c.layers.len(), 3);
         let root = c.layers.get(&c.root_layer).unwrap();
         assert_eq!(root.children.len(), 1, "only the outer frame hangs off the root");
@@ -4281,9 +4393,9 @@ mod autotest_generated {
     #[test]
     fn allocate_layers_is_idempotent_across_frames() {
         let mut c = CompositorState::new(64, 64);
-        c.allocate_layers_from_display_list(&layer_soup(), 1.0, &HashMap::new());
+        c.allocate_layers_from_display_list(&layer_soup(), 1.0, &HashMap::new(), &HashMap::new());
         let first = c.layers.len();
-        c.allocate_layers_from_display_list(&layer_soup(), 1.0, &HashMap::new());
+        c.allocate_layers_from_display_list(&layer_soup(), 1.0, &HashMap::new(), &HashMap::new());
         assert_eq!(c.layers.len(), first, "re-allocating must not leak last frame's layers");
         let root = c.layers.get(&c.root_layer).unwrap();
         assert_eq!(root.children.len(), 3, "root children are rebuilt, not appended to");
@@ -4300,7 +4412,7 @@ mod autotest_generated {
             },
             DisplayListItem::PopBackdropFilter,
         ]);
-        c.allocate_layers_from_display_list(&list, 1.0, &HashMap::new());
+        c.allocate_layers_from_display_list(&list, 1.0, &HashMap::new(), &HashMap::new());
         let l = c.layers.values().find(|l| l.is_backdrop_filter).expect("backdrop layer");
         assert_eq!(
             at(&l.pixbuf, 0, 0),
@@ -4317,7 +4429,7 @@ mod autotest_generated {
             },
             DisplayListItem::PopBackdropFilter,
         ]);
-        c2.allocate_layers_from_display_list(&empty, 1.0, &HashMap::new());
+        c2.allocate_layers_from_display_list(&empty, 1.0, &HashMap::new(), &HashMap::new());
         assert_eq!(c2.layers.len(), 1, "no filters → no layer");
     }
 
@@ -4399,7 +4511,7 @@ mod autotest_generated {
     fn render_layers_on_an_empty_display_list_is_ok() {
         let mut c = CompositorState::new(8, 8);
         let list = dlist(vec![]);
-        c.allocate_layers_from_display_list(&list, 1.0, &HashMap::new());
+        c.allocate_layers_from_display_list(&list, 1.0, &HashMap::new(), &HashMap::new());
         let (rr, mut gc, st) = render_deps();
         assert!(c.render_layers(&list, 1.0, &rr, &test_font_manager(), &mut gc, &st).is_ok());
     }
@@ -4414,7 +4526,7 @@ mod autotest_generated {
             16.0,
             ColorU { r: 0, g: 0, b: 255, a: 255 },
         )]);
-        c.allocate_layers_from_display_list(&list, 1.0, &HashMap::new());
+        c.allocate_layers_from_display_list(&list, 1.0, &HashMap::new(), &HashMap::new());
         let (rr, mut gc, st) = render_deps();
         c.render_layers(&list, 1.0, &rr, &test_font_manager(), &mut gc, &st).unwrap();
         let root = c.layers.get(&c.root_layer).unwrap();
@@ -4439,7 +4551,7 @@ mod autotest_generated {
                 8.0,
                 ColorU { r: 0, g: 0, b: 255, a: 255 },
             )]);
-            c.allocate_layers_from_display_list(&list, dpi, &HashMap::new());
+            c.allocate_layers_from_display_list(&list, dpi, &HashMap::new(), &HashMap::new());
             let (rr, mut gc, st) = render_deps();
             assert!(
                 c.render_layers(&list, dpi, &rr, &test_font_manager(), &mut gc, &st).is_ok(),
@@ -4458,7 +4570,7 @@ mod autotest_generated {
     fn render_layers_skips_a_layer_range_past_the_end_of_the_list() {
         let mut c = CompositorState::new(8, 8);
         let list = dlist(vec![opaque_rect(0.0, 0.0, 8.0, 8.0)]);
-        c.allocate_layers_from_display_list(&list, 1.0, &HashMap::new());
+        c.allocate_layers_from_display_list(&list, 1.0, &HashMap::new(), &HashMap::new());
         // Simulate a stale range left over from a longer display list.
         let root_id = c.root_layer;
         c.layers.get_mut(&root_id).unwrap().display_list_range = (999, 1000);
@@ -4479,7 +4591,7 @@ mod autotest_generated {
             8.0,
             ColorU { r: 0, g: 255, b: 0, a: 255 },
         )]);
-        c.allocate_layers_from_display_list(&list, 1.0, &HashMap::new());
+        c.allocate_layers_from_display_list(&list, 1.0, &HashMap::new(), &HashMap::new());
         let root_id = c.root_layer;
         c.layers.get_mut(&root_id).unwrap().display_list_range = (0, 9999);
         let (rr, mut gc, st) = render_deps();
@@ -4492,7 +4604,7 @@ mod autotest_generated {
     fn composite_frame_handles_degenerate_dpi_and_undersized_output() {
         let mut c = CompositorState::new(16, 16);
         let list = dlist(vec![]);
-        c.allocate_layers_from_display_list(&list, 1.0, &HashMap::new());
+        c.allocate_layers_from_display_list(&list, 1.0, &HashMap::new(), &HashMap::new());
         let (rr, mut gc, st) = render_deps();
         c.render_layers(&list, 1.0, &rr, &test_font_manager(), &mut gc, &st).unwrap();
 
@@ -4517,11 +4629,12 @@ mod autotest_generated {
             DisplayListItem::PushOpacity {
                 bounds: wlr(0.0, 0.0, 16.0, 16.0),
                 opacity: 0.0, // fully transparent group
+                opacity_key: None,
             },
             rect_item(0.0, 0.0, 16.0, 16.0, ColorU { r: 255, g: 0, b: 0, a: 255 }),
             DisplayListItem::PopOpacity,
         ]);
-        c.allocate_layers_from_display_list(&list, 1.0, &HashMap::new());
+        c.allocate_layers_from_display_list(&list, 1.0, &HashMap::new(), &HashMap::new());
         let (rr, mut gc, st) = render_deps();
         c.render_layers(&list, 1.0, &rr, &test_font_manager(), &mut gc, &st).unwrap();
         let mut out = AzulPixmap::new(16, 16).unwrap();
@@ -4540,7 +4653,7 @@ mod autotest_generated {
     fn scroll_layer_with_an_unknown_id_is_ok() {
         let mut c = CompositorState::new(32, 32);
         let list = dlist(vec![]);
-        c.allocate_layers_from_display_list(&list, 1.0, &HashMap::new());
+        c.allocate_layers_from_display_list(&list, 1.0, &HashMap::new(), &HashMap::new());
         let (rr, mut gc, _st) = render_deps();
         assert!(
             c.scroll_layer(4242, (0.0, 10.0), &list, 1.0, &rr, &test_font_manager(), &mut gc).is_ok(),
@@ -4556,7 +4669,7 @@ mod autotest_generated {
             opaque_rect(0.0, 0.0, 32.0, 200.0),
             DisplayListItem::PopScrollFrame,
         ]);
-        c.allocate_layers_from_display_list(&list, 1.0, &HashMap::new());
+        c.allocate_layers_from_display_list(&list, 1.0, &HashMap::new(), &HashMap::new());
         let (rr, mut gc, _st) = render_deps();
         c.scroll_layer(1, (0.0, 0.4), &list, 1.0, &rr, &test_font_manager(), &mut gc).unwrap();
         let l = c.layers.values().find(|l| l.scroll_id == Some(1)).unwrap();
@@ -4572,7 +4685,7 @@ mod autotest_generated {
             opaque_rect(0.0, 0.0, 32.0, 200.0),
             DisplayListItem::PopScrollFrame,
         ]);
-        c.allocate_layers_from_display_list(&list, 1.0, &HashMap::new());
+        c.allocate_layers_from_display_list(&list, 1.0, &HashMap::new(), &HashMap::new());
         let (rr, mut gc, _st) = render_deps();
         c.scroll_layer(1, (0.0, 10.0), &list, 1.0, &rr, &test_font_manager(), &mut gc).unwrap();
         let l = c.layers.values().find(|l| l.scroll_id == Some(1)).unwrap();
