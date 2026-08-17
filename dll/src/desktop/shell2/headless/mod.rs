@@ -667,6 +667,18 @@ impl CpuBackend {
         let mut all_damage: Vec<azul_core::geom::LogicalRect>;
         let is_incremental;
 
+        // A PATCHED build may change the item count, which the old-vs-new
+        // item diff reads as structural (None -> full). The patch recorded
+        // its own precise damage at build time — prefer it when the diff
+        // gives up but the build was a splice.
+        let dl_damage = match dl_damage {
+            None if can_reuse_previous_frame
+                && layout_window.layout_cache.last_build_was_patched =>
+            {
+                layout_window.layout_cache.last_patch_damage.clone()
+            }
+            other => other,
+        };
         match dl_damage {
             Some(rects)
                 if rects.is_empty()

@@ -548,6 +548,12 @@ pub struct FrameReport {
     /// those into damage). Cached-DL hits inside `layout_document` do not
     /// count: serving the cache is not building.
     pub dl_rebuilds: u32,
+    /// Whether the LAST display-list build went through the per-IFC patch
+    /// (splice unchanged nodes from the previous DL, re-emit only reflowed
+    /// IFCs / size-changed nodes) rather than a full emission. A text edit
+    /// must land here; a structural change must not. Mirrored from
+    /// `LayoutCache::last_build_was_patched` by the layout funnel.
+    pub last_dl_build_patched: bool,
     /// `true` if `MAX_EVENT_RECURSION_DEPTH` was ever hit since the last reset.
     /// Today the engine only `log_warn`s on this; this flag is what lets a test
     /// turn an invalidation loop into a red assertion instead of a silent cap.
@@ -1523,6 +1529,9 @@ impl LayoutWindow {
                 tree: None,
                 resize_only_hint: false,
             last_reconcile_was_skipped: false,
+            last_reconcile_structure_preserved: false,
+            last_build_was_patched: false,
+            last_patch_damage: None,
             previous_sizes: Vec::new(),
             dom_diff_clean: None,
             last_fingerprint_skips: 0,
@@ -1750,6 +1759,9 @@ impl LayoutWindow {
             system_callbacks,
             debug_messages,
         );
+        // Mirror AFTER the build: the marker describes THIS pass's DL build
+        // (patched splice vs full emission), not the previous one.
+        self.frame_report.last_dl_build_patched = self.layout_cache.last_build_was_patched;
 
         if let Err(ref e) = result {
             if let Some(msgs) = debug_messages.as_mut() {
@@ -3036,6 +3048,9 @@ impl LayoutWindow {
             tree: None,
             resize_only_hint: false,
             last_reconcile_was_skipped: false,
+            last_reconcile_structure_preserved: false,
+            last_build_was_patched: false,
+            last_patch_damage: None,
             previous_sizes: Vec::new(),
             dom_diff_clean: None,
             last_fingerprint_skips: 0,
@@ -4746,6 +4761,9 @@ impl LayoutWindow {
             tree: None,
             resize_only_hint: false,
             last_reconcile_was_skipped: false,
+            last_reconcile_structure_preserved: false,
+            last_build_was_patched: false,
+            last_patch_damage: None,
             previous_sizes: Vec::new(),
             dom_diff_clean: None,
             last_fingerprint_skips: 0,

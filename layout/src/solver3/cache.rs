@@ -401,6 +401,23 @@ pub struct LayoutCache {
     /// "skipped the walk" from "walked and found everything clean" (both
     /// produce identical pixels and identical reuse censuses).
     pub last_reconcile_was_skipped: bool,
+    /// The last reconcile RAN and preserved the tree's structure exactly —
+    /// zero fresh nodes, zero drops, indices stable. Content changes (a text
+    /// edit reflowing its IFC) land here, and it is what lets the per-IFC
+    /// display-list patch engage for them: unchanged nodes splice their
+    /// items from the previous DL, only reflowed IFCs re-emit.
+    pub last_reconcile_structure_preserved: bool,
+    /// Whether the last display-list BUILD went through the per-IFC patch
+    /// (splice + re-emit) rather than a full emission — the honest marker
+    /// the `dl_text_patch` law reads.
+    pub last_build_was_patched: bool,
+    /// The PRECISE damage of the last patched build (logical px): old ∪ new
+    /// bounds of every re-emitted or moved/resized node. A patched build may
+    /// change the ITEM COUNT (the new text emits different runs), which
+    /// makes the renderer's old-vs-new item diff bail to a full repaint —
+    /// but the patch knows exactly what it touched, so the renderers prefer
+    /// this when the diff gives up. `None` after a full emission.
+    pub last_patch_damage: Option<Vec<azul_core::geom::LogicalRect>>,
     /// `used_size` of every layout node as of the PREVIOUS pass — captured at
     /// the resize-skip branch (the pass overwrites `used_size` in the shared
     /// tree object). DL patching diffs these against the new sizes: a node
@@ -613,6 +630,11 @@ pub struct ReconciliationResult {
     /// Layout-dirty, with NO warm data. On a same-DOM relayout (a pure
     /// resize) this being anything but 0 means warm caches were thrown away.
     pub fresh_nodes: usize,
+    /// The INDICES of those fresh nodes — the display-list patch re-emits
+    /// exactly these (their previous items describe content that no longer
+    /// exists: an edited text run, a same-count replace), instead of the
+    /// whole intrinsic-dirty ancestor chain whose items are unchanged.
+    pub fresh_indices: BTreeSet<usize>,
     /// Fingerprint computations skipped because the pre-cascade DOM diff
     /// proved the node (and its ancestors) unchanged. See
     /// `LayoutCache::dom_diff_clean`.
@@ -1426,6 +1448,7 @@ pub fn reconcile_recursive(
             new_parent_idx,
             debug_messages,
         );
+        recon.fresh_indices.insert(idx);
         // Blockify replaced/inline flex-or-grid items (CSS Display 3 §2.7). The
         // full `process_node` build does this; this incremental path called
         // `create_node_from_dom` directly and skipped it, so a flex-item <img>

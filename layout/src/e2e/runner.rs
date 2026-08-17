@@ -1517,16 +1517,17 @@ impl Runner {
                             ));
                     }
                 }
-                // The incremental layout cache keys its shaped-text runs on the
-                // DOM pointer, which a text mutation does not change — so the
-                // next relayout happily reused the OLD glyph runs and the screen
-                // kept showing the previous text (damage was reported, yet not
-                // one pixel differed). Drop the incremental cache so the text is
-                // re-shaped…
-                lw.layout_cache.reset_incremental();
-                // …and rebuild the display list, which otherwise still carries
-                // the old glyph run.
-                lw.regenerate_display_list_for_dom(dom_id);
+                // NO cache reset (USER mandate: per-IFC text patching). The
+                // reconcile fingerprints node CONTENT, so the changed text
+                // node hashes differently, misses its cached shaping, and
+                // re-shapes exactly its own IFC — while the warm tree and the
+                // previous display list survive, which is what lets the
+                // STRUCTURE-PRESERVED DL patch splice every untouched node
+                // and re-emit only the edited paragraph. The old
+                // `reset_incremental()` here was the hammer that made every
+                // text edit a cold full pass and a full-frame repaint.
+                // Staleness is guarded by bug_dom_mutation_no_damage's pixel
+                // LIVENESS assert; the cheapness by dl_text_patch.
                 ProcessEventResult::ShouldIncrementalRelayout
             }
 

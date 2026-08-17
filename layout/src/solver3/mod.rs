@@ -579,6 +579,12 @@ pub fn layout_document<T: ParsedFontTrait + Sync + 'static>(
         (tree, r)
     } else {
         cache.last_reconcile_was_skipped = false;
+        // DL-patching input for the STRUCTURE-PRESERVED case (a text edit):
+        // the sizes the previous pass computed, captured before reconcile
+        // consumes the old tree.
+        if let Some(t) = cache.tree.as_ref() {
+            cache.previous_sizes = t.nodes.iter().map(|n| n.used_size).collect();
+        }
         let dom_diff_clean = cache.dom_diff_clean.take();
         cache::reconcile_and_invalidate(&mut ctx_temp, cache, viewport, dom_diff_clean)?
     };
@@ -589,6 +595,15 @@ pub fn layout_document<T: ParsedFontTrait + Sync + 'static>(
     cache.last_reconcile_reused = recon_result.reused_nodes;
     cache.last_reconcile_fresh = recon_result.fresh_nodes;
     cache.last_fingerprint_skips = recon_result.fingerprint_skips;
+    // Structure preserved = the same-shaped tree: full reuse+fresh
+    // accounting at an UNCHANGED node count (content changes make their
+    // node FRESH — a text edit — but assign the same indices in the same
+    // traversal; adds/removes change the count and disqualify). Fresh nodes
+    // are force-re-emitted by the DL patch below, so a same-count REPLACE is
+    // sound too: its new content never splices stale items.
+    cache.last_reconcile_structure_preserved = !cache.last_reconcile_was_skipped
+        && recon_result.reused_nodes + recon_result.fresh_nodes == new_tree_val.nodes.len()
+        && cache.previous_sizes.len() == new_tree_val.nodes.len();
     // [g56 FIX] Box the LayoutTree onto the HEAP. The lifted `&mut new_tree` passed to
     // calculate_intrinsic_sizes was mis-lifted (callee saw nodes.len()=0 while the caller saw 2)
     // because a stack/SROA'd `new_tree`'s address doesn't survive the cross-function lifted call
@@ -1229,7 +1244,14 @@ pub fn layout_document<T: ParsedFontTrait + Sync + 'static>(
         // `AZ_NO_DL_PATCH=1` is the runtime escape hatch (and the A/B lever
         // for the golden-equality test).
         let patch_disabled = !display_list::dl_patching_enabled();
-        let patch = if cache.last_reconcile_was_skipped
+        // Two ways in: the resize-skip pass (same tree object), or a
+        // STRUCTURE-PRESERVED reconcile with no CSS dirt — a text edit
+        // reflowed its IFC, everything else splices (per-IFC text patching,
+        // USER mandate 2026-08-17). CSS-dirty passes must not splice: their
+        // items changed paint without reflowing.
+        let structure_ok = cache.last_reconcile_was_skipped
+            || (cache.last_reconcile_structure_preserved && css_dirty.is_empty());
+        let patch = if structure_ok
             && !patch_disabled
             && cache.previous_sizes.len() == new_tree.nodes.len()
             && cache.calculated_positions.len() == calculated_positions.len()
@@ -1237,15 +1259,52 @@ pub fn layout_document<T: ParsedFontTrait + Sync + 'static>(
             cache.cached_display_list.as_ref().and_then(|(_, _, _, prev_dl)| {
                 let new_sizes: Vec<Option<LogicalSize>> =
                     new_tree.nodes.iter().map(|n| n.used_size).collect();
+                // Fresh/content-changed nodes must RE-EMIT, never splice —
+                // their previous items describe content that no longer
+                // exists (the text-edit case, and same-count replaces). The
+                // intrinsic-dirty ANCESTOR chain is deliberately not here:
+                // an ancestor whose geometry did not change splices its
+                // unchanged items (size/position changes re-emit via
+                // PatchState's own size diff).
+                let mut reemit = ctx.reflowed_ifcs.clone();
+                reemit.extend(recon_result.fresh_indices.iter().copied());
                 display_list::PatchState::build(
                     prev_dl,
                     &cache.calculated_positions, // last pass's positions (replaced later)
                     &calculated_positions,
                     &cache.previous_sizes,
                     &new_sizes,
-                    &ctx.reflowed_ifcs,
+                    &reemit,
                 )
             })
+        } else {
+            None
+        };
+        cache.last_build_was_patched = patch.is_some();
+        cache.last_patch_damage = if patch.is_some() {
+            // The patch's own damage: old ∪ new bounds of every node that
+            // re-emitted OR moved/resized. Precise where the item diff must
+            // give up (a re-emitted IFC may change the item count).
+            let mut rects: Vec<azul_core::geom::LogicalRect> = Vec::new();
+            let mut reemit = ctx.reflowed_ifcs.clone();
+            reemit.extend(recon_result.fresh_indices.iter().copied());
+            for (idx, node) in new_tree.nodes.iter().enumerate() {
+                let old_pos = pos_get(&cache.calculated_positions, idx);
+                let new_pos = pos_get(&calculated_positions, idx);
+                let old_size = cache.previous_sizes.get(idx).copied().flatten();
+                let new_size = node.used_size;
+                let changed = reemit.contains(&idx) || old_pos != new_pos || old_size != new_size;
+                if !changed {
+                    continue;
+                }
+                if let (Some(p), Some(sz)) = (old_pos, old_size) {
+                    rects.push(azul_core::geom::LogicalRect::new(p, sz));
+                }
+                if let (Some(p), Some(sz)) = (new_pos, new_size) {
+                    rects.push(azul_core::geom::LogicalRect::new(p, sz));
+                }
+            }
+            Some(rects)
         } else {
             None
         };
@@ -1258,6 +1317,7 @@ pub fn layout_document<T: ParsedFontTrait + Sync + 'static>(
             let new_sizes: Vec<Option<LogicalSize>> =
                 new_tree.nodes.iter().map(|n| n.used_size).collect();
             let mut reemit_full = ctx.reflowed_ifcs.clone();
+            reemit_full.extend(recon_result.fresh_indices.iter().copied());
             for (i, (prev, new)) in cache
                 .previous_sizes
                 .iter()
