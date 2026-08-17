@@ -2242,6 +2242,41 @@ mod autotest_generated {
         assert!(v.is_infinite() && v > 0.0, "expected +inf, got {v}");
     }
 
+    /// The full shorthand grammar, order-insensitive except duration-before-
+    /// delay: `<name> <duration> [<delay>] [<timing>] [infinite | <count>]`.
+    #[test]
+    fn style_animation_shorthand_parses_delay_iterations_and_lists() {
+        let a = parse_style_animation("spin 1s linear infinite").unwrap();
+        assert_eq!(a.name.as_str(), "spin");
+        assert_eq!(a.duration.millis(), 1000);
+        assert_eq!(a.delay.millis(), 0);
+        assert_eq!(a.iterations, AnimationIterationCount::Infinite);
+        assert_eq!(a.timing, AnimationTiming::Linear);
+
+        // First time value = duration, second = delay (the CSS order rule).
+        let b = parse_style_animation("all 2s 500ms").unwrap();
+        assert_eq!(b.duration.millis(), 2000);
+        assert_eq!(b.delay.millis(), 500);
+        assert_eq!(b.iterations, AnimationIterationCount::Count(1));
+
+        let c = parse_style_animation("bounce 300ms ease-out 3").unwrap();
+        assert_eq!(c.iterations, AnimationIterationCount::Count(3));
+
+        // A comma-separated LIST: per-property clocks.
+        let v = parse_style_animation_vec("width 1s linear, color 2s ease-out").unwrap();
+        let v = v.as_ref();
+        assert_eq!(v.len(), 2);
+        assert_eq!(v[0].name.as_str(), "width");
+        assert_eq!(v[0].duration.millis(), 1000);
+        assert_eq!(v[1].name.as_str(), "color");
+        assert_eq!(v[1].duration.millis(), 2000);
+        assert_eq!(v[1].timing, AnimationTiming::EaseOut);
+
+        // Two names in one entry cannot both be the name.
+        assert!(parse_style_animation("foo bar 1s").is_err());
+        assert!(parse_style_animation_vec("").is_err());
+    }
+
     #[test]
     fn evaluate_of_a_degenerate_flat_bezier_is_constant_zero() {
         let f = AnimationInterpolationFunction::CubicBezier(SvgCubicCurve::new(
@@ -2389,9 +2424,26 @@ impl AnimationTiming {
     }
 }
 
-/// Value of `animation` / `-azul-animation-in` / `-azul-animation-out`:
-/// `<name> <duration> [<timing>]`, e.g. `flyOutRight 1s`,
-/// `all 2s ease-out`, `fooFunc 500ms spring`.
+/// How many times an animation plays. `Infinite` is what makes a CSS
+/// spinner expressible; presence EXITS clamp it to one run (an infinite
+/// exit would never reap its zombie).
+#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[repr(C, u8)]
+pub enum AnimationIterationCount {
+    Count(u16),
+    Infinite,
+}
+
+impl Default for AnimationIterationCount {
+    fn default() -> Self {
+        Self::Count(1)
+    }
+}
+
+/// One entry of `animation` / `-azul-animation-in` / `-azul-animation-out`:
+/// `<name> <duration> [<delay>] [<timing>] [infinite | <count>]`, e.g.
+/// `flyOutRight 1s`, `all 2s ease-out`, `spin 1s linear infinite`,
+/// `fooFunc 500ms 200ms spring`.
 #[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
 #[repr(C)]
 pub struct StyleAnimation {
@@ -2399,9 +2451,15 @@ pub struct StyleAnimation {
     /// transition scope), a `@keyframes` name, or a registered native
     /// animation function name.
     pub name: crate::AzString,
-    /// How long one run takes. Springs ignore this for settling (they run on
-    /// physics) but use it as the retarget time base.
+    /// How long ONE iteration takes. Springs ignore this for settling (they
+    /// run on physics) but use it as the retarget time base.
     pub duration: crate::props::basic::time::CssDuration,
+    /// Wall-clock wait before the first iteration starts (staggered list
+    /// entrances). Zero when omitted. CSS order rule: the FIRST time value
+    /// in the shorthand is the duration, the second is the delay.
+    pub delay: crate::props::basic::time::CssDuration,
+    /// `infinite` or a play count; `1` when omitted.
+    pub iterations: AnimationIterationCount,
     /// Timing keyword; `ease` when omitted.
     pub timing: AnimationTiming,
 }
@@ -2411,6 +2469,8 @@ impl Default for StyleAnimation {
         Self {
             name: crate::AzString::from_const_str(""),
             duration: crate::props::basic::time::CssDuration::from_millis(0),
+            delay: crate::props::basic::time::CssDuration::from_millis(0),
+            iterations: AnimationIterationCount::Count(1),
             timing: AnimationTiming::Ease,
         }
     }
@@ -2419,12 +2479,25 @@ impl Default for StyleAnimation {
 impl crate::css::PrintAsCssValue for StyleAnimation {
     fn print_as_css_value(&self) -> alloc::string::String {
         use alloc::string::ToString;
-        alloc::format!(
-            "{} {} {}",
+        let mut out = alloc::format!(
+            "{} {}",
             self.name.as_str(),
             self.duration.print_as_css_value(),
-            self.timing.as_css_str()
-        )
+        );
+        if self.delay.millis() != 0 {
+            out.push(' ');
+            out.push_str(&self.delay.print_as_css_value());
+        }
+        match self.iterations {
+            AnimationIterationCount::Count(1) => {}
+            AnimationIterationCount::Count(n) => {
+                out.push_str(&alloc::format!(" {n}"));
+            }
+            AnimationIterationCount::Infinite => out.push_str(" infinite"),
+        }
+        out.push(' ');
+        out.push_str(self.timing.as_css_str());
+        out
         .trim()
         .to_string()
     }
@@ -2478,35 +2551,125 @@ impl StyleAnimationParseErrorOwned {
 /// order is name-first (web `animation` shorthand accepts more permutations —
 /// the strict form keeps ambiguity out of native function names).
 pub fn parse_style_animation(input: &str) -> Result<StyleAnimation, StyleAnimationParseError<'_>> {
-    let mut parts = input.split_whitespace();
-    let name = parts.next().ok_or(StyleAnimationParseError::Empty(input))?;
-    if name.is_empty() {
-        return Err(StyleAnimationParseError::Empty(input));
+    // CSS-shorthand-style, order-insensitive except the standard rule that
+    // the FIRST time value is the duration and the SECOND is the delay:
+    //   <name> <duration> [<delay>] [<timing>] [infinite | <count>]
+    let mut name: Option<&str> = None;
+    let mut duration: Option<crate::props::basic::time::CssDuration> = None;
+    let mut delay: Option<crate::props::basic::time::CssDuration> = None;
+    let mut timing: Option<AnimationTiming> = None;
+    let mut iterations: Option<AnimationIterationCount> = None;
+    for tok in input.split_whitespace() {
+        if let Ok(d) = crate::props::basic::time::parse_duration(tok) {
+            if duration.is_none() {
+                duration = Some(d);
+            } else if delay.is_none() {
+                delay = Some(d);
+            } else {
+                return Err(StyleAnimationParseError::Empty(input));
+            }
+        } else if let Some(t) = AnimationTiming::from_css_str(tok) {
+            if timing.replace(t).is_some() {
+                return Err(StyleAnimationParseError::Empty(input));
+            }
+        } else if tok.eq_ignore_ascii_case("infinite") {
+            if iterations.replace(AnimationIterationCount::Infinite).is_some() {
+                return Err(StyleAnimationParseError::Empty(input));
+            }
+        } else if let Ok(n) = tok.parse::<u16>() {
+            if iterations.replace(AnimationIterationCount::Count(n)).is_some() {
+                return Err(StyleAnimationParseError::Empty(input));
+            }
+        } else if name.replace(tok).is_some() {
+            // Two unclassifiable tokens: the second cannot be the name too.
+            return Err(StyleAnimationParseError::Empty(input));
+        }
     }
-    let duration = match parts.next() {
-        Some(d) => crate::props::basic::time::parse_duration(d)
-            .map_err(StyleAnimationParseError::Duration)?,
-        None => crate::props::basic::time::CssDuration::from_millis(0),
-    };
-    let timing = match parts.next() {
-        Some(t) => AnimationTiming::from_css_str(t)
-            .ok_or(StyleAnimationParseError::Empty(input))?,
-        None => AnimationTiming::Ease,
-    };
+    let name = name.ok_or(StyleAnimationParseError::Empty(input))?;
     Ok(StyleAnimation {
         name: name.to_string().into(),
-        duration,
-        timing,
+        duration: duration.unwrap_or(crate::props::basic::time::CssDuration::from_millis(0)),
+        delay: delay.unwrap_or(crate::props::basic::time::CssDuration::from_millis(0)),
+        iterations: iterations.unwrap_or_default(),
+        timing: timing.unwrap_or(AnimationTiming::Ease),
     })
+}
+
+/// The full `animation` value: a COMMA-SEPARATED list, one entry per
+/// animation, so different properties can animate on different clocks
+/// (`animation: width 1s linear, color 2s ease-out`).
+pub fn parse_style_animation_vec(
+    input: &str,
+) -> Result<StyleAnimationVec, StyleAnimationParseError<'_>> {
+    let mut out = alloc::vec::Vec::new();
+    for seg in input.split(',') {
+        let seg = seg.trim();
+        if seg.is_empty() {
+            continue;
+        }
+        out.push(parse_style_animation(seg)?);
+    }
+    if out.is_empty() {
+        return Err(StyleAnimationParseError::Empty(input));
+    }
+    Ok(out.into())
+}
+
+crate::impl_vec!(
+    StyleAnimation,
+    StyleAnimationVec,
+    StyleAnimationVecDestructor,
+    StyleAnimationVecDestructorType,
+    StyleAnimationVecSlice,
+    OptionStyleAnimation
+);
+crate::impl_vec_debug!(StyleAnimation, StyleAnimationVec);
+crate::impl_vec_clone!(StyleAnimation, StyleAnimationVec, StyleAnimationVecDestructor);
+crate::impl_vec_partialeq!(StyleAnimation, StyleAnimationVec);
+crate::impl_vec_eq!(StyleAnimation, StyleAnimationVec);
+crate::impl_vec_hash!(StyleAnimation, StyleAnimationVec);
+crate::impl_vec_partialord!(StyleAnimation, StyleAnimationVec);
+crate::impl_vec_ord!(StyleAnimation, StyleAnimationVec);
+crate::impl_option!(
+    StyleAnimation,
+    OptionStyleAnimation,
+    copy = false,
+    [Debug, Clone, PartialEq]
+);
+
+impl crate::css::PrintAsCssValue for StyleAnimationVec {
+    fn print_as_css_value(&self) -> alloc::string::String {
+        self.as_ref()
+            .iter()
+            .map(crate::css::PrintAsCssValue::print_as_css_value)
+            .collect::<alloc::vec::Vec<_>>()
+            .join(", ")
+    }
+}
+
+impl crate::codegen::format::FormatAsRustCode for StyleAnimationVec {
+    fn format_as_rust_code(&self, tabs: usize) -> alloc::string::String {
+        use crate::codegen::format::FormatAsRustCode as _;
+        alloc::format!(
+            "StyleAnimationVec::from_const_slice(&[{}])",
+            self.as_ref()
+                .iter()
+                .map(|a| a.format_as_rust_code(tabs))
+                .collect::<alloc::vec::Vec<_>>()
+                .join(", ")
+        )
+    }
 }
 
 impl crate::codegen::format::FormatAsRustCode for StyleAnimation {
     fn format_as_rust_code(&self, _tabs: usize) -> alloc::string::String {
         use crate::codegen::format::FormatAsRustCode as _;
         alloc::format!(
-            "StyleAnimation {{ name: AzString::from_const_str({:?}), duration: {}, timing: AnimationTiming::{:?} }}",
+            "StyleAnimation {{ name: AzString::from_const_str({:?}), duration: {}, delay: {}, iterations: AnimationIterationCount::{:?}, timing: AnimationTiming::{:?} }}",
             self.name.as_str(),
             self.duration.format_as_rust_code(0),
+            self.delay.format_as_rust_code(0),
+            self.iterations,
             self.timing
         )
     }

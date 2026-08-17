@@ -25270,13 +25270,13 @@
                                     "type": "StringSetValue"
                                 },
                                 "Animation": {
-                                    "type": "StyleAnimationValue"
+                                    "type": "StyleAnimationVecValue"
                                 },
                                 "AnimationIn": {
-                                    "type": "StyleAnimationValue"
+                                    "type": "StyleAnimationVecValue"
                                 },
                                 "AnimationOut": {
-                                    "type": "StyleAnimationValue"
+                                    "type": "StyleAnimationVecValue"
                                 }
                             }
                         ],
@@ -44610,7 +44610,7 @@
                     },
                     "StyleAnimation": {
                         "doc": [
-                            "Value of `animation` (diff-triggered transitions), `-azul-animation-in` (mount) and `-azul-animation-out` (unmount): `<name> <duration> [<timing>]`. The name is `all`/a property name (for `animation`), a `@keyframes` name, or a registered native animation function."
+                            "One entry of `animation` / `-azul-animation-in` / `-azul-animation-out`: `<name> <duration> [<delay>] [<timing>] [infinite | <count>]`, e.g. `flyOutRight 1s`, `all 2s ease-out`, `spin 1s linear infinite`, `fooFunc 500ms 200ms spring`."
                         ],
                         "external": "azul_css::props::basic::animation::StyleAnimation",
                         "derive": [
@@ -44634,6 +44634,19 @@
                             {
                                 "duration": {
                                     "type": "CssDuration"
+                                }
+                            },
+                            {
+                                "delay": {
+                                    "type": "CssDuration",
+                                    "doc": [
+                                        "Wall-clock wait before the first iteration starts (staggered list entrances). Zero when omitted; the FIRST time value in the shorthand is the duration, the second is the delay."
+                                    ]
+                                }
+                            },
+                            {
+                                "iterations": {
+                                    "type": "AnimationIterationCount"
                                 }
                             },
                             {
@@ -44848,6 +44861,46 @@
                             }
                         ],
                         "repr": "C"
+                    },
+                    "AnimationIterationCount": {
+                        "doc": [
+                            "How many times an animation plays. `Infinite` is what makes a CSS spinner expressible; presence EXITS clamp it to one run (an infinite exit would never reap its zombie)."
+                        ],
+                        "external": "azul_css::props::basic::animation::AnimationIterationCount",
+                        "custom_impls": [
+                            "Default"
+                        ],
+                        "derive": [
+                            "Debug",
+                            "Copy",
+                            "Clone",
+                            "PartialEq",
+                            "Eq",
+                            "PartialOrd",
+                            "Ord",
+                            "Hash"
+                        ],
+                        "enum_fields": [
+                            {
+                                "Count": {
+                                    "type": "u16"
+                                },
+                                "Infinite": {}
+                            }
+                        ],
+                        "repr": "C, u8"
+                    },
+                    "StyleAnimationVecValue": {
+                        "doc": [
+                            "Type alias for CssPropertyValue < StyleAnimationVec >"
+                        ],
+                        "external": "azul_css::props::property::StyleAnimationVecValue",
+                        "type_alias": {
+                            "target": "CssPropertyValue",
+                            "generic_args": [
+                                "StyleAnimationVec"
+                            ]
+                        }
                     }
                 }
             },
@@ -96558,6 +96611,126 @@
                             "fn_args": [
                                 {
                                     "type": "AnimationFunctionVec",
+                                    "ref_kind": "mutptr"
+                                }
+                            ],
+                            "returns": null
+                        }
+                    },
+                    "StyleAnimationVec": {
+                        "doc": [
+                            "Wrapper over a Rust-allocated `Vec<StyleAnimation>"
+                        ],
+                        "external": "azul_css::props::basic::animation::StyleAnimationVec",
+                        "custom_impls": [
+                            "Clone",
+                            "Debug",
+                            "Eq",
+                            "Hash",
+                            "Ord",
+                            "PartialEq",
+                            "PartialOrd"
+                        ],
+                        "custom_destructor": true,
+                        "derive": [
+                            "Debug"
+                        ],
+                        "struct_fields": [
+                            {
+                                "ptr": {
+                                    "type": "StyleAnimation",
+                                    "ref_kind": "constptr"
+                                },
+                                "len": {
+                                    "type": "usize"
+                                },
+                                "cap": {
+                                    "type": "usize"
+                                },
+                                "destructor": {
+                                    "type": "StyleAnimationVecDestructor"
+                                }
+                            }
+                        ],
+                        "functions": {
+                            "create": {
+                                "doc": [
+                                    "Creates an empty `StyleAnimationVec`"
+                                ],
+                                "fn_args": [],
+                                "returns": {
+                                    "type": "StyleAnimationVec"
+                                },
+                                "fn_body": "StyleAnimationVec::new()"
+                            },
+                            "len": {
+                                "doc": [
+                                    "Returns the number of elements in the Vec"
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "usize"
+                                },
+                                "fn_body": "object.len()"
+                            },
+                            "is_empty": {
+                                "doc": [
+                                    "Returns whether the Vec is empty"
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "bool"
+                                },
+                                "fn_body": "object.is_empty()"
+                            },
+                            "from_item": {
+                                "doc": [
+                                    "Creates a `StyleAnimationVec` containing a single element"
+                                ],
+                                "fn_args": [
+                                    {
+                                        "item": "StyleAnimation"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "StyleAnimationVec"
+                                },
+                                "fn_body": "StyleAnimationVec::from_item(item)"
+                            }
+                        },
+                        "repr": "C"
+                    },
+                    "StyleAnimationVecDestructor": {
+                        "external": "azul_css::props::basic::animation::StyleAnimationVecDestructor",
+                        "derive": [
+                            "Debug"
+                        ],
+                        "enum_fields": [
+                            {
+                                "DefaultRust": {},
+                                "NoDestructor": {},
+                                "External": {
+                                    "type": "StyleAnimationVecDestructorType"
+                                },
+                                "AlreadyDestroyed": {}
+                            }
+                        ],
+                        "repr": "C, u8"
+                    },
+                    "StyleAnimationVecDestructorType": {
+                        "external": "azul_css::props::basic::animation::StyleAnimationVecDestructorType",
+                        "callback_typedef": {
+                            "fn_args": [
+                                {
+                                    "type": "StyleAnimationVec",
                                     "ref_kind": "mutptr"
                                 }
                             ],

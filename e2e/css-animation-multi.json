@@ -1,0 +1,66 @@
+{
+  "name": "css_animation_multi",
+  "description": "PER-PROPERTY CLOCKS: `animation: width 1s linear, opacity 2s linear` is a comma-separated LIST, each entry scoping its own property with its own duration. One diff changes BOTH width (200px -> 40px) and opacity (1 -> 0.5) while DROPPING the animation declaration (old-tree-governs, again): two transitions must run concurrently, the width one finishing at 1s while the opacity one is still mid-flight - transitions counts 2 -> 1 -> 0, and the width measures its linear midpoint and then its final value while opacity is still walking. Scoping is also negative: a property NOT named by any list entry (background) must snap instantly even though other properties are animating.",
+  "setup": {
+    "window_width": 400,
+    "window_height": 300,
+    "dpi": 96
+  },
+  "steps": [
+    {
+      "op": "mount",
+      "html": [
+        "<div id=\"root\">",
+        "  <div id=\"sidebar\">side</div>",
+        "  <div id=\"card\">card</div>",
+        "</div>"
+      ],
+      "css": [
+        "html, body { margin: 0; padding: 0; width: 100%; height: 100%; }",
+        "#root { width: 100%; height: 100%; display: flex; flex-direction: row; }",
+        "#sidebar { width: 200px; height: 100%; opacity: 1.0; background: #2255aa; animation: width 1s linear, opacity 2s linear; }",
+        "#card { flex-grow: 1; height: 100%; background: #cc3333; }"
+      ]
+    },
+    { "op": "wait_frame" },
+    {
+      "op": "mount",
+      "html": [
+        "<div id=\"root\">",
+        "  <div id=\"sidebar\">side</div>",
+        "  <div id=\"card\">card</div>",
+        "</div>"
+      ],
+      "css": [
+        "html, body { margin: 0; padding: 0; width: 100%; height: 100%; }",
+        "#root { width: 100%; height: 100%; display: flex; flex-direction: row; }",
+        "#sidebar { width: 40px; height: 100%; opacity: 0.5; background: #33aa55; }",
+        "#card { flex-grow: 1; height: 100%; background: #cc3333; }"
+      ]
+    },
+    { "op": "wait_frame" },
+    { "op": "get_animations" },
+    { "op": "assert_response", "type": "animations", "contains": "\"transitions\":2" },
+    { "op": "get_node_layout", "selector": "#sidebar" },
+    { "op": "assert_response", "type": "node_layout", "contains": "\"width\":200.0" },
+    { "op": "tick_animations", "dt_micros": 16666, "steps": 30 },
+    { "op": "wait_frame" },
+    { "op": "get_node_layout", "selector": "#sidebar" },
+    { "op": "assert_response", "type": "node_layout", "contains": "\"width\":120.0" },
+    { "op": "get_animations" },
+    { "op": "assert_response", "type": "animations", "contains": "\"transitions\":2" },
+    { "op": "tick_animations", "dt_micros": 16666, "steps": 36 },
+    { "op": "wait_frame" },
+    { "op": "get_animations" },
+    { "op": "assert_response", "type": "animations", "contains": "\"transitions\":1" },
+    { "op": "get_node_layout", "selector": "#sidebar" },
+    { "op": "assert_response", "type": "node_layout", "contains": "\"width\":40.0" },
+    { "op": "tick_animations", "dt_micros": 16666, "steps": 60 },
+    { "op": "wait_frame" },
+    { "op": "get_animations" },
+    { "op": "assert_response", "type": "animations", "contains": "\"transitions\":0" },
+    { "op": "assert_manager_invariants" },
+    { "op": "wait_frame" },
+    { "op": "assert_state_machines_idle" }
+  ]
+}

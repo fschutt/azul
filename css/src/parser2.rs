@@ -4038,7 +4038,8 @@ mod keyframes_tests {
                 continue;
             };
             if let crate::props::property::CssProperty::AnimationOut(v) = prop {
-                let a = v.get_property().cloned().unwrap_or_default();
+                let list = v.get_property().cloned().unwrap_or_default();
+                let a = &list.as_ref()[0];
                 assert_eq!(a.name.as_str(), "flyOutRight");
                 assert_eq!(
                     a.duration,
@@ -4047,7 +4048,8 @@ mod keyframes_tests {
                 found_out = true;
             }
             if let crate::props::property::CssProperty::Animation(v) = prop {
-                let a = v.get_property().cloned().unwrap_or_default();
+                let list = v.get_property().cloned().unwrap_or_default();
+                let a = &list.as_ref()[0];
                 assert_eq!(a.name.as_str(), "all");
                 assert_eq!(
                     a.duration,

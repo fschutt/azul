@@ -6862,7 +6862,7 @@ impl LayoutWindow {
                 // instead of instant updates. Because a mid-flight override
                 // lives in the old cache too, `before` reads the CURRENT
                 // animated value — retargeting falls out for free.
-                let old_anim = old_cache
+                let old_anims = old_cache
                     .get_property(
                         old_nd,
                         &m.old_node_id,
@@ -6890,7 +6890,7 @@ impl LayoutWindow {
                         // arm, which upgrades rather than downgrades.
                         worst = worst.max(ty.relayout_scope(false));
 
-                        if let Some(anim) = &old_anim {
+                        if let Some(anims) = &old_anims {
                             // The animation meta-properties themselves never
                             // transition — `animation` appearing/disappearing
                             // is a mode switch, not a value to tween.
@@ -6900,9 +6900,14 @@ impl LayoutWindow {
                                     | azul_css::props::property::CssPropertyType::AnimationIn
                                     | azul_css::props::property::CssPropertyType::AnimationOut
                             );
-                            let covered = anim.name.as_str() == "all"
-                                || anim.name.as_str() == ty.to_str();
-                            if covered && !meta {
+                            // A LIST scopes properties independently
+                            // (`animation: width 1s, color 2s`): the LAST
+                            // covering entry wins, web-cascade style.
+                            let winner = anims.as_ref().iter().rev().find(|anim| {
+                                anim.name.as_str() == "all"
+                                    || anim.name.as_str() == ty.to_str()
+                            });
+                            if let (Some(anim), false) = (winner, meta) {
                                 captured_transitions.push(CssTransition {
                                     node: m.new_node_id,
                                     prop_type: *ty,
@@ -6916,6 +6921,7 @@ impl LayoutWindow {
                                     ),
                                     t: 0.0,
                                     duration_s: anim.duration.millis() as f32 / 1000.0,
+                                    delay_s: anim.delay.millis() as f32 / 1000.0,
                                     timing: anim.timing,
                                     scope: ty.relayout_scope(false),
                                 });
@@ -7021,14 +7027,23 @@ impl LayoutWindow {
                             else {
                                 return None;
                             };
-                            resolve_named_track(
-                                v.get_property()?,
-                                &retained.styled_dom.css_property_cache.ptr.retained_author_css,
-                                &anim_registry,
-                                *rect,
-                            )
+                            // A LIST of animations: the first entry whose
+                            // name resolves wins (CSS-fallback style).
+                            v.get_property()?.as_ref().iter().find_map(|anim| {
+                                resolve_named_track(
+                                    anim,
+                                    &retained.styled_dom.css_property_cache.ptr.retained_author_css,
+                                    &anim_registry,
+                                    *rect,
+                                )
+                            })
                         });
-                        if let Some(track) = named {
+                        if let Some(mut track) = named {
+                            // An infinite EXIT would never reap its zombie —
+                            // clamp to one run (documented on the field).
+                            if track.iterations_left.is_none() {
+                                track.iterations_left = Some(1);
+                            }
                             tracks.insert(*node, track);
                             continue;
                         }
@@ -7164,12 +7179,14 @@ impl LayoutWindow {
                 let rect = self
                     .get_node_bounds(dom_id, *node_id)
                     .map(layout_rect_to_logical)?;
-                resolve_named_track(
-                    v.get_property()?,
-                    &sd.css_property_cache.ptr.retained_author_css,
-                    &anim_registry,
-                    rect,
-                )
+                v.get_property()?.as_ref().iter().find_map(|anim| {
+                    resolve_named_track(
+                        anim,
+                        &sd.css_property_cache.ptr.retained_author_css,
+                        &anim_registry,
+                        rect,
+                    )
+                })
             });
             if let Some(track) = named_in {
                 self.live_tracks.insert(*node_id, track);
@@ -7375,14 +7392,28 @@ impl LayoutWindow {
                 .anim_transform_keys
                 .entry(*node_id)
                 .or_insert_with(azul_core::resources::TransformKey::unique);
+            // Row-vector affine with scale/rotate about the node's CENTER,
+            // folded into the translation row (logical units, like the
+            // manager's flip matrices).
+            let (sin, cos) = s.rotate_deg.to_radians().sin_cos();
+            let (a, b) = (s.scale_x * cos, s.scale_x * sin);
+            let (c, d) = (-s.scale_y * sin, s.scale_y * cos);
+            let (cx, cy) = info.as_ref().map_or((0.0, 0.0), |i| {
+                (i.rect.size.width / 2.0, i.rect.size.height / 2.0)
+            });
             cache.anim_current_transform_values.insert(
                 *node_id,
                 azul_core::transform::ComputedTransform3D {
                     m: [
-                        [1.0, 0.0, 0.0, 0.0],
-                        [0.0, 1.0, 0.0, 0.0],
+                        [a, b, 0.0, 0.0],
+                        [c, d, 0.0, 0.0],
                         [0.0, 0.0, 1.0, 0.0],
-                        [s.translate_x, s.translate_y, 0.0, 1.0],
+                        [
+                            cx + s.translate_x - cx * a - cy * c,
+                            cy + s.translate_y - cx * b - cy * d,
+                            0.0,
+                            1.0,
+                        ],
                     ],
                 },
             );
@@ -7416,6 +7447,15 @@ impl LayoutWindow {
             let mut needs_relayout = false;
             if let Some(result) = self.layout_results.get_mut(&DomId::ROOT_ID) {
                 for (tr, rect) in self.css_transitions.iter_mut().zip(rects) {
+                    if tr.delay_s > 0.0 {
+                        // Holding at `from`: the frame-0 override is already
+                        // applied, so a delaying transition costs nothing —
+                        // no dirty entry, no relayout, just clock.
+                        tr.delay_s -= dt;
+                        if tr.delay_s > 0.0 {
+                            continue;
+                        }
+                    }
                     tr.t = if tr.duration_s <= 0.0 {
                         1.0
                     } else {
@@ -9148,11 +9188,17 @@ mod tests {
             source: TrackSource::Compiled,
             t: 0.0,
             duration_s: 1.0,
+            delay_s: 0.0,
+            iterations_left: Some(1),
             timing: AnimationTiming::Linear,
             translate_x: vec![(0.25, 0.0), (0.75, 100.0)],
             translate_y: vec![],
+            scale_x: vec![],
+            scale_y: vec![],
+            rotate_deg: vec![],
             opacity: vec![],
             width: vec![],
+            height: vec![],
         };
         // Before the first stop: clamp to it, no extrapolation.
         tr.t = 0.0;
@@ -9192,6 +9238,74 @@ mod tests {
         // Presence exits keep full opacity (USER ruling: no fade).
         assert_eq!(end.opacity, 1.0);
         assert!(builtin_track("noSuchAnimation", rect, 1.0, AnimationTiming::Linear).is_none());
+    }
+
+    /// `animation-delay` holds the t=0 state; the clock only starts moving
+    /// once the delay is consumed — the staggered-list-entrance primitive.
+    #[test]
+    fn track_delay_holds_frame_zero_then_plays() {
+        use azul_css::props::basic::animation::AnimationTiming;
+        let mut tr = AnimTrack {
+            source: TrackSource::Compiled,
+            t: 0.0,
+            duration_s: 1.0,
+            delay_s: 0.5,
+            iterations_left: Some(1),
+            timing: AnimationTiming::Linear,
+            translate_x: vec![(0.0, 0.0), (1.0, 100.0)],
+            translate_y: vec![],
+            scale_x: vec![],
+            scale_y: vec![],
+            rotate_deg: vec![],
+            opacity: vec![],
+            width: vec![],
+            height: vec![],
+        };
+        tr.tick(0.3);
+        assert_eq!(tr.t, 0.0, "still delaying");
+        assert!(!tr.is_done());
+        // 0.4s: 0.2 finishes the delay, 0.2 plays.
+        tr.tick(0.4);
+        assert!((tr.t - 0.2).abs() < 1e-6, "t={}", tr.t);
+        tr.tick(1.0);
+        assert!(tr.is_done());
+    }
+
+    /// `infinite` loops for ever (the CSS spinner) and a finite count plays
+    /// exactly N times — the loop wraps `t` instead of clamping it.
+    #[test]
+    fn iteration_counts_loop_and_infinite_never_finishes() {
+        use azul_css::props::basic::animation::AnimationTiming;
+        let mk = |iters: Option<u16>| AnimTrack {
+            source: TrackSource::Compiled,
+            t: 0.0,
+            duration_s: 1.0,
+            delay_s: 0.0,
+            iterations_left: iters,
+            timing: AnimationTiming::Linear,
+            translate_x: vec![(0.0, 0.0), (1.0, 100.0)],
+            translate_y: vec![],
+            scale_x: vec![],
+            scale_y: vec![],
+            rotate_deg: vec![],
+            opacity: vec![],
+            width: vec![],
+            height: vec![],
+        };
+        let mut inf = mk(None);
+        inf.tick(0.75);
+        assert!((inf.t - 0.75).abs() < 1e-6);
+        inf.tick(0.5);
+        assert!((inf.t - 0.25).abs() < 1e-6, "wrapped, t={}", inf.t);
+        assert!(!inf.is_done(), "infinite never finishes");
+
+        let mut three = mk(Some(3));
+        three.tick(2.5);
+        assert_eq!(three.iterations_left, Some(1));
+        assert!((three.t - 0.5).abs() < 1e-6, "third lap at 0.5, t={}", three.t);
+        three.tick(0.6);
+        assert!(three.is_done(), "three laps done");
+        assert_eq!(three.t, 1.0);
     }
 
     /// The USER's "fooFunc 1s": a registered NATIVE animation function is
@@ -9240,6 +9354,8 @@ mod tests {
         let anim = StyleAnimation {
             name: "flyOutRight".into(),
             duration: CssDuration::from_millis(1000),
+            delay: CssDuration::from_millis(0),
+            iterations: Default::default(),
             timing: AnimationTiming::Linear,
         };
 
@@ -9289,6 +9405,8 @@ mod tests {
         let anim = StyleAnimation {
             name: "flyOutRight".into(),
             duration: CssDuration::from_millis(1000),
+            delay: CssDuration::from_millis(0),
+            iterations: Default::default(),
             timing: AnimationTiming::Linear,
         };
         let registry = azul_core::resources::AnimationFunctionVec::from_const_slice(&[]);
@@ -15477,6 +15595,9 @@ pub struct CssTransition {
     /// 0..=1 progress on the one engine clock.
     pub t: f32,
     pub duration_s: f32,
+    /// Seconds still to wait before `t` starts moving; the frame-0 override
+    /// (the `from` value) holds during the delay.
+    pub delay_s: f32,
     pub timing: azul_css::props::basic::animation::AnimationTiming,
     /// The property's relayout classification, captured once: `None` rides
     /// the display-list rebuild, anything wider asks the frame driver for an
@@ -15537,9 +15658,17 @@ impl Zombie {
 pub struct TrackSample {
     pub translate_x: f32,
     pub translate_y: f32,
+    /// About the box CENTER (the sane default while transform-origin is not
+    /// plumbed into tracks).
+    pub scale_x: f32,
+    pub scale_y: f32,
+    /// Degrees, clockwise, about the box center.
+    pub rotate_deg: f32,
     pub opacity: f32,
     /// Absolute width in logical px; `None` = the frozen width.
     pub width: Option<f32>,
+    /// Absolute height in logical px; `None` = the frozen height.
+    pub height: Option<f32>,
     /// Whether an EXIT driven by this sample is clipped to its frozen rect.
     /// Compiled keyframes always clip (the USER's (c): a slide must not paint
     /// over neighbouring components); native functions choose per frame.
@@ -15571,29 +15700,65 @@ pub enum TrackSource {
 pub struct AnimTrack {
     /// Where samples come from; the stop lists below are empty for `Native`.
     pub source: TrackSource,
-    /// 0..=1 progress. Advanced by `tick_animations` (dt / duration).
+    /// 0..=1 progress within the CURRENT iteration. Advanced by
+    /// `tick_animations` (dt / duration).
     pub t: f32,
-    /// Seconds for one full run; a zero duration completes on the first tick.
+    /// Seconds for one iteration; a zero duration completes on the first tick.
     pub duration_s: f32,
+    /// Wall-clock seconds still to wait before the first iteration moves.
+    /// While positive the track samples its t=0 state (staggered entrances).
+    pub delay_s: f32,
+    /// Iterations still to play; `None` = `infinite` (the CSS spinner).
+    /// Presence EXITS are clamped to `Some(1)` at seed time — an infinite
+    /// exit would never reap its zombie.
+    pub iterations_left: Option<u16>,
     pub timing: azul_css::props::basic::animation::AnimationTiming,
     /// (t, value) per channel, each sorted by t ascending.
     pub translate_x: Vec<(f32, f32)>,
     pub translate_y: Vec<(f32, f32)>,
+    pub scale_x: Vec<(f32, f32)>,
+    pub scale_y: Vec<(f32, f32)>,
+    pub rotate_deg: Vec<(f32, f32)>,
     pub opacity: Vec<(f32, f32)>,
     pub width: Vec<(f32, f32)>,
+    pub height: Vec<(f32, f32)>,
 }
 
 impl AnimTrack {
     #[must_use]
     pub fn is_done(&self) -> bool {
-        self.t >= 1.0
+        matches!(self.iterations_left, Some(n) if n <= 1) && self.delay_s <= 0.0 && self.t >= 1.0
     }
 
-    pub fn tick(&mut self, dt: f32) {
+    pub fn tick(&mut self, mut dt: f32) {
+        if self.delay_s > 0.0 {
+            if dt < self.delay_s {
+                self.delay_s -= dt;
+                return;
+            }
+            dt -= self.delay_s;
+            self.delay_s = 0.0;
+        }
         if self.duration_s <= 0.0 {
+            // A zero-duration animation has no time axis to loop over —
+            // `infinite` degenerates to done rather than a hot spin.
             self.t = 1.0;
-        } else {
-            self.t = (self.t + dt / self.duration_s).min(1.0);
+            self.iterations_left = Some(1);
+            return;
+        }
+        self.t += dt / self.duration_s;
+        while self.t >= 1.0 {
+            match &mut self.iterations_left {
+                None => self.t -= 1.0,
+                Some(n) if *n > 1 => {
+                    *n -= 1;
+                    self.t -= 1.0;
+                }
+                Some(_) => {
+                    self.t = 1.0;
+                    break;
+                }
+            }
         }
     }
 
@@ -15626,8 +15791,12 @@ impl AnimTrack {
         TrackSample {
             translate_x: Self::sample_channel(&self.translate_x, self.t, timing).unwrap_or(0.0),
             translate_y: Self::sample_channel(&self.translate_y, self.t, timing).unwrap_or(0.0),
+            scale_x: Self::sample_channel(&self.scale_x, self.t, timing).unwrap_or(1.0),
+            scale_y: Self::sample_channel(&self.scale_y, self.t, timing).unwrap_or(1.0),
+            rotate_deg: Self::sample_channel(&self.rotate_deg, self.t, timing).unwrap_or(0.0),
             opacity: Self::sample_channel(&self.opacity, self.t, timing).unwrap_or(1.0),
             width: Self::sample_channel(&self.width, self.t, timing),
+            height: Self::sample_channel(&self.height, self.t, timing),
             clip: true,
         }
     }
@@ -15647,8 +15816,12 @@ impl AnimTrack {
                 TrackSample {
                     translate_x: frame.translate_x,
                     translate_y: frame.translate_y,
+                    scale_x: 1.0,
+                    scale_y: 1.0,
+                    rotate_deg: 0.0,
                     opacity: frame.opacity,
                     width: frame.width.into_option(),
+                    height: None,
                     clip: frame.clip_to_frozen_rect,
                 }
             }
@@ -15675,11 +15848,17 @@ pub fn compile_keyframes_track(
         source: TrackSource::Compiled,
         t: 0.0,
         duration_s,
+        delay_s: 0.0,
+        iterations_left: Some(1),
         timing,
         translate_x: Vec::new(),
         translate_y: Vec::new(),
+        scale_x: Vec::new(),
+        scale_y: Vec::new(),
+        rotate_deg: Vec::new(),
         opacity: Vec::new(),
         width: Vec::new(),
+        height: Vec::new(),
     };
     for stop in kf.stops.as_ref() {
         let t = f32::from(stop.permille) / 1000.0;
@@ -15688,6 +15867,10 @@ pub fn compile_keyframes_track(
                 CssProperty::Transform(v) => {
                     let Some(transforms) = v.get_property() else { continue };
                     let (mut tx, mut ty) = (0.0f32, 0.0f32);
+                    let (mut sx, mut sy) = (1.0f32, 1.0f32);
+                    let mut rot = 0.0f32;
+                    let mut has_scale = false;
+                    let mut has_rotate = false;
                     for tr in transforms.as_ref() {
                         match tr {
                             StyleTransform::Translate(t2) => {
@@ -15716,15 +15899,40 @@ pub fn compile_keyframes_track(
                                     DEFAULT_FONT_SIZE,
                                 );
                             }
-                            // Scale/rotate on zombies: not driven yet — the
-                            // channels here are the ones the USER spec names
-                            // (translate, width, opacity, clip). Extending to
-                            // the full transform set is additive.
+                            StyleTransform::Scale(s2d) => {
+                                sx *= s2d.x.get();
+                                sy *= s2d.y.get();
+                                has_scale = true;
+                            }
+                            StyleTransform::ScaleX(p) => {
+                                sx *= p.normalized();
+                                has_scale = true;
+                            }
+                            StyleTransform::ScaleY(p) => {
+                                sy *= p.normalized();
+                                has_scale = true;
+                            }
+                            StyleTransform::Rotate(a) => {
+                                rot += a.to_degrees();
+                                has_rotate = true;
+                            }
+                            // Skew / 3D / matrix stops: outside the track
+                            // channel set (the blit is 2D-affine, so skew is
+                            // addable on demand; 3D is not).
                             _ => {}
                         }
                     }
                     track.translate_x.push((t, tx));
                     track.translate_y.push((t, ty));
+                    // Only stops that MENTION scale/rotate create stops on
+                    // those channels — CSS-style per-channel independence.
+                    if has_scale {
+                        track.scale_x.push((t, sx));
+                        track.scale_y.push((t, sy));
+                    }
+                    if has_rotate {
+                        track.rotate_deg.push((t, rot));
+                    }
                 }
                 CssProperty::Opacity(v) => {
                     if let Some(op) = v.get_property() {
@@ -15746,6 +15954,18 @@ pub fn compile_keyframes_track(
                         ));
                     }
                 }
+                CssProperty::Height(v) => {
+                    if let Some(azul_css::props::layout::LayoutHeight::Px(px)) = v.get_property() {
+                        track.height.push((
+                            t,
+                            px.to_pixels_internal(
+                                rect.size.height,
+                                DEFAULT_FONT_SIZE,
+                                DEFAULT_FONT_SIZE,
+                            ),
+                        ));
+                    }
+                }
                 _ => {}
             }
         }
@@ -15753,8 +15973,12 @@ pub fn compile_keyframes_track(
     for ch in [
         &mut track.translate_x,
         &mut track.translate_y,
+        &mut track.scale_x,
+        &mut track.scale_y,
+        &mut track.rotate_deg,
         &mut track.opacity,
         &mut track.width,
+        &mut track.height,
     ] {
         ch.sort_by(|a, b| a.0.partial_cmp(&b.0).unwrap_or(core::cmp::Ordering::Equal));
     }
@@ -15777,11 +16001,17 @@ pub fn builtin_track(
         source: TrackSource::Compiled,
         t: 0.0,
         duration_s,
+        delay_s: 0.0,
+        iterations_left: Some(1),
         timing,
         translate_x: txs,
         translate_y: tys,
+        scale_x: Vec::new(),
+        scale_y: Vec::new(),
+        rotate_deg: Vec::new(),
         opacity: ops,
         width: ws,
+        height: Vec::new(),
     };
     Some(match name {
         // The USER's reference exit: shift right, narrow to zero, clipped to
@@ -15819,31 +16049,45 @@ pub fn resolve_named_track(
     rect: LogicalRect,
 ) -> Option<AnimTrack> {
     let duration_s = anim.duration.millis() as f32 / 1000.0;
+    let finish = |mut track: AnimTrack| {
+        track.delay_s = anim.delay.millis() as f32 / 1000.0;
+        track.iterations_left = match anim.iterations {
+            azul_css::props::basic::animation::AnimationIterationCount::Count(n) => Some(n.max(1)),
+            azul_css::props::basic::animation::AnimationIterationCount::Infinite => None,
+        };
+        track
+    };
     for kf in retained_css.keyframes.as_ref() {
         if kf.name.as_str() == anim.name.as_str() {
-            return Some(compile_keyframes_track(kf, rect, duration_s, anim.timing));
+            return Some(finish(compile_keyframes_track(kf, rect, duration_s, anim.timing)));
         }
     }
     // App-registered native functions come after the stylesheet (author
     // wins) and before the builtins (an app may shadow `flyOutRight`).
     for f in registry.as_ref() {
         if f.name.as_str() == anim.name.as_str() {
-            return Some(AnimTrack {
+            return Some(finish(AnimTrack {
                 source: TrackSource::Native {
                     callback: f.callback.clone(),
                     data: f.data.clone(),
                 },
                 t: 0.0,
                 duration_s,
+                delay_s: 0.0,
+                iterations_left: Some(1),
                 timing: anim.timing,
                 translate_x: Vec::new(),
                 translate_y: Vec::new(),
+                scale_x: Vec::new(),
+                scale_y: Vec::new(),
+                rotate_deg: Vec::new(),
                 opacity: Vec::new(),
                 width: Vec::new(),
-            });
+                height: Vec::new(),
+            }));
         }
     }
-    builtin_track(anim.name.as_str(), rect, duration_s, anim.timing)
+    builtin_track(anim.name.as_str(), rect, duration_s, anim.timing).map(finish)
 }
 
 /// A keyframed animation on a LIVE node (`-azul-animation-in`): publishes
@@ -15950,11 +16194,17 @@ impl LayoutWindow {
                 node: NodeId,
                 scale_x: f32,
                 scale_y: f32,
+                /// Degrees about the cut's center.
+                rotate_deg: f32,
                 translate_x: f32,
                 translate_y: f32,
                 opacity: f32,
-                /// Absolute cut width in logical px (left-anchored narrowing).
+                /// Absolute cut width in logical px (anchored away from the
+                /// horizontal motion).
                 width_cut: Option<f32>,
+                /// Absolute cut height in logical px (anchored away from the
+                /// vertical motion).
+                height_cut: Option<f32>,
                 /// Clip the blit to the frozen rect (keyframed tracks only).
                 clipped: bool,
             }
@@ -15968,10 +16218,12 @@ impl LayoutWindow {
                     node: *node,
                     scale_x: t.scale_x,
                     scale_y: t.scale_y,
+                    rotate_deg: 0.0,
                     translate_x: t.translate_x,
                     translate_y: t.translate_y,
                     opacity: anim.current_opacity(),
                     width_cut: None,
+                    height_cut: None,
                     clipped: false,
                 });
             }
@@ -15988,12 +16240,14 @@ impl LayoutWindow {
                 let sample = tr.sample_for(info.as_ref());
                 jobs.push(ExitJob {
                     node: *node,
-                    scale_x: 1.0,
-                    scale_y: 1.0,
+                    scale_x: sample.scale_x,
+                    scale_y: sample.scale_y,
+                    rotate_deg: sample.rotate_deg,
                     translate_x: sample.translate_x,
                     translate_y: sample.translate_y,
                     opacity: sample.opacity,
                     width_cut: sample.width,
+                    height_cut: sample.height,
                     clipped: sample.clip,
                 });
             }
@@ -16012,8 +16266,9 @@ impl LayoutWindow {
                 let full_sw = ((rect.size.width * dpi_factor).ceil() as u32)
                     .min(snapshot.width.saturating_sub(sx0));
                 let mut sw = full_sw;
-                let sh = ((rect.size.height * dpi_factor).ceil() as u32)
+                let full_sh = ((rect.size.height * dpi_factor).ceil() as u32)
                     .min(snapshot.height.saturating_sub(sy0));
+                let mut sh = full_sh;
                 // The width channel narrows the cut ANCHORED AWAY FROM THE
                 // MOTION: an exit travelling right keeps its LEFT pixels (the
                 // content slides right, the left edge chases it), an exit
@@ -16024,7 +16279,11 @@ impl LayoutWindow {
                 if let Some(w) = job.width_cut {
                     sw = sw.min((w * dpi_factor).ceil().max(0.0) as u32);
                 }
+                if let Some(h) = job.height_cut {
+                    sh = sh.min((h * dpi_factor).ceil().max(0.0) as u32);
+                }
                 let cut_off = if job.translate_x < 0.0 { full_sw - sw } else { 0 };
+                let cut_off_y = if job.translate_y < 0.0 { full_sh - sh } else { 0 };
                 if sw == 0 || sh == 0 {
                     continue;
                 }
@@ -16032,7 +16291,8 @@ impl LayoutWindow {
                     continue;
                 };
                 for row in 0..sh {
-                    let src_off = (((sy0 + row) * snapshot.width + sx0 + cut_off) * 4) as usize;
+                    let src_off =
+                        (((sy0 + cut_off_y + row) * snapshot.width + sx0 + cut_off) * 4) as usize;
                     let dst_off = (row * sw * 4) as usize;
                     let len = (sw * 4) as usize;
                     cut.data[dst_off..dst_off + len]
@@ -16043,24 +16303,37 @@ impl LayoutWindow {
                 // convention the live layer path uses (transform about the
                 // frame origin, translation in logical units).
                 let dpi = f64::from(dpi_factor);
+                // Scale/rotate about the CUT's CENTER (the sane default while
+                // transform-origin is not plumbed into tracks); pure
+                // translation reduces to the old T(translate)·T(origin+off).
+                let (cx, cy) = (f64::from(sw) / 2.0, f64::from(sh) / 2.0);
+                let (sin, cos) = f64::from(job.rotate_deg).to_radians().sin_cos();
+                let (jsx, jsy) = (f64::from(job.scale_x), f64::from(job.scale_y));
                 let mut m = agg_rust::trans_affine::TransAffine::new_custom(
-                    f64::from(job.scale_x),
-                    0.0,
-                    0.0,
-                    f64::from(job.scale_y),
-                    f64::from(job.translate_x) * dpi,
-                    f64::from(job.translate_y) * dpi,
+                    1.0, 0.0, 0.0, 1.0, -cx, -cy,
                 );
+                m.multiply(&agg_rust::trans_affine::TransAffine::new_custom(
+                    jsx * cos,
+                    jsx * sin,
+                    -jsy * sin,
+                    jsy * cos,
+                    0.0,
+                    0.0,
+                ));
                 m.multiply(&agg_rust::trans_affine::TransAffine::new_custom(
                     1.0,
                     0.0,
                     0.0,
                     1.0,
                     // The cut's window offset stays glued to the box: without
-                    // it a right-anchored cut would render at the box's LEFT
-                    // edge and the anchor fix above would be undone.
-                    f64::from(rect.origin.x) * dpi + f64::from(cut_off),
-                    f64::from(rect.origin.y) * dpi,
+                    // it an anchored cut would render at the box's near edge
+                    // and the anchor fix above would be undone.
+                    cx + f64::from(job.translate_x) * dpi
+                        + f64::from(rect.origin.x) * dpi
+                        + f64::from(cut_off),
+                    cy + f64::from(job.translate_y) * dpi
+                        + f64::from(rect.origin.y) * dpi
+                        + f64::from(cut_off_y),
                 ));
                 let clip = if job.clipped {
                     Some((
