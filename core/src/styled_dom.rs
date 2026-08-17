@@ -974,10 +974,15 @@ impl StyledDom {
         //    globally — the same scoping the recursive create_from_dom path applies
         //    via scope_inline_css. `node_id` is the owner's flat id (0 = root).
         let mut combined_rules: Vec<azul_css::css::CssRuleBlock> = Vec::new();
+        let mut combined_keyframes: Vec<azul_css::css::Keyframes> = Vec::new();
         let css_entries = fast_dom.css.into_library_owned_vec();
         {
             let hierarchy = fast_dom.node_hierarchy.as_container();
-            for css_with_id in css_entries {
+            for mut css_with_id in css_entries {
+                // Keyframes are name-global (no scoping): collect before the
+                // rules are consumed. Later definitions win at resolve time.
+                combined_keyframes
+                    .extend(core::mem::take(&mut css_with_id.css.keyframes).into_library_owned_vec());
                 let owner = css_with_id.node_id;
                 let end = if owner < hierarchy.len() {
                     owner + hierarchy.subtree_len(NodeId::new(owner))
@@ -996,10 +1001,12 @@ impl StyledDom {
                 }
             }
         }
-        let combined_css = if combined_rules.is_empty() {
+        let combined_css = if combined_rules.is_empty() && combined_keyframes.is_empty() {
             Css::empty()
         } else {
-            Css::new(combined_rules)
+            let mut css = Css::new(combined_rules);
+            css.keyframes = combined_keyframes.into();
+            css
         };
 
         // 2. Convert NodeHierarchyItemVec → NodeHierarchy (Vec<Node>)
@@ -1221,10 +1228,14 @@ impl StyledDom {
             Css::empty()
         } else {
             let mut combined_rules: Vec<azul_css::css::CssRuleBlock> = Vec::new();
+            let mut combined_keyframes: Vec<azul_css::css::Keyframes> = Vec::new();
             for css in all_css {
                 combined_rules.extend(css.rules.into_library_owned_vec());
+                combined_keyframes.extend(css.keyframes.into_library_owned_vec());
             }
-            Css::new(combined_rules)
+            let mut css = Css::new(combined_rules);
+            css.keyframes = combined_keyframes.into();
+            css
         };
 
         // 3. Strip CSS from all Dom nodes before flattening
