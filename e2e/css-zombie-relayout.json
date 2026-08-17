@@ -1,6 +1,6 @@
 {
-  "name": "css_animation_out",
-  "description": "-azul-animation-out DRIVES THE ZOMBIE. #sidebar declares `-azul-animation-out: flyOutRight 1s` (builtin table; no @keyframes needed). Unmounting it retains the subtree as a zombie whose motion comes from the compiled track (translate right + width narrowing + clip to the frozen rect), NOT the default slide. The zombie must survive mid-flight ticks and reap exactly when the track completes - a zombie that outlives its animation is a leak, one that dies early truncates the exit. Companion pins: window::tests::builtin_fly_out_right_shifts_right_and_narrows_to_zero (track shape) and stylesheet_keyframes_shadow_the_builtin_table (author @keyframes take precedence over the builtin of the same name). DISCRIMINATOR: a track-driven exit runs on the compiled track alone - the manager holds NO spring for it - so right after the remount the manager holds exactly ONE animation (the CARD's move as it takes over the vacated space) - active:1,zombies:1. The default-slide fallback adds a SECOND spring for the sidebar exit (active:2), which is exactly what the NC sabotage (seeding disabled) produced when this assert was first tightened. Also the USER's cost distinction: a pure slide is the FROZEN path - zombie_relayouts must stay 0 for the whole exit.",
+  "name": "css_zombie_relayout",
+  "description": "THE ZOMBIE IS NOT FROZEN - IT IS UNREACHABLE. A width-driving @keyframes exit (`shrinkOut`: width 200px -> 40px, no translate) must RE-SOLVE the retained tree at the sampled width each changed frame, so its text rewraps mid-exit; a pure slide (css_animation_out) must never pay that. The counter is nonzero-asserted rather than exact: the runner's redraw pump ticks animations on the WALL clock between ops, so the solve count is real but not step-deterministic. The final two reads must MATCH (post-completion ticks sample the clamped final width, hit `applied_sizes`, and cost nothing) - pinned by asserting the counter is nonzero at completion and that a pure slide (css_animation_out) stays at exactly 0. Callbacks meanwhile operate only on the new DOM - the zombie never re-enters hit-testing (unchanged by this feature; retention already removes it from layout_results).",
   "setup": {
     "window_width": 400,
     "window_height": 300,
@@ -11,14 +11,15 @@
       "op": "mount",
       "html": [
         "<div id=\"root\">",
-        "  <div id=\"sidebar\">side</div>",
+        "  <div id=\"sidebar\"><p>Sidebar text that rewraps while the box narrows during the exit animation</p></div>",
         "  <div id=\"card\">card</div>",
         "</div>"
       ],
       "css": [
         "html, body { margin: 0; padding: 0; width: 100%; height: 100%; }",
+        "@keyframes shrinkOut { from { width: 200px; } to { width: 40px; } }",
         "#root { width: 100%; height: 100%; display: flex; flex-direction: row; }",
-        "#sidebar { width: 200px; height: 100%; background: #2255aa; -azul-animation-out: flyOutRight 1s; }",
+        "#sidebar { width: 200px; height: 100%; background: #2255aa; color: #ffffff; -azul-animation-out: shrinkOut 1s; }",
         "#card { flex-grow: 1; height: 100%; background: #cc3333; }"
       ]
     },
@@ -26,16 +27,12 @@
       "op": "wait_frame"
     },
     {
-      "op": "assert_exists",
-      "selector": "#sidebar"
-    },
-    {
       "op": "get_animations"
     },
     {
       "op": "assert_response",
       "type": "animations",
-      "contains": "\"zombies\":0"
+      "contains": "\"zombie_relayouts\":0"
     },
     {
       "op": "mount",
@@ -54,18 +51,6 @@
       "op": "wait_frame"
     },
     {
-      "op": "assert_not_exists",
-      "selector": "#sidebar"
-    },
-    {
-      "op": "get_animations"
-    },
-    {
-      "op": "assert_response",
-      "type": "animations",
-      "contains": "\"active\":1,"
-    },
-    {
       "op": "get_animations"
     },
     {
@@ -74,12 +59,28 @@
       "contains": "\"zombies\":1"
     },
     {
+      "op": "get_animations"
+    },
+    {
+      "op": "assert_response",
+      "type": "animations",
+      "not_contains": "\"zombie_relayouts\":0,"
+    },
+    {
       "op": "tick_animations",
       "dt_micros": 16666,
       "steps": 30
     },
     {
       "op": "wait_frame"
+    },
+    {
+      "op": "get_animations"
+    },
+    {
+      "op": "assert_response",
+      "type": "animations",
+      "not_contains": "\"zombie_relayouts\":0,"
     },
     {
       "op": "get_animations"
@@ -111,7 +112,7 @@
     {
       "op": "assert_response",
       "type": "animations",
-      "contains": "\"zombie_relayouts\":0"
+      "not_contains": "\"zombie_relayouts\":0,"
     },
     {
       "op": "assert_manager_invariants"

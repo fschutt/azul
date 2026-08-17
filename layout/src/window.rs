@@ -756,6 +756,7 @@ const fn memory_walk_coverage_is_exhaustive(w: &LayoutWindow) {
         // clones each. Bounded by concurrent transitions.
         css_transitions: _,
         transition_relayout: _,
+        zombie_relayouts: _,
         last_anim_tick: _,
         // Two u64 arrays sized by node count (~16 B/node) — noise next to
         // the tree; walked nowhere, listed so the destructure stays total.
@@ -1009,6 +1010,10 @@ pub struct LayoutWindow {
     /// to an incremental relayout. Consumed by
     /// [`Self::take_transition_relayout`].
     pub transition_relayout: bool,
+    /// Cumulative count of retained-tree re-solves driven by zombie tracks
+    /// (`width`/`height` channels). The e2e law for the USER's distinction:
+    /// a pure slide must leave this at 0, a shrinking exit must not.
+    pub zombie_relayouts: u64,
     /// `-azul-animation-in` tracks on LIVE nodes, node -> compiled keyframes.
     /// Published into the anim GPU channels each tick (the same maps the
     /// manager animations write, so the DL/compositor path is shared), and
@@ -1479,6 +1484,7 @@ impl LayoutWindow {
             animations: azul_core::animation::AnimationManager::new(),
             zombies: Vec::new(),
             anim_key_to_node: alloc::collections::BTreeMap::new(),
+            zombie_relayouts: 0,
             css_transitions: Vec::new(),
             transition_relayout: false,
             live_tracks: alloc::collections::BTreeMap::new(),
@@ -7081,6 +7087,11 @@ impl LayoutWindow {
                     exits,
                     rects,
                     tracks,
+                    tick_samples: BTreeMap::new(),
+                    scratch_cache: Solver3LayoutCache::default(),
+                    scratch_text: TextLayoutCache::new(),
+                    live_rects: BTreeMap::new(),
+                    applied_sizes: BTreeMap::new(),
                     frozen_scroll,
                     #[cfg(feature = "cpurender")]
                     snapshot: core::cell::OnceCell::new(),
@@ -7375,13 +7386,104 @@ impl LayoutWindow {
                 .insert(node_id, anim.current_opacity());
         }
 
-        // Keyframed tracks advance on the SAME dt — one clock. Zombie
-        // tracks are sampled at composite time; live (`-azul-animation-in`)
-        // tracks publish through the anim GPU channels right here, exactly
-        // like the manager animations above, and release their keys at t=1.
+        // Keyframed tracks advance on the SAME dt — one clock. Each zombie
+        // track is sampled HERE, once per frame (stored in `tick_samples`
+        // for the compositor), and a sample that drives `width`/`height`
+        // RE-SOLVES the retained tree at that size: the zombie is not
+        // frozen, it is merely unreachable — text rewraps mid-exit while
+        // callbacks already operate on the new DOM. Translate-only exits
+        // never enter this branch and stay on the frozen-snapshot path
+        // (the sliding-sidebar ruling: no relayout for a pure slide).
+        let zombie_dpi = self.current_window_state.size.get_hidpi_factor().inner.get();
         for z in &mut self.zombies {
-            for tr in z.tracks.values_mut() {
+            if z.tracks.is_empty() {
+                continue;
+            }
+            for (node, tr) in &mut z.tracks {
                 tr.tick(dt);
+                let info = z.rects.get(node).map(|rect| {
+                    azul_core::resources::ZombieAnimInfo {
+                        styled_dom: &z.retained.styled_dom,
+                        node_id: node.index() as u64,
+                        rect: *rect,
+                        viewport: z.retained.viewport,
+                        dpi_factor: zombie_dpi,
+                    }
+                });
+                let sample = tr.sample_for(info.as_ref());
+                let wants = (sample.width, sample.height);
+                if (wants.0.is_some() || wants.1.is_some())
+                    && z.applied_sizes.get(node) != Some(&wants)
+                {
+                    let mut props: Vec<azul_css::props::property::CssProperty> = Vec::new();
+                    if let Some(w) = sample.width {
+                        props.push(azul_css::props::property::CssProperty::width(
+                            azul_css::props::layout::LayoutWidth::Px(
+                                azul_css::props::basic::pixel::PixelValue::px(w),
+                            ),
+                        ));
+                    }
+                    if let Some(h) = sample.height {
+                        props.push(azul_css::props::property::CssProperty::height(
+                            azul_css::props::layout::LayoutHeight::Px(
+                                azul_css::props::basic::pixel::PixelValue::px(h),
+                            ),
+                        ));
+                    }
+                    let _ = z.retained.styled_dom.restyle_user_property(node, &props);
+                    let dirty = [(
+                        *node,
+                        azul_css::props::property::CssPropertyType::Width.relayout_scope(false),
+                    )];
+                    let external = ExternalSystemCallbacks::rust_internal();
+                    let solved = solver3::layout_document(
+                        &mut z.scratch_cache,
+                        &mut z.scratch_text,
+                        &z.retained.styled_dom,
+                        z.retained.viewport,
+                        &self.font_manager,
+                        &BTreeMap::new(),
+                        &BTreeMap::new(),
+                        &mut None,
+                        None,
+                        &self.renderer_resources,
+                        self.id_namespace,
+                        z.retained.styled_dom.dom_id,
+                        false,
+                        Vec::new(),
+                        None,
+                        &self.image_cache,
+                        Some(&self.content_overlay),
+                        self.system_style.clone(),
+                        external.get_system_time_fn,
+                        &dirty,
+                    );
+                    if let Ok(dl) = solved {
+                        z.retained.display_list = dl;
+                        z.applied_sizes.insert(*node, wants);
+                        if let Some(tree) = z.scratch_cache.tree.as_ref() {
+                            for (idx, tn) in tree.nodes.iter().enumerate() {
+                                if tn.dom_node_id == Some(*node) {
+                                    if let (Some(size), Some(pos)) = (
+                                        tn.used_size,
+                                        solver3::pos_get(
+                                            &z.scratch_cache.calculated_positions,
+                                            idx,
+                                        ),
+                                    ) {
+                                        z.live_rects.insert(*node, LogicalRect::new(pos, size));
+                                    }
+                                    break;
+                                }
+                            }
+                        }
+                        // The snapshot shows the OLD solve — drop it so the
+                        // compositor re-renders the re-solved frame.
+                        let _ = z.snapshot.take();
+                        self.zombie_relayouts += 1;
+                    }
+                }
+                z.tick_samples.insert(*node, sample);
             }
         }
         let mut done_live: Vec<azul_core::dom::NodeId> = Vec::new();
@@ -13002,6 +13104,8 @@ impl LayoutWindow {
             // must follow or the override would be orphaned mid-flight.
             css_transitions,
             transition_relayout: _,
+            // A cumulative counter, no node ids.
+            zombie_relayouts: _,
             // CSS-diff staging is keyed by NEW-tree NodeIds computed in the
             // same reconciliation that produces the remap — it is consumed by
             // the very next layout pass and never survives a second remap.
@@ -15617,9 +15721,28 @@ pub struct Zombie {
     pub rects: BTreeMap<NodeId, LogicalRect>,
     /// `-azul-animation-out` tracks, node -> compiled keyframes. A node with a
     /// track here is DRIVEN BY IT — no default slide runs underneath (two
-    /// motions would compose). Ticked by `tick_animations` (one clock),
-    /// sampled at composite time.
+    /// motions would compose). Ticked by `tick_animations` (one clock).
     pub tracks: BTreeMap<NodeId, AnimTrack>,
+    /// The sample each track produced on the LAST tick. Composite consumes
+    /// this instead of re-sampling so a native animation function runs
+    /// exactly once per frame (its `&mut data` contract would otherwise see
+    /// double calls).
+    pub tick_samples: BTreeMap<NodeId, TrackSample>,
+    /// Solver + text caches for the RETAINED tree. A zombie is NOT frozen —
+    /// a track driving `width`/`height` re-solves the retained tree at the
+    /// sampled size each tick (text rewraps mid-exit), and these caches make
+    /// that the warm incremental path instead of a cold solve per frame.
+    /// What a zombie can't do is be REACHED: callbacks operate on the new
+    /// DOM as if no animation were happening.
+    pub scratch_cache: Solver3LayoutCache,
+    pub scratch_text: TextLayoutCache,
+    /// The re-solved rect per relayouting node (cut source). Absent = the
+    /// frozen rect (translate-only exits never pay for a solve).
+    pub live_rects: BTreeMap<NodeId, LogicalRect>,
+    /// The size last APPLIED to the retained tree per node, so a tick whose
+    /// sample matches skips the solve (and the seed tick at t=0, sampling
+    /// the frozen size, costs nothing).
+    pub applied_sizes: BTreeMap<NodeId, (Option<f32>, Option<f32>)>,
     /// The scroll offsets the retained frame was showing at retention time,
     /// FROZEN — the scroll manager is remapped to the new tree immediately
     /// after, so reading it live would scroll a frame that no longer exists.
@@ -16016,18 +16139,13 @@ pub fn builtin_track(
     Some(match name {
         // The USER's reference exit: shift right, narrow to zero, clipped to
         // the frozen box — the sidebar leaves through its own right edge.
-        "flyOutRight" => mk(
-            vec![(0.0, 0.0), (1.0, w)],
-            vec![],
-            vec![],
-            vec![(0.0, w), (1.0, 0.0)],
-        ),
-        "flyOutLeft" => mk(
-            vec![(0.0, 0.0), (1.0, -w)],
-            vec![],
-            vec![],
-            vec![(0.0, w), (1.0, 0.0)],
-        ),
+        // Translate-only: the frozen-rect clip already narrows the visible
+        // strip as it travels, and a pure slide must stay on the FROZEN
+        // path (no per-frame solve) — the USER's sliding-sidebar ruling.
+        // A `width` channel (from @keyframes) means REAL layout width and
+        // re-solves the retained tree instead.
+        "flyOutRight" => mk(vec![(0.0, 0.0), (1.0, w)], vec![], vec![], vec![]),
+        "flyOutLeft" => mk(vec![(0.0, 0.0), (1.0, -w)], vec![], vec![], vec![]),
         "flyOutUp" => mk(vec![], vec![(0.0, 0.0), (1.0, -h)], vec![], vec![]),
         "flyOutDown" => mk(vec![], vec![(0.0, 0.0), (1.0, h)], vec![], vec![]),
         "flyInLeft" => mk(vec![(0.0, -w), (1.0, 0.0)], vec![], vec![], vec![]),
@@ -16057,7 +16175,8 @@ pub fn resolve_named_track(
         };
         track
     };
-    for kf in retained_css.keyframes.as_ref() {
+    // Reverse: the LAST `@keyframes` definition of a name wins (CSS rule).
+    for kf in retained_css.keyframes.as_ref().iter().rev() {
         if kf.name.as_str() == anim.name.as_str() {
             return Some(finish(compile_keyframes_track(kf, rect, duration_s, anim.timing)));
         }
@@ -16228,16 +16347,18 @@ impl LayoutWindow {
                 });
             }
             for (node, tr) in &zombie.tracks {
-                let info = zombie.rects.get(node).map(|rect| {
-                    azul_core::resources::ZombieAnimInfo {
-                        styled_dom: &zombie.retained.styled_dom,
-                        node_id: node.index() as u64,
-                        rect: *rect,
-                        viewport: zombie.retained.viewport,
-                        dpi_factor,
-                    }
-                });
-                let sample = tr.sample_for(info.as_ref());
+                // The tick already sampled (and, for a native function,
+                // already CALLED it — exactly once per frame); re-sampling
+                // here is only the cold fallback for a frame composited
+                // before any tick ran.
+                let sample = zombie
+                    .tick_samples
+                    .get(node)
+                    .copied()
+                    .unwrap_or_else(|| tr.sample());
+                // A relayouting track's size is EMBODIED in the re-solved
+                // tree (`live_rects`) — cutting again would double-narrow.
+                let relayouted = zombie.live_rects.contains_key(node);
                 jobs.push(ExitJob {
                     node: *node,
                     scale_x: sample.scale_x,
@@ -16246,16 +16367,21 @@ impl LayoutWindow {
                     translate_x: sample.translate_x,
                     translate_y: sample.translate_y,
                     opacity: sample.opacity,
-                    width_cut: sample.width,
-                    height_cut: sample.height,
+                    width_cut: if relayouted { None } else { sample.width },
+                    height_cut: if relayouted { None } else { sample.height },
                     clipped: sample.clip,
                 });
             }
 
             for job in jobs {
-                let Some(rect) = zombie.rects.get(&job.node) else {
+                let Some(frozen) = zombie.rects.get(&job.node) else {
                     continue;
                 };
+                // Cut source: the re-solved rect for relayouting tracks,
+                // the frozen rect otherwise. The CLIP below always uses the
+                // FROZEN box — the space the node owned is the space its
+                // exit may paint in.
+                let rect = zombie.live_rects.get(&job.node).unwrap_or(frozen);
                 if job.opacity <= 0.0 {
                     continue;
                 }
@@ -16337,10 +16463,10 @@ impl LayoutWindow {
                 ));
                 let clip = if job.clipped {
                     Some((
-                        (rect.origin.x * dpi_factor).floor() as i32,
-                        (rect.origin.y * dpi_factor).floor() as i32,
-                        ((rect.origin.x + rect.size.width) * dpi_factor).ceil() as i32,
-                        ((rect.origin.y + rect.size.height) * dpi_factor).ceil() as i32,
+                        (frozen.origin.x * dpi_factor).floor() as i32,
+                        (frozen.origin.y * dpi_factor).floor() as i32,
+                        ((frozen.origin.x + frozen.size.width) * dpi_factor).ceil() as i32,
+                        ((frozen.origin.y + frozen.size.height) * dpi_factor).ceil() as i32,
                     ))
                 } else {
                     None

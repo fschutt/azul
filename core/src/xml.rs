@@ -6033,10 +6033,13 @@ fn render_dom_from_body_node_fast<'a>(
             Css::from_string(format!("html {{ max-width: {max_width}px; }}").into());
         combined_rules.extend(max_width_css.rules.into_library_owned_vec());
     }
+    let mut combined_keyframes = Vec::new();
     if let Some(css) = global_css.take() {
         combined_rules.extend(css.rules.into_library_owned_vec());
+        combined_keyframes.extend(css.keyframes.into_library_owned_vec());
     }
-    let combined_css = Css::new(combined_rules);
+    let mut combined_css = Css::new(combined_rules);
+    combined_css.keyframes = combined_keyframes.into();
 
     // Add CSS to the FastDom
     let mut fast_dom = builder.finish();

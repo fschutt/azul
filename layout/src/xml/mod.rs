@@ -217,9 +217,18 @@ pub fn parse_xml_to_styled_dom(xml: &str) -> Result<StyledDom, XmlError> {
     let rss1 = if mem_on { peak_rss_bytes() } else { 0 };
     // Attach CSS to the FastDom
     if !css.is_empty() {
-        let combined_css = Css::new(css.into_iter()
-            .flat_map(|c| c.rules.into_library_owned_vec())
-            .collect());
+        // Rules AND keyframes: merging by rules alone silently dropped every
+        // `@keyframes` block a `<style>` element declared, so
+        // `-azul-animation-out: shrinkOut 1s` fell back to the default slide
+        // at runtime while the unit parser tests stayed green.
+        let mut combined_rules = Vec::new();
+        let mut combined_keyframes = Vec::new();
+        for c in css {
+            combined_rules.extend(c.rules.into_library_owned_vec());
+            combined_keyframes.extend(c.keyframes.into_library_owned_vec());
+        }
+        let mut combined_css = Css::new(combined_rules);
+        combined_css.keyframes = combined_keyframes.into();
         fast_dom.css = vec![azul_core::dom::CssWithNodeId {
             node_id: 0, // global scope
             css: combined_css,

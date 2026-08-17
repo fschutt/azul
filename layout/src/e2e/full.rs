@@ -1012,6 +1012,10 @@ pub struct AnimationsResponse {
     /// Diff-triggered `animation` transitions in flight. Same lifecycle law
     /// as `zombies`: must return to 0 once every override settles.
     pub transitions: usize,
+    /// Cumulative retained-tree re-solves driven by zombie width/height
+    /// channels. A pure slide leaves this at 0 (the frozen path); a
+    /// shrinking exit re-solves per changed frame.
+    pub zombie_relayouts: u64,
     pub nodes: Vec<AnimationNodeJson>,
 }
 
@@ -9114,18 +9118,30 @@ fn resume_e2e_continuation_inner(
                         let text = resp.to_string();
                         let want_type = step.params.get("type").and_then(|v| v.as_str());
                         let want_sub = step.params.get("contains").and_then(|v| v.as_str());
+                        // Same convention as assert_dom: a substring that
+                        // must NOT occur. This is how a counter asserts
+                        // "nonzero" when its exact value is wall-clock-paced
+                        // (the redraw pump ticks animations between ops).
+                        let want_not = step.params.get("not_contains").and_then(|v| v.as_str());
                         let actual_type =
                             resp.get("type").and_then(|v| v.as_str()).unwrap_or("<none>");
 
-                        if want_type.is_none() && want_sub.is_none() {
+                        if want_type.is_none() && want_sub.is_none() && want_not.is_none() {
                             AssertionResult::fail(
-                                "assert_response: needs 'type' and/or 'contains'",
+                                "assert_response: needs 'type', 'contains' and/or 'not_contains'",
                             )
                         } else if want_type.is_some_and(|t| t != actual_type) {
                             AssertionResult::fail_with(
                                 "assert_response: wrong response type".to_string(),
                                 want_type.unwrap_or_default().to_string(),
                                 actual_type.to_string(),
+                            )
+                        } else if want_not.is_some_and(|s| text.contains(s)) {
+                            AssertionResult::fail_with(
+                                "assert_response: response CONTAINS a forbidden substring"
+                                    .to_string(),
+                                format!("absence of {}", want_not.unwrap_or_default()),
+                                text,
                             )
                         } else if want_sub.is_some_and(|s| !text.contains(s)) {
                             AssertionResult::fail_with(
@@ -13047,6 +13063,7 @@ pub fn process_debug_event(
             let active = lw.animations.len();
             let zombies = lw.zombies.len();
             let transitions = lw.css_transitions.len();
+            let zombie_relayouts = lw.zombie_relayouts;
             send_ok(
                 request,
                 None,
@@ -13054,6 +13071,7 @@ pub fn process_debug_event(
                     active,
                     zombies,
                     transitions,
+                    zombie_relayouts,
                     nodes,
                 })),
             );
