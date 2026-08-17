@@ -37,6 +37,31 @@ fn generate_m8_loader() -> String {
 'use strict';
 
 // =====================================================================
+// Settle protocol (scripts/web-e2e-harness-plan.md): the browser has no
+// frame-complete signal, so harnesses poll `window.__az_pending` — a
+// count of in-flight async work (bootstrap, wasm/font fetches,
+// navigation). "Settled" = __az_pending === 0 sustained across two
+// requestAnimationFrame ticks; `window.__az_settled(cb)` encapsulates
+// that wait. Dispatches are synchronous and never touch the counter.
+// =====================================================================
+window.__az_pending = (window.__az_pending || 0) + 1; // this script's own bootstrap
+window.__az_settled = function(cb) {
+    function check() {
+        if (window.__az_pending === 0) {
+            requestAnimationFrame(function() {
+                if (window.__az_pending === 0) {
+                    requestAnimationFrame(function() {
+                        if (window.__az_pending === 0) cb();
+                        else check();
+                    });
+                } else check();
+            });
+        } else setTimeout(check, 16);
+    }
+    check();
+};
+
+// =====================================================================
 // Event-kind constants — must match `event_kind` module in
 // dll/src/web/eventloop.rs.
 // =====================================================================
@@ -637,6 +662,9 @@ async function azBootstrap() {
                             ? azMini.AzStartup_getPositionedRectsLen(azState) : 0;
                         console.info('[azul-web] solveLayout rc=' + solveRc +
                                      ' solved=' + solved + ' rects_len=' + rectsLen);
+                        var appliedRects = azApplySolvedRects();
+                        console.info('[azul-web] applied ' + appliedRects +
+                                     ' solved rects to the DOM');
                     } catch (e) {
                         console.error('[azul-web] solveLayout TRAPPED:', e && e.message);
                     }
@@ -942,6 +970,47 @@ function azDecodeCstr(view, payloadOff, payloadEnd) {
     var bytes = new Uint8Array(azMemory.buffer, payloadOff, end - payloadOff);
     var s = new TextDecoder().decode(bytes);
     return [s, (end < payloadEnd ? (end - payloadOff + 1) : (end - payloadOff))];
+}
+
+// =====================================================================
+// M11.5: render the wasm-computed geometry. The positioned-rect cache is
+// the layout source of truth (AzStartup_hitTest already tests against
+// it); leaving the server's CSS approximation on screen meant what the
+// user SAW diverged from what clicks HIT. Absolutely position every
+// az_N element from its solved rect. Sentinel entries (0xFFFFFFFF or
+// bit-31-flagged values: text runs / anonymous / unpositioned nodes)
+// keep their in-flow position inside their positioned parent.
+// =====================================================================
+function azApplySolvedRects() {
+    if (!azMini || !azState || !azMemory) return 0;
+    if (typeof azMini.AzStartup_getPositionedRectsLen !== 'function' ||
+        typeof azMini.AzStartup_getPositionedRectsPtr !== 'function') return 0;
+    var n = azMini.AzStartup_getPositionedRectsLen(azState) >>> 0;
+    var p = azMini.AzStartup_getPositionedRectsPtr(azState) >>> 0;
+    if (!n || !p) return 0;
+    var dv = new DataView(azMemory.buffer);
+    var applied = 0;
+    // The rects are viewport-absolute (they already include azul's own
+    // root padding), so the positioning context must sit at the origin.
+    document.body.style.margin = '0';
+    document.body.style.position = 'relative';
+    for (var i = 0; i < n; i++) {
+        var o = p + i * 16;
+        var x = dv.getUint32(o, true),      y = dv.getUint32(o + 4, true);
+        var w = dv.getUint32(o + 8, true),  h = dv.getUint32(o + 12, true);
+        if (((x | y | w | h) >>> 31) !== 0) continue;
+        var el = document.getElementById('az_' + i);
+        if (!el) continue;
+        el.style.position = 'absolute';
+        el.style.left = x + 'px';
+        el.style.top = y + 'px';
+        el.style.width = w + 'px';
+        el.style.height = h + 'px';
+        el.style.boxSizing = 'border-box';
+        el.style.margin = '0';
+        applied++;
+    }
+    return applied;
 }
 
 function azApplyPatches(ptr, len) {
@@ -1343,9 +1412,16 @@ function azDispatchResize(w, h) {
     if (patchesPtr && patchesLen) azApplyPatches(patchesPtr, patchesLen);
     azMini.AzStartup_free(evtPtr, EVENT_BUFFER_SIZE);
     azMini.AzStartup_free(outLenPtr, OUT_LEN_SIZE);
-    // Re-run layout against the new viewport.
-    if (typeof azMini.AzStartup_solveLayout === 'function') {
-        azMini.AzStartup_solveLayout(azState, Math.floor(w), Math.floor(h));
+    // Re-run layout against the new viewport (prefer the real solver, as
+    // bootstrap does) and re-apply the solved geometry to the DOM.
+    var reSolve = azMini.AzStartup_solveLayoutReal || azMini.AzStartup_solveLayout;
+    if (typeof reSolve === 'function') {
+        try {
+            reSolve(azState, Math.floor(w), Math.floor(h));
+            azApplySolvedRects();
+        } catch (e) {
+            console.error('[azul-web] resize re-solve TRAPPED:', e && e.message);
+        }
     }
 }
 
@@ -1387,10 +1463,19 @@ window.addEventListener('popstate', function() {
     });
 });
 
+// Settle accounting: the pending count taken at script start drops when
+// azBootstrap resolves OR rejects — a wedged count would make
+// __az_settled wait forever, so failure must also settle.
+function azBootstrapTracked() {
+    Promise.resolve()
+        .then(azBootstrap)
+        .catch(function(e) { console.error('[azul-web] bootstrap FAILED:', e && e.message); })
+        .then(function() { window.__az_pending--; });
+}
 if (document.readyState === 'loading') {
-    document.addEventListener('DOMContentLoaded', azBootstrap);
+    document.addEventListener('DOMContentLoaded', azBootstrapTracked);
 } else {
-    azBootstrap();
+    azBootstrapTracked();
 }
 })();
 "#.to_string()
