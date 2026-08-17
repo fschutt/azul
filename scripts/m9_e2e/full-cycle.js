@@ -544,6 +544,19 @@ function failSync(msg) { console.error('FAIL:', msg); process.exit(1); }
                     '  [pc=0 → slot not mirrored; pc=native → not translated;' +
                     ' pc=synth → target not lifted; weak_noop>0 → strong dispatcher not linked]');
                 console.log('[2d] solveLayout TRAPPED: ' + (e.stack || e.message));
+                // POST-trap recorder readout — the pre-solve [2d-dispatch] line
+                // reads them BEFORE the solve runs, so a transfer swallowed
+                // DURING the solve is only visible here. mb ring @0x40160 x16.
+                try {
+                    const dvp = new DataView(memory.buffer);
+                    const ring = [...Array(16)].map((_, i) => dvp.getUint32(0x40160 + i * 4, true))
+                        .filter(v => v !== 0).map(v => '0x' + v.toString(16));
+                    console.log('[2d-post-solve] unk=' + dvp.getUint32(0x40158, true) +
+                        ' upc=0x' + dvp.getUint32(0x40900, true).toString(16) +
+                        ' mb_count=' + dvp.getUint32(0x400FC, true) +
+                        ' mb_last=0x' + dvp.getUint32(0x400F8, true).toString(16) +
+                        ' ring=[' + ring.join(' ') + ']');
+                } catch (e2) { console.log('[2d-post-solve] read failed'); }
             }
         }
     }
