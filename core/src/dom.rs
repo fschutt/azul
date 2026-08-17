@@ -2282,7 +2282,8 @@ impl NodeData {
             callbacks: CoreCallbackDataVec::from_const_slice(&[]),
             style: azul_css::css::Css {
                 rules: azul_css::css::CssRuleBlockVec::from_const_slice(&[]),
-            },
+                keyframes: azul_css::css::KeyframesVec::from_const_slice(&[]),
+                },
             flags: NodeFlags::new(),
             accessibility: None,
             extra: None,

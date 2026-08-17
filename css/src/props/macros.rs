@@ -177,6 +177,13 @@ macro_rules! css_property_from_type {
             CssPropertyType::CaretAnimationDuration => {
                 CssProperty::CaretAnimationDuration(CssPropertyValue::$content_type)
             }
+            CssPropertyType::Animation => CssProperty::Animation(CssPropertyValue::$content_type),
+            CssPropertyType::AnimationIn => {
+                CssProperty::AnimationIn(CssPropertyValue::$content_type)
+            }
+            CssPropertyType::AnimationOut => {
+                CssProperty::AnimationOut(CssPropertyValue::$content_type)
+            }
             CssPropertyType::SelectionBackgroundColor => {
                 CssProperty::SelectionBackgroundColor(CssPropertyValue::$content_type)
             }

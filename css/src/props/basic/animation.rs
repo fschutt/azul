@@ -2308,3 +2308,206 @@ mod autotest_generated {
         assert_ne!(r, r);
     }
 }
+
+// ---------------------------------------------------------------------------
+// CSS animation properties (`animation`, `-azul-animation-in`,
+// `-azul-animation-out`) — USER spec 2026-08-17.
+//
+// One value type serves all three. `name` resolves in this order at the
+// consumer: "all" / a CSS property name (diff-transition scope, `animation`
+// only) → a `@keyframes` name → an AppConfig-registered native animation
+// function. `@keyframes` is web-compat sugar; internally every animation is
+// an invocation of a named animation function against the one
+// `AnimationManager` clock.
+// ---------------------------------------------------------------------------
+
+/// Timing keyword for [`StyleAnimation`].
+///
+/// Deliberately a FIELDLESS twin of [`AnimationInterpolationFunction`]: this
+/// one lives inside `CssProperty`, which derives `Eq + Hash + Ord`, and the
+/// full enum carries f32 curve parameters that cannot. Converted via
+/// [`Self::to_interpolation`] at the engine boundary. `cubic-bezier(...)`
+/// custom curves are therefore not expressible from CSS yet — keywords only.
+#[derive(Debug, Default, Copy, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
+#[repr(C)]
+pub enum AnimationTiming {
+    #[default]
+    Ease,
+    Linear,
+    EaseIn,
+    EaseOut,
+    EaseInOut,
+    /// The engine's default spring (SMOOTH).
+    Spring,
+    SpringGentle,
+    SpringSnappy,
+}
+
+impl AnimationTiming {
+    /// The runtime interpolation this keyword stands for.
+    #[must_use]
+    pub const fn to_interpolation(self) -> AnimationInterpolationFunction {
+        match self {
+            Self::Ease => AnimationInterpolationFunction::Ease,
+            Self::Linear => AnimationInterpolationFunction::Linear,
+            Self::EaseIn => AnimationInterpolationFunction::EaseIn,
+            Self::EaseOut => AnimationInterpolationFunction::EaseOut,
+            Self::EaseInOut => AnimationInterpolationFunction::EaseInOut,
+            Self::Spring => AnimationInterpolationFunction::Spring(SpringCurve::SMOOTH),
+            Self::SpringGentle => AnimationInterpolationFunction::Spring(SpringCurve::GENTLE),
+            Self::SpringSnappy => AnimationInterpolationFunction::Spring(SpringCurve::SNAPPY),
+        }
+    }
+
+    #[must_use]
+    pub const fn as_css_str(self) -> &'static str {
+        match self {
+            Self::Ease => "ease",
+            Self::Linear => "linear",
+            Self::EaseIn => "ease-in",
+            Self::EaseOut => "ease-out",
+            Self::EaseInOut => "ease-in-out",
+            Self::Spring => "spring",
+            Self::SpringGentle => "spring-gentle",
+            Self::SpringSnappy => "spring-snappy",
+        }
+    }
+
+    #[must_use]
+    pub fn from_css_str(s: &str) -> Option<Self> {
+        Some(match s {
+            "ease" => Self::Ease,
+            "linear" => Self::Linear,
+            "ease-in" => Self::EaseIn,
+            "ease-out" => Self::EaseOut,
+            "ease-in-out" => Self::EaseInOut,
+            "spring" => Self::Spring,
+            "spring-gentle" => Self::SpringGentle,
+            "spring-snappy" => Self::SpringSnappy,
+            _ => return None,
+        })
+    }
+}
+
+/// Value of `animation` / `-azul-animation-in` / `-azul-animation-out`:
+/// `<name> <duration> [<timing>]`, e.g. `flyOutRight 1s`,
+/// `all 2s ease-out`, `fooFunc 500ms spring`.
+#[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
+#[repr(C)]
+pub struct StyleAnimation {
+    /// What runs: `all` / a property name (for `animation`, the diff-driven
+    /// transition scope), a `@keyframes` name, or a registered native
+    /// animation function name.
+    pub name: crate::AzString,
+    /// How long one run takes. Springs ignore this for settling (they run on
+    /// physics) but use it as the retarget time base.
+    pub duration: crate::props::basic::time::CssDuration,
+    /// Timing keyword; `ease` when omitted.
+    pub timing: AnimationTiming,
+}
+
+impl Default for StyleAnimation {
+    fn default() -> Self {
+        Self {
+            name: crate::AzString::from_const_str(""),
+            duration: crate::props::basic::time::CssDuration::from_millis(0),
+            timing: AnimationTiming::Ease,
+        }
+    }
+}
+
+impl crate::css::PrintAsCssValue for StyleAnimation {
+    fn print_as_css_value(&self) -> alloc::string::String {
+        use alloc::string::ToString;
+        alloc::format!(
+            "{} {} {}",
+            self.name.as_str(),
+            self.duration.print_as_css_value(),
+            self.timing.as_css_str()
+        )
+        .trim()
+        .to_string()
+    }
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub enum StyleAnimationParseError<'a> {
+    /// The whole declaration was empty or had no recognisable name.
+    Empty(&'a str),
+    /// The duration component failed to parse.
+    Duration(crate::props::basic::time::DurationParseError<'a>),
+}
+
+impl core::fmt::Display for StyleAnimationParseError<'_> {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        match self {
+            Self::Empty(s) => write!(f, "Invalid animation value: \"{s}\""),
+            Self::Duration(e) => write!(f, "Invalid animation duration: {e}"),
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub enum StyleAnimationParseErrorOwned {
+    Empty(alloc::string::String),
+    Duration(crate::props::basic::time::DurationParseErrorOwned),
+}
+
+impl StyleAnimationParseError<'_> {
+    #[must_use]
+    pub fn to_contained(&self) -> StyleAnimationParseErrorOwned {
+        use alloc::string::ToString;
+        match self {
+            Self::Empty(s) => StyleAnimationParseErrorOwned::Empty((*s).to_string()),
+            Self::Duration(e) => StyleAnimationParseErrorOwned::Duration(e.to_contained()),
+        }
+    }
+}
+
+impl StyleAnimationParseErrorOwned {
+    #[must_use]
+    pub fn to_shared(&self) -> StyleAnimationParseError<'_> {
+        match self {
+            Self::Empty(s) => StyleAnimationParseError::Empty(s.as_str()),
+            Self::Duration(e) => StyleAnimationParseError::Duration(e.to_shared()),
+        }
+    }
+}
+
+/// Parse `<name> <duration> [<timing>]`. The name is any non-keyword token;
+/// order is name-first (web `animation` shorthand accepts more permutations —
+/// the strict form keeps ambiguity out of native function names).
+pub fn parse_style_animation(input: &str) -> Result<StyleAnimation, StyleAnimationParseError<'_>> {
+    let mut parts = input.split_whitespace();
+    let name = parts.next().ok_or(StyleAnimationParseError::Empty(input))?;
+    if name.is_empty() {
+        return Err(StyleAnimationParseError::Empty(input));
+    }
+    let duration = match parts.next() {
+        Some(d) => crate::props::basic::time::parse_duration(d)
+            .map_err(StyleAnimationParseError::Duration)?,
+        None => crate::props::basic::time::CssDuration::from_millis(0),
+    };
+    let timing = match parts.next() {
+        Some(t) => AnimationTiming::from_css_str(t)
+            .ok_or(StyleAnimationParseError::Empty(input))?,
+        None => AnimationTiming::Ease,
+    };
+    Ok(StyleAnimation {
+        name: name.to_string().into(),
+        duration,
+        timing,
+    })
+}
+
+impl crate::codegen::format::FormatAsRustCode for StyleAnimation {
+    fn format_as_rust_code(&self, _tabs: usize) -> alloc::string::String {
+        use crate::codegen::format::FormatAsRustCode as _;
+        alloc::format!(
+            "StyleAnimation {{ name: AzString::from_const_str({:?}), duration: {}, timing: AnimationTiming::{:?} }}",
+            self.name.as_str(),
+            self.duration.format_as_rust_code(0),
+            self.timing
+        )
+    }
+}
