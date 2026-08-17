@@ -628,7 +628,7 @@ dependencies = [
 
 [[package]]
 name = "azul-core"
-version = "0.0.13"
+version = "0.0.14"
 dependencies = [
  "azul-css",
  "gl-context-loader",
@@ -641,7 +641,7 @@ dependencies = [
 
 [[package]]
 name = "azul-css"
-version = "0.0.13"
+version = "0.0.14"
 dependencies = [
  "azul-simplecss",
  "libm",
@@ -801,7 +801,7 @@ dependencies = [
 
 [[package]]
 name = "azul-layout"
-version = "0.0.13"
+version = "0.0.14"
 dependencies = [
  "accesskit",
  "agg-rust-azul",
@@ -5912,9 +5912,9 @@ dependencies = [
 
 [[package]]
 name = "printpdf"
-version = "0.12.5"
+version = "0.12.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "8830a8a6c6431286333c8a64d109f7f0e7e050270c8b8eba0a4c541626059da5"
+checksum = "e75e1f6d16f80c8f34918a4cc68743d703e8ee5016fac9508e223eb8e60445a0"
 dependencies = [
  "allsorts-azul",
  "azul-core",
