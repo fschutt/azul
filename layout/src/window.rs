@@ -6993,6 +6993,9 @@ impl LayoutWindow {
                 let mut rects = BTreeMap::new();
                 let mut tracks = BTreeMap::new();
                 let exit_viewport = retained.viewport;
+                // Cloned once: `effective_system_animations` borrows all of
+                // `self`, and the loop below needs `self.animations` mutably.
+                let anim_registry = self.effective_system_animations().animation_functions.clone();
                 for node in &unmounted {
                     if node.index() >= old_node_data.len() {
                         continue;
@@ -7021,6 +7024,7 @@ impl LayoutWindow {
                             resolve_named_track(
                                 v.get_property()?,
                                 &retained.styled_dom.css_property_cache.ptr.retained_author_css,
+                                &anim_registry,
                                 *rect,
                             )
                         });
@@ -7134,6 +7138,7 @@ impl LayoutWindow {
         // appears and is immediately displaced retargets rather than running
         // two animations over each other.
         let enter_viewport = self.layout_results.get(&dom_id).map(|r| r.viewport);
+        let anim_registry = self.effective_system_animations().animation_functions.clone();
         for node_id in &pending.mounted {
             if node_id.index() >= pending.new_node_data.len() {
                 continue;
@@ -7162,6 +7167,7 @@ impl LayoutWindow {
                 resolve_named_track(
                     v.get_property()?,
                     &sd.css_property_cache.ptr.retained_author_css,
+                    &anim_registry,
                     rect,
                 )
             });
@@ -7296,6 +7302,26 @@ impl LayoutWindow {
                     .map(layout_rect_to_logical)
             })
             .collect();
+        // Same for the live (`-azul-animation-in`) tracks: a NATIVE track's
+        // function receives a ZombieAnimInfo built from the LIVE tree. Raw
+        // pointer + copies, so nothing here outlives the borrow below.
+        let live_infos: Vec<Option<azul_core::resources::ZombieAnimInfo>> = self
+            .live_tracks
+            .keys()
+            .map(|node| {
+                let r = self.layout_results.get(&DomId::ROOT_ID)?;
+                let rect = self
+                    .get_node_bounds(DomId::ROOT_ID, *node)
+                    .map(layout_rect_to_logical)?;
+                Some(azul_core::resources::ZombieAnimInfo {
+                    styled_dom: &r.styled_dom,
+                    node_id: node.index() as u64,
+                    rect,
+                    viewport: r.viewport,
+                    dpi_factor: self.current_window_state.size.get_hidpi_factor().inner.get(),
+                })
+            })
+            .collect();
 
         let dom_id = DomId::ROOT_ID;
         let cache = self.gpu_state_manager.caches.entry(dom_id).or_default();
@@ -7342,9 +7368,9 @@ impl LayoutWindow {
             }
         }
         let mut done_live: Vec<azul_core::dom::NodeId> = Vec::new();
-        for (node_id, tr) in &mut self.live_tracks {
+        for ((node_id, tr), info) in self.live_tracks.iter_mut().zip(live_infos) {
             tr.tick(dt);
-            let s = tr.sample();
+            let s = tr.sample_for(info.as_ref());
             cache
                 .anim_transform_keys
                 .entry(*node_id)
@@ -9119,6 +9145,7 @@ mod tests {
     fn anim_track_samples_per_segment_and_clamps_outside_the_stops() {
         use azul_css::props::basic::animation::AnimationTiming;
         let mut tr = AnimTrack {
+            source: TrackSource::Compiled,
             t: 0.0,
             duration_s: 1.0,
             timing: AnimationTiming::Linear,
@@ -9167,6 +9194,83 @@ mod tests {
         assert!(builtin_track("noSuchAnimation", rect, 1.0, AnimationTiming::Linear).is_none());
     }
 
+    /// The USER's "fooFunc 1s": a registered NATIVE animation function is
+    /// resolvable by name, receives eased progress + a ZombieAnimInfo it can
+    /// analyze (rect, viewport, the tree), and its returned frame drives the
+    /// sample verbatim — including opting OUT of the frozen-rect clip.
+    /// Precedence: it SHADOWS the builtin of the same name, and stylesheet
+    /// `@keyframes` shadow IT.
+    #[test]
+    fn native_animation_functions_resolve_by_name_and_drive_the_sample() {
+        use azul_core::resources::{
+            AnimationFunction, AnimationFunctionVec, ZombieAnimCallback, ZombieAnimInfo,
+            ZombieFrame,
+        };
+        use azul_css::props::basic::animation::{AnimationTiming, StyleAnimation};
+        use azul_css::props::basic::time::CssDuration;
+
+        extern "C" fn half_width_no_clip(
+            data: &mut RefAny,
+            info: &ZombieAnimInfo,
+            t: f32,
+        ) -> ZombieFrame {
+            // The registered data is reachable and mutable...
+            if let Some(mut calls) = data.downcast_mut::<u32>() {
+                *calls += 1;
+            }
+            // ...and the info is real: derive the frame FROM the rect.
+            ZombieFrame {
+                translate_x: info.rect.size.width * t,
+                translate_y: 0.0,
+                opacity: 1.0,
+                width: azul_css::OptionF32::Some(info.rect.size.width / 2.0),
+                clip_to_frozen_rect: false,
+            }
+        }
+
+        let registry = AnimationFunctionVec::from_vec(vec![AnimationFunction {
+            name: "flyOutRight".into(), // shadows the BUILTIN of this name
+            callback: ZombieAnimCallback { cb: half_width_no_clip },
+            data: RefAny::new(0u32),
+        }]);
+        let rect = LogicalRect::new(
+            LogicalPosition::new(0.0, 0.0),
+            LogicalSize::new(300.0, 500.0),
+        );
+        let anim = StyleAnimation {
+            name: "flyOutRight".into(),
+            duration: CssDuration::from_millis(1000),
+            timing: AnimationTiming::Linear,
+        };
+
+        // Native shadows the builtin (empty stylesheet).
+        let empty_css = azul_css::css::Css::default();
+        let mut tr = resolve_named_track(&anim, &empty_css, &registry, rect).expect("resolves");
+        assert!(matches!(tr.source, TrackSource::Native { .. }));
+        tr.t = 0.5;
+        let info = ZombieAnimInfo {
+            styled_dom: core::ptr::null(),
+            node_id: 0,
+            rect,
+            viewport: rect,
+            dpi_factor: 1.0,
+        };
+        let s = tr.sample_for(Some(&info));
+        assert_eq!(s.translate_x, 150.0, "the function's math ran on the real rect");
+        assert_eq!(s.width, Some(150.0));
+        assert!(!s.clip, "the function opted out of the clip");
+        // Without info the native source degrades to identity, not a crash.
+        let blind = tr.sample_for(None);
+        assert_eq!(blind.translate_x, 0.0);
+
+        // Stylesheet @keyframes STILL shadow the native registration.
+        let (css, _w) = azul_css::parser2::new_from_str(
+            "@keyframes flyOutRight { from { opacity: 1; } to { opacity: 0; } }",
+        );
+        let tr2 = resolve_named_track(&anim, &css, &registry, rect).expect("resolves");
+        assert!(matches!(tr2.source, TrackSource::Compiled));
+    }
+
     /// Author `@keyframes` win over the builtin table for the SAME name, and
     /// percent endpoints resolve against the node's frozen rect.
     #[test]
@@ -9187,7 +9291,8 @@ mod tests {
             duration: CssDuration::from_millis(1000),
             timing: AnimationTiming::Linear,
         };
-        let mut tr = resolve_named_track(&anim, &css, rect).expect("resolves");
+        let registry = azul_core::resources::AnimationFunctionVec::from_const_slice(&[]);
+        let mut tr = resolve_named_track(&anim, &css, &registry, rect).expect("resolves");
         // The AUTHOR version fades and does NOT translate — proving the
         // stylesheet shadowed the builtin of the same name.
         tr.t = 1.0;
@@ -15435,6 +15540,10 @@ pub struct TrackSample {
     pub opacity: f32,
     /// Absolute width in logical px; `None` = the frozen width.
     pub width: Option<f32>,
+    /// Whether an EXIT driven by this sample is clipped to its frozen rect.
+    /// Compiled keyframes always clip (the USER's (c): a slide must not paint
+    /// over neighbouring components); native functions choose per frame.
+    pub clip: bool,
 }
 
 /// A compiled `@keyframes` (or builtin) track: per-channel stop lists with
@@ -15443,8 +15552,25 @@ pub struct TrackSample {
 /// Channels are compiled independently, CSS-style: a stop that does not
 /// mention `opacity` does not create an opacity stop — each channel
 /// interpolates between the stops that DEFINE it and clamps outside them.
+/// What produces the frames of an [`AnimTrack`].
+#[derive(Debug, Clone)]
+pub enum TrackSource {
+    /// The compiled per-channel stop lists (from `@keyframes` or a builtin).
+    Compiled,
+    /// A registered native animation function (`-azul-animation-out:
+    /// fooFunc 1s`): called once per frame with eased progress and a
+    /// [`azul_core::resources::ZombieAnimInfo`] it may use to analyze the
+    /// tree it is animating (e.g. measure its own component's text).
+    Native {
+        callback: azul_core::resources::ZombieAnimCallback,
+        data: RefAny,
+    },
+}
+
 #[derive(Debug, Clone)]
 pub struct AnimTrack {
+    /// Where samples come from; the stop lists below are empty for `Native`.
+    pub source: TrackSource,
     /// 0..=1 progress. Advanced by `tick_animations` (dt / duration).
     pub t: f32,
     /// Seconds for one full run; a zero duration completes on the first tick.
@@ -15502,6 +15628,31 @@ impl AnimTrack {
             translate_y: Self::sample_channel(&self.translate_y, self.t, timing).unwrap_or(0.0),
             opacity: Self::sample_channel(&self.opacity, self.t, timing).unwrap_or(1.0),
             width: Self::sample_channel(&self.width, self.t, timing),
+            clip: true,
+        }
+    }
+
+    /// [`Self::sample`], but a `Native` source calls its registered function
+    /// with eased progress and `info`. Falls back to the (empty) compiled
+    /// channels when the caller has no info to offer — identity, effectively.
+    #[must_use]
+    pub fn sample_for(&self, info: Option<&azul_core::resources::ZombieAnimInfo>) -> TrackSample {
+        match (&self.source, info) {
+            (TrackSource::Native { callback, data }, Some(info)) => {
+                let eased = self.timing.to_interpolation().evaluate(f64::from(self.t));
+                // Clone the handle, not the payload: RefAny is refcounted, and
+                // the callback contract is `&mut` on ITS registered data.
+                let mut data = data.clone();
+                let frame = (callback.cb)(&mut data, info, eased);
+                TrackSample {
+                    translate_x: frame.translate_x,
+                    translate_y: frame.translate_y,
+                    opacity: frame.opacity,
+                    width: frame.width.into_option(),
+                    clip: frame.clip_to_frozen_rect,
+                }
+            }
+            _ => self.sample(),
         }
     }
 }
@@ -15521,6 +15672,7 @@ pub fn compile_keyframes_track(
     const DEFAULT_FONT_SIZE: f32 = 16.0;
 
     let mut track = AnimTrack {
+        source: TrackSource::Compiled,
         t: 0.0,
         duration_s,
         timing,
@@ -15622,6 +15774,7 @@ pub fn builtin_track(
     let w = rect.size.width;
     let h = rect.size.height;
     let mk = |txs: Vec<(f32, f32)>, tys: Vec<(f32, f32)>, ops: Vec<(f32, f32)>, ws: Vec<(f32, f32)>| AnimTrack {
+        source: TrackSource::Compiled,
         t: 0.0,
         duration_s,
         timing,
@@ -15662,12 +15815,32 @@ pub fn builtin_track(
 pub fn resolve_named_track(
     anim: &azul_css::props::basic::animation::StyleAnimation,
     retained_css: &azul_css::css::Css,
+    registry: &azul_core::resources::AnimationFunctionVec,
     rect: LogicalRect,
 ) -> Option<AnimTrack> {
     let duration_s = anim.duration.millis() as f32 / 1000.0;
     for kf in retained_css.keyframes.as_ref() {
         if kf.name.as_str() == anim.name.as_str() {
             return Some(compile_keyframes_track(kf, rect, duration_s, anim.timing));
+        }
+    }
+    // App-registered native functions come after the stylesheet (author
+    // wins) and before the builtins (an app may shadow `flyOutRight`).
+    for f in registry.as_ref() {
+        if f.name.as_str() == anim.name.as_str() {
+            return Some(AnimTrack {
+                source: TrackSource::Native {
+                    callback: f.callback.clone(),
+                    data: f.data.clone(),
+                },
+                t: 0.0,
+                duration_s,
+                timing: anim.timing,
+                translate_x: Vec::new(),
+                translate_y: Vec::new(),
+                opacity: Vec::new(),
+                width: Vec::new(),
+            });
         }
     }
     builtin_track(anim.name.as_str(), rect, duration_s, anim.timing)
@@ -15803,7 +15976,16 @@ impl LayoutWindow {
                 });
             }
             for (node, tr) in &zombie.tracks {
-                let sample = tr.sample();
+                let info = zombie.rects.get(node).map(|rect| {
+                    azul_core::resources::ZombieAnimInfo {
+                        styled_dom: &zombie.retained.styled_dom,
+                        node_id: node.index() as u64,
+                        rect: *rect,
+                        viewport: zombie.retained.viewport,
+                        dpi_factor,
+                    }
+                });
+                let sample = tr.sample_for(info.as_ref());
                 jobs.push(ExitJob {
                     node: *node,
                     scale_x: 1.0,
@@ -15812,7 +15994,7 @@ impl LayoutWindow {
                     translate_y: sample.translate_y,
                     opacity: sample.opacity,
                     width_cut: sample.width,
-                    clipped: true,
+                    clipped: sample.clip,
                 });
             }
 

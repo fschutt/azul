@@ -8257,6 +8257,7 @@ mod autotest_generated {
 
         nd.set_style(azul_css::css::Css {
             rules: Vec::new().into(),
+            keyframes: Vec::new().into(),
         });
         assert!(
             nd.get_style().rules.as_ref().is_empty(),

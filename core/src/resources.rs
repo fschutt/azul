@@ -457,6 +457,104 @@ impl_option!(RouteMatch, OptionRouteMatch, copy = false, [Debug, Clone, PartialE
     })
 }
 
+/// Everything a registered native animation function may inspect while
+/// producing one frame of a presence animation (`-azul-animation-in` /
+/// `-azul-animation-out: fooFunc 1s`).
+///
+/// The pointers are BORROWED for the duration of the call — a function may
+/// walk the tree (e.g. measure its own component's text mid-exit) but must
+/// not store them: for an exit the tree is the RETAINED zombie frame, freed
+/// when the animation completes.
+#[derive(Debug)]
+#[repr(C)]
+pub struct ZombieAnimInfo {
+    /// The `StyledDom` the node lives in — the retained tree for exits, the
+    /// live tree for enters. Never null during a call.
+    pub styled_dom: *const crate::styled_dom::StyledDom,
+    /// The animated node's index in THAT tree.
+    pub node_id: u64,
+    /// The node's rect in logical px: the FROZEN rect for exits, the solved
+    /// rect for enters.
+    pub rect: crate::geom::LogicalRect,
+    /// The viewport the tree was laid out in.
+    pub viewport: crate::geom::LogicalRect,
+    pub dpi_factor: f32,
+}
+
+/// One frame of a native presence animation, returned by a
+/// [`ZombieAnimCallbackType`]. Absolute values, not deltas.
+#[derive(Debug, Clone, Copy, PartialEq)]
+#[repr(C)]
+pub struct ZombieFrame {
+    /// Translation in logical px, applied about the node's origin.
+    pub translate_x: f32,
+    pub translate_y: f32,
+    /// 0.0 skips the node entirely this frame.
+    pub opacity: f32,
+    /// Absolute painted width in logical px (left-anchored narrowing for
+    /// exits; the live layout already owns the vacated space). `None` keeps
+    /// the full width. Ignored for enters (live width is layout's job).
+    pub width: azul_css::OptionF32,
+    /// Clip the exit to its frozen rect so the motion cannot paint over
+    /// neighbouring components. Ignored for enters.
+    pub clip_to_frozen_rect: bool,
+}
+
+impl Default for ZombieFrame {
+    fn default() -> Self {
+        Self {
+            translate_x: 0.0,
+            translate_y: 0.0,
+            opacity: 1.0,
+            width: azul_css::OptionF32::None,
+            clip_to_frozen_rect: true,
+        }
+    }
+}
+
+/// `extern "C"` entry point of a native presence animation: called once per
+/// frame with eased progress `t` in `0..=1`; returns the frame to show.
+pub type ZombieAnimCallbackType =
+    extern "C" fn(&mut RefAny, &ZombieAnimInfo, f32) -> ZombieFrame;
+
+/// See [`ZombieAnimCallbackType`].
+#[repr(C)]
+#[derive(Clone)]
+pub struct ZombieAnimCallback {
+    pub cb: ZombieAnimCallbackType,
+}
+crate::impl_callback_traits!(ZombieAnimCallback);
+
+/// One registered native animation function: resolvable by NAME from
+/// `-azul-animation-in` / `-azul-animation-out`, after stylesheet
+/// `@keyframes` (author wins) and before the builtin table (an app may
+/// shadow `flyOutRight`).
+#[derive(Debug, Clone)]
+#[repr(C)]
+pub struct AnimationFunction {
+    pub name: AzString,
+    pub callback: ZombieAnimCallback,
+    /// Passed to `callback` on every invocation.
+    pub data: RefAny,
+}
+
+impl_vec!(
+    AnimationFunction,
+    AnimationFunctionVec,
+    AnimationFunctionVecDestructor,
+    AnimationFunctionVecDestructorType,
+    AnimationFunctionVecSlice,
+    OptionAnimationFunction
+);
+impl_vec_debug!(AnimationFunction, AnimationFunctionVec);
+impl_vec_clone!(AnimationFunction, AnimationFunctionVec, AnimationFunctionVecDestructor);
+impl_option!(
+    AnimationFunction,
+    OptionAnimationFunction,
+    copy = false,
+    [Debug, Clone]
+);
+
 /// Configuration of the SYSTEM-driven animations: physics-based scrolling
 /// and the caret / selection tweens. Lives on [`AppConfig`] so a platform or
 /// application can tune the feel without rebuilding azul.
@@ -485,6 +583,10 @@ pub struct SystemAnimations {
     pub caret_tween_data: RefAny,
     /// User data passed to `selection_tween` on every invocation.
     pub selection_tween_data: RefAny,
+    /// Native presence-animation functions, resolvable by name from
+    /// `-azul-animation-in` / `-azul-animation-out` (`fooFunc 1s`). Resolved
+    /// AFTER stylesheet `@keyframes` and BEFORE the builtin table.
+    pub animation_functions: AnimationFunctionVec,
     /// Overrides `SystemStyle.scroll_physics` (momentum, overscroll /
     /// rubber-band, wheel-vs-trackpad curves). `None` = platform default.
     pub scroll_physics: OptionScrollPhysics,
@@ -533,6 +635,7 @@ impl Default for SystemAnimations {
                 crate::callbacks::default_caret_tween,
             ),
             caret_tween_data: RefAny::new(()),
+            animation_functions: AnimationFunctionVec::from_const_slice(&[]),
             selection_tween_duration_ms: 60,
             selection_tween: crate::callbacks::SelectionTweenCallback::create(
                 crate::callbacks::default_selection_tween,
