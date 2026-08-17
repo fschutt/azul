@@ -2020,35 +2020,91 @@ pub unsafe extern "C" fn AzStartup_probeFontDir(sel: u32) -> u32 {
     }
 }
 
-/// **[AZ-DIAG REVERT]** Formatter matrix: which `format!` shapes survive the
-/// lift? `core::fmt::write` returning `Err` makes `format_inner`'s `.expect`
-/// panic, which is the current `solveLayoutReal` trap (reached via
-/// `layout_dom_recursive_impl`). Each step writes a progress marker to
-/// `0x40910` BEFORE the next `format!`, so a trap still leaves the last
-/// successful step behind (read it with `AzStartup_peekU32(0x40910)`).
-/// Marker = `0xF3F3_00NN | (len << 16)`; NN = last COMPLETED step.
-/// Steps: 1 Display\<u32\>, 2 Display\<String\>, 3 LowerHex\<usize\> (`{:x}`,
-/// used by `StyleFontFamily::as_string`), 4 Debug\<(u8,u8)\>, 5 Display\<f32\>.
+/// **[AZ-DIAG REVERT]** Staged, NON-PANICKING decomposition of the failing
+/// `format!` path. `core::fmt::write` returns `Err` even for
+/// `format!("a{}", n)` (making `format_inner`'s `.expect` panic — the current
+/// solveLayoutReal trap via `calculate_layout_for_subtree`), with indirect
+/// dispatch measurably clean (unk=0, weak_noop=0). This isolates WHICH stage
+/// first goes wrong, using `Result` checks instead of panics so every marker
+/// survives:
+///   0x40910  stage 1: `String::write_str("a")` DIRECT method call
+///             (no dyn, no args)                       A1_0000|len / A1_DEAD
+///   0x40914  stage 2: `fmt::write(&mut s, format_args!("b"))` — pieces-only,
+///             exercises the `&mut dyn Write` vtable dispatch of write_str
+///                                                     A2_0000|len / A2_DEAD
+///   0x40918  stage 3: `fmt::write(&mut s, format_args!("{}", n))` — the
+///             failing shape: rt::Argument fn-ptr dispatch + u32 Display
+///             (`num::imp::_fmt` → `pad_integral`)     A3_0000|len / A3_DEAD
+///   0x4091C  stage 4: the original panicking `format!("a{}", n)` LAST
+///                                                     A4_0000|len
+/// A trap mid-stage leaves later slots 0. `len` in the low 16 bits is the
+/// cumulative String length — stage 3 should append the decimal digits of
+/// `seed` (seed=255 → +3).
 #[no_mangle]
 pub unsafe extern "C" fn AzStartup_probeFmt(seed: u32) -> u32 {
+    use core::fmt::Write as _;
     // `seed` is a runtime value so nothing here can be const-folded away.
-    let n = seed as usize;
-    let mark = |step: u32, len: usize| unsafe {
-        core::ptr::write_volatile(0x40910 as *mut u32, 0xF3F3_0000 | step | ((len as u32) << 16));
+    let n = seed;
+    let mark = |slot: u32, val: u32| unsafe {
+        core::ptr::write_volatile((0x40910 + slot * 4) as usize as *mut u32, val);
     };
-    mark(0, 0);
-    let a = alloc::format!("a{}", n as u32);
-    mark(1, a.len());
-    let s: alloc::string::String = "xy".into();
-    let b = alloc::format!("[{s}]");
-    mark(2, b.len());
-    let c = alloc::format!("{n:x}");
-    mark(3, c.len());
-    let d = alloc::format!("{:?}", (n as u8, 2u8));
-    mark(4, d.len());
-    let e = alloc::format!("{}", (n as f32) + 0.5);
-    mark(5, e.len());
-    (a.len() + b.len() + c.len() + d.len() + e.len()) as u32
+    let mut s = alloc::string::String::new();
+
+    // v3 matrix (v2 result: 1 Ok, 2 Ok, {u32} ERR ⇒ vtable dispatch + AL
+    // plumbing + dyn write_str all fine at depth 1; the failure is inside the
+    // ARG chain). Stages 3-4 take the Formatter::pad path (char/str Display,
+    // depth-2 write_str WITHOUT pad_integral); 5-7 vary the pad_integral
+    // path by impl and width. Which subset errs names the broken layer:
+    //   3&4 Ok, 5-7 Err  → _fmt/pad_integral family
+    //   3&4 Err too      → depth-2 write_str / Formatter fat-ptr readback
+    //   only 7 Err       → u32-width-specific in _fmt
+    let r = s.write_str("a");
+    mark(0, if r.is_ok() { 0xA100_0000 | s.len() as u32 } else { 0xA1AA_DEAD });
+
+    let r = core::fmt::write(&mut s, format_args!("b"));
+    mark(1, if r.is_ok() { 0xA200_0000 | s.len() as u32 } else { 0xA2AA_DEAD });
+
+    let r = core::fmt::write(&mut s, format_args!("{}", 'x'));
+    mark(2, if r.is_ok() { 0xA300_0000 | s.len() as u32 } else { 0xA3AA_DEAD });
+
+    let r = core::fmt::write(&mut s, format_args!("{}", "zz"));
+    mark(3, if r.is_ok() { 0xA400_0000 | s.len() as u32 } else { 0xA4AA_DEAD });
+
+    let r = core::fmt::write(&mut s, format_args!("{}", (n & 0xFF) as u8));
+    mark(4, if r.is_ok() { 0xA500_0000 | s.len() as u32 } else { 0xA5AA_DEAD });
+
+    let r = core::fmt::write(&mut s, format_args!("{:x}", n));
+    mark(5, if r.is_ok() { 0xA600_0000 | s.len() as u32 } else { 0xA6AA_DEAD });
+
+    let r = core::fmt::write(&mut s, format_args!("{}", n));
+    mark(6, if r.is_ok() { 0xA700_0000 | s.len() as u32 } else { 0xA7AA_DEAD });
+
+    let a = alloc::format!("a{}", n);
+    mark(7, 0xA800_0000 | a.len() as u32);
+
+    // v4 additions: the solve still dies in calculate_layout_for_subtree's
+    // format! after v3 passed — its shapes are `{:.2}` (float PRECISION) and
+    // `{:?}` (derived enum Debug), which v3 never exercised. Cover each family.
+    let r = core::fmt::write(&mut s, format_args!("{}", (n as f32) + 0.5));
+    mark(8, if r.is_ok() { 0xA900_0000 | s.len() as u32 } else { 0xA9AA_DEAD });
+
+    let r = core::fmt::write(&mut s, format_args!("{:.2}", (n as f32) + 0.25));
+    mark(9, if r.is_ok() { 0xAA00_0000 | s.len() as u32 } else { 0xAAAA_DEAD });
+
+    let r = core::fmt::write(&mut s, format_args!("{:?}", Some(n as u8)));
+    mark(10, if r.is_ok() { 0xAB00_0000 | s.len() as u32 } else { 0xABAA_DEAD });
+
+    let r = core::fmt::write(&mut s, format_args!("{:>5}", n));
+    mark(11, if r.is_ok() { 0xAC00_0000 | s.len() as u32 } else { 0xACAA_DEAD });
+
+    // The exact composite shape from solver3/cache.rs's CONTENT BOX message.
+    let r = core::fmt::write(
+        &mut s,
+        format_args!("[{}] pos=({:.2}, {:.2})", n, (n as f32) * 0.5, (n as f32) * 0.25),
+    );
+    mark(12, if r.is_ok() { 0xAD00_0000 | s.len() as u32 } else { 0xADAA_DEAD });
+
+    (s.len() + a.len()) as u32
 }
 
 /// Re-run the layout callback against the current refany, writing
