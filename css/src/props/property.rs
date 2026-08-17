@@ -320,6 +320,8 @@ const CSS_PROPERTY_KEY_MAP: [(CssPropertyType, &str); 190] = [
 pub type CaretColorValue = CssPropertyValue<CaretColor>;
 pub type CaretAnimationDurationValue = CssPropertyValue<CaretAnimationDuration>;
 pub type StyleAnimationValue = CssPropertyValue<crate::props::basic::animation::StyleAnimation>;
+pub type StyleAnimationVecValue =
+    CssPropertyValue<crate::props::basic::animation::StyleAnimationVec>;
 pub type CaretWidthValue = CssPropertyValue<CaretWidth>;
 pub type SelectionBackgroundColorValue = CssPropertyValue<SelectionBackgroundColor>;
 pub type SelectionColorValue = CssPropertyValue<SelectionColor>;
@@ -606,12 +608,12 @@ pub enum CssProperty {
     CaretAnimationDuration(CaretAnimationDurationValue),
     /// `animation: all 2s [timing]` — diff-driven transitions; the OLD tree's
     /// value governs (USER spec 2026-08-17).
-    Animation(StyleAnimationValue),
+    Animation(StyleAnimationVecValue),
     /// `-azul-animation-in: <name> <duration> [timing]` — runs on mount.
-    AnimationIn(StyleAnimationValue),
+    AnimationIn(StyleAnimationVecValue),
     /// `-azul-animation-out: <name> <duration> [timing]` — runs on unmount,
     /// against the retained (frozen) zombie subtree.
-    AnimationOut(StyleAnimationValue),
+    AnimationOut(StyleAnimationVecValue),
     CaretWidth(CaretWidthValue),
     SelectionBackgroundColor(SelectionBackgroundColorValue),
     SelectionColor(SelectionColorValue),
@@ -3145,13 +3147,13 @@ pub fn parse_css_property(
                 parse_caret_animation_duration(value)?.into()
             }
             CssPropertyType::Animation => CssProperty::Animation(CssPropertyValue::Exact(
-                crate::props::basic::animation::parse_style_animation(value)?,
+                crate::props::basic::animation::parse_style_animation_vec(value)?,
             )),
             CssPropertyType::AnimationIn => CssProperty::AnimationIn(CssPropertyValue::Exact(
-                crate::props::basic::animation::parse_style_animation(value)?,
+                crate::props::basic::animation::parse_style_animation_vec(value)?,
             )),
             CssPropertyType::AnimationOut => CssProperty::AnimationOut(CssPropertyValue::Exact(
-                crate::props::basic::animation::parse_style_animation(value)?,
+                crate::props::basic::animation::parse_style_animation_vec(value)?,
             )),
             CssPropertyType::SelectionBackgroundColor => {
                 parse_selection_background_color(value)?.into()
