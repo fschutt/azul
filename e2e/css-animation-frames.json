@@ -1,6 +1,6 @@
 {
   "name": "css_animation_frames",
-  "description": "FRAME SHOWCASE of the CSS animation API, meant to be run with AZ_E2E_SHOT_DIR to produce the montage: #sidebar declares BOTH `-azul-animation-out: flyOutRight 1s` (unmount: slides right through its own edge, narrowing, clipped to its frozen box while the card text has ALREADY reflowed underneath) and `-azul-animation-in: flyInLeft 1s` (remount: slides back in from the left edge). Ticked in exact 0.2s increments with a screenshot each, so the strip shows the whole story. The trailing assert keeps the scenario honest headlessly: all zombies reaped at the end.",
+  "description": "FRAME SHOWCASE of the CSS animation API, meant to be run with AZ_E2E_SHOT_DIR to produce the montage: #sidebar declares BOTH `-azul-animation-out: flyOutLeft 1s` (unmount: a LEFT sidebar leaves through the window's LEFT edge — content slides left, its right edge chasing, narrowing, clipped to its frozen box while the card text has ALREADY reflowed underneath) and `-azul-animation-in: flyInLeft 1s` (remount: slides back in from the left edge). Ticked in exact 0.2s increments with a screenshot each, so the strip shows the whole story. The trailing assert keeps the scenario honest headlessly: all zombies reaped at the end.",
   "setup": {
     "window_width": 480,
     "window_height": 240,
@@ -18,7 +18,7 @@
       "css": [
         "html, body { margin: 0; padding: 0; width: 100%; height: 100%; }",
         "#root { width: 100%; height: 100%; display: flex; flex-direction: row; background: #ffffff; }",
-        "#sidebar { width: 160px; height: 100%; background: #2b5fad; color: #ffffff; font-size: 18px; padding: 12px; -azul-animation-out: flyOutRight 1s; -azul-animation-in: flyInLeft 1s; }",
+        "#sidebar { width: 160px; height: 100%; background: #2b5fad; color: #ffffff; font-size: 18px; padding: 12px; -azul-animation-out: flyOutLeft 1s; -azul-animation-in: flyInLeft 1s; }",
         "#card { flex-grow: 1; height: 100%; background: #c0392b; color: #ffffff; font-size: 20px; padding: 16px; }"
       ]
     },
@@ -113,7 +113,7 @@
       "css": [
         "html, body { margin: 0; padding: 0; width: 100%; height: 100%; }",
         "#root { width: 100%; height: 100%; display: flex; flex-direction: row; background: #ffffff; }",
-        "#sidebar { width: 160px; height: 100%; background: #2b5fad; color: #ffffff; font-size: 18px; padding: 12px; -azul-animation-out: flyOutRight 1s; -azul-animation-in: flyInLeft 1s; }",
+        "#sidebar { width: 160px; height: 100%; background: #2b5fad; color: #ffffff; font-size: 18px; padding: 12px; -azul-animation-out: flyOutLeft 1s; -azul-animation-in: flyInLeft 1s; }",
         "#card { flex-grow: 1; height: 100%; background: #c0392b; color: #ffffff; font-size: 20px; padding: 16px; }"
       ]
     },

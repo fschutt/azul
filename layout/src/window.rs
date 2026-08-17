@@ -16009,16 +16009,22 @@ impl LayoutWindow {
                 // Cut the node's frozen rect out of the snapshot (device px).
                 let sx0 = (rect.origin.x * dpi_factor).floor().max(0.0) as u32;
                 let sy0 = (rect.origin.y * dpi_factor).floor().max(0.0) as u32;
-                let mut sw = ((rect.size.width * dpi_factor).ceil() as u32)
+                let full_sw = ((rect.size.width * dpi_factor).ceil() as u32)
                     .min(snapshot.width.saturating_sub(sx0));
+                let mut sw = full_sw;
                 let sh = ((rect.size.height * dpi_factor).ceil() as u32)
                     .min(snapshot.height.saturating_sub(sy0));
-                // The width channel narrows the cut LEFT-ANCHORED: the live
-                // layout already owns the vacated right-hand span, the zombie
-                // just paints less of itself as it goes.
+                // The width channel narrows the cut ANCHORED AWAY FROM THE
+                // MOTION: an exit travelling right keeps its LEFT pixels (the
+                // content slides right, the left edge chases it), an exit
+                // travelling left keeps its RIGHT pixels. Anchoring INTO the
+                // motion would compound translate and narrowing — a
+                // `flyOutLeft` narrowed from the left vanished at t=0.5
+                // (USER-reported: the sides read as flipped).
                 if let Some(w) = job.width_cut {
                     sw = sw.min((w * dpi_factor).ceil().max(0.0) as u32);
                 }
+                let cut_off = if job.translate_x < 0.0 { full_sw - sw } else { 0 };
                 if sw == 0 || sh == 0 {
                     continue;
                 }
@@ -16026,7 +16032,7 @@ impl LayoutWindow {
                     continue;
                 };
                 for row in 0..sh {
-                    let src_off = (((sy0 + row) * snapshot.width + sx0) * 4) as usize;
+                    let src_off = (((sy0 + row) * snapshot.width + sx0 + cut_off) * 4) as usize;
                     let dst_off = (row * sw * 4) as usize;
                     let len = (sw * 4) as usize;
                     cut.data[dst_off..dst_off + len]
@@ -16050,7 +16056,10 @@ impl LayoutWindow {
                     0.0,
                     0.0,
                     1.0,
-                    f64::from(rect.origin.x) * dpi,
+                    // The cut's window offset stays glued to the box: without
+                    // it a right-anchored cut would render at the box's LEFT
+                    // edge and the anchor fix above would be undone.
+                    f64::from(rect.origin.x) * dpi + f64::from(cut_off),
                     f64::from(rect.origin.y) * dpi,
                 ));
                 let clip = if job.clipped {
