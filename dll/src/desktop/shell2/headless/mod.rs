@@ -669,16 +669,49 @@ impl CpuBackend {
 
         // A PATCHED build may change the item count, which the old-vs-new
         // item diff reads as structural (None -> full). The patch recorded
-        // its own precise damage at build time — prefer it when the diff
-        // gives up but the build was a splice.
-        let dl_damage = match dl_damage {
-            None if can_reuse_previous_frame
-                && layout_window.layout_cache.last_build_was_patched =>
-            {
-                layout_window.layout_cache.last_patch_damage.clone()
+        // its own precise damage at build time — and on a PATCHED build it is
+        // AUTHORITATIVE, not a fallback: the item diff pairs items by index,
+        // and a same-count splice (re-emitted node, translated neighbours)
+        // mis-pairs old-vs-new items and under-damages (one stale rect where
+        // the reflow moved three nodes). The diff stays the source of truth
+        // only for unpatched incremental passes. Guarded to the same
+        // conditions the diff itself ran under (a gpu needs_full / shrink /
+        // first frame must stay a full repaint).
+        let diff_path_ran = self.previous_display_list.is_some()
+            && can_reuse_previous_frame
+            && !gpu_damage.needs_full;
+        let dl_damage = if diff_path_ran && layout_window.layout_cache.last_build_was_patched {
+            // On a PATCHED build the patch's own damage AUGMENTS the item
+            // diff (union), and stands alone when the diff bails to None on
+            // an item-count change. Never replace a Some(diff) wholesale:
+            // unpatched-equal frames keep baseline damage exactly.
+            match (dl_damage, layout_window.layout_cache.last_patch_damage.clone()) {
+                // An EMPTY diff on a patched build means the splice produced a
+                // byte-identical list (same-text re-shape) — the frame is IDLE
+                // and must stay idle; painting patch rects here flips the
+                // idle-skip and drifts the frame scheduling (scrollbar-fade
+                // clock) off the baseline.
+                (Some(d), Some(_)) if d.is_empty() => Some(d),
+                (Some(mut d), Some(p)) => {
+                    d.extend(p);
+                    Some(d)
+                }
+                (None, p) => p,
+                (d, None) => d,
             }
-            other => other,
+        } else {
+            dl_damage
         };
+        if std::env::var_os("AZ_PATCH_DEBUG").is_some() {
+            eprintln!(
+                "[HLDMG] dl_damage={:?} can_reuse={} patched={} patch_damage={:?} resize={:?}",
+                dl_damage,
+                can_reuse_previous_frame,
+                layout_window.layout_cache.last_build_was_patched,
+                layout_window.layout_cache.last_patch_damage,
+                resize_damage,
+            );
+        }
         match dl_damage {
             Some(rects)
                 if rects.is_empty()

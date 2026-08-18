@@ -186,6 +186,26 @@ impl CpuBackend {
             &gpu_opacities,
         );
         let has_gpu_damage = !gpu_damage.rects.is_empty() || gpu_damage.needs_full;
+        if has_gpu_damage && std::env::var_os("AZ_PATCH_DEBUG").is_some() {
+            let td: Vec<_> = gpu_transforms
+                .iter()
+                .filter(|(k, v)| self.previous_gpu_transforms.get(k) != Some(v))
+                .map(|(k, v)| (*k, v.m[3][0], v.m[3][1]))
+                .collect();
+            let od: Vec<_> = gpu_opacities
+                .iter()
+                .filter(|(k, v)| self.previous_gpu_opacities.get(k) != Some(v))
+                .map(|(k, v)| (*k, *v))
+                .collect();
+            eprintln!(
+                "[GPUDMG] prev_t={} cur_t={} prev_o={} cur_o={} changed_t={td:?} changed_o={od:?} rects={:?}",
+                self.previous_gpu_transforms.len(),
+                gpu_transforms.len(),
+                self.previous_gpu_opacities.len(),
+                gpu_opacities.len(),
+                gpu_damage.rects,
+            );
+        }
         // Retained exits repaint every tick without any display-list item
         // changing — their per-frame truth is `previous ∪ current` painted
         // rects: restore the live frame where the exit WAS, paint it where
@@ -293,16 +313,52 @@ impl CpuBackend {
 
         // A PATCHED build may change the item count, which the old-vs-new
         // item diff reads as structural (None -> full). The patch recorded
-        // its own precise damage at build time — prefer it when the diff
-        // gives up but the build was a splice.
-        let dl_damage = match dl_damage {
-            None if can_reuse_previous_frame
-                && layout_window.layout_cache.last_build_was_patched =>
-            {
-                layout_window.layout_cache.last_patch_damage.clone()
+        // its own precise damage at build time — and on a patched build it
+        // is AUTHORITATIVE, not a fallback: the index-pairing diff
+        // under-damages a same-count splice (re-emitted node + translated
+        // neighbours mis-pair). Guarded to the same conditions the diff ran
+        // under, so gpu needs_full / shrink / first frame stay full repaints.
+        let diff_path_ran = self.previous_display_list.is_some()
+            && can_reuse_previous_frame
+            && !gpu_damage.needs_full;
+        let dl_damage = if diff_path_ran && layout_window.layout_cache.last_build_was_patched {
+            // On a PATCHED build the patch's own damage AUGMENTS the item
+            // diff: the index-pairing diff under-damages a same-count splice
+            // (one stale rect where a reflow moved three nodes), so union
+            // the two when the diff produced rects, and use the patch's
+            // damage alone when the diff gave up (count change -> None).
+            // Never REPLACE a Some(diff) wholesale: unpatched-equal frames
+            // must keep their baseline damage exactly (an empty diff on a
+            // quiet frame stays the idle skip).
+            match (dl_damage, layout_window.layout_cache.last_patch_damage.clone()) {
+                // An EMPTY diff on a patched build means the splice produced a
+                // byte-identical list (same-text re-shape) — the frame is IDLE
+                // and must stay idle; painting patch rects here flips the
+                // idle-skip and drifts the frame scheduling (scrollbar-fade
+                // clock) off the baseline.
+                (Some(d), Some(_)) if d.is_empty() => Some(d),
+                (Some(mut d), Some(p)) => {
+                    d.extend(p);
+                    Some(d)
+                }
+                (None, p) => p,
+                (d, None) => d,
             }
-            other => other,
+        } else {
+            dl_damage
         };
+        if std::env::var_os("AZ_PATCH_DEBUG").is_some() {
+            eprintln!(
+                "[E2EDMG] dl_damage={:?} diff_ran={} patched={} resize={:?} gpu_full={} gpu_rects={} zombie={}",
+                dl_damage.as_ref().map(|r| r.len()),
+                diff_path_ran,
+                layout_window.layout_cache.last_build_was_patched,
+                resize_damage.len(),
+                gpu_damage.needs_full,
+                gpu_damage.rects.len(),
+                zombie_damage.len(),
+            );
+        }
         match dl_damage {
             Some(rects)
                 if rects.is_empty()

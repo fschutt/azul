@@ -937,6 +937,9 @@ impl E2eMountOverride {
 /// - Generate display lists for rendering
 /// - Handle window resizes efficiently
 /// - Manage multiple DOMs (for `VirtualViews`)
+// Independent lifecycle FLAGS (frame/tick/present bookkeeping), not an
+// encodable state machine — each is owned by a different subsystem.
+#[allow(clippy::struct_excessive_bools)]
 #[derive(Debug)]
 pub struct LayoutWindow {
     /// E2E `mount` override for this window (debug-server `mount` / `unmount`).
@@ -1002,7 +1005,7 @@ pub struct LayoutWindow {
     /// already computes: if a node matched across the diff and its rect moved,
     /// that is a FLIP, with no involvement from the application. The key is the
     /// reconciliation key precisely so an in-flight animation survives the
-    /// NodeId churn a rebuild causes — see `azul_core::animation`.
+    /// `NodeId` churn a rebuild causes — see `azul_core::animation`.
     pub animations: azul_core::animation::AnimationManager,
     /// Subtrees that have left the DOM but are still on screen, animating out.
     ///
@@ -1014,11 +1017,11 @@ pub struct LayoutWindow {
     /// The animation store is keyed by reconciliation identity so state can
     /// outlive a rebuild; the GPU cache is keyed by `NodeId`, which cannot.
     /// This is the bridge, and it is deliberately rebuilt rather than migrated:
-    /// after a rebuild the old NodeIds are meaningless, so a stale entry here
+    /// after a rebuild the old `NodeIds` are meaningless, so a stale entry here
     /// would write a transform onto whatever unrelated node inherited the slot.
-    pub anim_key_to_node: alloc::collections::BTreeMap<
+    pub anim_key_to_node: BTreeMap<
         azul_core::animation::AnimKey,
-        azul_core::dom::NodeId,
+        NodeId,
     >,
     /// Diff-triggered `animation` transitions in flight (ROOT dom). See
     /// [`CssTransition`] for the governing semantics.
@@ -1051,12 +1054,12 @@ pub struct LayoutWindow {
     /// Published into the anim GPU channels each tick (the same maps the
     /// manager animations write, so the DL/compositor path is shared), and
     /// the keys are released at t=1. ROOT dom, like the manager bridge above.
-    pub live_tracks: alloc::collections::BTreeMap<azul_core::dom::NodeId, AnimTrack>,
+    pub live_tracks: BTreeMap<NodeId, AnimTrack>,
     /// Timestamp of the last animation tick, for deriving `dt`.
     ///
     /// `None` while nothing animates, which is also what keeps the clock read
     /// off the idle path — see [`Self::tick_animations_now`].
-    pub last_anim_tick: Option<azul_core::task::Instant>,
+    pub last_anim_tick: Option<Instant>,
     /// The CSS DIFF of the most recent `begin_reconciliation`, waiting to be
     /// consumed by the NEXT layout pass of that DOM: node -> worst
     /// `RelayoutScope` across its changed properties (including `None` =
@@ -1516,14 +1519,14 @@ impl LayoutWindow {
             fragmentation_context: crate::paged::FragmentationContext::new_continuous(800.0),
             animations: azul_core::animation::AnimationManager::new(),
             zombies: Vec::new(),
-            anim_key_to_node: alloc::collections::BTreeMap::new(),
+            anim_key_to_node: BTreeMap::new(),
             zombie_relayouts: 0,
             pending_track_changes: Vec::new(),
             tracks_sampled_since_tick: false,
             css_transitions: Vec::new(),
             transition_relayout: false,
             transition_patched: false,
-            live_tracks: alloc::collections::BTreeMap::new(),
+            live_tracks: BTreeMap::new(),
             last_anim_tick: None,
             layout_cache: Solver3LayoutCache {
                 tree: None,
@@ -1532,6 +1535,7 @@ impl LayoutWindow {
             last_reconcile_structure_preserved: false,
             last_build_was_patched: false,
             last_patch_damage: None,
+            last_dynamic_context: None,
             previous_sizes: Vec::new(),
             dom_diff_clean: None,
             last_fingerprint_skips: 0,
@@ -3051,6 +3055,7 @@ impl LayoutWindow {
             last_reconcile_structure_preserved: false,
             last_build_was_patched: false,
             last_patch_damage: None,
+            last_dynamic_context: None,
             previous_sizes: Vec::new(),
             dom_diff_clean: None,
             last_fingerprint_skips: 0,
@@ -4764,6 +4769,7 @@ impl LayoutWindow {
             last_reconcile_structure_preserved: false,
             last_build_was_patched: false,
             last_patch_damage: None,
+            last_dynamic_context: None,
             previous_sizes: Vec::new(),
             dom_diff_clean: None,
             last_fingerprint_skips: 0,
@@ -6759,7 +6765,7 @@ impl LayoutWindow {
     /// Does, in order:
     ///
     /// 1. `reconcile_dom` — which old node became which new one,
-    /// 2. `transfer_states` — RefAny state follows identity,
+    /// 2. `transfer_states` — `RefAny` state follows identity,
     /// 3. `migrate_user_overrides_from` — runtime CSS patches follow identity,
     /// 4. `remap_node_ids` — focus, scroll, hover, text-edit and every other
     ///    node-keyed manager,
@@ -6773,7 +6779,7 @@ impl LayoutWindow {
         &mut self,
         dom_id: DomId,
         styled_dom: &mut StyledDom,
-        now: azul_core::task::Instant,
+        now: Instant,
     ) -> PendingReconciliation {
         // Clone the old tree out first: it releases the `layout_results` borrow
         // before the `&mut self` work below, and the old arena is about to be
@@ -7015,7 +7021,7 @@ impl LayoutWindow {
         // `migrate_user_overrides_from` just migrated, and the per-tick driver
         // in `tick_animations` walks it to `to` and then removes it.
         for tr in &captured_transitions {
-            let _ = styled_dom.restyle_user_property(&tr.node, core::slice::from_ref(&tr.from));
+            drop(styled_dom.restyle_user_property(&tr.node, core::slice::from_ref(&tr.from)));
         }
         for tr in captured_transitions {
             // One transition per (node, property): a retarget replaces the
@@ -7470,7 +7476,7 @@ impl LayoutWindow {
             self.last_anim_tick = None;
             return false;
         }
-        let now = azul_core::task::Instant::now();
+        let now = Instant::now();
         let dt = self
             .last_anim_tick
             .as_ref()
@@ -7540,7 +7546,7 @@ impl LayoutWindow {
             cache
                 .anim_opacity_keys
                 .entry(node_id)
-                .or_insert_with(azul_core::resources::OpacityKey::unique);
+                .or_insert_with(OpacityKey::unique);
             cache
                 .anim_current_opacity_values
                 .insert(node_id, anim.current_opacity());
@@ -7562,7 +7568,7 @@ impl LayoutWindow {
         // GPU publishing happens in `run_track_frames`; a track that FINISHES
         // is removed here and its keys released, so a settled enter cannot
         // stay permanently offset by its last sample.
-        let mut done_live: Vec<azul_core::dom::NodeId> = Vec::new();
+        let mut done_live: Vec<NodeId> = Vec::new();
         for (node_id, tr) in &mut self.live_tracks {
             tr.tick(dt);
             if tr.is_done() {
@@ -7585,13 +7591,13 @@ impl LayoutWindow {
         // so the driver escalates to an incremental relayout.
         if !self.css_transitions.is_empty() {
             let rects = transition_rects;
-            let mut dirty: Vec<(azul_core::dom::NodeId, azul_css::props::property::RelayoutScope)> =
+            let mut dirty: Vec<(NodeId, azul_css::props::property::RelayoutScope)> =
                 Vec::new();
             let mut needs_relayout = false;
             // (node, from-colour, to-colour, is_text) — executed after the
             // loop so the styled_dom borrow is released first.
             let mut patch_jobs: Vec<(
-                azul_core::dom::NodeId,
+                NodeId,
                 azul_css::props::basic::color::ColorU,
                 azul_css::props::basic::color::ColorU,
                 bool,
@@ -7648,30 +7654,29 @@ impl LayoutWindow {
                         };
                         Some((from_c, to_c, is_text))
                     });
-                    match (patchable, colors) {
-                        (true, Some((from_c, to_c, is_text))) => {
+                    if let (true, Some((from_c, to_c, is_text))) = (patchable, colors) {
+                        result
+                            .styled_dom
+                            .set_user_property_override_fast(&tr.node, core::slice::from_ref(&over));
+                        if from_c != to_c {
+                            patch_jobs.push((tr.node, from_c, to_c, is_text));
+                            tr.last_color = Some(to_c);
+                        }
+                    } else {
+                        drop(
                             result
                                 .styled_dom
-                                .set_user_property_override_fast(&tr.node, core::slice::from_ref(&over));
-                            if from_c != to_c {
-                                patch_jobs.push((tr.node, from_c, to_c, is_text));
-                                tr.last_color = Some(to_c);
-                            }
-                        }
-                        _ => {
-                            let _ = result
-                                .styled_dom
-                                .restyle_user_property(&tr.node, core::slice::from_ref(&over));
-                            dirty.push((tr.node, tr.scope));
-                            if tr.scope != azul_css::props::property::RelayoutScope::None {
-                                needs_relayout = true;
-                            }
+                                .restyle_user_property(&tr.node, core::slice::from_ref(&over)),
+                        );
+                        dirty.push((tr.node, tr.scope));
+                        if tr.scope != azul_css::props::property::RelayoutScope::None {
+                            needs_relayout = true;
                         }
                     }
                 }
 
                 if !patch_jobs.is_empty() {
-                    let subtree_ends: Vec<(azul_core::dom::NodeId, usize)> = {
+                    let subtree_ends: Vec<(NodeId, usize)> = {
                         let hierarchy = result.styled_dom.node_hierarchy.as_container();
                         patch_jobs
                             .iter()
@@ -7681,7 +7686,7 @@ impl LayoutWindow {
                             .map(|(n, ..)| (*n, n.index() + hierarchy.subtree_len(*n) + 1))
                             .collect()
                     };
-                    let dl = std::sync::Arc::make_mut(&mut result.display_list);
+                    let dl = Arc::make_mut(&mut result.display_list);
                     for ((node, from_c, to_c, is_text), (_, end)) in
                         patch_jobs.iter().zip(subtree_ends)
                     {
@@ -9049,7 +9054,7 @@ impl LayoutWindow {
         self.tracks_sampled_since_tick = true;
 
         let zombie_dpi = current_window_state.size.get_hidpi_factor().inner.get();
-        let callback_changes = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
+        let callback_changes = Arc::new(std::sync::Mutex::new(Vec::new()));
         struct SampledTrack {
             zombie_idx: Option<usize>,
             node: NodeId,
@@ -9135,7 +9140,7 @@ impl LayoutWindow {
                     let Some(frozen) = z.rects.get(node) else { continue };
                     let (vx, vy) = z.velocities.get(node).copied().unwrap_or((0.0, 0.0));
                     let info = azul_core::resources::ZombieAnimInfo {
-                        styled_dom: &z.retained.styled_dom,
+                        styled_dom: &raw const z.retained.styled_dom,
                         node_id: node.index() as u64,
                         rect: *z.live_rects.get(node).unwrap_or(frozen),
                         viewport: z.retained.viewport,
@@ -9161,7 +9166,7 @@ impl LayoutWindow {
                     continue;
                 };
                 let info = azul_core::resources::ZombieAnimInfo {
-                    styled_dom: &r.styled_dom,
+                    styled_dom: &raw const r.styled_dom,
                     node_id: node.index() as u64,
                     rect,
                     viewport: r.viewport,
@@ -9187,143 +9192,143 @@ impl LayoutWindow {
             sample,
         } in sampled
         {
-            match zombie_idx {
-                Some(zi) => {
-                    let Some(z) = self.zombies.get_mut(zi) else { continue };
-                    if let Some(tr) = z.tracks.get_mut(&node) {
-                        tr.frames_run = tr.frames_run.saturating_add(1);
-                    }
-                    if dt > 0.0 {
-                        if let Some(prev) = z.tick_samples.get(&node) {
-                            z.velocities.insert(
-                                node,
-                                (
-                                    (sample.translate_x - prev.translate_x) / dt,
-                                    (sample.translate_y - prev.translate_y) / dt,
-                                ),
-                            );
-                        }
-                    }
-                    // Width/height samples mean REAL layout: re-solve the
-                    // retained tree at the sampled size (the zombie is
-                    // unreachable, not frozen).
-                    let wants = (sample.width, sample.height);
-                    if (wants.0.is_some() || wants.1.is_some())
-                        && z.applied_sizes.get(&node) != Some(&wants)
-                    {
-                        let mut props: Vec<azul_css::props::property::CssProperty> = Vec::new();
-                        if let Some(w) = sample.width {
-                            props.push(azul_css::props::property::CssProperty::width(
-                                azul_css::props::layout::LayoutWidth::Px(
-                                    azul_css::props::basic::pixel::PixelValue::px(w),
-                                ),
-                            ));
-                        }
-                        if let Some(h) = sample.height {
-                            props.push(azul_css::props::property::CssProperty::height(
-                                azul_css::props::layout::LayoutHeight::Px(
-                                    azul_css::props::basic::pixel::PixelValue::px(h),
-                                ),
-                            ));
-                        }
-                        let _ = z.retained.styled_dom.restyle_user_property(&node, &props);
-                        let dirty = [(
+            if let Some(zi) = zombie_idx {
+                let Some(z) = self.zombies.get_mut(zi) else { continue };
+                if let Some(tr) = z.tracks.get_mut(&node) {
+                    tr.frames_run = tr.frames_run.saturating_add(1);
+                }
+                if dt > 0.0 {
+                    if let Some(prev) = z.tick_samples.get(&node) {
+                        z.velocities.insert(
                             node,
-                            azul_css::props::property::CssPropertyType::Width
-                                .relayout_scope(false),
-                        )];
-                        let external = ExternalSystemCallbacks::rust_internal();
-                        let solved = solver3::layout_document(
-                            &mut z.scratch_cache,
-                            &mut z.scratch_text,
-                            &z.retained.styled_dom,
-                            z.retained.viewport,
-                            &self.font_manager,
-                            &BTreeMap::new(),
-                            &BTreeMap::new(),
-                            &mut None,
-                            None,
-                            renderer_resources,
-                            self.id_namespace,
-                            z.retained.styled_dom.dom_id,
-                            false,
-                            Vec::new(),
-                            None,
-                            &self.image_cache,
-                            Some(&self.content_overlay),
-                            self.system_style.clone(),
-                            external.get_system_time_fn,
-                            &dirty,
+                            (
+                                (sample.translate_x - prev.translate_x) / dt,
+                                (sample.translate_y - prev.translate_y) / dt,
+                            ),
                         );
-                        if let Ok(dl) = solved {
-                            z.retained.display_list = dl;
-                            z.applied_sizes.insert(node, wants);
-                            if let Some(tree) = z.scratch_cache.tree.as_ref() {
-                                for (idx, tn) in tree.nodes.iter().enumerate() {
-                                    if tn.dom_node_id == Some(node) {
-                                        if let (Some(size), Some(pos)) = (
-                                            tn.used_size,
-                                            solver3::pos_get(
-                                                &z.scratch_cache.calculated_positions,
-                                                idx,
-                                            ),
-                                        ) {
-                                            z.live_rects
-                                                .insert(node, LogicalRect::new(pos, size));
-                                        }
-                                        break;
+                    }
+                }
+                // Width/height samples mean REAL layout: re-solve the
+                // retained tree at the sampled size (the zombie is
+                // unreachable, not frozen).
+                let wants = (sample.width, sample.height);
+                if (wants.0.is_some() || wants.1.is_some())
+                    && z.applied_sizes.get(&node) != Some(&wants)
+                {
+                    let mut props: Vec<azul_css::props::property::CssProperty> = Vec::new();
+                    if let Some(w) = sample.width {
+                        props.push(azul_css::props::property::CssProperty::width(
+                            azul_css::props::layout::LayoutWidth::Px(
+                                azul_css::props::basic::pixel::PixelValue::px(w),
+                            ),
+                        ));
+                    }
+                    if let Some(h) = sample.height {
+                        props.push(azul_css::props::property::CssProperty::height(
+                            azul_css::props::layout::LayoutHeight::Px(
+                                azul_css::props::basic::pixel::PixelValue::px(h),
+                            ),
+                        ));
+                    }
+                    drop(z.retained.styled_dom.restyle_user_property(&node, &props));
+                    let dirty = [(
+                        node,
+                        azul_css::props::property::CssPropertyType::Width
+                            .relayout_scope(false),
+                    )];
+                    let external = ExternalSystemCallbacks::rust_internal();
+                    let solved = solver3::layout_document(
+                        &mut z.scratch_cache,
+                        &mut z.scratch_text,
+                        &z.retained.styled_dom,
+                        z.retained.viewport,
+                        &self.font_manager,
+                        &BTreeMap::new(),
+                        &BTreeMap::new(),
+                        &mut None,
+                        None,
+                        renderer_resources,
+                        self.id_namespace,
+                        z.retained.styled_dom.dom_id,
+                        false,
+                        Vec::new(),
+                        None,
+                        &self.image_cache,
+                        Some(&self.content_overlay),
+                        self.system_style.clone(),
+                        external.get_system_time_fn,
+                        &dirty,
+                    );
+                    if let Ok(dl) = solved {
+                        z.retained.display_list = dl;
+                        z.applied_sizes.insert(node, wants);
+                        if let Some(tree) = z.scratch_cache.tree.as_ref() {
+                            for (idx, tn) in tree.nodes.iter().enumerate() {
+                                if tn.dom_node_id == Some(node) {
+                                    if let (Some(size), Some(pos)) = (
+                                        tn.used_size,
+                                        solver3::pos_get(
+                                            &z.scratch_cache.calculated_positions,
+                                            idx,
+                                        ),
+                                    ) {
+                                        z.live_rects
+                                            .insert(node, LogicalRect::new(pos, size));
                                     }
+                                    break;
                                 }
                             }
-                            let _ = z.snapshot.take();
-                            self.zombie_relayouts += 1;
                         }
+                        #[cfg(feature = "cpurender")]
+                        {
+                            drop(z.snapshot.take());
+                        }
+                        self.zombie_relayouts += 1;
                     }
-                    z.tick_samples.insert(node, sample);
                 }
-                None => {
-                    if let Some(tr) = self.live_tracks.get_mut(&node) {
-                        tr.frames_run = tr.frames_run.saturating_add(1);
-                    }
-                    let cache = self.gpu_state_manager.caches.entry(DomId::ROOT_ID).or_default();
-                    let s = sample;
-                    cache
-                        .anim_transform_keys
-                        .entry(node)
-                        .or_insert_with(azul_core::resources::TransformKey::unique);
-                    // Row-vector affine with scale/rotate about the node's
-                    // CENTRE, folded into the translation row (logical
-                    // units, like the manager's flip matrices).
-                    let (sin, cos) = s.rotate_deg.to_radians().sin_cos();
-                    let (a, b) = (s.scale_x * cos, s.scale_x * sin);
-                    let (c, d) = (-s.scale_y * sin, s.scale_y * cos);
-                    let (cx, cy) = self
-                        .get_node_bounds(DomId::ROOT_ID, node)
-                        .map(layout_rect_to_logical)
-                        .map_or((0.0, 0.0), |r| (r.size.width / 2.0, r.size.height / 2.0));
-                    let cache = self.gpu_state_manager.caches.entry(DomId::ROOT_ID).or_default();
-                    cache.anim_current_transform_values.insert(
-                        node,
-                        azul_core::transform::ComputedTransform3D {
-                            m: [
-                                [a, b, 0.0, 0.0],
-                                [c, d, 0.0, 0.0],
-                                [0.0, 0.0, 1.0, 0.0],
-                                [
-                                    cx + s.translate_x - cx * a - cy * c,
-                                    cy + s.translate_y - cx * b - cy * d,
-                                    0.0,
-                                    1.0,
-                                ],
+                z.tick_samples.insert(node, sample);
+            } else {
+                if let Some(tr) = self.live_tracks.get_mut(&node) {
+                    tr.frames_run = tr.frames_run.saturating_add(1);
+                }
+                let cache = self.gpu_state_manager.caches.entry(DomId::ROOT_ID).or_default();
+                let smp = sample;
+                cache
+                    .anim_transform_keys
+                    .entry(node)
+                    .or_insert_with(azul_core::resources::TransformKey::unique);
+                // Row-vector affine with scale/rotate about the node's
+                // CENTRE, folded into the translation row (logical
+                // units, like the manager's flip matrices).
+                let (sin, cos) = smp.rotate_deg.to_radians().sin_cos();
+                let (a, b) = (smp.scale_x * cos, smp.scale_x * sin);
+                let (c, d) = (-smp.scale_y * sin, smp.scale_y * cos);
+                let (cx, cy) = self
+                    .get_node_bounds(DomId::ROOT_ID, node)
+                    .map(layout_rect_to_logical)
+                    .map_or((0.0, 0.0), |r| (r.size.width / 2.0, r.size.height / 2.0));
+                let cache = self.gpu_state_manager.caches.entry(DomId::ROOT_ID).or_default();
+                cache.anim_current_transform_values.insert(
+                    node,
+                    azul_core::transform::ComputedTransform3D {
+                        m: [
+                            [a, b, 0.0, 0.0],
+                            [c, d, 0.0, 0.0],
+                            [0.0, 0.0, 1.0, 0.0],
+                            [
+                                cx + smp.translate_x - cx * a - cy * c,
+                                cy + smp.translate_y - cx * b - cy * d,
+                                0.0,
+                                1.0,
                             ],
-                        },
-                    );
-                    cache
-                        .anim_opacity_keys
-                        .entry(node)
-                        .or_insert_with(azul_core::resources::OpacityKey::unique);
-                    cache.anim_current_opacity_values.insert(node, s.opacity);
-                }
+                        ],
+                    },
+                );
+                cache
+                    .anim_opacity_keys
+                    .entry(node)
+                    .or_insert_with(OpacityKey::unique);
+                cache.anim_current_opacity_values.insert(node, smp.opacity);
             }
         }
 
@@ -9791,7 +9796,7 @@ mod tests {
             timing: AnimationTiming::Linear,
             clip: true,
         };
-        let empty_css = azul_css::css::Css::default();
+        let empty_css = Css::default();
         let bare = azul_core::dom::NodeData::default();
         assert!(
             resolve_named_track(&anim, &empty_css, &bare, rect).is_none(),
@@ -9843,7 +9848,7 @@ mod tests {
             timing: AnimationTiming::Linear,
             clip: false, // the CSS `no-clip` keyword
         };
-        let empty_css = azul_css::css::Css::default();
+        let empty_css = Css::default();
         let tr = resolve_named_track(&anim, &empty_css, &node, rect).expect("resolves");
         assert!(matches!(tr.source, TrackSource::Native { .. }));
         assert!(!tr.clip, "the declared no-clip rode into the track");
@@ -9916,11 +9921,11 @@ mod tests {
         let fc = crate::font::loading::build_font_cache();
         let Ok(mut window) = LayoutWindow::new(fc) else { return };
         let rr = RendererResources::default();
-        let sc = crate::callbacks::ExternalSystemCallbacks::rust_internal();
+        let sc = ExternalSystemCallbacks::rust_internal();
         let styled_dom = Dom::from_xml_string(
             "<html><body><div id=\"box\">content</div></body></html>",
         );
-        let mut ws = crate::window_state::FullWindowState::default();
+        let mut ws = FullWindowState::default();
         ws.size.dimensions = LogicalSize::new(600.0, 400.0);
         let mut dbg = None;
         window
@@ -9973,16 +9978,16 @@ mod tests {
         let fc = crate::font::loading::build_font_cache();
         let Ok(mut window) = LayoutWindow::new(fc) else { return };
         let rr = RendererResources::default();
-        let sc = crate::callbacks::ExternalSystemCallbacks::rust_internal();
+        let sc = ExternalSystemCallbacks::rust_internal();
 
         fn layout(
             window: &mut LayoutWindow,
             rr: &RendererResources,
-            sc: &crate::callbacks::ExternalSystemCallbacks,
+            sc: &ExternalSystemCallbacks,
             html: &str,
         ) {
             let styled_dom = Dom::from_xml_string(html);
-            let mut ws = crate::window_state::FullWindowState::default();
+            let mut ws = FullWindowState::default();
             ws.size.dimensions = LogicalSize::new(600.0, 400.0);
             let mut dbg = None;
             window
@@ -13797,7 +13802,7 @@ mod autotest_generated {
             },
             calculated_positions: Vec::new(),
             viewport: LogicalRect::zero(),
-            display_list: std::sync::Arc::new(DisplayList::default()),
+            display_list: Arc::new(DisplayList::default()),
             scroll_ids: HashMap::new(),
             scroll_id_to_node_id: HashMap::new(),
         }
@@ -15982,7 +15987,7 @@ fn alloc_format_merge(first_kept: &str, last_kept: &str) -> String {
 /// Scale is applied about the node's own origin and then translated, matching
 /// what the FLIP maths produced: `first` and `last` are both top-left rects, so
 /// the offset is already expressed from the same corner the scale grows from.
-fn flip_to_matrix(t: azul_core::animation::FlipTransform) -> azul_core::transform::ComputedTransform3D {
+const fn flip_to_matrix(t: azul_core::animation::FlipTransform) -> azul_core::transform::ComputedTransform3D {
     azul_core::transform::ComputedTransform3D {
         m: [
             [t.scale_x, 0.0, 0.0, 0.0],
@@ -16056,15 +16061,12 @@ pub struct PendingReconciliation {
 /// is at worst half a pixel off at the START of a transition — invisible, and
 /// it converges exactly, because the animation's endpoint is the solved layout
 /// rather than this rect.
-fn layout_rect_to_logical(r: azul_css::props::basic::LayoutRect) -> LogicalRect {
+const fn layout_rect_to_logical(r: azul_css::props::basic::LayoutRect) -> LogicalRect {
     LogicalRect {
         origin: LogicalPosition::new(r.origin.x as f32, r.origin.y as f32),
         size: LogicalSize::new(r.size.width as f32, r.size.height as f32),
     }
 }
-
-/// Scale an entering node starts at: close enough to 1 that it reads as a
-/// settle rather than a zoom, far enough from it to be visible at all.
 
 /// A subtree that has left the DOM but is still on screen, animating away.
 ///
@@ -16189,7 +16191,7 @@ pub struct Zombie {
     /// The scroll offsets the retained frame was showing at retention time,
     /// FROZEN — the scroll manager is remapped to the new tree immediately
     /// after, so reading it live would scroll a frame that no longer exists.
-    pub frozen_scroll: std::collections::HashMap<u64, (f32, f32)>,
+    pub frozen_scroll: HashMap<u64, (f32, f32)>,
     /// Lazily rendered pixels of the retained frame (device px, and the dpi
     /// they were rendered at). Interior-mutable because every render entry
     /// point holds `&LayoutWindow`; single-threaded by the same contract as
@@ -16320,6 +16322,9 @@ impl AnimTrack {
             return;
         }
         self.t += dt / self.duration_s;
+        // Iteration wrap: each pass subtracts exactly 1.0 (exact in f32),
+        // so the loop terminates; a `>=` float compare is the intent.
+        #[allow(clippy::while_float)]
         while self.t >= 1.0 {
             match &mut self.iterations_left {
                 None => self.t -= 1.0,
@@ -16570,7 +16575,7 @@ pub fn compile_keyframes_track(
 /// resolving nowhere animates nothing.
 pub fn resolve_named_track(
     anim: &azul_css::props::basic::animation::StyleAnimation,
-    retained_css: &azul_css::css::Css,
+    retained_css: &Css,
     node_data: &azul_core::dom::NodeData,
     rect: LogicalRect,
 ) -> Option<AnimTrack> {
@@ -16594,7 +16599,7 @@ pub fn resolve_named_track(
         if f.name.as_str() == anim.name.as_str() {
             return Some(finish(AnimTrack {
                 source: TrackSource::Native {
-                    callback: f.callback.clone(),
+                    callback: f.callback,
                     data: f.data.clone(),
                 },
                 t: 0.0,
@@ -16682,7 +16687,7 @@ impl LayoutWindow {
         &self,
         output: &mut crate::cpurender::AzulPixmap,
         dpi_factor: f32,
-        renderer_resources: &azul_core::resources::RendererResources,
+        renderer_resources: &RendererResources,
         glyph_cache: &mut crate::glyph_cache::GlyphCache,
     ) -> bool {
         use crate::cpurender::{AzulPixmap, CompositorState, CpuRenderState};
@@ -16702,8 +16707,8 @@ impl LayoutWindow {
             let mut render_retained = || -> Option<AzulPixmap> {
                 let dl = &zombie.retained.display_list;
                 let mut compositor = CompositorState::new(pw, ph);
-                let empty_t = std::collections::HashMap::new();
-                let empty_o = std::collections::HashMap::new();
+                let empty_t = HashMap::new();
+                let empty_o = HashMap::new();
                 compositor.allocate_layers_from_display_list(dl, dpi_factor, &empty_t, &empty_o);
                 let render_state = CpuRenderState::new(zombie.frozen_scroll.clone())
                     .with_system_style(self.system_style.clone());
@@ -16733,7 +16738,7 @@ impl LayoutWindow {
                 }
                 None => {
                     let Some(px) = render_retained() else { continue };
-                    let _ = zombie.snapshot.set((dpi_bits, px));
+                    drop(zombie.snapshot.set((dpi_bits, px)));
                     match zombie.snapshot.get() {
                         Some((_, px)) => px,
                         None => continue,
@@ -16920,7 +16925,7 @@ impl LayoutWindow {
     /// this to force a full frame while zombies are on screen (their pixels
     /// change every tick without any display-list item changing).
     #[must_use]
-    pub fn has_zombies(&self) -> bool {
+    pub const fn has_zombies(&self) -> bool {
         !self.zombies.is_empty()
     }
 

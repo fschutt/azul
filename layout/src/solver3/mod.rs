@@ -657,7 +657,15 @@ pub fn layout_document<T: ParsedFontTrait + Sync + 'static>(
             if std::env::var_os("AZ_ANIM_DEBUG").is_some() {
                 eprintln!("[dlcache] HIT fp={gpu_fp:x} items={}", cached_dl.items.len());
             }
-            return Ok(cached_dl.clone());
+            let dl = cached_dl.clone();
+            // The served list is IDENTICAL to the previous frame — this is
+            // NOT a splice. Left stale from the last real build, the
+            // renderers' patched-build damage override would replay the old
+            // patch rects on an idle frame (op_add_remove_timer step 30:
+            // expected no damage, got rects).
+            cache.last_build_was_patched = false;
+            cache.last_patch_damage = None;
+            return Ok(dl);
         }
     }
 
@@ -677,8 +685,8 @@ pub fn layout_document<T: ParsedFontTrait + Sync + 'static>(
             .iter()
             .any(|(_, scope)| *scope != azul_css::props::property::RelayoutScope::None);
         if needs_layout_work {
-            let mut dom_to_tree: std::collections::HashMap<NodeId, usize> =
-                std::collections::HashMap::with_capacity(new_tree.nodes.len());
+            let mut dom_to_tree: HashMap<NodeId, usize> =
+                HashMap::with_capacity(new_tree.nodes.len());
             for (idx, node) in new_tree.nodes.iter().enumerate() {
                 if let Some(d) = node.dom_node_id {
                     dom_to_tree.insert(d, idx);
@@ -890,6 +898,8 @@ pub fn layout_document<T: ParsedFontTrait + Sync + 'static>(
         };
 
         if SKIP_DISPLAY_LIST.load(core::sync::atomic::Ordering::Relaxed) {
+            cache.last_build_was_patched = false;
+            cache.last_patch_damage = None;
             return Ok(std::sync::Arc::new(DisplayList::default()));
         }
         let dl = generate_display_list(
@@ -916,6 +926,16 @@ pub fn layout_document<T: ParsedFontTrait + Sync + 'static>(
         if let Some(h) = root_hash {
             cache.cached_display_list = Some((h, viewport, gpu_fp, dl.clone()));
         }
+        cache.last_dynamic_context = ctx
+            .styled_dom
+            .get_css_property_cache()
+            .dynamic_context
+            .as_deref()
+            .cloned();
+        // Full re-emit, not a splice — clear the patched-build flags so the
+        // renderers' damage override cannot replay stale patch rects.
+        cache.last_build_was_patched = false;
+        cache.last_patch_damage = None;
         return Ok(dl);
     }
 
@@ -1231,6 +1251,13 @@ pub fn layout_document<T: ParsedFontTrait + Sync + 'static>(
     crate::probe::sample_peak_rss("rss:before_display_list");
     crate::probe::reset_peak();
     // --- Step 4: Generate Display List & Update Cache ---
+    // (changed-node set, geometry-base rects) of a PATCHED build; consumed
+    // after the final list exists to add the changed nodes' ITEM visual
+    // bounds from both the old and the new list (shadow fringes).
+    let mut patch_damage_pending: Option<(
+        std::collections::BTreeSet<usize>,
+        Vec<LogicalRect>,
+    )> = None;
     let display_list = if SKIP_DISPLAY_LIST.load(core::sync::atomic::Ordering::Relaxed) {
         // Web backend: positions are done; the painter is dead weight.
         DisplayList::default()
@@ -1249,8 +1276,74 @@ pub fn layout_document<T: ParsedFontTrait + Sync + 'static>(
         // reflowed its IFC, everything else splices (per-IFC text patching,
         // USER mandate 2026-08-17). CSS-dirty passes must not splice: their
         // items changed paint without reflowing.
+        // Cascade-context equality: an @media/theme/OS flip restyles REUSED
+        // nodes without touching NodeData or css_dirty (the reconcile is
+        // blind to the cascade), so the structure-preserved arm must also
+        // prove the context the cached DL was built under is unchanged.
+        // The resize-skip arm keeps its own contract (the harvested
+        // breakpoints guarantee no answer flips between crossings).
+        let cascade_ctx_unchanged = {
+            let cur = ctx
+                .styled_dom
+                .get_css_property_cache()
+                .dynamic_context
+                .as_deref();
+            #[cfg(feature = "std")]
+            if std::env::var_os("AZ_PATCH_DEBUG").is_some() {
+                match (cur, cache.last_dynamic_context.as_ref()) {
+                    (Some(a), Some(b)) if a != b => {
+                        eprintln!(
+                            "[CTXDIFF] vw={}/{} vh={}/{} theme={} media={} pseudo={} lang={} focus={}/{} os={} cont={}",
+                            a.viewport_width, b.viewport_width,
+                            a.viewport_height, b.viewport_height,
+                            a.theme == b.theme, a.media_type == b.media_type,
+                            a.pseudo_state == b.pseudo_state,
+                            a.language == b.language,
+                            a.window_focused, b.window_focused,
+                            a.os == b.os && a.os_version == b.os_version && a.desktop_env == b.desktop_env,
+                            a.container_width.to_bits() == b.container_width.to_bits()
+                                && a.container_height.to_bits() == b.container_height.to_bits()
+                                && a.container_name == b.container_name,
+                        );
+                    }
+                    (a, b) if a.is_some() != b.is_some() => {
+                        eprintln!("[CTXDIFF] presence cur={} stored={}", a.is_some(), b.is_some());
+                    }
+                    _ => {}
+                }
+            }
+            match (cur, cache.last_dynamic_context.as_ref()) {
+                (Some(a), Some(b)) => a == b,
+                (None, None) => true,
+                _ => false,
+            }
+        };
         let structure_ok = cache.last_reconcile_was_skipped
-            || (cache.last_reconcile_structure_preserved && css_dirty.is_empty());
+            || (cache.last_reconcile_structure_preserved
+                && css_dirty.is_empty()
+                && cascade_ctx_unchanged);
+        #[cfg(feature = "std")]
+        if std::env::var_os("AZ_PATCH_DEBUG").is_some() {
+            eprintln!(
+                "[PATCHGATE] skipped={} preserved={} css_dirty={} structure_ok={} disabled={} \
+                 prev_sizes={} nodes={} prev_pos={} pos={} ctx_same={} reflowed_ifcs={:?} fresh={:?}",
+                cache.last_reconcile_was_skipped,
+                cache.last_reconcile_structure_preserved,
+                css_dirty.len(),
+                structure_ok,
+                patch_disabled,
+                cache.previous_sizes.len(),
+                new_tree.nodes.len(),
+                cache.calculated_positions.len(),
+                calculated_positions.len(),
+                cascade_ctx_unchanged,
+                ctx.reflowed_ifcs,
+                recon_result.fresh_indices,
+            );
+        }
+        // (previous_sizes vs NODES is intended: the cache keeps one entry
+        // per node, so equal lengths mean the size snapshot covers the tree.)
+        #[allow(clippy::suspicious_operation_groupings)]
         let patch = if structure_ok
             && !patch_disabled
             && cache.previous_sizes.len() == new_tree.nodes.len()
@@ -1281,33 +1374,36 @@ pub fn layout_document<T: ParsedFontTrait + Sync + 'static>(
             None
         };
         cache.last_build_was_patched = patch.is_some();
-        cache.last_patch_damage = if patch.is_some() {
-            // The patch's own damage: old ∪ new bounds of every node that
-            // re-emitted OR moved/resized. Precise where the item diff must
-            // give up (a re-emitted IFC may change the item count).
-            let mut rects: Vec<azul_core::geom::LogicalRect> = Vec::new();
-            let mut reemit = ctx.reflowed_ifcs.clone();
-            reemit.extend(recon_result.fresh_indices.iter().copied());
+        cache.last_patch_damage = None;
+        if patch.is_some() {
+            // The patch's own damage, phase 1 of 2: the CHANGED-node set
+            // (re-emitted OR moved/resized) plus old ∪ new NODE bounds as the
+            // geometry base (covers vacated areas and items with no bounds).
+            // Phase 2 — after the final list exists — unions the changed
+            // nodes' ITEM visual bounds from BOTH lists on top: paint like
+            // box-shadow extends OUTSIDE the node box, so node rects alone
+            // under-damage a shadow fringe.
+            let mut rects: Vec<LogicalRect> = Vec::new();
+            let mut changed: std::collections::BTreeSet<usize> = ctx.reflowed_ifcs.clone();
+            changed.extend(recon_result.fresh_indices.iter().copied());
             for (idx, node) in new_tree.nodes.iter().enumerate() {
                 let old_pos = pos_get(&cache.calculated_positions, idx);
                 let new_pos = pos_get(&calculated_positions, idx);
                 let old_size = cache.previous_sizes.get(idx).copied().flatten();
                 let new_size = node.used_size;
-                let changed = reemit.contains(&idx) || old_pos != new_pos || old_size != new_size;
-                if !changed {
+                if !(changed.contains(&idx) || old_pos != new_pos || old_size != new_size) {
                     continue;
                 }
+                changed.insert(idx);
                 if let (Some(p), Some(sz)) = (old_pos, old_size) {
-                    rects.push(azul_core::geom::LogicalRect::new(p, sz));
+                    rects.push(LogicalRect::new(p, sz));
                 }
                 if let (Some(p), Some(sz)) = (new_pos, new_size) {
-                    rects.push(azul_core::geom::LogicalRect::new(p, sz));
+                    rects.push(LogicalRect::new(p, sz));
                 }
             }
-            Some(rects)
-        } else {
-            None
-        };
+            patch_damage_pending = Some((changed, rects));
+        }
         if patch.is_some() {
             drop(crate::probe::Probe::span("dl_patched_pass"));
             // Round-3 presentation hint from the SAME inputs the patch used.
@@ -1403,6 +1499,43 @@ pub fn layout_document<T: ParsedFontTrait + Sync + 'static>(
     if std::env::var_os("AZ_ANIM_DEBUG").is_some() {
         eprintln!("[dlcache] STORE fp={gpu_fp:x} items={}", display_list.items.len());
     }
+    // Patched-build damage, phase 2: union the changed nodes' ITEM visual
+    // bounds from the OLD list (still in the cache slot here) and the NEW
+    // one on top of the geometry base. `visual_bounds()` includes paint
+    // that extends outside the node box (box-shadow fringes) — the same
+    // bounds the item diff damages with.
+    if let Some((changed, mut rects)) = patch_damage_pending.take() {
+        {
+            let mut add_items = |dl: &DisplayList| {
+                for (i, m) in dl.layout_node_mapping.iter().enumerate() {
+                    if let Some((idx, _)) = m {
+                        if changed.contains(idx) {
+                            if let Some(b) = dl.items[i].visual_bounds() {
+                                rects.push(b);
+                            }
+                        }
+                    }
+                }
+            };
+            if let Some((_, _, _, old_dl)) = cache.cached_display_list.as_ref() {
+                add_items(old_dl);
+            }
+            add_items(&display_list);
+        }
+        #[cfg(feature = "std")]
+        if std::env::var_os("AZ_PATCH_DEBUG").is_some() {
+            eprintln!("[PATCHDMG] rects={rects:?}");
+        }
+        cache.last_patch_damage = Some(rects);
+    }
+    // The context this build was made under — the structure-preserved patch
+    // arm compares the NEXT pass's context against it.
+    cache.last_dynamic_context = ctx
+        .styled_dom
+        .get_css_property_cache()
+        .dynamic_context
+        .as_deref()
+        .cloned();
     cache.cached_display_list =
         Some((root_subtree_hash, viewport, gpu_fp, display_list.clone()));
 
