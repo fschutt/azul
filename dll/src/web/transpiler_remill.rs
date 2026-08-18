@@ -1083,17 +1083,38 @@ impl RemillTranspiler {
             }
             let _ = std::fs::write(cp, &ir);
         }
-        // …and under the relocation-canonical key with its manifest, so the
-        // NEXT layout (rebuild/rebase/other binary) can translate instead of
-        // re-lifting.
+        // …and under the relocation-canonical key with its v6 TEMPLATE, so
+        // the NEXT layout (rebuild/rebase/other binary) can substitute
+        // instead of re-lifting. The template comes from a second lift of
+        // the same bytes at a probe address: tokens that vary between the
+        // two lifts are address-derived by construction — no heuristics.
+        // The probe lift doubles cold-store cost; translated hits repay it
+        // on every later layout.
         #[cfg(target_arch = "x86_64")]
         if let Some(ref rc) = reloc_canon {
-            let (irp, mp) = reloc_cache_paths(rc, fn_size);
-            if let Some(parent) = irp.parent() {
-                let _ = std::fs::create_dir_all(parent);
+            let probe_addr = lift_addr.wrapping_add(0x4000_0000);
+            let probe_path = self.scratch_dir.join(format!("{}.probe.ll", stem));
+            if let Ok(probe_ir) =
+                self.lift_fn_fresh(fn_name, fn_addr, &bytes, probe_addr, &probe_path)
+            {
+                let _ = std::fs::remove_file(&probe_path);
+                if let Some(manifest) = reloc_templateize(
+                    &ir,
+                    &probe_ir,
+                    lift_addr,
+                    probe_addr,
+                    bytes.len(),
+                    fn_addr,
+                    symbol_table::get(),
+                ) {
+                    let (irp, mp) = reloc_cache_paths(rc, fn_size);
+                    if let Some(parent) = irp.parent() {
+                        let _ = std::fs::create_dir_all(parent);
+                    }
+                    let _ = std::fs::write(&irp, &ir);
+                    let _ = std::fs::write(&mp, manifest);
+                }
             }
-            let _ = std::fs::write(&irp, &ir);
-            let _ = std::fs::write(&mp, reloc_manifest_text(rc, lift_addr, bytes.len()));
         }
         preflight_scan(fn_name, &ir, count_ud2_pairs(&bytes));
         Ok(ir)
@@ -2191,6 +2212,16 @@ impl RemillTranspiler {
         let canonical_sig = signature_for_callback_kind("Callback");
         let mut lifted_count = 0usize;
 
+        struct ObjJob {
+            obj_idx: usize,
+            name: String,
+            addr: usize,
+            lift_addr: u64,
+            sig: CallbackSignature,
+            export_as: String,
+            cache_key: (usize, String),
+        }
+        let mut obj_jobs: Vec<ObjJob> = Vec::new();
         while let Some(target) = queue.pop_front() {
             let (name, addr, size, sig, export_as) = match target {
                 TransitiveLiftTarget::Root(r) => {
@@ -2332,10 +2363,27 @@ impl RemillTranspiler {
                     // entire mini wasm. On failure, substitute a Leaf
                     // stub `.o` and continue; a genuinely hot stubbed fn
                     // surfaces downstream, not silently.
-                    let produced = match self.produce_object_for(
-                        &name, addr, size, &sig, &export_as, lift_addr,
-                    ) {
-                        Ok(p) => p,
+                    // Two-phase pipeline: only the REMILL lift runs inside
+                    // the walk (its IR feeds dep discovery); the heavy
+                    // opt+llc object production is deferred into a parallel
+                    // worker pool that drains before the link. On
+                    // translated-cache runs the in-loop half is nearly free,
+                    // so the walk collapses to discovery speed.
+                    match self.lift_fn(&name, addr, size, lift_addr) {
+                        Ok(_raw_ir) => {
+                            let obj_idx = object_paths.len();
+                            object_paths.push(PathBuf::new()); // patched at drain
+                            exports.push(export_as.clone());
+                            obj_jobs.push(ObjJob {
+                                obj_idx,
+                                name: name.clone(),
+                                addr,
+                                lift_addr,
+                                sig: sig.clone(),
+                                export_as: export_as.clone(),
+                                cache_key: cache_key.clone(),
+                            });
+                        }
                         Err(e) => {
                             eprintln!(
                                 "[azul-web]   ⚠ transitive[{}]: {} FAILED to lift ({}) \
@@ -2358,16 +2406,14 @@ impl RemillTranspiler {
                             // deps to enqueue. Skip the dep-walk.
                             continue;
                         }
-                    };
-                    self.object_cache
-                        .lock()
-                        .unwrap()
-                        .insert(cache_key, produced.clone());
-                    produced
+                    }
+                    PathBuf::new() // unused marker; real path lands at drain
                 }
             };
-            object_paths.push(obj);
-            exports.push(export_as);
+            if obj != PathBuf::new() {
+                object_paths.push(obj);
+                exports.push(export_as);
+            }
 
             // Parse this lift's branch externs + enqueue deps.
             let stem = sanitize_filename(&name);
@@ -2532,6 +2578,77 @@ impl RemillTranspiler {
         // (e.g. eventloop's bump_helpers.o).
         for obj in &opts.extra_objects {
             object_paths.push(obj.clone());
+        }
+
+        if !obj_jobs.is_empty() {
+            let n_workers = std::env::var("AZ_LIFT_JOBS")
+                .ok()
+                .and_then(|v| v.parse::<usize>().ok())
+                .filter(|n| *n >= 1)
+                .unwrap_or_else(|| {
+                    std::thread::available_parallelism()
+                        .map(|n| n.get().saturating_sub(2).clamp(1, 10))
+                        .unwrap_or(4)
+                });
+            eprintln!(
+                "[azul-web] producing {} object(s) with {} worker(s) (AZ_LIFT_JOBS overrides)",
+                obj_jobs.len(),
+                n_workers,
+            );
+            let next = std::sync::atomic::AtomicUsize::new(0);
+            let results: Vec<std::sync::Mutex<Option<Result<PathBuf, TranspileError>>>> =
+                obj_jobs.iter().map(|_| std::sync::Mutex::new(None)).collect();
+            std::thread::scope(|sc| {
+                for _ in 0..n_workers {
+                    sc.spawn(|| loop {
+                        let i = next.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+                        if i >= obj_jobs.len() {
+                            break;
+                        }
+                        let j = &obj_jobs[i];
+                        let stem = sanitize_filename(&j.name);
+                        let ir_path = self.scratch_dir.join(format!("{}.lifted.ll", stem));
+                        let r = std::fs::read_to_string(&ir_path)
+                            .map_err(|e| TranspileError {
+                                fn_name: j.name.clone(),
+                                reason: format!("read lifted IR for object job: {e}"),
+                            })
+                            .and_then(|ir| {
+                                self.produce_object_from_lifted_ir(
+                                    &j.name, j.addr, j.lift_addr, &j.sig, &j.export_as, &ir,
+                                )
+                            });
+                        *results[i].lock().unwrap() = Some(r);
+                    });
+                }
+            });
+            for (i, j) in obj_jobs.iter().enumerate() {
+                let r = results[i].lock().unwrap().take().expect("worker filled result");
+                match r {
+                    Ok(p) => {
+                        self.object_cache
+                            .lock()
+                            .unwrap()
+                            .insert(j.cache_key.clone(), p.clone());
+                        object_paths[j.obj_idx] = p;
+                    }
+                    Err(e) => {
+                        eprintln!(
+                            "[azul-web]   ⚠ object production FAILED for {} ({}) — Leaf stub",
+                            j.name, e.reason,
+                        );
+                        stubbed_fns.push(j.name.clone());
+                        let stub = self.produce_leaf_stub_object(
+                            &j.name, j.addr, &j.sig, &j.export_as, j.lift_addr,
+                        )?;
+                        self.object_cache
+                            .lock()
+                            .unwrap()
+                            .insert(j.cache_key.clone(), stub.clone());
+                        object_paths[j.obj_idx] = stub;
+                    }
+                }
+            }
         }
 
         eprintln!(
@@ -6240,7 +6357,7 @@ fn remill_export_symbol(entry_addr: u64) -> String {
 /// input bytes (the byte rewrites in `lift_fn`, the synth-address scheme). The
 /// remill ENGINE rev is captured automatically by [`engine_fingerprint`], so
 /// you only bump this for changes inside this crate's lift logic.
-const LIFT_CACHE_VERSION: u32 = 5;
+const LIFT_CACHE_VERSION: u32 = 6;
 
 /// Fingerprint of the lifting ENGINE — the `remill-lift-17` binary — folded
 /// into the cache key so an engine change auto-invalidates every entry without
@@ -6805,22 +6922,163 @@ fn reloc_cache_paths(canon: &RelocCanon, fn_size: usize) -> (PathBuf, PathBuf) {
     )
 }
 
-/// Serialize the manifest: header `v5 <old_lift_addr> <fn_len>` then one
-/// `<old_target> <ident>` line per site (hex, no 0x).
+/// Shared token scanner for the v6 template machinery: yields
+/// (start, end, kind, value) for `sub_<hex>` name tokens (kind `s`, value =
+/// the hex) and decimal integer runs of 4+ digits (kind `d`). Literal text
+/// between tokens is what must match across the two probe lifts.
 #[cfg(target_arch = "x86_64")]
-fn reloc_manifest_text(canon: &RelocCanon, lift_addr: u64, fn_len: usize) -> String {
-    let mut out = format!("v5 {lift_addr:x} {fn_len:x}\n");
-    for s in &canon.sites {
-        out.push_str(&format!("{:x} {}\n", s.old_target, s.ident));
+fn reloc_next_token(b: &[u8], mut i: usize) -> Option<(usize, usize, u8, u64)> {
+    while i < b.len() {
+        if b[i..].starts_with(b"sub_") {
+            let start = i;
+            let mut j = i + 4;
+            while j < b.len() && b[j].is_ascii_hexdigit() {
+                j += 1;
+            }
+            if j > i + 4 {
+                if let Ok(v) =
+                    u64::from_str_radix(std::str::from_utf8(&b[i + 4..j]).ok()?, 16)
+                {
+                    return Some((start, j, b's', v));
+                }
+            }
+            i = j.max(i + 4);
+            continue;
+        }
+        let c = b[i];
+        if c.is_ascii_digit()
+            && (i == 0
+                || (!b[i - 1].is_ascii_alphanumeric() && b[i - 1] != b'_' && b[i - 1] != b'.'))
+        {
+            let start = i;
+            let mut j = i;
+            while j < b.len() && b[j].is_ascii_digit() {
+                j += 1;
+            }
+            let followed_by = if j < b.len() { b[j] } else { 0 };
+            if j - start >= 4
+                && followed_by != b'.'
+                && followed_by != b'e'
+                && followed_by != b'E'
+                && followed_by != b'x'
+            {
+                if let Ok(v) = std::str::from_utf8(&b[start..j]).ok()?.parse::<u64>() {
+                    return Some((start, j, b'd', v));
+                }
+            }
+            i = j;
+            continue;
+        }
+        i += 1;
     }
-    out
+    None
 }
 
-/// Translate a cached raw-lifted IR from its stored layout to the current
-/// one: exact site targets map through their symbol identities, values
-/// inside the old fn range rebase by the lift-address delta, everything
-/// else is untouched. Returns None (→ miss) on any unresolved identity or
-/// failed verification.
+/// Build the v6 relocation template by DIFFING two fresh lifts of the SAME
+/// bytes at two different addresses: any token that varies between them is
+/// address-derived BY CONSTRUCTION (only the lift address changed), and
+/// every varying token must differ by exactly `probe - lift` (all embedded
+/// addresses shift together - rel32/RIP encodings are position-relative).
+/// Values inside [lift, lift+len] become entry-relative slots (`@rel:`);
+/// extra-function values resolve through symbol identities. Returns the
+/// manifest text ("v6 <lift> <len>" header + one "<off> <len> <kind>
+/// <ident>" line per slot, offsets into the STORED ir), or None when the
+/// two lifts differ structurally or an extra-fn slot has no build-stable
+/// identity - the exact-bytes cache still serves those.
+#[cfg(target_arch = "x86_64")]
+fn reloc_templateize(
+    ir: &str,
+    probe_ir: &str,
+    lift_addr: u64,
+    probe_addr: u64,
+    fn_len: usize,
+    fn_addr: usize,
+    table: Option<&symbol_table::SymbolTable>,
+) -> Option<String> {
+    let a = ir.as_bytes();
+    let b = probe_ir.as_bytes();
+    let delta = probe_addr.wrapping_sub(lift_addr);
+    let bias = (fn_addr as u64).wrapping_sub(lift_addr);
+    let img = super::lift_audit::native_image_range(fn_addr);
+    let ident_for = |t: u64| -> Option<String> {
+        let tab = table?;
+        let native = t.wrapping_add(bias) as usize;
+        if let Some(e) = tab.resolve(native) {
+            let off = native.wrapping_sub(e.canonical_addr);
+            if off < 0x1000 {
+                return Some(format!("{}+0x{:x}", e.canonical_name, off));
+            }
+        }
+        let (lo, hi) = img?;
+        let e = tab.nearest_below(native)?;
+        let off = native.wrapping_sub(e.canonical_addr);
+        let n64 = native as u64;
+        if off < 0x100000 && n64 >= lo && n64.saturating_add(16) <= hi {
+            let pointee = unsafe { std::slice::from_raw_parts(native as *const u8, 16) };
+            return Some(format!(
+                "near:{}+0x{:x}:{}",
+                e.canonical_name,
+                off,
+                super::fnv1a64_hex(pointee),
+            ));
+        }
+        None
+    };
+
+    let mut slots = String::new();
+    let mut ia = 0usize;
+    let mut ib = 0usize;
+    let mut prev_a_end = 0usize;
+    let mut prev_b_end = 0usize;
+    loop {
+        let ta = reloc_next_token(a, ia);
+        let tb = reloc_next_token(b, ib);
+        match (ta, tb) {
+            (None, None) => {
+                if a[prev_a_end..] != b[prev_b_end..] {
+                    return None;
+                }
+                break;
+            }
+            (Some((sa, ea, ka, va)), Some((sb, eb, kb, vb))) => {
+                if ka != kb || a[prev_a_end..sa] != b[prev_b_end..sb] {
+                    return None;
+                }
+                if va != vb {
+                    if vb.wrapping_sub(va) != delta {
+                        return None;
+                    }
+                    let rel = va.wrapping_sub(lift_addr);
+                    let ident = if rel <= fn_len as u64 {
+                        format!("@rel:{rel:x}")
+                    } else {
+                        ident_for(va)?
+                    };
+                    slots.push_str(&format!(
+                        "{:x} {:x} {} {}\n",
+                        sa,
+                        ea - sa,
+                        ka as char,
+                        ident,
+                    ));
+                }
+                prev_a_end = ea;
+                prev_b_end = eb;
+                ia = ea;
+                ib = eb;
+            }
+            _ => return None,
+        }
+    }
+    Some(format!("v6 {lift_addr:x} {fn_len:x}\n{slots}"))
+}
+
+/// Apply a v6 template: pure slot substitution, no scanning heuristics.
+/// Every slot value comes from its identity (`@rel:` = new_lift + rel;
+/// symbol identities re-resolve through the current table, `near:`
+/// verified by the pointee fingerprint) and splices at its recorded byte
+/// range, descending so offsets stay valid. Any unresolved identity is a
+/// miss.
 #[cfg(target_arch = "x86_64")]
 fn reloc_translate(
     ir: &str,
@@ -6831,38 +7089,45 @@ fn reloc_translate(
     table: Option<&symbol_table::SymbolTable>,
 ) -> Option<String> {
     let fn_len = bytes.len();
-    // Current image bounds, for fingerprint-verified `near:` identities.
     let new_img = super::lift_audit::native_image_range(fn_addr);
+    let new_bias = (fn_addr as u64).wrapping_sub(new_lift_addr);
     let mut lines = manifest.lines();
     let header = lines.next()?;
     let mut h = header.split(' ');
-    if h.next()? != "v5" {
+    if h.next()? != "v6" {
         return None;
     }
-    let old_lift = u64::from_str_radix(h.next()?, 16).ok()?;
+    let _old_lift = u64::from_str_radix(h.next()?, 16).ok()?;
     let old_len = usize::from_str_radix(h.next()?, 16).ok()?;
     if old_len != fn_len {
         return None;
     }
-    let mut map: std::collections::HashMap<u64, u64> = std::collections::HashMap::new();
+
+    struct Slot {
+        off: usize,
+        len: usize,
+        kind: u8,
+        val: u64,
+    }
+    let mut slots: Vec<Slot> = Vec::new();
     for line in lines {
-        let (t_hex, ident) = line.split_once(' ')?;
-        let old_t = u64::from_str_radix(t_hex, 16).ok()?;
-        let new_t = if let Some(rest) = ident.strip_prefix("$raw:") {
-            // Raw identity: the key already pinned the exact layout, so
-            // old == new by construction.
-            u64::from_str_radix(rest, 16).ok()?
+        if line.is_empty() {
+            continue;
+        }
+        let mut f = line.splitn(4, ' ');
+        let off = usize::from_str_radix(f.next()?, 16).ok()?;
+        let len = usize::from_str_radix(f.next()?, 16).ok()?;
+        let kind = f.next()?.bytes().next()?;
+        let ident = f.next()?;
+        let val = if let Some(rel_hex) = ident.strip_prefix("@rel:") {
+            new_lift_addr.checked_add(u64::from_str_radix(rel_hex, 16).ok()?)?
         } else if let Some(rest) = ident.strip_prefix("near:") {
-            // Anonymous-data identity: nearest-neighbor + offset, accepted
-            // ONLY when the 16-byte pointee fingerprint matches at the
-            // candidate address in the CURRENT image — a moved blob fails
-            // the check and the whole entry degrades to a miss.
             let (name_off, fp_hex) = rest.rsplit_once(':')?;
             let (name, off_hex) = name_off.rsplit_once("+0x")?;
-            let off = u64::from_str_radix(off_hex, 16).ok()?;
+            let soff = u64::from_str_radix(off_hex, 16).ok()?;
             let e = table?.by_name(name)?;
-            let cand_synth = (e.synthetic_addr as u64).checked_add(off)?;
-            let cand_native = (e.canonical_addr as u64).checked_add(off)?;
+            let cand_synth = (e.synthetic_addr as u64).checked_add(soff)?;
+            let cand_native = cand_synth.wrapping_add(new_bias);
             let (lo, hi) = new_img?;
             if cand_native < lo || cand_native.saturating_add(16) > hi {
                 return None;
@@ -6876,94 +7141,27 @@ fn reloc_translate(
             cand_synth
         } else {
             let (name, off_hex) = ident.rsplit_once("+0x")?;
-            let off = u64::from_str_radix(off_hex, 16).ok()?;
+            let soff = u64::from_str_radix(off_hex, 16).ok()?;
             let e = table?.by_name(name)?;
-            (e.synthetic_addr as u64).checked_add(off)?
+            (e.synthetic_addr as u64).checked_add(soff)?
         };
-        map.insert(old_t, new_t);
+        slots.push(Slot { off, len, kind, val });
     }
-    let delta = new_lift_addr.wrapping_sub(old_lift);
-    let old_range = old_lift..old_lift.checked_add(old_len as u64)?;
-    // In-range values remap by the lift-address delta: EVERY fn-internal
-    // address shifts together, INCLUDING jump-table switch cases that sit
-    // mid-instruction relative to a linear decode (the devirt class), so a
-    // boundary requirement here is an overreach — it left switch cases
-    // untranslated and broke the solve path. The corruption vector was only
-    // ever NON-address constants colliding into the range, and those are
-    // excluded by the `i64 <v>` token-context gate in the rewrite pass
-    // (addresses are 64-bit; an i32 constant can never be a PC). Residual
-    // risk — an i64-typed non-address constant numerically inside the fn's
-    // own synth window — is accepted and watched by the probe matrix.
-    let remap = |v: u64| -> Option<u64> {
-        if let Some(n) = map.get(&v) {
-            Some(*n)
-        } else if old_range.contains(&v) {
-            Some(v.wrapping_add(delta))
-        } else {
-            None
-        }
-    };
 
-    // Textual pass: rewrite `sub_<hex>` tokens and bare decimal integers.
-    // Byte-wise with byte output (splices are pure ASCII, so the result
-    // stays valid UTF-8 without per-char decoding).
-    let b = ir.as_bytes();
-    let mut out: Vec<u8> = Vec::with_capacity(b.len() + 256);
-    let mut i = 0usize;
-    while i < b.len() {
-        if b[i..].starts_with(b"sub_") {
-            let start = i + 4;
-            let mut j = start;
-            while j < b.len() && b[j].is_ascii_hexdigit() {
-                j += 1;
-            }
-            if j > start {
-                if let Ok(v) = u64::from_str_radix(&ir[start..j], 16) {
-                    if let Some(n) = remap(v) {
-                        out.extend_from_slice(format!("sub_{n:x}").as_bytes());
-                        i = j;
-                        continue;
-                    }
-                }
-            }
-            out.extend_from_slice(b"sub_");
-            i = start;
-            continue;
+    let src = ir.as_bytes();
+    let mut out = src.to_vec();
+    slots.sort_by(|x, y| y.off.cmp(&x.off));
+    for s in &slots {
+        if s.off + s.len > out.len() {
+            return None;
         }
-        let c = b[i];
-        if c.is_ascii_digit()
-            && (i == 0 || (!b[i - 1].is_ascii_alphanumeric() && b[i - 1] != b'_'))
-        {
-            let start = i;
-            let mut j = i;
-            while j < b.len() && b[j].is_ascii_digit() {
-                j += 1;
-            }
-            // Skip float/hex literals (digits '.' / exponent / 0x forms).
-            let is_float =
-                j < b.len() && (b[j] == b'.' || b[j] == b'e' || b[j] == b'E' || b[j] == b'x');
-            // Addresses are 64-bit: only decimals in `i64 <v>` position can
-            // be PC/target constants (switch cases, inttoptr, i64 stores).
-            let i64_ctx = start >= 4 && &b[start - 4..start] == b"i64 ";
-            if !is_float && i64_ctx && j - start >= 6 {
-                if let Ok(v) = ir[start..j].parse::<u64>() {
-                    if let Some(n) = remap(v) {
-                        out.extend_from_slice(n.to_string().as_bytes());
-                        i = j;
-                        continue;
-                    }
-                }
-            }
-            out.extend_from_slice(&b[start..j]);
-            i = j;
-            continue;
-        }
-        out.push(c);
-        i += 1;
+        let repl = match s.kind {
+            b's' => format!("sub_{:x}", s.val),
+            _ => s.val.to_string(),
+        };
+        out.splice(s.off..s.off + s.len, repl.bytes());
     }
     let out = String::from_utf8(out).ok()?;
-
-    // The translated IR must define this fn under its NEW lift address.
     if !out.contains(&format!("@sub_{new_lift_addr:x}(")) {
         return None;
     }
