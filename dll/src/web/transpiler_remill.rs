@@ -989,6 +989,30 @@ impl RemillTranspiler {
         } else {
             None
         };
+        // Relocation-canonical cache (survives rebuilds / rebases / other
+        // binaries of the same source): canonical-key lookup + manifest-
+        // driven address translation. Checked BEFORE the exact-bytes key;
+        // any translation failure falls through as a plain miss.
+        #[cfg(target_arch = "x86_64")]
+        let reloc_canon = if cache_path.is_some() {
+            reloc_canonicalize(&bytes, lift_addr, fn_addr, symbol_table::get())
+        } else {
+            None
+        };
+        #[cfg(target_arch = "x86_64")]
+        if let Some(ref rc) = reloc_canon {
+            let (irp, mp) = reloc_cache_paths(rc, fn_size);
+            if let (Ok(ir), Ok(man)) = (std::fs::read_to_string(&irp), std::fs::read_to_string(&mp)) {
+                if let Some(translated) =
+                    reloc_translate(&ir, &man, lift_addr, bytes.len(), symbol_table::get())
+                {
+                    RELOC_CACHE_HITS.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                    let _ = std::fs::write(&lifted_ir_path, &translated);
+                    preflight_scan(fn_name, &translated);
+                    return Ok(translated);
+                }
+            }
+        }
         if let Some(ref cp) = cache_path {
             if let Ok(ir) = std::fs::read_to_string(cp) {
                 // Mirror into scratch so downstream stem-based reads work.
@@ -1039,6 +1063,7 @@ impl RemillTranspiler {
             args.push("--extra_data");
             args.push(&extra_data);
         }
+        RELOC_CACHE_LIFTS.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
         run_tool(tools.remill_lift, &args, fn_name)?;
         let ir = std::fs::read_to_string(&lifted_ir_path).map_err(|e| TranspileError {
             fn_name: fn_name.to_string(),
@@ -1050,6 +1075,18 @@ impl RemillTranspiler {
                 let _ = std::fs::create_dir_all(parent);
             }
             let _ = std::fs::write(cp, &ir);
+        }
+        // …and under the relocation-canonical key with its manifest, so the
+        // NEXT layout (rebuild/rebase/other binary) can translate instead of
+        // re-lifting.
+        #[cfg(target_arch = "x86_64")]
+        if let Some(ref rc) = reloc_canon {
+            let (irp, mp) = reloc_cache_paths(rc, fn_size);
+            if let Some(parent) = irp.parent() {
+                let _ = std::fs::create_dir_all(parent);
+            }
+            let _ = std::fs::write(&irp, &ir);
+            let _ = std::fs::write(&mp, reloc_manifest_text(rc, lift_addr, bytes.len()));
         }
         preflight_scan(fn_name, &ir);
         Ok(ir)
@@ -6152,7 +6189,7 @@ fn remill_export_symbol(entry_addr: u64) -> String {
 /// input bytes (the byte rewrites in `lift_fn`, the synth-address scheme). The
 /// remill ENGINE rev is captured automatically by [`engine_fingerprint`], so
 /// you only bump this for changes inside this crate's lift logic.
-const LIFT_CACHE_VERSION: u32 = 4;
+const LIFT_CACHE_VERSION: u32 = 5;
 
 /// Fingerprint of the lifting ENGINE — the `remill-lift-17` binary — folded
 /// into the cache key so an engine change auto-invalidates every entry without
@@ -6256,6 +6293,12 @@ fn preflight_scan(fn_name: &str, ir: &str) {
 /// Count of functions Leaf-stubbed because remill/llc CRASHED (not the
 /// intentional Leaf classifications). Read by the startup lift-audit.
 static LIFT_FAILURES: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0);
+
+/// Relocation-canonical cache telemetry: translated hits vs fresh lifts,
+/// printed by the startup lift-audit so every run reports how warm the
+/// canonical cache ran.
+pub static RELOC_CACHE_HITS: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0);
+pub static RELOC_CACHE_LIFTS: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0);
 
 pub fn lift_failure_count() -> u32 {
     LIFT_FAILURES.load(std::sync::atomic::Ordering::Relaxed)
@@ -6417,6 +6460,317 @@ fn lift_cache_path(rewritten_bytes: &[u8], lift_addr: u64) -> PathBuf {
         engine_fingerprint(),
     );
     dir.join(format!("{key}.lifted.ll"))
+}
+
+// =====================================================================
+// Relocation-canonical lift cache
+// =====================================================================
+//
+// The exact-bytes key above misses on EVERY layout change: a rebuild (or
+// even an ASLR rebase) shifts each rel32 call, RIP-relative disp32, and
+// materialized address, so byte-identical-in-spirit functions rekey and
+// the whole 2h AzWriter-class lift goes cold. This layer keys on a
+// CANONICAL form instead: relocatable fields are zeroed out of the hashed
+// bytes and each site's target contributes a build-independent identity
+// (its symbol name + interior offset) to the key. The cached artifact is
+// the RAW lifted IR plus a manifest of `(old_target, identity)` pairs; on
+// a hit in a new layout every embedded address is re-derived from the
+// identity (or the intra-fn delta) and substituted textually. ANY
+// resolution or verification failure degrades to a plain miss — a
+// mistranslated artifact is never served. Non-x86_64 and undecodable
+// functions fall back to the exact-bytes key untouched.
+
+#[cfg(target_arch = "x86_64")]
+struct RelocSite {
+    field_off: usize,
+    width: u8,
+    old_target: u64,
+    /// "name+0x<off>" when the symbol table names the target,
+    /// "$raw:<hex>" otherwise (keys per-layout, still translation-safe
+    /// because old == new under an identical key).
+    ident: String,
+}
+
+#[cfg(target_arch = "x86_64")]
+struct RelocCanon {
+    canonical: Vec<u8>,
+    sites: Vec<RelocSite>,
+}
+
+/// Decode the (post-rewrite) fn bytes at `lift_addr` (synth space — synth
+/// preserves intra-image PC-relative distances, so decoded branch/disp
+/// targets are synth values) and canonicalize every EXTRA-function
+/// relocatable field. Intra-fn branches are layout-stable and stay in the
+/// hashed bytes. Returns None on any decode anomaly (padding, data-in-code)
+/// — the caller then uses the exact-bytes key.
+#[cfg(target_arch = "x86_64")]
+fn reloc_canonicalize(
+    bytes: &[u8],
+    lift_addr: u64,
+    fn_addr: usize,
+    table: Option<&symbol_table::SymbolTable>,
+) -> Option<RelocCanon> {
+    use iced_x86::{Decoder, DecoderOptions, Instruction, OpKind};
+    let fn_lo = lift_addr;
+    let fn_hi = lift_addr.checked_add(bytes.len() as u64)?;
+    // synth → native within this image (targets outside the image get the
+    // wrong native and simply fail the resolve → "$raw" identity).
+    let bias = (fn_addr as u64).wrapping_sub(lift_addr);
+    let mut canonical = bytes.to_vec();
+    let mut sites: Vec<RelocSite> = Vec::new();
+    let ident_for = |t: u64| -> String {
+        if let Some(tab) = table {
+            let native = t.wrapping_add(bias) as usize;
+            if let Some(e) = tab.resolve(native) {
+                let off = native.wrapping_sub(e.canonical_addr);
+                if off < 0x1000 {
+                    return format!("{}+0x{:x}", e.canonical_name, off);
+                }
+            }
+        }
+        format!("$raw:{t:x}")
+    };
+    let mut dec = Decoder::with_ip(64, bytes, lift_addr, DecoderOptions::NONE);
+    let mut insn = Instruction::default();
+    while dec.can_decode() {
+        let pos = dec.position();
+        dec.decode_out(&mut insn);
+        if insn.is_invalid() {
+            // int3 / 0x00 padding tails are normal; anything undecodable
+            // before the end disqualifies canonicalization entirely.
+            let rest = &bytes[pos..];
+            if rest.iter().all(|b| *b == 0xCC || *b == 0x00) {
+                break;
+            }
+            return None;
+        }
+        let co = dec.get_constant_offsets(&insn);
+        // Near branches / calls with a relative immediate.
+        let mut branch_target: Option<u64> = None;
+        for i in 0..insn.op_count() {
+            if matches!(
+                insn.op_kind(i),
+                OpKind::NearBranch16 | OpKind::NearBranch32 | OpKind::NearBranch64
+            ) {
+                branch_target = Some(insn.near_branch_target());
+            }
+        }
+        if let Some(t) = branch_target {
+            if (t < fn_lo || t >= fn_hi) && co.has_immediate() {
+                let off = pos + co.immediate_offset();
+                let w = co.immediate_size();
+                if off + w <= canonical.len() {
+                    for b in &mut canonical[off..off + w] {
+                        *b = 0;
+                    }
+                    sites.push(RelocSite {
+                        field_off: off,
+                        width: w as u8,
+                        old_target: t,
+                        ident: ident_for(t),
+                    });
+                }
+            }
+        }
+        // RIP-relative memory operands (data refs, IAT-rewritten targets).
+        if insn.is_ip_rel_memory_operand() {
+            let t = insn.ip_rel_memory_address();
+            if (t < fn_lo || t >= fn_hi) && co.has_displacement() {
+                let off = pos + co.displacement_offset();
+                let w = co.displacement_size();
+                if off + w <= canonical.len() {
+                    for b in &mut canonical[off..off + w] {
+                        *b = 0;
+                    }
+                    sites.push(RelocSite {
+                        field_off: off,
+                        width: w as u8,
+                        old_target: t,
+                        ident: ident_for(t),
+                    });
+                }
+            }
+        }
+        // Absolute 64-bit immediates: treat as a relocation ONLY when the
+        // symbol table positively names the target (a plain large constant
+        // must never be rewritten). Unresolved address-looking imm64s stay
+        // in the canonical bytes — per-layout key, always correct.
+        for i in 0..insn.op_count() {
+            if insn.op_kind(i) == OpKind::Immediate64 {
+                let t = insn.immediate64();
+                if t >= 0x10000 && (t < fn_lo || t >= fn_hi) && co.has_immediate() {
+                    let id = ident_for(t);
+                    if !id.starts_with("$raw:") {
+                        let off = pos + co.immediate_offset();
+                        let w = co.immediate_size();
+                        if w == 8 && off + w <= canonical.len() {
+                            for b in &mut canonical[off..off + w] {
+                                *b = 0;
+                            }
+                            sites.push(RelocSite {
+                                field_off: off,
+                                width: 8,
+                                old_target: t,
+                                ident: id,
+                            });
+                        }
+                    }
+                }
+            }
+        }
+    }
+    Some(RelocCanon { canonical, sites })
+}
+
+/// Cache paths for the relocation-canonical key: hash of the canonical
+/// bytes + the ordered site identities (+ size/version/engine). The synth
+/// lift address is deliberately NOT part of the key.
+#[cfg(target_arch = "x86_64")]
+fn reloc_cache_paths(canon: &RelocCanon, fn_size: usize) -> (PathBuf, PathBuf) {
+    let dir = lift_cache_root();
+    let mut idents = String::new();
+    for s in &canon.sites {
+        idents.push_str(&s.ident);
+        idents.push('\0');
+    }
+    let key = format!(
+        "r{}_{}_{:x}_v{}_e{:x}",
+        super::fnv1a64_hex(&canon.canonical),
+        super::fnv1a64_hex(idents.as_bytes()),
+        fn_size,
+        LIFT_CACHE_VERSION,
+        engine_fingerprint(),
+    );
+    (
+        dir.join(format!("{key}.lifted.ll")),
+        dir.join(format!("{key}.manifest")),
+    )
+}
+
+/// Serialize the manifest: header `v5 <old_lift_addr> <fn_len>` then one
+/// `<old_target> <ident>` line per site (hex, no 0x).
+#[cfg(target_arch = "x86_64")]
+fn reloc_manifest_text(canon: &RelocCanon, lift_addr: u64, fn_len: usize) -> String {
+    let mut out = format!("v5 {lift_addr:x} {fn_len:x}\n");
+    for s in &canon.sites {
+        out.push_str(&format!("{:x} {}\n", s.old_target, s.ident));
+    }
+    out
+}
+
+/// Translate a cached raw-lifted IR from its stored layout to the current
+/// one: exact site targets map through their symbol identities, values
+/// inside the old fn range rebase by the lift-address delta, everything
+/// else is untouched. Returns None (→ miss) on any unresolved identity or
+/// failed verification.
+#[cfg(target_arch = "x86_64")]
+fn reloc_translate(
+    ir: &str,
+    manifest: &str,
+    new_lift_addr: u64,
+    fn_len: usize,
+    table: Option<&symbol_table::SymbolTable>,
+) -> Option<String> {
+    let mut lines = manifest.lines();
+    let header = lines.next()?;
+    let mut h = header.split(' ');
+    if h.next()? != "v5" {
+        return None;
+    }
+    let old_lift = u64::from_str_radix(h.next()?, 16).ok()?;
+    let old_len = usize::from_str_radix(h.next()?, 16).ok()?;
+    if old_len != fn_len {
+        return None;
+    }
+    let mut map: std::collections::HashMap<u64, u64> = std::collections::HashMap::new();
+    for line in lines {
+        let (t_hex, ident) = line.split_once(' ')?;
+        let old_t = u64::from_str_radix(t_hex, 16).ok()?;
+        let new_t = if let Some(rest) = ident.strip_prefix("$raw:") {
+            // Raw identity: the key already pinned the exact layout, so
+            // old == new by construction.
+            u64::from_str_radix(rest, 16).ok()?
+        } else {
+            let (name, off_hex) = ident.rsplit_once("+0x")?;
+            let off = u64::from_str_radix(off_hex, 16).ok()?;
+            let e = table?.by_name(name)?;
+            (e.synthetic_addr as u64).checked_add(off)?
+        };
+        map.insert(old_t, new_t);
+    }
+    let delta = new_lift_addr.wrapping_sub(old_lift);
+    let old_range = old_lift..old_lift.checked_add(old_len as u64)?;
+    let remap = |v: u64| -> Option<u64> {
+        if let Some(n) = map.get(&v) {
+            Some(*n)
+        } else if old_range.contains(&v) {
+            Some(v.wrapping_add(delta))
+        } else {
+            None
+        }
+    };
+
+    // Textual pass: rewrite `sub_<hex>` tokens and bare decimal integers.
+    // Byte-wise with byte output (splices are pure ASCII, so the result
+    // stays valid UTF-8 without per-char decoding).
+    let b = ir.as_bytes();
+    let mut out: Vec<u8> = Vec::with_capacity(b.len() + 256);
+    let mut i = 0usize;
+    while i < b.len() {
+        if b[i..].starts_with(b"sub_") {
+            let start = i + 4;
+            let mut j = start;
+            while j < b.len() && b[j].is_ascii_hexdigit() {
+                j += 1;
+            }
+            if j > start {
+                if let Ok(v) = u64::from_str_radix(&ir[start..j], 16) {
+                    if let Some(n) = remap(v) {
+                        out.extend_from_slice(format!("sub_{n:x}").as_bytes());
+                        i = j;
+                        continue;
+                    }
+                }
+            }
+            out.extend_from_slice(b"sub_");
+            i = start;
+            continue;
+        }
+        let c = b[i];
+        if c.is_ascii_digit()
+            && (i == 0 || (!b[i - 1].is_ascii_alphanumeric() && b[i - 1] != b'_'))
+        {
+            let start = i;
+            let mut j = i;
+            while j < b.len() && b[j].is_ascii_digit() {
+                j += 1;
+            }
+            // Skip float/hex literals (digits '.' / exponent / 0x forms).
+            let is_float =
+                j < b.len() && (b[j] == b'.' || b[j] == b'e' || b[j] == b'E' || b[j] == b'x');
+            if !is_float && j - start >= 6 {
+                if let Ok(v) = ir[start..j].parse::<u64>() {
+                    if let Some(n) = remap(v) {
+                        out.extend_from_slice(n.to_string().as_bytes());
+                        i = j;
+                        continue;
+                    }
+                }
+            }
+            out.extend_from_slice(&b[start..j]);
+            i = j;
+            continue;
+        }
+        out.push(c);
+        i += 1;
+    }
+    let out = String::from_utf8(out).ok()?;
+
+    // The translated IR must define this fn under its NEW lift address.
+    if !out.contains(&format!("@sub_{new_lift_addr:x}(")) {
+        return None;
+    }
+    Some(out)
 }
 
 /// LLVM `-O<level>` flag for the lift's `opt` + `llc` passes. Defaults to
