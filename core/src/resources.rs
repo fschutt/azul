@@ -457,8 +457,9 @@ impl_option!(RouteMatch, OptionRouteMatch, copy = false, [Debug, Clone, PartialE
     })
 }
 
-/// The ZOMBIE-SPECIFIC half of what a native animation function receives —
-/// the other half is a full [`TimerCallbackInfo`] (USER ruling 2026-08-17),
+/// The ZOMBIE-SPECIFIC half of what a native animation function receives.
+///
+/// The other half is a full [`TimerCallbackInfo`] (USER ruling 2026-08-17),
 /// so a callback can also reach the LIVE dom, queue changes, read momentum,
 /// measure any node… full customizability, not a keyhole.
 ///
@@ -477,9 +478,9 @@ pub struct ZombieAnimInfo {
     pub node_id: u64,
     /// The node's rect in logical px: the retained rect for exits, the
     /// solved rect for enters.
-    pub rect: crate::geom::LogicalRect,
+    pub rect: LogicalRect,
     /// The viewport the tree was laid out in.
-    pub viewport: crate::geom::LogicalRect,
+    pub viewport: LogicalRect,
     pub dpi_factor: f32,
     /// RAW LINEAR progress 0..=1. The engine does NOT pre-apply easing for
     /// native functions: the DECLARED timing arrives in `timing` below, and
@@ -541,18 +542,18 @@ pub type ZombieAnimCallbackType = usize;
 
 /// See [`ZombieAnimCallbackType`].
 #[repr(C)]
-#[derive(Clone)]
+#[derive(Clone, Copy)]
 pub struct ZombieAnimCallback {
     pub cb: ZombieAnimCallbackType,
 }
 
-impl core::fmt::Debug for ZombieAnimCallback {
-    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+impl fmt::Debug for ZombieAnimCallback {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "ZombieAnimCallback @ 0x{:x}", self.cb)
     }
 }
-impl core::hash::Hash for ZombieAnimCallback {
-    fn hash<H: core::hash::Hasher>(&self, state: &mut H) {
+impl Hash for ZombieAnimCallback {
+    fn hash<H: Hasher>(&self, state: &mut H) {
         state.write_usize(self.cb);
     }
 }
@@ -573,12 +574,14 @@ impl Ord for ZombieAnimCallback {
     }
 }
 
-/// A COMPONENT-ATTACHED native animation function: lives on the node's own
-/// `NodeData` (USER ruling 2026-08-17 — a sidebar widget ships its fly-out
-/// next to its own DOM, not in app-global state; the global AppConfig
-/// registry this replaced was "a bit unclean"). Resolvable by NAME from that
-/// node's `-azul-animation-in` / `-azul-animation-out`, AFTER stylesheet
-/// `@keyframes` — the web mechanism stays the only default name source.
+/// A COMPONENT-ATTACHED native animation function.
+///
+/// Lives on the node's own `NodeData` (USER ruling 2026-08-17 — a sidebar
+/// widget ships its fly-out next to its own DOM, not in app-global state;
+/// the global `AppConfig` registry this replaced was "a bit unclean").
+/// Resolvable by NAME from that node's `-azul-animation-in` /
+/// `-azul-animation-out`, AFTER stylesheet `@keyframes` — the web mechanism
+/// stays the only default name source.
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[repr(C)]
 pub struct AnimationFunction {

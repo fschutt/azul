@@ -1972,7 +1972,7 @@ mod autotest_generated {
             loader.load_font_shared(bytes, index)
         };
         let mut font_manager: FontManager<TestFont> =
-            FontManager::new(rust_fontconfig::FcFontCache::default()).unwrap();
+            FontManager::new(FcFontCache::default()).unwrap();
         let rr = RendererResources::default();
         let ic = ImageCache::default();
 

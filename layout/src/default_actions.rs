@@ -405,15 +405,15 @@ mod autotest_generated {
 
     #[test]
     fn enter_on_contenteditable_records_a_split_not_activation() {
-        let layouts = std::collections::BTreeMap::new();
+        let layouts = BTreeMap::new();
         let focus = Some(dom_node(3));
-        let editing = super::EditingQueryState {
+        let editing = EditingQueryState {
             is_contenteditable: true,
             cursor_at_block_start: false,
             cursor_at_block_end: false,
         };
 
-        let with = super::determine_keyboard_default_action_with_editing(
+        let with = determine_keyboard_default_action_with_editing(
             &kbd(VirtualKeyCode::Return, &[]),
             focus,
             &layouts,
@@ -426,7 +426,7 @@ mod autotest_generated {
         ));
 
         // Shift+Enter: soft break — NOT structural.
-        let shift = super::determine_keyboard_default_action_with_editing(
+        let shift = determine_keyboard_default_action_with_editing(
             &kbd(VirtualKeyCode::Return, &[VirtualKeyCode::LShift]),
             focus,
             &layouts,
@@ -439,7 +439,7 @@ mod autotest_generated {
         ));
 
         // Editing-blind: the old behavior, byte for byte.
-        let without = super::determine_keyboard_default_action(
+        let without = determine_keyboard_default_action(
             &kbd(VirtualKeyCode::Return, &[]),
             focus,
             &layouts,
@@ -453,27 +453,27 @@ mod autotest_generated {
 
     #[test]
     fn backspace_and_delete_merge_only_at_block_boundaries() {
-        let layouts = std::collections::BTreeMap::new();
+        let layouts = BTreeMap::new();
         let focus = Some(dom_node(3));
 
-        let at_start = super::EditingQueryState {
+        let at_start = EditingQueryState {
             is_contenteditable: true,
             cursor_at_block_start: true,
             cursor_at_block_end: false,
         };
-        let mid = super::EditingQueryState {
+        let mid = EditingQueryState {
             is_contenteditable: true,
             cursor_at_block_start: false,
             cursor_at_block_end: false,
         };
-        let at_end = super::EditingQueryState {
+        let at_end = EditingQueryState {
             is_contenteditable: true,
             cursor_at_block_start: false,
             cursor_at_block_end: true,
         };
 
-        let r = |key, e: &super::EditingQueryState| {
-            super::determine_keyboard_default_action_with_editing(
+        let r = |key, e: &EditingQueryState| {
+            determine_keyboard_default_action_with_editing(
                 &kbd(key, &[]),
                 focus,
                 &layouts,

@@ -695,8 +695,8 @@ impl DisplayList {
     pub fn patch_paint_colors(
         &mut self,
         range: core::ops::Range<usize>,
-        from: azul_css::props::basic::color::ColorU,
-        to: azul_css::props::basic::color::ColorU,
+        from: ColorU,
+        to: ColorU,
         patch_text: bool,
         patch_background: bool,
     ) -> Option<LogicalRect> {
@@ -1277,7 +1277,7 @@ pub enum DisplayListItem {
         /// the display list carries the KEY, the per-tick value lives in the
         /// `GpuValueCache` animation channel, so the cached list serves every
         /// tick while the fade advances. `None` for plain CSS opacity.
-        opacity_key: Option<azul_core::resources::OpacityKey>,
+        opacity_key: Option<OpacityKey>,
     },
     /// Pop an opacity layer.
     PopOpacity,
@@ -8876,11 +8876,11 @@ mod autotest_generated {
     #[cfg(feature = "text_layout")]
     fn positioned(line_index: usize, x: f32, y: f32, w: f32, h: f32) -> PositionedItem {
         PositionedItem {
-            item: crate::text3::cache::ShapedItem::Tab {
+            item: ShapedItem::Tab {
                 source: azul_core::selection::ContentIndex { run_index: 0, item_index: 0 },
-                bounds: crate::text3::cache::Rect { x: 0.0, y: 0.0, width: w, height: h },
+                bounds: text3::cache::Rect { x: 0.0, y: 0.0, width: w, height: h },
             },
-            position: crate::text3::cache::Point { x, y },
+            position: text3::cache::Point { x, y },
             line_index,
         }
     }
@@ -11120,7 +11120,7 @@ mod dense_scroll_extent_tests {
             units_per_em: 1000,
         };
         let glyph = ShapedGlyph {
-            kind: crate::text3::cache::GlyphKind::Character,
+            kind: text3::cache::GlyphKind::Character,
             glyph_id: 7,
             cluster_offset: 0,
             advance: 10.0,
@@ -11128,7 +11128,7 @@ mod dense_scroll_extent_tests {
             offset: Point::default(),
             vertical_advance: 0.0,
             vertical_offset: Point::default(),
-            script: crate::text3::script::Script::Latin,
+            script: text3::script::Script::Latin,
             font_hash: 42,
             font_metrics: metrics,
         };
@@ -11174,11 +11174,11 @@ mod dense_scroll_extent_tests {
         let bare: Arc<dyn std::any::Any + Send + Sync> = layout.clone();
         let wrapped: Arc<dyn std::any::Any + Send + Sync> =
             Arc::new(TextPayload { dense, sparse: layout });
-        let via_bare = super::clip_text_layout_item(
+        let via_bare = clip_text_layout_item(
             &bare, bounds, FontHash::from_hash(42), 16.0,
             ColorU { r: 0, g: 0, b: 0, a: 255 }, 0.0, 1000.0,
         );
-        let via_payload = super::clip_text_layout_item(
+        let via_payload = clip_text_layout_item(
             &wrapped, bounds, FontHash::from_hash(42), 16.0,
             ColorU { r: 0, g: 0, b: 0, a: 255 }, 0.0, 1000.0,
         );

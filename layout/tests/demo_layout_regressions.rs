@@ -20,7 +20,7 @@
 /// second font table to fall back to. These two display lists carry no text, so an
 /// empty manager is the honest input.
 fn test_font_manager() -> azul_layout::text3::cache::FontManager<azul_css::props::basic::FontRef> {
-    azul_layout::text3::cache::FontManager::new(rust_fontconfig::FcFontCache::default())
+    azul_layout::text3::cache::FontManager::new(FcFontCache::default())
         .expect("FontManager::new")
 }
 

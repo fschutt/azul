@@ -19,7 +19,7 @@ fn test_logical_items_combine_upright() {
     style.text_combine_upright = Some(TextCombineUpright::Digits(2));
 
     let content = vec![InlineContent::Text(StyledRun {
-        text: std::sync::Arc::from("12ab345c"),
+        text: Arc::from("12ab345c"),
         style: Arc::new(style),
         logical_start_byte: 0,
             source_node_id: None,
@@ -40,7 +40,7 @@ fn test_logical_items_combine_upright() {
     // 2. Sees 'a'. Scans for next special thing (none). Creates Text("ab345c").
     // Let's adjust the test to this logic.
     let content = vec![InlineContent::Text(StyledRun {
-        text: std::sync::Arc::from("12ab 345c"),
+        text: Arc::from("12ab 345c"),
         style: default_style(),
         logical_start_byte: 0,
             source_node_id: None,
@@ -90,19 +90,19 @@ fn test_logical_items_combine_upright() {
 fn test_bidi_reordering_mixed_content() {
     let content = vec![
         InlineContent::Text(StyledRun {
-            text: std::sync::Arc::from("hello "),
+            text: Arc::from("hello "),
             style: default_style(),
             logical_start_byte: 0,
             source_node_id: None,
         }),
         InlineContent::Text(StyledRun {
-            text: std::sync::Arc::from("שלום"), // Shalom in Hebrew
+            text: Arc::from("שלום"), // Shalom in Hebrew
             style: default_style(),
             logical_start_byte: 6,
             source_node_id: None,
         }),
         InlineContent::Text(StyledRun {
-            text: std::sync::Arc::from(" world"),
+            text: Arc::from(" world"),
             style: default_style(),
             logical_start_byte: 14, // 6 + 4 chars * 2 bytes/char
             source_node_id: None,
@@ -130,7 +130,7 @@ fn test_long_word_overflow_no_hyphenation() {
     let manager = create_mock_font_manager();
     let text = "supercalifragilisticexpialidocious"; // very long word
     let content = vec![InlineContent::Text(StyledRun {
-        text: std::sync::Arc::from(text),
+        text: Arc::from(text),
         style: default_style(),
         logical_start_byte: 0,
             source_node_id: None,
@@ -170,7 +170,7 @@ fn test_long_word_overflow_no_hyphenation() {
 fn test_multi_column_layout() {
     let manager = create_mock_font_manager();
     let content = vec![InlineContent::Text(StyledRun {
-        text: std::sync::Arc::from("a b c d e f g h"),
+        text: Arc::from("a b c d e f g h"),
         style: default_style(),
         logical_start_byte: 0,
             source_node_id: None,
@@ -235,7 +235,7 @@ fn test_multi_column_layout() {
 fn test_line_clamp() {
     let manager = create_mock_font_manager();
     let content = vec![InlineContent::Text(StyledRun {
-        text: std::sync::Arc::from("a a a a a a a a a a"),
+        text: Arc::from("a a a a a a a a a a"),
         style: default_style(),
         logical_start_byte: 0,
             source_node_id: None,
@@ -269,7 +269,7 @@ fn test_flow_across_fragments() {
     let mut cache = TextShapingCache::new();
     let manager = create_mock_font_manager();
     let content = vec![InlineContent::Text(StyledRun {
-        text: std::sync::Arc::from("line one and line two and line three"),
+        text: Arc::from("line one and line two and line three"),
         style: default_style(),
         logical_start_byte: 0,
             source_node_id: None,
@@ -331,7 +331,7 @@ fn test_kashida_justification() {
     let manager = create_mock_font_manager();
     // "مرحبا" -> m(8)+r(7)+h(9)+b(7)+a(6) = 37px
     let content = vec![InlineContent::Text(StyledRun {
-        text: std::sync::Arc::from("مرحبا"),
+        text: Arc::from("مرحبا"),
         style: default_style(),
         logical_start_byte: 0,
             source_node_id: None,
@@ -380,7 +380,7 @@ fn test_kashida_justification() {
 fn test_layout_with_shape_exclusion() {
     let manager = create_mock_font_manager();
     let content = vec![InlineContent::Text(StyledRun {
-        text: std::sync::Arc::from("this is some very long text that should wrap around a floated exclusion area in \
+        text: Arc::from("this is some very long text that should wrap around a floated exclusion area in \
                the middle"
             ),
         style: default_style(),
@@ -447,7 +447,7 @@ fn test_bug1_shaping_across_style_boundaries() {
     // separate LogicalItems before shaping.
 
     let content = vec![InlineContent::Text(StyledRun {
-        text: std::sync::Arc::from("first fish"),
+        text: Arc::from("first fish"),
         style: default_style(),
         logical_start_byte: 0,
             source_node_id: None,
@@ -509,7 +509,7 @@ fn test_bug3_rtl_glyph_reversal() {
                 run_index: 0,
                 item_index: 0,
             },
-            text: std::sync::Arc::from(text),
+            text: Arc::from(text),
             style: style.clone(),
             marker_position_outside: None,
             source_node_id: None,
@@ -534,7 +534,7 @@ fn test_bug3_rtl_glyph_reversal() {
     let mut cursor = BreakCursor::new(&shaped_items);
     let logical_items = super::create_logical_items_compat(
         &[InlineContent::Text(StyledRun {
-            text: std::sync::Arc::from(text),
+            text: Arc::from(text),
             style,
             logical_start_byte: 0,
             source_node_id: None,
@@ -570,7 +570,7 @@ fn test_bug3_rtl_glyph_reversal() {
 fn test_simple_line_break() {
     let manager = create_mock_font_manager();
     let content = vec![InlineContent::Text(StyledRun {
-        text: std::sync::Arc::from("a a a a a a"), // 6 chars * 8px + 5 spaces * 5px = 48 + 25 = 73px
+        text: Arc::from("a a a a a a"), // 6 chars * 8px + 5 spaces * 5px = 48 + 25 = 73px
         style: default_style(),
         logical_start_byte: 0,
             source_node_id: None,
@@ -628,7 +628,7 @@ fn test_simple_line_break() {
 fn test_justification_inter_word() {
     let manager = create_mock_font_manager();
     let content = vec![InlineContent::Text(StyledRun {
-        text: std::sync::Arc::from("a b"), // a=8, space=5, b=9 (mocked) => total 22px
+        text: Arc::from("a b"), // a=8, space=5, b=9 (mocked) => total 22px
         style: default_style(),
         logical_start_byte: 0,
             source_node_id: None,
@@ -674,7 +674,7 @@ fn test_hyphenation_break() {
     // b(9)+r(7)+e(8)+a(8)+k(9) = 41
     let text = "breaking";
     let content = vec![InlineContent::Text(StyledRun {
-        text: std::sync::Arc::from(text),
+        text: Arc::from(text),
         style: Arc::new(StyleProperties {
             font_size_px: 10.0,
             ..(*default_style()).clone()
@@ -731,7 +731,7 @@ fn test_hyphenation_break_2() {
 
     let text = "hyphenation";
     let content = vec![InlineContent::Text(StyledRun {
-        text: std::sync::Arc::from(text),
+        text: Arc::from(text),
         style: Arc::new(StyleProperties {
             font_size_px: 10.0,
             ..(*default_style()).clone()

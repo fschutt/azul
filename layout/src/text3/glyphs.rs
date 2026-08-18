@@ -785,7 +785,7 @@ mod autotest_generated {
     fn cluster(text: &str, glyphs: Vec<ShapedGlyph>, st: &Arc<StyleProperties>) -> ShapedCluster {
         ShapedCluster {
             flags: crate::text3::cache::ClusterFlags::classify(text),
-            source_text: std::sync::Arc::from(text), source_byte_len: text.len() as u16,
+            source_text: Arc::from(text), source_byte_len: text.len() as u16,
             source_cluster_id: GraphemeClusterId {
                 source_run: 0,
                 start_byte_in_run: 0,
@@ -811,7 +811,7 @@ mod autotest_generated {
 
     fn combined(glyphs: Vec<ShapedGlyph>) -> ShapedItem {
         ShapedItem::CombinedBlock {
-            style: std::sync::Arc::new(crate::text3::cache::StyleProperties::default()),
+            style: Arc::new(StyleProperties::default()),
             source: ContentIndex {
                 run_index: 0,
                 item_index: 0,

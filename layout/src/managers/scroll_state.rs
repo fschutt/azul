@@ -3596,7 +3596,7 @@ impl ScrollManager {
         delta_y: f32,
         source: ScrollInputSource,
         hover_manager: &crate::managers::hover::HoverManager,
-        input_point_id: &crate::managers::hover::InputPointId,
+        input_point_id: &InputPointId,
         now: Instant,
     ) -> Option<(DomId, NodeId, bool)> {
         self.record_scroll_from_hit_test(

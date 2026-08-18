@@ -8074,9 +8074,9 @@ mod autotest_generated {
 
         fn resolve(css: &str) -> f32 {
             let mut dom = Dom::create_body().with_child(Dom::create_div());
-            let styled = azul_core::styled_dom::StyledDom::create(
+            let styled = StyledDom::create(
                 &mut dom,
-                azul_css::css::Css::from_string(css.into()),
+                Css::from_string(css.into()),
             );
             get_style_properties(
                 &styled,
@@ -9023,7 +9023,7 @@ mod memory_font_tier_tests {
         MemoryFace {
             tier,
             font_match: rust_fontconfig::FontMatch {
-                id: rust_fontconfig::FontId::new(),
+                id: FontId::new(),
                 unicode_ranges: Vec::new(),
                 fallbacks: Vec::new(),
             },

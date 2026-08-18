@@ -91,9 +91,14 @@ impl SpringCurve {
         }
         // Semi-implicit Euler: velocity first, then position FROM THE NEW
         // velocity. That ordering is what makes this stable where explicit
-        // Euler is not.
+        // Euler is not. Explicit FP on purpose: mul_add is fused only with
+        // +fma and changes results bit-for-bit; animation sampling must stay
+        // bit-reproducible across builds. (clippy::suboptimal_flops)
+        #[allow(clippy::suboptimal_flops)]
         let force = -self.stiffness * (value - target) - self.damping * velocity;
+        #[allow(clippy::suboptimal_flops)]
         let new_velocity = velocity + (force / self.mass) * dt;
+        #[allow(clippy::suboptimal_flops)]
         let new_value = value + new_velocity * dt;
         (new_value, new_velocity)
     }
@@ -2378,8 +2383,9 @@ mod autotest_generated {
 // `AnimationManager` clock.
 // ---------------------------------------------------------------------------
 
-/// A `cubic-bezier(x1, y1, x2, y2)` control-point pair in PERMILLE, so the
-/// timing enum stays `Eq + Hash + Ord`-capable (it lives inside
+/// A `cubic-bezier(x1, y1, x2, y2)` control-point pair in PERMILLE.
+///
+/// Permille keeps the timing enum `Eq + Hash + Ord`-capable (it lives inside
 /// `CssProperty`). CSS clamps the x coordinates to `[0, 1]` (0..=1000 here);
 /// the y coordinates may overshoot, so they are signed (±32.767 in curve
 /// space — far beyond any real easing).
@@ -2392,14 +2398,18 @@ pub struct AnimationTimingBezier {
     pub y2: i16,
 }
 
-/// Timing for [`StyleAnimation`]: the CSS keywords, the engine's spring
-/// presets, and a custom `cubic-bezier(...)` point list — permille-encoded
-/// (see [`AnimationTimingBezier`]) because this enum lives inside
-/// `CssProperty`, which derives `Eq + Hash + Ord`, and raw f32 control
-/// points cannot. Converted via [`Self::to_interpolation`] at the engine
+/// Timing for [`StyleAnimation`].
+///
+/// The CSS keywords, the engine's spring presets, and a custom
+/// `cubic-bezier(...)` point list — permille-encoded (see
+/// [`AnimationTimingBezier`]) because this enum lives inside `CssProperty`,
+/// which derives `Eq + Hash + Ord`, and raw f32 control points cannot. Converted via [`Self::to_interpolation`] at the engine
 /// boundary; native animation functions receive the DECLARED timing on
 /// `ZombieAnimInfo` together with raw linear progress, so a callback can
 /// apply this math — or its own — via [`Self::evaluate`].
+// `CubicBezier` carries 8 bytes vs the unit variants — boxing is not an
+// option: `repr(C, u8)` ABI enum whose layout the C bindings depend on.
+#[allow(variant_size_differences)]
 #[derive(Debug, Default, Copy, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
 #[repr(C, u8)]
 pub enum AnimationTiming {
@@ -2414,6 +2424,8 @@ pub enum AnimationTiming {
     SpringGentle,
     SpringSnappy,
     /// `cubic-bezier(x1, y1, x2, y2)`, control points in permille.
+    /// 8 bytes vs the unit variants — boxing is not an option: this is a
+    /// `repr(C, u8)` ABI enum whose layout the C bindings depend on.
     CubicBezier(AnimationTimingBezier),
 }
 
@@ -2455,7 +2467,7 @@ impl AnimationTiming {
     }
 
     #[must_use]
-    pub fn as_css_string(self) -> alloc::string::String {
+    pub fn as_css_string(self) -> String {
         use alloc::string::ToString;
         match self {
             Self::Ease => "ease".to_string(),
@@ -2534,9 +2546,10 @@ impl Default for AnimationIterationCount {
     }
 }
 
-/// One entry of `animation` / `-azul-animation-in` / `-azul-animation-out`:
-/// `<name> <duration> [<delay>] [<timing>] [infinite | <count>]`, e.g.
-/// `flyOutRight 1s`, `all 2s ease-out`, `spin 1s linear infinite`,
+/// One entry of `animation` / `-azul-animation-in` / `-azul-animation-out`.
+///
+/// Grammar: `<name> <duration> [<delay>] [<timing>] [infinite | <count>]`,
+/// e.g. `flyOutRight 1s`, `all 2s ease-out`, `spin 1s linear infinite`,
 /// `fooFunc 500ms 200ms spring`.
 #[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
 #[repr(C)]
@@ -2579,7 +2592,7 @@ impl Default for StyleAnimation {
 }
 
 impl crate::css::PrintAsCssValue for StyleAnimation {
-    fn print_as_css_value(&self) -> alloc::string::String {
+    fn print_as_css_value(&self) -> String {
         use alloc::string::ToString;
         let mut out = alloc::format!(
             "{} {}",
@@ -2593,7 +2606,8 @@ impl crate::css::PrintAsCssValue for StyleAnimation {
         match self.iterations {
             AnimationIterationCount::Count(1) => {}
             AnimationIterationCount::Count(n) => {
-                out.push_str(&alloc::format!(" {n}"));
+                use core::fmt::Write;
+                let _ = write!(out, " {n}");
             }
             AnimationIterationCount::Infinite => out.push_str(" infinite"),
         }
@@ -2608,7 +2622,7 @@ impl crate::css::PrintAsCssValue for StyleAnimation {
     }
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum StyleAnimationParseError<'a> {
     /// The whole declaration was empty or had no recognisable name.
     Empty(&'a str),
@@ -2625,9 +2639,9 @@ impl core::fmt::Display for StyleAnimationParseError<'_> {
     }
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum StyleAnimationParseErrorOwned {
-    Empty(alloc::string::String),
+    Empty(String),
     Duration(crate::props::basic::time::DurationParseErrorOwned),
 }
 
@@ -2652,9 +2666,16 @@ impl StyleAnimationParseErrorOwned {
     }
 }
 
-/// Parse `<name> <duration> [<timing>]`. The name is any non-keyword token;
-/// order is name-first (web `animation` shorthand accepts more permutations —
-/// the strict form keeps ambiguity out of native function names).
+/// Parse `<name> <duration> [<delay>] [<timing>] [infinite | <count>]`.
+///
+/// The name is any non-keyword token; order is name-first (web `animation`
+/// shorthand accepts more permutations — the strict form keeps ambiguity
+/// out of native function names).
+///
+/// # Errors
+///
+/// Returns [`StyleAnimationParseError`] when the value is empty, has no
+/// recognisable name, or its duration fails to parse.
 pub fn parse_style_animation(input: &str) -> Result<StyleAnimation, StyleAnimationParseError<'_>> {
     // CSS-shorthand-style, order-insensitive except the standard rule that
     // the FIRST time value is the duration and the SECOND is the delay:
@@ -2667,7 +2688,7 @@ pub fn parse_style_animation(input: &str) -> Result<StyleAnimation, StyleAnimati
     let mut clip: Option<bool> = None;
     // Paren-aware token scan: `cubic-bezier(0.4, 0, 0.2, 1)` contains spaces
     // and must arrive as ONE token, so whitespace only splits at depth 0.
-    let mut tokens: alloc::vec::Vec<&str> = alloc::vec::Vec::new();
+    let mut tokens: Vec<&str> = Vec::new();
     {
         let bytes = input.as_bytes();
         let mut depth = 0usize;
@@ -2736,10 +2757,15 @@ pub fn parse_style_animation(input: &str) -> Result<StyleAnimation, StyleAnimati
 /// The full `animation` value: a COMMA-SEPARATED list, one entry per
 /// animation, so different properties can animate on different clocks
 /// (`animation: width 1s linear, color 2s ease-out`).
+///
+/// # Errors
+///
+/// Returns the first entry's [`StyleAnimationParseError`] — one bad entry
+/// fails the whole declaration, matching CSS list-valued shorthand rules.
 pub fn parse_style_animation_vec(
     input: &str,
 ) -> Result<StyleAnimationVec, StyleAnimationParseError<'_>> {
-    let mut out = alloc::vec::Vec::new();
+    let mut out = Vec::new();
     for seg in input.split(',') {
         let seg = seg.trim();
         if seg.is_empty() {
@@ -2772,35 +2798,35 @@ crate::impl_option!(
     StyleAnimation,
     OptionStyleAnimation,
     copy = false,
-    [Debug, Clone, PartialEq]
+    [Debug, Clone, PartialEq, Eq]
 );
 
 impl crate::css::PrintAsCssValue for StyleAnimationVec {
-    fn print_as_css_value(&self) -> alloc::string::String {
+    fn print_as_css_value(&self) -> String {
         self.as_ref()
             .iter()
             .map(crate::css::PrintAsCssValue::print_as_css_value)
-            .collect::<alloc::vec::Vec<_>>()
+            .collect::<Vec<_>>()
             .join(", ")
     }
 }
 
 impl crate::codegen::format::FormatAsRustCode for StyleAnimationVec {
-    fn format_as_rust_code(&self, tabs: usize) -> alloc::string::String {
+    fn format_as_rust_code(&self, tabs: usize) -> String {
         use crate::codegen::format::FormatAsRustCode as _;
         alloc::format!(
             "StyleAnimationVec::from_const_slice(&[{}])",
             self.as_ref()
                 .iter()
                 .map(|a| a.format_as_rust_code(tabs))
-                .collect::<alloc::vec::Vec<_>>()
+                .collect::<Vec<_>>()
                 .join(", ")
         )
     }
 }
 
 impl crate::codegen::format::FormatAsRustCode for StyleAnimation {
-    fn format_as_rust_code(&self, _tabs: usize) -> alloc::string::String {
+    fn format_as_rust_code(&self, _tabs: usize) -> String {
         use crate::codegen::format::FormatAsRustCode as _;
         alloc::format!(
             "StyleAnimation {{ name: AzString::from_const_str({:?}), duration: {}, delay: {}, iterations: AnimationIterationCount::{:?}, timing: AnimationTiming::{:?}, clip: {} }}",

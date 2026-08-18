@@ -407,7 +407,7 @@ mod autotest_generated {
             },
             calculated_positions: Vec::new(),
             viewport: LogicalRect::zero(),
-            display_list: std::sync::Arc::new(DisplayList::default()),
+            display_list: Arc::new(DisplayList::default()),
             scroll_ids: HashMap::new(),
             scroll_id_to_node_id: HashMap::new(),
         }
@@ -445,7 +445,7 @@ mod autotest_generated {
             current_scroll_manager: &scroll_states,
             current_window_handle: &window_handle,
             system_callbacks: &system_callbacks,
-            system_style: Arc::new(azul_css::system::SystemStyle::default()),
+            system_style: Arc::new(system::SystemStyle::default()),
             monitors: Arc::new(Mutex::new(MonitorVec::from_const_slice(&[]))),
             #[cfg(feature = "icu")]
             icu_localizer: IcuLocalizerHandle::default(),
@@ -577,7 +577,7 @@ mod autotest_generated {
             .as_ref()
             .iter()
             .filter_map(|c| match c {
-                IdOrClass::Class(s) => Some(s.as_str().to_string()),
+                Class(s) => Some(s.as_str().to_string()),
                 IdOrClass::Id(_) => None,
             })
             .collect()
@@ -1010,7 +1010,7 @@ mod autotest_generated {
         // bit-identical; a mangled one would be called as a wild jump on the first click.
         let generic = Callback {
             cb: generic_shaped,
-            ctx: azul_core::refany::OptionRefAny::None,
+            ctx: OptionRefAny::None,
         };
         let expected = generic_shaped as *const () as usize;
 

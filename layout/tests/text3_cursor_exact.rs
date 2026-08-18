@@ -49,7 +49,7 @@ fn layout_text(text: &str, width: AvailableSpace) -> UnifiedLayout {
         ..StyleProperties::default()
     });
     let content = vec![InlineContent::Text(StyledRun {
-        text: std::sync::Arc::from(text),
+        text: Arc::from(text),
         style,
         logical_start_byte: 0,
         source_node_id: None,

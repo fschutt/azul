@@ -82,7 +82,7 @@ fn layout_cfg(text: &str, width: AvailableSpace, cfg: Cfg) -> UnifiedLayout {
         ..StyleProperties::default()
     };
     let content = vec![InlineContent::Text(StyledRun {
-        text: std::sync::Arc::from(text),
+        text: Arc::from(text),
         style: Arc::new(style),
         logical_start_byte: 0,
         source_node_id: None,

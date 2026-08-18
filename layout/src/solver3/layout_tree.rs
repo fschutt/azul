@@ -989,7 +989,7 @@ pub struct ComputedLayoutStyle {
     /// CSS `max-height` property
     pub max_height: Option<azul_css::props::layout::LayoutMaxHeight>,
     /// CSS `text-align` property
-    pub text_align: azul_css::props::style::StyleTextAlign,
+    pub text_align: StyleTextAlign,
 }
 
 // Note: LayoutNode methods that cross hot/warm/cold boundaries have been
@@ -3383,7 +3383,7 @@ fn get_parent_font_size(styled_dom: &StyledDom, dom_id: NodeId) -> f32 {
         .as_container()
         .get(dom_id)
         .and_then(azul_core::styled_dom::NodeHierarchyItem::parent_id)
-        .map_or(azul_css::props::basic::pixel::DEFAULT_FONT_SIZE, |parent_id| get_element_font_size(styled_dom, parent_id))
+        .map_or(DEFAULT_FONT_SIZE, |parent_id| get_element_font_size(styled_dom, parent_id))
 }
 
 /// Helper function to get root element's font-size
@@ -4208,7 +4208,7 @@ mod autotest_generated {
         PositionedItem {
             item: ShapedItem::Cluster(ShapedCluster {
                 flags: ClusterFlags::classify(text),
-                source_text: std::sync::Arc::from(text),
+                source_text: Arc::from(text),
                 source_byte_len: u16::try_from(text.len()).unwrap(),
                 source_cluster_id: GraphemeClusterId {
                     source_run: 0,
@@ -4222,7 +4222,7 @@ mod autotest_generated {
                 glyphs: glyphs.into_iter().collect(),
                 advance: 6.0,
                 direction: BidiDirection::Ltr,
-                style: std::sync::Arc::new(StyleProperties::default()),
+                style: Arc::new(StyleProperties::default()),
                 marker_position_outside: None,
                 is_first_fragment: true,
                 is_last_fragment: true,

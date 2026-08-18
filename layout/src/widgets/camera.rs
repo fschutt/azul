@@ -175,7 +175,7 @@ extern "C" fn camera_worker(mut init: RefAny, mut sender: ThreadSender, _recv: T
     if let Some(backend) = camera_backend() {
         let handle = (backend.open)(0, w, h);
         if handle != 0 {
-            let mut buf: alloc::vec::Vec<u8> = alloc::vec::Vec::new();
+            let mut buf: Vec<u8> = Vec::new();
             loop {
                 let (fw, fh) = (backend.read)(handle, &mut buf);
                 if fw == 0 || fh == 0 {

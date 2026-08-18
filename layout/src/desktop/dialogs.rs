@@ -452,12 +452,12 @@ mod autotest_generated {
     fn namespace_handles_are_stateless_single_byte_shims() {
         // These types are `#[repr(C)]` placeholders that the FFI layer hangs static
         // methods off. A field creeping in would silently change the C ABI.
-        assert_eq!(core::mem::size_of::<MsgBox>(), 1);
-        assert_eq!(core::mem::size_of::<FileDialog>(), 1);
-        assert_eq!(core::mem::size_of::<ColorPickerDialog>(), 1);
-        assert_eq!(core::mem::align_of::<MsgBox>(), 1);
-        assert_eq!(core::mem::align_of::<FileDialog>(), 1);
-        assert_eq!(core::mem::align_of::<ColorPickerDialog>(), 1);
+        assert_eq!(size_of::<MsgBox>(), 1);
+        assert_eq!(size_of::<FileDialog>(), 1);
+        assert_eq!(size_of::<ColorPickerDialog>(), 1);
+        assert_eq!(align_of::<MsgBox>(), 1);
+        assert_eq!(align_of::<FileDialog>(), 1);
+        assert_eq!(align_of::<ColorPickerDialog>(), 1);
     }
 
     #[test]

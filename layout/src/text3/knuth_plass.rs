@@ -774,7 +774,7 @@ mod kp_fix_tests {
     fn cl(text: &str, advance: f32) -> ShapedItem {
         ShapedItem::Cluster(ShapedCluster {
             flags: crate::text3::cache::ClusterFlags::classify(text),
-            source_text: std::sync::Arc::from(text), source_byte_len: text.len() as u16,
+            source_text: Arc::from(text), source_byte_len: text.len() as u16,
             source_cluster_id: GraphemeClusterId { source_run: 0, start_byte_in_run: 0 },
             source_content_index: ContentIndex { run_index: 0, item_index: 0 },
             source_node_id: None,
@@ -915,7 +915,7 @@ mod autotest_generated {
     fn cl(text: &str, advance: f32) -> ShapedItem {
         ShapedItem::Cluster(ShapedCluster {
             flags: crate::text3::cache::ClusterFlags::classify(text),
-            source_text: std::sync::Arc::from(text), source_byte_len: text.len() as u16,
+            source_text: Arc::from(text), source_byte_len: text.len() as u16,
             source_cluster_id: GraphemeClusterId {
                 source_run: 0,
                 start_byte_in_run: 0,
@@ -1032,7 +1032,7 @@ mod autotest_generated {
                 run_index: 0,
                 item_index: 0,
             },
-            text: std::sync::Arc::from("\u{05E9}\u{05DC}\u{05D5}\u{05DD}"), // "שלום"
+            text: Arc::from("\u{05E9}\u{05DC}\u{05D5}\u{05DD}"), // "שלום"
             style: Arc::new(StyleProperties::default()),
             marker_position_outside: None,
             source_node_id: None,

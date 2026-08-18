@@ -297,7 +297,7 @@ mod tests {
     fn async_results_round_trip_through_manager() {
         // The channel is process-global; serialize against every other
         // channel test, then clear any residue.
-        let _guard = super::autotest_generated::lock_channels();
+        let _guard = autotest_generated::lock_channels();
         drop(drain_biometric_results());
 
         push_biometric_result(BiometricResult::Failed);
@@ -327,7 +327,7 @@ mod tests {
     fn requests_round_trip_through_channel() {
         // Process-global; serialize against every other channel test, then
         // clear residue.
-        let _guard = super::autotest_generated::lock_channels();
+        let _guard = autotest_generated::lock_channels();
         drop(drain_biometric_requests());
 
         push_biometric_request(BiometricPrompt::new("Unlock A".into()));

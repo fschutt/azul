@@ -18,7 +18,7 @@ fn test_bug1_shaping_across_style_boundaries() {
     // separate LogicalItems before shaping.
 
     let content = vec![InlineContent::Text(StyledRun {
-        text: std::sync::Arc::from("first fish"),
+        text: Arc::from("first fish"),
         style: default_style(),
         logical_start_byte: 0,
         source_node_id: None, // Test content, no DOM node
@@ -80,7 +80,7 @@ fn test_bug3_rtl_glyph_reversal() {
                 run_index: 0,
                 item_index: 0,
             },
-            text: std::sync::Arc::from(text),
+            text: Arc::from(text),
             style: style.clone(),
             marker_position_outside: None,
             source_node_id: None,
@@ -133,7 +133,7 @@ fn test_simple_line_break() {
     let cache = TextShapingCache::new();
     let manager = create_mock_font_manager();
     let content = vec![InlineContent::Text(StyledRun {
-        text: std::sync::Arc::from("a a a a a a"), // 6 chars * 8px + 5 spaces * 5px = 48 + 25 = 73px
+        text: Arc::from("a a a a a a"), // 6 chars * 8px + 5 spaces * 5px = 48 + 25 = 73px
         style: default_style(),
         logical_start_byte: 0,
             source_node_id: None,
@@ -174,7 +174,7 @@ fn test_simple_line_break() {
 fn test_justification_inter_word() {
     let manager = create_mock_font_manager();
     let content = vec![InlineContent::Text(StyledRun {
-        text: std::sync::Arc::from("a b"), // a=8, space=5, b=9 (mocked) => total 22px
+        text: Arc::from("a b"), // a=8, space=5, b=9 (mocked) => total 22px
         style: default_style(),
         logical_start_byte: 0,
             source_node_id: None,
@@ -230,7 +230,7 @@ fn test_hyphenation_break() {
     // b(9)+r(7)+e(8)+a(8)+k(9) = 41
     let text = "breaking";
     let content = vec![InlineContent::Text(StyledRun {
-        text: std::sync::Arc::from(text),
+        text: Arc::from(text),
         style: Arc::new(StyleProperties {
             font_size_px: 10.0,
             ..(*default_style()).clone()
@@ -288,7 +288,7 @@ fn test_hyphenation_break_2() {
 
     let text = "hyphenation";
     let content = vec![InlineContent::Text(StyledRun {
-        text: std::sync::Arc::from(text),
+        text: Arc::from(text),
         style: Arc::new(StyleProperties {
             font_size_px: 10.0,
             ..(*default_style()).clone()

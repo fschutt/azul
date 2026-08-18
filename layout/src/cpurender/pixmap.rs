@@ -111,7 +111,7 @@ pub fn blit_pixmap(src: &AzulPixmap, dst: &mut AzulPixmap, px_x: i32, px_y: i32,
 pub fn blit_pixmap_affine(
     src: &AzulPixmap,
     dst: &mut AzulPixmap,
-    m: &agg_rust::trans_affine::TransAffine,
+    m: &TransAffine,
     opacity: f32,
 ) {
     blit_pixmap_affine_clipped(src, dst, m, opacity, None);
@@ -127,7 +127,7 @@ pub fn blit_pixmap_affine(
 pub fn blit_pixmap_affine_clipped(
     src: &AzulPixmap,
     dst: &mut AzulPixmap,
-    m: &agg_rust::trans_affine::TransAffine,
+    m: &TransAffine,
     opacity: f32,
     clip: Option<(i32, i32, i32, i32)>,
 ) {
@@ -150,7 +150,7 @@ pub fn blit_pixmap_affine_clipped(
     inv.invert();
 
     // Dest-space bounding box of the four transformed src corners.
-    let corners = [(0.0, 0.0), (sw as f64, 0.0), (0.0, sh as f64), (sw as f64, sh as f64)];
+    let corners = [(0.0, 0.0), (f64::from(sw), 0.0), (0.0, f64::from(sh)), (f64::from(sw), f64::from(sh))];
     let (mut min_x, mut min_y) = (f64::INFINITY, f64::INFINITY);
     let (mut max_x, mut max_y) = (f64::NEG_INFINITY, f64::NEG_INFINITY);
     for (cx, cy) in corners {

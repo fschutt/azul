@@ -701,7 +701,7 @@ mod autotest_generated {
             current_scroll_manager: &scroll_states,
             current_window_handle: &window_handle,
             system_callbacks: &system_callbacks,
-            system_style: Arc::new(azul_css::system::SystemStyle::default()),
+            system_style: Arc::new(system::SystemStyle::default()),
             monitors: Arc::new(Mutex::new(MonitorVec::from_const_slice(&[]))),
             #[cfg(feature = "icu")]
             icu_localizer: IcuLocalizerHandle::default(),

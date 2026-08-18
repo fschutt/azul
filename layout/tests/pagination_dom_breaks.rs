@@ -316,7 +316,7 @@ fn materialized_breaks_reproduce_the_estimated_boundaries() {
         "the break must land on the page boundary at 300: {:?}",
         pagination_a.breaks
     );
-    let breaks_a = azul_layout::pagination_to_dom_breaks(&cache_a, &styled_a, &pagination_a)
+    let breaks_a = pagination_to_dom_breaks(&cache_a, &styled_a, &pagination_a)
         .expect("mapped");
     let path = breaks_a[0].path.clone().expect("aligned break maps to block 2");
     let body_child_idx = *path.last().expect("non-empty path") as usize;
@@ -397,7 +397,7 @@ fn midblock_breaks_materialize_at_the_spine_block_top() {
     };
     let styled_a = build(&[]);
     let (cache_a, pagination_a) = paginate_styled(&styled_a, 800.0, 200.0);
-    let breaks_a = azul_layout::pagination_to_dom_breaks(&cache_a, &styled_a, &pagination_a)
+    let breaks_a = pagination_to_dom_breaks(&cache_a, &styled_a, &pagination_a)
         .expect("mapped");
     let first = breaks_a.iter().find(|b| b.path.is_some()).expect("mappable break");
     assert!((first.y - 200.0).abs() < 1.0, "estimated mid-block: {first:?}");

@@ -41,9 +41,9 @@ pub struct Css {
 /// One stop of a `@keyframes` block (`from` = 0, `to` = 1000, `12.5%` = 125).
 ///
 /// Permille rather than an f32 percentage so the type stays `Eq`-capable —
-/// `Css` must remain `Eq`/`Ord` (NodeData carries it), and 0.1% resolution is
+/// `Css` must remain `Eq`/`Ord` (`NodeData` carries it), and 0.1% resolution is
 /// beyond anything a keyframe needs.
-#[derive(Debug, Default, PartialEq, Clone)]
+#[derive(Debug, Default, PartialEq, Eq, Clone)]
 #[repr(C)]
 pub struct KeyframeStop {
     /// 0..=1000 position of this stop.
@@ -52,18 +52,16 @@ pub struct KeyframeStop {
     pub props: crate::props::property::CssPropertyVec,
 }
 
-impl Eq for KeyframeStop {}
 
 /// A named `@keyframes` block: `@keyframes flyOutRight { from {..} to {..} }`.
-#[derive(Debug, Default, PartialEq, Clone)]
+#[derive(Debug, Default, PartialEq, Eq, Clone)]
 #[repr(C)]
 pub struct Keyframes {
-    pub name: crate::AzString,
+    pub name: AzString,
     /// Sorted by `permille` ascending at parse time.
     pub stops: KeyframeStopVec,
 }
 
-impl Eq for Keyframes {}
 
 crate::impl_vec!(
     KeyframeStop,
@@ -77,11 +75,12 @@ crate::impl_vec_mut!(KeyframeStop, KeyframeStopVec);
 crate::impl_vec_debug!(KeyframeStop, KeyframeStopVec);
 crate::impl_vec_clone!(KeyframeStop, KeyframeStopVec, KeyframeStopVecDestructor);
 crate::impl_vec_partialeq!(KeyframeStop, KeyframeStopVec);
+crate::impl_vec_eq!(KeyframeStop, KeyframeStopVec);
 crate::impl_option!(
     KeyframeStop,
     OptionKeyframeStop,
     copy = false,
-    [Debug, Clone, PartialEq]
+    [Debug, Clone, PartialEq, Eq]
 );
 
 crate::impl_vec!(
@@ -96,11 +95,12 @@ crate::impl_vec_mut!(Keyframes, KeyframesVec);
 crate::impl_vec_debug!(Keyframes, KeyframesVec);
 crate::impl_vec_clone!(Keyframes, KeyframesVec, KeyframesVecDestructor);
 crate::impl_vec_partialeq!(Keyframes, KeyframesVec);
+crate::impl_vec_eq!(Keyframes, KeyframesVec);
 crate::impl_option!(
     Keyframes,
     OptionKeyframes,
     copy = false,
-    [Debug, Clone, PartialEq]
+    [Debug, Clone, PartialEq, Eq]
 );
 
 impl_option!(

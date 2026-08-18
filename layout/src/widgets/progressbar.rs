@@ -765,7 +765,7 @@ mod autotest_generated {
             .as_ref()
             .iter()
             .filter_map(|c| match c {
-                IdOrClass::Class(s) => Some(s.as_str().to_string()),
+                Class(s) => Some(s.as_str().to_string()),
                 IdOrClass::Id(_) => None,
             })
             .collect()

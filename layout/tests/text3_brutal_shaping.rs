@@ -138,7 +138,7 @@ fn run(text: &str, style: StyleProperties, constraints: UnifiedConstraints) -> U
         ..style
     };
     let content = vec![InlineContent::Text(StyledRun {
-        text: std::sync::Arc::from(text),
+        text: Arc::from(text),
         style: Arc::new(style),
         logical_start_byte: 0,
         source_node_id: None,
@@ -151,7 +151,7 @@ fn layout(text: &str, width: AvailableSpace) -> UnifiedLayout {
     let font_ref = fake_font_ref();
     let style = base_style(&font_ref);
     let content = vec![InlineContent::Text(StyledRun {
-        text: std::sync::Arc::from(text),
+        text: Arc::from(text),
         style: Arc::new(style),
         logical_start_byte: 0,
         source_node_id: None,
@@ -308,7 +308,7 @@ fn newline_forces_two_lines() {
     let style = Arc::new(base_style(&font_ref));
     let content = vec![
         InlineContent::Text(StyledRun {
-            text: std::sync::Arc::from("aa"),
+            text: Arc::from("aa"),
             style: Arc::clone(&style),
             logical_start_byte: 0,
             source_node_id: None,
@@ -319,7 +319,7 @@ fn newline_forces_two_lines() {
             content_index: 0,
         }),
         InlineContent::Text(StyledRun {
-            text: std::sync::Arc::from("aa"),
+            text: Arc::from("aa"),
             style: Arc::clone(&style),
             logical_start_byte: 3,
             source_node_id: None,

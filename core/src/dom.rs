@@ -1946,7 +1946,7 @@ pub struct NodeDataExt {
     /// COMPONENT-ATTACHED presence-animation functions, resolvable by NAME
     /// from this node's `-azul-animation-in` / `-azul-animation-out` (after
     /// stylesheet `@keyframes` — the web mechanism stays the only default
-    /// name source). This replaced the global AppConfig registry (USER
+    /// name source). This replaced the global `AppConfig` registry (USER
     /// ruling 2026-08-17): a sidebar widget ships its fly-out next to its
     /// own DOM, not in app-global state.
     pub animation_callbacks: Vec<crate::resources::AnimationFunction>,

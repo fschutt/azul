@@ -271,7 +271,7 @@ mod autotest_generated {
             .get_ids_and_classes()
             .as_ref()
             .iter()
-            .any(|c| matches!(c, IdOrClass::Class(s) if s.as_str() == name))
+            .any(|c| matches!(c, Class(s) if s.as_str() == name))
     }
 
     /// The properties of a rendered node's *inline* style, in declaration order.
@@ -785,7 +785,7 @@ mod autotest_generated {
             .as_ref()
             .iter()
             .find_map(|c| match c {
-                IdOrClass::Class(s) => Some(s.as_str().to_string()),
+                Class(s) => Some(s.as_str().to_string()),
                 IdOrClass::Id(_) => None,
             })
             .expect("the divider must carry a class");

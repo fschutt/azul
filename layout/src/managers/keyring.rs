@@ -200,7 +200,7 @@ mod tests {
     fn requests_round_trip_through_channel() {
         // Process-global; serialize against every other channel test, then
         // clear residue.
-        let _guard = super::autotest_generated::lock_channels();
+        let _guard = autotest_generated::lock_channels();
         drop(drain_keyring_requests());
 
         push_keyring_request(KeyringRequest::Store {
@@ -222,7 +222,7 @@ mod tests {
     fn results_round_trip_through_manager() {
         // Process-global; serialize against every other channel test, then
         // clear residue.
-        let _guard = super::autotest_generated::lock_channels();
+        let _guard = autotest_generated::lock_channels();
         drop(drain_keyring_results());
 
         push_keyring_result(KeyringResult::NotFound);

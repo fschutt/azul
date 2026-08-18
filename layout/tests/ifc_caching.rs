@@ -337,7 +337,7 @@ fn test_cached_inline_layout_validity_check_unchanged() {
 // ==================== IFC Layout Integration Tests ====================
 
 /// Helper to run a full layout and return the layout tree for inspection
-fn layout_html_and_get_tree(html: &str) -> azul_layout::Solver3LayoutCache {
+fn layout_html_and_get_tree(html: &str) -> Solver3LayoutCache {
     let styled_dom = Dom::from_xml_string(html);
     let fc_cache = build_font_cache();
     let mut font_manager = FontManager::new(fc_cache).expect("Failed to create font manager");
@@ -370,7 +370,7 @@ fn layout_html_and_get_tree(html: &str) -> azul_layout::Solver3LayoutCache {
     let renderer_resources = RendererResources::default();
     let mut debug_messages = Some(Vec::new());
     let loader = PathLoader::new();
-    let font_loader = |bytes: std::sync::Arc<rust_fontconfig::FontBytes>, index: usize| {
+    let font_loader = |bytes: Arc<rust_fontconfig::FontBytes>, index: usize| {
         loader.load_font_shared(bytes, index)
     };
     let page_config = FakePageConfig::new();
@@ -593,7 +593,7 @@ fn test_ifc_layout_replace_preserves_metrics_structure() {
     // Create a mock UnifiedLayout with one cluster item
     let cluster = ShapedCluster {
         flags: azul_layout::text3::cache::ClusterFlags::classify("A".to_string().as_ref()),
-        source_text: std::sync::Arc::from("A"), source_byte_len: 1,
+        source_text: Arc::from("A"), source_byte_len: 1,
         source_cluster_id: GraphemeClusterId { source_run: 0, start_byte_in_run: 0 },
         source_content_index: ContentIndex { run_index: 0, item_index: 0 },
         source_node_id: Some(azul_core::dom::NodeId::new(3)),

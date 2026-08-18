@@ -1512,7 +1512,7 @@ mod autotest_generated {
     fn thread_sender_send_survives_a_poisoned_mutex() {
         let (rx, mut sender) = make_sender();
         let arc = Arc::clone(&*sender.ptr);
-        let handle = std::thread::spawn(move || {
+        let handle = thread::spawn(move || {
             let _guard = arc.lock().expect("mutex is fresh here");
             panic!("intentional poison");
         });
@@ -1834,7 +1834,7 @@ mod autotest_generated {
             worker_wait_e as ThreadCallbackType,
         );
         let arc = Arc::clone(&*t.ptr);
-        let handle = std::thread::spawn(move || {
+        let handle = thread::spawn(move || {
             let _guard = arc.lock().expect("mutex is fresh here");
             panic!("intentional poison");
         });
@@ -1937,7 +1937,7 @@ mod autotest_generated {
         // ... but the *sleep* is genuinely unbounded (~584 million years at MAX), so
         // it can only be exercised on a detached thread: assert it reaches the sleep
         // rather than unwinding. Nothing ever joins this thread by design.
-        let _detached = std::thread::spawn(|| {
+        let _detached = thread::spawn(|| {
             MAX_SLEEP_ENTERED.store(true, AtomicOrd::SeqCst);
             if std::panic::catch_unwind(|| {
                 let _slept = thread_sleep_ms(u64::MAX);

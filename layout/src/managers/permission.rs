@@ -574,7 +574,7 @@ mod tests {
     fn async_results_round_trip_through_manager() {
         // The channel is a process-global and libtest runs tests in parallel:
         // serialize against every other test that touches it.
-        let _serialize = super::autotest_generated::lock_async_channel();
+        let _serialize = autotest_generated::lock_async_channel();
         // The channel is a process-global; clear anything a prior test or
         // ordering left behind so this test is self-contained.
         drop(drain_async_results());

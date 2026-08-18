@@ -62,7 +62,7 @@ fn make_content(text: &str, font_ref: &FontRef) -> Vec<InlineContent> {
         ..StyleProperties::default()
     };
     vec![InlineContent::Text(StyledRun {
-        text: std::sync::Arc::from(text),
+        text: Arc::from(text),
         style: Arc::new(style),
         logical_start_byte: 0,
         source_node_id: None,

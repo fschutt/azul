@@ -271,9 +271,10 @@ pub mod callbacks;
 #[macro_use]
 pub mod host_invoker;
 /// Accessibility types for screen-reader integration (AccessKit).
-/// DOM-morph animation: interpolation core (springs + easing), FLIP geometry,
-/// and the keyed store of in-flight animations. See
-/// `scripts/ANIMATION_SHADER_DESIGN.md`.
+/// DOM-morph animation.
+///
+/// Interpolation core (springs + easing), FLIP geometry, and the keyed
+/// store of in-flight animations. See `scripts/ANIMATION_SHADER_DESIGN.md`.
 pub mod animation;
 pub mod a11y;
 /// Audio POD types — `AudioConfig` (stream format) + `AudioFrame` (interleaved

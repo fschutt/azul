@@ -985,7 +985,7 @@ mod autotest_generated {
 
     fn text(s: &str) -> InlineContent {
         InlineContent::Text(StyledRun {
-            text: alloc::sync::Arc::from(s),
+            text: Arc::from(s),
             style: style_a(),
             logical_start_byte: 0,
             source_node_id: None,
@@ -994,7 +994,7 @@ mod autotest_generated {
 
     fn text_styled(s: &str, style: Arc<StyleProperties>) -> InlineContent {
         InlineContent::Text(StyledRun {
-            text: alloc::sync::Arc::from(s),
+            text: Arc::from(s),
             style,
             logical_start_byte: 0,
             source_node_id: None,

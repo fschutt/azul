@@ -507,7 +507,7 @@ mod autotest_generated {
             .get_ids_and_classes()
             .as_ref()
             .iter()
-            .any(|c| matches!(c, IdOrClass::Class(s) if s.as_str() == name))
+            .any(|c| matches!(c, Class(s) if s.as_str() == name))
     }
 
     /// The text of a `NodeType::Text` node (`None` for any other node type).
@@ -572,7 +572,7 @@ mod autotest_generated {
             },
             calculated_positions: Vec::new(),
             viewport: LogicalRect::zero(),
-            display_list: std::sync::Arc::new(DisplayList::default()),
+            display_list: Arc::new(DisplayList::default()),
             scroll_ids: HashMap::new(),
             scroll_id_to_node_id: HashMap::new(),
         }

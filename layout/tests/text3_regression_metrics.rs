@@ -55,7 +55,7 @@ fn layout_sc(text: &str, style: StyleProperties, mut constraints: UnifiedConstra
     let font_ref = fake_font_ref();
     let style = StyleProperties { font_stack: FontStack::Ref(font_ref.clone()), ..style };
     let content = vec![InlineContent::Text(StyledRun {
-        text: std::sync::Arc::from(text),
+        text: Arc::from(text),
         style: Arc::new(style),
         logical_start_byte: 0,
         source_node_id: None,

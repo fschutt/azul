@@ -892,7 +892,7 @@ mod autotest_generated {
             .get_ids_and_classes()
             .as_ref()
             .iter()
-            .any(|c| matches!(c, IdOrClass::Class(s) if s.as_str() == name))
+            .any(|c| matches!(c, Class(s) if s.as_str() == name))
     }
 
     /// Every id declared on `node`, in order.
@@ -902,8 +902,8 @@ mod autotest_generated {
             .as_ref()
             .iter()
             .filter_map(|c| match c {
-                IdOrClass::Id(s) => Some(s.as_str().to_string()),
-                IdOrClass::Class(_) => None,
+                Id(s) => Some(s.as_str().to_string()),
+                Class(_) => None,
             })
             .collect()
     }
@@ -915,8 +915,8 @@ mod autotest_generated {
             .as_ref()
             .iter()
             .filter_map(|c| match c {
-                IdOrClass::Class(s) => Some(s.as_str().to_string()),
-                IdOrClass::Id(_) => None,
+                Class(s) => Some(s.as_str().to_string()),
+                Id(_) => None,
             })
             .collect()
     }

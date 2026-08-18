@@ -582,7 +582,7 @@ mod autotest_generated {
             .as_ref()
             .iter()
             .filter_map(|c| match c {
-                IdOrClass::Class(s) => Some(s.as_str().to_string()),
+                Class(s) => Some(s.as_str().to_string()),
                 IdOrClass::Id(_) => None,
             })
             .collect()
@@ -790,7 +790,7 @@ mod autotest_generated {
             },
             calculated_positions: Vec::new(),
             viewport: LogicalRect::zero(),
-            display_list: std::sync::Arc::new(DisplayList::default()),
+            display_list: Arc::new(DisplayList::default()),
             scroll_ids: HashMap::new(),
             scroll_id_to_node_id: HashMap::new(),
         }

@@ -122,7 +122,7 @@ pub struct AnimChannel {
 impl AnimChannel {
     /// A channel that eases `from → to` over `duration_secs`.
     #[must_use]
-    pub fn curve(
+    pub const fn curve(
         from: f32,
         to: f32,
         function: AnimationInterpolationFunction,
@@ -141,7 +141,7 @@ impl AnimChannel {
 
     /// A channel that springs `from → to`.
     #[must_use]
-    pub fn spring(from: f32, to: f32, spring: Spring) -> Self {
+    pub const fn spring(from: f32, to: f32, spring: Spring) -> Self {
         Self {
             from,
             to,
@@ -170,7 +170,13 @@ impl AnimChannel {
                 let linear_t = (self.elapsed_secs / duration_secs).clamp(0.0, 1.0);
                 let eased = ease(function, linear_t);
                 let previous = self.current;
-                self.current = self.from + (self.to - self.from) * eased;
+                // Explicit FP on purpose: mul_add fuses only with +fma and
+                // changes results bit-for-bit; animation sampling must stay
+                // bit-reproducible. (clippy::suboptimal_flops)
+                #[allow(clippy::suboptimal_flops)]
+                {
+                    self.current = self.from + (self.to - self.from) * eased;
+                }
                 // Track velocity even on curves: if this channel is later
                 // retargeted onto a spring, the handover is continuous.
                 self.velocity = if dt > 0.0 { (self.current - previous) / dt } else { 0.0 };
@@ -230,21 +236,23 @@ pub fn ease(function: AnimationInterpolationFunction, t: f32) -> f32 {
         AnimationInterpolationFunction::Ease => cubic_bezier_y(0.25, 0.1, 0.25, 1.0, t),
         AnimationInterpolationFunction::EaseIn => cubic_bezier_y(0.42, 0.0, 1.0, 1.0, t),
         AnimationInterpolationFunction::EaseOut => cubic_bezier_y(0.0, 0.0, 0.58, 1.0, t),
-        AnimationInterpolationFunction::EaseInOut => cubic_bezier_y(0.42, 0.0, 0.58, 1.0, t),
+        // `Spring(_)` shares the ease-in-out body ON PURPOSE: a spring has
+        // no `t` — reaching here means a caller put a spring where a
+        // duration-based curve was expected (`AnimChannel` dispatches on
+        // `Interp`, so a spring never takes this path — it integrates in
+        // `Spring::step` from its live (value, velocity)). The stand-in
+        // matches `AnimationInterpolationFunction::get_curve`, so the two
+        // disagree nowhere, and it degrades to plausible motion rather than
+        // a panic or a frozen element.
+        AnimationInterpolationFunction::EaseInOut
+        | AnimationInterpolationFunction::Spring(_) => {
+            cubic_bezier_y(0.42, 0.0, 0.58, 1.0, t)
+        }
         // A CSS timing bezier is normalised to P0 = (0,0), P3 = (1,1), so only
         // the two control points carry information.
         AnimationInterpolationFunction::CubicBezier(curve) => {
             cubic_bezier_y(curve.ctrl_1.x, curve.ctrl_1.y, curve.ctrl_2.x, curve.ctrl_2.y, t)
         }
-        // A spring has no `t`. Reaching here means a caller put a spring where a
-        // duration-based curve was expected: `AnimChannel` dispatches on
-        // `Interp`, so a spring never takes this path — it integrates in
-        // `Spring::step` instead, from its live (value, velocity).
-        //
-        // The ease-in-out stand-in matches `AnimationInterpolationFunction::
-        // get_curve`, so the two disagree nowhere, and it degrades to plausible
-        // motion rather than a panic or a frozen element.
-        AnimationInterpolationFunction::Spring(_) => cubic_bezier_y(0.42, 0.0, 0.58, 1.0, t),
     }
 }
 
@@ -259,10 +267,15 @@ fn cubic_bezier_y(x1: f32, y1: f32, x2: f32, y2: f32, x: f32) -> f32 {
     const BISECTION_ITERATIONS: usize = 12;
     const EPSILON: f32 = 1e-5;
 
+    // Explicit FP on purpose: mul_add fuses only with +fma and changes
+    // results bit-for-bit; easing must stay bit-reproducible across builds.
+    // (clippy::suboptimal_flops)
+    #[allow(clippy::suboptimal_flops)]
     let bezier = |a: f32, b: f32, t: f32| {
         let inv = 1.0 - t;
         3.0 * inv * inv * t * a + 3.0 * inv * t * t * b + t * t * t
     };
+    #[allow(clippy::suboptimal_flops)]
     let bezier_slope = |a: f32, b: f32, t: f32| {
         let inv = 1.0 - t;
         3.0 * inv * inv * a + 6.0 * inv * t * (b - a) + 3.0 * t * t * (1.0 - b)
@@ -367,7 +380,7 @@ pub fn flip(first: LogicalRect, last: LogicalRect) -> FlipTransform {
 ///
 /// These map 1:1 onto what the diff already reports: unmatched-new is Enter,
 /// unmatched-old is Exit, and a `NodeMove` pair whose geometry changed is Move.
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum AnimClass {
     /// Node exists in the new DOM only.
     Enter,
@@ -407,7 +420,7 @@ pub struct ActiveAnim {
 impl ActiveAnim {
     /// A move: start at the FLIP inversion, animate to identity.
     #[must_use]
-    pub fn move_from_flip(flip: FlipTransform, interp: Interp) -> Self {
+    pub const fn move_from_flip(flip: FlipTransform, interp: Interp) -> Self {
         Self {
             class: AnimClass::Move,
             translate_x: channel(flip.translate_x, 0.0, interp),
@@ -426,7 +439,7 @@ impl ActiveAnim {
     /// is the caller's choice — the engine default slides from the nearest
     /// viewport edge, so a sidebar re-opens the way it left.
     #[must_use]
-    pub fn enter_slide(from_x: f32, from_y: f32, interp: Interp) -> Self {
+    pub const fn enter_slide(from_x: f32, from_y: f32, interp: Interp) -> Self {
         Self {
             class: AnimClass::Enter,
             translate_x: channel(from_x, 0.0, interp),
@@ -442,7 +455,7 @@ impl ActiveAnim {
     ///
     /// Was fade+shrink-in-place; same USER ruling as [`flip`]: a departing
     /// sidebar slides away to its edge — it does not dissolve.
-    #[must_use]
+    ///
     /// Reverse a presence animation IN FLIGHT: the channels retarget from
     /// their CURRENT values (velocity preserved — `Channel::retarget`'s whole
     /// feature) toward the new destination. `Exit` + a slide target turns an
@@ -458,7 +471,8 @@ impl ActiveAnim {
         self.opacity.retarget(1.0);
     }
 
-    pub fn exit_slide(to_x: f32, to_y: f32, interp: Interp) -> Self {
+    #[must_use]
+    pub const fn exit_slide(to_x: f32, to_y: f32, interp: Interp) -> Self {
         Self {
             class: AnimClass::Exit,
             translate_x: channel(0.0, to_x, interp),
@@ -519,7 +533,7 @@ impl ActiveAnim {
     }
 }
 
-fn channel(from: f32, to: f32, interp: Interp) -> AnimChannel {
+const fn channel(from: f32, to: f32, interp: Interp) -> AnimChannel {
     match interp {
         Interp::Curve { function, duration_secs } => {
             AnimChannel::curve(from, to, function, duration_secs)
@@ -540,7 +554,7 @@ pub struct AnimationManager {
 impl AnimationManager {
     /// An empty manager.
     #[must_use]
-    pub fn new() -> Self {
+    pub const fn new() -> Self {
         Self { active: BTreeMap::new() }
     }
 
@@ -691,7 +705,7 @@ where
 /// Animation state is keyed by reconciliation identity so it can outlive a
 /// rebuild, but the compositor writes GPU values per `NodeId`. Something has to
 /// bridge the two, and it has to be rebuilt every layout: the key is stable
-/// across rebuilds precisely because the NodeId is not.
+/// across rebuilds precisely because the `NodeId` is not.
 ///
 /// Kept separate from [`correspondences_from_moves`] rather than folded into its
 /// return type, because the two have different lifetimes — the correspondences
