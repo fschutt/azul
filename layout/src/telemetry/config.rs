@@ -29,7 +29,20 @@ use std::{
     },
 };
 
-use super::json::{parse, JsonValue};
+use serde_json::{json, Map, Value};
+
+/// Parses a config layer. Thin wrapper so call sites read the same as the
+/// old hand-rolled reader's `parse`.
+fn parse(text: &str) -> Result<Value, serde_json::Error> {
+    serde_json::from_str(text)
+}
+
+/// `u64` from a JSON value, ALSO accepting a numeric string — OTLP-style
+/// configs and hand-edited files routinely quote integers.
+fn value_u64(v: &Value) -> Option<u64> {
+    v.as_u64()
+        .or_else(|| v.as_str().and_then(|s| s.parse::<u64>().ok()))
+}
 
 /// Environment variable selecting the consent tier.
 pub const ENV_TIER: &str = "AZ_TELEMETRY";
@@ -211,53 +224,41 @@ impl TelemetryConfig {
     /// Renders the config back to the on-disk JSON shape.
     #[must_use]
     pub fn to_json(&self) -> String {
-        let mut fields = vec![
-            (
-                "tier".to_owned(),
-                JsonValue::Str(self.tier.as_str().to_owned()),
-            ),
-            (
-                "flush_interval_secs".to_owned(),
-                JsonValue::Number(self.flush_interval_secs as f64),
-            ),
-        ];
+        let mut fields = Map::new();
+        fields.insert("tier".to_owned(), json!(self.tier.as_str()));
+        fields.insert(
+            "flush_interval_secs".to_owned(),
+            json!(self.flush_interval_secs),
+        );
         if let Some(id) = &self.client_id {
-            fields.push(("client_id".to_owned(), JsonValue::Str(id.clone())));
+            fields.insert("client_id".to_owned(), json!(id));
         }
         if !self.endpoint.is_empty() {
-            fields.push((
-                "endpoint".to_owned(),
-                JsonValue::Str(self.endpoint.clone()),
-            ));
+            fields.insert("endpoint".to_owned(), json!(self.endpoint));
         }
         if !self.endpoint_overrides.is_empty() {
-            let overrides = self
+            let overrides: Map<String, Value> = self
                 .endpoint_overrides
                 .iter()
-                .map(|(k, v)| (k.clone(), JsonValue::Str(v.clone())))
+                .map(|(k, v)| (k.clone(), json!(v)))
                 .collect();
-            fields.push(("endpoint_overrides".to_owned(), JsonValue::Object(overrides)));
+            fields.insert("endpoint_overrides".to_owned(), Value::Object(overrides));
         }
         if !self.asked_versions.is_empty() {
-            let versions = self
-                .asked_versions
-                .iter()
-                .map(|v| JsonValue::Str(v.clone()))
-                .collect();
-            fields.push(("asked_versions".to_owned(), JsonValue::Array(versions)));
+            fields.insert("asked_versions".to_owned(), json!(self.asked_versions));
         }
         // NOTE: `auth_token` is deliberately NOT serialized. It is developer
         // infrastructure credentials, not a user choice; it belongs in the
         // build or the environment, not in a file the user is invited to read
         // and share.
-        JsonValue::Object(fields).to_json_string()
+        Value::Object(fields).to_string()
     }
 
     /// Applies every field present in one JSON layer on top of `self`.
-    fn apply_layer(&mut self, layer: &JsonValue, source: TierSource) {
+    fn apply_layer(&mut self, layer: &Value, source: TierSource) {
         if let Some(tier) = layer
             .get("tier")
-            .and_then(JsonValue::as_str)
+            .and_then(Value::as_str)
             .and_then(TelemetryTier::from_name)
         {
             self.tier = tier;
@@ -269,23 +270,23 @@ impl TelemetryConfig {
                 self.pinned_off = true;
             }
         }
-        if let Some(id) = layer.get("client_id").and_then(JsonValue::as_str) {
+        if let Some(id) = layer.get("client_id").and_then(Value::as_str) {
             self.client_id = Some(id.to_owned());
         }
-        if let Some(endpoint) = layer.get("endpoint").and_then(JsonValue::as_str) {
+        if let Some(endpoint) = layer.get("endpoint").and_then(Value::as_str) {
             endpoint.clone_into(&mut self.endpoint);
         }
-        if let Some(secs) = layer.get("flush_interval_secs").and_then(JsonValue::as_u64) {
+        if let Some(secs) = layer.get("flush_interval_secs").and_then(value_u64) {
             self.flush_interval_secs = secs.max(1);
         }
-        if let Some(overrides) = layer.get("endpoint_overrides").and_then(JsonValue::as_object) {
+        if let Some(overrides) = layer.get("endpoint_overrides").and_then(Value::as_object) {
             for (key, value) in overrides {
                 if let Some(url) = value.as_str() {
                     self.endpoint_overrides.insert(key.clone(), url.to_owned());
                 }
             }
         }
-        if let Some(versions) = layer.get("asked_versions").and_then(JsonValue::as_array) {
+        if let Some(versions) = layer.get("asked_versions").and_then(Value::as_array) {
             self.asked_versions = versions
                 .iter()
                 .filter_map(|v| v.as_str().map(str::to_owned))

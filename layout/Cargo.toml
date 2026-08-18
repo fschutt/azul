@@ -301,10 +301,10 @@ json = ["dep:serde_json", "std", "azul-core/serde-json"]
 # Opt-in telemetry client: consent tiers, an in-process metric registry, an
 # OTLP/HTTP JSON encoder, a disk-backed ping queue and an uploader.
 #
-# Adds NO new dependencies — the OTLP encoder and the config reader are
-# hand-rolled precisely so this does not drag `serde_json` (the `json`
-# feature) into every build that wants metrics. It does need `http` for the
-# uploader's POST.
+# JSON encode/decode rides `serde_json` (the same optional dependency the
+# `json` feature uses; USER ruling 2026-08-18 — no hand-rolled JSON), pulled
+# in only when this feature is on. It does need `http` for the uploader's
+# POST.
 #
 # Deliberately NOT in `default`: shipping an app that *can* phone home should
 # be a decision the developer makes explicitly. Even with the feature on,
@@ -312,7 +312,7 @@ json = ["dep:serde_json", "std", "azul-core/serde-json"]
 # tier is a runtime atomic (AZ_TELEMETRY + the layered config files), never a
 # compile-time switch, so a consent toggle can flip it inside a running
 # process.
-telemetry = ["std", "http"]
+telemetry = ["std", "http", "dep:serde_json"]
 
 # Icon provider support (material icons, icon packs from fonts or ZIP files)
 icons = ["std", "zip", "dep:material-icons", "dep:brotli-decompressor"]

@@ -2,7 +2,8 @@
 //!
 //! # What this is
 //!
-//! A small, dependency-free OTLP/HTTP **JSON** client: an in-process metric
+//! A small OTLP/HTTP **JSON** client (`serde_json` is its one
+//! dependency, pulled in only by the `telemetry` feature): an in-process metric
 //! registry with a typed (and therefore bounded) label set, a structured log
 //! buffer, a Glean-style disk queue, and an uploader. It answers the questions
 //! a desktop app developer cannot answer from support tickets — "we shipped
@@ -51,7 +52,6 @@
 //! ```
 
 pub mod config;
-pub mod json;
 pub mod metrics;
 pub mod otlp;
 pub mod queue;

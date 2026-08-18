@@ -15,11 +15,15 @@
 //! JSON rather than protobuf is a deliberate choice at this volume (a 60 s
 //! flush of ~50 series is a few kilobytes): payloads are curl-able, readable
 //! in a log, and the consent preview *is* the payload.
+//!
+//! Encoding goes through `serde_json` (a `telemetry`-feature dependency —
+//! USER ruling 2026-08-18, replacing a hand-rolled writer). The quoted-64-bit
+//! rule is enforced BY CONSTRUCTION: [`ju64`] renders every 64-bit integer as
+//! a `Value::String`, so a `u64` can never reach a bare JSON number.
 
-use super::{
-    json::{write_number, write_string},
-    metrics::{InstrumentValue, MetricsSnapshot},
-};
+use serde_json::{json, Value};
+
+use super::metrics::{InstrumentValue, MetricsSnapshot};
 
 /// `AGGREGATION_TEMPORALITY_CUMULATIVE` — the only temporality this client
 /// emits. Prometheus-family backends want cumulative, and it makes a dropped
@@ -107,61 +111,44 @@ impl LogRecord {
     }
 }
 
-/// Writes `{"key":"…","value":{"stringValue":"…"}}`.
-fn write_attribute(out: &mut String, key: &str, value: &str) {
-    out.push_str("{\"key\":");
-    write_string(out, key);
-    out.push_str(",\"value\":{\"stringValue\":");
-    write_string(out, value);
-    out.push_str("}}");
+/// One `{"key": …, "value": {"stringValue": …}}` attribute list, in
+/// iteration order (JSON arrays are ordered; tests pin the label order).
+fn jattrs<'a>(pairs: impl Iterator<Item = (&'a str, &'a str)>) -> Value {
+    Value::Array(
+        pairs
+            .map(|(key, value)| json!({"key": key, "value": {"stringValue": value}}))
+            .collect(),
+    )
 }
 
-/// Writes an `attributes` array from `(key, value)` pairs.
-fn write_attributes<'a>(out: &mut String, pairs: impl Iterator<Item = (&'a str, &'a str)>) {
-    out.push_str("\"attributes\":[");
-    for (i, (key, value)) in pairs.enumerate() {
-        if i != 0 {
-            out.push(',');
-        }
-        write_attribute(out, key, value);
-    }
-    out.push(']');
+/// A `u64` as the QUOTED string proto3 JSON requires (`timeUnixNano`,
+/// `asInt`, `count`, `bucketCounts`). Type-level enforcement of the one rule
+/// that is easy to get wrong and impossible to notice afterwards.
+fn ju64(value: u64) -> Value {
+    Value::String(value.to_string())
 }
 
-/// Writes a `u64` as the quoted string proto3 JSON requires.
-fn write_u64_string(out: &mut String, value: u64) {
-    out.push('"');
-    out.push_str(itoa(value).as_str());
-    out.push('"');
+/// A finite JSON number. JSON has no `NaN`/`Infinity`, so non-finite values
+/// become `0` — a dropped data point beats an unparseable payload at the
+/// collector.
+fn jnum(n: f64) -> Value {
+    serde_json::Number::from_f64(n).map_or_else(|| json!(0), Value::Number)
 }
 
-/// `u64` to decimal without pulling in a formatting dependency.
-fn itoa(value: u64) -> String {
-    use std::fmt::Write as _;
-    let mut s = String::new();
-    let _ = write!(s, "{value}");
-    s
+fn jresource(resource: &ResourceInfo) -> Value {
+    json!({
+        "attributes": jattrs(
+            [
+                ("service.name", resource.service_name.as_str()),
+                ("service.version", resource.service_version.as_str()),
+            ]
+            .into_iter(),
+        )
+    })
 }
 
-fn write_resource(out: &mut String, resource: &ResourceInfo) {
-    out.push_str("\"resource\":{");
-    write_attributes(
-        out,
-        [
-            ("service.name", resource.service_name.as_str()),
-            ("service.version", resource.service_version.as_str()),
-        ]
-        .into_iter(),
-    );
-    out.push('}');
-}
-
-fn write_scope(out: &mut String, resource: &ResourceInfo) {
-    out.push_str("\"scope\":{\"name\":");
-    write_string(out, &resource.scope_name);
-    out.push_str(",\"version\":");
-    write_string(out, &resource.scope_version);
-    out.push('}');
+fn jscope(resource: &ResourceInfo) -> Value {
+    json!({"name": resource.scope_name, "version": resource.scope_version})
 }
 
 /// Encodes a metrics snapshot as an OTLP `ExportMetricsServiceRequest`.
@@ -174,88 +161,81 @@ pub fn encode_metrics(snapshot: &MetricsSnapshot, resource: &ResourceInfo) -> Op
         return None;
     }
 
-    let mut out = String::with_capacity(1024);
-    out.push_str("{\"resourceMetrics\":[{");
-    write_resource(&mut out, resource);
-    out.push_str(",\"scopeMetrics\":[{");
-    write_scope(&mut out, resource);
-    out.push_str(",\"metrics\":[");
+    let metrics: Vec<Value> = snapshot
+        .series
+        .iter()
+        .map(|series| {
+            // Every data point carries the four bounded labels plus, at most,
+            // the instrument's one code-chosen dimension.
+            let label_pairs = snapshot.labels.pairs();
+            let dim = series
+                .key
+                .dim_key
+                .as_deref()
+                .zip(series.key.dim_value.as_deref());
+            let attributes = jattrs(label_pairs.into_iter().chain(dim));
 
-    for (index, series) in snapshot.series.iter().enumerate() {
-        if index != 0 {
-            out.push(',');
-        }
-        out.push_str("{\"name\":");
-        write_string(&mut out, &series.key.name);
-
-        // Every data point carries the four bounded labels plus, at most, the
-        // instrument's one code-chosen dimension.
-        let label_pairs = snapshot.labels.pairs();
-        let dim = series
-            .key
-            .dim_key
-            .as_deref()
-            .zip(series.key.dim_value.as_deref());
-        let attribute_pairs = || label_pairs.into_iter().chain(dim);
-
-        match &series.value {
-            InstrumentValue::Counter(total) => {
-                out.push_str(",\"sum\":{\"aggregationTemporality\":");
-                out.push_str(itoa(u64::from(TEMPORALITY_CUMULATIVE)).as_str());
-                out.push_str(",\"isMonotonic\":true,\"dataPoints\":[{");
-                write_attributes(&mut out, attribute_pairs());
-                out.push_str(",\"startTimeUnixNano\":");
-                write_u64_string(&mut out, snapshot.start_unix_nanos);
-                out.push_str(",\"timeUnixNano\":");
-                write_u64_string(&mut out, snapshot.now_unix_nanos);
-                out.push_str(",\"asInt\":");
-                write_u64_string(&mut out, *total);
-                out.push_str("}]}");
-            }
-            InstrumentValue::Gauge(value) => {
-                out.push_str(",\"gauge\":{\"dataPoints\":[{");
-                write_attributes(&mut out, attribute_pairs());
-                out.push_str(",\"timeUnixNano\":");
-                write_u64_string(&mut out, snapshot.now_unix_nanos);
-                out.push_str(",\"asDouble\":");
-                write_number(&mut out, *value);
-                out.push_str("}]}");
-            }
-            InstrumentValue::Histogram(hist) => {
-                out.push_str(",\"histogram\":{\"aggregationTemporality\":");
-                out.push_str(itoa(u64::from(TEMPORALITY_CUMULATIVE)).as_str());
-                out.push_str(",\"dataPoints\":[{");
-                write_attributes(&mut out, attribute_pairs());
-                out.push_str(",\"startTimeUnixNano\":");
-                write_u64_string(&mut out, snapshot.start_unix_nanos);
-                out.push_str(",\"timeUnixNano\":");
-                write_u64_string(&mut out, snapshot.now_unix_nanos);
-                out.push_str(",\"count\":");
-                write_u64_string(&mut out, hist.count);
-                out.push_str(",\"sum\":");
-                write_number(&mut out, hist.sum);
-                out.push_str(",\"bucketCounts\":[");
-                for (i, count) in hist.counts.iter().enumerate() {
-                    if i != 0 {
-                        out.push(',');
+            let body = match &series.value {
+                InstrumentValue::Counter(total) => json!({
+                    "sum": {
+                        "aggregationTemporality": TEMPORALITY_CUMULATIVE,
+                        "isMonotonic": true,
+                        "dataPoints": [{
+                            "attributes": attributes,
+                            "startTimeUnixNano": ju64(snapshot.start_unix_nanos),
+                            "timeUnixNano": ju64(snapshot.now_unix_nanos),
+                            "asInt": ju64(*total),
+                        }],
                     }
-                    write_u64_string(&mut out, *count);
-                }
-                out.push_str("],\"explicitBounds\":[");
-                for (i, bound) in hist.bounds.iter().enumerate() {
-                    if i != 0 {
-                        out.push(',');
+                }),
+                InstrumentValue::Gauge(value) => json!({
+                    "gauge": {
+                        "dataPoints": [{
+                            "attributes": attributes,
+                            "timeUnixNano": ju64(snapshot.now_unix_nanos),
+                            "asDouble": jnum(*value),
+                        }],
                     }
-                    write_number(&mut out, *bound);
-                }
-                out.push_str("]}]}");
+                }),
+                InstrumentValue::Histogram(hist) => json!({
+                    "histogram": {
+                        "aggregationTemporality": TEMPORALITY_CUMULATIVE,
+                        "dataPoints": [{
+                            "attributes": attributes,
+                            "startTimeUnixNano": ju64(snapshot.start_unix_nanos),
+                            "timeUnixNano": ju64(snapshot.now_unix_nanos),
+                            "count": ju64(hist.count),
+                            "sum": jnum(hist.sum),
+                            "bucketCounts": Value::Array(
+                                hist.counts.iter().map(|c| ju64(*c)).collect(),
+                            ),
+                            "explicitBounds": Value::Array(
+                                hist.bounds.iter().map(|b| jnum(*b)).collect(),
+                            ),
+                        }],
+                    }
+                }),
+            };
+            let mut metric = body;
+            if let Value::Object(map) = &mut metric {
+                map.insert("name".to_owned(), json!(series.key.name));
             }
-        }
-        out.push('}');
-    }
+            metric
+        })
+        .collect();
 
-    out.push_str("]}]}]}");
-    Some(out)
+    Some(
+        json!({
+            "resourceMetrics": [{
+                "resource": jresource(resource),
+                "scopeMetrics": [{
+                    "scope": jscope(resource),
+                    "metrics": metrics,
+                }],
+            }],
+        })
+        .to_string(),
+    )
 }
 
 /// Encodes log records as an OTLP `ExportLogsServiceRequest`.
@@ -267,49 +247,46 @@ pub fn encode_logs(records: &[LogRecord], resource: &ResourceInfo) -> Option<Str
         return None;
     }
 
-    let mut out = String::with_capacity(512);
-    out.push_str("{\"resourceLogs\":[{");
-    write_resource(&mut out, resource);
-    out.push_str(",\"scopeLogs\":[{");
-    write_scope(&mut out, resource);
-    out.push_str(",\"logRecords\":[");
+    let log_records: Vec<Value> = records
+        .iter()
+        .map(|record| {
+            json!({
+                "timeUnixNano": ju64(record.time_unix_nanos),
+                "observedTimeUnixNano": ju64(record.time_unix_nanos),
+                "severityNumber": record.severity as u8,
+                "severityText": record.severity.as_str(),
+                "body": {"stringValue": record.body},
+                "attributes": jattrs(
+                    record.attributes.iter().map(|(k, v)| (k.as_str(), v.as_str())),
+                ),
+            })
+        })
+        .collect();
 
-    for (index, record) in records.iter().enumerate() {
-        if index != 0 {
-            out.push(',');
-        }
-        out.push_str("{\"timeUnixNano\":");
-        write_u64_string(&mut out, record.time_unix_nanos);
-        out.push_str(",\"observedTimeUnixNano\":");
-        write_u64_string(&mut out, record.time_unix_nanos);
-        out.push_str(",\"severityNumber\":");
-        out.push_str(itoa(u64::from(record.severity as u8)).as_str());
-        out.push_str(",\"severityText\":");
-        write_string(&mut out, record.severity.as_str());
-        out.push_str(",\"body\":{\"stringValue\":");
-        write_string(&mut out, &record.body);
-        out.push_str("},");
-        write_attributes(
-            &mut out,
-            record
-                .attributes
-                .iter()
-                .map(|(k, v)| (k.as_str(), v.as_str())),
-        );
-        out.push('}');
-    }
-
-    out.push_str("]}]}]}");
-    Some(out)
+    Some(
+        json!({
+            "resourceLogs": [{
+                "resource": jresource(resource),
+                "scopeLogs": [{
+                    "scope": jscope(resource),
+                    "logRecords": log_records,
+                }],
+            }],
+        })
+        .to_string(),
+    )
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::telemetry::{
-        json::{parse, JsonValue},
-        metrics::{HistogramData, InstrumentKey, MetricLabels, Series},
-    };
+    use serde_json::Value;
+
+    use crate::telemetry::metrics::{HistogramData, InstrumentKey, MetricLabels, Series};
+
+    fn parse(s: &str) -> Result<Value, serde_json::Error> {
+        serde_json::from_str(s)
+    }
 
     fn resource() -> ResourceInfo {
         ResourceInfo {
@@ -355,31 +332,31 @@ mod tests {
         let parsed = parse(&json).expect("valid JSON");
         let metric = &parsed
             .get("resourceMetrics")
-            .and_then(JsonValue::as_array)
+            .and_then(Value::as_array)
             .unwrap()[0]
             .get("scopeMetrics")
-            .and_then(JsonValue::as_array)
+            .and_then(Value::as_array)
             .unwrap()[0]
             .get("metrics")
-            .and_then(JsonValue::as_array)
+            .and_then(Value::as_array)
             .unwrap()[0];
 
         assert_eq!(
-            metric.get("name").and_then(JsonValue::as_str),
+            metric.get("name").and_then(Value::as_str),
             Some("app_sessions_started_total")
         );
         let sum = metric.get("sum").expect("sum");
-        assert_eq!(sum.get("isMonotonic").and_then(JsonValue::as_bool), Some(true));
+        assert_eq!(sum.get("isMonotonic").and_then(Value::as_bool), Some(true));
         assert_eq!(
-            sum.get("aggregationTemporality").and_then(JsonValue::as_u64),
+            sum.get("aggregationTemporality").and_then(Value::as_u64),
             Some(2)
         );
-        let point = &sum.get("dataPoints").and_then(JsonValue::as_array).unwrap()[0];
+        let point = &sum.get("dataPoints").and_then(Value::as_array).unwrap()[0];
         // 64-bit ints MUST be strings in the proto3 JSON mapping.
-        assert_eq!(point.get("asInt"), Some(&JsonValue::Str("3".to_owned())));
+        assert_eq!(point.get("asInt").and_then(Value::as_str), Some("3"));
         assert_eq!(
-            point.get("timeUnixNano"),
-            Some(&JsonValue::Str("1700000060000000000".to_owned()))
+            point.get("timeUnixNano").and_then(Value::as_str),
+            Some("1700000060000000000")
         );
     }
 
@@ -396,24 +373,24 @@ mod tests {
         let parsed = parse(&json).expect("valid JSON");
         let point = &parsed
             .get("resourceMetrics")
-            .and_then(JsonValue::as_array)
+            .and_then(Value::as_array)
             .unwrap()[0]
             .get("scopeMetrics")
-            .and_then(JsonValue::as_array)
+            .and_then(Value::as_array)
             .unwrap()[0]
             .get("metrics")
-            .and_then(JsonValue::as_array)
+            .and_then(Value::as_array)
             .unwrap()[0]
             .get("sum")
             .unwrap()
             .get("dataPoints")
-            .and_then(JsonValue::as_array)
+            .and_then(Value::as_array)
             .unwrap()[0];
 
-        let attributes = point.get("attributes").and_then(JsonValue::as_array).unwrap();
+        let attributes = point.get("attributes").and_then(Value::as_array).unwrap();
         let keys: Vec<&str> = attributes
             .iter()
-            .filter_map(|a| a.get("key").and_then(JsonValue::as_str))
+            .filter_map(|a| a.get("key").and_then(Value::as_str))
             .collect();
         assert_eq!(keys, vec!["version", "channel", "os", "arch", "result"]);
     }
@@ -438,27 +415,28 @@ mod tests {
         let parsed = parse(&json).expect("valid JSON");
         let point = &parsed
             .get("resourceMetrics")
-            .and_then(JsonValue::as_array)
+            .and_then(Value::as_array)
             .unwrap()[0]
             .get("scopeMetrics")
-            .and_then(JsonValue::as_array)
+            .and_then(Value::as_array)
             .unwrap()[0]
             .get("metrics")
-            .and_then(JsonValue::as_array)
+            .and_then(Value::as_array)
             .unwrap()[0]
             .get("histogram")
             .unwrap()
             .get("dataPoints")
-            .and_then(JsonValue::as_array)
+            .and_then(Value::as_array)
             .unwrap()[0];
 
-        assert_eq!(point.get("count"), Some(&JsonValue::Str("3".to_owned())));
-        assert_eq!(point.get("sum"), Some(&JsonValue::Number(1.75)));
-        let buckets = point.get("bucketCounts").and_then(JsonValue::as_array).unwrap();
+        assert_eq!(point.get("count").and_then(Value::as_str), Some("3"));
+        assert_eq!(point.get("sum").and_then(Value::as_f64), Some(1.75));
+        let buckets = point.get("bucketCounts").and_then(Value::as_array).unwrap();
         assert_eq!(buckets.len(), 3);
-        assert_eq!(buckets[1], JsonValue::Str("2".to_owned()));
-        let bounds = point.get("explicitBounds").and_then(JsonValue::as_array).unwrap();
-        assert_eq!(bounds, [JsonValue::Number(0.1), JsonValue::Number(1.0)]);
+        assert_eq!(buckets[1].as_str(), Some("2"));
+        let bounds = point.get("explicitBounds").and_then(Value::as_array).unwrap();
+        let bound_vals: Vec<f64> = bounds.iter().filter_map(Value::as_f64).collect();
+        assert_eq!(bound_vals, vec![0.1, 1.0]);
     }
 
     #[test]
@@ -473,23 +451,23 @@ mod tests {
         let parsed = parse(&json).expect("valid JSON");
         let log = &parsed
             .get("resourceLogs")
-            .and_then(JsonValue::as_array)
+            .and_then(Value::as_array)
             .unwrap()[0]
             .get("scopeLogs")
-            .and_then(JsonValue::as_array)
+            .and_then(Value::as_array)
             .unwrap()[0]
             .get("logRecords")
-            .and_then(JsonValue::as_array)
+            .and_then(Value::as_array)
             .unwrap()[0];
 
-        assert_eq!(log.get("severityNumber").and_then(JsonValue::as_u64), Some(13));
-        assert_eq!(log.get("severityText").and_then(JsonValue::as_str), Some("WARN"));
+        assert_eq!(log.get("severityNumber").and_then(Value::as_u64), Some(13));
+        assert_eq!(log.get("severityText").and_then(Value::as_str), Some("WARN"));
         assert_eq!(
-            log.get("body").and_then(|b| b.get("stringValue")).and_then(JsonValue::as_str),
+            log.get("body").and_then(|b| b.get("stringValue")).and_then(Value::as_str),
             Some("font cache miss")
         );
-        let attrs = log.get("attributes").and_then(JsonValue::as_array).unwrap();
-        assert_eq!(attrs[0].get("key").and_then(JsonValue::as_str), Some("client_id"));
+        let attrs = log.get("attributes").and_then(Value::as_array).unwrap();
+        assert_eq!(attrs[0].get("key").and_then(Value::as_str), Some("client_id"));
     }
 
     #[test]
