@@ -1004,7 +1004,7 @@ impl RemillTranspiler {
             let (irp, mp) = reloc_cache_paths(rc, fn_size);
             if let (Ok(ir), Ok(man)) = (std::fs::read_to_string(&irp), std::fs::read_to_string(&mp)) {
                 if let Some(translated) =
-                    reloc_translate(&ir, &man, lift_addr, &bytes, symbol_table::get())
+                    reloc_translate(&ir, &man, lift_addr, &bytes, fn_addr, symbol_table::get())
                 {
                     RELOC_CACHE_HITS.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
                     let _ = std::fs::write(&lifted_ir_path, &translated);
@@ -6601,6 +6601,8 @@ fn reloc_canonicalize(
     let bias = (fn_addr as u64).wrapping_sub(lift_addr);
     let mut canonical = bytes.to_vec();
     let mut sites: Vec<RelocSite> = Vec::new();
+    // Image bounds for safe pointee reads (fingerprint identities).
+    let img = super::lift_audit::native_image_range(fn_addr);
     let ident_for = |t: u64| -> String {
         if let Some(tab) = table {
             let native = t.wrapping_add(bias) as usize;
@@ -6608,6 +6610,25 @@ fn reloc_canonicalize(
                 let off = native.wrapping_sub(e.canonical_addr);
                 if off < 0x1000 {
                     return format!("{}+0x{:x}", e.canonical_name, off);
+                }
+            }
+            // Anonymous data (string constants, jump tables, float pools):
+            // identify as nearest-named-neighbor + offset, VERIFIED by a
+            // 16-byte pointee fingerprint at translate time. This is what
+            // lifts the cross-build hit rate past call-only functions —
+            // without it every fn touching unnamed .rdata keys per-layout.
+            if let (Some(e), Some((lo, hi))) = (tab.nearest_below(native), img) {
+                let off = native.wrapping_sub(e.canonical_addr);
+                let n64 = native as u64;
+                if off < 0x100000 && n64 >= lo && n64.saturating_add(16) <= hi {
+                    let pointee =
+                        unsafe { std::slice::from_raw_parts(native as *const u8, 16) };
+                    return format!(
+                        "near:{}+0x{:x}:{}",
+                        e.canonical_name,
+                        off,
+                        super::fnv1a64_hex(pointee),
+                    );
                 }
             }
         }
@@ -6752,9 +6773,12 @@ fn reloc_translate(
     manifest: &str,
     new_lift_addr: u64,
     bytes: &[u8],
+    fn_addr: usize,
     table: Option<&symbol_table::SymbolTable>,
 ) -> Option<String> {
     let fn_len = bytes.len();
+    // Current image bounds, for fingerprint-verified `near:` identities.
+    let new_img = super::lift_audit::native_image_range(fn_addr);
     let mut lines = manifest.lines();
     let header = lines.next()?;
     let mut h = header.split(' ');
@@ -6774,6 +6798,28 @@ fn reloc_translate(
             // Raw identity: the key already pinned the exact layout, so
             // old == new by construction.
             u64::from_str_radix(rest, 16).ok()?
+        } else if let Some(rest) = ident.strip_prefix("near:") {
+            // Anonymous-data identity: nearest-neighbor + offset, accepted
+            // ONLY when the 16-byte pointee fingerprint matches at the
+            // candidate address in the CURRENT image — a moved blob fails
+            // the check and the whole entry degrades to a miss.
+            let (name_off, fp_hex) = rest.rsplit_once(':')?;
+            let (name, off_hex) = name_off.rsplit_once("+0x")?;
+            let off = u64::from_str_radix(off_hex, 16).ok()?;
+            let e = table?.by_name(name)?;
+            let cand_synth = (e.synthetic_addr as u64).checked_add(off)?;
+            let cand_native = (e.canonical_addr as u64).checked_add(off)?;
+            let (lo, hi) = new_img?;
+            if cand_native < lo || cand_native.saturating_add(16) > hi {
+                return None;
+            }
+            let pointee = unsafe {
+                std::slice::from_raw_parts(cand_native as usize as *const u8, 16)
+            };
+            if super::fnv1a64_hex(pointee) != fp_hex {
+                return None;
+            }
+            cand_synth
         } else {
             let (name, off_hex) = ident.rsplit_once("+0x")?;
             let off = u64::from_str_radix(off_hex, 16).ok()?;

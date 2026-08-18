@@ -448,6 +448,14 @@ impl SymbolTable {
         self.by_addr.get(&addr)
     }
 
+    /// Nearest symbol at-or-below `addr`. Used by the relocation-canonical
+    /// cache to identify anonymous data targets as `<neighbor>+offset`
+    /// (verified by a pointee fingerprint at translate time) — callers
+    /// bound the acceptable offset themselves.
+    pub fn nearest_below(&self, addr: usize) -> Option<&SymbolEntry> {
+        self.by_addr.range(..=addr).next_back().map(|(_, e)| e)
+    }
+
     /// Total number of entries (sum of Function + Stub + Data kinds).
     pub fn len(&self) -> usize {
         self.by_addr.len()
