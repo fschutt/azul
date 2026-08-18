@@ -260,6 +260,15 @@ pub mod telemetry;
 /// cooldown/suspend state. Requires the `updater` feature.
 #[cfg(feature = "updater")]
 pub mod updater;
+/// Process-wide `AppConfig` snapshot (app name/version, update manifest,
+/// changelog + support-mailbox URLs) published by `App::run`, read by the
+/// updater and the system dialogs.
+#[cfg(feature = "std")]
+pub mod appenv;
+/// Built-in system dialogs (`SysDialogType`): report-a-problem, update
+/// checker with Markdown changelog, crash reporter. ALWAYS CPU-rendered.
+#[cfg(all(feature = "std", feature = "widgets", feature = "text_layout"))]
+pub mod dialogs;
 /// Image decoding and encoding (wraps the `image` crate).
 #[cfg(feature = "image_decoding")]
 pub mod image;

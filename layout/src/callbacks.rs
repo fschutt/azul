@@ -1217,6 +1217,58 @@ impl CallbackInfo {
         self.push_change(CallbackChange::AddThread { thread_id, thread });
     }
 
+    /// Checks for updates ASYNCHRONOUSLY: spawns a background thread that
+    /// reads `AppConfig.updates` (manifest URL, current version, mode),
+    /// applies the install-kind backstops (package-managed binaries never
+    /// self-update) and the anti-downgrade/suspend policy, optionally STAGES
+    /// the artifact (`options.download_automatically` — staging is not
+    /// installing), and invokes `callback(data, info, check)` on the main
+    /// thread with the result. Returns the thread's id.
+    #[cfg(feature = "updater")]
+    pub fn check_for_updates(
+        &mut self,
+        data: RefAny,
+        callback: crate::updater::UpdateCheckCallback,
+        options: crate::updater::UpdateOptions,
+    ) -> ThreadId {
+        let (thread_id, thread) = crate::updater::spawn_update_check(data, callback, options);
+        self.add_thread(thread_id, thread);
+        thread_id
+    }
+
+    /// Opens one of the built-in system dialogs (always CPU-rendered — a
+    /// dialog reporting a problem must not depend on the GPU working):
+    ///
+    /// * `ReportProblem`: captures a screenshot of THIS window, then opens
+    ///   the report dialog (message + optional screenshot/system info →
+    ///   `AppConfig.report_problem` mailbox, or disk without one).
+    /// * `UpdateVersion`: opens the update dialog and starts the async
+    ///   check (manifest + changelog; install only after consent, and only
+    ///   where the install kind permits self-update).
+    #[cfg(all(feature = "std", feature = "widgets", feature = "text_layout"))]
+    pub fn invoke_system_dialog(&mut self, dialog: azul_core::window::SysDialogType) {
+        match dialog {
+            azul_core::window::SysDialogType::ReportProblem => {
+                // Capture BEFORE the dialog exists so it can never be in
+                // its own screenshot. Best-effort: a failed capture still
+                // opens the dialog, just without the attachment.
+                let screenshot = self
+                    .take_screenshot(DomId::ROOT_ID)
+                    .ok();
+                crate::dialogs::report_problem::open(self, screenshot);
+            }
+            azul_core::window::SysDialogType::UpdateVersion => {
+                #[cfg(feature = "updater")]
+                crate::dialogs::update_version::open(self);
+                #[cfg(not(feature = "updater"))]
+                eprintln!(
+                    "[azul] invoke_system_dialog(UpdateVersion): azul-layout was built \
+                     without the `updater` feature; the dialog is unavailable"
+                );
+            }
+        }
+    }
+
     /// Remove a thread from this window (applied after callback returns)
     pub fn remove_thread(&mut self, thread_id: ThreadId) {
         self.push_change(CallbackChange::RemoveThread { thread_id });

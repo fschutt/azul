@@ -196,8 +196,14 @@ pub fn send_crash_reports(
     }
 }
 
-/// Shared transport: one mail, `user_message` body, dumps attached.
-fn send_attachments(
+/// Shared transport: one mail, `user_message` body, attachments as base64
+/// MIME parts. Also used by the `ReportProblem` dialog (`report.txt` +
+/// screenshot.png ride the same pipe as crash dumps).
+///
+/// # Errors
+///
+/// Returns the SMTP error as text.
+pub fn send_attachments(
     config: &CrashMailConfig,
     user_message: &str,
     attachments: &[(String, Vec<u8>)],

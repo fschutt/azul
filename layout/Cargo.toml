@@ -317,7 +317,10 @@ json = ["dep:serde_json", "std", "azul-core/serde-json"]
 # tier is a runtime atomic (AZ_TELEMETRY + the layered config files), never a
 # compile-time switch, so a consent toggle can flip it inside a running
 # process.
-telemetry = ["std", "http", "dep:serde_json"]
+# telemetry implies probe: the RSS/span instruments read through the probe,
+# and a metrics build that silently reports 0 RSS violates "a zero is not a
+# measurement".
+telemetry = ["std", "http", "dep:serde_json", "probe"]
 
 # Crash reports by EMAIL — the backup for deployments with no collector:
 # telemetry tier `crashes` (metrics off), no Grafana/Loki, just a support

@@ -120,18 +120,9 @@ impl InstallKind {
 }
 
 /// Build-time / app-chosen update behaviour; the EFFECTIVE mode is this
-/// clamped by [`InstallKind`] — see [`effective_mode`].
-#[derive(Debug, Copy, Clone, PartialEq, Eq)]
-#[repr(C)]
-pub enum UpdateMode {
-    /// Check, notify, download+swap after consent.
-    SelfUpdate,
-    /// Check and notify only ("new version available"); installing is the
-    /// user's/packager's job.
-    NotifyOnly,
-    /// Never check.
-    Disabled,
-}
+/// clamped by [`InstallKind`] — see [`effective_mode`]. Defined in core so
+/// `AppConfig.updates` can carry it without the `updater` feature.
+pub use azul_core::resources::{UpdateMode, UpdateSettings};
 
 /// Clamps the requested mode by what the installation permits: a
 /// package-managed binary NEVER self-updates, whatever the app asked for.
@@ -539,6 +530,260 @@ pub fn apply_update(staged: &Path, target: &Path) -> Result<(), String> {
     }
     std::fs::rename(&incoming, target).map_err(|e| format!("swap: {e}"))?;
     Ok(())
+}
+
+// ---------------------------------------------------------------------------
+// Async wrapper: `CallbackInfo::check_for_updates` — the C-API surface.
+// ---------------------------------------------------------------------------
+
+use azul_core::{
+    callbacks::Update,
+    refany::{OptionRefAny, RefAny},
+    task::{ThreadId, ThreadReceiver},
+};
+
+use crate::thread::{
+    Thread, ThreadCallbackType, ThreadReceiveMsg, ThreadSender, ThreadWriteBackMsg,
+    WriteBackCallbackType,
+};
+
+/// Everything one completed update check knows, delivered to the app's
+/// [`UpdateCheckCallback`] on the main thread.
+#[derive(Debug, Clone, PartialEq)]
+#[repr(C)]
+pub struct UpdateCheckInfo {
+    /// What the check concluded.
+    pub result: UpdateCheckResult,
+    /// The requested mode CLAMPED by the detected install kind — when this
+    /// says [`UpdateMode::NotifyOnly`] the app must not offer an "install"
+    /// button, only "a new version is available" (+ the package-manager hint).
+    pub effective_mode: UpdateMode,
+    /// What kind of installation the running binary is.
+    pub install: InstallKind,
+    /// Path of the staged artifact when `download_automatically` staged one.
+    /// Staging is NOT installing — hand this to [`apply_update`] only after
+    /// the user consents.
+    pub staged_path: azul_css::OptionString,
+}
+
+/// Callback type for [`spawn_update_check`] results: `(data, info, check)`,
+/// invoked on the MAIN thread with full [`CallbackInfo`] access.
+pub type UpdateCheckCallbackType =
+    extern "C" fn(RefAny, crate::callbacks::CallbackInfo, UpdateCheckInfo) -> Update;
+
+/// Wrapper carrying the app's check-result callback across the worker thread.
+#[repr(C)]
+pub struct UpdateCheckCallback {
+    pub cb: UpdateCheckCallbackType,
+    /// For FFI: stores the foreign callable (e.g., `PyFunction`)
+    /// Native Rust code sets this to None
+    pub ctx: OptionRefAny,
+}
+
+impl UpdateCheckCallback {
+    /// Create a new `UpdateCheckCallback`
+    pub fn new(cb: UpdateCheckCallbackType) -> Self {
+        Self {
+            cb,
+            ctx: OptionRefAny::None,
+        }
+    }
+}
+
+impl core::fmt::Debug for UpdateCheckCallback {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        write!(f, "UpdateCheckCallback {{ cb: {:p} }}", self.cb as *const ())
+    }
+}
+
+impl Clone for UpdateCheckCallback {
+    fn clone(&self) -> Self {
+        Self {
+            cb: self.cb,
+            ctx: self.ctx.clone(),
+        }
+    }
+}
+
+impl From<UpdateCheckCallbackType> for UpdateCheckCallback {
+    fn from(cb: UpdateCheckCallbackType) -> Self {
+        Self {
+            cb,
+            ctx: OptionRefAny::None,
+        }
+    }
+}
+
+impl PartialEq for UpdateCheckCallback {
+    fn eq(&self, other: &Self) -> bool {
+        std::ptr::eq(self.cb as *const (), other.cb as *const ())
+    }
+}
+
+impl Eq for UpdateCheckCallback {}
+
+impl PartialOrd for UpdateCheckCallback {
+    fn partial_cmp(&self, other: &Self) -> Option<core::cmp::Ordering> {
+        Some(self.cmp(other))
+    }
+}
+
+impl Ord for UpdateCheckCallback {
+    fn cmp(&self, other: &Self) -> core::cmp::Ordering {
+        (self.cb as *const () as usize).cmp(&(other.cb as *const () as usize))
+    }
+}
+
+impl core::hash::Hash for UpdateCheckCallback {
+    fn hash<H: core::hash::Hasher>(&self, state: &mut H) {
+        (self.cb as *const () as usize).hash(state);
+    }
+}
+
+azul_core::impl_managed_callback! {
+    wrapper:        UpdateCheckCallback,
+    info_ty:        crate::callbacks::CallbackInfo,
+    return_ty:      Update,
+    default_ret:    Update::DoNothing,
+    invoker_static: UPDATE_CHECK_CALLBACK_INVOKER,
+    invoker_ty:     AzUpdateCheckCallbackInvoker,
+    thunk_fn:       az_update_check_callback_thunk,
+    setter_fn:      AzApp_setUpdateCheckCallbackInvoker,
+    from_handle_fn: AzUpdateCheckCallback_createFromHostHandle,
+    extra_args:     [check: UpdateCheckInfo],
+}
+
+/// The worker's input, snapshotted at spawn time.
+struct CheckTask {
+    options: UpdateOptions,
+    env: crate::appenv::AppEnv,
+    callback: UpdateCheckCallback,
+}
+
+/// The worker's output, riding the `WriteBack` message.
+struct CheckOutcome {
+    callback: UpdateCheckCallback,
+    info: UpdateCheckInfo,
+}
+
+/// Platform data directory for the updater's state
+/// (`update-state.json` + the staging area), keyed by app name.
+#[must_use]
+pub fn default_state_dir(app_name: &str) -> PathBuf {
+    #[cfg(target_os = "windows")]
+    let base = std::env::var_os("APPDATA")
+        .map_or_else(std::env::temp_dir, PathBuf::from);
+    #[cfg(target_os = "macos")]
+    let base = std::env::var_os("HOME").map_or_else(std::env::temp_dir, |h| {
+        PathBuf::from(h).join("Library").join("Application Support")
+    });
+    #[cfg(not(any(target_os = "windows", target_os = "macos")))]
+    let base = std::env::var_os("XDG_DATA_HOME").map_or_else(
+        || {
+            std::env::var_os("HOME").map_or_else(std::env::temp_dir, |h| {
+                PathBuf::from(h).join(".local").join("share")
+            })
+        },
+        PathBuf::from,
+    );
+    base.join(app_name)
+}
+
+/// Runs one full check (+ optional staging) as an azul [`Thread`], reading
+/// the manifest URL / current version / mode from the published
+/// [`crate::appenv::AppEnv`]. The `data` `RefAny` is handed back VERBATIM to
+/// `callback` on the main thread. `CallbackInfo::check_for_updates` is the
+/// thin wrapper that also registers the thread with the event loop.
+#[must_use]
+pub fn spawn_update_check(
+    data: RefAny,
+    callback: UpdateCheckCallback,
+    options: UpdateOptions,
+) -> (ThreadId, Thread) {
+    let task = CheckTask {
+        options,
+        env: crate::appenv::app_env(),
+        callback,
+    };
+    let worker: ThreadCallbackType = update_check_worker;
+    let thread = Thread::create(RefAny::new(task), data, worker);
+    (ThreadId::unique(), thread)
+}
+
+/// Background half: check → (optional) stage → one `WriteBack`.
+extern "C" fn update_check_worker(
+    mut init: RefAny,
+    mut sender: ThreadSender,
+    _recv: ThreadReceiver,
+) {
+    let Some(task) = init.downcast_ref::<CheckTask>() else {
+        return;
+    };
+
+    let install = InstallKind::detect();
+    let effective = effective_mode(task.env.update_mode, &install);
+    let state_dir = default_state_dir(&task.env.app_name);
+
+    let result = match (task.env.update_manifest.as_deref(), effective) {
+        (_, UpdateMode::Disabled) => {
+            UpdateCheckResult::Error("updates are disabled (UpdateMode::Disabled)".into())
+        }
+        (None, _) => UpdateCheckResult::Error(
+            "no update manifest configured (AppConfig.updates.manifest_url)".into(),
+        ),
+        (Some(url), _) => {
+            let mut state = UpdateState::load(&state_dir);
+            let r = check_for_updates_blocking(url, &task.env.current_version, &mut state);
+            state.save(&state_dir);
+            r
+        }
+    };
+
+    // `download_automatically` STAGES so a later "install now" is instant;
+    // it installs nothing, and a notify-only install never even stages.
+    let staged_path = match (&result, task.options.download_automatically, effective) {
+        (UpdateCheckResult::Available(release), true, UpdateMode::SelfUpdate) => {
+            match download_update(release, &state_dir.join("staging")) {
+                Ok(outcome) => {
+                    azul_css::OptionString::Some(outcome.path.to_string_lossy().as_ref().into())
+                }
+                Err(_) => azul_css::OptionString::None,
+            }
+        }
+        _ => azul_css::OptionString::None,
+    };
+
+    let outcome = CheckOutcome {
+        callback: task.callback.clone(),
+        info: UpdateCheckInfo {
+            result,
+            effective_mode: effective,
+            install,
+            staged_path,
+        },
+    };
+    drop(task);
+
+    let writeback: WriteBackCallbackType = update_check_writeback;
+    let _ = sender.send(ThreadReceiveMsg::WriteBack(ThreadWriteBackMsg::new(
+        writeback,
+        RefAny::new(outcome),
+    )));
+}
+
+/// Main-thread half: unwrap the outcome, invoke the app's callback.
+extern "C" fn update_check_writeback(
+    user_data: RefAny,
+    mut outcome: RefAny,
+    info: crate::callbacks::CallbackInfo,
+) -> Update {
+    let Some(o) = outcome.downcast_ref::<CheckOutcome>() else {
+        return Update::DoNothing;
+    };
+    let callback = o.callback.clone();
+    let check = o.info.clone();
+    drop(o);
+    (callback.cb)(user_data, info, check)
 }
 
 #[cfg(test)]
