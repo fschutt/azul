@@ -52,9 +52,12 @@
 //! ```
 
 pub mod config;
+#[cfg(feature = "crash-mail")]
+pub mod crash_mail;
 pub mod metrics;
 pub mod otlp;
 pub mod queue;
+pub mod sysinfo;
 
 use std::{
     sync::{
@@ -285,6 +288,146 @@ pub fn record_relayout_scope(scope: &str) {
     metrics::counter_add_dim(metrics::RELAYOUT_SCOPE, "scope", scope, 1);
 }
 
+/// Slow-frame threshold in milliseconds (f64 bits). Default 32 ms — two
+/// missed frames at 60 Hz, the point where an animation visibly hitches.
+static SLOW_FRAME_THRESHOLD_MS: AtomicU64 = AtomicU64::new(0);
+/// Whether the one-shot system-info attachment already went out this session.
+static SYSINFO_SENT: AtomicBool = AtomicBool::new(false);
+/// App-supplied document size (f64 bits; unit is the app's own semantics).
+static DOCUMENT_SIZE: AtomicU64 = AtomicU64::new(0);
+
+const DEFAULT_SLOW_FRAME_MS: f64 = 32.0;
+
+/// Sets the slow-frame threshold in milliseconds (default 32 ms). Frames and
+/// probe spans at or above it count into `app_slow_frames_total` and produce
+/// a WARN log; the FIRST slow event of a session additionally carries the
+/// full [`sysinfo`] snapshot — hardware context ships only when something is
+/// actually slow.
+pub fn set_slow_frame_threshold_ms(ms: f64) {
+    SLOW_FRAME_THRESHOLD_MS.store(ms.max(0.0).to_bits(), Ordering::Relaxed);
+}
+
+fn slow_frame_threshold_ms() -> f64 {
+    let bits = SLOW_FRAME_THRESHOLD_MS.load(Ordering::Relaxed);
+    if bits == 0 {
+        DEFAULT_SLOW_FRAME_MS
+    } else {
+        f64::from_bits(bits)
+    }
+}
+
+/// Supplies the GPU/renderer description (e.g. `GL_RENDERER`). The app owns
+/// the GL context and always knows better than the `/sys` guess; first call
+/// wins.
+pub fn set_gpu_info(renderer: impl Into<String>) {
+    drop(sysinfo::GPU_INFO.set(renderer.into()));
+}
+
+/// Records the app-defined DOCUMENT SIZE — nodes, paragraphs, bytes,
+/// whatever the app's unit is. This is the correlator that turns "RSS went
+/// up" into "RSS went up because the user opened a huge document".
+pub fn set_document_size(size: f64) {
+    DOCUMENT_SIZE.store(size.to_bits(), Ordering::Relaxed);
+    if is_collecting() {
+        metrics::gauge_set(metrics::DOCUMENT_SIZE, size);
+    }
+}
+
+/// The last value passed to [`set_document_size`] (0.0 before the first).
+#[must_use]
+pub fn document_size() -> f64 {
+    f64::from_bits(DOCUMENT_SIZE.load(Ordering::Relaxed))
+}
+
+/// RSS captured by [`record_document_open_begin`], consumed by
+/// [`record_document_opened`].
+#[derive(Debug, Clone, Copy)]
+pub struct DocOpenToken {
+    rss_before: u64,
+}
+
+/// Snapshot RSS BEFORE opening a document. Also records the
+/// `checkpoint="before_document"` RSS gauge.
+#[must_use]
+pub fn record_document_open_begin() -> DocOpenToken {
+    let (rss, _) = crate::probe::current_rss_bytes();
+    if is_collecting() {
+        metrics::gauge_set_dim(metrics::RSS_BYTES, "checkpoint", "before_document", rss as f64);
+    }
+    DocOpenToken { rss_before: rss }
+}
+
+/// The document finished opening: records `checkpoint="after_document"` RSS,
+/// the document size, the RSS DELTA the open cost, and the delta divided by
+/// document size (bytes of resident growth per document unit — flat across
+/// sizes = healthy, a per-version jump = a leak document size does not
+/// explain).
+pub fn record_document_opened(token: DocOpenToken, doc_size: f64) {
+    set_document_size(doc_size);
+    let (rss_after, _) = crate::probe::current_rss_bytes();
+    if !is_collecting() {
+        return;
+    }
+    metrics::gauge_set_dim(metrics::RSS_BYTES, "checkpoint", "after_document", rss_after as f64);
+    let delta = rss_after.saturating_sub(token.rss_before) as f64;
+    metrics::gauge_set(metrics::DOC_RSS_DELTA_BYTES, delta);
+    if doc_size > 0.0 {
+        metrics::gauge_set(metrics::DOC_RSS_PER_UNIT, delta / doc_size);
+    }
+}
+
+/// Records one frame's wall-clock duration under `scope` (`layout`,
+/// `render`, `total` — a small fixed set). Slow frames additionally count
+/// into `app_slow_frames_total` and produce a WARN log; see
+/// [`set_slow_frame_threshold_ms`].
+pub fn record_frame(scope: &str, seconds: f64) {
+    if !is_collecting() {
+        return;
+    }
+    metrics::histogram_record_dim(metrics::FRAME_SECONDS, "scope", scope, seconds);
+    note_if_slow(scope, seconds);
+}
+
+/// Records one TIMER tick's duration — the clock animations ride, so slow
+/// ticks here are what make animations stutter. Slow ticks warn like slow
+/// frames, under scope `timer`.
+pub fn record_timer_frame(seconds: f64) {
+    if !is_collecting() {
+        return;
+    }
+    metrics::histogram_record(metrics::TIMER_FRAME_SECONDS, seconds);
+    note_if_slow("timer", seconds);
+}
+
+/// Shared slow-event path for frames, timer ticks and probe spans: count it,
+/// WARN with the exact name + duration + current document size, and attach
+/// the one-shot system-info snapshot if this is the session's first slow
+/// event.
+fn note_if_slow(what: &str, seconds: f64) {
+    let ms = seconds * 1_000.0;
+    if ms < slow_frame_threshold_ms() {
+        return;
+    }
+    metrics::counter_add_dim(metrics::SLOW_FRAMES, "scope", what, 1);
+    let mut record = LogRecord::new(
+        Severity::Warn,
+        format!("slow {what}: {ms:.1} ms (threshold {:.1} ms)", slow_frame_threshold_ms()),
+    )
+    .with_attribute("event.kind", "slow_frame")
+    .with_attribute("slow.scope", what.to_owned())
+    .with_attribute("slow.ms", format!("{ms:.2}"))
+    .with_attribute("app.document_size", format!("{}", document_size()));
+    if let Some(client_id) = config_snapshot().client_id {
+        record = record.with_attribute("client_id", client_id);
+    }
+    if !SYSINFO_SENT.swap(true, Ordering::Relaxed) {
+        for (k, v) in sysinfo::get().as_attributes() {
+            record = record.with_attribute(k, v);
+        }
+    }
+    push_log(record);
+}
+
 /// Counts one update check by outcome (`up_to_date`, `available`, `error`, …).
 pub fn record_update_check(result: &str) {
     if !is_collecting() {
@@ -385,15 +528,45 @@ pub fn drain_probe_events() -> usize {
     if !is_collecting() {
         return 0;
     }
+    // At most this many slow-SPAN warnings per drain: one slow frame can
+    // contain a dozen slow nested spans, and the OUTERMOST ones carry the
+    // diagnosis. The metric still counts every one.
+    let mut slow_logs_left = 5usize;
     for event in &events {
         match event.kind {
             crate::probe::EventKind::Span { dur_ns } => {
+                let seconds = dur_ns as f64 / 1_000_000_000.0;
                 metrics::histogram_record_dim(
                     metrics::PHASE_SECONDS,
                     "phase",
                     event.name,
-                    dur_ns as f64 / 1_000_000_000.0,
+                    seconds,
                 );
+                // WHICH span was slow, by name — the per-phase histogram
+                // says "something in text_shape is slow at p95", this log
+                // says "span text_shape took 41.3 ms in THIS session".
+                let ms = seconds * 1_000.0;
+                if ms >= slow_frame_threshold_ms() && slow_logs_left > 0 {
+                    slow_logs_left -= 1;
+                    metrics::counter_add_dim(metrics::SLOW_FRAMES, "scope", event.name, 1);
+                    let mut record = LogRecord::new(
+                        Severity::Warn,
+                        format!("slow span {}: {ms:.1} ms", event.name),
+                    )
+                    .with_attribute("event.kind", "slow_span")
+                    .with_attribute("slow.span", event.name.to_owned())
+                    .with_attribute("slow.ms", format!("{ms:.2}"))
+                    .with_attribute("app.document_size", format!("{}", document_size()));
+                    if let Some(client_id) = config_snapshot().client_id {
+                        record = record.with_attribute("client_id", client_id);
+                    }
+                    if !SYSINFO_SENT.swap(true, Ordering::Relaxed) {
+                        for (k, v) in sysinfo::get().as_attributes() {
+                            record = record.with_attribute(k, v);
+                        }
+                    }
+                    push_log(record);
+                }
             }
             crate::probe::EventKind::Rss { bytes } => {
                 metrics::gauge_set_dim(metrics::RSS_BYTES, "checkpoint", event.name, bytes as f64);
@@ -588,27 +761,266 @@ pub fn shutdown() -> FlushOutcome {
     flush()
 }
 
-/// Installs a panic hook that counts panics and buffers the panic message as
-/// an `ERROR` log record, then delegates to the previously installed hook.
+/// The env var carrying the crash-dump path into the REINVOKED reporter
+/// process. `AzApp::run` (and this demo) check it at startup: when set, the
+/// process is not a normal launch — it parses the dump, shows it to the
+/// user (CPU rendering only; the crash may well be the GPU path) and offers
+/// manual submission.
+pub const CRASH_DUMP_ENV: &str = "AZ_CRASH_DUMP";
+
+/// Whether the app registered a crash CONTACT (a mailbox) — the marker that
+/// the reinvoke-reporter flow is wanted at all.
+static CRASH_CONTACT_SET: AtomicBool = AtomicBool::new(false);
+
+/// Marks that a crash contact exists (set by
+/// `crash_mail::set_crash_contact`); the panic hook only spawns the
+/// reporter process when this is true AND no OTLP endpoint is configured —
+/// with an endpoint the pipeline is automatic and no dialog is owed.
+pub(crate) fn mark_crash_contact(set: bool) {
+    CRASH_CONTACT_SET.store(set, Ordering::Relaxed);
+}
+
+/// A parsed crash dump, for the reporter process.
+#[derive(Debug, Clone)]
+pub struct CrashDump {
+    /// Where the dump file lives (the reporter deletes it after submission).
+    pub path: std::path::PathBuf,
+    /// The raw JSON, verbatim — this is what gets attached/submitted.
+    pub raw: String,
+    /// Panic message (the `expect` reason).
+    pub message: String,
+    /// `file:line`, paths stripped.
+    pub location: String,
+    /// The live probe-span scope at crash time.
+    pub scope: String,
+    /// Path-stripped backtrace.
+    pub backtrace: String,
+}
+
+impl CrashDump {
+    /// Loads a dump written by the panic hook.
+    ///
+    /// # Errors
+    ///
+    /// Returns the IO/parse error as text.
+    pub fn load(path: impl Into<std::path::PathBuf>) -> Result<Self, String> {
+        let path = path.into();
+        let raw = std::fs::read_to_string(&path).map_err(|e| e.to_string())?;
+        let v: serde_json::Value = serde_json::from_str(&raw).map_err(|e| e.to_string())?;
+        let get = |k: &str| v.get(k).and_then(serde_json::Value::as_str).unwrap_or("").to_owned();
+        Ok(Self {
+            path,
+            message: get("message"),
+            location: get("location"),
+            scope: get("scope"),
+            backtrace: get("backtrace"),
+            raw,
+        })
+    }
+}
+
+/// The crash dump handed to THIS process via [`CRASH_DUMP_ENV`], if any —
+/// the first thing `AzApp::run` (or an app's own main) should check: `Some`
+/// means "you are the crash reporter, not the app".
+#[must_use]
+pub fn crash_dump_from_env() -> Option<CrashDump> {
+    let path = std::env::var_os(CRASH_DUMP_ENV)?;
+    CrashDump::load(std::path::PathBuf::from(path)).ok()
+}
+
+/// Strips user paths from a backtrace/location string: `$HOME` becomes `~`,
+/// `/rustc/<hash>/` and registry paths collapse, and any remaining absolute
+/// path keeps only its last three components. The FRAMES stay (that is the
+/// diagnostic); the user's directory layout does not travel.
+#[must_use]
+pub fn strip_user_paths(text: &str) -> String {
+    let home = std::env::var("HOME").ok().filter(|h| h.len() > 1);
+    let mut out = String::with_capacity(text.len());
+    for (i, line) in text.lines().enumerate() {
+        if i != 0 {
+            out.push('\n');
+        }
+        let mut line = line.to_owned();
+        if let Some(home) = &home {
+            line = line.replace(home.as_str(), "~");
+        }
+        // /rustc/<40-hex>/library/... -> rust:library/...
+        if let Some(idx) = line.find("/rustc/") {
+            let rest = &line[idx + "/rustc/".len()..];
+            if let Some(slash) = rest.find('/') {
+                let tail = rest[slash + 1..].to_owned();
+                line = format!("{}rust:{}", &line[..idx], tail);
+            }
+        }
+        // Long absolute paths keep their 3 last components.
+        while let Some(idx) = line.find(" /") {
+            let replacement = {
+                let (head, path) = line.split_at(idx + 1);
+                let end = path
+                    .find(|c: char| c.is_whitespace() || c == ':')
+                    .unwrap_or(path.len());
+                let (path, tail) = path.split_at(end);
+                let parts: Vec<&str> = path.split('/').filter(|p| !p.is_empty()).collect();
+                if parts.len() <= 3 {
+                    None
+                } else {
+                    Some(format!(
+                        "{head}…/{}{tail}",
+                        parts[parts.len() - 3..].join("/")
+                    ))
+                }
+            };
+            match replacement {
+                Some(next) => line = next,
+                None => break,
+            }
+        }
+        out.push_str(&line);
+    }
+    out
+}
+
+/// Extracts the panic PAYLOAD (the `panic!`/`expect` message) as text.
+fn panic_message(info: &std::panic::PanicHookInfo<'_>) -> String {
+    if let Some(s) = info.payload().downcast_ref::<&str>() {
+        (*s).to_owned()
+    } else if let Some(s) = info.payload().downcast_ref::<String>() {
+        s.clone()
+    } else {
+        "<non-string panic payload>".to_owned()
+    }
+}
+
+/// Installs a panic hook that captures EVERYTHING knowable at crash time and
+/// makes it durable, then delegates to the previously installed hook.
 ///
-/// Panics leave the process intact, so unlike a native crash they can be
-/// serialized in-hook. This is the anchor point the crash-bundle work (not yet
-/// implemented) will extend.
+/// Captured per crash: the panic message (`expect` reason), `file:line`
+/// location, a path-stripped backtrace (frames stay, `$HOME` and toolchain
+/// prefixes do not), the live [`crate::probe`] span scope ("what was the app
+/// doing"), the app-supplied document size, and the [`sysinfo`] snapshot.
+///
+/// Two durable artifacts, gated on tier `Crashes` (metrics consent NOT
+/// required — this is exactly the "telemetry off, crash reports on" mode):
+///
+/// * a `Severity::Error` LOG record (red in Loki, `event.kind="crash"`),
+///   queued for the OTLP `/v1/logs` path when an endpoint exists;
+/// * a self-contained JSON CRASH DUMP queued as [`PingKind::Crash`] — never
+///   uploaded over OTLP, it is the payload the `crash-mail` backup transport
+///   attaches for deployments with no collector at all.
+///
+/// Nothing is uploaded in-hook: a hook that blocks on the network turns a
+/// recoverable panic into a hang. The next launch (or the crash mailer)
+/// drains the queue.
 pub fn install_panic_hook() {
     let previous = std::panic::take_hook();
     std::panic::set_hook(Box::new(move |info| {
         record_panic();
-        if is_collecting() {
+        if tier().allows_crashes() {
+            let message = panic_message(info);
             let location = info
                 .location()
                 .map_or_else(String::new, |l| format!("{}:{}", l.file(), l.line()));
-            let record = LogRecord::new(Severity::Fatal, format!("panic: {info}"))
-                .with_attribute("location", location);
+            let location = strip_user_paths(&location);
+            let backtrace =
+                strip_user_paths(&std::backtrace::Backtrace::force_capture().to_string());
+            let scope = crate::probe::Probe::span_path();
+            let sys = sysinfo::get();
+            let doc_size = document_size();
+            let client_id = config_snapshot().client_id;
+
+            // 1. The Loki-facing log record. Severity ERROR renders red;
+            //    FATAL maps to Grafana's purple "critical" band.
+            let mut record = LogRecord::new(
+                Severity::Error,
+                format!("crash: {message} (at {location})"),
+            )
+            .with_attribute("event.kind", "crash")
+            .with_attribute("crash.message", message.clone())
+            .with_attribute("crash.location", location.clone())
+            .with_attribute("crash.scope", scope.clone())
+            .with_attribute("crash.backtrace", backtrace.clone())
+            .with_attribute("app.document_size", format!("{doc_size}"));
+            for (k, v) in sys.as_attributes() {
+                record = record.with_attribute(k, v);
+            }
+            if let Some(id) = &client_id {
+                record = record.with_attribute("client_id", id.clone());
+            }
             push_log(record);
-            // Make it durable, but do NOT upload: a hook that blocks on the
-            // network turns a recoverable panic into a hang. The next launch
-            // drains the queue.
-            drop(persist());
+
+            // 2. Durability, WITHOUT the metrics-tier gate `persist()`
+            //    carries: encode the buffered log records and the crash dump
+            //    straight into the queue. At tier `Crashes` this is the ONLY
+            //    write path that runs.
+            if let Some((resource, Some(queue))) = inner().read().ok().and_then(|slot| {
+                slot.as_ref()
+                    .map(|state| (state.resource.clone(), state.queue.clone()))
+            }) {
+                let records = log_buffer()
+                    .lock()
+                    .map(|mut buffer| std::mem::take(&mut *buffer))
+                    .unwrap_or_default();
+                if let Some(payload) = otlp::encode_logs(&records, &resource) {
+                    drop(queue.enqueue(PingKind::Logs, &payload));
+                }
+                let dump = serde_json::json!({
+                    "kind": "azul-crash-dump",
+                    "time_unix": SystemTime::now()
+                        .duration_since(UNIX_EPOCH)
+                        .map_or(0, |d| d.as_secs()),
+                    "app": resource.service_name,
+                    "version": resource.service_version,
+                    "client_id": client_id,
+                    "message": message,
+                    "location": location,
+                    "scope": scope,
+                    "backtrace": backtrace,
+                    "document_size": doc_size,
+                    "system": {
+                        "cpu_model": sys.cpu_model,
+                        "cpu_count": sys.cpu_count,
+                        "ram_total_bytes": sys.ram_total_bytes,
+                        "os": sys.os,
+                        "windowing": sys.windowing,
+                        "gpu": sys.gpu,
+                    },
+                })
+                .to_string();
+                drop(queue.enqueue(PingKind::Crash, &dump));
+
+                // The REPORTER flow: only when the app registered a crash
+                // contact (a mailbox) AND no OTLP endpoint exists — with an
+                // endpoint the pipeline is automatic and no dialog is owed.
+                // Write the dump to a temp file and reinvoke OUR OWN
+                // executable, detached, with AZ_CRASH_DUMP pointing at it;
+                // the dying process then finishes dying. The reinvoked
+                // process (AzApp::run checks the env var) parses the dump,
+                // shows it (CPU rendering only) and asks about submission.
+                let endpoint_configured = config_snapshot().signal_url("logs").is_some();
+                if CRASH_CONTACT_SET.load(Ordering::Relaxed) && !endpoint_configured {
+                    let file = std::env::temp_dir().join(format!(
+                        "azul-crash-{}-{}.json",
+                        std::process::id(),
+                        SystemTime::now()
+                            .duration_since(UNIX_EPOCH)
+                            .map_or(0, |d| d.as_secs()),
+                    ));
+                    if std::fs::write(&file, &dump).is_ok() {
+                        if let Ok(exe) = std::env::current_exe() {
+                            drop(
+                                std::process::Command::new(exe)
+                                    .env(CRASH_DUMP_ENV, &file)
+                                    .stdin(std::process::Stdio::null())
+                                    .spawn(),
+                            );
+                        }
+                    }
+                }
+            }
+            // Metrics durability for the tiers that collect them.
+            if is_collecting() {
+                drop(persist());
+            }
         }
         previous(info);
     }));
@@ -666,6 +1078,23 @@ pub(crate) fn global_state_lock() -> &'static Mutex<()> {
 
 #[cfg(test)]
 mod tests {
+
+    #[test]
+    fn strip_user_paths_removes_home_and_shortens_absolutes() {
+        let home = std::env::var("HOME").unwrap_or_else(|_| "/home/testuser".into());
+        let input = format!(
+            "panicked at {home}/Development/azul/layout/src/window.rs:42\n\
+             at /rustc/abcdef1234567890abcdef1234567890abcdef12/library/std/src/panic.rs:10\n\
+             at /very/long/absolute/path/to/some/crate/src/lib.rs:7"
+        );
+        let out = super::strip_user_paths(&input);
+        assert!(!out.contains(&home), "home dir must not survive: {out}");
+        assert!(out.contains("~/Development"), "home becomes ~: {out}");
+        assert!(out.contains("rust:library/std/src/panic.rs"), "rustc prefix collapses: {out}");
+        assert!(out.contains("…/crate/src/lib.rs"), "long paths keep 3 components: {out}");
+        // The frame information itself survives.
+        assert!(out.contains("window.rs:42"));
+    }
     use super::*;
 
     #[test]

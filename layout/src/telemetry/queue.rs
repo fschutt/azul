@@ -35,6 +35,13 @@ pub enum PingKind {
     /// `client_id` (which must never be a metric label) and so the server sees
     /// it on the same path as the events it is asked to erase.
     Deletion,
+    /// A self-contained CRASH DUMP (JSON: message, location, stripped
+    /// backtrace, span scope, system info). NOT uploaded over OTLP — the
+    /// crash's log record already rides the `Logs` ping for Loki. This file
+    /// exists for the MAIL transport (`crash_mail`), the backup for
+    /// deployments with no collector: it stays queued until mailed, and the
+    /// queue quota garbage-collects it like any other ping.
+    Crash,
 }
 
 impl PingKind {
@@ -45,6 +52,7 @@ impl PingKind {
             Self::Metrics => "metrics",
             Self::Logs => "logs",
             Self::Deletion => "deletion",
+            Self::Crash => "crash",
         }
     }
 
@@ -53,7 +61,9 @@ impl PingKind {
     pub const fn signal(self) -> &'static str {
         match self {
             Self::Metrics => "metrics",
-            Self::Logs | Self::Deletion => "logs",
+            // Crash dumps are mail-facing; if one ever WERE posted it would
+            // be a log payload — but `upload_pending` skips them entirely.
+            Self::Logs | Self::Deletion | Self::Crash => "logs",
         }
     }
 
@@ -65,6 +75,7 @@ impl PingKind {
             "metrics" => Some(Self::Metrics),
             "logs" => Some(Self::Logs),
             "deletion" => Some(Self::Deletion),
+            "crash" => Some(Self::Crash),
             _ => None,
         }
     }
@@ -239,6 +250,13 @@ pub fn upload_pending(queue: &PingQueue, config: &TelemetryConfig) -> UploadStat
             stats.retained += 1;
             continue;
         };
+        if kind == PingKind::Crash {
+            // Crash dumps are the MAIL transport's payload; the crash's log
+            // record already reached Loki via the Logs ping. Leave the file
+            // for `crash_mail` (the quota GC bounds unclaimed dumps).
+            stats.retained += 1;
+            continue;
+        }
         let Some(url) = config.signal_url(kind.signal()) else {
             stats.last_error = Some("no endpoint configured".to_owned());
             stats.retained += 1 + remaining.count();

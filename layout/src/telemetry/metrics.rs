@@ -44,6 +44,31 @@ pub const UPDATE_APPLY: &str = "app_update_apply_total";
 pub const PHASE_SECONDS: &str = "app_phase_seconds";
 /// `app_rss_bytes` — current resident set size.
 pub const RSS_BYTES: &str = "app_rss_bytes";
+
+/// Wall-clock duration of one frame, dimension `scope` (`layout` / `render`
+/// / `total`). THE per-frame cost histogram — query p50/p95 in ms.
+pub const FRAME_SECONDS: &str = "app_frame_seconds";
+
+/// Wall-clock duration of one TIMER tick (animation frames ride timers).
+/// Slow ticks here are what make animations stutter.
+pub const TIMER_FRAME_SECONDS: &str = "app_timer_frame_seconds";
+
+/// Frames that crossed the slow threshold, dimension `scope`. The numerator
+/// of "how often is it slow"; the WARN log carries WHICH frame and why.
+pub const SLOW_FRAMES: &str = "app_slow_frames_total";
+
+/// App-supplied document size, in whatever unit the app chooses (nodes,
+/// paragraphs, bytes — the app's semantics). The correlator for RAM: "more
+/// RSS ← massive document" is answerable only when this is recorded.
+pub const DOCUMENT_SIZE: &str = "app_document_size";
+
+/// RSS growth from opening the current document (after − before), bytes.
+pub const DOC_RSS_DELTA_BYTES: &str = "app_document_rss_delta_bytes";
+
+/// `DOC_RSS_DELTA_BYTES / DOCUMENT_SIZE` — bytes of resident growth per
+/// document unit. Flat across document sizes = healthy; a jump between
+/// versions = a memory regression that document size does NOT explain.
+pub const DOC_RSS_PER_UNIT: &str = "app_document_rss_bytes_per_unit";
 /// `app_heap_bytes` — current allocator heap usage.
 pub const HEAP_BYTES: &str = "app_heap_bytes";
 
