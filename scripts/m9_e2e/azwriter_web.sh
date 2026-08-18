@@ -33,12 +33,18 @@ export AZ_MINI_MAX_DEPTH=16384 AZ_CB_MAX_DEPTH=8192
 echo "=== lifting AzWriter (first run is cold; can take a while) $(date +%H:%M:%S) ===" | tee -a "$LOG"
 nohup "./$BIN" > /c/rb/azwriter_server.log 2>&1 &
 
-for i in $(seq 1 500); do
+# AzWriter's cold lift (mini + layout cb + on_export cb, each ~3000 fns) can
+# exceed 2h when a rebuild shifted every address (per-fn cache keys on exact
+# bytes). Budget 3h — and on expiry ABORT, never fall through: run 2 timed
+# out at 83 min mid-pre-render and screenshotted ERR_CONNECTION_REFUSED.
+for i in $(seq 1 1080); do
   grep -qE "Listening on" /c/rb/azwriter_server.log 2>/dev/null && { echo "READY $(date +%H:%M:%S)" | tee -a "$LOG"; break; }
   a=$(ps -W 2>/dev/null | grep -icE 'azul-doc-demo')
   [ "$a" = "0" ] && { echo "DIED $(date +%H:%M:%S)" | tee -a "$LOG"; tail -25 /c/rb/azwriter_server.log | tee -a "$LOG"; exit 1; }
   sleep 10
 done
+grep -qE "Listening on" /c/rb/azwriter_server.log 2>/dev/null || {
+  echo "TIMEOUT: server never printed 'Listening on' — aborting (server left running)" | tee -a "$LOG"; exit 1; }
 echo "8byte-stub/link-fails: $(grep -icE '0xc0000142|falling back to 8-byte|falling back to stub' /c/rb/azwriter_server.log)" | tee -a "$LOG"
 grep -oE "azul-mini: lifted \+ linked [0-9]+ bytes \([0-9]+ exports|transitive lift complete: [0-9]+ functions" /c/rb/azwriter_server.log | tail -3 | tee -a "$LOG"
 # The mini link line is the load-bearing sanity check: run 1 shipped an 8-byte
