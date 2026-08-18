@@ -383,6 +383,32 @@ family of ~40 functions inventoried across rows 38, 44-58).
    a chain of awaits becomes a chain of resumes, i.e. the user callback set is
    a **state machine over its RefAny state**, resumable at each labeled point.
 
+**Delivery contract: a pair of RefAnys.** Every resume delivers exactly two
+values besides `CallbackInfo`:
+
+- the **user RefAny** (`data`) — what the app submitted with the request, its
+  continuation context, returned untouched;
+- the **result RefAny** (`result`) — a per-operation RESULT STRUCT built by
+  the runtime and type-erased into a RefAny: `DecodedImage { bytes, width,
+  height, format }`, `FetchResult { status, headers, body }`, `FileReadResult
+  { bytes } | FileError`, `FileOpenResult { path | cancelled }`, … The
+  callback downcasts it (`result.downcast_ref::<DecodedImage>()`), exactly
+  azul's existing RefAny idiom.
+
+The uniform shape is what keeps the mechanism generic: ONE universal
+callback type and ONE completion export serve every operation. RefAnys cross
+the JS boundary in BOTH directions via the existing serialize/deserialize
+reflection bridge (the AzWriter hydrate path: `set_serialize_fn` +
+`registerStateDeserializer`) — so a JS boundary impl can receive the user
+RefAny's serialized form where useful (worker threads, §5.4) and deliver its
+result either as a raw TLV payload that `AzStartup_completeRequest` builds
+into the typed struct guest-side, or as a serialized struct the runtime
+deserializes into the result RefAny. JS never hand-builds Rust memory. On
+desktop the sync impl constructs the same struct directly. The per-operation
+result-struct type is part of each request function's documented contract
+(and its api.json metadata), so the pairing stays statically knowable even
+though the signature is type-erased.
+
 **Why this is THE portable shape:**
 
 - **Liftable by construction.** The guest never suspends mid-activation, so
@@ -463,9 +489,10 @@ wrapped with `WebAssembly.promising`, making `azDispatch` async.
   3. The patch-application contract (`azDispatch` reads `out_len` immediately
      after the call) becomes promise-shaped — a loader rework, though a modest
      one.
-- Verdict: **excellent later compatibility layer** (make legacy sync
-  `FileDialog::open_file` really work on Chromium), wrong foundation for the
-  portable API in 2026.
+- Verdict: **rejected — forget JSPI, it is not ready** (maintainer). Not
+  Baseline, re-entrancy hazard unsolved, and with the single-surface rule
+  there are no legacy sync functions left for it to rescue. Recorded here
+  only as an evaluated option.
 
 ### 4.3 Option C — worker + SharedArrayBuffer + `Atomics.wait` sync bridge
 
@@ -523,21 +550,30 @@ run within the same frame on desktop and always runs on a later task on web.*
 ### 5.1 New api.json entries (module `dialog`, `http`, `svg`/file)
 
 These are the first resumable-callback-style (§4.1) APIs: each `…_with`
-function is a *request* (returns a `RequestId`, never blocks) and each
-`<Result>Callback` is its *resume* point.
-
-New callback typedef classes (module `callbacks`, mirroring
-`FileInputOnPathChangeCallbackType`'s `{fn_args, returns}` shape):
+function is a *request* (returns a `RequestId`, never blocks) and its resume
+point receives the §4.1 RefAny PAIR — the user's context RefAny plus the
+type-erased result-struct RefAny:
 
 ```text
-FileOpenCallbackType:      fn(RefAny, CallbackInfo, OptionFilePath)            -> Update
-FileOpenMultiCallbackType: fn(RefAny, CallbackInfo, FilePathVec)               -> Update
-SaveTargetCallbackType:    fn(RefAny, CallbackInfo, OptionSaveTarget)          -> Update
-ColorPickCallbackType:     fn(RefAny, CallbackInfo, OptionColorU)              -> Update
-FileReadCallbackType:      fn(RefAny, CallbackInfo, ResultU8VecFileError)      -> Update
-HttpResponseCallbackType:  fn(RefAny, CallbackInfo, ResultHttpResponseHttpError) -> Update
-HttpBytesCallbackType:     fn(RefAny, CallbackInfo, ResultU8VecHttpError)      -> Update
+ResumeCallbackType: fn(data: RefAny, info: CallbackInfo, result: RefAny) -> Update
 ```
+
+One universal callback type; the per-operation RESULT STRUCT the `result`
+RefAny wraps is fixed by the request function's contract:
+
+```text
+open_file_with            → FileOpenResult   { path: OptionFilePath }        (cancelled ⇒ None)
+open_multiple_files_with  → FileOpenMulti    { paths: FilePathVec }
+save_file_with            → SaveTargetResult { target: OptionSaveTarget }
+open_color_with           → ColorPickResult  { color: OptionColorU }
+read_bytes_with           → FileReadResult   { bytes: ResultU8VecFileError }
+http_get_with             → FetchResult      { r: ResultHttpResponseHttpError }
+download_bytes_with       → FetchBytes       { r: ResultU8VecHttpError }
+decode_image_with         → DecodedImage     { bytes, width, height, format }
+```
+
+(The earlier draft's seven per-payload callback typedefs are superseded by
+this pair contract — one typedef, one completion export, per-op structs.)
 
 New functions (each also gets the wrapper `…Callback` struct class per azul
 convention):
@@ -664,16 +700,32 @@ JS side: `azCompleteRequest(requestId, status, bytes)` = alloc via
   `save_file_with` (FS Access handle on Chromium; downloads-fallback
   elsewhere).
 
-### 5.4 Threads on web — the JS-owned-resource rule
+### 5.4 Threads on web — real Workers (maintainer direction)
 
-`Thread::create` with a user `ThreadCallback` cannot run (the callback is a
-blocking loop). Policy: (1) Phase 1-3: creation reports dead-on-arrival +
-capability probe says `thread: false`; (2) framework features that use the
-bg-thread pattern (webtransport / audio / capture / map tiles) are re-imple-
-mented per-feature as JS-owned resources feeding the *same*
-`ThreadReceiveMsg`/writeback queues, so `ThreadSender/ThreadReceiver/recv`-
-polling app code keeps working unchanged; (3) revisit true user threads only
-with the worker+SAB mode.
+> Direction: *"threads should run in a separate (generated) worker js script
+> like a 'real thread'."*
+
+`Thread::create(data, ThreadCallback)` maps to a REAL Web Worker per azul
+thread:
+
+1. The loader generates (or serves from the transpiler) a **worker script**
+   that instantiates its own copy of the needed wasm (the thread callback's
+   lifted module + mini runtime subset) inside the Worker — a genuinely
+   parallel execution context, no SAB/COOP-COEP required for v1.
+2. The worker's guest memory is PRIVATE. The `ThreadSender`/`ThreadReceiver`
+   channel is implemented over `postMessage`: guest writeback messages
+   serialize to TLV in the worker, post to the main thread, and feed the
+   SAME `ThreadReceiveMsg`/writeback queues the desktop pump drains — so
+   `recv`-polling app code keeps working unchanged on both targets.
+3. The thread's `data: RefAny` is serialized INTO the worker at spawn (same
+   reflection path hydrate uses); results flow back only through the
+   channel — matching desktop's ownership rule (the thread owns its data).
+4. Framework bg-thread features (webtransport / audio / capture / map
+   tiles) ride the same design as JS-owned resources in a worker or on the
+   main thread, whichever their web API requires.
+5. Worker+SAB (shared guest memory, true `Atomics.wait`) stays an internal
+   upgrade path behind the same API once cross-origin isolation is
+   deployable; it never changes the API surface.
 
 ### 5.5 Capability honesty
 
