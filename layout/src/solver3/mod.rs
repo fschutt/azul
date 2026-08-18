@@ -1529,13 +1529,24 @@ pub fn layout_document<T: ParsedFontTrait + Sync + 'static>(
         cache.last_patch_damage = Some(rects);
     }
     // The context this build was made under — the structure-preserved patch
-    // arm compares the NEXT pass's context against it.
-    cache.last_dynamic_context = ctx
-        .styled_dom
-        .get_css_property_cache()
-        .dynamic_context
-        .as_deref()
-        .cloned();
+    // arm compares the NEXT pass's context against it. Clone only on CHANGE:
+    // the steady state (every keystroke) is an equal context, and the clone
+    // allocates (AzString language, container name).
+    {
+        let cur = ctx
+            .styled_dom
+            .get_css_property_cache()
+            .dynamic_context
+            .as_deref();
+        let same = match (cur, cache.last_dynamic_context.as_ref()) {
+            (Some(a), Some(b)) => a == b,
+            (None, None) => true,
+            _ => false,
+        };
+        if !same {
+            cache.last_dynamic_context = cur.cloned();
+        }
+    }
     cache.cached_display_list =
         Some((root_subtree_hash, viewport, gpu_fp, display_list.clone()));
 
