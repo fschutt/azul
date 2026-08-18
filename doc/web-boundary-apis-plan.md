@@ -682,6 +682,43 @@ existing 11 (`window.PlatformCapability`, row 58) get JS-SYNC web
 implementations returning `{available, backend: "web/<api>", reason}` — this is
 the sanctioned way for portable apps to branch, replacing `#[cfg]`.
 
+### 5.6 SQL/DB remodel — local-first + backup sync (maintainer direction 2026-08-18)
+
+> Felix: *"the sql functions should not ship an entire SQLite database via
+> turso [on web] — they should use localstorage, which IS a SQLite database
+> [i.e. the browser already maintains a storage engine], or use a remote
+> string to sync 'in addition' — remodel the SQL APIs and make them MORE
+> extensive, so that 'local first + backup sync to server' is possible for
+> both desktop and web."*
+
+This overrides §3 row 59's LIFT/DEFER disposition. The db module becomes its
+own REDESIGN track:
+
+1. **Never ship an engine to the browser.** No turso-in-wasm, no sqlite-wasm,
+   no OPFS VFS. Web local layer = the browser's own storage (IndexedDB as the
+   primary store; localStorage only for tiny KV) — the browser already runs a
+   database engine under those APIs; shipping a second one is pure weight.
+2. **One portable surface, local-first.** Desktop keeps turso/SQLite as the
+   *hidden* local backend behind the same api.json surface. Because raw SQL
+   strings cannot run against IndexedDB without an engine, the portable core
+   is a **KV/collection/index-query surface** (open / get / set / delete /
+   iterate / query-by-index, plus batch/transaction), not `execute(sql)` —
+   the current `Db.execute`/`Db.query` raw-SQL functions are demoted to
+   internal desktop helpers or deleted (triage doc carries the final list).
+3. **Optional remote sync, "in addition".** `open_with` takes an optional
+   remote connection string; when present the store syncs local-first with
+   backup-to-server semantics — on BOTH targets. Candidate wire protocol:
+   libSQL/turso's HTTP-based sync protocol, which the web side can speak via
+   plain `fetch` without shipping the engine; evaluate against a simpler
+   home-grown row-sync endpoint in the triage.
+4. **More extensive, resumable-callback style throughout** (§4.1): every
+   operation is request→resume (IndexedDB is async anyway); the sync layer
+   adds sync-status/progress callbacks, explicit `sync_now` push/pull,
+   conflict policy, and an offline queue.
+
+Sequencing: the db redesign must NOT block Phase 1 (dialogs/files/http); it
+lands as its own phase once the resumable primitive is proven.
+
 ---
 
 ## 6. Phased implementation plan
