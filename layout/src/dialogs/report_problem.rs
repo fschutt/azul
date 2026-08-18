@@ -46,6 +46,8 @@ pub enum ReportStatus {
 }
 
 /// Shared dialog state.
+// Each bool is one independent opt-in checkbox in the dialog.
+#[allow(clippy::struct_excessive_bools)]
 #[derive(Debug, Clone)]
 pub struct ReportProblemState {
     /// Destination mailbox (from `AppConfig.report_problem`); None = save to
@@ -60,6 +62,21 @@ pub struct ReportProblemState {
     /// PNG of the window the dialog was invoked from, captured at invoke
     /// time (None when the capture failed).
     pub screenshot_png: Option<Vec<u8>>,
+    /// Attach the ACTION JOURNAL (handler names + nodes, no user content).
+    pub include_actions: bool,
+    /// Attach the app's serialized state. DEFAULT OFF: this is the one
+    /// section that can carry the user's actual document.
+    pub include_app_data: bool,
+    /// Blackout rectangles the user drew on the preview, in PREVIEW
+    /// coordinates. Applied to the PNG that is actually sent.
+    pub redactions: Vec<crate::dialogs::report::RedactRect>,
+    /// First corner of the blackout currently being dragged.
+    pub drag_start: Option<(f32, f32)>,
+    /// `image_px / preview_px`, so a rectangle drawn on the preview lands on
+    /// the right pixels of the full-size capture.
+    pub preview_scale: f32,
+    /// Preview size in logical pixels (width, height).
+    pub preview_size: (f32, f32),
     pub status: ReportStatus,
 }
 
@@ -68,12 +85,36 @@ pub struct ReportProblemState {
 /// window exists, so the dialog itself is never in the picture).
 pub fn open(info: &mut CallbackInfo, screenshot_png: Option<Vec<u8>>) {
     let env = crate::appenv::app_env();
+    // Fit the capture into the dialog: the preview is a scaled copy, and the
+    // scale is REMEMBERED so a blackout drawn here maps to the real pixels.
+    const PREVIEW_MAX_W: f32 = 460.0;
+    let (preview_size, preview_scale) = screenshot_png
+        .as_deref()
+        .and_then(|png| crate::cpurender::AzulPixmap::decode_png(png).ok())
+        .map_or(((0.0, 0.0), 1.0), |p| {
+            #[allow(clippy::cast_precision_loss)]
+            let (w, h) = (p.width() as f32, p.height() as f32);
+            if w <= 0.0 || h <= 0.0 {
+                return ((0.0, 0.0), 1.0);
+            }
+            let scale = (w / PREVIEW_MAX_W).max(1.0);
+            ((w / scale, h / scale), scale)
+        });
     let state = RefAny::new(ReportProblemState {
         email: env.report_problem,
         message: String::new(),
         include_sysinfo: true,
         attach_screenshot: screenshot_png.is_some(),
         screenshot_png,
+        // The journal carries handler names and node ids, never user
+        // content, so it defaults ON; app data is the user's document and
+        // defaults OFF.
+        include_actions: crate::journal::is_enabled(),
+        include_app_data: false,
+        redactions: Vec::new(),
+        drag_start: None,
+        preview_scale,
+        preview_size,
         status: ReportStatus::Editing,
     });
     info.create_window(cpu_dialog_window(
@@ -122,6 +163,68 @@ extern "C" fn on_toggle_screenshot(
     Update::DoNothing
 }
 
+extern "C" fn on_toggle_actions(
+    mut state: RefAny,
+    _info: CallbackInfo,
+    cb: CheckBoxState,
+) -> Update {
+    if let Some(mut s) = state.downcast_mut::<ReportProblemState>() {
+        s.include_actions = cb.checked;
+    }
+    Update::DoNothing
+}
+
+extern "C" fn on_toggle_app_data(
+    mut state: RefAny,
+    _info: CallbackInfo,
+    cb: CheckBoxState,
+) -> Update {
+    if let Some(mut s) = state.downcast_mut::<ReportProblemState>() {
+        s.include_app_data = cb.checked;
+    }
+    Update::DoNothing
+}
+
+/// First corner of a blackout drag.
+extern "C" fn on_preview_mouse_down(mut state: RefAny, mut info: CallbackInfo) -> Update {
+    let Some(pos) = info.get_cursor_relative_to_node().into_option() else {
+        return Update::DoNothing;
+    };
+    if let Some(mut s) = state.downcast_mut::<ReportProblemState>() {
+        s.drag_start = Some((pos.x, pos.y));
+    }
+    Update::DoNothing
+}
+
+/// Second corner: the rectangle is added and drawn over the preview. It is
+/// applied to the PNG at SEND time (see `on_send`) — the overlay here is a
+/// preview of a redaction that really happens, not the redaction itself.
+extern "C" fn on_preview_mouse_up(mut state: RefAny, mut info: CallbackInfo) -> Update {
+    let Some(pos) = info.get_cursor_relative_to_node().into_option() else {
+        return Update::DoNothing;
+    };
+    let Some(mut s) = state.downcast_mut::<ReportProblemState>() else {
+        return Update::DoNothing;
+    };
+    let Some((sx, sy)) = s.drag_start.take() else {
+        return Update::DoNothing;
+    };
+    let rect = crate::dialogs::report::RedactRect::from_corners(sx, sy, pos.x, pos.y);
+    if rect.is_empty() {
+        return Update::DoNothing;
+    }
+    s.redactions.push(rect);
+    Update::RefreshDomAllWindows
+}
+
+extern "C" fn on_clear_redactions(mut state: RefAny, _info: CallbackInfo) -> Update {
+    if let Some(mut s) = state.downcast_mut::<ReportProblemState>() {
+        s.redactions.clear();
+        s.drag_start = None;
+    }
+    Update::RefreshDomAllWindows
+}
+
 extern "C" fn on_cancel(mut _state: RefAny, mut info: CallbackInfo) -> Update {
     info.close_window();
     Update::DoNothing
@@ -136,11 +239,38 @@ extern "C" fn on_send(mut state: RefAny, mut info: CallbackInfo) -> Update {
             return Update::DoNothing;
         }
         s.status = ReportStatus::Sending;
+        // The redactions are applied HERE, to the bytes that will be
+        // attached. If the blackout cannot be applied, the screenshot is
+        // DROPPED rather than sent unredacted.
+        let screenshot = if s.attach_screenshot {
+            match (&s.screenshot_png, s.redactions.is_empty()) {
+                (Some(png), true) => Some(png.clone()),
+                (Some(png), false) => crate::dialogs::report::redact_png(
+                    png,
+                    &s.redactions,
+                    s.preview_scale,
+                )
+                .ok(),
+                (None, _) => None,
+            }
+        } else {
+            None
+        };
         SendTask {
             email: s.email.clone(),
-            report: build_report_text(&s.message, s.include_sysinfo),
-            screenshot: if s.attach_screenshot {
-                s.screenshot_png.clone()
+            report: build_report_text(
+                &s.message,
+                s.include_sysinfo,
+                s.include_actions,
+            ),
+            screenshot,
+            recent_actions: if s.include_actions {
+                Some(crate::journal::recent_json(crate::journal::DEFAULT_CAPACITY))
+            } else {
+                None
+            },
+            app_data: if s.include_app_data {
+                app_data_json(&info)
             } else {
                 None
             },
@@ -159,7 +289,7 @@ extern "C" fn on_send(mut state: RefAny, mut info: CallbackInfo) -> Update {
 
 /// The report body: user message + app identity + (optional) system block.
 /// Plain text by design — it is read by a HUMAN at the support mailbox.
-fn build_report_text(message: &str, include_sysinfo: bool) -> String {
+fn build_report_text(message: &str, include_sysinfo: bool, include_actions: bool) -> String {
     use std::fmt::Write as _;
     let env = crate::appenv::app_env();
     let mut out = String::new();
@@ -182,13 +312,35 @@ fn build_report_text(message: &str, include_sysinfo: bool) -> String {
             let _ = writeln!(out, "  arch = {}", std::env::consts::ARCH);
         }
     }
+    if include_actions {
+        let _ = writeln!(out, "\nRecent actions are attached as recent-actions.json.");
+    }
     out
+}
+
+/// The app's serialized state, when the app registered a JSON serializer
+/// (`RefAny::set_serialize_fn`) — the honest reading of "include app data".
+/// Without a serializer there is nothing to include and the report says so
+/// rather than attaching an empty file.
+#[cfg(feature = "json")]
+fn app_data_json(info: &CallbackInfo) -> Option<String> {
+    let data = info.get_ctx().into_option()?;
+    let json = crate::json::serialize_refany_to_json(&data)?;
+    Some(json.to_json_string().as_str().to_owned())
+}
+
+/// Without the `json` feature there is no serializer to ask.
+#[cfg(not(feature = "json"))]
+const fn app_data_json(_info: &CallbackInfo) -> Option<String> {
+    None
 }
 
 struct SendTask {
     email: Option<String>,
     report: String,
     screenshot: Option<Vec<u8>>,
+    recent_actions: Option<String>,
+    app_data: Option<String>,
 }
 
 struct NewStatus(ReportStatus);
@@ -202,12 +354,20 @@ extern "C" fn send_worker(mut init: RefAny, mut sender: ThreadSender, _recv: Thr
     let email = task.email.clone();
     let report = task.report.clone();
     let screenshot = task.screenshot.clone();
+    let recent_actions = task.recent_actions.clone();
+    let app_data = task.app_data.clone();
     drop(task);
 
     let mut attachments: Vec<(String, Vec<u8>)> =
         vec![("report.txt".to_owned(), report.clone().into_bytes())];
     if let Some(png) = screenshot {
         attachments.push(("screenshot.png".to_owned(), png));
+    }
+    if let Some(actions) = recent_actions {
+        attachments.push(("recent-actions.json".to_owned(), actions.into_bytes()));
+    }
+    if let Some(data) = app_data {
+        attachments.push(("app-data.json".to_owned(), data.into_bytes()));
     }
 
     let status = deliver(email.as_deref(), &report, &attachments);
@@ -349,6 +509,18 @@ extern "C" fn dialog_layout(_data: RefAny, info: LayoutCallbackInfo) -> Dom {
                 on_toggle_sysinfo,
                 state.clone(),
             ));
+            children.push(check_row(
+                snapshot.include_actions,
+                "Include recent actions (which handlers ran - no typed text)",
+                on_toggle_actions,
+                state.clone(),
+            ));
+            children.push(check_row(
+                snapshot.include_app_data,
+                "Include application data (your document - off by default)",
+                on_toggle_app_data,
+                state.clone(),
+            ));
             if snapshot.screenshot_png.is_some() {
                 children.push(check_row(
                     snapshot.attach_screenshot,
@@ -356,6 +528,9 @@ extern "C" fn dialog_layout(_data: RefAny, info: LayoutCallbackInfo) -> Dom {
                     on_toggle_screenshot,
                     state.clone(),
                 ));
+            }
+            if snapshot.attach_screenshot {
+                children.extend(preview_section(&snapshot, &state));
             }
             children.push(button_row(vec![
                 ("Send", on_send, state.clone()),
@@ -376,6 +551,125 @@ extern "C" fn dialog_layout(_data: RefAny, info: LayoutCallbackInfo) -> Dom {
             .with_css_props(pad)
             .with_children(children.into()),
     )
+}
+
+/// The screenshot preview plus its blackout overlay.
+///
+/// Drag on the image to cover anything private; the rectangles are drawn
+/// here and applied to the attached PNG at send time. Nothing about the
+/// preview is decorative: what you black out is what leaves the machine.
+fn preview_section(snapshot: &ReportProblemState, state: &RefAny) -> Vec<Dom> {
+    use azul_core::{
+        callbacks::{CoreCallback, CoreCallbackType},
+        dom::{EventFilter, HoverEventFilter},
+    };
+    use azul_css::{
+        dynamic_selector::{CssPropertyWithConditions, CssPropertyWithConditionsVec},
+        props::{
+            basic::color::ColorU,
+            layout::{LayoutHeight, LayoutLeft, LayoutPosition, LayoutTop, LayoutWidth},
+            property::CssProperty,
+            style::StyleBackgroundContent,
+        },
+    };
+
+    let Some(png) = snapshot.screenshot_png.as_deref() else {
+        return Vec::new();
+    };
+    let (pw, ph) = snapshot.preview_size;
+    if pw <= 0.0 || ph <= 0.0 {
+        return Vec::new();
+    }
+    let Ok(pixmap) = crate::cpurender::AzulPixmap::decode_png(png) else {
+        return vec![Dom::create_p_with_text(
+            "The screenshot could not be decoded for preview; it will not be attached.",
+        )];
+    };
+    let raw = azul_core::resources::RawImage {
+        pixels: azul_core::resources::RawImageData::U8(pixmap.data().to_vec().into()),
+        width: pixmap.width() as usize,
+        height: pixmap.height() as usize,
+        premultiplied_alpha: false,
+        data_format: azul_core::resources::RawImageFormat::RGBA8,
+        tag: Vec::new().into(),
+    };
+    let Some(image_ref) = azul_core::resources::ImageRef::new_rawimage(raw) else {
+        return vec![Dom::create_p_with_text(
+            "The screenshot could not be prepared for preview.",
+        )];
+    };
+
+    let sized = |w: f32, h: f32| {
+        style(vec![
+            CssProperty::width(LayoutWidth::px(w)),
+            CssProperty::height(LayoutHeight::px(h)),
+        ])
+    };
+
+    // The image, listening for the two drag corners.
+    let image = Dom::create_image(image_ref)
+        .with_css_props(sized(pw, ph))
+        .with_callback(
+            EventFilter::Hover(HoverEventFilter::MouseDown),
+            state.clone(),
+            CoreCallback {
+                cb: on_preview_mouse_down as *const () as CoreCallbackType,
+                ctx: azul_core::refany::OptionRefAny::None,
+            },
+        )
+        .with_callback(
+            EventFilter::Hover(HoverEventFilter::MouseUp),
+            state.clone(),
+            CoreCallback {
+                cb: on_preview_mouse_up as *const () as CoreCallbackType,
+                ctx: azul_core::refany::OptionRefAny::None,
+            },
+        );
+
+    // Absolutely-positioned black rectangles over it.
+    let mut stack: Vec<Dom> = vec![image];
+    for rect in &snapshot.redactions {
+        let r = rect.normalized();
+        stack.push(
+            Dom::create_div().with_css_props(style(vec![
+                CssProperty::position(LayoutPosition::Absolute),
+                CssProperty::left(LayoutLeft::px(r.x)),
+                CssProperty::top(LayoutTop::px(r.y)),
+                CssProperty::width(LayoutWidth::px(r.width)),
+                CssProperty::height(LayoutHeight::px(r.height)),
+                CssProperty::background_content(
+                    vec![StyleBackgroundContent::Color(ColorU {
+                        r: 0,
+                        g: 0,
+                        b: 0,
+                        a: 255,
+                    })]
+                    .into(),
+                ),
+            ])),
+        );
+    }
+
+    vec![
+        Dom::create_p_with_text(
+            "Drag on the preview to black out anything private - the blackout is \
+             applied to the image that is sent.",
+        ),
+        Dom::create_div()
+            .with_css_props({
+                let mut props = sized(pw, ph).as_ref().to_vec();
+                props.push(CssPropertyWithConditions::simple(CssProperty::position(
+                    LayoutPosition::Relative,
+                )));
+                CssPropertyWithConditionsVec::from_vec(props)
+            })
+            .with_children(stack.into()),
+        button_row(vec![(
+            "Clear blackouts",
+            on_clear_redactions as ButtonOnClickCallbackType,
+            state.clone(),
+        )]),
+    ]
 }
 
 fn check_row(
@@ -416,19 +710,29 @@ mod tests {
             current_version: "9.9.9".to_owned(),
             ..Default::default()
         });
-        let with = build_report_text("it broke while saving", true);
+        let with = build_report_text("it broke while saving", true, false);
         assert!(with.contains("reporttest 9.9.9"), "{with}");
         assert!(with.contains("it broke while saving"), "{with}");
         assert!(with.contains("System information"), "{with}");
 
         // The toggle is a PRIVACY control: off must mean ABSENT, not empty.
-        let without = build_report_text("msg", false);
+        let without = build_report_text("msg", false, false);
         assert!(!without.contains("System information"), "{without}");
+    }
+
+    /// LAW: every opt-in section is ABSENT when declined — the report must
+    /// never mention data the user chose not to send.
+    #[test]
+    fn the_recent_actions_section_follows_its_toggle() {
+        let on = build_report_text("msg", false, true);
+        assert!(on.contains("recent-actions.json"), "{on}");
+        let off = build_report_text("msg", false, false);
+        assert!(!off.contains("recent-actions"), "{off}");
     }
 
     #[test]
     fn empty_message_is_labeled_not_blank() {
-        let text = build_report_text("   ", true);
+        let text = build_report_text("   ", true, false);
         assert!(text.contains("(no user message)"), "{text}");
     }
 }

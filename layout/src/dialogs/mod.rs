@@ -17,6 +17,10 @@
 // the annotated-temporary alternative buries the callback wiring.
 #![allow(trivial_casts)]
 pub mod gpu_check;
+/// Shared report machinery: screenshot REDACTION + the report bundle both
+/// the problem-report dialog and the crash reporter build.
+#[cfg(feature = "cpurender")]
+pub mod report;
 pub mod markdown;
 pub mod report_problem;
 #[cfg(feature = "updater")]

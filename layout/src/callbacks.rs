@@ -3774,6 +3774,46 @@ impl CallbackInfo {
         Ok(png_data)
     }
 
+    /// Renders ONE NODE to a PNG, using the same fonts, images and layout
+    /// the live window is drawing from.
+    ///
+    /// The window is rendered exactly as [`take_screenshot`](Self::take_screenshot)
+    /// does — same compositor, same caches, so the result is what the user
+    /// sees — and the node's box is then cut out of it. That keeps clipping,
+    /// overlap and effects from ancestors correct: a node re-rendered in
+    /// isolation would show none of them.
+    ///
+    /// The problem-report dialog uses this to show the user the exact image
+    /// it is about to attach.
+    ///
+    /// # Errors
+    ///
+    /// Returns a description when the DOM has no layout, the node has no
+    /// bounds, or encoding fails.
+    #[cfg(all(feature = "std", feature = "cpurender"))]
+    pub fn take_screenshot_of_node(&self, node_id: DomNodeId) -> Result<Vec<u8>, AzString> {
+        let full = self.take_screenshot(node_id.dom)?;
+        let Some(position) = self.get_node_position(node_id) else {
+            return Err(AzString::from("node has no position in the current layout"));
+        };
+        let Some(size) = self.get_node_size(node_id) else {
+            return Err(AzString::from("node has no size in the current layout"));
+        };
+        // The screenshot is in PHYSICAL pixels; node bounds are logical.
+        let dpi = self.get_current_window_state().size.get_hidpi_factor().inner.get();
+        #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+        let (x, y) = (
+            (position.x * dpi).max(0.0) as u32,
+            (position.y * dpi).max(0.0) as u32,
+        );
+        #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+        let (w, h) = (
+            (size.width * dpi).max(0.0) as u32,
+            (size.height * dpi).max(0.0) as u32,
+        );
+        crate::dialogs::report::crop_png(&full, x, y, w, h).map_err(AzString::from)
+    }
+
     /// Take a screenshot and save it directly to a file
     ///
     /// Convenience method that combines `take_screenshot` with file writing.

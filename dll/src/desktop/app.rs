@@ -157,6 +157,16 @@ impl App {
         // system dialogs (support mailbox, changelog URL).
         azul_layout::appenv::set_app_env(azul_layout::appenv::AppEnv::from_config(&config));
 
+        // Arm the ACTION JOURNAL for apps that declared a problem-report
+        // mailbox: the breadcrumb trail has to be recorded BEFORE the
+        // problem, and an app that never collects reports pays nothing.
+        if !matches!(
+            config.report_problem,
+            azul_core::resources::OptionEmailAddress::None
+        ) {
+            azul_layout::journal::set_enabled(true);
+        }
+
         // Hand the CPU dialogs the driver-provisioning entry points. They
         // live in the dll (`video_codec::provision`) and the dialogs live
         // BELOW it in azul-layout, so the dll publishes fn pointers rather

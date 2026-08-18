@@ -269,6 +269,10 @@ pub mod appenv;
 /// checker with Markdown changelog, crash reporter. ALWAYS CPU-rendered.
 #[cfg(all(feature = "std", feature = "widgets", feature = "text_layout"))]
 pub mod dialogs;
+/// The ACTION JOURNAL: a bounded breadcrumb trail of dispatched callbacks,
+/// for problem reports and crash dumps. Off until enabled.
+#[cfg(feature = "std")]
+pub mod journal;
 /// Image decoding and encoding (wraps the `image` crate).
 #[cfg(feature = "image_decoding")]
 pub mod image;

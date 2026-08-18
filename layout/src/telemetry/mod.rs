@@ -859,6 +859,9 @@ pub struct CrashDump {
     pub scope: String,
     /// Path-stripped backtrace.
     pub backtrace: String,
+    /// The action journal at crash time, as JSON (`[]` when the app never
+    /// armed it) — the reporter shows it as "recent actions".
+    pub recent_actions: String,
 }
 
 impl CrashDump {
@@ -878,6 +881,11 @@ impl CrashDump {
             location: get("location"),
             scope: get("scope"),
             backtrace: get("backtrace"),
+            // The journal is an ARRAY, not a string — render it back to JSON
+            // text for display/attachment.
+            recent_actions: v
+                .get("recent_actions")
+                .map_or_else(|| "[]".to_owned(), serde_json::Value::to_string),
             raw,
         })
     }
@@ -1039,6 +1047,13 @@ pub fn install_panic_hook() {
                     "location": location,
                     "scope": scope,
                     "backtrace": backtrace,
+                    // The action journal: what ran just before the crash.
+                    // Empty unless the app armed it (handler names + node
+                    // ids only — never what the user typed).
+                    "recent_actions": serde_json::from_str::<serde_json::Value>(
+                        &crate::journal::recent_json(crate::journal::DEFAULT_CAPACITY),
+                    )
+                    .unwrap_or_else(|_| serde_json::json!([])),
                     "document_size": doc_size,
                     "system": {
                         "cpu_model": sys.cpu_model,

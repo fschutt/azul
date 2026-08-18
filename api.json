@@ -10605,6 +10605,34 @@
                                 },
                                 "fn_body": "object.take_screenshot(dom_id).into()"
                             },
+                            "take_screenshot_of_node": {
+                                "doc": [
+                                    "Take a CPU-rendered screenshot of ONE NODE.",
+                                    "",
+                                    "The window is rendered exactly as take_screenshot does - same",
+                                    "compositor, same font/image caches, so the result is what the",
+                                    "user sees - and the node's box is then cut out of it. Clipping,",
+                                    "overlap and ancestor effects therefore stay correct; a node",
+                                    "re-rendered in isolation would show none of them.",
+                                    "",
+                                    "# Returns",
+                                    "* Ok(Vec<u8>) - PNG-encoded image of the node",
+                                    "* Err(String) - the DOM has no layout, the node has no bounds,",
+                                    "  or encoding failed"
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    },
+                                    {
+                                        "node_id": "DomNodeId"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "ResultU8VecString"
+                                },
+                                "fn_body": "object.take_screenshot_of_node(node_id).into()"
+                            },
                             "take_screenshot_to_file": {
                                 "doc": [
                                     "Take a CPU-rendered screenshot and save it to a file",

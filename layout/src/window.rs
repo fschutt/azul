@@ -9701,6 +9701,10 @@ impl LayoutWindow {
         // "is the app's own code slow": EVERY event callback runs inside a
         // cb:<name> span (dladdr -> addr2line -> module-offset naming), so
         // the callbacks sub-span panel shows real app code, not just timers.
+        // The same dispatch feeds the ACTION JOURNAL (off unless a report or
+        // crash path armed it) — the breadcrumb trail a problem report
+        // attaches as "recent actions".
+        crate::journal::record(hit_dom_node, callback.cb as usize);
         let cb_span = crate::probe::Probe::span_for_fn(callback.cb as usize);
         let update = (callback.cb)(data.clone(), callback_info);
         drop(cb_span);

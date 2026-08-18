@@ -2438,3 +2438,16 @@ mod allocator_stats_tests {
         }
     }
 }
+
+/// The resolved name of a callback function pointer — the same ladder the
+/// `cb:` spans use (`dladdr` → `addr2line` → module-relative offset →
+/// address). Cached; the returned string lives for the process.
+///
+/// The action journal names handlers with this, so a problem report reads
+/// `cb:on_save_clicked` rather than a bare pointer.
+// const only in the no-`probe` stub config; the enabled resolver is not const
+#[allow(clippy::missing_const_for_fn)]
+#[must_use]
+pub fn callback_name(fn_ptr: usize) -> &'static str {
+    imp::resolve_fn_name(fn_ptr)
+}

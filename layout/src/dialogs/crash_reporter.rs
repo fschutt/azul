@@ -221,6 +221,15 @@ extern "C" fn dialog_layout(_data: RefAny, info: LayoutCallbackInfo) -> Dom {
     if !snapshot.dump.backtrace.is_empty() {
         children.push(Dom::create_pre_with_text(snapshot.dump.backtrace.as_str()));
     }
+    // The action journal captured in-process at panic time — the same
+    // "recent actions" the problem-report dialog offers, here already part
+    // of the dump. Handler names and node ids only, never typed text.
+    if !snapshot.dump.recent_actions.is_empty() && snapshot.dump.recent_actions != "[]" {
+        children.push(Dom::create_p_with_text("Recent actions before the crash:"));
+        children.push(Dom::create_pre_with_text(
+            snapshot.dump.recent_actions.as_str(),
+        ));
+    }
 
     match &snapshot.status {
         CrashReportStatus::Editing | CrashReportStatus::Failed(_) => {
