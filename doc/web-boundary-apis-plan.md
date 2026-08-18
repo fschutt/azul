@@ -37,13 +37,18 @@ were evaluated (§4): (a) callback-based API redesign, (b) JSPI
 (`WebAssembly.Suspending`), (c) worker + SharedArrayBuffer + `Atomics.wait`
 sync bridge, (d) hybrid.
 
-**Recommendation (CONFIRMED by Felix 2026-08-18): (d) hybrid, with (a) the
-RESUMABLE CALLBACK STYLE (§4.1) as the one portable surface — request never
-blocks, result re-enters as a fresh callback activation, user code is a state
-machine over its RefAny — and (b) JSPI as a later Chromium-only compatibility
-layer for the legacy sync functions.** This is what makes the APIs both
-*liftable* (no wasm suspension) and *native-web-API-capable* (the JS boundary
-impl is free to await pickers/fetch/permissions). Rationale:
+**DECISION (Felix, 2026-08-18): NO HYBRID MODE. There is exactly ONE public
+API surface — the RESUMABLE CALLBACK STYLE (§4.1) — and it is 1:1 identical
+on desktop and web.** Desktop gets the continuation-style APIs in api.json
+too; the existing blocking forms are REMODELED OR REMOVED (breaking changes
+are wanted now, before anyone depends on the API: *"this is exactly what we
+want to catch before anyone depends on us"*). Request never blocks, the
+result re-enters as a fresh callback activation, user code is a state machine
+over its RefAny. This is what makes the APIs both *liftable* (no wasm
+suspension) and *native-web-API-capable* (the JS boundary impl is free to
+await pickers/fetch/permissions). JSPI and worker+SAB (§4.2/§4.3) are
+recorded as evaluated-and-rejected for the API surface; at most they remain
+internal implementation techniques, never a second public mode. Rationale:
 
 1. azul is already callback-driven — user code *only ever runs inside callbacks*,
    and the API already contains three async idioms that fit the browser exactly:
@@ -403,8 +408,12 @@ native-side sugar (proc-macro or generator lowering an `async`-looking body
 into tagged resumes over its RefAny) can hide the ceremony without changing
 the runtime model — the wasm still never suspends.
 
-The sync originals stay for desktop-only code and STUB honestly on web
-(return None/Err immediately, documented).
+**The sync originals do NOT stay.** Single-surface rule (§1): every blocking
+OS-facing function in api.json is remodeled into this style or deleted —
+desktop implements the identical resumable signature by completing the
+request synchronously and delivering the resume through the deferred-apply
+queue. The per-function remodel triage (easy/medium/hard) lives in
+`doc/web-api-remodel-triage.md`.
 
 - Desktop implementation: perform the blocking call, then invoke the callback
   **via the deferred-apply queue that `CallbackInfo` already uses** ("applied
@@ -485,20 +494,23 @@ the async browser work and `Atomics.notify`s.
 
 ### 4.4 Recommendation (restated, concrete)
 
-**Hybrid, resumable-callback-first:**
+**Single surface, resumable-callback only (no hybrid):**
 
-1. **Portable surface = the resumable callback style (§4.1, chosen)** + the
+1. **The one public surface = the resumable callback style (§4.1)** + the
    existing fire-and-forget/poll idioms (§3 dispositions JS-FIRE / POLL /
-   EVENT cover a large majority of the surface without any new API at all —
-   only dialogs, file reads, and HTTP need resumable variants). New OS-facing
-   APIs (iroh included) are designed in this style from the start.
+   EVENT already comply — they never block). Blocking functions are remodeled
+   or removed (triage: `doc/web-api-remodel-triage.md`). New OS-facing APIs
+   (iroh included) are designed in this style from the start, and desktop
+   ships the SAME api.json signatures.
 2. **Web mechanics** = JS-implemented boundary imports (§5.2) + one new
    generic completion export + a timer pump (Phase 0).
-3. **JSPI = Phase 5 progressive enhancement** for legacy sync calls on
-   Chromium, behind a loader feature-detect, once the re-entrancy gate is
-   designed.
-4. **Worker+SAB reserved**; keep all new JS boundary code DOM-independent where
-   possible so it can migrate into a worker later.
+3. **JSPI: rejected as API surface.** With no legacy sync functions left to
+   rescue (single-surface rule), JSPI has no user-visible role; it may only
+   ever appear as an internal implementation detail, and nothing in the
+   design depends on it.
+4. **Worker+SAB: rejected as API surface**; keep all new JS boundary code
+   DOM-independent where possible so the runtime *could* move into a worker
+   later without touching the API.
 
 Delivery guarantee to document for CB-APIs: *the result callback runs on the
 main UI activation, never re-entrantly inside the requesting callback; it may
@@ -558,9 +570,10 @@ is complete.
 
 Desktop `fn_body`s call the existing sync impls then enqueue the callback
 through the same deferred-apply queue as `add_timer` (documented delivery
-semantics §4.4). The old sync functions remain, marked in docs: *"Blocking;
-desktop only. On the web backend returns None/Err immediately — use
-`…_with`."*
+semantics §4.4). **The old sync functions are REMOVED from api.json in the
+same change** (single-surface rule, §1): the sync bodies survive only as
+internal `layout/`-crate helpers that the desktop `fn_body`s call. Per-function
+removal list: `doc/web-api-remodel-triage.md`.
 
 **FileInput widget**: rewrite `fileinput_on_click`
 (`layout/src/widgets/file_input.rs:208`) onto `open_file_with` — state update +
@@ -777,9 +790,10 @@ video provisioning (row 65).
    codegens (C/C++/Python bindings). Alternative: a sidecar
    `web-classification.json` — uglier but zero codegen risk. Decide with the
    azul-doc owner.
-9. **Which sync APIs deserve JSPI rescue in Phase 5?** Candidates:
-   `File::read_to_bytes` on non-picked OPFS paths, `Db` file-backed queries,
-   `is_url_reachable`. Define the list before building the gate.
+9. ~~Which sync APIs deserve JSPI rescue?~~ **Obsolete (2026-08-18): no sync
+   APIs survive the single-surface rule, so there is nothing for JSPI to
+   rescue.** `File::read_to_bytes`, `Db` queries, `is_url_reachable` all get
+   resumable forms in the triage instead.
 10. **Native wasm32 target parity.** Should `dll/src/unified/*` stubs adopt
     the same `__az_web_*` hook seam so a future emscripten/wasm-bindgen build
     shares the JS implementations? (Cheap if the hooks are plain `extern "C"`
