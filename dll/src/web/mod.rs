@@ -1323,6 +1323,13 @@ pub fn run_web(
             eprintln!(
                 "[azul-web][lift-audit] reloc-canonical cache: {hits} translated hit(s), {lifts} fresh remill lift(s)",
             );
+            let snan = transpiler_remill::PREFLIGHT_SNAN_SITES.load(Ordering::Relaxed);
+            let ud2 = transpiler_remill::PREFLIGHT_UD2_SITES.load(Ordering::Relaxed);
+            if snan > 0 || ud2 > 0 {
+                eprintln!(
+                    "[azul-web][lift-audit] ✓ benign __remill_error classes: {snan} guarded fault-semantics site(s) (sNaN/div), {ud2} ud2 site(s) (faithful lifts, not counted toward F5)",
+                );
+            }
         }
         let preflight = transpiler_remill::preflight_entries();
         let fatal = lift_audit::run(

@@ -1008,7 +1008,7 @@ impl RemillTranspiler {
                 {
                     RELOC_CACHE_HITS.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
                     let _ = std::fs::write(&lifted_ir_path, &translated);
-                    preflight_scan(fn_name, &translated);
+                    preflight_scan(fn_name, &translated, count_ud2_pairs(&bytes));
                     return Ok(translated);
                 }
             }
@@ -1017,7 +1017,7 @@ impl RemillTranspiler {
             if let Ok(ir) = std::fs::read_to_string(cp) {
                 // Mirror into scratch so downstream stem-based reads work.
                 let _ = std::fs::write(&lifted_ir_path, &ir);
-                preflight_scan(fn_name, &ir);
+                preflight_scan(fn_name, &ir, count_ud2_pairs(&bytes));
                 return Ok(ir);
             }
         }
@@ -1035,7 +1035,7 @@ impl RemillTranspiler {
                     fn_name: fn_name.to_string(),
                     reason: format!("write lifted IR: {e}"),
                 })?;
-                preflight_scan(fn_name, &ir);
+                preflight_scan(fn_name, &ir, count_ud2_pairs(&bytes));
                 return Ok(ir);
             }
             #[cfg(not(feature = "web-transpiler-static"))]
@@ -1088,7 +1088,7 @@ impl RemillTranspiler {
             let _ = std::fs::write(&irp, &ir);
             let _ = std::fs::write(&mp, reloc_manifest_text(rc, lift_addr, bytes.len()));
         }
-        preflight_scan(fn_name, &ir);
+        preflight_scan(fn_name, &ir, count_ud2_pairs(&bytes));
         Ok(ir)
     }
 
@@ -6247,47 +6247,130 @@ fn which_remill_lift() -> Option<PathBuf> {
 // visible BEFORE it mis-behaves at runtime. Opt-in via `AZ_PREFLIGHT=1`.
 // =====================================================================
 
-/// `fn_name -> (remill_error_calls, missing_block_calls)` for the current
-/// server process. Populated by [`preflight_scan`] when `AZ_PREFLIGHT` is set.
+/// `fn_name -> (unexplained_error_calls, missing_block_calls)` for the
+/// current server process. Populated by [`preflight_scan`].
 static PREFLIGHT: std::sync::OnceLock<std::sync::Mutex<std::collections::BTreeMap<String, (u32, u32)>>> =
     std::sync::OnceLock::new();
+
+/// Corpus-wide counts of the two KNOWN-BENIGN `__remill_error` classes,
+/// reported (never fatal) by the startup lift-audit:
+/// sNaN-guard sites and ud2 sites.
+pub static PREFLIGHT_SNAN_SITES: std::sync::atomic::AtomicU32 =
+    std::sync::atomic::AtomicU32::new(0);
+pub static PREFLIGHT_UD2_SITES: std::sync::atomic::AtomicU32 =
+    std::sync::atomic::AtomicU32::new(0);
 
 fn preflight_enabled() -> bool {
     std::env::var_os("AZ_PREFLIGHT").is_some()
 }
 
-/// Count `call … @__remill_error(` and `call … @__remill_missing_block(` sites
-/// in `ir` and record them under `fn_name`.
+/// Count `call … @__remill_error(` and `call … @__remill_missing_block(`
+/// sites in `ir`, CLASSIFY the error sites, and record the unexplained
+/// remainder under `fn_name`.
 ///
-/// ALWAYS on (was gated behind `AZ_PREFLIGHT`) — the startup lift-audit
-/// (`lift_audit.rs`) gates server startup on these counts: warn early, be
-/// aggressive, debug each firing. The scan is line-string matching over IR
-/// already in memory; its cost is noise next to remill/llc. `AZ_PREFLIGHT`
-/// now only controls the verbose per-fn report dump.
-fn preflight_scan(fn_name: &str, ir: &str) {
-    let mut errors = 0u32;
+/// ALWAYS on — the startup lift-audit gates server startup on these counts:
+/// warn early, be aggressive, debug each firing. Corpus survey (3966 sites
+/// across a full hello-world lift) found exactly two benign classes covering
+/// every site, both recognized here so the audit fires only on the residue:
+///
+/// 1. **sNaN guards** — float-op semantics plant a CONDITIONAL error behind
+///    a signaling-NaN mantissa test; the branch condition traces to
+///    `and i32 %x, 4194303` (f32) / `and i64 %x, 2251799813685247` (f64)
+///    within the guard chain. Unreachable for non-signaling values.
+/// 2. **ud2** — rustc's intentional trap instruction lifts to an
+///    unconditional error block whose NEXT_PC advances by exactly 2; this
+///    is the FAITHFUL lift (native would #UD too). Corroborated against the
+///    machine bytes: at most as many sites are attributed as `0f 0b` pairs
+///    actually present (`ud2_in_bytes`), so a genuinely-undecoded 2-byte
+///    opcode cannot hide behind the shape alone.
+///
+/// Everything else stays an F5-fatal "unexplained" site.
+fn preflight_scan(fn_name: &str, ir: &str, ud2_in_bytes: u32) {
+    let mut snan = 0u32;
+    let mut plus2 = 0u32;
+    let mut other = 0u32;
     let mut missing = 0u32;
-    for line in ir.lines() {
+    let lines: Vec<&str> = ir.lines().collect();
+    for (i, line) in lines.iter().enumerate() {
         if !line.contains("call ") {
             continue;
-        }
-        if line.contains("@__remill_error") {
-            errors += 1;
         }
         if line.contains("@__remill_missing_block") {
             missing += 1;
         }
+        if !line.contains("@__remill_error") {
+            continue;
+        }
+        let lo = i.saturating_sub(14);
+        let window = &lines[lo..i];
+        let is_snan = window.iter().any(|l| {
+            (l.contains("and i32 ") && l.ends_with(", 4194303"))
+                || (l.contains("and i64 ") && l.ends_with(", 2251799813685247"))
+        });
+        if is_snan {
+            snan += 1;
+            continue;
+        }
+        // Class 3: integer DIV/IDIV fault guards (divide-by-zero and the
+        // IDIV overflow arm). Remill's division semantics guard the #DE
+        // paths with an error call; the inlined semantic's mangled name
+        // survives as the exit-label suffix right after the call
+        // (`…DIVrdxrax….exit`, `…IDIV….exit`). Faithful lift of a fault
+        // the native code would also take.
+        let hi = (i + 4).min(lines.len());
+        let is_div_guard = lines[i..hi]
+            .iter()
+            .any(|l| l.contains("DIV") && l.contains(".exit"));
+        if is_div_guard {
+            snan += 1; // reported jointly as "guarded fault semantics"
+            continue;
+        }
+        // Class 4: software-interrupt aborts (`int 29h` = Windows fail-fast,
+        // rustc's abort lowering). Remill stores the vector number into the
+        // State's first field right before the error call — nothing else
+        // stores an i32 directly to %state base.
+        let is_int_abort = window
+            .iter()
+            .any(|l| l.contains("store i32 ") && l.contains(", ptr %state, align"));
+        if is_int_abort {
+            snan += 1; // reported jointly as "guarded fault semantics"
+            continue;
+        }
+        // ud2 shape: the error block advanced NEXT_PC by exactly 2 (the
+        // `add i64 %x, 2` feeding the NEXT_PC store a few lines up).
+        let is_plus2 = window.windows(2).any(|w| {
+            w[0].contains("add i64 ") && w[0].ends_with(", 2")
+                && w[1].contains("store i64 ") && w[1].contains("ptr %NEXT_PC")
+        });
+        if is_plus2 {
+            plus2 += 1;
+        } else {
+            other += 1;
+        }
     }
-    if errors == 0 && missing == 0 {
+    // Bytes corroboration: only as many +2-shaped sites as real ud2s.
+    let ud2 = plus2.min(ud2_in_bytes);
+    let unexplained = other + (plus2 - ud2);
+    PREFLIGHT_SNAN_SITES.fetch_add(snan, std::sync::atomic::Ordering::Relaxed);
+    PREFLIGHT_UD2_SITES.fetch_add(ud2, std::sync::atomic::Ordering::Relaxed);
+    if unexplained == 0 && missing == 0 {
         return;
     }
     let map = PREFLIGHT.get_or_init(|| std::sync::Mutex::new(std::collections::BTreeMap::new()));
     if let Ok(mut m) = map.lock() {
         let e = m.entry(fn_name.to_string()).or_insert((0, 0));
         // Keep the max across re-lifts of the same fn (cache hits re-scan).
-        e.0 = e.0.max(errors);
+        e.0 = e.0.max(unexplained);
         e.1 = e.1.max(missing);
     }
+}
+
+/// Count `0f 0b` (ud2) pairs in the machine bytes — the corroboration input
+/// for [`preflight_scan`]'s class-2 attribution. A plain byte scan can hit
+/// immediates, which only ever RAISES the allowance; the +2-shape test on
+/// the IR side is what actually attributes a site.
+fn count_ud2_pairs(bytes: &[u8]) -> u32 {
+    bytes.windows(2).filter(|w| w[0] == 0x0F && w[1] == 0x0B).count() as u32
 }
 
 /// Count of functions Leaf-stubbed because remill/llc CRASHED (not the
