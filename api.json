@@ -14869,6 +14869,12 @@
                                 },
                                 "app_name": {
                                     "type": "String"
+                                },
+                                "build_date": {
+                                    "type": "String"
+                                },
+                                "build_tag": {
+                                    "type": "String"
                                 }
                             }
                         ],

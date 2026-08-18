@@ -164,6 +164,13 @@ pub struct UpdateSettings {
     /// Directory-safe application name; keys the updater's state directory
     /// (`{data_dir}/{app_name}/update-state.json`) and the staging area.
     pub app_name: AzString,
+    /// RESERVED: the build's date, compiled in by the APP (e.g. a build
+    /// script stamping `env!("BUILD_DATE")`). The engine only carries it —
+    /// into telemetry resources, crash dumps and update checks.
+    pub build_date: AzString,
+    /// RESERVED: the build's VCS tag (or commit), compiled in by the APP.
+    /// Same carriage as `build_date`.
+    pub build_tag: AzString,
 }
 
 impl Default for UpdateSettings {
@@ -173,6 +180,8 @@ impl Default for UpdateSettings {
             manifest_url: azul_css::OptionString::None,
             current_version: AzString::from_const_str("0.0.0"),
             app_name: AzString::from_const_str("azul-app"),
+            build_date: AzString::from_const_str(""),
+            build_tag: AzString::from_const_str(""),
         }
     }
 }
