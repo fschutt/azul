@@ -391,7 +391,11 @@ pub fn record_document_opened(token: DocOpenToken, doc_size: f64) {
 #[derive(Debug)]
 pub struct FramePump {
     scope: &'static str,
-    start: std::time::Instant,
+    // azul_core's Instant, NOT std's: `std::time::Instant::now()` PANICS on
+    // wasm32-unknown-unknown, and `feature = "std"` does not exclude wasm
+    // here (the web target builds azul-core with default features). The core
+    // Instant answers browser frames as ticks instead of trapping.
+    start: azul_core::task::Instant,
 }
 
 impl FramePump {
@@ -400,14 +404,20 @@ impl FramePump {
     pub fn begin(scope: &'static str) -> Self {
         Self {
             scope,
-            start: std::time::Instant::now(),
+            start: azul_core::task::Instant::now(),
         }
     }
 }
 
 impl Drop for FramePump {
     fn drop(&mut self) {
-        record_frame(self.scope, self.start.elapsed().as_secs_f64());
+        // `as_nanos` is the common denominator: on wasm the elapsed value is
+        // a TICK count that converts through the same accessor, so a frame
+        // measured in browser frames still lands in the seconds histogram.
+        #[allow(clippy::cast_precision_loss)]
+        let seconds =
+            azul_core::task::Instant::now().duration_since(&self.start).as_nanos() as f64 / 1e9;
+        record_frame(self.scope, seconds);
         let _ = drain_probe_events();
     }
 }

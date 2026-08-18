@@ -228,6 +228,10 @@ pub struct ReleaseInfo {
     /// Minisign signature of the STATEMENT string by the ROOT key
     /// (full `.minisig` text).
     pub signing_key_statement_sig: AzString,
+    /// Headers the DOWNLOAD needs, when the artifact is not on open HTTP —
+    /// an OCI registry blob wants the same bearer token the manifest
+    /// request used. Empty for ordinary downloads.
+    pub download_headers: azul_core::window::StringPairVec,
 }
 
 /// What a check concluded.
@@ -582,6 +586,7 @@ pub fn parse_manifest_v1(json: &str) -> Result<(ReleaseInfo, RolloutPlan), Strin
         signature: get("signature").into(),
         signing_key_statement: get("signing_key_statement").into(),
         signing_key_statement_sig: get("signing_key_statement_sig").into(),
+        download_headers: Vec::new().into(),
     };
     Ok((release, parse_rollout(latest)))
 }
@@ -609,6 +614,9 @@ pub enum UpdateSourceKind {
     FlatJson,
     /// A GitHub release (the API's release object, or an array of them).
     GitHubRelease,
+    /// A container registry (`oci://registry/repo:tag`) — the manifest's
+    /// layer digest is the artifact pin.
+    OciRegistry,
     /// A bare version string, e.g. a `VERSION` file on static hosting.
     /// There is no artifact URL, so this can only NOTIFY — which is still
     /// worth having: it costs one file and no infrastructure.
@@ -623,6 +631,7 @@ impl UpdateSourceKind {
             Self::ManifestV1 => "manifest_v1",
             Self::FlatJson => "flat_json",
             Self::GitHubRelease => "github_release",
+            Self::OciRegistry => "oci_registry",
             Self::PlainVersion => "plain_version",
         }
     }
@@ -670,6 +679,20 @@ pub struct NormalizedUrl {
     /// Explicit asset name pattern from `?asset=…`, if the URL carried one.
     /// The placeholders `{version}` / `{target}` in it are substituted.
     pub asset_pattern: Option<String>,
+    /// Set when the URL was `oci://…`: a container-registry reference,
+    /// which needs the registry's token dance rather than one plain GET.
+    pub oci: Option<OciRef>,
+}
+
+/// A container-registry reference: `oci://registry/repository[:tag]`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct OciRef {
+    /// Registry host, e.g. `ghcr.io`.
+    pub registry: String,
+    /// Repository path, e.g. `owner/app`.
+    pub repository: String,
+    /// Tag or digest; `latest` when the URL gave none.
+    pub reference: String,
 }
 
 /// Rewrites the configured URL into something fetchable.
@@ -704,16 +727,201 @@ pub fn normalize_update_url(url: &str) -> NormalizedUrl {
         })
         .filter(|(o, r)| !o.is_empty() && !r.is_empty());
 
+    if let Some(rest) = base.strip_prefix("oci://") {
+        // registry/repo/path[:tag] — the FIRST segment is the registry, the
+        // tag is after the last ':' that follows the last '/'.
+        let rest = rest.trim_matches('/');
+        let (registry, repository) = rest.split_once('/').unwrap_or((rest, ""));
+        let (repository, reference) = match repository.rsplit_once(':') {
+            Some((r, t)) if !t.contains('/') => (r, t),
+            _ => (repository, "latest"),
+        };
+        return NormalizedUrl {
+            fetch_url: format!("https://{registry}/v2/{repository}/manifests/{reference}"),
+            asset_pattern,
+            oci: Some(OciRef {
+                registry: registry.to_owned(),
+                repository: repository.to_owned(),
+                reference: reference.to_owned(),
+            }),
+        };
+    }
+
     match repo {
         Some((owner, repo)) => NormalizedUrl {
             fetch_url: format!("https://api.github.com/repos/{owner}/{repo}/releases/latest"),
             asset_pattern,
+            oci: None,
         },
         None => NormalizedUrl {
             fetch_url: base.to_owned(),
             asset_pattern,
+            oci: None,
         },
     }
+}
+
+/// The `realm` / `service` / `scope` a registry's `WWW-Authenticate: Bearer`
+/// challenge asks the client to use when fetching a token.
+#[must_use]
+pub fn parse_www_authenticate(header: &str) -> Option<(String, String, String)> {
+    let rest = header.trim().strip_prefix("Bearer ").or_else(|| {
+        header
+            .trim()
+            .strip_prefix("bearer ")
+    })?;
+    let mut realm = None;
+    let mut service = String::new();
+    let mut scope = String::new();
+    for part in rest.split(',') {
+        let (key, value) = part.trim().split_once('=')?;
+        let value = value.trim().trim_matches('"').to_owned();
+        match key.trim() {
+            "realm" => realm = Some(value),
+            "service" => service = value,
+            "scope" => scope = value,
+            _ => {}
+        }
+    }
+    Some((realm?, service, scope))
+}
+
+/// Picks THIS platform's manifest digest out of an OCI image index.
+///
+/// Returns `None` when the document is a plain manifest (no `manifests`
+/// array) or lists nothing for this OS/architecture — a caller that gets
+/// `None` should read the document it already has.
+#[must_use]
+pub fn select_index_manifest(index: &serde_json::Value) -> Option<String> {
+    let entries = index.get("manifests")?.as_array()?;
+    // OCI platform names differ from Rust's: darwin/amd64, not macos/x86_64.
+    let want_os = match std::env::consts::OS {
+        "macos" => "darwin",
+        other => other,
+    };
+    let want_arch = match std::env::consts::ARCH {
+        "x86_64" => "amd64",
+        "aarch64" => "arm64",
+        "x86" => "386",
+        other => other,
+    };
+    entries
+        .iter()
+        .find(|m| {
+            let platform = m.get("platform");
+            let os = platform
+                .and_then(|p| p.get("os"))
+                .and_then(serde_json::Value::as_str);
+            let arch = platform
+                .and_then(|p| p.get("architecture"))
+                .and_then(serde_json::Value::as_str);
+            os == Some(want_os) && arch == Some(want_arch)
+        })
+        .and_then(|m| m.get("digest"))
+        .and_then(serde_json::Value::as_str)
+        .map(str::to_owned)
+}
+
+/// One OCI image/artifact manifest → a `ReleaseInfo`.
+///
+/// The version comes from the standard
+/// `org.opencontainers.image.version` annotation, falling back to the tag
+/// when the reference names one (`:2.0.0`). The artifact is a LAYER blob —
+/// selected by media type with `?asset=`, else the first layer — and its
+/// `digest` is the pin, so an OCI release is digest-verified by
+/// construction.
+///
+/// # Errors
+///
+/// Returns a description when the manifest carries no usable version.
+pub fn parse_oci_manifest(
+    manifest: &serde_json::Value,
+    oci: &OciRef,
+    layer_selector: Option<&str>,
+) -> Result<ResolvedRelease, String> {
+    let annotation = |k: &str| {
+        manifest
+            .get("annotations")
+            .and_then(|a| a.get(k))
+            .and_then(serde_json::Value::as_str)
+            .unwrap_or("")
+            .to_owned()
+    };
+
+    let version = {
+        let annotated = annotation("org.opencontainers.image.version");
+        if annotated.is_empty() {
+            if oci.reference == "latest" || oci.reference.starts_with("sha256:") {
+                return Err(format!(
+                    "the OCI manifest for {}:{} has no \
+                     org.opencontainers.image.version annotation, and the reference does not \
+                     name a version either",
+                    oci.repository, oci.reference
+                ));
+            }
+            strip_version_prefix(&oci.reference)
+        } else {
+            strip_version_prefix(&annotated)
+        }
+    };
+
+    let mut rollout_src = serde_json::Map::new();
+    let created = annotation("org.opencontainers.image.created");
+    if !created.is_empty() {
+        rollout_src.insert(
+            "release_date".to_owned(),
+            serde_json::Value::String(created),
+        );
+    }
+    let rollout = parse_rollout(&serde_json::Value::Object(rollout_src));
+
+    let empty = Vec::new();
+    let layers = manifest
+        .get("layers")
+        .and_then(serde_json::Value::as_array)
+        .unwrap_or(&empty);
+    let layer = layer_selector.map_or_else(
+        || layers.first(),
+        |sel| {
+            layers.iter().find(|l| {
+                l.get("mediaType")
+                    .and_then(serde_json::Value::as_str)
+                    .is_some_and(|m| m.contains(sel))
+                    || l.get("annotations")
+                        .and_then(|a| a.get("org.opencontainers.image.title"))
+                        .and_then(serde_json::Value::as_str)
+                        .is_some_and(|t| glob_match(sel, t))
+            })
+        },
+    );
+
+    let mut release = ReleaseInfo {
+        version: version.into(),
+        changelog_md_inline: annotation("org.opencontainers.image.description").into(),
+        ..ReleaseInfo::default()
+    };
+    if let Some(layer) = layer {
+        let digest = layer
+            .get("digest")
+            .and_then(serde_json::Value::as_str)
+            .unwrap_or_default();
+        if !digest.is_empty() {
+            release.download_url = format!(
+                "https://{}/v2/{}/blobs/{digest}",
+                oci.registry, oci.repository
+            )
+            .into();
+            // A registry digest IS the artifact's sha256 — the pin comes
+            // free, no separate checksum file to publish or trust.
+            release.digest = digest.into();
+        }
+    }
+
+    Ok(ResolvedRelease {
+        release,
+        rollout,
+        kind: UpdateSourceKind::OciRegistry,
+    })
 }
 
 /// Minimal percent-decoding for the `?asset=` value.
@@ -852,6 +1060,7 @@ pub fn parse_release_document(
                     signature: get("signature").into(),
                     signing_key_statement: get("signing_key_statement").into(),
                     signing_key_statement_sig: get("signing_key_statement_sig").into(),
+                    download_headers: Vec::new().into(),
                 },
                 rollout: parse_rollout(&value),
                 kind: UpdateSourceKind::FlatJson,
@@ -1091,6 +1300,111 @@ fn glob_match(pattern: &str, name: &str) -> bool {
     true
 }
 
+/// Media types a registry may answer a manifest request with.
+const OCI_MANIFEST_ACCEPT: &str = "application/vnd.oci.image.manifest.v1+json, \
+     application/vnd.docker.distribution.manifest.v2+json, \
+     application/vnd.oci.image.index.v1+json";
+
+/// Resolves a release from a container registry, doing the registry's
+/// anonymous token dance when it asks for one.
+///
+/// Registries answer an unauthenticated manifest request with `401` and a
+/// `WWW-Authenticate: Bearer realm=…` challenge; the client fetches a
+/// (usually anonymous) pull token from that realm and retries. The same
+/// token is handed to the DOWNLOAD through `ReleaseInfo::download_headers`,
+/// because a blob request needs it too.
+#[cfg(feature = "http")]
+fn resolve_oci(
+    manifest_url: &str,
+    oci: &OciRef,
+    layer_selector: Option<&str>,
+) -> Result<ResolvedRelease, String> {
+    let base = crate::http::HttpRequestConfig::new().with_header("Accept", OCI_MANIFEST_ACCEPT);
+    let mut response = crate::http::http_get_with_config(manifest_url, &base)
+        .map_err(|e| format!("registry manifest fetch: {e:?}"))?;
+
+    let mut token = String::new();
+    if response.status_code == 401 {
+        let challenge = response
+            .headers
+            .as_ref()
+            .iter()
+            .find(|h| h.name.as_str().eq_ignore_ascii_case("www-authenticate"))
+            .map(|h| h.value.as_str().to_owned())
+            .ok_or("registry returned 401 with no WWW-Authenticate challenge")?;
+        let (realm, service, scope) = parse_www_authenticate(&challenge)
+            .ok_or_else(|| format!("cannot read the registry challenge: {challenge}"))?;
+        let scope = if scope.is_empty() {
+            format!("repository:{}:pull", oci.repository)
+        } else {
+            scope
+        };
+        let token_url = format!("{realm}?service={service}&scope={scope}");
+        let token_response = crate::http::http_get_with_config(&token_url, &base)
+            .map_err(|e| format!("registry token fetch: {e:?}"))?;
+        let token_json: serde_json::Value =
+            serde_json::from_slice(token_response.body.as_ref())
+                .map_err(|e| format!("registry token is not JSON: {e}"))?;
+        token.clear();
+        token.push_str(
+            token_json
+                .get("token")
+                .or_else(|| token_json.get("access_token"))
+                .and_then(serde_json::Value::as_str)
+                .unwrap_or_default(),
+        );
+        if token.is_empty() {
+            return Err("the registry issued no pull token".to_owned());
+        }
+        let authed = base
+            .clone()
+            .with_header("Authorization", format!("Bearer {token}"));
+        response = crate::http::http_get_with_config(manifest_url, &authed)
+            .map_err(|e| format!("registry manifest fetch (authenticated): {e:?}"))?;
+    }
+
+    if !(200..300).contains(&response.status_code) {
+        return Err(format!(
+            "registry manifest HTTP {} for {}",
+            response.status_code, manifest_url
+        ));
+    }
+    let mut manifest: serde_json::Value = serde_json::from_slice(response.body.as_ref())
+        .map_err(|e| format!("registry manifest is not JSON: {e}"))?;
+
+    // A multi-arch INDEX lists per-platform manifests instead of layers;
+    // follow the entry for this build before looking for an artifact.
+    if let Some(digest) = select_index_manifest(&manifest) {
+        let child_url = format!(
+            "https://{}/v2/{}/manifests/{digest}",
+            oci.registry, oci.repository
+        );
+        // `base` is not needed after this point, so it moves.
+        let child_config = if token.is_empty() {
+            base
+        } else {
+            base.with_header("Authorization", format!("Bearer {token}"))
+        };
+        let child = crate::http::http_get_with_config(&child_url, &child_config)
+            .map_err(|e| format!("registry child-manifest fetch: {e:?}"))?;
+        if (200..300).contains(&child.status_code) {
+            manifest = serde_json::from_slice(child.body.as_ref())
+                .map_err(|e| format!("registry child manifest is not JSON: {e}"))?;
+        }
+    }
+
+    let mut resolved = parse_oci_manifest(&manifest, oci, layer_selector)?;
+    if !token.is_empty() {
+        resolved.release.download_headers =
+            vec![azul_core::window::AzStringPair {
+                key: "Authorization".into(),
+                value: format!("Bearer {token}").into(),
+            }]
+            .into();
+    }
+    Ok(resolved)
+}
+
 /// Fetches the update URL and reads whatever kind of source answered,
 /// including any sibling files a GitHub release keeps its signatures in.
 ///
@@ -1100,6 +1414,9 @@ fn glob_match(pattern: &str, name: &str) -> bool {
 #[cfg(feature = "http")]
 pub fn resolve_release(url: &str) -> Result<ResolvedRelease, String> {
     let normalized = normalize_update_url(url);
+    if let Some(oci) = &normalized.oci {
+        return resolve_oci(&normalized.fetch_url, oci, normalized.asset_pattern.as_deref());
+    }
     let config = crate::http::HttpRequestConfig::new()
         .with_header("Accept", "application/vnd.github+json");
     let response = crate::http::http_get_with_config(&normalized.fetch_url, &config)
@@ -1464,7 +1781,19 @@ pub fn download_update(
     release: &ReleaseInfo,
     staging_dir: &Path,
 ) -> Result<DownloadOutcome, String> {
+    if release.download_url.as_str().trim().is_empty() {
+        // Sources legitimately answer "there is a newer version" without
+        // naming an artifact for THIS platform (a VERSION file, a release
+        // with no matching asset). Say that, rather than failing on an
+        // empty URL somewhere inside the HTTP layer.
+        return Err(format!(
+            "version {} is available but the update source names no download for this platform",
+            release.version.as_str()
+        ));
+    }
     std::fs::create_dir_all(staging_dir).map_err(|e| e.to_string())?;
+    // An OCI blob URL ends in `sha256:<hex>`, and `:` cannot appear in a
+    // Windows filename — sanitise anything that is not safe everywhere.
     let file_name = release
         .download_url
         .as_str()
@@ -1473,7 +1802,17 @@ pub fn download_update(
         .filter(|n| !n.is_empty())
         .map_or_else(
             || format!("update-{}.bin", release.version.as_str()),
-            str::to_owned,
+            |n| {
+                n.chars()
+                    .map(|c| {
+                        if c.is_ascii_alphanumeric() || matches!(c, '.' | '-' | '_' | '+') {
+                            c
+                        } else {
+                            '-'
+                        }
+                    })
+                    .collect()
+            },
         );
     let final_path = staging_dir.join(&file_name);
     if final_path.exists() {
@@ -1507,10 +1846,14 @@ pub fn download_update(
     let mut written_this_call = 0u64;
     let mut honored = false;
     loop {
-        let config = crate::http::HttpRequestConfig::new().with_header(
+        let mut config = crate::http::HttpRequestConfig::new().with_header(
             "Range",
             format!("bytes={offset}-{}", offset + CHUNK - 1),
         );
+        // A registry blob needs the bearer token the manifest request got.
+        for pair in release.download_headers.as_ref() {
+            config = config.with_header(pair.key.as_str(), pair.value.as_str());
+        }
         let response =
             crate::http::http_get_with_config(release.download_url.as_str(), &config)
                 .map_err(|e| format!("download: {e:?}"))?;
@@ -2166,6 +2509,126 @@ mod tests {
         );
     }
 
+    #[test]
+    fn oci_urls_split_registry_repo_and_tag() {
+        let n = normalize_update_url("oci://ghcr.io/fschutt/azul-app:2.0.0");
+        let oci = n.oci.expect("an oci:// URL must be recognised");
+        assert_eq!(oci.registry, "ghcr.io");
+        assert_eq!(oci.repository, "fschutt/azul-app");
+        assert_eq!(oci.reference, "2.0.0");
+        assert_eq!(
+            n.fetch_url,
+            "https://ghcr.io/v2/fschutt/azul-app/manifests/2.0.0"
+        );
+        // No tag means `latest`; a port in the registry must not be read as one.
+        let n = normalize_update_url("oci://registry.example.com:5000/team/app");
+        let oci = n.oci.unwrap();
+        assert_eq!(oci.registry, "registry.example.com:5000");
+        assert_eq!(oci.repository, "team/app");
+        assert_eq!(oci.reference, "latest");
+    }
+
+    #[test]
+    fn registry_challenges_are_read() {
+        let (realm, service, scope) = parse_www_authenticate(
+            r#"Bearer realm="https://ghcr.io/token",service="ghcr.io",scope="repository:o/r:pull""#,
+        )
+        .expect("a standard challenge must parse");
+        assert_eq!(realm, "https://ghcr.io/token");
+        assert_eq!(service, "ghcr.io");
+        assert_eq!(scope, "repository:o/r:pull");
+        assert!(parse_www_authenticate("Basic realm=\"x\"").is_none());
+    }
+
+    /// LAW: an OCI release is digest-pinned BY CONSTRUCTION — the layer
+    /// digest the registry reports is exactly the artifact's sha256, so
+    /// there is no separate checksum to publish or forget.
+    #[test]
+    fn an_oci_manifest_becomes_a_digest_pinned_release() {
+        let oci = OciRef {
+            registry: "ghcr.io".to_owned(),
+            repository: "o/app".to_owned(),
+            reference: "latest".to_owned(),
+        };
+        let manifest = serde_json::json!({
+            "schemaVersion": 2,
+            "annotations": {
+                "org.opencontainers.image.version": "v3.4.5",
+                "org.opencontainers.image.created": "2027-01-01T00:00:00Z",
+            },
+            "layers": [
+                {"mediaType": "application/vnd.azul.app.layer.v1+tar", "digest": "sha256:dead", "size": 10},
+            ],
+        });
+        let r = parse_oci_manifest(&manifest, &oci, None).unwrap();
+        assert_eq!(r.kind, UpdateSourceKind::OciRegistry);
+        assert_eq!(r.release.version.as_str(), "3.4.5", "the v prefix must go");
+        assert_eq!(
+            r.release.download_url.as_str(),
+            "https://ghcr.io/v2/o/app/blobs/sha256:dead"
+        );
+        assert_eq!(r.release.digest.as_str(), "sha256:dead");
+        assert!(matches!(r.rollout, RolloutPlan::Staged(_)), "created -> ladder");
+
+        // `latest` with no version annotation cannot name a version, and
+        // saying "you are up to date" there would be a lie.
+        let bare = serde_json::json!({"layers": []});
+        assert!(parse_oci_manifest(&bare, &oci, None).is_err());
+        // …but an explicit tag IS the version.
+        let tagged = OciRef { reference: "2.1.0".to_owned(), ..oci };
+        assert_eq!(
+            parse_oci_manifest(&bare, &tagged, None).unwrap().release.version.as_str(),
+            "2.1.0"
+        );
+    }
+
+    /// LAW: a multi-arch index is followed to THIS platform, and a staged
+    /// artifact's filename is legal on every OS (an OCI blob URL ends in
+    /// `sha256:…`, and `:` is not a legal Windows filename character).
+    #[test]
+    fn an_index_resolves_to_this_platform_and_blob_names_stay_portable() {
+        let want_os = match std::env::consts::OS {
+            "macos" => "darwin",
+            other => other,
+        };
+        let want_arch = match std::env::consts::ARCH {
+            "x86_64" => "amd64",
+            "aarch64" => "arm64",
+            other => other,
+        };
+        let index = serde_json::json!({
+            "manifests": [
+                {"digest": "sha256:wrong", "platform": {"os": "plan9", "architecture": "vax"}},
+                {"digest": "sha256:right", "platform": {"os": want_os, "architecture": want_arch}},
+            ]
+        });
+        assert_eq!(
+            select_index_manifest(&index).as_deref(),
+            Some("sha256:right")
+        );
+        // A plain manifest is not an index.
+        assert!(select_index_manifest(&serde_json::json!({"layers": []})).is_none());
+        // An index with nothing for us must not pick something at random.
+        let foreign = serde_json::json!({
+            "manifests": [{"digest": "sha256:x", "platform": {"os": "plan9", "architecture": "vax"}}]
+        });
+        assert!(select_index_manifest(&foreign).is_none());
+    }
+
+    /// A source may legitimately know a version without knowing a download
+    /// (a VERSION file, an unmatched platform). That must read as such.
+    #[test]
+    fn downloading_without_an_artifact_url_says_so() {
+        let release = ReleaseInfo {
+            version: "5.0.0".into(),
+            ..ReleaseInfo::default()
+        };
+        let err = download_update(&release, std::path::Path::new("/tmp"))
+            .expect_err("an empty download URL must be refused");
+        assert!(err.contains("names no download"), "{err}");
+        assert!(err.contains("5.0.0"), "the message must name the version: {err}");
+    }
+
     // ---- signature chain --------------------------------------------------
 
     /// Everything a chain test needs: a ROOT keypair, a SIGNING keypair, a
@@ -2224,6 +2687,7 @@ mod tests {
                 signature: artifact_sig.into(),
                 signing_key_statement: statement.into(),
                 signing_key_statement_sig: statement_sig.into(),
+                download_headers: Vec::new().into(),
             },
             artifact,
             _dir: dir,

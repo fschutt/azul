@@ -111063,6 +111063,12 @@
                                     "doc": [
                                         "Minisign signature of the statement string by the ROOT key (full .minisig text)."
                                     ]
+                                },
+                                "download_headers": {
+                                    "type": "StringPairVec",
+                                    "doc": [
+                                        "Headers the download needs when the artifact is not on open HTTP - an OCI registry blob wants the same bearer token the manifest request used. Empty for ordinary downloads."
+                                    ]
                                 }
                             }
                         ],
