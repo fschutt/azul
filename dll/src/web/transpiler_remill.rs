@@ -6423,7 +6423,7 @@ fn remill_export_symbol(entry_addr: u64) -> String {
 /// input bytes (the byte rewrites in `lift_fn`, the synth-address scheme). The
 /// remill ENGINE rev is captured automatically by [`engine_fingerprint`], so
 /// you only bump this for changes inside this crate's lift logic.
-const LIFT_CACHE_VERSION: u32 = 6;
+const LIFT_CACHE_VERSION: u32 = 7;
 
 /// Fingerprint of the lifting ENGINE — the `remill-lift-17` binary — folded
 /// into the cache key so an engine change auto-invalidates every entry without
@@ -10183,7 +10183,28 @@ fn build_extra_data(bytes: &[u8], fn_addr: usize, lift_addr: u64) -> String {
         // read-only data — the same ranges the wasm data-mirror reads.
         let data = unsafe { std::slice::from_raw_parts(raddr as *const u8, len) };
         let synth = ((raddr as i128) + synth_off) as u64;
-        regions.push(format!("{:x}:{}", synth, bytes_to_hex(data)));
+        // Translate pointer-shaped content before handing it to remill —
+        // absolute jump tables carry NATIVE addresses, and untranslated
+        // they surface as devirt switch targets in native space, i.e.
+        // unclassified `sub_7ff6…` externs that zero-stub at runtime (the
+        // AzWriter bootstrap trap). Same 8-aligned rule as the data
+        // mirror's pointer pass.
+        let mut owned = data.to_vec();
+        if let Some(tab) = symbol_table::get() {
+            let mis = (synth % 8) as usize;
+            let start = if mis == 0 { 0 } else { 8 - mis };
+            let mut i = start;
+            while i + 8 <= owned.len() {
+                let v = u64::from_le_bytes(owned[i..i + 8].try_into().unwrap()) as usize;
+                if v > 0x1_0000 {
+                    if let Some(sv) = tab.native_to_synth(v) {
+                        owned[i..i + 8].copy_from_slice(&(sv as u64).to_le_bytes());
+                    }
+                }
+                i += 8;
+            }
+        }
+        regions.push(format!("{:x}:{}", synth, bytes_to_hex(&owned)));
         total += len;
     }
     regions.join(";")
