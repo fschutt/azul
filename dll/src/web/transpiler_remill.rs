@@ -1029,9 +1029,14 @@ impl RemillTranspiler {
                                 }
                             }
                             eprintln!(
-                                "[azul-web][reloc-verify] ✗ DIVERGENCE in {fn_name} ({} differing line(s) shown) — using the fresh lift",
+                                "[azul-web][reloc-verify] ✗ DIVERGENCE in {fn_name} ({} differing line(s) shown) — using the fresh lift; bad template deleted",
                                 shown,
                             );
+                            // Self-heal: a diverging template must never be
+                            // served again; the next cold pass re-stores it
+                            // with the current (fixed) classifier.
+                            let _ = std::fs::remove_file(&irp);
+                            let _ = std::fs::remove_file(&mp);
                             RELOC_VERIFY_FAILS.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
                         } else {
                             RELOC_VERIFY_OKS.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
@@ -7001,27 +7006,41 @@ fn reloc_templateize(
     let delta = probe_addr.wrapping_sub(lift_addr);
     let bias = (fn_addr as u64).wrapping_sub(lift_addr);
     let img = super::lift_audit::native_image_range(fn_addr);
+    // EVERY symbol identity is fingerprint-verified: by_name keeps ONE
+    // address per name, so duplicate-named monomorphization copies
+    // (write_fmt<String> at two addresses) resolve to the wrong copy for
+    // half their callers — the verifier caught exactly that as wrong-callee
+    // sub_ slots. The 16 pointee bytes discriminate copies at translate
+    // time (mismatch = miss, never wrong code). The fingerprint needs
+    // entropy: all-alike bytes (zeroed .bss around SKIP_DISPLAY_LIST)
+    // false-match everywhere, so low-entropy targets are untemplateable.
     let ident_for = |t: u64| -> Option<String> {
         let tab = table?;
         let native = t.wrapping_add(bias) as usize;
+        let (lo, hi) = img?;
+        let n64 = native as u64;
+        if n64 < lo || n64.saturating_add(16) > hi {
+            return None;
+        }
+        let pointee = unsafe { std::slice::from_raw_parts(native as *const u8, 16) };
+        let mut seen = std::collections::HashSet::new();
+        for byte in pointee {
+            seen.insert(*byte);
+        }
+        if seen.len() < 4 {
+            return None;
+        }
+        let fp = super::fnv1a64_hex(pointee);
         if let Some(e) = tab.resolve(native) {
             let off = native.wrapping_sub(e.canonical_addr);
             if off < 0x1000 {
-                return Some(format!("{}+0x{:x}", e.canonical_name, off));
+                return Some(format!("near:{}+0x{:x}:{}", e.canonical_name, off, fp));
             }
         }
-        let (lo, hi) = img?;
         let e = tab.nearest_below(native)?;
         let off = native.wrapping_sub(e.canonical_addr);
-        let n64 = native as u64;
-        if off < 0x100000 && n64 >= lo && n64.saturating_add(16) <= hi {
-            let pointee = unsafe { std::slice::from_raw_parts(native as *const u8, 16) };
-            return Some(format!(
-                "near:{}+0x{:x}:{}",
-                e.canonical_name,
-                off,
-                super::fnv1a64_hex(pointee),
-            ));
+        if off < 0x100000 {
+            return Some(format!("near:{}+0x{:x}:{}", e.canonical_name, off, fp));
         }
         None
     };
@@ -7049,8 +7068,14 @@ fn reloc_templateize(
                     if vb.wrapping_sub(va) != delta {
                         return None;
                     }
+                    // STRICTLY inside the fn: one-past-end IS the next
+                    // function's entry (tail shims target it), and that
+                    // neighbor shifts independently across layouts — the
+                    // verifier caught an inclusive bound here as a
+                    // 16-byte mistranslation in a 32-byte shim. At-or-
+                    // beyond-end targets resolve via symbol identity.
                     let rel = va.wrapping_sub(lift_addr);
-                    let ident = if rel <= fn_len as u64 {
+                    let ident = if rel < fn_len as u64 {
                         format!("@rel:{rel:x}")
                     } else {
                         ident_for(va)?
@@ -7141,10 +7166,10 @@ fn reloc_translate(
             }
             cand_synth
         } else {
-            let (name, off_hex) = ident.rsplit_once("+0x")?;
-            let soff = u64::from_str_radix(off_hex, 16).ok()?;
-            let e = table?.by_name(name)?;
-            (e.synthetic_addr as u64).checked_add(soff)?
+            // Only fingerprinted identities are translatable; anything else
+            // (including manifests from before the fingerprint upgrade) is
+            // a miss.
+            return None;
         };
         slots.push(Slot { off, len, kind, val });
     }
