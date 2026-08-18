@@ -1,5 +1,6 @@
 //! Formatting context layout (block, inline, table, and flex/grid via Taffy)
 
+use crate::solver3::layout_tree::LayoutNodeId;
 use std::{
     collections::{BTreeMap, HashMap},
     sync::Arc,
@@ -413,7 +414,7 @@ pub fn layout_formatting_context<T: ParsedFontTrait>(
     // so it reliably shows whether layout_formatting_context is ENTERED for the nested div nodes 1,2.
     #[cfg(feature = "web_lift")]
     unsafe { crate::az_mark(((0x609E0 + (node_index & 7) * 4)) as u32, (0xC0DE0042) as u32); }
-    let node = tree.get(node_index).ok_or(LayoutError::InvalidTree)?;
+    let node = tree.get(LayoutNodeId::new(node_index)).ok_or(LayoutError::InvalidTree)?;
     // [g147i az-web-lift DIAG] node REFERENCE address (0x60B80+slot) — NOT a field deref, so reliable.
     // If nodes 0,1,2 aren't spaced by sizeof(LayoutNodeHot) → tree.get(index>0) mis-lifts the Vec stride,
     // making nodes 1,2 garbage references (which would explain FC reading garbage + reads destabilizing).
@@ -585,7 +586,7 @@ fn layout_flex_grid<T: ParsedFontTrait>(
         height: AvailableSpace::Definite(constraints.available_size.height),
     };
 
-    let node = tree.get(node_index).ok_or(LayoutError::InvalidTree)?;
+    let node = tree.get(LayoutNodeId::new(node_index)).ok_or(LayoutError::InvalidTree)?;
 
     // from flex line's cross size (clamped by min/max) when align-self:stretch, cross-size:auto,
     // and neither cross-axis margin is auto. Otherwise uses hypothetical cross size.
@@ -766,7 +767,7 @@ fn layout_flex_grid<T: ParsedFontTrait>(
     // children inside a smaller content-box.
     if is_root {
         if let (Some(aw), Some(ah)) = (adjusted_width, adjusted_height) {
-            if let Some(node_mut) = tree.get_mut(node_index) {
+            if let Some(node_mut) = tree.get_mut(LayoutNodeId::new(node_index)) {
                 node_mut.used_size = Some(LogicalSize::new(aw, ah));
             }
         }
@@ -790,7 +791,7 @@ fn layout_flex_grid<T: ParsedFontTrait>(
     // size, so this is a no-op there. The root syncs its own used_size above.
     if !is_root {
         let container_bb = translate_taffy_size_back(taffy_output.size);
-        if let Some(node_mut) = tree.get_mut(node_index) {
+        if let Some(node_mut) = tree.get_mut(LayoutNodeId::new(node_index)) {
             node_mut.used_size = Some(container_bb);
         }
     }
@@ -813,7 +814,7 @@ fn layout_flex_grid<T: ParsedFontTrait>(
 
     let children: Vec<usize> = tree.children(node_index).to_vec();
     for &child_idx in &children {
-        if let Some(warm_node) = tree.warm(child_idx) {
+        if let Some(warm_node) = tree.warm(LayoutNodeId::new(child_idx)) {
             if let Some(pos) = warm_node.relative_position {
                 output.positions.insert(child_idx, pos);
             }
@@ -1117,7 +1118,7 @@ fn layout_bfc<T: ParsedFontTrait>(
     float_cache: &mut HashMap<usize, FloatingContext>,
 ) -> Result<BfcLayoutResult> {
     let node = tree
-        .get(node_index)
+        .get(LayoutNodeId::new(node_index))
         .ok_or(LayoutError::InvalidTree)?
         .clone();
     // +spec:block-formatting-context:4f4ff6 - writing-mode determines block flow direction (main axis) for ordering block-level boxes in BFC
@@ -1169,7 +1170,7 @@ fn layout_bfc<T: ParsedFontTrait>(
             // containing block for percentage-height / indefinite-height semantics.
             let inner = node.box_props.inner_size(used_size, writing_mode);
             let height_is_auto = tree
-                .warm(node_index)
+                .warm(LayoutNodeId::new(node_index))
                 .is_none_or(|w| w.computed_style.height.is_none());
             if height_is_auto {
                 LogicalSize::new(inner.width, constraints.available_size.height)
@@ -1208,7 +1209,7 @@ fn layout_bfc<T: ParsedFontTrait>(
                     crate::solver3::getters::get_layout_scrollbar_width_px(ctx, dom_id, &styled_node_state)
                 }
                 LayoutOverflow::Auto => {
-                    let already_needs = tree.warm(node_index)
+                    let already_needs = tree.warm(LayoutNodeId::new(node_index))
                         .and_then(|w| w.scrollbar_info.as_ref())
                         .is_some_and(|s| s.needs_vertical);
                     if already_needs {
@@ -1255,7 +1256,7 @@ fn layout_bfc<T: ParsedFontTrait>(
         #[cfg(feature = "web_lift")]
         unsafe { crate::az_mark(((0x60A00 + (node_index & 7) * 4)) as u32, (bfc_children.len() as u32 | 0xC0DE0000) as u32); }
         for &child_index in &bfc_children {
-            let child_node = tree.get(child_index).ok_or(LayoutError::InvalidTree)?;
+            let child_node = tree.get(LayoutNodeId::new(child_index)).ok_or(LayoutError::InvalidTree)?;
             let child_dom_id = child_node.dom_node_id;
 
             // +spec:positioning:447b06 - Absolute positioning pulls element out of flow, skip from normal layout
@@ -1324,7 +1325,7 @@ fn layout_bfc<T: ParsedFontTrait>(
     // children's margins. The DOM root is NOT a BFC boundary for this purpose —
     // its first child's margin still collapses through it (then gets absorbed at
     // the root, since there's no grandparent to escape to).
-    let establishes_own_bfc = establishes_new_bfc(ctx, &node, tree.cold(node_index));
+    let establishes_own_bfc = establishes_new_bfc(ctx, &node, tree.cold(LayoutNodeId::new(node_index)));
     let is_bfc_root = node.parent.is_none() || establishes_own_bfc;
 
     // parent_has_*_blocker inhibits parent-child margin collapse per CSS 2.2 §8.3.1.
@@ -1357,7 +1358,7 @@ fn layout_bfc<T: ParsedFontTrait>(
     {
         let root_fs = crate::solver3::layout_tree::get_root_font_size(ctx.styled_dom);
         for &child_index in &pos_children {
-            let Some(child_dom_id) = tree.get(child_index).and_then(|n| n.dom_node_id) else {
+            let Some(child_dom_id) = tree.get(LayoutNodeId::new(child_index)).and_then(|n| n.dom_node_id) else {
                 continue;
             };
             let efs =
@@ -1448,7 +1449,7 @@ fn layout_bfc<T: ParsedFontTrait>(
         // resumed-child continuation) stops sibling consumption here — the
         // rest of the tail is not on this page.
         if fragment_token_out.is_some() {
-            clear_fragment_pos!(child_index);
+            clear_fragment_pos!(LayoutNodeId::new(child_index));
             continue;
         }
         if !fragment_resume_reached {
@@ -1456,7 +1457,7 @@ fn layout_bfc<T: ParsedFontTrait>(
                 fragment_resume_reached = true;
             } else {
                 // Finished on an earlier fragmentainer.
-                clear_fragment_pos!(child_index);
+                clear_fragment_pos!(LayoutNodeId::new(child_index));
                 continue;
             }
         }
@@ -1479,7 +1480,7 @@ fn layout_bfc<T: ParsedFontTrait>(
             && fragment_token_out.is_none()
             && crate::solver3::getters::get_break_before(
                 ctx.styled_dom,
-                tree.get(child_index).and_then(|n| n.dom_node_id),
+                tree.get(LayoutNodeId::new(child_index)).and_then(|n| n.dom_node_id),
             ) != azul_css::props::layout::fragmentation::PageBreak::Auto
         {
             let later: Vec<usize> = pos_children
@@ -1490,7 +1491,7 @@ fn layout_bfc<T: ParsedFontTrait>(
                 .filter(|&c| {
                     let pt = get_position_type(
                         ctx.styled_dom,
-                        tree.get(c).and_then(|n| n.dom_node_id),
+                        tree.get(LayoutNodeId::new(c)).and_then(|n| n.dom_node_id),
                     );
                     pt != LayoutPosition::Absolute && pt != LayoutPosition::Fixed
                 })
@@ -1514,7 +1515,7 @@ fn layout_bfc<T: ParsedFontTrait>(
                     generation: 0,
                 },
             ));
-            clear_fragment_pos!(child_index);
+            clear_fragment_pos!(LayoutNodeId::new(child_index));
             continue;
         }
 
@@ -1561,7 +1562,7 @@ fn layout_bfc<T: ParsedFontTrait>(
                         .filter(|&c| {
                             let pt = get_position_type(
                                 ctx.styled_dom,
-                                tree.get(c).and_then(|n| n.dom_node_id),
+                                tree.get(LayoutNodeId::new(c)).and_then(|n| n.dom_node_id),
                             );
                             pt != LayoutPosition::Absolute && pt != LayoutPosition::Fixed
                         })
@@ -1591,7 +1592,7 @@ fn layout_bfc<T: ParsedFontTrait>(
             }
         }
 
-        let child_node = tree.get(child_index).ok_or(LayoutError::InvalidTree)?;
+        let child_node = tree.get(LayoutNodeId::new(child_index)).ok_or(LayoutError::InvalidTree)?;
         let child_dom_id = child_node.dom_node_id;
 
         // +spec:floats:2cec1b - 'position' and 'float' determine the positioning algorithm
@@ -1610,7 +1611,7 @@ fn layout_bfc<T: ParsedFontTrait>(
             if float_type != LayoutFloat::None {
                 // Calculate float size just-in-time if not already computed
                 let float_size = if let Some(size) = child_node.used_size { size } else {
-                    let intrinsic = tree.warm(child_index).and_then(|w| w.intrinsic_sizes).unwrap_or_default();
+                    let intrinsic = tree.warm(LayoutNodeId::new(child_index)).and_then(|w| w.intrinsic_sizes).unwrap_or_default();
                     let child_bp = child_node.box_props.unpack();
                     let computed_size = crate::solver3::sizing::calculate_used_size_for_node(
                         ctx.styled_dom,
@@ -1620,13 +1621,13 @@ fn layout_bfc<T: ParsedFontTrait>(
                         &child_bp,
                         &ctx.viewport_size,
                     )?;
-                    if let Some(node_mut) = tree.get_mut(child_index) {
+                    if let Some(node_mut) = tree.get_mut(LayoutNodeId::new(child_index)) {
                         node_mut.used_size = Some(computed_size);
                     }
                     computed_size
                 };
                 // Re-borrow after potential mutation
-                let child_node = tree.get(child_index).ok_or(LayoutError::InvalidTree)?;
+                let child_node = tree.get(LayoutNodeId::new(child_index)).ok_or(LayoutError::InvalidTree)?;
                 let child_bp2 = child_node.box_props.unpack();
                 let float_margin = &child_bp2.margin;
 
@@ -1687,7 +1688,7 @@ fn layout_bfc<T: ParsedFontTrait>(
                             .filter(|&c| {
                                 let pt = get_position_type(
                                     ctx.styled_dom,
-                                    tree.get(c).and_then(|n| n.dom_node_id),
+                                    tree.get(LayoutNodeId::new(c)).and_then(|n| n.dom_node_id),
                                 );
                                 pt != LayoutPosition::Absolute
                                     && pt != LayoutPosition::Fixed
@@ -1701,7 +1702,7 @@ fn layout_bfc<T: ParsedFontTrait>(
                                 child_index,
                                 later.into_iter(),
                             ));
-                        clear_fragment_pos!(child_index);
+                        clear_fragment_pos!(LayoutNodeId::new(child_index));
                         continue;
                     }
                     // First content overflowing every page: monolith-place
@@ -1747,7 +1748,7 @@ fn layout_bfc<T: ParsedFontTrait>(
         // This replaces the old "Pass 1" that recursively laid out grandchildren with wrong positions
         let child_size = if let Some(size) = child_node.used_size { size } else {
             // Calculate size without recursive layout
-            let intrinsic = tree.warm(child_index).and_then(|w| w.intrinsic_sizes).unwrap_or_default();
+            let intrinsic = tree.warm(LayoutNodeId::new(child_index)).and_then(|w| w.intrinsic_sizes).unwrap_or_default();
             let child_used_size = crate::solver3::sizing::calculate_used_size_for_node(
                 ctx.styled_dom,
                 child_dom_id,
@@ -1757,13 +1758,13 @@ fn layout_bfc<T: ParsedFontTrait>(
                 &ctx.viewport_size,
             )?;
             // Update the node with computed size (we need to re-borrow mutably)
-            if let Some(node_mut) = tree.get_mut(child_index) {
+            if let Some(node_mut) = tree.get_mut(LayoutNodeId::new(child_index)) {
                 node_mut.used_size = Some(child_used_size);
             }
             child_used_size
         };
         // Re-borrow child_node after potential mutation
-        let child_node = tree.get(child_index).ok_or(LayoutError::InvalidTree)?;
+        let child_node = tree.get(LayoutNodeId::new(child_index)).ok_or(LayoutError::InvalidTree)?;
         let child_bp = child_node.box_props.unpack();
         let child_margin = &child_bp.margin;
 
@@ -1786,10 +1787,10 @@ fn layout_bfc<T: ParsedFontTrait>(
         // collapsed value of (child's margin, child's first child's margin, ...).
         // Use it for sibling collapse instead of the child's own margin.
         let child_escaped_top = if has_margin_collapse_blocker(&child_bp, writing_mode, true) { None } else {
-            tree.warm(child_index).and_then(|w| w.escaped_top_margin)
+            tree.warm(LayoutNodeId::new(child_index)).and_then(|w| w.escaped_top_margin)
         };
         let child_escaped_bottom = if has_margin_collapse_blocker(&child_bp, writing_mode, false) { None } else {
-            tree.warm(child_index).and_then(|w| w.escaped_bottom_margin)
+            tree.warm(LayoutNodeId::new(child_index)).and_then(|w| w.escaped_bottom_margin)
         };
 
         let mut child_margin_top = child_escaped_top.unwrap_or(child_own_margin_top);
@@ -2195,7 +2196,7 @@ fn layout_bfc<T: ParsedFontTrait>(
             let child_fits = main_pen + child_size.main(writing_mode)
                 <= fs.remaining_block_extent + 0.01;
             let container_descend = !child_fits
-                && tree.get(child_index).is_some_and(|n| {
+                && tree.get(LayoutNodeId::new(child_index)).is_some_and(|n| {
                     matches!(n.formatting_context, FormattingContext::Block { .. })
                         && !tree.children(child_index).is_empty()
                 })
@@ -2225,7 +2226,7 @@ fn layout_bfc<T: ParsedFontTrait>(
                     // regenerate page 1's token forever (no-progress halt).
                     let child_is_block_container = !fragment_child_resumed
                         && tree
-                        .get(child_index)
+                        .get(LayoutNodeId::new(child_index))
                         .is_some_and(|n| {
                             matches!(
                                 n.formatting_context,
@@ -2267,7 +2268,7 @@ fn layout_bfc<T: ParsedFontTrait>(
                                 .filter(|&c| {
                                     let pt = get_position_type(
                                         ctx.styled_dom,
-                                        tree.get(c).and_then(|n| n.dom_node_id),
+                                        tree.get(LayoutNodeId::new(c)).and_then(|n| n.dom_node_id),
                                     );
                                     pt != LayoutPosition::Absolute
                                         && pt != LayoutPosition::Fixed
@@ -2308,7 +2309,7 @@ fn layout_bfc<T: ParsedFontTrait>(
                         .filter(|&c| {
                             let pt = get_position_type(
                                 ctx.styled_dom,
-                                tree.get(c).and_then(|n| n.dom_node_id),
+                                tree.get(LayoutNodeId::new(c)).and_then(|n| n.dom_node_id),
                             );
                             pt != LayoutPosition::Absolute && pt != LayoutPosition::Fixed
                         })
@@ -2323,7 +2324,7 @@ fn layout_bfc<T: ParsedFontTrait>(
                     // BreakBefore of part 1.
                     const MIN_DESCEND_EXTENT: f32 = 40.0;
                     let child_is_block_container = tree
-                        .get(child_index)
+                        .get(LayoutNodeId::new(child_index))
                         .is_some_and(|n| {
                             matches!(
                                 n.formatting_context,
@@ -2399,7 +2400,7 @@ fn layout_bfc<T: ParsedFontTrait>(
                             child_index,
                             later.into_iter(),
                         ));
-                        clear_fragment_pos!(child_index);
+                        clear_fragment_pos!(LayoutNodeId::new(child_index));
                         continue;
                     }
                 }
@@ -2410,7 +2411,7 @@ fn layout_bfc<T: ParsedFontTrait>(
         // K30b: a descend/resume re-lay above may have SHORTENED this
         // child's used_size — refresh the local before positioning.
         let child_size = tree
-            .get(child_index)
+            .get(LayoutNodeId::new(child_index))
             .and_then(|n| n.used_size)
             .unwrap_or(child_size);
 
@@ -2433,8 +2434,8 @@ fn layout_bfc<T: ParsedFontTrait>(
         // formatting context as the element itself."
 
         // +spec:floats:a29f70 - BFC roots, tables, and block-level replaced elements must not overlap float margin boxes
-        let child_node = tree.get(child_index).ok_or(LayoutError::InvalidTree)?;
-        let avoids_floats = establishes_new_bfc(ctx, child_node, tree.cold(child_index))
+        let child_node = tree.get(LayoutNodeId::new(child_index)).ok_or(LayoutError::InvalidTree)?;
+        let avoids_floats = establishes_new_bfc(ctx, child_node, tree.cold(LayoutNodeId::new(child_index)))
             || is_block_level_replaced(ctx, child_node);
 
         // Query available space considering floats ONLY if child avoids floats
@@ -2513,7 +2514,7 @@ fn layout_bfc<T: ParsedFontTrait>(
 
         // Get child's margin, margin_auto, size, and formatting context
         let (child_margin_cloned, child_margin_auto, child_used_size, is_inline_fc, child_dom_id_for_debug) = {
-            let child_node = tree.get(child_index).ok_or(LayoutError::InvalidTree)?;
+            let child_node = tree.get(LayoutNodeId::new(child_index)).ok_or(LayoutError::InvalidTree)?;
             let cbp = child_node.box_props.unpack();
             (
                 cbp.margin,
@@ -2625,7 +2626,7 @@ fn layout_bfc<T: ParsedFontTrait>(
                 // +spec:width-calculation:d172a4 - over-constrained: LTR ignores margin-right, RTL ignores margin-left
                 // in LTR, margin-right is ignored (element positioned at margin-left);
                 // in RTL, margin-left is ignored (element positioned from right edge)
-                let is_rtl = tree.get(node_index)
+                let is_rtl = tree.get(LayoutNodeId::new(node_index))
                     .and_then(|n| n.dom_node_id)
                     .is_some_and(|cb_dom_id| {
                         let node_state = ctx.styled_dom.styled_nodes.as_container()
@@ -2710,7 +2711,7 @@ fn layout_bfc<T: ParsedFontTrait>(
             // Translate float coordinates from BFC-relative to IFC-relative
             // The IFC child is positioned at (child_cross_pos, main_pen) in BFC coordinates
             // Floats need to be relative to the IFC's CONTENT-BOX origin (inside padding/border)
-            let child_node = tree.get(child_index).ok_or(LayoutError::InvalidTree)?;
+            let child_node = tree.get(LayoutNodeId::new(child_index)).ok_or(LayoutError::InvalidTree)?;
             let cbp = child_node.box_props.unpack();
             let padding_border_cross = cbp.padding.cross_start(writing_mode)
                 + cbp.border.cross_start(writing_mode);
@@ -2769,7 +2770,7 @@ fn layout_bfc<T: ParsedFontTrait>(
             );
 
             // Get the IFC child's content-box size (after padding/border)
-            let child_node = tree.get(child_index).ok_or(LayoutError::InvalidTree)?;
+            let child_node = tree.get(LayoutNodeId::new(child_index)).ok_or(LayoutError::InvalidTree)?;
             let child_dom_id = child_node.dom_node_id;
 
             // +spec:containing-block:a8ada9 - line box width determined by containing block and floats
@@ -2924,7 +2925,7 @@ fn layout_bfc<T: ParsedFontTrait>(
 
     // Handle bottom margin escape
     if let Some(last_idx) = last_child_index {
-        let last_child = tree.get(last_idx).ok_or(LayoutError::InvalidTree)?;
+        let last_child = tree.get(LayoutNodeId::new(last_idx)).ok_or(LayoutError::InvalidTree)?;
         let last_child_bp = last_child.box_props.unpack();
         let last_has_bottom_blocker =
             has_margin_collapse_blocker(&last_child_bp, writing_mode, false);
@@ -3146,12 +3147,12 @@ fn layout_bfc<T: ParsedFontTrait>(
     output.baseline = None;
 
     // Store escaped margins in the LayoutNode for use by parent
-    if let Some(warm_mut) = tree.warm_mut(node_index) {
+    if let Some(warm_mut) = tree.warm_mut(LayoutNodeId::new(node_index)) {
         warm_mut.escaped_top_margin = escaped_top_margin;
         warm_mut.escaped_bottom_margin = escaped_bottom_margin;
     }
 
-    if let Some(warm_mut) = tree.warm_mut(node_index) {
+    if let Some(warm_mut) = tree.warm_mut(LayoutNodeId::new(node_index)) {
         warm_mut.baseline = output.baseline;
     }
 
@@ -3347,12 +3348,12 @@ fn layout_ifc<T: ParsedFontTrait>(
     // +spec:display-property:5a795c - root inline box: block container generates anonymous inline box holding all inline-level contents, inheriting from parent
     // For anonymous boxes, we need to find the DOM ID from a parent or child
     // CSS 2.2 § 9.2.1.1: Anonymous boxes inherit properties from their enclosing box
-    let node = tree.get(node_index).ok_or(LayoutError::InvalidTree)?;
+    let node = tree.get(LayoutNodeId::new(node_index)).ok_or(LayoutError::InvalidTree)?;
     let ifc_root_dom_id = if let Some(id) = node.dom_node_id { id } else {
         // Anonymous box - get DOM ID from parent or first child with DOM ID
         let parent_dom_id = node
             .parent
-            .and_then(|p| tree.get(p))
+            .and_then(|p| tree.get(LayoutNodeId::new(p)))
             .and_then(|n| n.dom_node_id);
 
         if let Some(id) = parent_dom_id {
@@ -3361,7 +3362,7 @@ fn layout_ifc<T: ParsedFontTrait>(
             // Try to find DOM ID from first child
             tree.children(node_index)
                 .iter()
-                .filter_map(|&child_idx| tree.get(child_idx)).find_map(|n| n.dom_node_id)
+                .filter_map(|&child_idx| tree.get(LayoutNodeId::new(child_idx))).find_map(|n| n.dom_node_id)
                 .ok_or(LayoutError::InvalidTree)?
         }
     };
@@ -3405,7 +3406,7 @@ fn layout_ifc<T: ParsedFontTrait>(
         let compact = ctx.styled_dom.css_property_cache.ptr.compact_cache.as_ref();
         let mut stack = alloc::vec![node_index];
         while let Some(idx) = stack.pop() {
-            if let Some(cold) = tree.cold(idx) {
+            if let Some(cold) = tree.cold(LayoutNodeId::new(idx)) {
                 cold.node_data_fingerprint.hash(&mut h);
                 // NodeDataFingerprint covers the node's own data and INLINE
                 // css — not what the AUTHOR STYLESHEET resolved onto it. Two
@@ -3413,7 +3414,7 @@ fn layout_ifc<T: ParsedFontTrait>(
                 // otherwise share a key and serve each other's styles. The
                 // compact cache holds the RESOLVED values, so folding this
                 // node's entries in makes any cascade change invalidate.
-                let dom_id_opt = tree.get(idx).and_then(|n| n.dom_node_id);
+                let dom_id_opt = tree.get(LayoutNodeId::new(idx)).and_then(|n| n.dom_node_id);
                 if let (Some(cc), Some(dom_id)) = (compact, dom_id_opt) {
                     let i = dom_id.index();
                     if let Some(t1) = cc.tier1_enums.get(i) {
@@ -3444,7 +3445,7 @@ fn layout_ifc<T: ParsedFontTrait>(
     }));
 
     let cached_collection = tree
-        .warm(node_index)
+        .warm(LayoutNodeId::new(node_index))
         .and_then(|w| w.inline_content_cache.as_ref())
         .filter(|c| c.subtree_fingerprint == subtree_fingerprint)
         .map(|c| (c.content.clone(), c.child_map.clone(), c.content_hash_base));
@@ -3474,7 +3475,7 @@ fn layout_ifc<T: ParsedFontTrait>(
                 h.finish()
             };
             base = Some(computed_base);
-            if let Some(w) = tree.warm_mut(node_index) {
+            if let Some(w) = tree.warm_mut(LayoutNodeId::new(node_index)) {
                 w.inline_content_cache =
                     Some(Box::new(crate::solver3::layout_tree::CachedInlineContent {
                         content: content.clone(),
@@ -3581,7 +3582,7 @@ fn layout_ifc<T: ParsedFontTrait>(
         // would re-emit the removed content AND index `styled_nodes` with a
         // `source_node_id` that no longer exists in the new DOM (OOB panic).
         // Clear it so the empty IFC renders nothing.
-        if let Some(warm_node) = tree.warm_mut(node_index) {
+        if let Some(warm_node) = tree.warm_mut(LayoutNodeId::new(node_index)) {
             warm_node.inline_layout_result = None;
         }
         return Ok(LayoutOutput::default());
@@ -3594,7 +3595,7 @@ fn layout_ifc<T: ParsedFontTrait>(
     // back to full layout_flow().
     {
         let cached_ifc = tree
-            .warm(node_index)
+            .warm(LayoutNodeId::new(node_index))
             .and_then(|n| n.inline_layout_result.as_ref());
 
         // Only reuse the cached inline layout when the available WIDTH is unchanged.
@@ -3844,7 +3845,7 @@ fn layout_ifc<T: ParsedFontTrait>(
             return Ok(output);
         }
 
-        let warm_node = tree.warm_mut(node_index).ok_or(LayoutError::InvalidTree)?;
+        let warm_node = tree.warm_mut(LayoutNodeId::new(node_index)).ok_or(LayoutError::InvalidTree)?;
 
         let should_store = match &warm_node.inline_layout_result {
             None => {
@@ -5722,7 +5723,7 @@ fn is_visibility_collapsed<T: ParsedFontTrait>(
 /// Note: Full whitespace detection would require checking text content during rendering.
 /// This function provides a basic check suitable for layout phase.
 fn is_cell_empty(tree: &LayoutTree, cell_index: usize) -> bool {
-    if tree.get(cell_index).is_none() {
+    if tree.get(LayoutNodeId::new(cell_index)).is_none() {
         return true; // Invalid cell is considered empty
     }
 
@@ -5732,7 +5733,7 @@ fn is_cell_empty(tree: &LayoutTree, cell_index: usize) -> bool {
     }
 
     // If cell has an inline layout result, check if it's empty
-    if let Some(warm_node) = tree.warm(cell_index) {
+    if let Some(warm_node) = tree.warm(LayoutNodeId::new(cell_index)) {
         if let Some(ref cached_layout) = warm_node.inline_layout_result {
             // Check if inline layout has any rendered content
             // Empty inline layouts have no items (glyphs/fragments)
@@ -5794,7 +5795,7 @@ pub fn layout_table_fc<T: ParsedFontTrait>(
 
     // Get the table node to read CSS properties
     let table_node = tree
-        .get(node_index)
+        .get(LayoutNodeId::new(node_index))
         .ok_or(LayoutError::InvalidTree)?
         .clone();
 
@@ -5802,7 +5803,7 @@ pub fn layout_table_fc<T: ParsedFontTrait>(
     // This accounts for the table's own width property (e.g., width: 100%)
     let table_border_box_width = if let Some(dom_id) = table_node.dom_node_id {
         // Use calculate_used_size_for_node to resolve table width (respects width:100%)
-        let intrinsic = tree.warm(node_index).and_then(|w| w.intrinsic_sizes).unwrap_or_default();
+        let intrinsic = tree.warm(LayoutNodeId::new(node_index)).and_then(|w| w.intrinsic_sizes).unwrap_or_default();
         let containing_block_size = LogicalSize {
             width: constraints.available_size.width,
             height: constraints.available_size.height,
@@ -6145,13 +6146,13 @@ fn analyze_table_structure<T: ParsedFontTrait>(
 ) -> Result<TableLayoutContext> {
     let mut table_ctx = TableLayoutContext::new();
 
-    let table_node = tree.get(table_index).ok_or(LayoutError::InvalidTree)?;
+    let table_node = tree.get(LayoutNodeId::new(table_index)).ok_or(LayoutError::InvalidTree)?;
 
     // +spec:width-calculation:0a2766 - table internal elements form rectangular grid of rows/columns (CSS 2.2 §17.5)
     // CSS 2.2 Section 17.4: A table may have one table-caption child.
     // Traverse children to find caption, columns/colgroups, rows, and row groups
     for &child_idx in tree.children(table_index) {
-        if let Some(child) = tree.get(child_idx) {
+        if let Some(child) = tree.get(LayoutNodeId::new(child_idx)) {
             // Check if this is a table caption
             if matches!(child.formatting_context, FormattingContext::TableCaption) {
                 debug_log!(ctx, "Found table caption at index {}", child_idx);
@@ -6176,7 +6177,7 @@ fn analyze_table_structure<T: ParsedFontTrait>(
                 FormattingContext::TableRowGroup => {
                     // Process rows within the row group
                     for &row_idx in tree.children(child_idx) {
-                        if let Some(row) = tree.get(row_idx) {
+                        if let Some(row) = tree.get(LayoutNodeId::new(row_idx)) {
                             if matches!(row.formatting_context, FormattingContext::TableRow) {
                                 analyze_table_row(tree, row_idx, &mut table_ctx, ctx)?;
                             }
@@ -6214,7 +6215,7 @@ fn analyze_table_colgroup<T: ParsedFontTrait>(
     table_ctx: &TableLayoutContext,
     ctx: &mut LayoutContext<'_, T>,
 ) -> Result<()> {
-    let colgroup_node = tree.get(colgroup_index).ok_or(LayoutError::InvalidTree)?;
+    let colgroup_node = tree.get(LayoutNodeId::new(colgroup_index)).ok_or(LayoutError::InvalidTree)?;
 
     // Check if the colgroup itself has visibility:collapse
     if is_visibility_collapsed(ctx, colgroup_node) {
@@ -6229,7 +6230,7 @@ fn analyze_table_colgroup<T: ParsedFontTrait>(
 
     // Check for individual column elements within the group
     for &col_idx in tree.children(colgroup_index) {
-        if let Some(col_node) = tree.get(col_idx) {
+        if let Some(col_node) = tree.get(LayoutNodeId::new(col_idx)) {
             // Note: Individual columns don't have a FormattingContext::TableColumn
             // They are represented as children of TableColumnGroup
             // Check visibility:collapse on each column
@@ -6275,7 +6276,7 @@ fn analyze_table_row<T: ParsedFontTrait>(
     ctx: &mut LayoutContext<'_, T>,
 ) -> Result<()> {
     // +spec:inline-formatting-context:3f8091 - table visual layout: cells occupy grid cells, row/column spanning
-    let row_node = tree.get(row_index).ok_or(LayoutError::InvalidTree)?;
+    let row_node = tree.get(LayoutNodeId::new(row_index)).ok_or(LayoutError::InvalidTree)?;
     let row_num = table_ctx.num_rows;
     table_ctx.num_rows += 1;
     // Track the layout tree index for this row (for positioning/painting)
@@ -6293,7 +6294,7 @@ fn analyze_table_row<T: ParsedFontTrait>(
     let mut col_index = 0;
 
     for &cell_idx in tree.children(row_index) {
-        if let Some(cell) = tree.get(cell_idx) {
+        if let Some(cell) = tree.get(LayoutNodeId::new(cell_idx)) {
             if matches!(cell.formatting_context, FormattingContext::TableCell) {
                 // Read colspan/rowspan from the cell's HTML attributes (default 1).
                 let (colspan, rowspan) = cell
@@ -6415,7 +6416,7 @@ fn calculate_column_widths_fixed<T: ParsedFontTrait>(
         }
 
         // Look up the cell's CSS width via its dom_node_id
-        let Some(dom_id) = tree.get(cell_info.node_index).and_then(|n| n.dom_node_id) else {
+        let Some(dom_id) = tree.get(LayoutNodeId::new(cell_info.node_index)).and_then(|n| n.dom_node_id) else {
             continue;
         };
 
@@ -6583,7 +6584,7 @@ fn measure_cell_content_width<T: ParsedFontTrait>(
         crate::solver3::cache::ComputeMode::ComputeSize,
     )?;
 
-    let cell_bp = tree.get(cell_index)
+    let cell_bp = tree.get(LayoutNodeId::new(cell_index))
         .ok_or(LayoutError::InvalidTree)?
         .box_props.unpack();
     let padding = &cell_bp.padding;
@@ -6594,10 +6595,10 @@ fn measure_cell_content_width<T: ParsedFontTrait>(
     // content width) rather than used_size. used_size for auto-width blocks
     // fills the containing block, which is huge (f32::MAX/2) during
     // intrinsic sizing — that would make every column appear infinitely wide.
-    let content_width = tree.warm(cell_index)
+    let content_width = tree.warm(LayoutNodeId::new(cell_index))
         .and_then(|w| w.overflow_content_size)
         .map_or_else(|| {
-            tree.get(cell_index)
+            tree.get(LayoutNodeId::new(cell_index))
                 .and_then(|n| n.used_size)
                 .map_or(0.0, |s| s.width)
         }, |s| s.width);
@@ -6925,7 +6926,7 @@ fn layout_cell_for_height<T: ParsedFontTrait>(
     cell_width: f32,
     constraints: &LayoutConstraints<'_>,
 ) -> Result<f32> {
-    let cell_node = tree.get(cell_index).ok_or(LayoutError::InvalidTree)?;
+    let cell_node = tree.get(LayoutNodeId::new(cell_index)).ok_or(LayoutError::InvalidTree)?;
     let cell_dom_id = cell_node.dom_node_id.ok_or(LayoutError::InvalidTree)?;
 
     // Check if cell has text content directly in DOM (not in LayoutTree)
@@ -6946,7 +6947,7 @@ fn layout_cell_for_height<T: ParsedFontTrait>(
     );
 
     // Get padding and border to calculate content width
-    let cell_node = tree.get(cell_index).ok_or(LayoutError::InvalidTree)?;
+    let cell_node = tree.get(LayoutNodeId::new(cell_index)).ok_or(LayoutError::InvalidTree)?;
     let cell_bp = cell_node.box_props.unpack();
     let padding = &cell_bp.padding;
     let border = &cell_bp.border;
@@ -6994,7 +6995,7 @@ fn layout_cell_for_height<T: ParsedFontTrait>(
         // prior BFC Pass 1 (which ran before layout_cell_for_height).
         let cell_children: Vec<usize> = tree.children(cell_index).to_vec();
         for child_idx in cell_children {
-            if let Some(warm) = tree.warm_mut(child_idx) {
+            if let Some(warm) = tree.warm_mut(LayoutNodeId::new(child_idx)) {
                 warm.inline_layout_result = None;
             }
         }
@@ -7043,12 +7044,12 @@ fn layout_cell_for_height<T: ParsedFontTrait>(
             crate::solver3::cache::ComputeMode::PerformLayout,
         )?;
 
-        let cell_node = tree.get(cell_index).ok_or(LayoutError::InvalidTree)?;
+        let cell_node = tree.get(LayoutNodeId::new(cell_index)).ok_or(LayoutError::InvalidTree)?;
         cell_node.used_size.unwrap_or_default().height
     };
 
     // Add padding and border to get the total height
-    let cell_node = tree.get(cell_index).ok_or(LayoutError::InvalidTree)?;
+    let cell_node = tree.get(LayoutNodeId::new(cell_index)).ok_or(LayoutError::InvalidTree)?;
     let cell_bp = cell_node.box_props.unpack();
     let padding = &cell_bp.padding;
     let border = &cell_bp.border;
@@ -7081,7 +7082,7 @@ fn layout_cell_for_height<T: ParsedFontTrait>(
 // +spec:inline-formatting-context:c4a20d - cell baseline: first in-flow line box or bottom of content edge
 // +spec:inline-formatting-context:17a9c1 - vertical-align baseline/top/bottom/middle for table cells
 fn compute_cell_baseline(cell_index: usize, tree: &LayoutTree) -> f32 {
-    let Some(cell_node) = tree.get(cell_index) else {
+    let Some(cell_node) = tree.get(LayoutNodeId::new(cell_index)) else {
         return 0.0;
     };
 
@@ -7089,7 +7090,7 @@ fn compute_cell_baseline(cell_index: usize, tree: &LayoutTree) -> f32 {
 
     // +spec:inline-formatting-context:27be38 - cell baseline is first in-flow line box or bottom of content edge
     // Check if the cell has inline layout (first in-flow line box)
-    if let Some(warm_node) = tree.warm(cell_index) {
+    if let Some(warm_node) = tree.warm(LayoutNodeId::new(cell_index)) {
         if let Some(ref cached_layout) = warm_node.inline_layout_result {
             // (d6h) Materialized: sentinel-safe first-line baseline.
             let inline_result = cached_layout.materialized();
@@ -7107,7 +7108,7 @@ fn compute_cell_baseline(cell_index: usize, tree: &LayoutTree) -> f32 {
     let children = tree.children(cell_index);
     for &child_idx in children {
         if child_idx < tree.nodes.len() {
-            if let Some(child_warm) = tree.warm(child_idx) {
+            if let Some(child_warm) = tree.warm(LayoutNodeId::new(child_idx)) {
                 if child_warm.inline_layout_result.is_some() {
                     let child_baseline = compute_cell_baseline(child_idx, tree);
                     let padding_top = cell_bp.padding.top;
@@ -7314,7 +7315,7 @@ fn calculate_row_heights<T: ParsedFontTrait>(
             // +spec:box-model:0ab9b0 - empty-cells:hide suppresses borders/backgrounds, row gets zero height if all cells hidden+empty
             // Check if ALL cells in this row have empty-cells:hide and are empty
             let all_hidden_empty = row_cells.iter().all(|&cell_idx| {
-                tree.get(cell_idx).is_none_or(|cell_node| {
+                tree.get(LayoutNodeId::new(cell_idx)).is_none_or(|cell_node| {
                     let ec = get_empty_cells_property(ctx, cell_node);
                     ec == StyleEmptyCells::Hide && is_cell_empty(tree, cell_idx)
                 })
@@ -7436,7 +7437,7 @@ fn position_table_cells<T: ParsedFontTrait>(
         for (i, &row_y) in row_positions.iter().enumerate() {
             if let Some(&row_node_idx) = table_ctx.row_node_indices.get(i) {
                 let row_height = table_ctx.row_heights.get(i).copied().unwrap_or(0.0);
-                if let Some(row_node) = tree.get_mut(row_node_idx) {
+                if let Some(row_node) = tree.get_mut(LayoutNodeId::new(row_node_idx)) {
                     row_node.used_size = Some(LogicalSize {
                         width: total_col_width,
                         height: row_height,
@@ -7454,7 +7455,7 @@ fn position_table_cells<T: ParsedFontTrait>(
         let precomputed_cell_baseline = compute_cell_baseline(cell_info.node_index, tree);
 
         let cell_node = tree
-            .get_mut(cell_info.node_index)
+            .get_mut(LayoutNodeId::new(cell_info.node_index))
             .ok_or(LayoutError::InvalidTree)?;
 
         // Calculate cell position
@@ -7556,7 +7557,7 @@ fn position_table_cells<T: ParsedFontTrait>(
         // +spec:positioning:156e49 - table cell vertical-align ordering and extra padding per CSS 2.2 §17.5.3
         // Apply vertical-align to cell content if it has inline layout
         // We need to compute the y_offset using immutable borrows first, then apply it mutably.
-        let vertical_align_adjustment = if let Some(warm_node) = tree.warm(cell_info.node_index) {
+        let vertical_align_adjustment = if let Some(warm_node) = tree.warm(LayoutNodeId::new(cell_info.node_index)) {
             if let Some(ref cached_layout) = warm_node.inline_layout_result {
                 // (d6h) Materialized: sentinel-safe content measurement.
                 let inline_result = cached_layout.materialized();
@@ -7635,7 +7636,7 @@ fn position_table_cells<T: ParsedFontTrait>(
 
         // Apply the vertical alignment adjustment (requires mutable borrow)
         if let Some((y_offset, available_width, has_floats)) = vertical_align_adjustment {
-            if let Some(warm_mut) = tree.warm_mut(cell_info.node_index) {
+            if let Some(warm_mut) = tree.warm_mut(LayoutNodeId::new(cell_info.node_index)) {
                 if let Some(ref cached_layout) = warm_mut.inline_layout_result {
                     use std::sync::Arc;
                     use crate::text3::cache::{PositionedItem, UnifiedLayout};
@@ -7701,7 +7702,7 @@ fn position_table_cells<T: ParsedFontTrait>(
         // in-flow block children by the same offset so the UA default
         // `vertical-align: middle` actually centers block content, like browsers.
         let cell_has_inline = tree
-            .warm(cell_info.node_index)
+            .warm(LayoutNodeId::new(cell_info.node_index))
             .is_some_and(|w| w.inline_layout_result.is_some());
         if !cell_has_inline {
             let vertical_align = cell_dom_node_id.map_or(StyleVerticalAlign::Baseline, |dom_id| {
@@ -7728,7 +7729,7 @@ fn position_table_cells<T: ParsedFontTrait>(
                 let mut content_height = 0.0f32;
                 let mut inflow: Vec<usize> = Vec::new();
                 for &c in &children {
-                    let dom_id = tree.get(c).and_then(|n| n.dom_node_id);
+                    let dom_id = tree.get(LayoutNodeId::new(c)).and_then(|n| n.dom_node_id);
                     if matches!(
                         get_position_type(ctx.styled_dom, dom_id),
                         LayoutPosition::Absolute | LayoutPosition::Fixed
@@ -7736,10 +7737,10 @@ fn position_table_cells<T: ParsedFontTrait>(
                         continue; // out-of-flow children are unaffected by vertical-align
                     }
                     let top = tree
-                        .warm(c)
+                        .warm(LayoutNodeId::new(c))
                         .and_then(|w| w.relative_position)
                         .map_or(0.0, |p| p.y);
-                    let h = tree.get(c).and_then(|n| n.used_size).map_or(0.0, |s| s.height);
+                    let h = tree.get(LayoutNodeId::new(c)).and_then(|n| n.used_size).map_or(0.0, |s| s.height);
                     content_height = content_height.max(top + h);
                     inflow.push(c);
                 }
@@ -7751,7 +7752,7 @@ fn position_table_cells<T: ParsedFontTrait>(
                 let y_offset = (content_box_height - content_height) * factor;
                 if y_offset > 0.01 {
                     for &c in &inflow {
-                        if let Some(w) = tree.warm_mut(c) {
+                        if let Some(w) = tree.warm_mut(LayoutNodeId::new(c)) {
                             if let Some(pos) = w.relative_position.as_mut() {
                                 pos.y += y_offset;
                             }
@@ -7818,7 +7819,7 @@ fn collect_and_measure_inline_content<T: ParsedFontTrait>(
     // node's content (both parts collect the same full content; the range
     // partitions it — part 1 `[0, at)`, part 2 `[at, ∞)`).
     if let Some((start, end)) = tree
-        .cold(ifc_root_index)
+        .cold(LayoutNodeId::new(ifc_root_index))
         .and_then(|c| c.preview_byte_range)
     {
         content = slice_inline_content_by_bytes(content, start as usize, end as usize);
@@ -7895,7 +7896,7 @@ fn collect_and_measure_inline_content_impl<T: ParsedFontTrait>(
     let ifc_id = IfcId::unique();
 
     // Store IFC ID on the IFC root node
-    if let Some(cold_node) = tree.cold_mut(ifc_root_index) {
+    if let Some(cold_node) = tree.cold_mut(LayoutNodeId::new(ifc_root_index)) {
         cold_node.ifc_id = Some(ifc_id);
     }
 
@@ -7923,7 +7924,7 @@ fn collect_and_measure_inline_content_impl<T: ParsedFontTrait>(
         crate::az_mark(((0x60960 + slot)) as u32, ((&*tree as *const LayoutTree as usize) as u32) as u32);
     }
 
-    let ifc_root_node = tree.get(ifc_root_index).ok_or(LayoutError::InvalidTree)?;
+    let ifc_root_node = tree.get(LayoutNodeId::new(ifc_root_index)).ok_or(LayoutError::InvalidTree)?;
     // [g135] reached past the 6449 tree.get.
     #[cfg(feature = "web_lift")]
     unsafe { crate::az_mark((0x606A4) as u32, (0x0000_6449u32) as u32); }
@@ -7937,7 +7938,7 @@ fn collect_and_measure_inline_content_impl<T: ParsedFontTrait>(
         // Anonymous box - get DOM ID from parent or first child with DOM ID
         let parent_dom_id = ifc_root_node
             .parent
-            .and_then(|p| tree.get(p))
+            .and_then(|p| tree.get(LayoutNodeId::new(p)))
             .and_then(|n| n.dom_node_id);
 
         if let Some(id) = parent_dom_id {
@@ -7946,7 +7947,7 @@ fn collect_and_measure_inline_content_impl<T: ParsedFontTrait>(
             // Try to find DOM ID from first child
             if let Some(id) = tree.children(ifc_root_index)
                 .iter()
-                .filter_map(|&child_idx| tree.get(child_idx)).find_map(|n| n.dom_node_id) { id } else {
+                .filter_map(|&child_idx| tree.get(LayoutNodeId::new(child_idx))).find_map(|n| n.dom_node_id) { id } else {
                 debug_warning!(ctx, "IFC root and all ancestors/children have no DOM ID");
                 return Ok(());
             }
@@ -7975,7 +7976,7 @@ fn collect_and_measure_inline_content_impl<T: ParsedFontTrait>(
                 item_index: item_idx as u32,
             };
 
-            let child_node = tree.get(child_index).ok_or(LayoutError::InvalidTree)?;
+            let child_node = tree.get(LayoutNodeId::new(child_index)).ok_or(LayoutError::InvalidTree)?;
             let Some(dom_id) = child_node.dom_node_id else {
                 debug_warning!(
                     ctx,
@@ -8015,7 +8016,7 @@ fn collect_and_measure_inline_content_impl<T: ParsedFontTrait>(
                 
                 // Set IFC membership on the text node - drop child_node borrow first
                 drop(child_node);
-                if let Some(warm_mut) = tree.warm_mut(child_index) {
+                if let Some(warm_mut) = tree.warm_mut(LayoutNodeId::new(child_index)) {
                     warm_mut.ifc_membership = Some(IfcMembership {
                         ifc_id,
                         ifc_root_layout_index: ifc_root_index,
@@ -8069,7 +8070,7 @@ fn collect_and_measure_inline_content_impl<T: ParsedFontTrait>(
                 // We must determine its size and baseline before passing it to text3.
 
                 // The intrinsic sizing pass has already calculated its preferred size.
-                let intrinsic_size = tree.warm(child_index).and_then(|w| w.intrinsic_sizes).unwrap_or_default();
+                let intrinsic_size = tree.warm(LayoutNodeId::new(child_index)).and_then(|w| w.intrinsic_sizes).unwrap_or_default();
                 let box_props = child_node.box_props.unpack();
 
                 let styled_node_state = ctx
@@ -8152,7 +8153,7 @@ fn collect_and_measure_inline_content_impl<T: ParsedFontTrait>(
                 let final_size = LogicalSize::new(tentative_size.width, final_height);
 
                 // Update the node in the tree with its now-known used size.
-                tree.get_mut(child_index).unwrap().used_size = Some(final_size);
+                tree.get_mut(LayoutNodeId::new(child_index)).unwrap().used_size = Some(final_size);
 
                 // CSS 2.2 § 10.8.1: inline-block baseline fallback
                 // If overflow is not 'visible', use bottom margin edge as baseline
@@ -8208,7 +8209,7 @@ fn collect_and_measure_inline_content_impl<T: ParsedFontTrait>(
     // Check if this IFC root OR its parent is a list-item and needs a marker
     // Case 1: IFC root itself is list-item (e.g., <li> with display: list-item)
     // Case 2: IFC root's parent is list-item (e.g., <li><text>...</text></li>)
-    let ifc_root_node = tree.get(ifc_root_index).ok_or(LayoutError::InvalidTree)?;
+    let ifc_root_node = tree.get(LayoutNodeId::new(ifc_root_index)).ok_or(LayoutError::InvalidTree)?;
     // [g135] reached past the 6706 tree.get.
     #[cfg(feature = "web_lift")]
     unsafe { crate::az_mark((0x606A4) as u32, (0x0000_6706u32) as u32); }
@@ -8229,7 +8230,7 @@ fn collect_and_measure_inline_content_impl<T: ParsedFontTrait>(
     // Check IFC root's parent
     if list_item_dom_id.is_none() {
         if let Some(parent_idx) = ifc_root_node.parent {
-            if let Some(parent_node) = tree.get(parent_idx) {
+            if let Some(parent_node) = tree.get(LayoutNodeId::new(parent_idx)) {
                 if let Some(parent_dom_id) = parent_node.dom_node_id {
                     use crate::solver3::getters::get_display_property;
                     if let MultiValue::Exact(display) = get_display_property(ctx.styled_dom, Some(parent_dom_id)) {
@@ -8262,7 +8263,7 @@ fn collect_and_measure_inline_content_impl<T: ParsedFontTrait>(
             .iter()
             .enumerate()
             .find(|(idx, node)| {
-                node.dom_node_id == Some(list_dom_id) && tree.warm(*idx).and_then(|w| w.pseudo_element).is_none()
+                node.dom_node_id == Some(list_dom_id) && tree.warm(LayoutNodeId::new(*idx)).and_then(|w| w.pseudo_element).is_none()
             })
             .map(|(idx, _)| idx);
 
@@ -8272,7 +8273,7 @@ fn collect_and_measure_inline_content_impl<T: ParsedFontTrait>(
             let marker_idx = tree.children(list_idx)
                 .iter()
                 .find(|&&child_idx| {
-                    tree.warm(child_idx)
+                    tree.warm(LayoutNodeId::new(child_idx))
                         .is_some_and(|w| w.pseudo_element == Some(PseudoElement::Marker))
                 })
                 .copied();
@@ -8283,7 +8284,7 @@ fn collect_and_measure_inline_content_impl<T: ParsedFontTrait>(
                 // Get the DOM ID for style resolution (marker references the same DOM node as
                 // list-item)
                 let list_dom_id_for_style = tree
-                    .get(marker_idx)
+                    .get(LayoutNodeId::new(marker_idx))
                     .and_then(|n| n.dom_node_id)
                     .unwrap_or(list_dom_id);
 
@@ -8505,7 +8506,7 @@ fn collect_and_measure_inline_content_impl<T: ParsedFontTrait>(
         let child_index = children
             .iter()
             .find(|&&idx| {
-                tree.get(idx)
+                tree.get(LayoutNodeId::new(idx))
                     .and_then(|n| n.dom_node_id)
                     .is_some_and(|id| id == dom_child_id)
             })
@@ -8523,7 +8524,7 @@ fn collect_and_measure_inline_content_impl<T: ParsedFontTrait>(
         // [g136] NON-TEXT branch taken (text child mis-classified?) — reached tree.get(child_index).
         #[cfg(feature = "web_lift")]
         unsafe { crate::az_mark((0x606A4) as u32, (0x0000_6942u32) as u32); }
-        let child_node = tree.get(child_index).ok_or(LayoutError::InvalidTree)?;
+        let child_node = tree.get(LayoutNodeId::new(child_index)).ok_or(LayoutError::InvalidTree)?;
         // At this point we have a non-text DOM child with a layout node
         let dom_id = child_node.dom_node_id.unwrap();
 
@@ -8547,7 +8548,7 @@ fn collect_and_measure_inline_content_impl<T: ParsedFontTrait>(
             // We must determine its size and baseline before passing it to text3.
 
             // The intrinsic sizing pass has already calculated its preferred size.
-            let intrinsic_size = tree.warm(child_index).and_then(|w| w.intrinsic_sizes).unwrap_or_default();
+            let intrinsic_size = tree.warm(LayoutNodeId::new(child_index)).and_then(|w| w.intrinsic_sizes).unwrap_or_default();
             let box_props = child_node.box_props.unpack();
 
             let styled_node_state = ctx
@@ -8657,7 +8658,7 @@ fn collect_and_measure_inline_content_impl<T: ParsedFontTrait>(
             let final_size = LogicalSize::new(tentative_size.width, final_height);
 
             // Update the node in the tree with its now-known used size.
-            tree.get_mut(child_index).unwrap().used_size = Some(final_size);
+            tree.get_mut(LayoutNodeId::new(child_index)).unwrap().used_size = Some(final_size);
 
             // CSS 2.2 § 10.8.1: For inline-block elements, the baseline is the baseline of the
             // last line box in the normal flow, unless it has either no in-flow line boxes or
@@ -8745,11 +8746,11 @@ fn collect_and_measure_inline_content_impl<T: ParsedFontTrait>(
             // and CSS width/height can constrain them
             
             // Re-get child_node since we dropped it earlier for the inline-block case
-            let child_node = tree.get(child_index).ok_or(LayoutError::InvalidTree)?;
+            let child_node = tree.get(LayoutNodeId::new(child_index)).ok_or(LayoutError::InvalidTree)?;
             let box_props = child_node.box_props.unpack();
 
             // Get intrinsic size from the image data or fall back to layout node
-            let intrinsic_size = tree.warm(child_index)
+            let intrinsic_size = tree.warm(LayoutNodeId::new(child_index))
                 .and_then(|w| w.intrinsic_sizes)
                 .unwrap_or_else(|| IntrinsicSizes {
                     max_content_width: 50.0,
@@ -8781,7 +8782,7 @@ fn collect_and_measure_inline_content_impl<T: ParsedFontTrait>(
             
             // Set the used_size on the layout node so paint_rect works correctly
             let final_size = LogicalSize::new(tentative_size.width, tentative_size.height);
-            tree.get_mut(child_index).unwrap().used_size = Some(final_size);
+            tree.get_mut(LayoutNodeId::new(child_index)).unwrap().used_size = Some(final_size);
             
             // Calculate display size for text3 (this is what text3 uses for positioning)
             let display_width = if final_size.width > 0.0 { 
@@ -9012,7 +9013,7 @@ fn collect_inline_span_recursive<T: ParsedFontTrait>(
         let child_index = parent_children
             .iter()
             .find(|&&idx| {
-                tree.get(idx)
+                tree.get(LayoutNodeId::new(idx))
                     .and_then(|n| n.dom_node_id)
                     .is_some_and(|id| id == child_dom_id)
             })
@@ -9049,8 +9050,8 @@ fn collect_inline_span_recursive<T: ParsedFontTrait>(
                     continue;
                 };
 
-                let child_node = tree.get(child_index).ok_or(LayoutError::InvalidTree)?;
-                let intrinsic_size = tree.warm(child_index).and_then(|w| w.intrinsic_sizes).unwrap_or_default();
+                let child_node = tree.get(LayoutNodeId::new(child_index)).ok_or(LayoutError::InvalidTree)?;
+                let intrinsic_size = tree.warm(LayoutNodeId::new(child_index)).and_then(|w| w.intrinsic_sizes).unwrap_or_default();
                 let width = intrinsic_size.max_content_width;
 
                 let styled_node_state = ctx
@@ -9095,7 +9096,7 @@ fn collect_inline_span_recursive<T: ParsedFontTrait>(
                 let final_height = layout_result.output.overflow_size.height;
                 let final_size = LogicalSize::new(width, final_height);
 
-                tree.get_mut(child_index).unwrap().used_size = Some(final_size);
+                tree.get_mut(LayoutNodeId::new(child_index)).unwrap().used_size = Some(final_size);
 
                 // CSS 2.2 § 10.8.1: inline-block baseline fallback
                 let overflow_x = get_overflow_x(ctx.styled_dom, child_dom_id, &styled_node_state).unwrap_or_default();
@@ -9439,7 +9440,7 @@ fn has_margin_collapse_blocker(
 ///
 /// `true` if the element is empty and its margins can collapse internally
 fn is_empty_block(tree: &LayoutTree, node_index: usize) -> bool {
-    let Some(node) = tree.get(node_index) else {
+    let Some(node) = tree.get(LayoutNodeId::new(node_index)) else {
         return true;
     };
     // Per CSS 2.2 § 8.3.1: An empty block is one that:
@@ -9454,7 +9455,7 @@ fn is_empty_block(tree: &LayoutTree, node_index: usize) -> bool {
     }
 
     // Check if node has inline content (text)
-    if tree.warm(node_index).and_then(|w| w.inline_layout_result.as_ref()).is_some() {
+    if tree.warm(LayoutNodeId::new(node_index)).and_then(|w| w.inline_layout_result.as_ref()).is_some() {
         return false;
     }
 
@@ -9488,14 +9489,14 @@ fn generate_list_marker_text(
     use crate::solver3::counters::format_counter;
 
     // Get the marker node
-    let Some(marker_node) = tree.get(marker_index) else {
+    let Some(marker_node) = tree.get(LayoutNodeId::new(marker_index)) else {
         return String::new();
     };
 
     // Verify this is actually a ::marker pseudo-element
     // Per spec, markers must be pseudo-elements, not anonymous boxes
-    let marker_pseudo = tree.warm(marker_index).and_then(|w| w.pseudo_element);
-    let marker_anonymous_type = tree.cold(marker_index).and_then(|c| c.anonymous_type);
+    let marker_pseudo = tree.warm(LayoutNodeId::new(marker_index)).and_then(|w| w.pseudo_element);
+    let marker_anonymous_type = tree.cold(LayoutNodeId::new(marker_index)).and_then(|c| c.anonymous_type);
     if marker_pseudo != Some(PseudoElement::Marker) {
         if let Some(msgs) = debug_messages {
             msgs.push(LayoutDebugMessage::warning(format!(
@@ -9519,7 +9520,7 @@ fn generate_list_marker_text(
         return String::new();
     };
 
-    let Some(list_item_node) = tree.get(list_item_index) else {
+    let Some(list_item_node) = tree.get(LayoutNodeId::new(list_item_index)) else {
         return String::new();
     };
 
@@ -9541,7 +9542,7 @@ fn generate_list_marker_text(
 
     // Get list-style-type from the list-item or its container
     let list_container_dom_id = list_item_node.parent.and_then(|grandparent_index| {
-        tree.get(grandparent_index).and_then(|grandparent| grandparent.dom_node_id)
+        tree.get(LayoutNodeId::new(grandparent_index)).and_then(|grandparent| grandparent.dom_node_id)
     });
 
     // Try to get list-style-type from the list container first,

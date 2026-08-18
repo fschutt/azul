@@ -14,6 +14,7 @@
 //! - CSS 2.1 §8.3.1 (margin collapsing), §9.2.2.1 (anonymous boxes),
 //!   §10.3 (containing block), §14.2 (canvas background)
 
+use azul_layout::solver3::LayoutNodeId;
 use azul_core::dom::{Dom, DomId};
 use azul_core::geom::{LogicalPosition, LogicalRect, LogicalSize};
 use azul_core::resources::RendererResources;
@@ -482,7 +483,7 @@ fn test_whitespace_between_blocks_no_spurious_ifc() {
     let mut anonymous_ifc_count = 0;
     for (idx, node) in tree.nodes.iter().enumerate() {
         if node.dom_node_id.is_none() {
-            if let Some(cold) = tree.cold(idx) {
+            if let Some(cold) = tree.cold(LayoutNodeId::new(idx)) {
                 if let Some(azul_layout::solver3::layout_tree::AnonymousBoxType::InlineWrapper) = cold.anonymous_type {
                     anonymous_ifc_count += 1;
                 }

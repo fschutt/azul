@@ -7,6 +7,7 @@
 //! 4. `RestyleResult.max_relayout_scope` is tracked during restyle
 //! 5. IFC layouts with text produce correct item_metrics
 
+use azul_layout::solver3::LayoutNodeId;
 use azul_core::dom::{Dom, DomId};
 use azul_core::geom::{LogicalPosition, LogicalRect, LogicalSize};
 use azul_core::resources::RendererResources;
@@ -415,7 +416,7 @@ fn test_ifc_layout_produces_item_metrics() {
     // Find nodes with inline_layout_result (IFC roots)
     let ifc_nodes: Vec<(usize, &CachedInlineLayout)> = tree.nodes.iter().enumerate()
         .filter_map(|(idx, _)| {
-            tree.warm(idx)
+            tree.warm(LayoutNodeId::new(idx))
                 .and_then(|w| w.inline_layout_result.as_ref())
                 .map(|ilr| (idx, &**ilr))
         })
@@ -470,7 +471,7 @@ fn test_ifc_layout_metrics_have_correct_line_indices() {
 
     let ifc_nodes: Vec<(usize, &CachedInlineLayout)> = tree.nodes.iter().enumerate()
         .filter_map(|(idx, _)| {
-            tree.warm(idx)
+            tree.warm(LayoutNodeId::new(idx))
                 .and_then(|w| w.inline_layout_result.as_ref())
                 .map(|ilr| (idx, &**ilr))
         })
@@ -513,7 +514,7 @@ fn test_ifc_layout_metrics_x_offsets_increase_on_same_line() {
 
     let ifc_nodes: Vec<(usize, &CachedInlineLayout)> = tree.nodes.iter().enumerate()
         .filter_map(|(idx, _)| {
-            tree.warm(idx)
+            tree.warm(LayoutNodeId::new(idx))
                 .and_then(|w| w.inline_layout_result.as_ref())
                 .map(|ilr| (idx, &**ilr))
         })
@@ -556,7 +557,7 @@ fn test_ifc_layout_metrics_source_node_ids_for_text() {
 
     let ifc_nodes: Vec<(usize, &CachedInlineLayout)> = tree.nodes.iter().enumerate()
         .filter_map(|(idx, _)| {
-            tree.warm(idx)
+            tree.warm(LayoutNodeId::new(idx))
                 .and_then(|w| w.inline_layout_result.as_ref())
                 .map(|ilr| (idx, &**ilr))
         })

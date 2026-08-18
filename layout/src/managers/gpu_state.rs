@@ -5,6 +5,7 @@
 //! for scrollbar opacity - as a single source of truth for
 //! the GPU cache.
 
+use crate::solver3::layout_tree::LayoutNodeId;
 use alloc::collections::BTreeMap;
 
 #[cfg(feature = "std")]
@@ -123,7 +124,7 @@ impl GpuStateManager {
         let gpu_cache = self.get_or_create_cache(dom_id);
 
         for (node_idx, node) in layout_tree.nodes.iter().enumerate() {
-            let warm = layout_tree.warm(node_idx);
+            let warm = layout_tree.warm(LayoutNodeId::new(node_idx));
             // The necessity flags are the layout pass's, amended after layout by
             // `cache::apply_virtual_scroll_necessity` (via `register_scroll_nodes`)
             // for a `VirtualView`, whose scrollable extent layout cannot see. This
@@ -164,7 +165,7 @@ impl GpuStateManager {
             let content_size = scroll_manager
                 .get_scroll_state(dom_id, node_id)
                 .and_then(|s| s.virtual_scroll_size)
-                .unwrap_or_else(|| layout_tree.get_content_size(node_idx));
+                .unwrap_or_else(|| layout_tree.get_content_size(LayoutNodeId::new(node_idx)));
 
             if scrollbar_info.needs_vertical {
                 // Use the visual width from the scrollbar style — same value used
@@ -1328,7 +1329,7 @@ mod autotest_generated {
         //    virtual size).
         let states = sm.get_scroll_states_for_dom(dom(0));
         let pos = states.get(&NODE).expect("the callback created a scroll state");
-        let mut info = t.warm(0).and_then(|w| w.scrollbar_info).expect("layout stored one");
+        let mut info = t.warm(LayoutNodeId::new(0)).and_then(|w| w.scrollbar_info).expect("layout stored one");
         assert!(
             apply_virtual_scroll_necessity(
                 &styled_dom,
@@ -1346,7 +1347,7 @@ mod autotest_generated {
             (0.0, 0.0),
             "no layout gutter is reserved after the fact — the bar overlays"
         );
-        t.warm_mut(0).expect("the fixture has a warm node").scrollbar_info = Some(info);
+        t.warm_mut(LayoutNodeId::new(0)).expect("the fixture has a warm node").scrollbar_info = Some(info);
         sm.register_or_update_scroll_node(
             dom(0),
             NODE,

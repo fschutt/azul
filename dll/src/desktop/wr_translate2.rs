@@ -793,13 +793,13 @@ pub fn fullhittest_new_webrender(
                     };
                     let node_pos = layout_result
                         .calculated_positions
-                        .get(layout_idx)
+                        .get(layout_idx.index())
                         .copied()
                         .unwrap_or_default();
                     let node_size = layout_node.used_size.unwrap_or_default();
                     let parent_rect = LogicalRect::new(node_pos, node_size);
                     let child_rect =
-                        compute_scroll_child_rect(layout_result, layout_idx, parent_rect);
+                        compute_scroll_child_rect(layout_result, layout_idx.index(), parent_rect);
 
                     let scroll_node = OverflowingScrollNode {
                         parent_rect,
@@ -883,13 +883,13 @@ pub fn fullhittest_new_webrender(
                 };
                 let node_pos = layout_result
                     .calculated_positions
-                    .get(layout_idx)
+                    .get(layout_idx.index())
                     .copied()
                     .unwrap_or_default();
                 let node_size = layout_node.used_size.unwrap_or_default();
                 let parent_rect = LogicalRect::new(node_pos, node_size);
                 let child_rect =
-                    compute_scroll_child_rect(layout_result, layout_idx, parent_rect);
+                    compute_scroll_child_rect(layout_result, layout_idx.index(), parent_rect);
 
                 use azul_core::hit_test::{OverflowingScrollNode, ScrollHitTestItem};
                 let scroll_node = OverflowingScrollNode {
@@ -1067,14 +1067,14 @@ pub fn fullhittest_new_webrender(
 
                 let node_pos = layout_result
                     .calculated_positions
-                    .get(layout_idx)
+                    .get(layout_idx.index())
                     .copied()
                     .unwrap_or_default();
 
                 let node_size = layout_node.used_size.unwrap_or_default();
                 let parent_rect = LogicalRect::new(node_pos, node_size);
                 let child_rect =
-                    compute_scroll_child_rect(layout_result, layout_idx, parent_rect);
+                    compute_scroll_child_rect(layout_result, layout_idx.index(), parent_rect);
 
                 let scroll_id = layout_result
                     .scroll_ids

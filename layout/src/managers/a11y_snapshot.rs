@@ -380,7 +380,7 @@ fn element_bounds(
         return zero;
     };
     let (Some(pos), Some(size)) = (
-        layout_result.calculated_positions.get(layout_idx).copied(),
+        layout_result.calculated_positions.get(layout_idx.index()).copied(),
         hot.used_size,
     ) else {
         return zero;
@@ -410,7 +410,7 @@ fn element_bounds(
     let on_screen = crate::headless::node_rect_to_screen(
         layout_result,
         dom_id,
-        layout_idx,
+        layout_idx.index(),
         local,
         &|d, n| scroll_manager.get_current_offset(d, n),
         &|d, n| {

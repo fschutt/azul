@@ -11,6 +11,7 @@
 //!
 //! Key types: [`Slider`], [`SliderState`], [`SliderOnValueChange`].
 
+use crate::solver3::layout_tree::LayoutNodeId;
 use azul_core::{
     callbacks::{CoreCallbackData, Update},
     dom::{Dom, IdOrClass, IdOrClass::Class, IdOrClassVec, TabIndex},
@@ -676,8 +677,8 @@ mod autotest_generated {
             parent,
         };
         let mut dom_to_layout = BTreeMap::new();
-        dom_to_layout.insert(NodeId::new(0), vec![0usize]);
-        dom_to_layout.insert(NodeId::new(1), vec![1usize]);
+        dom_to_layout.insert(NodeId::new(0), vec![LayoutNodeId::new(0)]);
+        dom_to_layout.insert(NodeId::new(1), vec![LayoutNodeId::new(1)]);
 
         let mut result = unlaid(styled_dom);
         result.layout_tree.nodes = vec![

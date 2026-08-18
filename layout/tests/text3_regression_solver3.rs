@@ -147,7 +147,7 @@ fn run_layout(html: &str) -> Solver3LayoutCache {
 fn intrinsics(cache: &Solver3LayoutCache) -> Vec<(f32, f32)> {
     let tree = cache.tree.as_ref().expect("layout tree");
     (0..64)
-        .filter_map(|i| tree.warm(i).and_then(|w| w.intrinsic_sizes))
+        .filter_map(|i| tree.warm(azul_layout::solver3::LayoutNodeId::new(i)).and_then(|w| w.intrinsic_sizes))
         .map(|s| (s.min_content_width, s.max_content_width))
         .collect()
 }
@@ -155,7 +155,7 @@ fn intrinsics(cache: &Solver3LayoutCache) -> Vec<(f32, f32)> {
 fn used_sizes(cache: &Solver3LayoutCache) -> Vec<(f32, f32)> {
     let tree = cache.tree.as_ref().expect("layout tree");
     (0..64)
-        .filter_map(|i| tree.get(i).and_then(|n| n.used_size))
+        .filter_map(|i| tree.get(azul_layout::solver3::LayoutNodeId::new(i)).and_then(|n| n.used_size))
         .map(|s| (s.width, s.height))
         .collect()
 }

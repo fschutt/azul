@@ -7,6 +7,7 @@
 ///
 /// Bug (task #11): a flex item whose single child is text gets its main-axis
 /// (width) constrained to the cross-axis (height = 26px), clipping the text.
+use azul_layout::solver3::LayoutNodeId;
 use azul_core::dom::{Dom, DomId};
 use azul_core::geom::{LogicalPosition, LogicalRect, LogicalSize};
 use azul_core::resources::RendererResources;
@@ -90,9 +91,9 @@ fn test_real_menubar_widget_not_clipped() {
     let tree = layout_cache.tree.as_ref().expect("Layout tree should exist");
     println!("\n=== REAL WIDGET TREE ===");
     for i in 0..20 {
-        if let Some(node) = tree.get(i) {
+        if let Some(node) = tree.get(LayoutNodeId::new(i)) {
             let size = node.used_size.unwrap_or_default();
-            let intrinsic = tree.warm(i).and_then(|w| w.intrinsic_sizes).unwrap_or_default();
+            let intrinsic = tree.warm(LayoutNodeId::new(i)).and_then(|w| w.intrinsic_sizes).unwrap_or_default();
             println!(
                 "Node {}: fc={:?} size=({:.1},{:.1}) intrinsic_min_w={:.1} max_w={:.1}",
                 i, node.formatting_context, size.width, size.height,
@@ -113,7 +114,7 @@ fn test_real_menubar_widget_not_clipped() {
     // The 3 item flex nodes should be wider than the 26px cross-axis height.
     let mut item_widths = Vec::new();
     for i in 0..20 {
-        if let Some(node) = tree.get(i) {
+        if let Some(node) = tree.get(LayoutNodeId::new(i)) {
             if matches!(node.formatting_context, azul_core::dom::FormattingContext::Flex) {
                 let w = node.used_size.unwrap_or_default().width;
                 if w > 0.0 && w < 400.0 { item_widths.push((i, w)); }
@@ -224,9 +225,9 @@ fn test_app_path_menubar_not_clipped() {
     let tree = layout_cache.tree.as_ref().expect("tree");
     println!("\n=== APP-PATH TREE (system_style=Some, Linux) ===");
     for i in 0..12 {
-        if let Some(node) = tree.get(i) {
+        if let Some(node) = tree.get(LayoutNodeId::new(i)) {
             let size = node.used_size.unwrap_or_default();
-            let intr = tree.warm(i).and_then(|w| w.intrinsic_sizes).unwrap_or_default();
+            let intr = tree.warm(LayoutNodeId::new(i)).and_then(|w| w.intrinsic_sizes).unwrap_or_default();
             println!("Node {}: fc={:?} size=({:.1},{:.1}) intr_min_w={:.1} max_w={:.1}",
                 i, node.formatting_context, size.width, size.height,
                 intr.min_content_width, intr.max_content_width);
@@ -234,7 +235,7 @@ fn test_app_path_menubar_not_clipped() {
     }
     let mut item_widths = Vec::new();
     for i in 0..12 {
-        if let Some(node) = tree.get(i) {
+        if let Some(node) = tree.get(LayoutNodeId::new(i)) {
             if matches!(node.formatting_context, azul_core::dom::FormattingContext::Flex) {
                 let w = node.used_size.unwrap_or_default().width;
                 if w > 0.0 && w < 400.0 { item_widths.push((i, w)); }
@@ -412,9 +413,9 @@ fn test_menubar_item_text_not_clipped() {
     // Dump the whole tree for orientation.
     println!("\n=== TREE ===");
     for i in 0..16 {
-        if let Some(node) = tree.get(i) {
+        if let Some(node) = tree.get(LayoutNodeId::new(i)) {
             let size = node.used_size.unwrap_or_default();
-            let intrinsic = tree.warm(i).and_then(|w| w.intrinsic_sizes).unwrap_or_default();
+            let intrinsic = tree.warm(LayoutNodeId::new(i)).and_then(|w| w.intrinsic_sizes).unwrap_or_default();
             println!(
                 "Node {}: fc={:?} size=({:.1},{:.1}) intrinsic_min_w={:.1} max_w={:.1}",
                 i, node.formatting_context, size.width, size.height,
@@ -438,7 +439,7 @@ fn test_menubar_item_text_not_clipped() {
     // The 3 items are siblings; locate them by being Flex with a text descendant.
     let mut item_widths = Vec::new();
     for i in 0..16 {
-        if let Some(node) = tree.get(i) {
+        if let Some(node) = tree.get(LayoutNodeId::new(i)) {
             if matches!(node.formatting_context, azul_core::dom::FormattingContext::Flex) {
                 let w = node.used_size.unwrap_or_default().width;
                 // bar is full width (~800); items are the narrow ones

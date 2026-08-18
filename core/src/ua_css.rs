@@ -89,6 +89,12 @@ static HEIGHT_100_PERCENT: CssProperty = CssProperty::Height(CssPropertyValue::E
 /// display: block
 static DISPLAY_BLOCK: CssProperty =
     CssProperty::Display(CssPropertyValue::Exact(LayoutDisplay::Block));
+static OVERFLOW_X_AUTO: CssProperty = CssProperty::OverflowX(CssPropertyValue::Exact(
+    azul_css::props::layout::LayoutOverflow::Auto,
+));
+static OVERFLOW_Y_AUTO: CssProperty = CssProperty::OverflowY(CssPropertyValue::Exact(
+    azul_css::props::layout::LayoutOverflow::Auto,
+));
 
 /// display: inline
 static DISPLAY_INLINE: CssProperty =
@@ -776,6 +782,14 @@ static BUTTON_BORDER_RIGHT_WIDTH: CssProperty =
         // VirtualView is a block-level replaced element (like div) — must be block
         // so it participates in flex layout (flex-grow, etc.)
         (NT::VirtualView, PT::Display) => Some(&DISPLAY_BLOCK),
+        // A VirtualView exists to virtualize scrollable content, so scrolling
+        // is its DEFAULT: `auto` gets it a scroll id (wheel target) and — via
+        // the virtual-size-aware necessity rule — a scrollbar exactly when
+        // the published `virtual_scroll_size` overflows the viewport. A VV
+        // that must NOT wheel-scroll (the map pans+zooms, the video widget)
+        // opts out explicitly with `overflow: hidden`, which both already do.
+        (NT::VirtualView, PT::OverflowX) => Some(&OVERFLOW_X_AUTO),
+        (NT::VirtualView, PT::OverflowY) => Some(&OVERFLOW_Y_AUTO),
 
         // Icon Elements - inline-block so they have width/height but flow inline
         (NT::Icon(_), PT::Display) => Some(&DISPLAY_INLINE_BLOCK),
@@ -1179,6 +1193,36 @@ mod autotest_generated {
 
     fn text_node(s: &str) -> NodeType {
         NodeType::Text(BoxOrStatic::heap(AzString::from(s)))
+    }
+
+    /// A VirtualView is a scroll container BY DEFAULT: `overflow: auto` on
+    /// both axes from the UA sheet, so app CSS no longer has to opt in (the
+    /// virtual-size-aware necessity rule keeps bars away until the published
+    /// `virtual_scroll_size` actually overflows). Opt-outs stay explicit
+    /// (`overflow: hidden` — map/video); invisible-but-scrollable composes
+    /// via `scrollbar-width: none`.
+    #[test]
+    fn virtual_view_defaults_to_overflow_auto_on_both_axes() {
+        use azul_css::props::layout::LayoutOverflow;
+        for pt in [CssPropertyType::OverflowX, CssPropertyType::OverflowY] {
+            let got = get_ua_property(&NodeType::VirtualView, pt)
+                .unwrap_or_else(|| panic!("no UA default for VirtualView {pt:?}"));
+            let ok = matches!(
+                got,
+                CssProperty::OverflowX(CssPropertyValue::Exact(LayoutOverflow::Auto))
+                    | CssProperty::OverflowY(CssPropertyValue::Exact(LayoutOverflow::Auto))
+            );
+            assert!(ok, "VirtualView {pt:?} UA default is not overflow:auto: {got:?}");
+        }
+        // And the axis-correct variant is returned for each request.
+        assert!(matches!(
+            get_ua_property(&NodeType::VirtualView, CssPropertyType::OverflowX),
+            Some(CssProperty::OverflowX(_))
+        ));
+        assert!(matches!(
+            get_ua_property(&NodeType::VirtualView, CssPropertyType::OverflowY),
+            Some(CssProperty::OverflowY(_))
+        ));
     }
 
     fn icon_node(s: &str) -> NodeType {

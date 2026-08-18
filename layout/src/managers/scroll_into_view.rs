@@ -20,6 +20,7 @@
 //! - `ScrollBehavior`: auto, instant, smooth
 //! - Proper scroll ancestor chain traversal
 
+use crate::solver3::layout_tree::LayoutNodeId;
 use alloc::vec::Vec;
 
 use azul_core::{
@@ -504,7 +505,7 @@ fn get_node_rect(
     // Get position
     let layout_indices = layout_result.layout_tree.dom_to_layout.get(&nid)?;
     let layout_index = *layout_indices.first()?;
-    let position = *layout_result.calculated_positions.get(layout_index)?;
+    let position = *layout_result.calculated_positions.get(layout_index.index())?;
     
     // Get size
     let layout_node = layout_result.layout_tree.get(layout_index)?;
@@ -655,7 +656,7 @@ mod autotest_generated {
         for (layout_index, (node_index, position, used_size)) in boxes.iter().enumerate() {
             lr.layout_tree
                 .dom_to_layout
-                .insert(nid(*node_index), vec![layout_index]);
+                .insert(nid(*node_index), vec![LayoutNodeId::new(layout_index)]);
             lr.layout_tree.nodes.push(LayoutNodeHot {
                 box_props: PackedBoxProps::default(),
                 dom_node_id: Some(nid(*node_index)),
@@ -1318,7 +1319,7 @@ mod autotest_generated {
         );
         // Stale mapping pointing past the end of both `calculated_positions` and
         // `layout_tree.nodes` — must be a None, not an out-of-bounds index panic.
-        lr.layout_tree.dom_to_layout.insert(nid(TARGET), vec![7]);
+        lr.layout_tree.dom_to_layout.insert(nid(TARGET), vec![LayoutNodeId::new(7)]);
         assert!(get_node_rect(dnid(0, TARGET), &window(lr)).is_none());
     }
 

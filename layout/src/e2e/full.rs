@@ -19,6 +19,7 @@
 //! curl -X POST http://localhost:8765/ -d '{"type":"get_state"}'
 //! ```
 
+use crate::solver3::layout_tree::LayoutNodeId;
 use alloc::collections::BTreeMap;
 use alloc::collections::VecDeque;
 use alloc::string::String;
@@ -12330,7 +12331,7 @@ pub fn process_debug_event(
                             if let Some(layout_node) = layout_result.layout_tree.get(layout_idx) {
                                 let node_pos = layout_result
                                     .calculated_positions
-                    .get(layout_idx)
+                    .get(layout_idx.index())
                                     .copied()
                                     .unwrap_or_default();
                                 let node_size = layout_node.used_size.unwrap_or_default();
@@ -13429,7 +13430,7 @@ pub fn process_debug_event(
                         ("Anonymous", -1i64)
                     };
 
-                    let cold = layout_tree.cold(idx);
+                    let cold = layout_tree.cold(LayoutNodeId::new(idx));
                     nodes.push(LayoutNodeInfo {
                         layout_idx: idx,
                         dom_idx,
@@ -13946,7 +13947,7 @@ pub fn process_debug_event(
             if let Some(layout_result) = layout_window.layout_results.get(&dom_id) {
                 // Check each node in the layout tree to see if it has scrollbar_info (warm tier)
                 for (node_idx, node) in layout_result.layout_tree.nodes.iter().enumerate() {
-                    let scrollbar_info = layout_result.layout_tree.warm(node_idx)
+                    let scrollbar_info = layout_result.layout_tree.warm(LayoutNodeId::new(node_idx))
                         .and_then(|w| w.scrollbar_info.as_ref());
                     if let Some(scrollbar_info) = scrollbar_info {
                         if scrollbar_info.needs_vertical || scrollbar_info.needs_horizontal {

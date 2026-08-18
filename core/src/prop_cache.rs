@@ -3556,9 +3556,15 @@ impl CssPropertyCache {
             }
         }
 
-        // All UA property types that get_ua_property() may return Some for
+        // All UA property types that get_ua_property() may return Some for.
+        // MUST stay in sync with compact.rs::UA_PROPERTY_TYPES: a UA property
+        // present in one list but not the other makes the two cascade paths
+        // disagree about the computed value (this bit the VirtualView
+        // overflow default).
         let property_types = [
             CssPropertyType::Display,
+            CssPropertyType::OverflowX,
+            CssPropertyType::OverflowY,
             CssPropertyType::Width,
             CssPropertyType::Height,
             CssPropertyType::FontSize,

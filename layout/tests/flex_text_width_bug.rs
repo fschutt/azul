@@ -6,6 +6,7 @@
 ///
 /// Expected: Text should measure its intrinsic min-content width (widest word)
 /// and the flex item should have non-zero width.
+use azul_layout::solver3::LayoutNodeId;
 use azul_core::dom::{Dom, DomId};
 use azul_core::geom::{LogicalPosition, LogicalRect, LogicalSize};
 use azul_core::resources::RendererResources;
@@ -133,7 +134,7 @@ fn test_flex_column_child_text_has_nonzero_width() {
     // ...
 
     // Check titlebar (node 1) has non-zero width
-    let titlebar = tree.get(1).expect("Titlebar node should exist");
+    let titlebar = tree.get(LayoutNodeId::new(1)).expect("Titlebar node should exist");
     let titlebar_size = titlebar.used_size.expect("Titlebar should have used_size");
     
     println!("Titlebar size: {titlebar_size:?}");
@@ -147,7 +148,7 @@ fn test_flex_column_child_text_has_nonzero_width() {
     );
 
     // Check title-container (node 2) has non-zero width
-    let title_container = tree.get(2).expect("Title container node should exist");
+    let title_container = tree.get(LayoutNodeId::new(2)).expect("Title container node should exist");
     let container_size = title_container.used_size.expect("Container should have used_size");
     
     println!("Title container size: {container_size:?}");
@@ -249,9 +250,9 @@ fn test_flex_row_text_child_has_intrinsic_width() {
 
     // Debug: print all nodes
     for i in 0..10 {
-        if let Some(node) = tree.get(i) {
+        if let Some(node) = tree.get(LayoutNodeId::new(i)) {
             let size = node.used_size.unwrap_or_default();
-            let intrinsic = tree.warm(i).and_then(|w| w.intrinsic_sizes).unwrap_or_default();
+            let intrinsic = tree.warm(LayoutNodeId::new(i)).and_then(|w| w.intrinsic_sizes).unwrap_or_default();
             println!("Node {}: size={:?}, intrinsic_min_w={}, intrinsic_max_w={}, fc={:?}",
                 i, size, intrinsic.min_content_width, intrinsic.max_content_width, node.formatting_context);
         }
@@ -261,11 +262,11 @@ fn test_flex_row_text_child_has_intrinsic_width() {
     // Find a node that has non-zero intrinsic width (the text content node)
     let text_div_idx = (0..10)
         .find(|&i| {
-            let has_intrinsic = tree.warm(i)
+            let has_intrinsic = tree.warm(LayoutNodeId::new(i))
                 .and_then(|w| w.intrinsic_sizes)
                 .map(|s| s.min_content_width > 20.0)
                 .unwrap_or(false);
-            tree.get(i)
+            tree.get(LayoutNodeId::new(i))
                 .map(|n| {
                     has_intrinsic
                     && n.used_size.map(|s| s.width > 0.0).unwrap_or(false)
@@ -274,7 +275,7 @@ fn test_flex_row_text_child_has_intrinsic_width() {
         })
         .expect("Should find text div with non-zero width");
 
-    let text_div = tree.get(text_div_idx).expect("Text div should exist");
+    let text_div = tree.get(LayoutNodeId::new(text_div_idx)).expect("Text div should exist");
     let text_div_size = text_div.used_size.expect("Text div should have used_size");
     
     println!("Text div size: {text_div_size:?}");

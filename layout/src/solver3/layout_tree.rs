@@ -1181,6 +1181,47 @@ impl LayoutNode {
     }
 }
 
+/// A position in the LAYOUT tree — distinct from a DOM [`NodeId`] BY TYPE.
+///
+/// The layout tree interleaves anonymous boxes and splits during
+/// construction, so layout indices and DOM indices diverge for any real DOM.
+/// Conflating them (`node_id.index()` used as a layout index) froze CPU-path
+/// scrolling once (`build_scroll_offset_map`) and is exactly the mistake this
+/// newtype turns into a compile error: the ONLY sanctioned ways to obtain a
+/// `LayoutNodeId` from a DOM node are [`LayoutTree::dom_to_layout`] and the
+/// scroll-id tables. Solver-interior code that produces indices locally wraps
+/// them with [`LayoutNodeId::new`] — an explicit, greppable assertion that
+/// the value really is a layout index.
+///
+/// The raw SoA vectors (`nodes`, `warm`, `cold`, `children_arena`) stay
+/// `usize`-indexed for interior arithmetic; the typed boundary is the
+/// accessor surface (`get`/`warm`/`cold`/`get_content_size`/...), which is
+/// what map-derived consumer code calls.
+#[repr(transparent)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct LayoutNodeId(pub usize);
+
+impl LayoutNodeId {
+    #[inline]
+    #[must_use]
+    pub const fn new(index: usize) -> Self {
+        Self(index)
+    }
+    /// The raw vector index. Greppable by design: every `.index()` is a
+    /// deliberate exit from the typed space.
+    #[inline]
+    #[must_use]
+    pub const fn index(self) -> usize {
+        self.0
+    }
+}
+
+impl core::fmt::Display for LayoutNodeId {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        write!(f, "L{}", self.0)
+    }
+}
+
 /// The complete layout tree structure.
 ///
 /// Uses a struct-of-arrays (`SoA`) layout for cache performance:
@@ -1203,7 +1244,7 @@ pub struct LayoutTree {
     // silently no-op there — dom_to_layout came back empty (node mapping lost,
     // get_node_size/position returned None → 0-rects). BTreeMap is deterministic,
     // matches the rest of azul-core, and lifts reliably (M12.7).
-    pub dom_to_layout: BTreeMap<NodeId, Vec<usize>>,
+    pub dom_to_layout: BTreeMap<NodeId, Vec<LayoutNodeId>>,
     /// Flat arena holding all children indices contiguously.
     pub children_arena: Vec<usize>,
     /// Per-node (start, len) into `children_arena`. Indexed by node index.
@@ -1426,38 +1467,38 @@ impl LayoutTree {
 
     /// Get hot layout data for a node (`box_props`, `dom_node_id`, `used_size`, etc.)
     #[inline]
-    #[must_use] pub fn get(&self, index: usize) -> Option<&LayoutNodeHot> {
-        self.nodes.get(index)
+    #[must_use] pub fn get(&self, index: LayoutNodeId) -> Option<&LayoutNodeHot> {
+        self.nodes.get(index.index())
     }
 
     /// Get mutable hot layout data for a node.
     #[inline]
-    pub fn get_mut(&mut self, index: usize) -> Option<&mut LayoutNodeHot> {
-        self.nodes.get_mut(index)
+    pub fn get_mut(&mut self, index: LayoutNodeId) -> Option<&mut LayoutNodeHot> {
+        self.nodes.get_mut(index.index())
     }
 
     /// Get warm layout data for a node (`intrinsic_sizes`, baseline, `inline_layout`, etc.)
     #[inline]
-    #[must_use] pub fn warm(&self, index: usize) -> Option<&LayoutNodeWarm> {
-        self.warm.get(index)
+    #[must_use] pub fn warm(&self, index: LayoutNodeId) -> Option<&LayoutNodeWarm> {
+        self.warm.get(index.index())
     }
 
     /// Get mutable warm layout data for a node.
     #[inline]
-    pub fn warm_mut(&mut self, index: usize) -> Option<&mut LayoutNodeWarm> {
-        self.warm.get_mut(index)
+    pub fn warm_mut(&mut self, index: LayoutNodeId) -> Option<&mut LayoutNodeWarm> {
+        self.warm.get_mut(index.index())
     }
 
     /// Get cold layout data for a node (`dirty_flag`, `subtree_hash`, fingerprint, etc.)
     #[inline]
-    #[must_use] pub fn cold(&self, index: usize) -> Option<&LayoutNodeCold> {
-        self.cold.get(index)
+    #[must_use] pub fn cold(&self, index: LayoutNodeId) -> Option<&LayoutNodeCold> {
+        self.cold.get(index.index())
     }
 
     /// Get mutable cold layout data for a node.
     #[inline]
-    pub fn cold_mut(&mut self, index: usize) -> Option<&mut LayoutNodeCold> {
-        self.cold.get_mut(index)
+    pub fn cold_mut(&mut self, index: LayoutNodeId) -> Option<&mut LayoutNodeCold> {
+        self.cold.get_mut(index.index())
     }
 
     fn root_node(&self) -> &LayoutNodeHot {
@@ -1597,7 +1638,7 @@ impl LayoutTree {
         &self,
         layout_index: usize,
     ) -> Option<Arc<UnifiedLayout>> {
-        let warm = self.warm(layout_index)?;
+        let warm = self.warm(LayoutNodeId::new(layout_index))?;
         let cached = warm.inline_layout_result.as_ref()?;
         if cached.layout.items.is_empty() {
             if let Some(d) = cached.dense.as_deref() {
@@ -1649,8 +1690,8 @@ impl LayoutTree {
     }
 
     /// Get the content size of a node (for scrollbar calculations).
-    #[must_use] pub fn get_content_size(&self, index: usize) -> LogicalSize {
-        let Some(warm) = self.warm.get(index) else {
+    #[must_use] pub fn get_content_size(&self, index: LayoutNodeId) -> LogicalSize {
+        let Some(warm) = self.warm.get(index.index()) else {
             return LogicalSize::default();
         };
 
@@ -1658,7 +1699,7 @@ impl LayoutTree {
             return content_size;
         }
 
-        let Some(hot) = self.nodes.get(index) else {
+        let Some(hot) = self.nodes.get(index.index()) else {
             return LogicalSize::default();
         };
 
@@ -3121,7 +3162,11 @@ impl LayoutTreeBuilder {
             warm: warm_nodes,
             cold: cold_nodes,
             root: root_idx,
-            dom_to_layout: self.dom_to_layout,
+            dom_to_layout: self
+                .dom_to_layout
+                .into_iter()
+                .map(|(k, v)| (k, v.into_iter().map(LayoutNodeId::new).collect()))
+                .collect(),
             children_arena: arena,
             children_offsets: offsets,
             // Populated by `generate_layout_tree` after the tree is built,
@@ -4707,7 +4752,7 @@ mod autotest_generated {
             let full = tree.get_full_node(i).expect("in-range node");
             let (h, w, c) = full.split();
 
-            let hot = tree.get(i).unwrap();
+            let hot = tree.get(LayoutNodeId::new(i)).unwrap();
             assert_eq!(h.dom_node_id, hot.dom_node_id, "node {i}");
             assert_eq!(h.parent, hot.parent, "node {i}");
             assert_eq!(h.used_size, hot.used_size, "node {i}");
@@ -4717,7 +4762,7 @@ mod autotest_generated {
             assert_eq!(h.box_props.padding, hot.box_props.padding, "node {i}");
             assert_eq!(h.box_props.border, hot.box_props.border, "node {i}");
 
-            let warm = tree.warm(i).unwrap();
+            let warm = tree.warm(LayoutNodeId::new(i)).unwrap();
             assert_eq!(w.pseudo_element, warm.pseudo_element, "node {i}");
             assert_eq!(w.baseline, warm.baseline, "node {i}");
             assert_eq!(
@@ -4725,7 +4770,7 @@ mod autotest_generated {
                 "node {i}"
             );
 
-            let cold = tree.cold(i).unwrap();
+            let cold = tree.cold(LayoutNodeId::new(i)).unwrap();
             assert_eq!(c.anonymous_type, cold.anonymous_type, "node {i}");
             assert_eq!(c.dirty_flag, cold.dirty_flag, "node {i}");
             assert_eq!(c.subtree_hash, cold.subtree_hash, "node {i}");
@@ -4759,12 +4804,12 @@ mod autotest_generated {
         let mut tree = build_tree(&mixed_dom());
         let n = tree.nodes.len();
         for idx in [n, n + 1, usize::MAX, usize::MAX - 1, usize::MAX / 2] {
-            assert!(tree.get(idx).is_none(), "get({idx})");
-            assert!(tree.warm(idx).is_none(), "warm({idx})");
-            assert!(tree.cold(idx).is_none(), "cold({idx})");
-            assert!(tree.get_mut(idx).is_none(), "get_mut({idx})");
-            assert!(tree.warm_mut(idx).is_none(), "warm_mut({idx})");
-            assert!(tree.cold_mut(idx).is_none(), "cold_mut({idx})");
+            assert!(tree.get(LayoutNodeId::new(idx)).is_none(), "get({idx})");
+            assert!(tree.warm(LayoutNodeId::new(idx)).is_none(), "warm({idx})");
+            assert!(tree.cold(LayoutNodeId::new(idx)).is_none(), "cold({idx})");
+            assert!(tree.get_mut(LayoutNodeId::new(idx)).is_none(), "get_mut({idx})");
+            assert!(tree.warm_mut(LayoutNodeId::new(idx)).is_none(), "warm_mut({idx})");
+            assert!(tree.cold_mut(LayoutNodeId::new(idx)).is_none(), "cold_mut({idx})");
             assert!(tree.get_inline_layout_for_node(idx).is_none());
         }
     }
@@ -4772,13 +4817,13 @@ mod autotest_generated {
     #[test]
     fn tree_accessors_all_resolve_at_index_zero() {
         let mut tree = build_tree(&mixed_dom());
-        assert!(tree.get(0).is_some());
-        assert!(tree.warm(0).is_some());
-        assert!(tree.cold(0).is_some());
-        assert!(tree.get_mut(0).is_some());
-        assert!(tree.warm_mut(0).is_some());
-        assert!(tree.cold_mut(0).is_some());
-        assert_eq!(tree.get(0).unwrap().parent, None, "index 0 is the root");
+        assert!(tree.get(LayoutNodeId::new(0)).is_some());
+        assert!(tree.warm(LayoutNodeId::new(0)).is_some());
+        assert!(tree.cold(LayoutNodeId::new(0)).is_some());
+        assert!(tree.get_mut(LayoutNodeId::new(0)).is_some());
+        assert!(tree.warm_mut(LayoutNodeId::new(0)).is_some());
+        assert!(tree.cold_mut(LayoutNodeId::new(0)).is_some());
+        assert_eq!(tree.get(LayoutNodeId::new(0)).unwrap().parent, None, "index 0 is the root");
     }
 
     #[test]
@@ -4798,7 +4843,7 @@ mod autotest_generated {
             for &child in tree.children(i) {
                 assert!(child < n, "child {child} of {i} is out of range");
                 assert_eq!(
-                    tree.get(child).unwrap().parent,
+                    tree.get(LayoutNodeId::new(child)).unwrap().parent,
                     Some(i),
                     "child {child} does not point back at parent {i}"
                 );
@@ -4829,8 +4874,8 @@ mod autotest_generated {
     #[test]
     fn get_content_size_is_default_for_an_out_of_range_index() {
         let tree = build_tree(&mixed_dom());
-        assert_eq!(tree.get_content_size(usize::MAX), LogicalSize::default());
-        assert_eq!(tree.get_content_size(tree.nodes.len()), LogicalSize::default());
+        assert_eq!(tree.get_content_size(LayoutNodeId::new(usize::MAX)), LogicalSize::default());
+        assert_eq!(tree.get_content_size(LayoutNodeId::new(tree.nodes.len())), LogicalSize::default());
     }
 
     #[test]
@@ -4838,7 +4883,7 @@ mod autotest_generated {
         let mut tree = raw_tree(vec![hot(None)], &[vec![]]);
         tree.nodes[0].used_size = Some(LogicalSize::new(10.0, 10.0));
         tree.warm[0].overflow_content_size = Some(LogicalSize::new(999.0, 888.0));
-        assert_eq!(tree.get_content_size(0), LogicalSize::new(999.0, 888.0));
+        assert_eq!(tree.get_content_size(LayoutNodeId::new(0)), LogicalSize::new(999.0, 888.0));
     }
 
     #[test]
@@ -4851,7 +4896,7 @@ mod autotest_generated {
             false,
         )));
         // item spans x ∈ [25, 55], y ∈ [0, 40]  →  content must cover 55 × 40.
-        let cs = tree.get_content_size(0);
+        let cs = tree.get_content_size(LayoutNodeId::new(0));
         assert_eq!(cs.width, 55.0);
         assert_eq!(cs.height, 40.0);
     }
@@ -4865,13 +4910,13 @@ mod autotest_generated {
             AvailableSpace::MaxContent,
             false,
         )));
-        assert_eq!(tree.get_content_size(0), LogicalSize::new(500.0, 500.0));
+        assert_eq!(tree.get_content_size(LayoutNodeId::new(0)), LogicalSize::new(500.0, 500.0));
     }
 
     #[test]
     fn get_content_size_of_a_node_with_no_used_size_is_zero() {
         let tree = raw_tree(vec![hot(None)], &[vec![]]);
-        assert_eq!(tree.get_content_size(0), LogicalSize::default());
+        assert_eq!(tree.get_content_size(LayoutNodeId::new(0)), LogicalSize::default());
     }
 
     // ==================================================================
@@ -4975,11 +5020,11 @@ mod autotest_generated {
     fn mark_dirty_walks_up_to_the_root() {
         let mut tree = dirty_tree();
         tree.mark_dirty(2, DirtyFlag::Layout);
-        assert_eq!(tree.cold(2).unwrap().dirty_flag, DirtyFlag::Layout);
-        assert_eq!(tree.cold(1).unwrap().dirty_flag, DirtyFlag::Layout);
-        assert_eq!(tree.cold(0).unwrap().dirty_flag, DirtyFlag::Layout);
+        assert_eq!(tree.cold(LayoutNodeId::new(2)).unwrap().dirty_flag, DirtyFlag::Layout);
+        assert_eq!(tree.cold(LayoutNodeId::new(1)).unwrap().dirty_flag, DirtyFlag::Layout);
+        assert_eq!(tree.cold(LayoutNodeId::new(0)).unwrap().dirty_flag, DirtyFlag::Layout);
         assert_eq!(
-            tree.cold(3).unwrap().dirty_flag,
+            tree.cold(LayoutNodeId::new(3)).unwrap().dirty_flag,
             DirtyFlag::None,
             "the sibling is untouched"
         );
@@ -4998,7 +5043,7 @@ mod autotest_generated {
         tree.mark_dirty(2, DirtyFlag::Layout);
         tree.mark_dirty(2, DirtyFlag::Paint);
         assert_eq!(
-            tree.cold(2).unwrap().dirty_flag,
+            tree.cold(LayoutNodeId::new(2)).unwrap().dirty_flag,
             DirtyFlag::Layout,
             "Layout > Paint — a Paint request must not weaken it"
         );
@@ -5008,10 +5053,10 @@ mod autotest_generated {
     fn mark_dirty_upgrades_paint_to_layout_and_keeps_propagating() {
         let mut tree = dirty_tree();
         tree.mark_dirty(2, DirtyFlag::Paint);
-        assert_eq!(tree.cold(0).unwrap().dirty_flag, DirtyFlag::Paint);
+        assert_eq!(tree.cold(LayoutNodeId::new(0)).unwrap().dirty_flag, DirtyFlag::Paint);
         tree.mark_dirty(2, DirtyFlag::Layout);
-        assert_eq!(tree.cold(2).unwrap().dirty_flag, DirtyFlag::Layout);
-        assert_eq!(tree.cold(0).unwrap().dirty_flag, DirtyFlag::Layout);
+        assert_eq!(tree.cold(LayoutNodeId::new(2)).unwrap().dirty_flag, DirtyFlag::Layout);
+        assert_eq!(tree.cold(LayoutNodeId::new(0)).unwrap().dirty_flag, DirtyFlag::Layout);
     }
 
     #[test]
@@ -5019,8 +5064,8 @@ mod autotest_generated {
         let mut tree = dirty_tree();
         tree.mark_dirty(3, DirtyFlag::Layout); // marks 3, 1, 0
         tree.mark_dirty(2, DirtyFlag::Layout); // marks 2, then stops at 1
-        assert_eq!(tree.cold(2).unwrap().dirty_flag, DirtyFlag::Layout);
-        assert_eq!(tree.cold(1).unwrap().dirty_flag, DirtyFlag::Layout);
+        assert_eq!(tree.cold(LayoutNodeId::new(2)).unwrap().dirty_flag, DirtyFlag::Layout);
+        assert_eq!(tree.cold(LayoutNodeId::new(1)).unwrap().dirty_flag, DirtyFlag::Layout);
     }
 
     #[test]
@@ -5037,26 +5082,26 @@ mod autotest_generated {
         // only thing standing between a corrupted parent pointer and a hang.
         let mut tree = raw_tree(vec![hot(Some(1)), hot(Some(0))], &[vec![], vec![]]);
         tree.mark_dirty(0, DirtyFlag::Layout);
-        assert_eq!(tree.cold(0).unwrap().dirty_flag, DirtyFlag::Layout);
-        assert_eq!(tree.cold(1).unwrap().dirty_flag, DirtyFlag::Layout);
+        assert_eq!(tree.cold(LayoutNodeId::new(0)).unwrap().dirty_flag, DirtyFlag::Layout);
+        assert_eq!(tree.cold(LayoutNodeId::new(1)).unwrap().dirty_flag, DirtyFlag::Layout);
     }
 
     #[test]
     fn mark_dirty_terminates_when_a_node_is_its_own_parent() {
         let mut tree = raw_tree(vec![hot(Some(0))], &[vec![]]);
         tree.mark_dirty(0, DirtyFlag::Layout);
-        assert_eq!(tree.cold(0).unwrap().dirty_flag, DirtyFlag::Layout);
+        assert_eq!(tree.cold(LayoutNodeId::new(0)).unwrap().dirty_flag, DirtyFlag::Layout);
     }
 
     #[test]
     fn mark_subtree_dirty_marks_descendants_but_not_ancestors_or_siblings() {
         let mut tree = dirty_tree();
         tree.mark_subtree_dirty(1, DirtyFlag::Layout);
-        assert_eq!(tree.cold(1).unwrap().dirty_flag, DirtyFlag::Layout);
-        assert_eq!(tree.cold(2).unwrap().dirty_flag, DirtyFlag::Layout);
-        assert_eq!(tree.cold(3).unwrap().dirty_flag, DirtyFlag::Layout);
+        assert_eq!(tree.cold(LayoutNodeId::new(1)).unwrap().dirty_flag, DirtyFlag::Layout);
+        assert_eq!(tree.cold(LayoutNodeId::new(2)).unwrap().dirty_flag, DirtyFlag::Layout);
+        assert_eq!(tree.cold(LayoutNodeId::new(3)).unwrap().dirty_flag, DirtyFlag::Layout);
         assert_eq!(
-            tree.cold(0).unwrap().dirty_flag,
+            tree.cold(LayoutNodeId::new(0)).unwrap().dirty_flag,
             DirtyFlag::None,
             "mark_subtree_dirty walks DOWN only"
         );
@@ -5313,7 +5358,7 @@ mod autotest_generated {
             ),
         ] {
             tree.resolve_box_props(1, cb, vp, efs, rfs);
-            let bp = tree.get(1).unwrap().box_props.unpack();
+            let bp = tree.get(LayoutNodeId::new(1)).unwrap().box_props.unpack();
             for v in [
                 bp.margin.top,
                 bp.margin.right,
@@ -5344,7 +5389,7 @@ mod autotest_generated {
         );
         let mut tree = build_tree(&sd);
         tree.resolve_box_props(1, LogicalSize::new(200.0, 100.0), VIEWPORT, 16.0, 16.0);
-        let bp = tree.get(1).unwrap().box_props.unpack();
+        let bp = tree.get(LayoutNodeId::new(1)).unwrap().box_props.unpack();
         assert!(
             (bp.margin.left - 100.0).abs() < 0.2,
             "50% of a 200px containing block ≈ 100px, got {}",
@@ -5377,7 +5422,7 @@ mod autotest_generated {
         let tree = build_tree(&sd);
         let wrappers: Vec<usize> = (0..tree.nodes.len())
             .filter(|&i| {
-                tree.cold(i).unwrap().anonymous_type == Some(AnonymousBoxType::InlineWrapper)
+                tree.cold(LayoutNodeId::new(i)).unwrap().anonymous_type == Some(AnonymousBoxType::InlineWrapper)
             })
             .collect();
         assert_eq!(
@@ -5387,12 +5432,12 @@ mod autotest_generated {
         );
 
         let w = wrappers[0];
-        assert_eq!(tree.get(w).unwrap().dom_node_id, None, "anon boxes have no DOM node");
-        assert_eq!(tree.cold(w).unwrap().dirty_flag, DirtyFlag::Layout);
+        assert_eq!(tree.get(LayoutNodeId::new(w)).unwrap().dom_node_id, None, "anon boxes have no DOM node");
+        assert_eq!(tree.cold(LayoutNodeId::new(w)).unwrap().dirty_flag, DirtyFlag::Layout);
         let tail = text_node(&sd, "tail");
         let kids = tree.children(w);
         assert_eq!(kids.len(), 1);
-        assert_eq!(tree.get(kids[0]).unwrap().dom_node_id, Some(tail));
+        assert_eq!(tree.get(LayoutNodeId::new(kids[0])).unwrap().dom_node_id, Some(tail));
     }
 
     #[test]
@@ -5402,17 +5447,17 @@ mod autotest_generated {
         // `.block` (DOM 1) holds only inline children — the all-inline fast path
         // must hand them straight to the parent, with no wrapper in between.
         let block_idx = (0..tree.nodes.len())
-            .find(|&i| tree.get(i).unwrap().dom_node_id == Some(NodeId::new(1)))
+            .find(|&i| tree.get(LayoutNodeId::new(i)).unwrap().dom_node_id == Some(NodeId::new(1)))
             .expect("the .block layout node");
         let kids = tree.children(block_idx);
         assert_eq!(kids.len(), 2, "the text run and the inline div, unwrapped");
         assert!(
             kids.iter()
-                .all(|&c| tree.cold(c).unwrap().anonymous_type.is_none()),
+                .all(|&c| tree.cold(LayoutNodeId::new(c)).unwrap().anonymous_type.is_none()),
             "an all-inline block container needs no anonymous wrapper"
         );
         assert_eq!(
-            tree.get(block_idx).unwrap().formatting_context,
+            tree.get(LayoutNodeId::new(block_idx)).unwrap().formatting_context,
             FormattingContext::Inline,
             "it establishes an IFC instead"
         );
@@ -5427,22 +5472,22 @@ mod autotest_generated {
         let tree = build_tree(&sd);
 
         let marker = (0..tree.nodes.len())
-            .find(|&i| tree.warm(i).unwrap().pseudo_element == Some(PseudoElement::Marker))
+            .find(|&i| tree.warm(LayoutNodeId::new(i)).unwrap().pseudo_element == Some(PseudoElement::Marker))
             .expect("display:list-item must generate a ::marker");
-        let li = tree.get(marker).unwrap().parent.expect("marker has a parent");
+        let li = tree.get(LayoutNodeId::new(marker)).unwrap().parent.expect("marker has a parent");
         assert_eq!(
             tree.children(li)[0],
             marker,
             "CSS Lists 3 §3.1: ::marker is the FIRST child"
         );
         assert_eq!(
-            tree.get(marker).unwrap().dom_node_id,
-            tree.get(li).unwrap().dom_node_id,
+            tree.get(LayoutNodeId::new(marker)).unwrap().dom_node_id,
+            tree.get(LayoutNodeId::new(li)).unwrap().dom_node_id,
             "the marker shares the list-item's DOM node for counter/style resolution"
         );
-        assert_eq!(tree.get(marker).unwrap().formatting_context, FormattingContext::Inline);
+        assert_eq!(tree.get(LayoutNodeId::new(marker)).unwrap().formatting_context, FormattingContext::Inline);
         assert!(
-            tree.dom_to_layout[&tree.get(li).unwrap().dom_node_id.unwrap()].contains(&marker),
+            tree.dom_to_layout[&tree.get(LayoutNodeId::new(li)).unwrap().dom_node_id.unwrap()].contains(&LayoutNodeId::new(marker)),
             "the marker is registered in dom_to_layout for counter resolution"
         );
     }
@@ -5475,7 +5520,7 @@ mod autotest_generated {
         assert!(
             root_kids
                 .iter()
-                .any(|&i| tree.warm(i).unwrap().computed_style.display == LayoutDisplay::Block),
+                .any(|&i| tree.warm(LayoutNodeId::new(i)).unwrap().computed_style.display == LayoutDisplay::Block),
             "the promoted child must be a direct child of the root"
         );
     }
@@ -5489,7 +5534,7 @@ mod autotest_generated {
         let tree = build_tree(&sd);
         assert!(
             (0..tree.nodes.len()).any(|i| {
-                tree.cold(i).unwrap().anonymous_type == Some(AnonymousBoxType::TableRow)
+                tree.cold(LayoutNodeId::new(i)).unwrap().anonymous_type == Some(AnonymousBoxType::TableRow)
             }),
             "CSS 2.2 §17.2.1 stage 2: a non-proper table child is wrapped in an anonymous row"
         );
@@ -5513,7 +5558,7 @@ mod autotest_generated {
         );
         assert!(
             !(0..tree.nodes.len())
-                .any(|i| tree.cold(i).unwrap().anonymous_type == Some(AnonymousBoxType::TableRow)),
+                .any(|i| tree.cold(LayoutNodeId::new(i)).unwrap().anonymous_type == Some(AnonymousBoxType::TableRow)),
             "and no anonymous row is generated for it"
         );
     }
@@ -5677,7 +5722,7 @@ mod autotest_generated {
         let sd = mixed_dom();
         let tree = build_tree(&sd);
         let anon = (0..tree.nodes.len())
-            .find(|&i| tree.cold(i).unwrap().anonymous_type.is_some())
+            .find(|&i| tree.cold(LayoutNodeId::new(i)).unwrap().anonymous_type.is_some())
             .expect("mixed_dom generates one anonymous wrapper");
         let old = tree.get_full_node(anon).unwrap();
         assert_eq!(old.dom_node_id, None);
@@ -5768,9 +5813,9 @@ mod autotest_generated {
         assert!(tree.children_arena.is_empty());
         assert!(tree.children_offsets.is_empty());
         assert!(tree.subtree_needs_intrinsic.is_empty());
-        assert!(tree.get(0).is_none());
+        assert!(tree.get(LayoutNodeId::new(0)).is_none());
         assert!(tree.children(0).is_empty());
-        assert_eq!(tree.get_content_size(0), LogicalSize::default());
+        assert_eq!(tree.get_content_size(LayoutNodeId::new(0)), LogicalSize::default());
         assert_eq!(tree.memory_report().node_count, 0);
     }
 
@@ -5783,7 +5828,7 @@ mod autotest_generated {
 
         let tree = builder.build(usize::MAX);
         assert_eq!(tree.root, usize::MAX, "build() stores the index verbatim");
-        assert!(tree.get(tree.root).is_none());
+        assert!(tree.get(LayoutNodeId::new(tree.root)).is_none());
         assert!(tree.children(tree.root).is_empty());
         assert_eq!(tree.get_ifc_root_layout_index(tree.root), usize::MAX);
     }
@@ -5926,13 +5971,13 @@ mod autotest_generated {
         );
         let tree = build_tree(&sd);
         assert!(
-            (0..tree.nodes.len()).all(|i| tree.cold(i).unwrap().anonymous_type.is_none()),
+            (0..tree.nodes.len()).all(|i| tree.cold(LayoutNodeId::new(i)).unwrap().anonymous_type.is_none()),
             "no anonymous table boxes for blockified flex items"
         );
         let flex = tree.children(tree.root)[0];
         for &c in tree.children(flex) {
             assert!(matches!(
-                tree.get(c).unwrap().formatting_context,
+                tree.get(LayoutNodeId::new(c)).unwrap().formatting_context,
                 FormattingContext::Block { .. }
             ));
         }
@@ -6052,7 +6097,7 @@ mod autotest_generated {
         let flex = kids
             .iter()
             .copied()
-            .find(|&i| tree.get(i).unwrap().formatting_context == FormattingContext::Flex)
+            .find(|&i| tree.get(LayoutNodeId::new(i)).unwrap().formatting_context == FormattingContext::Flex)
             .expect("the flex child");
         let plain = kids.iter().copied().find(|&i| i != flex).expect("the plain child");
         assert!(bits[flex]);
@@ -6446,13 +6491,13 @@ mod autotest_generated {
             "the <br> must be dropped from its parent's child list"
         );
         let br = (0..tree.nodes.len())
-            .find(|&i| tree.get(i).unwrap().dom_node_id == Some(NodeId::new(1)))
+            .find(|&i| tree.get(LayoutNodeId::new(i)).unwrap().dom_node_id == Some(NodeId::new(1)))
             .expect("the node object still exists, just unparented");
         assert_eq!(
-            tree.warm(br).unwrap().computed_style.display,
+            tree.warm(LayoutNodeId::new(br)).unwrap().computed_style.display,
             LayoutDisplay::None
         );
-        assert_eq!(tree.get(br).unwrap().formatting_context, FormattingContext::None);
+        assert_eq!(tree.get(LayoutNodeId::new(br)).unwrap().formatting_context, FormattingContext::None);
     }
 
     // ==================================================================
@@ -7015,10 +7060,10 @@ mod autotest_generated {
             assert_eq!(tree.children_offsets.len(), n);
             assert_eq!(tree.subtree_needs_intrinsic.len(), n);
             assert!(tree.root < n);
-            assert_eq!(tree.get(tree.root).unwrap().parent, None);
+            assert_eq!(tree.get(LayoutNodeId::new(tree.root)).unwrap().parent, None);
 
             for i in 0..n {
-                if let Some(p) = tree.get(i).unwrap().parent {
+                if let Some(p) = tree.get(LayoutNodeId::new(i)).unwrap().parent {
                     assert!(p < n, "node {i}'s parent {p} is out of range");
                 }
                 for &c in tree.children(i) {
@@ -7028,7 +7073,7 @@ mod autotest_generated {
             }
             for (dom_id, indices) in &tree.dom_to_layout {
                 for &i in indices {
-                    assert!(i < n, "dom_to_layout[{dom_id:?}] points at {i}, out of range");
+                    assert!(i < LayoutNodeId::new(n), "dom_to_layout[{dom_id:?}] points at {i}, out of range");
                     assert_eq!(tree.get(i).unwrap().dom_node_id, Some(*dom_id));
                 }
             }
@@ -7050,7 +7095,7 @@ mod autotest_generated {
     #[test]
     fn the_root_box_always_establishes_a_new_block_formatting_context() {
         let tree = build_tree(&mixed_dom());
-        match tree.get(tree.root).unwrap().formatting_context {
+        match tree.get(LayoutNodeId::new(tree.root)).unwrap().formatting_context {
             FormattingContext::Block {
                 establishes_new_context,
             } => assert!(establishes_new_context, "process_node forces this for the root"),

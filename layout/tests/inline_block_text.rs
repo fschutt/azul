@@ -1,5 +1,6 @@
 /// Test inline-block text rendering
 /// Verifies that text inside inline-block elements generates TextLayout / Text items
+use azul_layout::solver3::LayoutNodeId;
 use azul_core::dom::{Dom, DomId};
 use azul_core::geom::{LogicalPosition, LogicalRect, LogicalSize};
 use azul_core::resources::RendererResources;
@@ -523,7 +524,7 @@ fn test_inline_text_and_inline_block_on_same_line() {
         println!("\n=== Layout Tree ===");
         for (idx, node) in tree.nodes.iter().enumerate() {
             let dom_idx = node.dom_node_id.map(|id| id.index() as i64).unwrap_or(-1);
-            let rel_pos = tree.warm(idx).and_then(|w| w.relative_position).map(|p| format!("({:.2}, {:.2})", p.x, p.y)).unwrap_or("None".to_string());
+            let rel_pos = tree.warm(LayoutNodeId::new(idx)).and_then(|w| w.relative_position).map(|p| format!("({:.2}, {:.2})", p.x, p.y)).unwrap_or("None".to_string());
             let abs_pos = layout_cache.calculated_positions.get(idx).map(|p| format!("({:.2}, {:.2})", p.x, p.y)).unwrap_or("None".to_string());
             let fc = format!("{:?}", node.formatting_context);
             
@@ -749,7 +750,7 @@ fn test_body_as_root_inline_block_positioning() {
         println!("\n=== Layout Tree (Body as Root) ===");
         for (idx, node) in tree.nodes.iter().enumerate() {
             let dom_idx = node.dom_node_id.map(|id| id.index() as i64).unwrap_or(-1);
-            let rel_pos = tree.warm(idx).and_then(|w| w.relative_position).map(|p| format!("({:.2}, {:.2})", p.x, p.y)).unwrap_or("None".to_string());
+            let rel_pos = tree.warm(LayoutNodeId::new(idx)).and_then(|w| w.relative_position).map(|p| format!("({:.2}, {:.2})", p.x, p.y)).unwrap_or("None".to_string());
             let abs_pos = layout_cache.calculated_positions.get(idx).map(|p| format!("({:.2}, {:.2})", p.x, p.y)).unwrap_or("None".to_string());
             let fc = format!("{:?}", node.formatting_context);
             

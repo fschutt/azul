@@ -10,6 +10,7 @@ pub mod fc;
 pub mod geometry;
 pub mod getters;
 pub mod layout_tree;
+pub use layout_tree::LayoutNodeId;
 pub mod page_breaks;
 pub mod break_token;
 pub mod paged_layout;
@@ -635,7 +636,7 @@ pub fn layout_document<T: ParsedFontTrait + Sync + 'static>(
         &cache.cached_display_list
     {
         let new_root_hash = new_tree
-            .cold(new_tree.root)
+            .cold(LayoutNodeId::new(new_tree.root))
             .map(|c| c.subtree_hash);
         // The GPU-KEY-POPULATION fingerprint is the third key component. The
         // emitted list is a function of which nodes carry transform/opacity
@@ -726,7 +727,7 @@ pub fn layout_document<T: ParsedFontTrait + Sync + 'static>(
             &recon_result.intrinsic_dirty,
         );
         for &node_idx in &closure {
-            if let Some(warm) = new_tree.warm_mut(node_idx) {
+            if let Some(warm) = new_tree.warm_mut(LayoutNodeId::new(node_idx)) {
                 warm.taffy_cache.clear();
                 warm.measured_content_sizes = (None, None);
             }
@@ -779,13 +780,13 @@ pub fn layout_document<T: ParsedFontTrait + Sync + 'static>(
                 let Some(&old_layout_idx) = old_indices.get(pair_idx) else {
                     continue;
                 };
-                if old_layout_idx >= cache_map.entries.len()
-                    || new_layout_idx >= remapped.entries.len()
+                if old_layout_idx >= LayoutNodeId::new(cache_map.entries.len())
+                    || new_layout_idx >= LayoutNodeId::new(remapped.entries.len())
                 {
                     continue;
                 }
-                remapped.entries[new_layout_idx] =
-                    core::mem::take(&mut cache_map.entries[old_layout_idx]);
+                remapped.entries[new_layout_idx.index()] =
+                    core::mem::take(&mut cache_map.entries[old_layout_idx.index()]);
             }
         }
 
@@ -798,7 +799,7 @@ pub fn layout_document<T: ParsedFontTrait + Sync + 'static>(
         // dom-id mapping we just populated, then match anon children
         // positionally within that parent.
         // Build a new→old layout-idx lookup from the primary pass.
-        let mut new_to_old_layout_idx: HashMap<usize, usize> =
+        let mut new_to_old_layout_idx: HashMap<LayoutNodeId, LayoutNodeId> =
             HashMap::new();
         for (dom_id, new_indices) in &new_tree.dom_to_layout {
             let Some(old_indices) = old_tree.dom_to_layout.get(dom_id) else {
@@ -812,10 +813,10 @@ pub fn layout_document<T: ParsedFontTrait + Sync + 'static>(
         }
 
         for (new_parent_idx, new_anon_children) in new_anon_by_parent {
-            let Some(&old_parent_idx) = new_to_old_layout_idx.get(&new_parent_idx) else {
+            let Some(&old_parent_idx) = new_to_old_layout_idx.get(&LayoutNodeId::new(new_parent_idx)) else {
                 continue;
             };
-            let Some(old_anon_children) = old_anon_by_parent.get(&old_parent_idx) else {
+            let Some(old_anon_children) = old_anon_by_parent.get(&old_parent_idx.index()) else {
                 continue;
             };
             for (ord, &new_anon_idx) in new_anon_children.iter().enumerate() {
@@ -920,7 +921,7 @@ pub fn layout_document<T: ParsedFontTrait + Sync + 'static>(
         // leaving the old entry in place would serve STALE PAINT on the next
         // call, and not storing at all would re-emit every frame for the
         // whole life of an animation.
-        let root_hash = tree.cold(tree.root).map(|c| c.subtree_hash);
+        let root_hash = tree.cold(LayoutNodeId::new(tree.root)).map(|c| c.subtree_hash);
         let gpu_fp = gpu_value_cache
             .map_or(0, azul_core::gpu::GpuValueCache::dl_emission_fingerprint);
         if let Some(h) = root_hash {
@@ -1429,7 +1430,7 @@ pub fn layout_document<T: ParsedFontTrait + Sync + 'static>(
             let opaque_bg: Vec<bool> = (0..new_tree.nodes.len())
                 .map(|i| {
                     new_tree
-                        .get(i)
+                        .get(LayoutNodeId::new(i))
                         .and_then(|node| node.dom_node_id)
                         .is_some_and(|dom_id| {
                             let state = &ctx.styled_dom.styled_nodes.as_container()
@@ -1481,7 +1482,7 @@ pub fn layout_document<T: ParsedFontTrait + Sync + 'static>(
     // sees matching values after reconcile, it returns this clone
     // directly and skips all downstream work.
     let root_subtree_hash = new_tree
-        .cold(new_tree.root)
+        .cold(LayoutNodeId::new(new_tree.root))
         .map_or(layout_tree::SubtreeHash(0), |c| c.subtree_hash);
     // The DL is shared, not copied: one allocation serves the cache slot, the
     // caller's `DomLayoutResult`, and any virtual-view snapshot maps. Rare
@@ -1584,8 +1585,8 @@ pub(super) fn get_containing_block_for_node(
     calculated_positions: &PositionVec,
     viewport: LogicalRect,
 ) -> (LogicalPosition, LogicalSize) {
-    if let Some(parent_idx) = tree.get(node_idx).and_then(|n| n.parent) {
-        if let Some(parent_node) = tree.get(parent_idx) {
+    if let Some(parent_idx) = tree.get(LayoutNodeId::new(node_idx)).and_then(|n| n.parent) {
+        if let Some(parent_node) = tree.get(LayoutNodeId::new(parent_idx)) {
             let pos = pos_get(calculated_positions, parent_idx)
                 .unwrap_or(viewport.origin);
             let size = parent_node.used_size.unwrap_or_default();

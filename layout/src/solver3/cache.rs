@@ -12,6 +12,7 @@
 //! 4. The intrinsic size calculation (bottom-up) can often be skipped, as it's independent of the
 //!    container size, which is a significant optimization.
 
+use crate::solver3::layout_tree::LayoutNodeId;
 use std::{
     collections::{BTreeMap, BTreeSet, HashMap},
     hash::{DefaultHasher, Hash, Hasher},
@@ -476,7 +477,7 @@ pub struct LayoutCache {
     /// The viewport size from the last layout pass, used to detect resizes.
     pub viewport: Option<LogicalRect>,
     /// Stable scroll IDs computed from `node_data_hash` (layout index -> scroll ID)
-    pub scroll_ids: HashMap<usize, u64>,
+    pub scroll_ids: HashMap<LayoutNodeId, u64>,
     /// Mapping from scroll ID to DOM `NodeId` for hit testing
     pub scroll_id_to_node_id: HashMap<u64, NodeId>,
     /// CSS counter values for each node and counter name.
@@ -688,13 +689,13 @@ pub fn reposition_clean_subtrees(
     // where sibling positions need to be adjusted.
     let mut parents_to_reposition = BTreeSet::new();
     for &root_idx in layout_roots {
-        if let Some(parent_idx) = tree.get(root_idx).and_then(|n| n.parent) {
+        if let Some(parent_idx) = tree.get(LayoutNodeId::new(root_idx)).and_then(|n| n.parent) {
             parents_to_reposition.insert(parent_idx);
         }
     }
 
     for parent_idx in parents_to_reposition {
-        let Some(parent_node) = tree.get(parent_idx) else {
+        let Some(parent_node) = tree.get(LayoutNodeId::new(parent_idx)) else {
             continue;
         };
 
@@ -814,7 +815,7 @@ pub fn reposition_block_flow_siblings(
     layout_roots: &BTreeSet<usize>,
     calculated_positions: &mut super::PositionVec,
 ) {
-    let Some(parent_node) = tree.get(parent_idx) else {
+    let Some(parent_node) = tree.get(LayoutNodeId::new(parent_idx)) else {
         return;
     };
     let dom_id = parent_node.dom_node_id.unwrap_or(NodeId::ZERO);
@@ -841,7 +842,7 @@ pub fn reposition_block_flow_siblings(
     let mut main_pen = 0.0;
 
     for &child_idx in tree.children(parent_idx) {
-        let Some(child_node) = tree.get(child_idx) else {
+        let Some(child_node) = tree.get(LayoutNodeId::new(child_idx)) else {
             continue;
         };
 
@@ -877,7 +878,7 @@ pub fn reposition_block_flow_siblings(
 
             let child_main_start = child_bp.margin.main_start(writing_mode);
             let new_main_pos = main_pen + child_main_start;
-            let old_relative_pos = tree.warm(child_idx)
+            let old_relative_pos = tree.warm(LayoutNodeId::new(child_idx))
                 .and_then(|w| w.relative_position)
                 .unwrap_or_default();
             let cross_pos = if writing_mode.is_vertical() {
@@ -918,7 +919,7 @@ fn shift_subtree_position(
         pos.y += delta.y;
     }
 
-    if let Some(node) = tree.get(node_idx) {
+    if let Some(node) = tree.get(LayoutNodeId::new(node_idx)) {
         let children = tree.children(node_idx).to_vec();
         for &child_idx in &children {
             shift_subtree_position(child_idx, delta, tree, calculated_positions);
@@ -1126,7 +1127,7 @@ pub fn reconcile_and_invalidate<T: ParsedFontTrait>(
 fn assert_dom_ids_are_in_range(tree: &LayoutTree, styled_dom: &StyledDom) {
     let dom_len = styled_dom.node_data.as_container().internal.len();
     for idx in 0..tree.nodes.len() {
-        let Some(dom_id) = tree.get(idx).and_then(|n| n.dom_node_id) else {
+        let Some(dom_id) = tree.get(LayoutNodeId::new(idx)).and_then(|n| n.dom_node_id) else {
             continue;
         };
         assert!(
@@ -1251,7 +1252,7 @@ fn try_reuse_anon_wrapper(
         .iter()
         .copied()
         .filter(|&c| {
-            t.cold(c)
+            t.cold(LayoutNodeId::new(c))
                 .is_some_and(|cold| cold.anonymous_type == Some(AnonymousBoxType::InlineWrapper))
         })
         .nth(anon_ordinal)
@@ -1265,11 +1266,11 @@ fn try_reuse_anon_wrapper(
     let ids_match = old_anon_children
         .iter()
         .zip(inline_run.iter())
-        .all(|(&oc, &(_, nid))| t.get(oc).and_then(|n| n.dom_node_id) == Some(nid));
+        .all(|(&oc, &(_, nid))| t.get(LayoutNodeId::new(oc)).and_then(|n| n.dom_node_id) == Some(nid));
     if !ids_match {
         return false;
     }
-    if let (Some(old_warm), Some(new_node)) = (t.warm(old_anon), new_tree_builder.get_mut(anon_idx))
+    if let (Some(old_warm), Some(new_node)) = (t.warm(LayoutNodeId::new(old_anon)), new_tree_builder.get_mut(anon_idx))
     {
         new_node.inline_content_cache.clone_from(&old_warm.inline_content_cache);
         new_node.intrinsic_sizes = old_warm.intrinsic_sizes;
@@ -1305,7 +1306,7 @@ pub fn reconcile_recursive(
         std::sync::OnceLock::new();
     let node_data = &styled_dom.node_data.as_container()[new_dom_id];
 
-    let old_cold = old_tree.and_then(|t| old_tree_idx.and_then(|idx| t.cold(idx)));
+    let old_cold = old_tree.and_then(|t| old_tree_idx.and_then(|idx| t.cold(LayoutNodeId::new(idx))));
     match (old_tree.is_some(), old_tree_idx.is_some(), old_cold.is_some()) {
         (false, _, _) => drop(crate::probe::Probe::span("recon_old_tree_none")),
         (true, false, _) => drop(crate::probe::Probe::span("recon_old_idx_none")),
@@ -1556,8 +1557,8 @@ pub fn reconcile_recursive(
                 // parents re-dirtied per resize on big.md — the whole list
                 // content re-measured each pass); keying them into the by-dom
                 // map could also alias a marker as its own host during lookup.
-                .filter(|&&cidx| t.warm(cidx).is_none_or(|w| w.pseudo_element.is_none()))
-                .filter_map(|&cidx| t.get(cidx).and_then(|n| n.dom_node_id).map(|did| (did, cidx)))
+                .filter(|&&cidx| t.warm(LayoutNodeId::new(cidx)).is_none_or(|w| w.pseudo_element.is_none()))
+                .filter_map(|&cidx| t.get(LayoutNodeId::new(cidx)).and_then(|n| n.dom_node_id).map(|did| (did, cidx)))
                 .collect()
         }))
         .unwrap_or_default();
@@ -1579,14 +1580,14 @@ pub fn reconcile_recursive(
                     .iter()
                     .copied()
                     .filter(|&c| {
-                        t.cold(c).is_some_and(|cold| {
+                        t.cold(LayoutNodeId::new(c)).is_some_and(|cold| {
                             cold.anonymous_type == Some(AnonymousBoxType::InlineWrapper)
                         })
                     })
                     .map(|w| {
                         t.children(w)
                             .iter()
-                            .filter(|&&cc| t.get(cc).and_then(|n| n.dom_node_id).is_some())
+                            .filter(|&&cc| t.get(LayoutNodeId::new(cc)).and_then(|n| n.dom_node_id).is_some())
                             .count()
                     })
                     .sum::<usize>()
@@ -1681,7 +1682,7 @@ pub fn reconcile_recursive(
                 new_child_hashes.push(child_node.subtree_hash.0);
             }
 
-            if old_tree.and_then(|t| t.cold(old_child_idx?).map(|n| n.subtree_hash))
+            if old_tree.and_then(|t| t.cold(LayoutNodeId::new(old_child_idx?)).map(|n| n.subtree_hash))
                 != new_tree_builder
                     .get(reconciled_child_idx)
                     .map(|n| n.subtree_hash)
@@ -1763,7 +1764,7 @@ pub fn reconcile_recursive(
                         let old_child_idx = old_children_by_dom.get(&inline_dom_id).copied()
                             .or_else(|| old_tree
                                 .and_then(|t| t.dom_to_layout.get(&inline_dom_id))
-                                .and_then(|v| v.first().copied()));
+                                .and_then(|v| v.first().copied().map(LayoutNodeId::index)));
                         let reconciled_child_idx = reconcile_recursive(
                             styled_dom,
                             inline_dom_id,
@@ -1821,7 +1822,7 @@ pub fn reconcile_recursive(
                     new_child_hashes.push(child_node.subtree_hash.0);
                 }
 
-                if old_tree.and_then(|t| t.cold(old_child_idx?).map(|n| n.subtree_hash))
+                if old_tree.and_then(|t| t.cold(LayoutNodeId::new(old_child_idx?)).map(|n| n.subtree_hash))
                     != new_tree_builder
                         .get(reconciled_child_idx)
                         .map(|n| n.subtree_hash)
@@ -1833,7 +1834,7 @@ pub fn reconcile_recursive(
                             new_dom_id.index(),
                             old_tree.is_some(),
                             old_child_idx,
-                            old_tree.and_then(|t| t.cold(old_child_idx.unwrap_or(usize::MAX)).map(|n| n.subtree_hash)),
+                            old_tree.and_then(|t| t.cold(LayoutNodeId::new(old_child_idx.unwrap_or(usize::MAX))).map(|n| n.subtree_hash)),
                             new_tree_builder.get(reconciled_child_idx).map(|n| n.subtree_hash),
                         );
                     }
@@ -1972,8 +1973,8 @@ fn prepare_layout_context<'a, T: ParsedFontTrait>(
     node_index: usize,
     containing_block_size: LogicalSize,
 ) -> Result<PreparedLayoutContext<'a>> {
-    let node = tree.get(node_index).ok_or(LayoutError::InvalidTree)?;
-    let warm = tree.warm(node_index).ok_or(LayoutError::InvalidTree)?;
+    let node = tree.get(LayoutNodeId::new(node_index)).ok_or(LayoutError::InvalidTree)?;
+    let warm = tree.warm(LayoutNodeId::new(node_index)).ok_or(LayoutError::InvalidTree)?;
     let dom_id = node.dom_node_id; // Can be None for anonymous boxes
 
     // Phase 1: Calculate this node's provisional used size
@@ -2273,7 +2274,7 @@ fn check_scrollbar_change(
         return false;
     }
 
-    let Some(warm_node) = tree.warm(node_index) else {
+    let Some(warm_node) = tree.warm(LayoutNodeId::new(node_index)) else {
         return false;
     };
 
@@ -2407,7 +2408,7 @@ fn process_inflow_child<T: ParsedFontTrait>(
 ) -> Result<()> {
     // Set relative position on child
     // child_relative_pos is [CoordinateSpace::Parent] - relative to parent's content-box
-    let child_warm = tree.warm_mut(child_index).ok_or(LayoutError::InvalidTree)?;
+    let child_warm = tree.warm_mut(LayoutNodeId::new(child_index)).ok_or(LayoutError::InvalidTree)?;
     child_warm.relative_position = Some(child_relative_pos);
 
     // Calculate absolute position
@@ -2420,7 +2421,7 @@ fn process_inflow_child<T: ParsedFontTrait>(
 
     // Debug logging
     {
-        let child_node = tree.get(child_index).ok_or(LayoutError::InvalidTree)?;
+        let child_node = tree.get(LayoutNodeId::new(child_index)).ok_or(LayoutError::InvalidTree)?;
         log_child_positioning(
             ctx,
             child_index,
@@ -2435,7 +2436,7 @@ fn process_inflow_child<T: ParsedFontTrait>(
     super::pos_set(calculated_positions, child_index, child_absolute_pos);
 
     // Get child's properties for recursion
-    let child_node = tree.get(child_index).ok_or(LayoutError::InvalidTree)?;
+    let child_node = tree.get(LayoutNodeId::new(child_index)).ok_or(LayoutError::InvalidTree)?;
     let child_bp = child_node.box_props.unpack();
     let child_content_box_pos =
         calculate_content_box_pos(child_absolute_pos, &child_bp);
@@ -2482,13 +2483,13 @@ pub(super) fn position_bfc_child_descendants(
     content_box_pos: LogicalPosition,
     calculated_positions: &mut super::PositionVec,
 ) {
-    let Some(node) = tree.get(node_index) else { return };
+    let Some(node) = tree.get(LayoutNodeId::new(node_index)) else { return };
 
     for &child_index in tree.children(node_index) {
-        let Some(child_node) = tree.get(child_index) else { continue };
+        let Some(child_node) = tree.get(LayoutNodeId::new(child_index)) else { continue };
 
         // Use the relative_position that was set during formatting context layout
-        let child_rel_pos = tree.warm(child_index)
+        let child_rel_pos = tree.warm(LayoutNodeId::new(child_index))
             .and_then(|w| w.relative_position)
             .unwrap_or_default();
         let child_abs_pos = LogicalPosition::new(
@@ -2528,14 +2529,14 @@ fn process_out_of_flow_children<T: ParsedFontTrait>(
 ) -> Result<()> {
     // Collect out-of-flow children (those not already positioned)
     let out_of_flow_children: Vec<(usize, Option<NodeId>)> = {
-        let current_node = tree.get(node_index).ok_or(LayoutError::InvalidTree)?;
+        let current_node = tree.get(LayoutNodeId::new(node_index)).ok_or(LayoutError::InvalidTree)?;
         tree.children(node_index)
             .iter()
             .filter_map(|&child_index| {
                 if super::pos_contains(calculated_positions, child_index) {
                     return None;
                 }
-                let child = tree.get(child_index)?;
+                let child = tree.get(LayoutNodeId::new(child_index))?;
                 Some((child_index, child.dom_node_id))
             })
             .collect()
@@ -2708,10 +2709,10 @@ pub fn calculate_layout_for_subtree_fragment<T: ParsedFontTrait>(
                     // SIZING CACHE HIT — set used_size and return immediately.
                     // No child positioning needed in ComputeSize mode.
                     drop(crate::probe::Probe::span("size_cache_hit_sizing"));
-                    if let Some(node) = tree.get_mut(node_index) {
+                    if let Some(node) = tree.get_mut(LayoutNodeId::new(node_index)) {
                         node.used_size = Some(cached_sizing.result_size);
                     }
-                    if let Some(warm) = tree.warm_mut(node_index) {
+                    if let Some(warm) = tree.warm_mut(LayoutNodeId::new(node_index)) {
                         warm.escaped_top_margin = cached_sizing.escaped_top_margin;
                         warm.escaped_bottom_margin = cached_sizing.escaped_bottom_margin;
                         warm.baseline = cached_sizing.baseline;
@@ -2725,10 +2726,10 @@ pub fn calculate_layout_for_subtree_fragment<T: ParsedFontTrait>(
                 if let Some(cached_layout) = layout_hit {
                     // Layout slot hit in ComputeSize mode — extract size only
                     drop(crate::probe::Probe::span("size_cache_hit_layout"));
-                    if let Some(node) = tree.get_mut(node_index) {
+                    if let Some(node) = tree.get_mut(LayoutNodeId::new(node_index)) {
                         node.used_size = Some(cached_layout.result_size);
                     }
-                    if let Some(warm) = tree.warm_mut(node_index) {
+                    if let Some(warm) = tree.warm_mut(LayoutNodeId::new(node_index)) {
                         warm.overflow_content_size = Some(cached_layout.content_size);
                         warm.scrollbar_info = Some(cached_layout.scrollbar_info);
                     }
@@ -2792,19 +2793,19 @@ pub fn calculate_layout_for_subtree_fragment<T: ParsedFontTrait>(
                 if let Some(cached_layout) = layout_hit {
                     drop(crate::probe::Probe::span("pos_cache_hit"));
                     // LAYOUT CACHE HIT — apply cached results with child positions
-                    if let Some(node) = tree.get_mut(node_index) {
+                    if let Some(node) = tree.get_mut(LayoutNodeId::new(node_index)) {
                         node.used_size = Some(cached_layout.result_size);
                     }
-                    if let Some(warm) = tree.warm_mut(node_index) {
+                    if let Some(warm) = tree.warm_mut(LayoutNodeId::new(node_index)) {
                         warm.overflow_content_size = Some(cached_layout.content_size);
                         warm.scrollbar_info = Some(cached_layout.scrollbar_info);
                     }
 
-                    let box_props = tree.get(node_index)
+                    let box_props = tree.get(LayoutNodeId::new(node_index))
                         .map(|n| n.box_props.unpack())
                         .unwrap_or_default();
                     let writing_mode = tree
-                        .warm(node_index)
+                        .warm(LayoutNodeId::new(node_index))
                         .map(|w| w.computed_style.writing_mode)
                         .unwrap_or_default();
                     let self_content_box_pos = calculate_content_box_pos(containing_block_pos, &box_props);
@@ -2880,11 +2881,11 @@ pub fn calculate_layout_for_subtree_fragment<T: ParsedFontTrait>(
     // an incorrect children_containing_block_size. By updating used_size here, we ensure
     // that layout_bfc reads the freshly resolved size from prepare_layout_context.
     {
-        let is_table_cell = tree.get(node_index).is_some_and(|n| {
+        let is_table_cell = tree.get(LayoutNodeId::new(node_index)).is_some_and(|n| {
             matches!(n.formatting_context, FormattingContext::TableCell)
         });
         if !is_table_cell {
-            if let Some(node) = tree.get_mut(node_index) {
+            if let Some(node) = tree.get_mut(LayoutNodeId::new(node_index)) {
                 node.used_size = Some(final_used_size);
             }
         }
@@ -2906,7 +2907,7 @@ pub fn calculate_layout_for_subtree_fragment<T: ParsedFontTrait>(
     // propagate that back into final_used_size so Phase 3 (scrollbars),
     // Phase 4 (final write), and the self_content_box_pos calculation all
     // see the same border-box that the children were laid out inside.
-    if let Some(adjusted) = tree.get(node_index).and_then(|n| n.used_size) {
+    if let Some(adjusted) = tree.get(LayoutNodeId::new(node_index)).and_then(|n| n.used_size) {
         final_used_size = adjusted;
     }
 
@@ -2978,7 +2979,7 @@ pub fn calculate_layout_for_subtree_fragment<T: ParsedFontTrait>(
     // Phase 4: Update this node's state
     let self_content_box_pos = {
         {
-            let current_node = tree.get_mut(node_index).ok_or(LayoutError::InvalidTree)?;
+            let current_node = tree.get_mut(LayoutNodeId::new(node_index)).ok_or(LayoutError::InvalidTree)?;
 
             // Table cells get their size from the table layout algorithm, don't overwrite
             let is_table_cell = matches!(
@@ -2991,7 +2992,7 @@ pub fn calculate_layout_for_subtree_fragment<T: ParsedFontTrait>(
         }
 
         // Update warm fields
-        if let Some(warm) = tree.warm_mut(node_index) {
+        if let Some(warm) = tree.warm_mut(LayoutNodeId::new(node_index)) {
             warm.scrollbar_info = Some(merged_scrollbar_info);
             // Store overflow content size for scroll frame calculation
             // +spec:overflow:f28d6a - hanging glyphs should be ink overflow, not scrollable overflow (not yet subtracted from content_size)
@@ -2999,7 +3000,7 @@ pub fn calculate_layout_for_subtree_fragment<T: ParsedFontTrait>(
         }
 
         // self_content_box_pos is [CoordinateSpace::Window] - the absolute position of this node's content-box
-        let current_node = tree.get(node_index).ok_or(LayoutError::InvalidTree)?;
+        let current_node = tree.get(LayoutNodeId::new(node_index)).ok_or(LayoutError::InvalidTree)?;
         let current_bp = current_node.box_props.unpack();
         let pos = calculate_content_box_pos(containing_block_pos, &current_bp);
         log_content_box_calculation(ctx, node_index, current_node, containing_block_pos, pos);
@@ -3008,7 +3009,7 @@ pub fn calculate_layout_for_subtree_fragment<T: ParsedFontTrait>(
 
     // Phase 5: Determine formatting context type
     let is_flex_or_grid = {
-        let node = tree.get(node_index).ok_or(LayoutError::InvalidTree)?;
+        let node = tree.get(LayoutNodeId::new(node_index)).ok_or(LayoutError::InvalidTree)?;
         matches!(
             node.formatting_context,
             FormattingContext::Flex | FormattingContext::Grid
@@ -3063,7 +3064,7 @@ pub fn calculate_layout_for_subtree_fragment<T: ParsedFontTrait>(
     // Fragment passes never store (NG rule, same as the hit-side gate above:
     // fragment geometry would poison the continuous cache).
     if fragment.is_none() && node_index < ctx.cache_map.entries.len() {
-        let warm_ref = tree.warm(node_index);
+        let warm_ref = tree.warm(LayoutNodeId::new(node_index));
         let baseline = warm_ref.and_then(|n| n.baseline);
         let escaped_top = warm_ref.and_then(|n| n.escaped_top_margin);
         let escaped_bottom = warm_ref.and_then(|n| n.escaped_bottom_margin);
@@ -3114,8 +3115,8 @@ fn position_flex_child_descendants(
     let children: Vec<usize> = tree.children(node_index).to_vec();
 
     for &child_index in &children {
-        let child_node = tree.get(child_index).ok_or(LayoutError::InvalidTree)?;
-        let child_rel_pos = tree.warm(child_index)
+        let child_node = tree.get(LayoutNodeId::new(child_index)).ok_or(LayoutError::InvalidTree)?;
+        let child_rel_pos = tree.warm(LayoutNodeId::new(child_index))
             .and_then(|w| w.relative_position)
             .unwrap_or_default();
         let child_abs_pos = LogicalPosition::new(
@@ -3129,7 +3130,7 @@ fn position_flex_child_descendants(
         // Get child's content box for recursion
         let cbp = child_node.box_props.unpack();
         let child_writing_mode = tree
-            .warm(child_index)
+            .warm(LayoutNodeId::new(child_index))
             .map(|w| w.computed_style.writing_mode)
             .unwrap_or_default();
         let child_content_box = LogicalPosition::new(
@@ -3211,7 +3212,7 @@ fn apply_content_based_height(
     node_index: usize,
     writing_mode: LayoutWritingMode,
 ) -> Result<LogicalSize> {
-    let node_props = tree.get(node_index).ok_or(LayoutError::InvalidTree)?.box_props.unpack();
+    let node_props = tree.get(LayoutNodeId::new(node_index)).ok_or(LayoutError::InvalidTree)?.box_props.unpack();
     let main_axis_padding_border =
         node_props.padding.main_sum(writing_mode) + node_props.border.main_sum(writing_mode);
 
@@ -3279,14 +3280,14 @@ fn compute_counters_recursive(
     counter_stacks: &mut HashMap<String, Vec<i32>>,
     scope_stack: &mut Vec<Vec<String>>,
 ) {
-    let Some(node) = tree.get(node_idx) else {
+    let Some(node) = tree.get(LayoutNodeId::new(node_idx)) else {
         return;
     };
 
     // Skip pseudo-elements (::marker, ::before, ::after) for counter processing
     // Pseudo-elements inherit counter values from their parent element
     // but don't participate in counter-reset or counter-increment themselves
-    if tree.warm(node_idx).and_then(|w| w.pseudo_element.as_ref()).is_some() {
+    if tree.warm(LayoutNodeId::new(node_idx)).and_then(|w| w.pseudo_element.as_ref()).is_some() {
         // Store the parent's counter values for this pseudo-element
         // so it can be looked up during marker text generation
         if let Some(parent_idx) = node.parent {
@@ -4039,7 +4040,7 @@ mod autotest_generated {
         cache.previous_positions = vec![pos(0.0, 0.0)];
         cache.counters.insert((0, "list-item".to_string()), 7);
         cache.float_cache.insert(0, fc::FloatingContext::default());
-        cache.scroll_ids.insert(0, 42);
+        cache.scroll_ids.insert(LayoutNodeId::new(0), 42);
         cache.scroll_id_to_node_id.insert(42, NodeId::ZERO);
         // A DL with one Text item: the walk must count the item slot AND
         // its glyph Vec heap — this was a flat 2048 guess before, which
@@ -4118,7 +4119,7 @@ mod autotest_generated {
         cache.float_cache.insert(0, fc::FloatingContext::default());
         // Not incremental-reuse state — must survive.
         cache.calculated_positions = vec![pos(1.0, 2.0)];
-        cache.scroll_ids.insert(0, 5);
+        cache.scroll_ids.insert(LayoutNodeId::new(0), 5);
         cache.viewport = Some(LogicalRect::new(pos(0.0, 0.0), size(800.0, 600.0)));
 
         cache.reset_incremental();
