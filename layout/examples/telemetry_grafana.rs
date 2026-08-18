@@ -168,6 +168,120 @@ fn current_rss() -> Option<u64> {
     }
 }
 
+/// The REAL engine pipeline, exercised once per iteration when the build
+/// has the rendering features: style -> solve (solver3) -> display list ->
+/// CPU paint into a pixmap. This is what makes the "Sub-spans: layout" and
+/// "Sub-spans: repaint" panels show genuine engine timings — a headless app
+/// still lays out and repaints, and so does this demo.
+#[cfg(all(
+    feature = "text_layout",
+    feature = "cpurender",
+    feature = "xml",
+    feature = "font_loading"
+))]
+mod engine_frame {
+    use std::collections::BTreeMap;
+
+    use azul_core::dom::{Dom, DomId};
+    use azul_core::geom::{LogicalPosition, LogicalRect, LogicalSize};
+    use azul_core::resources::{IdNamespace, ImageCache, RendererResources};
+    use azul_core::styled_dom::StyledDom;
+    use azul_css::props::basic::FontRef;
+    use azul_layout::cpurender::{render_with_font_manager, RenderOptions};
+    use azul_layout::glyph_cache::GlyphCache;
+    use azul_layout::font::loading::build_font_cache;
+    use azul_layout::font_traits::{FontManager, TextLayoutCache};
+    use azul_layout::solver3::layout_document;
+    use azul_layout::xml::DomXmlExt;
+    use azul_layout::Solver3LayoutCache;
+
+    /// Everything a real window retains between frames.
+    pub struct EngineState {
+        font_manager: FontManager<FontRef>,
+        layout_cache: Solver3LayoutCache,
+        text_cache: TextLayoutCache,
+        glyph_cache: GlyphCache,
+        renderer_resources: RendererResources,
+        image_cache: ImageCache,
+        styled: StyledDom,
+    }
+
+    impl EngineState {
+        /// Builds the persistent engine state (font discovery happens here,
+        /// once — same as a real app's startup).
+        pub fn create(document: &str) -> Option<Self> {
+            let font_manager = FontManager::new(build_font_cache()).ok()?;
+            Some(Self {
+                font_manager,
+                layout_cache: Solver3LayoutCache::default(),
+                text_cache: TextLayoutCache::new(),
+                glyph_cache: GlyphCache::new(),
+                renderer_resources: RendererResources::default(),
+                image_cache: ImageCache::default(),
+                styled: Dom::from_xml_string(document),
+            })
+        }
+
+        /// Replaces the document (the "user edited / resized the doc" path —
+        /// the next frame reconciles against the new tree).
+        pub fn set_document(&mut self, document: &str) {
+            self.styled = Dom::from_xml_string(document);
+        }
+
+        /// One frame: solve layout at `viewport_width`, then CPU-paint the
+        /// display list. All solver/raster `Probe` spans fire inside —
+        /// `drain_probe_events()` turns them into `app_phase_seconds`.
+        /// Returns the painted pixmap's byte count (and keeps the work
+        /// observable so nothing is optimised away).
+        pub fn frame(&mut self, viewport_width: f32) -> usize {
+            let viewport = LogicalRect {
+                origin: LogicalPosition::zero(),
+                size: LogicalSize::new(viewport_width, 600.0),
+            };
+            let mut debug_messages = None;
+            let display_list = match layout_document(
+                &mut self.layout_cache,
+                &mut self.text_cache,
+                &self.styled,
+                viewport,
+                &self.font_manager,
+                &BTreeMap::new(),
+                &BTreeMap::new(),
+                &mut debug_messages,
+                None,
+                &self.renderer_resources,
+                IdNamespace(0),
+                DomId::ROOT_ID,
+                false,
+                Vec::new(),
+                None,
+                &self.image_cache,
+                None,
+                None,
+                azul_core::task::GetSystemTimeCallback {
+                    cb: azul_core::task::get_system_time_libstd,
+                },
+                &[],
+            ) {
+                Ok(dl) => dl,
+                Err(_) => return 0,
+            };
+            let pixmap = render_with_font_manager(
+                &display_list,
+                &self.renderer_resources,
+                &self.font_manager,
+                RenderOptions {
+                    width: viewport_width,
+                    height: 600.0,
+                    dpi_factor: 1.0,
+                },
+                &mut self.glyph_cache,
+            );
+            pixmap.map_or(0, |p| std::hint::black_box(p.data().len()))
+        }
+    }
+}
+
 /// Builds a document of `paragraphs` paragraphs.
 fn build_document(paragraphs: usize) -> String {
     let mut doc = String::with_capacity(paragraphs * PARAGRAPH.len() + 256);
@@ -318,6 +432,26 @@ fn main() {
     let mut document = build_document(paragraphs);
     let resident_doc: Vec<String> = vec![document.clone()];
     let first_nodes = run_workload(&document);
+    // The REAL pipeline (style -> solve -> display list -> CPU paint), when
+    // the build has the rendering features. A headless app still lays out
+    // and repaints every frame — so does this demo.
+    #[cfg(all(
+        feature = "text_layout",
+        feature = "cpurender",
+        feature = "xml",
+        feature = "font_loading"
+    ))]
+    let mut engine = engine_frame::EngineState::create(&document);
+    #[cfg(not(all(
+        feature = "text_layout",
+        feature = "cpurender",
+        feature = "xml",
+        feature = "font_loading"
+    )))]
+    println!(
+        "  NOTE: built without text_layout+cpurender+xml+font_loading — no real \
+         layout/paint per frame, so the layout/repaint sub-span panels stay empty."
+    );
     telemetry::record_document_opened(doc_open, paragraphs as f64);
     let startup_secs = process_start.elapsed().as_secs_f64();
     telemetry::record_startup(startup_secs, current_rss().unwrap_or(0));
@@ -368,6 +502,15 @@ fn main() {
         if resized {
             paragraphs = if paragraphs >= 6_000 { 2_000 } else { paragraphs + 1_000 };
             document = build_document(paragraphs);
+            #[cfg(all(
+                feature = "text_layout",
+                feature = "cpurender",
+                feature = "xml",
+                feature = "font_loading"
+            ))]
+            if let Some(engine) = engine.as_mut() {
+                engine.set_document(&document);
+            }
         }
 
         // Pacing, not fake work: a real app does periodic work with idle time
@@ -380,6 +523,20 @@ fn main() {
 
         let started = Instant::now();
         let nodes = run_workload(&document);
+        // Real layout + CPU repaint. The viewport wobbles every third frame
+        // (a resize), so some frames re-flow and some hit the engine's
+        // caches — both paths are the truth the panels should show.
+        #[cfg(all(
+            feature = "text_layout",
+            feature = "cpurender",
+            feature = "xml",
+            feature = "font_loading"
+        ))]
+        if let Some(engine) = engine.as_mut() {
+            let viewport_width = 800.0 + ((iteration / 3) % 8) as f32 * 20.0;
+            let painted = engine.frame(viewport_width);
+            std::hint::black_box(painted);
+        }
         let elapsed = started.elapsed().as_secs_f64();
         slowest = slowest.max(elapsed);
 
