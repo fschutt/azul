@@ -2300,6 +2300,7 @@ mod allocator_stats_tests {
     }
 
     #[test]
+    #[cfg(feature = "probe")] // without the probe the const stub returns "cb:?" by design
     fn fn_name_resolution_never_collapses_to_a_bare_question_mark() {
         // The static-link fallback law: two DIFFERENT functions must get
         // DIFFERENT span names even when dladdr cannot name them — "cb:?"

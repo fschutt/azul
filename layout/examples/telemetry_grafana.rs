@@ -452,11 +452,15 @@ fn main() {
     // ── Update drill (localhost manifest; auto + manual modes) ─────────
     #[cfg(feature = "updater")]
     if let Some(manifest) = &args.rollout_drill {
-        #[cfg(feature = "updater")]
         run_rollout_drill(manifest, &args.version);
     }
+    #[cfg(feature = "updater")]
     if let Some(manifest) = &args.update_manifest {
         run_update_drill(manifest, &args.version, args.update_auto);
+    }
+    #[cfg(not(feature = "updater"))]
+    if args.rollout_drill.is_some() || args.update_manifest.is_some() {
+        eprintln!("update drills need --features updater");
     }
 
     // ── Clean shutdown ──────────────────────────────────────────────────
