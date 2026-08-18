@@ -80,6 +80,7 @@ useful deployment is a text file and the largest is the manifest above.
 | The manifest above | Everything: rollout, changelog, signature chain |
 | A flat object `{"version": "2.0.0", "url": "…"}` | Version + download; same optional fields, no `latest` wrapper |
 | A GitHub release | Version, asset, changelog, digest, signatures — see below |
+| An OCI registry (`oci://…`) | Version, layer blob, and a digest pin for free |
 | A bare version number, e.g. a `VERSION` file | Notification only: "there is a 2.0.0", with no download |
 
 The lenience is about SHAPE, never about verification. Whatever the source,
@@ -129,6 +130,39 @@ A GitHub release with no signature assets is *unsigned*: fine if your app
 does not pin a `root_public_key`, and a hard refusal if it does. That is the
 intended behaviour — an app that has been told to require signatures should
 not quietly accept a release that has none.
+
+### OCI registries
+
+If you already push artifacts to a container registry, that is an update
+source:
+
+```text
+oci://ghcr.io/owner/app:2.0.0
+oci://registry.example.com:5000/team/app        # a port is not a tag
+```
+
+* The registry's **token dance** is handled: an unauthenticated manifest
+  request gets a `401` with a `WWW-Authenticate` challenge, the client
+  fetches a (usually anonymous) pull token and retries. The same token is
+  carried into the artifact download, since a blob request needs it too.
+* A **multi-arch index** is followed to this platform's manifest. OCI names
+  platforms `darwin/amd64` where Rust says `macos/x86_64`; that mapping is
+  done for you. An index with nothing for your platform selects nothing
+  rather than something arbitrary.
+* The version comes from the `org.opencontainers.image.version` annotation,
+  or from the tag when the reference names one. A `:latest` with no version
+  annotation is an **error** — there is no honest answer to "which version
+  is this", and reporting "up to date" would be a lie.
+  `org.opencontainers.image.created` seeds the rollout ladder.
+* Select the artifact layer with `?asset=` matched against the layer's media
+  type or its `org.opencontainers.image.title` annotation; the first layer
+  is the default.
+
+The nice property here is that **the layer digest is the pin**. A registry
+already content-addresses its blobs, so an OCI release is digest-verified by
+construction — there is no checksum file to publish, forget, or trust. The
+minisign chain still applies on top if you pin a root key; put the `.minisig`
+and the statement in the manifest's annotations or ship them as extra layers.
 
 ## Why there are two keys
 
