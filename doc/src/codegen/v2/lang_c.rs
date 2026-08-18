@@ -893,6 +893,50 @@ impl CGenerator {
                     args.join(", ")
                 }
             ));
+
+            // Byref twin: owned aggregates by pointer (consumed — same
+            // ownership as the by-value call), return via out-pointer.
+            // For FFIs whose call frames cannot pass large aggregates by
+            // value (LuaJIT caps stack args at 256 bytes).
+            let is_aggregate = |arg: &FunctionArg| {
+                matches!(arg.ref_kind, ArgRefKind::Owned)
+                    && arg
+                        .type_name
+                        .chars()
+                        .next()
+                        .is_some_and(|c| c.is_ascii_uppercase())
+            };
+            if func.args.iter().any(is_aggregate) {
+                let mut byref_args: Vec<String> = Vec::with_capacity(func.args.len() + 1);
+                if func.return_type.is_some() {
+                    byref_args.push(format!("{return_type}* __ret"));
+                }
+                for arg in &func.args {
+                    let c_type = self.rust_type_to_c_with_prefix(&arg.type_name, config);
+                    let escaped_name = escape_cpp_keyword_for_c(&arg.name);
+                    if is_aggregate(arg) {
+                        byref_args.push(format!("{c_type}* {escaped_name}"));
+                    } else {
+                        let (ptr_prefix, ptr_suffix) = match arg.ref_kind {
+                            ArgRefKind::Owned => ("", ""),
+                            ArgRefKind::Ref => ("const ", "*"),
+                            ArgRefKind::RefMut | ArgRefKind::PtrMut => ("", "*"),
+                            ArgRefKind::Ptr => ("const ", "*"),
+                        };
+                        byref_args.push(format!(
+                            "{ptr_prefix}{c_type}{ptr_suffix} {escaped_name}"
+                        ));
+                    }
+                }
+                builder.line(
+                    "/* Byref twin: owned aggregates by pointer (CONSUMED, like the by-value call); return via out-pointer. */",
+                );
+                builder.line(&format!(
+                    "extern DLLIMPORT void {}Byref({});",
+                    func.c_name,
+                    byref_args.join(", ")
+                ));
+            }
             return;
         }
 

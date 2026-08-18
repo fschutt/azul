@@ -67,20 +67,197 @@ pub fn generate(ir: &CodegenIR, _config: &CodegenConfig) -> Result<String> {
     builder.line("local ffi = require('ffi')");
     builder.blank();
 
-    // 3. cdef block.
+    // 3. cdef block — TYPES ONLY, functions go lazy.
+    //
+    // LuaJIT's ctype-ID space is 16-bit (~65 536 type IDs for the whole
+    // VM). Declaring the entire API eagerly — ~4 300 structs plus ~14 700
+    // function prototypes, each consuming IDs for its signature — OVERFLOWS
+    // it: `luajit: table overflow` inside the single big `ffi.cdef`, before
+    // one line of user code ran (the AZ_E2E scripting chronic). Types are
+    // still declared eagerly here; every FUNCTION declaration is deferred
+    // into `__az_fn_decls` below and `ffi.cdef`'d on FIRST USE, so the
+    // ctype budget scales with what the program actually calls (a real app
+    // touches hundreds of functions, not fourteen thousand).
+    let mut type_lines = String::new();
+    let mut fn_decls: Vec<(String, String)> = Vec::new();
+    // Function-POINTER typedef names (`typedef R (*AzXCallbackType)(...)`):
+    // pointer-sized scalars, NOT aggregates — excluded from Byref routing.
+    let fnptr_typedefs: std::collections::HashSet<String> = cdef_payload
+        .lines()
+        .filter_map(|l| {
+            let t = l.trim();
+            if !t.starts_with("typedef") {
+                return None;
+            }
+            let star = t.find("(*")?;
+            let rest = &t[star + 2..];
+            let end = rest.find(')')?;
+            Some(rest[..end].trim().to_string())
+        })
+        .collect();
+    // name -> (return C type or "", owned-aggregate arg type names)
+    let mut fn_meta: Vec<(String, String, Vec<String>)> = Vec::new();
+    for line in cdef_payload.lines() {
+        let trimmed = line.trim_start();
+        let is_fn_decl = trimmed.starts_with("extern ")
+            && trimmed.trim_end().ends_with(");")
+            && trimmed.contains('(');
+        if is_fn_decl {
+            let before_paren = &trimmed[..trimmed.find('(').unwrap_or(0)];
+            let name = before_paren
+                .rsplit(|c: char| c.is_whitespace() || c == '*')
+                .next()
+                .unwrap_or("")
+                .to_string();
+            if name.is_empty() {
+                // Unparseable: keep it eager rather than lose it.
+                type_lines.push_str(line);
+                type_lines.push('\n');
+            } else {
+                // Meta for the Byref routing: return type + the OWNED
+                // aggregate parameter types (uppercase Az name, no '*',
+                // not a fn-pointer typedef).
+                let open = trimmed.find('(').unwrap_or(0);
+                let ret = trimmed["extern".len()..open]
+                    .trim()
+                    .rsplitn(2, char::is_whitespace)
+                    .nth(1)
+                    .unwrap_or("")
+                    .trim()
+                    .to_string();
+                let close = trimmed.rfind(')').unwrap_or(open);
+                let params = &trimmed[open + 1..close];
+                let mut aggs: Vec<String> = Vec::new();
+                if params.trim() != "void" && !params.trim().is_empty() {
+                    for param in params.split(',') {
+                        let param = param.trim();
+                        if param.contains('*') {
+                            continue;
+                        }
+                        let ty = param
+                            .rsplitn(2, char::is_whitespace)
+                            .nth(1)
+                            .unwrap_or("")
+                            .trim();
+                        if ty.starts_with("Az")
+                            && !fnptr_typedefs.contains(ty)
+                            && ty.chars().all(|c| c.is_ascii_alphanumeric() || c == '_')
+                        {
+                            aggs.push(ty.to_string());
+                        }
+                    }
+                }
+                if !aggs.is_empty() && !name.ends_with("Byref") {
+                    fn_meta.push((name.clone(), ret, aggs));
+                }
+                fn_decls.push((name, trimmed.trim_end().to_string()));
+            }
+        } else {
+            type_lines.push_str(line);
+            type_lines.push('\n');
+        }
+    }
+
     builder.line("ffi.cdef[[");
-    // Emit the payload verbatim (it already contains its own newlines).
-    builder.raw(&cdef_payload);
-    if !cdef_payload.ends_with('\n') {
+    builder.raw(&type_lines);
+    if !type_lines.ends_with('\n') {
         builder.raw("\n");
     }
     builder.line("]]");
     builder.blank();
 
-    // 4. Load the native library. `ffi.load` resolves
-    //    libazul.so / libazul.dylib / azul.dll automatically across
-    //    platforms.
-    builder.line("local C = ffi.load('azul')");
+    // 3b. The lazy function-declaration registry (plain Lua strings — costs
+    //     table slots, never ctype IDs, until a function is first called).
+    builder.line("-- Function declarations, cdef'd lazily on first use (see the ctype");
+    builder.line("-- budget note above). Keys are the C symbol names.");
+    builder.line("local __az_fn_decls = {");
+    for (name, decl) in &fn_decls {
+        // C declarations contain no quotes/backslashes; plain single-quoted
+        // Lua strings are safe. Defensive assert keeps that true.
+        debug_assert!(!decl.contains('\'') && !decl.contains('\\'));
+        builder.line(&format!("    [\"{name}\"] = '{decl}',"));
+    }
+    builder.line("}");
+    builder.blank();
+
+    // 3c. Byref routing metadata: LuaJIT's FFI call frame caps stack-passed
+    //     argument bytes at 256 (CCALL_MAXSTACK), so a function taking a
+    //     large aggregate BY VALUE (AzAppConfig is 2 KiB) is a hard
+    //     "NYI: cannot call this C function". Such calls route through the
+    //     generated `<name>Byref` twin: owned aggregates by pointer
+    //     (consumed, identical ownership), return via out-pointer.
+    builder.line("-- name -> { ret = <C return type or nil>, aggs = {<owned aggregate types>} }");
+    builder.line("local __az_fn_meta = {");
+    for (name, ret, aggs) in &fn_meta {
+        let ret_lua = if ret == "void" || ret.is_empty() {
+            "nil".to_string()
+        } else {
+            format!("\"{ret}\"")
+        };
+        let aggs_lua = aggs
+            .iter()
+            .map(|a| format!("\"{a}\""))
+            .collect::<Vec<_>>()
+            .join(",");
+        builder.line(&format!(
+            "    [\"{name}\"] = {{ ret = {ret_lua}, aggs = {{{aggs_lua}}} }},"
+        ));
+    }
+    builder.line("}");
+    builder.blank();
+
+    // 4. Load the native library behind a MEMOIZING PROXY: first access to
+    //    a function cdefs its declaration, resolves it, and caches the
+    //    cdata; enum constants and anything else fall through untouched.
+    builder.line("local __az_raw = ffi.load('azul')");
+    builder.line("local C = setmetatable({}, {");
+    builder.line("    __index = function(cache, name)");
+    builder.line("        -- Byref routing: LuaJIT cannot pass aggregates whose stack copy");
+    builder.line("        -- exceeds its 256-byte call frame; use the <name>Byref twin.");
+    builder.line("        local meta = __az_fn_meta[name]");
+    builder.line("        if meta then");
+    builder.line("            local big = false");
+    builder.line("            for _, t in ipairs(meta.aggs) do");
+    builder.line("                if ffi.sizeof(t) > 200 then big = true break end");
+    builder.line("            end");
+    builder.line("            local byname = name .. 'Byref'");
+    builder.line("            if big and __az_fn_decls[byname] then");
+    builder.line("                ffi.cdef(__az_fn_decls[byname])");
+    builder.line("                __az_fn_decls[byname] = nil");
+    builder.line("                local raw_fn = __az_raw[byname]");
+    builder.line("                local retT = meta.ret");
+    builder.line("                local wrapped");
+    builder.line("                if retT == nil then");
+    builder.line("                    wrapped = raw_fn");
+    builder.line("                elseif retT:sub(1, 2) == 'Az' and not retT:find('%*') then");
+    builder.line("                    -- aggregate return: struct cdata auto-passes as *out");
+    builder.line("                    wrapped = function(...)");
+    builder.line("                        local out = ffi.new(retT)");
+    builder.line("                        raw_fn(out, ...)");
+    builder.line("                        return out");
+    builder.line("                    end");
+    builder.line("                else");
+    builder.line("                    -- scalar/pointer return: 1-element array, unbox on return");
+    builder.line("                    wrapped = function(...)");
+    builder.line("                        local out = ffi.new(retT .. '[1]')");
+    builder.line("                        raw_fn(out, ...)");
+    builder.line("                        return out[0]");
+    builder.line("                    end");
+    builder.line("                end");
+    builder.line("                rawset(cache, name, wrapped)");
+    builder.line("                return wrapped");
+    builder.line("            end");
+    builder.line("        end");
+    builder.line("        local decl = __az_fn_decls[name]");
+    builder.line("        if decl then");
+    builder.line("            ffi.cdef(decl)");
+    builder.line("            __az_fn_decls[name] = nil -- cdef exactly once");
+    builder.line("        end");
+    builder.line("        local value = __az_raw[name]");
+    builder.line("        rawset(cache, name, value) -- memoize: __index fires once per name");
+    builder.line("        return value");
+    builder.line("    end,");
+    builder.line("})");
     builder.blank();
 
     // 5. Public namespace table.

@@ -3660,6 +3660,7 @@ impl RustGenerator {
                 "pub unsafe extern \"C\" fn {}({}){} {}",
                 func.c_name, args, return_str, body
             ));
+            Self::emit_byref_twin(builder, func, config, export_feature, is_export_only);
             return;
         }
 
@@ -4096,6 +4097,97 @@ impl RustGenerator {
             self.format_function_args(func, config)
         };
         builder.line(&format!("pub fn {}({}){};", func.c_name, args, return_str));
+    }
+
+    /// `Byref` twin: same function, every OWNED aggregate argument by
+    /// POINTER (moved out with `ptr::read` — the caller must neither reuse
+    /// nor free it, identical ownership to the by-value call), return
+    /// through an out-pointer.
+    ///
+    /// Exists for FFIs whose call frames cannot pass large aggregates by
+    /// value: LuaJIT caps stack-passed argument bytes at 256
+    /// (CCALL_MAXSTACK), so `AzApp_create(AzRefAny, AzAppConfig /* 2 KiB */)`
+    /// is a hard "NYI: cannot call this C function" there. The Lua binding
+    /// routes such calls here automatically (see lang_lua's `__az_fn_meta`).
+    fn emit_byref_twin(
+        builder: &mut CodeBuilder,
+        func: &FunctionDef,
+        config: &CodegenConfig,
+        export_feature: &str,
+        is_export_only: bool,
+    ) {
+        let is_aggregate = |arg: &FunctionArg| {
+            matches!(arg.ref_kind, ArgRefKind::Owned)
+                && arg
+                    .type_name
+                    .chars()
+                    .next()
+                    .is_some_and(|c| c.is_ascii_uppercase())
+                && !arg.type_name.ends_with("CallbackType")
+                && !arg.type_name.ends_with("FnType")
+        };
+        if !func.args.iter().any(is_aggregate) || func.fn_body.is_none() {
+            return;
+        }
+        if is_export_only {
+            builder.line(&format!("#[cfg(feature = \"{export_feature}\")]"));
+        }
+        builder.line("#[allow(unused_variables)]");
+        builder.line(&format!(
+            "#[cfg_attr(feature = \"{export_feature}\", no_mangle)]"
+        ));
+        let mut params: Vec<String> = Vec::with_capacity(func.args.len() + 1);
+        let ret = func.return_type.as_ref().map(|r| config.apply_prefix(r));
+        if let Some(ret_ty) = &ret {
+            params.push(format!("__ret: *mut {ret_ty}"));
+        }
+        for arg in &func.args {
+            if is_aggregate(arg) {
+                params.push(format!(
+                    "{}: *mut {}",
+                    arg.name,
+                    config.apply_prefix(&arg.type_name)
+                ));
+            } else {
+                let type_name = config.apply_prefix(&arg.type_name);
+                let ref_prefix = match arg.ref_kind {
+                    ArgRefKind::Owned => "",
+                    ArgRefKind::Ref => "&",
+                    ArgRefKind::RefMut => "&mut ",
+                    ArgRefKind::Ptr => "*const ",
+                    ArgRefKind::PtrMut => "*mut ",
+                };
+                params.push(format!("{}: {}{}", arg.name, ref_prefix, type_name));
+            }
+        }
+        builder.line(&format!(
+            "pub unsafe extern \"C\" fn {}Byref({}) {{",
+            func.c_name,
+            params.join(", ")
+        ));
+        builder.indent();
+        let call_args: Vec<String> = func
+            .args
+            .iter()
+            .map(|arg| {
+                if is_aggregate(arg) {
+                    format!("core::ptr::read({})", arg.name)
+                } else {
+                    arg.name.clone()
+                }
+            })
+            .collect();
+        if ret.is_some() {
+            builder.line(&format!(
+                "core::ptr::write(__ret, {}({}));",
+                func.c_name,
+                call_args.join(", ")
+            ));
+        } else {
+            builder.line(&format!("{}({});", func.c_name, call_args.join(", ")));
+        }
+        builder.dedent();
+        builder.line("}");
     }
 
     fn format_function_args(&self, func: &FunctionDef, config: &CodegenConfig) -> String {
