@@ -102,6 +102,81 @@ pub enum AppTerminationBehavior {
 }
 
 
+/// An email address, e.g. a support mailbox problem reports go to.
+///
+/// Deliberately a thin wrapper (no RFC 5322 validation): the address is
+/// app-configured, not user input, and the SMTP layer reports a bad one
+/// loudly at send time.
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[repr(C)]
+pub struct EmailAddress {
+    /// The address, e.g. `support@myapp.example`.
+    pub address: AzString,
+}
+
+impl_option!(
+    EmailAddress,
+    OptionEmailAddress,
+    copy = false,
+    [Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash]
+);
+
+impl EmailAddress {
+    #[must_use] pub const fn new(address: AzString) -> Self {
+        Self { address }
+    }
+}
+
+/// Requested update behaviour.
+///
+/// The EFFECTIVE behaviour is this clamped by what the installation permits:
+/// a package-managed binary (dpkg-owned, `/usr`, snap, flatpak,
+/// `WindowsApps`) NEVER self-updates — `SelfUpdate` degrades to
+/// `NotifyOnly` there ("update via your package manager").
+#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Default)]
+#[repr(C)]
+pub enum UpdateMode {
+    /// Check, notify, and — after the user consents — download and swap the
+    /// binary. Staging may happen in the background; INSTALLING never does.
+    SelfUpdate,
+    /// Check and notify only ("new version available"); installing is the
+    /// user's / packager's job. The mode packagers should ship.
+    #[default]
+    NotifyOnly,
+    /// Never check for updates.
+    Disabled,
+}
+
+/// Update configuration, part of [`AppConfig`]. With `manifest_url` unset
+/// every check reports an error naming this field — nothing phones home
+/// unless the app points it somewhere.
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[repr(C)]
+pub struct UpdateSettings {
+    /// Requested behaviour; clamped by the detected install kind at runtime.
+    pub mode: UpdateMode,
+    /// URL of the update manifest (JSON: `{"latest": {"version", "download_url",
+    /// "changelog_md", "digest"}}`). None = update checks disabled.
+    pub manifest_url: azul_css::OptionString,
+    /// The RUNNING version, compared against the manifest's `latest.version`
+    /// (dotted-numeric compare). Apps typically pass `env!("CARGO_PKG_VERSION")`.
+    pub current_version: AzString,
+    /// Directory-safe application name; keys the updater's state directory
+    /// (`{data_dir}/{app_name}/update-state.json`) and the staging area.
+    pub app_name: AzString,
+}
+
+impl Default for UpdateSettings {
+    fn default() -> Self {
+        Self {
+            mode: UpdateMode::default(),
+            manifest_url: azul_css::OptionString::None,
+            current_version: AzString::from_const_str("0.0.0"),
+            app_name: AzString::from_const_str("azul-app"),
+        }
+    }
+}
+
 /// A named font bundled with the application (name + raw bytes).
 /// The name is used to reference the font in CSS (e.g. `font-family: "MyFont"`).
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -752,6 +827,19 @@ pub struct AppConfig {
     /// The default recognises nothing, so a scenario naming a custom op fails
     /// unless the app installed a handler.
     pub custom_e2e_op: crate::events::CustomE2eOpCallback,
+    /// Update configuration: manifest URL, requested mode, the running
+    /// version. Drives `CallbackInfo::check_for_updates` and the
+    /// `SysDialogType::UpdateVersion` dialog. Default: no manifest (checks
+    /// disabled), `NotifyOnly`.
+    pub updates: UpdateSettings,
+    /// URL of the app's changelog in Markdown. The `UpdateVersion` dialog
+    /// shows it before installing when a release carries no changelog link
+    /// of its own.
+    pub changelog_md: azul_css::OptionString,
+    /// Support mailbox that problem reports (`SysDialogType::ReportProblem`)
+    /// and manual crash reports go to. None = the `ReportProblem` dialog saves
+    /// reports to disk instead of mailing them.
+    pub report_problem: OptionEmailAddress,
 }
 
 impl AppConfig {
@@ -775,6 +863,9 @@ impl AppConfig {
             routes: RouteVec::from_const_slice(&[]),
             system_animations: SystemAnimations::default(),
             custom_e2e_op: crate::events::CustomE2eOpCallback::default(),
+            updates: UpdateSettings::default(),
+            changelog_md: azul_css::OptionString::None,
+            report_problem: OptionEmailAddress::None,
         };
         // Dogfood: register the 52 built-in HTML elements via the
         // same `add_component_library` API that users call.

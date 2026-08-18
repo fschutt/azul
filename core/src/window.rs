@@ -2207,6 +2207,26 @@ impl Hash for TaskBarIcon {
     }
 }
 
+/// A built-in system dialog the engine presents on the app's behalf.
+///
+/// Invoked via `CallbackInfo::invoke_system_dialog`. These dialogs are
+/// rendered by azul itself in a new window that is ALWAYS CPU-rendered — a
+/// dialog reporting a problem (possibly a GPU problem) must not depend on
+/// the GPU working.
+#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[repr(C)]
+pub enum SysDialogType {
+    /// "Report a problem": a message box (user text + optional screenshot of
+    /// the current window + optional system information) mailed to
+    /// `AppConfig.report_problem`, or saved to disk when no address is set.
+    ReportProblem,
+    /// "Check for updates": runs the update check on a background thread,
+    /// shows the release's Markdown changelog, and — only where the install
+    /// permits self-update and the user consents — downloads and applies it.
+    /// Package-managed installs get a "update via your package manager" note.
+    UpdateVersion,
+}
+
 #[cfg(test)]
 #[allow(clippy::float_cmp)] // exact-value assertions on hidpi scale factors
 mod audit_tests {
