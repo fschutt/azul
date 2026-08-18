@@ -838,6 +838,7 @@ dependencies = [
  "rustls-rustcrypto",
  "serde",
  "serde_json",
+ "sha2 0.10.9",
  "smallvec",
  "spmc",
  "strfmt",

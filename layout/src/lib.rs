@@ -165,9 +165,9 @@ use xmlwriter as _;
 // `rustls-webpki-roots` features and reached only via `ureq::tls::*`, so this
 // crate never names them — but it must depend on them to pin the versions
 // ureq resolves against (see the `http` feature).
-#[cfg(feature = "http")]
+#[cfg(all(feature = "http", not(target_arch = "wasm32")))]
 use rustls as _;
-#[cfg(feature = "http")]
+#[cfg(all(feature = "http", not(target_arch = "wasm32")))]
 use webpki_roots as _;
 
 /// Web-lift diagnostic marker: a volatile store of `val` to the absolute wasm

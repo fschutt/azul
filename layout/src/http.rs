@@ -219,14 +219,14 @@ impl HttpRequestConfig {
     ///
     /// # Returns
     /// * `ResultHttpResponseHttpError` - The response or an error
-    #[cfg(feature = "http")]
+    #[cfg(all(feature = "http", not(target_arch = "wasm32")))]
     #[must_use] pub fn http_get_default(url: AzString) -> ResultHttpResponseHttpError {
         let config = Self::default();
         http_get_with_config(url.as_str(), &config).into()
     }
 
     /// Stub: `http` feature disabled.
-    #[cfg(not(feature = "http"))]
+    #[cfg(any(not(feature = "http"), target_arch = "wasm32"))]
     #[must_use] pub fn http_get_default(_url: AzString) -> ResultHttpResponseHttpError {
         ResultHttpResponseHttpError::Err(HttpError::other("http feature not enabled".into()))
     }
@@ -238,13 +238,13 @@ impl HttpRequestConfig {
     /// 
     /// # Returns
     /// * `ResultHttpResponseHttpError` - The response or an error
-    #[cfg(feature = "http")]
+    #[cfg(all(feature = "http", not(target_arch = "wasm32")))]
     #[must_use] pub fn http_get(&self, url: AzString) -> ResultHttpResponseHttpError {
         http_get_with_config(url.as_str(), self).into()
     }
 
     /// Stub: `http` feature disabled.
-    #[cfg(not(feature = "http"))]
+    #[cfg(any(not(feature = "http"), target_arch = "wasm32"))]
     #[must_use] pub fn http_get(&self, _url: AzString) -> ResultHttpResponseHttpError {
         ResultHttpResponseHttpError::Err(HttpError::other("http feature not enabled".into()))
     }
@@ -256,13 +256,13 @@ impl HttpRequestConfig {
     /// 
     /// # Returns
     /// * `ResultU8VecHttpError` - The response body or an error
-    #[cfg(feature = "http")]
+    #[cfg(all(feature = "http", not(target_arch = "wasm32")))]
     #[must_use] pub fn download_bytes_default(url: AzString) -> ResultU8VecHttpError {
         download_bytes(url.as_str()).into()
     }
 
     /// Stub: `http` feature disabled.
-    #[cfg(not(feature = "http"))]
+    #[cfg(any(not(feature = "http"), target_arch = "wasm32"))]
     #[must_use] pub fn download_bytes_default(_url: AzString) -> ResultU8VecHttpError {
         ResultU8VecHttpError::Err(HttpError::other("http feature not enabled".into()))
     }
@@ -274,13 +274,13 @@ impl HttpRequestConfig {
     /// 
     /// # Returns
     /// * `ResultU8VecHttpError` - The response body or an error
-    #[cfg(feature = "http")]
+    #[cfg(all(feature = "http", not(target_arch = "wasm32")))]
     #[must_use] pub fn download_bytes(&self, url: AzString) -> ResultU8VecHttpError {
         download_bytes_with_config(url.as_str(), self).into()
     }
 
     /// Stub: `http` feature disabled.
-    #[cfg(not(feature = "http"))]
+    #[cfg(any(not(feature = "http"), target_arch = "wasm32"))]
     #[must_use] pub fn download_bytes(&self, _url: AzString) -> ResultU8VecHttpError {
         ResultU8VecHttpError::Err(HttpError::other("http feature not enabled".into()))
     }
@@ -292,7 +292,7 @@ impl HttpRequestConfig {
     /// 
     /// # Returns
     /// * `bool` - True if reachable (2xx status)
-    #[cfg(feature = "http")]
+    #[cfg(all(feature = "http", not(target_arch = "wasm32")))]
     #[must_use] pub fn is_url_reachable(url: AzString) -> bool {
         is_url_reachable(url.as_str())
     }
@@ -303,7 +303,7 @@ impl HttpRequestConfig {
     /// `HttpError::other("http feature not enabled")`; a bare `false` is the
     /// one answer here that reads exactly like "server down", so say the
     /// truth once. (The `const fn` free-function twin below cannot log.)
-    #[cfg(not(feature = "http"))]
+    #[cfg(any(not(feature = "http"), target_arch = "wasm32"))]
     #[must_use] pub fn is_url_reachable(_url: AzString) -> bool {
         static ANNOUNCE: std::sync::Once = std::sync::Once::new();
         ANNOUNCE.call_once(|| {
@@ -392,13 +392,13 @@ impl_result!(
 ///
 /// # Returns
 /// * `HttpResult<HttpResponse>` - The response or an error
-#[cfg(feature = "http")]
+#[cfg(all(feature = "http", not(target_arch = "wasm32")))]
 pub fn http_get(url: &str) -> HttpResult<HttpResponse> {
     http_get_with_config(url, &HttpRequestConfig::default())
 }
 
 /// Stub: `http` feature disabled.
-#[cfg(not(feature = "http"))]
+#[cfg(any(not(feature = "http"), target_arch = "wasm32"))]
 /// # Errors
 ///
 /// Returns an `HttpError` if the request fails (network/status error, or the networking feature is disabled).
@@ -414,7 +414,7 @@ pub fn http_get(_url: &str) -> HttpResult<HttpResponse> {
 /// 
 /// # Returns
 /// * `HttpResult<HttpResponse>` - The response or an error
-#[cfg(feature = "http")]
+#[cfg(all(feature = "http", not(target_arch = "wasm32")))]
 fn make_agent(timeout_secs: u64, disable_tls_cert_verification: bool) -> ureq::Agent {
     use std::time::Duration;
 
@@ -487,7 +487,7 @@ impl fmt::Display for HttpMethod {
 }
 
 /// Maps a ureq transport error onto the C-ABI-safe [`HttpError`].
-#[cfg(feature = "http")]
+#[cfg(all(feature = "http", not(target_arch = "wasm32")))]
 fn map_ureq_error(url: &str, e: &ureq::Error) -> HttpError {
     match e {
         ureq::Error::Timeout(_) => HttpError::Timeout,
@@ -515,7 +515,7 @@ fn map_ureq_error(url: &str, e: &ureq::Error) -> HttpError {
 /// Turns a ureq response into the C-ABI [`HttpResponse`], enforcing
 /// `config.max_response_size` both on the advertised `Content-Length` and on
 /// the actual number of bytes read.
-#[cfg(feature = "http")]
+#[cfg(all(feature = "http", not(target_arch = "wasm32")))]
 fn decode_response(
     response: ureq::http::Response<ureq::Body>,
     config: &HttpRequestConfig,
@@ -587,7 +587,7 @@ fn decode_response(
 /// Returns an `HttpError` on DNS/connect/TLS/IO failure, on timeout, if the
 /// response exceeds `config.max_response_size`, or if the `http` feature is
 /// disabled.
-#[cfg(feature = "http")]
+#[cfg(all(feature = "http", not(target_arch = "wasm32")))]
 pub fn http_request_with_config(
     method: HttpMethod,
     url: &str,
@@ -644,7 +644,7 @@ pub fn http_request_with_config(
 /// # Errors
 ///
 /// Always returns an `HttpError` — the networking feature is disabled.
-#[cfg(not(feature = "http"))]
+#[cfg(any(not(feature = "http"), target_arch = "wasm32"))]
 pub fn http_request_with_config(
     _method: HttpMethod,
     _url: &str,
@@ -660,13 +660,13 @@ pub fn http_request_with_config(
 /// # Errors
 ///
 /// See [`http_request_with_config`].
-#[cfg(feature = "http")]
+#[cfg(all(feature = "http", not(target_arch = "wasm32")))]
 pub fn http_get_with_config(url: &str, config: &HttpRequestConfig) -> HttpResult<HttpResponse> {
     http_request_with_config(HttpMethod::Get, url, None, "", config)
 }
 
 /// Stub: `http` feature disabled.
-#[cfg(not(feature = "http"))]
+#[cfg(any(not(feature = "http"), target_arch = "wasm32"))]
 /// # Errors
 ///
 /// Returns an `HttpError` if the request fails (network/status error, or the networking feature is disabled).
@@ -721,13 +721,13 @@ pub fn http_put_with_config(
 /// 
 /// # Returns
 /// * `HttpResult<U8Vec>` - The response body or an error
-#[cfg(feature = "http")]
+#[cfg(all(feature = "http", not(target_arch = "wasm32")))]
 pub fn download_bytes(url: &str) -> HttpResult<U8Vec> {
     download_bytes_with_config(url, &HttpRequestConfig::default())
 }
 
 /// Stub: `http` feature disabled.
-#[cfg(not(feature = "http"))]
+#[cfg(any(not(feature = "http"), target_arch = "wasm32"))]
 /// # Errors
 ///
 /// Returns an `HttpError` if the request fails (network/status error, or the networking feature is disabled).
@@ -743,7 +743,7 @@ pub fn download_bytes(_url: &str) -> HttpResult<U8Vec> {
 /// 
 /// # Returns
 /// * `HttpResult<U8Vec>` - The response body or an error
-#[cfg(feature = "http")]
+#[cfg(all(feature = "http", not(target_arch = "wasm32")))]
 pub fn download_bytes_with_config(url: &str, config: &HttpRequestConfig) -> HttpResult<U8Vec> {
     let response = http_get_with_config(url, config)?;
     
@@ -759,7 +759,7 @@ pub fn download_bytes_with_config(url: &str, config: &HttpRequestConfig) -> Http
 }
 
 /// Stub: `http` feature disabled.
-#[cfg(not(feature = "http"))]
+#[cfg(any(not(feature = "http"), target_arch = "wasm32"))]
 /// # Errors
 ///
 /// Returns an `HttpError` if the request fails (network/status error, or the networking feature is disabled).
@@ -774,7 +774,7 @@ pub fn download_bytes_with_config(_url: &str, _config: &HttpRequestConfig) -> Ht
 /// 
 /// # Returns
 /// * `bool` - True if reachable (2xx status)
-#[cfg(feature = "http")]
+#[cfg(all(feature = "http", not(target_arch = "wasm32")))]
 #[must_use] pub fn is_url_reachable(url: &str) -> bool {
     const REACHABILITY_TIMEOUT_SECS: u64 = 10;
     let agent = make_agent(REACHABILITY_TIMEOUT_SECS, false);
@@ -788,7 +788,7 @@ pub fn download_bytes_with_config(_url: &str, _config: &HttpRequestConfig) -> Ht
 }
 
 /// Stub: `http` feature disabled.
-#[cfg(not(feature = "http"))]
+#[cfg(any(not(feature = "http"), target_arch = "wasm32"))]
 #[must_use] pub const fn is_url_reachable(_url: &str) -> bool {
     false
 }
@@ -1377,7 +1377,7 @@ mod autotest_generated {
     // `http` feature DISABLED — the stubs must fail closed
     // =========================================================================
 
-    #[cfg(not(feature = "http"))]
+    #[cfg(any(not(feature = "http"), target_arch = "wasm32"))]
     #[test]
     fn stub_free_functions_return_err_for_any_url() {
         for url in ["", "https://example.com", NASTY, huge_ascii().as_str()] {
@@ -1395,7 +1395,7 @@ mod autotest_generated {
         }
     }
 
-    #[cfg(not(feature = "http"))]
+    #[cfg(any(not(feature = "http"), target_arch = "wasm32"))]
     #[test]
     fn stub_is_url_reachable_is_always_false() {
         // Fails closed: a disabled HTTP stack must never claim a URL is reachable.
@@ -1405,7 +1405,7 @@ mod autotest_generated {
         }
     }
 
-    #[cfg(not(feature = "http"))]
+    #[cfg(any(not(feature = "http"), target_arch = "wasm32"))]
     #[test]
     fn stub_config_methods_return_err_results() {
         let cfg = HttpRequestConfig::new().with_timeout(u64::MAX).with_max_size(0);
@@ -1422,7 +1422,7 @@ mod autotest_generated {
     // `http` feature ENABLED — offline-only checks
     // =========================================================================
 
-    #[cfg(feature = "http")]
+    #[cfg(all(feature = "http", not(target_arch = "wasm32")))]
     #[test]
     fn make_agent_builds_at_timeout_extremes() {
         // Duration::from_secs(u64::MAX) is representable, so agent construction must
@@ -1434,7 +1434,7 @@ mod autotest_generated {
         }
     }
 
-    #[cfg(feature = "http")]
+    #[cfg(all(feature = "http", not(target_arch = "wasm32")))]
     #[test]
     fn malformed_urls_are_rejected_without_touching_the_network() {
         // Each of these fails in ureq's URI parser: no DNS resolution, no socket.
@@ -1450,7 +1450,7 @@ mod autotest_generated {
         }
     }
 
-    #[cfg(feature = "http")]
+    #[cfg(all(feature = "http", not(target_arch = "wasm32")))]
     #[test]
     fn malformed_urls_are_rejected_through_the_ffi_wrappers() {
         let cfg = HttpRequestConfig::new().with_timeout(1);
