@@ -257,8 +257,21 @@ let _ = Dom::create_p_with_text("A paragraph.");
 let _ = Dom::create_span_with_text("inline");
 let _ = Dom::create_strong_with_text("important");
 let _ = Dom::create_code_with_text("println!()");
-let _ = Dom::create_text("standalone text node");
+let _ = Dom::create_text_do_not_use_without_block_level_wrapper("standalone text node");
 ```
+
+> **Why the scary name?** Browsers silently wrap a raw text run in an
+> *anonymous block box* whenever one is needed; azul does not. A bare text
+> node therefore has **no box of its own** — no rect, no clip, no layout
+> constraints — and any box-model CSS property, callback, `tab_index` or
+> `dataset` you attach to it is silently inert. This has shipped real bugs
+> (text escaping its widget, click targets that never fire). Put the text
+> inside a block-level wrapper that carries the styling instead: use the
+> `create_*_with_text` family (`create_p_with_text`, `create_div_with_text`,
+> `create_span_with_text`, `create_h1_with_text`, ...) and style the wrapper.
+> The engine also warns on stderr after layout when it finds a text node
+> used without a containing block; once you have read and accepted the
+> warnings, silence them with `AZ_SUPPRESS=bare_text`.
 
 `NodeType` (in `core/src/dom.rs`) lists every variant. The set covers
 all HTML elements plus the SVG subset plus four leaf types: `Text`,

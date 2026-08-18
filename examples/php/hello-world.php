@@ -39,10 +39,10 @@ function layout(int $data): \Azul\Dom
     $counter = $m['counter'] ?? 0;
 
     $div = \Azul\Dom::createDiv();
-    $div->addChild(\Azul\Dom::createText((string) $counter));
+    $div->addChild(\Azul\Dom::createTextDoNotUseWithoutBlockLevelWrapper((string) $counter));
 
     $btn = \Azul\Dom::createDiv();
-    $btn->addChild(\Azul\Dom::createText('Increase counter'));
+    $btn->addChild(\Azul\Dom::createTextDoNotUseWithoutBlockLevelWrapper('Increase counter'));
     $btn->onClick($data, $GLOBALS['azul_onclick_id']);
 
     $body = \Azul\Dom::createBody();

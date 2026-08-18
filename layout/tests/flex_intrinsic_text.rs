@@ -73,7 +73,7 @@ fn btn_row(label: &str) -> Dom {
         .with_ids_and_classes(class("btn"))
         .with_child(Dom::create_div().with_ids_and_classes(class("ico")))
         .with_child(
-            Dom::create_text(label).with_ids_and_classes(class("lbl")),
+            Dom::create_text_do_not_use_without_block_level_wrapper(label).with_ids_and_classes(class("lbl")),
         )
 }
 
@@ -174,8 +174,8 @@ fn ribbon_widget_rows_size_to_one_line_text() {
     let styles = RibbonGroup::new("Styles".into())
         .with_item(RibbonItem::Gallery(RibbonGallery::new(
             vec![
-                RibbonGalleryCell::new(Dom::create_text("AaBbCcDc"), "Normal".into()),
-                RibbonGalleryCell::new(Dom::create_text("AaBbCcDc"), "No Spacing".into()),
+                RibbonGalleryCell::new(Dom::create_text_do_not_use_without_block_level_wrapper("AaBbCcDc"), "Normal".into()),
+                RibbonGalleryCell::new(Dom::create_text_do_not_use_without_block_level_wrapper("AaBbCcDc"), "No Spacing".into()),
             ]
             .into(),
         )))
@@ -296,7 +296,7 @@ fn ribbon_overflow_shrinks_only_the_gallery() {
     let g2 = RibbonGroup::new("Font".into())
         .with_item(wide_col(["Grow Font", "Shrink Font", "Clear Formatting"]));
     let cells: Vec<RibbonGalleryCell> = (0..8)
-        .map(|i| RibbonGalleryCell::new(Dom::create_text("AaBbCcDc"), format!("Style {i}").into()))
+        .map(|i| RibbonGalleryCell::new(Dom::create_text_do_not_use_without_block_level_wrapper("AaBbCcDc"), format!("Style {i}").into()))
         .collect();
     let g3 = RibbonGroup::new("Styles".into())
         .with_item(RibbonItem::Gallery(RibbonGallery::new(cells.into())))
@@ -518,8 +518,8 @@ fn two_text_children_in_a_flex_row_stay_on_one_line() {
 
     let btn = Dom::create_div()
         .with_ids_and_classes(class("btn"))
-        .with_child(Dom::create_text("X").with_ids_and_classes(class("glyph")))
-        .with_child(Dom::create_text("Format Painter").with_ids_and_classes(class("lbl")));
+        .with_child(Dom::create_text_do_not_use_without_block_level_wrapper("X").with_ids_and_classes(class("glyph")))
+        .with_child(Dom::create_text_do_not_use_without_block_level_wrapper("Format Painter").with_ids_and_classes(class("lbl")));
     let dom = Dom::create_body().with_child(btn);
 
     let lw = layout_dom(dom, PROBE_CSS, 800.0, 100.0);
@@ -573,7 +573,7 @@ fn label_beside_a_resolved_fontref_icon_stays_on_one_line() {
     let btn = Dom::create_div()
         .with_ids_and_classes(class("btn"))
         .with_child(Dom::create_icon("content_cut").with_ids_and_classes(class("glyph")))
-        .with_child(Dom::create_text("Format Painter").with_ids_and_classes(class("lbl")));
+        .with_child(Dom::create_text_do_not_use_without_block_level_wrapper("Format Painter").with_ids_and_classes(class("lbl")));
     let mut dom = Dom::create_body().with_child(btn);
 
     let (css, _) = azul_css::parser2::new_from_str(PROBE_CSS);
@@ -749,7 +749,7 @@ fn hit_testing_a_nodes_own_centre_returns_that_node() {
     };
 
     let cells: Vec<RibbonGalleryCell> = (0..8)
-        .map(|i| RibbonGalleryCell::new(Dom::create_text("AaBbCcDc"), format!("Style {i}").into()))
+        .map(|i| RibbonGalleryCell::new(Dom::create_text_do_not_use_without_block_level_wrapper("AaBbCcDc"), format!("Style {i}").into()))
         .collect();
     let tab = RibbonTab::new("HOME".into()).with_group(
         RibbonGroup::new("Styles".into())
@@ -960,7 +960,7 @@ fn hit_test_bounds_match_the_layout_rect_in_a_full_ribbon() {
         }))
     };
     let cells: Vec<RibbonGalleryCell> = (0..8)
-        .map(|i| RibbonGalleryCell::new(Dom::create_text("AaBbCcDc"), format!("Style {i}").into()))
+        .map(|i| RibbonGalleryCell::new(Dom::create_text_do_not_use_without_block_level_wrapper("AaBbCcDc"), format!("Style {i}").into()))
         .collect();
 
     let tab = RibbonTab::new("HOME".into())
@@ -989,7 +989,7 @@ fn hit_test_bounds_match_the_layout_rect_in_a_full_ribbon() {
         .with_css("display: flex; flex-direction: row; align-items: center; height: 30px;")
         .with_child(Dom::create_icon("save"))
         .with_child(Dom::create_icon("undo"))
-        .with_child(Dom::create_text("Document1 - AzWriter"))
+        .with_child(Dom::create_text_do_not_use_without_block_level_wrapper("Document1 - AzWriter"))
         .with_child(Dom::create_icon("close"));
     let dom = Dom::create_body()
         .with_child(title_bar)
@@ -1188,7 +1188,7 @@ fn inline_viewport_conditions_are_applied() {
         ),
     ]);
 
-    let mut panel = Dom::create_div().with_child(Dom::create_text("touch"));
+    let mut panel = Dom::create_div().with_child(Dom::create_text_do_not_use_without_block_level_wrapper("touch"));
     panel.root.set_css_props(mobile_only);
     let dom = Dom::create_body().with_child(panel);
 
@@ -1307,7 +1307,7 @@ fn logical_overflow_properties_map_onto_physical_axes() {
     let dom = Dom::create_body().with_child(
         Dom::create_div()
             .with_ids_and_classes(class("h"))
-            .with_child(Dom::create_text("wide wide wide wide wide")),
+            .with_child(Dom::create_text_do_not_use_without_block_level_wrapper("wide wide wide wide wide")),
     );
     let lw = layout_dom(dom, CSS, 800.0, 600.0);
     let lr = lw.layout_results.get(&DomId { inner: 0 }).expect("layout");
@@ -1345,7 +1345,7 @@ fn text_box_edge_cap_alphabetic_trims_to_the_metrics() {
         Dom::create_body().with_child(
             Dom::create_div()
                 .with_ids_and_classes(class("t"))
-                .with_child(Dom::create_text("Hello")),
+                .with_child(Dom::create_text_do_not_use_without_block_level_wrapper("Hello")),
         )
     };
     let h_text = layout_dom(build(), CSS_TEXT, 400.0, 300.0)
@@ -1424,7 +1424,7 @@ fn absolute_line_heights_above_32px_survive_the_compact_cache() {
     let dom = Dom::create_body().with_child(
         Dom::create_div()
             .with_ids_and_classes(class("t"))
-            .with_child(Dom::create_text("one line")),
+            .with_child(Dom::create_text_do_not_use_without_block_level_wrapper("one line")),
     );
     let lw = layout_dom(dom, CSS, 800.0, 600.0);
     let h = lw
@@ -1456,17 +1456,17 @@ fn shrink_to_fit_labels_do_not_wrap_with_the_system_sans_font() {
         .with_child(
             Dom::create_div()
                 .with_ids_and_classes(class("btn"))
-                .with_child(Dom::create_text("Format Painter")),
+                .with_child(Dom::create_text_do_not_use_without_block_level_wrapper("Format Painter")),
         )
         .with_child(
             Dom::create_div()
                 .with_ids_and_classes(class("btn"))
-                .with_child(Dom::create_text("Decrease Indent")),
+                .with_child(Dom::create_text_do_not_use_without_block_level_wrapper("Decrease Indent")),
         )
         .with_child(
             Dom::create_div()
                 .with_ids_and_classes(class("btn"))
-                .with_child(Dom::create_text("No Spacing")),
+                .with_child(Dom::create_text_do_not_use_without_block_level_wrapper("No Spacing")),
         );
     let lw = layout_dom(dom, CSS, 800.0, 400.0);
     // 0 body, 1 btn, 2 text, 3 btn, 4 text, 5 btn, 6 text
@@ -1533,7 +1533,7 @@ fn table_cell_padding_offsets_text_from_the_cell_top() {
             Dom::create_div().with_ids_and_classes(class("row")).with_child(
                 Dom::create_div()
                     .with_ids_and_classes(class("c"))
-                    .with_child(Dom::create_text("Red 1")),
+                    .with_child(Dom::create_text_do_not_use_without_block_level_wrapper("Red 1")),
             ),
         ),
     );
@@ -1657,8 +1657,8 @@ fn real_table_cells_center_their_text_vertically() {
         Dom::create_table_no_a11y().with_child(
             Dom::create_thead().with_child(
                 Dom::create_tr()
-                    .with_child(Dom::create_th().with_child(Dom::create_text("Header A")))
-                    .with_child(Dom::create_th().with_child(Dom::create_text("Header B"))),
+                    .with_child(Dom::create_th().with_child(Dom::create_text_do_not_use_without_block_level_wrapper("Header A")))
+                    .with_child(Dom::create_th().with_child(Dom::create_text_do_not_use_without_block_level_wrapper("Header B"))),
             ),
         ),
     );
@@ -1750,7 +1750,7 @@ fn glyph_advances_stay_linear_and_unquantized() {
     let w10 = {
         let dom = Dom::create_body().with_child(
             Dom::create_div().with_ids_and_classes(class("m"))
-                .with_child(Dom::create_text("llllllllll")),
+                .with_child(Dom::create_text_do_not_use_without_block_level_wrapper("llllllllll")),
         );
         layout_dom(dom, CSS, 800.0, 600.0)
             .get_node_layout_rect(node_id(1)).expect("10-run").size.width
@@ -1758,7 +1758,7 @@ fn glyph_advances_stay_linear_and_unquantized() {
     let (w40, expected) = {
         let dom = Dom::create_body().with_child(
             Dom::create_div().with_ids_and_classes(class("m"))
-                .with_child(Dom::create_text("llllllllllllllllllllllllllllllllllllllll")),
+                .with_child(Dom::create_text_do_not_use_without_block_level_wrapper("llllllllllllllllllllllllllllllllllllllll")),
         );
         let lw = layout_dom(dom, CSS, 800.0, 600.0);
         let w = lw.get_node_layout_rect(node_id(1)).expect("40-run").size.width;

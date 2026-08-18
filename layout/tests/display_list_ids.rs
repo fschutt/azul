@@ -23,7 +23,7 @@ fn build_dom() -> StyledDom {
     let mut children = Vec::new();
     for i in 0..8 {
         children.push(
-            Dom::create_div().with_child(Dom::create_text(format!("paragraph number {i}"))),
+            Dom::create_div().with_child(Dom::create_text_do_not_use_without_block_level_wrapper(format!("paragraph number {i}"))),
         );
     }
     let mut dom = Dom::create_div().with_children(children.into());

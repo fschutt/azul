@@ -146,13 +146,13 @@ fn maps_demo_dom() -> Dom {
         button_row = button_row.with_child(
             Dom::create_div()
                 .with_ids_and_classes(class("btn"))
-                .with_child(Dom::create_text(label)),
+                .with_child(Dom::create_text_do_not_use_without_block_level_wrapper(label)),
         );
     }
 
     let header = Dom::create_div()
         .with_ids_and_classes(class("header"))
-        .with_child(Dom::create_text("AzulMaps — centre 37.0000°, -122.0000° · zoom 2.0"))
+        .with_child(Dom::create_text_do_not_use_without_block_level_wrapper("AzulMaps — centre 37.0000°, -122.0000° · zoom 2.0"))
         .with_child(button_row);
 
     // The REAL widget, like examples/azul-maps does it (an empty-div
@@ -524,11 +524,11 @@ fn maps_demo_dom_with_css() -> Dom {
     let mut button_row = Dom::create_div().with_css("display: flex; flex-direction: row;");
     for label in ["←", "→", "↑", "↓", "+", "−", "Recentre", "Locate", "Clear pins"] {
         button_row = button_row
-            .with_child(Dom::create_div().with_css(BTN).with_child(Dom::create_text(label)));
+            .with_child(Dom::create_div().with_css(BTN).with_child(Dom::create_text_do_not_use_without_block_level_wrapper(label)));
     }
     let header = Dom::create_div()
         .with_css(HEADER)
-        .with_child(Dom::create_text("AzulMaps — centre 37.0000°, -122.0000° · zoom 2.0"))
+        .with_child(Dom::create_text_do_not_use_without_block_level_wrapper("AzulMaps — centre 37.0000°, -122.0000° · zoom 2.0"))
         .with_child(button_row);
     let map = MapWidget::create(MapTileLayer::default())
         .with_viewport(MapViewport::default())
@@ -586,7 +586,7 @@ fn maps_header_survives_incremental_relayout() {
 fn paint_canvas_with_menubar_wrapper_must_stretch_full_width() {
     let header = Dom::create_div()
         .with_ids_and_classes(class("header"))
-        .with_child(Dom::create_text("AzulPaint  ·  0 strokes  ·  Effect: Metaballs"));
+        .with_child(Dom::create_text_do_not_use_without_block_level_wrapper("AzulPaint  ·  0 strokes  ·  Effect: Metaballs"));
 
     let canvas = Dom::create_image(sizeless_image()).with_ids_and_classes(class("canvas"));
 
@@ -663,17 +663,17 @@ fn menubar_flex_row_items_lay_out_horizontally_without_clipping() {
         .with_child(
             Dom::create_div()
                 .with_ids_and_classes(class("mitem"))
-                .with_child(Dom::create_text("File")),
+                .with_child(Dom::create_text_do_not_use_without_block_level_wrapper("File")),
         )
         .with_child(
             Dom::create_div()
                 .with_ids_and_classes(class("mitem"))
-                .with_child(Dom::create_text("Edit")),
+                .with_child(Dom::create_text_do_not_use_without_block_level_wrapper("Edit")),
         )
         .with_child(
             Dom::create_div()
                 .with_ids_and_classes(class("mitem"))
-                .with_child(Dom::create_text("View")),
+                .with_child(Dom::create_text_do_not_use_without_block_level_wrapper("View")),
         );
     let dom = Dom::create_body().with_child(bar);
     let css = r#"

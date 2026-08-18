@@ -1968,7 +1968,7 @@ mod autotest_generated {
     #[test]
     fn resolve_icons_in_styled_dom_is_a_no_op_without_icons() {
         let shared = SharedIconProvider::from_handle(IconProviderHandle::with_resolver(div_resolver));
-        let mut sd = StyledDom::create_from_dom(Dom::create_body().with_child(Dom::create_text("hi")));
+        let mut sd = StyledDom::create_from_dom(Dom::create_body().with_child(Dom::create_text_do_not_use_without_block_level_wrapper("hi")));
         let before_len = sd.node_data.as_ref().len();
         let before_root = node_type_at(&sd, 0);
 
@@ -2227,7 +2227,7 @@ mod icon_cache_tests {
         PARITY_CALLS.fetch_add(1, AtomicOrdering::SeqCst);
         // A realistic replacement: styled text (what a font-icon resolver
         // produces), reading nothing but producing node type + props + a11y.
-        let mut dom = Dom::create_text("\u{e88a}");
+        let mut dom = Dom::create_text_do_not_use_without_block_level_wrapper("\u{e88a}");
         dom.root.set_css_props(
             vec![CssPropertyWithConditions::simple(CssProperty::width(LayoutWidth::px(16.0)))]
                 .into(),
@@ -2309,7 +2309,7 @@ mod icon_cache_tests {
         StyledDom::create_from_dom(
             Dom::create_body()
                 .with_child(Dom::create_div())
-                .with_child(Dom::create_text("x")),
+                .with_child(Dom::create_text_do_not_use_without_block_level_wrapper("x")),
         )
     }
 

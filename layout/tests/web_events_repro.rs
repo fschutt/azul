@@ -32,7 +32,7 @@ fn web_events_dom_layouts_natively() {
     let mut body = Dom::create_body();
     for label in labels {
         let mut div = Dom::create_div();
-        div.add_child(Dom::create_text(label));
+        div.add_child(Dom::create_text_do_not_use_without_block_level_wrapper(label));
         body.add_child(div);
     }
 

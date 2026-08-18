@@ -47,7 +47,7 @@ mod inline_intrinsic_width_tests {
         // Create a simple DOM with text content
         // Using Dom::label creates a proper inline element with text
         let mut dom = Dom::create_body();
-        dom.add_child(Dom::create_text("Hello world"));
+        dom.add_child(Dom::create_text_do_not_use_without_block_level_wrapper("Hello world"));
 
         let mut styled_dom = StyledDom::create_node(&mut dom, Css::empty());
         styled_dom.dom_id = DomId::ROOT_ID;
@@ -161,7 +161,7 @@ mod inline_intrinsic_width_tests {
     fn test_inline_child_gets_correct_available_width_in_bfc() {
         // Create DOM: <body><p>Test text that should wrap properly</p></body>
         let mut dom = Dom::create_body();
-        dom.add_child(Dom::create_text("Test text that should wrap properly"));
+        dom.add_child(Dom::create_text_do_not_use_without_block_level_wrapper("Test text that should wrap properly"));
 
         let mut styled_dom = StyledDom::create_node(&mut dom, Css::empty());
         styled_dom.dom_id = DomId::ROOT_ID;

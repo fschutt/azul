@@ -62,7 +62,7 @@ fn word_like_ribbon() -> Dom {
     // the real gallery, not plain buttons.
     let cell = |sample: &str, name: &str| {
         RibbonGalleryCell::new(
-            Dom::create_text(AzString::from(sample)).with_css("font-size: 14px;"),
+            Dom::create_text_do_not_use_without_block_level_wrapper(AzString::from(sample)).with_css("font-size: 14px;"),
             name.into(),
         )
     };

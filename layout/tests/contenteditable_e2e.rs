@@ -396,7 +396,7 @@ fn keystroke_cost_on_the_incremental_path() {
     editor = editor.with_ids_and_classes(cls("editor").into());
     editor.set_contenteditable(true);
     editor.set_tab_index(TabIndex::Auto);
-    editor = editor.with_child(Dom::create_text(
+    editor = editor.with_child(Dom::create_text_do_not_use_without_block_level_wrapper(
         "the quick brown fox jumps over the lazy dog and keeps on running",
     ));
     let dom = Dom::create_body().with_child(editor);
@@ -536,7 +536,7 @@ fn contenteditable_initial_render() {
     editor = editor.with_ids_and_classes(cls("editor").into());
     editor.set_contenteditable(true);
     editor.set_tab_index(TabIndex::Auto);
-    let text_child = Dom::create_text("Hello World");
+    let text_child = Dom::create_text_do_not_use_without_block_level_wrapper("Hello World");
     editor = editor.with_child(text_child);
 
     let dom = Dom::create_body().with_child(editor);
@@ -604,7 +604,7 @@ fn contenteditable_text_input_changes_output() {
     editor = editor.with_ids_and_classes(cls("editor").into());
     editor.set_contenteditable(true);
     editor.set_tab_index(TabIndex::Auto);
-    editor = editor.with_child(Dom::create_text("Hello"));
+    editor = editor.with_child(Dom::create_text_do_not_use_without_block_level_wrapper("Hello"));
 
     let dom = Dom::create_body().with_child(editor);
 
@@ -708,7 +708,7 @@ fn contenteditable_multiple_keystrokes() {
     editor = editor.with_ids_and_classes(cls("editor").into());
     editor.set_contenteditable(true);
     editor.set_tab_index(TabIndex::Auto);
-    editor = editor.with_child(Dom::create_text("AB"));
+    editor = editor.with_child(Dom::create_text_do_not_use_without_block_level_wrapper("AB"));
 
     let dom = Dom::create_body().with_child(editor);
 
@@ -761,12 +761,12 @@ fn contenteditable_damage_detection() {
     let mut h = ContentEditableHarness::new(400.0, 300.0);
 
     // Layout with two divs: a static header and a contenteditable editor
-    let label = Dom::create_text("Static Header").with_ids_and_classes(cls("label").into());
+    let label = Dom::create_text_do_not_use_without_block_level_wrapper("Static Header").with_ids_and_classes(cls("label").into());
     let mut editor = Dom::create_div();
     editor = editor.with_ids_and_classes(cls("editor").into());
     editor.set_contenteditable(true);
     editor.set_tab_index(TabIndex::Auto);
-    editor = editor.with_child(Dom::create_text("AAAA"));
+    editor = editor.with_child(Dom::create_text_do_not_use_without_block_level_wrapper("AAAA"));
 
     let dom = Dom::create_body()
         .with_child(label)
@@ -827,13 +827,13 @@ fn contenteditable_two_editors_isolated() {
     editor1 = editor1.with_ids_and_classes(cls("editor").into());
     editor1.set_contenteditable(true);
     editor1.set_tab_index(TabIndex::Auto);
-    editor1 = editor1.with_child(Dom::create_text("Editor 1"));
+    editor1 = editor1.with_child(Dom::create_text_do_not_use_without_block_level_wrapper("Editor 1"));
 
     let mut editor2 = Dom::create_div();
     editor2 = editor2.with_ids_and_classes(cls("editor").into());
     editor2.set_contenteditable(true);
     editor2.set_tab_index(TabIndex::Auto);
-    editor2 = editor2.with_child(Dom::create_text("Editor 2"));
+    editor2 = editor2.with_child(Dom::create_text_do_not_use_without_block_level_wrapper("Editor 2"));
 
     let dom = Dom::create_body()
         .with_child(editor1)
@@ -879,7 +879,7 @@ fn contenteditable_incremental_render_matches_full() {
     editor = editor.with_ids_and_classes(cls("editor").into());
     editor.set_contenteditable(true);
     editor.set_tab_index(TabIndex::Auto);
-    editor = editor.with_child(Dom::create_text("Test"));
+    editor = editor.with_child(Dom::create_text_do_not_use_without_block_level_wrapper("Test"));
 
     let dom = Dom::create_body().with_child(editor);
     h.layout_dom(dom, CE_CSS);
@@ -959,7 +959,7 @@ fn contenteditable_overflow_wraps_at_end_not_start() {
     editor = editor.with_ids_and_classes(cls("editor").into());
     editor.set_contenteditable(true);
     editor.set_tab_index(TabIndex::Auto);
-    editor = editor.with_child(Dom::create_text(initial_text));
+    editor = editor.with_child(Dom::create_text_do_not_use_without_block_level_wrapper(initial_text));
 
     let dom = Dom::create_body().with_child(editor);
     h.layout_dom(dom, NARROW_CSS);
@@ -1068,7 +1068,7 @@ mod structural_roundtrip {
             .with_contenteditable(true)
             .with_tab_index(TabIndex::Auto);
         let mut p = Dom::create_p();
-        p.add_child(Dom::create_text("hello world"));
+        p.add_child(Dom::create_text_do_not_use_without_block_level_wrapper("hello world"));
         editor.add_child(p);
         editor
     }
@@ -1544,9 +1544,9 @@ mod structural_roundtrip {
             .with_contenteditable(true)
             .with_tab_index(TabIndex::Auto);
         let mut p1 = Dom::create_p();
-        p1.add_child(Dom::create_text("hello"));
+        p1.add_child(Dom::create_text_do_not_use_without_block_level_wrapper("hello"));
         let mut p2 = Dom::create_p();
-        p2.add_child(Dom::create_text("world"));
+        p2.add_child(Dom::create_text_do_not_use_without_block_level_wrapper("world"));
         model.add_child(p1);
         model.add_child(p2);
 
@@ -1626,11 +1626,11 @@ mod structural_roundtrip {
         // stacked unstyled divs is pixel-identical — the tree asserts below
         // would still hold, but the render check would be vacuous).
         let mut host = Dom::create_div().with_ids_and_classes(cls("host").into());
-        host.add_child(Dom::create_text("aaaa aaaa"));
+        host.add_child(Dom::create_text_do_not_use_without_block_level_wrapper("aaaa aaaa"));
         let mut para = Dom::create_p();
-        para.add_child(Dom::create_text("bbbb bbbb"));
+        para.add_child(Dom::create_text_do_not_use_without_block_level_wrapper("bbbb bbbb"));
         host.add_child(para);
-        host.add_child(Dom::create_text("cccc cccc"));
+        host.add_child(Dom::create_text_do_not_use_without_block_level_wrapper("cccc cccc"));
         model.add_child(host);
 
         let mut h = ContentEditableHarness::new(400.0, 300.0);
@@ -1708,10 +1708,10 @@ mod structural_roundtrip {
             .with_contenteditable(true)
             .with_tab_index(TabIndex::Auto);
         let mut host = Dom::create_div();
-        host.add_child(Dom::create_text("aaaa aaaa"));
-        host.add_child(Dom::create_text("bbbb bbbb"));
+        host.add_child(Dom::create_text_do_not_use_without_block_level_wrapper("aaaa aaaa"));
+        host.add_child(Dom::create_text_do_not_use_without_block_level_wrapper("bbbb bbbb"));
         let mut para = Dom::create_p();
-        para.add_child(Dom::create_text("cccc cccc"));
+        para.add_child(Dom::create_text_do_not_use_without_block_level_wrapper("cccc cccc"));
         host.add_child(para);
         model.add_child(host);
 
@@ -1786,11 +1786,11 @@ fn probe_incremental_keystroke_median() {
     editor = editor.with_ids_and_classes(cls("editor").into());
     editor.set_contenteditable(true);
     editor.set_tab_index(TabIndex::Auto);
-    editor = editor.with_child(Dom::create_text("Start: "));
+    editor = editor.with_child(Dom::create_text_do_not_use_without_block_level_wrapper("Start: "));
     body = body.with_child(editor);
     for i in 0..200 {
         body = body.with_child(
-            Dom::create_div().with_child(Dom::create_text(azul_css::AzString::from(
+            Dom::create_div().with_child(Dom::create_text_do_not_use_without_block_level_wrapper(azul_css::AzString::from(
                 format!("Paragraph {i} with a reasonable amount of running text in it"),
             ))),
         );
@@ -1927,7 +1927,7 @@ fn focus_set_before_the_first_layout_survives_until_layout_exists() {
     editor = editor.with_ids_and_classes(cls("editor").into());
     editor.set_contenteditable(true);
     editor.set_tab_index(TabIndex::Auto);
-    editor = editor.with_child(Dom::create_text("hello"));
+    editor = editor.with_child(Dom::create_text_do_not_use_without_block_level_wrapper("hello"));
     let dom = Dom::create_body().with_child(editor);
     h.layout_dom(dom, CE_CSS);
 

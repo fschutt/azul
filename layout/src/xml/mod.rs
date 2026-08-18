@@ -131,7 +131,7 @@ use xmlparser::Tokenizer;
             return DomXml {
                 parsed_dom: {
                     let mut dom = Dom::create_body()
-                        .with_children(vec![Dom::create_text(format!("{e}"))].into());
+                        .with_children(vec![Dom::create_text_do_not_use_without_block_level_wrapper(format!("{e}"))].into());
                     StyledDom::create(&mut dom, error_css)
                 },
             };
@@ -144,7 +144,7 @@ use xmlparser::Tokenizer;
             return DomXml {
                 parsed_dom: {
                     let mut dom = Dom::create_body()
-                        .with_children(vec![Dom::create_text(format!("{e}"))].into());
+                        .with_children(vec![Dom::create_text_do_not_use_without_block_level_wrapper(format!("{e}"))].into());
                     StyledDom::create(&mut dom, error_css)
                 },
             };
@@ -165,7 +165,7 @@ use xmlparser::Tokenizer;
     let component_map = ComponentMap::with_builtin();
     match str_to_dom_unstyled(xml.root.as_ref(), &component_map) {
         Ok(dom) => dom,
-        Err(e) => Dom::create_body().with_children(vec![Dom::create_text(format!("{e}"))].into()),
+        Err(e) => Dom::create_body().with_children(vec![Dom::create_text_do_not_use_without_block_level_wrapper(format!("{e}"))].into()),
     }
 }
 
@@ -592,7 +592,7 @@ fn parse_xml_to_fast_dom_with_css(xml: &str) -> Result<(azul_core::dom::FastDom,
                         let inside_body = tag_stack.iter().any(|t| t == "body");
                         if inside_body || !text_str.trim().is_empty() {
                             let decoded = decode_xml_entities(text_str);
-                            builder.add_leaf(NodeData::create_text(str_arena.intern(&decoded)));
+                            builder.add_leaf(NodeData::create_text_do_not_use_without_block_level_wrapper(str_arena.intern(&decoded)));
                         }
                     }
                 }
@@ -637,7 +637,7 @@ pub fn domxml_from_file<I: AsRef<Path>>(
                 parsed_dom: {
                     let mut dom = Dom::create_body()
                         .with_children(
-                            vec![Dom::create_text(format!(
+                            vec![Dom::create_text_do_not_use_without_block_level_wrapper(format!(
                                 "Error reading: \"{}\": {}",
                                 file_path.as_ref().to_string_lossy(),
                                 e

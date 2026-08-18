@@ -11,7 +11,7 @@ class InfinityState:
 
 
 def layout(data, info):
-    title = (Dom.create_text(
+    title = (Dom.create_text_do_not_use_without_block_level_wrapper(
         f"Infinite Gallery - {len(data.file_paths)} images")
         .with_css("font-size:20px;margin-bottom:10px;"))
 
@@ -25,7 +25,7 @@ def layout(data, info):
                 .with_css("width:150px;height:150px;background:white;"
                           "border:1px solid #ddd;display:flex;"
                           "align-items:center;justify-content:center;")
-                .with_child(Dom.create_text(data.file_paths[i])))
+                .with_child(Dom.create_text_do_not_use_without_block_level_wrapper(data.file_paths[i])))
         container = container.with_child(item)
 
     body = (Dom.create_body()

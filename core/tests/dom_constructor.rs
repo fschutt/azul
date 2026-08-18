@@ -216,7 +216,7 @@ fn _coverage_with_text_ruby() {
 
 fn _coverage_args() {
     let s = AzString::from("");
-    let _ = Dom::create_text(s.clone());
+    let _ = Dom::create_text_do_not_use_without_block_level_wrapper(s.clone());
     let _ = Dom::create_icon(s.clone());
     let _ = Dom::create_abbr_with_title(s.clone(), s.clone());
     let _ = Dom::create_time(s.clone(), OptionString::None);

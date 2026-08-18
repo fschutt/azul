@@ -476,7 +476,7 @@ fn match_single_selector(
         // inherited from its `p { color: red }` parent. The one exception is
         // a rule scoped to EXACTLY this node (`node_scoped_to_self`) — that
         // is a bare-declaration `with_css` ON the text node itself, i.e.
-        // inline-style semantics: `create_text("x").with_css("color: white")`
+        // inline-style semantics: `create_text_do_not_use_without_block_level_wrapper("x").with_css("color: white")`
         // must apply. Subtree-scoped and unscoped `*` rules keep refusing
         // text nodes.
         Global => !node_data.is_text_node() || node_scoped_to_self,
@@ -754,7 +754,7 @@ mod autotest_generated {
         vec![
             NodeData::create_body(),
             div_with(Some("first"), Some("a")),
-            NodeData::create_text("hello"),
+            NodeData::create_text_do_not_use_without_block_level_wrapper("hello"),
             div_with(None, Some("b")),
             p,
             div_with(None, Some("c")),
@@ -1555,7 +1555,7 @@ mod autotest_generated {
     #[test]
     fn match_single_selector_global_matches_elements_but_never_text_nodes() {
         let div = NodeData::create_div();
-        let text = NodeData::create_text("hello");
+        let text = NodeData::create_text_do_not_use_without_block_level_wrapper("hello");
         assert!(match_single_selector(
             &CssPathSelector::Global,
             info(0, false),
@@ -1580,10 +1580,10 @@ mod autotest_generated {
     #[test]
     fn global_matches_a_text_node_only_when_the_rule_is_scoped_to_exactly_it() {
         // Inline-style semantics (miniword ENGINE-ISSUE 4):
-        // `create_text("x").with_css("color: white")` produces
+        // `create_text_do_not_use_without_block_level_wrapper("x").with_css("color: white")` produces
         // `[Root(n..=n), Global]` — the author addressed THIS node, so the
         // universal selector must match despite it being a text node.
-        let text = NodeData::create_text("hello");
+        let text = NodeData::create_text_do_not_use_without_block_level_wrapper("hello");
         let nid = NodeId::new(7);
         let self_scope = CssPathSelector::Root(CssScopeRange { start: 7, end: 7 });
         let global = CssPathSelector::Global;
@@ -1949,8 +1949,8 @@ mod autotest_generated {
         let data = vec![
             NodeData::create_body(),
             NodeData::create_div(),
-            NodeData::create_text("a"),
-            NodeData::create_text("b"),
+            NodeData::create_text_do_not_use_without_block_level_wrapper("a"),
+            NodeData::create_text_do_not_use_without_block_level_wrapper("b"),
         ];
         let hierarchy_ref = NodeHierarchyRef::from_slice(&hierarchy);
         let data_ref = NodeDataContainerRef::from_slice(&data);

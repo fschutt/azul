@@ -53,7 +53,7 @@ points the loader at `libazul.dylib`/`libazul.so` in the working directory.)
 
 ## Notes
 
-- Style nodes with plain CSS strings: `Azul::Dom.create_text('5').with_css('font-size: 32px;')`.
+- Style nodes with plain CSS strings: `Azul::Dom.create_text_do_not_use_without_block_level_wrapper('5').with_css('font-size: 32px;')`.
   (No need to build `CssProperty` unions via `Azul::Native.az_css_property_*` —
   `Dom#with_css` parses the string for you.)
 - The codegen's `_register_callback` helper auto-fires inside the

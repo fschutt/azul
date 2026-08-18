@@ -97,10 +97,10 @@ function on_click(int $data): int {
 function layout(int $data): \Azul\Dom {
     $m   = json_decode(azul_refany_get($data), true);
     $div = \Azul\Dom::createDiv();
-    $div->addChild(\Azul\Dom::createText((string) ($m['counter'] ?? 0)));
+    $div->addChild(\Azul\Dom::createTextDoNotUseWithoutBlockLevelWrapper((string) ($m['counter'] ?? 0)));
 
     $btn = \Azul\Dom::createDiv();
-    $btn->addChild(\Azul\Dom::createText('Increase counter'));
+    $btn->addChild(\Azul\Dom::createTextDoNotUseWithoutBlockLevelWrapper('Increase counter'));
     $btn->onClick($data, $GLOBALS['azul_onclick_id']);
 
     $body = \Azul\Dom::createBody();

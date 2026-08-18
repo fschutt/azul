@@ -322,7 +322,7 @@ impl DropDown {
                 Dom::create_p()
                     .with_css_props(label_style)
                     .with_children(DomVec::from_vec(vec![
-                        Dom::create_text(selected_text),
+                        Dom::create_text_do_not_use_without_block_level_wrapper(selected_text),
                     ])),
                 // Arrow icon (resolved via Material Icons)
                 Dom::create_icon(AzString::from_const_str("arrow_drop_down"))

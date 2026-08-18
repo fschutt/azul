@@ -182,7 +182,7 @@ enum ColumnKind { Name, Email, Avatar, DeleteButton }
 
 fn row(row_id: u64, kind: ColumnKind, label: &str) -> Dom {
     Dom::create_td()
-        .with_child(Dom::create_text(label))
+        .with_child(Dom::create_text_do_not_use_without_block_level_wrapper(label))
         .with_dataset(OptionRefAny::Some(RefAny::new(RowMarker { row_id, column: kind })))
         .with_callback(EventFilter::Hover(HoverEventFilter::MouseUp),
                        RefAny::new(()), on_cell_click)

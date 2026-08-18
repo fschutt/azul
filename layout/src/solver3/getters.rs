@@ -6865,7 +6865,7 @@ mod autotest_generated {
 
     /// `<body>` with a single text child.
     fn body_with_text(text: &str) -> StyledDom {
-        let mut dom = Dom::create_body().with_children(vec![Dom::create_text(text)].into());
+        let mut dom = Dom::create_body().with_children(vec![Dom::create_text_do_not_use_without_block_level_wrapper(text)].into());
         StyledDom::create(&mut dom, Css::empty())
     }
 
@@ -9141,9 +9141,9 @@ mod style_interning_tests {
         // Three sibling texts with no styling of their own: identical
         // computed style, three different nodes.
         let dom = Dom::create_body()
-            .with_child(Dom::create_text("one"))
-            .with_child(Dom::create_text("two"))
-            .with_child(Dom::create_text("three"));
+            .with_child(Dom::create_text_do_not_use_without_block_level_wrapper("one"))
+            .with_child(Dom::create_text_do_not_use_without_block_level_wrapper("two"))
+            .with_child(Dom::create_text_do_not_use_without_block_level_wrapper("three"));
         let sd = StyledDom::create_from_dom(dom);
         let viewport = PhysicalSize::new(800.0, 600.0);
 
@@ -9201,7 +9201,7 @@ mod style_interning_tests {
         use azul_core::styled_dom::StyledDom;
 
         let sd = StyledDom::create_from_dom(
-            Dom::create_body().with_child(Dom::create_text("x")),
+            Dom::create_body().with_child(Dom::create_text_do_not_use_without_block_level_wrapper("x")),
         );
         let viewport = PhysicalSize::new(800.0, 600.0);
 

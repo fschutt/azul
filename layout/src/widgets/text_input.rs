@@ -976,13 +976,13 @@ impl TextInput {
                         // appended, never `with_attributes`: that one replaces the
                         // whole vector, classes included
                         .with_attribute(AttributeType::ContentEditable(false))
-                        .with_children(DomVec::from_vec(vec![Dom::create_text(placeholder)])),
+                        .with_children(DomVec::from_vec(vec![Dom::create_text_do_not_use_without_block_level_wrapper(placeholder)])),
                     Dom::create_p()
                         .with_ids_and_classes(
                             vec![Class("__azul-native-text-input-label".into())].into(),
                         )
                         .with_css_props(self.label_style)
-                        .with_children(DomVec::from_vec(vec![Dom::create_text(label_text)])),
+                        .with_children(DomVec::from_vec(vec![Dom::create_text_do_not_use_without_block_level_wrapper(label_text)])),
                 ]
                 .into(),
             )

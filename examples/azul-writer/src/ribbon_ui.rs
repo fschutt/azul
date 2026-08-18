@@ -117,7 +117,7 @@ fn column(items: Vec<RibbonItem>) -> RibbonItem {
 }
 
 fn cell(preview_css: &str, sample: &str, name: &str) -> RibbonGalleryCell {
-    RibbonGalleryCell::new(Dom::create_text(sample).with_css(preview_css), s(name))
+    RibbonGalleryCell::new(Dom::create_text_do_not_use_without_block_level_wrapper(sample).with_css(preview_css), s(name))
 }
 
 // ---------------------------------------------------------------------------

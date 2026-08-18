@@ -144,12 +144,12 @@ fn text_change_only_affects_text_region() {
     let dom1 = Dom::create_body().with_child(
         Dom::create_div()
             .with_ids_and_classes(cls("box").into())
-            .with_child(Dom::create_text("Hello")),
+            .with_child(Dom::create_text_do_not_use_without_block_level_wrapper("Hello")),
     );
     let dom2 = Dom::create_body().with_child(
         Dom::create_div()
             .with_ids_and_classes(cls("box").into())
-            .with_child(Dom::create_text("World")),
+            .with_child(Dom::create_text_do_not_use_without_block_level_wrapper("World")),
     );
 
     let frame1 = h.render_frame(dom1, css, 200.0, 200.0);
@@ -184,8 +184,8 @@ fn different_text_content_produces_different_output() {
         body { width: 200px; height: 100px; font-family: sans-serif; font-size: 16px; }
     "#;
 
-    let dom1 = Dom::create_body().with_child(Dom::create_text("AAAA"));
-    let dom2 = Dom::create_body().with_child(Dom::create_text("ZZZZ"));
+    let dom1 = Dom::create_body().with_child(Dom::create_text_do_not_use_without_block_level_wrapper("AAAA"));
+    let dom2 = Dom::create_body().with_child(Dom::create_text_do_not_use_without_block_level_wrapper("ZZZZ"));
 
     let frame1 = h.render_frame(dom1, css, 200.0, 100.0);
     let frame2 = h.render_frame(dom2, css, 200.0, 100.0);

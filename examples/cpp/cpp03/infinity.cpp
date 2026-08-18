@@ -20,7 +20,7 @@ AzDom layout(AzRefAny data, AzLayoutCallbackInfo info) {
     char title_buf[64];
     std::snprintf(title_buf, 64, "Infinite Gallery - %d images", d->file_count);
     
-    Dom title = Dom::create_text(String(title_buf));
+    Dom title = Dom::create_text_do_not_use_without_block_level_wrapper(String(title_buf));
     title.set_css(String("font-size: 20px; margin-bottom: 10px;"));
     
     Dom container = Dom::create_div();
@@ -35,7 +35,7 @@ AzDom layout(AzRefAny data, AzLayoutCallbackInfo info) {
         
         Dom item = Dom::create_div();
         item.set_css(String("width: 150px; height: 150px; background: white; display: flex; align-items: center; justify-content: center;"));
-        item.add_child(Dom::create_text(String(item_buf)));
+        item.add_child(Dom::create_text_do_not_use_without_block_level_wrapper(String(item_buf)));
         container.add_child(item);
     }
     

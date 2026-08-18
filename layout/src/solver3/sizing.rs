@@ -3316,7 +3316,7 @@ mod autotest_generated {
 
     fn text_dom(text: &str) -> StyledDom {
         styled(
-            Dom::create_body().with_child(div_class("p").with_child(Dom::create_text(text))),
+            Dom::create_body().with_child(div_class("p").with_child(Dom::create_text_do_not_use_without_block_level_wrapper(text))),
             ".p { display: block; }",
         )
     }
@@ -3447,7 +3447,7 @@ mod autotest_generated {
     fn subtree_contains_text_walks_a_deeply_nested_subtree() {
         // The recursion is unbounded in depth — 200 levels must not blow up.
         const DEPTH: usize = 200;
-        let mut inner = Dom::create_div().with_child(Dom::create_text("deep"));
+        let mut inner = Dom::create_div().with_child(Dom::create_text_do_not_use_without_block_level_wrapper("deep"));
         for _ in 0..DEPTH {
             inner = Dom::create_div().with_child(inner);
         }

@@ -23,7 +23,7 @@ AzDom layout(AzRefAny data, AzLayoutCallbackInfo info) {
         status_text = "Connected!";
     }
     
-    Dom label = Dom::create_text(String(status_text));
+    Dom label = Dom::create_text_do_not_use_without_block_level_wrapper(String(status_text));
     label.set_css(String("font-size: 32px;"));
     
     Dom body = Dom::create_body();

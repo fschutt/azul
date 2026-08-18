@@ -64,15 +64,15 @@ fn test_table_percentage_width_cells_expand() {
             Dom::create_node(NodeType::Tr)
                 .with_child(
                     Dom::create_node(NodeType::Td)
-                        .with_child(Dom::create_text("Left"))
+                        .with_child(Dom::create_text_do_not_use_without_block_level_wrapper("Left"))
                 )
                 .with_child(
                     Dom::create_node(NodeType::Td)
-                        .with_child(Dom::create_text("Middle content here"))
+                        .with_child(Dom::create_text_do_not_use_without_block_level_wrapper("Middle content here"))
                 )
                 .with_child(
                     Dom::create_node(NodeType::Td)
-                        .with_child(Dom::create_text("Right"))
+                        .with_child(Dom::create_text_do_not_use_without_block_level_wrapper("Right"))
                 )
         );
 
@@ -123,11 +123,11 @@ fn test_table_auto_width_fills_parent() {
             Dom::create_node(NodeType::Tr)
                 .with_child(
                     Dom::create_node(NodeType::Td)
-                        .with_child(Dom::create_text("Left"))
+                        .with_child(Dom::create_text_do_not_use_without_block_level_wrapper("Left"))
                 )
                 .with_child(
                     Dom::create_node(NodeType::Td)
-                        .with_child(Dom::create_text("Right"))
+                        .with_child(Dom::create_text_do_not_use_without_block_level_wrapper("Right"))
                 )
         );
 
@@ -156,11 +156,11 @@ fn test_table_two_cells_have_nonzero_width() {
             Dom::create_node(NodeType::Tr)
                 .with_child(
                     Dom::create_node(NodeType::Td)
-                        .with_child(Dom::create_text("CellA"))
+                        .with_child(Dom::create_text_do_not_use_without_block_level_wrapper("CellA"))
                 )
                 .with_child(
                     Dom::create_node(NodeType::Td)
-                        .with_child(Dom::create_text("CellB"))
+                        .with_child(Dom::create_text_do_not_use_without_block_level_wrapper("CellB"))
                 )
         );
 
@@ -215,7 +215,7 @@ fn test_single_table_cell_nonzero_width() {
             Dom::create_node(NodeType::Tr)
                 .with_child(
                     Dom::create_node(NodeType::Td)
-                        .with_child(Dom::create_text("Hello"))
+                        .with_child(Dom::create_text_do_not_use_without_block_level_wrapper("Hello"))
                 )
         );
 
@@ -322,7 +322,7 @@ fn test_hn_header_three_cells_all_nonzero() {
                             Dom::create_node(NodeType::Span)
                                 .with_child(
                                     Dom::create_node(NodeType::A)
-                                        .with_child(Dom::create_text("Hacker News"))
+                                        .with_child(Dom::create_text_do_not_use_without_block_level_wrapper("Hacker News"))
                                 )
                         )
                 )
@@ -330,7 +330,7 @@ fn test_hn_header_three_cells_all_nonzero() {
                     Dom::create_node(NodeType::Td)
                         .with_child(
                             Dom::create_node(NodeType::Span)
-                                .with_child(Dom::create_text("new | past | comments | ask | show"))
+                                .with_child(Dom::create_text_do_not_use_without_block_level_wrapper("new | past | comments | ask | show"))
                         )
                 )
                 .with_child(
@@ -339,7 +339,7 @@ fn test_hn_header_three_cells_all_nonzero() {
                             Dom::create_node(NodeType::Span)
                                 .with_child(
                                     Dom::create_node(NodeType::A)
-                                        .with_child(Dom::create_text("login"))
+                                        .with_child(Dom::create_text_do_not_use_without_block_level_wrapper("login"))
                                 )
                         )
                 )
@@ -382,20 +382,20 @@ fn test_hn_header_three_cells_all_nonzero() {
             Dom::create_node(NodeType::Tr)
                 .with_child(
                     Dom::create_node(NodeType::Td)
-                        .with_child(Dom::create_text("direct text"))
+                        .with_child(Dom::create_text_do_not_use_without_block_level_wrapper("direct text"))
                 )
                 .with_child(
                     Dom::create_node(NodeType::Td)
                         .with_child(
                             Dom::create_node(NodeType::A)
-                                .with_child(Dom::create_text("in anchor"))
+                                .with_child(Dom::create_text_do_not_use_without_block_level_wrapper("in anchor"))
                         )
                 )
                 .with_child(
                     Dom::create_node(NodeType::Td)
                         .with_child(
                             Dom::create_node(NodeType::Span)
-                                .with_child(Dom::create_text("in span"))
+                                .with_child(Dom::create_text_do_not_use_without_block_level_wrapper("in span"))
                         )
                 )
         );
@@ -414,7 +414,7 @@ fn test_hn_header_three_cells_all_nonzero() {
             Dom::create_node(NodeType::Tr)
                 .with_child(
                     Dom::create_node(NodeType::Td)
-                        .with_child(Dom::create_text("plain"))
+                        .with_child(Dom::create_text_do_not_use_without_block_level_wrapper("plain"))
                 )
                 .with_child(
                     Dom::create_node(NodeType::Td)
@@ -422,7 +422,7 @@ fn test_hn_header_three_cells_all_nonzero() {
                             Dom::create_node(NodeType::Span)
                                 .with_child(
                                     Dom::create_node(NodeType::A)
-                                        .with_child(Dom::create_text("nested"))
+                                        .with_child(Dom::create_text_do_not_use_without_block_level_wrapper("nested"))
                                 )
                         )
                 )

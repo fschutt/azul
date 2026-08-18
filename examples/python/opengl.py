@@ -10,10 +10,10 @@ class OpenGlState:
 
 
 def layout(data, info):
-    title = (Dom.create_text("OpenGL Integration Demo")
+    title = (Dom.create_text_do_not_use_without_block_level_wrapper("OpenGL Integration Demo")
              .with_css("color:white;font-size:24px;margin-bottom:20px;"))
 
-    placeholder = (Dom.create_text(
+    placeholder = (Dom.create_text_do_not_use_without_block_level_wrapper(
         "OpenGL texture would render here (timer-driven animation pending)")
         .with_css("flex-grow:1;min-height:300px;border-radius:10px;"
                   "background:#222;color:white;display:flex;"

@@ -150,7 +150,7 @@ fn diag_dump_3cell_layout_tree() {
                             Dom::create_node(NodeType::Span)
                                 .with_child(
                                     Dom::create_node(NodeType::A)
-                                        .with_child(Dom::create_text("Hacker News"))
+                                        .with_child(Dom::create_text_do_not_use_without_block_level_wrapper("Hacker News"))
                                 )
                         )
                 )
@@ -158,7 +158,7 @@ fn diag_dump_3cell_layout_tree() {
                     Dom::create_node(NodeType::Td)
                         .with_child(
                             Dom::create_node(NodeType::Span)
-                                .with_child(Dom::create_text("new | past | comments | ask | show"))
+                                .with_child(Dom::create_text_do_not_use_without_block_level_wrapper("new | past | comments | ask | show"))
                         )
                 )
                 .with_child(
@@ -167,7 +167,7 @@ fn diag_dump_3cell_layout_tree() {
                             Dom::create_node(NodeType::Span)
                                 .with_child(
                                     Dom::create_node(NodeType::A)
-                                        .with_child(Dom::create_text("login"))
+                                        .with_child(Dom::create_text_do_not_use_without_block_level_wrapper("login"))
                                 )
                         )
                 )
@@ -222,7 +222,7 @@ fn diag_compare_2cell_vs_3cell() {
                             Dom::create_node(NodeType::Span)
                                 .with_child(
                                     Dom::create_node(NodeType::A)
-                                        .with_child(Dom::create_text("Hacker News"))
+                                        .with_child(Dom::create_text_do_not_use_without_block_level_wrapper("Hacker News"))
                                 )
                         )
                 )
@@ -232,7 +232,7 @@ fn diag_compare_2cell_vs_3cell() {
                             Dom::create_node(NodeType::Span)
                                 .with_child(
                                     Dom::create_node(NodeType::A)
-                                        .with_child(Dom::create_text("login"))
+                                        .with_child(Dom::create_text_do_not_use_without_block_level_wrapper("login"))
                                 )
                         )
                 )
@@ -260,7 +260,7 @@ fn diag_compare_2cell_vs_3cell() {
                             Dom::create_node(NodeType::Span)
                                 .with_child(
                                     Dom::create_node(NodeType::A)
-                                        .with_child(Dom::create_text("Hacker News"))
+                                        .with_child(Dom::create_text_do_not_use_without_block_level_wrapper("Hacker News"))
                                 )
                         )
                 )
@@ -268,7 +268,7 @@ fn diag_compare_2cell_vs_3cell() {
                     Dom::create_node(NodeType::Td)
                         .with_child(
                             Dom::create_node(NodeType::Span)
-                                .with_child(Dom::create_text("new | past | comments"))
+                                .with_child(Dom::create_text_do_not_use_without_block_level_wrapper("new | past | comments"))
                         )
                 )
                 .with_child(
@@ -277,7 +277,7 @@ fn diag_compare_2cell_vs_3cell() {
                             Dom::create_node(NodeType::Span)
                                 .with_child(
                                     Dom::create_node(NodeType::A)
-                                        .with_child(Dom::create_text("login"))
+                                        .with_child(Dom::create_text_do_not_use_without_block_level_wrapper("login"))
                                 )
                         )
                 )
@@ -334,7 +334,7 @@ fn diag_3cell_all_nested_inline() {
                             Dom::create_node(NodeType::Span)
                                 .with_child(
                                     Dom::create_node(NodeType::A)
-                                        .with_child(Dom::create_text("Hacker News"))
+                                        .with_child(Dom::create_text_do_not_use_without_block_level_wrapper("Hacker News"))
                                 )
                         )
                 )
@@ -344,7 +344,7 @@ fn diag_3cell_all_nested_inline() {
                             Dom::create_node(NodeType::Span)
                                 .with_child(
                                     Dom::create_node(NodeType::A)
-                                        .with_child(Dom::create_text("new | past | comments"))
+                                        .with_child(Dom::create_text_do_not_use_without_block_level_wrapper("new | past | comments"))
                                 )
                         )
                 )
@@ -354,7 +354,7 @@ fn diag_3cell_all_nested_inline() {
                             Dom::create_node(NodeType::Span)
                                 .with_child(
                                     Dom::create_node(NodeType::A)
-                                        .with_child(Dom::create_text("login"))
+                                        .with_child(Dom::create_text_do_not_use_without_block_level_wrapper("login"))
                                 )
                         )
                 )
@@ -399,7 +399,7 @@ fn diag_cell_order_matters() {
                     Dom::create_node(NodeType::Td)
                         .with_child(
                             Dom::create_node(NodeType::Span)
-                                .with_child(Dom::create_text("direct text first"))
+                                .with_child(Dom::create_text_do_not_use_without_block_level_wrapper("direct text first"))
                         )
                 )
                 .with_child(
@@ -408,7 +408,7 @@ fn diag_cell_order_matters() {
                             Dom::create_node(NodeType::Span)
                                 .with_child(
                                     Dom::create_node(NodeType::A)
-                                        .with_child(Dom::create_text("nested second"))
+                                        .with_child(Dom::create_text_do_not_use_without_block_level_wrapper("nested second"))
                                 )
                         )
                 )
@@ -418,7 +418,7 @@ fn diag_cell_order_matters() {
                             Dom::create_node(NodeType::Span)
                                 .with_child(
                                     Dom::create_node(NodeType::A)
-                                        .with_child(Dom::create_text("nested third"))
+                                        .with_child(Dom::create_text_do_not_use_without_block_level_wrapper("nested third"))
                                 )
                         )
                 )
@@ -445,7 +445,7 @@ fn diag_cell_order_matters() {
                             Dom::create_node(NodeType::Span)
                                 .with_child(
                                     Dom::create_node(NodeType::A)
-                                        .with_child(Dom::create_text("nested first"))
+                                        .with_child(Dom::create_text_do_not_use_without_block_level_wrapper("nested first"))
                                 )
                         )
                 )
@@ -455,7 +455,7 @@ fn diag_cell_order_matters() {
                             Dom::create_node(NodeType::Span)
                                 .with_child(
                                     Dom::create_node(NodeType::A)
-                                        .with_child(Dom::create_text("nested second"))
+                                        .with_child(Dom::create_text_do_not_use_without_block_level_wrapper("nested second"))
                                 )
                         )
                 )
@@ -463,7 +463,7 @@ fn diag_cell_order_matters() {
                     Dom::create_node(NodeType::Td)
                         .with_child(
                             Dom::create_node(NodeType::Span)
-                                .with_child(Dom::create_text("direct text last"))
+                                .with_child(Dom::create_text_do_not_use_without_block_level_wrapper("direct text last"))
                         )
                 )
         );
@@ -489,7 +489,7 @@ fn diag_cell_order_matters() {
                             Dom::create_node(NodeType::Span)
                                 .with_child(
                                     Dom::create_node(NodeType::A)
-                                        .with_child(Dom::create_text("nested first"))
+                                        .with_child(Dom::create_text_do_not_use_without_block_level_wrapper("nested first"))
                                 )
                         )
                 )
@@ -497,7 +497,7 @@ fn diag_cell_order_matters() {
                     Dom::create_node(NodeType::Td)
                         .with_child(
                             Dom::create_node(NodeType::Span)
-                                .with_child(Dom::create_text("direct text middle"))
+                                .with_child(Dom::create_text_do_not_use_without_block_level_wrapper("direct text middle"))
                         )
                 )
                 .with_child(
@@ -506,7 +506,7 @@ fn diag_cell_order_matters() {
                             Dom::create_node(NodeType::Span)
                                 .with_child(
                                     Dom::create_node(NodeType::A)
-                                        .with_child(Dom::create_text("nested last"))
+                                        .with_child(Dom::create_text_do_not_use_without_block_level_wrapper("nested last"))
                                 )
                         )
                 )
@@ -541,15 +541,15 @@ fn diag_cache_depth_analysis() {
             Dom::create_node(NodeType::Tr)
                 .with_child(
                     Dom::create_node(NodeType::Td)
-                        .with_child(Dom::create_text("plain text"))
+                        .with_child(Dom::create_text_do_not_use_without_block_level_wrapper("plain text"))
                 )
                 .with_child(
                     Dom::create_node(NodeType::Td)
-                        .with_child(Dom::create_text("more plain"))
+                        .with_child(Dom::create_text_do_not_use_without_block_level_wrapper("more plain"))
                 )
                 .with_child(
                     Dom::create_node(NodeType::Td)
-                        .with_child(Dom::create_text("yet more"))
+                        .with_child(Dom::create_text_do_not_use_without_block_level_wrapper("yet more"))
                 )
         );
     let lw1 = layout_dom(dom1, "", 800.0, 600.0);
@@ -566,21 +566,21 @@ fn diag_cache_depth_analysis() {
                     Dom::create_node(NodeType::Td)
                         .with_child(
                             Dom::create_node(NodeType::A)
-                                .with_child(Dom::create_text("link one"))
+                                .with_child(Dom::create_text_do_not_use_without_block_level_wrapper("link one"))
                         )
                 )
                 .with_child(
                     Dom::create_node(NodeType::Td)
                         .with_child(
                             Dom::create_node(NodeType::A)
-                                .with_child(Dom::create_text("link two"))
+                                .with_child(Dom::create_text_do_not_use_without_block_level_wrapper("link two"))
                         )
                 )
                 .with_child(
                     Dom::create_node(NodeType::Td)
                         .with_child(
                             Dom::create_node(NodeType::A)
-                                .with_child(Dom::create_text("link three"))
+                                .with_child(Dom::create_text_do_not_use_without_block_level_wrapper("link three"))
                         )
                 )
         );
@@ -601,7 +601,7 @@ fn diag_cache_depth_analysis() {
                             Dom::create_node(NodeType::Span)
                                 .with_child(
                                     Dom::create_node(NodeType::A)
-                                        .with_child(Dom::create_text("nested one"))
+                                        .with_child(Dom::create_text_do_not_use_without_block_level_wrapper("nested one"))
                                 )
                         )
                 )
@@ -611,7 +611,7 @@ fn diag_cache_depth_analysis() {
                             Dom::create_node(NodeType::Span)
                                 .with_child(
                                     Dom::create_node(NodeType::A)
-                                        .with_child(Dom::create_text("nested two"))
+                                        .with_child(Dom::create_text_do_not_use_without_block_level_wrapper("nested two"))
                                 )
                         )
                 )
@@ -621,7 +621,7 @@ fn diag_cache_depth_analysis() {
                             Dom::create_node(NodeType::Span)
                                 .with_child(
                                     Dom::create_node(NodeType::A)
-                                        .with_child(Dom::create_text("nested three"))
+                                        .with_child(Dom::create_text_do_not_use_without_block_level_wrapper("nested three"))
                                 )
                         )
                 )
@@ -706,7 +706,7 @@ fn diag_longer_text_nested_inline() {
                             Dom::create_node(NodeType::Span)
                                 .with_child(
                                     Dom::create_node(NodeType::A)
-                                        .with_child(Dom::create_text(
+                                        .with_child(Dom::create_text_do_not_use_without_block_level_wrapper(
                                             "This is a very long text string that should definitely have significant width"
                                         ))
                                 )
@@ -716,7 +716,7 @@ fn diag_longer_text_nested_inline() {
                     Dom::create_node(NodeType::Td)
                         .with_child(
                             Dom::create_node(NodeType::Span)
-                                .with_child(Dom::create_text("short"))
+                                .with_child(Dom::create_text_do_not_use_without_block_level_wrapper("short"))
                         )
                 )
                 .with_child(
@@ -725,7 +725,7 @@ fn diag_longer_text_nested_inline() {
                             Dom::create_node(NodeType::Span)
                                 .with_child(
                                     Dom::create_node(NodeType::A)
-                                        .with_child(Dom::create_text(
+                                        .with_child(Dom::create_text_do_not_use_without_block_level_wrapper(
                                             "Another very long text that should be wide"
                                         ))
                                 )
@@ -760,9 +760,9 @@ fn diag_nesting_depth_isolation() {
     let dom_d1 = Dom::create_node(NodeType::Table)
         .with_child(
             Dom::create_node(NodeType::Tr)
-                .with_child(Dom::create_node(NodeType::Td).with_child(Dom::create_text("AAA")))
-                .with_child(Dom::create_node(NodeType::Td).with_child(Dom::create_text("BBB")))
-                .with_child(Dom::create_node(NodeType::Td).with_child(Dom::create_text("CCC")))
+                .with_child(Dom::create_node(NodeType::Td).with_child(Dom::create_text_do_not_use_without_block_level_wrapper("AAA")))
+                .with_child(Dom::create_node(NodeType::Td).with_child(Dom::create_text_do_not_use_without_block_level_wrapper("BBB")))
+                .with_child(Dom::create_node(NodeType::Td).with_child(Dom::create_text_do_not_use_without_block_level_wrapper("CCC")))
         );
     let lw1 = layout_dom(dom_d1, "", 800.0, 600.0);
     let t1 = lw1.layout_cache.tree.as_ref().unwrap();
@@ -779,11 +779,11 @@ fn diag_nesting_depth_isolation() {
         .with_child(
             Dom::create_node(NodeType::Tr)
                 .with_child(Dom::create_node(NodeType::Td).with_child(
-                    Dom::create_node(NodeType::A).with_child(Dom::create_text("AAA"))))
+                    Dom::create_node(NodeType::A).with_child(Dom::create_text_do_not_use_without_block_level_wrapper("AAA"))))
                 .with_child(Dom::create_node(NodeType::Td).with_child(
-                    Dom::create_node(NodeType::A).with_child(Dom::create_text("BBB"))))
+                    Dom::create_node(NodeType::A).with_child(Dom::create_text_do_not_use_without_block_level_wrapper("BBB"))))
                 .with_child(Dom::create_node(NodeType::Td).with_child(
-                    Dom::create_node(NodeType::A).with_child(Dom::create_text("CCC"))))
+                    Dom::create_node(NodeType::A).with_child(Dom::create_text_do_not_use_without_block_level_wrapper("CCC"))))
         );
     let lw2 = layout_dom(dom_d2, "", 800.0, 600.0);
     let t2 = lw2.layout_cache.tree.as_ref().unwrap();
@@ -801,13 +801,13 @@ fn diag_nesting_depth_isolation() {
             Dom::create_node(NodeType::Tr)
                 .with_child(Dom::create_node(NodeType::Td).with_child(
                     Dom::create_node(NodeType::Span).with_child(
-                        Dom::create_node(NodeType::A).with_child(Dom::create_text("AAA")))))
+                        Dom::create_node(NodeType::A).with_child(Dom::create_text_do_not_use_without_block_level_wrapper("AAA")))))
                 .with_child(Dom::create_node(NodeType::Td).with_child(
                     Dom::create_node(NodeType::Span).with_child(
-                        Dom::create_node(NodeType::A).with_child(Dom::create_text("BBB")))))
+                        Dom::create_node(NodeType::A).with_child(Dom::create_text_do_not_use_without_block_level_wrapper("BBB")))))
                 .with_child(Dom::create_node(NodeType::Td).with_child(
                     Dom::create_node(NodeType::Span).with_child(
-                        Dom::create_node(NodeType::A).with_child(Dom::create_text("CCC")))))
+                        Dom::create_node(NodeType::A).with_child(Dom::create_text_do_not_use_without_block_level_wrapper("CCC")))))
         );
     let lw3 = layout_dom(dom_d3, "", 800.0, 600.0);
     let t3 = lw3.layout_cache.tree.as_ref().unwrap();
@@ -826,15 +826,15 @@ fn diag_nesting_depth_isolation() {
                 .with_child(Dom::create_node(NodeType::Td).with_child(
                     Dom::create_div().with_child(
                         Dom::create_node(NodeType::Span).with_child(
-                            Dom::create_node(NodeType::A).with_child(Dom::create_text("AAA"))))))
+                            Dom::create_node(NodeType::A).with_child(Dom::create_text_do_not_use_without_block_level_wrapper("AAA"))))))
                 .with_child(Dom::create_node(NodeType::Td).with_child(
                     Dom::create_div().with_child(
                         Dom::create_node(NodeType::Span).with_child(
-                            Dom::create_node(NodeType::A).with_child(Dom::create_text("BBB"))))))
+                            Dom::create_node(NodeType::A).with_child(Dom::create_text_do_not_use_without_block_level_wrapper("BBB"))))))
                 .with_child(Dom::create_node(NodeType::Td).with_child(
                     Dom::create_div().with_child(
                         Dom::create_node(NodeType::Span).with_child(
-                            Dom::create_node(NodeType::A).with_child(Dom::create_text("CCC"))))))
+                            Dom::create_node(NodeType::A).with_child(Dom::create_text_do_not_use_without_block_level_wrapper("CCC"))))))
         );
     let lw4 = layout_dom(dom_d4, "", 800.0, 600.0);
     let t4 = lw4.layout_cache.tree.as_ref().unwrap();
@@ -861,7 +861,7 @@ fn diag_cell_count_matters() {
             Dom::create_node(NodeType::Tr)
                 .with_child(Dom::create_node(NodeType::Td).with_child(
                     Dom::create_node(NodeType::Span).with_child(
-                        Dom::create_node(NodeType::A).with_child(Dom::create_text("cell1")))))
+                        Dom::create_node(NodeType::A).with_child(Dom::create_text_do_not_use_without_block_level_wrapper("cell1")))))
         );
     let lw1 = layout_dom(dom1, "", 800.0, 600.0);
     let t1 = lw1.layout_cache.tree.as_ref().unwrap();
@@ -878,10 +878,10 @@ fn diag_cell_count_matters() {
             Dom::create_node(NodeType::Tr)
                 .with_child(Dom::create_node(NodeType::Td).with_child(
                     Dom::create_node(NodeType::Span).with_child(
-                        Dom::create_node(NodeType::A).with_child(Dom::create_text("cell1")))))
+                        Dom::create_node(NodeType::A).with_child(Dom::create_text_do_not_use_without_block_level_wrapper("cell1")))))
                 .with_child(Dom::create_node(NodeType::Td).with_child(
                     Dom::create_node(NodeType::Span).with_child(
-                        Dom::create_node(NodeType::A).with_child(Dom::create_text("cell2")))))
+                        Dom::create_node(NodeType::A).with_child(Dom::create_text_do_not_use_without_block_level_wrapper("cell2")))))
         );
     let lw2 = layout_dom(dom2, "", 800.0, 600.0);
     let t2 = lw2.layout_cache.tree.as_ref().unwrap();
@@ -898,13 +898,13 @@ fn diag_cell_count_matters() {
             Dom::create_node(NodeType::Tr)
                 .with_child(Dom::create_node(NodeType::Td).with_child(
                     Dom::create_node(NodeType::Span).with_child(
-                        Dom::create_node(NodeType::A).with_child(Dom::create_text("cell1")))))
+                        Dom::create_node(NodeType::A).with_child(Dom::create_text_do_not_use_without_block_level_wrapper("cell1")))))
                 .with_child(Dom::create_node(NodeType::Td).with_child(
                     Dom::create_node(NodeType::Span).with_child(
-                        Dom::create_node(NodeType::A).with_child(Dom::create_text("cell2")))))
+                        Dom::create_node(NodeType::A).with_child(Dom::create_text_do_not_use_without_block_level_wrapper("cell2")))))
                 .with_child(Dom::create_node(NodeType::Td).with_child(
                     Dom::create_node(NodeType::Span).with_child(
-                        Dom::create_node(NodeType::A).with_child(Dom::create_text("cell3")))))
+                        Dom::create_node(NodeType::A).with_child(Dom::create_text_do_not_use_without_block_level_wrapper("cell3")))))
         );
     let lw3 = layout_dom(dom3, "", 800.0, 600.0);
     let t3 = lw3.layout_cache.tree.as_ref().unwrap();
@@ -921,16 +921,16 @@ fn diag_cell_count_matters() {
             Dom::create_node(NodeType::Tr)
                 .with_child(Dom::create_node(NodeType::Td).with_child(
                     Dom::create_node(NodeType::Span).with_child(
-                        Dom::create_node(NodeType::A).with_child(Dom::create_text("cell1")))))
+                        Dom::create_node(NodeType::A).with_child(Dom::create_text_do_not_use_without_block_level_wrapper("cell1")))))
                 .with_child(Dom::create_node(NodeType::Td).with_child(
                     Dom::create_node(NodeType::Span).with_child(
-                        Dom::create_node(NodeType::A).with_child(Dom::create_text("cell2")))))
+                        Dom::create_node(NodeType::A).with_child(Dom::create_text_do_not_use_without_block_level_wrapper("cell2")))))
                 .with_child(Dom::create_node(NodeType::Td).with_child(
                     Dom::create_node(NodeType::Span).with_child(
-                        Dom::create_node(NodeType::A).with_child(Dom::create_text("cell3")))))
+                        Dom::create_node(NodeType::A).with_child(Dom::create_text_do_not_use_without_block_level_wrapper("cell3")))))
                 .with_child(Dom::create_node(NodeType::Td).with_child(
                     Dom::create_node(NodeType::Span).with_child(
-                        Dom::create_node(NodeType::A).with_child(Dom::create_text("cell4")))))
+                        Dom::create_node(NodeType::A).with_child(Dom::create_text_do_not_use_without_block_level_wrapper("cell4")))))
         );
     let lw4 = layout_dom(dom4, "", 800.0, 600.0);
     let t4 = lw4.layout_cache.tree.as_ref().unwrap();
@@ -975,15 +975,15 @@ fn diag_root_cause_overflow_propagation() {
             Dom::create_node(NodeType::Tr)
                 .with_child(
                     Dom::create_node(NodeType::Td)
-                        .with_child(Dom::create_text("direct text"))
+                        .with_child(Dom::create_text_do_not_use_without_block_level_wrapper("direct text"))
                 )
                 .with_child(
                     Dom::create_node(NodeType::Td)
-                        .with_child(Dom::create_text("more text"))
+                        .with_child(Dom::create_text_do_not_use_without_block_level_wrapper("more text"))
                 )
                 .with_child(
                     Dom::create_node(NodeType::Td)
-                        .with_child(Dom::create_text("third"))
+                        .with_child(Dom::create_text_do_not_use_without_block_level_wrapper("third"))
                 )
         );
     let lw_a = layout_dom(dom_a, "", 800.0, 600.0);
@@ -1020,13 +1020,13 @@ fn diag_root_cause_overflow_propagation() {
                             Dom::create_node(NodeType::Span)
                                 .with_child(
                                     Dom::create_node(NodeType::A)
-                                        .with_child(Dom::create_text("nested text"))
+                                        .with_child(Dom::create_text_do_not_use_without_block_level_wrapper("nested text"))
                                 )
                         )
                 )
                 .with_child(
                     Dom::create_node(NodeType::Td)
-                        .with_child(Dom::create_text("direct text"))
+                        .with_child(Dom::create_text_do_not_use_without_block_level_wrapper("direct text"))
                 )
                 .with_child(
                     Dom::create_node(NodeType::Td)
@@ -1034,7 +1034,7 @@ fn diag_root_cause_overflow_propagation() {
                             Dom::create_node(NodeType::Span)
                                 .with_child(
                                     Dom::create_node(NodeType::A)
-                                        .with_child(Dom::create_text("also nested"))
+                                        .with_child(Dom::create_text_do_not_use_without_block_level_wrapper("also nested"))
                                 )
                         )
                 )
@@ -1100,7 +1100,7 @@ fn diag_bfc_overflow_direct_vs_inline() {
     // propagate through inline elements.
     let dom_direct = Dom::create_div()
         .with_ids_and_classes(vec![IdOrClass::Class("box".into())].into())
-        .with_child(Dom::create_text("Hello World"));
+        .with_child(Dom::create_text_do_not_use_without_block_level_wrapper("Hello World"));
 
     let css = ".box { width: auto; }";
     let lw1 = layout_dom(dom_direct, css, 800.0, 600.0);
@@ -1122,7 +1122,7 @@ fn diag_bfc_overflow_direct_vs_inline() {
             Dom::create_node(NodeType::Span)
                 .with_child(
                     Dom::create_node(NodeType::A)
-                        .with_child(Dom::create_text("Hello World"))
+                        .with_child(Dom::create_text_do_not_use_without_block_level_wrapper("Hello World"))
                 )
         );
 

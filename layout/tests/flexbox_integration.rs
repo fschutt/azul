@@ -635,7 +635,7 @@ fn test_flexbox_flex_basis_auto() {
         .with_child(
             Dom::create_div()
                 .with_ids_and_classes(vec![IdOrClass::Class("item".into())].into())
-                .with_child(Dom::create_text("Content")),
+                .with_child(Dom::create_text_do_not_use_without_block_level_wrapper("Content")),
         );
 
     let css = r#"

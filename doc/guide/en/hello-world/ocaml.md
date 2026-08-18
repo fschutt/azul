@@ -106,7 +106,7 @@ let layout (data_ptr : unit Ctypes.ptr) (_info : unit Ctypes.ptr)
       let label_div =
         Azul.Dom.create_div ()
         |> with_css "font-size: 32px;"
-        |> with_child (Azul.raw_dom (Azul.Dom.create_text (string_of_int m.counter)))
+        |> with_child (Azul.raw_dom (Azul.Dom.create_text_do_not_use_without_block_level_wrapper (string_of_int m.counter)))
       in
       let button_dom =
         Azul.Button.create "Increase counter"

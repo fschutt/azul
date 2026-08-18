@@ -63,7 +63,7 @@ pub const WHITE: ColorU = ColorU { r: 255, g: 255, b: 255, a: 255 };
 /// same path the widgets use — is reliable, so every app-side label goes
 /// through this helper; wrapping DIVs own margins and layout.
 pub fn text(contents: &str, size_px: isize, color: ColorU) -> Dom {
-    Dom::create_text(contents).with_css_props(CssPropertyWithConditionsVec::from_vec(vec![
+    Dom::create_text_do_not_use_without_block_level_wrapper(contents).with_css_props(CssPropertyWithConditionsVec::from_vec(vec![
         CssPropertyWithConditions::simple(CssProperty::const_font_size(StyleFontSize::const_px(
             size_px,
         ))),

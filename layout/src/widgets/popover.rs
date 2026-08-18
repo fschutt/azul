@@ -750,8 +750,8 @@ mod autotest_generated {
 
     #[test]
     fn new_stores_both_doms_and_starts_closed() {
-        let anchor = Dom::create_div().with_child(Dom::create_text("anchor"));
-        let content = Dom::create_text("panel");
+        let anchor = Dom::create_div().with_child(Dom::create_text_do_not_use_without_block_level_wrapper("anchor"));
+        let content = Dom::create_text_do_not_use_without_block_level_wrapper("panel");
         let pop = Popover::new(anchor.clone(), content.clone());
 
         assert_eq!(pop.anchor, anchor, "the anchor must be stored verbatim");
@@ -788,12 +788,12 @@ mod autotest_generated {
     fn new_survives_extreme_doms() {
         // a 128-deep anchor and a 2000-sibling panel: nothing may be truncated,
         // reordered or recursed into during construction.
-        let mut deep = Dom::create_text("leaf");
+        let mut deep = Dom::create_text_do_not_use_without_block_level_wrapper("leaf");
         for _ in 0..128 {
             deep = Dom::create_div().with_child(deep);
         }
         let wide_children: Vec<Dom> = (0..2000)
-            .map(|i| Dom::create_text(alloc::format!("{i}")))
+            .map(|i| Dom::create_text_do_not_use_without_block_level_wrapper(alloc::format!("{i}")))
             .collect();
         let wide = Dom::create_div().with_children(wide_children.clone().into());
 
@@ -809,7 +809,7 @@ mod autotest_generated {
     fn new_accepts_the_same_dom_as_anchor_and_content() {
         // aliasing the two arguments must produce two independent subtrees, not
         // one shared (and later doubly-mounted) node.
-        let shared = Dom::create_div().with_child(Dom::create_text("x"));
+        let shared = Dom::create_div().with_child(Dom::create_text_do_not_use_without_block_level_wrapper("x"));
         let pop = Popover::new(shared.clone(), shared.clone());
 
         assert_eq!(pop.anchor, shared);
@@ -827,7 +827,7 @@ mod autotest_generated {
 
     #[test]
     fn set_open_round_trips_state_and_style() {
-        let mut pop = Popover::new(Dom::create_text("a"), Dom::create_text("c"));
+        let mut pop = Popover::new(Dom::create_text_do_not_use_without_block_level_wrapper("a"), Dom::create_text_do_not_use_without_block_level_wrapper("c"));
 
         // repeats and flips: the style must follow the flag on every write,
         // including redundant ones.
@@ -850,16 +850,16 @@ mod autotest_generated {
         }
 
         // the restyle must not touch the payload doms
-        assert_eq!(pop.anchor, Dom::create_text("a"));
-        assert_eq!(pop.content, Dom::create_text("c"));
+        assert_eq!(pop.anchor, Dom::create_text_do_not_use_without_block_level_wrapper("a"));
+        assert_eq!(pop.content, Dom::create_text_do_not_use_without_block_level_wrapper("c"));
     }
 
     #[test]
     fn with_open_matches_set_open() {
         for open in [false, true] {
-            let mut mutated = Popover::new(Dom::create_text("a"), Dom::create_text("c"));
+            let mut mutated = Popover::new(Dom::create_text_do_not_use_without_block_level_wrapper("a"), Dom::create_text_do_not_use_without_block_level_wrapper("c"));
             mutated.set_open(open);
-            let built = Popover::new(Dom::create_text("a"), Dom::create_text("c")).with_open(open);
+            let built = Popover::new(Dom::create_text_do_not_use_without_block_level_wrapper("a"), Dom::create_text_do_not_use_without_block_level_wrapper("c")).with_open(open);
             assert_eq!(built, mutated, "builder and setter must agree (open = {open})");
         }
     }
@@ -923,15 +923,15 @@ mod autotest_generated {
 
     #[test]
     fn set_on_toggle_does_not_disturb_state_style_or_doms() {
-        let mut pop = Popover::new(Dom::create_text("a"), Dom::create_text("c")).with_open(true);
+        let mut pop = Popover::new(Dom::create_text_do_not_use_without_block_level_wrapper("a"), Dom::create_text_do_not_use_without_block_level_wrapper("c")).with_open(true);
         let style_before = pop.content_style.clone();
 
         pop.set_on_toggle(RefAny::new(0u8), toggle_cb(toggle_do_nothing));
 
         assert!(pop.popover_state.inner.open, "open flag must survive");
         assert_eq!(pop.content_style, style_before, "style must survive");
-        assert_eq!(pop.anchor, Dom::create_text("a"));
-        assert_eq!(pop.content, Dom::create_text("c"));
+        assert_eq!(pop.anchor, Dom::create_text_do_not_use_without_block_level_wrapper("a"));
+        assert_eq!(pop.content, Dom::create_text_do_not_use_without_block_level_wrapper("c"));
     }
 
     #[test]
@@ -980,14 +980,14 @@ mod autotest_generated {
 
     #[test]
     fn swap_with_default_moves_all_state_out() {
-        let mut pop = Popover::new(Dom::create_text("a"), Dom::create_text("c"))
+        let mut pop = Popover::new(Dom::create_text_do_not_use_without_block_level_wrapper("a"), Dom::create_text_do_not_use_without_block_level_wrapper("c"))
             .with_open(true)
             .with_on_toggle(RefAny::new(5u8), toggle_cb(record_toggle));
 
         let original = pop.swap_with_default();
 
-        assert_eq!(original.anchor, Dom::create_text("a"));
-        assert_eq!(original.content, Dom::create_text("c"));
+        assert_eq!(original.anchor, Dom::create_text_do_not_use_without_block_level_wrapper("a"));
+        assert_eq!(original.content, Dom::create_text_do_not_use_without_block_level_wrapper("c"));
         assert!(original.popover_state.inner.open);
         assert!(original.popover_state.on_toggle.is_some());
         assert_eq!(original.content_style, build_content_style(true));
@@ -1018,7 +1018,7 @@ mod autotest_generated {
 
     #[test]
     fn dom_structure_classes_and_callback() {
-        let dom = Popover::new(Dom::create_text("anchor"), Dom::create_text("panel")).dom();
+        let dom = Popover::new(Dom::create_text_do_not_use_without_block_level_wrapper("anchor"), Dom::create_text_do_not_use_without_block_level_wrapper("panel")).dom();
 
         assert!(has_class(&dom, "__azul-native-popover"));
         let children = dom.children.as_ref();
@@ -1135,7 +1135,7 @@ mod autotest_generated {
         // deep + wide payloads: `estimated_total_children` must still equal the
         // real descendant count, otherwise the compact-DOM arena under-allocates
         // and panics later.
-        let mut deep = Dom::create_text("leaf");
+        let mut deep = Dom::create_text_do_not_use_without_block_level_wrapper("leaf");
         for _ in 0..64 {
             deep = Dom::create_div().with_child(deep);
         }
@@ -1172,7 +1172,7 @@ mod autotest_generated {
         // `Dom::from(p) == p.dom()` cannot be asserted directly: every `dom()`
         // call mints a fresh `RefAny` for the trigger payload, and two distinct
         // `RefAny`s never compare equal. Compare the observable structure.
-        let make = || Popover::new(Dom::create_text("a"), Dom::create_text("c")).with_open(true);
+        let make = || Popover::new(Dom::create_text_do_not_use_without_block_level_wrapper("a"), Dom::create_text_do_not_use_without_block_level_wrapper("c")).with_open(true);
         let via_from = Dom::from(make());
         let via_dom = make().dom();
 

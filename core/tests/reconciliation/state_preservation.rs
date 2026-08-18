@@ -63,7 +63,7 @@ fn migration_map_reorder() {
     // new: [B-text, A-div-with-key]
     let mut a = NodeData::create_div();
     a.add_id(AzString::from("a"));
-    let b = NodeData::create_text("B");
+    let b = NodeData::create_text_do_not_use_without_block_level_wrapper("B");
     
     let old = vec![a.clone(), b.clone()];
     let new = vec![b.clone(), a.clone()];
@@ -161,7 +161,7 @@ fn keyed_node_survives_siblings_changing() {
     // Node with key survives even when siblings are added
     let mut keyed = NodeData::create_div();
     keyed.add_id(AzString::from("persist"));
-    let extra = NodeData::create_text("new");
+    let extra = NodeData::create_text_do_not_use_without_block_level_wrapper("new");
     
     let old = vec![keyed.clone()];
     let new = vec![extra, keyed.clone()]; // keyed node moved to position 1
@@ -192,7 +192,7 @@ fn identical_unkeyed_nodes_match_by_hash() {
 #[test]
 fn different_unkeyed_nodes_may_not_match() {
     let div = NodeData::create_div();
-    let text = NodeData::create_text("hello");
+    let text = NodeData::create_text_do_not_use_without_block_level_wrapper("hello");
     
     let old = vec![div.clone()];
     let new = vec![text.clone()];
@@ -210,8 +210,8 @@ fn different_unkeyed_nodes_may_not_match() {
 #[test]
 fn text_node_edit_preserves_match() {
     // Editing text content: the node should still match by position/structure
-    let old = vec![NodeData::create_text("Hello")];
-    let new = vec![NodeData::create_text("World")];
+    let old = vec![NodeData::create_text_do_not_use_without_block_level_wrapper("Hello")];
+    let new = vec![NodeData::create_text_do_not_use_without_block_level_wrapper("World")];
     
     let result = reconcile(&old, &new);
     // Even though content changed, structural matching should pair them
@@ -271,7 +271,7 @@ fn accumulator_tracks_mount_unmount_from_diff() {
 fn repeated_identical_rebuild_stable() {
     let data = vec![
         NodeData::create_div(),
-        NodeData::create_text("hello"),
+        NodeData::create_text_do_not_use_without_block_level_wrapper("hello"),
         NodeData::create_div(),
     ];
     
@@ -288,16 +288,16 @@ fn repeated_identical_rebuild_stable() {
 fn incremental_changes_produce_correct_migration() {
     // Simulating incremental edits to a document
     let v1 = vec![
-        NodeData::create_text("Line 1"),
-        NodeData::create_text("Line 2"),
-        NodeData::create_text("Line 3"),
+        NodeData::create_text_do_not_use_without_block_level_wrapper("Line 1"),
+        NodeData::create_text_do_not_use_without_block_level_wrapper("Line 2"),
+        NodeData::create_text_do_not_use_without_block_level_wrapper("Line 3"),
     ];
     
     // Edit: change line 2
     let v2 = vec![
-        NodeData::create_text("Line 1"),
-        NodeData::create_text("Line 2 modified"),
-        NodeData::create_text("Line 3"),
+        NodeData::create_text_do_not_use_without_block_level_wrapper("Line 1"),
+        NodeData::create_text_do_not_use_without_block_level_wrapper("Line 2 modified"),
+        NodeData::create_text_do_not_use_without_block_level_wrapper("Line 3"),
     ];
     
     let result = reconcile(&v1, &v2);

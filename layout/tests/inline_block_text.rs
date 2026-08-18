@@ -653,9 +653,9 @@ fn test_body_as_root_inline_block_positioning() {
     use azul_core::styled_dom::StyledDom;
 
     // Create the DOM structure programmatically (like the Live-App does)
-    let label = Dom::create_text("5")
+    let label = Dom::create_text_do_not_use_without_block_level_wrapper("5")
         .with_ids_and_classes(vec![IdOrClass::Class("label".into())].into());
-    let button = Dom::create_text("Increase counter")
+    let button = Dom::create_text_do_not_use_without_block_level_wrapper("Increase counter")
         .with_ids_and_classes(vec![IdOrClass::Class("button".into())].into());
 
     let mut body_dom = Dom::create_body()

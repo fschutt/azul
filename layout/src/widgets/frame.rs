@@ -662,7 +662,7 @@ mod autotest_generated {
 
     #[test]
     fn create_zeroes_flex_grow_and_stores_both_arguments_verbatim() {
-        let f = frame("Settings", Dom::create_text("body"));
+        let f = frame("Settings", Dom::create_text_do_not_use_without_block_level_wrapper("body"));
 
         // Positive zero, not -0.0: a negative zero would flip the sign of the encoded
         // isize on some paths and is not what "no growth" means.
@@ -756,7 +756,7 @@ mod autotest_generated {
 
     #[test]
     fn swap_with_default_moves_every_field_out_and_leaves_a_default() {
-        let mut f = frame("payload", Dom::create_text("body")).with_flex_grow(2.5);
+        let mut f = frame("payload", Dom::create_text_do_not_use_without_block_level_wrapper("body")).with_flex_grow(2.5);
 
         let taken = f.swap_with_default();
 
@@ -775,7 +775,7 @@ mod autotest_generated {
 
     #[test]
     fn repeated_swap_with_default_never_accumulates_state() {
-        let mut f = frame("x", Dom::create_text("y")).with_flex_grow(1.0);
+        let mut f = frame("x", Dom::create_text_do_not_use_without_block_level_wrapper("y")).with_flex_grow(1.0);
         let first = f.swap_with_default();
         assert_eq!(first.title.as_str(), "x");
 
@@ -873,7 +873,7 @@ mod autotest_generated {
 
     #[test]
     fn with_flex_grow_touches_only_the_numeric_field() {
-        let f = frame("title", Dom::create_text("body")).with_flex_grow(f32::NAN);
+        let f = frame("title", Dom::create_text_do_not_use_without_block_level_wrapper("body")).with_flex_grow(f32::NAN);
 
         assert_eq!(f.title.as_str(), "title", "with_flex_grow clobbered the title");
         assert_eq!(text_of(&f.content), Some("body"), "with_flex_grow clobbered the content");
@@ -1016,7 +1016,7 @@ mod autotest_generated {
 
     #[test]
     fn dom_has_the_documented_shape() {
-        let dom = frame("Title", Dom::create_text("content")).dom();
+        let dom = frame("Title", Dom::create_text_do_not_use_without_block_level_wrapper("content")).dom();
 
         assert_eq!(kids(&dom).len(), 2, "a frame is a header plus a content area");
         assert_eq!(kids(header(&dom)).len(), 3, "the header is rule / title / rule");
@@ -1283,8 +1283,8 @@ mod autotest_generated {
                 "user-content",
             ))]))
             .with_children(DomVec::from_vec(vec![
-                Dom::create_text("a"),
-                Dom::create_text("b"),
+                Dom::create_text_do_not_use_without_block_level_wrapper("a"),
+                Dom::create_text_do_not_use_without_block_level_wrapper("b"),
             ]));
         let expected = content.clone();
 
@@ -1300,8 +1300,8 @@ mod autotest_generated {
     fn dom_is_deterministic_for_equal_inputs() {
         for t in ADVERSARIAL_TEXT {
             for v in ADVERSARIAL_FLOATS {
-                let a = frame(t, Dom::create_text(t)).with_flex_grow(v).dom();
-                let b = frame(t, Dom::create_text(t)).with_flex_grow(v).dom();
+                let a = frame(t, Dom::create_text_do_not_use_without_block_level_wrapper(t)).with_flex_grow(v).dom();
+                let b = frame(t, Dom::create_text_do_not_use_without_block_level_wrapper(t)).with_flex_grow(v).dom();
                 assert_eq!(a, b, "two identical frames rendered differently for {t:?} / {v}");
             }
         }

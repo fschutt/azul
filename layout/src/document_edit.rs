@@ -182,10 +182,10 @@ fn split_text_dom(node: &mut Dom, byte: usize) -> Dom {
                 .unwrap_or(0);
             (s[..cut].to_string(), s[cut..].to_string())
         }
-        _ => return Dom::create_text(""),
+        _ => return Dom::create_text_do_not_use_without_block_level_wrapper(""),
     };
-    *node = Dom::create_text(head);
-    Dom::create_text(tail)
+    *node = Dom::create_text_do_not_use_without_block_level_wrapper(head);
+    Dom::create_text_do_not_use_without_block_level_wrapper(tail)
 }
 
 /// Split `host.children[node_index]` at the structural position: children
@@ -287,7 +287,7 @@ fn apply_merge(
             };
             match coalesced {
                 Some(joined) => {
-                    *first_children.last_mut().unwrap() = Dom::create_text(joined);
+                    *first_children.last_mut().unwrap() = Dom::create_text_do_not_use_without_block_level_wrapper(joined);
                 }
                 None => first_children.push(second_first),
             }
@@ -492,7 +492,7 @@ fn apply_unwrap(
                 ),
                 _ => unreachable!("checked above"),
             };
-            children[index - 1] = Dom::create_text(joined);
+            children[index - 1] = Dom::create_text_do_not_use_without_block_level_wrapper(joined);
             start = NodePosition::in_text_child(
                 u32::try_from(index - 1).unwrap_or(u32::MAX),
                 prev_len,
@@ -557,7 +557,7 @@ fn apply_unwrap(
                     ),
                     _ => unreachable!("checked above"),
                 };
-                children[holder] = Dom::create_text(joined);
+                children[holder] = Dom::create_text_do_not_use_without_block_level_wrapper(joined);
                 end = NodePosition::in_text_child(
                     u32::try_from(holder).unwrap_or(u32::MAX),
                     seam_byte,
@@ -662,7 +662,7 @@ mod tests {
 
     fn p(text: &str) -> Dom {
         let mut p = Dom::create_p();
-        p.add_child(Dom::create_text(text));
+        p.add_child(Dom::create_text_do_not_use_without_block_level_wrapper(text));
         p
     }
 
@@ -672,7 +672,7 @@ mod tests {
 
     fn li(text: &str) -> Dom {
         let mut li = el("li");
-        li.add_child(Dom::create_text(text));
+        li.add_child(Dom::create_text_do_not_use_without_block_level_wrapper(text));
         li
     }
 
@@ -732,11 +732,11 @@ mod tests {
         // flattened, re-parsed, or byte-walked.
         let mut host = Dom::create_div();
         let mut para = Dom::create_p();
-        para.add_child(Dom::create_text("ab"));
+        para.add_child(Dom::create_text_do_not_use_without_block_level_wrapper("ab"));
         let mut b = el("b");
-        b.add_child(Dom::create_text("bold"));
+        b.add_child(Dom::create_text_do_not_use_without_block_level_wrapper("bold"));
         para.add_child(b);
-        para.add_child(Dom::create_text("cd"));
+        para.add_child(Dom::create_text_do_not_use_without_block_level_wrapper("cd"));
         host.add_child(para);
 
         let cs = changeset(

@@ -1,6 +1,6 @@
-// Bisection toward hello-world.c: body + ONE createText child. web-2node.c
-// (body + div, no text) WORKS. If THIS cb OOBs → createText/AzString is the
-// hello-world.c trigger (m12_7 flagged the "createText/AzString chain X8 stomp").
+// Bisection toward hello-world.c: body + ONE createTextDoNotUseWithoutBlockLevelWrapper child. web-2node.c
+// (body + div, no text) WORKS. If THIS cb OOBs → createTextDoNotUseWithoutBlockLevelWrapper/AzString is the
+// hello-world.c trigger (m12_7 flagged the "createTextDoNotUseWithoutBlockLevelWrapper/AzString chain X8 stomp").
 // If it RUNS → text is fine, the trigger is the AzButton widget.
 #include "azul.h"
 #include <string.h>

@@ -65,7 +65,7 @@ let dom = Dom::create_div()
             .with_on_click(RefAny::new(()), on_tab)
             .dom()
     )
-    .with_child(Dom::create_text("Settings go here."));
+    .with_child(Dom::create_text_do_not_use_without_block_level_wrapper("Settings go here."));
 ```
 
 `TabHeader` keeps `active_tab: usize` and emits `TabHeaderState { active_tab }`

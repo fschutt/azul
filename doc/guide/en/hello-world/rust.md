@@ -221,7 +221,7 @@ fn my_layout_func(mut data: RefAny, _: LayoutCallbackInfo) -> Dom {
     // Canonical shape: body > div{font-size:32px} > text(counter).
     let label_dom = Dom::create_div()
         .with_css("font-size: 32px")
-        .with_child(Dom::create_text(counter.as_str()));
+        .with_child(Dom::create_text_do_not_use_without_block_level_wrapper(counter.as_str()));
 
     // We use the "button" widget with its own API
     let mut button = Button::create("Update counter");

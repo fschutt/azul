@@ -77,7 +77,7 @@ extern "C" fn pages_view(mut data: RefAny, info: VirtualViewCallbackInfo) -> Vir
         for para in &model.pages[page_idx] {
             let mut p = Dom::create_div().with_css("display: block;");
             p.set_contenteditable(true);
-            p = p.with_child(Dom::create_text(para.as_str()));
+            p = p.with_child(Dom::create_text_do_not_use_without_block_level_wrapper(para.as_str()));
             page = page.with_child(p);
         }
         root = root.with_child(page);

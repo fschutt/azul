@@ -48,17 +48,17 @@ fn layout_three_paragraphs() -> LayoutWindow {
         .with_child(
             Dom::create_div()
                 .with_ids_and_classes(class("p"))
-                .with_child(Dom::create_text("first paragraph")),
+                .with_child(Dom::create_text_do_not_use_without_block_level_wrapper("first paragraph")),
         )
         .with_child(
             Dom::create_div()
                 .with_ids_and_classes(class("p"))
-                .with_child(Dom::create_text("second paragraph")),
+                .with_child(Dom::create_text_do_not_use_without_block_level_wrapper("second paragraph")),
         )
         .with_child(
             Dom::create_div()
                 .with_ids_and_classes(class("p"))
-                .with_child(Dom::create_text("third paragraph")),
+                .with_child(Dom::create_text_do_not_use_without_block_level_wrapper("third paragraph")),
         );
     let (css, _) = azul_css::parser2::new_from_str(CSS);
     let styled_dom = StyledDom::create(&mut dom, css);

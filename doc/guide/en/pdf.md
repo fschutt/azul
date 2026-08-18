@@ -65,7 +65,7 @@ layout splits the document across as many pages as it needs, each
 ```rust
 fn doc_page() -> Dom {
     Dom::create_body()
-        .with_child(Dom::create_text("Invoice #42").with_css("font-size: 32px;"))
+        .with_child(Dom::create_text_do_not_use_without_block_level_wrapper("Invoice #42").with_css("font-size: 32px;"))
         .with_child(/* ... tables, paragraphs, images ... */)
 }
 

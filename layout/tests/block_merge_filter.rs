@@ -31,7 +31,7 @@ fn cls(name: &str) -> azul_core::dom::IdOrClassVec {
 fn para(text: &str) -> Dom {
     Dom::create_div()
         .with_ids_and_classes(cls("p"))
-        .with_child(Dom::create_text(text))
+        .with_child(Dom::create_text_do_not_use_without_block_level_wrapper(text))
 }
 
 fn layout(mut dom: Dom) -> LayoutWindow {
@@ -98,7 +98,7 @@ fn whitespace_text_between_blocks_is_skipped() {
     let mut lw = layout(
         Dom::create_body()
             .with_child(para("first"))
-            .with_child(Dom::create_text("\n    "))
+            .with_child(Dom::create_text_do_not_use_without_block_level_wrapper("\n    "))
             .with_child(para("second")),
     );
     assert_eq!(
@@ -115,16 +115,16 @@ fn first_list_item_has_no_merge_partner_inside_the_list() {
     // whitespace (or anything outside the list).
     let list = Dom::create_div()
         .with_ids_and_classes(cls("p"))
-        .with_child(Dom::create_text("\n  "))
+        .with_child(Dom::create_text_do_not_use_without_block_level_wrapper("\n  "))
         .with_child(
             Dom::create_div()
                 .with_ids_and_classes(cls("li"))
-                .with_child(Dom::create_text("one")),
+                .with_child(Dom::create_text_do_not_use_without_block_level_wrapper("one")),
         )
         .with_child(
             Dom::create_div()
                 .with_ids_and_classes(cls("li"))
-                .with_child(Dom::create_text("two")),
+                .with_child(Dom::create_text_do_not_use_without_block_level_wrapper("two")),
         );
     let mut lw = layout(Dom::create_body().with_child(list));
     assert_eq!(
@@ -144,7 +144,7 @@ fn a_real_inline_text_run_is_not_a_merge_partner() {
     // run (it has no child list) — engine default is a safe no-op.
     let mut lw = layout(
         Dom::create_body()
-            .with_child(Dom::create_text("intro text"))
+            .with_child(Dom::create_text_do_not_use_without_block_level_wrapper("intro text"))
             .with_child(para("para")),
     );
     assert_eq!(merge_partner(&mut lw, 2), None);
@@ -160,7 +160,7 @@ fn an_inline_element_between_blocks_stops_the_merge() {
             .with_child(
                 Dom::create_div()
                     .with_ids_and_classes(cls("inline"))
-                    .with_child(Dom::create_text("inline island")),
+                    .with_child(Dom::create_text_do_not_use_without_block_level_wrapper("inline island")),
             )
             .with_child(para("second")),
     );

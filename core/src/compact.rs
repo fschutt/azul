@@ -2689,7 +2689,7 @@ mod autotest_generated {
             NodeData::create_node(NodeType::Div),
             NodeData::create_node(NodeType::P),
             NodeData::create_node(NodeType::Br),
-            NodeData::create_text("hello"),
+            NodeData::create_text_do_not_use_without_block_level_wrapper("hello"),
         ];
         for nd in &nodes {
             let mut s = Sink::new();
@@ -2852,7 +2852,7 @@ mod autotest_generated {
 
         let nodes = vec![
             NodeData::create_node(NodeType::Div),
-            NodeData::create_text("hi"),
+            NodeData::create_text_do_not_use_without_block_level_wrapper("hi"),
         ];
         let r = cache.build_compact_cache_with_inheritance(&nodes, &linear_hierarchy(2), &[]);
 

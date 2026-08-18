@@ -311,6 +311,14 @@ pub mod date_picker;
 // /// Spreadsheet (virtualized view) widget
 // pub mod spreadsheet;
 
+/// Every shipped widget's `dom()` with reasonable defaults, for lints that
+/// must hold across the whole widget set (the label-convention test below and
+/// `dom_lint`'s runtime-warning twin). Test-only.
+#[cfg(test)]
+pub(crate) fn all_widget_doms_for_lint() -> Vec<(&'static str, azul_core::dom::Dom)> {
+    label_convention::every_widget_dom()
+}
+
 #[cfg(test)]
 #[allow(clippy::too_many_lines)]
 mod label_convention {
@@ -325,7 +333,7 @@ mod label_convention {
     //! no hit area, and a dataset has no node to be found on.
     //!
     //! The canonical shape is `Dom::create_p_with_text(label)` (or
-    //! `create_p().with_children([create_text(label)])`) with every property on
+    //! `create_p().with_children([create_text_do_not_use_without_block_level_wrapper(label)])`) with every property on
     //! the `<p>`, or — where a dedicated styled `<div>` already is the box — a
     //! bare `create_text` leaf with the properties on that `<div>`.
     //!
@@ -454,7 +462,7 @@ mod label_convention {
     /// * `map`'s tile labels — emitted from the `VirtualView` render callback,
     ///   not from `dom()`, so the walk cannot reach them; they were converted by
     ///   hand and are pinned by the map widget's own tests.
-    fn every_widget_dom() -> Vec<(&'static str, Dom)> {
+    pub(super) fn every_widget_dom() -> Vec<(&'static str, Dom)> {
         use super::{
             accordion::{Accordion, AccordionSection, AccordionSectionVec},
             alert::Alert,
@@ -663,7 +671,7 @@ mod label_convention {
     fn the_walk_reports_a_deliberately_broken_text_node() {
         use azul_core::dom::TabIndex;
 
-        let mut leaf = Dom::create_text(AzString::from("bare"));
+        let mut leaf = Dom::create_text_do_not_use_without_block_level_wrapper(AzString::from("bare"));
         leaf.root.set_css("width: 10px;");
         let broken = Dom::create_div().with_child(leaf.with_tab_index(TabIndex::Auto));
 

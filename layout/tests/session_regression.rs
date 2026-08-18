@@ -105,7 +105,7 @@ fn test_whitespace_nowrap_single_line() {
     let dom = Dom::create_body().with_child(
         Dom::create_div()
             .with_ids_and_classes(cls("box").into())
-            .with_child(Dom::create_text(
+            .with_child(Dom::create_text_do_not_use_without_block_level_wrapper(
                 "This is a very long text that would normally wrap to multiple lines in a narrow box",
             )),
     );
@@ -138,7 +138,7 @@ fn test_inline_block_auto_width_not_inflated() {
             .with_child(
                 Dom::create_node(NodeType::Span)
                     .with_ids_and_classes(cls("ib").into())
-                    .with_child(Dom::create_text("AB")),
+                    .with_child(Dom::create_text_do_not_use_without_block_level_wrapper("AB")),
             ),
     );
 
@@ -169,8 +169,8 @@ fn test_table_auto_width_nonzero() {
     let dom = Dom::create_body().with_child(
         Dom::create_node(NodeType::Table).with_child(
             Dom::create_node(NodeType::Tr)
-                .with_child(Dom::create_node(NodeType::Td).with_child(Dom::create_text("Hi")))
-                .with_child(Dom::create_node(NodeType::Td).with_child(Dom::create_text("There"))),
+                .with_child(Dom::create_node(NodeType::Td).with_child(Dom::create_text_do_not_use_without_block_level_wrapper("Hi")))
+                .with_child(Dom::create_node(NodeType::Td).with_child(Dom::create_text_do_not_use_without_block_level_wrapper("There"))),
         ),
     );
 
@@ -193,7 +193,7 @@ fn test_table_auto_width_nonzero() {
 #[test]
 fn test_star_selector_skips_text_nodes() {
     let dom = Dom::create_body().with_child(
-        Dom::create_node(NodeType::P).with_child(Dom::create_text("Hello")),
+        Dom::create_node(NodeType::P).with_child(Dom::create_text_do_not_use_without_block_level_wrapper("Hello")),
     );
 
     let css = "* { color: #666666; } p { color: #ff0000; }";
@@ -224,7 +224,7 @@ fn test_font_size_em_resolves_against_parent() {
         .with_child(
             Dom::create_div()
                 .with_ids_and_classes(cls("p20").into())
-                .with_child(Dom::create_text("X")),
+                .with_child(Dom::create_text_do_not_use_without_block_level_wrapper("X")),
         )
         .with_child(
             Dom::create_div()
@@ -232,7 +232,7 @@ fn test_font_size_em_resolves_against_parent() {
                 .with_child(
                     Dom::create_div()
                         .with_ids_and_classes(cls("em15").into())
-                        .with_child(Dom::create_text("X")),
+                        .with_child(Dom::create_text_do_not_use_without_block_level_wrapper("X")),
                 ),
         );
 
@@ -333,7 +333,7 @@ fn test_descendant_selector_matches_deeply_nested() {
             .with_ids_and_classes(cls("outer").into())
             .with_child(
                 Dom::create_div().with_child(
-                    Dom::create_node(NodeType::P).with_child(Dom::create_text("deep")),
+                    Dom::create_node(NodeType::P).with_child(Dom::create_text_do_not_use_without_block_level_wrapper("deep")),
                 ),
             ),
     );
@@ -361,7 +361,7 @@ fn test_table_cell_has_content() {
     let dom = Dom::create_body().with_child(
         Dom::create_node(NodeType::Table).with_child(
             Dom::create_node(NodeType::Tr).with_child(
-                Dom::create_node(NodeType::Td).with_child(Dom::create_text("Cell")),
+                Dom::create_node(NodeType::Td).with_child(Dom::create_text_do_not_use_without_block_level_wrapper("Cell")),
             ),
         ),
     );
@@ -388,11 +388,11 @@ fn test_table_not_oversized_from_double_offset() {
         Dom::create_node(NodeType::Table)
             .with_child(
                 Dom::create_node(NodeType::Tr)
-                    .with_child(Dom::create_node(NodeType::Td).with_child(Dom::create_text("R1"))),
+                    .with_child(Dom::create_node(NodeType::Td).with_child(Dom::create_text_do_not_use_without_block_level_wrapper("R1"))),
             )
             .with_child(
                 Dom::create_node(NodeType::Tr)
-                    .with_child(Dom::create_node(NodeType::Td).with_child(Dom::create_text("R2"))),
+                    .with_child(Dom::create_node(NodeType::Td).with_child(Dom::create_text_do_not_use_without_block_level_wrapper("R2"))),
             ),
     );
 
@@ -423,7 +423,7 @@ fn test_inline_block_text_only_has_size() {
             .with_child(
                 Dom::create_node(NodeType::Span)
                     .with_ids_and_classes(cls("ib").into())
-                    .with_child(Dom::create_text("Hello World")),
+                    .with_child(Dom::create_text_do_not_use_without_block_level_wrapper("Hello World")),
             ),
     );
 
@@ -447,7 +447,7 @@ fn test_inline_block_text_only_has_size() {
 #[test]
 fn test_global_star_font_weight_applied() {
     let dom = Dom::create_body().with_child(
-        Dom::create_div().with_child(Dom::create_text("test")),
+        Dom::create_div().with_child(Dom::create_text_do_not_use_without_block_level_wrapper("test")),
     );
 
     let css = "* { font-weight: bold; }";
@@ -471,8 +471,8 @@ fn test_table_layout_with_whitespace_nodes() {
     let dom = Dom::create_body().with_child(
         Dom::create_node(NodeType::Table).with_child(
             Dom::create_node(NodeType::Tr)
-                .with_child(Dom::create_node(NodeType::Td).with_child(Dom::create_text("A")))
-                .with_child(Dom::create_node(NodeType::Td).with_child(Dom::create_text("B"))),
+                .with_child(Dom::create_node(NodeType::Td).with_child(Dom::create_text_do_not_use_without_block_level_wrapper("A")))
+                .with_child(Dom::create_node(NodeType::Td).with_child(Dom::create_text_do_not_use_without_block_level_wrapper("B"))),
         ),
     );
 

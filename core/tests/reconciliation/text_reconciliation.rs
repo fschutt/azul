@@ -18,7 +18,7 @@ use azul_core::id::NodeId;
 
 #[test]
 fn get_text_content_from_text_node() {
-    let node = NodeData::create_text("Hello World");
+    let node = NodeData::create_text_do_not_use_without_block_level_wrapper("Hello World");
     assert_eq!(get_node_text_content(&node), Some("Hello World"));
 }
 
@@ -30,7 +30,7 @@ fn get_text_content_from_div_returns_none() {
 
 #[test]
 fn get_text_content_from_empty_text() {
-    let node = NodeData::create_text("");
+    let node = NodeData::create_text_do_not_use_without_block_level_wrapper("");
     assert_eq!(get_node_text_content(&node), Some(""));
 }
 
@@ -40,16 +40,16 @@ fn get_text_content_from_empty_text() {
 
 #[test]
 fn detect_text_change_via_compute() {
-    let a = NodeData::create_text("Hello");
-    let b = NodeData::create_text("World");
+    let a = NodeData::create_text_do_not_use_without_block_level_wrapper("Hello");
+    let b = NodeData::create_text_do_not_use_without_block_level_wrapper("World");
     let cs = compute_node_changes(&a, &b, None, None);
     assert!(cs.contains(NodeChangeSet::TEXT_CONTENT));
 }
 
 #[test]
 fn no_text_change_same_content() {
-    let a = NodeData::create_text("Same");
-    let b = NodeData::create_text("Same");
+    let a = NodeData::create_text_do_not_use_without_block_level_wrapper("Same");
+    let b = NodeData::create_text_do_not_use_without_block_level_wrapper("Same");
     let cs = compute_node_changes(&a, &b, None, None);
     assert!(!cs.contains(NodeChangeSet::TEXT_CONTENT));
 }

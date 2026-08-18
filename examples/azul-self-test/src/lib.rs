@@ -337,8 +337,8 @@ extern "C" fn layout(mut data: RefAny, _info: LayoutCallbackInfo) -> Dom {
     let camera = CameraWidget::create(CameraConfig::default()).dom();
 
     Dom::create_body()
-        .with_child(Dom::create_text("azul-self-test"))
-        .with_child(Dom::create_text(status.as_str()))
+        .with_child(Dom::create_text_do_not_use_without_block_level_wrapper("azul-self-test"))
+        .with_child(Dom::create_text_do_not_use_without_block_level_wrapper(status.as_str()))
         .with_child(mic)
         .with_child(camera)
 }

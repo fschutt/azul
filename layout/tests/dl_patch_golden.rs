@@ -26,13 +26,13 @@ fn test_dom() -> StyledDom {
         .with_child(
             Dom::create_node(NodeType::Div)
                 .with_ids_and_classes(vec![IdOrClass::Class("page".into())].into())
-                .with_child(Dom::create_text("the first paragraph of golden text"))
-                .with_child(Dom::create_text("a second, slightly longer paragraph")),
+                .with_child(Dom::create_text_do_not_use_without_block_level_wrapper("the first paragraph of golden text"))
+                .with_child(Dom::create_text_do_not_use_without_block_level_wrapper("a second, slightly longer paragraph")),
         )
         .with_child(
             Dom::create_node(NodeType::Div)
                 .with_ids_and_classes(vec![IdOrClass::Class("bar".into())].into())
-                .with_child(Dom::create_text("chrome that tracks the window"))
+                .with_child(Dom::create_text_do_not_use_without_block_level_wrapper("chrome that tracks the window"))
         );
     let css_str = r#"
         * { margin: 0px; padding: 0px; }

@@ -10315,7 +10315,7 @@ mod autotest_generated {
             Dom::create_body().with_child(
                 Dom::create_div()
                     .with_ids_and_classes(vec![IdOrClass::Class("p".into())].into())
-                    .with_child(Dom::create_text(text)),
+                    .with_child(Dom::create_text_do_not_use_without_block_level_wrapper(text)),
             ),
             css_str,
         )

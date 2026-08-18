@@ -103,12 +103,12 @@ extern "C" fn layout(mut data: RefAny, _info: LayoutCallbackInfo) -> Dom {
         return Dom::create_body().with_child(
             Dom::create_div()
                 .with_css(LOCKED)
-                .with_child(Dom::create_text("🔒 AzulVault").with_css(TITLE))
-                .with_child(Dom::create_text(status.as_str()).with_css(STATUS))
+                .with_child(Dom::create_text_do_not_use_without_block_level_wrapper("🔒 AzulVault").with_css(TITLE))
+                .with_child(Dom::create_text_do_not_use_without_block_level_wrapper(status.as_str()).with_css(STATUS))
                 .with_child(
                     Dom::create_div()
                         .with_css(BTN)
-                        .with_child(Dom::create_text("Unlock with biometrics"))
+                        .with_child(Dom::create_text_do_not_use_without_block_level_wrapper("Unlock with biometrics"))
                         .with_callback(
                             EventFilter::Hover(HoverEventFilter::MouseUp),
                             data.clone(),
@@ -125,23 +125,23 @@ extern "C" fn layout(mut data: RefAny, _info: LayoutCallbackInfo) -> Dom {
     );
     let mut body = Dom::create_div()
         .with_css(BODY)
-        .with_child(Dom::create_text(summary.as_str()));
+        .with_child(Dom::create_text_do_not_use_without_block_level_wrapper(summary.as_str()));
     if entries.is_empty() {
-        body = body.with_child(Dom::create_text("No entries yet — add one.").with_css(EMPTY));
+        body = body.with_child(Dom::create_text_do_not_use_without_block_level_wrapper("No entries yet — add one.").with_css(EMPTY));
     } else {
         for (k, v) in &entries {
             body = body.with_child(
                 Dom::create_div()
                     .with_css(ENTRY_ROW)
-                    .with_child(Dom::create_text(k.as_str()).with_css(ENTRY_K))
-                    .with_child(Dom::create_text(v.as_str()).with_css(ENTRY_V)),
+                    .with_child(Dom::create_text_do_not_use_without_block_level_wrapper(k.as_str()).with_css(ENTRY_K))
+                    .with_child(Dom::create_text_do_not_use_without_block_level_wrapper(v.as_str()).with_css(ENTRY_V)),
             );
         }
     }
     body = body.with_child(
         Dom::create_div()
             .with_css(BTN)
-            .with_child(Dom::create_text("Add sample entry"))
+            .with_child(Dom::create_text_do_not_use_without_block_level_wrapper("Add sample entry"))
             .with_callback(
                 EventFilter::Hover(HoverEventFilter::MouseUp),
                 data.clone(),
@@ -151,7 +151,7 @@ extern "C" fn layout(mut data: RefAny, _info: LayoutCallbackInfo) -> Dom {
     Dom::create_body().with_child(
         Dom::create_div()
             .with_css(ROOT)
-            .with_child(Dom::create_text("🔓 AzulVault — unlocked").with_css(HEADER))
+            .with_child(Dom::create_text_do_not_use_without_block_level_wrapper("🔓 AzulVault — unlocked").with_css(HEADER))
             .with_child(body),
     )
 }

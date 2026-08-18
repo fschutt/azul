@@ -20,7 +20,7 @@ extern "C" fn layout(mut data: RefAny, _info: LayoutCallbackInfo) -> Dom {
     // Build the calculator DOM using CSS Grid
     let display = Dom::create_div()
         .with_css(DISPLAY_STYLE)
-        .with_child(Dom::create_text(display_text));
+        .with_child(Dom::create_text_do_not_use_without_block_level_wrapper(display_text));
 
     let buttons = Dom::create_div()
         .with_css(BUTTONS_STYLE)
@@ -272,7 +272,7 @@ fn calc_button(calc: &RefAny, label: &str, event: CalcEvent, style: &str) -> Dom
 
     Dom::create_div()
         .with_css(style)
-        .with_child(Dom::create_text(label))
+        .with_child(Dom::create_text_do_not_use_without_block_level_wrapper(label))
         .with_callback(
             EventFilter::Hover(HoverEventFilter::MouseUp),
             button_data,
