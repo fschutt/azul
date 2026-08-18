@@ -171,6 +171,12 @@ pub struct UpdateSettings {
     /// RESERVED: the build's VCS tag (or commit), compiled in by the APP.
     /// Same carriage as `build_date`.
     pub build_tag: AzString,
+    /// Base64 minisign ROOT public key, compiled in by the APP. Non-empty
+    /// arms the update SIGNATURE CHAIN: the manifest must then carry a
+    /// root-signed signing-key statement and an artifact signature, and an
+    /// unsigned release is a hard error instead of a fallback. Empty (the
+    /// default) = digest verification only.
+    pub root_public_key: AzString,
 }
 
 impl Default for UpdateSettings {
@@ -182,6 +188,7 @@ impl Default for UpdateSettings {
             app_name: AzString::from_const_str("azul-app"),
             build_date: AzString::from_const_str(""),
             build_tag: AzString::from_const_str(""),
+            root_public_key: AzString::from_const_str(""),
         }
     }
 }

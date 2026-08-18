@@ -160,15 +160,28 @@ pub struct ReleaseInfo {
     pub download_url: AzString,
     /// The release's changelog (Markdown), for the `UpdateVersion` dialog.
     pub changelog_md_url: AzString,
-    /// Hex digest of the artifact (verified when non-empty; the minisign
-    /// chain is the next rung and rides the same field).
+    /// Hex digest of the artifact (verified when non-empty).
     pub digest: AzString,
+    /// Minisign signature of the ARTIFACT by the release-signing key (the
+    /// full `.minisig` text). Required whenever the app pins a
+    /// `root_public_key`; the signing key itself comes ONLY from the
+    /// root-signed statement below - a manifest cannot name its own key.
+    pub signature: AzString,
+    /// The signing-key statement: `azul-signing-key-v1|pubkey=<b64>|`
+    /// `expires=<unix>|generation=<n>`. Delegates from the compiled-in root
+    /// key to the day-to-day signing key so the latter can rotate (bump
+    /// `generation`) or expire without shipping a new binary.
+    pub signing_key_statement: AzString,
+    /// Minisign signature of the STATEMENT string by the ROOT key
+    /// (full `.minisig` text).
+    pub signing_key_statement_sig: AzString,
 }
 
 /// What a check concluded.
 // `Available` carries the whole ReleaseInfo — boxing is not an option in a
 // repr(C,u8) ABI enum whose layout the C bindings will depend on.
 #[allow(variant_size_differences)]
+#[allow(clippy::large_enum_variant)]
 #[derive(Debug, Clone, PartialEq, Eq)]
 #[repr(C, u8)]
 pub enum UpdateCheckResult {
@@ -222,6 +235,10 @@ pub struct UpdateState {
     /// until the first gated check draws it — see
     /// [`UpdateState::rollout_bucket`].
     pub rollout_bucket: Option<u8>,
+    /// Highest signing-key GENERATION ever accepted. A statement with a
+    /// lower generation is a rollback (an attacker replaying a retired,
+    /// possibly leaked key) and is refused.
+    pub key_generation: u64,
 }
 
 impl UpdateState {
@@ -254,6 +271,10 @@ impl UpdateState {
                 .and_then(serde_json::Value::as_u64)
                 .and_then(|b| u8::try_from(b).ok())
                 .filter(|b| *b < 100),
+            key_generation: v
+                .get("key_generation")
+                .and_then(serde_json::Value::as_u64)
+                .unwrap_or(0),
         }
     }
 
@@ -290,6 +311,7 @@ impl UpdateState {
             "last_check_unix": self.last_check_unix,
             "suspended_until_unix": self.suspended_until_unix,
             "rollout_bucket": self.rollout_bucket,
+            "key_generation": self.key_generation,
         });
         drop(std::fs::create_dir_all(dir));
         drop(std::fs::write(dir.join("update-state.json"), value.to_string()));
@@ -503,6 +525,9 @@ pub fn parse_manifest_v1(json: &str) -> Result<(ReleaseInfo, RolloutPlan), Strin
         download_url: get("download_url").into(),
         changelog_md_url: get("changelog_md").into(),
         digest: get("digest").into(),
+        signature: get("signature").into(),
+        signing_key_statement: get("signing_key_statement").into(),
+        signing_key_statement_sig: get("signing_key_statement_sig").into(),
     };
     Ok((release, parse_rollout(latest)))
 }
@@ -637,6 +662,136 @@ pub fn verify_digest(path: &Path, digest: &str) -> Result<(), String> {
             "digest mismatch: manifest pinned sha256:{expected}, downloaded file is sha256:{actual_hex}"
         ))
     }
+}
+
+/// A parsed signing-key statement (see [`ReleaseInfo::signing_key_statement`]).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SigningKeyStatement {
+    /// Base64 minisign public key of the day-to-day signing key.
+    pub pubkey_b64: String,
+    /// Unix seconds after which the statement is dead.
+    pub expires_unix: u64,
+    /// Monotonic rotation counter; clients persist the highest accepted
+    /// value and refuse anything lower.
+    pub generation: u64,
+}
+
+/// Parses the canonical statement string
+/// `azul-signing-key-v1|pubkey=<b64>|expires=<unix>|generation=<n>`.
+/// STRICT: unknown prefixes, missing fields or non-numeric values are
+/// errors — a statement is a security boundary, not a config file.
+///
+/// # Errors
+///
+/// Returns a description of the first malformed field.
+pub fn parse_signing_key_statement(statement: &str) -> Result<SigningKeyStatement, String> {
+    let mut parts = statement.split('|');
+    if parts.next() != Some("azul-signing-key-v1") {
+        return Err(format!(
+            "signing-key statement: unknown format (expected `azul-signing-key-v1|…`, got {statement:?})"
+        ));
+    }
+    let mut pubkey_b64 = None;
+    let mut expires_unix = None;
+    let mut generation = None;
+    for part in parts {
+        if let Some(v) = part.strip_prefix("pubkey=") {
+            pubkey_b64 = Some(v.to_owned());
+        } else if let Some(v) = part.strip_prefix("expires=") {
+            expires_unix =
+                Some(v.parse::<u64>().map_err(|e| format!("statement expires: {e}"))?);
+        } else if let Some(v) = part.strip_prefix("generation=") {
+            generation =
+                Some(v.parse::<u64>().map_err(|e| format!("statement generation: {e}"))?);
+        } else {
+            return Err(format!("signing-key statement: unknown field {part:?}"));
+        }
+    }
+    Ok(SigningKeyStatement {
+        pubkey_b64: pubkey_b64.ok_or("signing-key statement: missing pubkey")?,
+        expires_unix: expires_unix.ok_or("signing-key statement: missing expires")?,
+        generation: generation.ok_or("signing-key statement: missing generation")?,
+    })
+}
+
+/// Verifies a staged artifact's SIGNATURE CHAIN against the app's compiled-in
+/// minisign root public key:
+///
+/// 1. the ROOT key must verify `signing_key_statement_sig` over the
+///    statement string — only the root can appoint a signing key;
+/// 2. the statement must not be expired and its `generation` must be at
+///    least `state.key_generation` (rollback refusal; the high-water mark
+///    advances on success);
+/// 3. the SIGNING key from the statement must verify `signature` over the
+///    artifact bytes.
+///
+/// An EMPTY `root_public_key` means the app does not pin one — the chain is
+/// unarmed and verifies trivially (the digest pin still applies). With a
+/// root key pinned, a manifest that omits any part of the chain is a HARD
+/// error: "this release is unsigned" must never be a downgrade path.
+///
+/// # Errors
+///
+/// Returns a description naming the failing link; the caller must DISCARD
+/// the artifact.
+pub fn verify_release_signature(
+    path: &Path,
+    release: &ReleaseInfo,
+    root_public_key: &str,
+    state: &mut UpdateState,
+    now_unix: u64,
+) -> Result<(), String> {
+    let root_public_key = root_public_key.trim();
+    if root_public_key.is_empty() {
+        return Ok(());
+    }
+    if release.signature.as_str().trim().is_empty()
+        || release.signing_key_statement.as_str().trim().is_empty()
+        || release.signing_key_statement_sig.as_str().trim().is_empty()
+    {
+        return Err(
+            "this app pins an update root key but the manifest offers an UNSIGNED release \
+             (missing signature / signing_key_statement / signing_key_statement_sig)"
+                .to_owned(),
+        );
+    }
+
+    let root = minisign_verify::PublicKey::from_base64(root_public_key)
+        .map_err(|e| format!("root public key: {e}"))?;
+    let statement_str = release.signing_key_statement.as_str();
+    let statement_sig =
+        minisign_verify::Signature::decode(release.signing_key_statement_sig.as_str())
+            .map_err(|e| format!("signing-key statement signature: {e}"))?;
+    root.verify(statement_str.as_bytes(), &statement_sig, false)
+        .map_err(|e| format!("signing-key statement not signed by the root key: {e}"))?;
+
+    let statement = parse_signing_key_statement(statement_str)?;
+    if now_unix >= statement.expires_unix {
+        return Err(format!(
+            "signing-key statement expired at unix {} (now {now_unix})",
+            statement.expires_unix
+        ));
+    }
+    if statement.generation < state.key_generation {
+        return Err(format!(
+            "signing-key generation ROLLBACK: statement is generation {} but this client \
+             already accepted generation {}",
+            statement.generation, state.key_generation
+        ));
+    }
+
+    let signing = minisign_verify::PublicKey::from_base64(&statement.pubkey_b64)
+        .map_err(|e| format!("signing public key (from statement): {e}"))?;
+    let artifact_sig = minisign_verify::Signature::decode(release.signature.as_str())
+        .map_err(|e| format!("artifact signature: {e}"))?;
+    let bytes = std::fs::read(path).map_err(|e| format!("signature read: {e}"))?;
+    signing
+        .verify(&bytes, &artifact_sig, false)
+        .map_err(|e| format!("artifact signature invalid: {e}"))?;
+
+    // Only a fully verified chain advances the rotation high-water mark.
+    state.key_generation = state.key_generation.max(statement.generation);
+    Ok(())
 }
 
 /// What [`download_update`] did — enough to log an honest story
@@ -777,6 +932,37 @@ pub fn download_update(
         used_cached: false,
         server_supports_resume: honored,
     })
+}
+
+/// [`download_update`] plus the FULL verification story — the one entry
+/// point both the update worker and the install dialog use, so no staged
+/// artifact can reach `apply_update` without passing the digest pin AND the
+/// signature chain ([`verify_release_signature`]) on THIS call. A cached
+/// staging file is re-verified every time (disk contents are not trusted
+/// across runs); any failure deletes the artifact so the next attempt
+/// starts clean. `state`'s `key_generation` high-water mark advances (and
+/// is saved by the caller) on success.
+///
+/// # Errors
+///
+/// Returns a description on transport, digest or signature-chain failure.
+#[cfg(feature = "http")]
+pub fn download_and_verify(
+    release: &ReleaseInfo,
+    staging_dir: &Path,
+    root_public_key: &str,
+    state: &mut UpdateState,
+) -> Result<DownloadOutcome, String> {
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map_or(0, |d| d.as_secs());
+    let outcome = download_update(release, staging_dir)?;
+    if let Err(e) = verify_release_signature(&outcome.path, release, root_public_key, state, now)
+    {
+        drop(std::fs::remove_file(&outcome.path));
+        return Err(format!("staged artifact failed signature verification ({e}); removed"));
+    }
+    Ok(outcome)
 }
 
 /// Applies a staged update over `target`: same-directory temp copy +
@@ -1028,7 +1214,15 @@ extern "C" fn update_check_worker(
     // it installs nothing, and a notify-only install never even stages.
     let staged_path = match (&result, task.options.download_automatically, effective) {
         (UpdateCheckResult::Available(release), true, UpdateMode::SelfUpdate) => {
-            match download_update(release, &state_dir.join("staging")) {
+            let mut state = UpdateState::load(&state_dir);
+            let staged = download_and_verify(
+                release,
+                &state_dir.join("staging"),
+                task.env.update_root_public_key.as_deref().unwrap_or(""),
+                &mut state,
+            );
+            state.save(&state_dir);
+            match staged {
                 Ok(outcome) => {
                     azul_css::OptionString::Some(outcome.path.to_string_lossy().as_ref().into())
                 }
@@ -1143,10 +1337,167 @@ mod tests {
             last_check_unix: 1_700_000_000,
             suspended_until_unix: 1_700_100_000,
             rollout_bucket: Some(42),
+            key_generation: 3,
         };
         state.save(&dir);
         assert_eq!(UpdateState::load(&dir), state);
         drop(std::fs::remove_dir_all(&dir));
+    }
+
+    // ---- signature chain --------------------------------------------------
+
+    /// Everything a chain test needs: a ROOT keypair, a SIGNING keypair, a
+    /// statement delegating root→signing, and a signed artifact on disk.
+    struct ChainFixture {
+        root_pub_b64: String,
+        release: ReleaseInfo,
+        artifact: std::path::PathBuf,
+        _dir: std::path::PathBuf,
+    }
+
+    /// Signs with the REAL `minisign` crate so `minisign-verify` is checked
+    /// against an independent implementation of the format, not itself.
+    fn chain_fixture(expires: u64, generation: u64, tag: &str) -> ChainFixture {
+        let root = minisign::KeyPair::generate_unencrypted_keypair().unwrap();
+        let signing = minisign::KeyPair::generate_unencrypted_keypair().unwrap();
+        let statement = format!(
+            "azul-signing-key-v1|pubkey={}|expires={expires}|generation={generation}",
+            signing.pk.to_base64()
+        );
+        let statement_sig = minisign::sign(
+            Some(&root.pk),
+            &root.sk,
+            std::io::Cursor::new(statement.as_bytes()),
+            Some("azul signing-key statement"),
+            None,
+        )
+        .unwrap()
+        .to_string();
+
+        let dir = std::env::temp_dir().join(format!(
+            "azul-sigchain-{tag}-{}",
+            std::process::id()
+        ));
+        std::fs::create_dir_all(&dir).unwrap();
+        let artifact = dir.join("update-2.0.0.bin");
+        std::fs::write(&artifact, b"the update artifact bytes").unwrap();
+        let artifact_sig = minisign::sign(
+            Some(&signing.pk),
+            &signing.sk,
+            std::io::Cursor::new(&b"the update artifact bytes"[..]),
+            Some("azul release 2.0.0"),
+            None,
+        )
+        .unwrap()
+        .to_string();
+
+        ChainFixture {
+            root_pub_b64: root.pk.to_base64(),
+            release: ReleaseInfo {
+                version: "2.0.0".into(),
+                download_url: "http://x/update-2.0.0.bin".into(),
+                changelog_md_url: "".into(),
+                digest: "".into(),
+                signature: artifact_sig.into(),
+                signing_key_statement: statement.into(),
+                signing_key_statement_sig: statement_sig.into(),
+            },
+            artifact,
+            _dir: dir,
+        }
+    }
+
+    const CHAIN_NOW: u64 = 1_800_000_000;
+
+    #[test]
+    fn signature_chain_verifies_and_advances_the_generation_high_water() {
+        let f = chain_fixture(CHAIN_NOW + DAY, 3, "ok");
+        let mut state = UpdateState::default();
+        verify_release_signature(&f.artifact, &f.release, &f.root_pub_b64, &mut state, CHAIN_NOW)
+            .expect("a well-formed chain must verify");
+        assert_eq!(state.key_generation, 3, "success must advance the high-water mark");
+
+        // An UNARMED root key verifies trivially even for garbage fields.
+        let mut fresh = UpdateState::default();
+        verify_release_signature(&f.artifact, &f.release, "", &mut fresh, CHAIN_NOW)
+            .expect("empty root key = chain not in use");
+        assert_eq!(fresh.key_generation, 0, "unarmed chain must not touch state");
+        drop(std::fs::remove_dir_all(&f._dir));
+    }
+
+    #[test]
+    fn signature_chain_refuses_tampering_expiry_rollback_and_unsigned() {
+        let f = chain_fixture(CHAIN_NOW + DAY, 3, "sab");
+        let mut state = UpdateState::default();
+
+        // (a) tampered artifact
+        std::fs::write(&f.artifact, b"EVIL bytes").unwrap();
+        let err = verify_release_signature(
+            &f.artifact, &f.release, &f.root_pub_b64, &mut state, CHAIN_NOW,
+        )
+        .expect_err("tampered artifact MUST fail");
+        assert!(err.contains("artifact signature"), "wrong link blamed: {err}");
+        assert_eq!(state.key_generation, 0, "a failed chain must not advance the mark");
+        std::fs::write(&f.artifact, b"the update artifact bytes").unwrap();
+
+        // (b) expired statement
+        let err = verify_release_signature(
+            &f.artifact, &f.release, &f.root_pub_b64, &mut state, CHAIN_NOW + 2 * DAY,
+        )
+        .expect_err("expired statement MUST fail");
+        assert!(err.contains("expired"), "wrong link blamed: {err}");
+
+        // (c) generation rollback
+        let mut rolled = UpdateState { key_generation: 9, ..UpdateState::default() };
+        let err = verify_release_signature(
+            &f.artifact, &f.release, &f.root_pub_b64, &mut rolled, CHAIN_NOW,
+        )
+        .expect_err("generation rollback MUST fail");
+        assert!(err.contains("ROLLBACK"), "wrong link blamed: {err}");
+        assert_eq!(rolled.key_generation, 9);
+
+        // (d) statement not signed by the ROOT key: swap in a foreign root.
+        let foreign = minisign::KeyPair::generate_unencrypted_keypair().unwrap();
+        let err = verify_release_signature(
+            &f.artifact, &f.release, &foreign.pk.to_base64(), &mut state, CHAIN_NOW,
+        )
+        .expect_err("statement by a non-root key MUST fail");
+        assert!(err.contains("statement"), "wrong link blamed: {err}");
+
+        // (e) armed root + unsigned manifest = hard error, never a fallback.
+        let unsigned = ReleaseInfo {
+            signature: "".into(),
+            signing_key_statement: "".into(),
+            signing_key_statement_sig: "".into(),
+            ..f.release.clone()
+        };
+        let err = verify_release_signature(
+            &f.artifact, &unsigned, &f.root_pub_b64, &mut state, CHAIN_NOW,
+        )
+        .expect_err("unsigned release with an armed root MUST fail");
+        assert!(err.contains("UNSIGNED"), "wrong link blamed: {err}");
+        drop(std::fs::remove_dir_all(&f._dir));
+    }
+
+    #[test]
+    fn signing_key_statement_parse_is_strict() {
+        let ok = parse_signing_key_statement(
+            "azul-signing-key-v1|pubkey=RWQxyz|expires=1800000000|generation=4",
+        )
+        .unwrap();
+        assert_eq!(
+            ok,
+            SigningKeyStatement {
+                pubkey_b64: "RWQxyz".to_owned(),
+                expires_unix: 1_800_000_000,
+                generation: 4,
+            }
+        );
+        // Every deviation is an error, not a default.
+        assert!(parse_signing_key_statement("azul-signing-key-v2|pubkey=a|expires=1|generation=1").is_err());
+        assert!(parse_signing_key_statement("azul-signing-key-v1|pubkey=a|expires=1").is_err());
+        assert!(parse_signing_key_statement("azul-signing-key-v1|pubkey=a|expires=soon|generation=1").is_err());
+        assert!(parse_signing_key_statement("azul-signing-key-v1|pubkey=a|expires=1|generation=1|extra=x").is_err());
     }
 
     // ---- slow rollout -----------------------------------------------------

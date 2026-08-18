@@ -10,7 +10,8 @@
 //! * package-managed install → "update via `<hint>`" note, NO install button
 //! * up-to-date / error → the respective message + **Close**
 //!
-//! **Install now** downloads (resumable, or reuses the staged artifact),
+//! **Install now** downloads (resumable; a staged artifact is reused via
+//! the download cache, after re-verification),
 //! atomically swaps the binary, and reports "restart to use x.y.z". Consent
 //! is structural: the ONLY path to `apply_update` is that button.
 
@@ -32,7 +33,8 @@ use crate::thread::{
     WriteBackCallbackType,
 };
 use crate::updater::{
-    apply_update, check_for_updates_blocking, default_state_dir, download_update, effective_mode,
+    apply_update, check_for_updates_blocking, default_state_dir, download_and_verify,
+    effective_mode,
     InstallKind, ReleaseInfo, UpdateCheckResult, UpdateMode, UpdateState,
 };
 use crate::widgets::button::{Button, ButtonOnClickCallbackType};
@@ -60,8 +62,7 @@ pub enum UpdatePhase {
         effective: UpdateMode,
         /// "your package manager" wording for notify-only installs.
         install_hint: String,
-        /// Pre-staged artifact (when `download_automatically` ran earlier).
-        staged: Option<String>,
+
     },
     /// Install consented; download/swap in progress.
     Installing { version: String },
@@ -147,7 +148,6 @@ extern "C" fn check_worker(mut init: RefAny, mut sender: ThreadSender, _recv: Th
                         changelog,
                         effective,
                         install_hint: install.package_manager_hint().to_owned(),
-                        staged: None,
                     }
                 }
             }
@@ -198,8 +198,8 @@ extern "C" fn apply_phase(mut state: RefAny, mut msg: RefAny, _info: CallbackInf
 
 struct InstallTask {
     release: ReleaseInfo,
-    staged: Option<String>,
     app_name: String,
+    root_public_key: String,
 }
 
 extern "C" fn on_install_now(mut state: RefAny, mut info: CallbackInfo) -> Update {
@@ -207,18 +207,17 @@ extern "C" fn on_install_now(mut state: RefAny, mut info: CallbackInfo) -> Updat
         let Some(mut s) = state.downcast_mut::<UpdateDialogState>() else {
             return Update::DoNothing;
         };
-        let UpdatePhase::Available {
-            release, staged, ..
-        } = s.phase.clone()
+        let UpdatePhase::Available { release, .. } = s.phase.clone()
         else {
             return Update::DoNothing;
         };
         let version = release.version.as_str().to_owned();
         s.phase = UpdatePhase::Installing { version };
+        let env = crate::appenv::app_env();
         InstallTask {
             release,
-            staged,
-            app_name: crate::appenv::app_env().app_name,
+            app_name: env.app_name,
+            root_public_key: env.update_root_public_key.unwrap_or_default(),
         }
     };
     info.add_thread(
@@ -240,15 +239,24 @@ extern "C" fn install_worker(mut init: RefAny, mut sender: ThreadSender, _recv: 
         return;
     };
     let release = task.release.clone();
-    let staged = task.staged.clone();
     let app_name = task.app_name.clone();
+    let root_public_key = task.root_public_key.clone();
     drop(task);
 
     let version = release.version.as_str().to_owned();
-    let staging_dir = default_state_dir(&app_name).join("staging");
-    let staged_path = match staged {
-        Some(p) if std::path::Path::new(&p).is_file() => Ok(std::path::PathBuf::from(p)),
-        _ => download_update(&release, &staging_dir).map(|o| o.path),
+    let state_dir = default_state_dir(&app_name);
+    let staging_dir = state_dir.join("staging");
+    // Even a previously staged artifact goes through download_and_verify:
+    // its cached exit re-checks the digest AND the signature chain on THIS
+    // call, so a file tampered on disk between staging and consent can
+    // never reach apply_update. (The path shortcut it replaces trusted the
+    // filename verbatim.)
+    let staged_path = {
+        let mut state = UpdateState::load(&state_dir);
+        let r = download_and_verify(&release, &staging_dir, &root_public_key, &mut state)
+            .map(|o| o.path);
+        state.save(&state_dir);
+        r
     };
     let outcome = staged_path.and_then(|artifact| {
         let target = std::env::current_exe().map_err(|e| e.to_string())?;
