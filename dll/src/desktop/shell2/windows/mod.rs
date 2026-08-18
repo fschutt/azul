@@ -641,6 +641,7 @@ impl Win32Window {
                 display_list_dirty: false,
                 a11y_dirty: true,
                 previous_window_state: None,
+                os_synced_state: None,
                 current_window_state,
                 renderer_resources: RendererResources::default(),
                 last_hovered_node: None,
@@ -1979,8 +1980,9 @@ impl Win32Window {
     /// - is_visible (deferred to first_frame_shown logic)
     /// - frame (handled by first_frame_shown show command)
     ///
-    /// This method applies the remaining fields and sets previous_window_state
-    /// so that sync_window_state() works correctly for future changes.
+    /// This method applies the remaining fields and seeds both baselines
+    /// (event-diff and OS-sync) so that sync_window_state() works correctly for
+    /// future changes.
     fn apply_initial_window_state(&mut self) {
         // is_always_on_top
         if self.common.current_window_state.flags.is_always_on_top {
@@ -2017,8 +2019,13 @@ impl Win32Window {
             let _ = self.set_prevent_system_sleep(true);
         }
 
-        // CRITICAL: Set previous_window_state so sync_window_state() works for future changes
+        // Seed BOTH baselines: the event-diff one (so the first pass has
+        // something to diff against) and the OS-sync one — everything above is
+        // now applied on the HWND, so the first sync_window_state() must not
+        // re-push the whole initial state (title, size, position, visibility,
+        // frame) at the OS.
         self.common.previous_window_state = Some(self.common.current_window_state.clone());
+        self.common.mark_os_synced();
     }
 
     /// Synchronize window state with Windows OS
@@ -2028,9 +2035,14 @@ impl Win32Window {
     fn sync_window_state(&mut self) {
         use std::{ffi::OsStr, os::windows::ffi::OsStrExt};
 
-        // Get copies of previous and current state to avoid borrow checker issues
-        let (previous, current) = match &self.common.previous_window_state {
-            Some(prev) => (prev.clone(), self.common.current_window_state.clone()),
+        // Diff against the OS-SYNC baseline, never `previous_window_state` (the
+        // event-diff baseline, which is free to hold a live delta): diffing that
+        // here echoed WM_SIZE back as a SetWindowPos and re-issued
+        // SetFocus/SetForegroundWindow after WM_SETFOCUS, stealing focus back
+        // from whatever the user Alt+Tabbed to. `take_os_sync_diff` advances the
+        // baseline as part of the call.
+        let (previous, current) = match self.common.take_os_sync_diff() {
+            Some(pair) => pair,
             None => return, // First frame, nothing to sync
         };
 
@@ -2524,10 +2536,47 @@ impl Win32Window {
                 (self.win32.user32.TranslateMessage)(&msg);
                 (self.win32.user32.DispatchMessageW)(&msg);
             }
-            true
-        } else {
-            false
+            return true;
         }
+
+        // --- Drain the THREAD queue (hwnd filter = NULL) ---
+        // The hwnd-filtered peek above cannot see two whole classes of
+        // message (same hole run.rs's Win32 loop had, fixed the same way):
+        //   * WM_QUIT, which `PostQuitMessage` posts to the THREAD and which
+        //     is associated with no window at all — an hwnd-filtered
+        //     PeekMessage/GetMessage can NEVER retrieve it, so a
+        //     PostQuitMessage from user or library code was invisible to
+        //     this pump;
+        //   * genuine thread messages (`PostThreadMessage`, hwnd == NULL),
+        //     which stayed in the queue forever and, being "available",
+        //     defeat any WaitMessage a caller blocks on between polls — an
+        //     idle block turns into a spin.
+        // An hwnd filter of NULL retrieves messages for any window of this
+        // thread PLUS thread messages, which is exactly the remainder;
+        // DispatchMessageW routes window messages by msg.hwnd, so nothing is
+        // misdelivered.
+        let has_thread_message = unsafe {
+            (self.win32.user32.PeekMessageW)(&mut msg, std::ptr::null_mut(), 0, 0, PM_REMOVE)
+        };
+        if has_thread_message != 0 {
+            // WM_QUIT = "terminate the message loop". The bool contract here
+            // cannot say "quit", so surface it the way poll-driven callers
+            // observe shutdown: mark the window closed and report the event
+            // as handled. (Deliberately NOT close_requested — that flag is
+            // the WM_CLOSE veto-protocol's, and WM_QUIT is not veto-able.)
+            const WM_QUIT: u32 = 0x0012;
+            if msg.message == WM_QUIT {
+                self.is_open = false;
+                return true;
+            }
+            unsafe {
+                (self.win32.user32.TranslateMessage)(&msg);
+                (self.win32.user32.DispatchMessageW)(&msg);
+            }
+            return true;
+        }
+
+        false
     }
 
     /// Try to show context menu at the given screen position
@@ -2764,18 +2813,22 @@ impl Win32Window {
     /// pressure/tilt/eraser -> the gesture manager's pen state, and per-finger
     /// touch points -> the window's `touch_state`. `is_up` = WM_POINTERUP.
     /// Mirrors the iOS/Android pen+touch feed; no-op on pre-Win8 (fns absent).
-    unsafe fn feed_pointer(&mut self, hwnd: HWND, pointer_id: u32, is_up: bool) {
+    ///
+    /// Returns `true` when it actually changed input state, i.e. when the
+    /// caller owes the state-diff pipeline a pass (touch/gesture transitions
+    /// are derived from the previous→current delta like everything else).
+    unsafe fn feed_pointer(&mut self, hwnd: HWND, pointer_id: u32, is_up: bool) -> bool {
         use winapi::um::winuser::{
             PEN_FLAG_BARREL, PEN_FLAG_ERASER, POINTER_FLAG_INCONTACT, POINTER_PEN_INFO,
             POINTER_TOUCH_INFO, PT_PEN, PT_TOUCH,
         };
         let get_type = match self.win32.user32.GetPointerType {
             Some(f) => f,
-            None => return,
+            None => return false,
         };
         let mut ptype: u32 = 0;
         if get_type(pointer_id, &mut ptype) == 0 {
-            return;
+            return false;
         }
         let hf = self
             .common
@@ -2788,11 +2841,11 @@ impl Win32Window {
         if ptype == PT_PEN {
             let get_pen = match self.win32.user32.GetPointerPenInfo {
                 Some(f) => f,
-                None => return,
+                None => return false,
             };
             let mut pi: POINTER_PEN_INFO = core::mem::zeroed();
             if get_pen(pointer_id, &mut pi) == 0 {
-                return;
+                return false;
             }
             let mut pt = dlopen::POINT {
                 x: pi.pointerInfo.ptPixelLocation.x,
@@ -2820,11 +2873,11 @@ impl Win32Window {
         } else if ptype == PT_TOUCH {
             let get_touch = match self.win32.user32.GetPointerTouchInfo {
                 Some(f) => f,
-                None => return,
+                None => return false,
             };
             let mut ti: POINTER_TOUCH_INFO = core::mem::zeroed();
             if get_touch(pointer_id, &mut ti) == 0 {
-                return;
+                return false;
             }
             let mut pt = dlopen::POINT {
                 x: ti.pointerInfo.ptPixelLocation.x,
@@ -2872,7 +2925,95 @@ impl Win32Window {
                     }
                 }
             }
+        } else {
+            return false;
         }
+
+        true
+    }
+
+    /// [`Self::feed_pointer`] plus the state-diff pass it owes.
+    ///
+    /// Touch points live in `current_window_state.touch_state` and the gesture
+    /// sessions in the layout window — both are diff-derived like every other
+    /// input. A SECOND finger going down is not promoted to a WM_MOUSE
+    /// message, so without a pass here that transition reached nobody: the
+    /// gesture recogniser saw pinch/rotate start one event late, or not at
+    /// all. The pass runs BEFORE `DefWindowProc` promotes the pointer to
+    /// WM_MOUSE messages, because those arms snapshot `previous` themselves
+    /// and would otherwise consume the touch delta first.
+    unsafe fn feed_pointer_and_dispatch(&mut self, hwnd: HWND, pointer_id: u32, is_up: bool) {
+        let prev_snapshot = self.common.current_window_state.clone();
+        if !self.feed_pointer(hwnd, pointer_id, is_up) {
+            return;
+        }
+        self.common.previous_window_state = Some(prev_snapshot);
+        let r = self.process_window_events(0);
+        self.route_main_window_result(hwnd, r);
+    }
+
+    /// (Re-)arm the `WM_MOUSELEAVE` notification.
+    ///
+    /// `TrackMouseEvent(TME_LEAVE)` is a ONE-SHOT: it has to be re-armed after
+    /// every pointer move, and again after a captured drag ends — the leave
+    /// that fired mid-capture was suppressed, and Win32 posts a fresh one
+    /// immediately if the pointer is already outside the client area.
+    unsafe fn arm_mouse_leave(&self) {
+        use self::dlopen::{TME_LEAVE, TRACKMOUSEEVENT};
+        let mut tme = TRACKMOUSEEVENT {
+            cbSize: std::mem::size_of::<TRACKMOUSEEVENT>() as u32,
+            dwFlags: TME_LEAVE,
+            hwndTrack: self.hwnd,
+            dwHoverTime: 0,
+        };
+        (self.win32.user32.TrackMouseEvent)(&mut tme);
+    }
+
+    /// Re-read the pressed-key set from the OS.
+    ///
+    /// Key RELEASES go to whichever window has the focus: after Alt+Tab this
+    /// window saw LAlt's `WM_KEYDOWN` but never its `WM_KEYUP`, so Alt stayed
+    /// latched in `pressed_virtual_keycodes` and every later click behaved as
+    /// Alt+click. `GetKeyboardState` is the only way to learn about those
+    /// releases — on focus GAIN it also preserves a modifier that is genuinely
+    /// still held (clicking into a window with Shift down).
+    ///
+    /// Mutates `current_window_state` only; the caller owns the diff snapshot
+    /// and the event pass.
+    unsafe fn resync_keyboard_state_from_os(&mut self) {
+        use azul_core::window::{
+            OptionVirtualKeyCode, ScanCodeVec, VirtualKeyCode, VirtualKeyCodeVec,
+        };
+
+        let mut keys = [0u8; 256];
+        let ok = (self.win32.user32.GetKeyboardState)(keys.as_mut_ptr()) != 0;
+
+        let mut pressed: Vec<VirtualKeyCode> = Vec::new();
+        if ok {
+            // High bit set = key is down. Mouse buttons (VK_LBUTTON …
+            // VK_XBUTTON2) have no VirtualKeyCode and drop out in the
+            // translation; the generic and side-specific modifier codes both
+            // map onto the left variant, hence the dedup.
+            for (vk, state) in keys.iter().enumerate() {
+                if *state & 0x80 == 0 {
+                    continue;
+                }
+                if let Some(k) = win_event::vkey_to_winit_vkey(vk as i32) {
+                    if !pressed.contains(&k) {
+                        pressed.push(k);
+                    }
+                }
+            }
+        }
+
+        let ks = &mut self.common.current_window_state.keyboard_state;
+        ks.current_virtual_keycode = OptionVirtualKeyCode::None;
+        ks.pressed_virtual_keycodes = VirtualKeyCodeVec::from_vec(pressed);
+        // Scancodes are physical-key ids and cannot be recovered from a
+        // virtual-key snapshot; dropping the set is the honest reading (the
+        // next WM_KEYDOWN refills it) — keeping it would keep exactly the
+        // stale entries this resync exists to remove.
+        ks.pressed_scancodes = ScanCodeVec::from_vec(Vec::new());
     }
 }
 
@@ -2884,6 +3025,7 @@ unsafe extern "system" fn window_proc(
 ) -> dlopen::LRESULT {
     // Message constants
     const WM_NCCREATE: u32 = 0x0081;
+    const WM_NCDESTROY: u32 = 0x0082;
     const WM_CREATE: u32 = 0x0001;
     const WM_DESTROY: u32 = 0x0002;
     const WM_PAINT: u32 = 0x000F;
@@ -3028,11 +3170,44 @@ unsafe extern "system" fn window_proc(
             // COM ref held by RegisterDragDrop). Must happen here, not in the
             // registry cleanup, because RevokeDragDrop needs a live HWND.
             dnd::revoke_drag_drop(hwnd);
+            // Fallback teardown for destroy paths that never went through
+            // WM_CLOSE (a destroyed parent, an external DestroyWindow): the
+            // HWND and the GL context are still alive here, and
+            // deinit_renderer() takes the renderer, so the WM_CLOSE path
+            // having run first makes this a no-op.
+            window.release_gpu_resources();
             // Window destroyed - unregister from global registry
             window.is_open = false;
-            registry::unregister_window(hwnd);
+            // The registry holds the only owning pointer (run.rs boxed the
+            // window and handed it over). Dropping it HERE is a
+            // use-after-free — WM_DESTROY is dispatched from inside
+            // DestroyWindow, i.e. inside this very window procedure, and the
+            // event loop holds a `&mut Win32Window` across the dispatch. Park
+            // it instead; the loop reclaims it via
+            // registry::drain_closed_windows() at a safe point. Discarding the
+            // pointer (what this used to do) leaked the whole window — GL
+            // context, WebRender renderer and layout window — per closed
+            // window.
+            if let Some(freed) = registry::unregister_window(hwnd) {
+                registry::queue_window_free(freed);
+            }
             log_debug!(LogCategory::Window, "[Win32] Window unregistered, remaining windows: {}", registry::window_count());
             0
+        }
+
+        WM_NCDESTROY => {
+            // Belt-and-braces half of the deferred-free fix: WM_NCDESTROY is
+            // the LAST message a window receives (after WM_DESTROY parked the
+            // box for registry::drain_closed_windows). Null GWLP_USERDATA here
+            // so any straggler SendMessage that still reaches this HWND takes
+            // window_proc's null early-out instead of dereferencing a pointer
+            // whose box the event loop may since have reclaimed. The parked
+            // box itself is still alive at THIS point (the drain only runs
+            // from the loop, never from inside a dispatch), so touching
+            // `window` above this line was sound — but nothing after this arm
+            // may use it again.
+            (window.win32.user32.SetWindowLongPtrW)(hwnd, GWLP_USERDATA, 0);
+            def_window_proc_w(hwnd, msg, wparam, lparam)
         }
 
         WM_CLOSE => {
@@ -3053,6 +3228,13 @@ unsafe extern "system" fn window_proc(
             if window.common.current_window_state.flags.close_requested {
                 // Not cancelled - proceed with close
                 window.is_open = false;
+                // Release the GPU side while the HWND and the GL context are
+                // still alive — WebRender's Renderer must be deinit()'d, not
+                // dropped (texture deletion has to happen inside a frame).
+                // Only Win32Window::close() used to do this, and nothing calls
+                // it on the user-clicked-X path, so closing a window through
+                // its title-bar button leaked the renderer.
+                window.release_gpu_resources();
                 (window.win32.user32.DestroyWindow)(hwnd);
             } else {
                 // Callback cancelled close - clear flag and keep window open
@@ -3171,9 +3353,12 @@ unsafe extern "system" fn window_proc(
             const SIZE_MINIMIZED: usize = 1;
             if (wparam as usize) == SIZE_MINIMIZED {
                 use azul_core::window::WindowFrame;
-                window.common.previous_window_state =
-                    Some(window.common.current_window_state.clone());
-                window.common.current_window_state.flags.frame = WindowFrame::Minimized;
+                let prev_snapshot = window.common.current_window_state.clone();
+                window.common.update_window_state(
+                    crate::desktop::shell2::common::event::WindowStateSource::Os,
+                    |ws| ws.flags.frame = WindowFrame::Minimized,
+                );
+                window.common.previous_window_state = Some(prev_snapshot);
                 let r = window.process_window_events(0);
                 window.route_main_window_result(hwnd, r);
                 return 0;
@@ -3229,9 +3414,9 @@ unsafe extern "system" fn window_proc(
                     );
                 }
 
-                // Update window state
-                let mut new_window_state = window.common.current_window_state.clone();
-                new_window_state.size.dimensions = logical_size;
+                // The EVENT-DIFF baseline for the pass at the end of this arm:
+                // the state as it was BEFORE the resize was applied.
+                let prev_snapshot = window.common.current_window_state.clone();
 
                 // Determine window frame state
                 use azul_core::window::WindowFrame;
@@ -3240,7 +3425,19 @@ unsafe extern "system" fn window_proc(
                     0x0001 => WindowFrame::Minimized, // SIZE_MINIMIZED
                     _ => WindowFrame::Normal,         // SIZE_RESTORED
                 };
-                new_window_state.flags.frame = frame;
+
+                // WM_SIZE is an OS-reported geometry/frame change (already
+                // applied by the OS), so it is acknowledged into the OS-sync
+                // baseline — otherwise sync_window_state() pushes it straight
+                // back out via SetWindowPos/ShowWindow, the OS→app→OS loop.
+                // (Source = Os, not App.)
+                window.common.update_window_state(
+                    crate::desktop::shell2::common::event::WindowStateSource::Os,
+                    |ws| {
+                        ws.size.dimensions = logical_size;
+                        ws.flags.frame = frame;
+                    },
+                );
 
                 // Update WebRender document view
                 use webrender::{
@@ -3266,14 +3463,6 @@ unsafe extern "system" fn window_proc(
                     render_api.send_transaction(wr_translate_document_id(document_id), txn);
                 }
 
-                // F4: WM_SIZE is an OS-reported geometry/frame change (already
-                // applied by the OS), so set BOTH current AND the sync baseline
-                // (previous) to the new state. Setting previous to the OLD state
-                // would leave a non-zero diff that sync_window_state() echoes back
-                // via SetWindowPos — the OS→app→OS loop. (Source = Os, not App.)
-                window.common.current_window_state = new_window_state.clone();
-                window.common.previous_window_state = Some(new_window_state);
-
                 // RESIZE POLICY (user ruling 2026-08-08, same as Wayland/X11):
                 // a drag delivers one WM_SIZE per frame; the app's layout() is
                 // only re-invoked when a recorded window-size query answer flips
@@ -3295,6 +3484,17 @@ unsafe extern "system" fn window_proc(
                         logical_size.height
                     );
                 }
+
+                // The relayout is already scheduled above; this pass exists so
+                // the app's WindowResize / Maximize / Restore callbacks
+                // actually run. All three are DERIVED from the previous→current
+                // delta, so an arm that applies the new geometry to both sides
+                // and never runs a pass (what this used to do) cannot fire
+                // them at all — no resize event has ever reached a Windows app.
+                // Mirrors the Wayland xdg_toplevel.configure handler.
+                window.common.previous_window_state = Some(prev_snapshot);
+                let r = window.process_window_events(0);
+                window.route_main_window_result(hwnd, r);
 
                 // Request redraw (WM_PAINT consumes whichever path was chosen)
                 (window.win32.user32.InvalidateRect)(hwnd, ptr::null(), 0);
@@ -3329,6 +3529,9 @@ unsafe extern "system" fn window_proc(
             let pos = azul_core::window::WindowPosition::Initialized(
                 azul_core::geom::PhysicalPositionI32::new(x, y),
             );
+            // The EVENT-DIFF baseline for the pass at the end of this arm: the
+            // state as it was BEFORE the move was applied.
+            let prev_snapshot = window.common.current_window_state.clone();
             // F4: position REPORTED by the OS (source = Os) — acknowledge into both
             // current and the sync baseline so sync_window_state() doesn't echo it
             // back via SetWindowPos (the OS→app→OS geometry loop).
@@ -3340,46 +3543,43 @@ unsafe extern "system" fn window_proc(
             // Detect which monitor the window is on via MonitorFromWindow
             // This updates monitor_id so that DPI/MonitorChanged events can fire
             {
-                const MONITOR_DEFAULTTONEAREST: u32 = 2;
-                extern "system" {
-                    fn MonitorFromWindow(hwnd: *mut core::ffi::c_void, flags: u32) -> *mut core::ffi::c_void;
-                    fn GetMonitorInfoW(hmonitor: *mut core::ffi::c_void, lpmi: *mut MonitorInfoExW) -> i32;
-                }
-                #[repr(C)]
-                #[allow(non_snake_case)]
-                struct Rect { left: i32, top: i32, right: i32, bottom: i32 }
-                #[repr(C)]
-                #[allow(non_snake_case)]
-                struct MonitorInfoExW {
-                    cbSize: u32,
-                    rcMonitor: Rect,
-                    rcWork: Rect,
-                    dwFlags: u32,
-                    szDevice: [u16; 32],
-                }
-                let hmonitor = unsafe { MonitorFromWindow(hwnd as _, MONITOR_DEFAULTTONEAREST as u32) };
+                use dlopen::{MONITORINFOEXW, MONITOR_DEFAULTTONEAREST};
+                let hmonitor = unsafe {
+                    (window.win32.user32.MonitorFromWindow)(hwnd, MONITOR_DEFAULTTONEAREST)
+                };
                 if !hmonitor.is_null() {
-                    let mut mi = MonitorInfoExW {
-                        cbSize: core::mem::size_of::<MonitorInfoExW>() as u32,
-                        rcMonitor: Rect { left: 0, top: 0, right: 0, bottom: 0 },
-                        rcWork: Rect { left: 0, top: 0, right: 0, bottom: 0 },
+                    let mut mi = MONITORINFOEXW {
+                        cbSize: core::mem::size_of::<MONITORINFOEXW>() as u32,
+                        rcMonitor: dlopen::RECT::default(),
+                        rcWork: dlopen::RECT::default(),
                         dwFlags: 0,
                         szDevice: [0u16; 32],
                     };
-                    if unsafe { GetMonitorInfoW(hmonitor, &mut mi) } != 0 {
+                    if unsafe { (window.win32.user32.GetMonitorInfoW)(hmonitor, &mut mi) } != 0 {
                         // Find matching monitor in cache by position
-                        if let Some(ref lw) = window.common.layout_window {
-                            if let Ok(guard) = lw.monitors.lock() {
-                                for m in guard.as_ref().iter() {
-                                    if m.position.x == mi.rcMonitor.left as isize
+                        let found = window.common.layout_window.as_ref().and_then(|lw| {
+                            let guard = lw.monitors.lock().ok()?;
+                            guard
+                                .as_ref()
+                                .iter()
+                                .find(|m| {
+                                    m.position.x == mi.rcMonitor.left as isize
                                         && m.position.y == mi.rcMonitor.top as isize
-                                    {
-                                        window.common.current_window_state.monitor_id =
-                                            azul_css::corety::OptionU32::Some(m.monitor_id.index as u32);
-                                        break;
-                                    }
-                                }
-                            }
+                                })
+                                .map(|m| m.monitor_id.index as u32)
+                        });
+                        if let Some(index) = found {
+                            // Also OS-reported, and it goes through the same
+                            // helper as the position above — writing
+                            // current_window_state directly left the two
+                            // halves of one OS geometry report on different
+                            // state authorities.
+                            window.common.update_window_state(
+                                crate::desktop::shell2::common::event::WindowStateSource::Os,
+                                |ws| {
+                                    ws.monitor_id = azul_css::corety::OptionU32::Some(index);
+                                },
+                            );
                         }
                     }
                 }
@@ -3389,6 +3589,20 @@ unsafe extern "system" fn window_proc(
                 lw.current_window_state.position = pos;
                 lw.current_window_state.monitor_id = window.common.current_window_state.monitor_id;
             }
+
+            // Dispatch WindowMove / WindowMonitorChanged NOW rather than
+            // leaving a live delta for whatever pass happens to run next
+            // (which, before this, was also what tripped
+            // check_input_delta_consumed's "position" arm at the next
+            // WM_TIMER under AZ_VALIDATE / debug). The old feedback-loop
+            // worry — a move callback writing `position` back — died with
+            // the baseline split: an OS-equal write leaves a zero
+            // current-vs-os_synced diff, so sync_window_state() has nothing
+            // to echo. Same snapshot/ack/restore/pass shape as WM_SIZE.
+            window.common.previous_window_state = Some(prev_snapshot);
+            let r = window.process_window_events(0);
+            window.route_main_window_result(hwnd, r);
+
             0
         }
 
@@ -3488,16 +3702,7 @@ unsafe extern "system" fn window_proc(
             let result = window.process_window_events(0);
 
             // Request WM_MOUSELEAVE notification
-            use self::dlopen::{TME_LEAVE, TRACKMOUSEEVENT};
-            unsafe {
-                let mut tme = TRACKMOUSEEVENT {
-                    cbSize: std::mem::size_of::<TRACKMOUSEEVENT>() as u32,
-                    dwFlags: TME_LEAVE,
-                    hwndTrack: hwnd,
-                    dwHoverTime: 0,
-                };
-                (window.win32.user32.TrackMouseEvent)(&mut tme);
-            }
+            window.arm_mouse_leave();
 
             // Request redraw if needed
             window.route_main_window_result(hwnd, result);
@@ -3506,7 +3711,22 @@ unsafe extern "system" fn window_proc(
         }
 
         WM_MOUSELEAVE => {
-            // Mouse left the window area
+            // Mouse left the window area.
+            //
+            // NOT while a capture is held: TME_LEAVE is re-armed on every
+            // WM_MOUSEMOVE and fires as soon as the pointer crosses the client
+            // edge, but a captured drag (text selection, scrollbar thumb) is
+            // still receiving those moves and is still logically inside the
+            // window. Handling the leave there pushed an empty hit test and
+            // OutOfWindow, zeroing the hover chain mid-drag. WM_LBUTTONUP
+            // re-arms TME_LEAVE right after ReleaseCapture, and Win32 then
+            // posts WM_MOUSELEAVE immediately if the pointer really is
+            // outside — so the leave is deferred to the end of the drag, not
+            // lost.
+            if (window.win32.user32.GetCapture)() == hwnd {
+                return 0;
+            }
+
             // Save previous state
             window.common.previous_window_state = Some(window.common.current_window_state.clone());
 
@@ -3547,12 +3767,12 @@ unsafe extern "system" fn window_proc(
             // Touch + pen (Win8+). Promoted WM_MOUSE messages still drive
             // cursor/click; this adds pressure/tilt + multi-touch state.
             let pointer_id = (wparam & 0xFFFF) as u32;
-            window.feed_pointer(hwnd, pointer_id, false);
+            window.feed_pointer_and_dispatch(hwnd, pointer_id, false);
             def_window_proc_w(hwnd, msg, wparam, lparam)
         }
         WM_POINTERUP => {
             let pointer_id = (wparam & 0xFFFF) as u32;
-            window.feed_pointer(hwnd, pointer_id, true);
+            window.feed_pointer_and_dispatch(hwnd, pointer_id, true);
             def_window_proc_w(hwnd, msg, wparam, lparam)
         }
 
@@ -3708,6 +3928,10 @@ unsafe extern "system" fn window_proc(
                 unsafe {
                     (window.win32.user32.ReleaseCapture)();
                 }
+                // Re-arm the leave notification the capture suppressed: if the
+                // thumb drag ended outside the client area, Win32 posts
+                // WM_MOUSELEAVE right away and the hover state is cleaned up.
+                window.arm_mouse_leave();
                 return 0;
             }
 
@@ -3764,6 +3988,10 @@ unsafe extern "system" fn window_proc(
 
             // Release mouse capture
             (window.win32.user32.ReleaseCapture)();
+            // Re-arm the leave notification the capture suppressed: a
+            // selection drag that ended outside the client area gets its
+            // WM_MOUSELEAVE now instead of never.
+            window.arm_mouse_leave();
 
             // V2 system will detect MouseUp event
             let result = window.process_window_events(0);
@@ -3974,6 +4202,32 @@ unsafe extern "system" fn window_proc(
             let scroll_amount = delta as f32 / WHEEL_DELTA as f32;
             let horizontal = msg == WM_MOUSEHWHEEL;
 
+            // Pixels per wheel notch, from the USER's setting.
+            // SystemParametersInfo(SPI_GETWHEELSCROLLLINES) was already being
+            // captured into SystemStyle.input.wheel_scroll_lines and then read
+            // by nobody — the notch was hardcoded at WHEEL_TICK_PIXELS, so the
+            // Control Panel / mouse-driver scroll speed did nothing on
+            // Windows.
+            //
+            // WHEEL_TICK_PIXELS is calibrated for the Windows DEFAULT of 3
+            // lines (and matches X11_SCROLL_TICK_PIXELS), so the setting is
+            // applied as a ratio against that default rather than as an
+            // absolute line height, which keeps the default behaviour
+            // bit-identical.
+            const WHEEL_TICK_PIXELS: f32 =
+                crate::desktop::shell2::common::event::WHEEL_SCROLL_PIXELS_PER_LINE;
+            const DEFAULT_WHEEL_SCROLL_LINES: f32 = 3.0;
+            // WHEEL_PAGESCROLL: "scroll one screen at a time".
+            const WHEEL_PAGESCROLL: u32 = u32::MAX;
+            let wheel_lines = window.common.system_style.input.wheel_scroll_lines;
+            let px_per_notch = if wheel_lines == WHEEL_PAGESCROLL {
+                let dims = window.common.current_window_state.size.dimensions;
+                if horizontal { dims.width } else { dims.height }
+            } else {
+                // 0 lines is a legal setting and means "wheel scrolling off".
+                WHEEL_TICK_PIXELS * (wheel_lines as f32 / DEFAULT_WHEEL_SCROLL_LINES)
+            };
+
             // MWA-C-scroll: WM_MOUSEWHEEL/WM_MOUSEHWHEEL carry SCREEN
             // coordinates in lparam (unlike the client-relative WM_MOUSE*
             // messages) — convert first, or on any window not at the
@@ -4034,7 +4288,7 @@ unsafe extern "system" fn window_proc(
 
             // Queue scroll input for the physics timer instead of directly setting offsets.
             // The timer will consume these via ScrollInputQueue and push CallbackChange::ScrollTo.
-            if delta.abs() > 0 {
+            if delta.abs() > 0 && px_per_notch > 0.0 {
                 let mut should_start_timer = false;
                 let mut input_queue_clone = None;
 
@@ -4055,8 +4309,8 @@ unsafe extern "system" fn window_proc(
                             // (positive = rotated away = up = +1); horizontal
                             // must be NEGATED or tilt-wheel / trackpad
                             // horizontal scrolling runs backwards.
-                            if horizontal { -scroll_amount * 20.0 } else { 0.0 },
-                            if horizontal { 0.0 } else { scroll_amount * 20.0 },
+                            if horizontal { -scroll_amount * px_per_notch } else { 0.0 },
+                            if horizontal { 0.0 } else { scroll_amount * px_per_notch },
                             ScrollInputSource::WheelDiscrete,
                             // WM_MOUSEWHEEL is also what precision touchpads
                             // fall back to; without DirectManipulation there
@@ -4158,7 +4412,18 @@ unsafe extern "system" fn window_proc(
                 window.route_main_window_result(hwnd, result);
             }
 
-            0
+            // The SYS variants MUST reach DefWindowProc: that is what turns
+            // Alt+F4's WM_SYSKEYDOWN into WM_SYSCOMMAND/SC_CLOSE and what puts
+            // F10 / Alt into menu mode. Neither produces a WM_SYSCHAR (the arm
+            // below that already forwards), so swallowing WM_SYSKEYDOWN killed
+            // Alt+F4, F10 and every Alt mnemonic outright. The plain
+            // WM_KEYDOWN stays swallowed — DefWindowProc has nothing to add
+            // there, and the WM_CHAR text path comes from TranslateMessage.
+            if msg == WM_SYSKEYDOWN {
+                def_window_proc_w(hwnd, msg, wparam, lparam)
+            } else {
+                0
+            }
         }
 
         WM_KEYUP | WM_SYSKEYUP => {
@@ -4196,7 +4461,14 @@ unsafe extern "system" fn window_proc(
                 window.route_main_window_result(hwnd, result);
             }
 
-            0
+            // Same as WM_SYSKEYDOWN: DefWindowProc completes the menu-mode
+            // entry a bare Alt press starts (Alt down + up activates the menu
+            // bar), so the SYS variant falls through.
+            if msg == WM_SYSKEYUP {
+                def_window_proc_w(hwnd, msg, wparam, lparam)
+            } else {
+                0
+            }
         }
 
         WM_SYSCHAR => {
@@ -4363,6 +4635,30 @@ unsafe extern "system" fn window_proc(
                     }
                 }
 
+                // Re-run layout on the existing StyledDom so the caret rect
+                // accounts for the preedit that was just spliced into the text
+                // cache, then push the new rect to the IME. Only
+                // WM_IME_STARTCOMPOSITION, WM_SETFOCUS and the
+                // regenerate_layout tail used to sync it, so the composition
+                // and candidate windows stayed pinned to the
+                // composition-START rect while the preedit grew and wrapped —
+                // a long Japanese phrase ended up with its candidate list
+                // lines away from the text it belonged to.
+                if let Some(layout_window) = window.common.layout_window.as_mut() {
+                    let mut debug_messages = None;
+                    if let Err(e) = crate::desktop::shell2::common::layout::incremental_relayout(
+                        layout_window,
+                        &window.common.current_window_state,
+                        &mut window.common.renderer_resources,
+                        &mut debug_messages,
+                    ) {
+                        log_warn!(LogCategory::Layout, "IME preedit relayout failed: {}", e);
+                    }
+                }
+                window.common.request_relayout_only();
+                window.update_ime_position_from_cursor();
+                window.sync_ime_position_to_os();
+
                 // Trigger redraw so preedit indicator is rendered
                 (window.win32.user32.InvalidateRect)(hwnd, ptr::null(), 0);
                 // Let Windows show composition window by default
@@ -4398,24 +4694,118 @@ unsafe extern "system" fn window_proc(
             // This character will be processed by the event system automatically
             let char_code = wparam as u32;
 
-            if let Some(chr) = char::from_u32(char_code) {
-                if !chr.is_control() {
-                    window.common.previous_window_state = Some(window.common.current_window_state.clone());
+            // WM_IME_CHAR carries UTF-16 exactly like WM_CHAR, so a
+            // supplementary-plane commit (rare CJK ideographs, emoji from an
+            // IME) arrives as two surrogate halves. Feeding a half straight to
+            // char::from_u32 returns None, which silently DROPPED both halves
+            // — pair them with the same `high_surrogate` slot WM_CHAR uses
+            // (the two messages never interleave: an IME commit produces one
+            // or the other, not both).
+            let is_high_surrogate = (0xD800..=0xDBFF).contains(&char_code);
+            let is_low_surrogate = (0xDC00..=0xDFFF).contains(&char_code);
 
-                    // Record text input in the TextInputManager
-                    if let Some(ref mut layout_window) = window.common.layout_window {
-                        let text_str = chr.to_string();
-                        let _ = layout_window.record_text_input(&text_str);
+            let mut char_opt = None;
+            if is_high_surrogate {
+                window.high_surrogate = Some(char_code as u16);
+            } else if is_low_surrogate {
+                if let Some(high) = window.high_surrogate {
+                    let pair = [high, char_code as u16];
+                    if let Some(Ok(chr)) = char::decode_utf16(pair.iter().copied()).next() {
+                        char_opt = Some(chr);
                     }
-
-                    // V2 system will detect TextInput event
-                    let result = window.process_window_events(0);
-
-                    window.route_main_window_result(hwnd, result);
+                }
+                window.high_surrogate = None;
+            } else {
+                window.high_surrogate = None;
+                if let Some(chr) = char::from_u32(char_code) {
+                    if !chr.is_control() {
+                        char_opt = Some(chr);
+                    }
                 }
             }
 
+            if let Some(chr) = char_opt {
+                window.common.previous_window_state = Some(window.common.current_window_state.clone());
+
+                // Record text input in the TextInputManager
+                if let Some(ref mut layout_window) = window.common.layout_window {
+                    let text_str = chr.to_string();
+                    let _ = layout_window.record_text_input(&text_str);
+                }
+
+                // V2 system will detect TextInput event
+                let result = window.process_window_events(0);
+
+                window.route_main_window_result(hwnd, result);
+            }
+
             0
+        }
+
+        WM_IME_REQUEST => {
+            // IMR_QUERYCHARPOSITION is how a TSF-based IME (i.e. every modern
+            // one) asks where the caret is; it does NOT read the IMM
+            // composition form. The message was declared but never matched, so
+            // it fell through to DefWindowProc, which answers FALSE — and the
+            // IME then guessed, parking the candidate list at the window
+            // origin. Answer it with the live caret rect in SCREEN coords.
+            const IMR_QUERYCHARPOSITION: usize = 0x0006;
+
+            if (wparam as usize) == IMR_QUERYCHARPOSITION && lparam != 0 {
+                use azul_core::window::ImePosition;
+
+                let cp = &mut *(lparam as *mut dlopen::IMECHARPOSITION);
+                // The IME declares how much of the struct it allocated; a
+                // smaller one is a different (older) layout and must not be
+                // written through.
+                let caret = match window.common.current_window_state.ime_position {
+                    ImePosition::Initialized(r)
+                        if cp.dwSize as usize
+                            >= core::mem::size_of::<dlopen::IMECHARPOSITION>() =>
+                    {
+                        Some(r)
+                    }
+                    _ => None,
+                };
+
+                if let Some(rect) = caret {
+                    let hf = window
+                        .common
+                        .current_window_state
+                        .size
+                        .get_hidpi_factor()
+                        .inner
+                        .get();
+
+                    // Caret origin: client (logical) -> client (physical) -> screen.
+                    let mut pt = dlopen::POINT {
+                        x: libm::roundf(rect.origin.x * hf) as i32,
+                        y: libm::roundf(rect.origin.y * hf) as i32,
+                    };
+                    (window.win32.user32.ClientToScreen)(hwnd, &mut pt);
+
+                    // Document area: the whole client rect, also in screen coords.
+                    let mut client = dlopen::RECT::default();
+                    (window.win32.user32.GetClientRect)(hwnd, &mut client);
+                    let mut tl = dlopen::POINT { x: client.left, y: client.top };
+                    let mut br = dlopen::POINT { x: client.right, y: client.bottom };
+                    (window.win32.user32.ClientToScreen)(hwnd, &mut tl);
+                    (window.win32.user32.ClientToScreen)(hwnd, &mut br);
+
+                    cp.pt = pt;
+                    cp.cLineHeight =
+                        (libm::roundf(rect.size.height * hf) as i32).max(1) as u32;
+                    cp.rcDocument = dlopen::RECT {
+                        left: tl.x,
+                        top: tl.y,
+                        right: br.x,
+                        bottom: br.y,
+                    };
+                    return 1;
+                }
+            }
+
+            (window.win32.user32.DefWindowProcW)(hwnd, msg, wparam, lparam)
         }
 
         WM_IME_NOTIFY | WM_IME_SETCONTEXT => {
@@ -4425,10 +4815,26 @@ unsafe extern "system" fn window_proc(
 
         WM_SETFOCUS => {
             // Window gained focus
-            window.common.previous_window_state = Some(window.common.current_window_state.clone());
-            window.common.current_window_state.flags.has_focus = true;
-            window.common.current_window_state.window_focused = true;
+            let prev_snapshot = window.common.current_window_state.clone();
+            // Focus is OS-reported (source = Os): acknowledging it into the
+            // sync baseline is what stops sync_window_state() from answering
+            // with a SetFocus/SetForegroundWindow of its own.
+            window.common.update_window_state(
+                crate::desktop::shell2::common::event::WindowStateSource::Os,
+                |ws| {
+                    ws.flags.has_focus = true;
+                    ws.window_focused = true;
+                },
+            );
             window.dynamic_selector_context.window_focused = true;
+
+            // Re-read the pressed-key set: the releases that happened while
+            // another window had the focus never reached us (Alt+Tab's LAlt
+            // release is the classic one), so without this Alt stays latched
+            // and every later click is treated as an Alt+click.
+            window.resync_keyboard_state_from_os();
+
+            window.common.previous_window_state = Some(prev_snapshot);
 
             // Phase 2: OnFocus callback - sync IME position after focus
             window.sync_ime_position_to_os();
@@ -4446,10 +4852,32 @@ unsafe extern "system" fn window_proc(
 
         WM_KILLFOCUS => {
             // Window lost focus
-            window.common.previous_window_state = Some(window.common.current_window_state.clone());
-            window.common.current_window_state.flags.has_focus = false;
-            window.common.current_window_state.window_focused = false;
+            let prev_snapshot = window.common.current_window_state.clone();
+            window.common.update_window_state(
+                crate::desktop::shell2::common::event::WindowStateSource::Os,
+                |ws| {
+                    ws.flags.has_focus = false;
+                    ws.window_focused = false;
+                },
+            );
             window.dynamic_selector_context.window_focused = false;
+
+            // Drop every held key. Nothing that happens while we are unfocused
+            // reaches us — least of all the KEY-UP of the modifier that caused
+            // the focus change (Alt of Alt+Tab), which is exactly the key that
+            // would stay latched. `current_virtual_keycode = None` also makes
+            // the diff fire the matching KeyUp.
+            {
+                use azul_core::window::{
+                    OptionVirtualKeyCode, ScanCodeVec, VirtualKeyCodeVec,
+                };
+                let ks = &mut window.common.current_window_state.keyboard_state;
+                ks.current_virtual_keycode = OptionVirtualKeyCode::None;
+                ks.pressed_virtual_keycodes = VirtualKeyCodeVec::from_vec(Vec::new());
+                ks.pressed_scancodes = ScanCodeVec::from_vec(Vec::new());
+            }
+
+            window.common.previous_window_state = Some(prev_snapshot);
 
             // Same as WM_SETFOCUS: process + route so blur callbacks fire and
             // unfocused styling repaints.
@@ -4611,12 +5039,21 @@ unsafe extern "system" fn window_proc(
         WM_DPICHANGED => {
             // DPI changed
             let new_dpi = ((wparam >> 16) & 0xFFFF) as u32;
+            let old_dpi = window.common.current_window_state.size.dpi;
 
-            // Save previous state
-            window.common.previous_window_state = Some(window.common.current_window_state.clone());
-
-            // Update DPI in window state
-            window.common.current_window_state.size.dpi = new_dpi;
+            // Update DPI in window state. The SetWindowPos below dispatches
+            // WM_SIZE SYNCHRONOUSLY and that handler reads size.dpi to convert
+            // the physical client rect, so the new DPI has to be in place
+            // first — which is also why the diff baseline cannot simply be
+            // snapshotted here: the nested WM_SIZE runs its own pass, and a
+            // pass ends by consuming the delta (previous = current), so a
+            // baseline taken now would be gone before this arm could dispatch
+            // WindowDpiChanged. It is rebuilt AFTER the nested resize settles,
+            // at the bottom of this arm.
+            window.common.update_window_state(
+                crate::desktop::shell2::common::event::WindowStateSource::Os,
+                |ws| ws.size.dpi = new_dpi,
+            );
 
             // Get suggested size from lParam (RECT*). Per MSDN this is "a
             // suggested size and position of the current window scaled for
@@ -4655,8 +5092,11 @@ unsafe extern "system" fn window_proc(
             // (same physical client / new scale = different logical size).
             if let Ok((w, h)) = wcreate::get_client_rect(hwnd, &window.win32) {
                 let physical_size = azul_core::geom::PhysicalSizeU32::new(w, h);
-                window.common.current_window_state.size.dimensions =
-                    physical_size.to_logical(new_dpi as f32 / 96.0);
+                let logical = physical_size.to_logical(new_dpi as f32 / 96.0);
+                window.common.update_window_state(
+                    crate::desktop::shell2::common::event::WindowStateSource::Os,
+                    |ws| ws.size.dimensions = logical,
+                );
             }
 
             // DPI change requires a full relayout, tagged `Resize` — the enum's
@@ -4665,6 +5105,21 @@ unsafe extern "system" fn window_proc(
             // untouched, so the same physical event reported a different reason
             // to the user's `layout()` depending on which OS delivered it.
             window.common.request_regeneration(azul_core::callbacks::RelayoutReason::Resize);
+
+            // Dispatch the DPI transition. `WindowDpiChanged` is derived from
+            // the size.dpi delta, so the baseline is the state as it stands
+            // NOW with the dpi rolled back — that is the one and only
+            // difference left, so the nested WM_SIZE's WindowResize is not
+            // dispatched a second time here. Building the baseline this way
+            // (rather than snapshotting at the top of the arm) is what makes
+            // the transition survive that nested pass.
+            {
+                let mut baseline = window.common.current_window_state.clone();
+                baseline.size.dpi = old_dpi;
+                window.common.previous_window_state = Some(baseline);
+                let r = window.process_window_events(0);
+                window.route_main_window_result(hwnd, r);
+            }
 
             // Request redraw
             unsafe {
@@ -4780,10 +5235,17 @@ unsafe extern "system" fn window_proc(
                 Some(window.common.current_window_state.clone());
             let new_style =
                 std::sync::Arc::new(crate::desktop::app::discover_system_style());
-            window.common.current_window_state.theme = match new_style.theme {
+            let new_theme = match new_style.theme {
                 azul_css::system::Theme::Dark => azul_core::window::WindowTheme::DarkMode,
                 azul_css::system::Theme::Light => azul_core::window::WindowTheme::LightMode,
             };
+            // OS-reported (source = Os): the theme is already the system's, so
+            // the OS-sync baseline advances with `current` and only the event
+            // diff carries the transition.
+            window.common.update_window_state(
+                crate::desktop::shell2::common::event::WindowStateSource::Os,
+                |ws| ws.theme = new_theme,
+            );
             window.common.system_style = new_style;
             let r = window.process_window_events(0);
             window.route_main_window_result(hwnd, r);
@@ -4960,20 +5422,34 @@ impl Win32Window {
         self.is_open
     }
 
-    pub fn close(&mut self) {
-        // WebRender's Renderer must be deinit()'d, not dropped — texture
-        // deletion has to happen inside a frame. Never doing so crashed debug
-        // builds on close and leaked GPU resources in release.
+    /// Release the GPU-side resources of this window.
+    ///
+    /// WebRender's `Renderer` must be `deinit()`'d, not dropped — texture
+    /// deletion has to happen inside a frame. Never doing so crashed debug
+    /// builds on close and leaked GPU resources in release.
+    ///
+    /// Must run while the HWND and the GL context are still alive, i.e. before
+    /// `DestroyWindow`. `deinit_renderer()` takes the renderer out of the
+    /// common state, so calling this twice is a no-op.
+    fn release_gpu_resources(&mut self) {
         self.common.deinit_renderer();
-        // Close the window by posting WM_CLOSE
+        if let Some(doc_id) = self.common.document_id {
+            crate::desktop::gl_texture_integration::remove_document_textures(&doc_id);
+        }
+    }
+
+    pub fn close(&mut self) {
+        // Request the close through WM_CLOSE, which is VETO-ABLE: the close
+        // callback can cancel it. Tearing the renderer down here (what this
+        // used to do, before the message was even posted) left a cancelled
+        // close with a live, visible window and no renderer — every later
+        // frame had nothing to render with. The WM_CLOSE handler releases the
+        // GPU resources on the path where the close actually proceeds, and
+        // WM_DESTROY clears `is_open`.
         unsafe {
             const WM_CLOSE: u32 = 0x0010;
             (self.win32.user32.PostMessageW)(self.hwnd, WM_CLOSE, 0, 0);
         }
-        if let Some(doc_id) = self.common.document_id {
-            crate::desktop::gl_texture_integration::remove_document_textures(&doc_id);
-        }
-        self.is_open = false;
     }
 
     pub fn request_redraw(&mut self) {
@@ -5527,7 +6003,9 @@ impl Win32Window {
                 let himc = (imm32.ImmGetContext)(hwnd);
 
                 if !himc.is_null() {
-                    use dlopen::{CFS_RECT, COMPOSITIONFORM, POINT, RECT};
+                    use dlopen::{
+                        CANDIDATEFORM, CFS_CANDIDATEPOS, CFS_RECT, COMPOSITIONFORM, POINT, RECT,
+                    };
 
                     // rect is LOGICAL (cursor rect from layout);
                     // COMPOSITIONFORM takes CLIENT-AREA coordinates in
@@ -5541,21 +6019,30 @@ impl Win32Window {
                         .get_hidpi_factor()
                         .inner
                         .get();
-                    let mut comp_form = COMPOSITIONFORM {
+                    let left = libm::roundf(rect.origin.x * hf) as i32;
+                    let top = libm::roundf(rect.origin.y * hf) as i32;
+                    let right = libm::roundf((rect.origin.x + rect.size.width) * hf) as i32;
+                    let bottom = libm::roundf((rect.origin.y + rect.size.height) * hf) as i32;
+                    let comp_form = COMPOSITIONFORM {
                         dwStyle: CFS_RECT,
-                        ptCurrentPos: POINT {
-                            x: libm::roundf(rect.origin.x * hf) as i32,
-                            y: libm::roundf(rect.origin.y * hf) as i32,
-                        },
-                        rcArea: RECT {
-                            left: libm::roundf(rect.origin.x * hf) as i32,
-                            top: libm::roundf(rect.origin.y * hf) as i32,
-                            right: libm::roundf((rect.origin.x + rect.size.width) * hf) as i32,
-                            bottom: libm::roundf((rect.origin.y + rect.size.height) * hf) as i32,
-                        },
+                        ptCurrentPos: POINT { x: left, y: top },
+                        rcArea: RECT { left, top, right, bottom },
                     };
 
                     (imm32.ImmSetCompositionWindow)(himc, &comp_form);
+
+                    // The CANDIDATE list is a separate form: without this it
+                    // stays wherever the IME first opened it while the caret
+                    // moves on. CFS_CANDIDATEPOS places its top-left corner,
+                    // so anchor it under the caret's BOTTOM-left.
+                    let cand_form = CANDIDATEFORM {
+                        dwIndex: 0,
+                        dwStyle: CFS_CANDIDATEPOS,
+                        ptCurrentPos: POINT { x: left, y: bottom },
+                        rcArea: RECT::default(),
+                    };
+                    (imm32.ImmSetCandidateWindow)(himc, &cand_form);
+
                     (imm32.ImmReleaseContext)(hwnd, himc);
                 }
             }

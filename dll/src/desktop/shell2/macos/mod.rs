@@ -297,26 +297,71 @@ mod view_handlers {
 
     pub(super) fn right_mouse_up(window_ptr: Option<*mut std::ffi::c_void>, event: &NSEvent) {
         if let Some(window_ptr) = window_ptr {
-            unsafe {
+            // The `&mut MacOSWindow` lives in this block ONLY. A native context
+            // menu resolved by the mouse-up pass is handed out here and popped
+            // up below, after the borrow has ended: popUpMenuPositioningItem:
+            // spins a nested tracking runloop in which the common-mode tick
+            // timers fire and take their own `&mut` to this same window.
+            let pending_menu = unsafe {
                 let macos_window = &mut *(window_ptr as *mut MacOSWindow);
                 let result = macos_window.handle_mouse_up(event, azul_core::events::MouseButton::Right);
-                match result {
-                    EventProcessResult::RegenerateDisplayList => {
-                        macos_window.common.request_regeneration(azul_core::callbacks::RelayoutReason::RefreshDom);
-                        macos_window.request_redraw();
-                    }
-                    EventProcessResult::UpdateDisplayList => {
-                        macos_window.common.display_list_dirty = true;
-                        macos_window.request_redraw();
-                    }
-                    EventProcessResult::RequestRedraw => {
-                        macos_window.request_redraw();
-                    }
-                    EventProcessResult::RegenerateLayoutIncremental => {
-                        macos_window.apply_incremental_relayout_result();
-                    }
-                    _ => {}
-                }
+                route_result(macos_window, result);
+                macos_window.sync_window_state();
+                macos_window.take_pending_context_menu()
+            };
+            if let Some(pending_menu) = pending_menu {
+                present_pending_context_menu(&pending_menu);
+            }
+        }
+    }
+
+    /// `buttonNumber` → azul `MouseButton`. AppKit numbers buttons 0 = left,
+    /// 1 = right, 2 = middle, 3+ = extra (thumb/back/forward); only 2 and up
+    /// ever reach the `otherMouse*` selectors.
+    fn other_mouse_button(event: &NSEvent) -> azul_core::events::MouseButton {
+        use azul_core::events::MouseButton;
+        match unsafe { event.buttonNumber() } {
+            2 => MouseButton::Middle,
+            n => MouseButton::Other(n.clamp(0, u8::MAX as isize) as u8),
+        }
+    }
+
+    pub(super) fn other_mouse_down(window_ptr: Option<*mut std::ffi::c_void>, event: &NSEvent) {
+        if let Some(window_ptr) = window_ptr {
+            unsafe {
+                let macos_window = &mut *(window_ptr as *mut MacOSWindow);
+                let button = other_mouse_button(event);
+                let result = macos_window.handle_mouse_down(event, button);
+                route_result(macos_window, result);
+                macos_window.sync_window_state();
+            }
+        }
+    }
+
+    pub(super) fn other_mouse_up(window_ptr: Option<*mut std::ffi::c_void>, event: &NSEvent) {
+        if let Some(window_ptr) = window_ptr {
+            unsafe {
+                let macos_window = &mut *(window_ptr as *mut MacOSWindow);
+                let button = other_mouse_button(event);
+                let result = macos_window.handle_mouse_up(event, button);
+                route_result(macos_window, result);
+                macos_window.sync_window_state();
+            }
+        }
+    }
+
+    /// A drag with a non-left button held. Same handler as `mouseDragged:` —
+    /// the engine derives the drag from the cursor delta plus the button flags
+    /// already in `mouse_state`, so there is nothing button-specific to do.
+    pub(super) fn non_left_mouse_dragged(
+        window_ptr: Option<*mut std::ffi::c_void>,
+        event: &NSEvent,
+    ) {
+        if let Some(window_ptr) = window_ptr {
+            unsafe {
+                let macos_window = &mut *(window_ptr as *mut MacOSWindow);
+                let result = macos_window.handle_mouse_move(event);
+                route_result(macos_window, result);
                 macos_window.sync_window_state();
             }
         }
@@ -463,6 +508,11 @@ mod view_handlers {
                     }
                     _ => {}
                 }
+                // Same trailing sync every mouse handler performs: a callback
+                // fired from this event can change the title / size / position,
+                // and without this the NSWindow only learned about it whenever
+                // the next MOUSE event happened to arrive.
+                macos_window.sync_window_state();
             }
         }
     }
@@ -490,6 +540,7 @@ mod view_handlers {
                     }
                     _ => {}
                 }
+                macos_window.sync_window_state();
             }
         }
     }
@@ -517,6 +568,7 @@ mod view_handlers {
                     }
                     _ => {}
                 }
+                macos_window.sync_window_state();
             }
         }
     }
@@ -840,6 +892,31 @@ define_class!(
             view_handlers::right_mouse_up(*self.ivars().window_ptr.borrow(), event);
         }
 
+        // Middle / extra buttons and non-left drags. `process_event` routes
+        // OtherMouseDown/Up and RightMouseDragged "to the NSView responder
+        // methods", but neither view declared them — so the whole middle button
+        // and every right/middle drag were silently dropped even though the
+        // engine side (handle_mouse_down/up with MouseButton::Middle) exists.
+        #[unsafe(method(otherMouseDown:))]
+        fn other_mouse_down(&self, event: &NSEvent) {
+            view_handlers::other_mouse_down(*self.ivars().window_ptr.borrow(), event);
+        }
+
+        #[unsafe(method(otherMouseUp:))]
+        fn other_mouse_up(&self, event: &NSEvent) {
+            view_handlers::other_mouse_up(*self.ivars().window_ptr.borrow(), event);
+        }
+
+        #[unsafe(method(otherMouseDragged:))]
+        fn other_mouse_dragged(&self, event: &NSEvent) {
+            view_handlers::non_left_mouse_dragged(*self.ivars().window_ptr.borrow(), event);
+        }
+
+        #[unsafe(method(rightMouseDragged:))]
+        fn right_mouse_dragged(&self, event: &NSEvent) {
+            view_handlers::non_left_mouse_dragged(*self.ivars().window_ptr.borrow(), event);
+        }
+
         #[unsafe(method(scrollWheel:))]
         fn scroll_wheel(&self, event: &NSEvent) {
             view_handlers::scroll_wheel(*self.ivars().window_ptr.borrow(), event);
@@ -972,9 +1049,21 @@ define_class!(
                 if ime_consumed {
                     if let Some(window_ptr) = *self.ivars().window_ptr.borrow() {
                         unsafe {
+                            use crate::desktop::shell2::common::event::PlatformWindow;
                             let macos_window = &mut *(window_ptr as *mut MacOSWindow);
                             macos_window.common.display_list_dirty = true;
                             macos_window.request_redraw();
+                            // Still run the pass. Returning here made every
+                            // keystroke of an active composition invisible to
+                            // the event system: no end-of-pass focus finalize,
+                            // no window-state sync, and any state a text-input
+                            // callback changed sat unprocessed until the next
+                            // unrelated event. insertText:/setMarkedText: have
+                            // already taken their own `previous` snapshot, so
+                            // this dispatches exactly what they produced.
+                            let result = macos_window.process_window_events(0);
+                            macos_window.apply_activation_pass_result(result);
+                            macos_window.sync_window_state();
                         }
                     }
                     return;
@@ -1004,6 +1093,10 @@ define_class!(
                         }
                         _ => {}
                     }
+                    // Same trailing sync the mouse handlers perform: a key
+                    // callback that changes title / size / position otherwise
+                    // reached the NSWindow only on the next mouse event.
+                    macos_window.sync_window_state();
                 }
             }
         }
@@ -1214,8 +1307,9 @@ define_class!(
             &self,
             string: &NSObject,
             selected_range: NSRange,
-            _replacement_range: NSRange,
+            replacement_range: NSRange,
         ) {
+            let _ = ime_replacement_range_is_implicit(replacement_range, "setMarkedText");
             // macOS sends either NSString or NSAttributedString — handle both.
             let preedit = if let Some(ns_string) = string.downcast_ref::<NSString>() {
                 ns_string.to_string()
@@ -1254,11 +1348,18 @@ define_class!(
 
         #[unsafe(method(unmarkText))]
         fn unmark_text(&self) {
+            log_trace!(LogCategory::Input, "[IME unmarkText] composition cancelled");
             if let Some(window_ptr) = *self.ivars().window_ptr.borrow() {
                 unsafe {
                     let macos_window = &mut *(window_ptr as *mut MacOSWindow);
                     if let Some(ref mut lw) = macos_window.common.layout_window {
+                        // Cancelling drops the composition ENTIRELY. Clearing
+                        // the preedit string alone left the composed glyphs
+                        // shaped into the node's inline layout, so a cancelled
+                        // composition stayed on screen until something else
+                        // happened to re-shape that node.
                         lw.text_edit_manager.clear_preedit();
+                        lw.end_preedit_shaping();
                     }
                     macos_window.request_redraw();
                 }
@@ -1281,7 +1382,7 @@ define_class!(
         }
 
         #[unsafe(method(insertText:replacementRange:))]
-        fn insert_text(&self, string: &NSObject, _replacement_range: NSRange) {
+        fn insert_text(&self, string: &NSObject, replacement_range: NSRange) {
             // macOS sends either NSString or NSAttributedString — handle both.
             let committed_text = if let Some(ns_string) = string.downcast_ref::<NSString>() {
                 ns_string.to_string()
@@ -1291,6 +1392,7 @@ define_class!(
                 String::new()
             };
             log_trace!(LogCategory::Input, "[IME insertText] text='{}'", committed_text);
+            let _ = ime_replacement_range_is_implicit(replacement_range, "insertText");
             self.ivars().ime_key_handled.set(true);
             let window_ptr = match self.get_window_ptr() {
                 Some(ptr) => ptr,
@@ -1303,7 +1405,13 @@ define_class!(
             unsafe {
                 let macos_window = &mut *(window_ptr as *mut MacOSWindow);
                 if let Some(ref mut lw) = macos_window.common.layout_window {
+                    // END the composition before inserting: the composed string
+                    // is glyphs in the node's inline layout, never document
+                    // text, so it has to be un-shaped or the commit lands next
+                    // to a composition that is still on screen (typing "か" and
+                    // committing rendered "かか").
                     lw.text_edit_manager.clear_preedit();
+                    lw.end_preedit_shaping();
                 }
                 macos_window.handle_text_input(&committed_text);
             }
@@ -1535,6 +1643,31 @@ define_class!(
             view_handlers::right_mouse_up(*self.ivars().window_ptr.borrow(), event);
         }
 
+        // Middle / extra buttons and non-left drags. `process_event` routes
+        // OtherMouseDown/Up and RightMouseDragged "to the NSView responder
+        // methods", but neither view declared them — so the whole middle button
+        // and every right/middle drag were silently dropped even though the
+        // engine side (handle_mouse_down/up with MouseButton::Middle) exists.
+        #[unsafe(method(otherMouseDown:))]
+        fn other_mouse_down(&self, event: &NSEvent) {
+            view_handlers::other_mouse_down(*self.ivars().window_ptr.borrow(), event);
+        }
+
+        #[unsafe(method(otherMouseUp:))]
+        fn other_mouse_up(&self, event: &NSEvent) {
+            view_handlers::other_mouse_up(*self.ivars().window_ptr.borrow(), event);
+        }
+
+        #[unsafe(method(otherMouseDragged:))]
+        fn other_mouse_dragged(&self, event: &NSEvent) {
+            view_handlers::non_left_mouse_dragged(*self.ivars().window_ptr.borrow(), event);
+        }
+
+        #[unsafe(method(rightMouseDragged:))]
+        fn right_mouse_dragged(&self, event: &NSEvent) {
+            view_handlers::non_left_mouse_dragged(*self.ivars().window_ptr.borrow(), event);
+        }
+
         #[unsafe(method(scrollWheel:))]
         fn scroll_wheel(&self, event: &NSEvent) {
             view_handlers::scroll_wheel(*self.ivars().window_ptr.borrow(), event);
@@ -1667,9 +1800,21 @@ define_class!(
                 if ime_consumed {
                     if let Some(window_ptr) = *self.ivars().window_ptr.borrow() {
                         unsafe {
+                            use crate::desktop::shell2::common::event::PlatformWindow;
                             let macos_window = &mut *(window_ptr as *mut MacOSWindow);
                             macos_window.common.display_list_dirty = true;
                             macos_window.request_redraw();
+                            // Still run the pass. Returning here made every
+                            // keystroke of an active composition invisible to
+                            // the event system: no end-of-pass focus finalize,
+                            // no window-state sync, and any state a text-input
+                            // callback changed sat unprocessed until the next
+                            // unrelated event. insertText:/setMarkedText: have
+                            // already taken their own `previous` snapshot, so
+                            // this dispatches exactly what they produced.
+                            let result = macos_window.process_window_events(0);
+                            macos_window.apply_activation_pass_result(result);
+                            macos_window.sync_window_state();
                         }
                     }
                     return;
@@ -1699,6 +1844,10 @@ define_class!(
                         }
                         _ => {}
                     }
+                    // Same trailing sync the mouse handlers perform: a key
+                    // callback that changes title / size / position otherwise
+                    // reached the NSWindow only on the next mouse event.
+                    macos_window.sync_window_state();
                 }
             }
         }
@@ -1906,8 +2055,9 @@ define_class!(
             &self,
             string: &NSObject,
             selected_range: NSRange,
-            _replacement_range: NSRange,
+            replacement_range: NSRange,
         ) {
+            let _ = ime_replacement_range_is_implicit(replacement_range, "setMarkedText");
             // macOS sends either NSString or NSAttributedString — handle both.
             let preedit = if let Some(ns_string) = string.downcast_ref::<NSString>() {
                 ns_string.to_string()
@@ -1946,11 +2096,18 @@ define_class!(
 
         #[unsafe(method(unmarkText))]
         fn unmark_text(&self) {
+            log_trace!(LogCategory::Input, "[IME unmarkText] composition cancelled");
             if let Some(window_ptr) = *self.ivars().window_ptr.borrow() {
                 unsafe {
                     let macos_window = &mut *(window_ptr as *mut MacOSWindow);
                     if let Some(ref mut lw) = macos_window.common.layout_window {
+                        // Cancelling drops the composition ENTIRELY. Clearing
+                        // the preedit string alone left the composed glyphs
+                        // shaped into the node's inline layout, so a cancelled
+                        // composition stayed on screen until something else
+                        // happened to re-shape that node.
                         lw.text_edit_manager.clear_preedit();
+                        lw.end_preedit_shaping();
                     }
                     macos_window.request_redraw();
                 }
@@ -1973,7 +2130,7 @@ define_class!(
         }
 
         #[unsafe(method(insertText:replacementRange:))]
-        fn insert_text(&self, string: &NSObject, _replacement_range: NSRange) {
+        fn insert_text(&self, string: &NSObject, replacement_range: NSRange) {
             // macOS sends either NSString or NSAttributedString — handle both.
             let committed_text = if let Some(ns_string) = string.downcast_ref::<NSString>() {
                 ns_string.to_string()
@@ -1983,6 +2140,7 @@ define_class!(
                 String::new()
             };
             log_trace!(LogCategory::Input, "[IME insertText] text='{}'", committed_text);
+            let _ = ime_replacement_range_is_implicit(replacement_range, "insertText");
             self.ivars().ime_key_handled.set(true);
             let window_ptr = match self.get_window_ptr() {
                 Some(ptr) => ptr,
@@ -1995,7 +2153,13 @@ define_class!(
             unsafe {
                 let macos_window = &mut *(window_ptr as *mut MacOSWindow);
                 if let Some(ref mut lw) = macos_window.common.layout_window {
+                    // END the composition before inserting: the composed string
+                    // is glyphs in the node's inline layout, never document
+                    // text, so it has to be un-shaped or the commit lands next
+                    // to a composition that is still on screen (typing "か" and
+                    // committing rendered "かか").
                     lw.text_edit_manager.clear_preedit();
+                    lw.end_preedit_shaping();
                 }
                 macos_window.handle_text_input(&committed_text);
             }
@@ -2381,7 +2545,7 @@ define_class!(
             if let Some(window_ptr) = *self.ivars().window_ptr.borrow() {
                 unsafe {
                     let macos_window = &mut *(window_ptr as *mut MacOSWindow);
-                    macos_window.common.current_window_state.flags.frame = WindowFrame::Minimized;
+                    set_window_frame_and_dispatch(macos_window, WindowFrame::Minimized);
                     macos_window.set_display_link_paused(true);
                 }
                 log_debug!(LogCategory::Window, "[WindowDelegate] Window minimized");
@@ -2394,7 +2558,7 @@ define_class!(
             if let Some(window_ptr) = *self.ivars().window_ptr.borrow() {
                 unsafe {
                     let macos_window = &mut *(window_ptr as *mut MacOSWindow);
-                    macos_window.common.current_window_state.flags.frame = WindowFrame::Normal;
+                    set_window_frame_and_dispatch(macos_window, WindowFrame::Normal);
                     macos_window.set_display_link_paused(false);
                 }
                 log_debug!(LogCategory::Window, "[WindowDelegate] Window deminiaturized");
@@ -2430,7 +2594,7 @@ define_class!(
             if let Some(window_ptr) = *self.ivars().window_ptr.borrow() {
                 unsafe {
                     let macos_window = &mut *(window_ptr as *mut MacOSWindow);
-                    macos_window.common.current_window_state.flags.frame = WindowFrame::Fullscreen;
+                    set_window_frame_and_dispatch(macos_window, WindowFrame::Fullscreen);
                 }
                 log_debug!(LogCategory::Window, "[WindowDelegate] Window entered fullscreen");
             }
@@ -2443,7 +2607,7 @@ define_class!(
                 unsafe {
                     let macos_window = &mut *(window_ptr as *mut MacOSWindow);
                     // Return to normal frame, will be updated by resize check if maximized
-                    macos_window.common.current_window_state.flags.frame = WindowFrame::Normal;
+                    set_window_frame_and_dispatch(macos_window, WindowFrame::Normal);
                 }
                 log_debug!(LogCategory::Window, "[WindowDelegate] Window exited fullscreen");
             }
@@ -2582,6 +2746,12 @@ define_class!(
                 unsafe {
                     let macos_window = &mut *(window_ptr as *mut MacOSWindow);
                     let frame = macos_window.window.frame();
+                    // Snapshot the EVENT baseline before mutating. `update_window_state`
+                    // with source = Os no longer advances it (it advances the OS-sync
+                    // baseline instead), so without this the move delta would be left
+                    // live for the next handler's snapshot to erase.
+                    macos_window.common.previous_window_state =
+                        Some(macos_window.common.current_window_state.clone());
                     // MWA-B9: same primary-screen flip as sync_window_state —
                     // the per-screen height read-back produced coordinates in
                     // a DIFFERENT convention on secondary monitors, so the
@@ -2607,6 +2777,9 @@ define_class!(
                     }
                     // GL surface may have moved to a different screen
                     macos_window.surface_needs_update = true;
+                    // Dispatch the move and consume the delta in THIS handler.
+                    let result = macos_window.process_window_events(0);
+                    macos_window.apply_activation_pass_result(result);
                 }
             }
         }
@@ -2715,6 +2888,96 @@ fn create_opengl_pixel_format(
 // MacOSWindow - Main window implementation
 
 /// macOS window implementation with dual rendering backend support
+/// A native context menu that a right-click resolved but that has NOT been
+/// presented yet.
+///
+/// `popUpMenuPositioningItem:atLocation:inView:` runs a SYNCHRONOUS nested
+/// tracking runloop, so it must never be sent while a `&mut MacOSWindow`
+/// reconstructed from the registry pointer is live: the tick timers are
+/// registered in `kCFRunLoopCommonModes` (deliberately — blink and tweens have
+/// to survive menu tracking and live resize) and `tickTimers:` takes a SECOND
+/// `&mut` to the same window, which is aliasing UB on top of plain re-entrancy.
+/// The mouse-up handler parks the built menu here; the view handler drains it
+/// with `take_pending_context_menu()` and presents it AFTER the borrow ends.
+pub(crate) struct PendingContextMenu {
+    menu: Retained<NSMenu>,
+    view: Retained<NSView>,
+    /// Pop-up point in the VIEW's (bottom-left origin) coordinate system.
+    location: NSPoint,
+}
+
+/// Apply an OS-reported window-frame transition (minimize / restore / enter or
+/// exit fullscreen) under the event contract: snapshot `previous`, mutate
+/// `current`, run the pass.
+///
+/// The four delegate methods used to assign `flags.frame` in place with no
+/// snapshot and no pass, so the transition was never dispatched — the delta just
+/// waited for the next handler's snapshot to overwrite it, and the window-frame
+/// callbacks, `:fullscreen` styling and minimize-driven timer policy all
+/// silently never ran.
+fn set_window_frame_and_dispatch(window: &mut MacOSWindow, frame: WindowFrame) {
+    if window.common.current_window_state.flags.frame == frame {
+        return;
+    }
+    window.common.previous_window_state = Some(window.common.current_window_state.clone());
+    // OS-REPORTED transition (the delegate fires AFTER the OS performed it), so
+    // the OS-sync baseline must advance in lockstep (source = Os). A direct
+    // `flags.frame = frame` write left `os_synced_state` stale, and the next
+    // `sync_window_state()` re-issued the frame op from the stale diff — for
+    // Fullscreen that op is `toggleFullScreen`, a TOGGLE, so an OS-initiated
+    // fullscreen enter was immediately toggled back out and the exit toggled
+    // back in: the window flapped indefinitely.
+    window
+        .common
+        .update_window_state(event::WindowStateSource::Os, |ws| ws.flags.frame = frame);
+    let result = window.process_window_events(0);
+    window.apply_activation_pass_result(result);
+}
+
+/// `NSTextInputClient` hands `insertText:` and `setMarkedText:` a
+/// `replacementRange` naming the part of the client's text the operation
+/// replaces. `location == NSNotFound` means "the current selection / marked
+/// range", which is the only form this client can honour: the engine addresses
+/// text through its own cursor model and exposes no UTF-16 offset mapping into
+/// it (which is also why `selectedRange` is a fixed stub). An explicit range is
+/// reported instead of being silently applied at the caret, where it would
+/// insert text in the wrong place.
+fn ime_replacement_range_is_implicit(range: NSRange, method: &str) -> bool {
+    // AppKit passes NSNotFound (== NSIntegerMax) through NSRange's unsigned
+    // location field; accept usize::MAX too, which is what `markedRange`
+    // returns here for "no marked text".
+    if range.location == objc2_foundation::NSNotFound as usize || range.location == usize::MAX {
+        return true;
+    }
+    log_warn!(
+        LogCategory::Input,
+        "[IME {}] replacementRange ({}, {}) not honoured: the engine exposes no UTF-16 offset \
+         mapping into its text model",
+        method,
+        range.location,
+        range.length
+    );
+    false
+}
+
+/// Present a menu parked by [`PendingContextMenu`]. Blocks in a nested tracking
+/// runloop until the user picks an item or dismisses the menu, so it may ONLY be
+/// called once every `&mut MacOSWindow` has been dropped — the retained menu and
+/// view keep themselves alive without borrowing the window.
+pub(crate) fn present_pending_context_menu(pending: &PendingContextMenu) {
+    // Typed binding, not msg_send!: the method returns BOOL (YES if an item was
+    // selected), and the moved-verbatim `let _: () = msg_send![…]` declared a
+    // void return — objc2's debug-assertions signature verification panics on
+    // that mismatch (release builds only got away with it by ignoring the
+    // register). The BOOL itself is deliberately unused: item activation is
+    // delivered through the menu-item target/action, not this return.
+    let _selected: bool = pending.menu.popUpMenuPositioningItem_atLocation_inView(
+        None,
+        pending.location,
+        Some(&*pending.view),
+    );
+}
+
 pub struct MacOSWindow {
     /// The NSWindow instance
     window: Retained<NSWindow>,
@@ -2765,6 +3028,11 @@ pub struct MacOSWindow {
     /// Pending window creation requests (for popup menus, dialogs, etc.)
     /// Processed in Phase 3 of the event loop
     pub pending_window_creates: Vec<WindowCreateOptions>,
+
+    /// Native context menu resolved by the last right-click, awaiting
+    /// presentation outside the `&mut MacOSWindow` borrow (see
+    /// [`PendingContextMenu`]).
+    pending_context_menu: Option<PendingContextMenu>,
 
     // Tooltip
     /// Tooltip panel (for programmatic tooltip display)
@@ -4117,6 +4385,7 @@ impl MacOSWindow {
             menu_state: menu::MenuState::new(), // TODO: build initial menu state from layout_window
             common: event::CommonWindowState {
                 previous_window_state: None,
+                os_synced_state: None,
                 current_window_state,
                 last_hovered_node: None,
                 layout_window: Some(layout_window),
@@ -4149,6 +4418,7 @@ impl MacOSWindow {
             #[cfg(feature = "a11y")]
             accessibility_adapter: None, // Will be initialized after first layout
             pending_window_creates: Vec::new(),
+            pending_context_menu: None,
             tooltip: None,         // Created lazily when first needed
             gpu_damage_rects: Vec::new(),
             pm_assertion_id: None, // No sleep prevention by default
@@ -4329,6 +4599,16 @@ impl MacOSWindow {
                 }
             }
         }
+
+        // Re-seed both baselines AFTER the last creation-time mutation. The
+        // position just read back from the OS has to be in both or the first
+        // sync_window_state() echoes it straight back as a setFrameTopLeftPoint
+        // and the first event pass reports a phantom window move. (No pass has
+        // run yet, so this is the creation-time equivalent of a handler's
+        // pre-mutation snapshot, not a mid-flight baseline rewrite.)
+        window.common.previous_window_state =
+            Some(window.common.current_window_state.clone());
+        window.common.mark_os_synced();
 
         log_info!(
             LogCategory::Window,
@@ -4550,8 +4830,17 @@ impl MacOSWindow {
             new_hidpi.inner.get()
         );
 
-        // Update window state with new DPI
-        self.common.current_window_state.size.dpi = (new_hidpi.inner.get() * BASE_DPI) as u32;
+        // Snapshot the event baseline, write the new DPI, dispatch. Without the
+        // snapshot + pass the scale change was invisible to the event system, so
+        // no DPI-conditional callback ever ran and the delta was left for the
+        // next handler's snapshot to erase.
+        self.common.previous_window_state = Some(self.common.current_window_state.clone());
+        self.common.update_window_state(
+            crate::desktop::shell2::common::event::WindowStateSource::Os,
+            |ws| ws.size.dpi = (new_hidpi.inner.get() * BASE_DPI) as u32,
+        );
+        let result = self.process_window_events(0);
+        self.apply_activation_pass_result(result);
 
         // Regenerate layout with new DPI
         self.regenerate_layout()?;
@@ -4638,14 +4927,23 @@ impl MacOSWindow {
             let _ = self.set_prevent_system_sleep(true);
         }
 
-        // CRITICAL: Set previous_window_state so sync_window_state() works for future changes
+        // CRITICAL: seed BOTH baselines — the event-diff one (previous_window_state,
+        // so the first pass has something to diff against) and the OS-sync one
+        // (os_synced_state, which sync_window_state() diffs against). Until
+        // mark_os_synced() has run, take_os_sync_diff() answers None and nothing
+        // is pushed, which is what keeps the first frame from firing a burst of
+        // redundant setFrame/setContentSize calls.
         self.common.previous_window_state = Some(self.common.current_window_state.clone());
+        self.common.mark_os_synced();
     }
 
     fn sync_window_state(&mut self) {
-        // Get copies of previous and current state to avoid borrow checker issues
-        let (previous, current) = match &self.common.previous_window_state {
-            Some(prev) => (prev.clone(), self.common.current_window_state.clone()),
+        // Diff against the OS-SYNC baseline, never against `previous_window_state`
+        // (which is the event-diff baseline and is free to hold a live delta —
+        // diffing against it here would push half-processed geometry at AppKit).
+        // `take_os_sync_diff` advances the baseline as part of the call.
+        let (previous, current) = match self.common.take_os_sync_diff() {
+            Some(pair) => pair,
             None => return, // First frame, nothing to sync
         };
 
@@ -4932,6 +5230,14 @@ impl MacOSWindow {
         self.common.current_window_state.flags.close_requested
     }
 
+    /// Take the context menu the last right-click resolved, if any.
+    ///
+    /// The caller MUST let its `&mut MacOSWindow` end before calling
+    /// [`present_pending_context_menu`] — see [`PendingContextMenu`].
+    pub(crate) fn take_pending_context_menu(&mut self) -> Option<PendingContextMenu> {
+        self.pending_context_menu.take()
+    }
+
     /// Run an incremental relayout (restyle / runtime edit — hover/focus CSS,
     /// `set_css_property`, `set_node_text`) on the EXISTING StyledDom and arm the
     /// relayout-only fast path. The main-window mouse/key handlers call this from
@@ -4992,39 +5298,27 @@ impl MacOSWindow {
         }
     }
 
-    /// Actually close the window
-    /// Start the thread polling timer (16ms interval for ~60 FPS)
+    /// Start the thread-polling tick timer (delegates to the trait
+    /// `start_thread_poll_timer` so external callers have a stable inherent API,
+    /// same as the Win32 method of this name).
+    ///
+    /// It used to install its OWN NSTimer carrying an EMPTY block into
+    /// `thread_timer_running` — no thread was ever polled by it, and because
+    /// `start_thread_poll_timer` early-returns when that slot is occupied, any
+    /// caller would have permanently disabled the real poll timer, so thread
+    /// writebacks would never have landed.
     pub fn start_thread_tick_timer(&mut self) {
-        use block2::RcBlock;
-        if self.thread_timer_running.is_none() {
-            // Create a timer that fires every 16ms (60 FPS)
-            // Using scheduledTimerWithTimeInterval for simplicity
-            let timer: Retained<NSTimer> = unsafe {
-                let interval: f64 = TIMER_INTERVAL_60FPS;
-                msg_send_id![
-                    NSTimer::class(),
-                    scheduledTimerWithTimeInterval: interval,
-                    repeats: true,
-                    block: &*RcBlock::new(|| {
-                        // Thread tick callback - poll thread messages
-                        // This will be called every 16ms
-                    })
-                ]
-            };
-
-            self.thread_timer_running = Some(timer);
-        }
+        use crate::desktop::shell2::common::event::PlatformWindow;
+        PlatformWindow::start_thread_poll_timer(self);
     }
 
     /// Stop the thread polling timer
     pub fn stop_thread_tick_timer(&mut self) {
-        if let Some(timer) = self.thread_timer_running.take() {
-            unsafe {
-                timer.invalidate();
-            }
-        }
+        use crate::desktop::shell2::common::event::PlatformWindow;
+        PlatformWindow::stop_thread_poll_timer(self);
     }
 
+    /// Actually close the window
     fn close_window(&mut self) {
         // Unregister from the global registry before closing, and park the box
         // for deferred drop — we cannot drop `self` from behind `&mut self`.
@@ -5439,9 +5733,18 @@ impl MacOSWindow {
         if (old_dims.width - new_logical_width).abs() > 0.5
             || (old_dims.height - new_logical_height).abs() > 0.5
         {
-            // F4: size REPORTED by the OS (source = Os) — acknowledge into both
-            // current and the sync baseline so sync_window_state() doesn't echo it
-            // back via setFrame.
+            // Snapshot the event-diff baseline BEFORE mutating: this fallback
+            // (for a windowDidResize the loop never saw) has to dispatch the
+            // resize like the notification path does, and a mutation with no
+            // snapshot leaves a delta for the next handler's snapshot to erase.
+            // Echo suppression is NOT this baseline's job — `update_window_state`
+            // with source = Os advances the OS-sync baseline instead.
+            self.common.previous_window_state =
+                Some(self.common.current_window_state.clone());
+
+            // F4: size REPORTED by the OS (source = Os) — acknowledged into the
+            // sync baseline so sync_window_state() doesn't echo it back via
+            // setFrame.
             let new_dims = azul_core::geom::LogicalSize {
                 width: new_logical_width,
                 height: new_logical_height,
@@ -5458,7 +5761,13 @@ impl MacOSWindow {
                     .map(|screen| screen.backingScaleFactor() as f32)
                     .unwrap_or(1.0)
             };
-            self.common.current_window_state.size.dpi = (scale_factor * BASE_DPI) as u32;
+            // Os-source for the same reason as the dimension write above: the
+            // scale is an OS fact, keep the OS-sync baseline in lockstep.
+            let new_dpi = (scale_factor * BASE_DPI) as u32;
+            self.common.update_window_state(
+                crate::desktop::shell2::common::event::WindowStateSource::Os,
+                |ws| ws.size.dpi = new_dpi,
+            );
 
             // The dimensions AND the backing scale just changed — that is a
             // `Resize` by the enum's own definition, and it is what the X11 and
@@ -5476,6 +5785,11 @@ impl MacOSWindow {
                 new_logical_height,
                 self.common.current_window_state.size.dpi
             );
+
+            // Dispatch the size transition and consume the delta, exactly as
+            // handle_resize does on the notification path.
+            let result = self.process_window_events(0);
+            self.apply_activation_pass_result(result);
         }
     }
 
@@ -5516,12 +5830,15 @@ impl MacOSWindow {
         };
 
         if new_frame != self.common.current_window_state.flags.frame {
-            self.common.current_window_state.flags.frame = new_frame;
             log_debug!(
                 LogCategory::Window,
                 "[MacOSWindow] Window frame changed to: {:?}",
                 new_frame
             );
+            // Same contract as the miniaturize / fullscreen delegates: this used
+            // to assign in place with no snapshot and no pass, so a zoom that the
+            // OS performed never reached a callback.
+            set_window_frame_and_dispatch(self, new_frame);
         }
     }
 
@@ -7547,5 +7864,50 @@ mod objc_class_registration_tests {
         let _ = super::GLView::class();
         let _ = super::CPUView::class();
         let _ = super::WindowDelegate::class();
+    }
+
+    /// The opposite failure of a duplicate registration: a selector AppKit
+    /// dispatches that no view declares. `process_event` routes
+    /// OtherMouseDown/Up and RightMouseDragged "to the NSView responder
+    /// methods", and for a long time neither view had them — so the middle
+    /// mouse button and every right/middle drag were silently dead with nothing
+    /// to see in a log. Assert the responder surface both views must expose.
+    #[test]
+    fn objc_view_classes_declare_every_routed_mouse_selector() {
+        use objc2::{sel, ClassType};
+
+        let selectors = [
+            sel!(mouseDown:),
+            sel!(mouseUp:),
+            sel!(mouseDragged:),
+            sel!(rightMouseDown:),
+            sel!(rightMouseUp:),
+            sel!(rightMouseDragged:),
+            sel!(otherMouseDown:),
+            sel!(otherMouseUp:),
+            sel!(otherMouseDragged:),
+            sel!(scrollWheel:),
+        ];
+
+        for (name, class) in [
+            ("GLView", super::GLView::class()),
+            ("CPUView", super::CPUView::class()),
+        ] {
+            // `class_copyMethodList` (NOT `class_getInstanceMethod`): every one
+            // of these selectors is declared by NSResponder, so an inherited
+            // lookup would pass even when the view overrides nothing — which is
+            // exactly the bug being guarded against.
+            let declared: Vec<_> = class
+                .instance_methods()
+                .iter()
+                .map(|method| method.name())
+                .collect();
+            for selector in selectors {
+                assert!(
+                    declared.contains(&selector),
+                    "{name} does not declare {selector:?}"
+                );
+            }
+        }
     }
 }

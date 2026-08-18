@@ -55,6 +55,11 @@ pub struct EditingQueryState {
     pub cursor_at_block_start: bool,
     /// The caret sits at the very end of the block's text.
     pub cursor_at_block_end: bool,
+    /// The editing HOST's computed `white-space` preserves newlines
+    /// (pre / pre-wrap / break-spaces / pre-line). In such a host a literal
+    /// `"\n"` is the native line separator, so Enter inserts one instead of
+    /// recording a structural block split.
+    pub host_preserves_newlines: bool,
 }
 
 #[must_use] pub fn determine_keyboard_default_action(
@@ -118,11 +123,16 @@ pub struct EditingQueryState {
         // Activation (Enter key)
         VirtualKeyCode::Return | VirtualKeyCode::NumpadEnter => {
             focused_node.as_ref().map_or(DefaultAction::None, |focus| {
-                // Enter in a contenteditable host records a structural block
-                // SPLIT for the app to apply — the browser default. Shift+Enter
-                // deliberately falls through (a soft `InlineContent::LineBreak`
-                // via the existing per-IFC text path).
-                if !shift_down && editing.is_some_and(|e| e.is_contenteditable) {
+                // Enter in a contenteditable host: a STRUCTURAL block split
+                // for the app to apply (the browser default) — unless the
+                // host is a plain-text context (`white-space` preserves
+                // newlines), where `"\n"` is the native separator and the
+                // split has no app model to land in. Shift+Enter is the soft
+                // break in either kind of host.
+                if let Some(e) = editing.filter(|e| e.is_contenteditable) {
+                    if shift_down || e.host_preserves_newlines {
+                        return DefaultAction::InsertLineBreakAtCursor { target: *focus };
+                    }
                     return DefaultAction::SplitBlockAtCursor { target: *focus };
                 }
                 if is_element_activatable(focus, layout_results) {
@@ -411,6 +421,7 @@ mod autotest_generated {
             is_contenteditable: true,
             cursor_at_block_start: false,
             cursor_at_block_end: false,
+            host_preserves_newlines: false,
         };
 
         let with = determine_keyboard_default_action_with_editing(
@@ -425,7 +436,9 @@ mod autotest_generated {
             DefaultAction::SplitBlockAtCursor { .. }
         ));
 
-        // Shift+Enter: soft break — NOT structural.
+        // Shift+Enter: the soft break — a literal "\n" through the text
+        // pipeline, never structural. (This used to fall through to nothing;
+        // the documented intent is now implemented.)
         let shift = determine_keyboard_default_action_with_editing(
             &kbd(VirtualKeyCode::Return, &[VirtualKeyCode::LShift]),
             focus,
@@ -433,9 +446,28 @@ mod autotest_generated {
             false,
             Some(&editing),
         );
-        assert!(!matches!(
+        assert!(matches!(
             shift.action,
-            DefaultAction::SplitBlockAtCursor { .. }
+            DefaultAction::InsertLineBreakAtCursor { .. }
+        ));
+
+        // A PLAIN-TEXT host (white-space preserves newlines, e.g. the
+        // text_area widget): plain Enter inserts the newline instead of
+        // splitting blocks — there is no app model for a split to land in.
+        let plaintext = EditingQueryState {
+            host_preserves_newlines: true,
+            ..editing
+        };
+        let plain_enter = determine_keyboard_default_action_with_editing(
+            &kbd(VirtualKeyCode::Return, &[]),
+            focus,
+            &layouts,
+            false,
+            Some(&plaintext),
+        );
+        assert!(matches!(
+            plain_enter.action,
+            DefaultAction::InsertLineBreakAtCursor { .. }
         ));
 
         // Editing-blind: the old behavior, byte for byte.
@@ -460,16 +492,19 @@ mod autotest_generated {
             is_contenteditable: true,
             cursor_at_block_start: true,
             cursor_at_block_end: false,
+            host_preserves_newlines: false,
         };
         let mid = EditingQueryState {
             is_contenteditable: true,
             cursor_at_block_start: false,
             cursor_at_block_end: false,
+            host_preserves_newlines: false,
         };
         let at_end = EditingQueryState {
             is_contenteditable: true,
             cursor_at_block_start: false,
             cursor_at_block_end: true,
+            host_preserves_newlines: false,
         };
 
         let r = |key, e: &EditingQueryState| {

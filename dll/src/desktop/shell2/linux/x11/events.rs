@@ -41,7 +41,8 @@ use crate::{log_debug, log_error, log_info, log_trace, log_warn};
 /// Pixels per discrete X11 scroll tick (button 4/5). X11 scroll events are
 /// unitless discrete steps; this constant converts them to pixel deltas for
 /// the scroll physics system.
-const X11_SCROLL_TICK_PIXELS: f32 = 20.0;
+pub(super) const X11_SCROLL_TICK_PIXELS: f32 =
+    crate::desktop::shell2::common::event::WHEEL_SCROLL_PIXELS_PER_LINE;
 
 // IME Support (X Input Method)
 
@@ -303,9 +304,9 @@ impl ImeManager {
     pub(super) fn lookup_string(&self, event: &mut XKeyEvent) -> (Option<String>, Option<KeySym>) {
         let mut keysym: KeySym = 0;
         let mut status: i32 = 0;
-        let mut buffer: [c_char; 32] = [0; 32];
+        let mut stack: [c_char; 32] = [0; 32];
 
-        let count = unsafe {
+        let mut count = unsafe {
             // Xutf8LookupString (not XmbLookupString): the committed bytes are
             // guaranteed UTF-8 regardless of the locale codeset, so accented and
             // CJK commit strings decode correctly even under a non-UTF-8 locale.
@@ -313,17 +314,44 @@ impl ImeManager {
             (self.xlib.Xutf8LookupString)(
                 self.xic,
                 event,
-                buffer.as_mut_ptr(),
-                buffer.len() as i32,
+                stack.as_mut_ptr(),
+                stack.len() as i32,
                 &mut keysym,
                 &mut status,
             )
         };
 
-        let chars = if count > 0 {
+        // XBufferOverflow: NOTHING was written and the return value is the
+        // buffer size the commit needs. The fixed 32-byte buffer overflows on
+        // any commit past ~11 CJK characters — an ordinary phrase — and the
+        // untested status left the caller seeing count <= 0, so the whole
+        // composed sentence vanished. Re-run into a heap buffer of the
+        // requested size.
+        let mut heap: Vec<c_char> = Vec::new();
+        if status == XBufferOverflow && count > 0 {
+            heap = vec![0; count as usize];
+            count = unsafe {
+                (self.xlib.Xutf8LookupString)(
+                    self.xic,
+                    event,
+                    heap.as_mut_ptr(),
+                    heap.len() as i32,
+                    &mut keysym,
+                    &mut status,
+                )
+            };
+        }
+
+        // XLookupNone / XLookupKeySym leave the buffer untouched (count == 0);
+        // a second overflow would mean the IM lied about the size.
+        let has_text =
+            count > 0 && !matches!(status, XBufferOverflow | XLookupNone | XLookupKeySym);
+        let chars = if has_text {
             // Use count to slice the buffer rather than CStr::from_ptr, which would
-            // read past the buffer if X11 fills all 32 bytes with no null terminator.
-            let bytes: Vec<u8> = buffer[..count as usize].iter().map(|b| *b as u8).collect();
+            // read past the buffer if X11 fills it with no null terminator.
+            let src: &[c_char] = if heap.is_empty() { &stack } else { &heap };
+            let end = (count as usize).min(src.len());
+            let bytes: Vec<u8> = src[..end].iter().map(|b| *b as u8).collect();
             Some(String::from_utf8_lossy(&bytes).into_owned())
         } else {
             None
@@ -599,17 +627,86 @@ impl X11Window {
         // Update hit test
         self.update_hit_test(position);
 
-        // Check for right-click context menu (before event processing)
+        // Check for right-click context menu (before event processing).
+        // The pass below runs EITHER WAY: returning early here left
+        // `right_down: true -> false` sitting in the un-consumed delta, so
+        // RightMouseUp / Hover(RightMouseUp) never fired for that click and
+        // the next handler's snapshot destroyed the transition.
         if !is_down && button == MouseButton::Right {
             if let Some(hit_node) = self.get_first_hovered_node() {
-                if self.try_show_context_menu(hit_node, position) {
-                    return ProcessEventResult::DoNothing;
+                self.try_show_context_menu(hit_node, position);
+            }
+        }
+
+        // X11 middle-click paste: the PRIMARY selection is inserted at the
+        // caret, which the button-2 PRESS already moved to the click point.
+        // Recorded before the pass so the changeset is applied by it, exactly
+        // like typed text. (The other half of the idiom — claiming PRIMARY on
+        // selection — is below.)
+        //
+        // Only asked for when something editable actually has focus: the read
+        // waits on the selection OWNER, so a middle click anywhere else must
+        // not pay for it (and `record_text_input` would drop the text anyway).
+        if !is_down
+            && button == MouseButton::Middle
+            && self
+                .common
+                .layout_window
+                .as_ref()
+                .is_some_and(|lw| lw.text_edit_manager.has_active_editing())
+        {
+            if let Some(text) = super::clipboard::get_primary_content() {
+                if !text.is_empty() {
+                    if let Some(ref mut layout_window) = self.common.layout_window {
+                        layout_window.record_text_input(&text);
+                    }
                 }
             }
         }
 
         // V2 system will automatically detect MouseDown/MouseUp and dispatch callbacks
-        self.process_window_events(0)
+        let result = self.process_window_events(0);
+
+        // The release that ends a selection gesture claims PRIMARY (run after
+        // the pass, which is what finalizes the selection).
+        if !is_down && button == MouseButton::Left {
+            self.publish_primary_selection();
+        }
+
+        result
+    }
+
+    /// Claim the X11 PRIMARY selection for the current text selection.
+    ///
+    /// On X11, *selecting* text is itself a PRIMARY claim — no copy involved —
+    /// and middle-click pastes it. PRIMARY was only ever written by an explicit
+    /// Ctrl+C, so both halves of the idiom were missing.
+    fn publish_primary_selection(&mut self) {
+        let text = {
+            let Some(lw) = self.common.layout_window.as_ref() else {
+                return;
+            };
+            if !lw.text_edit_manager.has_active_editing() {
+                return;
+            }
+            let dom_id = lw
+                .text_edit_manager
+                .get_editing_dom_id()
+                .unwrap_or(DomId { inner: 0 });
+            match lw.get_selected_content_for_clipboard(&dom_id) {
+                Some(content) => content.plain_text.as_str().to_string(),
+                None => return,
+            }
+        };
+        if text.is_empty() {
+            return;
+        }
+        if let Err(e) = super::clipboard::write_to_primary(&text) {
+            log_warn!(
+                LogCategory::Resources,
+                "[X11] failed to claim the PRIMARY selection: {e}"
+            );
+        }
     }
 
     /// Handle mouse motion events
@@ -664,6 +761,15 @@ impl X11Window {
 
     /// Handle mouse entering/leaving window
     pub fn handle_mouse_crossing(&mut self, event: &XCrossingEvent) -> ProcessEventResult {
+        // A grab activating or releasing synthesizes a Leave/Enter pair that
+        // does NOT mean the pointer moved — and this app grabs the pointer for
+        // its own menus. Acting on it pushed an EMPTY hit test and
+        // OutOfWindow, so opening a context menu wiped the parent's hover
+        // state (and the matching ungrab crossing re-ran the whole pass).
+        if event.mode == NotifyGrab || event.mode == NotifyUngrab {
+            return ProcessEventResult::DoNothing;
+        }
+
         // Physical (X11 wire) → logical.
         let position = self.to_logical_pos(event.x as f32, event.y as f32);
 
@@ -693,12 +799,37 @@ impl X11Window {
         self.process_window_events(0)
     }
 
-    /// Handle scroll wheel events (X11 button 4/5)
+    /// Handle a discrete wheel detent (core / XI2-emulated buttons 4-7).
+    ///
+    /// `delta_x` / `delta_y` are ratcheting tick counts in the engine's
+    /// canonical X11 sign convention (up = +1, left = +1).
     fn handle_scroll(
         &mut self,
         delta_x: f32,
         delta_y: f32,
         position: LogicalPosition,
+    ) -> ProcessEventResult {
+        self.handle_scroll_input(
+            delta_x * X11_SCROLL_TICK_PIXELS,
+            delta_y * X11_SCROLL_TICK_PIXELS,
+            position,
+            false,
+        )
+    }
+
+    /// Shared scroll ingress, in PIXELS, in the canonical X11 sign convention.
+    ///
+    /// `continuous` marks an XI2 smooth-scroll valuator delta (touchpad /
+    /// kinetic trackpoint): those are position deltas, not wheel ticks, and
+    /// feeding them in as `WheelDiscrete` stacks one velocity impulse per
+    /// event — the jerky touchpad scrolling Wayland already fixed via
+    /// `axis_source` classification.
+    pub(super) fn handle_scroll_input(
+        &mut self,
+        delta_x: f32,
+        delta_y: f32,
+        position: LogicalPosition,
+        continuous: bool,
     ) -> ProcessEventResult {
         // Save previous state BEFORE making changes
         self.common.previous_window_state = Some(self.common.current_window_state.clone());
@@ -717,17 +848,26 @@ impl X11Window {
 
                 let now = Instant::from(std::time::Instant::now());
 
+                let (source, device) = if continuous {
+                    (
+                        ScrollInputSource::TrackpadContinuous,
+                        azul_layout::managers::scroll_state::ScrollInputDevice::Touchpad,
+                    )
+                } else {
+                    (
+                        ScrollInputSource::WheelDiscrete,
+                        azul_layout::managers::scroll_state::ScrollInputDevice::MouseWheel,
+                    )
+                };
+
                 if let Some((_dom_id, _node_id, start_timer)) =
                     layout_window.scroll_manager.record_scroll_from_hit_test(
                         // Raw delta; direction sign is applied centrally in
                         // ScrollManager::record_scroll_input (natural-scroll flag).
-                        delta_x * X11_SCROLL_TICK_PIXELS,
-                        delta_y * X11_SCROLL_TICK_PIXELS,
-                        ScrollInputSource::WheelDiscrete,
-                        // Core-protocol buttons 4-7 are ratcheting wheel
-                        // clicks (XI2 smooth-scroll touchpads land in the
-                        // valuator path, not here).
-                        azul_layout::managers::scroll_state::ScrollInputDevice::MouseWheel,
+                        delta_x,
+                        delta_y,
+                        source,
+                        device,
                         &layout_window.hover_manager,
                         &InputPointId::Mouse,
                         now,
@@ -865,6 +1005,14 @@ impl X11Window {
         }
         self.common.previous_window_state = Some(prev_snapshot);
 
+        // Resync the modifier bits the SERVER reports for this event. Key
+        // events never did this — only pointer events did — so a modifier
+        // released while another window held focus stayed latched until the
+        // user happened to move the mouse. Runs BEFORE the keysym bookkeeping
+        // below so that a modifier key's OWN press/release still wins: the
+        // `state` field describes the moment BEFORE this event.
+        self.update_modifiers_from_x11_state(event.state);
+
         // Record text input if we have a character and it's a key press.
         // Don't feed CONTROL characters into text input. XLookupString returns a
         // byte for keys like Backspace (0x08), Tab (0x09), Enter (0x0d), Escape
@@ -931,70 +1079,152 @@ impl X11Window {
     /// X11 events (XButtonEvent, XMotionEvent, XCrossingEvent, XKeyEvent) contain a `state`
     /// field that indicates which modifier keys were held when the event occurred.
     /// This function synchronizes the KeyboardState with that information.
-    fn update_modifiers_from_x11_state(&mut self, state: std::ffi::c_uint) {
+    ///
+    /// Alt / Super / AltGr are read from `self.modifier_masks` — queried from
+    /// `XGetModifierMapping` and refreshed on `MappingNotify` — instead of the
+    /// hardcoded Mod1/Mod4 defaults, which are wrong on any remapped keyboard
+    /// and never carried AltGr at all.
+    pub(super) fn update_modifiers_from_x11_state(&mut self, state: std::ffi::c_uint) {
         use azul_core::window::VirtualKeyCode;
 
-        // Check each modifier mask and update the keyboard state accordingly
+        let masks = self.modifier_masks;
         let keyboard_state = &mut self.common.current_window_state.keyboard_state;
 
-        // Shift
-        let shift_down = (state & SHIFT_MASK) != 0;
-        if shift_down {
-            keyboard_state
-                .pressed_virtual_keycodes
-                .insert_hm_item(VirtualKeyCode::LShift);
-        } else {
-            keyboard_state
-                .pressed_virtual_keycodes
-                .remove_hm_item(&VirtualKeyCode::LShift);
-            keyboard_state
-                .pressed_virtual_keycodes
-                .remove_hm_item(&VirtualKeyCode::RShift);
+        // The `state` bits say WHETHER a modifier is held, never WHICH side —
+        // so only synthesize the left key when neither side is already
+        // recorded. Unconditionally inserting the left one left a phantom
+        // LShift/LControl behind whenever the user actually held the right key
+        // and released it (the keysym path removed RShift, this one had just
+        // re-added LShift).
+        let alt_down = masks.alt != 0 && (state & masks.alt) != 0;
+        {
+            let mut sync = |down: bool, left: VirtualKeyCode, right: VirtualKeyCode| {
+                let already =
+                    keyboard_state.is_key_down(left) || keyboard_state.is_key_down(right);
+                if down {
+                    if !already {
+                        keyboard_state.pressed_virtual_keycodes.insert_hm_item(left);
+                    }
+                } else {
+                    keyboard_state.pressed_virtual_keycodes.remove_hm_item(&left);
+                    keyboard_state.pressed_virtual_keycodes.remove_hm_item(&right);
+                }
+            };
+
+            sync(
+                (state & SHIFT_MASK) != 0,
+                VirtualKeyCode::LShift,
+                VirtualKeyCode::RShift,
+            );
+            sync(
+                (state & CONTROL_MASK) != 0,
+                VirtualKeyCode::LControl,
+                VirtualKeyCode::RControl,
+            );
+            sync(alt_down, VirtualKeyCode::LAlt, VirtualKeyCode::RAlt);
+            sync(
+                masks.super_key != 0 && (state & masks.super_key) != 0,
+                VirtualKeyCode::LWin,
+                VirtualKeyCode::RWin,
+            );
         }
 
-        // Control
-        let ctrl_down = (state & CONTROL_MASK) != 0;
-        if ctrl_down {
-            keyboard_state
-                .pressed_virtual_keycodes
-                .insert_hm_item(VirtualKeyCode::LControl);
-        } else {
-            keyboard_state
-                .pressed_virtual_keycodes
-                .remove_hm_item(&VirtualKeyCode::LControl);
-            keyboard_state
-                .pressed_virtual_keycodes
-                .remove_hm_item(&VirtualKeyCode::RControl);
-        }
-
-        // Alt (Mod1)
-        let alt_down = (state & MOD1_MASK) != 0;
-        if alt_down {
-            keyboard_state
-                .pressed_virtual_keycodes
-                .insert_hm_item(VirtualKeyCode::LAlt);
-        } else {
-            keyboard_state
-                .pressed_virtual_keycodes
-                .remove_hm_item(&VirtualKeyCode::LAlt);
+        // AltGr (ISO_Level3_Shift) lives on its own modifier bit (usually
+        // Mod5) and was invisible here, so AltGr-composed accelerators saw no
+        // modifier at all. It shares RAlt with plain right-Alt (as everywhere
+        // else in the engine), so only touch it when Alt itself is not the
+        // source of that key.
+        if masks.altgr != 0 && (state & masks.altgr) != 0 {
+            if !keyboard_state.is_key_down(VirtualKeyCode::RAlt) {
+                keyboard_state
+                    .pressed_virtual_keycodes
+                    .insert_hm_item(VirtualKeyCode::RAlt);
+            }
+        } else if !alt_down {
             keyboard_state
                 .pressed_virtual_keycodes
                 .remove_hm_item(&VirtualKeyCode::RAlt);
         }
+    }
 
-        // Super/Windows (Mod4)
-        let super_down = (state & MOD4_MASK) != 0;
-        if super_down {
-            keyboard_state
-                .pressed_virtual_keycodes
-                .insert_hm_item(VirtualKeyCode::LWin);
-        } else {
-            keyboard_state
-                .pressed_virtual_keycodes
-                .remove_hm_item(&VirtualKeyCode::LWin);
-            keyboard_state
-                .pressed_virtual_keycodes
-                .remove_hm_item(&VirtualKeyCode::RWin);
+    /// Drop every key the window still believes is held.
+    ///
+    /// Keys released while ANOTHER window had focus are never delivered here,
+    /// so their entries survive a focus round-trip — the classic stuck Alt
+    /// after Alt-Tab. Only pointer events incidentally repaired the modifiers
+    /// (`update_modifiers_from_x11_state`); non-modifier keys never recovered
+    /// at all. Called on focus loss; `resync_keyboard_state_from_vector`
+    /// re-establishes the truth on focus gain.
+    pub(super) fn clear_keyboard_state(&mut self) {
+        use azul_core::window::{OptionVirtualKeyCode, ScanCodeVec, VirtualKeyCodeVec};
+
+        let keyboard_state = &mut self.common.current_window_state.keyboard_state;
+        keyboard_state.pressed_virtual_keycodes = VirtualKeyCodeVec::from_vec(Vec::new());
+        keyboard_state.pressed_scancodes = ScanCodeVec::from_vec(Vec::new());
+        keyboard_state.current_virtual_keycode = OptionVirtualKeyCode::None;
+    }
+
+    /// Rebuild `pressed_virtual_keycodes` / `pressed_scancodes` from a 32-byte
+    /// X11 keycode bit vector (`KeymapNotify.key_vector`, or `XQueryKeymap`).
+    ///
+    /// This is the X11-designed remedy for the stuck-key problem: the server
+    /// reports the FULL keyboard state right after every FocusIn, so the client
+    /// can replace its guess with the truth instead of waiting for a release it
+    /// will never receive.
+    pub(super) fn resync_keyboard_state_from_vector(&mut self, key_vector: &[c_char; 32]) {
+        let held = self
+            .common
+            .current_window_state
+            .keyboard_state
+            .current_virtual_keycode
+            .into_option();
+        self.clear_keyboard_state();
+
+        let Some(to_keysym) = self.xlib.XkbKeycodeToKeysym else {
+            // No translation available: leaving the state cleared is still
+            // strictly better than leaving it stale.
+            return;
+        };
+
+        // Keycodes 8..=255 (0..8 are unused by the X protocol).
+        for keycode in 8u32..256 {
+            let byte = key_vector[(keycode >> 3) as usize] as u8;
+            if byte & (1 << (keycode & 7)) == 0 {
+                continue;
+            }
+            self.common
+                .current_window_state
+                .keyboard_state
+                .pressed_scancodes
+                .insert_hm_item(keycode);
+            // Group 0 / level 0: the unshifted keysym, which is what
+            // keysym_to_virtual_keycode folds shifted variants back onto.
+            let keysym = unsafe { (to_keysym)(self.display, keycode as KeyCode, 0, 0) };
+            if let Some(vk) = keysym_to_virtual_keycode(keysym) {
+                self.common
+                    .current_window_state
+                    .keyboard_state
+                    .pressed_virtual_keycodes
+                    .insert_hm_item(vk);
+            }
+        }
+
+        // Keep the key that fired the last KeyDown if it is STILL held. Event
+        // determination derives KeyUp from `current_virtual_keycode` dropping
+        // to None, and KeymapNotify also follows every EnterNotify — clearing
+        // it unconditionally would fake a release of a key the user is holding.
+        if let Some(vk) = held {
+            if self
+                .common
+                .current_window_state
+                .keyboard_state
+                .is_key_down(vk)
+            {
+                self.common
+                    .current_window_state
+                    .keyboard_state
+                    .current_virtual_keycode = Some(vk).into();
+            }
         }
     }
 
@@ -1276,10 +1506,60 @@ pub fn keysym_to_virtual_keycode(keysym: KeySym) -> Option<VirtualKeyCode> {
         XK_Shift_R => Some(VirtualKeyCode::RShift),
         XK_Control_L => Some(VirtualKeyCode::LControl),
         XK_Control_R => Some(VirtualKeyCode::RControl),
-        XK_Alt_L => Some(VirtualKeyCode::LAlt),
-        XK_Alt_R => Some(VirtualKeyCode::RAlt),
-        XK_Super_L => Some(VirtualKeyCode::LWin),
-        XK_Super_R => Some(VirtualKeyCode::RWin),
+        XK_Alt_L | XK_Meta_L => Some(VirtualKeyCode::LAlt),
+        XK_Alt_R | XK_Meta_R => Some(VirtualKeyCode::RAlt),
+        XK_Super_L | XK_Hyper_L => Some(VirtualKeyCode::LWin),
+        XK_Super_R | XK_Hyper_R => Some(VirtualKeyCode::RWin),
+        // AltGr. X11 has no dedicated code for it; RAlt is where every other
+        // backend lands the third-level shift.
+        XK_ISO_Level3_Shift | XK_Mode_switch => Some(VirtualKeyCode::RAlt),
+        XK_Caps_Lock | XK_Shift_Lock => Some(VirtualKeyCode::Capital),
+        XK_Num_Lock => Some(VirtualKeyCode::Numlock),
+        XK_Menu => Some(VirtualKeyCode::Apps),
+        XK_Print => Some(VirtualKeyCode::Snapshot),
+        XK_Sys_Req => Some(VirtualKeyCode::Sysrq),
+
+        // Punctuation / OEM keys. Both the plain AND the shifted keysym of one
+        // physical key must map to the SAME code: the press is recorded with
+        // Shift held and the release usually is not, and a mismatch leaves the
+        // key stuck in `pressed_virtual_keycodes` forever. Without these,
+        // VirtualKeyDown never fired for them at all — Ctrl+`-` / Ctrl+`=`
+        // (zoom) were dead on X11 while passing headlessly.
+        XK_minus | XK_underscore => Some(VirtualKeyCode::Minus),
+        XK_equal | XK_plus => Some(VirtualKeyCode::Equals),
+        XK_comma | XK_less => Some(VirtualKeyCode::Comma),
+        XK_period | XK_greater => Some(VirtualKeyCode::Period),
+        XK_semicolon | XK_colon => Some(VirtualKeyCode::Semicolon),
+        XK_apostrophe | XK_quotedbl => Some(VirtualKeyCode::Apostrophe),
+        XK_grave | XK_asciitilde => Some(VirtualKeyCode::Grave),
+        XK_bracketleft | XK_braceleft => Some(VirtualKeyCode::LBracket),
+        XK_bracketright | XK_braceright => Some(VirtualKeyCode::RBracket),
+        XK_backslash | XK_bar => Some(VirtualKeyCode::Backslash),
+        XK_slash | XK_question => Some(VirtualKeyCode::Slash),
+
+        // Keypad. Each key has two keysyms — the digit with Num Lock on, the
+        // navigation function with it off — and both must fold to one code for
+        // the same press/release symmetry reason.
+        XK_KP_0 | XK_KP_Insert => Some(VirtualKeyCode::Numpad0),
+        XK_KP_1 | XK_KP_End => Some(VirtualKeyCode::Numpad1),
+        XK_KP_2 | XK_KP_Down => Some(VirtualKeyCode::Numpad2),
+        XK_KP_3 | XK_KP_Page_Down => Some(VirtualKeyCode::Numpad3),
+        XK_KP_4 | XK_KP_Left => Some(VirtualKeyCode::Numpad4),
+        XK_KP_5 | XK_KP_Begin => Some(VirtualKeyCode::Numpad5),
+        XK_KP_6 | XK_KP_Right => Some(VirtualKeyCode::Numpad6),
+        XK_KP_7 | XK_KP_Home => Some(VirtualKeyCode::Numpad7),
+        XK_KP_8 | XK_KP_Up => Some(VirtualKeyCode::Numpad8),
+        XK_KP_9 | XK_KP_Page_Up => Some(VirtualKeyCode::Numpad9),
+        XK_KP_Decimal | XK_KP_Delete => Some(VirtualKeyCode::NumpadDecimal),
+        XK_KP_Separator => Some(VirtualKeyCode::NumpadComma),
+        XK_KP_Enter => Some(VirtualKeyCode::NumpadEnter),
+        XK_KP_Add => Some(VirtualKeyCode::NumpadAdd),
+        XK_KP_Subtract => Some(VirtualKeyCode::NumpadSubtract),
+        XK_KP_Multiply => Some(VirtualKeyCode::NumpadMultiply),
+        XK_KP_Divide => Some(VirtualKeyCode::NumpadDivide),
+        XK_KP_Equal => Some(VirtualKeyCode::NumpadEquals),
+        XK_KP_Space => Some(VirtualKeyCode::Space),
+        XK_KP_Tab => Some(VirtualKeyCode::Tab),
         _ => None,
     }
 }

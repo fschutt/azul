@@ -26,7 +26,7 @@ pub mod tooltip;
 use std::{
     cell::RefCell,
     ffi::{c_void, CStr, CString},
-    os::raw::{c_char, c_int, c_long, c_ulong},
+    os::raw::{c_char, c_int, c_long, c_uint, c_ulong},
     rc::Rc,
     sync::{Arc, Condvar, Mutex},
 };
@@ -476,11 +476,104 @@ fn try_create_argb_window(
     Some((window, true, Some(colormap)))
 }
 
-/// Initialise XInput2 for touch + pen/tablet. Best-effort: returns
-/// `(None, 0, empty)` if libXi or the XInputExtension is unavailable (the shell
-/// then falls back to core pointer events). Selects Button/Motion/Touch for all
-/// master devices and maps each device's pressure/tilt valuator numbers via
-/// their label atoms. ABI per scripts/WACOM_TOUCH_API_RESEARCH.md.
+/// The smooth-scroll (XI2.1) axes of ONE physical device.
+///
+/// A scroll valuator carries an ACCUMULATING absolute value; a scroll delta is
+/// `(new - last) / increment`, which is fractional for a touchpad and exactly
+/// ±1 per detent for a wheel.
+#[derive(Debug, Clone, Copy, Default)]
+struct ScrollAxes {
+    /// `(valuator number, increment)` of the vertical axis.
+    vert: Option<(i32, f64)>,
+    horiz: Option<(i32, f64)>,
+    /// Device reports position deltas rather than detents, so its scrolls are
+    /// `TrackpadContinuous`. Seeded from the device name and latched the first
+    /// time the device reports a fraction of a detent.
+    continuous: bool,
+}
+
+/// Which `ModN` bits carry Alt / Super / AltGr on the CURRENT keyboard.
+///
+/// The `state` field of every X event reports modifiers as `ModN` bits, and
+/// WHICH `ModN` holds Alt / Super / AltGr is a per-keyboard mapping — the
+/// Mod1/Mod4 defaults are just the common case, and AltGr (usually Mod5) had no
+/// default at all. Refreshed on `MappingNotify`.
+#[derive(Debug, Clone, Copy)]
+struct ModifierMasks {
+    alt: c_uint,
+    super_key: c_uint,
+    altgr: c_uint,
+}
+
+impl Default for ModifierMasks {
+    fn default() -> Self {
+        Self {
+            alt: MOD1_MASK,
+            super_key: MOD4_MASK,
+            altgr: 0,
+        }
+    }
+}
+
+/// Ask the server which modifier bit each of Alt / Super / AltGr sits on.
+///
+/// Falls back to the Mod1/Mod4 defaults when the (leniently loaded) symbols are
+/// missing or the mapping is empty.
+fn query_modifier_masks(xlib: &Xlib, display: *mut Display) -> ModifierMasks {
+    let mut masks = ModifierMasks::default();
+    let (Some(get_mapping), Some(free_mapping), Some(to_keysym)) = (
+        xlib.XGetModifierMapping,
+        xlib.XFreeModifiermap,
+        xlib.XkbKeycodeToKeysym,
+    ) else {
+        return masks;
+    };
+
+    unsafe {
+        let map = (get_mapping)(display);
+        if map.is_null() {
+            return masks;
+        }
+        let per_mod = (*map).max_keypermod.max(0) as usize;
+        let (mut alt, mut super_key, mut altgr) = (0u32, 0u32, 0u32);
+        if !(*map).modifiermap.is_null() {
+            // Row order is fixed: Shift, Lock, Control, Mod1..Mod5.
+            for row in 0..8usize {
+                let bit = 1u32 << row;
+                for slot in 0..per_mod {
+                    let keycode = *(*map).modifiermap.add(row * per_mod + slot);
+                    if keycode == 0 {
+                        continue;
+                    }
+                    match (to_keysym)(display, keycode, 0, 0) as u32 {
+                        XK_Alt_L | XK_Alt_R | XK_Meta_L | XK_Meta_R => alt |= bit,
+                        XK_Super_L | XK_Super_R | XK_Hyper_L | XK_Hyper_R => super_key |= bit,
+                        XK_ISO_Level3_Shift | XK_Mode_switch => altgr |= bit,
+                        _ => {}
+                    }
+                }
+            }
+        }
+        (free_mapping)(map);
+
+        if alt != 0 {
+            masks.alt = alt;
+        }
+        if super_key != 0 {
+            masks.super_key = super_key;
+        }
+        masks.altgr = altgr;
+    }
+
+    masks
+}
+
+/// Initialise XInput2 for touch + pen/tablet + smooth scroll. Best-effort:
+/// returns `(None, 0, empty, empty)` if libXi or the XInputExtension is
+/// unavailable (the shell then falls back to core pointer events). Selects
+/// Button/Motion/Touch for all master devices, maps each device's pressure/tilt
+/// valuator numbers via their label atoms and records its scroll axes.
+/// ABI per scripts/WACOM_TOUCH_API_RESEARCH.md.
 fn init_xinput2(
     xlib: &Rc<Xlib>,
     display: *mut Display,
@@ -489,6 +582,7 @@ fn init_xinput2(
     Option<Rc<dlopen::Xi>>,
     c_int,
     std::collections::HashMap<c_int, (i32, i32, i32, f64)>,
+    std::collections::HashMap<c_int, ScrollAxes>,
 ) {
     use std::collections::HashMap;
     unsafe {
@@ -502,7 +596,7 @@ fn init_xinput2(
             &mut first_err,
         ) == 0
         {
-            return (None, 0, HashMap::new());
+            return (None, 0, HashMap::new(), HashMap::new());
         }
         let xi = match dlopen::Xi::new() {
             Ok(x) => x,
@@ -514,7 +608,7 @@ fn init_xinput2(
                      touch/pen input will NOT work in this window",
                     e
                 );
-                return (None, 0, HashMap::new());
+                return (None, 0, HashMap::new(), HashMap::new());
             }
         };
         let (mut maj, mut min) = (2i32, 2i32);
@@ -544,15 +638,33 @@ fn init_xinput2(
         let tx_atom = (xlib.XInternAtom)(display, b"Abs Tilt X\0".as_ptr() as *const _, 0);
         let ty_atom = (xlib.XInternAtom)(display, b"Abs Tilt Y\0".as_ptr() as *const _, 0);
         let mut map = HashMap::new();
+        let mut scroll: HashMap<c_int, ScrollAxes> = HashMap::new();
         let mut ndev = 0i32;
         let devs = (xi.XIQueryDevice)(display, defines::XIAllDevices, &mut ndev);
         if !devs.is_null() {
             for i in 0..ndev as isize {
                 let dev = &*devs.offset(i);
                 let (mut p, mut tx, mut ty, mut pmax) = (-1i32, -1i32, -1i32, 1.0f64);
+                let mut axes = ScrollAxes::default();
                 for c in 0..dev.num_classes as isize {
                     let cls = *dev.classes.offset(c);
-                    if cls.is_null() || (*cls).type_ != defines::XIValuatorClass {
+                    if cls.is_null() {
+                        continue;
+                    }
+                    if (*cls).type_ == defines::XIScrollClass {
+                        // XI2.1 smooth scroll. Without decoding these the
+                        // server's legacy button 4-7 emulation is the only
+                        // scroll this client sees, which quantizes every
+                        // touchpad gesture into fixed detents.
+                        let s = &*(cls as *const defines::XIScrollClassInfo);
+                        if s.scroll_type == defines::XIScrollTypeVertical {
+                            axes.vert = Some((s.number, s.increment));
+                        } else if s.scroll_type == defines::XIScrollTypeHorizontal {
+                            axes.horiz = Some((s.number, s.increment));
+                        }
+                        continue;
+                    }
+                    if (*cls).type_ != defines::XIValuatorClass {
                         continue;
                     }
                     let v = &*(cls as *const defines::XIValuatorClassInfo);
@@ -568,11 +680,83 @@ fn init_xinput2(
                 if p >= 0 || tx >= 0 || ty >= 0 {
                     map.insert(dev.deviceid, (p, tx, ty, pmax));
                 }
+                if axes.vert.is_some() || axes.horiz.is_some() {
+                    // XI2 exposes no "is a touchpad" bit. The device NAME is
+                    // the signal every toolkit uses; a device that turns out to
+                    // report fractional detents is latched as continuous at
+                    // runtime regardless (see decode_smooth_scroll).
+                    if !dev.name.is_null() {
+                        let name = CStr::from_ptr(dev.name).to_string_lossy().to_lowercase();
+                        axes.continuous = name.contains("touchpad")
+                            || name.contains("trackpad")
+                            || name.contains("glidepoint");
+                    }
+                    // Events carry the MASTER deviceid but the valuator numbers
+                    // belong to the SLAVE that produced them, so key by the id
+                    // events report as `sourceid` (same rule as pen_valuators).
+                    scroll.insert(dev.deviceid, axes);
+                }
             }
             (xi.XIFreeDeviceInfo)(devs);
         }
-        (Some(xi), opcode, map)
+        (Some(xi), opcode, map, scroll)
     }
+}
+
+/// One scroll axis of an XI2 motion event, in wheel detents.
+///
+/// `None` when the axis is absent from this event or when this is the first
+/// event from the device — the valuator ACCUMULATES, so the first value only
+/// establishes the baseline (otherwise the first scroll jumps by the whole
+/// session's total).
+unsafe fn scroll_axis_delta(
+    win: &mut X11Window,
+    ev: &defines::XIDeviceEvent,
+    axis: Option<(i32, f64)>,
+) -> Option<f64> {
+    let (number, increment) = axis?;
+    if increment == 0.0 {
+        return None;
+    }
+    let value = decode_valuator(ev, number)?;
+    let previous = win.scroll_last_values.insert((ev.sourceid, number), value);
+    Some((value - previous?) / increment)
+}
+
+/// Decode the XI2 smooth-scroll valuators of a motion event.
+///
+/// Returns `(delta_x, delta_y, continuous)` in PIXELS, in the engine's
+/// canonical X11 sign convention (up = +1, left = +1) — `ScrollManager` applies
+/// the natural-scroll flag centrally on top of that.
+unsafe fn decode_smooth_scroll(
+    win: &mut X11Window,
+    ev: &defines::XIDeviceEvent,
+) -> Option<(f32, f32, bool)> {
+    let axes = *win.scroll_valuators.get(&ev.sourceid)?;
+    let vert = scroll_axis_delta(win, ev, axes.vert).unwrap_or(0.0);
+    let horiz = scroll_axis_delta(win, ev, axes.horiz).unwrap_or(0.0);
+    if vert == 0.0 && horiz == 0.0 {
+        return None;
+    }
+
+    // A device that ever reports a fraction of a detent is a continuous
+    // scroller; latch it so the classification does not flip back on the
+    // occasional whole-detent event.
+    let fractional = vert.fract().abs() > 1e-3 || horiz.fract().abs() > 1e-3;
+    if fractional && !axes.continuous {
+        if let Some(a) = win.scroll_valuators.get_mut(&ev.sourceid) {
+            a.continuous = true;
+        }
+    }
+
+    // XI2 scroll valuators INCREASE downward / rightward; the canonical
+    // convention here is button 4 (up) = +1 and button 6 (left) = +1.
+    let px = f64::from(events::X11_SCROLL_TICK_PIXELS);
+    Some((
+        -(horiz * px) as f32,
+        -(vert * px) as f32,
+        axes.continuous || fractional,
+    ))
 }
 
 /// Decode an XI2 valuator value by valuator number. The `values` array is
@@ -612,6 +796,7 @@ fn x11_event_name(t: i32) -> &'static str {
         8 => "LeaveNotify",
         9 => "FocusIn",
         10 => "FocusOut",
+        11 => "KeymapNotify",
         12 => "Expose",
         18 => "UnmapNotify",
         19 => "MapNotify",
@@ -624,6 +809,21 @@ fn x11_event_name(t: i32) -> &'static str {
         35 => "GenericEvent",
         _ => "Other",
     }
+}
+
+/// Is this FocusIn/FocusOut a side effect of a GRAB rather than a real change
+/// of keyboard focus?
+///
+/// X sends a FocusOut/FocusIn pair with mode `NotifyGrab`/`NotifyUngrab`
+/// whenever ANY grab activates — including this application's own menus, which
+/// grab the pointer. Acting on those fired WindowFocusLost on the parent,
+/// dropped its XIC and ran a full pass plus restyle every time a context menu
+/// opened. `detail == NotifyPointer` is likewise not a window focus change (the
+/// focus merely follows the pointer). Same rule winit and GTK apply.
+fn is_grab_focus_change(ev: &defines::XFocusChangeEvent) -> bool {
+    ev.mode == defines::NotifyGrab
+        || ev.mode == defines::NotifyUngrab
+        || ev.detail == defines::NotifyPointer
 }
 
 /// Parse an XDND `text/uri-list` payload into local filesystem paths.
@@ -704,13 +904,45 @@ fn handle_xi_event(win: &mut X11Window, xev: &mut defines::XEvent) -> ProcessEve
             return ProcessEventResult::DoNothing;
         }
         let ev = &*(cookie.data as *const defines::XIDeviceEvent);
+        // XI2 events name their target in `ev.event` (the event window) —
+        // `xev.any.window` overlays the cookie's `extension` field and is NOT
+        // a window, so `dispatch_shared_display_event` cannot route them and
+        // every XI2 pointer event lands on the display owner. Re-route here,
+        // the first point where the cookie data (and thus the real target)
+        // exists. libX11 caches fetched cookie data until XFreeEventData, so
+        // the child's own XGetEventData reuses the same buffer; returning
+        // early skips this frame's free and the child's tail frees exactly
+        // once.
+        let xi_target = ev.event as u64;
+        if xi_target != win.window as u64 {
+            if let Some(wptr) = super::registry::get_window(xi_target) {
+                if let super::LinuxWindow::X11(child) = &mut *wptr {
+                    return handle_xi_event(child, xev);
+                }
+            }
+            // Unknown / just-closed target: fall through, handle on self so
+            // the event isn't lost (matches dispatch_shared_display_event).
+        }
         let evtype = ev.evtype;
         // XI2 event coords are physical; touch/pen state wants logical.
         let pos = win.to_logical_pos(ev.event_x as f32, ev.event_y as f32);
+        // Anything that is not a pointer motion ends the motion-compression
+        // batch: the newest position must be delivered BEFORE this event so the
+        // ordering the app sees is the ordering the server sent.
+        if evtype != defines::XI_Motion {
+            win.flush_pending_motion();
+        }
         if evtype == defines::XI_TouchBegin
             || evtype == defines::XI_TouchUpdate
             || evtype == defines::XI_TouchEnd
         {
+            // CONTRACT: snapshot the event-diff baseline BEFORE mutating, run a
+            // pass after. This branch used to mutate touch_state + the gesture
+            // manager and return DoNothing, so TouchStart/Move/End never fired
+            // and no redraw was requested — AND the un-snapshotted mutation
+            // destroyed the delta of whatever event came next.
+            win.common.previous_window_state = Some(win.common.current_window_state.clone());
+
             // Touch: ev.detail = touch tracking id; merge into touch_state.
             let is_up = evtype == defines::XI_TouchEnd;
             let id = ev.detail as u64;
@@ -745,6 +977,8 @@ fn handle_xi_event(win: &mut X11Window, xev: &mut defines::XEvent) -> ProcessEve
                     }
                 }
             }
+
+            result = win.process_window_events(0);
         } else {
             // Pointer event from a mouse OR a pen/tablet. This window
             // XISelectEvents'd for XI_ButtonPress/Release/Motion at creation, so
@@ -791,48 +1025,91 @@ fn handle_xi_event(win: &mut X11Window, xev: &mut defines::XEvent) -> ProcessEve
             // them) so behaviour is identical to the core path.
             match evtype {
                 defines::XI_ButtonPress | defines::XI_ButtonRelease => {
-                    let btn = defines::XButtonEvent {
-                        type_: if evtype == defines::XI_ButtonPress {
-                            defines::ButtonPress
-                        } else {
-                            defines::ButtonRelease
-                        },
-                        serial: ev.serial,
-                        send_event: ev.send_event,
-                        display: ev.display,
-                        window: ev.event,
-                        root: ev.root,
-                        subwindow: ev.child,
-                        time: ev.time,
-                        x: ev.event_x as c_int,
-                        y: ev.event_y as c_int,
-                        x_root: ev.root_x as c_int,
-                        y_root: ev.root_y as c_int,
-                        state: ev.mods.effective as u32,
-                        button: ev.detail as u32,
-                        same_screen: 1,
-                    };
-                    result = win.handle_mouse_button(&btn);
+                    // The server emits legacy button 4-7 emulation ALONGSIDE
+                    // the smooth-scroll valuators of the same gesture. Now that
+                    // the valuators are decoded below, handling the emulation
+                    // too would apply every touchpad scroll twice.
+                    let emulated_wheel = ev.flags & defines::XIPointerEmulated != 0
+                        && (4..=7).contains(&ev.detail)
+                        && win.scroll_valuators.contains_key(&ev.sourceid);
+                    if !emulated_wheel {
+                        let btn = defines::XButtonEvent {
+                            type_: if evtype == defines::XI_ButtonPress {
+                                defines::ButtonPress
+                            } else {
+                                defines::ButtonRelease
+                            },
+                            serial: ev.serial,
+                            send_event: ev.send_event,
+                            display: ev.display,
+                            window: ev.event,
+                            root: ev.root,
+                            subwindow: ev.child,
+                            time: ev.time,
+                            x: ev.event_x as c_int,
+                            y: ev.event_y as c_int,
+                            x_root: ev.root_x as c_int,
+                            y_root: ev.root_y as c_int,
+                            state: ev.mods.effective as u32,
+                            button: ev.detail as u32,
+                            same_screen: 1,
+                        };
+                        result = win.handle_mouse_button(&btn);
+                    }
                 }
                 defines::XI_Motion => {
-                    let mot = defines::XMotionEvent {
-                        type_: defines::MotionNotify,
-                        serial: ev.serial,
-                        send_event: ev.send_event,
-                        display: ev.display,
-                        window: ev.event,
-                        root: ev.root,
-                        subwindow: ev.child,
-                        time: ev.time,
-                        x: ev.event_x as c_int,
-                        y: ev.event_y as c_int,
-                        x_root: ev.root_x as c_int,
-                        y_root: ev.root_y as c_int,
-                        state: ev.mods.effective as u32,
-                        is_hint: 0,
-                        same_screen: 1,
+                    // Smooth scroll (touchpad / kinetic trackpoint) rides on
+                    // XI_Motion valuators. Decoding them is what makes
+                    // touchpad scrolling continuous instead of a stack of
+                    // fake 20px wheel detents.
+                    let scrolled = match decode_smooth_scroll(win, ev) {
+                        Some((dx, dy, continuous)) => {
+                            result = win.handle_scroll_input(dx, dy, pos, continuous);
+                            true
+                        }
+                        None => false,
                     };
-                    result = win.handle_mouse_move(&mot);
+
+                    // A scroll-only event carries the unchanged pointer
+                    // position; re-running the whole motion pipeline for it
+                    // would double the per-event cost of every scroll.
+                    let pending_xy = win.pending_motion.map(|m| (m.x, m.y));
+                    let last_pos = match pending_xy {
+                        Some((x, y)) => Some(win.to_logical_pos(x as f32, y as f32)),
+                        None => win
+                            .common
+                            .current_window_state
+                            .mouse_state
+                            .cursor_position
+                            .get_position(),
+                    };
+                    let moved = last_pos.map_or(true, |p| {
+                        (p.x - pos.x).abs() > 0.01 || (p.y - pos.y).abs() > 0.01
+                    });
+
+                    if !scrolled || moved {
+                        // COALESCED: a 1000 Hz mouse delivers dozens of these
+                        // per frame and only the newest position can still be
+                        // true. Processed at the batch boundary (or before the
+                        // next non-motion event) by flush_pending_motion.
+                        win.pending_motion = Some(defines::XMotionEvent {
+                            type_: defines::MotionNotify,
+                            serial: ev.serial,
+                            send_event: ev.send_event,
+                            display: ev.display,
+                            window: ev.event,
+                            root: ev.root,
+                            subwindow: ev.child,
+                            time: ev.time,
+                            x: ev.event_x as c_int,
+                            y: ev.event_y as c_int,
+                            x_root: ev.root_x as c_int,
+                            y_root: ev.root_y as c_int,
+                            state: ev.mods.effective as u32,
+                            is_hint: 0,
+                            same_screen: 1,
+                        });
+                    }
                 }
                 _ => {}
             }
@@ -952,6 +1229,20 @@ pub struct X11Window {
     xi_opcode: c_int,
     /// deviceid -> (pressure#, tiltX#, tiltY#, pressure_max); -1 = absent valuator.
     pen_valuators: std::collections::HashMap<c_int, (i32, i32, i32, f64)>,
+    /// deviceid -> smooth-scroll (XI2.1) axes of that device.
+    scroll_valuators: std::collections::HashMap<c_int, ScrollAxes>,
+    /// `(deviceid, valuator number)` -> last absolute value seen. Scroll
+    /// valuators accumulate, so a delta needs the previous reading.
+    scroll_last_values: std::collections::HashMap<(c_int, c_int), f64>,
+    /// Which `ModN` bit is Alt / Super / AltGr on the current keyboard;
+    /// refreshed on `MappingNotify`.
+    modifier_masks: ModifierMasks,
+    /// Newest motion event of the current drain batch, processed once at the
+    /// batch boundary — see `flush_pending_motion`.
+    pending_motion: Option<defines::XMotionEvent>,
+    /// Focus / editing / caret identity the IME state was last synced for.
+    /// Gates the (non-trivial) caret-rect recompute behind an actual change.
+    ime_sync_key: ImeSyncKey,
 
     // Shell2 state (common fields shared with all platforms)
     pub common: event::CommonWindowState,
@@ -1037,6 +1328,16 @@ pub enum X11Event {
     Other,
 }
 
+/// What the IME state depends on: whether the window is focused, WHICH node is
+/// being edited, and where the caret sits inside it.
+#[derive(Debug, Clone, Copy, PartialEq, Default)]
+struct ImeSyncKey {
+    window_focused: bool,
+    /// `(dom index, node index)` of the editing session, if any.
+    editing_node: Option<(usize, usize)>,
+    cursor: Option<azul_core::selection::TextCursor>,
+}
+
 // Lifecycle methods (formerly on PlatformWindow V1 trait)
 impl X11Window {
     /// Poll for the next X11 event without blocking.
@@ -1108,6 +1409,8 @@ impl X11Window {
                 unsafe { (self.xlib.XNextEvent)(self.display, &mut event) };
                 self.dispatch_shared_display_event(&mut event);
             }
+            // Batch boundary: deliver the newest motion of this drain.
+            self.flush_pending_motion_all();
         }
 
         None
@@ -1142,30 +1445,10 @@ impl X11Window {
         }
     }
 
-    /// Swap buffers (GPU) or flush (CPU) to present the current frame.
-    pub fn present(&mut self) -> Result<(), WindowError> {
-        match &self.render_mode {
-            RenderMode::Gpu(gl_context, _) => gl_context.swap_buffers(),
-            RenderMode::Cpu(_gc) => {
-                // CPU rendering is handled by render_and_present(); just flush here
-                unsafe { (self.xlib.XFlush)(self.display) };
-                Ok(())
-            }
-            // Only set transiently during Drop; never present in this state.
-            RenderMode::None => Ok(()),
-        }?;
-
-        // CI testing: Exit successfully after first frame render if env var is set
-        if std::env::var("AZ_EXIT_SUCCESS_AFTER_FRAME_RENDER").is_ok() {
-            log_info!(
-                LogCategory::General,
-                "[CI] AZ_EXIT_SUCCESS_AFTER_FRAME_RENDER set - exiting with success"
-            );
-            std::process::exit(0);
-        }
-
-        Ok(())
-    }
+    // NOTE: `X11Window::present` is deliberately GONE (with its sole caller
+    // `LinuxWindow::present`). The real present path is `render_and_present`;
+    // a bare swap-buffers entry bypassed damage bookkeeping and carried its
+    // own duplicate AZ_EXIT_SUCCESS_AFTER_FRAME_RENDER hard-exit.
 
     /// Process pending accessibility actions from assistive technology (e.g. Orca)
     #[cfg(feature = "a11y")]
@@ -1538,7 +1821,11 @@ impl X11Window {
             | StructureNotifyMask
             | EnterWindowMask
             | LeaveWindowMask
-            | FocusChangeMask;
+            | FocusChangeMask
+            // KeymapNotify arrives right after every FocusIn and is the only
+            // way to learn which keys were released while another window had
+            // focus (the stuck-Alt-after-Alt-Tab class of bug).
+            | KeymapStateMask;
 
         // Override-redirect (a borderless, WM-unmanaged popup such as a menu/tooltip)
         // is driven by the explicit window option, NOT by decorations==None: a CSD
@@ -1610,7 +1897,9 @@ impl X11Window {
         unsafe { (xlib.XSelectInput)(display, window_handle, event_mask) };
 
         // XInput2: select touch + pen/tablet events (best-effort; core events otherwise).
-        let (xi, xi_opcode, pen_valuators) = init_xinput2(&xlib, display, window_handle);
+        let (xi, xi_opcode, pen_valuators, scroll_valuators) =
+            init_xinput2(&xlib, display, window_handle);
+        let modifier_masks = query_modifier_masks(&xlib, display);
 
         let wm_delete_window_atom =
             unsafe { (xlib.XInternAtom)(display, b"WM_DELETE_WINDOW\0".as_ptr() as _, 0) };
@@ -1961,6 +2250,11 @@ impl X11Window {
             xi,
             xi_opcode,
             pen_valuators,
+            scroll_valuators,
+            scroll_last_values: std::collections::HashMap::new(),
+            modifier_masks,
+            pending_motion: None,
+            ime_sync_key: ImeSyncKey::default(),
             common: event::CommonWindowState {
                 layout_window: None,
                 current_window_state: FullWindowState {
@@ -1985,6 +2279,7 @@ impl X11Window {
                     active_route: azul_core::resources::OptionRouteMatch::None,
                 },
                 previous_window_state: None,
+                os_synced_state: None,
                 renderer,
                 render_api,
                 hit_tester,
@@ -2502,6 +2797,8 @@ impl X11Window {
                     (self.xlib.XNextEvent)(self.display, &mut event);
                     self.dispatch_shared_display_event(&mut event);
                 }
+                // Batch boundary: deliver the newest motion of this drain.
+                self.flush_pending_motion_all();
                 return Ok(());
             }
 
@@ -2569,6 +2866,8 @@ impl X11Window {
                         (self.xlib.XNextEvent)(self.display, &mut event);
                         self.dispatch_shared_display_event(&mut event);
                     }
+                    // Batch boundary: deliver the newest motion of this drain.
+                    self.flush_pending_motion_all();
                 }
 
                 // Check timerfd's - if any fired, invoke timer callbacks
@@ -2690,6 +2989,17 @@ impl X11Window {
             unsafe { event.type_ }
         );
 
+        // Motion compression boundary: anything that is not itself a motion
+        // must see the newest pointer position FIRST, so the buffered motion is
+        // delivered before it. GenericEvent is excluded here and handled inside
+        // handle_xi_event, which is where the XI2 event type becomes known —
+        // flushing before every cookie would defeat the compression entirely,
+        // since XI2 is the actual delivery path for the mouse.
+        match unsafe { event.type_ } {
+            defines::MotionNotify | defines::GenericEvent => {}
+            _ => self.flush_pending_motion(),
+        }
+
         // Process event with V2 handlers
         let result = match unsafe { event.type_ } {
             defines::Expose => {
@@ -2765,7 +3075,13 @@ impl X11Window {
             defines::ButtonPress | defines::ButtonRelease => {
                 self.handle_mouse_button(unsafe { &event.button })
             }
-            defines::MotionNotify => self.handle_mouse_move(unsafe { &event.motion }),
+            defines::MotionNotify => {
+                // COALESCED — see flush_pending_motion. (Only reachable when
+                // XI2 is unavailable: with XI2 selected the server routes
+                // pointer motion through GenericEvent instead.)
+                self.pending_motion = Some(unsafe { event.motion });
+                ProcessEventResult::DoNothing
+            }
             defines::GenericEvent => handle_xi_event(self, event),
             defines::KeyPress | defines::KeyRelease => {
                 self.handle_keyboard(unsafe { &mut event.key })
@@ -2780,27 +3096,83 @@ impl X11Window {
                 // event's snapshot cloned the already-mutated state), so
                 // WindowFocusReceived callbacks never fired and
                 // focus-conditional styling never repainted on X11.
-                self.common.previous_window_state =
-                    Some(self.common.current_window_state.clone());
-                self.common.current_window_state.window_focused = true;
-                self.dynamic_selector_context.window_focused = true;
-                self.sync_ime_position_to_os();
-                self.sync_ime_focus_state();
-                // MWA-A3b: tell the AT-SPI adapter — accesskit_unix never
-                // learns window focus on its own (Orca got no focus events).
-                #[cfg(feature = "a11y")]
-                self.accessibility_adapter.set_focus(true);
-                self.process_window_events(0)
+                if is_grab_focus_change(unsafe { &event.focus }) {
+                    ProcessEventResult::DoNothing
+                } else {
+                    self.common.previous_window_state =
+                        Some(self.common.current_window_state.clone());
+                    self.common.current_window_state.window_focused = true;
+                    self.dynamic_selector_context.window_focused = true;
+                    // The keyboard state is a guess again: everything released
+                    // while another window had focus was delivered THERE. The
+                    // KeymapNotify that follows this event replaces the guess
+                    // with the server's truth; ask directly when the (lenient)
+                    // symbol is available, so a WM that filters KeymapNotify
+                    // cannot leave a key stuck either.
+                    self.resync_keyboard_state_from_server();
+                    self.sync_ime_position_to_os();
+                    self.sync_ime_focus_state();
+                    // MWA-A3b: tell the AT-SPI adapter — accesskit_unix never
+                    // learns window focus on its own (Orca got no focus events).
+                    #[cfg(feature = "a11y")]
+                    self.accessibility_adapter.set_focus(true);
+                    self.process_window_events(0)
+                }
             }
             defines::FocusOut => {
-                self.common.previous_window_state =
-                    Some(self.common.current_window_state.clone());
-                self.common.current_window_state.window_focused = false;
-                self.dynamic_selector_context.window_focused = false;
-                #[cfg(feature = "a11y")]
-                self.accessibility_adapter.set_focus(false);
-                self.sync_ime_focus_state();
-                self.process_window_events(0)
+                if is_grab_focus_change(unsafe { &event.focus }) {
+                    ProcessEventResult::DoNothing
+                } else {
+                    self.common.previous_window_state =
+                        Some(self.common.current_window_state.clone());
+                    self.common.current_window_state.window_focused = false;
+                    self.dynamic_selector_context.window_focused = false;
+                    // Releases that happen while another window has focus are
+                    // never delivered here, so anything still held would stay
+                    // held forever (the classic stuck Alt after Alt-Tab).
+                    self.clear_keyboard_state();
+                    #[cfg(feature = "a11y")]
+                    self.accessibility_adapter.set_focus(false);
+                    self.sync_ime_focus_state();
+                    self.process_window_events(0)
+                }
+            }
+            defines::KeymapNotify => {
+                // Delivered right after every FocusIn: the server's own report
+                // of which keys are physically down. This is the X11-designed
+                // remedy for stale `pressed_*` entries.
+                //
+                // It also follows every EnterNotify, and the state is identical
+                // almost every time — so the pass only runs when the resync
+                // actually changed something. When it did not, `previous` is
+                // never touched and no delta is introduced.
+                let key_vector = unsafe { event.keymap.key_vector };
+                let baseline = self.common.current_window_state.clone();
+                self.resync_keyboard_state_from_vector(&key_vector);
+                if self.common.current_window_state.keyboard_state == baseline.keyboard_state {
+                    ProcessEventResult::DoNothing
+                } else {
+                    self.common.previous_window_state = Some(baseline);
+                    self.process_window_events(0)
+                }
+            }
+            defines::MappingNotify => {
+                // Keyboard layout switch / xmodmap. Without refreshing the
+                // CLIENT-side table, every keycode → keysym translation stays
+                // on the layout that was active when the connection opened —
+                // for the rest of the session.
+                let mut mapping = unsafe { event.mapping };
+                if let Some(refresh) = self.xlib.XRefreshKeyboardMapping {
+                    unsafe {
+                        (refresh)(&mut mapping);
+                    }
+                }
+                if mapping.request == defines::MappingModifier
+                    || mapping.request == defines::MappingKeyboard
+                {
+                    self.modifier_masks = query_modifier_masks(&self.xlib, self.display);
+                }
+                ProcessEventResult::DoNothing
             }
             defines::MapNotify => {
                 // The window just became visible and owes its FIRST frame.
@@ -2888,6 +3260,19 @@ impl X11Window {
                     _ => true,
                 };
 
+                // CONTRACT: snapshot the event-diff baseline BEFORE the OS
+                // geometry lands. `WindowResize` / `Moved` are derived purely
+                // from previous → current, and this arm used to mutate
+                // `current` with no snapshot and never run a pass at all, so
+                // neither event has ever fired on X11 for a drag-resize or a
+                // window move (and the un-consumed mutation then corrupted the
+                // next handler's delta).
+                let needs_pass = size_changed || position_changed;
+                if needs_pass {
+                    self.common.previous_window_state =
+                        Some(self.common.current_window_state.clone());
+                }
+
                 if size_changed {
                     let old_logical = azul_core::geom::LogicalSize::new(
                         old_context.viewport_width,
@@ -2946,8 +3331,10 @@ impl X11Window {
                 );
 
                 // F4: OS-reported geometry (source = Os) — acknowledge into both
-                // current and the sync baseline so it is not echoed back. See the
-                // main-loop handler + CommonWindowState::update_window_state.
+                // current and the OS-SYNC baseline (`os_synced_state`) so it is
+                // not echoed back. It deliberately does NOT touch
+                // `previous_window_state`: that is the event-diff baseline the
+                // pass at the end of this arm consumes.
                 let new_pos = azul_core::window::WindowPosition::Initialized(
                     azul_core::geom::PhysicalPositionI32::new(abs_x, abs_y),
                 );
@@ -3026,7 +3413,16 @@ impl X11Window {
                     }
                 }
 
-                ProcessEventResult::DoNothing
+                // Run the pass so Resized / Moved (and the DpiChanged above)
+                // actually reach callbacks. The resize DECISION is untouched:
+                // request_regeneration_for_resize already chose full vs
+                // relayout-only above, and render_and_present still coalesces
+                // one relayout per frame.
+                if needs_pass {
+                    self.process_window_events(0)
+                } else {
+                    ProcessEventResult::DoNothing
+                }
             }
             other => {
                 // Check for XRandR screen change event (dynamic event type)
@@ -3047,6 +3443,53 @@ impl X11Window {
             }
         };
 
+        self.apply_event_result(result);
+
+        // Focus, the editing session or the caret may have moved in that pass;
+        // the XIC focus and the over-the-spot candidate position follow from
+        // exactly those. Gated internally on an actual change.
+        self.sync_ime_state();
+    }
+
+    /// Process the newest motion event of the current drain batch, if any.
+    ///
+    /// Every `MotionNotify` used to run the FULL pipeline (state clone,
+    /// modifier sync, hit test, cursor CSS resolution, event pass) — a 1000 Hz
+    /// mouse during a drag-select delivers dozens per frame and only the newest
+    /// position can still be true. Motions are therefore buffered and this
+    /// flushes the survivor: before any non-motion event (so ordering is
+    /// preserved) and at every drain boundary.
+    fn flush_pending_motion(&mut self) {
+        let Some(motion) = self.pending_motion.take() else {
+            return;
+        };
+        let result = self.handle_mouse_move(&motion);
+        self.apply_event_result(result);
+        self.sync_ime_state();
+    }
+
+    /// End-of-batch motion flush for THIS window and every other window on the
+    /// shared display: a child menu's motions are dispatched to ITS window, so
+    /// its buffered motion has no other flush point.
+    fn flush_pending_motion_all(&mut self) {
+        self.flush_pending_motion();
+        for wid in super::registry::get_all_window_ids() {
+            if wid == self.window as u64 {
+                continue;
+            }
+            if let Some(wptr) = unsafe { super::registry::get_window(wid) } {
+                if let super::LinuxWindow::X11(w) = unsafe { &mut *wptr } {
+                    w.flush_pending_motion();
+                }
+            }
+        }
+    }
+
+    /// Everything a completed event pass owes the frame pipeline: regeneration
+    /// marking, the cross-window refresh fan-out, the incremental-relayout fast
+    /// path and the redraw request. Shared by `handle_event` and the deferred
+    /// motion flush, which must not skip any of it.
+    fn apply_event_result(&mut self, result: ProcessEventResult) {
         // Mark SELF for DOM regeneration. process_window_events requests
         // regeneration only for callback returns of
         // Update::RefreshDom* — producers that return the result directly
@@ -3663,9 +4106,7 @@ impl X11Window {
         // already inserted the Pending tiles, so the AfterMount handler sees them.
 
         // Phase 2: Post-Layout callback - sync IME position after layout (MOST IMPORTANT)
-        self.update_ime_position_from_cursor();
-        self.sync_ime_position_to_os();
-        self.sync_ime_focus_state();
+        self.sync_ime_state();
 
         // Export the (possibly changed) application menu bar to GNOME Shell.
         // No-op unless GNOME native menus are active for this window.
@@ -3809,6 +4250,14 @@ impl X11Window {
         } else {
             false
         };
+
+        // The caret may have moved on ANY of those paths — including the
+        // relayout-only fast path, which skips regenerate_layout_inner's tail
+        // entirely. Without this an over-the-spot IME kept drawing its
+        // candidate window wherever the caret was when the last FULL
+        // regeneration happened. Gated internally on the caret/focus identity
+        // actually having changed.
+        self.sync_ime_state();
 
         // Drain accessibility actions queued by the AT-SPI adapter (a screen
         // reader's 'click' on a button, etc.). The accesskit thread only parks
@@ -4458,18 +4907,24 @@ impl X11Window {
             (self.xlib.XFlush)(self.display);
         }
 
-        // CRITICAL: Set previous_window_state so sync_window_state() works for future changes
+        // Seed BOTH baselines: the event-diff one (so the first pass has
+        // something to diff against) and the OS-sync one — everything above is
+        // now applied on the window, so sync_window_state() must not re-push it.
         self.common.previous_window_state = Some(self.common.current_window_state.clone());
+        self.common.mark_os_synced();
     }
 
     /// Synchronize X11 window properties with current_window_state
     fn sync_window_state(&mut self) {
         use std::ffi::CString;
 
-        // Get copies of previous and current state to avoid borrow checker issues
-        let (previous, current) = match &self.common.previous_window_state {
-            Some(prev) => (prev.clone(), self.common.current_window_state.clone()),
-            None => return, // First frame, nothing to sync
+        // Diff against the OS-SYNC baseline, not the event baseline:
+        // `previous_window_state` is advanced by every completed event pass, so
+        // diffing it here would push (and echo) geometry the WM itself just
+        // reported. `take_os_sync_diff` hands over (baseline, current) and
+        // advances the baseline in the same call.
+        let Some((previous, current)) = self.common.take_os_sync_diff() else {
+            return; // First frame, nothing to sync
         };
 
         // MWA-B5: decoration mode changed at runtime → re-apply motif hints
@@ -5124,6 +5579,61 @@ impl X11Window {
             }
             self.ime_ic_focused = want;
         }
+    }
+
+    /// Keep the IME in step with the LIVE focus / editing / caret state.
+    ///
+    /// `sync_ime_focus_state` and the spot update used to run only from
+    /// FocusIn/FocusOut and from the tail of a FULL `regenerate_layout_inner`.
+    /// Clicking into a contenteditable produces a focus restyle, an incremental
+    /// relayout and a re-render — none of which run that tail — so the XIC
+    /// stayed unfocused and a CJK input method never engaged; and while typing,
+    /// the relayout-only frame path never moved the spot, so an over-the-spot
+    /// IME drew its candidate window at a stale position.
+    ///
+    /// Called at the end of every event pass and every frame. The caret-rect
+    /// recompute (a walk of the layout tree) is gated on the focus/editing/caret
+    /// identity actually having changed; the XIC focus call diffs internally.
+    pub(super) fn sync_ime_state(&mut self) {
+        let key = {
+            let lw = self.common.layout_window.as_ref();
+            ImeSyncKey {
+                window_focused: self.common.current_window_state.window_focused,
+                editing_node: lw.and_then(|lw| {
+                    let dom = lw.text_edit_manager.get_editing_dom_id()?;
+                    let node = lw.text_edit_manager.get_editing_node_id()?;
+                    Some((dom.inner, node.index()))
+                }),
+                cursor: lw.and_then(|lw| lw.text_edit_manager.get_primary_cursor()),
+            }
+        };
+
+        // Cheap: diffs against `ime_ic_focused` internally.
+        self.sync_ime_focus_state();
+
+        if key != self.ime_sync_key {
+            self.ime_sync_key = key;
+            self.update_ime_position_from_cursor();
+            self.sync_ime_position_to_os();
+        }
+    }
+
+    /// Replace the guessed keyboard state with the server's, via `XQueryKeymap`.
+    ///
+    /// The KeymapNotify that follows FocusIn does the same job; this covers the
+    /// case where it never arrives (a WM/compositor that does not deliver it,
+    /// or a build whose libX11 lacks the lenient symbol keeps the cleared
+    /// state, which is still better than a stale one).
+    pub(super) fn resync_keyboard_state_from_server(&mut self) {
+        let Some(query) = self.xlib.XQueryKeymap else {
+            self.clear_keyboard_state();
+            return;
+        };
+        let mut key_vector = [0 as c_char; 32];
+        unsafe {
+            (query)(self.display, key_vector.as_mut_ptr());
+        }
+        self.resync_keyboard_state_from_vector(&key_vector);
     }
 
     pub fn sync_ime_position_to_os(&self) {

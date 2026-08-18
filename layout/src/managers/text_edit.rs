@@ -258,6 +258,12 @@ pub struct TextEditManager {
     pub display_list_dirty: bool,
     /// Caret / selection tween bookkeeping (see [`TextTweenState`]).
     pub tween: TextTweenState,
+    /// Editing hosts whose text was mutated OUTSIDE the text-input record
+    /// pipeline this pass (deletions, multi-cursor paste, the Enter line
+    /// break). The host pass drains this and dispatches an `Input` event per
+    /// host, so widget mirrors observe every committed edit, not only
+    /// insertions. Filled by `LayoutWindow::record_text_edit_undo`.
+    pub pending_edit_notifications: Vec<azul_core::dom::DomNodeId>,
 }
 
 impl Default for TextEditManager {
@@ -287,6 +293,7 @@ impl TextEditManager {
             preedit_cursor_end: -1,
             display_list_dirty: false,
             tween: TextTweenState::default(),
+            pending_edit_notifications: Vec::new(),
         }
     }
 

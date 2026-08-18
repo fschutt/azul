@@ -176,7 +176,7 @@ impl CpuBackend {
         // scroll-shift machinery further down.
         let scroll_offsets = layout_window
             .scroll_manager
-            .build_scroll_offset_map(dom_id, &result.scroll_ids);
+            .build_scroll_offset_map(dom_id, &result.scroll_id_to_node_id);
 
         // GPU-value diff: thumb position / fade opacity / transforms change
         // WITHOUT any display-list item changing (items only carry the keys).

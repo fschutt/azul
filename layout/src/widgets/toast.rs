@@ -394,14 +394,14 @@ impl Toast {
             refany::OptionRefAny,
         };
 
-        let message = Dom::create_text(self.message)
+        let message = Dom::create_p_with_text(self.message)
             .with_ids_and_classes(IdOrClassVec::from_const_slice(TOAST_MESSAGE_CLASS))
             .with_css_props(CssPropertyWithConditionsVec::from_const_slice(TOAST_MESSAGE_STYLE));
 
         let mut children = alloc::vec![message];
 
         if self.dismissible {
-            let close = Dom::create_text(AzString::from_const_str("\u{00D7}"))
+            let close = Dom::create_p_with_text(AzString::from_const_str("\u{00D7}"))
                 .with_ids_and_classes(IdOrClassVec::from_const_slice(TOAST_CLOSE_CLASS))
                 .with_css_props(CssPropertyWithConditionsVec::from_const_slice(TOAST_CLOSE_STYLE))
                 .with_tab_index(TabIndex::Auto)
@@ -520,10 +520,18 @@ mod autotest_generated {
         ToastKind::Danger,
     ];
 
-    /// The text of a `NodeType::Text` node (`None` for any other node type).
+    /// The text of a text node, looking through the `<p>` block wrapper the
+    /// label convention mandates (`p > text`).
     fn text_of(node: &Dom) -> Option<&str> {
         match node.root.get_node_type() {
             NodeType::Text(s) => Some(s.as_ref().as_str()),
+            NodeType::P => match node.children.as_ref() {
+                [only] => match only.root.get_node_type() {
+                    NodeType::Text(s) => Some(s.as_ref().as_str()),
+                    _ => None,
+                },
+                _ => None,
+            },
             _ => None,
         }
     }
@@ -685,8 +693,8 @@ mod autotest_generated {
         let styled = StyledDom::create_from_dom(toast.dom());
         assert_eq!(
             styled.node_hierarchy.as_ref().len(),
-            3,
-            "fixture must flatten to exactly container/message/close"
+            5,
+            "fixture must flatten to container / message <p> + text / close <p> + text"
         );
         styled
     }
@@ -694,6 +702,12 @@ mod autotest_generated {
     /// Invokes `default_on_toast_dismiss` against a `LayoutWindow` holding
     /// `styled` (or nothing at all, when `styled` is `None`), with `hit` as the
     /// hit node. Returns the `Update` plus every recorded `CallbackChange`.
+    /// Flat indices in `dismissible_styled_dom`, depth-first pre-order:
+    /// `0 container / 1 message <p> / 2 message text / 3 close <p> / 4 close text`.
+    /// Both callbacks and styles sit on the `<p>`s, never on the text nodes.
+    const MESSAGE_NODE: usize = 1;
+    const CLOSE_NODE: usize = 3;
+
     fn run_dismiss(
         styled: Option<StyledDom>,
         hit: usize,
@@ -1704,7 +1718,7 @@ mod autotest_generated {
         let mut data = RefAny::new(ToastStateWrapper::default());
 
         // node 2 == the close button, its parent (node 0) is the container
-        let (update, changes) = run_dismiss(Some(dismissible_styled_dom()), 2, data.clone());
+        let (update, changes) = run_dismiss(Some(dismissible_styled_dom()), CLOSE_NODE, data.clone());
 
         assert_eq!(update, Update::DoNothing, "no user callback -> DoNothing");
         assert_eq!(
@@ -1727,7 +1741,7 @@ mod autotest_generated {
             .into(),
         });
 
-        let (update, changes) = run_dismiss(Some(dismissible_styled_dom()), 2, data.clone());
+        let (update, changes) = run_dismiss(Some(dismissible_styled_dom()), CLOSE_NODE, data.clone());
 
         assert_eq!(
             update,
@@ -1760,7 +1774,7 @@ mod autotest_generated {
         });
 
         for _ in 0..2 {
-            let (update, changes) = run_dismiss(Some(dismissible_styled_dom()), 2, data.clone());
+            let (update, changes) = run_dismiss(Some(dismissible_styled_dom()), CLOSE_NODE, data.clone());
             assert_eq!(update, Update::RefreshDom);
             assert_eq!(
                 display_writes(&changes),
@@ -1779,12 +1793,12 @@ mod autotest_generated {
     #[test]
     fn dismiss_from_the_message_node_also_hides_the_container() {
         // Pinned: the handler hides `parent(hit)`, whatever the hit node is.
-        // For the 3-node toast the message's parent is the container too, so a
+        // For the toast the message <p>'s parent is the container too, so a
         // mis-wired handler would still "work" - which is why the close button
         // must stay the only node carrying it (see the wiring test above).
         let mut data = RefAny::new(ToastStateWrapper::default());
 
-        let (update, changes) = run_dismiss(Some(dismissible_styled_dom()), 1, data.clone());
+        let (update, changes) = run_dismiss(Some(dismissible_styled_dom()), MESSAGE_NODE, data.clone());
 
         assert_eq!(update, Update::DoNothing);
         assert_eq!(
@@ -1835,7 +1849,7 @@ mod autotest_generated {
     fn dismiss_without_any_layout_result_is_a_noop() {
         let mut data = RefAny::new(ToastStateWrapper::default());
 
-        let (update, changes) = run_dismiss(None, 2, data.clone());
+        let (update, changes) = run_dismiss(None, CLOSE_NODE, data.clone());
 
         assert_eq!(update, Update::DoNothing);
         assert!(changes.is_empty());
@@ -1847,7 +1861,7 @@ mod autotest_generated {
         // the callback-bearing node carries a RefAny of the *wrong* type
         let data = RefAny::new(0xdead_beef_u64);
 
-        let (update, changes) = run_dismiss(Some(dismissible_styled_dom()), 2, data.clone());
+        let (update, changes) = run_dismiss(Some(dismissible_styled_dom()), CLOSE_NODE, data.clone());
 
         assert_eq!(update, Update::DoNothing);
         assert!(
@@ -1868,7 +1882,7 @@ mod autotest_generated {
         let mut payload = entry.refany.clone();
 
         let styled = StyledDom::create_from_dom(dom);
-        let (update, changes) = run_dismiss(Some(styled), 2, payload.clone());
+        let (update, changes) = run_dismiss(Some(styled), CLOSE_NODE, payload.clone());
 
         assert_eq!(update, Update::DoNothing);
         assert_eq!(
@@ -1895,7 +1909,7 @@ mod autotest_generated {
             .clone();
 
         let styled = StyledDom::create_from_dom(dom);
-        let (update, changes) = run_dismiss(Some(styled), 2, payload);
+        let (update, changes) = run_dismiss(Some(styled), CLOSE_NODE, payload);
 
         assert_eq!(update, Update::RefreshDom);
         assert_eq!(

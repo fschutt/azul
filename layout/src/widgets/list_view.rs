@@ -1696,7 +1696,7 @@ impl ListView {
                                     .with_css_props(CSS_MATCH_12498280255863106397)
                                     .with_ids_and_classes(COLUMN_NAME_CLASS)
                                     .with_child({
-                                        Dom::create_text(col.clone())
+                                        Dom::create_p_with_text(col.clone())
                                             .with_css_props(CSS_MATCH_15673486787900743642)
                                     });
                                 // Wire the click only when the app set a handler.
@@ -1934,9 +1934,15 @@ mod autotest_generated {
         (&ch[0], &ch[1])
     }
 
+    /// The text of a text node, looking through the `<p>` block wrapper the
+    /// label convention mandates (`p > text`).
     fn text_of(dom: &Dom) -> &str {
         match &dom.root.node_type {
             NodeType::Text(s) => s.as_ref().as_str(),
+            NodeType::P => match dom.children.as_ref() {
+                [only] => text_of(only),
+                _ => panic!("a label <p> must wrap exactly one text node"),
+            },
             _ => panic!("expected a text node"),
         }
     }

@@ -353,7 +353,7 @@ impl Pagination {
 
         let make_button =
             |label: AzString, class: &'static [IdOrClass], style: CssPropertyWithConditionsVec| {
-                Dom::create_text(label)
+                Dom::create_p_with_text(label)
                     .with_ids_and_classes(IdOrClassVec::from_const_slice(class))
                     .with_css_props(style)
                     .with_callbacks(
@@ -572,6 +572,13 @@ mod autotest_generated {
     fn text_of(node: &Dom) -> Option<&str> {
         match node.root.get_node_type() {
             NodeType::Text(s) => Some(s.as_ref().as_str()),
+            NodeType::P => match node.children.as_ref() {
+                [only] => match only.root.get_node_type() {
+                    NodeType::Text(s) => Some(s.as_ref().as_str()),
+                    _ => None,
+                },
+                _ => None,
+            },
             _ => None,
         }
     }
@@ -762,15 +769,18 @@ mod autotest_generated {
             .clone()
     }
 
-    /// Flattened node id of the `Prev` button (root is 0, children follow in order).
+    /// Flattened node ids. Every button is a `<p>` wrapping one bare text node,
+    /// so depth-first pre-order lays them out as
+    /// `0 root / 1 Prev <p> / 2 Prev text / 3 page1 <p> / 4 page1 text / …`.
+    /// The callbacks sit on the `<p>`s.
     const PREV_NODE: usize = 1;
     /// Flattened node id of page `p` (1-based).
     const fn page_node(p: usize) -> usize {
-        p + 1
+        2 * p + 1
     }
     /// Flattened node id of the `Next` button for a `total`-page pager.
     const fn next_node(total: usize) -> usize {
-        total + 2
+        2 * total + 3
     }
 
     /// A `DomLayoutResult` with an *empty* layout tree: `on_page_click` only walks
@@ -1614,7 +1624,7 @@ mod autotest_generated {
             assert_eq!(dom.children.as_ref().len(), total + 2);
             assert_eq!(
                 dom.estimated_total_children,
-                total + 2,
+                2 * (total + 2),
                 "cached descendant count desynced for total={total}"
             );
         }
@@ -1669,8 +1679,8 @@ mod autotest_generated {
         let styled = StyledDom::create_from_dom(Pagination::create(250, total).dom());
         assert_eq!(
             styled.node_hierarchy.as_ref().len(),
-            total + 3,
-            "root + Prev + {total} pages + Next"
+            2 * total + 5,
+            "root + (Prev + {total} pages + Next), each a <p> wrapping one text node"
         );
     }
 
@@ -1882,7 +1892,7 @@ mod autotest_generated {
         assert_eq!(pass.len(), total + 2, "one pair of writes per button");
 
         for (i, (node, bg, fg)) in pass.iter().enumerate() {
-            assert_eq!(*node, i + 1, "buttons must be restyled in document order");
+            assert_eq!(*node, 2 * i + 1, "buttons must be restyled in document order");
             let (want_bg, want_fg) = if i == 0 {
                 // Prev: live, because the new page is not 1.
                 (NEUTRAL_BG_COLOR, NEUTRAL_TEXT)

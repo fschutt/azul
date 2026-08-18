@@ -35,6 +35,8 @@ pub union XEvent {
     pub configure: XConfigureEvent,
     pub client_message: XClientMessageEvent,
     pub selection: XSelectionEvent,
+    pub keymap: XKeymapEvent,
+    pub mapping: XMappingEvent,
     pub xcookie: XGenericEventCookie,
     pad: [c_long; 24],
 }
@@ -136,6 +138,36 @@ pub struct XFocusChangeEvent {
     pub window: Window,
     pub mode: c_int,
     pub detail: c_int,
+}
+/// `KeymapNotify`: the server reports the FULL keyboard state right after every
+/// `FocusIn` (when `KeymapStateMask` is selected). `key_vector` is a bit vector
+/// indexed by keycode (`key_vector[kc >> 3] & (1 << (kc & 7))`), which is the
+/// X11-designed remedy for keys released while another window held focus.
+#[repr(C)]
+#[derive(Clone, Copy)]
+pub struct XKeymapEvent {
+    pub type_: c_int,
+    pub serial: c_ulong,
+    pub send_event: c_int,
+    pub display: *mut Display,
+    pub window: Window,
+    pub key_vector: [c_char; 32],
+}
+/// `MappingNotify`: the keycode → keysym table or the modifier mapping changed
+/// (keyboard layout switch, `xmodmap`). Delivered to every client regardless of
+/// the selected event mask; the client-side table is only refreshed by passing
+/// this event to `XRefreshKeyboardMapping`.
+#[repr(C)]
+#[derive(Clone, Copy)]
+pub struct XMappingEvent {
+    pub type_: c_int,
+    pub serial: c_ulong,
+    pub send_event: c_int,
+    pub display: *mut Display,
+    pub window: Window,
+    pub request: c_int,
+    pub first_keycode: c_int,
+    pub count: c_int,
 }
 #[repr(C)]
 #[derive(Clone, Copy)]
@@ -251,6 +283,9 @@ pub const ButtonReleaseMask: c_long = 1 << 3;
 pub const EnterWindowMask: c_long = 1 << 4;
 pub const LeaveWindowMask: c_long = 1 << 5;
 pub const PointerMotionMask: c_long = 1 << 6;
+/// Ask for `KeymapNotify` after every `FocusIn` — without it the client has no
+/// way to learn which keys were released while another window had focus.
+pub const KeymapStateMask: c_long = 1 << 14;
 pub const ExposureMask: c_long = 1 << 15;
 pub const StructureNotifyMask: c_long = 1 << 17;
 pub const FocusChangeMask: c_long = 1 << 21;
@@ -276,12 +311,29 @@ pub const EnterNotify: c_int = 7;
 pub const LeaveNotify: c_int = 8;
 pub const FocusIn: c_int = 9;
 pub const FocusOut: c_int = 10;
+pub const KeymapNotify: c_int = 11;
 pub const Expose: c_int = 12;
 pub const UnmapNotify: c_int = 18;
 pub const MapNotify: c_int = 19;
 pub const ConfigureNotify: c_int = 22;
 pub const SelectionNotify: c_int = 31;
 pub const ClientMessage: c_int = 33;
+pub const MappingNotify: c_int = 34;
+
+// Focus/crossing `mode` values (X.h). A grab activating or releasing — including
+// this app's OWN menu pointer grab — synthesizes FocusIn/FocusOut and
+// EnterNotify/LeaveNotify pairs that do NOT mean the user changed windows.
+pub const NotifyNormal: c_int = 0;
+pub const NotifyGrab: c_int = 1;
+pub const NotifyUngrab: c_int = 2;
+pub const NotifyWhileGrabbed: c_int = 3;
+/// Focus `detail`: the focus followed the POINTER, not the window.
+pub const NotifyPointer: c_int = 5;
+
+// `XMappingEvent.request` values (X.h).
+pub const MappingModifier: c_int = 0;
+pub const MappingKeyboard: c_int = 1;
+pub const MappingPointer: c_int = 2;
 
 // Window classes and attributes
 pub const InputOutput: c_uint = 1;
@@ -402,6 +454,86 @@ pub const XK_Alt_L: u32 = 0xFFE9;
 pub const XK_Alt_R: u32 = 0xFFEA;
 pub const XK_Super_L: u32 = 0xFFEB;
 pub const XK_Super_R: u32 = 0xFFEC;
+pub const XK_Meta_L: u32 = 0xFFE7;
+pub const XK_Meta_R: u32 = 0xFFE8;
+pub const XK_Hyper_L: u32 = 0xFFED;
+pub const XK_Hyper_R: u32 = 0xFFEE;
+pub const XK_Caps_Lock: u32 = 0xFFE5;
+pub const XK_Shift_Lock: u32 = 0xFFE6;
+pub const XK_Num_Lock: u32 = 0xFF7F;
+pub const XK_Menu: u32 = 0xFF67;
+pub const XK_Print: u32 = 0xFF61;
+pub const XK_Sys_Req: u32 = 0xFF15;
+/// AltGr (third-level shift). Missing from the table, so every AltGr-composed
+/// accelerator was dead on X11.
+pub const XK_ISO_Level3_Shift: u32 = 0xFE03;
+pub const XK_Mode_switch: u32 = 0xFF7E;
+
+// Punctuation / OEM keys. `Ctrl+-` / `Ctrl+=` (zoom out/in) live here.
+pub const XK_minus: u32 = 0x002D;
+pub const XK_underscore: u32 = 0x005F;
+pub const XK_equal: u32 = 0x003D;
+pub const XK_plus: u32 = 0x002B;
+pub const XK_comma: u32 = 0x002C;
+pub const XK_less: u32 = 0x003C;
+pub const XK_period: u32 = 0x002E;
+pub const XK_greater: u32 = 0x003E;
+pub const XK_semicolon: u32 = 0x003B;
+pub const XK_colon: u32 = 0x003A;
+pub const XK_apostrophe: u32 = 0x0027;
+pub const XK_quotedbl: u32 = 0x0022;
+pub const XK_grave: u32 = 0x0060;
+pub const XK_asciitilde: u32 = 0x007E;
+pub const XK_bracketleft: u32 = 0x005B;
+pub const XK_braceleft: u32 = 0x007B;
+pub const XK_bracketright: u32 = 0x005D;
+pub const XK_braceright: u32 = 0x007D;
+pub const XK_backslash: u32 = 0x005C;
+pub const XK_bar: u32 = 0x007C;
+pub const XK_slash: u32 = 0x002F;
+pub const XK_question: u32 = 0x003F;
+
+// Keypad.
+pub const XK_KP_Space: u32 = 0xFF80;
+pub const XK_KP_Tab: u32 = 0xFF89;
+pub const XK_KP_Enter: u32 = 0xFF8D;
+pub const XK_KP_Home: u32 = 0xFF95;
+pub const XK_KP_Left: u32 = 0xFF96;
+pub const XK_KP_Up: u32 = 0xFF97;
+pub const XK_KP_Right: u32 = 0xFF98;
+pub const XK_KP_Down: u32 = 0xFF99;
+pub const XK_KP_Page_Up: u32 = 0xFF9A;
+pub const XK_KP_Page_Down: u32 = 0xFF9B;
+pub const XK_KP_End: u32 = 0xFF9C;
+pub const XK_KP_Begin: u32 = 0xFF9D;
+pub const XK_KP_Insert: u32 = 0xFF9E;
+pub const XK_KP_Delete: u32 = 0xFF9F;
+pub const XK_KP_Equal: u32 = 0xFFBD;
+pub const XK_KP_Multiply: u32 = 0xFFAA;
+pub const XK_KP_Add: u32 = 0xFFAB;
+pub const XK_KP_Separator: u32 = 0xFFAC;
+pub const XK_KP_Subtract: u32 = 0xFFAD;
+pub const XK_KP_Decimal: u32 = 0xFFAE;
+pub const XK_KP_Divide: u32 = 0xFFAF;
+pub const XK_KP_0: u32 = 0xFFB0;
+pub const XK_KP_1: u32 = 0xFFB1;
+pub const XK_KP_2: u32 = 0xFFB2;
+pub const XK_KP_3: u32 = 0xFFB3;
+pub const XK_KP_4: u32 = 0xFFB4;
+pub const XK_KP_5: u32 = 0xFFB5;
+pub const XK_KP_6: u32 = 0xFFB6;
+pub const XK_KP_7: u32 = 0xFFB7;
+pub const XK_KP_8: u32 = 0xFFB8;
+pub const XK_KP_9: u32 = 0xFFB9;
+
+// `Status` values returned through the last out-param of the
+// Xmb/Xutf8/XwcLookupString family (Xlib.h). `XBufferOverflow` means NOTHING
+// was written and the return value is the required buffer size in bytes.
+pub const XBufferOverflow: c_int = -1;
+pub const XLookupNone: c_int = 1;
+pub const XLookupChars: c_int = 2;
+pub const XLookupKeySym: c_int = 3;
+pub const XLookupBoth: c_int = 4;
 
 // EGL types
 pub type EGLDisplay = *mut c_void;
@@ -538,8 +670,17 @@ pub const XI_TouchEnd: c_int = 20;
 pub const XIAllDevices: c_int = 0;
 pub const XIAllMasterDevices: c_int = 1;
 pub const XIValuatorClass: c_int = 2;
+pub const XIScrollClass: c_int = 3;
 pub const XITouchClass: c_int = 8;
 pub const XIModeAbsolute: c_int = 1;
+pub const XIScrollTypeVertical: c_int = 1;
+pub const XIScrollTypeHorizontal: c_int = 2;
+/// `XIScrollClassInfo.flags`: the driver does NOT emit emulated button 4-7
+/// presses for this axis, so the valuator is the only scroll delivery.
+pub const XIScrollFlagNoEmulation: c_int = 1;
+/// `XIDeviceEvent.flags`: this button event is the legacy wheel emulation of a
+/// smooth-scroll valuator. Handling both is what double-scrolls a touchpad.
+pub const XIPointerEmulated: c_int = 1 << 16;
 
 #[repr(C)]
 #[derive(Clone, Copy)]
@@ -588,6 +729,20 @@ pub struct XIValuatorClassInfo {
     pub value: f64,
     pub resolution: c_int,
     pub mode: c_int,
+}
+/// Smooth-scroll axis of a device (XI2.1). `increment` is the valuator delta
+/// that equals one legacy wheel detent; the valuator itself carries an
+/// ACCUMULATING absolute value, so a scroll delta is
+/// `(new - last) / increment` — fractional for touchpads.
+#[repr(C)]
+#[derive(Clone, Copy)]
+pub struct XIScrollClassInfo {
+    pub type_: c_int,
+    pub sourceid: c_int,
+    pub number: c_int,
+    pub scroll_type: c_int,
+    pub increment: f64,
+    pub flags: c_int,
 }
 #[repr(C)]
 #[derive(Clone, Copy)]
@@ -765,6 +920,27 @@ pub type XFreeCursor = unsafe extern "C" fn(*mut Display, Cursor) -> c_int;
 pub type XUndefineCursor = unsafe extern "C" fn(*mut Display, Window) -> c_int;
 pub type XkbSetDetectableAutoRepeat =
     unsafe extern "C" fn(*mut Display, c_int, *mut c_int) -> c_int;
+/// X11 keycode. 8 bits on Linux (`NeedWidePrototypes == 0`).
+pub type KeyCode = c_uchar;
+/// The 8 × `max_keypermod` table returned by `XGetModifierMapping`: row `i`
+/// (Shift, Lock, Control, Mod1..Mod5) lists the keycodes bound to that modifier.
+#[repr(C)]
+#[derive(Clone, Copy)]
+pub struct XModifierKeymap {
+    pub max_keypermod: c_int,
+    pub modifiermap: *mut KeyCode,
+}
+pub type XGetModifierMapping = unsafe extern "C" fn(*mut Display) -> *mut XModifierKeymap;
+pub type XFreeModifiermap = unsafe extern "C" fn(*mut XModifierKeymap) -> c_int;
+/// Refresh the CLIENT-side keycode → keysym table after a `MappingNotify`.
+/// Without it every translation stays on the layout that was active at connect.
+pub type XRefreshKeyboardMapping = unsafe extern "C" fn(*mut XMappingEvent) -> c_int;
+/// Full keyboard state as a 32-byte keycode bit vector (`keys_return`).
+pub type XQueryKeymap = unsafe extern "C" fn(*mut Display, *mut c_char) -> c_int;
+/// XKB keycode → keysym for a given group/level. Used to identify which
+/// `ModN` bit actually carries Alt / Super / AltGr on THIS keyboard.
+pub type XkbKeycodeToKeysym =
+    unsafe extern "C" fn(*mut Display, KeyCode, c_int, c_int) -> KeySym;
 /// XTranslateCoordinates(display, src_w, dest_w, src_x, src_y,
 ///   dest_x_return, dest_y_return, child_return) -> Bool (0 = different screens).
 pub type XTranslateCoordinates = unsafe extern "C" fn(

@@ -399,7 +399,7 @@ impl TimePicker {
                 on_hour_up as usize,
                 on_hour_down as usize,
             ),
-            Dom::create_text(SEPARATOR_TEXT)
+            Dom::create_p_with_text(SEPARATOR_TEXT)
                 .with_ids_and_classes(IdOrClassVec::from_const_slice(SEPARATOR_CLASS))
                 .with_css_props(CssPropertyWithConditionsVec::from_const_slice(SEPARATOR_STYLE)),
             build_spinner(
@@ -417,7 +417,7 @@ impl TimePicker {
                 AzString::from_const_str("AM")
             };
             children.push(
-                Dom::create_text(ampm_text)
+                Dom::create_p_with_text(ampm_text)
                     .with_ids_and_classes(IdOrClassVec::from_const_slice(AMPM_CLASS))
                     .with_css_props(CssPropertyWithConditionsVec::from_const_slice(AMPM_STYLE))
                     .with_callbacks(
@@ -457,7 +457,7 @@ fn build_spinner(value: AzString, state: RefAny, up_cb: usize, down_cb: usize) -
     use azul_core::dom::{EventFilter, HoverEventFilter};
 
     let arrow_cell = |arrow: AzString, cb: usize, refany: RefAny| -> Dom {
-        Dom::create_text(arrow)
+        Dom::create_p_with_text(arrow)
             .with_ids_and_classes(IdOrClassVec::from_const_slice(ARROW_CLASS))
             .with_css_props(CssPropertyWithConditionsVec::from_const_slice(ARROW_STYLE))
             .with_callbacks(
@@ -480,7 +480,7 @@ fn build_spinner(value: AzString, state: RefAny, up_cb: usize, down_cb: usize) -
         .with_children(
             alloc::vec![
                 arrow_cell(UP_ARROW, up_cb, state.clone()),
-                Dom::create_text(value)
+                Dom::create_p_with_text(value)
                     .with_ids_and_classes(IdOrClassVec::from_const_slice(DISPLAY_CLASS))
                     .with_css_props(CssPropertyWithConditionsVec::from_const_slice(DISPLAY_STYLE)),
                 arrow_cell(DOWN_ARROW, down_cb, state),
@@ -494,8 +494,9 @@ fn build_spinner(value: AzString, state: RefAny, up_cb: usize, down_cb: usize) -
 /// optional `on_change`.
 #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)] // bounded layout/render numeric cast
 fn adjust_spinner(mut data: RefAny, mut info: CallbackInfo, is_hour: bool, delta: i64) -> Update {
-    // The clicked node is an arrow; its parent is the spinner; the spinner's
-    // first child is the up arrow and the next sibling is the value display.
+    // The clicked node is an arrow `<p>`; its parent is the spinner; the
+    // spinner's first child is the up arrow and the next sibling is the value
+    // display `<p>`, whose only child is the re-textable bare text node.
     let hit = info.get_hit_node();
     let Some(parent) = info.get_parent(hit) else {
         return Update::DoNothing;
@@ -503,7 +504,10 @@ fn adjust_spinner(mut data: RefAny, mut info: CallbackInfo, is_hour: bool, delta
     let Some(up) = info.get_first_child(parent) else {
         return Update::DoNothing;
     };
-    let Some(display) = info.get_next_sibling(up) else {
+    let Some(display_box) = info.get_next_sibling(up) else {
+        return Update::DoNothing;
+    };
+    let Some(display) = info.get_first_child(display_box) else {
         return Update::DoNothing;
     };
 
@@ -553,9 +557,13 @@ extern "C" fn on_minute_down(data: RefAny, info: CallbackInfo) -> Update {
     adjust_spinner(data, info, false, -1)
 }
 
-/// Toggles the AM/PM flag and re-texts the clicked toggle node.
+/// Toggles the AM/PM flag and re-texts the clicked toggle node. The hit node is
+/// the toggle's `<p>` box; the text it wraps is what gets re-texted.
 extern "C" fn on_ampm_toggle(mut data: RefAny, mut info: CallbackInfo) -> Update {
     let hit = info.get_hit_node();
+    let Some(text_node) = info.get_first_child(hit) else {
+        return Update::DoNothing;
+    };
 
     let (update, text) = {
         let Some(mut w) = data.downcast_mut::<TimePickerStateWrapper>() else {
@@ -578,7 +586,7 @@ extern "C" fn on_ampm_toggle(mut data: RefAny, mut info: CallbackInfo) -> Update
         (update, text)
     };
 
-    info.change_node_text(hit, text);
+    info.change_node_text(text_node, text);
     update
 }
 
@@ -647,30 +655,46 @@ mod autotest_generated {
     // Flattened node layout
     //
     // `convert_dom_into_compact_dom` walks the tree in pre-order, and a time
-    // picker is a fixed-shape widget:
+    // picker is a fixed-shape widget. Every label is a `<p>` box wrapping one
+    // bare text node (the widget label convention), so each cell costs two
+    // flattened nodes:
     //
     //     container
-    //       hour spinner   → [▲, display, ▼]
-    //       ":"
-    //       minute spinner → [▲, display, ▼]
-    //       AM/PM          (12-hour mode only)
+    //       hour spinner   → [▲ <p> → text, display <p> → text, ▼ <p> → text]
+    //       ":" <p> → text
+    //       minute spinner → [▲ <p> → text, display <p> → text, ▼ <p> → text]
+    //       AM/PM <p> → text   (12-hour mode only)
     //
     // so the flattened indices are constant. `flattened_layout_is_the_fixed
-    // _ten_or_eleven_nodes` pins them against the real hierarchy, so the click
-    // tests below cannot silently drift onto the wrong node.
+    // _seventeen_or_nineteen_nodes` pins them against the real hierarchy, so the
+    // click tests below cannot silently drift onto the wrong node.
     // ==================================================================
 
     const N_CONTAINER: usize = 0;
     const N_HOUR_SPINNER: usize = 1;
     const N_HOUR_UP: usize = 2;
-    const N_HOUR_DISPLAY: usize = 3;
-    const N_HOUR_DOWN: usize = 4;
-    const N_SEPARATOR: usize = 5;
-    const N_MINUTE_SPINNER: usize = 6;
-    const N_MINUTE_UP: usize = 7;
-    const N_MINUTE_DISPLAY: usize = 8;
-    const N_MINUTE_DOWN: usize = 9;
-    const N_AMPM: usize = 10;
+    const N_HOUR_DISPLAY: usize = 4;
+    const N_HOUR_DOWN: usize = 6;
+    const N_SEPARATOR: usize = 8;
+    const N_MINUTE_SPINNER: usize = 10;
+    const N_MINUTE_UP: usize = 11;
+    const N_MINUTE_DISPLAY: usize = 13;
+    /// The bare text leaf inside the minute display's `<p>` — the node
+    /// `adjust_spinner` retexts (the label convention moved the text one
+    /// level under the styled wrapper).
+    const N_MINUTE_TEXT: usize = 14;
+    const N_MINUTE_DOWN: usize = 15;
+    const N_AMPM: usize = 17;
+
+    /// The bare text node a label `<p>` wraps — pre-order puts it right after its
+    /// box. This is what `change_node_text` has to target.
+    const fn text_leaf(label_box: usize) -> usize {
+        label_box + 1
+    }
+
+    /// Total flattened node count, 24-hour and 12-hour.
+    const N_NODES_24H: usize = 17;
+    const N_NODES_12H: usize = 19;
 
     // The class names are part of the widget's public surface: user stylesheets
     // select on them, so a rename is a breaking change and is spelled out here
@@ -791,7 +815,16 @@ mod autotest_generated {
 
     /// The text a node renders, or `None` for a non-text node.
     fn text_of(dom: &Dom) -> Option<String> {
-        dom.root.get_node_type().format()
+        // P-wrap transparent (the label convention): a styled `<p>` wraps the
+        // bare text leaf, so read through one wrapper level when present.
+        dom.root.get_node_type().format().or_else(|| {
+            let c = dom.children.as_ref();
+            if c.len() == 1 {
+                c[0].root.get_node_type().format()
+            } else {
+                None
+            }
+        })
     }
 
     fn classes(dom: &Dom) -> Vec<String> {
@@ -820,8 +853,14 @@ mod autotest_generated {
     }
 
     /// The text of a *flattened* node.
+    /// The text a flattened node renders, looking through the `<p>` block
+    /// wrapper the label convention mandates (`p > text`).
     fn flat_text(sd: &StyledDom, idx: usize) -> Option<String> {
-        sd.node_data.as_ref()[idx].get_node_type().format()
+        let data = sd.node_data.as_ref();
+        match data[idx].get_node_type() {
+            NodeType::P => data.get(text_leaf(idx))?.get_node_type().format(),
+            other => other.format(),
+        }
     }
 
     /// The recursive `1-per-descendant` total of a `Dom`'s children — what
@@ -2012,7 +2051,7 @@ mod autotest_generated {
         for is_24h in [false, true] {
             for (h, m) in [(0u32, 0u32), (23, 59), (u32::MAX, u32::MAX)] {
                 let dom = TimePicker::create(h, m).with_24h(is_24h).dom();
-                let expected_nodes = if is_24h { 10 } else { 11 };
+                let expected_nodes = if is_24h { N_NODES_24H } else { N_NODES_12H };
                 assert_eq!(
                     dom.estimated_total_children,
                     descendants(&dom),
@@ -2029,7 +2068,7 @@ mod autotest_generated {
     }
 
     #[test]
-    fn flattened_layout_is_the_fixed_ten_or_eleven_nodes() {
+    fn flattened_layout_is_the_fixed_seventeen_or_nineteen_nodes() {
         // Pins the pre-order indices the click tests below index by name.
         let styled = StyledDom::create_from_dom(TimePicker::create(7, 8).with_24h(false).dom());
         for (idx, class, text) in [
@@ -2199,7 +2238,9 @@ mod autotest_generated {
         for value in ["", "0", "999999"] {
             let dom = build_spinner(AzString::from(value.to_string()), RefAny::new(0u8), 1, 2);
             assert_eq!(dom.estimated_total_children, descendants(&dom));
-            assert_eq!(dom.estimated_total_children, 3);
+            // Three cells (▲ / value / ▼), each a styled `<p>` wrapping its
+            // bare text leaf per the label convention: 6 descendants.
+            assert_eq!(dom.estimated_total_children, 6);
         }
     }
 
@@ -2219,7 +2260,7 @@ mod autotest_generated {
         assert_eq!(update, Update::DoNothing, "no callback is installed, so nothing to report");
         assert_eq!(
             only_retext(&changes),
-            (node(N_HOUR_DISPLAY), "10".to_string()),
+            (node(text_leaf(N_HOUR_DISPLAY)), "10".to_string()),
             "the up arrow retexted the wrong node (or with the wrong text)",
         );
     }
@@ -2233,7 +2274,10 @@ mod autotest_generated {
 
         assert_eq!(read_state(&shared).minute, 29, "the down arrow did not decrement the minute");
         assert_eq!(read_state(&shared).hour, 9, "the minute arrow moved the hour");
-        assert_eq!(only_retext(&changes), (node(N_MINUTE_DISPLAY), "29".to_string()));
+        assert_eq!(
+            only_retext(&changes),
+            (node(text_leaf(N_MINUTE_DISPLAY)), "29".to_string())
+        );
 
         // ... and single digits keep the two-digit form the initial render used.
         let (styled, _) = laid_out(TimePicker::create(9, 10));
@@ -2305,7 +2349,7 @@ mod autotest_generated {
             assert_eq!(read_state(&shared).hour, 12, "the minute carried into the hour");
             assert_eq!(
                 only_retext(&changes),
-                (node(N_MINUTE_DISPLAY), format!("{want:02}")),
+                (node(N_MINUTE_TEXT), format!("{want:02}")),
                 "the clamped minute was retexted wrongly",
             );
         }
@@ -2367,7 +2411,7 @@ mod autotest_generated {
     fn a_press_on_a_detached_or_out_of_range_node_changes_nothing_at_all() {
         for (name, hit) in [
             ("no node at all", node_none()),
-            ("one past the end", node(11)),
+            ("one past the end", node(N_NODES_24H)),
             ("far out of range", node(usize::MAX / 2)),
         ] {
             let (styled, shared) = laid_out(TimePicker::create(9, 30));
@@ -2403,7 +2447,7 @@ mod autotest_generated {
         assert_eq!(read_state(&shared).minute, 30, "an hour press moved the minute");
         assert_eq!(
             only_retext(&changes),
-            (node(N_SEPARATOR), "10".to_string()),
+            (node(text_leaf(N_SEPARATOR)), "10".to_string()),
             "the positional lookup landed somewhere other than the separator",
         );
     }
@@ -2540,7 +2584,7 @@ mod autotest_generated {
 
             assert_eq!(
                 only_retext(&changes).0,
-                node(want_node),
+                node(text_leaf(want_node)),
                 "a press on node {hit:?} retexted the wrong display",
             );
         }
@@ -2620,7 +2664,7 @@ mod autotest_generated {
         assert_eq!(read_state(&shared).minute, 31);
         assert_eq!(
             only_retext(&changes),
-            (node(N_MINUTE_DISPLAY), "31".to_string()),
+            (node(text_leaf(N_MINUTE_DISPLAY)), "31".to_string()),
             "a DoNothing user callback suppressed the widget's own repaint",
         );
     }
@@ -2739,8 +2783,8 @@ mod autotest_generated {
         assert_eq!(update, Update::DoNothing);
         assert_eq!(
             only_retext(&changes),
-            (node(N_AMPM), "PM".to_string()),
-            "the toggle did not relabel itself",
+            (node(text_leaf(N_AMPM)), "PM".to_string()),
+            "the toggle did not relabel the text inside its <p>",
         );
     }
 
@@ -2851,22 +2895,23 @@ mod autotest_generated {
     }
 
     #[test]
-    fn the_ampm_toggle_retexts_whatever_node_it_was_told_was_hit() {
-        // Unlike the spinner arrows, the toggle does not validate the hit node —
-        // it relabels it directly. Pinned so the loose behaviour is visible: a
-        // detached hit still produces a (harmless, unappliable) retext.
+    fn the_ampm_toggle_declines_a_hit_that_wraps_no_text_node() {
+        // The toggle relabels the bare text leaf inside its own `<p>`, so a hit
+        // it cannot resolve to one (a detached id, or any childless node) is
+        // declined *before* the flag flips — no half-applied toggle.
         let (styled, shared) = laid_out(TimePicker::create(9, 30).with_24h(false));
         let (_, payload) = wired_to(&styled, on_ampm_toggle as usize);
 
-        let (update, changes) = press(styled, &payload, node_none(), on_ampm_toggle);
+        for hit in [node_none(), node(text_leaf(N_AMPM))] {
+            let (update, changes) = press(styled.clone(), &payload, hit, on_ampm_toggle);
 
-        assert_eq!(update, Update::DoNothing);
-        assert!(read_state(&shared).is_pm, "the flag did not flip for a detached hit");
-        assert_eq!(
-            only_retext(&changes),
-            (node_none(), "PM".to_string()),
-            "the toggle did not retext the (detached) node it was handed",
-        );
+            assert_eq!(update, Update::DoNothing, "{hit:?}: unexpected verdict");
+            assert!(changes.is_empty(), "{hit:?}: an unresolvable hit still retexted");
+            assert!(
+                !read_state(&shared).is_pm,
+                "{hit:?}: an unresolvable hit flipped the flag anyway",
+            );
+        }
     }
 
     #[test]

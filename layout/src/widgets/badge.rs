@@ -174,13 +174,18 @@ impl Badge {
         s
     }
 
-    /// Converts this badge into a DOM text node with the `__azul-native-badge` class.
+    /// Converts this badge into a `<p>` pill carrying the
+    /// `__azul-native-badge` class and wrapping a bare text node.
+    ///
+    /// The pill's background, padding and border-radius live on the `<p>`: a
+    /// `NodeType::Text` node is always inline-level and owns no rect, so those
+    /// properties would never paint on a raw text node.
     #[inline]
     #[must_use] pub fn dom(self) -> Dom {
         static BADGE_CLASS: &[IdOrClass] =
             &[Class(AzString::from_const_str("__azul-native-badge"))];
 
-        Dom::create_text(self.string)
+        Dom::create_p_with_text(self.string)
             .with_ids_and_classes(IdOrClassVec::from_const_slice(BADGE_CLASS))
             .with_css_props(self.badge_style)
     }
@@ -341,6 +346,22 @@ mod autotest_generated {
     /// The properties of a rendered node's *inline* style, in declaration order.
     fn inline_properties(node: &Dom) -> Vec<CssProperty> {
         node.root.style.iter_inline_properties().map(|(p, _)| p.clone()).collect()
+    }
+
+    /// The text carried by a text node, looking through the `<p>` block
+    /// wrapper the label convention mandates (`p > text`).
+    fn text_of(node: &Dom) -> Option<&str> {
+        match node.root.get_node_type() {
+            NodeType::Text(s) => Some(s.as_ref().as_str()),
+            NodeType::P => match node.children.as_ref() {
+                [only] => match only.root.get_node_type() {
+                    NodeType::Text(s) => Some(s.as_ref().as_str()),
+                    _ => None,
+                },
+                _ => None,
+            },
+            _ => None,
+        }
     }
 
     /// Adversarial badge texts: empty, whitespace, combining marks, ZWJ emoji,
@@ -791,20 +812,25 @@ mod autotest_generated {
     // ------------------------------------------------------------------
 
     #[test]
-    fn dom_is_a_single_classed_text_node_carrying_the_computed_style() {
+    fn dom_is_a_single_classed_pill_carrying_the_computed_style() {
         for kind in ALL_KINDS {
             let badge = Badge::with_kind(AzString::from_const_str("99+"), kind);
             let expected = properties(&badge.badge_style);
             let dom = badge.dom();
 
             assert!(has_class(&dom, "__azul-native-badge"), "{kind:?}: missing the widget class");
-            assert!(dom.children.as_ref().is_empty(), "{kind:?}: a badge is a single text node, not a subtree");
+            assert!(
+                matches!(dom.root.get_node_type(), NodeType::P),
+                "{kind:?}: the pill box must be the <p>, not a rect-less text node"
+            );
+            assert_eq!(dom.children.as_ref().len(), 1, "{kind:?}: a badge is one <p> wrapping one text node");
             assert_eq!(inline_properties(&dom), expected, "{kind:?}: the pill lost its computed style");
+            assert!(
+                inline_properties(&dom.children.as_ref()[0]).is_empty(),
+                "{kind:?}: styling belongs on the <p>, not on the text node"
+            );
 
-            match dom.root.get_node_type() {
-                NodeType::Text(s) => assert_eq!(s.as_ref().as_str(), "99+", "{kind:?}: the label was mangled"),
-                other => panic!("{kind:?}: expected a text node, got {other:?}"),
-            }
+            assert_eq!(text_of(&dom), Some("99+"), "{kind:?}: the label was mangled");
         }
     }
 
@@ -825,12 +851,15 @@ mod autotest_generated {
     fn dom_preserves_adversarial_labels_verbatim() {
         for s in adversarial_strings() {
             let dom = Badge::create(AzString::from(s.clone())).dom();
-            match dom.root.get_node_type() {
-                NodeType::Text(t) => {
-                    assert_eq!(t.as_ref().as_str(), s.as_str(), "the label changed on its way into the DOM");
-                    assert_eq!(t.as_ref().len(), s.len(), "byte length changed (NUL truncation?)");
-                }
-                other => panic!("expected a text node, got {other:?}"),
+            match dom.children.as_ref() {
+                [only] => match only.root.get_node_type() {
+                    NodeType::Text(t) => {
+                        assert_eq!(t.as_ref().as_str(), s.as_str(), "the label changed on its way into the DOM");
+                        assert_eq!(t.as_ref().len(), s.len(), "byte length changed (NUL truncation?)");
+                    }
+                    other => panic!("expected a text node, got {other:?}"),
+                },
+                other => panic!("expected exactly one text child, got {} children", other.len()),
             }
             assert!(has_class(&dom, "__azul-native-badge"));
         }

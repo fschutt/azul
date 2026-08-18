@@ -360,14 +360,14 @@ impl Alert {
             refany::OptionRefAny,
         };
 
-        let message = Dom::create_text(self.message)
+        let message = Dom::create_p_with_text(self.message)
             .with_ids_and_classes(IdOrClassVec::from_const_slice(ALERT_MESSAGE_CLASS))
             .with_css_props(CssPropertyWithConditionsVec::from_const_slice(ALERT_MESSAGE_STYLE));
 
         let mut children = alloc::vec![message];
 
         if self.dismissible {
-            let close = Dom::create_text(AzString::from_const_str("\u{00D7}"))
+            let close = Dom::create_p_with_text(AzString::from_const_str("\u{00D7}"))
                 .with_ids_and_classes(IdOrClassVec::from_const_slice(ALERT_CLOSE_CLASS))
                 .with_css_props(CssPropertyWithConditionsVec::from_const_slice(ALERT_CLOSE_STYLE))
                 .with_tab_index(TabIndex::Auto)
@@ -477,10 +477,18 @@ mod autotest_generated {
         AlertKind::Danger,
     ];
 
-    /// The text of a `NodeType::Text` node (`None` for any other node type).
+    /// The text of a text node, looking through the `<p>` block wrapper the
+    /// label convention mandates (`p > text`).
     fn text_of(node: &Dom) -> Option<&str> {
         match node.root.get_node_type() {
             NodeType::Text(s) => Some(s.as_ref().as_str()),
+            NodeType::P => match node.children.as_ref() {
+                [only] => match only.root.get_node_type() {
+                    NodeType::Text(s) => Some(s.as_ref().as_str()),
+                    _ => None,
+                },
+                _ => None,
+            },
             _ => None,
         }
     }
@@ -595,8 +603,8 @@ mod autotest_generated {
         let styled = StyledDom::create_from_dom(alert.dom());
         assert_eq!(
             styled.node_hierarchy.as_ref().len(),
-            3,
-            "fixture must flatten to exactly container/message/close"
+            5,
+            "fixture must flatten to container / message <p> + text / close <p> + text"
         );
         styled
     }
@@ -1287,6 +1295,11 @@ mod autotest_generated {
         );
     }
 
+    /// Flat index of the close button in `dismissible_styled_dom`: the tree is
+    /// `0 container / 1 message <p> / 2 message text / 3 close <p> / 4 close text`
+    /// in depth-first pre-order, and the callback sits on the `<p>`.
+    const CLOSE_NODE: usize = 3;
+
     #[test]
     fn dom_is_stable_across_kinds_and_only_the_container_style_changes() {
         for kind in ALL_KINDS {
@@ -1313,8 +1326,8 @@ mod autotest_generated {
     fn dismiss_hides_the_container_and_flips_visible() {
         let mut data = RefAny::new(AlertStateWrapper::default());
 
-        // node 2 == the close button, its parent (node 0) is the container
-        let (update, changes) = run_dismiss(Some(dismissible_styled_dom()), 2, data.clone());
+        // CLOSE_NODE == the close button <p>, its parent (node 0) is the container
+        let (update, changes) = run_dismiss(Some(dismissible_styled_dom()), CLOSE_NODE, data.clone());
 
         assert_eq!(update, Update::DoNothing, "no user callback -> DoNothing");
         assert_eq!(
@@ -1337,7 +1350,7 @@ mod autotest_generated {
             .into(),
         });
 
-        let (update, changes) = run_dismiss(Some(dismissible_styled_dom()), 2, data.clone());
+        let (update, changes) = run_dismiss(Some(dismissible_styled_dom()), CLOSE_NODE, data.clone());
 
         assert_eq!(update, Update::RefreshDom, "the user callback's Update is returned");
         assert_eq!(
@@ -1366,7 +1379,7 @@ mod autotest_generated {
         });
 
         for _ in 0..2 {
-            let (update, changes) = run_dismiss(Some(dismissible_styled_dom()), 2, data.clone());
+            let (update, changes) = run_dismiss(Some(dismissible_styled_dom()), CLOSE_NODE, data.clone());
             assert_eq!(update, Update::RefreshDom);
             assert_eq!(display_writes(&changes), alloc::vec![(0usize, LayoutDisplay::None)]);
         }
@@ -1419,7 +1432,7 @@ mod autotest_generated {
         // the callback-bearing node carries a RefAny of the *wrong* type
         let data = RefAny::new(0xdead_beef_u64);
 
-        let (update, changes) = run_dismiss(Some(dismissible_styled_dom()), 2, data.clone());
+        let (update, changes) = run_dismiss(Some(dismissible_styled_dom()), CLOSE_NODE, data.clone());
 
         assert_eq!(update, Update::DoNothing);
         assert!(
@@ -1440,7 +1453,7 @@ mod autotest_generated {
         let mut payload = entry.refany.clone();
 
         let styled = StyledDom::create_from_dom(dom);
-        let (update, changes) = run_dismiss(Some(styled), 2, payload.clone());
+        let (update, changes) = run_dismiss(Some(styled), CLOSE_NODE, payload.clone());
 
         assert_eq!(update, Update::DoNothing);
         assert_eq!(

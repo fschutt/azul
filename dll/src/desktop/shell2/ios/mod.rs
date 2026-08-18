@@ -1318,6 +1318,7 @@ impl IOSWindow {
                 layout_window: Some(layout_window),
                 current_window_state: full_window_state,
                 previous_window_state: None,
+                os_synced_state: None,
                 renderer_resources: RendererResources::default(),
                 fc_cache,
                 gl_context_ptr: OptionGlContextPtr::None,
@@ -1621,5 +1622,7 @@ impl PlatformWindow for IOSWindow {
 
     fn hide_tooltip_from_callback(&mut self) {}
 
+    /// UIKit owns the window geometry outright, so there is nothing to push and
+    /// no OS-sync baseline to diff (`os_synced_state` stays `None`).
     fn sync_window_state(&mut self) {}
 }

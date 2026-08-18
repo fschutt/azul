@@ -962,6 +962,13 @@ fn find_nearest_scrollport(
 
 /// Find the scroll offset of the nearest scroll container ancestor.
 /// Returns the scroll offset as a `LogicalPosition` (how far the content has scrolled).
+///
+/// `children_rect.origin` IS that offset (see
+/// `ScrollManager::get_scroll_states_for_dom`), positive meaning "scrolled
+/// down/right". `parent_rect.origin` is an ABSOLUTE window coordinate and must
+/// NOT be subtracted from it — doing so mixed two spaces and reported a
+/// container's own y as a scroll amount for every scroller below the top of
+/// the window.
 fn find_nearest_scroll_offset(
     tree: &LayoutTree,
     node_index: usize,
@@ -972,9 +979,7 @@ fn find_nearest_scroll_offset(
         if let Some(pnode) = tree.get(pidx) {
             if let Some(dom_id) = pnode.dom_node_id {
                 if let Some(scroll_pos) = scroll_offsets.get(&dom_id) {
-                    let offset_x = scroll_pos.children_rect.origin.x - scroll_pos.parent_rect.origin.x;
-                    let offset_y = scroll_pos.children_rect.origin.y - scroll_pos.parent_rect.origin.y;
-                    return LogicalPosition::new(offset_x, offset_y);
+                    return scroll_pos.children_rect.origin;
                 }
             }
             parent = pnode.parent;
@@ -1930,14 +1935,18 @@ mod autotest_generated {
     // find_nearest_scroll_offset (numeric)
     // ==================================================================
 
-    fn scroll_at(parent: (f32, f32), children: (f32, f32)) -> ScrollPosition {
+    /// `container_origin` is the scroller's ABSOLUTE window position, `offset`
+    /// is the scroll amount — the two are deliberately different everywhere
+    /// below, because a fixture with a container at (0, 0) cannot tell the two
+    /// `ScrollPosition` conventions apart.
+    fn scroll_at(container_origin: (f32, f32), offset: (f32, f32)) -> ScrollPosition {
         ScrollPosition {
             parent_rect: LogicalRect::new(
-                LogicalPosition::new(parent.0, parent.1),
+                LogicalPosition::new(container_origin.0, container_origin.1),
                 LogicalSize::new(100.0, 100.0),
             ),
             children_rect: LogicalRect::new(
-                LogicalPosition::new(children.0, children.1),
+                LogicalPosition::new(offset.0, offset.1),
                 LogicalSize::new(100.0, 400.0),
             ),
         }
@@ -1957,7 +1966,7 @@ mod autotest_generated {
     fn find_nearest_scroll_offset_out_of_range_index_is_zero_not_a_panic() {
         let (sd, tree) = two_level("");
         let mut offsets = BTreeMap::new();
-        offsets.insert(node_by_class(&sd, "root"), scroll_at((0.0, 0.0), (0.0, -50.0)));
+        offsets.insert(node_by_class(&sd, "root"), scroll_at((0.0, 120.0), (0.0, 50.0)));
         assert_eq!(
             find_nearest_scroll_offset(&tree, 9_999, &offsets),
             LogicalPosition::zero()
@@ -1972,7 +1981,7 @@ mod autotest_generated {
         let mut offsets = BTreeMap::new();
         offsets.insert(
             node_by_class(&sd, "child"),
-            scroll_at((0.0, 0.0), (0.0, -50.0)),
+            scroll_at((0.0, 120.0), (0.0, 50.0)),
         );
         assert_eq!(
             find_nearest_scroll_offset(&tree, 1, &offsets),
@@ -1981,16 +1990,32 @@ mod autotest_generated {
     }
 
     #[test]
-    fn find_nearest_scroll_offset_is_children_origin_minus_parent_origin() {
+    fn find_nearest_scroll_offset_is_the_raw_offset_not_a_container_relative_one() {
+        // CONVENTION PIN. `children_rect.origin` IS the scroll offset;
+        // `parent_rect.origin` is an absolute window coordinate in a different
+        // space. Subtracting the two (as this used to) reported the AzWriter
+        // document view — a scroller at y = 120, unscrolled — as scrolled by
+        // -120, which then shifted every sticky box inside it by a screenful.
         let (sd, tree) = two_level("");
         let mut offsets = BTreeMap::new();
         offsets.insert(
             node_by_class(&sd, "root"),
-            scroll_at((10.0, 20.0), (-5.0, -80.0)),
+            scroll_at((10.0, 120.0), (0.0, 0.0)),
         );
         assert_eq!(
             find_nearest_scroll_offset(&tree, 1, &offsets),
-            LogicalPosition::new(-15.0, -100.0)
+            LogicalPosition::zero(),
+            "an unscrolled container reports zero wherever it sits"
+        );
+
+        offsets.insert(
+            node_by_class(&sd, "root"),
+            scroll_at((10.0, 120.0), (5.0, 80.0)),
+        );
+        assert_eq!(
+            find_nearest_scroll_offset(&tree, 1, &offsets),
+            LogicalPosition::new(5.0, 80.0),
+            "the offset is reported verbatim, not relative to the container"
         );
     }
 
@@ -1998,11 +2023,11 @@ mod autotest_generated {
     fn find_nearest_scroll_offset_picks_the_nearest_ancestor() {
         let (sd, tree) = three_level("");
         let mut offsets = BTreeMap::new();
-        offsets.insert(node_by_class(&sd, "root"), scroll_at((0.0, 0.0), (0.0, -999.0)));
-        offsets.insert(node_by_class(&sd, "mid"), scroll_at((0.0, 0.0), (0.0, -7.0)));
+        offsets.insert(node_by_class(&sd, "root"), scroll_at((0.0, 40.0), (0.0, 999.0)));
+        offsets.insert(node_by_class(&sd, "mid"), scroll_at((0.0, 120.0), (0.0, 7.0)));
         assert_eq!(
             find_nearest_scroll_offset(&tree, 2, &offsets),
-            LogicalPosition::new(0.0, -7.0),
+            LogicalPosition::new(0.0, 7.0),
             "mid wins over root"
         );
     }
@@ -2012,10 +2037,10 @@ mod autotest_generated {
         let (sd, mut tree) = three_level("");
         tree.nodes[1].dom_node_id = None;
         let mut offsets = BTreeMap::new();
-        offsets.insert(node_by_class(&sd, "root"), scroll_at((0.0, 0.0), (0.0, -30.0)));
+        offsets.insert(node_by_class(&sd, "root"), scroll_at((0.0, 120.0), (0.0, 30.0)));
         assert_eq!(
             find_nearest_scroll_offset(&tree, 2, &offsets),
-            LogicalPosition::new(0.0, -30.0)
+            LogicalPosition::new(0.0, 30.0)
         );
     }
 
@@ -2028,11 +2053,12 @@ mod autotest_generated {
             scroll_at((f32::MAX, f32::MAX), (f32::MIN, f32::MIN)),
         );
         let got = find_nearest_scroll_offset(&tree, 1, &offsets);
-        // MIN - MAX overflows f32 → -inf. It must not be NaN (which would poison
-        // every downstream sticky comparison silently).
+        // No arithmetic is performed any more, so an extreme offset passes
+        // through as-is instead of overflowing to -inf. It must never be NaN
+        // (which would poison every downstream sticky comparison silently).
         assert!(!got.x.is_nan() && !got.y.is_nan());
-        assert_eq!(got.x, f32::NEG_INFINITY);
-        assert_eq!(got.y, f32::NEG_INFINITY);
+        assert_eq!(got.x, f32::MIN);
+        assert_eq!(got.y, f32::MIN);
     }
 
     // ==================================================================
@@ -2622,10 +2648,30 @@ mod autotest_generated {
             );
             let root = node_by_class(&env.styled_dom, "root");
             let mut offsets = BTreeMap::new();
-            offsets.insert(root, scroll_at((0.0, 0.0), (0.0, 50.0)));
+            // The container sits 120px down the window (the AzWriter document
+            // view under the ribbon) — its absolute origin must not leak into
+            // the scroll amount. Scrolled by 50, it must behave exactly like a
+            // container at the window origin scrolled by 50.
+            offsets.insert(root, scroll_at((0.0, 120.0), (0.0, 50.0)));
             run_sticky(&mut env, &tree, &mut pos, &offsets);
             // sticky edge = scrollport.y (0) + scroll (50) + inset (10).
             assert_eq!(pos[1].y, 60.0);
+        }
+
+        #[test]
+        fn sticky_does_not_move_when_a_low_container_is_unscrolled() {
+            // REGRESSION: `find_nearest_scroll_offset` used to return
+            // `children_rect.origin - parent_rect.origin`, so this container —
+            // at y = 120 with the scroll offset still at zero — reported -120
+            // and pushed the sticky box a screenful out of its scrollport.
+            let (mut env, tree, mut pos) = sticky_fixture(
+                ".root { overflow-y: scroll; } .child { position: sticky; top: 10px; }",
+            );
+            let root = node_by_class(&env.styled_dom, "root");
+            let mut offsets = BTreeMap::new();
+            offsets.insert(root, scroll_at((0.0, 120.0), (0.0, 0.0)));
+            run_sticky(&mut env, &tree, &mut pos, &offsets);
+            assert_eq!(pos[1].y, 10.0, "unscrolled: only the inset applies");
         }
 
         #[test]

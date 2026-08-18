@@ -408,7 +408,7 @@ impl RadioGroup {
                     .into(),
                 );
 
-            let label_node = Dom::create_text(label.clone())
+            let label_node = Dom::create_p_with_text(label.clone())
                 .with_ids_and_classes(IdOrClassVec::from_const_slice(RADIO_GROUP_LABEL_CLASS))
                 .with_css_props(CssPropertyWithConditionsVec::from_const_slice(
                     RADIO_GROUP_LABEL_STYLE,
@@ -719,10 +719,18 @@ mod autotest_generated {
             .collect()
     }
 
-    /// The text of a `NodeType::Text` node (`None` for any other node type).
+    /// The text of a text node, looking through the `<p>` block wrapper the
+    /// label convention mandates (`p > text`).
     fn text_of(node: &Dom) -> Option<&str> {
         match node.root.get_node_type() {
             NodeType::Text(s) => Some(s.as_ref().as_str()),
+            NodeType::P => match node.children.as_ref() {
+                [only] => match only.root.get_node_type() {
+                    NodeType::Text(s) => Some(s.as_ref().as_str()),
+                    _ => None,
+                },
+                _ => None,
+            },
             _ => None,
         }
     }
@@ -758,14 +766,15 @@ mod autotest_generated {
     // ------------------------------------------------------------------
 
     /// Flattened (pre-order) node id of option row `i`: the tree is
-    /// `root, [row, circle, dot, label] * n`.
+    /// `root, [row, circle, dot, label <p>, label text] * n` — the label is a
+    /// `<p>` wrapping a bare text node, per the widget label convention.
     fn row_node(i: usize) -> DomNodeId {
-        node(1 + 4 * i)
+        node(1 + 5 * i)
     }
 
     /// Flattened node id of option `i`'s indicator dot.
     fn dot_node(i: usize) -> NodeId {
-        NodeId::new(3 + 4 * i)
+        NodeId::new(3 + 5 * i)
     }
 
     fn node(idx: usize) -> DomNodeId {
@@ -1722,15 +1731,15 @@ mod autotest_generated {
     }
 
     #[test]
-    fn dom_flattens_to_four_nodes_per_option() {
-        // root + (row, circle, dot, label) per option. The click handler's live
-        // restyle walks exactly this shape, and the callback tests below address
-        // nodes by this formula.
+    fn dom_flattens_to_five_nodes_per_option() {
+        // root + (row, circle, dot, label <p>, label text) per option. The click
+        // handler's live restyle walks exactly this shape, and the callback tests
+        // below address nodes by this formula.
         for n in [0, 1, 2, 7] {
             let styled = StyledDom::create_from_dom(RadioGroup::create(n_labels(n)).dom());
             assert_eq!(
                 styled.node_hierarchy.as_ref().len(),
-                1 + 4 * n,
+                1 + 5 * n,
                 "an {n}-option group flattened to an unexpected node count",
             );
         }
@@ -2004,9 +2013,9 @@ mod autotest_generated {
         // the callback is registered on, and only rows carry callbacks. Should an
         // inner node ever reach it anyway, it must stay memory-safe and push no
         // half-finished restyle — the sibling walk simply finds no dots to update.
-        // (`dot` is its circle's only child -> position 0; `label` is its row's
-        // second child -> position 1, regardless of which row it belongs to.)
-        for (hit, expected) in [(node(3), 0usize), (node(11), 0), (node(4), 1), (node(12), 1)] {
+        // (`dot` is its circle's only child -> position 0; the label `<p>` is its
+        // row's second child -> position 1, regardless of which row it belongs to.)
+        for (hit, expected) in [(node(3), 0usize), (node(13), 0), (node(4), 1), (node(14), 1)] {
             let (styled, state) = flatten(group(&["a", "b", "c"]));
             let mut probe = state.clone();
 

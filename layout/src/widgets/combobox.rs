@@ -543,7 +543,7 @@ impl ComboBox {
         // pattern), so open/selected/text stay in sync across interactions.
         let state_ref = RefAny::new(self.combo_state);
 
-        let text_node = Dom::create_text(field_text)
+        let text_node = Dom::create_p_with_text(field_text)
             .with_ids_and_classes(IdOrClassVec::from_const_slice(COMBOBOX_TEXT_CLASS))
             .with_css_props(self.text_style);
 
@@ -594,7 +594,7 @@ impl ComboBox {
         let mut option_doms: Vec<Dom> = Vec::with_capacity(items.as_ref().len());
         for option in items.as_ref() {
             option_doms.push(
-                Dom::create_text(option.clone())
+                Dom::create_p_with_text(option.clone())
                     .with_ids_and_classes(IdOrClassVec::from_const_slice(COMBOBOX_OPTION_CLASS))
                     .with_css_props(self.option_style.clone())
                     .with_tab_index(TabIndex::Auto)
@@ -678,7 +678,9 @@ extern "C" fn on_combobox_text_input(data: RefAny, info: CallbackInfo) -> Update
 
 fn on_combobox_text_input_inner(mut data: RefAny, mut info: CallbackInfo) -> Option<Update> {
     let field = info.get_hit_node();
-    let text_node = info.get_first_child(field)?;
+    // field -> label `<p>` -> bare text leaf: the label convention keeps the
+    // styling on the block box, so the re-textable node is one level deeper.
+    let text_node = info.get_first_child(info.get_first_child(field)?)?;
 
     let changeset = info.get_text_changeset()?;
     let inserted_text = changeset.inserted_text.as_str().to_string();
@@ -705,7 +707,8 @@ extern "C" fn on_combobox_key_down(data: RefAny, info: CallbackInfo) -> Update {
 
 fn on_combobox_key_down_inner(mut data: RefAny, mut info: CallbackInfo) -> Option<Update> {
     let field = info.get_hit_node();
-    let text_node = info.get_first_child(field)?;
+    // field -> label `<p>` -> bare text leaf (see `on_combobox_text_input_inner`).
+    let text_node = info.get_first_child(info.get_first_child(field)?)?;
 
     let keyboard_state = info.get_current_keyboard_state();
     let c = keyboard_state.current_virtual_keycode.into_option()?;
@@ -725,9 +728,10 @@ fn on_combobox_key_down_inner(mut data: RefAny, mut info: CallbackInfo) -> Optio
     Some(Update::DoNothing)
 }
 
-/// Option click handler. The hit node is the clicked option; its index is the
-/// number of previous siblings. Its parent is the list; the list's parent is the
-/// wrapper, whose first child is the field, whose first child is the text node.
+/// Option click handler. The hit node is the clicked option's `<p>`; its index is
+/// the number of previous siblings. Its parent is the list; the list's parent is
+/// the wrapper, whose first child is the field, whose first child is the label
+/// `<p>`, whose only child is the text node.
 /// Fills the field with the option's label, sets `selected`, closes the list, and
 /// invokes the optional user callback.
 extern "C" fn on_combobox_option_click(mut data: RefAny, mut info: CallbackInfo) -> Update {
@@ -750,7 +754,10 @@ extern "C" fn on_combobox_option_click(mut data: RefAny, mut info: CallbackInfo)
     let Some(field) = info.get_first_child(wrapper) else {
         return Update::DoNothing;
     };
-    let Some(text_node) = info.get_first_child(field) else {
+    let Some(text_box) = info.get_first_child(field) else {
+        return Update::DoNothing;
+    };
+    let Some(text_node) = info.get_first_child(text_box) else {
         return Update::DoNothing;
     };
 
@@ -846,10 +853,18 @@ mod autotest_generated {
             .any(|c| matches!(c, Class(s) if s.as_str() == name))
     }
 
-    /// The text of a `NodeType::Text` node (`None` for any other node type).
+    /// The text of a text node, looking through the `<p>` block wrapper the
+    /// label convention mandates (`p > text`).
     fn text_of(node: &Dom) -> Option<&str> {
         match node.root.get_node_type() {
             NodeType::Text(s) => Some(s.as_ref().as_str()),
+            NodeType::P => match node.children.as_ref() {
+                [only] => match only.root.get_node_type() {
+                    NodeType::Text(s) => Some(s.as_ref().as_str()),
+                    _ => None,
+                },
+                _ => None,
+            },
             _ => None,
         }
     }
@@ -937,7 +952,14 @@ mod autotest_generated {
 
         let wrapper = one(&styled, "__azul-native-combobox");
         let field = one(&styled, "__azul-native-combobox-input");
-        let text = one(&styled, "__azul-native-combobox-text");
+        // The class sits on the label `<p>`; the node the handlers re-text is
+        // the bare text leaf inside it, which pre-order flattening puts next.
+        let text_box = one(&styled, "__azul-native-combobox-text");
+        let text = text_box + 1;
+        assert!(
+            matches!(styled.node_data.as_ref()[text].get_node_type(), NodeType::Text(_)),
+            "the combobox field label must be `p > text`"
+        );
         let list = one(&styled, "__azul-native-combobox-list");
         let options = nodes_with_class(&styled, "__azul-native-combobox-option");
         assert_eq!(options.len(), items.len());
@@ -1844,8 +1866,8 @@ mod autotest_generated {
 
     #[test]
     fn text_input_on_a_childless_node_is_a_noop() {
-        // An option row is a leaf: `get_first_child` returns None before any
-        // state is touched.
+        // A bare text leaf has no children of its own: `get_first_child`
+        // returns None before any state is touched.
         let fx = fixture(&["a"]);
         let mut data = state(&["a"], "abc", false, 0);
 
@@ -1859,7 +1881,7 @@ mod autotest_generated {
                 }),
                 ..Env::default()
             },
-            fx.options[0],
+            fx.text,
             data.clone(),
             |r, ci| on_combobox_text_input(r, ci),
         );
@@ -1893,7 +1915,7 @@ mod autotest_generated {
         assert_eq!(
             text_writes(&changes),
             alloc::vec![(fx.text, String::from("abc"))],
-            "the field's first child is the node that is re-texted"
+            "the text leaf inside the field's label <p> is the node that is re-texted"
         );
         assert_eq!(inner_of(&mut data).text.as_str(), "abc");
         // selection/open state is not disturbed by typing

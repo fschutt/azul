@@ -82,6 +82,13 @@ pub struct AndroidWindow {
     pub backend: RenderBackend,
     /// `false` once `MainEvent::Destroy` arrives; breaks the outer loop.
     pub is_open: bool,
+    /// Theme change queued by the Java-UI-thread JNI hook
+    /// (`nativeOnUiModeChanged`), drained on the LOOP thread each iteration.
+    /// Encoding matches the JNI contract: 0 = none pending, 1 = light,
+    /// 2 = dark. The Java thread must never mutate window state or run a
+    /// pass itself — that is what left a live delta for the validation check
+    /// and raced the loop's own reads.
+    pub pending_theme: std::sync::atomic::AtomicI32,
     /// Shared icon provider — needed by `regenerate_layout()` so widgets
     /// (notably button/icon containers) can resolve `IconReference`s.
     pub icon_provider: SharedIconProvider,
@@ -128,6 +135,7 @@ impl AndroidWindow {
                 layout_window: Some(layout_window),
                 current_window_state: full_window_state,
                 previous_window_state: None,
+                os_synced_state: None,
                 renderer_resources: RendererResources::default(),
                 fc_cache,
                 gl_context_ptr: azul_core::gl::OptionGlContextPtr::None,
@@ -152,6 +160,7 @@ impl AndroidWindow {
             native_window: None,
             backend: RenderBackend::Cpu,
             is_open: true,
+            pending_theme: std::sync::atomic::AtomicI32::new(0),
             icon_provider,
             font_registry,
             accessibility_adapter: accessibility::AndroidAccessibilityAdapter::new(),
@@ -420,6 +429,8 @@ impl PlatformWindow for AndroidWindow {
 
     fn hide_tooltip_from_callback(&mut self) {}
 
+    /// The activity owns the window geometry outright, so there is nothing to
+    /// push and no OS-sync baseline to diff (`os_synced_state` stays `None`).
     fn sync_window_state(&mut self) {}
 }
 
@@ -514,6 +525,10 @@ pub fn android_main(app: AndroidApp) {
 
         // Regenerate layout when something invalidated the frame (init,
         // resize, input). Populates cpu_backend.last_frame.
+        // Drain the Java-thread theme queue on the loop thread: snapshot →
+        // mutate → pass, like every other OS-state change.
+        drain_pending_theme(&mut window);
+
         let mut frame_dirty = false;
         if window.common.regeneration_pending() {
             match window.regenerate_layout() {
@@ -554,6 +569,28 @@ pub fn android_main(app: AndroidApp) {
 /// already queued as `Initial` and the user's layout callback must see THAT,
 /// so return the implicit `RefreshDom` (which `request_regeneration` never
 /// lets overwrite a more specific queued reason) while it is still pending.
+/// Apply a theme change queued by the Java UI thread (see `pending_theme`).
+/// Runs on the loop thread: contract shape (snapshot → mutate → pass), so
+/// `ThemeChanged` dispatches and no live delta is left behind.
+#[cfg(all(target_os = "android", feature = "android-activity"))]
+fn drain_pending_theme(window: &mut AndroidWindow) {
+    let raw = window
+        .pending_theme
+        .swap(0, std::sync::atomic::Ordering::AcqRel);
+    let theme = match raw {
+        1 => azul_core::window::WindowTheme::LightMode,
+        2 => azul_core::window::WindowTheme::DarkMode,
+        _ => return,
+    };
+    if window.common.current_window_state.theme == theme {
+        return;
+    }
+    window.common.previous_window_state = Some(window.common.current_window_state.clone());
+    window.common.current_window_state.theme = theme;
+    window.common.request_regeneration(RelayoutReason::ThemeChange);
+    let _ = window.process_window_events(0);
+}
+
 #[cfg(all(target_os = "android", feature = "android-activity"))]
 fn resize_reason(window: &AndroidWindow) -> RelayoutReason {
     if window.common.regeneration_pending()
@@ -570,6 +607,12 @@ fn handle_poll_event(app: &AndroidApp, window: &mut AndroidWindow, event: PollEv
     match event {
         PollEvent::Main(main_event) => match main_event {
             MainEvent::InitWindow { .. } => {
+                // Contract shape (snapshot → mutate → pass): Android never
+                // dispatched WindowResize/WindowDpiChanged — these arms wrote
+                // geometry with no snapshot and no pass, so the diff either
+                // never existed or tripped the validation check later.
+                window.common.previous_window_state =
+                    Some(window.common.current_window_state.clone());
                 // Sync the framework's window state to the native
                 // surface: physical dimensions + DPI. azul-layout uses
                 // 96 as the "1x" baseline (CSS pixel = 1/96 inch), so
@@ -606,6 +649,7 @@ fn handle_poll_event(app: &AndroidApp, window: &mut AndroidWindow, event: PollEv
                         window.common.request_regeneration(reason);
                     }
                 }
+                let _ = window.process_window_events(0);
             }
             MainEvent::TerminateWindow { .. } => {
                 log_debug!(LogCategory::Window, "[Android] TerminateWindow");
@@ -613,6 +657,9 @@ fn handle_poll_event(app: &AndroidApp, window: &mut AndroidWindow, event: PollEv
                 { window.native_window = None; }
             }
             MainEvent::WindowResized { .. } => {
+                // Contract shape (snapshot → mutate → pass) — see InitWindow.
+                window.common.previous_window_state =
+                    Some(window.common.current_window_state.clone());
                 #[cfg(feature = "ndk")]
                 {
                     if let Some(nw) = window.native_window.as_ref() {
@@ -626,6 +673,7 @@ fn handle_poll_event(app: &AndroidApp, window: &mut AndroidWindow, event: PollEv
                 }
                 let reason = resize_reason(window);
                 window.common.request_regeneration(reason);
+                let _ = window.process_window_events(0);
             }
             MainEvent::ConfigChanged { .. } => {
                 // Density can change while running: fold/unfold, moving the
@@ -637,6 +685,10 @@ fn handle_poll_event(app: &AndroidApp, window: &mut AndroidWindow, event: PollEv
                 let density = app.config().density().filter(|&d| d > 0).unwrap_or(160);
                 let dpi = (((density as f32) * 96.0 / 160.0).round() as u32).max(1);
                 if window.common.current_window_state.size.dpi != dpi {
+                    // Contract shape (snapshot → mutate → pass) — the dpi
+                    // diff is what dispatches WindowDpiChanged.
+                    window.common.previous_window_state =
+                        Some(window.common.current_window_state.clone());
                     let reason = resize_reason(window);
                     window.common.current_window_state.size.dpi = dpi;
                     #[cfg(feature = "ndk")]
@@ -648,6 +700,7 @@ fn handle_poll_event(app: &AndroidApp, window: &mut AndroidWindow, event: PollEv
                             (nw.height() as f32) / android_scale;
                     }
                     window.common.request_regeneration(reason);
+                    let _ = window.process_window_events(0);
                 }
             }
             MainEvent::InputAvailable => {
@@ -1242,16 +1295,14 @@ mod jni_bridge {
             // whatever the window already carries.
             _ => return,
         };
+        // Queue only — the LOOP thread drains this (drain_pending_theme),
+        // snapshots the event-diff baseline, applies the theme and runs the
+        // pass there. Mutating window state from the Java thread raced the
+        // loop and left a live delta the validation check rightly flags.
+        let _ = theme;
         with_window(native_ptr, |w| {
-            if w.common.current_window_state.theme == theme {
-                return;
-            }
-            // previous_window_state is what the diff pipeline compares against
-            // to decide a ThemeChanged event fired; without it no callback runs.
-            w.common.previous_window_state = Some(w.common.current_window_state.clone());
-            w.common.current_window_state.theme = theme;
-            w.common
-                .request_regeneration(RelayoutReason::ThemeChange);
+            w.pending_theme
+                .store(night_mode, std::sync::atomic::Ordering::Release);
         });
     }
 

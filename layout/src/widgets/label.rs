@@ -101,13 +101,18 @@ impl Label {
         s
     }
 
-    /// Converts this label into a DOM text node with the `__azul-native-label` class.
+    /// Converts this label into a `<p>` block carrying the
+    /// `__azul-native-label` class and wrapping a bare text node.
+    ///
+    /// The `<p>` is the styled box: a `NodeType::Text` node is always
+    /// inline-level and owns no rect, so every box-model property here would
+    /// be inert on a raw text node.
     #[inline]
     #[must_use] pub fn dom(self) -> Dom {
         static LABEL_CLASS: &[IdOrClass] =
             &[Class(AzString::from_const_str("__azul-native-label"))];
 
-        Dom::create_text(self.string)
+        Dom::create_p_with_text(self.string)
             .with_ids_and_classes(IdOrClassVec::from_const_slice(LABEL_CLASS))
             .with_css_props(self.label_style)
     }
@@ -135,7 +140,7 @@ mod autotest_generated {
     /// The number of declarations each *populated* platform table carries.
     const DECL_COUNT: usize = 9;
 
-    /// The class `dom()` stamps onto the text node.
+    /// The class `dom()` stamps onto the label `<p>`.
     const LABEL_CLASS_NAME: &str = "__azul-native-label";
 
     /// The style table `Label::create` is expected to pick on *this* target.
@@ -225,10 +230,18 @@ mod autotest_generated {
         node.root.style.iter_inline_properties().map(|(p, _)| p.clone()).collect()
     }
 
-    /// The text carried by a `NodeType::Text` node (`None` for any other type).
+    /// The text carried by a text node, looking through the `<p>` block
+    /// wrapper the label convention mandates (`p > text`).
     fn text_of(node: &Dom) -> Option<&str> {
         match node.root.get_node_type() {
             NodeType::Text(s) => Some(s.as_ref().as_str()),
+            NodeType::P => match node.children.as_ref() {
+                [only] => match only.root.get_node_type() {
+                    NodeType::Text(s) => Some(s.as_ref().as_str()),
+                    _ => None,
+                },
+                _ => None,
+            },
             _ => None,
         }
     }
@@ -647,8 +660,16 @@ mod autotest_generated {
             1,
             "expected exactly one class and no ids"
         );
-        assert!(dom.children.as_ref().is_empty(), "a label is a leaf, not a subtree");
-        assert_eq!(dom.estimated_total_children, 0, "a leaf must not claim descendants");
+        assert_eq!(
+            dom.children.as_ref().len(),
+            1,
+            "a label is a <p> wrapping exactly one bare text node"
+        );
+        assert!(
+            dom.children.as_ref()[0].children.as_ref().is_empty(),
+            "the text node itself is a leaf, not a subtree"
+        );
+        assert_eq!(dom.estimated_total_children, 1, "the <p> owns exactly its text node");
         assert!(dom.css.as_ref().is_empty(), "a label must not attach a scoped stylesheet");
         assert!(dom.root.callbacks.as_ref().is_empty(), "a static widget must not bind callbacks");
         assert_eq!(inline_properties(&dom), expected, "the label lost its computed style");

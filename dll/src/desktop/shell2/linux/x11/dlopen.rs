@@ -149,6 +149,19 @@ pub struct Xlib {
     /// reliable absolute window position under a reparenting WM (ConfigureNotify
     /// x/y are parent-relative for non-synthetic events).
     pub XTranslateCoordinates: Option<XTranslateCoordinates>,
+    /// Optional (lenient): refresh the client-side keycode → keysym table after
+    /// a `MappingNotify`. Without it a keyboard-layout switch leaves every
+    /// translation on the layout that was active when the connection opened.
+    pub XRefreshKeyboardMapping: Option<XRefreshKeyboardMapping>,
+    /// Optional (lenient): full keyboard state as a keycode bit vector, used to
+    /// resync `pressed_*` on focus change (the KeymapNotify fallback).
+    pub XQueryKeymap: Option<XQueryKeymap>,
+    /// Optional (lenient): keycode → keysym, needed to learn which `ModN` bit
+    /// carries Alt / Super / AltGr on the CURRENT keyboard instead of assuming
+    /// the Mod1/Mod4 defaults.
+    pub XkbKeycodeToKeysym: Option<XkbKeycodeToKeysym>,
+    pub XGetModifierMapping: Option<XGetModifierMapping>,
+    pub XFreeModifiermap: Option<XFreeModifiermap>,
     pub XUnmapWindow: XUnmapWindow,
     pub XCreateFontCursor: XCreateFontCursor,
     pub XDefineCursor: XDefineCursor,
@@ -238,6 +251,19 @@ impl Xlib {
             },
             XTranslateCoordinates: unsafe {
                 lib.get_symbol::<XTranslateCoordinates>("XTranslateCoordinates").ok()
+            },
+            XRefreshKeyboardMapping: unsafe {
+                lib.get_symbol::<XRefreshKeyboardMapping>("XRefreshKeyboardMapping").ok()
+            },
+            XQueryKeymap: unsafe { lib.get_symbol::<XQueryKeymap>("XQueryKeymap").ok() },
+            XkbKeycodeToKeysym: unsafe {
+                lib.get_symbol::<XkbKeycodeToKeysym>("XkbKeycodeToKeysym").ok()
+            },
+            XGetModifierMapping: unsafe {
+                lib.get_symbol::<XGetModifierMapping>("XGetModifierMapping").ok()
+            },
+            XFreeModifiermap: unsafe {
+                lib.get_symbol::<XFreeModifiermap>("XFreeModifiermap").ok()
             },
             XUnmapWindow: load_symbol!(lib, _, "XUnmapWindow"),
             XCreateFontCursor: load_symbol!(lib, _, "XCreateFontCursor"),
@@ -350,6 +376,10 @@ pub struct Xkb {
         unsafe extern "C" fn(*mut xkb_state, u32, u32, u32, u32, u32, u32) -> u32,
     pub xkb_state_key_get_one_sym: unsafe extern "C" fn(*mut xkb_state, u32) -> u32,
     pub xkb_state_key_get_utf8: unsafe extern "C" fn(*mut xkb_state, u32, *mut i8, usize) -> i32,
+    /// Does this key auto-repeat? The keymap knows (modifiers, locks and
+    /// several function keys do not), which is strictly better than a
+    /// hand-rolled list of "keys that should not repeat".
+    pub xkb_keymap_key_repeats: unsafe extern "C" fn(*mut xkb_keymap, xkb_keycode_t) -> i32,
 }
 
 impl Xkb {
@@ -366,6 +396,7 @@ impl Xkb {
             xkb_state_update_mask: load_symbol!(lib, _, "xkb_state_update_mask"),
             xkb_state_key_get_one_sym: load_symbol!(lib, _, "xkb_state_key_get_one_sym"),
             xkb_state_key_get_utf8: load_symbol!(lib, _, "xkb_state_key_get_utf8"),
+            xkb_keymap_key_repeats: load_symbol!(lib, _, "xkb_keymap_key_repeats"),
             _lib: lib,
         }))
     }

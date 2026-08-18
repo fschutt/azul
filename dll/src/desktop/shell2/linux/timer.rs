@@ -21,8 +21,15 @@ pub fn start_timerfd(
             libc::TFD_NONBLOCK | libc::TFD_CLOEXEC,
         );
         if fd >= 0 {
-            let secs = (interval_ms / 1000) as libc::time_t;
-            let nsecs = ((interval_ms % 1000) * 1_000_000) as libc::c_long;
+            // A timerfd with it_value == {0, 0} is DISARMED, not "fire
+            // immediately and repeatedly". `Timer::tick_millis` legitimately
+            // returns 0 for sub-millisecond / "as fast as possible" timers, and
+            // those silently never fired on Linux while working everywhere else.
+            // One nanosecond is the smallest armed value the kernel accepts; it
+            // still coalesces to the actual timer resolution.
+            let interval_ns = (interval_ms as u128 * 1_000_000).max(1);
+            let secs = (interval_ns / 1_000_000_000) as libc::time_t;
+            let nsecs = (interval_ns % 1_000_000_000) as libc::c_long;
             let spec = libc::itimerspec {
                 it_interval: libc::timespec {
                     tv_sec: secs,

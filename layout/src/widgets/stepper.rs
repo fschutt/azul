@@ -397,7 +397,7 @@ impl Stepper {
                                 STEPPER_CONNECTOR_CLASS,
                             ))
                             .with_css_props(connector_style(conn_left_fill(i, current))),
-                        Dom::create_text(AzString::from(format!("{}", i + 1).as_str()))
+                        Dom::create_p_with_text(AzString::from(format!("{}", i + 1).as_str()))
                             .with_ids_and_classes(IdOrClassVec::from_const_slice(
                                 STEPPER_CIRCLE_CLASS,
                             ))
@@ -431,7 +431,7 @@ impl Stepper {
                 .with_children(
                     vec![
                         row,
-                        Dom::create_text(label.clone())
+                        Dom::create_p_with_text(label.clone())
                             .with_ids_and_classes(IdOrClassVec::from_const_slice(
                                 STEPPER_LABEL_CLASS,
                             ))
@@ -618,15 +618,16 @@ mod autotest_generated {
     // Flattened node layout
     //
     // `convert_dom_into_compact_dom` walks the tree in pre-order, and one step
-    // cell contributes exactly six nodes:
+    // cell contributes exactly eight nodes — the circle and the label are both
+    // `<p>` boxes wrapping one bare text node each (the widget label convention):
     //
-    //     cell → row → [conn-left, circle, conn-right] , label
+    //     cell → row → [conn-left, circle <p> → text, conn-right] , label <p> → text
     //
-    // so step `i` occupies `1 + 6*i ..= 6 + 6*i`. `flattened_layout_is_six_nodes_per_step`
+    // so step `i` occupies `1 + 8*i ..= 8 + 8*i`. `flattened_layout_is_eight_nodes_per_step`
     // pins this against the real hierarchy so the click tests below cannot drift.
     // ------------------------------------------------------------------
 
-    const NODES_PER_STEP: usize = 6;
+    const NODES_PER_STEP: usize = 8;
 
     fn cell_node(i: usize) -> usize {
         1 + NODES_PER_STEP * i
@@ -637,14 +638,16 @@ mod autotest_generated {
     fn conn_left_node(i: usize) -> usize {
         3 + NODES_PER_STEP * i
     }
+    /// The circle's `<p>` box — the node the restyle writes to.
     fn circle_node(i: usize) -> usize {
         4 + NODES_PER_STEP * i
     }
     fn conn_right_node(i: usize) -> usize {
-        5 + NODES_PER_STEP * i
-    }
-    fn label_node(i: usize) -> usize {
         6 + NODES_PER_STEP * i
+    }
+    /// The label's `<p>` box — the node the restyle writes to.
+    fn label_node(i: usize) -> usize {
+        7 + NODES_PER_STEP * i
     }
 
     // ------------------------------------------------------------------
@@ -826,10 +829,18 @@ mod autotest_generated {
         0.2126 * f32::from(c.r) + 0.7152 * f32::from(c.g) + 0.0722 * f32::from(c.b)
     }
 
-    /// The text of a `NodeType::Text` node (`None` for any other node type).
+    /// The text of a text node, looking through the `<p>` block wrapper the
+    /// label convention mandates (`p > text`).
     fn text_of(node: &Dom) -> Option<&str> {
         match node.root.get_node_type() {
             NodeType::Text(s) => Some(s.as_ref().as_str()),
+            NodeType::P => match node.children.as_ref() {
+                [only] => match only.root.get_node_type() {
+                    NodeType::Text(s) => Some(s.as_ref().as_str()),
+                    _ => None,
+                },
+                _ => None,
+            },
             _ => None,
         }
     }
@@ -2469,12 +2480,15 @@ mod autotest_generated {
             let dom = Stepper::create(labels(&[s.as_str(), "other"])).dom();
             let children = dom.children.as_ref();
             assert_eq!(children.len(), 2);
-            match label_of(&children[0]).root.get_node_type() {
-                NodeType::Text(t) => {
-                    assert_eq!(t.as_ref().as_str(), s.as_str(), "the caption changed inside dom()");
-                    assert_eq!(t.as_ref().len(), s.len(), "byte length changed (NUL truncation?)");
-                }
-                other => panic!("expected a text node, got {other:?}"),
+            match label_of(&children[0]).children.as_ref() {
+                [only] => match only.root.get_node_type() {
+                    NodeType::Text(t) => {
+                        assert_eq!(t.as_ref().as_str(), s.as_str(), "the caption changed inside dom()");
+                        assert_eq!(t.as_ref().len(), s.len(), "byte length changed (NUL truncation?)");
+                    }
+                    other => panic!("expected a text node, got {other:?}"),
+                },
+                other => panic!("expected `p > text`, got {} children", other.len()),
             }
             // The circle number must not be affected by the caption next to it.
             assert_eq!(text_of(circle_of(row_of(&children[0]))), Some("1"));
@@ -2508,12 +2522,12 @@ mod autotest_generated {
         assert_eq!(
             styled.node_hierarchy.as_ref().len(),
             NODES_PER_STEP * n + 1,
-            "root + six nodes per step"
+            "root + eight nodes per step"
         );
     }
 
     #[test]
-    fn flattened_layout_is_six_nodes_per_step() {
+    fn flattened_layout_is_eight_nodes_per_step() {
         // Pins the pre-order node numbering the click tests below depend on.
         let n = 4;
         let styled = StyledDom::create_from_dom(Stepper::create(n_labels(n)).dom());
@@ -2539,12 +2553,20 @@ mod autotest_generated {
                     .unwrap_or_else(|| panic!("step {i}: node {idx} is missing"));
                 assert!(nd.has_class(class), "step {i}: node {idx} is not a {class}");
             }
+            assert!(
+                matches!(
+                    data.get(NodeId::new(circle_node(i))).expect("circle").get_node_type(),
+                    NodeType::P
+                ),
+                "step {i}: the circle box must be a <p> — a text node owns no rect, so \
+                 width/height/border-radius could never make it a circle"
+            );
             let want = format!("{}", i + 1);
-            match data.get(NodeId::new(circle_node(i))).expect("circle").get_node_type() {
+            match data.get(NodeId::new(circle_node(i) + 1)).expect("circle text").get_node_type() {
                 NodeType::Text(t) => {
                     assert_eq!(t.as_ref().as_str(), want.as_str(), "step {i}: circle number");
                 }
-                other => panic!("step {i}: the circle is not a text node: {other:?}"),
+                other => panic!("step {i}: the circle does not wrap a text node: {other:?}"),
             }
         }
     }

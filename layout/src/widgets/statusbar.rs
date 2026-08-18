@@ -936,7 +936,9 @@ fn segment_dom(seg: StatusBarSegment, style: &StatusBarStyle) -> Dom {
         .with_ids_and_classes(IdOrClassVec::from_const_slice(CLS_SEGMENT))
         .with_css_props(style.segment_style.clone())
         .with_children(DomVec::from_vec(vec![
-            Dom::create_text(label).with_css_props(style.segment_label_style.clone()),
+            // `<p>` so the inert segment has the same `div > p > text` shape as
+            // the clickable one (Button puts `label_style` on a `<p>` too).
+            Dom::create_p_with_text(label).with_css_props(style.segment_label_style.clone()),
         ]))
 }
 

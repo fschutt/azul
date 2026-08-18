@@ -55,7 +55,11 @@ use crate::{
 
 const DEFAULT_EM_SIZE: f32 = 16.0;
 const DEFAULT_CARET_WIDTH_PX: f32 = 2.0;
-const DEFAULT_CARET_BLINK_MS: u32 = 500;
+// ONE authority for the default blink period: the manager's constant.
+// This and CURSOR_BLINK_INTERVAL_MS disagreeing (500 vs 530) is what made
+// the "which default wins" question unanswerable — do not fork it again.
+#[allow(clippy::cast_possible_truncation)]
+const DEFAULT_CARET_BLINK_MS: u32 = crate::managers::text_edit::CURSOR_BLINK_INTERVAL_MS as u32;
 const DEFAULT_TAB_SIZE: f32 = 8.0;
 const SCROLLBAR_WIDTH_THIN: f32 = 8.0;
 const SCROLLBAR_WIDTH_AUTO: f32 = 12.0;

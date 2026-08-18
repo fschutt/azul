@@ -187,7 +187,7 @@ impl Tooltip {
         // the hovered wrapper), so no per-tooltip state is needed.
         let marker = RefAny::new(());
 
-        let tip = Dom::create_text(self.text)
+        let tip = Dom::create_p_with_text(self.text)
             .with_ids_and_classes(IdOrClassVec::from_const_slice(TOOLTIP_TIP_CLASS))
             .with_css_props(self.tip_style);
 
@@ -299,10 +299,18 @@ mod autotest_generated {
             .any(|c| matches!(c, Class(s) if s.as_str() == name))
     }
 
-    /// The text of a `NodeType::Text` node (`None` for any other node type).
+    /// The text of a text node, looking through the `<p>` block wrapper the
+    /// label convention mandates (`p > text`).
     fn text_of(node: &Dom) -> Option<&str> {
         match node.root.get_node_type() {
             NodeType::Text(s) => Some(s.as_ref().as_str()),
+            NodeType::P => match node.children.as_ref() {
+                [only] => match only.root.get_node_type() {
+                    NodeType::Text(s) => Some(s.as_ref().as_str()),
+                    _ => None,
+                },
+                _ => None,
+            },
             _ => None,
         }
     }
@@ -1075,8 +1083,8 @@ mod autotest_generated {
         let styled = StyledDom::create_from_dom(dom);
         assert_eq!(
             styled.node_hierarchy.as_ref().len(),
-            1 + 1 + 2000 + 1,
-            "wrapper + anchor + 2000 grandchildren + tip"
+            1 + 1 + 2000 + 2,
+            "wrapper + anchor + 2000 grandchildren + tip <p> + tip text"
         );
     }
 

@@ -3238,6 +3238,21 @@ where
         Ok(())
     }
 
+    /// Does the IFC rooted at `node_index` own the inline content of `dom_id`?
+    ///
+    /// The editing session's text node need not be a DIRECT child of the IFC
+    /// root — `p > span > text` puts it one level deeper — so resolve it through
+    /// `ifc_membership`, which every inline descendant of the root carries,
+    /// instead of scanning the root's children.
+    fn ifc_root_owns_dom_node(&self, node_index: usize, dom_id: NodeId) -> bool {
+        let tree = self.positioned_tree.tree;
+        tree.dom_to_layout.get(&dom_id).is_some_and(|indices| {
+            indices
+                .iter()
+                .any(|&idx| tree.get_ifc_root_layout_index(idx) == node_index)
+        })
+    }
+
     /// Emits drawing commands for all text cursors (carets).
     /// Iterates over `ctx.cursor_locations` to support multi-cursor rendering.
     /// Preedit underline is only rendered for the primary (last) cursor.
@@ -3306,11 +3321,8 @@ where
         let primary_idx_for_this_node = self.ctx.cursor_locations.iter().enumerate()
             .rev()
             .find(|(_, (cd, cn, _))| {
-                *cd == self.ctx.styled_dom.dom_id && (*cn == dom_id || self.positioned_tree.tree.children(node_index).iter().any(|&child_idx| {
-                    self.positioned_tree.tree.get(child_idx)
-                        .and_then(|c| c.dom_node_id)
-                        .is_some_and(|id| id == *cn)
-                }))
+                *cd == self.ctx.styled_dom.dom_id
+                    && (*cn == dom_id || self.ifc_root_owns_dom_node(node_index, *cn))
             })
             .map(|(i, _)| i);
 
@@ -3321,17 +3333,10 @@ where
             }
 
             // Check this node contains the cursor
-            if dom_id != *cursor_node_id {
-                let is_ifc_root_of_cursor = self.positioned_tree.tree.children(node_index)
-                    .iter()
-                    .any(|&child_idx| {
-                        self.positioned_tree.tree.get(child_idx)
-                            .and_then(|c| c.dom_node_id)
-                            .is_some_and(|id| id == *cursor_node_id)
-                    });
-                if !is_ifc_root_of_cursor {
-                    continue;
-                }
+            if dom_id != *cursor_node_id
+                && !self.ifc_root_owns_dom_node(node_index, *cursor_node_id)
+            {
+                continue;
             }
 
             // Get cursor rect from text layout
@@ -3357,12 +3362,60 @@ where
             if is_primary {
                 if let Some(ref preedit) = self.ctx.preedit_text {
                     if !preedit.is_empty() {
-                        let char_count = preedit.chars().count() as f32;
-                        let approx_char_width = style.width.max(8.0);
-                        let preedit_width = char_count * approx_char_width;
+                        // The composition IS in this layout: apply_preedit_to_
+                        // text_cache splices it into the run at the cursor's
+                        // byte offset and re-shapes, so the underline can span
+                        // the MEASURED advance of the composed clusters. The
+                        // old `char_count × max(caret_width, 8px)` guess was
+                        // wrong for every script whose advances aren't ~8px —
+                        // a CJK cluster is roughly double that.
+                        let run = cursor.cluster_id.source_run;
+                        let start_byte = cursor.cluster_id.start_byte_in_run;
+                        let end_byte = start_byte.saturating_add(
+                            u32::try_from(preedit.len()).unwrap_or(u32::MAX),
+                        );
+                        // (line_index, min_x, max_x) of the composed clusters.
+                        // Clusters on a later line belong to a composition that
+                        // wrapped; they would need their own rect, so the span
+                        // stays on the line the caret sits on.
+                        let mut span: Option<(usize, f32, f32)> = None;
+                        for item in &layout.items {
+                            let Some(cluster) = item.item.as_cluster() else {
+                                continue;
+                            };
+                            let id = cluster.source_cluster_id;
+                            if id.source_run != run
+                                || id.start_byte_in_run < start_byte
+                                || id.start_byte_in_run >= end_byte
+                            {
+                                continue;
+                            }
+                            let edge = item.position.x + cluster.advance;
+                            let (lo, hi) =
+                                (item.position.x.min(edge), item.position.x.max(edge));
+                            span = Some(match span {
+                                Some((line, min_x, max_x)) if line == item.line_index => {
+                                    (line, min_x.min(lo), max_x.max(hi))
+                                }
+                                Some(other_line) => other_line,
+                                None => (item.line_index, lo, hi),
+                            });
+                        }
+                        let (underline_x, preedit_width) = match span {
+                            Some((_, lo, hi)) => (lo + content_box_offset_x, hi - lo),
+                            None => {
+                                // Composition not (yet) in the cache — keep the
+                                // old estimate rather than drawing nothing.
+                                let char_count = preedit.chars().count() as f32;
+                                (
+                                    rect.origin.x + rect.size.width,
+                                    char_count * style.width.max(8.0),
+                                )
+                            }
+                        };
                         let underline_bounds = LogicalRect {
                             origin: LogicalPosition {
-                                x: rect.origin.x + rect.size.width,
+                                x: underline_x,
                                 y: rect.origin.y + rect.size.height - 2.0,
                             },
                             size: LogicalSize {
@@ -5297,12 +5350,44 @@ where
         };
 
         // Check if we need to draw scrollbars for this node.
-        let scrollbar_info = self.positioned_tree.tree.warm(node_index)
+        let mut scrollbar_info = self.positioned_tree.tree.warm(node_index)
             .and_then(|w| w.scrollbar_info)
             .unwrap_or_default();
 
         // Get node_id for GPU cache lookup and CSS style lookup
         let node_id = node.dom_node_id;
+
+        // A VirtualView is a replaced element with NO flow content, so the
+        // layout-side necessity test (`check_scrollbar_necessity`: laid-out
+        // content > container) can never fire for it and `overflow: auto` would
+        // stay bar-less no matter how large the virtualized document is. The
+        // virtual size does reach the display list — the ScrollManager puts the
+        // callback's `virtual_scroll_size` into `ScrollPosition::children_rect`,
+        // which the thumb geometry below already prefers — so decide from that,
+        // through the one function that owns the rule.
+        //
+        // The answer cannot simply be read off `warm.scrollbar_info` here:
+        // `register_scroll_nodes` writes the same amendment back into the tree
+        // for the GPU/hit-test consumers, but it runs AFTER this display list is
+        // built, and the layout pass that precedes this one has already
+        // recomputed `warm.scrollbar_info` from the laid-out sizes.
+        if let Some(nid) = node_id {
+            if let Some(pos) = self.scroll_offsets.get(&nid) {
+                let bp = node.box_props.unpack();
+                let border = &bp.border;
+                let padding_box_size = LogicalSize::new(
+                    (paint_rect.size.width - border.left - border.right).max(0.0),
+                    (paint_rect.size.height - border.top - border.bottom).max(0.0),
+                );
+                crate::solver3::cache::apply_virtual_scroll_necessity(
+                    self.ctx.styled_dom,
+                    nid,
+                    pos.children_rect.size,
+                    padding_box_size,
+                    &mut scrollbar_info,
+                );
+            }
+        }
 
         // Get CSS scrollbar style for this node (cached per LayoutContext).
         let scrollbar_style = node_id
@@ -5421,17 +5506,21 @@ where
             ),
         };
 
-        // Get scroll position for thumb calculation
-        // ScrollPosition contains parent_rect and children_rect
-        // The scroll offset is the difference between children_rect.origin and parent_rect.origin
+        // Get scroll position for thumb calculation.
+        // `children_rect.origin` IS the scroll offset (see
+        // `ScrollManager::get_scroll_states_for_dom`); `parent_rect.origin` is
+        // an ABSOLUTE window coordinate, so subtracting it here mixed two
+        // spaces and started the thumb `container.y` px down its own track for
+        // any scroller not at the window origin. The GPU-only scroll path
+        // (`GpuStateManager::update_scrollbar_transforms`) feeds the raw
+        // `current_offset` into the same geometry fn — these two MUST agree,
+        // because the transform written here is the initial value of the key
+        // that path later overwrites.
         let (scroll_offset_x, scroll_offset_y) = node_id
             .and_then(|nid| {
-                self.scroll_offsets.get(&nid).map(|pos| {
-                    (
-                        pos.children_rect.origin.x - pos.parent_rect.origin.x,
-                        pos.children_rect.origin.y - pos.parent_rect.origin.y,
-                    )
-                })
+                self.scroll_offsets
+                    .get(&nid)
+                    .map(|pos| (pos.children_rect.origin.x, pos.children_rect.origin.y))
             })
             .unwrap_or((0.0, 0.0));
 

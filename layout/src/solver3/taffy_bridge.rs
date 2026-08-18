@@ -350,6 +350,18 @@ use crate::{
     },
 };
 
+/// Coordinate space the `taffy_content_*` arguments of
+/// [`compute_taffy_scrollbar_info`] are measured in.
+#[derive(Copy, Clone, PartialEq, Eq)]
+enum ContentSizeOrigin {
+    /// Taffy's `LayoutOutput::content_size`: child extents measured from the
+    /// BORDER-BOX origin, so the leading border + padding ride along as an
+    /// offset and the flex path adds the trailing padding on top.
+    BorderBox,
+    /// Our own BFC/IFC `overflow_size`, already relative to the content box.
+    ContentBox,
+}
+
 /// Shared scrollbar detection for Taffy-managed flex/grid nodes.
 ///
 /// When Taffy lays out a flex/grid container, it may expand the container
@@ -367,6 +379,7 @@ fn compute_taffy_scrollbar_info<T: ParsedFontTrait>(
     result_height: f32,
     taffy_content_width: f32,
     taffy_content_height: f32,
+    content_origin: ContentSizeOrigin,
 ) -> (crate::solver3::scrollbar::ScrollbarRequirements, f32, f32) {
     use crate::solver3::scrollbar::ScrollbarRequirements;
 
@@ -421,21 +434,35 @@ fn compute_taffy_scrollbar_info<T: ParsedFontTrait>(
         .unwrap_or(result_content_h)
         .max(0.0);
 
-    // Content size: use Taffy's content_size if non-zero,
+    // Content size: use the caller's content_size if non-zero,
     // else result size minus padding/border (Taffy expanded to fit).
     //
-    // IMPORTANT: Taffy's content_size is measured from (0,0) of the border-box,
-    // so it includes border.left/border.top as a leading offset. The container_size
-    // is in content-box coordinates (result_width - padding - border). We must
-    // subtract border.left/top from content_size to align coordinate spaces,
-    // otherwise we get spurious horizontal scrollbars from the border offset.
+    // IMPORTANT: Taffy's content_size is measured from (0,0) of the BORDER box.
+    // Child positions therefore carry border.left/top AND the leading padding as
+    // an offset, and the flex path adds the TRAILING padding on top
+    // (`content_size.height += content_box_inset.bottom - border.bottom`).
+    // container_size below is a content-box size, so the whole inset has to come
+    // off to align the coordinate spaces: subtracting only the border left a
+    // `padding-top: 18px` container reporting content = viewport + 18px, i.e. a
+    // phantom `overflow: auto` scrollbar whose thumb spans ~98% of the track and
+    // whose max_scroll is 18px. Subtracting the padding SUM (leading + trailing)
+    // leaves the pure child extent, so a container whose children fit reports
+    // content == container (no bar) and a genuinely overflowing one keeps
+    // max_scroll = children − content box.
+    //
+    // Our own BFC/IFC overflow_size is already content-box relative and must not
+    // be adjusted at all — hence `content_origin`.
+    let (inset_w, inset_h) = match content_origin {
+        ContentSizeOrigin::BorderBox => (border_left + padding_width, border_top + padding_height),
+        ContentSizeOrigin::ContentBox => (0.0, 0.0),
+    };
     let content_w = if taffy_content_width > 0.0 {
-        (taffy_content_width - border_left).max(0.0)
+        (taffy_content_width - inset_w).max(0.0)
     } else {
         result_content_w.max(0.0)
     };
     let content_h = if taffy_content_height > 0.0 {
-        (taffy_content_height - border_top).max(0.0)
+        (taffy_content_height - inset_h).max(0.0)
     } else {
         result_content_h.max(0.0)
     };
@@ -1667,13 +1694,15 @@ impl<T: ParsedFontTrait> LayoutPartialTree for TaffyBridge<'_, '_, T> {
                     result.size.height,
                     taffy_content_width,
                     taffy_content_height,
+                    ContentSizeOrigin::BorderBox,
                 );
 
             if let Some(warm) = self.tree.warm_mut(node_idx) {
                 warm.scrollbar_info = Some(scrollbar_info);
                 // eff_content_w/h are already in content-box coordinates
-                // (border.left/top subtracted in compute_taffy_scrollbar_info),
-                // so store directly without further subtraction.
+                // (the border+padding inset is subtracted in
+                // compute_taffy_scrollbar_info), so store directly without
+                // further subtraction.
                 warm.overflow_content_size = Some(LogicalSize::new(
                     eff_content_w,
                     eff_content_h,
@@ -2006,6 +2035,10 @@ impl<T: ParsedFontTrait> TaffyBridge<'_, '_, T> {
                 // Compute scrollbar_info for this node (it's a child of a Flex/Grid container,
                 // so calculate_layout_for_subtree won't be called for it).
                 // Uses the unified compute_scrollbar_info_core path.
+                //
+                // content_width/height come from our own BFC/IFC overflow_size,
+                // which is already content-box relative — unlike Taffy's
+                // border-box-origin content_size.
                 let (scrollbar_info, _, _) = compute_taffy_scrollbar_info(
                     self.ctx,
                     self.tree,
@@ -2014,6 +2047,7 @@ impl<T: ParsedFontTrait> TaffyBridge<'_, '_, T> {
                     final_height,
                     content_width,
                     content_height,
+                    ContentSizeOrigin::ContentBox,
                 );
 
                 // Store the border-box size and scrollbar_info on the node for display list generation
@@ -3798,8 +3832,16 @@ mod autotest_generated {
             let tree = generate_layout_tree(&mut ctx).expect("a plain body dom builds");
 
             for idx in [usize::MAX, tree.nodes.len(), tree.nodes.len() + 1] {
-                let (info, w, h) =
-                    compute_taffy_scrollbar_info(&ctx, &tree, idx, 100.0, 100.0, 500.0, 500.0);
+                let (info, w, h) = compute_taffy_scrollbar_info(
+                    &ctx,
+                    &tree,
+                    idx,
+                    100.0,
+                    100.0,
+                    500.0,
+                    500.0,
+                    ContentSizeOrigin::BorderBox,
+                );
                 assert!(!info.needs_horizontal, "#{idx}");
                 assert!(!info.needs_vertical, "#{idx}");
                 assert_eq!(w, 0.0);
@@ -3825,8 +3867,16 @@ mod autotest_generated {
             ];
             for v in extremes {
                 for c in extremes {
-                    let (_info, w, h) =
-                        compute_taffy_scrollbar_info(&ctx, &tree, root, v, v, c, c);
+                    let (_info, w, h) = compute_taffy_scrollbar_info(
+                        &ctx,
+                        &tree,
+                        root,
+                        v,
+                        v,
+                        c,
+                        c,
+                        ContentSizeOrigin::BorderBox,
+                    );
                     assert!(
                         !w.is_nan() && w >= 0.0,
                         "result={v} content={c} → content width {w}"
@@ -3848,8 +3898,16 @@ mod autotest_generated {
 
             // Content far larger than the box: `overflow: visible` still must not
             // ask for scrollbars (only `auto`/`scroll` do).
-            let (info, w, h) =
-                compute_taffy_scrollbar_info(&ctx, &tree, root, 100.0, 100.0, 10_000.0, 10_000.0);
+            let (info, w, h) = compute_taffy_scrollbar_info(
+                &ctx,
+                &tree,
+                root,
+                100.0,
+                100.0,
+                10_000.0,
+                10_000.0,
+                ContentSizeOrigin::BorderBox,
+            );
             assert!(!info.needs_horizontal);
             assert!(!info.needs_vertical);
             assert_eq!(info.scrollbar_width, 0.0);

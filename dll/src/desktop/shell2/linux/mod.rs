@@ -55,12 +55,12 @@ impl LinuxWindow {
         }
     }
 
-    pub fn present(&mut self) -> Result<(), WindowError> {
-        match self {
-            LinuxWindow::X11(w) => w.present(),
-            LinuxWindow::Wayland(w) => w.present(),
-        }
-    }
+    // NOTE: there is deliberately no `present()` here. Both backends present
+    // through their own frame machinery (X11 `render_and_present`, Wayland
+    // `generate_frame_if_needed`); a generic present entry invited callers to
+    // bypass the frame-callback latch / damage tracking and shipped three
+    // latent traps before it was removed (see git history of
+    // `WaylandWindow::present`).
 
     pub fn is_open(&self) -> bool {
         match self {

@@ -125,13 +125,25 @@ impl Default for OverflowingScrollNode {
 /// All pipelines still share the same `IdNamespace` and `DocumentId`.
 pub type PipelineSourceId = u32;
 
-/// Information about a scroll frame, given to the user by the framework
+/// Information about a scroll frame, given to the user by the framework.
+///
+/// The two rects are NOT in the same coordinate space — never subtract one
+/// origin from the other. That silent ambiguity put the scrollbar thumb
+/// partway down the track for every container not at the window origin.
+/// See `ScrollManager::get_scroll_states_for_dom` for the producer.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd)]
 pub struct ScrollPosition {
-    /// How big is the parent container
-    /// (so that things like "scroll to left edge" can be implemented)?
+    /// The scroll container's border box in ABSOLUTE window coordinates.
+    /// `size` is the scrollport ("how big is the parent container", so
+    /// "scroll to left edge" can be implemented); `origin` is where that
+    /// container sits on screen and is only meaningful to scroll-into-view.
     pub parent_rect: LogicalRect,
-    /// How big is the scroll rect (i.e. the union of all children)?
+    /// `size` = the scrollable content ("the union of all children", or the
+    /// `VirtualView` virtual size when one was reported).
+    /// `origin` = the SCROLL OFFSET ITSELF — distance already scrolled from
+    /// the scroll origin, normally clamped to `[0, content − container]`.
+    /// It is NOT an absolute position and NOT relative to
+    /// `parent_rect.origin`; content paints at `position − origin`.
     pub children_rect: LogicalRect,
 }
 

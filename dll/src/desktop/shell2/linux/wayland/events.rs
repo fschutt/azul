@@ -251,22 +251,44 @@ pub(super) extern "C" fn wl_surface_enter_handler(
             old_dpi,
             new_dpi
         );
-        window.common.current_window_state.size.dpi = new_dpi;
-        window.common.request_regeneration(azul_core::callbacks::RelayoutReason::RefreshDom);
-        // Recreate the shm buffers at the new scale (physical = logical ×
-        // scale) — the old buffers are sized for the previous scale and the
-        // copy clamp would truncate every frame.
-        let (w, h) = {
-            let d = &window.common.current_window_state.size.dimensions;
-            (d.width as i32, d.height as i32)
-        };
-        window.resize_surface(w, h);
-        // Schedule the frame NOW. Setting the flag alone renders nothing:
-        // Wayland gets no spurious expose/configure events, so an idle window
-        // dragged to another monitor kept its old-DPI frame until the next
-        // input event.
-        window.request_redraw();
+        apply_os_dpi_change(window, new_dpi);
     }
+}
+
+/// Publish an OS-driven DPI change: snapshot the diff baseline, write
+/// `size.dpi`, recreate the shm buffers at the new physical size, schedule the
+/// frame and run the shared pass.
+///
+/// The pass is not optional. `WindowDpiChanged` is derived from the `size.dpi`
+/// delta between previous and current, so writing `current` alone left the next
+/// handler's snapshot to erase the change and the app never heard about it.
+fn apply_os_dpi_change(window: &mut WaylandWindow, new_dpi: u32) {
+    window.common.previous_window_state = Some(window.common.current_window_state.clone());
+    // Source = Os: the compositor already applied the scale, so the write lands
+    // in `current` AND the OS-sync baseline, and never in `previous_window_state`
+    // (the event delta the pass at the bottom consumes).
+    window.common.update_window_state(
+        crate::desktop::shell2::common::event::WindowStateSource::Os,
+        |ws| {
+            ws.size.dpi = new_dpi;
+        },
+    );
+    window.common.request_regeneration(azul_core::callbacks::RelayoutReason::RefreshDom);
+    // Recreate the shm buffers at the new scale (physical = logical × scale) —
+    // the old buffers are sized for the previous scale and the copy clamp would
+    // truncate every frame.
+    let (w, h) = {
+        let d = &window.common.current_window_state.size.dimensions;
+        (d.width as i32, d.height as i32)
+    };
+    window.resize_surface(w, h);
+    // Schedule the frame NOW. Setting the flag alone renders nothing: Wayland
+    // gets no spurious expose/configure events, so an idle window dragged to
+    // another monitor kept its old-DPI frame until the next input event.
+    window.request_redraw();
+
+    let result = window.process_window_events(0);
+    window.handle_process_event_result(result);
 }
 
 pub(super) extern "C" fn wl_surface_leave_handler(
@@ -297,17 +319,7 @@ pub(super) extern "C" fn wl_surface_leave_handler(
             old_dpi,
             new_dpi
         );
-        window.common.current_window_state.size.dpi = new_dpi;
-        window.common.request_regeneration(azul_core::callbacks::RelayoutReason::RefreshDom);
-        // Same as the enter handler: recreate buffers at the new scale +
-        // schedule the frame now (no spurious events on Wayland to mask a
-        // missing redraw request).
-        let (w, h) = {
-            let d = &window.common.current_window_state.size.dimensions;
-            (d.width as i32, d.height as i32)
-        };
-        window.resize_surface(w, h);
-        window.request_redraw();
+        apply_os_dpi_change(window, new_dpi);
     }
 }
 
@@ -343,17 +355,7 @@ pub(super) extern "C" fn wp_fractional_scale_preferred_scale_handler(
         new_dpi,
         scale_120
     );
-    window.common.current_window_state.size.dpi = new_dpi;
-    window.common.request_regeneration(azul_core::callbacks::RelayoutReason::RefreshDom);
-    // Recreate the shm buffers at the new physical size (same rationale as the
-    // wl_output enter/leave handlers) and schedule the frame NOW — Wayland
-    // sends no spurious expose/configure to mask a missing redraw request.
-    let (w, h) = {
-        let d = &window.common.current_window_state.size.dimensions;
-        (d.width as i32, d.height as i32)
-    };
-    window.resize_surface(w, h);
-    window.request_redraw();
+    apply_os_dpi_change(window, new_dpi);
 }
 
 extern "C" fn xdg_wm_base_ping_handler(data: *mut c_void, shell: *mut xdg_wm_base, serial: u32) {
@@ -452,15 +454,17 @@ pub(super) extern "C" fn registry_global_handler(
             window.track_listener(window.xdg_wm_base);
         }
         "wl_seat" => {
+            let seat_version = version.min(7);
             let seat = unsafe {
                 (window.wayland.wl_registry_bind)(
                     registry,
                     name,
                     &window.wayland.wl_seat_interface,
-                    version.min(7),
+                    seat_version,
                 ) as *mut wl_seat
             };
             window.seat = seat;
+            window.seat_version = seat_version;
             unsafe { (window.wayland.wl_seat_add_listener)(seat, &WL_SEAT_LISTENER, data) };
             window.track_listener(seat);
             unsafe { try_init_tablet(window, data) };
@@ -960,10 +964,19 @@ pub struct WaylandDragState {
     pub offer: *mut wl_data_offer,
     /// Serial from the most recent `enter` — required to `accept` the offer.
     pub enter_serial: u32,
-    /// Whether the current offer advertised `text/uri-list` (i.e. droppable files).
+    /// Whether the current DRAG offer advertised `text/uri-list` (i.e. droppable
+    /// files). Only `data_device.enter` may set this, from
+    /// [`Self::pending_has_uri_list`].
     pub has_uri_list: bool,
     /// Last drag position (window-local pixels), updated on enter/motion.
     pub position: azul_core::geom::LogicalPosition,
+    /// The offer whose `wl_data_offer.offer` mime advertisements are currently
+    /// arriving. An offer's mime list is announced BEFORE the `enter` or
+    /// `selection` that reveals what the offer is FOR, so the advertisements
+    /// have to be accumulated against the offer itself.
+    pub pending_offer: *mut wl_data_offer,
+    /// Whether [`Self::pending_offer`] advertised `text/uri-list`.
+    pub pending_has_uri_list: bool,
 }
 
 /// Create the wl_data_device once both the manager and the seat are bound
@@ -989,7 +1002,7 @@ pub(super) unsafe fn try_init_data_device(window: &mut WaylandWindow, data: *mut
 // --- wl_data_offer events ---
 extern "C" fn data_offer_offer(
     data: *mut c_void,
-    _offer: *mut wl_data_offer,
+    offer: *mut wl_data_offer,
     mime_type: *const c_char,
 ) {
     if mime_type.is_null() {
@@ -997,8 +1010,10 @@ extern "C" fn data_offer_offer(
     }
     let window = unsafe { &mut *(data as *mut WaylandWindow) };
     let mime = unsafe { CStr::from_ptr(mime_type).to_str().unwrap_or_default() };
-    if mime == URI_LIST_MIME {
-        window.drag.has_uri_list = true;
+    // Record against the OFFER, not the drag. Whether this offer is a drag or a
+    // clipboard selection is not known until `enter` / `selection` arrives.
+    if mime == URI_LIST_MIME && offer == window.drag.pending_offer {
+        window.drag.pending_has_uri_list = true;
     }
 }
 extern "C" fn data_offer_source_actions(
@@ -1023,8 +1038,13 @@ extern "C" fn data_device_data_offer(
     id: *mut wl_data_offer,
 ) {
     let window = unsafe { &mut *(data as *mut WaylandWindow) };
-    // Reset per-offer flags; the `offer` events for this offer follow immediately.
-    window.drag.has_uri_list = false;
+    // Start accumulating THIS offer's mime advertisements; they follow
+    // immediately. `drag.has_uri_list` is deliberately untouched: every clipboard
+    // change in any other app also delivers an offer here, and resetting the drag
+    // flag from it made a mid-drag clipboard change stop `data_device_motion`
+    // from accepting — the drop was then refused.
+    window.drag.pending_offer = id;
+    window.drag.pending_has_uri_list = false;
     unsafe { (window.wayland.wl_data_offer_add_listener)(id, &WL_DATA_OFFER_LISTENER, data) };
 }
 
@@ -1116,6 +1136,11 @@ extern "C" fn data_device_enter(
     let window = unsafe { &mut *(data as *mut WaylandWindow) };
     window.drag.offer = id;
     window.drag.enter_serial = serial;
+    // This is the event that says "that offer is a DRAG" — promote its
+    // accumulated mime advertisement now.
+    window.drag.has_uri_list = !id.is_null()
+        && id == window.drag.pending_offer
+        && window.drag.pending_has_uri_list;
     // wl_fixed (24.8) -> logical pixels.
     let pos = azul_core::geom::LogicalPosition::new(x as f32 / 256.0, y as f32 / 256.0);
     window.drag.position = pos;
@@ -1214,6 +1239,11 @@ unsafe fn receive_uri_list(window: &WaylandWindow, offer: *mut wl_data_offer) ->
     parse_uri_list(&text)
 }
 
+/// Deadline for a `wl_data_offer` pipe transfer. Matches the XWayland
+/// fallback's `CLIPBOARD_READ_TIMEOUT` — the peer is another process and may
+/// never write or close.
+const OFFER_READ_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(3);
+
 /// MWA-B3: receive an arbitrary mime payload from a `wl_data_offer` through a
 /// pipe — the generalization of the DnD uri-list receive, shared with the
 /// clipboard paste path (`read_wayland_selection`).
@@ -1239,21 +1269,70 @@ pub(super) unsafe fn receive_offer_bytes(
     (window.wayland.wl_display_flush)(window.display);
     libc::close(write_fd);
 
-    // Read the read end to EOF.
+    // The fd on the other end belongs to a FOREIGN process. A source that hangs,
+    // is stopped, or dies without closing its write end used to freeze the whole
+    // UI thread in `read()` forever — blocking calls on the UI thread are
+    // forbidden, and this one was reachable from an ordinary Ctrl+V. Non-blocking
+    // read end (the write end keeps its blocking semantics — it is the source's
+    // fd and O_NONBLOCK there would truncate large payloads) plus a poll deadline,
+    // matching the XWayland fallback's CLIPBOARD_READ_TIMEOUT.
+    let flags = libc::fcntl(read_fd, libc::F_GETFL, 0);
+    if flags >= 0 {
+        libc::fcntl(read_fd, libc::F_SETFL, flags | libc::O_NONBLOCK);
+    }
+
+    let deadline = std::time::Instant::now() + OFFER_READ_TIMEOUT;
     let mut buf = Vec::new();
     let mut chunk = [0u8; 4096];
-    loop {
-        let n = libc::read(read_fd, chunk.as_mut_ptr() as *mut c_void, chunk.len());
-        if n > 0 {
-            buf.extend_from_slice(&chunk[..n as usize]);
-        } else if n == 0 {
+    'transfer: loop {
+        let remaining = deadline.saturating_duration_since(std::time::Instant::now());
+        if remaining.is_zero() {
+            log_warn!(
+                LogCategory::Platform,
+                "[Wayland] '{}' transfer timed out after {:?} ({} bytes read) — abandoning the \
+                 pipe rather than blocking the UI thread",
+                mime_type,
+                OFFER_READ_TIMEOUT,
+                buf.len()
+            );
             break;
-        } else {
-            let err = *libc::__errno_location();
-            if err == libc::EINTR {
+        }
+
+        let mut pfd = libc::pollfd {
+            fd: read_fd,
+            events: libc::POLLIN,
+            revents: 0,
+        };
+        // .max(1): a sub-millisecond remainder must still WAIT, not spin.
+        let timeout_ms = remaining.as_millis().clamp(1, i32::MAX as u128) as i32;
+        let ready = libc::poll(&mut pfd, 1, timeout_ms);
+        if ready < 0 {
+            if *libc::__errno_location() == libc::EINTR {
                 continue;
             }
             break;
+        }
+        if ready == 0 {
+            continue; // deadline check above turns this into the timeout branch
+        }
+
+        // POLLHUP with no data pending still needs the read() to observe EOF.
+        loop {
+            let n = libc::read(read_fd, chunk.as_mut_ptr() as *mut c_void, chunk.len());
+            if n > 0 {
+                buf.extend_from_slice(&chunk[..n as usize]);
+            } else if n == 0 {
+                break 'transfer;
+            } else {
+                let err = *libc::__errno_location();
+                if err == libc::EINTR {
+                    continue;
+                }
+                if err == libc::EAGAIN || err == libc::EWOULDBLOCK {
+                    continue 'transfer; // drained for now — wait for more
+                }
+                break 'transfer;
+            }
         }
     }
     libc::close(read_fd);
@@ -1631,7 +1710,9 @@ pub(super) extern "C" fn xdg_toplevel_configure_handler(
     let window = unsafe { &mut *(data as *mut WaylandWindow) };
 
     // Parse states array to determine window state (maximized, fullscreen, etc.)
-    if !states.is_null() {
+    let new_frame = if states.is_null() {
+        None
+    } else {
         let array = unsafe { &*states };
         let states_data = array.data as *const u32;
         let states_count = array.size / std::mem::size_of::<u32>();
@@ -1651,14 +1732,48 @@ pub(super) extern "C" fn xdg_toplevel_configure_handler(
             }
         }
 
-        window.common.current_window_state.flags.frame = if is_fullscreen {
+        let _ = is_activated; // Can be used for focus indication if needed
+        Some(if is_fullscreen {
             WindowFrame::Fullscreen
         } else if is_maximized {
             WindowFrame::Maximized
         } else {
             WindowFrame::Normal
-        };
-        let _ = is_activated; // Can be used for focus indication if needed
+        })
+    };
+
+    // A configure carries OS-driven window-state changes (size, maximize,
+    // fullscreen) and every one of them has to reach the app through the shared
+    // pass: snapshot the diff baseline BEFORE mutating, run the pass after.
+    // Writing `current` with no snapshot and no pass is what made native
+    // drag-resize / maximize fire no WindowResize at all — the NEXT handler's
+    // snapshot re-based `previous` onto the already-changed state and the delta
+    // was gone.
+    //
+    // Both conditions are decided before anything is written so the repeated
+    // no-op configures (a drag-resize delivers one PER PIXEL, and the compositor
+    // re-sends the current size on every state-only change) cost neither a full
+    // window-state clone nor an event pass.
+    let frame_changed =
+        new_frame.is_some_and(|f| window.common.current_window_state.flags.frame != f);
+    let size_changed = width > 0
+        && height > 0
+        && (width != window.common.current_window_state.size.dimensions.width as i32
+            || height != window.common.current_window_state.size.dimensions.height as i32);
+
+    if frame_changed || size_changed {
+        window.common.previous_window_state = Some(window.common.current_window_state.clone());
+    }
+    if let Some(frame) = new_frame {
+        // Source = Os: the compositor has already applied the frame state, so
+        // the OS-sync baseline advances with it and the next sync_window_state()
+        // does not send xdg_toplevel_set_maximized straight back.
+        window.common.update_window_state(
+            crate::desktop::shell2::common::event::WindowStateSource::Os,
+            |ws| {
+                ws.flags.frame = frame;
+            },
+        );
     }
 
     // Configure census. A mouse drag-resize delivers one of these PER FRAME;
@@ -1698,8 +1813,13 @@ pub(super) extern "C" fn xdg_toplevel_configure_handler(
                 current_height as f32,
             );
 
-            window.common.current_window_state.size.dimensions.width = width as f32;
-            window.common.current_window_state.size.dimensions.height = height as f32;
+            window.common.update_window_state(
+                crate::desktop::shell2::common::event::WindowStateSource::Os,
+                |ws| {
+                    ws.size.dimensions.width = width as f32;
+                    ws.size.dimensions.height = height as f32;
+                },
+            );
             // RESIZE POLICY (user ruling 2026-08-08): a drag delivers one
             // configure PER PIXEL (373 measured in a 5 s drag), and each full
             // regeneration costs 654-942 ms — so a resize NEVER re-invokes the
@@ -1750,6 +1870,14 @@ pub(super) extern "C" fn xdg_toplevel_configure_handler(
             window.resize_surface(width, height);
         }
     }
+
+    // Relayout is already scheduled above (request_regeneration_for_resize keeps
+    // the per-pixel drag off the full-regeneration path); this pass exists purely
+    // so the app's WindowResize / frame-change callbacks actually run.
+    if frame_changed || size_changed {
+        let result = window.process_window_events(0);
+        window.handle_process_event_result(result);
+    }
 }
 
 pub(super) extern "C" fn xdg_toplevel_close_handler(
@@ -1757,7 +1885,27 @@ pub(super) extern "C" fn xdg_toplevel_close_handler(
     _xdg_toplevel: *mut xdg_toplevel,
 ) {
     let window = unsafe { &mut *(data as *mut WaylandWindow) };
-    window.is_open = false;
+
+    // xdg_toplevel.close is a REQUEST, not an order. Clearing `is_open` here made
+    // the run loop drop the window without the app's close callback ever running,
+    // so Alt+F4 / the titlebar X discarded unsaved work silently and no callback
+    // could veto it. Same protocol as Win32 WM_CLOSE: flip `close_requested`
+    // false -> true and run a pass so EventType::WindowClose fires; a callback
+    // that clears the flag cancels the close.
+    window.common.previous_window_state = Some(window.common.current_window_state.clone());
+    window.common.current_window_state.flags.close_requested = true;
+
+    let result = window.process_window_events(0);
+    window.handle_process_event_result(result);
+
+    if window.common.current_window_state.flags.close_requested {
+        window.is_open = false;
+    } else {
+        log_debug!(
+            LogCategory::Window,
+            "[Wayland] xdg_toplevel.close cancelled by callback"
+        );
+    }
 }
 
 pub(super) extern "C" fn xdg_toplevel_configure_bounds_handler(
@@ -1847,7 +1995,14 @@ pub(super) extern "C" fn pointer_axis_handler(
     window.handle_pointer_axis(axis, value as f64 / 256.0);
 }
 
-extern "C" fn pointer_frame_handler(_data: *mut c_void, _pointer: *mut wl_pointer) {}
+/// `wl_pointer.frame` closes an atomic group of pointer events. The axis events
+/// of a frame are accumulated, not dispatched, so this is where a scroll
+/// actually happens — one dispatch for a diagonal scroll instead of two — and
+/// where the frame-scoped `axis_source` is dropped.
+extern "C" fn pointer_frame_handler(data: *mut c_void, _pointer: *mut wl_pointer) {
+    let window = unsafe { &mut *(data as *mut WaylandWindow) };
+    window.handle_pointer_frame();
+}
 // MWA-C-scroll: axis_source/axis_stop were empty stubs, so every Wayland
 // scroll was WheelDiscrete (touchpad deltas became velocity impulses) and
 // rubber-band spring-back never triggered. axis_source arrives before the
@@ -1869,12 +2024,17 @@ extern "C" fn pointer_axis_stop_handler(
     let window = unsafe { &mut *(data as *mut WaylandWindow) };
     window.handle_pointer_axis_stop();
 }
+/// `wl_pointer.axis_discrete` — the detent count behind the frame's axis value.
+/// It is the only compositor-independent scroll quantity available here, so the
+/// frame flush uses it to hit the same per-notch distance as X11 / Win32.
 extern "C" fn pointer_axis_discrete_handler(
-    _data: *mut c_void,
+    data: *mut c_void,
     _pointer: *mut wl_pointer,
-    _axis: u32,
-    _discrete: i32,
+    axis: u32,
+    discrete: i32,
 ) {
+    let window = unsafe { &mut *(data as *mut WaylandWindow) };
+    window.handle_pointer_axis_discrete(axis, discrete);
 }
 
 extern "C" fn keyboard_enter_handler(
@@ -1882,10 +2042,29 @@ extern "C" fn keyboard_enter_handler(
     _keyboard: *mut wl_keyboard,
     _serial: u32,
     _surface: *mut wl_surface,
-    _keys: *mut c_void,
+    keys: *mut c_void,
 ) {
     let window = unsafe { &mut *(data as *mut WaylandWindow) };
-    window.handle_keyboard_enter();
+
+    // `keys` is a wl_array of the evdev keycodes held down AT THE MOMENT focus
+    // arrives — the compositor never replays their press events. Dropping it
+    // meant a key held across the focus change (Ctrl during Alt-Tab) was invisible
+    // to us until its release, which then removed something we never added.
+    // The listener types it as *mut c_void; the protocol type is wl_array.
+    let held: Vec<u32> = if keys.is_null() {
+        Vec::new()
+    } else {
+        let array = unsafe { &*(keys as *const wl_array) };
+        if array.data.is_null() {
+            Vec::new()
+        } else {
+            let count = array.size / std::mem::size_of::<u32>();
+            let keycodes = array.data as *const u32;
+            (0..count).map(|i| unsafe { *keycodes.add(i) }).collect()
+        }
+    };
+
+    window.handle_keyboard_enter(&held);
 }
 extern "C" fn keyboard_leave_handler(
     data: *mut c_void,

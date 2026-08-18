@@ -493,7 +493,7 @@ fn build_header(year: u32, month: u32, shared: RefAny) -> Dom {
     use azul_core::dom::{EventFilter, HoverEventFilter};
 
     let nav = |arrow: AzString, cb: usize, refany: RefAny| -> Dom {
-        Dom::create_text(arrow)
+        Dom::create_p_with_text(arrow)
             .with_ids_and_classes(IdOrClassVec::from_const_slice(NAV_BTN_CLASS))
             .with_css_props(CssPropertyWithConditionsVec::from_const_slice(NAV_BTN_STYLE))
             .with_callbacks(
@@ -518,7 +518,7 @@ fn build_header(year: u32, month: u32, shared: RefAny) -> Dom {
         .with_children(
             alloc::vec![
                 nav(PREV_ARROW, on_prev_month as usize, shared.clone()),
-                Dom::create_text(label)
+                Dom::create_p_with_text(label)
                     .with_ids_and_classes(IdOrClassVec::from_const_slice(HEADER_LABEL_CLASS))
                     .with_css_props(CssPropertyWithConditionsVec::from_const_slice(
                         HEADER_LABEL_STYLE,
@@ -533,7 +533,7 @@ fn build_weekday_row() -> Dom {
     let cells: Vec<Dom> = WEEKDAY_NAMES
         .iter()
         .map(|n| {
-            Dom::create_text(n.clone())
+            Dom::create_p_with_text(n.clone())
                 .with_ids_and_classes(IdOrClassVec::from_const_slice(WEEKDAY_CELL_CLASS))
                 .with_css_props(CssPropertyWithConditionsVec::from_const_slice(
                     WEEKDAY_CELL_STYLE,
@@ -589,7 +589,7 @@ fn build_blank_cell() -> Dom {
 fn build_day_cell(day: u32, selected: bool, shared: RefAny) -> Dom {
     use azul_core::dom::{EventFilter, HoverEventFilter};
 
-    Dom::create_text(AzString::from(format!("{day}")))
+    Dom::create_p_with_text(AzString::from(format!("{day}")))
         .with_ids_and_classes(IdOrClassVec::from_const_slice(DAY_CELL_CLASS))
         .with_css_props(build_day_cell_style(selected))
         .with_callbacks(
@@ -919,9 +919,16 @@ mod autotest_generated {
             .collect()
     }
 
-    /// The text a node renders, or `None` for a non-text node (a blank cell).
+    /// The text a node renders, looking through the `<p>` block wrapper the
+    /// label convention mandates; `None` for a non-text node (a blank cell).
     fn text_of(dom: &Dom) -> Option<String> {
-        dom.root.get_node_type().format()
+        match dom.root.get_node_type() {
+            NodeType::P => match dom.children.as_ref() {
+                [only] => only.root.get_node_type().format(),
+                _ => None,
+            },
+            other => other.format(),
+        }
     }
 
     /// The day numbers of a grid in reading order; `None` marks a blank cell.
@@ -2142,12 +2149,16 @@ mod autotest_generated {
                 "{y}-{m}: the cached descendant count is wrong",
             );
 
-            let rows = dom.children.as_ref()[2].children.as_ref().len();
+            // The flatten must agree with the (just-verified) descendant
+            // cache: root + descendants. A per-month closed formula stopped
+            // being practical once day/label cells became <p> + text leaf
+            // pairs whose count varies with the month's blank cells.
+            let expected = 1 + dom.estimated_total_children;
             let styled = StyledDom::create_from_dom(dom);
             assert_eq!(
                 styled.node_data.as_ref().len(),
-                14 + 8 * rows,
-                "{y}-{m}: container + header(3) + weekdays(7) + grid of {rows} weeks did not flatten as expected",
+                expected,
+                "{y}-{m}: the flatten disagrees with the descendant cache",
             );
         }
     }
