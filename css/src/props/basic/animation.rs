@@ -2640,17 +2640,20 @@ impl core::fmt::Display for StyleAnimationParseError<'_> {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[repr(C, u8)]
 pub enum StyleAnimationParseErrorOwned {
-    Empty(String),
+    // `AzString`, not `String`: this is a `repr(C, u8)` enum that crosses
+    // the C ABI (api.json error class) — a Rust `String` payload is not
+    // FFI-safe and the generated glue constructs the variant from AzString.
+    Empty(crate::AzString),
     Duration(crate::props::basic::time::DurationParseErrorOwned),
 }
 
 impl StyleAnimationParseError<'_> {
     #[must_use]
     pub fn to_contained(&self) -> StyleAnimationParseErrorOwned {
-        use alloc::string::ToString;
         match self {
-            Self::Empty(s) => StyleAnimationParseErrorOwned::Empty((*s).to_string()),
+            Self::Empty(s) => StyleAnimationParseErrorOwned::Empty((*s).into()),
             Self::Duration(e) => StyleAnimationParseErrorOwned::Duration(e.to_contained()),
         }
     }
