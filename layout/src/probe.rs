@@ -184,8 +184,11 @@ mod imp {
             {
                 // dladdr resolves names from .dynsym only — a statically
                 // linked, non--rdynamic binary yields NO symbol for its own
-                // functions. Fall back to the MODULE-RELATIVE offset
-                // (`cb:+0x<offset>`): stable across runs of the same binary
+                // functions. Fallback ladder: (1) `addr2line` against the
+                // module's DEBUG symbols (Linux, when the tool is installed —
+                // this recovers the real name, e.g. `cb:demo_button_click`,
+                // even on static binaries); (2) the MODULE-RELATIVE offset
+                // (`cb:+0x<offset>`), stable across runs of the same binary
                 // (ASLR shifts the base, not the offset), so distinct
                 // callbacks stay distinguishable and comparable per version.
                 let mut info: libc::Dl_info = unsafe { core::mem::zeroed() };
@@ -200,7 +203,18 @@ mod imp {
                     }
                 } else if rc != 0 && !info.dli_fbase.is_null() {
                     let offset = fn_ptr.wrapping_sub(info.dli_fbase as usize);
-                    Box::leak(format!("cb:+0x{offset:x}").into_boxed_str())
+                    let module = if info.dli_fname.is_null() {
+                        None
+                    } else {
+                        unsafe { core::ffi::CStr::from_ptr(info.dli_fname) }
+                            .to_str()
+                            .ok()
+                            .map(str::to_owned)
+                    };
+                    match addr2line_name(module.as_deref(), offset, fn_ptr) {
+                        Some(sym) => Box::leak(format!("cb:{sym}").into_boxed_str()),
+                        None => Box::leak(format!("cb:+0x{offset:x}").into_boxed_str()),
+                    }
                 } else {
                     // dladdr failed outright: the raw address still separates
                     // one callback from another within this run.
@@ -216,6 +230,84 @@ mod imp {
             map.insert(fn_ptr, resolved);
         }
         resolved
+    }
+
+    /// DEBUG-SYMBOL fallback: asks the system's `addr2line` for the function
+    /// name at `offset` inside `module` (Linux; other unixes rarely ship
+    /// it). Recovers real names on statically linked binaries whose own
+    /// functions are absent from `.dynsym` — exactly the case `dladdr`
+    /// cannot answer.
+    ///
+    /// Runs AT MOST ONCE per distinct callback pointer (the leak-once cache
+    /// above), so the subprocess cost — up to a few hundred ms the first
+    /// time addr2line loads a big binary's DWARF — is a one-time price per
+    /// callback, not per span. `AZ_PROBE_ADDR2LINE=0` disables it.
+    ///
+    /// PIE executables and shared objects map file offsets 1:1 to link-time
+    /// addresses, so the module-relative offset is the right query; for a
+    /// non-PIE main binary (fixed 0x400000 base) the RAW pointer is, so a
+    /// failed first query retries with it.
+    /// Probed ONCE per process (first resolution), then a flag test: systems
+    /// without addr2line never spawn a second lookup attempt, and nothing
+    /// here can fail loudly — "not available" just means the offset form.
+    #[cfg(unix)]
+    fn addr2line_available() -> bool {
+        use std::sync::OnceLock;
+        static AVAILABLE: OnceLock<bool> = OnceLock::new();
+        *AVAILABLE.get_or_init(|| {
+            std::process::Command::new("addr2line")
+                .arg("--version")
+                .stdout(std::process::Stdio::null())
+                .stderr(std::process::Stdio::null())
+                .status()
+                .is_ok_and(|s| s.success())
+        })
+    }
+
+    #[cfg(unix)]
+    fn addr2line_name(module: Option<&str>, offset: usize, raw_ptr: usize) -> Option<String> {
+        if !cfg!(target_os = "linux") {
+            return None;
+        }
+        if std::env::var("AZ_PROBE_ADDR2LINE").is_ok_and(|v| v == "0") {
+            return None;
+        }
+        if !addr2line_available() {
+            return None;
+        }
+        let module: std::borrow::Cow<'_, str> = match module {
+            Some(m) if !m.is_empty() => m.into(),
+            _ => std::env::current_exe().ok()?.to_string_lossy().into_owned().into(),
+        };
+        let ask = |addr: usize| -> Option<String> {
+            let out = std::process::Command::new("addr2line")
+                .arg("-f") // function names…
+                .arg("-C") // …demangled
+                .arg("-i") // …with the full INLINE stack: a tiny callback's
+                //            first instruction often belongs to an inlined
+                //            callee (black_box, a getter), and the innermost
+                //            frame would name THAT. The callback is the
+                //            OUTERMOST frame — the last name in the output.
+                .arg("-e")
+                .arg(module.as_ref())
+                .arg(format!("0x{addr:x}"))
+                .output()
+                .ok()?;
+            if !out.status.success() {
+                return None;
+            }
+            let text = String::from_utf8_lossy(&out.stdout);
+            // Lines alternate name/location, innermost first; keep the last
+            // usable NAME line (the outermost frame).
+            let name = text
+                .lines()
+                .step_by(2)
+                .map(str::trim)
+                .filter(|n| !n.is_empty() && *n != "??")
+                .last()?;
+            Some(name.to_owned())
+        };
+        ask(offset).or_else(|| ask(raw_ptr))
     }
 
     pub(super) fn drop_events() {
@@ -381,9 +473,11 @@ impl Probe {
     /// Resolution runs ONCE per distinct pointer (a leak-once cache bounded
     /// by the number of distinct callbacks); every later call is one map
     /// lookup. When the symbol is unresolvable (static non-`-rdynamic`
-    /// binaries keep their own functions out of `.dynsym`), the span falls
-    /// back to the module-relative offset `cb:+0x<offset>` — stable across
-    /// runs of the same binary, so distinct callbacks remain
+    /// binaries keep their own functions out of `.dynsym`), the fallback
+    /// ladder is: `addr2line` against the module's debug symbols (Linux,
+    /// when installed — recovers the real name; `AZ_PROBE_ADDR2LINE=0`
+    /// disables), then the module-relative offset `cb:+0x<offset>` — stable
+    /// across runs of the same binary, so distinct callbacks remain
     /// distinguishable and per-version comparisons still work; `cb:0x<addr>`
     /// is the last resort when `dladdr` fails entirely.
     #[inline]
@@ -2324,5 +2418,18 @@ mod allocator_stats_tests {
             names.starts_with("cb:"),
             "span name keeps the cb: family prefix: {names}"
         );
+        // With addr2line installed (Linux), the DEBUG-symbol fallback must
+        // recover the REAL name — the test binary carries debuginfo.
+        if cfg!(target_os = "linux")
+            && std::process::Command::new("addr2line")
+                .arg("--version")
+                .output()
+                .is_ok_and(|o| o.status.success())
+        {
+            assert!(
+                names.contains("f_one"),
+                "addr2line fallback must name the function, got: {names}"
+            );
+        }
     }
 }
