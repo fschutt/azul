@@ -681,185 +681,44 @@ impl fmt::Display for CssParseError<'_> {
 /// [`CssParseWarnMsg`] items rather than causing a hard failure, so the caller
 /// always receives a (possibly empty) stylesheet.
 #[must_use] pub fn new_from_str(css_string: &str) -> (Css, Vec<CssParseWarnMsg<'_>>) {
-    // `@keyframes` blocks are extracted TEXTUALLY before tokenization and
-    // parsed by their own small grammar (`from`/`to`/`<pct>%` stop selectors
-    // + ordinary declarations). The rule tokenizer's selector vocabulary has
-    // no percentage form, and threading one through it for the sake of one
-    // at-rule would complicate every selector arm — a balanced-brace scan is
-    // exact here because keyframe bodies cannot contain nested braces beyond
-    // their stop blocks. The extracted ranges are blanked (not removed) so
-    // every other rule keeps its byte offsets for error locations.
-    let (ranges, keyframes) = extract_keyframes(css_string);
-    if ranges.is_empty() {
-        // Common case: no @keyframes — the untouched single-pass parse.
-        let mut tokenizer = Tokenizer::new(css_string);
-        let (rules, warnings) = new_from_str_inner(css_string, &mut tokenizer);
-        return (
-            Css { rules: rules.into(), keyframes: keyframes.into() },
-            warnings,
-        );
-    }
-    // With @keyframes present, parse each non-keyframes SEGMENT of the
-    // original string separately and concatenate. Segments are `&css_string`
-    // slices, so every warning keeps borrowing the caller's string — the
-    // token-skipping and blank-a-copy designs both failed here (the tokenizer
-    // does not advance past an unknown token like `50%`, and a blanked copy
-    // cannot outlive the returned warnings). Extraction is TOP-LEVEL only
-    // (brace depth 0), which is what keeps each segment brace-balanced;
-    // `@keyframes` nested inside `@media` is not supported yet and parses as
-    // it would have before this feature existed.
-    let mut rules = Vec::new();
-    let mut warnings = Vec::new();
-    let mut cursor = 0usize;
-    fn parse_segment<'a>(
-        css_string: &'a str,
-        seg_start: usize,
-        seg_end: usize,
-        rules: &mut Vec<CssRuleBlock>,
-        warnings: &mut Vec<CssParseWarnMsg<'a>>,
-    ) {
-        let seg = &css_string[seg_start..seg_end];
-        if seg.trim().is_empty() {
-            return;
-        }
-        let mut tokenizer = Tokenizer::new(seg);
-        let (seg_rules, mut seg_warnings) = new_from_str_inner(seg, &mut tokenizer);
-        for w in &mut seg_warnings {
-            w.location.start.original_pos += seg_start;
-            w.location.end.original_pos += seg_start;
-        }
-        rules.extend(seg_rules);
-        warnings.extend(seg_warnings);
-    }
-    for (start, end) in &ranges {
-        parse_segment(css_string, cursor, *start, &mut rules, &mut warnings);
-        cursor = *end;
-    }
-    parse_segment(css_string, cursor, css_string.len(), &mut rules, &mut warnings);
-
+    // ONE tokenizer pass. `@keyframes` rides `azul_simplecss`'s native
+    // at-rule handling (`AtRule("keyframes")` + `AtStr(name)` + the nesting
+    // stack): the main loop switches into a stop-collection mode at the
+    // block's `{` and back out at its matching `}`. Percent stop selectors
+    // (`50%`, `62.5%, to`) tokenize natively since azul-simplecss 0.2.1 —
+    // the old TEXTUAL pre-extraction (find("@keyframes") + segment
+    // stitching) is gone, which also means `@keyframes` inside `@media` now
+    // PARSES (its keyframes join the flat list; the enclosing conditions do
+    // not gate keyframes yet) and a commented-out `@keyframes` is no longer
+    // seen at all.
+    let mut tokenizer = Tokenizer::new(css_string);
+    let mut keyframes: Vec<crate::css::Keyframes> = Vec::new();
+    let (rules, warnings) = new_from_str_inner(css_string, &mut tokenizer, &mut keyframes);
     (
         Css { rules: rules.into(), keyframes: keyframes.into() },
         warnings,
     )
 }
 
-/// Scan for `@keyframes <name> { ... }` blocks: parse each into [`Keyframes`]
-/// and report its byte range so the rule tokenizer can skip over it.
-fn extract_keyframes(css: &str) -> (Vec<(usize, usize)>, Vec<crate::css::Keyframes>) {
-    let bytes = css.as_bytes();
-    let mut ranges = Vec::new();
-    let mut keyframes = Vec::new();
-    let mut i = 0;
-    while let Some(rel) = css[i..].find("@keyframes") {
-        let at = i + rel;
-        // TOP-LEVEL only: an occurrence inside another block (e.g. @media)
-        // is left for the rule parser — segmenting through it would split a
-        // balanced outer block in two.
-        if bytes[..at].iter().fold(0i64, |d, &b| match b {
-            b'{' => d + 1,
-            b'}' => d - 1,
-            _ => d,
-        }) != 0
-        {
-            i = at + "@keyframes".len();
-            continue;
-        }
-        let after_kw = at + "@keyframes".len();
-        // name = up to the opening brace
-        let Some(brace_rel) = css[after_kw..].find('{') else { break };
-        let brace = after_kw + brace_rel;
-        let name = css[after_kw..brace].trim().to_string();
-        // balanced-brace scan for the block end
-        let mut depth = 0usize;
-        let mut end = None;
-        for (j, &b) in bytes.iter().enumerate().skip(brace) {
-            match b {
-                b'{' => depth += 1,
-                b'}' => {
-                    depth -= 1;
-                    if depth == 0 {
-                        end = Some(j);
-                        break;
-                    }
+/// Map a keyframe stop selector to permille: `from` = 0, `to` = 1000,
+/// `<number>%` in `0..=100` = rounded tenths. Unknown selectors return
+/// `None` and are SKIPPED, matching the rule parser's warn-and-continue
+/// posture.
+fn stop_selector_permille(sel: &str) -> Option<u16> {
+    match sel {
+        "from" => Some(0),
+        "to" => Some(1000),
+        s => s.strip_suffix('%').and_then(|n| {
+            n.trim().parse::<f32>().ok().and_then(|pct| {
+                if (0.0..=100.0).contains(&pct) {
+                    // Range-guarded above: 0.0..=100.0 * 10 rounds into 0..=1000.
+                    #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+                    Some((pct * 10.0).round() as u16)
+                } else {
+                    None
                 }
-                _ => {}
-            }
-        }
-        let Some(end) = end else { break };
-        if !name.is_empty() {
-            let body = &css[brace + 1..end];
-            keyframes.push(parse_keyframes_body(name, body));
-        }
-        ranges.push((at, end + 1));
-        i = end + 1;
-    }
-    (ranges, keyframes)
-}
-
-/// Parse the inside of a `@keyframes` block: a sequence of
-/// `<stops> { <declarations> }` where `<stops>` is a comma list of
-/// `from` (0), `to` (1000) or `<number>%` (permille). Unknown stop selectors
-/// and unparsable declarations are SKIPPED, matching the rule parser's
-/// warn-and-continue posture. Stops are sorted by permille; duplicate
-/// selectors in one comma list share the declaration set.
-fn parse_keyframes_body(name: alloc::string::String, body: &str) -> crate::css::Keyframes {
-    use crate::css::{KeyframeStop, Keyframes};
-    let mut stops: Vec<KeyframeStop> = Vec::new();
-    let mut rest = body;
-    while let Some(open) = rest.find('{') {
-        let selector_text = &rest[..open];
-        let Some(close_rel) = rest[open + 1..].find('}') else { break };
-        let close = open + 1 + close_rel;
-        let decls = &rest[open + 1..close];
-
-        let mut props: Vec<crate::props::property::CssProperty> = Vec::new();
-        for decl in decls.split(';') {
-            let decl = decl.trim();
-            if decl.is_empty() {
-                continue;
-            }
-            let Some((key, value)) = decl.split_once(':') else {
-                continue;
-            };
-            let key_map = crate::props::property::get_css_key_map();
-            let Some(ty) =
-                crate::props::property::CssPropertyType::from_str(key.trim(), &key_map)
-            else {
-                continue;
-            };
-            if let Ok(prop) = crate::props::property::parse_css_property(ty, value.trim()) {
-                props.push(prop);
-            }
-        }
-
-        for sel in selector_text.split(',') {
-            let sel = sel.trim();
-            let permille: Option<u16> = match sel {
-                "from" => Some(0),
-                "to" => Some(1000),
-                s => s.strip_suffix('%').and_then(|n| {
-                    n.trim().parse::<f32>().ok().and_then(|pct| {
-                        if (0.0..=100.0).contains(&pct) {
-                            Some((pct * 10.0).round() as u16)
-                        } else {
-                            None
-                        }
-                    })
-                }),
-            };
-            if let Some(permille) = permille {
-                stops.push(KeyframeStop {
-                    permille,
-                    props: props.clone().into(),
-                });
-            }
-        }
-        rest = &rest[close + 1..];
-    }
-    stops.sort_by_key(|s| s.permille);
-    Keyframes {
-        name: name.into(),
-        stops: stops.into(),
+            })
+        }),
     }
 }
 
@@ -1541,10 +1400,10 @@ fn parse_lang_condition(content: &str) -> Option<DynamicSelector> {
 const MAX_NESTING_DEPTH: usize = 1024;
 
 #[allow(clippy::too_many_lines, clippy::cognitive_complexity)] // large but cohesive: single-purpose CSS parser/formatter/dispatch table (one branch per property/variant)
-
 fn new_from_str_inner<'a>(
     css_string: &'a str,
     tokenizer: &mut Tokenizer<'a>,
+    keyframes_out: &mut Vec<crate::css::Keyframes>,
 ) -> (Vec<CssRuleBlock>, Vec<CssParseWarnMsg<'a>>) {
     use azul_simplecss::{Combinator, Token};
 
@@ -1589,6 +1448,18 @@ fn new_from_str_inner<'a>(
         }
     }
 
+    // `@keyframes` stop-collection mode state. While active, ALL tokens are
+    // routed to it (stop selectors are `from`/`to`/`NN%` type selectors,
+    // their blocks hold ordinary declarations) until the at-rule's own
+    // closing brace pops the capture into `keyframes_out`.
+    struct KfCapture {
+        name: String,
+        stops: Vec<crate::css::KeyframeStop>,
+        selectors: Vec<String>,
+        props: Vec<crate::props::property::CssProperty>,
+        in_stop: bool,
+    }
+
     let mut css_blocks = Vec::new();
     let mut warnings = Vec::new();
 
@@ -1603,6 +1474,7 @@ fn new_from_str_inner<'a>(
     let mut pending_at_rule: Option<&str> = None;
     // Collect multiple AtStr tokens (e.g., "screen", "(min-width: 800px)" for compound media queries)
     let mut pending_at_str_parts: Vec<String> = Vec::new();
+    let mut keyframes_capture: Option<KfCapture> = None;
 
     // Stack for nested selectors
     // Each entry: (parent_paths, declarations, nesting_level)
@@ -1687,6 +1559,87 @@ fn new_from_str_inner<'a>(
             }};
         }
 
+        if keyframes_capture.is_some() {
+            let mut close_kf = false;
+            let mut eos = false;
+            {
+                let cap = keyframes_capture
+                    .as_mut()
+                    .expect("checked is_some above");
+                match token {
+                    Token::TypeSelector(sel) => {
+                        if !cap.in_stop {
+                            cap.selectors.push(sel.to_string());
+                        }
+                    }
+                    Token::BlockStart => {
+                        block_nesting += 1;
+                        cap.in_stop = true;
+                        cap.props.clear();
+                    }
+                    Token::Declaration(key, val) => {
+                        if cap.in_stop {
+                            let key_map = crate::props::property::get_css_key_map();
+                            if let Some(ty) = CssPropertyType::from_str(key.trim(), &key_map) {
+                                if let Ok(prop) = parse_css_property(ty, val.trim()) {
+                                    cap.props.push(prop);
+                                }
+                            }
+                        }
+                    }
+                    Token::BlockEnd => {
+                        block_nesting = block_nesting.saturating_sub(1);
+                        if cap.in_stop {
+                            cap.in_stop = false;
+                            // One stop per comma-listed selector; they share
+                            // the declaration set. Unknown selectors skip.
+                            let props = core::mem::take(&mut cap.props);
+                            for sel in cap.selectors.drain(..) {
+                                if let Some(permille) = stop_selector_permille(&sel) {
+                                    cap.stops.push(crate::css::KeyframeStop {
+                                        permille,
+                                        props: props.clone().into(),
+                                    });
+                                }
+                            }
+                        } else {
+                            close_kf = true;
+                        }
+                    }
+                    Token::EndOfStream => {
+                        eos = true;
+                    }
+                    // Comma between stop selectors needs no action (they
+                    // accumulate); anything else unsupported is skipped.
+                    _ => {}
+                }
+            }
+            if close_kf {
+                let mut cap = keyframes_capture
+                    .take()
+                    .expect("close_kf implies capture");
+                cap.stops.sort_by_key(|st| st.permille);
+                keyframes_out.push(crate::css::Keyframes {
+                    name: cap.name.into(),
+                    stops: cap.stops.into(),
+                });
+            }
+            if eos {
+                warnings.push(CssParseWarnMsg {
+                    warning: CssParseWarnMsgInner::MalformedStructure {
+                        message: "Unclosed blocks at end of file",
+                    },
+                    location: ErrorLocationRange {
+                        start: last_error_location,
+                        end: get_error_location(tokenizer),
+                    },
+                });
+                break;
+            }
+            last_error_location = get_error_location(tokenizer);
+            continue;
+        }
+
         match token {
             Token::AtRule(rule_name) => {
                 // Store the @-rule name to combine with the following AtStr tokens
@@ -1703,6 +1656,25 @@ fn new_from_str_inner<'a>(
                 }
             }
             Token::BlockStart => {
+                // `@keyframes <name> {` switches into stop-collection mode —
+                // no selector machinery, no condition stack (an ENCLOSING
+                // @media's conditions do not gate keyframes yet; they parse
+                // and join the flat list).
+                if pending_at_rule.is_some_and(|r| r.eq_ignore_ascii_case("keyframes")) {
+                    pending_at_rule = None;
+                    let name = pending_at_str_parts.join(" ");
+                    pending_at_str_parts.clear();
+                    block_nesting += 1;
+                    keyframes_capture = Some(KfCapture {
+                        name,
+                        stops: Vec::new(),
+                        selectors: Vec::new(),
+                        props: Vec::new(),
+                        in_stop: false,
+                    });
+                    last_error_location = get_error_location(tokenizer);
+                    continue;
+                }
                 // Process pending @-rule with all collected AtStr parts
                 if let Some(rule_name) = pending_at_rule.take() {
                     let combined_content = pending_at_str_parts.join(" and ");
@@ -3907,7 +3879,8 @@ mod autotest_generated {
     fn new_from_str_inner_matches_new_from_str() {
         let css_string = "div { width: 100px; }";
         let mut tokenizer = Tokenizer::new(css_string);
-        let (rules, warnings) = new_from_str_inner(css_string, &mut tokenizer);
+        let mut kf = Vec::new();
+        let (rules, warnings) = new_from_str_inner(css_string, &mut tokenizer, &mut kf);
         assert_eq!(rules.len(), 1);
         assert!(warnings.is_empty());
     }
@@ -3977,6 +3950,66 @@ mod autotest_generated {
 #[cfg(test)]
 mod keyframes_tests {
     use super::*;
+
+    /// `@keyframes` nested inside `@media` PARSES since the native-tokenizer
+    /// rework (the textual extractor was top-level-only and left the block to
+    /// garble the rule stream). The keyframes join the flat list; rules
+    /// before/inside/after the media block stay intact. Enclosing conditions
+    /// do not gate keyframes yet (documented).
+    #[test]
+    fn keyframes_inside_media_parse_and_rules_survive() {
+        let css = r#"
+            p { color: red; }
+            @media (min-width: 100px) {
+                @keyframes nested { from { opacity: 0; } 50% { opacity: 0.5; } to { opacity: 1; } }
+                div { color: blue; }
+            }
+            span { color: green; }
+        "#;
+        let (parsed, _warnings) = new_from_str(css);
+        let kf: Vec<_> = parsed.keyframes.as_ref().iter().collect();
+        assert_eq!(kf.len(), 1, "nested @keyframes must parse: {:?}", parsed.keyframes);
+        assert_eq!(kf[0].name.as_str(), "nested");
+        let permilles: Vec<u16> = kf[0].stops.iter().map(|s| s.permille).collect();
+        assert_eq!(permilles, vec![0, 500, 1000]);
+        // All three rules survive with their declarations.
+        let total_rules: usize = parsed.rules.as_ref().len();
+        assert_eq!(total_rules, 3, "p + div + span: {:#?}", parsed.rules);
+    }
+
+    /// A commented-out `@keyframes` must NOT register. The old textual
+    /// scanner ran `find("@keyframes")` with no comment awareness and
+    /// extracted from INSIDE `/* .. */`; the tokenizer skips comments.
+    #[test]
+    fn keyframes_inside_comment_do_not_register() {
+        let css = r#"
+            /* @keyframes ghost { from { opacity: 0; } to { opacity: 1; } } */
+            p { color: red; }
+        "#;
+        let (parsed, _warnings) = new_from_str(css);
+        assert_eq!(
+            parsed.keyframes.as_ref().len(),
+            0,
+            "commented-out @keyframes registered: {:?}",
+            parsed.keyframes
+        );
+        assert_eq!(parsed.rules.as_ref().len(), 1);
+    }
+
+    /// Fractional percent stops (`62.5%`) keep parsing through the native
+    /// path (tokenized as one TypeSelector since azul-simplecss 0.2.1), and
+    /// a comma list shares its declaration set across stops.
+    #[test]
+    fn keyframes_fractional_and_comma_list_stops() {
+        let css = "@keyframes k { 62.5%, to { opacity: 1; } }";
+        let (parsed, _warnings) = new_from_str(css);
+        let kf: Vec<_> = parsed.keyframes.as_ref().iter().collect();
+        assert_eq!(kf.len(), 1);
+        let permilles: Vec<u16> = kf[0].stops.iter().map(|s| s.permille).collect();
+        assert_eq!(permilles, vec![625, 1000]);
+        assert_eq!(kf[0].stops.as_ref()[0].props.as_ref().len(), 1);
+        assert_eq!(kf[0].stops.as_ref()[1].props.as_ref().len(), 1);
+    }
 
     /// `@keyframes` parse + the rule parser skipping the block: the stops
     /// come out sorted with their properties, and the rules AROUND the block
