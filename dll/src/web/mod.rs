@@ -1316,6 +1316,14 @@ pub fn run_web(
         for cb in &cb_wasms {
             artifacts.push(("cb", cb.wasm_bytes.as_slice()));
         }
+        {
+            use std::sync::atomic::Ordering;
+            let hits = transpiler_remill::RELOC_CACHE_HITS.load(Ordering::Relaxed);
+            let lifts = transpiler_remill::RELOC_CACHE_LIFTS.load(Ordering::Relaxed);
+            eprintln!(
+                "[azul-web][lift-audit] reloc-canonical cache: {hits} translated hit(s), {lifts} fresh remill lift(s)",
+            );
+        }
         let preflight = transpiler_remill::preflight_entries();
         let fatal = lift_audit::run(
             &artifacts,
