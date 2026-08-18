@@ -333,3 +333,51 @@ histogram_quantile(0.50, sum by (le, version)
 # updater observing itself
 sum by (result) (increase(app_update_check_total[$__range]))
 ```
+
+### Slow (phased) rollout
+
+Releases stagger by default. A manifest with a `release_date` and no
+`slow` key gets the built-in ladder — day 1 → 10 %, day 2 → 30 %,
+day 3 → 50 %, day 4 → 100 % — so there is a cooldown to inspect this
+dashboard per version before the fleet moves. Explicit stages (percent →
+datetime; unix seconds or `YYYY-MM-DD[THH:MM:SSZ]`) override the ladder,
+and `"slow": "off"` releases to everyone at once:
+
+```json
+{ "latest": { "version": "1.6.0",
+              "download_url": "https://…/app-1.6.0.bin",
+              "changelog_md": "https://…/CHANGELOG.md",
+              "digest": "",
+              "release_date": "2026-08-17",
+              "slow": { "10": "2026-08-18", "50": "2026-08-19",
+                        "100": "2026-08-20" } } }
+```
+
+Each client draws a persistent cohort bucket (0–99, `update-state.json`;
+`AZ_UPDATE_BUCKET` overrides for drills) and updates once its bucket
+falls under the currently-open percent. Package-managed installs
+(notify-only) do not even see the "please update" hint until the rollout
+reaches 100 %. Gated clients record `staggered`:
+
+```promql
+# how far the rollout has actually reached, over time
+sum by (result) (increase(app_update_check_total{result=~"available|staggered"}[$__range]))
+```
+
+Drill it locally (three manifests, several cohorts each):
+
+```bash
+cargo run --release -p azul-layout --example telemetry_grafana \
+  --features telemetry,probe,updater -- \
+  --rollout-drill http://127.0.0.1:8913/manifest.json --version 1.5.0 --iterations 1
+```
+
+### Callback span names (`cb:*`)
+
+`Probe::span_for_fn` names callback spans via `dladdr`:
+`cb:my_button_click` where the symbol is exported (`-rdynamic`, dylib
+apps). Statically linked binaries keep their own functions out of
+`.dynsym`, so the span falls back to the module-relative offset
+(`cb:+0x588f0`) — stable across runs of the SAME binary, so distinct
+callbacks stay distinguishable and per-version comparisons still work;
+`addr2line -e ./app 0x588f0` maps an offset back to a name when needed.
