@@ -1006,6 +1006,39 @@ impl RemillTranspiler {
                 if let Some(translated) =
                     reloc_translate(&ir, &man, lift_addr, &bytes, fn_addr, symbol_table::get())
                 {
+                    // AZ_RELOC_VERIFY=1: self-check mode. ALSO lift fresh and
+                    // byte-compare — a perfect translation must be IDENTICAL
+                    // to the fresh lift of the same bytes at the same address.
+                    // Any divergence is logged with the first differing lines
+                    // (the exact mistranslated constants, no guessing) and the
+                    // FRESH result is used. This is the instrument that turns
+                    // "which constants are addresses?" from hypothesis into
+                    // measurement; expensive (full remill per fn), debug-only.
+                    if std::env::var_os("AZ_RELOC_VERIFY").is_some() {
+                        // fall through to the fresh lift below, then compare
+                        let fresh = self.lift_fn_fresh(
+                            fn_name, fn_addr, &bytes, lift_addr, &lifted_ir_path,
+                        )?;
+                        if fresh != translated {
+                            let mut shown = 0;
+                            for (a, b) in fresh.lines().zip(translated.lines()) {
+                                if a != b && shown < 6 {
+                                    eprintln!("[azul-web][reloc-verify]   fresh: {a}");
+                                    eprintln!("[azul-web][reloc-verify]   trans: {b}");
+                                    shown += 1;
+                                }
+                            }
+                            eprintln!(
+                                "[azul-web][reloc-verify] ✗ DIVERGENCE in {fn_name} ({} differing line(s) shown) — using the fresh lift",
+                                shown,
+                            );
+                            RELOC_VERIFY_FAILS.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                        } else {
+                            RELOC_VERIFY_OKS.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                        }
+                        preflight_scan(fn_name, &fresh, count_ud2_pairs(&bytes));
+                        return Ok(fresh);
+                    }
                     RELOC_CACHE_HITS.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
                     let _ = std::fs::write(&lifted_ir_path, &translated);
                     preflight_scan(fn_name, &translated, count_ud2_pairs(&bytes));
@@ -1041,34 +1074,8 @@ impl RemillTranspiler {
             #[cfg(not(feature = "web-transpiler-static"))]
             unreachable!("use_native_remill() returns false without the feature");
         }
-        let tools = self.tools(fn_name)?;
-        let hex = bytes_to_hex(&bytes);
-        let addr_s = format!("0x{:x}", lift_addr);
-        let lift_out = lifted_ir_path.to_str().expect("scratch path is utf-8").to_string();
-        // M12.7: provide this fn's adrp-referenced .rodata (its jump tables) to the lifter
-        // at SYNTH addresses, so ForEachDevirtualizedTarget reads the EXACT jump-table
-        // targets (only the real arm blocks) instead of over-sweeping a window — the
-        // over-sweep adds the helper-return block as a spurious switch case, creating a
-        // dispatch edge into it where a callee's f32 return isn't in State yet (body w=0).
-        let extra_data = build_extra_data(&bytes, fn_addr, lift_addr);
-        let mut args: Vec<&str> = vec![
-            "--arch", arch_tag,
-            "--os", host_os_tag(),
-            "--address", &addr_s,
-            "--entry_address", &addr_s,
-            "--bytes", &hex,
-            "--ir_out", &lift_out,
-        ];
-        if !extra_data.is_empty() {
-            args.push("--extra_data");
-            args.push(&extra_data);
-        }
-        RELOC_CACHE_LIFTS.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-        run_tool(tools.remill_lift, &args, fn_name)?;
-        let ir = std::fs::read_to_string(&lifted_ir_path).map_err(|e| TranspileError {
-            fn_name: fn_name.to_string(),
-            reason: format!("read lifted IR: {e}"),
-        })?;
+        let _ = arch_tag; // host arch validated above; the helper re-derives it
+        let ir = self.lift_fn_fresh(fn_name, fn_addr, &bytes, lift_addr, &lifted_ir_path)?;
         // Store the freshly-lifted IR in the on-disk cache for future runs.
         if let Some(ref cp) = cache_path {
             if let Some(parent) = cp.parent() {
@@ -1090,6 +1097,50 @@ impl RemillTranspiler {
         }
         preflight_scan(fn_name, &ir, count_ud2_pairs(&bytes));
         Ok(ir)
+    }
+
+    /// The bare remill-lift subprocess for one fn: bytes + extra_data at
+    /// `lift_addr` -> raw IR written to `lifted_ir_path`. No caching, no
+    /// preflight - callers own those. Split out so AZ_RELOC_VERIFY can
+    /// obtain a fresh lift to byte-compare against a cache translation.
+    fn lift_fn_fresh(
+        &self,
+        fn_name: &str,
+        fn_addr: usize,
+        bytes: &[u8],
+        lift_addr: u64,
+        lifted_ir_path: &Path,
+    ) -> Result<String, TranspileError> {
+        let arch_tag = host_arch_tag().ok_or_else(|| TranspileError {
+            fn_name: fn_name.to_string(),
+            reason: "unsupported host architecture for remill (need aarch64 or x86_64)".into(),
+        })?;
+        let tools = self.tools(fn_name)?;
+        let hex = bytes_to_hex(bytes);
+        let addr_s = format!("0x{:x}", lift_addr);
+        let lift_out = lifted_ir_path.to_str().expect("scratch path is utf-8").to_string();
+        // M12.7: provide this fn's adrp-referenced .rodata (its jump tables) to the lifter
+        // at SYNTH addresses, so ForEachDevirtualizedTarget reads the EXACT jump-table
+        // targets (only the real arm blocks) instead of over-sweeping a window.
+        let extra_data = build_extra_data(bytes, fn_addr, lift_addr);
+        let mut args: Vec<&str> = vec![
+            "--arch", arch_tag,
+            "--os", host_os_tag(),
+            "--address", &addr_s,
+            "--entry_address", &addr_s,
+            "--bytes", &hex,
+            "--ir_out", &lift_out,
+        ];
+        if !extra_data.is_empty() {
+            args.push("--extra_data");
+            args.push(&extra_data);
+        }
+        RELOC_CACHE_LIFTS.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        run_tool(tools.remill_lift, &args, fn_name)?;
+        std::fs::read_to_string(lifted_ir_path).map_err(|e| TranspileError {
+            fn_name: fn_name.to_string(),
+            reason: format!("read lifted IR: {e}"),
+        })
     }
 
     /// Post-lift pipeline: takes a `raw_lifted_ir` (from `lift_fn` for
@@ -6382,6 +6433,9 @@ static LIFT_FAILURES: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU3
 /// canonical cache ran.
 pub static RELOC_CACHE_HITS: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0);
 pub static RELOC_CACHE_LIFTS: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0);
+/// AZ_RELOC_VERIFY self-check tallies (translation == fresh lift?).
+pub static RELOC_VERIFY_OKS: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0);
+pub static RELOC_VERIFY_FAILS: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0);
 
 pub fn lift_failure_count() -> u32 {
     LIFT_FAILURES.load(std::sync::atomic::Ordering::Relaxed)
