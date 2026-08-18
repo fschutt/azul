@@ -2457,6 +2457,10 @@ impl RemillTranspiler {
                 stubbed_fns.len(),
                 stubbed_fns.join(", ")
             );
+            LIFT_FAILURES.fetch_add(
+                stubbed_fns.len() as u32,
+                std::sync::atomic::Ordering::Relaxed,
+            );
         }
 
         // M12.7: indirect-call dispatcher. Routes register-indirect calls
@@ -6216,11 +6220,14 @@ fn preflight_enabled() -> bool {
 }
 
 /// Count `call … @__remill_error(` and `call … @__remill_missing_block(` sites
-/// in `ir` and record them under `fn_name`. No-op unless `AZ_PREFLIGHT` is set.
+/// in `ir` and record them under `fn_name`.
+///
+/// ALWAYS on (was gated behind `AZ_PREFLIGHT`) — the startup lift-audit
+/// (`lift_audit.rs`) gates server startup on these counts: warn early, be
+/// aggressive, debug each firing. The scan is line-string matching over IR
+/// already in memory; its cost is noise next to remill/llc. `AZ_PREFLIGHT`
+/// now only controls the verbose per-fn report dump.
 fn preflight_scan(fn_name: &str, ir: &str) {
-    if !preflight_enabled() {
-        return;
-    }
     let mut errors = 0u32;
     let mut missing = 0u32;
     for line in ir.lines() {
@@ -6244,6 +6251,26 @@ fn preflight_scan(fn_name: &str, ir: &str) {
         e.0 = e.0.max(errors);
         e.1 = e.1.max(missing);
     }
+}
+
+/// Count of functions Leaf-stubbed because remill/llc CRASHED (not the
+/// intentional Leaf classifications). Read by the startup lift-audit.
+static LIFT_FAILURES: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0);
+
+pub fn lift_failure_count() -> u32 {
+    LIFT_FAILURES.load(std::sync::atomic::Ordering::Relaxed)
+}
+
+/// Per-fn preflight counts for the startup lift-audit:
+/// `(fn_name, remill_error_sites, missing_block_sites)`.
+pub fn preflight_entries() -> Vec<(String, u32, u32)> {
+    let Some(map) = PREFLIGHT.get() else {
+        return Vec::new();
+    };
+    let Ok(m) = map.lock() else {
+        return Vec::new();
+    };
+    m.iter().map(|(k, (e, mb))| (k.clone(), *e, *mb)).collect()
 }
 
 /// Print the accumulated preflight report. Call once at server startup (after

@@ -24,6 +24,8 @@ pub mod loader_js;
 pub mod classify;
 pub mod transpiler;
 #[cfg(feature = "web-transpiler")]
+pub mod lift_audit;
+#[cfg(feature = "web-transpiler")]
 pub mod transpiler_remill;
 #[cfg(feature = "web-transpiler")]
 pub mod symbol_table;
@@ -1300,6 +1302,40 @@ pub fn run_web(
     // (undecoded instruction) / __remill_missing_block. No-op unless AZ_PREFLIGHT=1.
     #[cfg(feature = "web-transpiler")]
     transpiler_remill::preflight_report();
+
+    // Startup lift-audit (always on): refuse to serve a build that will
+    // crash at runtime — stub mini, remill-crash stubs, env imports the
+    // loader can't provide, untranslated native pointers, unreviewed
+    // __remill_error functions. AZ_LIFT_STRICT=0 downgrades to warnings.
+    #[cfg(feature = "web-transpiler")]
+    {
+        let mut artifacts: Vec<(&str, &[u8])> = vec![("mini", mini_wasm.as_slice())];
+        for lw in &layout_wasms {
+            artifacts.push(("layout", lw.wasm_bytes.as_slice()));
+        }
+        for cb in &cb_wasms {
+            artifacts.push(("cb", cb.wasm_bytes.as_slice()));
+        }
+        let preflight = transpiler_remill::preflight_entries();
+        let fatal = lift_audit::run(
+            &artifacts,
+            transpiler::default_transpiler().is_available(),
+            transpiler_remill::lift_failure_count(),
+            &preflight,
+        );
+        let strict = std::env::var("AZ_LIFT_STRICT").map(|v| v != "0").unwrap_or(true);
+        if fatal {
+            if strict {
+                eprintln!(
+                    "[azul-web][lift-audit] FATAL findings — refusing to start the server. \
+                     Debug each finding (or set AZ_LIFT_STRICT=0 to serve anyway at your own risk)."
+                );
+                std::process::exit(1);
+            } else {
+                eprintln!("[azul-web][lift-audit] FATAL findings, but AZ_LIFT_STRICT=0 — serving anyway");
+            }
+        }
+    }
 
     // Phase E: Start HTTP server
     let bind_addr = web_config.bind;
