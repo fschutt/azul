@@ -588,6 +588,8 @@ pub fn check_for_updates_blocking(
     UpdateCheckResult::Available(release)
 }
 
+// const only without the telemetry feature; the metrics call is not const.
+#[allow(clippy::missing_const_for_fn)]
 fn record_check(result: &str) {
     #[cfg(feature = "telemetry")]
     crate::telemetry::record_update_check(result);
@@ -623,7 +625,11 @@ pub fn verify_digest(path: &Path, digest: &str) -> Result<(), String> {
     use sha2::Digest as _;
     let bytes = std::fs::read(path).map_err(|e| format!("digest read: {e}"))?;
     let actual = sha2::Sha256::digest(&bytes);
-    let actual_hex: String = actual.iter().map(|b| format!("{b:02x}")).collect();
+    use core::fmt::Write as _;
+    let actual_hex = actual.iter().fold(String::with_capacity(64), |mut out, b| {
+        let _ = write!(out, "{b:02x}");
+        out
+    });
     if actual_hex == expected {
         Ok(())
     } else {

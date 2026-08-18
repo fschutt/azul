@@ -387,6 +387,7 @@ pub fn record_document_opened(token: DocOpenToken, doc_size: f64) {
 /// / `regenerate_layout`, the Drop covers EVERY return path (early-outs,
 /// cache hits, errors). All sinks are tier-guarded; at tier off the probe
 /// buffer is still drained so it stays bounded.
+#[derive(Debug)]
 pub struct FramePump {
     scope: &'static str,
     start: std::time::Instant,
@@ -406,7 +407,7 @@ impl FramePump {
 impl Drop for FramePump {
     fn drop(&mut self) {
         record_frame(self.scope, self.start.elapsed().as_secs_f64());
-        drop(drain_probe_events());
+        let _ = drain_probe_events();
     }
 }
 
