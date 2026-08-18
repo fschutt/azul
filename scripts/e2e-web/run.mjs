@@ -60,6 +60,14 @@ function usage() {
 
 usage: node scripts/e2e-web/run.mjs <spec.json | dir-of-specs> [more specs...] [options]
 
+desktop-parity invocation (same env semantics as AZ_BACKEND=headless, but the
+backend value is the URL of the web server under test; prints the same
+cargo-test-style output and exit codes as the desktop AZ_E2E runner):
+
+    AZ_BACKEND=http://127.0.0.1:8800 AZ_E2E=tests/e2e/hello_world_counter.json \\
+        node scripts/e2e-web/run.mjs
+    AZ_BACKEND=http://127.0.0.1:8800 AZ_E2E=tests/e2e node scripts/e2e-web/run.mjs
+
 options:
   --url <base>              app server base URL       (default http://127.0.0.1:8800)
   --cdp <base>              CDP HTTP endpoint         (default http://127.0.0.1:9222)
@@ -78,10 +86,15 @@ exit codes: 0 all pass, 1 any test failed, 2 infrastructure error (no browser/se
 }
 
 function parseArgs(argv) {
+    // Desktop-parity env interface: AZ_BACKEND holds a URL when targeting a
+    // web server (the desktop runner's value there is "headless"); AZ_E2E is
+    // the spec file-or-dir exactly as on desktop. CLI flags override env.
+    const envBackend = /^https?:\/\//.test(process.env.AZ_BACKEND || '')
+        ? process.env.AZ_BACKEND : null;
     const opts = {
         specs: [],
-        url: 'http://127.0.0.1:8800',
-        cdp: 'http://127.0.0.1:9222',
+        url: envBackend || 'http://127.0.0.1:8800',
+        cdp: process.env.AZ_CDP || 'http://127.0.0.1:9222',
         goldenDir: path.join(SCRIPT_DIR, 'golden'),
         outDir: path.join(SCRIPT_DIR, '..', '..', 'target', 'web_e2e'),
         updateGolden: false,
@@ -343,9 +356,10 @@ async function runTestsInTab(specFile, tests, opts, specOut, tag) {
 
         for (const test of tests) {
             if (opts.filter && !opts.filter.test(test.name)) continue;
+            // Progress marker only — the cargo-style completion line is
+            // printed by main() (desktop-parity output).
             console.log(`  test ${test.name} ...`);
             const r = await runTest(driver, cdp, test, opts, specOut);
-            console.log(`  test ${test.name} ... ${r.status === 'pass' ? 'ok' : 'FAILED'} (${r.duration_ms} ms)`);
             results.push(r);
         }
         return { results, boot, settleMode: boot.settle.mode };
@@ -371,6 +385,9 @@ async function runTestsInTab(specFile, tests, opts, specOut, tag) {
 
 async function main() {
     const opts = parseArgs(process.argv.slice(2));
+    if (opts.specs.length === 0 && process.env.AZ_E2E) {
+        opts.specs.push(process.env.AZ_E2E);
+    }
     if (opts.specs.length === 0) { usage(); process.exit(2); }
     const specFiles = discoverSpecs(opts.specs);
 
@@ -404,27 +421,33 @@ async function main() {
     let anyFail = false;
     let sawFallbackSettle = false;
 
+    // Load every spec up front so the cargo-style header can announce the
+    // real test count before execution (desktop parity: shell2/run.rs
+    // prints `running N tests` right after parsing AZ_E2E).
+    const loaded = [];
+    let filteredOut = 0;
     for (const file of specFiles) {
-        console.log(`spec ${file}`);
+        try {
+            const tests = loadSpec(file);
+            const selected = opts.filter ? tests.filter(t => opts.filter.test(t.name)) : tests;
+            filteredOut += tests.length - selected.length;
+            loaded.push({ file, selected });
+        } catch (e) {
+            console.error(`error: ${e.message}`);
+            specsOut.push({ file, error: e.message, tests: [] });
+            anyFail = true;
+        }
+    }
+    const totalTests = loaded.reduce((a, s) => a + s.selected.length, 0);
+    console.log(`\nrunning ${totalTests} test${totalTests === 1 ? '' : 's'}`);
+
+    const G = '\x1b[32m', R = '\x1b[31m', X = '\x1b[0m';
+    for (const { file, selected } of loaded) {
+        if (selected.length === 0) continue;
         const specBase = sanitize(path.basename(file, '.json'));
         const specOut = path.join(opts.outDir, specBase);
         fs.mkdirSync(specOut, { recursive: true });
         try { fs.rmSync(path.join(specOut, 'console.log')); } catch { /* first run */ }
-        let tests;
-        try {
-            tests = loadSpec(file);
-        } catch (e) {
-            console.error(`  ${e.message}`);
-            specsOut.push({ file, error: e.message, tests: [] });
-            anyFail = true;
-            continue;
-        }
-        const selected = opts.filter ? tests.filter(t => opts.filter.test(t.name)) : tests;
-        if (selected.length === 0) {
-            console.log('  (no tests match --filter)');
-            specsOut.push({ file, tests: [] });
-            continue;
-        }
 
         const specResult = { file, consoleLog: path.join(specOut, 'console.log'), tests: [] };
         try {
@@ -446,6 +469,11 @@ async function main() {
             console.error(`  spec crashed: ${e.message}`);
             specResult.error = e.message;
             anyFail = true;
+        }
+        // Per-test cargo lines as each spec's results land (near-live).
+        for (const t of specResult.tests) {
+            const ok = t.status === 'pass';
+            console.log(`test ${t.name} ... ${ok ? G + 'ok' + X : R + 'FAILED' + X} (${t.duration_ms} ms)`);
         }
         if (specResult.tests.some(t => t.status === 'fail')) anyFail = true;
         specsOut.push(specResult);
@@ -472,20 +500,32 @@ async function main() {
         specs: specsOut, summary,
     }, null, 2));
 
+    // Desktop-verbatim tail (shell2/run.rs cargo-test-style output): the
+    // failures blocks, then the `test result:` line, then harness extras.
     console.log('');
-    console.log('=== web-e2e summary ===');
-    for (const t of allTests) {
-        const mark = t.status === 'pass' ? 'PASS' : 'FAIL';
-        const why = t.status === 'fail'
-            ? ' — ' + (t.error || (t.steps.find(s => s.status === 'fail') || {}).error || 'see results.json').slice(0, 160)
-            : '';
-        console.log(`${mark} ${t.name} (${t.steps_passed}/${t.step_count} steps, ${t.duration_ms} ms` +
-            (t.steps_skipped ? `, ${t.steps_skipped} skipped` : '') + `)${why}`);
+    const failures = allTests.filter(t => t.status === 'fail');
+    if (failures.length > 0) {
+        console.log('failures:\n');
+        for (const f of failures) {
+            console.log(`---- ${f.name} ----`);
+            if (f.error) console.log(`  ${f.error}`);
+            for (const [i, step] of (f.steps || []).entries()) {
+                if (step.status === 'fail') {
+                    console.log(`  step ${step.step_index ?? i}: ${step.op ?? step.kind ?? '?'} → FAILED: ${step.error || 'unknown error'}`);
+                }
+            }
+            console.log('');
+        }
+        console.log('failures:');
+        for (const f of failures) console.log(`    ${f.name}`);
+        console.log('');
     }
-    console.log(`total: ${summary.tests} tests — ${summary.passed} passed, ${summary.failed} failed; ` +
-        `steps ${summary.steps_passed}/${summary.steps_passed + summary.steps_failed + summary.steps_skipped} ` +
-        `(${summary.steps_skipped} skipped)` +
-        (summary.baselines_created ? `; ${summary.baselines_created} golden baseline(s) CREATED` : ''));
+    const word = summary.failed > 0 ? '\x1b[31mFAILED\x1b[0m' : '\x1b[32mok\x1b[0m';
+    console.log(`test result: ${word}. ${summary.passed} passed; ${summary.failed} failed; ` +
+        `0 ignored; 0 measured; ${filteredOut} filtered out\n`);
+    if (summary.baselines_created) {
+        console.log(`NOTE: ${summary.baselines_created} golden baseline(s) CREATED this run (CI should reject via results.json baselines_created)`);
+    }
     console.log(`artifacts: ${opts.outDir}`);
     console.log(`results:   ${resultsPath}`);
     if (sawFallbackSettle) {
