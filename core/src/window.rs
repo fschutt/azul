@@ -2225,6 +2225,11 @@ pub enum SysDialogType {
     /// permits self-update and the user consents — downloads and applies it.
     /// Package-managed installs get a "update via your package manager" note.
     UpdateVersion,
+    /// "Data collection": the telemetry consent dialog. Lists EVERY
+    /// instrument the app can record with per-metric checkmarks, the four
+    /// signal switches (crashes / logs / metrics / app state on crash), and
+    /// "remember for all azul apps" (writes the machine-wide shared config).
+    TelemetryConsent,
 }
 
 #[cfg(test)]

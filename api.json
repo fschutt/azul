@@ -7055,7 +7055,8 @@
                         "enum_fields": [
                             {
                                 "ReportProblem": {},
-                                "UpdateVersion": {}
+                                "UpdateVersion": {},
+                                "TelemetryConsent": {}
                             }
                         ],
                         "repr": "C"

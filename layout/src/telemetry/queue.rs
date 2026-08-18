@@ -238,8 +238,13 @@ pub fn upload_pending(queue: &PingQueue, config: &TelemetryConfig) -> UploadStat
         request_config = request_config.with_header("Authorization", format!("Bearer {token}"));
     }
 
-    let mut remaining = pending.into_iter();
-    while let Some(path) = remaining.next() {
+    // BATCH per signal: a backlog of N queued files must not become N POSTs
+    // against the ingestion API. Files of the same kind merge into one OTLP
+    // body (their top-level resource arrays concatenate) up to
+    // [`MAX_BATCH_BYTES`]; each batch is one request, and every merged file
+    // is deleted only after ITS batch is accepted.
+    let mut batches: Vec<(PingKind, Vec<PathBuf>)> = Vec::new();
+    for path in pending {
         let Some(kind) = path
             .file_name()
             .and_then(|n| n.to_str())
@@ -257,41 +262,127 @@ pub fn upload_pending(queue: &PingQueue, config: &TelemetryConfig) -> UploadStat
             stats.retained += 1;
             continue;
         }
+        match batches.last_mut() {
+            Some((k, files)) if *k == kind => files.push(path),
+            _ => batches.push((kind, vec![path])),
+        }
+    }
+
+    for (kind, files) in batches {
         let Some(url) = config.signal_url(kind.signal()) else {
             stats.last_error = Some("no endpoint configured".to_owned());
-            stats.retained += 1 + remaining.count();
-            return stats;
-        };
-        let Ok(payload) = std::fs::read(&path) else {
-            stats.retained += 1;
+            stats.retained += files.len();
             continue;
         };
-
-        match http_post_with_config(&url, &payload, "application/json", &request_config) {
-            Ok(response) if (200..300).contains(&response.status_code) => {
-                drop(std::fs::remove_file(&path));
-                stats.uploaded += 1;
-            }
-            Ok(response) if is_retryable_status(response.status_code) => {
-                stats.last_error = Some(format!("HTTP {}", response.status_code));
-                stats.retained += 1 + remaining.count();
-                return stats;
-            }
-            Ok(response) => {
-                // Poison: the server will never accept this payload.
-                drop(std::fs::remove_file(&path));
-                stats.dropped += 1;
-                stats.last_error = Some(format!("HTTP {} (dropped)", response.status_code));
-            }
-            Err(e) => {
-                stats.last_error = Some(e.to_string());
-                stats.retained += 1 + remaining.count();
-                return stats;
+        for chunk in merge_batches(&files) {
+            match http_post_with_config(&url, &chunk.body, "application/json", &request_config) {
+                Ok(response) if (200..300).contains(&response.status_code) => {
+                    for path in &chunk.files {
+                        drop(std::fs::remove_file(path));
+                        stats.uploaded += 1;
+                    }
+                }
+                Ok(response) if is_retryable_status(response.status_code) => {
+                    stats.last_error = Some(format!("HTTP {}", response.status_code));
+                    stats.retained += chunk.files.len();
+                    // Server is unhappy (rate limit / 5xx): stop hammering it
+                    // this flush; everything unposted stays queued.
+                    return stats;
+                }
+                Ok(response) => {
+                    // Poison: the server will never accept this payload.
+                    for path in &chunk.files {
+                        drop(std::fs::remove_file(path));
+                        stats.dropped += 1;
+                    }
+                    stats.last_error = Some(format!("HTTP {} (dropped)", response.status_code));
+                }
+                Err(e) => {
+                    stats.last_error = Some(e.to_string());
+                    stats.retained += chunk.files.len();
+                    return stats;
+                }
             }
         }
     }
 
     stats
+}
+
+/// One merged POST body plus the files it covers.
+struct MergedBatch {
+    body: Vec<u8>,
+    files: Vec<PathBuf>,
+}
+
+/// Soft cap per merged POST body. A single oversized file still ships alone
+/// (the server's own limit is the true arbiter); the cap only stops the
+/// MERGE from building a huge body out of many small files.
+const MAX_BATCH_BYTES: usize = 1_500_000;
+
+/// Merges same-kind OTLP JSON files by concatenating their single top-level
+/// array (`resourceMetrics` / `resourceLogs`). A file that does not parse to
+/// that shape ships UNMERGED in its own request rather than being guessed
+/// at; unreadable files are skipped (they stay on disk for the next flush).
+fn merge_batches(files: &[PathBuf]) -> Vec<MergedBatch> {
+    use serde_json::Value;
+    let mut out: Vec<MergedBatch> = Vec::new();
+    let mut current_key: Option<String> = None;
+    let mut current_items: Vec<Value> = Vec::new();
+    let mut current_files: Vec<PathBuf> = Vec::new();
+    let mut current_size = 0usize;
+
+    let flush = |key: &Option<String>,
+                 items: &mut Vec<Value>,
+                 files: &mut Vec<PathBuf>,
+                 out: &mut Vec<MergedBatch>| {
+        if files.is_empty() {
+            return;
+        }
+        let Some(key) = key else { return };
+        let mut map = serde_json::Map::new();
+        map.insert(key.clone(), Value::Array(core::mem::take(items)));
+        out.push(MergedBatch {
+            body: Value::Object(map).to_string().into_bytes(),
+            files: core::mem::take(files),
+        });
+    };
+
+    for path in files {
+        let Ok(bytes) = std::fs::read(path) else {
+            continue;
+        };
+        let parsed: Option<(String, Vec<Value>)> = serde_json::from_slice::<Value>(&bytes)
+            .ok()
+            .and_then(|v| {
+                let obj = v.as_object()?;
+                if obj.len() != 1 {
+                    return None;
+                }
+                let (k, arr) = obj.iter().next()?;
+                Some((k.clone(), arr.as_array()?.clone()))
+            });
+        if let Some((key, items)) = parsed {
+            let same_key = current_key.as_deref() == Some(key.as_str());
+            if !same_key || current_size + bytes.len() > MAX_BATCH_BYTES {
+                flush(&current_key, &mut current_items, &mut current_files, &mut out);
+                current_key = Some(key);
+                current_size = 0;
+            }
+            current_items.extend(items);
+            current_files.push(path.clone());
+            current_size += bytes.len();
+        } else {
+            // Unknown shape: ship verbatim, alone.
+            flush(&current_key, &mut current_items, &mut current_files, &mut out);
+            out.push(MergedBatch {
+                body: bytes,
+                files: vec![path.clone()],
+            });
+        }
+    }
+    flush(&current_key, &mut current_items, &mut current_files, &mut out);
+    out
 }
 
 /// Statuses worth retrying: request timeout, rate limit, and every server
@@ -302,6 +393,47 @@ const fn is_retryable_status(status: u16) -> bool {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn merge_concatenates_same_signal_files_into_one_body() {
+        let d = std::env::temp_dir().join(format!("azul-qbatch-merge-{}", std::process::id()));
+        std::fs::create_dir_all(&d).unwrap();
+        let a = d.join("a.json");
+        let b = d.join("b.json");
+        std::fs::write(&a, r#"{"resourceMetrics":[{"n":1}]}"#).unwrap();
+        std::fs::write(&b, r#"{"resourceMetrics":[{"n":2},{"n":3}]}"#).unwrap();
+        let merged = merge_batches(&[a, b]);
+        assert_eq!(merged.len(), 1, "two mergeable files -> ONE request");
+        assert_eq!(merged[0].files.len(), 2);
+        let v: serde_json::Value = serde_json::from_slice(&merged[0].body).unwrap();
+        assert_eq!(
+            v.get("resourceMetrics").and_then(|a| a.as_array()).map(Vec::len),
+            Some(3),
+            "resource arrays concatenate"
+        );
+        drop(std::fs::remove_dir_all(d));
+    }
+
+    #[test]
+    fn merge_splits_at_the_size_cap_and_isolates_foreign_shapes() {
+        let d = std::env::temp_dir().join(format!("azul-qbatch-split-{}", std::process::id()));
+        std::fs::create_dir_all(&d).unwrap();
+        let big = format!(r#"{{"resourceMetrics":[{{"pad":"{}"}}]}}"#, "x".repeat(MAX_BATCH_BYTES));
+        let f1 = d.join("f1.json");
+        let f2 = d.join("f2.json");
+        std::fs::write(&f1, &big).unwrap();
+        std::fs::write(&f2, &big).unwrap();
+        let merged = merge_batches(&[f1, f2]);
+        assert_eq!(merged.len(), 2, "size cap must split the merge");
+        let odd = d.join("odd.json");
+        std::fs::write(&odd, r#"{"a":1,"b":2}"#).unwrap();
+        let ok = d.join("ok.json");
+        std::fs::write(&ok, r#"{"resourceLogs":[{"n":1}]}"#).unwrap();
+        let merged = merge_batches(&[ok.clone(), odd.clone()]);
+        assert_eq!(merged.len(), 2);
+        assert_eq!(merged[1].body, std::fs::read(&odd).unwrap(), "foreign shape ships verbatim");
+        drop(std::fs::remove_dir_all(d));
+    }
+
     use super::*;
 
     /// A unique scratch directory under the system temp dir, removed by the

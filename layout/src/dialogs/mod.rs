@@ -22,6 +22,8 @@ pub mod report_problem;
 pub mod update_version;
 #[cfg(feature = "telemetry")]
 pub mod crash_reporter;
+#[cfg(feature = "telemetry")]
+pub mod telemetry_consent;
 
 use azul_core::{
     geom::LogicalSize,

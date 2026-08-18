@@ -57,6 +57,7 @@ pub mod crash_mail;
 pub mod metrics;
 pub mod otlp;
 pub mod queue;
+pub mod sharedconfig;
 pub mod sysinfo;
 
 use std::{
@@ -230,7 +231,7 @@ pub fn set_min_log_severity(severity: Severity) {
 /// Whether metric/log collection is currently permitted.
 #[must_use]
 pub fn is_collecting() -> bool {
-    tier().allows_metrics()
+    tier().allows_metrics() && config::metrics_enabled()
 }
 
 /// Counts one app run. The denominator of every release-health ratio.
@@ -526,7 +527,10 @@ pub fn gauge_with(name: &str, value: f64, labels: &[(&str, &str)]) {
 /// Records below the severity floor, or below consent tier `Metrics`, are
 /// dropped on the floor rather than buffered.
 pub fn log(severity: Severity, message: impl Into<String>) {
-    if !is_collecting() {
+    // Logs have their OWN signal gate: the shared config can turn logs off
+    // while metrics keep flowing (and vice versa - is_collecting() gates
+    // the metric paths with metrics_enabled()).
+    if !tier().allows_metrics() || !config::logs_enabled() {
         return;
     }
     let floor = inner()

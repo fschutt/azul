@@ -364,7 +364,106 @@ fn bounds_for(reg: &Registry, name: &str) -> Vec<f64> {
 }
 
 /// True when a new key may be created, accounting a drop otherwise.
+/// One row of the transparency inventory the consent dialog renders.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct InstrumentInfo {
+    /// Instrument name as it appears on the wire.
+    pub name: String,
+    /// `counter` / `gauge` / `histogram`.
+    pub kind: &'static str,
+    /// One sentence: what this measures and why.
+    pub description: String,
+    /// Whether the user has this instrument enabled (not in the disabled
+    /// set). The dialog's checkmark state.
+    pub enabled: bool,
+}
+
+/// Every ENGINE instrument, with the sentence the consent dialog shows.
+/// App-defined instruments join the inventory at runtime with a generic
+/// description (see [`instrument_inventory`]).
+pub const ENGINE_INSTRUMENTS: &[(&str, &str, &str)] = &[
+    (SESSIONS_STARTED, "counter", "How often the app was started (adoption per version)."),
+    (CRASHES, "counter", "How often the app crashed."),
+    (PANICS, "counter", "How often an internal error (panic) was caught."),
+    (STARTUP_SECONDS, "histogram", "How long the app took to start."),
+    (STARTUP_RSS_BYTES, "gauge", "Memory footprint right after startup."),
+    (RELAYOUT_SCOPE, "counter", "Which relayout paths run (full vs incremental) - engine performance triage."),
+    (UPDATE_CHECK, "counter", "Update-check outcomes (up to date / available / staggered / error)."),
+    (UPDATE_APPLY, "counter", "Update-install outcomes."),
+    (PHASE_SECONDS, "histogram", "Time per engine phase (layout, repaint, callbacks)."),
+    (RSS_BYTES, "gauge", "Process memory footprint over time."),
+    (FRAME_SECONDS, "histogram", "Time per rendered frame (smoothness)."),
+    (TIMER_FRAME_SECONDS, "histogram", "Time spent in app timer callbacks."),
+    (SLOW_FRAMES, "counter", "Frames slower than the smoothness threshold."),
+    (DOCUMENT_SIZE, "gauge", "App-reported size of the open document."),
+    (DOC_RSS_DELTA_BYTES, "gauge", "Memory the open document added."),
+    (DOC_RSS_PER_UNIT, "gauge", "Memory per document unit (is 300 MB reasonable for this file)."),
+    (HEAP_BYTES, "gauge", "Allocator heap in use."),
+];
+
+/// The consent dialog's checkmark list: every engine instrument plus any
+/// app-defined instrument that has recorded this session, each flagged with
+/// its current enabled state.
+#[must_use]
+pub fn instrument_inventory() -> Vec<InstrumentInfo> {
+    let disabled = disabled_metrics();
+    let mut out: Vec<InstrumentInfo> = ENGINE_INSTRUMENTS
+        .iter()
+        .map(|(name, kind, desc)| InstrumentInfo {
+            name: (*name).to_owned(),
+            kind,
+            description: (*desc).to_owned(),
+            enabled: !disabled.contains(*name),
+        })
+        .collect();
+    with_registry(|reg| {
+        for key in reg.instruments.keys() {
+            if !out.iter().any(|i| i.name == key.name) {
+                out.push(InstrumentInfo {
+                    name: key.name.clone(),
+                    kind: "app-defined",
+                    description: "Recorded by this application (not an engine metric).".to_owned(),
+                    enabled: !disabled.contains(key.name.as_str()),
+                });
+            }
+        }
+    });
+    out.sort_by(|a, b| a.name.cmp(&b.name));
+    out.dedup_by(|a, b| a.name == b.name);
+    out
+}
+
+fn disabled_set() -> &'static std::sync::RwLock<std::collections::BTreeSet<String>> {
+    use std::{collections::BTreeSet, sync::{OnceLock, RwLock}};
+    static DISABLED: OnceLock<RwLock<BTreeSet<String>>> = OnceLock::new();
+    DISABLED.get_or_init(|| RwLock::new(BTreeSet::new()))
+}
+
+/// Replaces the per-metric opt-out set (the consent dialog's unchecked
+/// rows, from the shared config's `disabled_metrics`). Disabled instruments
+/// are never recorded - the user's checkmark is enforced at the source, not
+/// at upload time.
+pub fn set_disabled_metrics<I: IntoIterator<Item = String>>(names: I) {
+    if let Ok(mut set) = disabled_set().write() {
+        *set = names.into_iter().collect();
+    }
+}
+
+/// The current per-metric opt-out set.
+#[must_use]
+pub fn disabled_metrics() -> std::collections::BTreeSet<String> {
+    disabled_set().read().map(|s| s.clone()).unwrap_or_default()
+}
+
 fn admit(reg: &mut Registry, key: &InstrumentKey) -> bool {
+    // The user's per-metric opt-out wins over everything: an unchecked
+    // instrument records NOTHING, regardless of tier.
+    if let Ok(disabled) = disabled_set().read() {
+        if disabled.contains(key.name.as_str()) {
+            return false;
+        }
+    }
+
     if reg.instruments.contains_key(key) {
         return true;
     }

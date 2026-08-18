@@ -1341,6 +1341,15 @@ impl CallbackInfo {
                      without the `updater` feature; the dialog is unavailable"
                 );
             }
+            azul_core::window::SysDialogType::TelemetryConsent => {
+                #[cfg(feature = "telemetry")]
+                crate::dialogs::telemetry_consent::open(self);
+                #[cfg(not(feature = "telemetry"))]
+                eprintln!(
+                    "[azul] invoke_system_dialog(TelemetryConsent): azul-layout was built \
+                     without the `telemetry` feature; the dialog is unavailable"
+                );
+            }
         }
     }
 

@@ -116,7 +116,7 @@ extern "C" fn check_worker(mut init: RefAny, mut sender: ThreadSender, _recv: Th
     drop(task);
 
     let install = InstallKind::detect();
-    let effective = effective_mode(env.update_mode, &install);
+    let effective = crate::updater::apply_shared_update_policy(effective_mode(env.update_mode, &install));
     let phase = match (env.update_manifest.as_deref(), effective) {
         (_, UpdateMode::Disabled) => UpdatePhase::Failed {
             error: "updates are disabled in this build".to_owned(),

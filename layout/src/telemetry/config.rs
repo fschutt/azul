@@ -24,7 +24,7 @@ use std::{
     collections::BTreeMap,
     path::PathBuf,
     sync::{
-        atomic::{AtomicU8, Ordering},
+        atomic::{AtomicBool, AtomicU8, Ordering},
         OnceLock, RwLock,
     },
 };
@@ -181,6 +181,9 @@ pub enum TierSource {
     Env,
     /// The executable-adjacent admin/packager pin.
     Pinned,
+    /// The machine-wide `{config_dir}/azul/config.json` (channel default
+    /// or per-app override) — see `telemetry::sharedconfig`.
+    SharedConfig,
     /// `{config_dir}/{app-id}/telemetry.json`.
     PerApp,
     /// `{config_dir}/azul/telemetry.json`.
@@ -305,6 +308,30 @@ fn config_cell() -> &'static RwLock<TelemetryConfig> {
     CONFIG.get_or_init(|| RwLock::new(TelemetryConfig::default()))
 }
 
+/// Signal-level refinement UNDER the tier: `logs`/`metrics` can be toggled
+/// independently by the shared config's signal lists. Both default ON so
+/// tier-only configs behave exactly as before.
+static LOGS_ENABLED: AtomicBool = AtomicBool::new(true);
+static METRICS_ENABLED: AtomicBool = AtomicBool::new(true);
+
+/// Applies a [`super::sharedconfig::SignalSet`]'s per-signal split.
+pub fn set_signal_gates(signals: super::sharedconfig::SignalSet) {
+    LOGS_ENABLED.store(signals.logs, Ordering::Relaxed);
+    METRICS_ENABLED.store(signals.metrics, Ordering::Relaxed);
+}
+
+/// Whether LOG records may flow (on top of the tier check).
+#[must_use]
+pub fn logs_enabled() -> bool {
+    LOGS_ENABLED.load(Ordering::Relaxed)
+}
+
+/// Whether METRICS may flow (on top of the tier check).
+#[must_use]
+pub fn metrics_enabled() -> bool {
+    METRICS_ENABLED.load(Ordering::Relaxed)
+}
+
 /// The consent tier currently in force. One relaxed atomic load.
 #[must_use]
 pub fn tier() -> TelemetryTier {
@@ -390,6 +417,16 @@ pub fn store(config: TelemetryConfig) {
 /// wins.
 #[must_use]
 pub fn load(app_id: &str) -> TelemetryConfig {
+    load_with_channel(app_id, "")
+}
+
+/// [`load`], with the release CHANNEL so the machine-wide shared config
+/// (`{config_dir}/azul/config.json`) can supply its per-channel default and
+/// per-app override. The shared file sits between the legacy user-global
+/// layer and the per-app file; it also feeds the PER-SIGNAL gates (logs and
+/// metrics independently) and the per-metric opt-out set.
+#[must_use]
+pub fn load_with_channel(app_id: &str, channel: &str) -> TelemetryConfig {
     let mut config = TelemetryConfig::default();
 
     // Least specific first: each layer overwrites the fields it declares.
@@ -414,6 +451,31 @@ pub fn load(app_id: &str) -> TelemetryConfig {
             }
         }
     }
+
+    // Machine-wide shared config: channel default + per-app override.
+    // Precedence: it may override the LEGACY user-global file but never the
+    // per-app file, the exe-adjacent pin, or the environment — the loop
+    // above already applied those, so only fill in when nothing more
+    // specific spoke.
+    let shared = super::sharedconfig::SharedConfig::load();
+    let shared_app = super::sharedconfig::app_key().unwrap_or_default();
+    let shared_tele = shared.telemetry_for(channel, &shared_app);
+    if matches!(
+        config.tier_source,
+        TierSource::Default | TierSource::UserGlobal
+    ) {
+        if let Some(signals) = shared_tele.signals {
+            config.tier = signals.tier();
+            config.tier_source = TierSource::SharedConfig;
+            set_signal_gates(signals);
+        }
+    } else if let Some(signals) = shared_tele.signals {
+        // A more specific layer picked the tier, but the shared file's
+        // signal SPLIT still refines which streams flow at that tier.
+        set_signal_gates(signals);
+    }
+    // The per-metric opt-out applies regardless of which layer set the tier.
+    super::metrics::set_disabled_metrics(shared_tele.disabled_metrics.iter().cloned());
 
     apply_env(&mut config);
 

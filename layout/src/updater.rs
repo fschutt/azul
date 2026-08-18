@@ -124,6 +124,55 @@ impl InstallKind {
 /// `AppConfig.updates` can carry it without the `updater` feature.
 pub use azul_core::resources::{UpdateMode, UpdateSettings};
 
+/// Applies the machine-wide shared config's update policy ON TOP of
+/// [`effective_mode`]: `updates.autoupdate: false` (shared default or this
+/// app's override in `{config_dir}/azul/config.json`) clamps `SelfUpdate`
+/// to `NotifyOnly` — the machine's owner outranks the app's preference.
+#[cfg(feature = "telemetry")]
+#[must_use]
+pub fn apply_shared_update_policy(effective: UpdateMode) -> UpdateMode {
+    if effective != UpdateMode::SelfUpdate {
+        return effective;
+    }
+    let shared = crate::telemetry::sharedconfig::SharedConfig::load();
+    let app = crate::telemetry::sharedconfig::app_key().unwrap_or_default();
+    match shared.updates_for(&app).autoupdate {
+        Some(false) => UpdateMode::NotifyOnly,
+        _ => effective,
+    }
+}
+
+/// Without the shared-config machinery (telemetry feature off) there is no
+/// machine-wide policy file to consult.
+#[cfg(not(feature = "telemetry"))]
+#[must_use]
+pub const fn apply_shared_update_policy(effective: UpdateMode) -> UpdateMode {
+    effective
+}
+
+/// Whether UNATTENDED update work (automatic staging; unattended apply when
+/// it exists) may run right now, per the shared config's RRULE maintenance
+/// window. No window configured = always allowed.
+#[cfg(feature = "telemetry")]
+#[must_use]
+pub fn within_shared_maintenance_window(now_unix: u64) -> bool {
+    let shared = crate::telemetry::sharedconfig::SharedConfig::load();
+    let app = crate::telemetry::sharedconfig::app_key().unwrap_or_default();
+    match shared.updates_for(&app).maintenance_window {
+        Some(rule) => {
+            crate::telemetry::sharedconfig::within_maintenance_window(&rule, now_unix)
+        }
+        None => true,
+    }
+}
+
+/// Always allowed without the shared-config machinery.
+#[cfg(not(feature = "telemetry"))]
+#[must_use]
+pub const fn within_shared_maintenance_window(_now_unix: u64) -> bool {
+    true
+}
+
 /// Clamps the requested mode by what the installation permits: a
 /// package-managed binary NEVER self-updates, whatever the app asked for.
 #[must_use]
@@ -1187,7 +1236,7 @@ extern "C" fn update_check_worker(
     };
 
     let install = InstallKind::detect();
-    let effective = effective_mode(task.env.update_mode, &install);
+    let effective = apply_shared_update_policy(effective_mode(task.env.update_mode, &install));
     let state_dir = default_state_dir(&task.env.app_name);
 
     let result = match (task.env.update_manifest.as_deref(), effective) {
@@ -1212,8 +1261,15 @@ extern "C" fn update_check_worker(
 
     // `download_automatically` STAGES so a later "install now" is instant;
     // it installs nothing, and a notify-only install never even stages.
+    let now_unix = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map_or(0, |d| d.as_secs());
     let staged_path = match (&result, task.options.download_automatically, effective) {
-        (UpdateCheckResult::Available(release), true, UpdateMode::SelfUpdate) => {
+        // Automatic staging is UNATTENDED work: it defers to the machine's
+        // maintenance window (a gated stage just happens on a later check).
+        (UpdateCheckResult::Available(release), true, UpdateMode::SelfUpdate)
+            if within_shared_maintenance_window(now_unix) =>
+        {
             let mut state = UpdateState::load(&state_dir);
             let staged = download_and_verify(
                 release,
