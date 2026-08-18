@@ -2057,6 +2057,49 @@ impl RemillTranspiler {
         roots: Vec<TransitiveLiftRoot>,
         opts: &LiftOpts,
     ) -> Result<WasmModule, TranspileError> {
+        // The object pool overlaps the walk: workers consume opt+llc jobs
+        // WHILE remill/discovery produces them, so total wall-clock is
+        // max(walk, llc/N) instead of walk + drain. The scope wraps the
+        // whole body; `?`/`return` inside propagate through the closure
+        // unchanged.
+        struct ObjJob {
+            obj_idx: usize,
+            name: String,
+            addr: usize,
+            lift_addr: u64,
+            sig: CallbackSignature,
+            export_as: String,
+            cache_key: (usize, String),
+            raw_ir: String,
+        }
+        struct ObjJobMeta {
+            obj_idx: usize,
+            name: String,
+            addr: usize,
+            lift_addr: u64,
+            sig: CallbackSignature,
+            export_as: String,
+            cache_key: (usize, String),
+        }
+        // Shared pool state (created before the spawns; scoped threads may
+        // borrow it). Jobs append during the walk; workers claim by index
+        // under the queue lock (no overshoot); results key on obj_idx.
+        let pool_jobs: std::sync::Mutex<Vec<Option<ObjJob>>> = std::sync::Mutex::new(Vec::new());
+        let pool_claimed = std::sync::atomic::AtomicUsize::new(0);
+        let pool_done = std::sync::atomic::AtomicBool::new(false);
+        let pool_results: std::sync::Mutex<
+            std::collections::HashMap<usize, Result<PathBuf, TranspileError>>,
+        > = std::sync::Mutex::new(std::collections::HashMap::new());
+        let n_workers = std::env::var("AZ_LIFT_JOBS")
+            .ok()
+            .and_then(|v| v.parse::<usize>().ok())
+            .filter(|n| *n >= 1)
+            .unwrap_or_else(|| {
+                std::thread::available_parallelism()
+                    .map(|n| n.get().saturating_sub(2).clamp(1, 10))
+                    .unwrap_or(4)
+            });
+        std::thread::scope(|__pool_sc| -> Result<WasmModule, TranspileError> {
         // Hard cap on the number of functions a single root's
         // transitive closure can pull in. Bumped from 64 → 256 in
         // M8.8 once exact-size lifts surface the full layout-cb
@@ -2069,6 +2112,39 @@ impl RemillTranspiler {
         // M11 Sprint 1: caller-tunable via `LiftOpts::max_recursive_depth`
         // — eventloop bumps this to absorb cascade + layout deps.
         let max_recursive_depth = opts.max_recursive_depth;
+
+        let mut pool_handles = Vec::new();
+        for _ in 0..n_workers {
+            pool_handles.push(__pool_sc.spawn(|| loop {
+                let job = {
+                    let mut q = pool_jobs.lock().unwrap();
+                    let c = pool_claimed.load(std::sync::atomic::Ordering::SeqCst);
+                    if c < q.len() {
+                        pool_claimed.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+                        q[c].take()
+                    } else {
+                        None
+                    }
+                };
+                match job {
+                    Some(j) => {
+                        let r = self.produce_object_from_lifted_ir(
+                            &j.name, j.addr, j.lift_addr, &j.sig, &j.export_as, &j.raw_ir,
+                        );
+                        pool_results.lock().unwrap().insert(j.obj_idx, r);
+                    }
+                    None => {
+                        if pool_done.load(std::sync::atomic::Ordering::SeqCst) {
+                            let q_len = pool_jobs.lock().unwrap().len();
+                            if pool_claimed.load(std::sync::atomic::Ordering::SeqCst) >= q_len {
+                                break;
+                            }
+                        }
+                        std::thread::sleep(std::time::Duration::from_millis(15));
+                    }
+                }
+            }));
+        }
 
         let mut visited: HashSet<usize> = HashSet::new();
         let mut queue: VecDeque<TransitiveLiftTarget> = VecDeque::new();
@@ -2219,17 +2295,7 @@ impl RemillTranspiler {
         let canonical_sig = signature_for_callback_kind("Callback");
         let mut lifted_count = 0usize;
 
-        struct ObjJob {
-            obj_idx: usize,
-            name: String,
-            addr: usize,
-            lift_addr: u64,
-            sig: CallbackSignature,
-            export_as: String,
-            cache_key: (usize, String),
-            raw_ir: String,
-        }
-        let mut obj_jobs: Vec<ObjJob> = Vec::new();
+        let mut job_meta: Vec<ObjJobMeta> = Vec::new();
         while let Some(target) = queue.pop_front() {
             let (name, addr, size, sig, export_as) = match target {
                 TransitiveLiftTarget::Root(r) => {
@@ -2382,7 +2448,16 @@ impl RemillTranspiler {
                             let obj_idx = object_paths.len();
                             object_paths.push(PathBuf::new()); // patched at drain
                             exports.push(export_as.clone());
-                            obj_jobs.push(ObjJob {
+                            job_meta.push(ObjJobMeta {
+                                obj_idx,
+                                name: name.clone(),
+                                addr,
+                                lift_addr,
+                                sig: sig.clone(),
+                                export_as: export_as.clone(),
+                                cache_key: cache_key.clone(),
+                            });
+                            pool_jobs.lock().unwrap().push(Some(ObjJob {
                                 obj_idx,
                                 name: name.clone(),
                                 addr,
@@ -2397,7 +2472,7 @@ impl RemillTranspiler {
                                 // re-read hands the second fn's IR to both jobs and
                                 // wasm-ld dies on duplicate sub_<hex> defines.
                                 raw_ir,
-                            });
+                            }));
                         }
                         Err(e) => {
                             eprintln!(
@@ -2595,63 +2670,47 @@ impl RemillTranspiler {
             object_paths.push(obj.clone());
         }
 
-        if !obj_jobs.is_empty() {
-            let n_workers = std::env::var("AZ_LIFT_JOBS")
-                .ok()
-                .and_then(|v| v.parse::<usize>().ok())
-                .filter(|n| *n >= 1)
-                .unwrap_or_else(|| {
-                    std::thread::available_parallelism()
-                        .map(|n| n.get().saturating_sub(2).clamp(1, 10))
-                        .unwrap_or(4)
-                });
+        // Overlapped pool: the walk already fed every job to the live
+        // workers; signal completion, join, then commit results in order.
+        pool_done.store(true, std::sync::atomic::Ordering::SeqCst);
+        if !job_meta.is_empty() {
             eprintln!(
-                "[azul-web] producing {} object(s) with {} worker(s) (AZ_LIFT_JOBS overrides)",
-                obj_jobs.len(),
+                "[azul-web] joining object pool: {} job(s), {} worker(s) (AZ_LIFT_JOBS overrides)",
+                job_meta.len(),
                 n_workers,
             );
-            let next = std::sync::atomic::AtomicUsize::new(0);
-            let results: Vec<std::sync::Mutex<Option<Result<PathBuf, TranspileError>>>> =
-                obj_jobs.iter().map(|_| std::sync::Mutex::new(None)).collect();
-            std::thread::scope(|sc| {
-                for _ in 0..n_workers {
-                    sc.spawn(|| loop {
-                        let i = next.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
-                        if i >= obj_jobs.len() {
-                            break;
-                        }
-                        let j = &obj_jobs[i];
-                        let r = self.produce_object_from_lifted_ir(
-                            &j.name, j.addr, j.lift_addr, &j.sig, &j.export_as, &j.raw_ir,
-                        );
-                        *results[i].lock().unwrap() = Some(r);
-                    });
-                }
-            });
-            for (i, j) in obj_jobs.iter().enumerate() {
-                let r = results[i].lock().unwrap().take().expect("worker filled result");
+        }
+        for h in pool_handles {
+            let _ = h.join();
+        }
+        {
+            let mut results = pool_results.lock().unwrap();
+            for m in &job_meta {
+                let r = results
+                    .remove(&m.obj_idx)
+                    .expect("pool worker filled every claimed job");
                 match r {
                     Ok(p) => {
                         self.object_cache
                             .lock()
                             .unwrap()
-                            .insert(j.cache_key.clone(), p.clone());
-                        object_paths[j.obj_idx] = p;
+                            .insert(m.cache_key.clone(), p.clone());
+                        object_paths[m.obj_idx] = p;
                     }
                     Err(e) => {
                         eprintln!(
                             "[azul-web]   ⚠ object production FAILED for {} ({}) — Leaf stub",
-                            j.name, e.reason,
+                            m.name, e.reason,
                         );
-                        stubbed_fns.push(j.name.clone());
+                        stubbed_fns.push(m.name.clone());
                         let stub = self.produce_leaf_stub_object(
-                            &j.name, j.addr, &j.sig, &j.export_as, j.lift_addr,
+                            &m.name, m.addr, &m.sig, &m.export_as, m.lift_addr,
                         )?;
                         self.object_cache
                             .lock()
                             .unwrap()
-                            .insert(j.cache_key.clone(), stub.clone());
-                        object_paths[j.obj_idx] = stub;
+                            .insert(m.cache_key.clone(), stub.clone());
+                        object_paths[m.obj_idx] = stub;
                     }
                 }
             }
@@ -2721,6 +2780,7 @@ impl RemillTranspiler {
             imports_from_mini: Vec::new(),
             used_boundaries: boundaries,
         })
+    })
     }
 
     /// M12.7: build + compile the indirect-call dispatcher object. `csynths` is
