@@ -157,6 +157,29 @@ impl App {
         // system dialogs (support mailbox, changelog URL).
         azul_layout::appenv::set_app_env(azul_layout::appenv::AppEnv::from_config(&config));
 
+        // ENGINE TELEMETRY (dll feature "telemetry"): initialised for every
+        // app, but the TIER stays OFF unless AZ_TELEMETRY / the config files
+        // opted in — with nothing opted in, none of this collects or sends.
+        // This is what lets any azul app (azwriter under an e2e run, say) be
+        // driven headlessly and report real frame durations + solver/raster
+        // spans, so a stutter can be drilled down to the phase that caused
+        // it.
+        #[cfg(feature = "telemetry")]
+        {
+            let channel = std::env::var("AZ_TELEMETRY_CHANNEL")
+                .unwrap_or_else(|_| "default".to_owned());
+            let _telemetry_config = azul_layout::telemetry::init(
+                config.updates.app_name.as_str(),
+                azul_layout::telemetry::AppMeta::new(
+                    config.updates.current_version.as_str(),
+                    channel,
+                ),
+            );
+            azul_layout::telemetry::install_panic_hook();
+            azul_layout::telemetry::record_session_start();
+            let _ = azul_layout::telemetry::spawn_uploader();
+        }
+
         // CRASH-REPORTER TAKEOVER: a crashed sibling process (telemetry off,
         // crash contact configured) re-spawned this executable with
         // AZ_CRASH_DUMP=<dump.json>. This invocation IS the crash reporter:
@@ -184,6 +207,15 @@ impl App {
 
         // Use shell2 for the actual run loop
         let err = crate::desktop::shell2::run(data, undo_manager, config, fc_cache, font_registry, root_window);
+
+        // Telemetry: persist + upload whatever the interval uploader has not
+        // sent yet. Without this a SHORT run (an e2e drive, a screenshot
+        // harness) exits before the first flush tick and reports nothing.
+        #[cfg(feature = "telemetry")]
+        {
+            let _ = azul_layout::telemetry::drain_probe_events();
+            let _outcome = azul_layout::telemetry::flush();
+        }
 
         if let Err(e) = err {
             // ALWAYS surface the error — to the log facade AND raw stderr — on

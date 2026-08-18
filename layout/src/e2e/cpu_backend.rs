@@ -101,6 +101,11 @@ impl CpuBackend {
         height: f32,
         dpi_factor: f32,
     ) -> Vec<LogicalRect> {
+        // Engine observability: every e2e/headless frame reports its
+        // duration + probe spans (drop-guard covers all return paths).
+        #[cfg(feature = "telemetry")]
+        let _frame_pump = crate::telemetry::FramePump::begin("present");
+
         let dom_id = DomId { inner: 0 };
         let Some(result) = layout_window.layout_results.get(&dom_id) else {
             return Vec::new();

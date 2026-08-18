@@ -380,6 +380,36 @@ pub fn record_document_opened(token: DocOpenToken, doc_size: f64) {
 /// `render`, `total` — a small fixed set). Slow frames additionally count
 /// into `app_slow_frames_total` and produce a WARN log; see
 /// [`set_slow_frame_threshold_ms`].
+/// RAII frame pump for ENGINE render paths: measures from construction to
+/// drop, then records `app_frame_seconds{scope}` and drains the probe
+/// buffer into `app_phase_seconds{phase}` — so every solver/raster span of
+/// the frame lands in the same scrape. Placed at the top of `render_frame`
+/// / `regenerate_layout`, the Drop covers EVERY return path (early-outs,
+/// cache hits, errors). All sinks are tier-guarded; at tier off the probe
+/// buffer is still drained so it stays bounded.
+pub struct FramePump {
+    scope: &'static str,
+    start: std::time::Instant,
+}
+
+impl FramePump {
+    /// Starts the frame clock for `scope` ("layout", "present", …).
+    #[must_use]
+    pub fn begin(scope: &'static str) -> Self {
+        Self {
+            scope,
+            start: std::time::Instant::now(),
+        }
+    }
+}
+
+impl Drop for FramePump {
+    fn drop(&mut self) {
+        record_frame(self.scope, self.start.elapsed().as_secs_f64());
+        drop(drain_probe_events());
+    }
+}
+
 pub fn record_frame(scope: &str, seconds: f64) {
     if !is_collecting() {
         return;

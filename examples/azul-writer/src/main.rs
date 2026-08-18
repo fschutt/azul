@@ -1032,7 +1032,13 @@ fn main() {
     }
 
     let data = RefAny::new(state);
-    let app = App::create(data, AppConfig::create());
+    let mut config = AppConfig::create();
+    // Identity for the engine services (updater state dir, telemetry service
+    // name when the `telemetry` feature is on): metrics/logs then arrive
+    // labelled azwriter/<version> instead of the generic default.
+    config.updates.app_name = AzString::from("azwriter");
+    config.updates.current_version = AzString::from(env!("CARGO_PKG_VERSION"));
+    let app = App::create(data, config);
 
     let mut window =
         WindowCreateOptions::create(layout as azul_core::callbacks::LayoutCallbackType);

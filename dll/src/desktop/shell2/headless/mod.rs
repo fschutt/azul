@@ -371,6 +371,11 @@ impl CpuBackend {
         height: f32,
         dpi_factor: f32,
     ) -> Vec<azul_core::geom::LogicalRect> {
+        // Engine observability: frame duration + probe spans per present
+        // (drop-guard covers all return paths).
+        #[cfg(feature = "telemetry")]
+        let _frame_pump = azul_layout::telemetry::FramePump::begin("present");
+
         use azul_core::dom::DomId;
         use azul_layout::cpurender;
 

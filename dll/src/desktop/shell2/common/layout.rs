@@ -228,6 +228,10 @@ pub fn regenerate_layout(
     relayout_reason: azul_core::callbacks::RelayoutReason,
 ) -> Result<LayoutRegenerateResult, String> {
     log_debug!(LogCategory::Layout, "[regenerate_layout] START");
+    // Engine observability: the whole produce side (callback + solve + DL)
+    // reports as scope "layout"; the probe spans inside land per-phase.
+    #[cfg(feature = "telemetry")]
+    let _frame_pump = azul_layout::telemetry::FramePump::begin("layout");
     azul_layout::probe::emit_phase_heap("start");
     let mut phases = PhaseTimer::new();
 

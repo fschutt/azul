@@ -37,3 +37,9 @@ pulldown-cmark = { version = "0.9", default-features = false }
 [[bin]]
 name = "azwriter"
 path = "src/main.rs"
+
+[features]
+# Engine telemetry (opt-in at runtime via AZ_TELEMETRY): frame durations +
+# solver/raster spans from real runs, e.g. driving the app through e2e tests
+# to find where it stutters.
+telemetry = ["azul-dll/telemetry", "azul-layout/telemetry"]
