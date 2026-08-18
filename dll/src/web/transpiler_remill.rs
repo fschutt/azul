@@ -6830,35 +6830,20 @@ fn reloc_translate(
     }
     let delta = new_lift_addr.wrapping_sub(old_lift);
     let old_range = old_lift..old_lift.checked_add(old_len as u64)?;
-    // Instruction-boundary set, re-derived from the CURRENT bytes (the key
-    // guarantees they are canonical-identical to the stored layout's). An
-    // in-range value is only a PC if it lands on a boundary: the first
-    // translation pass remapped EVERY >=6-digit decimal inside the fn's
-    // range, which false-positived on ordinary integer constants that
-    // happen to fall numerically inside the synth address window (observed:
-    // a Debug-path fn corrupted by exactly such a collision). Remill IR
-    // encodes intra-fn PCs as entry-relative deltas almost everywhere; the
-    // absolute in-range values that ARE addresses (jump-table switch cases,
-    // return-address pushes) land on instruction boundaries by construction.
-    let boundaries: std::collections::HashSet<u64> = {
-        use iced_x86::{Decoder, DecoderOptions, Instruction};
-        let mut set = std::collections::HashSet::new();
-        let mut dec = Decoder::with_ip(64, bytes, old_lift, DecoderOptions::NONE);
-        let mut insn = Instruction::default();
-        while dec.can_decode() {
-            set.insert(old_lift + dec.position() as u64);
-            dec.decode_out(&mut insn);
-            if insn.is_invalid() {
-                break;
-            }
-        }
-        set.insert(old_lift + fn_len as u64); // one-past-end (final NEXT_PC)
-        set
-    };
+    // In-range values remap by the lift-address delta: EVERY fn-internal
+    // address shifts together, INCLUDING jump-table switch cases that sit
+    // mid-instruction relative to a linear decode (the devirt class), so a
+    // boundary requirement here is an overreach — it left switch cases
+    // untranslated and broke the solve path. The corruption vector was only
+    // ever NON-address constants colliding into the range, and those are
+    // excluded by the `i64 <v>` token-context gate in the rewrite pass
+    // (addresses are 64-bit; an i32 constant can never be a PC). Residual
+    // risk — an i64-typed non-address constant numerically inside the fn's
+    // own synth window — is accepted and watched by the probe matrix.
     let remap = |v: u64| -> Option<u64> {
         if let Some(n) = map.get(&v) {
             Some(*n)
-        } else if old_range.contains(&v) && boundaries.contains(&v) {
+        } else if old_range.contains(&v) {
             Some(v.wrapping_add(delta))
         } else {
             None
