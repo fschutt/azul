@@ -1004,7 +1004,7 @@ impl RemillTranspiler {
             let (irp, mp) = reloc_cache_paths(rc, fn_size);
             if let (Ok(ir), Ok(man)) = (std::fs::read_to_string(&irp), std::fs::read_to_string(&mp)) {
                 if let Some(translated) =
-                    reloc_translate(&ir, &man, lift_addr, bytes.len(), symbol_table::get())
+                    reloc_translate(&ir, &man, lift_addr, &bytes, symbol_table::get())
                 {
                     RELOC_CACHE_HITS.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
                     let _ = std::fs::write(&lifted_ir_path, &translated);
@@ -6751,9 +6751,10 @@ fn reloc_translate(
     ir: &str,
     manifest: &str,
     new_lift_addr: u64,
-    fn_len: usize,
+    bytes: &[u8],
     table: Option<&symbol_table::SymbolTable>,
 ) -> Option<String> {
+    let fn_len = bytes.len();
     let mut lines = manifest.lines();
     let header = lines.next()?;
     let mut h = header.split(' ');
@@ -6783,10 +6784,35 @@ fn reloc_translate(
     }
     let delta = new_lift_addr.wrapping_sub(old_lift);
     let old_range = old_lift..old_lift.checked_add(old_len as u64)?;
+    // Instruction-boundary set, re-derived from the CURRENT bytes (the key
+    // guarantees they are canonical-identical to the stored layout's). An
+    // in-range value is only a PC if it lands on a boundary: the first
+    // translation pass remapped EVERY >=6-digit decimal inside the fn's
+    // range, which false-positived on ordinary integer constants that
+    // happen to fall numerically inside the synth address window (observed:
+    // a Debug-path fn corrupted by exactly such a collision). Remill IR
+    // encodes intra-fn PCs as entry-relative deltas almost everywhere; the
+    // absolute in-range values that ARE addresses (jump-table switch cases,
+    // return-address pushes) land on instruction boundaries by construction.
+    let boundaries: std::collections::HashSet<u64> = {
+        use iced_x86::{Decoder, DecoderOptions, Instruction};
+        let mut set = std::collections::HashSet::new();
+        let mut dec = Decoder::with_ip(64, bytes, old_lift, DecoderOptions::NONE);
+        let mut insn = Instruction::default();
+        while dec.can_decode() {
+            set.insert(old_lift + dec.position() as u64);
+            dec.decode_out(&mut insn);
+            if insn.is_invalid() {
+                break;
+            }
+        }
+        set.insert(old_lift + fn_len as u64); // one-past-end (final NEXT_PC)
+        set
+    };
     let remap = |v: u64| -> Option<u64> {
         if let Some(n) = map.get(&v) {
             Some(*n)
-        } else if old_range.contains(&v) {
+        } else if old_range.contains(&v) && boundaries.contains(&v) {
             Some(v.wrapping_add(delta))
         } else {
             None
@@ -6831,7 +6857,10 @@ fn reloc_translate(
             // Skip float/hex literals (digits '.' / exponent / 0x forms).
             let is_float =
                 j < b.len() && (b[j] == b'.' || b[j] == b'e' || b[j] == b'E' || b[j] == b'x');
-            if !is_float && j - start >= 6 {
+            // Addresses are 64-bit: only decimals in `i64 <v>` position can
+            // be PC/target constants (switch cases, inttoptr, i64 stores).
+            let i64_ctx = start >= 4 && &b[start - 4..start] == b"i64 ";
+            if !is_float && i64_ctx && j - start >= 6 {
                 if let Ok(v) = ir[start..j].parse::<u64>() {
                     if let Some(n) = remap(v) {
                         out.extend_from_slice(n.to_string().as_bytes());
