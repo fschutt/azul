@@ -1005,7 +1005,10 @@ pub fn malloc_heap_bytes() -> u64 {
 /// There's no direct "peak `phys_footprint`" field; track the max
 /// across calls in application code if you need it.
 #[cfg(feature = "probe")]
-#[must_use] pub const fn phys_footprint_bytes() -> u64 {
+// NOT const: the macOS branch calls mach task_info — const only held on
+// targets where that branch compiles out (E0015 on aarch64-apple-darwin).
+#[allow(clippy::missing_const_for_fn)]
+#[must_use] pub fn phys_footprint_bytes() -> u64 {
     // Miri cannot call the mach `task_info` foreign function.
     #[cfg(miri)]
     return 0;
@@ -1075,7 +1078,9 @@ pub fn malloc_heap_bytes() -> u64 {
 /// (~1-5 µs per poll on macOS, 500 Hz → <0.25% CPU of one core).
 /// `peak_phys_footprint_seen()` reads the current high-water mark.
 #[cfg(feature = "probe")]
-pub const fn start_peak_sampler() {
+// NOT const: the macOS branch spawns the sampler thread (E0015 there).
+#[allow(clippy::missing_const_for_fn)]
+pub fn start_peak_sampler() {
     #[cfg(target_os = "macos")]
     {
         use std::sync::atomic::Ordering;
