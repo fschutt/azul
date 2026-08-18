@@ -668,7 +668,7 @@ mod autotest_generated {
 
     /// Positive control: the built-in `Azul Mock Mono` font (96 glyphs, upem 1000).
     #[cfg(feature = "text_layout")]
-    const MOCK_MONO: &[u8] = crate::text3::mock_fonts::MOCK_MONO_TTF;
+    const MOCK_MONO: &[u8] = text3::mock_fonts::MOCK_MONO_TTF;
 
     #[cfg(feature = "text_layout")]
     fn loaded_source(bytes: Vec<u8>, index: u32) -> azul_core::resources::LoadedFontSource {

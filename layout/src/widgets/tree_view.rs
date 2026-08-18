@@ -585,7 +585,7 @@ mod autotest_generated {
     /// True when a node's inline style is exactly the given const style slice.
     fn style_is(dom: &Dom, expected: &'static [CssPropertyWithConditions]) -> bool {
         *dom.root.get_style()
-            == azul_css::css::Css::from(CssPropertyWithConditionsVec::from_const_slice(expected))
+            == css::Css::from(CssPropertyWithConditionsVec::from_const_slice(expected))
     }
 
     /// The `(icon-or-spacer, label)` pair of a rendered row.
@@ -1311,7 +1311,7 @@ mod autotest_generated {
             classes
                 .as_ref()
                 .iter()
-                .any(|c| matches!(c, IdOrClass::Class(s) if s.as_str() == "__azul-native-tree-view")),
+                .any(|c| matches!(c, Class(s) if s.as_str() == "__azul-native-tree-view")),
             "the container must be findable by its widget class"
         );
         assert!(

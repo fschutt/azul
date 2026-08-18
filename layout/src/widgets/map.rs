@@ -2005,10 +2005,10 @@ mod autotest_generated {
         let previous_window_state: Option<FullWindowState> = None;
         let current_window_state = FullWindowState::default();
         let gl_context = OptionGlContextPtr::None;
-        let scroll_states: alloc::collections::BTreeMap<
+        let scroll_states: BTreeMap<
             DomId,
-            alloc::collections::BTreeMap<NodeHierarchyItemId, ScrollPosition>,
-        > = alloc::collections::BTreeMap::new();
+            BTreeMap<NodeHierarchyItemId, ScrollPosition>,
+        > = BTreeMap::new();
         let window_handle = RawWindowHandle::Unsupported;
         let system_callbacks = ExternalSystemCallbacks::rust_internal();
 

@@ -9407,7 +9407,7 @@ fn advance_pen_with_margin_collapse(
 /// `true` if border or padding exists and prevents collapsing
 // +spec:box-model:ca8ceb - margin collapsing uses block-start/block-end per writing mode
 fn has_margin_collapse_blocker(
-    box_props: &crate::solver3::geometry::BoxProps,
+    box_props: &BoxProps,
     writing_mode: LayoutWritingMode,
     check_start: bool, // true = check top/start, false = check bottom/end
 ) -> bool {

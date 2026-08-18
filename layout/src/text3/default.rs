@@ -1174,7 +1174,7 @@ mod autotest_generated {
 
     #[test]
     fn path_loader_new_is_a_zero_sized_stateless_handle() {
-        assert_eq!(core::mem::size_of::<PathLoader>(), 0);
+        assert_eq!(size_of::<PathLoader>(), 0);
         let a = PathLoader::new();
         let b = PathLoader;
         // both handles behave identically: no hidden per-instance state

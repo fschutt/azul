@@ -707,7 +707,7 @@ mod tests {
         let first = &dom.children.as_ref()[0];
         let classes = first.root.get_ids_and_classes();
         assert!(classes.as_ref().iter().any(|c| match c {
-            IdOrClass::Class(s) => s.as_str().contains("quick-access-leading"),
+            Class(s) => s.as_str().contains("quick-access-leading"),
             IdOrClass::Id(_) => false,
         }));
     }

@@ -170,7 +170,7 @@ impl FrameHarness {
             .get(&DomId { inner: 0 })
             .expect("layout result")
             .display_list;
-        let state = azul_layout::cpurender::CpuRenderState::new(Default::default());
+        let state = cpurender::CpuRenderState::new(Default::default());
         cpurender::render_display_list_damaged(
             dl,
             pixmap,

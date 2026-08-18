@@ -439,7 +439,7 @@ fn resize_only_hint_skips_reconcile_but_still_resizes() {
     let root_width = {
         let lr = layout_window
             .layout_results
-            .get(&azul_core::dom::DomId::ROOT_ID)
+            .get(&DomId::ROOT_ID)
             .expect("layout result");
         let tree = &lr.layout_tree;
         tree.get(tree.root)
@@ -516,7 +516,7 @@ fn dom_diff_clean_hint_skips_fingerprint_recompute() {
     // Pass 3 WITH the hint: every DOM-backed node's fingerprint is reused.
     let n = lw
         .layout_results
-        .get(&azul_core::dom::DomId::ROOT_ID)
+        .get(&DomId::ROOT_ID)
         .unwrap()
         .styled_dom
         .node_data

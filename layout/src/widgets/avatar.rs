@@ -376,7 +376,7 @@ mod autotest_generated {
             .get_ids_and_classes()
             .as_ref()
             .iter()
-            .any(|c| matches!(c, IdOrClass::Class(s) if s.as_str() == name))
+            .any(|c| matches!(c, Class(s) if s.as_str() == name))
     }
 
     /// The properties of a rendered node's *inline* style, in declaration order.

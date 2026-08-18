@@ -114,12 +114,12 @@ fn translate_track(track: &GridTrackSizing) -> taffy::TrackSizingFunction {
 
     match track {
         GridTrackSizing::MinContent => minmax(
-            taffy::MinTrackSizingFunction::min_content(),
-            taffy::MaxTrackSizingFunction::min_content(),
+            MinTrackSizingFunction::min_content(),
+            MaxTrackSizingFunction::min_content(),
         ),
         GridTrackSizing::MaxContent => minmax(
-            taffy::MinTrackSizingFunction::max_content(),
-            taffy::MaxTrackSizingFunction::max_content(),
+            MinTrackSizingFunction::max_content(),
+            MaxTrackSizingFunction::max_content(),
         ),
         GridTrackSizing::MinMax(minmax_box) => minmax(
             translate_track(&minmax_box.min).min,
@@ -130,8 +130,8 @@ fn translate_track(track: &GridTrackSizing) -> taffy::TrackSizingFunction {
             // Note: % is not supported in grid track sizing (CSS Grid spec)
             let pixels = px_to_float(*px);
             minmax(
-                taffy::MinTrackSizingFunction::length(pixels),
-                taffy::MaxTrackSizingFunction::length(pixels),
+                MinTrackSizingFunction::length(pixels),
+                MaxTrackSizingFunction::length(pixels),
             )
         }
         GridTrackSizing::Fr(fr) => {
@@ -139,20 +139,20 @@ fn translate_track(track: &GridTrackSizing) -> taffy::TrackSizingFunction {
             // The min is auto, max is the fractional value
             // fr is stored as i32 * 100 (e.g., 1fr = 100, 2fr = 200)
             minmax(
-                taffy::MinTrackSizingFunction::auto(),
-                taffy::MaxTrackSizingFunction::fr(*fr as f32 / 100.0),
+                MinTrackSizingFunction::auto(),
+                MaxTrackSizingFunction::fr(*fr as f32 / 100.0),
             )
         }
         GridTrackSizing::Auto => minmax(
-            taffy::MinTrackSizingFunction::min_content(),
-            taffy::MaxTrackSizingFunction::max_content(),
+            MinTrackSizingFunction::min_content(),
+            MaxTrackSizingFunction::max_content(),
         ),
         GridTrackSizing::FitContent(px) => {
             // fit-content: resolve em/rem to pixels
             let pixels = px_to_float(*px);
             minmax(
-                taffy::MinTrackSizingFunction::length(pixels),
-                taffy::MaxTrackSizingFunction::max_content(),
+                MinTrackSizingFunction::length(pixels),
+                MaxTrackSizingFunction::max_content(),
             )
         }
     }

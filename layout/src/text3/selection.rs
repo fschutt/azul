@@ -379,7 +379,7 @@ mod autotest_generated {
                 let mut s = String::new();
                 for _ in 0..id.start_byte_in_run { s.push(' '); }
                 s.push_str(text);
-                std::sync::Arc::from(s.as_str())
+                Arc::from(s.as_str())
             },
             source_byte_len: text.len() as u16,
             source_cluster_id: id,

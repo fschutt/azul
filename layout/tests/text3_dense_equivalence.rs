@@ -52,7 +52,7 @@ fn styled(
     };
     tweak(&mut style);
     InlineContent::Text(StyledRun {
-        text: std::sync::Arc::from(text),
+        text: Arc::from(text),
         style: Arc::new(style),
         logical_start_byte,
         source_node_id,
@@ -931,7 +931,7 @@ fn dense_positioned_cluster_reads_the_baseline_not_the_top() {
     // mixed-size ascent correction; zero metrics ⟹ ascent 0 ⟹ the
     // recorded y verbatim, keeping this a pure field-choice pin.
     d.runs.push(DenseRun {
-        style: std::sync::Arc::new(azul_layout::text3::cache::StyleProperties::default()),
+        style: Arc::new(StyleProperties::default()),
         font_hash: 0,
         font_metrics: azul_layout::text3::cache::LayoutFontMetrics {
             ascent: 0.0,
@@ -943,7 +943,7 @@ fn dense_positioned_cluster_reads_the_baseline_not_the_top() {
         },
         source_run: 0,
         source_node: u32::MAX,
-        text: std::sync::Arc::from(""),
+        text: Arc::from(""),
         clusters: 0..1,
         item_base: 0,
         item_linear: true,
@@ -951,7 +951,7 @@ fn dense_positioned_cluster_reads_the_baseline_not_the_top() {
         // run on the line), so this stays a pure field-choice pin.
         y: 40.0,
         script: azul_layout::text3::script::Script::Latin,
-        direction: azul_layout::text3::cache::BidiDirection::Ltr,
+        direction: BidiDirection::Ltr,
     });
     d.lines.push(LineRecord {
         clusters: (0, 1),

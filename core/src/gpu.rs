@@ -132,6 +132,8 @@ impl GpuValueCache {
     /// runs is not required; iteration order is normalised by sorting.
     #[must_use]
     pub fn dl_emission_fingerprint(&self) -> u64 {
+        const FNV_OFFSET: u64 = 0xcbf2_9ce4_8422_2325;
+        const FNV_PRIME: u64 = 0x0000_0100_0000_01b3;
         let mut entries: Vec<(u8, u64, u64)> = Vec::with_capacity(
             self.css_transform_keys.len()
                 + self.anim_transform_keys.len()
@@ -179,8 +181,6 @@ impl GpuValueCache {
         // builds under no_std (where `HashMap` above is really `BTreeMap` and
         // `DefaultHasher` does not exist) — and in-process comparison needs
         // no cryptographic strength, only sensitivity to every entry.
-        const FNV_OFFSET: u64 = 0xcbf2_9ce4_8422_2325;
-        const FNV_PRIME: u64 = 0x0000_0100_0000_01b3;
         let mut h: u64 = FNV_OFFSET;
         for (tag, a, b) in entries {
             for word in [u64::from(tag), a, b] {

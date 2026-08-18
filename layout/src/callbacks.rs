@@ -760,7 +760,7 @@ pub type CallbackType = extern "C" fn(RefAny, CallbackInfo) -> Update;
 /// The TYPED signature of a component-attached presence-animation function
 /// (`-azul-animation-in` / `-azul-animation-out: myFn 1s` next to a
 /// `NodeData::add_animation_callback("myFn", ..)`). Stored type-erased as
-/// `usize` in `azul_core::resources::ZombieAnimCallback` (the CoreCallback
+/// `usize` in `azul_core::resources::ZombieAnimCallback` (the `CoreCallback`
 /// pattern — `TimerCallbackInfo` lives in this crate, above azul-core).
 ///
 /// Receives the registered data, a FULL `TimerCallbackInfo` (the live dom,
@@ -3520,7 +3520,7 @@ impl CallbackInfo {
     /// # Errors
     ///
     /// Returns an error message if the screenshot cannot be captured or encoded.
-    pub fn take_screenshot(&self, dom_id: DomId) -> Result<alloc::vec::Vec<u8>, AzString> {
+    pub fn take_screenshot(&self, dom_id: DomId) -> Result<Vec<u8>, AzString> {
         use crate::cpurender::CpuRenderState;
 
         let layout_window = self.get_layout_window();
@@ -3577,7 +3577,7 @@ impl CallbackInfo {
         if std::env::var_os("AZ_ANIM_DEBUG").is_some() {
             let refs = display_list.items.iter().filter(|i| matches!(i,
                 crate::solver3::display_list::DisplayListItem::PushReferenceFrame { .. })).count();
-            let vals: alloc::vec::Vec<String> = render_state.transforms.iter()
+            let vals: Vec<String> = render_state.transforms.iter()
                 .map(|(k, t)| alloc::format!("{k}=>tx{}", t.m[3][0])).collect();
             eprintln!("[shot] dl_items={} refframes={refs} transforms={vals:?}",
                 display_list.items.len());
@@ -3688,7 +3688,7 @@ impl CallbackInfo {
     /// # Errors
     ///
     /// Returns an error message if the screenshot cannot be captured or encoded.
-    pub fn take_native_screenshot_bytes(&self) -> Result<alloc::vec::Vec<u8>, AzString> {
+    pub fn take_native_screenshot_bytes(&self) -> Result<Vec<u8>, AzString> {
         // Create a temporary file, take screenshot, read bytes, delete file
         let temp_path = std::env::temp_dir().join("azul_screenshot_temp.png");
         let temp_path_str = temp_path.to_string_lossy().to_string();
@@ -5416,8 +5416,8 @@ pub enum ResultU8VecString {
     Err(AzString),
 }
 
-impl From<Result<alloc::vec::Vec<u8>, AzString>> for ResultU8VecString {
-    fn from(result: Result<alloc::vec::Vec<u8>, AzString>) -> Self {
+impl From<Result<Vec<u8>, AzString>> for ResultU8VecString {
+    fn from(result: Result<Vec<u8>, AzString>) -> Self {
         match result {
             Ok(v) => Self::Ok(v.into()),
             Err(e) => Self::Err(e),
@@ -5531,14 +5531,14 @@ mod autotest_generated {
             current_window_handle: &window_handle,
             system_callbacks: &system_callbacks,
             system_style: Arc::new(SystemStyle::default()),
-            monitors: Arc::new(std::sync::Mutex::new(MonitorVec::from_const_slice(&[]))),
+            monitors: Arc::new(Mutex::new(MonitorVec::from_const_slice(&[]))),
             #[cfg(feature = "icu")]
             icu_localizer: IcuLocalizerHandle::default(),
             ctx: OptionRefAny::None,
         };
 
-        let changes: Arc<std::sync::Mutex<Vec<CallbackChange>>> =
-            Arc::new(std::sync::Mutex::new(Vec::new()));
+        let changes: Arc<Mutex<Vec<CallbackChange>>> =
+            Arc::new(Mutex::new(Vec::new()));
 
         let mut info = CallbackInfo::new(
             &ref_data,

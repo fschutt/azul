@@ -989,7 +989,7 @@ mod autotest_generated {
             .node_data
             .as_ref()
             .iter()
-            .find_map(azul_core::dom::NodeData::get_accessibility_info)
+            .find_map(NodeData::get_accessibility_info)
             .expect("a11y info must survive icon resolution");
         assert_eq!(
             a11y.accessibility_name.as_ref().map(|s| s.as_str()),

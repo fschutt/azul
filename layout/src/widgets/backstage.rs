@@ -905,7 +905,7 @@ mod tests {
         let active = &nav.children.as_ref()[3];
         let classes = active.root.get_ids_and_classes();
         assert!(classes.as_ref().iter().any(|c| match c {
-            IdOrClass::Class(s) => s.as_str().contains("nav-item-active"),
+            Class(s) => s.as_str().contains("nav-item-active"),
             IdOrClass::Id(_) => false,
         }));
     }

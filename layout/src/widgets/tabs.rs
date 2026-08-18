@@ -1539,7 +1539,7 @@ mod autotest_generated {
             .as_ref()
             .iter()
             .filter_map(|c| match c {
-                IdOrClass::Class(s) => Some(s.as_str().to_string()),
+                Class(s) => Some(s.as_str().to_string()),
                 IdOrClass::Id(_) => None,
             })
             .collect()
@@ -2092,7 +2092,7 @@ mod autotest_generated {
         let raw = record_click as usize;
         let generic = Callback {
             cb: unsafe { core::mem::transmute::<usize, crate::callbacks::CallbackType>(raw) },
-            ctx: azul_core::refany::OptionRefAny::None,
+            ctx: OptionRefAny::None,
         };
         let converted: TabOnClickCallback = generic.into();
         assert_eq!(converted.cb as usize, raw);

@@ -150,7 +150,7 @@ extern "C" fn screencap_worker(_init: RefAny, mut sender: ThreadSender, _recv: T
     if let Some(backend) = screen_backend() {
         let handle = (backend.open)(0, DEFAULT_W, DEFAULT_H);
         if handle != 0 {
-            let mut buf: alloc::vec::Vec<u8> = alloc::vec::Vec::new();
+            let mut buf: Vec<u8> = Vec::new();
             loop {
                 let (fw, fh) = (backend.read)(handle, &mut buf);
                 if fw == 0 || fh == 0 {

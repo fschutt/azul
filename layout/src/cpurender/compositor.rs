@@ -648,7 +648,7 @@ impl CompositorState {
             if is_pure_translation {
                 blit_pixmap(src_pixbuf, output, px_x, px_y, layer.opacity);
             } else {
-                super::pixmap::blit_pixmap_affine(src_pixbuf, output, &this_m, layer.opacity);
+                blit_pixmap_affine(src_pixbuf, output, &this_m, layer.opacity);
             }
         }
 
@@ -1452,9 +1452,9 @@ pub struct GpuValueDamage {
     // blanket needs_full made EVERY spring/move tick a full-frame repaint.
     fn affine_rect_about(
         m: &azul_core::transform::ComputedTransform3D,
-        origin: azul_core::geom::LogicalPosition,
-        r: azul_core::geom::LogicalRect,
-    ) -> Option<azul_core::geom::LogicalRect> {
+        origin: LogicalPosition,
+        r: LogicalRect,
+    ) -> Option<LogicalRect> {
         let mm = &m.m;
         let affine = mm[0][2] == 0.0
             && mm[0][3] == 0.0
@@ -1480,9 +1480,9 @@ pub struct GpuValueDamage {
             max_x = max_x.max(x);
             max_y = max_y.max(y);
         }
-        Some(azul_core::geom::LogicalRect::new(
-            azul_core::geom::LogicalPosition::new(min_x, min_y),
-            azul_core::geom::LogicalSize::new(max_x - min_x, max_y - min_y),
+        Some(LogicalRect::new(
+            LogicalPosition::new(min_x, min_y),
+            LogicalSize::new(max_x - min_x, max_y - min_y),
         ))
     }
 
@@ -1504,7 +1504,7 @@ pub struct GpuValueDamage {
             } if changed_t.contains(&transform_key.id) => {
                 // Content extent: union to the matching Pop.
                 let mut depth = 0usize;
-                let mut content: Option<azul_core::geom::LogicalRect> = None;
+                let mut content: Option<LogicalRect> = None;
                 for it in &items[idx..] {
                     match it {
                         DisplayListItem::PushReferenceFrame { .. } => depth += 1,
@@ -1522,14 +1522,14 @@ pub struct GpuValueDamage {
                             let y0 = c.origin.y.min(b.origin.y);
                             let x1 = (c.origin.x + c.size.width).max(b.origin.x + b.size.width);
                             let y1 = (c.origin.y + c.size.height).max(b.origin.y + b.size.height);
-                            azul_core::geom::LogicalRect::new(
-                                azul_core::geom::LogicalPosition::new(x0, y0),
-                                azul_core::geom::LogicalSize::new(x1 - x0, y1 - y0),
+                            LogicalRect::new(
+                                LogicalPosition::new(x0, y0),
+                                LogicalSize::new(x1 - x0, y1 - y0),
                             )
                         }));
                     }
                 }
-                let content = content.unwrap_or(*bounds.inner());
+                let content = content.unwrap_or_else(|| *bounds.inner());
                 let old_m = old_transforms.get(&transform_key.id).unwrap_or(&identity);
                 let new_m = new_transforms.get(&transform_key.id).unwrap_or(&identity);
                 match (

@@ -1951,7 +1951,7 @@ mod autotest_generated {
             "",
             "/nonexistent_dir_azul_autotest_zip/\u{1F600}.zip",
         ] {
-            match ZipFile::from_file(std::path::Path::new(p), &cfg) {
+            match ZipFile::from_file(Path::new(p), &cfg) {
                 Err(ZipReadError::IoError(msg)) => assert!(!msg.is_empty()),
                 other => panic!("expected IoError for {p:?}, got {other:?}"),
             }
@@ -1969,7 +1969,7 @@ mod autotest_generated {
         zip.add_file("a.txt", b"A".to_vec());
         let cfg = ZipWriteConfig::default();
         match zip.to_file(
-            std::path::Path::new("/nonexistent_dir_azul_autotest_zip/sub/out.zip"),
+            Path::new("/nonexistent_dir_azul_autotest_zip/sub/out.zip"),
             &cfg,
         ) {
             Err(ZipWriteError::IoError(msg)) => assert!(!msg.is_empty()),
@@ -1978,7 +1978,7 @@ mod autotest_generated {
 
         // a write-config failure is reported before the filesystem is touched
         let store = ZipWriteConfig::store();
-        assert!(zip.to_file(std::path::Path::new("/nonexistent_dir_azul_autotest_zip/x.zip"), &store).is_err());
+        assert!(zip.to_file(Path::new("/nonexistent_dir_azul_autotest_zip/x.zip"), &store).is_err());
     }
 
     #[cfg(all(feature = "zip", feature = "std"))]

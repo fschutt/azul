@@ -3016,7 +3016,7 @@ mod tests {
             .get_ids_and_classes()
             .as_ref()
             .iter()
-            .any(|c| matches!(c, IdOrClass::Class(s) if s.as_str() == name))
+            .any(|c| matches!(c, Class(s) if s.as_str() == name))
     }
 
     /// Text of a label node, looking through the `<p>` block wrapper the
@@ -3045,7 +3045,7 @@ mod tests {
     fn every_ribbon_label_is_block_formatted_no_raw_text_children() {
         extern "C" fn noop_launcher_click(
             _data: RefAny,
-            _info: crate::callbacks::CallbackInfo,
+            _info: CallbackInfo,
         ) -> Update {
             Update::DoNothing
         }
@@ -3923,7 +3923,7 @@ mod tests {
         // SystemStyle::default() may pre-fill platform colors; the fallback
         // contract is about a system that reports NO colors at all.
         let mut sys = SystemStyle::default();
-        sys.colors = azul_css::system::SystemColors::default();
+        sys.colors = system::SystemColors::default();
         assert_eq!(RibbonTheme::from_system(sys.clone()), RibbonTheme::office_2013());
         assert_eq!(RibbonStyle::from_system(sys), RibbonStyle::office_2013());
     }
@@ -4229,7 +4229,7 @@ mod tests {
         theme.field_border = neon;
 
         let combo = RibbonStyle::from_theme(theme).styled_combo_box(
-            azul_css::StringVec::from_vec(vec![]),
+            StringVec::from_vec(vec![]),
             AzString::from("x"),
             50,
         );

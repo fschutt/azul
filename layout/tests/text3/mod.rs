@@ -59,8 +59,8 @@ pub fn create_logical_items_compat(
 
 pub fn reorder_logical_items_compat(
     items: &[azul_layout::text3::cache::LogicalItem],
-    dir: azul_layout::text3::cache::BidiDirection,
-) -> Result<Vec<azul_layout::text3::cache::VisualItem>, azul_layout::text3::cache::LayoutError> {
+    dir: BidiDirection,
+) -> Result<Vec<azul_layout::text3::cache::VisualItem>, LayoutError> {
     azul_layout::text3::cache::reorder_logical_items(
         items,
         dir,
@@ -72,9 +72,9 @@ pub fn reorder_logical_items_compat(
 pub fn shape_visual_items_compat(
     items: &[azul_layout::text3::cache::VisualItem],
     _manager: &MockFontManager,
-) -> Result<Vec<azul_layout::text3::cache::ShapedItem>, azul_layout::text3::cache::LayoutError> {
+) -> Result<Vec<ShapedItem>, LayoutError> {
     let loaded = mock_loaded_fonts();
-    let chain = std::collections::HashMap::new();
+    let chain = HashMap::new();
     let fc = rust_fontconfig::FcFontCache::default();
     azul_layout::text3::cache::shape_visual_items(items, &chain, &fc, &loaded, &mut None)
 }
@@ -83,7 +83,7 @@ pub fn perform_fragment_layout_compat(
     cursor: &mut azul_layout::text3::cache::BreakCursor<'_>,
     logical: &[azul_layout::text3::cache::LogicalItem],
     constraints: &azul_layout::text3::cache::UnifiedConstraints,
-) -> Result<azul_layout::text3::cache::UnifiedLayout, azul_layout::text3::cache::LayoutError> {
+) -> Result<azul_layout::text3::cache::UnifiedLayout, LayoutError> {
     let loaded = mock_loaded_fonts();
     azul_layout::text3::cache::perform_fragment_layout(cursor, logical, constraints, &mut None, &loaded)
 }
@@ -93,7 +93,7 @@ pub fn break_one_line_compat<'a>(
     lc: &azul_layout::text3::cache::LineConstraints,
     is_vertical: bool,
     hyphenator: Option<&hyphenation::Standard>,
-) -> (Vec<azul_layout::text3::cache::ShapedItem>, bool) {
+) -> (Vec<ShapedItem>, bool) {
     azul_layout::text3::cache::break_one_line(
         cursor,
         lc,
@@ -108,15 +108,15 @@ pub fn break_one_line_compat<'a>(
 
 #[allow(clippy::too_many_arguments)]
 pub fn position_one_line_compat(
-    line_items: &[azul_layout::text3::cache::ShapedItem],
+    line_items: &[ShapedItem],
     lc: &azul_layout::text3::cache::LineConstraints,
     line_top_y: f32,
     line_index: usize,
     text_align: azul_layout::text3::cache::TextAlign,
-    base_direction: azul_layout::text3::cache::BidiDirection,
+    base_direction: BidiDirection,
     is_last_line: bool,
     constraints: &azul_layout::text3::cache::UnifiedConstraints,
-) -> (Vec<azul_layout::text3::cache::PositionedItem>, f32) {
+) -> (Vec<PositionedItem>, f32) {
     azul_layout::text3::cache::position_one_line(
         line_items,
         lc,
@@ -133,10 +133,10 @@ pub fn position_one_line_compat(
 }
 
 pub fn justify_kashida_and_rebuild_compat(
-    items: Vec<azul_layout::text3::cache::ShapedItem>,
+    items: Vec<ShapedItem>,
     lc: &azul_layout::text3::cache::LineConstraints,
     is_vertical: bool,
-) -> Vec<azul_layout::text3::cache::ShapedItem> {
+) -> Vec<ShapedItem> {
     azul_layout::text3::cache::justify_kashida_and_rebuild(
         items,
         lc,
@@ -152,12 +152,12 @@ pub fn layout_flow_compat(
     overrides: &[azul_layout::text3::cache::StyleOverride],
     flow_chain: &[azul_layout::text3::cache::LayoutFragment],
     _manager: &MockFontManager,
-) -> Result<azul_layout::text3::cache::FlowLayout, azul_layout::text3::cache::LayoutError> {
+) -> Result<azul_layout::text3::cache::FlowLayout, LayoutError> {
     cache.layout_flow(
         content,
         overrides,
         flow_chain,
-        &std::collections::HashMap::new(),
+        &HashMap::new(),
         &rust_fontconfig::FcFontCache::default(),
         &mock_loaded_fonts(),
         &mut None,

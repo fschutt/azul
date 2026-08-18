@@ -321,7 +321,7 @@ impl ContentEditableHarness {
     }
 
     /// Get focused node
-    fn get_focused_node(&self) -> Option<azul_core::dom::DomNodeId> {
+    fn get_focused_node(&self) -> Option<DomNodeId> {
         let lw = self.layout_window.as_ref().unwrap();
         lw.focus_manager.get_focused_node().cloned()
     }
@@ -441,8 +441,8 @@ fn keystroke_cost_on_the_incremental_path() {
         let before = h.clone_display_list();
         h.type_text("c");
         let after = h.clone_display_list();
-        let offsets = azul_layout::cpurender::ScrollOffsetMap::new();
-        let damage = azul_layout::cpurender::compute_display_list_damage(
+        let offsets = cpurender::ScrollOffsetMap::new();
+        let damage = cpurender::compute_display_list_damage(
             &before, &after, &offsets, &offsets,
         );
         match damage {
@@ -1062,7 +1062,7 @@ mod structural_roundtrip {
     use azul_layout::managers::changeset::{DocumentOperation, NodePosition};
 
     /// The APP's model: the editor subtree as a native `Dom`.
-    fn editor_model() -> azul_core::dom::Dom {
+    fn editor_model() -> Dom {
         let mut editor = Dom::create_div()
             .with_ids_and_classes(cls("editor").into())
             .with_contenteditable(true)
@@ -1074,13 +1074,13 @@ mod structural_roundtrip {
     }
 
     /// RENDER the model (the app's layout callback): body > model clone.
-    fn render_dom(model: &azul_core::dom::Dom) -> Dom {
+    fn render_dom(model: &Dom) -> Dom {
         let mut root = Dom::create_body();
         root.add_child(model.clone());
         root
     }
 
-    fn model_block_texts(model: &azul_core::dom::Dom) -> Vec<String> {
+    fn model_block_texts(model: &Dom) -> Vec<String> {
         fn collect(node: &Dom, out: &mut String) {
             if let NodeType::Text(t) = node.root.get_node_type() {
                 out.push_str(t.as_str());

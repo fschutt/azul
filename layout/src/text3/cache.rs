@@ -12880,7 +12880,7 @@ mod autotest_generated {
                 let mut s = String::new();
                 for _ in 0..id.start_byte_in_run { s.push(' '); }
                 s.push_str(text);
-                std::sync::Arc::from(s.as_str())
+                Arc::from(s.as_str())
             },
             source_byte_len: text.len() as u16,
             source_cluster_id: id,
@@ -12972,7 +12972,7 @@ mod autotest_generated {
 
     fn text_content(t: &str, st: Arc<StyleProperties>) -> InlineContent {
         InlineContent::Text(StyledRun {
-            text: alloc::sync::Arc::from(t),
+            text: Arc::from(t),
             style: st,
             logical_start_byte: 0,
             source_node_id: None,
@@ -15709,7 +15709,7 @@ mod autotest_generated {
         let vi = |st: Arc<StyleProperties>| VisualItem {
             logical_source: LogicalItem::Text {
                 source: ci(0, 0),
-                text: std::sync::Arc::from("a"),
+                text: Arc::from("a"),
                 style: st,
                 marker_position_outside: None,
                 source_node_id: None,
