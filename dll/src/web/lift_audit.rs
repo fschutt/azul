@@ -104,8 +104,20 @@ fn import_is_provided(module: &str, name: &str) -> bool {
     if module != "env" {
         return false;
     }
-    if name.starts_with("sub_")            // boundary imports, wired per-manifest
-        || name.starts_with("__remill_")   // intrinsics (read/write/atomic/cas/undef)
+    // sub_* imports are legitimate ONLY in sharded mode, where the manifest
+    // wires each one to a lifted boundary shard. In legacy bundled mode
+    // nothing provides them — the loader Proxy zero-stubs them and the
+    // first call returns garbage (observed: AzWriter's init reached
+    // handle_alloc_error through a zero-stubbed unresolved extern). Names
+    // carrying full native addresses or sign-extended values are lift
+    // defects in ANY mode.
+    if name.starts_with("sub_") {
+        let hex = &name[4..];
+        let val = u64::from_str_radix(hex, 16).unwrap_or(u64::MAX);
+        let plausible_synth = (0x1000..0x4000_0000).contains(&val);
+        return super::symbol_table::shards_enabled() && plausible_synth;
+    }
+    if name.starts_with("__remill_")       // intrinsics (read/write/atomic/cas/undef)
         || name.starts_with("__az")        // resolver/dispatch/probe hooks
     {
         return true;
