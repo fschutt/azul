@@ -149,8 +149,23 @@ Three failure modes worth flagging explicitly:
 
 For an authoritative threat model: trust the process boundary, don't deserialize untrusted data into `RefAny` without a validated type id, and front the web target with an HTTP-aware proxy.
 
+## Updates are a code-execution boundary
+
+An app that updates itself will, by definition, run code it fetched over the
+network. Azul verifies a sha256 digest and a root-delegated minisign chain
+before an artifact is allowed anywhere near `apply_update`, and refuses to
+self-update at all where a package manager owns the files. The release side
+of that — the manifest, the two-key hierarchy, rotation, and the script that
+produces and self-checks a signed release — is
+[Shipping Signed Updates](signing-updates.md).
+
+An app that ships `manifest_url` **without** `root_public_key` gets the
+digest pin only: enough to catch corruption or a swapped file, not enough to
+stop anyone who can rewrite the manifest.
+
 ## Coming Up Next
 
+- [Shipping Signed Updates](signing-updates.md) — The manifest, the signing chain, and the release script
 - [Deploying to the web](deploying-web.md) — Building for the browser via WASM
 - [Code Generation](code-generation.md) — How `azul-doc` regenerates bindings from `api.json`
 - [Headless Rendering](headless-rendering.md) — Running the pipeline without a window

@@ -82,6 +82,9 @@ struct Args {
     /// `download_automatically` for the drill (auto mode); without it the
     /// drill is manual: notify, then download+apply on simulated consent.
     update_auto: bool,
+    /// Base64 minisign ROOT public key: when given, the drill stages through
+    /// the SIGNED path (`download_and_verify`) exactly as a real client does.
+    update_root_key: Option<String>,
     /// Crash-mail drill: after a crash is persisted, the relaunch mails the
     /// dump to this address (with --mail-port against a local sink).
     mail_to: Option<String>,
@@ -104,6 +107,7 @@ impl Args {
             update_manifest: None,
             rollout_drill: None,
             update_auto: false,
+            update_root_key: None,
             mail_to: None,
             mail_port: None,
         };
@@ -130,6 +134,7 @@ impl Args {
                 "--update-manifest" => args.update_manifest = Some(value()),
                 "--rollout-drill" => args.rollout_drill = Some(value()),
                 "--update-auto" => args.update_auto = true,
+                "--update-root-key" => args.update_root_key = Some(value()),
                 "--mail-to" => args.mail_to = Some(value()),
                 "--mail-port" => args.mail_port = value().parse().ok(),
                 // (also readable from AZ_DEMO_MAIL_TO / AZ_DEMO_MAIL_PORT —
@@ -613,7 +618,12 @@ fn main() {
     }
     #[cfg(feature = "updater")]
     if let Some(manifest) = &args.update_manifest {
-        run_update_drill(manifest, &args.version, args.update_auto);
+        run_update_drill(
+            manifest,
+            &args.version,
+            args.update_auto,
+            args.update_root_key.as_deref(),
+        );
     }
     #[cfg(not(feature = "updater"))]
     if args.rollout_drill.is_some() || args.update_manifest.is_some() {
@@ -901,7 +911,12 @@ extern "C" fn demo_button_click(nodes: u64) -> u64 {
 /// (async on an azul Thread) and shows the UpdateVersion dialog instead of
 /// printing.
 #[cfg(feature = "updater")]
-fn run_update_drill(manifest_url: &str, current_version: &str, auto: bool) {
+fn run_update_drill(
+    manifest_url: &str,
+    current_version: &str,
+    auto: bool,
+    root_key: Option<&str>,
+) {
     use azul_layout::updater as up;
 
     let install = up::InstallKind::detect();
@@ -951,6 +966,23 @@ fn run_update_drill(manifest_url: &str, current_version: &str, auto: bool) {
     }
 
     let staging = state_dir.join("staging");
+    // With a root key the drill takes the SIGNED path a real client takes:
+    // digest pin + root-delegated signature, checked on THIS call.
+    if let Some(root) = root_key {
+        match up::download_and_verify(&release, &staging, root, &mut state) {
+            Ok(o) => println!(
+                "update: staged AND VERIFIED {} ({} bytes, cached={}) — signature chain OK, \
+                 key generation now {}",
+                o.path.display(),
+                o.bytes_written,
+                o.used_cached,
+                state.key_generation
+            ),
+            Err(e) => println!("update: REFUSED by verification: {e}"),
+        }
+        state.save(&state_dir);
+        return;
+    }
     if auto {
         // AUTO: stage in the background; consent still gates the swap.
         match up::download_update(&release, &staging) {

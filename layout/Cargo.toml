@@ -371,6 +371,11 @@ DISABLED_selection_tests = []
 # `required-features` keeps `cargo test --all-targets` on a default build from
 # trying to compile it; add `probe` for the RSS + per-phase panels.
 [[example]]
+name = "verify_update_manifest"
+path = "examples/verify_update_manifest.rs"
+required-features = ["updater"]
+
+[[example]]
 name = "telemetry_grafana"
 path = "examples/telemetry_grafana.rs"
 required-features = ["telemetry"]

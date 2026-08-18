@@ -753,9 +753,9 @@ id = "web-and-security"
 tree = "advanced"
 audience = ["external"]
 agent_strategy = "split"
-tracked_files = ["dll/src/web/mod.rs", "dll/src/web/transpiler.rs", "dll/src/web/server.rs"]
+tracked_files = ["dll/src/web/mod.rs", "dll/src/web/transpiler.rs", "dll/src/web/server.rs", "layout/src/updater.rs", "scripts/sign-release.sh"]
 tracked_globs = ["dll/src/web/*.rs"]
-notes = "Closes Tree 2 with the two hardest topics. web-deployment: WASM bundle, SSR, transpiler limits, deploying. security: trust boundaries, FFI safety, what RefAny does/doesn't guarantee, sandboxing assumptions for the web target."
+notes = "Closes Tree 2 with the hardest topics. signing-updates: the release side of the self-updater (manifest v1, the root/signing key chain, scripts/sign-release.sh, the local-HTTP test recipe). web-deployment: WASM bundle, SSR, transpiler limits, deploying. security: trust boundaries, FFI safety, what RefAny does/doesn't guarantee, sandboxing assumptions for the web target."
 
 [[group.outputs]]
 slug = "web-deployment"
@@ -764,6 +764,14 @@ title = "Web Deployment"
 maturity = "wip"
 guide_order = 400
 prerequisites = ["hello-world", "architecture"]
+
+[[group.outputs]]
+slug = "signing-updates"
+path = "doc/guide/en/signing-updates.md"
+title = "Shipping Signed Updates"
+maturity = "wip"
+guide_order = 450
+prerequisites = ["hello-world", "security"]
 
 [[group.outputs]]
 slug = "security"
