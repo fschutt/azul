@@ -2395,9 +2395,19 @@ impl RemillTranspiler {
             // land in wasm-friendly low offsets. Symbol resolution
             // continues to work because per-image distances are
             // preserved in synthetic space.
+            // Synthesized PDB-gap entries are never inserted into by_addr,
+            // so lookup() misses and the raw-native fallback made the lift
+            // define @sub_<native> while every caller referenced
+            // @sub_<synth> — an unresolved import WITH its definition
+            // sitting unused in the same link (AzWriter's boot trap).
+            // native_to_synth works straight off the image rebases.
             let lift_addr = symbol_table::get()
-                .and_then(|t| t.lookup(addr))
-                .map(|e| e.synthetic_addr as u64)
+                .and_then(|t| {
+                    t.lookup(addr)
+                        .map(|e| e.synthetic_addr)
+                        .or_else(|| t.native_to_synth(addr))
+                })
+                .map(|s| s as u64)
                 .unwrap_or(addr as u64);
 
             // M8.8 perf: check the per-(addr, export_as) cache before
@@ -3231,9 +3241,16 @@ impl RemillTranspiler {
             // offsets. Native `t.addr` is now used only as the
             // identity key for caching + symbol resolution.
             let synth_of = |native_addr: usize| -> u64 {
+                // Same PDB-gap fallback as the sequential path: a
+                // synthesized entry has no by_addr record, but the image
+                // rebases still map it.
                 symbol_table::get()
-                    .and_then(|t| t.lookup(native_addr))
-                    .map(|e| e.synthetic_addr as u64)
+                    .and_then(|t| {
+                        t.lookup(native_addr)
+                            .map(|e| e.synthetic_addr)
+                            .or_else(|| t.native_to_synth(native_addr))
+                    })
+                    .map(|s| s as u64)
                     .unwrap_or(native_addr as u64)
             };
             let items: Vec<(u64, &[u8])> = to_lift_idx
@@ -6423,7 +6440,7 @@ fn remill_export_symbol(entry_addr: u64) -> String {
 /// input bytes (the byte rewrites in `lift_fn`, the synth-address scheme). The
 /// remill ENGINE rev is captured automatically by [`engine_fingerprint`], so
 /// you only bump this for changes inside this crate's lift logic.
-const LIFT_CACHE_VERSION: u32 = 7;
+const LIFT_CACHE_VERSION: u32 = 8;
 
 /// Fingerprint of the lifting ENGINE — the `remill-lift-17` binary — folded
 /// into the cache key so an engine change auto-invalidates every entry without
@@ -9261,8 +9278,25 @@ fn emit_helper_ir(
                         ext.sym_name, lift_addr,
                     );
                 } else {
+                    // Unresolvable target (out-of-image / negative devirt
+                    // artifact). Emitting an env import let the loader's
+                    // Proxy zero-stub it, so the call silently returned 0
+                    // and the caller walked garbage into an allocator
+                    // failure. Trap instead: a wild target is a wild call
+                    // natively too, and the marker at 0x40048 names it.
+                    let marker = parsed_addr.unwrap_or(0xDEAD);
+                    branch_stubs.push_str(&format!(
+                        "; unresolvable-extern trap for {sym}
+                         define linkonce_odr ptr @{sym}(ptr %state, i64 %pc, ptr %memory) {{
+                             store volatile i64 {marker}, ptr inttoptr (i64 262216 to ptr), align 8
+                             unreachable
+                         }}
+",
+                        sym = ext.sym_name,
+                        marker = marker,
+                    ));
                     eprintln!(
-                        "[azul-web]   unclassified extern: {} — emitting env import",
+                        "[azul-web]   unclassified extern: {} — emitting TRAP body (was: env import)",
                         ext.sym_name
                     );
                 }
