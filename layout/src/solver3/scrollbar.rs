@@ -108,7 +108,8 @@ impl Default for ScrollbarGeometry {
 /// - `inner_rect`: The padding-box (border-box minus borders) of the scroll container,
 ///   in the container's coordinate space (absolute window coordinates)
 /// - `content_size`: Total content size (from `get_content_size()` or `virtual_scroll_size`)
-/// - `scroll_offset`: Current scroll offset (y for vertical, x for horizontal; positive = scrolled)
+/// - `scroll_offset`: Current scroll offset (y for vertical, x for horizontal; positive = scrolled).
+///   A negative value is overscroll past the scroll origin and pins the thumb at the track start.
 /// - `scrollbar_width_px`: CSS-resolved scrollbar thickness in pixels
 /// - `has_other_scrollbar`: Whether the perpendicular scrollbar is also visible
 ///   (reduces track length by one `scrollbar_width_px` for the corner)
@@ -212,8 +213,13 @@ fn compute_thumb_geometry(
         .min(usable_track_length);
 
     let max_scroll = (content_length - viewport_length).max(0.0);
+    // A negative offset only ever comes from the rubber-band overscroll of
+    // `ScrollManager::set_scroll_position_unclamped` (every other writer clamps to
+    // `[0, max_scroll]`), i.e. the user is pulling *past the scroll origin* — the
+    // clamp below pins the thumb at the start of the track. Taking the absolute
+    // value instead would send it down the track while the pull goes up.
     let scroll_ratio = if max_scroll > 0.0 {
-        (scroll_offset.abs() / max_scroll).clamp(0.0, 1.0)
+        (scroll_offset / max_scroll).clamp(0.0, 1.0)
     } else {
         0.0
     };
@@ -570,15 +576,13 @@ mod autotest_generated {
     }
 
     #[test]
-    fn negative_scroll_offsets_are_taken_by_absolute_value() {
-        let pos = compute_scrollbar_geometry(
-            ScrollbarOrientation::Vertical,
-            rect(0.0, 0.0, 100.0, 200.0),
-            LogicalSize::new(100.0, 400.0),
-            50.0,
-            15.0,
-            false,
-        );
+    fn a_negative_overscroll_offset_pins_the_thumb_to_the_start_of_the_track() {
+        // The only writer that can produce a negative offset is the physics timer's
+        // `set_scroll_position_unclamped` rubber-band, i.e. the user pulling past the
+        // top. The thumb must stay parked at the track start, NOT mirror the pull
+        // downwards the way an `.abs()` on the ratio used to make it.
+        //   usable = 200 - 2*15 = 170, thumb = max(170 * 200/400, 30) = 85,
+        //   max_scroll = 200 -> travel = 85.
         let neg = compute_scrollbar_geometry(
             ScrollbarOrientation::Vertical,
             rect(0.0, 0.0, 100.0, 200.0),
@@ -587,9 +591,21 @@ mod autotest_generated {
             15.0,
             false,
         );
-        approx(neg.scroll_ratio, pos.scroll_ratio);
-        approx(neg.thumb_offset, pos.thumb_offset);
-        assert!(neg.thumb_offset >= 0.0);
+        approx(neg.scroll_ratio, 0.0);
+        approx(neg.thumb_offset, 0.0);
+
+        // ...and the mirrored positive offset is a genuinely different position.
+        let pos = compute_scrollbar_geometry(
+            ScrollbarOrientation::Vertical,
+            rect(0.0, 0.0, 100.0, 200.0),
+            LogicalSize::new(100.0, 400.0),
+            50.0,
+            15.0,
+            false,
+        );
+        approx(pos.scroll_ratio, 0.25);
+        approx(pos.thumb_offset, 21.25);
+        assert!(pos.thumb_offset > neg.thumb_offset);
     }
 
     #[test]
@@ -794,7 +810,11 @@ mod autotest_generated {
 
     #[test]
     fn infinite_scroll_offsets_saturate_the_scroll_ratio() {
-        for offset in [f32::INFINITY, f32::NEG_INFINITY] {
+        // +INF saturates at the END of the track; -INF is an overscroll past
+        // the start and PINS AT 0 (the `.abs()` that used to mirror it down
+        // the track was removed with the origin-convention fix — see
+        // `a_negative_overscroll_offset_pins_the_thumb_to_the_start_of_the_track`).
+        for (offset, want_ratio) in [(f32::INFINITY, 1.0), (f32::NEG_INFINITY, 0.0)] {
             let g = compute_scrollbar_geometry(
                 ScrollbarOrientation::Vertical,
                 rect(0.0, 0.0, 100.0, 200.0),
@@ -803,8 +823,11 @@ mod autotest_generated {
                 15.0,
                 false,
             );
-            approx(g.scroll_ratio, 1.0);
-            approx(g.thumb_offset, g.usable_track_length - g.thumb_length);
+            approx(g.scroll_ratio, want_ratio);
+            approx(
+                g.thumb_offset,
+                (g.usable_track_length - g.thumb_length) * want_ratio,
+            );
         }
     }
 

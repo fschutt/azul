@@ -476,7 +476,7 @@ impl CpuBackend {
         // further down.
         let scroll_offsets = layout_window
             .scroll_manager
-            .build_scroll_offset_map(dom_id, &result.scroll_ids);
+            .build_scroll_offset_map(dom_id, &result.scroll_id_to_node_id);
 
         // GPU-value diff: thumb position / fade opacity / drag & CSS
         // transforms change WITHOUT any display-list item changing (items
@@ -1334,6 +1334,7 @@ impl HeadlessWindow {
                 layout_window: Some(layout_window),
                 current_window_state: full_window_state,
                 previous_window_state: None,
+                os_synced_state: None,
                 renderer_resources: RendererResources::default(),
                 fc_cache,
                 gl_context_ptr: OptionGlContextPtr::None,
@@ -1775,8 +1776,13 @@ impl HeadlessWindow {
     /// re-invoke `layout()` exactly the way the real platform handlers do.
     pub fn simulate_resize(&mut self, width: f32, height: f32) {
         use azul_core::geom::LogicalSize;
+        // Contract shape (snapshot → mutate → pass): the size diff dispatches
+        // `WindowResize` exactly as a native configure does, and no live delta
+        // is left behind for the validation check to flag.
+        self.common.previous_window_state = Some(self.common.current_window_state.clone());
         self.common.current_window_state.size.dimensions = LogicalSize { width, height };
         self.common.request_regeneration(azul_core::callbacks::RelayoutReason::Resize);
+        let _ = self.process_window_events(0);
     }
 
     /// Read the queued reason for the next `regenerate_layout()` call.
@@ -1802,10 +1808,14 @@ impl HeadlessWindow {
 
     /// Replace the active touch point list. Updates `num_touches` to match.
     pub fn inject_touch_points(&mut self, points: impl IntoIterator<Item = TouchPoint>) {
+        // Contract shape (snapshot → mutate → pass): the touch_state diff is
+        // what dispatches TouchStart/Move/End, same as the native shells.
+        self.common.previous_window_state = Some(self.common.current_window_state.clone());
         let vec: TouchPointVec = points.into_iter().collect::<Vec<_>>().into();
         let touch_state = &mut self.common.current_window_state.touch_state;
         touch_state.num_touches = vec.len();
         touch_state.touch_points = vec;
+        let _ = self.process_window_events(0);
         self.wake();
     }
 
@@ -2157,6 +2167,14 @@ impl HeadlessWindow {
                             if !matches!(r, azul_core::events::ProcessEventResult::DoNothing) {
                                 events_need_redraw = true;
                             }
+                            // SANCTIONED SWALLOW: the thumb drag consumed this
+                            // motion; the cursor delta must not surface as a
+                            // MouseMove event later. Same exception as the
+                            // desktop shells.
+                            PlatformWindow::discard_input_delta(
+                                &mut self,
+                                "headless.mouse_move.scrollbar_drag",
+                            );
                         } else {
                             self.update_hit_test_at(pos);
                             record_headless_input(&mut self, false, false); // MWA-A4
@@ -2298,6 +2316,17 @@ impl HeadlessWindow {
                         // relayout depending on which API drove the resize.
                         self.common
                             .request_regeneration(azul_core::callbacks::RelayoutReason::Resize);
+                        // Same shape as the ten sibling arms: run the pass so
+                        // the size diff dispatches `WindowResize` — the one
+                        // backend CI runs used to be the one backend that
+                        // never fired it (the F4 class), and the un-passed
+                        // delta tripped the AZ_VALIDATE assertion at the next
+                        // `process_timers_and_threads()`.
+                        let r = self.process_window_events(0);
+                        events_result = events_result.max(r);
+                        if !matches!(r, azul_core::events::ProcessEventResult::DoNothing) {
+                            events_need_redraw = true;
+                        }
                         events_need_redraw = true;
                     }
                     HeadlessEvent::Scroll { delta_x, delta_y } => {
@@ -2684,7 +2713,8 @@ impl PlatformWindow for HeadlessWindow {
     }
 
     fn sync_window_state(&mut self) {
-        // No native window to synchronise
+        // No native window to synchronise, so there is no OS-sync baseline to
+        // diff either (`os_synced_state` stays `None`).
     }
 }
 
@@ -6157,7 +6187,9 @@ mod tests {
         let lw = w.common.layout_window.as_ref().unwrap();
         let dom = DomId { inner: 0 };
         let result = lw.layout_results.get(&dom).unwrap();
-        let offsets = lw.scroll_manager.build_scroll_offset_map(dom, &result.scroll_ids);
+        let offsets = lw
+            .scroll_manager
+            .build_scroll_offset_map(dom, &result.scroll_id_to_node_id);
         let rs = azul_layout::cpurender::CpuRenderState::new(offsets)
             .with_system_style(lw.system_style.clone());
         let full_clip = LogicalRect {

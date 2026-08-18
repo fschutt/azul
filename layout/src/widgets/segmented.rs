@@ -345,7 +345,7 @@ impl Segmented {
             let seg_style = build_segment_style(i == selected, is_first, is_last);
 
             children.push(
-                Dom::create_text(label.clone())
+                Dom::create_p_with_text(label.clone())
                     .with_ids_and_classes(IdOrClassVec::from_const_slice(SEGMENT_ITEM_CLASS))
                     .with_css_props(seg_style)
                     .with_callbacks(
@@ -647,10 +647,18 @@ mod autotest_generated {
         0.2126 * f32::from(c.r) + 0.7152 * f32::from(c.g) + 0.0722 * f32::from(c.b)
     }
 
-    /// The text of a `NodeType::Text` node (`None` for any other node type).
+    /// The text of a text node, looking through the `<p>` block wrapper the
+    /// label convention mandates (`p > text`).
     fn text_of(node: &Dom) -> Option<&str> {
         match node.root.get_node_type() {
             NodeType::Text(s) => Some(s.as_ref().as_str()),
+            NodeType::P => match node.children.as_ref() {
+                [only] => match only.root.get_node_type() {
+                    NodeType::Text(s) => Some(s.as_ref().as_str()),
+                    _ => None,
+                },
+                _ => None,
+            },
             _ => None,
         }
     }
@@ -813,6 +821,14 @@ mod autotest_generated {
         let dom = seg.dom();
         let state = segment_state(&dom, 0);
         (StyledDom::create_from_dom(dom), state)
+    }
+
+    /// Flattened (pre-order) node id of segment `i`. Every segment is a `<p>`
+    /// wrapping one bare text node, so the tree is
+    /// `0 root / 1 seg0 <p> / 2 seg0 text / 3 seg1 <p> / …` and the callback
+    /// sits on the `<p>`.
+    const fn seg_node(i: usize) -> usize {
+        2 * i + 1
     }
 
     /// Invokes `on_segment_click` against a `LayoutWindow` holding `styled` (or
@@ -1727,12 +1743,15 @@ mod autotest_generated {
             let dom = Segmented::create(labels(&[s.as_str(), "other"])).dom();
             let children = dom.children.as_ref();
             assert_eq!(children.len(), 2);
-            match children[0].root.get_node_type() {
-                NodeType::Text(t) => {
-                    assert_eq!(t.as_ref().as_str(), s.as_str(), "the caption changed inside dom()");
-                    assert_eq!(t.as_ref().len(), s.len(), "byte length changed (NUL truncation?)");
-                }
-                other => panic!("expected a text node, got {other:?}"),
+            match children[0].children.as_ref() {
+                [only] => match only.root.get_node_type() {
+                    NodeType::Text(t) => {
+                        assert_eq!(t.as_ref().as_str(), s.as_str(), "the caption changed inside dom()");
+                        assert_eq!(t.as_ref().len(), s.len(), "byte length changed (NUL truncation?)");
+                    }
+                    other => panic!("expected a text node, got {other:?}"),
+                },
+                other => panic!("expected `p > text`, got {} children", other.len()),
             }
         }
     }
@@ -1749,7 +1768,11 @@ mod autotest_generated {
                 recursive_descendants(&dom),
                 "cached descendant count desynced for n={n}"
             );
-            assert_eq!(dom.estimated_total_children, n, "for n={n}");
+            assert_eq!(
+                dom.estimated_total_children,
+                2 * n,
+                "for n={n} (each segment is a <p> wrapping one text node)"
+            );
         }
     }
 
@@ -1757,7 +1780,11 @@ mod autotest_generated {
     fn dom_of_many_segments_flattens_without_panicking() {
         let n = 512;
         let styled = StyledDom::create_from_dom(Segmented::create(n_labels(n)).dom());
-        assert_eq!(styled.node_hierarchy.as_ref().len(), n + 1, "root + n segments");
+        assert_eq!(
+            styled.node_hierarchy.as_ref().len(),
+            2 * n + 1,
+            "root + n segments, each a <p> wrapping one text node"
+        );
     }
 
     #[test]
@@ -1805,18 +1832,27 @@ mod autotest_generated {
     fn click_selects_the_segment_at_the_clicked_position() {
         let n = 4;
         let (styled, state) = flatten(Segmented::create(n_labels(n)));
-        assert_eq!(styled.node_hierarchy.as_ref().len(), n + 1, "fixture: root + n segments");
+        assert_eq!(
+            styled.node_hierarchy.as_ref().len(),
+            2 * n + 1,
+            "fixture: root + n segments, each a <p> wrapping one text node"
+        );
 
         for i in 0..n {
             let mut state = state.clone();
-            let (update, changes) = run_click(Some(styled.clone()), i + 1, state.clone());
+            let (update, changes) = run_click(Some(styled.clone()), seg_node(i), state.clone());
 
             assert_eq!(
                 update,
                 Update::DoNothing,
                 "with no on_change installed the handler reports nothing to redraw"
             );
-            assert_eq!(selected_index_of(&mut state), i, "node {} must select segment {i}", i + 1);
+            assert_eq!(
+                selected_index_of(&mut state),
+                i,
+                "node {} must select segment {i}",
+                seg_node(i)
+            );
             assert_eq!(restyle_writes(&changes).len(), 2 * n, "every segment must be restyled");
         }
     }
@@ -1829,7 +1865,7 @@ mod autotest_generated {
         let (styled, state) = flatten(Segmented::create(n_labels(n)));
 
         for clicked in 0..n {
-            let (_, changes) = run_click(Some(styled.clone()), clicked + 1, state.clone());
+            let (_, changes) = run_click(Some(styled.clone()), seg_node(clicked), state.clone());
             let writes = restyle_writes(&changes);
             assert_eq!(writes.len(), 2 * n);
 
@@ -1837,12 +1873,12 @@ mod autotest_generated {
                 let fresh = build_segment_style(i == clicked, i == 0, i + 1 == n);
                 assert_eq!(
                     writes[2 * i],
-                    (i + 1, "bg", background_color(&fresh).expect("background")),
+                    (seg_node(i), "bg", background_color(&fresh).expect("background")),
                     "clicked={clicked}: segment {i} background"
                 );
                 assert_eq!(
                     writes[2 * i + 1],
-                    (i + 1, "text", text_color(&fresh).expect("text colour")),
+                    (seg_node(i), "text", text_color(&fresh).expect("text colour")),
                     "clicked={clicked}: segment {i} text colour"
                 );
             }
@@ -1856,13 +1892,13 @@ mod autotest_generated {
             .with_on_change(log.clone(), change_cb(record_index));
         let (styled, state) = flatten(seg);
 
-        let (update, changes) = run_click(Some(styled.clone()), 3, state.clone());
+        let (update, changes) = run_click(Some(styled.clone()), seg_node(2), state.clone());
         assert_eq!(update, Update::RefreshDom, "the user's Update must propagate");
         assert_eq!(log_indices(&mut log), vec![2], "the callback sees the *new* index");
         assert_eq!(restyle_writes(&changes).len(), 8, "the restyle must still run");
 
         // A second click updates the shared state again — the index is not sticky.
-        let (_, _) = run_click(Some(styled), 1, state.clone());
+        let (_, _) = run_click(Some(styled), seg_node(0), state.clone());
         assert_eq!(log_indices(&mut log), vec![2, 0]);
 
         let mut state = state;
@@ -1878,7 +1914,7 @@ mod autotest_generated {
             let seg =
                 Segmented::create(labels(&["a", "b"])).with_on_change(RefAny::new(0u8), cb);
             let (styled, state) = flatten(seg);
-            let (update, changes) = run_click(Some(styled), 2, state);
+            let (update, changes) = run_click(Some(styled), seg_node(1), state);
             assert_eq!(update, expected);
             assert_eq!(
                 restyle_writes(&changes).len(),
@@ -1891,16 +1927,16 @@ mod autotest_generated {
     #[test]
     fn click_restyles_even_without_a_user_callback() {
         let (styled, state) = flatten(Segmented::create(labels(&["a", "b"])));
-        let (update, changes) = run_click(Some(styled), 1, state);
+        let (update, changes) = run_click(Some(styled), seg_node(0), state);
 
         assert_eq!(update, Update::DoNothing);
         assert_eq!(
             restyle_writes(&changes),
             vec![
-                (1, "bg", SEG_SELECTED_BG_COLOR),
-                (1, "text", SEG_SELECTED_TEXT),
-                (2, "bg", SEG_UNSELECTED_BG_COLOR),
-                (2, "text", SEG_UNSELECTED_TEXT),
+                (seg_node(0), "bg", SEG_SELECTED_BG_COLOR),
+                (seg_node(0), "text", SEG_SELECTED_TEXT),
+                (seg_node(1), "bg", SEG_UNSELECTED_BG_COLOR),
+                (seg_node(1), "text", SEG_UNSELECTED_TEXT),
             ],
             "selection feedback must not depend on the user wiring a callback"
         );
@@ -1910,13 +1946,16 @@ mod autotest_generated {
     fn click_on_a_single_segment_control_stays_at_zero() {
         let (styled, state) = flatten(Segmented::create(labels(&["only"])));
         let mut probe = state.clone();
-        let (update, changes) = run_click(Some(styled), 1, state);
+        let (update, changes) = run_click(Some(styled), seg_node(0), state);
 
         assert_eq!(update, Update::DoNothing);
         assert_eq!(selected_index_of(&mut probe), 0);
         assert_eq!(
             restyle_writes(&changes),
-            vec![(1, "bg", SEG_SELECTED_BG_COLOR), (1, "text", SEG_SELECTED_TEXT)]
+            vec![
+                (seg_node(0), "bg", SEG_SELECTED_BG_COLOR),
+                (seg_node(0), "text", SEG_SELECTED_TEXT)
+            ]
         );
     }
 
@@ -2012,7 +2051,7 @@ mod autotest_generated {
         }
 
         let styled = StyledDom::create_from_dom(Segmented::create(labels(&["a", "b"])).dom());
-        let (update, changes) = run_click(Some(styled), 2, state.clone());
+        let (update, changes) = run_click(Some(styled), seg_node(1), state.clone());
 
         assert_eq!(update, Update::DoNothing);
         assert_eq!(restyle_writes(&changes).len(), 4, "the restyle must still run afterwards");
@@ -2029,11 +2068,11 @@ mod autotest_generated {
         let n = 128;
         let (styled, state) = flatten(Segmented::create(n_labels(n)));
 
-        for hit in [1usize, 2, n / 2, n - 1, n] {
+        for i in [0usize, 1, n / 2 - 1, n - 2, n - 1] {
             let mut probe = state.clone();
-            let (_, changes) = run_click(Some(styled.clone()), hit, state.clone());
+            let (_, changes) = run_click(Some(styled.clone()), seg_node(i), state.clone());
             let idx = selected_index_of(&mut probe);
-            assert_eq!(idx, hit - 1, "node {hit} sits at sibling position {}", hit - 1);
+            assert_eq!(idx, i, "node {} sits at sibling position {i}", seg_node(i));
             assert!(idx < n, "the reported index must always address a real label");
             assert_eq!(restyle_writes(&changes).len(), 2 * n);
         }
@@ -2047,18 +2086,18 @@ mod autotest_generated {
         let (styled, state) = flatten(seg);
         let mut probe = state.clone();
 
-        let (_, changes) = run_click(Some(styled), 2, state);
+        let (_, changes) = run_click(Some(styled), seg_node(1), state);
 
         assert_eq!(selected_index_of(&mut probe), 1);
         assert_eq!(
             restyle_writes(&changes),
             vec![
-                (1, "bg", SEG_UNSELECTED_BG_COLOR),
-                (1, "text", SEG_UNSELECTED_TEXT),
-                (2, "bg", SEG_SELECTED_BG_COLOR),
-                (2, "text", SEG_SELECTED_TEXT),
-                (3, "bg", SEG_UNSELECTED_BG_COLOR),
-                (3, "text", SEG_UNSELECTED_TEXT),
+                (seg_node(0), "bg", SEG_UNSELECTED_BG_COLOR),
+                (seg_node(0), "text", SEG_UNSELECTED_TEXT),
+                (seg_node(1), "bg", SEG_SELECTED_BG_COLOR),
+                (seg_node(1), "text", SEG_SELECTED_TEXT),
+                (seg_node(2), "bg", SEG_UNSELECTED_BG_COLOR),
+                (seg_node(2), "text", SEG_UNSELECTED_TEXT),
             ]
         );
     }

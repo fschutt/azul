@@ -542,21 +542,27 @@ impl ScrollManager {
     /// Used by the CPU renderer to look up scroll positions at render time
     /// without embedding them in the display list.
     ///
-    /// `scroll_ids` maps layout-tree node index → `scroll_id`. We need to
-    /// convert our (`DomId`, `NodeId`) keys to `scroll_ids`.
+    /// Takes `DomLayoutResult::scroll_id_to_node_id` — the SAME table the
+    /// `WebRender` path resolves through (`wr_translate2::scroll_all_nodes`) —
+    /// because it is keyed the way this manager is keyed: by DOM `NodeId`.
+    ///
+    /// It used to take the sibling table `scroll_ids` (layout-tree index →
+    /// `scroll_id`) and index it with `node_id.index()`, i.e. it assumed the
+    /// layout tree and the DOM share an index space. They do not: anonymous
+    /// boxes and box splits are inserted during layout-tree construction, so
+    /// any scroll container with a text sibling ahead of it sits at a
+    /// different index. The lookup then missed, the container never appeared
+    /// in this map, the compositor resolved its layer offset as `(0.0, 0.0)`
+    /// and the content stayed frozen — while the scrollbar thumb, driven by
+    /// the `(DomId, NodeId)`-keyed GPU value cache, kept tracking the wheel.
     #[must_use] pub fn build_scroll_offset_map(
         &self,
         dom_id: DomId,
-        scroll_ids: &std::collections::HashMap<usize, u64>,
+        scroll_id_to_node_id: &std::collections::HashMap<u64, NodeId>,
     ) -> std::collections::HashMap<u64, (f32, f32)> {
         let mut map = std::collections::HashMap::new();
-        for ((d, node_id), state) in &self.states {
-            if *d != dom_id { continue; }
-            // Find the scroll_id for this node_id by searching scroll_ids
-            // (scroll_ids maps layout_index → scroll_id, and node_id.index() == layout_index
-            // for the root DOM)
-            let node_idx = node_id.index();
-            if let Some(&scroll_id) = scroll_ids.get(&node_idx) {
+        for (&scroll_id, &node_id) in scroll_id_to_node_id {
+            if let Some(state) = self.states.get(&(dom_id, node_id)) {
                 map.insert(scroll_id, (state.current_offset.x, state.current_offset.y));
             }
         }
@@ -1033,6 +1039,33 @@ impl ScrollManager {
     }
 
     /// Returns all scroll positions for nodes in a specific DOM
+    ///
+    /// # `ScrollPosition` coordinate convention (MIXED — read before consuming)
+    ///
+    /// The two rects of the emitted [`ScrollPosition`] do NOT live in the same
+    /// space, and a consumer that subtracts one origin from the other gets
+    /// garbage:
+    ///
+    /// - `parent_rect` — the container's border box in **absolute window
+    ///   coordinates** (`calculated_positions[node]`, see
+    ///   `shell2::common::layout::register_scroll_nodes`). Only `size` is
+    ///   meaningful to most consumers; the origin exists for `scroll_into_view`.
+    /// - `children_rect.origin` — the **scroll offset itself**, i.e.
+    ///   `current_offset`: the distance already scrolled, measured from the
+    ///   scroll origin, clamped to `[0, content − container]`. It is NOT the
+    ///   absolute position of the scrolled content, and it is NOT relative to
+    ///   `parent_rect.origin`. Content is painted at `position − offset`
+    ///   (`cpurender::raster`), so a positive value means "scrolled down/right".
+    /// - `children_rect.size` — the scrollable content size (the `VirtualView`
+    ///   virtual size when one was reported, else the laid-out content size).
+    ///
+    /// `content_rect.origin` is never carried out of here because it is always
+    /// zero in the state (`register_or_update_scroll_node` builds it that way,
+    /// and `clamp` reads only its size) — the absolute-content-rect reading of
+    /// `children_rect` is not even representable.
+    ///
+    /// The round trip is the identity: `LayoutWindow::set_scroll_position`
+    /// feeds `children_rect.origin` straight back into `set_scroll_position`.
     #[must_use] pub fn get_scroll_states_for_dom(&self, dom_id: DomId) -> BTreeMap<NodeId, ScrollPosition> {
         // M12.7: iterating an EMPTY hashbrown map (RawIterRange) mis-lifts to
         // wasm and loops forever (same class as the font-id / GPU-cache loops).
@@ -3110,6 +3143,105 @@ mod autotest_generated {
         assert_eq!(states.get(&node(0)).unwrap().children_rect.size, size(100.0, 8000.0));
     }
 
+    /// CONVENTION PIN, end to end: `children_rect.origin` is the raw scroll
+    /// offset in a space of its own, and `parent_rect.origin` is an absolute
+    /// window coordinate. Every fixture above registers its container at
+    /// (0, 0), where the two candidate conventions are indistinguishable —
+    /// this one puts the container where the AzWriter document view actually
+    /// sits (below the ribbon, indented from the left) and drives the reported
+    /// offset through the SAME geometry function the scrollbar painter and the
+    /// GPU-only scroll path use.
+    ///
+    /// The consumers used to compute `children_rect.origin - parent_rect.origin`.
+    /// For the vertical leg below that made an UNSCROLLED container report
+    /// -120, which `compute_thumb_geometry` then took by absolute value (an
+    /// `.abs()` since removed — see
+    /// `a_negative_overscroll_offset_pins_the_thumb_to_the_start_of_the_track`)
+    /// — +120 is 15% of the 800px scroll range, so the thumb opened 38.4px
+    /// down its own track instead of at the top.
+    #[test]
+    fn scroll_states_of_a_container_below_the_window_origin_drive_the_thumb_from_zero() {
+        use crate::solver3::scrollbar::{
+            compute_scrollbar_geometry_with_button_size, ScrollbarGeometry,
+        };
+
+        const THICKNESS: f32 = 16.0;
+
+        // A 300x400 viewport at absolute (250, 120) over 900x1200 of content:
+        // max scroll is (600, 800) on the two axes.
+        let mut m = ScrollManager::new();
+        m.register_or_update_scroll_node(
+            DOM,
+            node(0),
+            rect(250.0, 120.0, 300.0, 400.0),
+            size(900.0, 1200.0),
+            at(0),
+            THICKNESS,
+            THICKNESS,
+            true,
+            true,
+        );
+
+        // Exactly what `paint_scrollbars` does: read the state, take the offset
+        // straight out of `children_rect.origin`, feed it to the shared geometry.
+        fn geom(
+            m: &ScrollManager,
+            expected_offset: LogicalPosition,
+            orientation: ScrollbarOrientation,
+        ) -> ScrollbarGeometry {
+            let sp = *m.get_scroll_states_for_dom(DOM).get(&node(0)).unwrap();
+            assert_eq!(
+                sp.parent_rect.origin,
+                pos(250.0, 120.0),
+                "parent_rect keeps the ABSOLUTE container position"
+            );
+            assert_eq!(
+                sp.children_rect.origin, expected_offset,
+                "children_rect.origin is the raw offset, never container-relative"
+            );
+            compute_scrollbar_geometry_with_button_size(
+                orientation,
+                sp.parent_rect,
+                sp.children_rect.size,
+                match orientation {
+                    ScrollbarOrientation::Vertical => sp.children_rect.origin.y,
+                    ScrollbarOrientation::Horizontal => sp.children_rect.origin.x,
+                },
+                THICKNESS,
+                true,
+                0.0,
+            )
+        }
+
+        // --- unscrolled: the thumb sits at the very top / far left ----------
+        let v = geom(&m, pos(0.0, 0.0), ScrollbarOrientation::Vertical);
+        assert_eq!(v.thumb_offset, 0.0, "was 38.4 with the mixed-origin subtraction");
+        let h = geom(&m, pos(0.0, 0.0), ScrollbarOrientation::Horizontal);
+        assert_eq!(h.thumb_offset, 0.0, "was ~78.9 with the mixed-origin subtraction");
+
+        // --- half way: half of the thumb's travel ---------------------------
+        m.set_scroll_position(DOM, node(0), pos(300.0, 400.0), at(1));
+        let v = geom(&m, pos(300.0, 400.0), ScrollbarOrientation::Vertical);
+        let expected = (v.usable_track_length - v.thumb_length) * 0.5;
+        assert!((v.thumb_offset - expected).abs() < 1e-3, "{v:?}");
+        let h = geom(&m, pos(300.0, 400.0), ScrollbarOrientation::Horizontal);
+        let expected = (h.usable_track_length - h.thumb_length) * 0.5;
+        assert!((h.thumb_offset - expected).abs() < 1e-3, "{h:?}");
+
+        // --- bottomed out: the thumb ends flush with the track --------------
+        m.set_scroll_position(DOM, node(0), pos(9_999.0, 9_999.0), at(2));
+        let v = geom(&m, pos(600.0, 800.0), ScrollbarOrientation::Vertical);
+        assert!(
+            (v.thumb_offset - (v.usable_track_length - v.thumb_length)).abs() < 1e-3,
+            "{v:?}"
+        );
+        let h = geom(&m, pos(600.0, 800.0), ScrollbarOrientation::Horizontal);
+        assert!(
+            (h.thumb_offset - (h.usable_track_length - h.thumb_length)).abs() < 1e-3,
+            "{h:?}"
+        );
+    }
+
     #[test]
     fn build_scroll_offset_map_only_emits_nodes_present_in_scroll_ids() {
         let mut m = mgr(size(100.0, 100.0), size(100.0, 500.0));
@@ -3140,13 +3272,68 @@ mod autotest_generated {
         // Empty id map => empty offset map (and no panic).
         assert!(m.build_scroll_offset_map(DOM, &HashMap::new()).is_empty());
 
-        let mut ids: HashMap<usize, u64> = HashMap::new();
-        ids.insert(0, 100); // node index 0 -> scroll id 100
-        ids.insert(7, 700); // an id for a node that has no scroll state
+        let mut ids: HashMap<u64, NodeId> = HashMap::new();
+        ids.insert(100, node(0)); // scroll id 100 -> DOM node 0
+        ids.insert(700, node(7)); // an id for a node that has no scroll state
         let map = m.build_scroll_offset_map(DOM, &ids);
         assert_eq!(map.len(), 1, "node 4 has no scroll_id; DOM1 is a different dom");
         assert_eq!(map.get(&100), Some(&(0.0, 25.0)));
         assert!(!map.contains_key(&700));
+    }
+
+    #[test]
+    fn build_scroll_offset_map_resolves_a_scroller_whose_layout_index_diverges() {
+        // REGRESSION, CPU present path: "the wheel moves the thumb but the
+        // content stays frozen".
+        //
+        // The offset map used to be built by indexing the layout-index-keyed
+        // `scroll_ids` table with `node_id.index()`. That holds only for DOMs
+        // whose layout tree happens to be index-identical to the DOM — which
+        // is exactly what the minimal fixtures above are, and why nothing
+        // caught it. A text run ahead of the scroll container makes layout
+        // insert anonymous boxes, the indices diverge, the lookup misses, the
+        // compositor resolves the layer offset as (0,0) and the scroll-shift
+        // machinery sees no delta. The thumb keeps moving because it rides the
+        // (DomId, NodeId)-keyed GPU value cache, which never had the bug.
+        //
+        // The tables below are shaped exactly as `LayoutWindow::compute_scroll_ids`
+        // emits them for such a tree: the root scroller is DOM node 0 at layout
+        // index 0, the content scroller is DOM node 2 sitting at layout index 5.
+        let mut m = mgr(size(200.0, 200.0), size(200.0, 400.0));
+        m.register_or_update_scroll_node(
+            DOM,
+            node(2),
+            rect(0.0, 0.0, 200.0, 200.0),
+            size(200.0, 2000.0),
+            at(0),
+            16.0,
+            16.0,
+            false,
+            true,
+        );
+        m.set_scroll_position(DOM, node(2), pos(0.0, 300.0), at(1));
+
+        let mut scroll_ids: HashMap<usize, u64> = HashMap::new();
+        scroll_ids.insert(0, 100);
+        scroll_ids.insert(5, 500);
+        let mut scroll_id_to_node_id: HashMap<u64, NodeId> = HashMap::new();
+        scroll_id_to_node_id.insert(100, node(0));
+        scroll_id_to_node_id.insert(500, node(2));
+
+        // The premise, asserted rather than assumed: for this tree the DOM
+        // NodeId is NOT a valid key into the layout-index table.
+        assert!(
+            !scroll_ids.contains_key(&node(2).index()),
+            "fixture must actually diverge, otherwise it re-tests the coinciding case"
+        );
+
+        let map = m.build_scroll_offset_map(DOM, &scroll_id_to_node_id);
+        assert_eq!(
+            map.get(&500),
+            Some(&(0.0, 300.0)),
+            "the scrolled container must reach the renderer, or its content freezes"
+        );
+        assert_eq!(map.get(&100), Some(&(0.0, 0.0)), "the unscrolled root still reports (0,0)");
     }
 
     // ====================================================== find_scroll_parent

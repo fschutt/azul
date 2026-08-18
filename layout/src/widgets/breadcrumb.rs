@@ -216,7 +216,7 @@ impl Breadcrumb {
             if is_last {
                 // The current page: muted + bold, non-clickable (no callback).
                 children.push(
-                    Dom::create_text(label.clone())
+                    Dom::create_p_with_text(label.clone())
                         .with_ids_and_classes(IdOrClassVec::from_const_slice(
                             BREADCRUMB_CURRENT_CLASS,
                         ))
@@ -227,7 +227,7 @@ impl Breadcrumb {
             } else {
                 // A clickable crumb link.
                 children.push(
-                    Dom::create_text(label.clone())
+                    Dom::create_p_with_text(label.clone())
                         .with_ids_and_classes(IdOrClassVec::from_const_slice(BREADCRUMB_ITEM_CLASS))
                         .with_css_props(CssPropertyWithConditionsVec::from_const_slice(
                             BREADCRUMB_ITEM_STYLE,
@@ -247,7 +247,7 @@ impl Breadcrumb {
                 );
                 // Separator after every non-last crumb.
                 children.push(
-                    Dom::create_text(SEPARATOR_GLYPH)
+                    Dom::create_p_with_text(SEPARATOR_GLYPH)
                         .with_ids_and_classes(IdOrClassVec::from_const_slice(
                             BREADCRUMB_SEPARATOR_CLASS,
                         ))
@@ -359,10 +359,18 @@ mod autotest_generated {
         StringVec::from_vec((0..n).map(|i| AzString::from(format!("c{i}"))).collect::<Vec<_>>())
     }
 
-    /// The text of a `NodeType::Text` node (`None` for any other node type).
+    /// The text of a text node, looking through the `<p>` block wrapper the
+    /// label convention mandates (`p > text`).
     fn text_of(node: &Dom) -> Option<&str> {
         match node.root.get_node_type() {
             NodeType::Text(s) => Some(s.as_ref().as_str()),
+            NodeType::P => match node.children.as_ref() {
+                [only] => match only.root.get_node_type() {
+                    NodeType::Text(s) => Some(s.as_ref().as_str()),
+                    _ => None,
+                },
+                _ => None,
+            },
             _ => None,
         }
     }
@@ -847,9 +855,12 @@ mod autotest_generated {
         // `convert_dom_into_compact_dom` under-allocates and panics.
         for n in [0usize, 1, 2, 3, 5, 64, 257] {
             let dom = Breadcrumb::create(n_labels(n)).dom();
-            let expected = if n == 0 { 0 } else { 2 * n - 1 };
+            let children = if n == 0 { 0 } else { 2 * n - 1 };
+            // Every child is a styled `<p>` wrapping its bare text leaf per
+            // the label convention, so descendants = 2 x children.
+            let expected = 2 * children;
 
-            assert_eq!(dom.children.as_ref().len(), expected, "child count for n={n}");
+            assert_eq!(dom.children.as_ref().len(), children, "child count for n={n}");
             assert_eq!(
                 dom.estimated_total_children,
                 recursive_descendants(&dom),
@@ -865,8 +876,8 @@ mod autotest_generated {
         let styled = StyledDom::create_from_dom(Breadcrumb::create(n_labels(n)).dom());
         assert_eq!(
             styled.node_hierarchy.as_ref().len(),
-            2 * n,
-            "root + (2n-1) children"
+            4 * n - 1,
+            "root + (2n-1) children, each a <p> + its text leaf"
         );
     }
 
@@ -1022,15 +1033,16 @@ mod autotest_generated {
 
     #[test]
     fn click_reports_the_index_of_each_crumb() {
-        // children: crumb0(1) sep(2) crumb1(3) sep(4) crumb2(5) sep(6) current(7)
+        // Flat DFS with the label convention (<p> + text leaf per child):
+        // crumb0(1) sep(3) crumb1(5) sep(7) crumb2(9) sep(11) current(13)
         let (styled, state) = flatten(Breadcrumb::create(labels(&["a", "b", "c", "d"])));
         assert_eq!(
             styled.node_hierarchy.as_ref().len(),
-            8,
-            "fixture must flatten to root + 7 children"
+            15,
+            "fixture must flatten to root + 7 children + their 7 text leaves"
         );
 
-        for (hit, expected) in [(1usize, 0usize), (3, 1), (5, 2)] {
+        for (hit, expected) in [(1usize, 0usize), (5, 1), (9, 2)] {
             let mut state = state.clone();
             let (update, changes) = run_click(Some(styled.clone()), hit, state.clone());
 
@@ -1043,7 +1055,7 @@ mod autotest_generated {
                 selected_index_of(&mut state),
                 expected,
                 "node {hit} sits at sibling position {} => index {expected}",
-                hit - 1
+                (hit - 1) / 2
             );
             assert!(
                 changes.is_empty(),
@@ -1059,7 +1071,7 @@ mod autotest_generated {
             .with_on_navigate(log.clone(), nav_cb(record_nav));
         let (styled, state) = flatten(bc);
 
-        let (update, _) = run_click(Some(styled.clone()), 5, state.clone());
+        let (update, _) = run_click(Some(styled.clone()), 9, state.clone());
         assert_eq!(update, Update::RefreshDom, "the user's Update must propagate");
         assert_eq!(log_indices(&mut log), vec![2]);
 
@@ -1161,7 +1173,7 @@ mod autotest_generated {
         // if the handler is ever invoked on one.
         let (styled, state) = flatten(Breadcrumb::create(labels(&["a", "b", "c", "d"])));
 
-        for (hit, expected) in [(2usize, 0usize), (4, 1), (6, 2), (7, 3)] {
+        for (hit, expected) in [(3usize, 0usize), (7, 1), (11, 2), (13, 3)] {
             let mut state = state.clone();
             let (update, _) = run_click(Some(styled.clone()), hit, state.clone());
             assert_eq!(update, Update::DoNothing);
@@ -1169,7 +1181,7 @@ mod autotest_generated {
                 selected_index_of(&mut state),
                 expected,
                 "node {hit} => position {} => index {expected}",
-                hit - 1
+                (hit - 1) / 2
             );
         }
     }
@@ -1178,10 +1190,12 @@ mod autotest_generated {
     fn click_indices_stay_in_range_for_a_long_trail() {
         let n = 64;
         let (styled, state) = flatten(Breadcrumb::create(n_labels(n)));
-        assert_eq!(styled.node_hierarchy.as_ref().len(), 2 * n);
+        assert_eq!(styled.node_hierarchy.as_ref().len(), 4 * n - 1);
 
-        // Last clickable crumb: index n-2, at child position 2*(n-2) => node 2n-3.
-        let hit = 2 * n - 3;
+        // Last clickable crumb: index n-2, at child position 2*(n-2); flat id
+        // of the child at position p is 1 + 2p (each earlier child is a <p>
+        // plus its text leaf) => node 4n-7.
+        let hit = 4 * n - 7;
         let mut state = state;
         let (_, _) = run_click(Some(styled), hit, state.clone());
 

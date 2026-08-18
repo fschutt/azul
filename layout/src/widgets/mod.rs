@@ -310,3 +310,368 @@ pub mod time_picker;
 pub mod date_picker;
 // /// Spreadsheet (virtualized view) widget
 // pub mod spreadsheet;
+
+#[cfg(test)]
+#[allow(clippy::too_many_lines)]
+mod label_convention {
+    //! Workspace-level enforcement of the widget label convention (USER ruling,
+    //! 2026-08-12): a widget must never attach state to a raw text node.
+    //!
+    //! `NodeType::Text` is unconditionally inline-level
+    //! (`solver3::layout_tree`): it is given no rect and no `UnifiedLayout` of
+    //! its own — the wrapping block box carries those. Anything attached to a
+    //! text node is therefore attached to a box-less node and is silently
+    //! INERT: box-model properties never paint, callbacks and `tab_index` have
+    //! no hit area, and a dataset has no node to be found on.
+    //!
+    //! The canonical shape is `Dom::create_p_with_text(label)` (or
+    //! `create_p().with_children([create_text(label)])`) with every property on
+    //! the `<p>`, or — where a dedicated styled `<div>` already is the box — a
+    //! bare `create_text` leaf with the properties on that `<div>`.
+    //!
+    //! This generalises `ribbon`'s per-widget invariant test to every widget in
+    //! the crate. Widgets that emit no text at all are still instantiated, so
+    //! the list doubles as a smoke test that every `dom()` builds.
+
+    use azul_core::dom::{Dom, NodeType};
+    use azul_css::{props::basic::color::ColorU, AzString, OptionString, StringVec};
+
+    /// Everything a node can carry that only a real box can honour, in the
+    /// order the failure message lists it.
+    fn inert_state_on(node: &Dom) -> Vec<&'static str> {
+        let mut found = Vec::new();
+        if !node.root.style.rules.as_ref().is_empty() {
+            found.push("css props");
+        }
+        // A subtree stylesheet on a childless text node can only target the text
+        // node itself (`with_css("width: …")` parses to `* { … }`), so it is the
+        // same violation wearing the other API.
+        if !node.css.as_ref().is_empty() {
+            found.push("subtree css");
+        }
+        if !node.root.get_callbacks().as_ref().is_empty() {
+            found.push("callbacks");
+        }
+        if node.root.get_tab_index().is_some() {
+            found.push("tab_index");
+        }
+        if node.root.get_dataset().is_some() {
+            found.push("dataset");
+        }
+        if !node.children.as_ref().is_empty() {
+            found.push("children");
+        }
+        found
+    }
+
+    fn walk(node: &Dom, widget: &str, bad: &mut Vec<String>) {
+        if let NodeType::Text(text) = node.root.get_node_type() {
+            let found = inert_state_on(node);
+            if !found.is_empty() {
+                bad.push(format!(
+                    "{widget}: text node {:?} carries {} — move it onto a wrapping <p> \
+                     (or onto the styled <div> that already boxes it)",
+                    text.as_ref().as_str(),
+                    found.join(" + "),
+                ));
+            }
+        }
+        for child in node.children.as_ref() {
+            walk(child, widget, bad);
+        }
+    }
+
+    fn labels(items: &[&str]) -> StringVec {
+        StringVec::from_vec(items.iter().map(|s| AzString::from(*s)).collect::<Vec<_>>())
+    }
+
+    /// A user-content placeholder for the widgets that embed an arbitrary
+    /// caller-supplied `Dom`. Deliberately property-free: this test governs
+    /// what *widgets* emit, not what an application passes in.
+    fn user_content() -> Dom {
+        Dom::create_div()
+    }
+
+    fn node_graph_fixture() -> super::node_graph::NodeGraph {
+        use super::node_graph::{
+            InputConnectionVec, InputOutputInfo, InputOutputTypeId, InputOutputTypeIdInfoMap,
+            InputOutputTypeIdInfoMapVec, InputOutputTypeIdVec, Node, NodeGraph, NodeGraphNodeId,
+            NodeGraphNodePosition, NodeIdNodeMap, NodeIdNodeMapVec, NodeTypeField,
+            NodeTypeFieldValue, NodeTypeFieldVec, NodeTypeId, NodeTypeIdInfoMap,
+            NodeTypeIdInfoMapVec, NodeTypeInfo, OutputConnectionVec,
+        };
+
+        const TYPE_A: NodeTypeId = NodeTypeId { inner: 1 };
+        const IO_A: InputOutputTypeId = InputOutputTypeId { inner: 1 };
+
+        NodeGraph {
+            node_types: NodeTypeIdInfoMapVec::from_vec(vec![NodeTypeIdInfoMap {
+                node_type_id: TYPE_A,
+                node_type_info: NodeTypeInfo {
+                    is_root: true,
+                    node_type_name: AzString::from("Add"),
+                    inputs: InputOutputTypeIdVec::from_vec(vec![IO_A]),
+                    outputs: InputOutputTypeIdVec::from_vec(vec![IO_A]),
+                },
+            }]),
+            input_output_types: InputOutputTypeIdInfoMapVec::from_vec(vec![
+                InputOutputTypeIdInfoMap {
+                    io_type_id: IO_A,
+                    io_info: InputOutputInfo {
+                        data_type: AzString::from("number"),
+                        color: ColorU { r: 0, g: 0, b: 0, a: 255 },
+                    },
+                },
+            ]),
+            nodes: NodeIdNodeMapVec::from_vec(vec![NodeIdNodeMap {
+                node_id: NodeGraphNodeId { inner: 1 },
+                node: Node {
+                    node_type: TYPE_A,
+                    position: NodeGraphNodePosition { x: 0.0, y: 0.0 },
+                    fields: NodeTypeFieldVec::from_vec(vec![NodeTypeField {
+                        key: AzString::from("enabled"),
+                        value: NodeTypeFieldValue::CheckBox(false),
+                    }]),
+                    connect_in: InputConnectionVec::from_const_slice(&[]),
+                    connect_out: OutputConnectionVec::from_const_slice(&[]),
+                },
+            }]),
+            add_node_str: AzString::from("Add node"),
+            ..NodeGraph::default()
+        }
+    }
+
+    /// Every widget in the crate, built with defaults that actually exercise
+    /// its label paths (a widget with no labels proves nothing).
+    ///
+    /// NOT in this list, and why:
+    /// * `camera` / `microphone` / `screencap` / `video` — each `dom()` emits a
+    ///   single replaced `<img>` (or nothing) fed by a background worker and
+    ///   needs a device/GL config to construct; they contain no text node at
+    ///   all, so there is nothing for this convention to govern.
+    /// * `menubar` — a free function over a window `Menu`, not a `dom()` widget;
+    ///   its bar items are already `div > bare text`.
+    /// * `map`'s tile labels — emitted from the `VirtualView` render callback,
+    ///   not from `dom()`, so the walk cannot reach them; they were converted by
+    ///   hand and are pinned by the map widget's own tests.
+    fn every_widget_dom() -> Vec<(&'static str, Dom)> {
+        use super::{
+            accordion::{Accordion, AccordionSection, AccordionSectionVec},
+            alert::Alert,
+            avatar::Avatar,
+            backstage::{Backstage, BackstageNavItem, BackstageNavItemVec},
+            badge::Badge,
+            breadcrumb::Breadcrumb,
+            button::Button,
+            card::Card,
+            check_box::CheckBox,
+            chip::Chip,
+            color_input::ColorInput,
+            combobox::ComboBox,
+            date_picker::DatePicker,
+            divider::Divider,
+            drop_down::DropDown,
+            file_input::FileInput,
+            frame::Frame,
+            label::Label,
+            list_view::ListView,
+            map::{MapTileLayer, MapWidget},
+            modal::Modal,
+            number_input::NumberInput,
+            pagination::Pagination,
+            popover::Popover,
+            progressbar::ProgressBar,
+            quick_access::QuickAccessBar,
+            radio_group::RadioGroup,
+            ribbon::{Ribbon, RibbonAppButton, RibbonButton, RibbonGroup, RibbonItem, RibbonTab, RibbonTabVec},
+            segmented::Segmented,
+            slider::Slider,
+            spinner::Spinner,
+            split_pane::{SplitDirection, SplitPane},
+            statusbar::{StatusBar, StatusBarSegment, StatusBarSegmentVec},
+            stepper::Stepper,
+            switch::Switch,
+            tabs::{TabContent, TabHeader},
+            text_area::TextArea,
+            text_input::TextInput,
+            time_picker::TimePicker,
+            titlebar::Titlebar,
+            toast::Toast,
+            tooltip::Tooltip,
+            tree_view::{TreeView, TreeViewNode},
+        };
+
+        vec![
+            (
+                "accordion",
+                Accordion::new(AccordionSectionVec::from_vec(vec![
+                    AccordionSection::new("Open section", user_content()).with_open(true),
+                    AccordionSection::new("Closed section", user_content()),
+                ]))
+                .dom(),
+            ),
+            (
+                "alert",
+                Alert::create(AzString::from("Something happened"))
+                    .with_dismissible(true)
+                    .dom(),
+            ),
+            ("avatar", Avatar::create(AzString::from("AB")).dom()),
+            (
+                "backstage",
+                Backstage::new(BackstageNavItemVec::from_vec(vec![
+                    BackstageNavItem::new(AzString::from("Info")),
+                    BackstageNavItem::new(AzString::from("Save")),
+                ]))
+                .dom(),
+            ),
+            ("badge", Badge::create(AzString::from("99+")).dom()),
+            (
+                "breadcrumb",
+                Breadcrumb::create(labels(&["Home", "Docs", "Page"])).dom(),
+            ),
+            ("button", Button::create(AzString::from("Click me")).dom()),
+            ("card", Card::create(user_content()).dom()),
+            ("check_box", CheckBox::create(true).dom()),
+            (
+                "chip",
+                Chip::create(AzString::from("tag")).with_removable(true).dom(),
+            ),
+            (
+                "color_input",
+                ColorInput::create(ColorU { r: 1, g: 2, b: 3, a: 255 }).dom(),
+            ),
+            ("combobox", ComboBox::new(labels(&["one", "two"])).dom()),
+            ("date_picker", DatePicker::create(2024, 2, 15).dom()),
+            ("divider", Divider::create().dom()),
+            ("drop_down", DropDown::new(labels(&["one", "two"])).dom()),
+            ("file_input", FileInput::create(OptionString::None).dom()),
+            (
+                "frame",
+                Frame::create(AzString::from("Frame title"), user_content()).dom(),
+            ),
+            ("label", Label::create(AzString::from("A label")).dom()),
+            ("list_view", ListView::create(labels(&["Name", "Size"])).dom()),
+            ("map", MapWidget::create(MapTileLayer::default()).dom()),
+            (
+                "modal",
+                Modal::create(user_content())
+                    .with_title(AzString::from("Dialog"))
+                    .with_open(true)
+                    .dom(),
+            ),
+            ("node_graph", node_graph_fixture().dom()),
+            ("number_input", NumberInput::create(4.0).dom()),
+            ("pagination", Pagination::create(2, 5).dom()),
+            (
+                "popover",
+                Popover::new(user_content(), user_content()).with_open(true).dom(),
+            ),
+            ("progressbar", ProgressBar::create(40.0).dom()),
+            (
+                "quick_access",
+                QuickAccessBar::new(AzString::from("Document1")).dom(),
+            ),
+            (
+                "radio_group",
+                RadioGroup::create(labels(&["First", "Second"])).dom(),
+            ),
+            (
+                "ribbon",
+                Ribbon::new(RibbonTabVec::from_vec(vec![
+                    RibbonTab::new(AzString::from("HOME")).with_group(
+                        RibbonGroup::new(AzString::from("Clipboard")).with_item(
+                            RibbonItem::LargeButton(RibbonButton::new(
+                                AzString::from("content_paste"),
+                                AzString::from("Paste"),
+                            )),
+                        ),
+                    ),
+                    RibbonTab::new(AzString::from("PAGE LAYOUT")),
+                ]))
+                .with_app_button(RibbonAppButton::new(AzString::from("FILE")))
+                .dom(),
+            ),
+            (
+                "segmented",
+                Segmented::create(labels(&["Day", "Week", "Month"])).dom(),
+            ),
+            ("slider", Slider::create(0.5, 0.0, 1.0).dom()),
+            ("spinner", Spinner::create().dom()),
+            (
+                "split_pane",
+                SplitPane::create(SplitDirection::Horizontal, user_content(), user_content()).dom(),
+            ),
+            (
+                "statusbar",
+                StatusBar::new(StatusBarSegmentVec::from_vec(vec![
+                    StatusBarSegment::new(AzString::from("Page 1 of 3")),
+                ]))
+                .dom(),
+            ),
+            (
+                "stepper",
+                Stepper::create(labels(&["Start", "Details", "Done"])).dom(),
+            ),
+            ("switch", Switch::create(true).dom()),
+            ("tabs (header)", TabHeader::create(labels(&["One", "Two"])).dom()),
+            ("tabs (content)", TabContent::new(user_content()).dom()),
+            ("text_area", TextArea::create().dom()),
+            ("text_input", TextInput::create().dom()),
+            (
+                "time_picker",
+                TimePicker::create(9, 30).with_24h(false).dom(),
+            ),
+            ("titlebar", Titlebar::create(AzString::from("Window")).dom()),
+            ("toast", Toast::create(AzString::from("Saved")).dom()),
+            (
+                "tooltip",
+                Tooltip::new(user_content(), AzString::from("Explains it")).dom(),
+            ),
+            (
+                "tree_view",
+                TreeView::new(
+                    TreeViewNode::new("root")
+                        .with_expanded(true)
+                        .with_child(TreeViewNode::new("child")),
+                )
+                .dom(),
+            ),
+        ]
+    }
+
+    /// THE convention. A widget that trips this has attached box-model CSS, a
+    /// callback, a `tab_index`, a dataset or children to a node that owns no
+    /// rect — all of which the layout engine silently discards.
+    #[test]
+    fn no_widget_attaches_state_to_a_rect_less_text_node() {
+        let mut bad = Vec::new();
+        for (name, dom) in every_widget_dom() {
+            walk(&dom, name, &mut bad);
+        }
+        assert!(
+            bad.is_empty(),
+            "widget label convention violated ({} site(s)):\n{}",
+            bad.len(),
+            bad.join("\n"),
+        );
+    }
+
+    /// A guard on the guard: the walk must be able to SEE a violation, or the
+    /// test above would pass vacuously the day someone breaks `inert_state_on`.
+    #[test]
+    fn the_walk_reports_a_deliberately_broken_text_node() {
+        use azul_core::dom::TabIndex;
+
+        let mut leaf = Dom::create_text(AzString::from("bare"));
+        leaf.root.set_css("width: 10px;");
+        let broken = Dom::create_div().with_child(leaf.with_tab_index(TabIndex::Auto));
+
+        let mut bad = Vec::new();
+        walk(&broken, "fixture", &mut bad);
+
+        assert_eq!(bad.len(), 1, "the walk missed a hand-broken text node");
+        assert!(bad[0].contains("css props"), "{}", bad[0]);
+        assert!(bad[0].contains("tab_index"), "{}", bad[0]);
+    }
+}

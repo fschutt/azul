@@ -62,6 +62,41 @@ pub struct FocusManager {
     pub cursor_needs_initialization: bool,
     /// Information about the pending contenteditable focus
     pub pending_contenteditable_focus: Option<PendingContentEditableFocus>,
+
+    // --- focus-before-first-layout retry queue ---
+
+    /// A [`FocusTarget`] that could not be resolved because no layout existed
+    /// yet, kept so it can be re-resolved as soon as one does.
+    ///
+    /// `resolve_focus_target` answers `Ok(None)` with empty `layout_results`,
+    /// and every caller reads `Ok(None)` as "clear focus" — so a programmatic
+    /// `set_focus` issued from a `create` callback (which runs BEFORE the first
+    /// layout) vanished without a trace, and apps papered over it with a
+    /// short timer. Drained by
+    /// `LayoutWindow::finalize_pending_focus_changes`, which runs after the
+    /// layout pass.
+    pub deferred_focus_target: Option<FocusTarget>,
+    /// How many times the pending contenteditable focus has been re-armed for
+    /// want of a text layout. Bounded so a node that will never have an inline
+    /// layout cannot re-arm forever.
+    pub pending_focus_retries: u8,
+}
+
+/// How many times [`FocusManager::pending_contenteditable_focus`] may be put
+/// back because the text layout was not available yet.
+pub const MAX_PENDING_FOCUS_RETRIES: u8 = 2;
+
+/// Outcome of resolving a [`FocusTarget`] through
+/// [`resolve_focus_target_or_defer`].
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum FocusResolution {
+    /// The target resolved. `None` means "clear focus" (`FocusTarget::NoFocus`,
+    /// or a selector that matched nothing focusable) and MUST be applied.
+    Resolved(Option<DomNodeId>),
+    /// No layout existed yet, so the target was retained on the
+    /// [`FocusManager`] and will be re-resolved after the first layout pass.
+    /// Callers must leave the current focus alone.
+    Deferred,
 }
 
 impl Default for FocusManager {
@@ -78,6 +113,8 @@ impl FocusManager {
             pending_focus_request: None,
             cursor_needs_initialization: false,
             pending_contenteditable_focus: None,
+            deferred_focus_target: None,
+            pending_focus_retries: 0,
         }
     }
 
@@ -137,16 +174,35 @@ impl FocusManager {
         text_node_id: NodeId,
     ) {
         self.cursor_needs_initialization = true;
+        self.pending_focus_retries = 0;
         self.pending_contenteditable_focus = Some(PendingContentEditableFocus {
             dom_id,
             container_node_id,
             text_node_id,
         });
     }
-    
+
+    /// Put a just-taken pending contenteditable focus BACK because the text
+    /// layout it needs did not exist yet. Returns `false` once
+    /// [`MAX_PENDING_FOCUS_RETRIES`] is exhausted, in which case the caller
+    /// must seed the cursor with whatever it has.
+    pub const fn rearm_pending_contenteditable_focus(
+        &mut self,
+        pending: PendingContentEditableFocus,
+    ) -> bool {
+        if self.pending_focus_retries >= MAX_PENDING_FOCUS_RETRIES {
+            return false;
+        }
+        self.pending_focus_retries += 1;
+        self.cursor_needs_initialization = true;
+        self.pending_contenteditable_focus = Some(pending);
+        true
+    }
+
     /// Clear the pending contenteditable focus (when focus moves away or is cleared).
     pub const fn clear_pending_contenteditable_focus(&mut self) {
         self.cursor_needs_initialization = false;
+        self.pending_focus_retries = 0;
         self.pending_contenteditable_focus = None;
     }
     
@@ -168,6 +224,26 @@ impl FocusManager {
         self.cursor_needs_initialization
     }
 
+    // --- focus-before-first-layout retry queue ---
+
+    /// Retain a focus target that had no layout to resolve against.
+    ///
+    /// A later request replaces an earlier one: only the most recent
+    /// programmatic focus can win once layout arrives, exactly as it would if
+    /// both had been resolvable immediately.
+    pub fn defer_focus_target(&mut self, target: FocusTarget) {
+        self.deferred_focus_target = Some(target);
+    }
+
+    /// Whether a focus target is waiting for the first layout.
+    #[must_use] pub const fn has_deferred_focus_target(&self) -> bool {
+        self.deferred_focus_target.is_some()
+    }
+
+    /// Take the deferred focus target (one-shot).
+    pub const fn take_deferred_focus_target(&mut self) -> Option<FocusTarget> {
+        self.deferred_focus_target.take()
+    }
 }
 
 impl crate::managers::NodeIdRemap for FocusManager {
@@ -400,7 +476,40 @@ fn find_first_matching_focusable_node(
     })
 }
 
+/// Resolve a `FocusTarget`, or QUEUE it when there is no layout to resolve
+/// against yet.
+///
+/// This is the entry point every focus-changing caller should use.
+/// [`resolve_focus_target`] cannot tell "nothing matched" from "nothing exists
+/// yet": both are `Ok(None)`, and callers apply that as "clear focus". A
+/// `set_focus` issued from a `create` callback — which runs before the first
+/// layout — was therefore dropped on the floor.
+///
+/// # Errors
+///
+/// Returns an `UpdateFocusWarning` if the focus target cannot be resolved.
+pub fn resolve_focus_target_or_defer(
+    focus_manager: &mut FocusManager,
+    focus_target: &FocusTarget,
+    layout_results: &BTreeMap<DomId, DomLayoutResult>,
+) -> Result<FocusResolution, UpdateFocusWarning> {
+    // `NoFocus` means the app WANTS focus cleared; that is answerable without
+    // any layout and must not be queued (it would then fire later, clearing a
+    // focus the app had meanwhile set).
+    if layout_results.is_empty() && !matches!(focus_target, FocusTarget::NoFocus) {
+        focus_manager.defer_focus_target(focus_target.clone());
+        return Ok(FocusResolution::Deferred);
+    }
+
+    let current_focus = focus_manager.get_focused_node().copied();
+    resolve_focus_target(focus_target, layout_results, current_focus).map(FocusResolution::Resolved)
+}
+
 /// Resolve a `FocusTarget` to an actual `DomNodeId`
+///
+/// Prefer [`resolve_focus_target_or_defer`]: with empty `layout_results` this
+/// answers `Ok(None)`, which is indistinguishable from "clear focus".
+///
 /// # Errors
 ///
 /// Returns an `UpdateFocusWarning` if the focus target cannot be resolved.

@@ -2055,9 +2055,12 @@ fn prepare_layout_context<'a, T: ParsedFontTrait>(
 /// Core scrollbar info computation: given pre-computed content and container sizes plus
 /// a DOM node for style look-up, determines whether scrollbars are needed.
 ///
-/// This is the single source of truth for scrollbar detection. Both the BFC path
-/// (`compute_scrollbar_info`) and the Taffy flex/grid path (`compute_child_layout`
-/// in `taffy_bridge.rs`) call this function, ensuring consistent behaviour.
+/// This is the single source of truth for scrollbar detection AT LAYOUT TIME.
+/// Both the BFC path (`compute_scrollbar_info`) and the Taffy flex/grid path
+/// (`compute_child_layout` in `taffy_bridge.rs`) call this function, ensuring
+/// consistent behaviour. A `VirtualView`'s scrollable extent is not known yet
+/// when this runs — [`apply_virtual_scroll_necessity`] amends the result after
+/// layout and is the only other place a necessity flag is ever raised.
 ///
 /// For paged media (PDF), scrollbars are never added since they don't exist in print.
 pub fn compute_scrollbar_info_core<T: ParsedFontTrait>(
@@ -2139,6 +2142,93 @@ pub fn compute_scrollbar_info_core<T: ParsedFontTrait>(
     reqs
 }
 
+/// Amends a node's [`ScrollbarRequirements`] with the `VirtualView` virtual
+/// scroll size — the half of the necessity decision that only exists AFTER
+/// layout.
+///
+/// `compute_scrollbar_info_core` decides from the LAID-OUT content size. A
+/// `VirtualView` is a replaced element with no flow content, so its laid-out
+/// content IS its viewport: `overflow: auto` can never fire for it, and the real
+/// scrollable extent lives in `ScrollManager`'s `virtual_scroll_size`, which the
+/// `VirtualView` callback publishes strictly after the layout pass that would
+/// need to read it.
+///
+/// This is the ONE place that compares the two. Every consumer of
+/// `needs_horizontal` / `needs_vertical` must reach the answer through it, or
+/// the paint side and the GPU thumb updater disagree — a painted bar whose thumb
+/// never moves. Two callers:
+///
+/// * `display_list::paint_scrollbars`, which cannot read a post-layout
+///   write-back: the display list is built inside the very layout pass that
+///   recomputes `warm.scrollbar_info` from scratch; and
+/// * `shell2::common::layout::register_scroll_nodes`, which stores the amended
+///   value back into `warm.scrollbar_info`, so that
+///   `GpuStateManager::update_scrollbar_transforms`, the `ScrollManager`
+///   registration and the hit-test scrollbar states all see the same answer.
+///
+/// `virtual_content_size` is `ScrollPosition::children_rect.size` — the same
+/// number the thumb geometry is built from, so "is there a bar" and "how long is
+/// its thumb" can never come from different sizes. `padding_box_size` is the
+/// node's border box minus its borders: a `VirtualView` renders its child DOM
+/// into its bounds, so that IS its viewport, and there is no flow content to
+/// inset by padding.
+///
+/// Only the two booleans move. Layout has already run, so raising
+/// `scrollbar_width` / `scrollbar_height` here would desync the paint from the
+/// clip rect that reserved no gutter — an `auto` `VirtualView`'s bar overlays the
+/// viewport's inner edge, while `overflow: scroll` keeps reserving its gutter at
+/// layout time. Nothing is ever lowered: a bar layout already asked for stays.
+///
+/// Returns `true` if a flag was raised.
+pub fn apply_virtual_scroll_necessity(
+    styled_dom: &StyledDom,
+    dom_id: NodeId,
+    virtual_content_size: LogicalSize,
+    padding_box_size: LogicalSize,
+    reqs: &mut ScrollbarRequirements,
+) -> bool {
+    // Same tolerance as `check_scrollbar_necessity`: a sub-pixel difference must
+    // not raise a bar.
+    const EPSILON: f32 = 1.0;
+
+    let is_virtual_view = styled_dom
+        .node_data
+        .as_container()
+        .get(dom_id)
+        .is_some_and(|nd| nd.is_virtual_view_node());
+    if !is_virtual_view {
+        return false;
+    }
+
+    let node_state = styled_dom
+        .styled_nodes
+        .as_container()
+        .get(dom_id)
+        .map(|n| n.styled_node_state)
+        .unwrap_or_default();
+    let raw_overflow_x = get_overflow_x(styled_dom, dom_id, &node_state);
+    let raw_overflow_y = get_overflow_y(styled_dom, dom_id, &node_state);
+    let overflow_x = raw_overflow_x.resolve_computed(&raw_overflow_y);
+    let overflow_y = raw_overflow_y.resolve_computed(&raw_overflow_x);
+
+    let mut raised = false;
+    if !reqs.needs_horizontal
+        && overflow_x.allows_user_scrolling()
+        && virtual_content_size.width > padding_box_size.width + EPSILON
+    {
+        reqs.needs_horizontal = true;
+        raised = true;
+    }
+    if !reqs.needs_vertical
+        && overflow_y.allows_user_scrolling()
+        && virtual_content_size.height > padding_box_size.height + EPSILON
+    {
+        reqs.needs_vertical = true;
+        raised = true;
+    }
+    raised
+}
+
 /// Determines scrollbar requirements for a node based on content overflow.
 ///
 /// Convenience wrapper around `compute_scrollbar_info_core` for the BFC layout path,
@@ -2162,6 +2252,17 @@ fn compute_scrollbar_info<T: ParsedFontTrait>(
 /// is prevented by the outer layout loop's iteration limit (`loop_count > 10` in mod.rs),
 /// not by suppressing removal detection here. This allows scrollbars to correctly
 /// disappear when content shrinks or the window is resized larger.
+///
+/// A flip only counts when at least one of the two states RESERVES layout space —
+/// the same criterion the no-previous-info arm has always used
+/// (`ScrollbarRequirements::needs_reflow`). What a reflow buys is a corrected
+/// available width/height (`layout_bfc`'s `scrollbar_reservation`, and
+/// `shrink_size` below), so two zero-reservation states cannot need one. This
+/// keeps overlay scrollbars (macOS-style, `reserve_width_px == 0`) from paying a
+/// full extra layout pass every time a bar appears, and it is what stops
+/// [`apply_virtual_scroll_necessity`]'s post-layout amendment — which raises
+/// flags without reserving anything — from asking for one on every single pass
+/// over an `overflow: auto` `VirtualView`.
 fn check_scrollbar_change(
     tree: &LayoutTree,
     node_index: usize,
@@ -2180,7 +2281,8 @@ fn check_scrollbar_change(
             // Trigger reflow if scrollbar state changed in either direction
             let horizontal_changed = old_info.needs_horizontal != scrollbar_info.needs_horizontal;
             let vertical_changed = old_info.needs_vertical != scrollbar_info.needs_vertical;
-            horizontal_changed || vertical_changed
+            (horizontal_changed || vertical_changed)
+                && (old_info.needs_reflow() || scrollbar_info.needs_reflow())
         })
 }
 
@@ -4546,6 +4648,146 @@ mod autotest_generated {
         // reflow here.
         let tree = tree_with_scrollbar_info(Some(scrollbars(false, true, 16.0)));
         assert!(!check_scrollbar_change(&tree, 0, &scrollbars(false, true, 4.0), false));
+    }
+
+    #[test]
+    fn check_scrollbar_change_ignores_a_flip_between_two_zero_reservation_states() {
+        // Overlay scrollbars reserve nothing, so a bar appearing or vanishing
+        // cannot change the available space a reflow would recompute. Same for
+        // the post-layout `apply_virtual_scroll_necessity` amendment, which
+        // raises a flag without reserving a gutter — without this, an
+        // `overflow: auto` VirtualView asked for a full extra layout pass on
+        // every single pass, forever.
+        let overlay_bar = tree_with_scrollbar_info(Some(scrollbars(false, true, 0.0)));
+        assert!(!check_scrollbar_change(&overlay_bar, 0, &scrollbars(false, false, 0.0), false));
+        let no_bar = tree_with_scrollbar_info(Some(scrollbars(false, false, 0.0)));
+        assert!(!check_scrollbar_change(&no_bar, 0, &scrollbars(false, true, 0.0), false));
+
+        // A space-reserving bar on EITHER side still forces the reflow.
+        assert!(check_scrollbar_change(&no_bar, 0, &scrollbars(false, true, 16.0), false));
+        let classic_bar = tree_with_scrollbar_info(Some(scrollbars(false, true, 16.0)));
+        assert!(check_scrollbar_change(&classic_bar, 0, &scrollbars(false, false, 0.0), false));
+    }
+
+    // ==================================================================
+    // apply_virtual_scroll_necessity
+    // ==================================================================
+
+    /// `body(0) > node(1)`, where node 1 carries `.vv` and the given node type.
+    fn dom_with_styled_child(node_type: NodeType, css_str: &str) -> StyledDom {
+        styled(
+            Dom::create_body().with_child(
+                Dom::create_node(node_type)
+                    .with_ids_and_classes(vec![IdOrClass::Class("vv".into())].into()),
+            ),
+            css_str,
+        )
+    }
+
+    fn no_scrollbars() -> ScrollbarRequirements {
+        scrollbars(false, false, 0.0)
+    }
+
+    #[test]
+    fn apply_virtual_scroll_necessity_raises_the_axis_the_virtual_document_overflows() {
+        let dom = dom_with_styled_child(
+            NodeType::VirtualView,
+            ".vv { overflow-x: hidden; overflow-y: auto; }",
+        );
+        let mut info = no_scrollbars();
+        assert!(apply_virtual_scroll_necessity(
+            &dom,
+            NodeId::new(1),
+            size(100.0, 1000.0),
+            size(100.0, 100.0),
+            &mut info,
+        ));
+        assert!(info.needs_vertical);
+        assert!(!info.needs_horizontal, "the hidden axis never gains a bar");
+        // Layout has already run: no gutter is reserved after the fact.
+        assert_eq!(info.scrollbar_width, 0.0);
+        assert_eq!(info.scrollbar_height, 0.0);
+    }
+
+    #[test]
+    fn apply_virtual_scroll_necessity_ignores_everything_that_is_not_a_virtual_view() {
+        // Same CSS, same overflowing virtual size — a plain div's necessity is
+        // layout's business and must not be second-guessed here.
+        let dom = dom_with_styled_child(NodeType::Div, ".vv { overflow: auto; }");
+        let mut info = no_scrollbars();
+        assert!(!apply_virtual_scroll_necessity(
+            &dom,
+            NodeId::new(1),
+            size(1000.0, 1000.0),
+            size(100.0, 100.0),
+            &mut info,
+        ));
+        assert!(!info.needs_vertical && !info.needs_horizontal);
+
+        // An out-of-range node is inert rather than a panic.
+        let mut info = no_scrollbars();
+        assert!(!apply_virtual_scroll_necessity(
+            &dom,
+            NodeId::new(9_999),
+            size(1000.0, 1000.0),
+            size(100.0, 100.0),
+            &mut info,
+        ));
+    }
+
+    #[test]
+    fn apply_virtual_scroll_necessity_honours_the_one_pixel_epsilon_and_the_overflow_value() {
+        let auto = dom_with_styled_child(NodeType::VirtualView, ".vv { overflow: auto; }");
+        // Exactly at the boundary: 101 is NOT > 100 + 1 — same tolerance as
+        // check_scrollbar_necessity, so sub-pixel noise cannot flicker a bar.
+        let mut info = no_scrollbars();
+        assert!(!apply_virtual_scroll_necessity(
+            &auto,
+            NodeId::new(1),
+            size(101.0, 101.0),
+            size(100.0, 100.0),
+            &mut info,
+        ));
+        // One pixel past it raises both axes.
+        let mut info = no_scrollbars();
+        assert!(apply_virtual_scroll_necessity(
+            &auto,
+            NodeId::new(1),
+            size(102.0, 102.0),
+            size(100.0, 100.0),
+            &mut info,
+        ));
+        assert!(info.needs_horizontal && info.needs_vertical);
+
+        // `hidden` is a scroll container but not a user-scrollable one: no bar,
+        // however large the virtual document is.
+        let hidden = dom_with_styled_child(NodeType::VirtualView, ".vv { overflow: hidden; }");
+        let mut info = no_scrollbars();
+        assert!(!apply_virtual_scroll_necessity(
+            &hidden,
+            NodeId::new(1),
+            size(9999.0, 9999.0),
+            size(100.0, 100.0),
+            &mut info,
+        ));
+        assert!(!info.needs_horizontal && !info.needs_vertical);
+    }
+
+    #[test]
+    fn apply_virtual_scroll_necessity_never_lowers_a_flag_layout_already_raised() {
+        // `overflow: scroll` sets needs_* unconditionally at layout time (and
+        // reserves the gutter). A virtual size that fits must not undo that.
+        let dom = dom_with_styled_child(NodeType::VirtualView, ".vv { overflow-y: scroll; }");
+        let mut info = scrollbars(false, true, 16.0);
+        assert!(!apply_virtual_scroll_necessity(
+            &dom,
+            NodeId::new(1),
+            size(100.0, 10.0),
+            size(100.0, 100.0),
+            &mut info,
+        ));
+        assert!(info.needs_vertical, "the reserved bar survives");
+        assert_eq!(info.scrollbar_width, 16.0, "and keeps its layout reservation");
     }
 
     // ==================================================================

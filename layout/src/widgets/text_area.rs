@@ -1,25 +1,31 @@
 //! Multi-line text input (text area) widget.
 //!
-//! A multi-line sibling of [`crate::widgets::text_input::TextInput`]: it reuses
-//! the same editable-state / cursor / focus-callback machinery but stores and
-//! renders multiple lines. Pressing Return/Enter inserts a newline; Backspace
-//! deletes the last character; typed/pasted text (including embedded newlines)
-//! is appended. The buffer is a `Vec<char>` (as `U32Vec`) exactly like
-//! `TextInput`, so the `'\n'` characters round-trip through
-//! [`TextAreaState::get_text`].
+//! A multi-line sibling of [`crate::widgets::text_input::TextInput`], built on
+//! the same flow: the container is a `contenteditable` host carrying the tab
+//! index and the focus callbacks, so the engine's `TextEditManager` owns the
+//! caret, the selection and the buffer, and edits run through
+//! `record_text_input` / `apply_text_changeset`. Caret and selection are
+//! display-list items driven by that manager; the widget emits no cursor node.
 //!
-//! The widget reuses [`TextInput`]'s [`OnTextInputReturn`] / [`TextInputValid`]
-//! return types for its `on_text_input` callback so existing host bindings and
-//! validation logic apply unchanged.
+//! Value and placeholder are `<p>` blocks wrapping a bare text node — a
+//! [`NodeType::Text`](azul_core::dom::NodeType::Text) node is always
+//! inline-level and owns no rect, so box-model properties on one are inert.
+//! Line wrapping relies on the text layout honouring `white-space: pre-wrap`.
 //!
-//! TODO2: this implements the *core* of multi-line editing — multi-line value,
-//! newline insertion, append/backspace, `on_text_input` (a.k.a. on_change) and
-//! `on_focus_lost`. Advanced editing is intentionally NOT implemented and is
-//! not verifiable without a live window: the blinking cursor is a static child
-//! and does not track the caret across lines, there is no selection/range
-//! editing, no mid-buffer insertion (edits append/truncate at the end), and no
-//! vertical (up/down) caret navigation. Line wrapping relies on the text
-//! layout honouring `white-space: pre-wrap`.
+//! [`TextAreaState`] is a *mirror* of the engine's state, refreshed from its
+//! changesets so the public callbacks keep the shape existing hosts bind
+//! against. The widget reuses [`TextInput`]'s [`OnTextInputReturn`] /
+//! [`TextInputValid`] return types for its `on_text_input` callback so existing
+//! host bindings and validation logic apply unchanged; a `TextInputValid::No`
+//! answer turns into `CallbackInfo::prevent_default`, which stops the engine
+//! from applying the edit it recorded.
+//!
+//! KNOWN GAP: caret-relative *deletion* (Backspace/Delete) and Enter are engine
+//! default actions and the mirror cannot see their result, because the engine
+//! exposes no post-apply text for a node whose value sits under a block
+//! wrapper. Enter in a contenteditable host records a structural block split
+//! rather than inserting a `'\n'` into the buffer, so a multi-paragraph value
+//! no longer round-trips through [`TextAreaState::get_text`] as newlines.
 //!
 //! Key types: [`TextArea`], [`TextAreaState`], [`TextAreaOnTextInput`],
 //! [`TextAreaOnVirtualKeyDown`], [`TextAreaOnFocusLost`].
@@ -28,13 +34,12 @@ use alloc::{string::String, vec::Vec};
 
 use azul_core::{
     callbacks::{CoreCallback, CoreCallbackData, Update},
-    dom::Dom,
+    dom::{Dom, DomNodeId},
     refany::RefAny,
-    window::VirtualKeyCode,
 };
 use azul_css::{
     dynamic_selector::{CssPropertyWithConditions, CssPropertyWithConditionsVec},
-    props::{basic::{ColorU, StyleFontFamily, StyleFontFamilyVec, StyleFontSize}, layout::{LayoutPosition, LayoutWidth, LayoutHeight, LayoutBoxSizing, LayoutFlexGrow, LayoutMinHeight, LayoutPaddingLeft, LayoutPaddingRight, LayoutPaddingTop, LayoutPaddingBottom, LayoutOverflow, LayoutDisplay, LayoutTop, LayoutLeft}, property::{CssProperty, StyleWhiteSpaceValue}, style::{StyleBackgroundContent, StyleBackgroundContentVec, StyleOpacity, StyleCursor, StyleTextColor, LayoutBorderTopWidth, LayoutBorderBottomWidth, LayoutBorderLeftWidth, LayoutBorderRightWidth, StyleBorderTopStyle, BorderStyle, StyleBorderBottomStyle, StyleBorderLeftStyle, StyleBorderRightStyle, StyleBorderTopColor, StyleBorderBottomColor, StyleBorderLeftColor, StyleBorderRightColor, StyleTextAlign, StyleWhiteSpace}},
+    props::{basic::{ColorU, StyleFontFamily, StyleFontFamilyVec, StyleFontSize}, layout::{LayoutPosition, LayoutBoxSizing, LayoutFlexGrow, LayoutMinHeight, LayoutPaddingLeft, LayoutPaddingRight, LayoutPaddingTop, LayoutPaddingBottom, LayoutOverflow, LayoutDisplay, LayoutTop, LayoutLeft}, property::{CssProperty, StyleWhiteSpaceValue}, style::{StyleBackgroundContent, StyleBackgroundContentVec, StyleOpacity, StyleCursor, StyleTextColor, LayoutBorderTopWidth, LayoutBorderBottomWidth, LayoutBorderLeftWidth, LayoutBorderRightWidth, StyleBorderTopStyle, BorderStyle, StyleBorderBottomStyle, StyleBorderLeftStyle, StyleBorderRightStyle, StyleBorderTopColor, StyleBorderBottomColor, StyleBorderLeftColor, StyleBorderRightColor, StyleTextAlign, StyleWhiteSpace}},
     impl_option_inner, AzString, U32Vec, OptionString,
 };
 
@@ -48,7 +53,6 @@ const BACKGROUND_COLOR: ColorU = ColorU {
     b: 255,
     a: 255,
 }; // white
-const BLACK: ColorU = ColorU { r: 0, g: 0, b: 0, a: 255 };
 const COLOR_9B9B9B: ColorU = ColorU {
     r: 155,
     g: 155,
@@ -68,10 +72,6 @@ const COLOR_4C4C4C: ColorU = ColorU {
     a: 255,
 }; // #4C4C4C text
 
-const CURSOR_COLOR_BLACK: &[StyleBackgroundContent] = &[StyleBackgroundContent::Color(BLACK)];
-const CURSOR_COLOR: StyleBackgroundContentVec =
-    StyleBackgroundContentVec::from_const_slice(CURSOR_COLOR_BLACK);
-
 const BACKGROUND_THEME_LIGHT: &[StyleBackgroundContent] =
     &[StyleBackgroundContent::Color(BACKGROUND_COLOR)];
 const BACKGROUND_COLOR_LIGHT: StyleBackgroundContentVec =
@@ -85,15 +85,6 @@ const SANS_SERIF_FAMILY: StyleFontFamilyVec =
 
 /// Minimum height of the editable area (~4 lines).
 const MIN_HEIGHT_PX: isize = 64;
-
-// -- cursor style (a static child; does not track the caret — see module TODO2) --
-static TEXT_CURSOR_PROPS: &[CssPropertyWithConditions] = &[
-    CssPropertyWithConditions::simple(CssProperty::const_position(LayoutPosition::Absolute)),
-    CssPropertyWithConditions::simple(CssProperty::const_width(LayoutWidth::const_px(1))),
-    CssPropertyWithConditions::simple(CssProperty::const_height(LayoutHeight::const_px(11))),
-    CssPropertyWithConditions::simple(CssProperty::const_background_content(CURSOR_COLOR)),
-    CssPropertyWithConditions::simple(CssProperty::const_opacity(StyleOpacity::const_new(0))),
-];
 
 // -- container style (cross-platform single style) --
 static TEXT_AREA_CONTAINER_PROPS: &[CssPropertyWithConditions] = &[
@@ -207,7 +198,7 @@ static TEXT_AREA_CONTAINER_PROPS: &[CssPropertyWithConditions] = &[
     )),
 ];
 
-// -- label style (the rendered multi-line text) --
+// -- label style (the `<p>` block wrapping the multi-line value) --
 static TEXT_AREA_LABEL_PROPS: &[CssPropertyWithConditions] = &[
     CssPropertyWithConditions::simple(CssProperty::const_display(LayoutDisplay::Block)),
     CssPropertyWithConditions::simple(CssProperty::const_flex_grow(LayoutFlexGrow::const_new(0))),
@@ -223,6 +214,14 @@ static TEXT_AREA_LABEL_PROPS: &[CssPropertyWithConditions] = &[
 ];
 
 // -- placeholder style --
+//
+// An absolutely-positioned `<p>` overlay inside the editable container. It is
+// marked `contenteditable="false"` so the engine's inheritance walk stops at it
+// and the prompt never becomes part of the buffer, and it is toggled with
+// `display` as well as `opacity`: a hidden-but-laid-out overlay would still own
+// the container's first inline layout, which is what
+// `LayoutWindow::reshape_text_node` picks up when it looks for the IFC to write
+// an edit into.
 static TEXT_AREA_PLACEHOLDER_PROPS: &[CssPropertyWithConditions] = &[
     CssPropertyWithConditions::simple(CssProperty::const_display(LayoutDisplay::Block)),
     CssPropertyWithConditions::simple(CssProperty::const_flex_grow(LayoutFlexGrow::const_new(0))),
@@ -499,8 +498,15 @@ impl TextArea {
         s
     }
 
+    /// Renders the widget.
+    ///
+    /// The container is the `contenteditable` host — the flag, the tab index and
+    /// the focus callbacks all sit on it, because focus events do not bubble and
+    /// the engine records an edit against the *focused* node. Its two children
+    /// are `<p>` blocks wrapping a bare text node each; nothing else is emitted,
+    /// in particular no caret node.
     #[must_use] pub fn dom(mut self) -> Dom {
-        use azul_core::dom::{EventFilter, FocusEventFilter, HoverEventFilter, IdOrClass::Class, TabIndex};
+        use azul_core::dom::{AttributeType, DomVec, EventFilter, FocusEventFilter, IdOrClass::Class, TabIndex};
 
         self.text_area_state.inner.cursor_pos = self.text_area_state.inner.text.len();
 
@@ -520,12 +526,18 @@ impl TextArea {
             .map(|s| s.as_str().to_string())
             .unwrap_or_default();
 
+        let mut placeholder_style = self.placeholder_style;
+        if !self.text_area_state.inner.text.is_empty() {
+            placeholder_style = hidden_placeholder_style(&placeholder_style);
+        }
+
         let state_ref = RefAny::new(self.text_area_state);
 
         Dom::create_div()
             .with_ids_and_classes(vec![Class("__azul-native-text-area-container".into())].into())
             .with_css_props(self.container_style)
             .with_tab_index(TabIndex::Auto)
+            .with_contenteditable(true)
             .with_dataset(Some(state_ref.clone()).into())
             .with_callbacks(
                 vec![
@@ -566,30 +578,105 @@ impl TextArea {
             )
             .with_children(
                 vec![
-                    Dom::create_text(placeholder)
+                    Dom::create_p()
                         .with_ids_and_classes(
                             vec![Class("__azul-native-text-area-placeholder".into())].into(),
                         )
-                        .with_css_props(self.placeholder_style),
-                    Dom::create_text(label_text)
+                        .with_css_props(placeholder_style)
+                        // appended, never `with_attributes`: that one replaces the
+                        // whole vector, classes included
+                        .with_attribute(AttributeType::ContentEditable(false))
+                        .with_children(DomVec::from_vec(vec![Dom::create_text(placeholder)])),
+                    Dom::create_p()
                         .with_ids_and_classes(
                             vec![Class("__azul-native-text-area-label".into())].into(),
                         )
                         .with_css_props(self.label_style)
-                        .with_children(
-                            vec![Dom::create_div()
-                                .with_ids_and_classes(
-                                    vec![Class("__azul-native-text-area-cursor".into())].into(),
-                                )
-                                .with_css_props(CssPropertyWithConditionsVec::from_const_slice(
-                                    TEXT_CURSOR_PROPS,
-                                ))]
-                            .into(),
-                        ),
+                        .with_children(DomVec::from_vec(vec![Dom::create_text(label_text)])),
                 ]
                 .into(),
             )
     }
+}
+
+/// `style` with the placeholder taken out of the flow: `display: none` on top
+/// of `opacity: 0`, so a hidden prompt owns neither pixels nor an inline layout.
+fn hidden_placeholder_style(
+    style: &CssPropertyWithConditionsVec,
+) -> CssPropertyWithConditionsVec {
+    let mut props = style.as_ref().to_vec();
+    props.push(CssPropertyWithConditions::simple(CssProperty::const_display(
+        LayoutDisplay::None,
+    )));
+    props.push(CssPropertyWithConditions::simple(CssProperty::const_opacity(
+        StyleOpacity::const_new(0),
+    )));
+    CssPropertyWithConditionsVec::from_vec(props)
+}
+
+/// The placeholder `<p>` and the value `<p>`, in that order.
+///
+/// Both handlers and tests resolve them through the same hierarchy hops the
+/// container's own layout guarantees; a subtree of any other shape yields
+/// `None` and every handler bails out.
+fn label_nodes(info: &CallbackInfo) -> Option<(DomNodeId, DomNodeId)> {
+    let placeholder = info.get_first_child(info.get_hit_node())?;
+    let label = info.get_next_sibling(placeholder)?;
+    Some((placeholder, label))
+}
+
+/// Shows or hides the placeholder prompt.
+fn set_placeholder_visible(info: &mut CallbackInfo, placeholder: DomNodeId, visible: bool) {
+    let (display, opacity) = if visible {
+        (LayoutDisplay::Block, StyleOpacity::const_new(100))
+    } else {
+        (LayoutDisplay::None, StyleOpacity::const_new(0))
+    };
+    info.set_css_property(placeholder, CssProperty::const_opacity(opacity));
+    info.set_css_property(placeholder, CssProperty::const_display(display));
+}
+
+/// Adopts the engine's text for `node` into the widget's mirror.
+///
+/// The engine owns the buffer, so its answer wins — except that an empty answer
+/// is ambiguous: `get_text_before_textinput` also yields nothing for a node
+/// whose text sits under a block wrapper it does not descend into. An empty
+/// read therefore never clears a non-empty mirror.
+fn adopt_engine_text(state: &mut TextAreaState, info: &CallbackInfo, node: DomNodeId) {
+    let Some(text) = info.get_node_text_content(node) else {
+        return;
+    };
+    if text.is_empty() && !state.text.is_empty() {
+        return;
+    }
+    state.text = text.chars().map(|c| c as u32).collect::<Vec<_>>().into();
+}
+
+/// Mirrors the insertion the engine is about to apply.
+///
+/// The engine inserts at the caret, so the mirror does too whenever the caret
+/// is readable and lands on a character boundary; otherwise it appends, which
+/// is where the caret sits for every append-only path. `cursor_pos` stays a
+/// byte offset, as it has always been.
+fn mirror_insertion(state: &mut TextAreaState, inserted: &str, caret: Option<usize>) {
+    let text = state.get_text();
+    let at = caret
+        .filter(|at| *at <= text.len() && text.is_char_boundary(*at))
+        .unwrap_or(text.len());
+
+    let mut next = String::with_capacity(text.len() + inserted.len());
+    next.push_str(&text[..at]);
+    next.push_str(inserted);
+    next.push_str(&text[at..]);
+
+    state.text = next.chars().map(|c| c as u32).collect::<Vec<_>>().into();
+    state.cursor_pos = at.saturating_add(inserted.len());
+}
+
+/// The caret's byte offset inside the edited node, if the engine has one.
+fn engine_caret(info: &CallbackInfo, node: DomNodeId) -> Option<usize> {
+    info.get_node_cursor_position(node)
+        .map(|c| c.cluster_id.start_byte_in_run as usize)
 }
 
 extern "C" fn default_on_focus_received(mut text_area: RefAny, mut info: CallbackInfo) -> Update {
@@ -603,15 +690,18 @@ extern "C" fn default_on_focus_received(mut text_area: RefAny, mut info: Callbac
         return Update::DoNothing;
     };
 
+    let container = info.get_hit_node();
+    adopt_engine_text(&mut text_area.inner, &info, container);
+
     // hide the placeholder text
     if text_area.inner.text.is_empty() {
-        info.set_css_property(
-            placeholder_text_node_id,
-            CssProperty::const_opacity(StyleOpacity::const_new(0)),
-        );
+        set_placeholder_visible(&mut info, placeholder_text_node_id, false);
     }
 
-    text_area.inner.cursor_pos = text_area.inner.text.len();
+    // The engine seeds the caret at the end of the value when focus lands on a
+    // contenteditable host; the mirror follows it.
+    let end_of_text = text_area.inner.text.len();
+    text_area.inner.cursor_pos = engine_caret(&info, container).unwrap_or(end_of_text);
 
     Update::DoNothing
 }
@@ -627,12 +717,12 @@ extern "C" fn default_on_focus_lost(mut text_area: RefAny, mut info: CallbackInf
         return Update::DoNothing;
     };
 
+    let container = info.get_hit_node();
+    adopt_engine_text(&mut text_area.inner, &info, container);
+
     // show the placeholder text
     if text_area.inner.text.is_empty() {
-        info.set_css_property(
-            placeholder_text_node_id,
-            CssProperty::const_opacity(StyleOpacity::const_new(100)),
-        );
+        set_placeholder_visible(&mut info, placeholder_text_node_id, true);
     }
 
     let text_area = &mut *text_area;
@@ -652,16 +742,48 @@ extern "C" fn default_on_text_input(text_area: RefAny, info: CallbackInfo) -> Up
 fn default_on_text_input_inner(mut text_area: RefAny, mut info: CallbackInfo) -> Option<Update> {
     let mut text_area = text_area.downcast_mut::<TextAreaStateWrapper>()?;
 
-    let changeset = info.get_text_changeset()?;
-    let inserted_text = changeset.inserted_text.as_str().to_string();
+    // The engine records the edit before the callbacks run and applies it after
+    // them; this handler only observes it and mirrors it into the widget state.
+    // An `Input` WITHOUT a pending record is a post-edit NOTIFICATION: an edit
+    // committed outside the record pipeline (deletion, the Enter line break,
+    // programmatic edit) that is already applied — adopt it and inform the
+    // user hook; `valid` cannot veto what already happened.
+    let inserted_text = info
+        .get_text_changeset()
+        .map(|c| c.inserted_text.as_str().to_string())
+        .unwrap_or_default();
+
+    let (placeholder_node_id, _label_node_id) = label_nodes(&info)?;
+    let container = info.get_hit_node();
 
     if inserted_text.is_empty() {
-        return None;
+        // Idempotent: a notification that changed nothing observable stays a
+        // strict no-op, so the no-changeset pins keep holding.
+        let before = text_area.inner.get_text();
+        adopt_engine_text(&mut text_area.inner, &info, container);
+        if text_area.inner.get_text() == before {
+            return None;
+        }
+        let empty = text_area.inner.get_text().is_empty();
+        set_placeholder_visible(&mut info, placeholder_node_id, empty);
+        let result = {
+            let text_area = &mut *text_area;
+            let inner_clone = text_area.inner.clone();
+            match text_area.on_text_input.as_mut() {
+                Some(TextAreaOnTextInput { callback, refany }) => {
+                    (callback.cb)(refany.clone(), info, inner_clone)
+                }
+                None => OnTextInputReturn {
+                    update: Update::DoNothing,
+                    valid: TextInputValid::Yes,
+                },
+            }
+        };
+        return Some(result.update);
     }
 
-    let placeholder_node_id = info.get_first_child(info.get_hit_node())?;
-    let label_node_id = info.get_next_sibling(placeholder_node_id)?;
-    let _cursor_node_id = info.get_first_child(label_node_id)?;
+    let caret = engine_caret(&info, container);
+    adopt_engine_text(&mut text_area.inner, &info, container);
 
     let result = {
         let text_area = &mut *text_area;
@@ -669,12 +791,7 @@ fn default_on_text_input_inner(mut text_area: RefAny, mut info: CallbackInfo) ->
 
         // inner_clone has the new (would-be) text
         let mut inner_clone = text_area.inner.clone();
-        inner_clone.cursor_pos = inner_clone.cursor_pos.saturating_add(inserted_text.len());
-        inner_clone.text = {
-            let mut internal = inner_clone.text.clone().into_library_owned_vec();
-            internal.extend(inserted_text.chars().map(|c| c as u32));
-            internal.into()
-        };
+        mirror_insertion(&mut inner_clone, &inserted_text, caret);
 
         match ontextinput.as_mut() {
             Some(TextAreaOnTextInput { callback, refany }) => {
@@ -689,23 +806,13 @@ fn default_on_text_input_inner(mut text_area: RefAny, mut info: CallbackInfo) ->
 
     if result.valid == TextInputValid::Yes {
         // hide the placeholder text
-        info.set_css_property(
-            placeholder_node_id,
-            CssProperty::const_opacity(StyleOpacity::const_new(0)),
-        );
+        set_placeholder_visible(&mut info, placeholder_node_id, false);
 
-        // append to the text
-        text_area.inner.text = {
-            let mut internal = text_area.inner.text.clone().into_library_owned_vec();
-            internal.extend(inserted_text.chars().map(|c| c as u32));
-            internal.into()
-        };
-        text_area.inner.cursor_pos = text_area
-            .inner
-            .cursor_pos
-            .saturating_add(inserted_text.len());
-
-        info.change_node_text(label_node_id, text_area.inner.get_text().into());
+        mirror_insertion(&mut text_area.inner, &inserted_text, caret);
+    } else {
+        // The engine applies the recorded changeset once the callbacks return,
+        // unless one of them vetoes it.
+        info.prevent_default();
     }
 
     Some(result.update)
@@ -722,13 +829,15 @@ fn default_on_virtual_key_down_inner(
     let mut text_area = text_area.downcast_mut::<TextAreaStateWrapper>()?;
     let keyboard_state = info.get_current_keyboard_state();
 
-    let c = keyboard_state.current_virtual_keycode.into_option()?;
-    let placeholder_node_id = info.get_first_child(info.get_hit_node())?;
-    let label_node_id = info.get_next_sibling(placeholder_node_id)?;
-    let _cursor_node_id = info.get_first_child(label_node_id)?;
+    let _keycode = keyboard_state.current_virtual_keycode.into_option()?;
+    let (_placeholder_node_id, _label_node_id) = label_nodes(&info)?;
 
-    // Dispatch to the user's on_virtual_key_down callback first; a
-    // TextInputValid::No return suppresses the built-in editing behavior.
+    let container = info.get_hit_node();
+    adopt_engine_text(&mut text_area.inner, &info, container);
+
+    // Editing keys (Backspace, Delete, the arrows, Enter) are the engine's
+    // default actions; this handler only forwards the key to the user's hook
+    // and lets a rejection stop the default from running.
     let result = {
         // rustc doesn't understand the borrowing lifetime here
         let text_area = &mut *text_area;
@@ -745,43 +854,7 @@ fn default_on_virtual_key_down_inner(
     };
 
     if result.valid == TextInputValid::No {
-        return Some(result.update);
-    }
-
-    match c {
-        VirtualKeyCode::Back => {
-            text_area.inner.text = {
-                let mut internal = text_area.inner.text.clone().into_library_owned_vec();
-                internal.pop();
-                internal.into()
-            };
-            text_area.inner.cursor_pos = text_area.inner.cursor_pos.saturating_sub(1);
-            info.change_node_text(label_node_id, text_area.inner.get_text().into());
-
-            // re-show placeholder if the buffer is now empty
-            if text_area.inner.text.is_empty() {
-                info.set_css_property(
-                    placeholder_node_id,
-                    CssProperty::const_opacity(StyleOpacity::const_new(100)),
-                );
-            }
-        }
-        VirtualKeyCode::Return | VirtualKeyCode::NumpadEnter => {
-            // insert a newline
-            text_area.inner.text = {
-                let mut internal = text_area.inner.text.clone().into_library_owned_vec();
-                internal.push('\n' as u32);
-                internal.into()
-            };
-            text_area.inner.cursor_pos = text_area.inner.cursor_pos.saturating_add(1);
-            info.change_node_text(label_node_id, text_area.inner.get_text().into());
-            // hide placeholder (buffer is non-empty now)
-            info.set_css_property(
-                placeholder_node_id,
-                CssProperty::const_opacity(StyleOpacity::const_new(0)),
-            );
-        }
-        _ => return Some(result.update),
+        info.prevent_default();
     }
 
     Some(result.update)
@@ -808,14 +881,17 @@ mod autotest_generated {
     };
 
     use azul_core::{
-        dom::{DomId, DomNodeId, EventFilter, FocusEventFilter, NodeId, NodeType},
+        dom::{
+            AttributeType, DomId, DomNodeId, EventFilter, FocusEventFilter, NodeId, NodeType,
+            TabIndex,
+        },
         geom::{LogicalRect, OptionLogicalPosition},
         gl::OptionGlContextPtr,
         hit_test::ScrollPosition,
         refany::OptionRefAny,
         resources::RendererResources,
         styled_dom::{NodeHierarchyItemId, StyledDom},
-        window::{MonitorVec, RawWindowHandle},
+        window::{MonitorVec, RawWindowHandle, VirtualKeyCode},
     };
     use rust_fontconfig::FcFontCache;
 
@@ -923,10 +999,18 @@ mod autotest_generated {
         CssPropertyWithConditionsVec::from_vec(all.into_iter().take(n).collect())
     }
 
-    /// The text of a `NodeType::Text` node (`None` for any other node type).
+    /// The text a node carries, looking through the `<p>` block wrapper the
+    /// widget convention mandates (`p > text`).
     fn text_of(node: &Dom) -> Option<&str> {
         match node.root.get_node_type() {
             NodeType::Text(s) => Some(s.as_ref().as_str()),
+            NodeType::P => match node.children.as_ref() {
+                [only] => match only.root.get_node_type() {
+                    NodeType::Text(s) => Some(s.as_ref().as_str()),
+                    _ => None,
+                },
+                _ => None,
+            },
             _ => None,
         }
     }
@@ -1044,7 +1128,7 @@ mod autotest_generated {
         container: usize,
         placeholder: usize,
         label: usize,
-        cursor: usize,
+        label_text: usize,
     }
 
     /// Which node the event hit.
@@ -1054,8 +1138,9 @@ mod autotest_generated {
         Nothing,
         Container,
         Placeholder,
-        /// A leaf: it has no children, so every handler must bail out.
-        Cursor,
+        /// The value's bare text leaf: it has no children, so every handler
+        /// must bail out.
+        TextLeaf,
     }
 
     /// Flattened indices of every node carrying `class`, in tree order.
@@ -1083,13 +1168,25 @@ mod autotest_generated {
             found[0]
         }
 
+        let label = one(&styled, "__azul-native-text-area-label");
         let nodes = Nodes {
             container: one(&styled, "__azul-native-text-area-container"),
             placeholder: one(&styled, "__azul-native-text-area-placeholder"),
-            label: one(&styled, "__azul-native-text-area-label"),
-            cursor: one(&styled, "__azul-native-text-area-cursor"),
+            label,
+            label_text: first_child(&styled, label),
         };
         (styled, nodes)
+    }
+
+    /// The flattened index of `node`'s first child.
+    fn first_child(styled: &StyledDom, node: usize) -> usize {
+        styled
+            .node_hierarchy
+            .as_ref()
+            .get(node)
+            .and_then(|item| item.first_child_id(NodeId::new(node)))
+            .expect("expected a child node")
+            .index()
     }
 
     fn dom_node(idx: usize) -> DomNodeId {
@@ -1218,7 +1315,7 @@ mod autotest_generated {
             },
             Hit::Container => dom_node(nodes.container),
             Hit::Placeholder => dom_node(nodes.placeholder),
-            Hit::Cursor => dom_node(nodes.cursor),
+            Hit::TextLeaf => dom_node(nodes.label_text),
         };
 
         let changes: Arc<Mutex<Vec<CallbackChange>>> = Arc::new(Mutex::new(Vec::new()));
@@ -1783,13 +1880,90 @@ mod autotest_generated {
         assert!(children[0].root.has_class("__azul-native-text-area-placeholder"));
         assert!(children[1].root.has_class("__azul-native-text-area-label"));
 
-        let label_children = children[1].children.as_ref();
-        assert_eq!(label_children.len(), 1, "the label owns exactly the cursor");
-        assert!(label_children[0].root.has_class("__azul-native-text-area-cursor"));
+        for block in children {
+            assert!(matches!(block.root.get_node_type(), NodeType::P));
+            assert_eq!(block.children.as_ref().len(), 1, "a label wraps one text node");
+            let leaf = &block.children.as_ref()[0];
+            assert!(matches!(leaf.root.get_node_type(), NodeType::Text(_)));
+            assert!(leaf.children.as_ref().is_empty(), "the text node is a leaf");
+        }
+    }
+
+    #[test]
+    fn dom_emits_no_cursor_node() {
+        // The caret and the selection are display-list items driven by the
+        // engine's TextEditManager; a widget-owned cursor div resolved against
+        // the container and never tracked the caret.
+        let styled = StyledDom::create_from_dom(TextArea::create().dom());
+        assert!(nodes_with_class(&styled, "__azul-native-text-area-cursor").is_empty());
+    }
+
+    #[test]
+    fn dom_carries_no_state_on_any_text_node() {
+        // A NodeType::Text node is unconditionally inline-level and owns no
+        // rect, so css props / callbacks / a tab index / a dataset / children on
+        // one are all inert. Every text node must be a bare leaf under a <p>.
+        fn walk(node: &Dom, parent_is_p: bool, bad: &mut Vec<String>) {
+            if let NodeType::Text(t) = node.root.get_node_type() {
+                let carries = !node.root.get_style().is_empty()
+                    || !node.root.get_callbacks().as_ref().is_empty()
+                    || node.root.get_tab_index().is_some()
+                    || node.root.get_dataset().is_some()
+                    || !node.children.as_ref().is_empty()
+                    || !parent_is_p;
+                if carries {
+                    bad.push(t.as_ref().as_str().to_string());
+                }
+            }
+            let is_p = matches!(node.root.get_node_type(), NodeType::P);
+            for c in node.children.as_ref() {
+                walk(c, is_p, bad);
+            }
+        }
+
+        for area in [
+            TextArea::create(),
+            TextArea::create()
+                .with_text(AzString::from("a\nb"))
+                .with_placeholder(AzString::from("hint")),
+        ] {
+            let mut bad = Vec::new();
+            walk(&area.dom(), false, &mut bad);
+            assert!(bad.is_empty(), "text nodes carrying inert state: {bad:?}");
+        }
+    }
+
+    #[test]
+    fn dom_marks_the_container_as_keyboard_focusable_and_editable() {
+        // Focus events do not bubble and the engine records an edit against the
+        // FOCUSED node, so the tab index and the contenteditable flag have to
+        // sit on the same node the handlers are attached to.
+        let dom = TextArea::create().dom();
+        assert_eq!(dom.root.get_tab_index(), Some(TabIndex::Auto));
+        assert!(dom.root.is_contenteditable());
+    }
+
+    #[test]
+    fn dom_keeps_the_placeholder_out_of_the_editable_content() {
+        // Everything inside a contenteditable host is editable content unless a
+        // node blocks the inheritance walk; the prompt must never be typed into.
+        let dom = TextArea::create().with_placeholder(AzString::from("hint")).dom();
+        let children = dom.children.as_ref();
         assert!(
-            label_children[0].children.as_ref().is_empty(),
-            "the cursor is a leaf"
+            children[0]
+                .root
+                .attributes()
+                .as_ref()
+                .iter()
+                .any(|a| matches!(a, AttributeType::ContentEditable(false))),
+            "the placeholder is inside the editable host and does not opt out",
         );
+        assert!(!children[1]
+            .root
+            .attributes()
+            .as_ref()
+            .iter()
+            .any(|a| matches!(a, AttributeType::ContentEditable(_))));
     }
 
     #[test]
@@ -1915,9 +2089,9 @@ mod autotest_generated {
 
     #[test]
     fn styled_dom_navigation_matches_what_the_handlers_assume() {
-        // The three handlers all walk container -> first child (placeholder)
-        // -> next sibling (label) -> first child (cursor). If that walk ever
-        // stops matching the DOM, every one of them silently no-ops.
+        // Every handler walks container -> first child (placeholder) -> next
+        // sibling (label). If that walk ever stops matching the DOM, all of
+        // them silently no-op.
         let (styled, nodes) = skeleton();
         let hierarchy = styled.node_hierarchy.as_container();
 
@@ -1931,10 +2105,11 @@ mod autotest_generated {
             .expect("the placeholder must have a next sibling");
         assert_eq!(label.index(), nodes.label);
 
-        let cursor = hierarchy[label]
+        let leaf = hierarchy[label]
             .first_child_id(label)
-            .expect("the label must have a first child");
-        assert_eq!(cursor.index(), nodes.cursor);
+            .expect("the value block must wrap a text node");
+        assert_eq!(leaf.index(), nodes.label_text);
+        assert!(hierarchy[leaf].first_child_id(leaf).is_none(), "the text node is a leaf");
     }
 
     // ==================================================================
@@ -1974,7 +2149,7 @@ mod autotest_generated {
     fn focus_received_bails_out_on_a_childless_hit_node() {
         let data = RefAny::new(wrapper("text"));
         let (update, changes, _) = run(
-            Env::default().hitting(Hit::Cursor),
+            Env::default().hitting(Hit::TextLeaf),
             &data,
             |r, ci| default_on_focus_received(r, ci),
         );
@@ -2089,7 +2264,7 @@ mod autotest_generated {
         let data = RefAny::new(state);
 
         let (update, changes, _) = run(
-            Env::default().hitting(Hit::Cursor),
+            Env::default().hitting(Hit::TextLeaf),
             &data,
             |r, ci| default_on_focus_lost(r, ci),
         );
@@ -2178,7 +2353,7 @@ mod autotest_generated {
     fn text_input_bails_out_on_a_childless_hit_node() {
         let data = RefAny::new(wrapper("abc"));
         let (out, changes, _) = run(
-            Env::typed("x").hitting(Hit::Cursor),
+            Env::typed("x").hitting(Hit::TextLeaf),
             &data,
             default_on_text_input_inner,
         );
@@ -2190,8 +2365,8 @@ mod autotest_generated {
 
     #[test]
     fn text_input_bails_out_when_the_hit_node_has_no_sibling_chain() {
-        // Hitting the placeholder: it has no children at all, so the walk stops
-        // at the very first step.
+        // Hitting the placeholder: its own text leaf has no next sibling, so
+        // the walk stops one step in.
         let data = RefAny::new(wrapper("abc"));
         let (out, changes, _) = run(
             Env::typed("x").hitting(Hit::Placeholder),
@@ -2205,7 +2380,7 @@ mod autotest_generated {
     }
 
     #[test]
-    fn text_input_appends_and_repaints() {
+    fn text_input_mirrors_the_insertion_and_hides_the_placeholder() {
         let data = RefAny::new(wrapper("ab"));
         let (out, changes, nodes) = run(Env::typed("cd"), &data, default_on_text_input_inner);
 
@@ -2216,24 +2391,20 @@ mod autotest_generated {
             vec![(nodes.placeholder, 0.0)],
             "typing hides the placeholder"
         );
-        assert_eq!(
-            text_writes(&changes),
-            vec![(nodes.label, "abcd".to_string())],
-            "the label is rewritten with the *whole* buffer, not the delta"
+        assert!(
+            text_writes(&changes).is_empty(),
+            "the widget repainted the value itself; the engine owns the buffer"
         );
     }
 
     #[test]
     fn text_input_preserves_embedded_newlines() {
         let data = RefAny::new(wrapper("first"));
-        let (out, changes, nodes) = run(Env::typed("\nsecond\n"), &data, default_on_text_input_inner);
+        let (out, changes, _) = run(Env::typed("\nsecond\n"), &data, default_on_text_input_inner);
 
         assert_eq!(out, Some(Update::DoNothing));
         assert_eq!(read(&data).get_text(), "first\nsecond\n");
-        assert_eq!(
-            text_writes(&changes),
-            vec![(nodes.label, "first\nsecond\n".to_string())]
-        );
+        assert!(text_writes(&changes).is_empty());
     }
 
     #[test]
@@ -2333,7 +2504,12 @@ mod autotest_generated {
             Some(Update::RefreshDomAllWindows),
             "a rejected edit still returns the hook's Update"
         );
-        assert!(changes.is_empty(), "a rejected edit must not repaint");
+        assert_eq!(
+            changes.len(),
+            1,
+            "a rejected edit must push nothing but the preventDefault: {changes:?}"
+        );
+        assert!(matches!(changes[0], CallbackChange::PreventDefault));
         let state = read(&data);
         assert_eq!(state.get_text(), "locked");
         assert_eq!(state.cursor_pos, 0, "and must not move the cursor");
@@ -2354,9 +2530,10 @@ mod autotest_generated {
     }
 
     #[test]
-    fn text_input_writes_the_filtered_text_not_the_raw_buffer() {
-        // Non-scalar units already in the buffer survive the edit but never
-        // reach the label, so the rendered string is shorter than the buffer.
+    fn text_input_drops_non_scalar_units_the_engine_could_never_hold() {
+        // The mirror is rebuilt from the *string* the engine works in, so
+        // non-scalar units planted directly into the buffer do not survive an
+        // edit. Nothing can render them either, so there is nothing to lose.
         let data = RefAny::new(wrapper("a"));
         poke(&data, |w| {
             let mut units = w.inner.text.clone().into_library_owned_vec();
@@ -2364,19 +2541,12 @@ mod autotest_generated {
             w.inner.text = units.into();
         });
 
-        let (out, changes, nodes) = run(Env::typed("b"), &data, default_on_text_input_inner);
+        let (out, changes, _) = run(Env::typed("b"), &data, default_on_text_input_inner);
 
         assert_eq!(out, Some(Update::DoNothing));
-        assert_eq!(
-            text_writes(&changes),
-            vec![(nodes.label, "ab".to_string())],
-            "only the scalars are rendered"
-        );
-        assert_eq!(
-            read(&data).text.len(),
-            NON_SCALAR.len() + 2,
-            "the raw buffer keeps everything"
-        );
+        assert!(text_writes(&changes).is_empty());
+        assert_eq!(read(&data).get_text(), "ab");
+        assert_eq!(read(&data).text.len(), 2);
     }
 
     #[test]
@@ -2393,11 +2563,12 @@ mod autotest_generated {
         let big: String = "chunk 😀\n".repeat(10_000);
         let data = RefAny::new(wrapper(""));
 
-        let (out, changes, nodes) = run(Env::typed(&big), &data, default_on_text_input_inner);
+        let (out, changes, _) = run(Env::typed(&big), &data, default_on_text_input_inner);
 
         assert_eq!(out, Some(Update::DoNothing));
         assert_eq!(read(&data).text.len(), big.chars().count());
-        assert_eq!(text_writes(&changes), vec![(nodes.label, big)]);
+        assert_eq!(read(&data).get_text(), big);
+        assert!(text_writes(&changes).is_empty());
     }
 
     // ==================================================================
@@ -2439,7 +2610,7 @@ mod autotest_generated {
         let data = RefAny::new(state);
 
         let (out, changes, _) = run(
-            Env::key(VirtualKeyCode::Back).hitting(Hit::Cursor),
+            Env::key(VirtualKeyCode::Back).hitting(Hit::TextLeaf),
             &data,
             default_on_virtual_key_down_inner,
         );
@@ -2454,186 +2625,32 @@ mod autotest_generated {
     }
 
     #[test]
-    fn backspace_on_an_empty_buffer_does_not_underflow() {
-        let data = RefAny::new(wrapper(""));
-        let (out, changes, nodes) = run(
-            Env::key(VirtualKeyCode::Back),
-            &data,
-            default_on_virtual_key_down_inner,
-        );
-
-        assert_eq!(out, Some(Update::DoNothing));
-        let state = read(&data);
-        assert!(state.text.is_empty());
-        assert_eq!(state.cursor_pos, 0, "saturating_sub must hold the floor");
-        // It still repaints: an empty buffer re-shows the placeholder.
-        assert_eq!(text_writes(&changes), vec![(nodes.label, String::new())]);
-        assert_eq!(opacity_writes(&changes), vec![(nodes.placeholder, 1.0)]);
-    }
-
-    #[test]
-    fn backspace_removes_exactly_one_char() {
-        for (before, after) in [
-            ("abc", "ab"),
-            ("a", ""),
-            ("a\n", "a"),
-            ("😀😀", "😀"),        // astral chars are one buffer slot each
-            ("e\u{301}", "e"),     // a combining mark is its own char
-            ("日本語", "日本"),
-        ] {
-            let data = RefAny::new(wrapper(before));
-            let (out, changes, nodes) = run(
-                Env::key(VirtualKeyCode::Back),
-                &data,
-                default_on_virtual_key_down_inner,
-            );
-
-            assert_eq!(out, Some(Update::DoNothing));
-            let state = read(&data);
-            assert_eq!(state.get_text(), after, "backspace on {before:?}");
-            assert_eq!(state.text.len(), after.chars().count());
-            assert_eq!(text_writes(&changes), vec![(nodes.label, after.to_string())]);
-        }
-    }
-
-    #[test]
-    fn backspace_re_shows_the_placeholder_only_once_the_buffer_empties() {
-        let data = RefAny::new(wrapper("ab"));
-
-        let (_, changes, _) = run(
-            Env::key(VirtualKeyCode::Back),
-            &data,
-            default_on_virtual_key_down_inner,
-        );
-        assert!(
-            opacity_writes(&changes).is_empty(),
-            "still one char left — the placeholder stays hidden"
-        );
-
-        let (_, changes, nodes) = run(
-            Env::key(VirtualKeyCode::Back),
-            &data,
-            default_on_virtual_key_down_inner,
-        );
-        assert_eq!(opacity_writes(&changes), vec![(nodes.placeholder, 1.0)]);
-    }
-
-    #[test]
-    fn backspace_clamps_the_cursor_instead_of_wrapping() {
-        let data = RefAny::new(wrapper("abc"));
-        poke(&data, |w| w.inner.cursor_pos = 0);
-
-        let (_, _, _) = run(
-            Env::key(VirtualKeyCode::Back),
-            &data,
-            default_on_virtual_key_down_inner,
-        );
-
-        assert_eq!(
-            read(&data).cursor_pos,
-            0,
-            "0 - 1 must saturate, never wrap to usize::MAX"
-        );
-    }
-
-    #[test]
-    fn backspace_pops_a_non_scalar_unit_too() {
-        let data = RefAny::new(wrapper("ab"));
-        poke(&data, |w| {
-            let mut units = w.inner.text.clone().into_library_owned_vec();
-            units.push(0xD800); // a lone surrogate, invisible to get_text
-            w.inner.text = units.into();
-        });
-
-        let (_, changes, nodes) = run(
-            Env::key(VirtualKeyCode::Back),
-            &data,
-            default_on_virtual_key_down_inner,
-        );
-
-        let state = read(&data);
-        assert_eq!(state.text.len(), 2, "the surrogate was the unit popped");
-        assert_eq!(state.get_text(), "ab");
-        assert_eq!(text_writes(&changes), vec![(nodes.label, "ab".to_string())]);
-    }
-
-    #[test]
-    fn return_inserts_a_newline() {
-        let data = RefAny::new(wrapper("line"));
-        let (out, changes, nodes) = run(
-            Env::key(VirtualKeyCode::Return),
-            &data,
-            default_on_virtual_key_down_inner,
-        );
-
-        assert_eq!(out, Some(Update::DoNothing));
-        let state = read(&data);
-        assert_eq!(state.get_text(), "line\n");
-        assert_eq!(state.cursor_pos, 1, "cursor_pos started at 0 and moved by one");
-        assert_eq!(text_writes(&changes), vec![(nodes.label, "line\n".to_string())]);
-        assert_eq!(
-            opacity_writes(&changes),
-            vec![(nodes.placeholder, 0.0)],
-            "the buffer is non-empty, so the placeholder must be hidden"
-        );
-    }
-
-    #[test]
-    fn numpad_enter_behaves_exactly_like_return() {
-        let via_return = RefAny::new(wrapper("x"));
-        let (a_out, a_changes, _) = run(
-            Env::key(VirtualKeyCode::Return),
-            &via_return,
-            default_on_virtual_key_down_inner,
-        );
-
-        let via_numpad = RefAny::new(wrapper("x"));
-        let (b_out, b_changes, _) = run(
-            Env::key(VirtualKeyCode::NumpadEnter),
-            &via_numpad,
-            default_on_virtual_key_down_inner,
-        );
-
-        assert_eq!(a_out, b_out);
-        assert_eq!(read(&via_return), read(&via_numpad));
-        assert_eq!(text_writes(&a_changes), text_writes(&b_changes));
-        assert_eq!(opacity_writes(&a_changes), opacity_writes(&b_changes));
-    }
-
-    #[test]
-    fn repeated_returns_accumulate_blank_lines() {
-        let data = RefAny::new(wrapper(""));
-        for _ in 0..5 {
-            let (out, _, _) = run(
-                Env::key(VirtualKeyCode::Return),
-                &data,
-                default_on_virtual_key_down_inner,
-            );
-            assert_eq!(out, Some(Update::DoNothing));
-        }
-
-        let state = read(&data);
-        assert_eq!(state.get_text(), "\n\n\n\n\n");
-        assert_eq!(state.cursor_pos, 5);
-    }
-
-    #[test]
-    fn a_plain_character_key_is_left_to_the_text_input_path() {
-        // Printable keys arrive through `default_on_text_input`; the key handler
-        // must not double-insert them.
+    fn no_key_edits_the_buffer_behind_the_engine() {
+        // Backspace, Delete and the arrows are `SystemChange::ApplySelectionOp`
+        // and Enter records a structural block split — all of them engine
+        // default actions. A widget that also edited its own buffer would
+        // double-apply every one of them.
         for key in [
+            VirtualKeyCode::Back,
+            VirtualKeyCode::Delete,
+            VirtualKeyCode::Return,
+            VirtualKeyCode::NumpadEnter,
+            VirtualKeyCode::Left,
             VirtualKeyCode::A,
             VirtualKeyCode::Space,
             VirtualKeyCode::Tab,
             VirtualKeyCode::Escape,
-            VirtualKeyCode::Left,
         ] {
-            let data = RefAny::new(wrapper("abc"));
-            let (out, changes, _) = run(Env::key(key), &data, default_on_virtual_key_down_inner);
+            for text in ["", "abc", "a\nb"] {
+                let data = RefAny::new(wrapper(text));
+                let before = read(&data);
+                let (out, changes, _) =
+                    run(Env::key(key), &data, default_on_virtual_key_down_inner);
 
-            assert_eq!(out, Some(Update::DoNothing), "{key:?}");
-            assert!(changes.is_empty(), "{key:?} must not repaint");
-            assert_eq!(read(&data).get_text(), "abc", "{key:?} must not edit");
+                assert_eq!(out, Some(Update::DoNothing), "{key:?} on {text:?}");
+                assert!(changes.is_empty(), "{key:?} on {text:?} mutated the DOM: {changes:?}");
+                assert_eq!(read(&data), before, "{key:?} on {text:?} edited the mirror");
+            }
         }
     }
 
@@ -2662,7 +2679,7 @@ mod autotest_generated {
     }
 
     #[test]
-    fn a_rejecting_hook_suppresses_the_built_in_editing() {
+    fn a_rejecting_hook_vetoes_the_engines_default_action() {
         for key in [VirtualKeyCode::Back, VirtualKeyCode::Return] {
             let log = edit_log(REJECT);
             let mut state = wrapper("frozen");
@@ -2676,14 +2693,15 @@ mod autotest_generated {
             let (out, changes, _) = run(Env::key(key), &data, default_on_virtual_key_down_inner);
 
             assert_eq!(out, Some(Update::RefreshDomAllWindows), "{key:?}");
-            assert!(changes.is_empty(), "{key:?} must not repaint");
+            assert_eq!(changes.len(), 1, "{key:?} pushed more than the veto: {changes:?}");
+            assert!(matches!(changes[0], CallbackChange::PreventDefault), "{key:?}");
             assert_eq!(read(&data).get_text(), "frozen", "{key:?} must not edit");
             assert_eq!(edits_seen(&log).len(), 1);
         }
     }
 
     #[test]
-    fn an_accepting_hook_lets_the_edit_through_and_still_sets_the_update() {
+    fn an_accepting_hook_leaves_the_default_action_alone_and_still_sets_the_update() {
         let log = edit_log(ACCEPT);
         let mut state = wrapper("ab");
         state.on_virtual_key_down = Some(TextAreaOnVirtualKeyDown {
@@ -2693,15 +2711,15 @@ mod autotest_generated {
         .into();
         let data = RefAny::new(state);
 
-        let (out, changes, nodes) = run(
+        let (out, changes, _) = run(
             Env::key(VirtualKeyCode::Back),
             &data,
             default_on_virtual_key_down_inner,
         );
 
         assert_eq!(out, Some(Update::RefreshDom));
-        assert_eq!(read(&data).get_text(), "a");
-        assert_eq!(text_writes(&changes), vec![(nodes.label, "a".to_string())]);
+        assert!(changes.is_empty(), "an accepted key must push nothing: {changes:?}");
+        assert_eq!(read(&data).get_text(), "ab", "the engine owns the deletion");
     }
 
     #[test]
@@ -2714,38 +2732,25 @@ mod autotest_generated {
     }
 
     #[test]
-    fn typing_then_editing_keeps_buffer_and_label_in_agreement() {
-        // One end-to-end pass over the three edit paths: paste, newline,
-        // backspace. The rendered label must equal `get_text()` at every step.
+    fn successive_insertions_accumulate_in_the_mirror_without_touching_the_dom() {
+        // The engine repaints the value; the widget only tracks what was
+        // inserted so its callbacks can hand the host a current state.
         let data = RefAny::new(wrapper(""));
 
-        let (_, changes, nodes) = run(Env::typed("hello"), &data, default_on_text_input_inner);
-        assert_eq!(text_writes(&changes), vec![(nodes.label, "hello".to_string())]);
+        for (chunk, expected) in [
+            ("hello", "hello"),
+            ("\n", "hello\n"),
+            ("world", "hello\nworld"),
+        ] {
+            let (_, changes, _) = run(Env::typed(chunk), &data, default_on_text_input_inner);
+            assert!(
+                text_writes(&changes).is_empty(),
+                "the widget repainted the value for {chunk:?}"
+            );
+            assert_eq!(read(&data).get_text(), expected);
+        }
 
-        let (_, changes, nodes) = run(
-            Env::key(VirtualKeyCode::Return),
-            &data,
-            default_on_virtual_key_down_inner,
-        );
-        assert_eq!(text_writes(&changes), vec![(nodes.label, "hello\n".to_string())]);
-
-        let (_, changes, nodes) = run(Env::typed("world"), &data, default_on_text_input_inner);
-        assert_eq!(
-            text_writes(&changes),
-            vec![(nodes.label, "hello\nworld".to_string())]
-        );
-
-        let (_, changes, nodes) = run(
-            Env::key(VirtualKeyCode::Back),
-            &data,
-            default_on_virtual_key_down_inner,
-        );
-        assert_eq!(
-            text_writes(&changes),
-            vec![(nodes.label, "hello\nworl".to_string())]
-        );
-
-        assert_eq!(read(&data).get_text(), "hello\nworl");
+        assert_eq!(read(&data).cursor_pos, "hello\nworld".len());
     }
 
     // ==================================================================

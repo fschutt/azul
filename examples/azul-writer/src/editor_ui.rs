@@ -81,16 +81,17 @@ fn canvas(
 ) -> Dom {
     let _ = state;
     let mut area = Dom::create_div().with_css(
-        // overflow-y:auto (was hidden): the classic office-suite canvas SCROLLS — hidden
-        // cropped the sheet stack AND killed wheel + scrollbar entirely
-        // (live-run 2026-08-11 finding; the status bar was misread as the
-        // only chrome). With the #28 VirtualView the page window scrolls in
-        // ITS OWN frame (the engine synthesizes it from
-        // `virtual_scroll_size`); this stays `auto` as an inert fallback and
-        // must not regress.
+        // `overflow: hidden`, NOT `auto`: the scroll container is the
+        // VirtualView below, not this box. `compute_scroll_ids` hands a scroll
+        // id — and with it the wheel target — to every node whose overflow is
+        // hidden/scroll/auto, so an `auto` canvas swallowed the wheel that the
+        // VirtualView needs to page, and (with padding-top: 18px inflating the
+        // Taffy content size) grew a phantom scrollbar with a full-track thumb.
+        // `hidden` still crops the sheet stack the way classic office suites do
+        // and stays out of the wheel-target list.
         "flex-grow: 1; min-height: 0px; background: #e3e3e3; display: flex; \
          flex-direction: column; align-items: center; padding-top: 18px; \
-         overflow-x: hidden; overflow-y: auto;",
+         overflow: hidden;",
     );
     // #28: pages materialize lazily — the callback renders a ~3-page window
     // around the scroll position; everything else exists only as scrollbar
@@ -129,7 +130,18 @@ fn canvas(
             mount_ctx,
             crate::on_pages_unmounted as azul_layout::callbacks::CallbackType as usize,
         )
-        .with_css("flex-grow: 1; min-height: 0px; width: 100%;"),
+        // The VirtualView node IS the scroll container (same as
+        // examples/rust/src/infinity.rs): it needs its own scroll id to become
+        // a wheel target, or its ScrollManager offset never moves and
+        // `check_reinvoke` never sees an edge scroll — no paging, no scrollbar.
+        // `scroll` rather than `auto` because a VirtualView is a replaced
+        // element with no flow content, so the layout-side `auto` test
+        // (content > container) can never fire; `scroll` also reserves the
+        // bar's width during layout so it doesn't overlay the sheets.
+        .with_css(
+            "flex-grow: 1; min-height: 0px; width: 100%; \
+             overflow-x: hidden; overflow-y: scroll;",
+        ),
     );
     area
 }

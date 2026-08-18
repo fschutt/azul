@@ -6360,9 +6360,24 @@ fn collect_state_machine_leaks(
         );
     }
     if lw.focus_manager.pending_contenteditable_focus.is_some() {
-        leaks.push(
+        // The retry count is in the MESSAGE, not in the condition.
+        // `finalize_pending_focus_changes` may put the request back up to
+        // `MAX_PENDING_FOCUS_RETRIES` times when the node has no entry in
+        // `dom_to_layout` yet (`FocusManager::rearm_pending_contenteditable_focus`),
+        // but a re-arm that is still in flight at scenario end is a caret that
+        // was never seeded — which is precisely what this law is for. Naming the
+        // count only keeps a bounded re-arm from being misread as "finalize
+        // never ran".
+        leaks.push(format!(
             "focus_manager.pending_contenteditable_focus is still Some — contenteditable focus was \
-             queued and never finalized"
+             queued and never finalized (re-armed {} time(s) for want of a text layout)",
+            lw.focus_manager.pending_focus_retries
+        ));
+    }
+    if lw.focus_manager.deferred_focus_target.is_some() {
+        leaks.push(
+            "focus_manager.deferred_focus_target is still Some — a focus request waited for a \
+             layout that never came"
                 .to_string(),
         );
     }
@@ -7720,11 +7735,14 @@ fn fp_focus(m: &azul_layout::managers::focus_cursor::FocusManager) -> ManagerFin
             )
         }
     };
+    if m.deferred_focus_target.is_some() {
+        population += 1;
+    }
     ManagerFingerprint::new(
         population,
         format!(
-            "focused={focused} pending={:?} cursor_init={} pending_ce={pending_ce}",
-            m.pending_focus_request, m.cursor_needs_initialization
+            "focused={focused} pending={:?} cursor_init={} pending_ce={pending_ce} deferred={:?}",
+            m.pending_focus_request, m.cursor_needs_initialization, m.deferred_focus_target
         ),
     )
 }

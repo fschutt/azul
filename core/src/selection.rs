@@ -486,9 +486,31 @@ impl MultiCursorState {
     /// `move_fn` takes a `TextCursor` and returns the new `TextCursor` after movement.
     /// If `extend_selection` is true, the anchor stays and only the focus moves,
     /// creating or extending a range.
+    ///
+    /// A bare (non-extending) move over an active range COLLAPSES to the range
+    /// boundary — the arrow-key rule. Use [`Self::move_all_cursors_with`] for
+    /// steps where that is wrong (Home/End, document jumps).
     pub fn move_all_cursors(
         &mut self,
         extend_selection: bool,
+        move_fn: impl Fn(&TextCursor) -> TextCursor,
+    ) {
+        self.move_all_cursors_with(extend_selection, true, move_fn);
+    }
+
+    /// [`Self::move_all_cursors`], with control over what a bare move does to
+    /// an active range.
+    ///
+    /// `collapse_range_to_boundary` is the arrow-key rule: Left/Right with a
+    /// selection put the caret on the selection's edge and go no further.
+    /// Every OTHER step — Home/End, Ctrl+Home/End, a visual line, a word — is a
+    /// MOVEMENT and must be performed: collapsing them to the nearest edge is
+    /// how pressing End with text selected used to leave the caret sitting at
+    /// the end of the selection instead of the end of the line.
+    pub fn move_all_cursors_with(
+        &mut self,
+        extend_selection: bool,
+        collapse_range_to_boundary: bool,
         move_fn: impl Fn(&TextCursor) -> TextCursor,
     ) {
         for sel in &mut self.selections {
@@ -517,7 +539,7 @@ impl MultiCursorState {
                                 end: new_end,
                             });
                         }
-                    } else {
+                    } else if collapse_range_to_boundary {
                         // Bare arrow with an active selection collapses the caret
                         // to the selection boundary in the arrow's direction WITHOUT
                         // advancing a character (standard editor behavior). Running
@@ -534,6 +556,12 @@ impl MultiCursorState {
                         let probe = move_fn(&r.end);
                         let collapsed = if probe >= r.end { hi } else { lo };
                         sel.selection = Selection::Cursor(collapsed);
+                    } else {
+                        // Home / End / Ctrl+Home / Ctrl+End / a visual line step:
+                        // the caret goes where the step points, measured from the
+                        // focus. The boundary collapse above would strand it on
+                        // the selection's edge instead.
+                        sel.selection = Selection::Cursor(move_fn(&r.end));
                     }
                 }
             }

@@ -425,9 +425,32 @@ pub struct WaylandWindow {
     /// axis events classify as TrackpadContinuous so the physics timer
     /// applies deltas directly (OS/compositor momentum) instead of wheel
     /// impulses; axis_stop then emits TrackpadEnd for rubber-band
-    /// spring-back. Sticky across frames — compositors resend the source
-    /// with every scroll frame from a given device.
+    /// spring-back.
+    ///
+    /// Reset to `wheel` by `handle_pointer_frame`. The protocol scopes
+    /// axis_source to ONE frame ("carries the source information for all events
+    /// within that frame"); when it was sticky instead, the first wheel tick
+    /// after any trackpad scroll inherited TrackpadContinuous and scrolled with
+    /// touchpad physics.
     current_axis_source: u32,
+    /// Axis deltas accumulated within the current wl_pointer frame, in the
+    /// engine's raw-delta convention (sign already flipped).
+    ///
+    /// A wl_pointer frame is the atomic unit: a diagonal trackpad scroll carries
+    /// X and Y in ONE frame and must produce ONE scroll, not two full event
+    /// passes with two synthetic Scroll dispatches.
+    pending_axis_value: (f32, f32),
+    /// `wl_pointer.axis_discrete` detents accumulated in the current frame, same
+    /// sign convention as `pending_axis_value`. Non-zero only for ratcheting
+    /// wheels; it is what lets the flush convert to the shared 20px-per-detent
+    /// magnitude instead of the compositor's raw ~10-15px axis value.
+    pending_axis_discrete: (f32, f32),
+    /// Whether the current frame carries any axis input to flush.
+    pending_axis: bool,
+    /// Bound `wl_seat` version. `wl_pointer.frame` and `.axis_discrete` are v5+;
+    /// on an older seat no frame event ever arrives, so the axis accumulator has
+    /// to flush itself per event instead of waiting forever.
+    seat_version: u32,
     data_device_version: u32,
     data_device_initialized: bool,
     drag: events::WaylandDragState,
@@ -706,6 +729,40 @@ pub struct WaylandPopup {
 }
 
 // Event Handler Types
+
+/// `wl_pointer.axis` axis values.
+const WL_POINTER_AXIS_VERTICAL_SCROLL: u32 = 0;
+const WL_POINTER_AXIS_HORIZONTAL_SCROLL: u32 = 1;
+
+/// `wl_pointer.axis_source` values.
+const WL_AXIS_SOURCE_WHEEL: u32 = 0;
+const WL_AXIS_SOURCE_FINGER: u32 = 1;
+const WL_AXIS_SOURCE_CONTINUOUS: u32 = 2;
+
+/// Pixels per discrete wheel detent — the shared cross-backend constant.
+const WHEEL_TICK_PIXELS: f32 =
+    crate::desktop::shell2::common::event::WHEEL_SCROLL_PIXELS_PER_LINE;
+
+/// `wl_pointer.frame` and `.axis_discrete` were both added in wl_seat v5.
+const WL_POINTER_FRAME_SINCE_VERSION: u32 = 5;
+
+/// Write the down-flag of exactly ONE mouse button, leaving the others untouched.
+///
+/// Every button transition — press and release alike — must go through here.
+/// Broadcasting `button == X` across all three flags is what turned "press Right
+/// while Left is held" into a phantom LeftMouseUp in the state diff.
+fn set_mouse_button_down(
+    mouse_state: &mut azul_core::window::MouseState,
+    button: MouseButton,
+    down: bool,
+) {
+    match button {
+        MouseButton::Left => mouse_state.left_down = down,
+        MouseButton::Right => mouse_state.right_down = down,
+        MouseButton::Middle => mouse_state.middle_down = down,
+        MouseButton::Other(_) => {}
+    }
+}
 
 // XKB Keyboard Translation
 
@@ -1049,81 +1106,11 @@ impl WaylandWindow {
         format!(" [protocol error: {name}@{id} code {code}]")
     }
 
-    pub fn present(&mut self) -> Result<(), WindowError> {
-        let fractional = self.fractional_scale_active();
-        let (logical_w, logical_h) = {
-            let d = &self.common.current_window_state.size.dimensions;
-            (d.width as i32, d.height as i32)
-        };
-        let result = match &mut self.render_mode {
-            RenderMode::Gpu(gl_context, _) => gl_context.swap_buffers(),
-            RenderMode::Cpu(Some(cpu_state)) => {
-                // Buffer already rendered by render_frame_if_ready — just submit
-                unsafe {
-                    (self.wayland.wl_surface_attach)(self.surface, cpu_state.active_buffer(), 0, 0);
-                    *cpu_state.slots[cpu_state.active].busy = true;
-                    // Per-rect damage from the last render pass (buffer px);
-                    // empty = the frame is unchanged (nothing to recomposite).
-                    let surface_version =
-                        (self.wayland.wl_proxy_get_version)(self.surface as *mut defines::wl_proxy);
-                    let scale = cpu_state.scale.max(1);
-                    if fractional {
-                        // Viewport fractional scaling: buffer scale MUST be 1
-                        // (reset any stale integer value) and the viewport
-                        // maps the physical buffer to the logical size.
-                        if surface_version >= 3 {
-                            (self.wayland.wl_surface_set_buffer_scale)(self.surface, 1);
-                        }
-                        if let Some(vp) = self.viewport {
-                            wp_viewport_set_destination(
-                                &self.wayland, vp, logical_w, logical_h,
-                            );
-                        }
-                    } else if surface_version >= 3 && scale > 1 {
-                        (self.wayland.wl_surface_set_buffer_scale)(self.surface, scale);
-                    }
-                    for (dx, dy, dw, dh) in cpu_state.damage_rects.drain(..) {
-                        if surface_version >= 4 {
-                            (self.wayland.wl_surface_damage_buffer)(self.surface, dx, dy, dw, dh);
-                        } else {
-                            let x0 = dx.div_euclid(scale);
-                            let y0 = dy.div_euclid(scale);
-                            let x1 = (dx + dw + scale - 1).div_euclid(scale);
-                            let y1 = (dy + dh + scale - 1).div_euclid(scale);
-                            (self.wayland.wl_surface_damage)(self.surface, x0, y0, x1 - x0, y1 - y0);
-                        }
-                    }
-                    (self.wayland.wl_surface_commit)(self.surface);
-                }
-                Ok(())
-            }
-            RenderMode::Cpu(None) => {
-                // CPU fallback not yet initialized - wait for wl_shm from registry
-                Ok(())
-            }
-        };
-
-        // Clean up old textures from previous epochs to prevent memory leak
-        // This must happen AFTER render() and buffer swap when WebRender no longer needs the textures
-        if let Some(ref layout_window) = self.common.layout_window {
-            crate::desktop::gl_texture_integration::remove_old_gl_textures(
-                &layout_window.document_id,
-                layout_window.epoch,
-            );
-        }
-
-        // CI-only escape hatch: exit after first successful frame render.
-        // Intentionally uses process::exit() to skip Drop impls for fast CI shutdown.
-        if result.is_ok() && std::env::var("AZ_EXIT_SUCCESS_AFTER_FRAME_RENDER").is_ok() {
-            log_info!(
-                LogCategory::Platform,
-                "[CI] AZ_EXIT_SUCCESS_AFTER_FRAME_RENDER set - exiting with success"
-            );
-            std::process::exit(0);
-        }
-
-        result
-    }
+    // NOTE: `WaylandWindow::present` is deliberately GONE (with its sole
+    // caller `LinuxWindow::present`). The real present path is
+    // `generate_frame_if_needed` → `render_and_present`; the deleted body
+    // attached buffers without a busy check, bypassed the frame-callback
+    // latch, and hard-exited on AZ_EXIT_SUCCESS_AFTER_FRAME_RENDER.
 
     pub fn is_open(&self) -> bool {
         self.is_open
@@ -1665,6 +1652,7 @@ impl WaylandWindow {
                     active_route: azul_core::resources::OptionRouteMatch::None,
                 },
                 previous_window_state: None,
+                os_synced_state: None,
                 layout_window: Some(layout_window),
                 render_api: None,
                 renderer: None,
@@ -1701,6 +1689,10 @@ impl WaylandWindow {
             clipboard_source: std::ptr::null_mut(),
             last_input_serial: 0,
             current_axis_source: 0,
+            pending_axis_value: (0.0, 0.0),
+            pending_axis_discrete: (0.0, 0.0),
+            pending_axis: false,
+            seat_version: 0,
             data_device_version: 0,
             data_device_initialized: false,
             drag: events::WaylandDragState::default(),
@@ -2852,6 +2844,11 @@ impl WaylandWindow {
             self.common.current_window_state
                 .keyboard_state
                 .current_virtual_keycode = OptionVirtualKeyCode::None;
+            // SANCTIONED SWALLOW: no translation possible, no event owed.
+            {
+                use crate::desktop::shell2::common::event::PlatformWindow as _;
+                self.discard_input_delta("wayland.handle_key.xkb_null");
+            }
             return;
         }
 
@@ -2862,24 +2859,41 @@ impl WaylandWindow {
         let virtual_keycode = translate_keysym_to_virtual_keycode(keysym);
 
         // Client-side key repeat: arm on press of a repeatable key, disarm
-        // when THAT key is released. Modifiers don't repeat.
+        // when THAT key is released. The keymap decides what repeats — modifiers,
+        // Compose, dead keys and level-switch keys are all non-repeating there,
+        // and only the keymap knows which of them a given layout defines.
         {
-            use azul_core::window::VirtualKeyCode as VK;
-            let is_modifier = matches!(
-                virtual_keycode,
-                VK::LShift
-                    | VK::RShift
-                    | VK::LControl
-                    | VK::RControl
-                    | VK::LAlt
-                    | VK::RAlt
-                    | VK::LWin
-                    | VK::RWin
-                    | VK::Capital
-                    | VK::Numlock
-                    | VK::Scroll
-            );
-            if is_pressed && !is_modifier {
+            // The shared `Xkb` binding (one dlopen path per library — the
+            // codebase convention) resolves the symbol; the fallback below
+            // only covers a still-missing keymap.
+            let repeats = match (
+                Some(self.xkb.xkb_keymap_key_repeats),
+                self.keyboard_state.keymap.is_null(),
+            ) {
+                (Some(key_repeats), false) => unsafe {
+                    key_repeats(self.keyboard_state.keymap, xkb_keycode) != 0
+                },
+                // No keymap / symbol unavailable: fall back to "everything except
+                // the modifiers we can name repeats".
+                _ => {
+                    use azul_core::window::VirtualKeyCode as VK;
+                    !matches!(
+                        virtual_keycode,
+                        VK::LShift
+                            | VK::RShift
+                            | VK::LControl
+                            | VK::RControl
+                            | VK::LAlt
+                            | VK::RAlt
+                            | VK::LWin
+                            | VK::RWin
+                            | VK::Capital
+                            | VK::Numlock
+                            | VK::Scroll
+                    )
+                }
+            };
+            if is_pressed && repeats {
                 self.arm_key_repeat(key);
             } else if !is_pressed && self.key_repeat_keycode == Some(key) {
                 self.disarm_key_repeat();
@@ -2893,6 +2907,11 @@ impl WaylandWindow {
             && self.active_popup.is_some()
         {
             self.dismiss_active_popup();
+            // SANCTIONED SWALLOW: the popup consumed the key.
+            {
+                use crate::desktop::shell2::common::event::PlatformWindow as _;
+                self.discard_input_delta("wayland.handle_key.popup_escape");
+            }
             return;
         }
 
@@ -2919,15 +2938,24 @@ impl WaylandWindow {
                     }
                 }
             }
+            // SANCTIONED SWALLOW: the popup consumed the key.
+            {
+                use crate::desktop::shell2::common::event::PlatformWindow as _;
+                self.discard_input_delta("wayland.handle_key.popup_route");
+            }
             return;
         }
 
-        self.common.current_window_state
-            .keyboard_state
-            .current_virtual_keycode = OptionVirtualKeyCode::Some(virtual_keycode);
-
-        // Update pressed_virtual_keycodes and pressed_scancodes lists
+        // Update current_virtual_keycode + the pressed_virtual_keycodes /
+        // pressed_scancodes lists. current_virtual_keycode MUST be cleared on
+        // release: the shared diff derives VirtualKeyUp from
+        // `previous.is_some() && current.is_none()`, and a leftover Some(vk) also
+        // swallows the next discrete press of the SAME key (no Some → Some delta),
+        // which is why Backspace/Enter/arrows only registered every other tap.
         if is_pressed {
+            self.common.current_window_state
+                .keyboard_state
+                .current_virtual_keycode = OptionVirtualKeyCode::Some(virtual_keycode);
             // Add key to pressed lists
             self.common.current_window_state
                 .keyboard_state
@@ -2938,6 +2966,9 @@ impl WaylandWindow {
                 .pressed_scancodes
                 .insert_hm_item(key);
         } else {
+            self.common.current_window_state
+                .keyboard_state
+                .current_virtual_keycode = OptionVirtualKeyCode::None;
             // Remove key from pressed lists
             self.common.current_window_state
                 .keyboard_state
@@ -3055,6 +3086,47 @@ impl WaylandWindow {
             }
             ProcessEventResult::DoNothing => {}
         }
+
+        self.sync_ime_after_input();
+    }
+
+    /// Keep the IME in step with the FOCUS and the CARET, not with DOM
+    /// regeneration.
+    ///
+    /// `sync_text_input_v3_focus_state` / `update_ime_position_from_cursor` used
+    /// to run only from `regenerate_layout_inner`. Clicking into a
+    /// contenteditable normally produces a re-render, not a regeneration, so
+    /// `zwp_text_input_v3.enable()` was deferred until some unrelated DOM rebuild
+    /// happened to occur — CJK composition had nothing to attach to — and the
+    /// cursor rectangle went stale while typing. This runs at the end of every
+    /// input pass instead, after any incremental relayout above has refreshed
+    /// the caret geometry.
+    ///
+    /// The early-out keeps it off the mouse-motion hot path, and the rectangle
+    /// only goes on the wire when it actually moved: `sync_ime_position_to_os`
+    /// marshals + commits + flushes on every call.
+    fn sync_ime_after_input(&mut self) {
+        let editing = self
+            .common
+            .layout_window
+            .as_ref()
+            .map(|lw| lw.text_edit_manager.has_active_editing())
+            .unwrap_or(false);
+        if !editing && !self.text_input_enabled {
+            return;
+        }
+
+        let was_enabled = self.text_input_enabled;
+        let old_position = self.common.current_window_state.ime_position;
+
+        self.update_ime_position_from_cursor();
+        self.sync_text_input_v3_focus_state();
+
+        if self.text_input_enabled
+            && (!was_enabled || self.common.current_window_state.ime_position != old_position)
+        {
+            self.sync_ime_position_to_os();
+        }
     }
 
     /// Handle pointer motion event
@@ -3125,6 +3197,7 @@ impl WaylandWindow {
     /// Clear all touch points (cancel — compositor took over the sequence).
     pub fn handle_touch_cancel(&mut self) {
         use azul_core::window::TouchPointVec;
+        self.common.previous_window_state = Some(self.common.current_window_state.clone());
         let ts = &mut self.common.current_window_state.touch_state;
         ts.touch_points = TouchPointVec::from_vec(Vec::new());
         ts.num_touches = 0;
@@ -3132,6 +3205,12 @@ impl WaylandWindow {
         if let Some(lw) = self.common.layout_window.as_mut() {
             lw.gesture_drag_manager.touch_cancel_all();
         }
+        // Same contract as handle_touch_point / handle_touch_up: without the pass
+        // the cancel's own touch_state delta was erased by the next handler's
+        // snapshot, so a compositor-stolen gesture left the app mid-drag (and the
+        // repaint that routing the result brings never happened either).
+        let result = self.process_window_events(0);
+        self.handle_process_event_result(result);
     }
 
     /// Feed the accumulated tablet pen state on the tool's `frame` event.
@@ -3191,6 +3270,10 @@ impl WaylandWindow {
             // no-op and the redraw-only variants still request_redraw, so plain
             // scrollbar drags behave exactly as before.
             self.handle_process_event_result(result);
+            // SANCTIONED SWALLOW: the thumb drag consumed this motion; the
+            // cursor delta must not surface as a MouseMove event later.
+            use crate::desktop::shell2::common::event::PlatformWindow as _;
+            self.discard_input_delta("wayland.pointer_motion.scrollbar_drag");
             return;
         }
 
@@ -3352,22 +3435,16 @@ impl WaylandWindow {
             }
         }
 
-        if is_down {
-            // Button pressed
-            self.common.current_window_state.mouse_state.left_down = mouse_button == MouseButton::Left;
-            self.common.current_window_state.mouse_state.right_down = mouse_button == MouseButton::Right;
-            self.common.current_window_state.mouse_state.middle_down = mouse_button == MouseButton::Middle;
-            self.pointer_state.button_down = Some(mouse_button);
-        } else {
-            // Button released — only clear the button that was actually released
-            match mouse_button {
-                MouseButton::Left => self.common.current_window_state.mouse_state.left_down = false,
-                MouseButton::Right => self.common.current_window_state.mouse_state.right_down = false,
-                MouseButton::Middle => self.common.current_window_state.mouse_state.middle_down = false,
-                _ => {}
-            }
-            self.pointer_state.button_down = None;
-        }
+        // Only the button that actually changed may be written. Assigning all
+        // three from `mouse_button == …` cleared the OTHER buttons, so pressing
+        // Right while Left was held made the state diff synthesize a phantom
+        // LeftMouseUp — drags and text selections died mid-gesture.
+        set_mouse_button_down(
+            &mut self.common.current_window_state.mouse_state,
+            mouse_button,
+            is_down,
+        );
+        self.pointer_state.button_down = if is_down { Some(mouse_button) } else { None };
 
         // Record input sample for gesture detection
         let button_state = match mouse_button {
@@ -3383,17 +3460,11 @@ impl WaylandWindow {
         self.handle_process_event_result(result);
     }
 
-    /// Handle pointer axis (scroll) event
+    /// Accumulate one `wl_pointer.axis` event into the current pointer frame.
+    ///
+    /// Nothing is dispatched here — `handle_pointer_frame` flushes the frame as a
+    /// single scroll. See [`Self::pending_axis_value`].
     pub fn handle_pointer_axis(&mut self, axis: u32, value: f64) {
-        use azul_css::OptionF32;
-
-        const WL_POINTER_AXIS_VERTICAL_SCROLL: u32 = 0;
-        const WL_POINTER_AXIS_HORIZONTAL_SCROLL: u32 = 1;
-
-        // Save previous state BEFORE making changes
-        self.common.previous_window_state = Some(self.common.current_window_state.clone());
-
-        // Determine scroll delta based on axis.
         // MWA-B13: wl_pointer.axis is POSITIVE toward bottom/right (the
         // "natural" content direction), but azul's raw-delta chokepoint uses
         // the X11 convention (button 4 / up = +1, button 5 / down = −1) —
@@ -3401,11 +3472,91 @@ impl WaylandWindow {
         // value through unsigned inverted every wheel/trackpad scroll on
         // Wayland. NEEDS-RUNTIME-VERIFY: direction on a real compositor
         // (with and without natural-scroll enabled).
-        let (delta_x, delta_y) = match axis {
-            WL_POINTER_AXIS_HORIZONTAL_SCROLL => (-(value as f32), 0.0),
-            WL_POINTER_AXIS_VERTICAL_SCROLL => (0.0, -(value as f32)),
-            _ => (0.0, 0.0),
+        match axis {
+            WL_POINTER_AXIS_HORIZONTAL_SCROLL => {
+                self.pending_axis_value.0 -= value as f32;
+            }
+            WL_POINTER_AXIS_VERTICAL_SCROLL => {
+                self.pending_axis_value.1 -= value as f32;
+            }
+            _ => return,
+        }
+        self.pending_axis = true;
+        // No wl_pointer.frame on a pre-v5 seat — nothing would ever flush this.
+        if self.seat_version < WL_POINTER_FRAME_SINCE_VERSION {
+            self.flush_pending_axis();
+        }
+    }
+
+    /// Accumulate one `wl_pointer.axis_discrete` (detent count) into the frame.
+    pub fn handle_pointer_axis_discrete(&mut self, axis: u32, discrete: i32) {
+        match axis {
+            WL_POINTER_AXIS_HORIZONTAL_SCROLL => {
+                self.pending_axis_discrete.0 -= discrete as f32;
+            }
+            WL_POINTER_AXIS_VERTICAL_SCROLL => {
+                self.pending_axis_discrete.1 -= discrete as f32;
+            }
+            _ => return,
+        }
+        self.pending_axis = true;
+    }
+
+    /// `wl_pointer.frame` — the frame is complete. Flush its accumulated axis
+    /// input and drop the frame-scoped axis source.
+    pub fn handle_pointer_frame(&mut self) {
+        self.flush_pending_axis();
+        self.current_axis_source = WL_AXIS_SOURCE_WHEEL;
+    }
+
+    /// Dispatch the axis input accumulated in the current pointer frame as ONE
+    /// scroll, then run a single event pass.
+    fn flush_pending_axis(&mut self) {
+        if !self.pending_axis {
+            return;
+        }
+        self.pending_axis = false;
+        let (raw_x, raw_y) = std::mem::replace(&mut self.pending_axis_value, (0.0, 0.0));
+        let (disc_x, disc_y) = std::mem::replace(&mut self.pending_axis_discrete, (0.0, 0.0));
+
+        let is_trackpad = self.current_axis_source == WL_AXIS_SOURCE_FINGER
+            || self.current_axis_source == WL_AXIS_SOURCE_CONTINUOUS;
+
+        // MAGNITUDE: a ratcheting wheel detent is worth WHEEL_TICK_PIXELS
+        // everywhere else (X11 button 4/5 = ±1 × 20, Win32 = WHEEL_DELTA/120 ×
+        // 20). The raw wl axis value for one detent is compositor-defined
+        // (~10-15 px), so the same wheel scrolled a different distance on
+        // Wayland than on X11. axis_discrete carries the detent count, which is
+        // the only compositor-independent quantity available here; without it
+        // (older compositor, or a continuous source) fall back to the raw value.
+        let (delta_x, delta_y) = if !is_trackpad && (disc_x != 0.0 || disc_y != 0.0) {
+            (
+                disc_x * WHEEL_TICK_PIXELS,
+                disc_y * WHEEL_TICK_PIXELS,
+            )
+        } else {
+            // Trackpad deltas are already pixel distances — pass them through.
+            (raw_x, raw_y)
         };
+
+        if delta_x == 0.0 && delta_y == 0.0 {
+            return;
+        }
+
+        // Save previous state BEFORE making changes
+        self.common.previous_window_state = Some(self.common.current_window_state.clone());
+
+        // The scroll target is whatever is under the cursor NOW. Reusing the
+        // hover manager's last hit test meant a stationary cursor over content
+        // that had scrolled/relaid-out beneath it kept scrolling the node that
+        // used to be there (X11 re-runs the hit test for exactly this reason).
+        let hover_pos = match self.common.current_window_state.mouse_state.cursor_position {
+            CursorPosition::InWindow(pos) => Some(pos),
+            _ => None,
+        };
+        if let Some(pos) = hover_pos {
+            self.update_hit_test(pos);
+        }
 
         // Queue scroll input for the physics timer instead of directly setting offsets.
         {
@@ -3423,14 +3574,16 @@ impl WaylandWindow {
                 // scrolling) deltas are position deltas, not wheel ticks;
                 // treating them as WheelDiscrete stacked velocity impulses
                 // and made touchpad scrolling fly. axis_stop → TrackpadEnd.
-                const WL_AXIS_SOURCE_FINGER: u32 = 1;
-                const WL_AXIS_SOURCE_CONTINUOUS: u32 = 2;
-                let source = if self.current_axis_source == WL_AXIS_SOURCE_FINGER
-                    || self.current_axis_source == WL_AXIS_SOURCE_CONTINUOUS
-                {
-                    ScrollInputSource::TrackpadContinuous
+                let (source, device) = if is_trackpad {
+                    (
+                        ScrollInputSource::TrackpadContinuous,
+                        azul_layout::managers::scroll_state::ScrollInputDevice::Touchpad,
+                    )
                 } else {
-                    ScrollInputSource::WheelDiscrete
+                    (
+                        ScrollInputSource::WheelDiscrete,
+                        azul_layout::managers::scroll_state::ScrollInputDevice::MouseWheel,
+                    )
                 };
 
                 if let Some((_dom_id, _node_id, start_timer)) =
@@ -3439,15 +3592,7 @@ impl WaylandWindow {
                         delta_x,
                         delta_y,
                         source,
-                        // Provenance mirrors the wl_pointer.axis_source
-                        // classification above.
-                        if self.current_axis_source == WL_AXIS_SOURCE_FINGER
-                            || self.current_axis_source == WL_AXIS_SOURCE_CONTINUOUS
-                        {
-                            azul_layout::managers::scroll_state::ScrollInputDevice::Touchpad
-                        } else {
-                            azul_layout::managers::scroll_state::ScrollInputDevice::MouseWheel
-                        },
+                        device,
                         &layout_window.hover_manager,
                         &InputPointId::Mouse,
                         now,
@@ -3504,8 +3649,10 @@ impl WaylandWindow {
         use azul_layout::managers::hover::InputPointId;
         use azul_layout::managers::scroll_state::ScrollInputSource;
 
-        const WL_AXIS_SOURCE_FINGER: u32 = 1;
-        const WL_AXIS_SOURCE_CONTINUOUS: u32 = 2;
+        // axis_stop rides in the same frame as any axis events that preceded it,
+        // and TrackpadEnd is only meaningful AFTER them.
+        self.flush_pending_axis();
+
         if self.current_axis_source != WL_AXIS_SOURCE_FINGER
             && self.current_axis_source != WL_AXIS_SOURCE_CONTINUOUS
         {
@@ -3578,6 +3725,17 @@ impl WaylandWindow {
         self.common.previous_window_state = Some(self.common.current_window_state.clone());
         self.common.current_window_state.window_focused = false;
         self.dynamic_selector_context.window_focused = false;
+        // Every held key is released somewhere we will never hear about, so drop
+        // them all now. Engine modifiers are DERIVED from pressed_virtual_keycodes
+        // (core/src/window.rs, KeyboardState::*_down) — leaving Ctrl in the list
+        // made the whole app behave as if Ctrl were held forever after an
+        // Alt-Tab away with a modifier down.
+        self.common.current_window_state.keyboard_state.pressed_virtual_keycodes =
+            azul_core::window::VirtualKeyCodeVec::new();
+        self.common.current_window_state.keyboard_state.pressed_scancodes =
+            azul_core::window::ScanCodeVec::new();
+        self.common.current_window_state.keyboard_state.current_virtual_keycode =
+            azul_core::window::OptionVirtualKeyCode::None;
         // MWA-A3b: forward to AT-SPI — accesskit_unix never learns window
         // focus on its own (Orca got no focus events on Wayland).
         #[cfg(feature = "a11y")]
@@ -3791,10 +3949,34 @@ impl WaylandWindow {
         Some(String::from_utf8_lossy(&bytes).into_owned())
     }
 
-    pub fn handle_keyboard_enter(&mut self) {
+    /// Handle keyboard enter event (window gained focus).
+    ///
+    /// `held_scancodes` are the evdev keycodes the compositor reports as already
+    /// down at focus time (the `wl_keyboard.enter` keys array). They get no press
+    /// events, so they must be seeded here or the engine's derived modifier set
+    /// stays wrong until each of them is released.
+    pub fn handle_keyboard_enter(&mut self, held_scancodes: &[u32]) {
         self.common.previous_window_state = Some(self.common.current_window_state.clone());
         self.common.current_window_state.window_focused = true;
         self.dynamic_selector_context.window_focused = true;
+
+        let xkb_state = self.keyboard_state.state;
+        for &scancode in held_scancodes {
+            self.common.current_window_state
+                .keyboard_state
+                .pressed_scancodes
+                .insert_hm_item(scancode);
+            if xkb_state.is_null() {
+                continue;
+            }
+            // XKB keycode = evdev keycode + 8 (same offset as handle_key).
+            let keysym =
+                unsafe { (self.xkb.xkb_state_key_get_one_sym)(xkb_state, scancode + 8) };
+            self.common.current_window_state
+                .keyboard_state
+                .pressed_virtual_keycodes
+                .insert_hm_item(translate_keysym_to_virtual_keycode(keysym));
+        }
         // MWA-A3b: mirror of handle_keyboard_leave — forward focus to AT-SPI.
         #[cfg(feature = "a11y")]
         self.accessibility_adapter.set_focus(true);
@@ -4139,8 +4321,9 @@ impl WaylandWindow {
     /// - size (via GL context / CPU buffer)
     /// - background_material (via apply_background_material)
     ///
-    /// This method applies the remaining fields and sets previous_window_state
-    /// so that sync_window_state() works correctly for future changes.
+    /// This method applies the remaining fields and seeds both baselines
+    /// (event-diff and OS-sync) so that sync_window_state() works correctly for
+    /// future changes.
     fn apply_initial_window_state(&mut self) {
         use azul_core::geom::OptionLogicalSize;
         use azul_core::window::WindowFrame;
@@ -4214,8 +4397,13 @@ impl WaylandWindow {
             }
         }
 
-        // CRITICAL: Set previous_window_state so sync_window_state() works for future changes
+        // Seed BOTH baselines: the event-diff one (so the first pass has
+        // something to diff against) and the OS-sync one — everything above is
+        // now applied on the toplevel, so sync_window_state() must not re-push
+        // it. Until mark_os_synced() has run, take_os_sync_diff() answers None
+        // and nothing is pushed at the compositor.
         self.common.previous_window_state = Some(self.common.current_window_state.clone());
+        self.common.mark_os_synced();
     }
 
     /// Synchronize window state with Wayland compositor
@@ -4224,146 +4412,122 @@ impl WaylandWindow {
     pub fn sync_window_state(&mut self) {
         use azul_core::window::WindowFrame;
 
+        // Diff against the OS-SYNC baseline, not the event baseline:
+        // `previous_window_state` is advanced by every completed event pass and
+        // is free to hold a live delta, so diffing it here would push (and echo)
+        // state the compositor itself just reported in a configure.
+        // `take_os_sync_diff` hands over (baseline, current) and advances the
+        // baseline in the same call.
+        let (previous, current) = match self.common.take_os_sync_diff() {
+            Some(pair) => pair,
+            None => return, // First frame, nothing to sync
+        };
+
         // Note: Wayland state changes must be committed
         let mut needs_commit = false;
 
         // Sync title
-        if let Some(prev) = &self.common.previous_window_state {
-            if prev.title != self.common.current_window_state.title {
-                let c_title = match std::ffi::CString::new(self.common.current_window_state.title.as_str())
-                {
-                    Ok(s) => s,
-                    Err(_) => return,
-                };
-                unsafe {
-                    (self.wayland.xdg_toplevel_set_title)(self.xdg_toplevel, c_title.as_ptr());
-                }
-                needs_commit = true;
+        if previous.title != current.title {
+            let c_title = match std::ffi::CString::new(current.title.as_str()) {
+                Ok(s) => s,
+                Err(_) => return,
+            };
+            unsafe {
+                (self.wayland.xdg_toplevel_set_title)(self.xdg_toplevel, c_title.as_ptr());
             }
-
-            // Window frame state changed? (Minimize/Maximize/Normal/Fullscreen)
-            if prev.flags.frame != self.common.current_window_state.flags.frame {
-                match self.common.current_window_state.flags.frame {
-                    WindowFrame::Minimized => {
-                        unsafe {
-                            (self.wayland.xdg_toplevel_set_minimized)(self.xdg_toplevel);
-                        }
-                    }
-                    WindowFrame::Maximized => {
-                        // If previously fullscreen, unset fullscreen first
-                        if prev.flags.frame == WindowFrame::Fullscreen {
-                            unsafe {
-                                (self.wayland.xdg_toplevel_unset_fullscreen)(self.xdg_toplevel);
-                            }
-                        }
-                        unsafe {
-                            (self.wayland.xdg_toplevel_set_maximized)(self.xdg_toplevel);
-                        }
-                    }
-                    WindowFrame::Fullscreen => {
-                        // If previously maximized, unset maximized first
-                        if prev.flags.frame == WindowFrame::Maximized {
-                            unsafe {
-                                (self.wayland.xdg_toplevel_unset_maximized)(self.xdg_toplevel);
-                            }
-                        }
-                        unsafe {
-                            (self.wayland.xdg_toplevel_set_fullscreen)(
-                                self.xdg_toplevel,
-                                std::ptr::null_mut(), // NULL = current output
-                            );
-                        }
-                    }
-                    WindowFrame::Normal => {
-                        if prev.flags.frame == WindowFrame::Maximized {
-                            unsafe {
-                                (self.wayland.xdg_toplevel_unset_maximized)(self.xdg_toplevel);
-                            }
-                        }
-                        if prev.flags.frame == WindowFrame::Fullscreen {
-                            unsafe {
-                                (self.wayland.xdg_toplevel_unset_fullscreen)(self.xdg_toplevel);
-                            }
-                        }
-                        // Note: Wayland has no explicit "unminimize" — the compositor handles it
-                    }
-                }
-                needs_commit = true;
-            }
-
-            // Min dimensions changed?
-            if prev.size.min_dimensions != self.common.current_window_state.size.min_dimensions {
-                use azul_core::geom::OptionLogicalSize;
-                let (w, h) = match self.common.current_window_state.size.min_dimensions {
-                    OptionLogicalSize::Some(dims) => (dims.width as i32, dims.height as i32),
-                    OptionLogicalSize::None => (0, 0), // 0 = no minimum
-                };
-                unsafe {
-                    (self.wayland.xdg_toplevel_set_min_size)(self.xdg_toplevel, w, h);
-                }
-                needs_commit = true;
-            }
-
-            // Max dimensions changed?
-            if prev.size.max_dimensions != self.common.current_window_state.size.max_dimensions {
-                use azul_core::geom::OptionLogicalSize;
-                let (w, h) = match self.common.current_window_state.size.max_dimensions {
-                    OptionLogicalSize::Some(dims) => (dims.width as i32, dims.height as i32),
-                    OptionLogicalSize::None => (0, 0), // 0 = no maximum
-                };
-                unsafe {
-                    (self.wayland.xdg_toplevel_set_max_size)(self.xdg_toplevel, w, h);
-                }
-                needs_commit = true;
-            }
+            needs_commit = true;
         }
 
-        // Check window flags for is_top_level and other changes
-        // We extract all values first to avoid borrow conflicts
-        let flag_changes = self.common.previous_window_state.as_ref().map(|prev| {
-            let is_top_level_changed =
-                prev.flags.is_top_level != self.common.current_window_state.flags.is_top_level;
-            let prevent_sleep_changed = prev.flags.prevent_system_sleep
-                != self.common.current_window_state.flags.prevent_system_sleep;
-            let background_material_changed = prev.flags.background_material
-                != self.common.current_window_state.flags.background_material;
-            let new_is_top_level = self.common.current_window_state.flags.is_top_level;
-            let new_prevent_sleep = self.common.current_window_state.flags.prevent_system_sleep;
-            let new_background_material = self.common.current_window_state.flags.background_material;
-
-            (
-                is_top_level_changed,
-                new_is_top_level,
-                prevent_sleep_changed,
-                new_prevent_sleep,
-                background_material_changed,
-                new_background_material,
-            )
-        });
-
-        if let Some((
-            is_top_level_changed,
-            new_is_top_level,
-            prevent_sleep_changed,
-            new_prevent_sleep,
-            background_material_changed,
-            new_background_material,
-        )) = flag_changes
-        {
-            if is_top_level_changed {
-                self.set_is_top_level(new_is_top_level);
+        // Window frame state changed? (Minimize/Maximize/Normal/Fullscreen)
+        if previous.flags.frame != current.flags.frame {
+            match current.flags.frame {
+                WindowFrame::Minimized => {
+                    unsafe {
+                        (self.wayland.xdg_toplevel_set_minimized)(self.xdg_toplevel);
+                    }
+                }
+                WindowFrame::Maximized => {
+                    // If previously fullscreen, unset fullscreen first
+                    if previous.flags.frame == WindowFrame::Fullscreen {
+                        unsafe {
+                            (self.wayland.xdg_toplevel_unset_fullscreen)(self.xdg_toplevel);
+                        }
+                    }
+                    unsafe {
+                        (self.wayland.xdg_toplevel_set_maximized)(self.xdg_toplevel);
+                    }
+                }
+                WindowFrame::Fullscreen => {
+                    // If previously maximized, unset maximized first
+                    if previous.flags.frame == WindowFrame::Maximized {
+                        unsafe {
+                            (self.wayland.xdg_toplevel_unset_maximized)(self.xdg_toplevel);
+                        }
+                    }
+                    unsafe {
+                        (self.wayland.xdg_toplevel_set_fullscreen)(
+                            self.xdg_toplevel,
+                            std::ptr::null_mut(), // NULL = current output
+                        );
+                    }
+                }
+                WindowFrame::Normal => {
+                    if previous.flags.frame == WindowFrame::Maximized {
+                        unsafe {
+                            (self.wayland.xdg_toplevel_unset_maximized)(self.xdg_toplevel);
+                        }
+                    }
+                    if previous.flags.frame == WindowFrame::Fullscreen {
+                        unsafe {
+                            (self.wayland.xdg_toplevel_unset_fullscreen)(self.xdg_toplevel);
+                        }
+                    }
+                    // Note: Wayland has no explicit "unminimize" — the compositor handles it
+                }
             }
+            needs_commit = true;
+        }
 
-            // Check window flags for prevent_system_sleep
-            if prevent_sleep_changed {
-                self.set_prevent_system_sleep(new_prevent_sleep);
+        // Min dimensions changed?
+        if previous.size.min_dimensions != current.size.min_dimensions {
+            use azul_core::geom::OptionLogicalSize;
+            let (w, h) = match current.size.min_dimensions {
+                OptionLogicalSize::Some(dims) => (dims.width as i32, dims.height as i32),
+                OptionLogicalSize::None => (0, 0), // 0 = no minimum
+            };
+            unsafe {
+                (self.wayland.xdg_toplevel_set_min_size)(self.xdg_toplevel, w, h);
             }
+            needs_commit = true;
+        }
 
-            // Background material changed? (transparency/blur effects)
-            if background_material_changed {
-                self.apply_background_material(new_background_material);
-                needs_commit = true;
+        // Max dimensions changed?
+        if previous.size.max_dimensions != current.size.max_dimensions {
+            use azul_core::geom::OptionLogicalSize;
+            let (w, h) = match current.size.max_dimensions {
+                OptionLogicalSize::Some(dims) => (dims.width as i32, dims.height as i32),
+                OptionLogicalSize::None => (0, 0), // 0 = no maximum
+            };
+            unsafe {
+                (self.wayland.xdg_toplevel_set_max_size)(self.xdg_toplevel, w, h);
             }
+            needs_commit = true;
+        }
+
+        // Check window flags for is_top_level
+        if previous.flags.is_top_level != current.flags.is_top_level {
+            self.set_is_top_level(current.flags.is_top_level);
+        }
+
+        // Check window flags for prevent_system_sleep
+        if previous.flags.prevent_system_sleep != current.flags.prevent_system_sleep {
+            self.set_prevent_system_sleep(current.flags.prevent_system_sleep);
+        }
+
+        // Background material changed? (transparency/blur effects)
+        if previous.flags.background_material != current.flags.background_material {
+            self.apply_background_material(current.flags.background_material);
+            needs_commit = true;
         }
 
         // Note: Wayland doesn't support direct position control

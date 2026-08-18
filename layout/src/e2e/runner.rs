@@ -962,6 +962,30 @@ impl Runner {
             result = result.max(self.process_window_events(depth + 1));
         }
 
+        // TEXT-EDIT NOTIFICATIONS (port of the DLL's drain): edits committed
+        // outside the text-input record pipeline dispatch their Input event
+        // here, so `On::Input` observes deletions and line breaks too.
+        {
+            let pending = self.layout_window.take_text_edit_notifications();
+            if !pending.is_empty() {
+                let now = self.now();
+                let edit_events: Vec<_> = pending
+                    .into_iter()
+                    .map(|host| {
+                        azul_core::events::SyntheticEvent::new(
+                            azul_core::events::EventType::Input,
+                            azul_core::events::EventSource::User,
+                            host,
+                            now.clone(),
+                            azul_core::events::EventData::None,
+                        )
+                    })
+                    .collect();
+                let (edit_result, _edit_update, _) = self.dispatch_events_propagated(&edit_events);
+                result = result.max(edit_result);
+            }
+        }
+
         // Finalize pending focus changes (caret init for contenteditable) —
         // the DLL's end-of-pass `SystemChange::FinalizePendingFocusChanges`.
         self.layout_window.finalize_pending_focus_changes();
@@ -1449,27 +1473,41 @@ impl Runner {
 
             // === Focus ===
             CallbackChange::SetFocusTarget { target } => {
-                use azul_layout::managers::focus_cursor::resolve_focus_target;
+                use azul_layout::managers::focus_cursor::{
+                    resolve_focus_target_or_defer, FocusResolution,
+                };
                 use azul_layout::managers::scroll_into_view::ScrollIntoViewOptions;
 
                 let now = self.now();
                 let window_state = self.window_state.clone();
                 let lw = &mut self.layout_window;
-                let current_focus = lw.focus_manager.get_focused_node().copied();
-                match resolve_focus_target(target, &lw.layout_results, current_focus) {
-                    Ok(Some(new_focus)) => {
+                // `resolve_focus_target` cannot tell "matched nothing" from "no
+                // layout exists to match against yet": both are `Ok(None)`, and
+                // this arm applied that as CLEAR FOCUS. A `set_focus` issued
+                // before the first layout — the ordinary case for a `create`
+                // callback — therefore vanished, which is what apps papered
+                // over with a short timer. `Deferred` means do NOTHING: the
+                // target is parked on the focus manager and re-resolved by
+                // `finalize_pending_focus_changes` after the next layout pass.
+                match resolve_focus_target_or_defer(
+                    &mut lw.focus_manager,
+                    target,
+                    &lw.layout_results,
+                ) {
+                    Ok(FocusResolution::Resolved(Some(new_focus))) => {
                         lw.focus_manager.set_focused_node(Some(new_focus));
                         lw.scroll_node_into_view(new_focus, ScrollIntoViewOptions::nearest(), now);
                         arm_caret_for_focus(lw, Some(new_focus), &window_state);
                         lw.finalize_pending_focus_changes();
                         ProcessEventResult::ShouldReRenderCurrentWindow
                     }
-                    Ok(None) => {
+                    Ok(FocusResolution::Resolved(None)) => {
                         lw.focus_manager.set_focused_node(None);
                         arm_caret_for_focus(lw, None, &window_state);
                         lw.finalize_pending_focus_changes();
                         ProcessEventResult::ShouldReRenderCurrentWindow
                     }
+                    Ok(FocusResolution::Deferred) => ProcessEventResult::DoNothing,
                     Err(_) => ProcessEventResult::DoNothing,
                 }
             }
@@ -2451,8 +2489,14 @@ impl Runner {
                     .collect();
 
                 let mut result = ProcessEventResult::DoNothing;
-                let (text_changes_result, text_update, _) =
+                let (text_changes_result, text_update, text_prevent_default) =
                     self.dispatch_events_propagated(&text_events);
+                // A callback veto kills the recorded edit — same as the DLL:
+                // clearing it also stops any later apply from landing it late.
+                if text_prevent_default {
+                    self.layout_window.text_input_manager.clear_changeset();
+                    return result.max(text_changes_result);
+                }
                 result = result.max(text_changes_result);
                 if matches!(
                     text_update,
@@ -2629,6 +2673,13 @@ impl Runner {
             }
         }
 
+        // Parity with the DLL's `regenerate_layout` tail: a focus parked
+        // before the FIRST layout is applied right after the layout that made
+        // it resolvable, so the caret is seeded in this very frame.
+        if self.layout_window.focus_manager.has_deferred_focus_target() {
+            self.layout_window.finalize_pending_focus_changes();
+        }
+
         self.render_and_record();
     }
 
@@ -2795,6 +2846,49 @@ impl Runner {
                 }
                 (self.set_focus(None, focused), true)
             }
+            DefaultAction::InsertLineBreakAtCursor { target } => {
+                // Same as the DLL shells: plain-text Enter records a literal
+                // "\n" and applies it directly (the apply tail already ran
+                // this pass). Veto is honored by the !prevent_default gate
+                // around default actions.
+                if let Some(node_id) = target.node.into_crate_internal() {
+                    let old_inline = self
+                        .layout_window
+                        .get_text_before_textinput(target.dom, node_id);
+                    let old_text = self
+                        .layout_window
+                        .extract_text_from_inline_content(&old_inline);
+                    use crate::managers::text_input::TextInputSource;
+                    self.layout_window.text_input_manager.record_input(
+                        *target,
+                        "\n".to_string(),
+                        old_text,
+                        TextInputSource::Keyboard,
+                    );
+                    let changeset_result = self.layout_window.apply_text_changeset();
+                    let mut r = ProcessEventResult::DoNothing;
+                    if !changeset_result.dirty_nodes.is_empty() {
+                        r = if changeset_result.needs_relayout {
+                            ProcessEventResult::ShouldIncrementalRelayout
+                        } else {
+                            ProcessEventResult::ShouldUpdateDisplayListCurrentWindow
+                        };
+                        self.layout_window.scroll_selection_into_view(
+                            azul_layout::window::SelectionScrollType::Cursor,
+                            azul_layout::window::ScrollMode::Instant,
+                        );
+                    }
+                    // Applied outside the record pipeline's event window —
+                    // owe the host its Input dispatch (drained at pass tail).
+                    self.layout_window
+                        .text_edit_manager
+                        .pending_edit_notifications
+                        .push(*target);
+                    (r, false)
+                } else {
+                    (ProcessEventResult::DoNothing, false)
+                }
+            }
             DefaultAction::SplitBlockAtCursor { .. }
             | DefaultAction::MergeWithPrevious { .. }
             | DefaultAction::MergeWithNext { .. } => {
@@ -2822,19 +2916,24 @@ impl Runner {
         let lw = &mut self.layout_window;
         let mut regs: Vec<(DomId, NodeId, LogicalRect, LogicalSize, f32, f32, bool, bool)> =
             Vec::new();
-        for (dom_id, layout_result) in &lw.layout_results {
-            for (node_idx, node) in layout_result.layout_tree.nodes.iter().enumerate() {
-                let Some(sb) = layout_result
-                    .layout_tree
-                    .warm(node_idx)
-                    .and_then(|w| w.scrollbar_info.as_ref())
-                else {
+        for (dom_id, layout_result) in &mut lw.layout_results {
+            // Same amendment as the DLL copy (see common/layout.rs): a
+            // VirtualView's scrollable extent is whatever its callback just
+            // published, so the necessity flags are amended here — and stored
+            // back — before the gate below reads them. Without this, no
+            // headless test can ever see an `overflow: auto` VirtualView
+            // scrollbar.
+            let scroll_states = lw.scroll_manager.get_scroll_states_for_dom(*dom_id);
+            for node_idx in 0..layout_result.layout_tree.nodes.len() {
+                let node = &layout_result.layout_tree.nodes[node_idx];
+                let Some(dom_node_id) = node.dom_node_id else {
                     continue;
                 };
-                if !(sb.needs_vertical || sb.needs_horizontal) {
-                    continue;
-                }
-                let Some(dom_node_id) = node.dom_node_id else {
+                let Some(mut sb) = layout_result
+                    .layout_tree
+                    .warm(node_idx)
+                    .and_then(|w| w.scrollbar_info)
+                else {
                     continue;
                 };
                 let border_box_size = node.used_size.unwrap_or_default();
@@ -2844,6 +2943,23 @@ impl Runner {
                     width: (border_box_size.width - border.left - border.right).max(0.0),
                     height: (border_box_size.height - border.top - border.bottom).max(0.0),
                 };
+                if let Some(pos) = scroll_states.get(&dom_node_id) {
+                    let raised = crate::solver3::cache::apply_virtual_scroll_necessity(
+                        &layout_result.styled_dom,
+                        dom_node_id,
+                        pos.children_rect.size,
+                        container_size,
+                        &mut sb,
+                    );
+                    if raised {
+                        if let Some(warm) = layout_result.layout_tree.warm_mut(node_idx) {
+                            warm.scrollbar_info = Some(sb);
+                        }
+                    }
+                }
+                if !(sb.needs_vertical || sb.needs_horizontal) {
+                    continue;
+                }
                 let container_origin = layout_result
                     .calculated_positions
                     .get(node_idx)

@@ -364,7 +364,7 @@ impl Chip {
         // RefAny so both handlers observe the same ChipState.
         let state_ref = RefAny::new(self.chip_state);
 
-        let mut label = Dom::create_text(self.label)
+        let mut label = Dom::create_p_with_text(self.label)
             .with_ids_and_classes(IdOrClassVec::from_const_slice(CHIP_LABEL_CLASS))
             .with_css_props(CssPropertyWithConditionsVec::from_const_slice(CHIP_LABEL_STYLE));
 
@@ -391,7 +391,7 @@ impl Chip {
         let mut children = alloc::vec![label];
 
         if self.removable {
-            let remove = Dom::create_text(AzString::from_const_str("\u{00D7}"))
+            let remove = Dom::create_p_with_text(AzString::from_const_str("\u{00D7}"))
                 .with_ids_and_classes(IdOrClassVec::from_const_slice(CHIP_REMOVE_CLASS))
                 .with_css_props(CssPropertyWithConditionsVec::from_const_slice(CHIP_REMOVE_STYLE))
                 .with_tab_index(TabIndex::Auto)
@@ -638,10 +638,18 @@ mod autotest_generated {
         0.2126 * f32::from(c.r) + 0.7152 * f32::from(c.g) + 0.0722 * f32::from(c.b)
     }
 
-    /// The text of a `NodeType::Text` node (`None` for any other node type).
+    /// The text of a text node, looking through the `<p>` block wrapper the
+    /// label convention mandates (`p > text`).
     fn text_of(node: &Dom) -> Option<&str> {
         match node.root.get_node_type() {
             NodeType::Text(s) => Some(s.as_ref().as_str()),
+            NodeType::P => match node.children.as_ref() {
+                [only] => match only.root.get_node_type() {
+                    NodeType::Text(s) => Some(s.as_ref().as_str()),
+                    _ => None,
+                },
+                _ => None,
+            },
             _ => None,
         }
     }
@@ -780,16 +788,22 @@ mod autotest_generated {
         }
     }
 
-    /// The flattened DOM of a removable chip: `container(0)`, `label(1)`,
-    /// `remove(2)` — i.e. exactly the hierarchy `default_on_chip_remove` walks
-    /// (hit node -> parent).
+    /// Flat indices of a removable chip in depth-first pre-order:
+    /// `0 container / 1 label <p> / 2 label text / 3 remove <p> / 4 remove text`.
+    /// Both callbacks sit on the `<p>`s — a text node owns no rect and could
+    /// never be hit-tested.
+    const LABEL_NODE: usize = 1;
+    const REMOVE_NODE: usize = 3;
+
+    /// The flattened DOM of a removable chip — exactly the hierarchy
+    /// `default_on_chip_remove` walks (hit node -> parent).
     fn removable_styled_dom() -> StyledDom {
         let chip = Chip::create(AzString::from("tag")).with_removable(true);
         let styled = StyledDom::create_from_dom(chip.dom());
         assert_eq!(
             styled.node_hierarchy.as_ref().len(),
-            3,
-            "fixture must flatten to exactly container/label/remove"
+            5,
+            "fixture must flatten to container / label <p> + text / remove <p> + text"
         );
         styled
     }
@@ -1844,7 +1858,11 @@ mod autotest_generated {
                 label.root.get_tab_index().is_none(),
                 "{kind:?}: an inert label must not be keyboard-focusable"
             );
-            assert!(label.children.as_ref().is_empty(), "{kind:?}: the label is a leaf text node");
+            assert_eq!(
+                label.children.as_ref().len(),
+                1,
+                "{kind:?}: the label is a <p> wrapping exactly one bare text node"
+            );
         }
     }
 
@@ -2021,9 +2039,9 @@ mod autotest_generated {
         // container". That only holds while the x is a *direct* child.
         let styled = removable_styled_dom();
         let hierarchy = styled.node_hierarchy.as_ref();
-        assert_eq!(hierarchy.len(), 3, "container(0), label(1), remove(2)");
+        assert_eq!(hierarchy.len(), 5, "container(0), label <p>(1)+text(2), remove <p>(3)+text(4)");
         assert_eq!(
-            hierarchy[2].parent_id(),
+            hierarchy[REMOVE_NODE].parent_id(),
             Some(NodeId::new(0)),
             "the x's parent must be the pill container"
         );
@@ -2038,8 +2056,8 @@ mod autotest_generated {
     fn remove_hides_the_container_and_flips_visible() {
         let mut data = RefAny::new(ChipStateWrapper::default());
 
-        // node 2 == the x, its parent (node 0) is the container
-        let (update, changes) = run_remove(Some(removable_styled_dom()), 2, data.clone());
+        // REMOVE_NODE == the x <p>, its parent (node 0) is the container
+        let (update, changes) = run_remove(Some(removable_styled_dom()), REMOVE_NODE, data.clone());
 
         assert_eq!(update, Update::DoNothing, "no user callback -> DoNothing");
         assert_eq!(
@@ -2055,7 +2073,7 @@ mod autotest_generated {
     fn remove_invokes_the_user_callback_with_the_already_flipped_state() {
         let (mut data, mut log) = state_with_remove_log();
 
-        let (update, changes) = run_remove(Some(removable_styled_dom()), 2, data.clone());
+        let (update, changes) = run_remove(Some(removable_styled_dom()), REMOVE_NODE, data.clone());
 
         assert_eq!(update, Update::RefreshDom, "the user callback's Update is returned");
         assert_eq!(
@@ -2076,7 +2094,7 @@ mod autotest_generated {
         let (mut data, mut log) = state_with_remove_log();
 
         for _ in 0..2 {
-            let (update, changes) = run_remove(Some(removable_styled_dom()), 2, data.clone());
+            let (update, changes) = run_remove(Some(removable_styled_dom()), REMOVE_NODE, data.clone());
             assert_eq!(update, Update::RefreshDom);
             assert_eq!(display_writes(&changes), alloc::vec![(0usize, LayoutDisplay::None)]);
         }
@@ -2118,7 +2136,7 @@ mod autotest_generated {
     fn remove_without_any_layout_result_is_a_noop() {
         let mut data = RefAny::new(ChipStateWrapper::default());
 
-        let (update, changes) = run_remove(None, 2, data.clone());
+        let (update, changes) = run_remove(None, REMOVE_NODE, data.clone());
 
         assert_eq!(update, Update::DoNothing);
         assert!(changes.is_empty());
@@ -2130,7 +2148,7 @@ mod autotest_generated {
         // the callback-bearing node carries a RefAny of the *wrong* type
         let data = RefAny::new(0xdead_beef_u64);
 
-        let (update, changes) = run_remove(Some(removable_styled_dom()), 2, data.clone());
+        let (update, changes) = run_remove(Some(removable_styled_dom()), REMOVE_NODE, data.clone());
 
         assert_eq!(update, Update::DoNothing);
         assert!(changes.is_empty(), "a foreign payload must not hide the container");
@@ -2140,11 +2158,11 @@ mod autotest_generated {
     fn remove_fired_from_the_label_still_hides_the_container() {
         // Current behaviour, pinned: the handler trusts its wiring — it hides
         // whatever the hit node's parent is and never checks that the hit node is
-        // actually the x. Firing it from node 1 (the label) therefore hides the
+        // actually the x. Firing it from the label <p> therefore hides the
         // container just the same.
         let mut data = RefAny::new(ChipStateWrapper::default());
 
-        let (update, changes) = run_remove(Some(removable_styled_dom()), 1, data.clone());
+        let (update, changes) = run_remove(Some(removable_styled_dom()), LABEL_NODE, data.clone());
 
         assert_eq!(update, Update::DoNothing);
         assert_eq!(display_writes(&changes), alloc::vec![(0usize, LayoutDisplay::None)]);
@@ -2179,7 +2197,7 @@ mod autotest_generated {
             p.state = state.clone();
         }
 
-        let (update, changes) = run_remove(Some(removable_styled_dom()), 2, state.clone());
+        let (update, changes) = run_remove(Some(removable_styled_dom()), REMOVE_NODE, state.clone());
 
         assert_eq!(update, Update::DoNothing);
         assert_eq!(display_writes(&changes), alloc::vec![(0usize, LayoutDisplay::None)]);
@@ -2204,7 +2222,7 @@ mod autotest_generated {
         let mut payload = entry.refany.clone();
 
         let styled = StyledDom::create_from_dom(dom);
-        let (update, changes) = run_remove(Some(styled), 2, payload.clone());
+        let (update, changes) = run_remove(Some(styled), REMOVE_NODE, payload.clone());
 
         assert_eq!(update, Update::DoNothing);
         assert_eq!(display_writes(&changes), alloc::vec![(0usize, LayoutDisplay::None)]);
@@ -2222,7 +2240,7 @@ mod autotest_generated {
     fn click_without_a_user_callback_is_a_noop() {
         let mut data = RefAny::new(ChipStateWrapper::default());
 
-        let (update, changes) = run_click(Some(removable_styled_dom()), 1, data.clone());
+        let (update, changes) = run_click(Some(removable_styled_dom()), LABEL_NODE, data.clone());
 
         assert_eq!(update, Update::DoNothing);
         assert!(changes.is_empty(), "a click must never restyle anything");
@@ -2233,7 +2251,7 @@ mod autotest_generated {
     fn click_invokes_the_user_callback_with_the_current_state() {
         let (mut data, mut log) = state_with_click_log(true);
 
-        let (update, changes) = run_click(Some(removable_styled_dom()), 1, data.clone());
+        let (update, changes) = run_click(Some(removable_styled_dom()), LABEL_NODE, data.clone());
 
         assert_eq!(update, Update::RefreshDom, "the user callback's Update is returned");
         assert_eq!(
@@ -2251,7 +2269,7 @@ mod autotest_generated {
         // observe `visible == false`.
         let (data, mut log) = state_with_click_log(false);
 
-        let (update, _) = run_click(Some(removable_styled_dom()), 1, data);
+        let (update, _) = run_click(Some(removable_styled_dom()), LABEL_NODE, data);
 
         assert_eq!(update, Update::RefreshDom);
         assert_eq!(log_calls(&mut log), alloc::vec![false, false]);
@@ -2274,7 +2292,7 @@ mod autotest_generated {
     fn click_with_a_foreign_payload_is_a_noop() {
         let data = RefAny::new(0xdead_beef_u64);
 
-        let (update, changes) = run_click(Some(removable_styled_dom()), 1, data);
+        let (update, changes) = run_click(Some(removable_styled_dom()), LABEL_NODE, data);
 
         assert_eq!(update, Update::DoNothing);
         assert!(changes.is_empty());
@@ -2285,7 +2303,7 @@ mod autotest_generated {
         let (mut data, mut log) = state_with_click_log(true);
 
         for _ in 0..3 {
-            let (update, changes) = run_click(Some(removable_styled_dom()), 1, data.clone());
+            let (update, changes) = run_click(Some(removable_styled_dom()), LABEL_NODE, data.clone());
             assert_eq!(update, Update::RefreshDom);
             assert!(changes.is_empty());
         }
@@ -2309,7 +2327,7 @@ mod autotest_generated {
         let mut payload = entry.refany.clone();
 
         let styled = StyledDom::create_from_dom(dom);
-        let (update, changes) = run_click(Some(styled), 1, payload.clone());
+        let (update, changes) = run_click(Some(styled), LABEL_NODE, payload.clone());
 
         assert_eq!(update, Update::RefreshDom);
         assert!(changes.is_empty());
@@ -2332,10 +2350,10 @@ mod autotest_generated {
         let remove_payload = dom.children.as_ref()[1].root.get_callbacks().as_ref()[0].refany.clone();
 
         let styled = StyledDom::create_from_dom(dom);
-        let (_, changes) = run_remove(Some(styled), 2, remove_payload);
+        let (_, changes) = run_remove(Some(styled), REMOVE_NODE, remove_payload);
         assert_eq!(display_writes(&changes), alloc::vec![(0usize, LayoutDisplay::None)]);
 
-        let (update, _) = run_click(Some(removable_styled_dom()), 1, click_payload);
+        let (update, _) = run_click(Some(removable_styled_dom()), LABEL_NODE, click_payload);
         assert_eq!(update, Update::RefreshDom);
         assert_eq!(
             log_calls(&mut log_handle),

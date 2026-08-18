@@ -1064,6 +1064,15 @@ pub enum DefaultAction {
     },
     /// No default action for this event
     None,
+    /// Enter in a PLAIN-TEXT editing context (the editing host's computed
+    /// `white-space` preserves newlines: pre / pre-wrap / break-spaces /
+    /// pre-line), and Shift+Enter in ANY contenteditable host: insert a
+    /// literal `"\n"` through the standard text-input pipeline (which brings
+    /// veto, undo, and caret-follow along) instead of recording a structural
+    /// block split. APPENDED at the enum tail for ABI stability.
+    InsertLineBreakAtCursor {
+        target: DomNodeId,
+    },
 }
 
 /// Amount to scroll for keyboard-based scrolling
@@ -3665,7 +3674,7 @@ fn handle_mouse_down(
 /// Handle `MouseOver` event - detect drag selection
 fn handle_mouse_over(
     event: &SyntheticEvent,
-    hit_test: Option<&FullHitTest>,
+    _hit_test: Option<&FullHitTest>,
     mouse_state: &crate::window::MouseState,
     drag_start_position: Option<LogicalPosition>,
 ) -> Option<InternalEventAction> {
@@ -3675,7 +3684,13 @@ fn handle_mouse_over(
 
     let start_position = drag_start_position?;
 
-    let _target = get_first_hovered_node(hit_test)?;
+    // Deliberately NOT gated on a hovered hit node. A drag that leaves the
+    // text — into the container's padding, over a gap, past the last line —
+    // still extends the selection in every native editor, and the endpoint is
+    // resolved from the pointer position against the ANCHOR block's layout
+    // (`process_mouse_drag_for_selection`), not from whatever happens to be
+    // under the cursor. Requiring a hit node froze the selection exactly where
+    // the user was reaching for more of it.
     let current_position = get_mouse_position_with_fallback(event, mouse_state);
 
     Some(InternalEventAction::AddAndPass(
@@ -6336,9 +6351,12 @@ mod autotest_generated {
         let down = MouseState { left_down: true, ..MouseState::default() };
         assert!(handle_mouse_over(&ev, Some(&ht), &down, None).is_none());
 
-        // Button down + origin but nothing under the cursor -> no drag.
-        assert!(handle_mouse_over(&ev, None, &down, Some(start)).is_none());
-        assert!(handle_mouse_over(&ev, Some(&empty_hit_test()), &down, Some(start)).is_none());
+        // Button down + origin but nothing under the cursor -> STILL a drag:
+        // reaching past the text (into padding, past the last line) is how a
+        // selection gets extended, and the endpoint resolves against the
+        // anchor block, not against whatever is under the pointer.
+        assert!(handle_mouse_over(&ev, None, &down, Some(start)).is_some());
+        assert!(handle_mouse_over(&ev, Some(&empty_hit_test()), &down, Some(start)).is_some());
 
         // All three present -> a drag selection from origin to the current point.
         match handle_mouse_over(&ev, Some(&ht), &down, Some(start)) {

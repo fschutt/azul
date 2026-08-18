@@ -242,7 +242,10 @@ impl Avatar {
             Some(image) => Dom::create_image(image)
                 .with_ids_and_classes(IdOrClassVec::from_const_slice(AVATAR_IMAGE_CLASS))
                 .with_css_props(build_image_style(size)),
-            None => Dom::create_text(self.initials)
+            // The initials are a `<p>` for the same reason the image branch is a
+            // replaced node: a raw text child would be a rect-less anonymous box,
+            // so the initials class could never be styled by the author.
+            None => Dom::create_p_with_text(self.initials)
                 .with_ids_and_classes(IdOrClassVec::from_const_slice(AVATAR_INITIALS_CLASS)),
         };
 
@@ -389,11 +392,27 @@ mod autotest_generated {
     }
 
     /// The single child of a rendered avatar DOM (the widget is always
-    /// `container -> [image | text]`).
+    /// `container -> [image | p > text]`).
     fn only_child(dom: &Dom) -> &Dom {
         let children = dom.children.as_ref();
         assert_eq!(children.len(), 1, "an avatar renders exactly one child");
         &children[0]
+    }
+
+    /// The text carried by a text node, looking through the `<p>` block
+    /// wrapper the label convention mandates (`p > text`).
+    fn text_of(node: &Dom) -> Option<&str> {
+        match node.root.get_node_type() {
+            NodeType::Text(s) => Some(s.as_ref().as_str()),
+            NodeType::P => match node.children.as_ref() {
+                [only] => match only.root.get_node_type() {
+                    NodeType::Text(s) => Some(s.as_ref().as_str()),
+                    _ => None,
+                },
+                _ => None,
+            },
+            _ => None,
+        }
     }
 
     // ------------------------------------------------------------------
@@ -872,10 +891,7 @@ mod autotest_generated {
 
             let child = only_child(&dom);
             assert!(has_class(child, "__azul-native-avatar-initials"));
-            match child.root.get_node_type() {
-                NodeType::Text(s) => assert_eq!(s.as_ref().as_str(), "AB"),
-                other => panic!("{size:?}: expected a text child, got {other:?}"),
-            }
+            assert_eq!(text_of(child), Some("AB"), "{size:?}: expected `p > text`");
         }
     }
 
@@ -915,12 +931,15 @@ mod autotest_generated {
         for s in ["", "\0", "e\u{0301}", "\u{5E9}\u{5DC}", long.as_str()] {
             let dom = Avatar::create(AzString::from(s.to_string())).dom();
             let child = only_child(&dom);
-            match child.root.get_node_type() {
-                NodeType::Text(t) => {
-                    assert_eq!(t.as_ref().as_str(), s, "text node mangled the initials");
-                    assert_eq!(t.as_ref().len(), s.len(), "text node changed the byte length");
-                }
-                other => panic!("expected a text child, got {other:?}"),
+            match child.children.as_ref() {
+                [only] => match only.root.get_node_type() {
+                    NodeType::Text(t) => {
+                        assert_eq!(t.as_ref().as_str(), s, "text node mangled the initials");
+                        assert_eq!(t.as_ref().len(), s.len(), "text node changed the byte length");
+                    }
+                    other => panic!("expected a text child, got {other:?}"),
+                },
+                other => panic!("expected `p > text`, got {} grandchildren", other.len()),
             }
         }
     }

@@ -1890,3 +1890,54 @@ fn probe_incremental_keystroke_median() {
         "damage-present median regressed: {med_d:?} (was ~113 us)"
     );
 }
+
+/// PIN — audit F4 (focus before the first layout). A `set_focus` issued from
+/// a create callback used to VANISH: `resolve_focus_target` answers `Ok(None)`
+/// with empty `layout_results` and every caller applied that as "clear focus".
+/// It now parks on the `FocusManager` (`FocusResolution::Deferred`) and is
+/// applied by the layout tail / `finalize_pending_focus_changes` once a
+/// layout exists. This test is RED before that batch.
+#[test]
+fn focus_set_before_the_first_layout_survives_until_layout_exists() {
+    use azul_core::callbacks::FocusTarget;
+    use azul_layout::managers::focus_cursor::{resolve_focus_target_or_defer, FocusResolution};
+
+    let mut h = ContentEditableHarness::new(400.0, 300.0);
+    let dom_id = DomId { inner: 0 };
+    // body(0) > div(1): the deterministic assignment every test here uses.
+    let editor_node = NodeId::new(1);
+    let target_id =
+        DomNodeId { dom: dom_id, node: NodeHierarchyItemId::from(Some(editor_node)) };
+
+    {
+        let lw = h.layout_window.as_mut().unwrap();
+        assert!(lw.layout_results.is_empty(), "premise: nothing is laid out yet");
+        let r = resolve_focus_target_or_defer(
+            &mut lw.focus_manager,
+            &FocusTarget::Id(target_id),
+            &lw.layout_results,
+        );
+        assert!(matches!(r, Ok(FocusResolution::Deferred)));
+        // The whole bug in one line: focus is neither set NOR cleared.
+        assert!(lw.focus_manager.get_focused_node().is_none());
+        assert!(lw.focus_manager.has_deferred_focus_target());
+    }
+
+    let mut editor = Dom::create_div();
+    editor = editor.with_ids_and_classes(cls("editor").into());
+    editor.set_contenteditable(true);
+    editor.set_tab_index(TabIndex::Auto);
+    editor = editor.with_child(Dom::create_text("hello"));
+    let dom = Dom::create_body().with_child(editor);
+    h.layout_dom(dom, CE_CSS);
+
+    let lw = h.layout_window.as_mut().unwrap();
+    // The host's layout-tail / end-of-pass call.
+    lw.finalize_pending_focus_changes();
+    assert_eq!(lw.focus_manager.get_focused_node().copied(), Some(target_id));
+    assert!(lw.text_edit_manager.multi_cursor.is_some(), "the caret was seeded");
+    assert!(
+        !lw.focus_manager.has_deferred_focus_target(),
+        "queue drained, not re-queued"
+    );
+}

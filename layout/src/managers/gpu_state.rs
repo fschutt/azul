@@ -124,6 +124,11 @@ impl GpuStateManager {
 
         for (node_idx, node) in layout_tree.nodes.iter().enumerate() {
             let warm = layout_tree.warm(node_idx);
+            // The necessity flags are the layout pass's, amended after layout by
+            // `cache::apply_virtual_scroll_necessity` (via `register_scroll_nodes`)
+            // for a `VirtualView`, whose scrollable extent layout cannot see. This
+            // path deliberately re-derives nothing: it reads the one stored answer,
+            // so a bar that `paint_scrollbars` drew always gets its thumb moved.
             let Some(scrollbar_info) = warm.and_then(|w| w.scrollbar_info.as_ref()) else {
                 continue;
             };
@@ -149,8 +154,17 @@ impl GpuStateManager {
                 size: inner_size,
             };
 
-            // Use get_content_size() as the single source of truth for content dimensions
-            let content_size = layout_tree.get_content_size(node_idx);
+            // `display_list::paint_scrollbars` sizes the thumb from
+            // `ScrollPosition::children_rect.size` — the `VirtualView` virtual size
+            // when the callback reported one, else the laid-out content size. This
+            // path OVERWRITES the transform key that path seeds, so it has to size
+            // from the same number: a `VirtualView` is a replaced element with no
+            // flow content, so `get_content_size` returns roughly the viewport and
+            // the thumb would snap to the full track on the first live scroll.
+            let content_size = scroll_manager
+                .get_scroll_state(dom_id, node_id)
+                .and_then(|s| s.virtual_scroll_size)
+                .unwrap_or_else(|| layout_tree.get_content_size(node_idx));
 
             if scrollbar_info.needs_vertical {
                 // Use the visual width from the scrollbar style — same value used
@@ -320,8 +334,9 @@ fn remap_dom_hashmap<V>(
 #[cfg(test)]
 mod autotest_generated {
     use azul_core::{
-        dom::FormattingContext,
+        dom::{Dom, FormattingContext, IdOrClass, NodeType},
         resources::OpacityKey,
+        styled_dom::StyledDom,
         task::{Instant, SystemTick, SystemTickDiff},
     };
 
@@ -329,6 +344,7 @@ mod autotest_generated {
     use crate::{
         managers::{NodeIdMap, NodeIdRemap},
         solver3::{
+            cache::apply_virtual_scroll_necessity,
             geometry::PackedBoxProps,
             layout_tree::{LayoutNodeCold, LayoutNodeHot, LayoutNodeWarm},
             scrollbar::ScrollbarRequirements,
@@ -378,6 +394,32 @@ mod autotest_generated {
             overflow_content_size: content,
             ..Default::default()
         }
+    }
+
+    /// What layout computes for an `overflow-y: auto` VirtualView: nothing.
+    /// The node is a replaced element with no flow content, so its laid-out
+    /// content never exceeds its box and `check_scrollbar_necessity` finds no
+    /// reason for a bar — only `visual_width_px` survives from the CSS style.
+    fn auto_no_scrollbar() -> ScrollbarRequirements {
+        ScrollbarRequirements {
+            needs_horizontal: false,
+            needs_vertical: false,
+            scrollbar_width: 0.0,
+            scrollbar_height: 0.0,
+            visual_width_px: 16.0,
+        }
+    }
+
+    /// `body(0) > VirtualView(1)` with `overflow-x: hidden; overflow-y: auto`.
+    /// NodeId 1 is the node every fixture in this module registers.
+    fn auto_virtual_view_dom() -> StyledDom {
+        let mut dom = Dom::create_body().with_child(
+            Dom::create_node(NodeType::VirtualView)
+                .with_ids_and_classes(vec![IdOrClass::Class("vv".into())].into()),
+        );
+        let (css, _warnings) =
+            azul_css::parser2::new_from_str(".vv { overflow-x: hidden; overflow-y: auto; }");
+        StyledDom::create(&mut dom, css)
     }
 
     /// A classic (space-reserving) vertical scrollbar with an explicit visual
@@ -1181,9 +1223,10 @@ mod autotest_generated {
     }
 
     #[test]
-    fn a_negative_scroll_offset_is_treated_as_its_absolute_value() {
-        // compute_thumb_geometry uses scroll_offset.abs(), so an overscroll *above*
-        // the top does not produce a negative thumb offset.
+    fn a_negative_overscroll_offset_parks_the_thumb_at_the_top_of_the_track() {
+        // Rubber-banding *above* the top is the only source of a negative offset.
+        // The ratio clamp pins the thumb at 0 — it must not mirror the pull into
+        // the 36.0 that the equivalent positive offset produces.
         let mut m = GpuStateManager::default();
         let mut sm = ScrollManager::new();
         sm.set_scroll_position_unclamped(
@@ -1196,7 +1239,166 @@ mod autotest_generated {
 
         let y = sole_added_y(&m.update_scrollbar_transforms(dom(0), &sm, &t));
         assert!(y >= 0.0, "thumb offset must never go negative, got {y}");
-        assert!((y - 36.0).abs() < 0.01);
+        assert!(
+            y.abs() < 0.01,
+            "an overscroll above the top must leave the thumb at the start, got {y}"
+        );
+    }
+
+    #[test]
+    fn a_virtual_view_thumb_is_sized_from_the_virtual_scroll_size_like_paint_scrollbars() {
+        // A VirtualView is a replaced element with no flow content, so its laid-out
+        // content size IS the viewport and `get_content_size` alone reports "nothing
+        // to scroll" (full-length thumb parked at 0). `paint_scrollbars` seeds the
+        // transform key from `ScrollPosition::children_rect.size`, which carries the
+        // callback's virtual size; this path overwrites that key on every live
+        // scroll, so both must land on the same thumb offset.
+        const NODE: NodeId = NodeId::new(1);
+        let mut m = GpuStateManager::default();
+        let mut sm = ScrollManager::new();
+        sm.register_or_update_scroll_node(
+            dom(0),
+            NODE,
+            LogicalRect::new(
+                LogicalPosition::new(250.0, 120.0),
+                LogicalSize::new(100.0, 100.0),
+            ),
+            LogicalSize::new(100.0, 100.0),
+            t0(),
+            16.0,
+            16.0,
+            false,
+            true,
+        );
+        sm.update_virtual_scroll_bounds(dom(0), NODE, LogicalSize::new(100.0, 1000.0), None);
+        sm.set_scroll_position(dom(0), NODE, LogicalPosition::new(0.0, 450.0), t0());
+
+        // The layout tree only ever saw the viewport-sized content box.
+        let t = one_node_tree(v_scrollbar(), LogicalSize::new(100.0, 100.0));
+        let y = sole_added_y(&m.update_scrollbar_transforms(dom(0), &sm, &t));
+
+        // ...what display_list::paint_scrollbars computes for the same node.
+        let states = sm.get_scroll_states_for_dom(dom(0));
+        let pos = states.get(&NODE).expect("the node must report a scroll state");
+        assert_eq!(pos.children_rect.size, LogicalSize::new(100.0, 1000.0));
+        let painted = compute_scrollbar_geometry_with_button_size(
+            ScrollbarOrientation::Vertical,
+            LogicalRect::new(LogicalPosition::zero(), LogicalSize::new(100.0, 100.0)),
+            pos.children_rect.size,
+            pos.children_rect.origin.y,
+            16.0,
+            false,
+            16.0,
+        );
+        assert!(
+            (y - painted.thumb_offset).abs() < 0.01,
+            "GPU path put the thumb at {y}, the painter at {}",
+            painted.thumb_offset
+        );
+        // usable = 100 - 2*16 = 68, thumb = max(68 * 100/1000, 32) = 32,
+        // max_scroll = 1000 - 100 = 900 -> half scroll = (68 - 32) * 0.5 = 18.
+        // Sizing from the laid-out 100x100 instead gives max_scroll 0 and a
+        // full-track thumb parked at 0.
+        assert!((y - 18.0).abs() < 0.01, "expected the half-track thumb at 18.0, got {y}");
+    }
+
+    #[test]
+    fn an_auto_virtual_view_agrees_on_the_flag_the_painted_thumb_and_the_gpu_thumb() {
+        // The half-landed state this pins: `paint_scrollbars` raised its own
+        // booleans locally and drew a bar, while this path kept gating on the
+        // layout-computed `warm.scrollbar_info.needs_*` — all-false for an
+        // `auto` VirtualView — so the thumb froze at the display list's seed
+        // value on every live scroll. One function now decides, and
+        // `register_scroll_nodes` stores the decision where this path reads it.
+        const NODE: NodeId = NodeId::new(1);
+        let styled_dom = auto_virtual_view_dom();
+
+        // 1. Layout ran: the VirtualView's box is 100x100 and its laid-out
+        //    content is the same 100x100, so no bar is warranted yet.
+        let mut t = one_node_tree(auto_no_scrollbar(), LogicalSize::new(100.0, 100.0));
+
+        // 2. The VirtualView callback published a 100x1000 document.
+        let mut sm = ScrollManager::new();
+        sm.update_virtual_scroll_bounds(dom(0), NODE, LogicalSize::new(100.0, 1000.0), None);
+
+        // 3. What `register_scroll_nodes` then does: amend the flags from the
+        //    virtual size and store the answer back on the node, which is what
+        //    makes the node registrable at all (the old gate skipped it, so its
+        //    container_rect stayed zero and its clamp bound was the whole
+        //    virtual size).
+        let states = sm.get_scroll_states_for_dom(dom(0));
+        let pos = states.get(&NODE).expect("the callback created a scroll state");
+        let mut info = t.warm(0).and_then(|w| w.scrollbar_info).expect("layout stored one");
+        assert!(
+            apply_virtual_scroll_necessity(
+                &styled_dom,
+                NODE,
+                pos.children_rect.size,
+                LogicalSize::new(100.0, 100.0),
+                &mut info,
+            ),
+            "a 1000px document in a 100px auto viewport needs a bar"
+        );
+        assert!(info.needs_vertical, "the amended flag is the one the GPU path gates on");
+        assert!(!info.needs_horizontal, "overflow-x: hidden must not gain a bar");
+        assert_eq!(
+            (info.scrollbar_width, info.scrollbar_height),
+            (0.0, 0.0),
+            "no layout gutter is reserved after the fact — the bar overlays"
+        );
+        t.warm_mut(0).expect("the fixture has a warm node").scrollbar_info = Some(info);
+        sm.register_or_update_scroll_node(
+            dom(0),
+            NODE,
+            LogicalRect::new(
+                LogicalPosition::new(250.0, 120.0),
+                LogicalSize::new(100.0, 100.0),
+            ),
+            LogicalSize::new(100.0, 100.0),
+            t0(),
+            info.scrollbar_width.max(info.scrollbar_height),
+            info.visual_width_px,
+            info.needs_horizontal,
+            info.needs_vertical,
+        );
+
+        // 4. Half a document down.
+        sm.set_scroll_position(dom(0), NODE, LogicalPosition::new(0.0, 450.0), t0());
+
+        let mut m = GpuStateManager::default();
+        let y = sole_added_y(&m.update_scrollbar_transforms(dom(0), &sm, &t));
+
+        // ...and what `paint_scrollbars` computes for the same node from the
+        // same ScrollPosition: overlay bar (scrollbar_height == 0) => no arrow
+        // buttons on either path.
+        let states = sm.get_scroll_states_for_dom(dom(0));
+        let pos = states.get(&NODE).expect("the node is registered now");
+        let painted = compute_scrollbar_geometry_with_button_size(
+            ScrollbarOrientation::Vertical,
+            LogicalRect::new(LogicalPosition::zero(), LogicalSize::new(100.0, 100.0)),
+            pos.children_rect.size,
+            pos.children_rect.origin.y,
+            info.visual_width_px,
+            info.needs_horizontal,
+            0.0,
+        );
+        assert!(
+            (y - painted.thumb_offset).abs() < 0.01,
+            "GPU path put the thumb at {y}, the painter at {}",
+            painted.thumb_offset
+        );
+        // usable track = 100 (no buttons), thumb = max(100 * 100/1000, 2*16) = 32,
+        // max_scroll = 900 -> half travel = (100 - 32) * 0.5 = 34.
+        assert!((y - 34.0).abs() < 0.01, "expected the half-track thumb at 34.0, got {y}");
+
+        // The pre-fix tree — layout's flags, unamended — emits nothing at all,
+        // which is exactly the frozen thumb under a painted bar.
+        let stale = one_node_tree(auto_no_scrollbar(), LogicalSize::new(100.0, 100.0));
+        let mut fresh = GpuStateManager::default();
+        assert!(
+            fresh.update_scrollbar_transforms(dom(0), &sm, &stale).is_empty(),
+            "without the amendment the GPU path never sees the bar"
+        );
     }
 
     #[test]

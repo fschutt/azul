@@ -1,8 +1,21 @@
-//! Single-line text input widget with cursor, placeholder, and two-way data binding.
+//! Single-line text input widget with placeholder and two-way data binding.
 //!
 //! The main entry point is [`TextInput`], which holds the editable state
 //! ([`TextInputState`]) together with per-platform default styles.  Call
 //! [`TextInput::dom()`] to obtain a renderable [`Dom`] node.
+//!
+//! The widget is a `contenteditable` host: the container carries the flag and
+//! the tab index, so the engine's `TextEditManager` owns the caret, the
+//! selection and the buffer. Caret and selection are display-list items driven
+//! by that manager — the widget contributes no cursor node — and edits run
+//! through `record_text_input` / `apply_text_changeset`. [`TextInputState`] is a
+//! *mirror* of that state, refreshed from the engine's changesets so the public
+//! callbacks keep the shape existing hosts bind against.
+//!
+//! Both the value and the placeholder are `<p>` blocks wrapping a bare text
+//! node: a [`NodeType::Text`](azul_core::dom::NodeType::Text) node is always
+//! inline-level and owns no rect, so box-model properties on one are inert and
+//! nothing bounds or clips the line.
 //!
 //! For higher-level text-input management (IME, clipboard, undo) see
 //! `layout/src/managers/text_input.rs`.
@@ -11,10 +24,9 @@ use alloc::{string::String, vec::Vec};
 
 use azul_core::{
     callbacks::{CoreCallback, CoreCallbackData, Update},
-    dom::Dom,
+    dom::{Dom, DomNodeId},
     refany::RefAny,
     task::OptionTimerId,
-    window::VirtualKeyCode,
 };
 #[allow(clippy::wildcard_imports)] // widget/render module pulls in the css property/value types it builds with
 use azul_css::{
@@ -63,10 +75,6 @@ const COLOR_4C4C4C: ColorU = ColorU {
     a: 255,
 }; // #4C4C4C
 
-const CURSOR_COLOR_BLACK: &[StyleBackgroundContent] = &[StyleBackgroundContent::Color(BLACK)];
-const CURSOR_COLOR: StyleBackgroundContentVec =
-    StyleBackgroundContentVec::from_const_slice(CURSOR_COLOR_BLACK);
-
 const BACKGROUND_THEME_LIGHT: &[StyleBackgroundContent] =
     &[StyleBackgroundContent::Color(BACKGROUND_COLOR)];
 const BACKGROUND_COLOR_LIGHT: StyleBackgroundContentVec =
@@ -77,25 +85,6 @@ const SANS_SERIF: AzString = AzString::from_const_str(SANS_SERIF_STR);
 const SANS_SERIF_FAMILIES: &[StyleFontFamily] = &[StyleFontFamily::System(SANS_SERIF)];
 const SANS_SERIF_FAMILY: StyleFontFamilyVec =
     StyleFontFamilyVec::from_const_slice(SANS_SERIF_FAMILIES);
-
-// -- cursor style
-
-const TEXT_CURSOR_TRANSFORM: &[StyleTransform] =
-    &[StyleTransform::Translate(StyleTransformTranslate2D {
-        x: PixelValue::const_px(0),
-        y: PixelValue::const_px(2),
-    })];
-
-static TEXT_CURSOR_PROPS: &[CssPropertyWithConditions] = &[
-    CssPropertyWithConditions::simple(CssProperty::const_position(LayoutPosition::Absolute)),
-    CssPropertyWithConditions::simple(CssProperty::const_width(LayoutWidth::const_px(1))),
-    CssPropertyWithConditions::simple(CssProperty::const_height(LayoutHeight::const_px(11))),
-    CssPropertyWithConditions::simple(CssProperty::const_background_content(CURSOR_COLOR)),
-    CssPropertyWithConditions::simple(CssProperty::const_opacity(StyleOpacity::const_new(0))),
-    CssPropertyWithConditions::simple(CssProperty::const_transform(
-        StyleTransformVec::from_const_slice(TEXT_CURSOR_TRANSFORM),
-    )),
-];
 
 // -- container style
 
@@ -448,12 +437,22 @@ static TEXT_INPUT_CONTAINER_PROPS: &[CssPropertyWithConditions] = &[
 ];
 
 // -- label style
+//
+// The label is the `<p>` block wrapping the value text, so it is the box that
+// bounds the line and clips against the container's `overflow: hidden`.
+// `white-space: pre` keeps a single-line field on one line and preserves the
+// spaces the user typed.
 
 #[cfg(target_os = "windows")]
 static TEXT_INPUT_LABEL_PROPS: &[CssPropertyWithConditions] = &[
-    CssPropertyWithConditions::simple(CssProperty::const_display(LayoutDisplay::InlineBlock)),
+    CssPropertyWithConditions::simple(CssProperty::const_display(LayoutDisplay::Block)),
     CssPropertyWithConditions::simple(CssProperty::const_flex_grow(LayoutFlexGrow::const_new(0))),
     CssPropertyWithConditions::simple(CssProperty::const_position(LayoutPosition::Relative)),
+    CssPropertyWithConditions::simple(CssProperty::const_overflow_x(LayoutOverflow::Hidden)),
+    CssPropertyWithConditions::simple(CssProperty::const_overflow_y(LayoutOverflow::Hidden)),
+    CssPropertyWithConditions::simple(CssProperty::WhiteSpace(StyleWhiteSpaceValue::Exact(
+        StyleWhiteSpace::Pre,
+    ))),
     CssPropertyWithConditions::simple(CssProperty::const_font_size(StyleFontSize::const_px(11))),
     CssPropertyWithConditions::simple(CssProperty::const_text_color(StyleTextColor {
         inner: COLOR_4C4C4C,
@@ -463,9 +462,14 @@ static TEXT_INPUT_LABEL_PROPS: &[CssPropertyWithConditions] = &[
 
 #[cfg(target_os = "linux")]
 static TEXT_INPUT_LABEL_PROPS: &[CssPropertyWithConditions] = &[
-    CssPropertyWithConditions::simple(CssProperty::const_display(LayoutDisplay::InlineBlock)),
+    CssPropertyWithConditions::simple(CssProperty::const_display(LayoutDisplay::Block)),
     CssPropertyWithConditions::simple(CssProperty::const_flex_grow(LayoutFlexGrow::const_new(0))),
     CssPropertyWithConditions::simple(CssProperty::const_position(LayoutPosition::Relative)),
+    CssPropertyWithConditions::simple(CssProperty::const_overflow_x(LayoutOverflow::Hidden)),
+    CssPropertyWithConditions::simple(CssProperty::const_overflow_y(LayoutOverflow::Hidden)),
+    CssPropertyWithConditions::simple(CssProperty::WhiteSpace(StyleWhiteSpaceValue::Exact(
+        StyleWhiteSpace::Pre,
+    ))),
     CssPropertyWithConditions::simple(CssProperty::const_font_size(StyleFontSize::const_px(11))),
     CssPropertyWithConditions::simple(CssProperty::const_text_color(StyleTextColor {
         inner: COLOR_4C4C4C,
@@ -475,9 +479,14 @@ static TEXT_INPUT_LABEL_PROPS: &[CssPropertyWithConditions] = &[
 
 #[cfg(not(any(target_os = "windows", target_os = "linux")))]
 static TEXT_INPUT_LABEL_PROPS: &[CssPropertyWithConditions] = &[
-    CssPropertyWithConditions::simple(CssProperty::const_display(LayoutDisplay::InlineBlock)),
+    CssPropertyWithConditions::simple(CssProperty::const_display(LayoutDisplay::Block)),
     CssPropertyWithConditions::simple(CssProperty::const_flex_grow(LayoutFlexGrow::const_new(0))),
     CssPropertyWithConditions::simple(CssProperty::const_position(LayoutPosition::Relative)),
+    CssPropertyWithConditions::simple(CssProperty::const_overflow_x(LayoutOverflow::Hidden)),
+    CssPropertyWithConditions::simple(CssProperty::const_overflow_y(LayoutOverflow::Hidden)),
+    CssPropertyWithConditions::simple(CssProperty::WhiteSpace(StyleWhiteSpaceValue::Exact(
+        StyleWhiteSpace::Pre,
+    ))),
     CssPropertyWithConditions::simple(CssProperty::const_font_size(StyleFontSize::const_px(11))),
     CssPropertyWithConditions::simple(CssProperty::const_text_color(StyleTextColor {
         inner: COLOR_4C4C4C,
@@ -486,6 +495,14 @@ static TEXT_INPUT_LABEL_PROPS: &[CssPropertyWithConditions] = &[
 ];
 
 // --- placeholder
+//
+// An absolutely-positioned `<p>` overlay inside the editable container. It is
+// marked `contenteditable="false"` so the engine's inheritance walk stops at it
+// and the prompt never becomes part of the buffer, and it is toggled with
+// `display` as well as `opacity`: a hidden-but-laid-out overlay would still own
+// the container's first inline layout, which is what
+// `LayoutWindow::reshape_text_node` picks up when it looks for the IFC to write
+// an edit into.
 
 #[cfg(target_os = "windows")]
 static TEXT_INPUT_PLACEHOLDER_PROPS: &[CssPropertyWithConditions] = &[
@@ -856,10 +873,21 @@ impl TextInput {
         s
     }
 
+    /// Renders the widget.
+    ///
+    /// The container is the `contenteditable` host — the flag, the tab index and
+    /// the focus callbacks all sit on it, because focus events do not bubble and
+    /// the engine records an edit against the *focused* node. Its two children
+    /// are `<p>` blocks wrapping a bare text node each; nothing else is emitted,
+    /// in particular no caret node (the engine paints the caret and the
+    /// selection from its display list).
     #[must_use] pub fn dom(mut self) -> Dom {
         use azul_core::{
             callbacks::CoreCallbackData,
-            dom::{EventFilter, FocusEventFilter, HoverEventFilter, IdOrClass::Class, TabIndex},
+            dom::{
+                AttributeType, DomVec, EventFilter, FocusEventFilter, HoverEventFilter,
+                IdOrClass::Class, TabIndex,
+            },
         };
 
         self.text_input_state.inner.cursor_pos = self.text_input_state.inner.text.len();
@@ -880,12 +908,18 @@ impl TextInput {
             .map(|s| s.as_str().to_string())
             .unwrap_or_default();
 
+        let mut placeholder_style = self.placeholder_style;
+        if !self.text_input_state.inner.text.is_empty() {
+            placeholder_style = hidden_placeholder_style(&placeholder_style);
+        }
+
         let state_ref = RefAny::new(self.text_input_state);
 
         Dom::create_div()
             .with_ids_and_classes(vec![Class("__azul-native-text-input-container".into())].into())
             .with_css_props(self.container_style)
             .with_tab_index(TabIndex::Auto)
+            .with_contenteditable(true)
             .with_dataset(Some(state_ref.clone()).into())
             .with_callbacks(
                 vec![
@@ -934,30 +968,128 @@ impl TextInput {
             )
             .with_children(
                 vec![
-                    Dom::create_text(placeholder)
+                    Dom::create_p()
                         .with_ids_and_classes(
                             vec![Class("__azul-native-text-input-placeholder".into())].into(),
                         )
-                        .with_css_props(self.placeholder_style),
-                    Dom::create_text(label_text)
+                        .with_css_props(placeholder_style)
+                        // appended, never `with_attributes`: that one replaces the
+                        // whole vector, classes included
+                        .with_attribute(AttributeType::ContentEditable(false))
+                        .with_children(DomVec::from_vec(vec![Dom::create_text(placeholder)])),
+                    Dom::create_p()
                         .with_ids_and_classes(
                             vec![Class("__azul-native-text-input-label".into())].into(),
                         )
                         .with_css_props(self.label_style)
-                        .with_children(
-                            vec![Dom::create_div()
-                                .with_ids_and_classes(
-                                    vec![Class("__azul-native-text-input-cursor".into())].into(),
-                                )
-                                .with_css_props(CssPropertyWithConditionsVec::from_const_slice(
-                                    TEXT_CURSOR_PROPS,
-                                ))]
-                            .into(),
-                        ),
+                        .with_children(DomVec::from_vec(vec![Dom::create_text(label_text)])),
                 ]
                 .into(),
             )
     }
+}
+
+/// `style` with the placeholder taken out of the flow: `display: none` on top
+/// of `opacity: 0`, so a hidden prompt owns neither pixels nor an inline layout.
+fn hidden_placeholder_style(
+    style: &CssPropertyWithConditionsVec,
+) -> CssPropertyWithConditionsVec {
+    let mut props = style.as_ref().to_vec();
+    props.push(CssPropertyWithConditions::simple(CssProperty::const_display(
+        LayoutDisplay::None,
+    )));
+    props.push(CssPropertyWithConditions::simple(CssProperty::const_opacity(
+        StyleOpacity::const_new(0),
+    )));
+    CssPropertyWithConditionsVec::from_vec(props)
+}
+
+/// The placeholder `<p>` and the value `<p>`, in that order.
+///
+/// Both handlers and tests resolve them through the same hierarchy hops the
+/// container's own layout guarantees; a subtree of any other shape yields
+/// `None` and every handler bails out.
+fn label_nodes(info: &CallbackInfo) -> Option<(DomNodeId, DomNodeId)> {
+    let placeholder = info.get_first_child(info.get_hit_node())?;
+    let label = info.get_next_sibling(placeholder)?;
+    Some((placeholder, label))
+}
+
+/// Shows or hides the placeholder prompt.
+fn set_placeholder_visible(info: &mut CallbackInfo, placeholder: DomNodeId, visible: bool) {
+    let (display, opacity) = if visible {
+        (LayoutDisplay::Block, StyleOpacity::const_new(100))
+    } else {
+        (LayoutDisplay::None, StyleOpacity::const_new(0))
+    };
+    info.set_css_property(placeholder, CssProperty::const_opacity(opacity));
+    info.set_css_property(placeholder, CssProperty::const_display(display));
+}
+
+/// Adopts the engine's text for `node` into the widget's mirror.
+///
+/// The engine owns the buffer, so its answer wins — except that an empty answer
+/// is ambiguous: `get_text_before_textinput` also yields nothing for a node
+/// whose text sits under a block wrapper it does not descend into. An empty
+/// read therefore never clears a non-empty mirror.
+fn adopt_engine_text(state: &mut TextInputState, info: &CallbackInfo, node: DomNodeId) {
+    let Some(text) = info.get_node_text_content(node) else {
+        return;
+    };
+    if text.is_empty() && !state.text.is_empty() {
+        return;
+    }
+    state.text = text.chars().map(|c| c as u32).collect::<Vec<_>>().into();
+}
+
+/// The engine's selection, in the widget's public shape.
+///
+/// Offsets are byte offsets into the value, matching the cursor positions the
+/// engine reports; a range that spans the whole buffer collapses to
+/// [`TextInputSelection::All`].
+fn engine_selection(
+    info: &CallbackInfo,
+    node: DomNodeId,
+    len: usize,
+) -> Option<TextInputSelection> {
+    let ranges = info.get_node_selection_ranges(node);
+    let range = *ranges.as_ref().first()?;
+    let dir_from = range.start.cluster_id.start_byte_in_run as usize;
+    let dir_to = range.end.cluster_id.start_byte_in_run as usize;
+    if len != 0 && dir_from == 0 && dir_to >= len {
+        return Some(TextInputSelection::All);
+    }
+    Some(TextInputSelection::FromTo(TextInputSelectionRange {
+        dir_from,
+        dir_to,
+    }))
+}
+
+/// Mirrors the insertion the engine is about to apply.
+///
+/// The engine inserts at the caret, so the mirror does too whenever the caret
+/// is readable and lands on a character boundary; otherwise it appends, which
+/// is where the caret sits for every append-only path. `cursor_pos` stays a
+/// byte offset, as it has always been.
+fn mirror_insertion(state: &mut TextInputState, inserted: &str, caret: Option<usize>) {
+    let text = state.get_text();
+    let at = caret
+        .filter(|at| *at <= text.len() && text.is_char_boundary(*at))
+        .unwrap_or(text.len());
+
+    let mut next = String::with_capacity(text.len() + inserted.len());
+    next.push_str(&text[..at]);
+    next.push_str(inserted);
+    next.push_str(&text[at..]);
+
+    state.text = next.chars().map(|c| c as u32).collect::<Vec<_>>().into();
+    state.cursor_pos = at.saturating_add(inserted.len());
+}
+
+/// The caret's byte offset inside the edited node, if the engine has one.
+fn engine_caret(info: &CallbackInfo, node: DomNodeId) -> Option<usize> {
+    info.get_node_cursor_position(node)
+        .map(|c| c.cluster_id.start_byte_in_run as usize)
 }
 
 extern "C" fn default_on_focus_received(mut text_input: RefAny, mut info: CallbackInfo) -> Update {
@@ -971,15 +1103,18 @@ extern "C" fn default_on_focus_received(mut text_input: RefAny, mut info: Callba
         return Update::DoNothing;
     };
 
+    let container = info.get_hit_node();
+    adopt_engine_text(&mut text_input.inner, &info, container);
+
     // hide the placeholder text
     if text_input.inner.text.is_empty() {
-        info.set_css_property(
-            placeholder_text_node_id,
-            CssProperty::const_opacity(StyleOpacity::const_new(0)),
-        );
+        set_placeholder_visible(&mut info, placeholder_text_node_id, false);
     }
 
-    text_input.inner.cursor_pos = text_input.inner.text.len();
+    // The engine seeds the caret at the end of the value when focus lands on a
+    // contenteditable host; the mirror follows it.
+    let end_of_text = text_input.inner.text.len();
+    text_input.inner.cursor_pos = engine_caret(&info, container).unwrap_or(end_of_text);
 
     Update::DoNothing
 }
@@ -995,12 +1130,12 @@ extern "C" fn default_on_focus_lost(mut text_input: RefAny, mut info: CallbackIn
         return Update::DoNothing;
     };
 
+    let container = info.get_hit_node();
+    adopt_engine_text(&mut text_input.inner, &info, container);
+
     // show the placeholder text
     if text_input.inner.text.is_empty() {
-        info.set_css_property(
-            placeholder_text_node_id,
-            CssProperty::const_opacity(StyleOpacity::const_new(100)),
-        );
+        set_placeholder_visible(&mut info, placeholder_text_node_id, true);
     }
 
     // rustc doesn't understand the borrowing lifetime here
@@ -1023,18 +1158,59 @@ extern "C" fn default_on_text_input(text_input: RefAny, info: CallbackInfo) -> U
 fn default_on_text_input_inner(mut text_input: RefAny, mut info: CallbackInfo) -> Option<Update> {
     let mut text_input = text_input.downcast_mut::<TextInputStateWrapper>()?;
 
-    // Get the text changeset (replaces old keyboard_state.current_char API)
-    let changeset = info.get_text_changeset()?;
-    let inserted_text = changeset.inserted_text.as_str().to_string();
+    // The engine records the edit before the callbacks run and applies it after
+    // them; this handler only observes it and mirrors it into the widget state.
+    // An `Input` WITHOUT a pending record is a post-edit NOTIFICATION: an edit
+    // committed outside the record pipeline (deletion, programmatic edit) that
+    // is already applied — adopt it and inform the user hook; `valid` cannot
+    // veto what already happened.
+    let inserted_text = info
+        .get_text_changeset()
+        .map(|c| c.inserted_text.as_str().to_string())
+        .unwrap_or_default();
 
-    // Early return if no text to insert
+    let (placeholder_node_id, _label_node_id) = label_nodes(&info)?;
+    let container = info.get_hit_node();
+
     if inserted_text.is_empty() {
-        return None;
+        // Idempotent: a notification that changed nothing observable (a
+        // spurious Input, an edit already mirrored) stays a strict no-op, so
+        // the no-changeset pins keep holding.
+        let before = text_input.inner.get_text();
+        adopt_engine_text(&mut text_input.inner, &info, container);
+        if text_input.inner.get_text() == before {
+            return None;
+        }
+        let len = text_input.inner.get_text().len();
+        text_input.inner.selection = engine_selection(&info, container, len).into();
+        // A field deleted to empty shows its placeholder again.
+        set_placeholder_visible(&mut info, placeholder_node_id, len == 0);
+        let result = {
+            let text_input = &mut *text_input;
+            let inner_clone = text_input.inner.clone();
+            match text_input.on_text_input.as_mut() {
+                Some(TextInputOnTextInput { callback, refany }) => {
+                    (callback.cb)(refany.clone(), info, inner_clone)
+                }
+                None => OnTextInputReturn {
+                    update: Update::DoNothing,
+                    valid: TextInputValid::Yes,
+                },
+            }
+        };
+        return Some(result.update);
     }
 
-    let placeholder_node_id = info.get_first_child(info.get_hit_node())?;
-    let label_node_id = info.get_next_sibling(placeholder_node_id)?;
-    let _cursor_node_id = info.get_first_child(label_node_id)?;
+    // A single-line field never accepts a line separator: veto insertions
+    // carrying one (paste with newlines; the engine's Enter line break is
+    // already vetoed in the key handler).
+    if inserted_text.contains('\n') {
+        info.prevent_default();
+        return Some(Update::DoNothing);
+    }
+
+    let caret = engine_caret(&info, container);
+    adopt_engine_text(&mut text_input.inner, &info, container);
 
     let result = {
         // rustc doesn't understand the borrowing lifetime here
@@ -1043,12 +1219,9 @@ fn default_on_text_input_inner(mut text_input: RefAny, mut info: CallbackInfo) -
 
         // inner_clone has the new text
         let mut inner_clone = text_input.inner.clone();
-        inner_clone.cursor_pos = inner_clone.cursor_pos.saturating_add(inserted_text.len());
-        inner_clone.text = {
-            let mut internal = inner_clone.text.clone().into_library_owned_vec();
-            internal.extend(inserted_text.chars().map(|c| c as u32));
-            internal.into()
-        };
+        mirror_insertion(&mut inner_clone, &inserted_text, caret);
+        let len = inner_clone.get_text().len();
+        inner_clone.selection = engine_selection(&info, container, len).into();
 
         match ontextinput.as_mut() {
             Some(TextInputOnTextInput { callback, refany }) => {
@@ -1063,23 +1236,15 @@ fn default_on_text_input_inner(mut text_input: RefAny, mut info: CallbackInfo) -
 
     if result.valid == TextInputValid::Yes {
         // hide the placeholder text
-        info.set_css_property(
-            placeholder_node_id,
-            CssProperty::const_opacity(StyleOpacity::const_new(0)),
-        );
+        set_placeholder_visible(&mut info, placeholder_node_id, false);
 
-        // append to the text
-        text_input.inner.text = {
-            let mut internal = text_input.inner.text.clone().into_library_owned_vec();
-            internal.extend(inserted_text.chars().map(|c| c as u32));
-            internal.into()
-        };
-        text_input.inner.cursor_pos = text_input
-            .inner
-            .cursor_pos
-            .saturating_add(inserted_text.len());
-
-        info.change_node_text(label_node_id, text_input.inner.get_text().into());
+        mirror_insertion(&mut text_input.inner, &inserted_text, caret);
+        let len = text_input.inner.get_text().len();
+        text_input.inner.selection = engine_selection(&info, container, len).into();
+    } else {
+        // The engine applies the recorded changeset once the callbacks return,
+        // unless one of them vetoes it.
+        info.prevent_default();
     }
 
     Some(result.update)
@@ -1096,17 +1261,21 @@ fn default_on_virtual_key_down_inner(
     let mut text_input = text_input.downcast_mut::<TextInputStateWrapper>()?;
     let keyboard_state = info.get_current_keyboard_state();
 
-    let c = keyboard_state.current_virtual_keycode.into_option()?;
-    let placeholder_node_id = info.get_first_child(info.get_hit_node())?;
-    let label_node_id = info.get_next_sibling(placeholder_node_id)?;
-    let _cursor_node_id = info.get_first_child(label_node_id)?;
+    let keycode = keyboard_state.current_virtual_keycode.into_option()?;
+    let (_placeholder_node_id, _label_node_id) = label_nodes(&info)?;
 
-    // Dispatch to the user's on_virtual_key_down callback first; a
-    // TextInputValid::No return suppresses the built-in editing behavior.
+    let container = info.get_hit_node();
+    adopt_engine_text(&mut text_input.inner, &info, container);
+
+    // Editing keys (Backspace, Delete, the arrows, Enter) are the engine's
+    // default actions; this handler only forwards the key to the user's hook
+    // and lets a rejection stop the default from running.
     let result = {
         // rustc doesn't understand the borrowing lifetime here
         let text_input = &mut *text_input;
-        let inner_clone = text_input.inner.clone();
+        let mut inner_clone = text_input.inner.clone();
+        let len = inner_clone.get_text().len();
+        inner_clone.selection = engine_selection(&info, container, len).into();
         match text_input.on_virtual_key_down.as_mut() {
             Some(TextInputOnVirtualKeyDown { callback, refany }) => {
                 (callback.cb)(refany.clone(), info, inner_clone)
@@ -1118,15 +1287,21 @@ fn default_on_virtual_key_down_inner(
         }
     };
 
-    if result.valid == TextInputValid::Yes && c == VirtualKeyCode::Back {
-        text_input.inner.text = {
-            let mut internal = text_input.inner.text.clone().into_library_owned_vec();
-            internal.pop();
-            internal.into()
-        };
-        text_input.inner.cursor_pos = text_input.inner.cursor_pos.saturating_sub(1);
+    let len = text_input.inner.get_text().len();
+    text_input.inner.selection = engine_selection(&info, container, len).into();
 
-        info.change_node_text(label_node_id, text_input.inner.get_text().into());
+    if result.valid == TextInputValid::No {
+        info.prevent_default();
+    }
+
+    // Single-line field: Enter must never edit the value. The engine-side
+    // default in this host (white-space:pre) is a literal "\n" insert, so it
+    // is vetoed here; activation semantics stay with the user's hook above.
+    if matches!(
+        keycode,
+        azul_core::window::VirtualKeyCode::Return | azul_core::window::VirtualKeyCode::NumpadEnter
+    ) {
+        info.prevent_default();
     }
 
     Some(result.update)
@@ -1150,8 +1325,8 @@ mod autotest_generated {
 
     use azul_core::{
         dom::{
-            DomId, DomNodeId, EventFilter, FocusEventFilter, HoverEventFilter, IdOrClass, NodeId,
-            TabIndex,
+            AttributeType, DomId, DomNodeId, EventFilter, FocusEventFilter, HoverEventFilter,
+            IdOrClass, NodeId, NodeType, TabIndex,
         },
         geom::{LogicalRect, OptionLogicalPosition},
         gl::OptionGlContextPtr,
@@ -1159,7 +1334,7 @@ mod autotest_generated {
         refany::OptionRefAny,
         resources::RendererResources,
         styled_dom::{NodeHierarchyItemId, StyledDom},
-        window::{MonitorVec, RawWindowHandle},
+        window::{MonitorVec, RawWindowHandle, VirtualKeyCode},
     };
     use rust_fontconfig::FcFontCache;
 
@@ -1440,13 +1615,14 @@ mod autotest_generated {
         }
     }
 
-    /// The three child nodes of the container, resolved through the *same* API the
-    /// handlers use — so no test has to hard-code a flattened index.
+    /// The container's two `<p>` children plus the value's bare text leaf,
+    /// resolved through the *same* API the handlers use — so no test has to
+    /// hard-code a flattened index.
     #[derive(Copy, Clone, Debug, PartialEq, Eq)]
     struct Nodes {
         placeholder: Option<DomNodeId>,
         label: Option<DomNodeId>,
-        cursor: Option<DomNodeId>,
+        label_text: Option<DomNodeId>,
     }
 
     /// Runs `f` with a real `CallbackInfo` over a window holding `env.styled_dom` as
@@ -1498,11 +1674,11 @@ mod autotest_generated {
         );
         let placeholder = probe.get_first_child(dom_node(CONTAINER));
         let label = placeholder.and_then(|p| probe.get_next_sibling(p));
-        let cursor = label.and_then(|l| probe.get_first_child(l));
+        let label_text = label.and_then(|l| probe.get_first_child(l));
         let nodes = Nodes {
             placeholder,
             label,
-            cursor,
+            label_text,
         };
 
         let info = CallbackInfo::new(
@@ -1570,11 +1746,42 @@ mod autotest_generated {
             .collect()
     }
 
+    /// The text a `<p>` label wraps, looking through the block wrapper the
+    /// widget convention mandates (`p > text`).
     fn text_of(node: &Dom) -> String {
-        node.root
-            .get_node_type()
-            .format()
-            .expect("expected a text node")
+        assert!(
+            matches!(node.root.get_node_type(), NodeType::P),
+            "widget text must be wrapped in a <p> block"
+        );
+        match node.children.as_ref() {
+            [only] => only
+                .root
+                .get_node_type()
+                .format()
+                .expect("expected a bare text leaf"),
+            other => panic!("a label <p> wraps exactly one text node, found {}", other.len()),
+        }
+    }
+
+    /// Every `NodeType::Text` node in `node`'s subtree that is not a bare leaf
+    /// under a `<p>`: css props, callbacks, a tab index, a dataset or children
+    /// on a text node are all inert, because a text node owns no rect.
+    fn text_nodes_carrying_state(node: &Dom, parent_is_p: bool, bad: &mut Vec<String>) {
+        if let NodeType::Text(t) = node.root.get_node_type() {
+            let carries = !node.root.get_style().is_empty()
+                || !node.root.get_callbacks().as_ref().is_empty()
+                || node.root.get_tab_index().is_some()
+                || node.root.get_dataset().is_some()
+                || !node.children.as_ref().is_empty()
+                || !parent_is_p;
+            if carries {
+                bad.push(t.as_ref().as_str().to_string());
+            }
+        }
+        let is_p = matches!(node.root.get_node_type(), NodeType::P);
+        for c in node.children.as_ref() {
+            text_nodes_carrying_state(c, is_p, bad);
+        }
     }
 
     fn dataset_state(dom: &Dom) -> TextInputState {
@@ -2172,7 +2379,7 @@ mod autotest_generated {
     // ==================================================================
 
     #[test]
-    fn dom_builds_a_container_with_a_placeholder_and_a_label_carrying_a_cursor() {
+    fn dom_builds_a_container_with_a_placeholder_block_and_a_value_block() {
         let dom = TextInput::create().dom();
 
         assert_eq!(classes(&dom), vec!["__azul-native-text-input-container"]);
@@ -2183,22 +2390,105 @@ mod autotest_generated {
         assert_eq!(classes(placeholder), vec!["__azul-native-text-input-placeholder"]);
         assert_eq!(classes(label), vec!["__azul-native-text-input-label"]);
 
+        for block in [placeholder, label] {
+            assert!(matches!(block.root.get_node_type(), NodeType::P));
+            assert_eq!(block.children.as_ref().len(), 1);
+            assert!(matches!(
+                block.children.as_ref()[0].root.get_node_type(),
+                NodeType::Text(_),
+            ));
+        }
+    }
+
+    #[test]
+    fn dom_emits_no_cursor_node() {
+        // The caret and the selection are display-list items driven by the
+        // engine's TextEditManager; a widget-owned cursor div resolved against
+        // the container and never tracked the caret.
+        fn walk(node: &Dom, out: &mut Vec<String>) {
+            out.extend(classes(node));
+            for c in node.children.as_ref() {
+                walk(c, out);
+            }
+        }
+        let mut all = Vec::new();
+        walk(&TextInput::create().with_text("typed".into()).dom(), &mut all);
         assert!(
-            placeholder.children.as_ref().is_empty(),
-            "the placeholder must be a leaf: the handlers reach the label through its sibling",
-        );
-        assert_eq!(label.children.as_ref().len(), 1);
-        assert_eq!(
-            classes(&label.children.as_ref()[0]),
-            vec!["__azul-native-text-input-cursor"],
+            !all.iter().any(|c| c.contains("cursor")),
+            "the widget still emits a cursor node: {all:?}",
         );
     }
 
     #[test]
-    fn dom_marks_the_container_as_keyboard_focusable() {
-        // Without a tab index the widget can never receive the focus events that all
-        // four of its editing handlers are filtered on.
-        assert_eq!(TextInput::create().dom().root.get_tab_index(), Some(TabIndex::Auto));
+    fn dom_carries_no_state_on_any_text_node() {
+        // A NodeType::Text node is unconditionally inline-level and owns no
+        // rect, so css props / callbacks / a tab index / a dataset / children on
+        // one are all inert. Every text node must be a bare leaf under a <p>.
+        for input in [
+            TextInput::create(),
+            TextInput::create().with_text("typed".into()).with_placeholder("hint".into()),
+        ] {
+            let mut bad = Vec::new();
+            text_nodes_carrying_state(&input.dom(), false, &mut bad);
+            assert!(bad.is_empty(), "text nodes carrying inert state: {bad:?}");
+        }
+    }
+
+    #[test]
+    fn dom_marks_the_container_as_keyboard_focusable_and_editable() {
+        // Focus events do not bubble and the engine records an edit against the
+        // FOCUSED node, so the tab index and the contenteditable flag have to
+        // sit on the same node the handlers are attached to.
+        let dom = TextInput::create().dom();
+        assert_eq!(dom.root.get_tab_index(), Some(TabIndex::Auto));
+        assert!(dom.root.is_contenteditable());
+    }
+
+    #[test]
+    fn dom_keeps_the_placeholder_out_of_the_editable_content() {
+        // Everything inside a contenteditable host is editable content unless a
+        // node blocks the inheritance walk; the prompt must never be typed into.
+        let dom = TextInput::create().with_placeholder("hint".into()).dom();
+        let placeholder = &dom.children.as_ref()[PLACEHOLDER_CHILD];
+        assert!(
+            placeholder
+                .root
+                .attributes()
+                .as_ref()
+                .iter()
+                .any(|a| matches!(a, AttributeType::ContentEditable(false))),
+            "the placeholder is inside the editable host and does not opt out",
+        );
+        assert!(!dom.children.as_ref()[LABEL_CHILD]
+            .root
+            .attributes()
+            .as_ref()
+            .iter()
+            .any(|a| matches!(a, AttributeType::ContentEditable(_))));
+    }
+
+    #[test]
+    fn dom_hides_the_placeholder_when_the_buffer_is_not_empty() {
+        let hidden = TextInput::create().with_text("typed".into()).dom();
+        let shown = TextInput::create().dom();
+
+        let display = |node: &Dom| -> Option<CssProperty> {
+            node.root
+                .style
+                .iter_inline_properties()
+                .map(|(p, _)| p.clone())
+                .filter(|p| matches!(p, CssProperty::Display(_)))
+                .last()
+        };
+
+        assert_eq!(
+            display(&hidden.children.as_ref()[PLACEHOLDER_CHILD]),
+            Some(CssProperty::const_display(LayoutDisplay::None)),
+        );
+        assert_ne!(
+            display(&shown.children.as_ref()[PLACEHOLDER_CHILD]),
+            Some(CssProperty::const_display(LayoutDisplay::None)),
+        );
     }
 
     #[test]
@@ -2336,17 +2626,17 @@ mod autotest_generated {
     }
 
     #[test]
-    fn the_rendered_tree_flattens_to_three_distinct_reachable_children() {
+    fn the_rendered_tree_flattens_to_the_shape_the_handlers_navigate() {
         let (styled_dom, _) = rendered(TextInput::create());
         let ((), _, nodes) = run(Env::new(styled_dom), |_| ());
 
         let placeholder = nodes.placeholder.expect("the container has no first child");
         let label = nodes.label.expect("the placeholder has no next sibling");
-        let cursor = nodes.cursor.expect("the label has no first child");
+        let label_text = nodes.label_text.expect("the value block has no text leaf");
 
         assert_ne!(placeholder, label);
-        assert_ne!(label, cursor);
-        assert_ne!(placeholder, cursor);
+        assert_ne!(label, label_text);
+        assert_ne!(placeholder, label_text);
         assert_ne!(placeholder, dom_node(CONTAINER));
     }
 
@@ -2380,14 +2670,14 @@ mod autotest_generated {
     }
 
     #[test]
-    fn focus_received_on_the_cursor_leaf_is_a_no_op() {
-        // The cursor is the one node in the tree with no children of its own.
+    fn focus_received_on_the_value_text_leaf_is_a_no_op() {
+        // The bare text leaf is the one node in the tree with no children.
         let (probe_dom, _) = rendered(TextInput::create());
         let (_, _, nodes) = run(Env::new(probe_dom), |_| ());
-        let cursor = nodes.cursor.expect("no cursor node");
+        let leaf = nodes.label_text.expect("no value text leaf");
 
         let (styled_dom, state) = rendered(TextInput::create());
-        let (update, changes, _) = run(Env::new(styled_dom).hit(cursor), |info| {
+        let (update, changes, _) = run(Env::new(styled_dom).hit(leaf), |info| {
             default_on_focus_received(state.clone(), info)
         });
         assert_eq!(update, Update::DoNothing);
@@ -2540,7 +2830,7 @@ mod autotest_generated {
     }
 
     #[test]
-    fn text_input_appends_the_insertion_hides_the_placeholder_and_repaints_the_label() {
+    fn text_input_mirrors_the_insertion_and_hides_the_placeholder() {
         let (styled_dom, state) = rendered(TextInput::create().with_placeholder("hint".into()));
         let (update, changes, nodes) = run(Env::new(styled_dom).insert("hi"), |info| {
             default_on_text_input(state.clone(), info)
@@ -2554,24 +2844,20 @@ mod autotest_generated {
             pushed_opacities(&changes),
             vec![(inner_id(nodes.placeholder.expect("no placeholder")), 0.0)],
         );
-        assert_eq!(
-            pushed_texts(&changes),
-            vec![(nodes.label.expect("no label"), "hi".to_string())],
-            "the label was not repainted with the new buffer",
+        assert!(
+            pushed_texts(&changes).is_empty(),
+            "the widget repainted the value itself; the engine owns the buffer: {changes:?}",
         );
     }
 
     #[test]
     fn text_input_appends_to_an_existing_buffer_rather_than_replacing_it() {
         let (styled_dom, state) = rendered(TextInput::create().with_text("ab".into()));
-        let (_, changes, nodes) = run(Env::new(styled_dom).insert("cd"), |info| {
+        let (_, changes, _) = run(Env::new(styled_dom).insert("cd"), |info| {
             default_on_text_input(state.clone(), info)
         });
         assert_eq!(state_of(&state).get_text(), "abcd");
-        assert_eq!(
-            pushed_texts(&changes),
-            vec![(nodes.label.expect("no label"), "abcd".to_string())],
-        );
+        assert!(pushed_texts(&changes).is_empty());
     }
 
     #[test]
@@ -2614,8 +2900,16 @@ mod autotest_generated {
         assert_eq!(state_of(&state).get_text(), "ab", "a rejected edit was applied anyway");
         assert_eq!(state_of(&state).cursor_pos, 2, "a rejected edit still moved the cursor");
         assert!(
-            changes.is_empty(),
+            changes
+                .iter()
+                .all(|c| matches!(c, CallbackChange::PreventDefault)),
             "a rejected edit still repainted the widget: {changes:?}",
+        );
+        assert!(
+            changes
+                .iter()
+                .any(|c| matches!(c, CallbackChange::PreventDefault)),
+            "a rejected edit did not stop the engine from applying the changeset",
         );
     }
 
@@ -2641,7 +2935,9 @@ mod autotest_generated {
     }
 
     #[test]
-    fn text_input_saturates_the_cursor_instead_of_overflowing_it() {
+    fn text_input_recomputes_the_cursor_rather_than_accumulating_a_stale_one() {
+        // The cursor is derived from the insertion point every time, so a stale
+        // value planted by a host cannot survive — nor overflow.
         let (styled_dom, state) = rendered(TextInput::create());
         poke(&state, |w| w.inner.cursor_pos = usize::MAX);
 
@@ -2650,11 +2946,7 @@ mod autotest_generated {
         });
 
         assert_eq!(update, Update::DoNothing);
-        assert_eq!(
-            state_of(&state).cursor_pos,
-            usize::MAX,
-            "the cursor wrapped around instead of saturating",
-        );
+        assert_eq!(state_of(&state).cursor_pos, 3);
         assert_eq!(state_of(&state).get_text(), "abc");
     }
 
@@ -2662,15 +2954,12 @@ mod autotest_generated {
     fn text_input_accepts_astral_combining_and_multi_scalar_insertions() {
         for s in ["\u{10ffff}", "e\u{301}", "👨‍👩‍👧‍👦", "日本語", "\0"] {
             let (styled_dom, state) = rendered(TextInput::create());
-            let (_, changes, nodes) = run(Env::new(styled_dom).insert(s), |info| {
+            let (_, changes, _) = run(Env::new(styled_dom).insert(s), |info| {
                 default_on_text_input(state.clone(), info)
             });
             assert_eq!(state_of(&state).get_text(), s, "the buffer mangled {s:?}");
             assert_eq!(state_of(&state).text.len(), s.chars().count());
-            assert_eq!(
-                pushed_texts(&changes),
-                vec![(nodes.label.expect("no label"), s.to_string())],
-            );
+            assert!(pushed_texts(&changes).is_empty());
         }
     }
 
@@ -2754,87 +3043,54 @@ mod autotest_generated {
     }
 
     #[test]
-    fn backspace_pops_one_code_unit_and_walks_the_cursor_back() {
+    fn backspace_is_the_engines_default_action_not_the_widgets() {
+        // Deletion is `SystemChange::ApplySelectionOp` on the engine side; a
+        // widget that also popped its own buffer would double-delete.
         let (styled_dom, state) = rendered(TextInput::create().with_text("abc".into()));
-        let (update, changes, nodes) =
+        let (update, changes, _) =
             run(Env::new(styled_dom).key(VirtualKeyCode::Back), |info| {
                 default_on_virtual_key_down(state.clone(), info)
             });
 
         assert_eq!(update, Update::DoNothing);
-        assert_eq!(state_of(&state).get_text(), "ab");
-        assert_eq!(state_of(&state).cursor_pos, 2);
-        assert_eq!(
-            pushed_texts(&changes),
-            vec![(nodes.label.expect("no label"), "ab".to_string())],
-        );
-        assert!(pushed_opacities(&changes).is_empty(), "backspace must not touch the placeholder");
+        assert!(changes.is_empty(), "backspace still mutated the DOM: {changes:?}");
+        assert_eq!(state_of(&state).get_text(), "abc", "the widget deleted behind the engine");
     }
 
     #[test]
-    fn backspace_on_an_empty_buffer_saturates_at_zero_instead_of_underflowing() {
-        let (styled_dom, state) = rendered(TextInput::create());
-        let (update, changes, nodes) =
-            run(Env::new(styled_dom).key(VirtualKeyCode::Back), |info| {
+    fn every_key_reaches_the_hook_and_leaves_the_buffer_alone() {
+        for key in [VirtualKeyCode::A, VirtualKeyCode::Back, VirtualKeyCode::Return] {
+            let probe = recorder(Update::RefreshDom, TextInputValid::Yes);
+            let (styled_dom, state) = rendered(
+                TextInput::create().with_text("ab".into()).with_on_virtual_key_down(
+                    probe.clone(),
+                    record_virtual_key as TextInputOnVirtualKeyDownCallbackType,
+                ),
+            );
+
+            let (update, changes, _) = run(Env::new(styled_dom).key(key), |info| {
                 default_on_virtual_key_down(state.clone(), info)
             });
 
-        assert_eq!(update, Update::DoNothing);
-        assert_eq!(state_of(&state).cursor_pos, 0, "the cursor underflowed past zero");
-        assert!(state_of(&state).text.is_empty());
-        // The repaint is still pushed — with the (unchanged) empty text.
-        assert_eq!(
-            pushed_texts(&changes),
-            vec![(nodes.label.expect("no label"), String::new())],
-        );
+            assert_eq!(update, Update::RefreshDom, "{key:?} swallowed the hook's Update");
+            if matches!(key, VirtualKeyCode::Return) {
+                // Single-line field: Enter must never edit the value, so the
+                // handler vetoes the engine's "\n" default — and nothing else.
+                assert_eq!(changes.len(), 1, "Return must veto exactly once: {changes:?}");
+                assert!(
+                    matches!(changes[0], CallbackChange::PreventDefault),
+                    "Return must veto the engine line break, and only that: {changes:?}"
+                );
+            } else {
+                assert!(changes.is_empty(), "{key:?} repainted the value: {changes:?}");
+            }
+            assert_eq!(state_of(&state).get_text(), "ab");
+            assert_eq!(recorded(&probe).len(), 1, "the hook must see {key:?} too");
+        }
     }
 
     #[test]
-    fn backspace_deletes_one_scalar_not_one_grapheme() {
-        // "e" + COMBINING ACUTE renders as a single glyph but is two scalars, so one
-        // backspace leaves a bare "e" behind rather than clearing the cell.
-        let (styled_dom, state) = rendered(TextInput::create().with_text("e\u{301}".into()));
-        let (_, _, _) = run(Env::new(styled_dom).key(VirtualKeyCode::Back), |info| {
-            default_on_virtual_key_down(state.clone(), info)
-        });
-        assert_eq!(state_of(&state).get_text(), "e");
-        assert_eq!(state_of(&state).cursor_pos, 1);
-    }
-
-    #[test]
-    fn backspace_deletes_a_whole_astral_scalar_at_once() {
-        // The buffer is UTF-32, so a 4-byte scalar is one unit: no half-a-character
-        // can survive the pop.
-        let (styled_dom, state) = rendered(TextInput::create().with_text("a\u{10ffff}".into()));
-        let (_, _, _) = run(Env::new(styled_dom).key(VirtualKeyCode::Back), |info| {
-            default_on_virtual_key_down(state.clone(), info)
-        });
-        assert_eq!(state_of(&state).get_text(), "a");
-        assert_eq!(state_of(&state).text.as_slice(), &[0x61]);
-    }
-
-    #[test]
-    fn a_non_backspace_key_still_reaches_the_hook_but_leaves_the_buffer_alone() {
-        let probe = recorder(Update::RefreshDom, TextInputValid::Yes);
-        let (styled_dom, state) = rendered(
-            TextInput::create().with_text("ab".into()).with_on_virtual_key_down(
-                probe.clone(),
-                record_virtual_key as TextInputOnVirtualKeyDownCallbackType,
-            ),
-        );
-
-        let (update, changes, _) = run(Env::new(styled_dom).key(VirtualKeyCode::A), |info| {
-            default_on_virtual_key_down(state.clone(), info)
-        });
-
-        assert_eq!(update, Update::RefreshDom);
-        assert!(changes.is_empty(), "a plain key press repainted the label: {changes:?}");
-        assert_eq!(state_of(&state).get_text(), "ab");
-        assert_eq!(recorded(&probe).len(), 1, "the hook must see every key, not just backspace");
-    }
-
-    #[test]
-    fn a_rejecting_hook_suppresses_the_deletion_but_keeps_its_update() {
+    fn a_rejecting_hook_vetoes_the_engines_default_and_keeps_its_update() {
         let probe = recorder(Update::RefreshDomAllWindows, TextInputValid::No);
         let (styled_dom, state) = rendered(
             TextInput::create().with_text("abc".into()).with_on_virtual_key_down(
@@ -2848,16 +3104,21 @@ mod autotest_generated {
         });
 
         assert_eq!(update, Update::RefreshDomAllWindows);
-        assert!(changes.is_empty(), "a vetoed backspace still repainted: {changes:?}");
-        assert_eq!(state_of(&state).get_text(), "abc", "a vetoed backspace deleted anyway");
+        assert_eq!(
+            changes.len(),
+            1,
+            "a veto must push nothing but the preventDefault: {changes:?}",
+        );
+        assert!(matches!(changes[0], CallbackChange::PreventDefault));
+        assert_eq!(state_of(&state).get_text(), "abc");
         assert_eq!(state_of(&state).cursor_pos, 3);
     }
 
     #[test]
-    fn the_virtual_key_hook_is_shown_the_state_from_before_the_deletion() {
-        // The hook runs first so that it can veto; that means it necessarily sees the
-        // pre-delete buffer. Pinned because "which side of the edit does the hook
-        // see" is exactly the thing a refactor gets wrong.
+    fn the_virtual_key_hook_is_shown_the_state_from_before_the_key_is_handled() {
+        // The hook runs first so that it can veto; that means it necessarily sees
+        // the pre-edit buffer. Pinned because "which side of the edit does the
+        // hook see" is exactly the thing a refactor gets wrong.
         let probe = recorder(Update::DoNothing, TextInputValid::Yes);
         let (styled_dom, state) = rendered(
             TextInput::create().with_text("abc".into()).with_on_virtual_key_down(
@@ -2874,7 +3135,6 @@ mod autotest_generated {
         assert_eq!(seen.len(), 1);
         assert_eq!(seen[0].get_text(), "abc");
         assert_eq!(seen[0].cursor_pos, 3);
-        assert_eq!(state_of(&state).get_text(), "ab", "... and the deletion still happened");
     }
 
     #[test]
@@ -2910,8 +3170,9 @@ mod autotest_generated {
     }
 
     #[test]
-    fn repeated_backspaces_drain_the_buffer_and_then_stop() {
-        // Six backspaces over a three-scalar buffer: the last three must be harmless.
+    fn repeated_key_presses_are_idempotent_on_the_widget_state() {
+        // Six backspaces over a three-scalar buffer: the widget must not move a
+        // single unit — every one of them belongs to the engine.
         let (_, state) = rendered(TextInput::create().with_text("abc".into()));
         for i in 0..6 {
             // The tree shape does not depend on what the buffer holds, so a fresh
@@ -2923,8 +3184,8 @@ mod autotest_generated {
             assert_eq!(update, Update::DoNothing, "backspace #{i} reported work to do");
         }
         let after = state_of(&state);
-        assert!(after.text.is_empty());
-        assert_eq!(after.cursor_pos, 0);
+        assert_eq!(after.get_text(), "abc");
+        assert_eq!(after.cursor_pos, 3);
     }
 
     // ==================================================================

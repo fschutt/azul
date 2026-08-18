@@ -69,6 +69,22 @@ pub struct POINT {
     pub y: i32,
 }
 
+/// Win32 MONITORINFOEXW structure — `GetMonitorInfoW` with the device-name
+/// tail. `cbSize` must be set to the size of THIS struct (not MONITORINFO)
+/// or the call fails.
+#[repr(C)]
+#[derive(Debug, Clone, Copy)]
+pub struct MONITORINFOEXW {
+    pub cbSize: u32,
+    pub rcMonitor: RECT,
+    pub rcWork: RECT,
+    pub dwFlags: u32,
+    pub szDevice: [u16; 32],
+}
+
+/// `MonitorFromWindow` flag: return the monitor closest to the window.
+pub const MONITOR_DEFAULTTONEAREST: u32 = 2;
+
 /// Win32 TRACKMOUSEEVENT structure
 #[repr(C)]
 #[derive(Debug, Clone, Copy)]
@@ -127,8 +143,39 @@ pub struct COMPOSITIONFORM {
     pub rcArea: RECT,
 }
 
+/// Win32 CANDIDATEFORM structure for IME candidate-list positioning.
+///
+/// The composition (preedit) window and the candidate list are positioned
+/// through two SEPARATE forms — `ImmSetCompositionWindow` moves only the
+/// former, so the candidate list has to be placed with this one.
+#[repr(C)]
+#[derive(Debug, Clone, Copy)]
+pub struct CANDIDATEFORM {
+    pub dwIndex: u32,
+    pub dwStyle: u32,
+    pub ptCurrentPos: POINT,
+    pub rcArea: RECT,
+}
+
+/// Win32 IMECHARPOSITION structure — the reply buffer of a
+/// `WM_IME_REQUEST` / `IMR_QUERYCHARPOSITION`, which is what TSF-based IMEs
+/// query instead of reading the IMM composition form. `dwSize` and
+/// `dwCharPos` are filled in by the IME; the application fills `pt`
+/// (SCREEN coordinates), `cLineHeight` and `rcDocument` (also screen).
+#[repr(C)]
+#[derive(Debug, Clone, Copy)]
+pub struct IMECHARPOSITION {
+    pub dwSize: u32,
+    pub dwCharPos: u32,
+    pub pt: POINT,
+    pub cLineHeight: u32,
+    pub rcDocument: RECT,
+}
+
 // IME Composition Form Styles
 pub const CFS_RECT: u32 = 0x0001;
+// IME Candidate Form Styles
+pub const CFS_CANDIDATEPOS: u32 = 0x0040;
 
 /// Helper to encode ASCII string for GetProcAddress
 pub fn encode_ascii(input: &str) -> Vec<i8> {
@@ -400,6 +447,10 @@ pub struct User32Functions {
     pub GetWindowRect: unsafe extern "system" fn(HWND, *mut RECT) -> BOOL,
     pub InvalidateRect: unsafe extern "system" fn(HWND, *const RECT, BOOL) -> BOOL,
 
+    // Monitors
+    pub MonitorFromWindow: unsafe extern "system" fn(HWND, u32) -> HMONITOR,
+    pub GetMonitorInfoW: unsafe extern "system" fn(HMONITOR, *mut MONITORINFOEXW) -> BOOL,
+
     // Window properties
     pub SetWindowLongPtrW: unsafe extern "system" fn(HWND, i32, isize) -> isize,
     pub GetWindowLongPtrW: unsafe extern "system" fn(HWND, i32) -> isize,
@@ -419,9 +470,20 @@ pub struct User32Functions {
     pub ClientToScreen: unsafe extern "system" fn(HWND, *mut POINT) -> BOOL,
     pub SetCapture: unsafe extern "system" fn(HWND) -> HWND,
     pub ReleaseCapture: unsafe extern "system" fn() -> BOOL,
+    /// The window that currently owns the mouse capture (NULL = none). Used to
+    /// tell a real pointer-leave apart from the `WM_MOUSELEAVE` that fires
+    /// while a captured drag is still running.
+    pub GetCapture: unsafe extern "system" fn() -> HWND,
     pub LoadCursorW: unsafe extern "system" fn(HINSTANCE, *const u16) -> HCURSOR,
     pub SetCursor: unsafe extern "system" fn(HCURSOR) -> HCURSOR,
     pub TrackMouseEvent: unsafe extern "system" fn(*mut TRACKMOUSEEVENT) -> BOOL,
+
+    // Keyboard
+    /// Snapshot of all 256 virtual-key states (high bit = down). The only way
+    /// to learn about key releases that were delivered to ANOTHER window —
+    /// after Alt+Tab the Alt release never reaches us, so the pressed set has
+    /// to be re-read from the OS on focus gain instead of tracked by messages.
+    pub GetKeyboardState: unsafe extern "system" fn(*mut u8) -> BOOL,
 
     // Pointer input (touch + pen, Windows 8+). Optional — None on older Windows.
     pub GetPointerType: Option<unsafe extern "system" fn(u32, *mut u32) -> BOOL>,
@@ -525,6 +587,10 @@ pub struct Imm32Functions {
     pub ImmGetCompositionStringW:
         unsafe extern "system" fn(HIMC, u32, *mut core::ffi::c_void, u32) -> i32,
     pub ImmSetCompositionWindow: unsafe extern "system" fn(HIMC, *const COMPOSITIONFORM) -> BOOL,
+    /// Positions the CANDIDATE list (`ImmSetCompositionWindow` only moves the
+    /// preedit window) — without it the candidate list stays wherever the IME
+    /// first placed it while the caret moves on.
+    pub ImmSetCandidateWindow: unsafe extern "system" fn(HIMC, *const CANDIDATEFORM) -> BOOL,
     /// MWA-C-text_input: associate/dissociate the IME context per editable
     /// focus (NULL HIMC = IME disabled for the window). Returns the
     /// previously associated context.
@@ -696,6 +762,10 @@ impl Win32Libraries {
                 GetWindowRect: user32_dll.get_symbol("GetWindowRect")?,
                 InvalidateRect: user32_dll.get_symbol("InvalidateRect")?,
 
+                // Monitors
+                MonitorFromWindow: user32_dll.get_symbol("MonitorFromWindow")?,
+                GetMonitorInfoW: user32_dll.get_symbol("GetMonitorInfoW")?,
+
                 // Window properties
                 // SetWindowLongPtrW/GetWindowLongPtrW are 64-bit-aware wrappers
                 // that only exist as real exports on 64-bit Windows. On 32-bit
@@ -723,9 +793,15 @@ impl Win32Libraries {
                 ClientToScreen: user32_dll.get_symbol("ClientToScreen")?,
                 SetCapture: user32_dll.get_symbol("SetCapture")?,
                 ReleaseCapture: user32_dll.get_symbol("ReleaseCapture")?,
+                GetCapture: user32_dll.get_symbol("GetCapture")?,
                 LoadCursorW: user32_dll.get_symbol("LoadCursorW")?,
                 SetCursor: user32_dll.get_symbol("SetCursor")?,
                 TrackMouseEvent: user32_dll.get_symbol("TrackMouseEvent")?,
+
+                // Keyboard
+                GetKeyboardState: user32_dll.get_symbol("GetKeyboardState")?,
+
+                // Pointer input (optional)
                 GetPointerType: user32_dll.get_symbol("GetPointerType").ok(),
                 GetPointerPenInfo: user32_dll.get_symbol("GetPointerPenInfo").ok(),
                 GetPointerTouchInfo: user32_dll.get_symbol("GetPointerTouchInfo").ok(),
@@ -780,6 +856,7 @@ impl Win32Libraries {
                 ImmReleaseContext: dll.get_symbol("ImmReleaseContext").ok()?,
                 ImmGetCompositionStringW: dll.get_symbol("ImmGetCompositionStringW").ok()?,
                 ImmSetCompositionWindow: dll.get_symbol("ImmSetCompositionWindow").ok()?,
+                ImmSetCandidateWindow: dll.get_symbol("ImmSetCandidateWindow").ok()?,
                 ImmAssociateContext: dll.get_symbol("ImmAssociateContext").ok()?,
             })
         });

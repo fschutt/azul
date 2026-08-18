@@ -1342,7 +1342,7 @@ impl TabHeader {
                     let dataset = RefAny::new(dataset);
 
                     tab_items.push(
-                        Dom::create_text(tab.clone())
+                        Dom::create_p_with_text(tab.clone())
                             .with_callbacks(if on_click_is_some {
                                 vec![CoreCallbackData {
                                     event: EventFilter::Hover(HoverEventFilter::MouseUp),
@@ -1525,10 +1525,18 @@ mod autotest_generated {
         StringVec::from_vec((0..n).map(|i| AzString::from(format!("tab {i}"))).collect())
     }
 
-    /// The text of a `NodeType::Text` node (`None` for any other node type).
+    /// The text of a text node, looking through the `<p>` block wrapper the
+    /// label convention mandates (`p > text`).
     fn text_of(node: &Dom) -> Option<&str> {
         match node.root.get_node_type() {
             NodeType::Text(s) => Some(s.as_ref().as_str()),
+            NodeType::P => match node.children.as_ref() {
+                [only] => match only.root.get_node_type() {
+                    NodeType::Text(s) => Some(s.as_ref().as_str()),
+                    _ => None,
+                },
+                _ => None,
+            },
             _ => None,
         }
     }
@@ -2498,12 +2506,16 @@ mod autotest_generated {
                 dom.recompute_estimated_total_children(),
                 "n={n}: cached descendant count desynced"
             );
-            assert_eq!(dom.node_count(), n + 3, "header + spacer + {n} tabs + spacer");
+            assert_eq!(
+                dom.node_count(),
+                2 * n + 3,
+                "header + spacer + {n} tabs (each a <p> wrapping one text node) + spacer"
+            );
 
             let styled = StyledDom::create_from_dom(dom);
             assert_eq!(
                 styled.node_hierarchy.as_ref().len(),
-                n + 3,
+                2 * n + 3,
                 "n={n}: the flattened arena must match node_count()"
             );
         }

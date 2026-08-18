@@ -931,7 +931,17 @@ pub fn run(
                             );
                         }
 
-                        // After the run loop wakes, drain any pending NSEvents
+                        // After the run loop wakes, drain any pending NSEvents.
+                        // SAME two steps as the drain at the top of the loop —
+                        // our handlers first, then the system. This one used to
+                        // call sendEvent only, so every event that happened to
+                        // be consumed here (a burst arriving while the run loop
+                        // was blocked) permanently lost `process_event`'s tail:
+                        // the "regeneration pending → request_redraw" hand-off
+                        // documented as load-bearing in macos/mod.rs, and the
+                        // a11y action poll that rides along with it. That is
+                        // the documented "UI runs one interaction behind during
+                        // bursts".
                         loop {
                             let event = unsafe {
                                 app.nextEventMatchingMask_untilDate_inMode_dequeue(
@@ -942,6 +952,15 @@ pub fn run(
                                 )
                             };
                             if let Some(event) = event {
+                                let window_ptrs = super::macos::registry::get_all_window_ptrs();
+                                for wptr in &window_ptrs {
+                                    unsafe {
+                                        let window = &mut **wptr;
+                                        let macos_event =
+                                            super::macos::MacOSEvent::from_nsevent(&event);
+                                        window.process_event(&event, &macos_event);
+                                    }
+                                }
                                 unsafe {
                                     app.sendEvent(&event);
                                 }
@@ -1162,30 +1181,114 @@ pub fn run(
         let mut had_messages = false;
 
         for hwnd in &window_handles {
-            if let Some(wptr) = registry::get_window(*hwnd) {
-                unsafe {
-                    let window = &mut *wptr;
-                    let mut msg: MSG = std::mem::zeroed();
+            unsafe {
+                let mut msg: MSG = std::mem::zeroed();
+                loop {
+                    // Re-fetch the window on EVERY iteration, and copy the three
+                    // entry points out instead of holding a `&mut Win32Window`
+                    // across the dispatch. `DispatchMessageW` below runs the
+                    // window procedure, and WM_CLOSE -> DestroyWindow ->
+                    // WM_DESTROY happens synchronously inside it — which
+                    // unregisters this window and parks its box for a deferred
+                    // free. The old shape hoisted one borrow above the `while`
+                    // and then re-read `window.win32.user32.PeekMessageW`
+                    // through it on the next loop condition: a use-after-free
+                    // the moment anything actually frees the box (Lane 6's F5
+                    // does). An unregistered window is the correct exit.
+                    let Some(wptr) = registry::get_window(*hwnd) else {
+                        break;
+                    };
+                    let (peek_message, translate_message, dispatch_message) = {
+                        let window = &*wptr;
+                        (
+                            window.win32.user32.PeekMessageW,
+                            window.win32.user32.TranslateMessage,
+                            window.win32.user32.DispatchMessageW,
+                        )
+                    };
 
                     // PeekMessage with PM_REMOVE to process all pending messages for this window
-                    while (window.win32.user32.PeekMessageW)(
-                        &mut msg, *hwnd, 0, 0, 1, // PM_REMOVE
-                    ) > 0
-                    {
-                        had_messages = true;
-
-                        // Check for WM_QUIT
-                        if msg.message == 0x0012 {
-                            // WM_QUIT - exit event loop
-                            return Ok(());
-                        }
-
-                        (window.win32.user32.TranslateMessage)(&msg);
-                        (window.win32.user32.DispatchMessageW)(&msg);
+                    if (peek_message)(&mut msg, *hwnd, 0, 0, 1 /* PM_REMOVE */) <= 0 {
+                        break;
                     }
+
+                    had_messages = true;
+
+                    // Check for WM_QUIT
+                    if msg.message == 0x0012 {
+                        // WM_QUIT - exit event loop
+                        return Ok(());
+                    }
+
+                    (translate_message)(&msg);
+                    (dispatch_message)(&msg);
                 }
             }
         }
+
+        // --- Drain the THREAD queue (hwnd filter = NULL) ---
+        // The per-window peeks above cannot see two whole classes of message:
+        //   * WM_QUIT, which `PostQuitMessage` posts to the THREAD and which is
+        //     associated with no window at all — the `msg.message == WM_QUIT`
+        //     test above could therefore never be true, so a PostQuitMessage
+        //     from user or library code never terminated this loop (masked
+        //     only because exit normally happens via registry::is_empty()).
+        //   * genuine thread messages (`PostThreadMessage`, hwnd == NULL),
+        //     which stayed in the queue forever and, being "available", also
+        //     defeat the WaitMessage() below — a spin at the bottom of the
+        //     loop rather than a block.
+        // An hwnd filter of NULL retrieves messages for any window on this
+        // thread PLUS thread messages, which is exactly the remainder.
+        //
+        // The entry points are copied out ONCE (they are process-global symbols
+        // from user32.dll, identical for every window) so that no reference to a
+        // Win32Window is live across a dispatch that may destroy it.
+        let thread_pump = registry::get_all_window_handles()
+            .first()
+            .and_then(|h| registry::get_window(*h))
+            .map(|wptr| unsafe {
+                let window = &*wptr;
+                (
+                    window.win32.user32.PeekMessageW,
+                    window.win32.user32.TranslateMessage,
+                    window.win32.user32.DispatchMessageW,
+                )
+            });
+        if let Some((peek_message, translate_message, dispatch_message)) = thread_pump {
+            unsafe {
+                let mut msg: MSG = std::mem::zeroed();
+                while (peek_message)(
+                    &mut msg,
+                    std::ptr::null_mut(),
+                    0,
+                    0,
+                    1, // PM_REMOVE
+                ) > 0
+                {
+                    had_messages = true;
+
+                    // Check for WM_QUIT
+                    if msg.message == 0x0012 {
+                        // WM_QUIT - exit event loop
+                        return Ok(());
+                    }
+
+                    (translate_message)(&msg);
+                    (dispatch_message)(&msg);
+                }
+            }
+        }
+
+        // --- Free windows destroyed during the dispatch above ---
+        // WM_DESTROY cannot free its own Win32Window: it runs in a nested
+        // window procedure underneath `DispatchMessageW`, with the pump still
+        // walking that window. It unregisters and PARKS the box instead
+        // (registry::queue_window_free); this is the only place the parked
+        // boxes are actually dropped, and it runs with no borrow live. Without
+        // this call the GL context and WebRender renderer are released but the
+        // allocation leaks — one whole Win32Window per closed window. Mirrors
+        // `super::macos::drain_closed_windows()` in the macOS loop.
+        registry::drain_closed_windows();
 
         // --- State diffing and callback dispatch ---
         // This is where callbacks fire (comparing previous_window_state vs current_window_state)
@@ -1200,6 +1303,12 @@ pub fn run(
                     // Save previous state if not already done
                     if window.common.previous_window_state.is_none() {
                         window.common.previous_window_state = Some(window.common.current_window_state.clone());
+                    }
+                    // R5: the OS-sync baseline is a SEPARATE field with its own
+                    // seeding — sharing one baseline with event determination is
+                    // what made OS-reported resizes undetectable.
+                    if window.common.os_synced_state.is_none() {
+                        window.common.mark_os_synced();
                     }
 
                     // Process pending window creates (for popup menus, dialogs, etc.)
@@ -1326,6 +1435,10 @@ pub fn run(
             }
         }
     }
+    // …plus anything WM_DESTROY parked on the FINAL iteration, which never
+    // reached the in-loop drain because the loop exited on registry::is_empty()
+    // in the same breath.
+    registry::drain_closed_windows();
 
     // Handle termination behavior
     match config.termination_behavior {

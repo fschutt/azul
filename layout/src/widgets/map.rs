@@ -1523,7 +1523,7 @@ extern "C" fn map_widget_render(
                     }
                     None => {
                         tile_div = tile_div.with_child(
-                            Dom::create_text(alloc::format!("✓? z{z_int}/{x}/{y}"))
+                            Dom::create_p_with_text(alloc::format!("✓? z{z_int}/{x}/{y}"))
                                 .with_css("position: absolute; left: 4px; top: 4px; font-size: 11px; color: #888;"),
                         );
                     }
@@ -1534,7 +1534,7 @@ extern "C" fn map_widget_render(
                         _ => "",
                     };
                     tile_div = tile_div.with_child(
-                        Dom::create_text(alloc::format!("{state_tag} z{z_int}/{x}/{y}"))
+                        Dom::create_p_with_text(alloc::format!("{state_tag} z{z_int}/{x}/{y}"))
                             .with_css("position: absolute; left: 4px; top: 4px; font-size: 11px; color: #888;"),
                     );
                 }

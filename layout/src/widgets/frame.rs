@@ -374,7 +374,8 @@ impl Frame {
                                 IdOrClassVec::from_const_slice(IDS_AND_CLASSES_15264202958442287530)
                             })
                             .with_children(DomVec::from_vec(vec![Dom::create_div()])),
-                        Dom::create_text(self.title).with_css_props(CSS_MATCH_4236783900531286611),
+                        Dom::create_p_with_text(self.title)
+                            .with_css_props(CSS_MATCH_4236783900531286611),
                         Dom::create_div()
                             .with_css_props(CSS_MATCH_9156589477016488419)
                             .with_ids_and_classes({
@@ -489,7 +490,7 @@ mod autotest_generated {
         &kids(header(dom))[0]
     }
 
-    /// The title text node, wedged between the two header rules.
+    /// The title `<p>` box, wedged between the two header rules.
     fn title_node(dom: &Dom) -> &Dom {
         &kids(header(dom))[1]
     }
@@ -529,9 +530,18 @@ mod autotest_generated {
             .collect()
     }
 
+    /// The text of a text node, looking through the `<p>` block wrapper the
+    /// label convention mandates (`p > text`).
     fn text_of(dom: &Dom) -> Option<&str> {
         match dom.root.get_node_type() {
             NodeType::Text(s) => Some(s.as_ref().as_str()),
+            NodeType::P => match dom.children.as_ref() {
+                [only] => match only.root.get_node_type() {
+                    NodeType::Text(s) => Some(s.as_ref().as_str()),
+                    _ => None,
+                },
+                _ => None,
+            },
             _ => None,
         }
     }
@@ -709,7 +719,7 @@ mod autotest_generated {
             count_descendants(&deep),
             "the cached child count desynced for deeply nested content",
         );
-        assert_eq!(deep.estimated_total_children, 8 + 64, "frame chrome is 8 nodes + the content");
+        assert_eq!(deep.estimated_total_children, 9 + 64, "frame chrome is 8 nodes + the content");
 
         let wide = frame(
             "wide",
@@ -723,13 +733,13 @@ mod autotest_generated {
             count_descendants(&wide),
             "the cached child count desynced for very wide content",
         );
-        assert_eq!(wide.estimated_total_children, 8 + 2000);
+        assert_eq!(wide.estimated_total_children, 9 + 2000);
     }
 
     #[test]
     fn frames_nest_without_desyncing_the_child_count_cache() {
         let inner = frame("inner", Dom::create_div()).dom();
-        assert_eq!(inner.estimated_total_children, 8, "a bare frame is 8 nodes below the root");
+        assert_eq!(inner.estimated_total_children, 9, "a bare frame is 9 nodes below the root");
 
         let outer = frame("outer", inner).dom();
         assert_eq!(
@@ -737,7 +747,7 @@ mod autotest_generated {
             count_descendants(&outer),
             "nesting a frame inside a frame desynced the cached child count",
         );
-        assert_eq!(outer.estimated_total_children, 16);
+        assert_eq!(outer.estimated_total_children, 18);
     }
 
     // ------------------------------------------------------------------
@@ -806,8 +816,8 @@ mod autotest_generated {
 
         assert_eq!(text_of(title_node(&left_behind)), Some(""));
         assert_eq!(text_of(title_node(&moved_out)), Some("original"));
-        assert_eq!(left_behind.estimated_total_children, 8);
-        assert_eq!(moved_out.estimated_total_children, 8 + 8);
+        assert_eq!(left_behind.estimated_total_children, 9);
+        assert_eq!(moved_out.estimated_total_children, 9 + 8);
     }
 
     // ------------------------------------------------------------------
@@ -1012,7 +1022,15 @@ mod autotest_generated {
         assert_eq!(kids(header(&dom)).len(), 3, "the header is rule / title / rule");
         assert_eq!(kids(rule_before(&dom)).len(), 1, "the left rule wraps exactly one div");
         assert_eq!(kids(rule_after(&dom)).len(), 1, "the right rule wraps exactly one div");
-        assert!(kids(title_node(&dom)).is_empty(), "the title node must be a leaf");
+        assert_eq!(
+            kids(title_node(&dom)).len(),
+            1,
+            "the title is a <p> wrapping exactly one bare text node"
+        );
+        assert!(
+            kids(&kids(title_node(&dom))[0]).is_empty(),
+            "the text node itself must be a leaf"
+        );
         assert_eq!(kids(content_area(&dom)).len(), 1, "the content area holds exactly one child");
 
         assert_eq!(text_of(title_node(&dom)), Some("Title"));
@@ -1314,7 +1332,7 @@ mod autotest_generated {
                 "the title style changed for input {t:?}",
             );
             assert_eq!(kids(header(&dom)).len(), 3, "the header shape changed for input {t:?}");
-            assert_eq!(dom.estimated_total_children, 8, "the node count changed for {t:?}");
+            assert_eq!(dom.estimated_total_children, 9, "the node count changed for {t:?}");
         }
     }
 }

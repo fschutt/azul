@@ -6,7 +6,7 @@ use crate::{log_debug, log_error, log_info, log_trace, log_warn};
 use azul_core::{
     callbacks::LayoutCallbackInfo,
     dom::{DomId, NodeId, ScrollbarOrientation},
-    events::{EventFilter, MouseButton, ProcessEventResult, SyntheticEvent},
+    events::{EventFilter, MouseButton, ProcessEventResult},
     geom::{LogicalPosition, PhysicalPositionI32},
     hit_test::{CursorTypeHitTest, FullHitTest},
     window::{
@@ -40,6 +40,37 @@ const MACOS_KEYCODE_LSHIFT: u16 = 0x38;
 const MACOS_KEYCODE_LCONTROL: u16 = 0x3B;
 const MACOS_KEYCODE_LALT: u16 = 0x3A;
 const MACOS_KEYCODE_LWIN: u16 = 0x37;
+const MACOS_KEYCODE_RSHIFT: u16 = 0x3C;
+const MACOS_KEYCODE_RCONTROL: u16 = 0x3E;
+const MACOS_KEYCODE_RALT: u16 = 0x3D;
+const MACOS_KEYCODE_RWIN: u16 = 0x36;
+const MACOS_KEYCODE_CAPSLOCK: u16 = 0x39;
+
+/// Device-DEPENDENT modifier masks (IOKit `IOLLEvent.h`), carried in the low
+/// 16 bits of `modifierFlags` next to the device-independent class flags
+/// (`Shift`, `Control`, …, all `1<<16` and above). They are the only way to
+/// tell a left modifier from its right twin AND the only way to read a
+/// release correctly: letting go of LShift while RShift is held leaves the
+/// `Shift` class flag set, so the class flag alone reports "still down".
+const NX_DEVICE_LCONTROL: usize = 0x0000_0001;
+const NX_DEVICE_LSHIFT: usize = 0x0000_0002;
+const NX_DEVICE_RSHIFT: usize = 0x0000_0004;
+const NX_DEVICE_LWIN: usize = 0x0000_0008;
+const NX_DEVICE_RWIN: usize = 0x0000_0010;
+const NX_DEVICE_LALT: usize = 0x0000_0020;
+const NX_DEVICE_RALT: usize = 0x0000_0040;
+const NX_DEVICE_RCONTROL: usize = 0x0000_2000;
+
+/// Pixels per line for a scroll delta that is NOT precise (a ratcheting mouse
+/// wheel: `hasPreciseScrollingDeltas() == false`, so AppKit reports LINE units,
+/// ~±1 per notch). The engine's raw-delta chokepoint takes pixels — X11 scales
+/// its ±1 button-4/5 ticks by `X11_SCROLL_TICK_PIXELS` and Win32 its
+/// `WHEEL_DELTA` quotient by the same 20 — so passing the line count through
+/// unscaled made a physical wheel crawl ~20x slower on macOS than everywhere
+/// else. Precise (trackpad) deltas are already pixels and pass through raw.
+#[allow(clippy::cast_lossless)]
+const MACOS_SCROLL_LINE_PIXELS: f64 =
+    crate::desktop::shell2::common::event::WHEEL_SCROLL_PIXELS_PER_LINE as f64;
 
 fn button_to_flags(button: MouseButton) -> u8 {
     match button {
@@ -227,15 +258,20 @@ impl MacOSWindow {
         // Feed Wacom/pen state on tablet events (pen tip lifted = not in contact).
         self.feed_tablet_pen(event, position, false);
 
-        // Check for right-click context menu (before event processing)
+        // Resolve a right-click context menu, but do NOT present it here: a
+        // native menu spins a synchronous nested tracking runloop, and we are
+        // holding a `&mut MacOSWindow` reconstructed from the registry's raw
+        // pointer. The tick timers run in `kCFRunLoopCommonModes` (deliberately,
+        // so blink/tweens survive menu tracking) and would take a SECOND `&mut`
+        // to this same window — aliased `&mut` plus logical re-entrancy. The
+        // view handler presents `pending_context_menu` after the borrow ends.
+        //
+        // Returning early here ALSO destroyed the mouse-up delta this handler
+        // had just recorded (`right_down = false`), so MouseUp(Right) callbacks
+        // never fired on a node that carried a context menu.
         if button == MouseButton::Right {
             if let Some(hit_node) = self.get_first_hovered_node() {
-                if self
-                    .try_show_context_menu(hit_node, position, event)
-                    .is_some()
-                {
-                    return EventProcessResult::DoNothing;
-                }
+                self.resolve_context_menu(hit_node, position);
             }
         }
 
@@ -398,7 +434,7 @@ impl MacOSWindow {
             let sel = sel!(scrollingDeltaX);
             objc2::msg_send![event, respondsToSelector: sel]
         };
-        let (delta_x, delta_y, has_precise) = if has_modern_scroll {
+        let (raw_delta_x, raw_delta_y, has_precise) = if has_modern_scroll {
             let dx = unsafe { event.scrollingDeltaX() };
             let dy = unsafe { event.scrollingDeltaY() };
             let precise = unsafe { event.hasPreciseScrollingDeltas() };
@@ -408,6 +444,18 @@ impl MacOSWindow {
             let dx = unsafe { event.deltaX() };
             let dy = unsafe { event.deltaY() };
             (dx, dy, false)
+        };
+
+        // Trackpad/precise deltas are already pixels; a ratcheting wheel (and the
+        // pre-10.7 fallback) reports LINES and must be scaled to match X11/Win32
+        // (see MACOS_SCROLL_LINE_PIXELS).
+        let (delta_x, delta_y) = if has_precise {
+            (raw_delta_x, raw_delta_y)
+        } else {
+            (
+                raw_delta_x * MACOS_SCROLL_LINE_PIXELS,
+                raw_delta_y * MACOS_SCROLL_LINE_PIXELS,
+            )
         };
 
         let location = unsafe { event.locationInWindow() };
@@ -456,9 +504,15 @@ impl MacOSWindow {
             if has_precise {
                 let phase = unsafe { event.phase() };
                 let momentum_phase = unsafe { event.momentumPhase() };
+                // momentumPhase == Cancelled means the momentum scroll was
+                // interrupted (a finger landed on the trackpad). Like Ended it
+                // is the LAST event of the gesture and carries a zero delta, so
+                // omitting it left the physics timer in TrackpadContinuous and
+                // the rubber-band spring-back was never triggered.
                 if phase == objc2_app_kit::NSEventPhase::Ended
                     || phase == objc2_app_kit::NSEventPhase::Cancelled
                     || momentum_phase == objc2_app_kit::NSEventPhase::Ended
+                    || momentum_phase == objc2_app_kit::NSEventPhase::Cancelled
                 {
                     ScrollInputSource::TrackpadEnd
                 } else {
@@ -599,13 +653,26 @@ impl MacOSWindow {
         }
         self.common.previous_window_state = Some(prev_snapshot);
 
-        // Update keyboard state with keycode
-        self.update_keyboard_state(key_code, modifiers, true);
-
-        // Handle text input for printable characters directly.
+        // RECORD (do not apply) the text this key produces, BEFORE the pass —
+        // the same order X11 and Wayland use. `record_text_input` only stages a
+        // pending changeset in the TextInputManager; the pass dispatches
+        // VirtualKeyDown first and the shared post-callback filter then emits
+        // `ApplyPendingTextInput` → `ApplyTextChangeset` →
+        // `ScrollCursorIntoViewAfterTextInput`, but ONLY when no callback called
+        // `prevent_default()`.
+        //
+        // This used to call `handle_text_input()` — which takes its OWN
+        // `previous = current.clone()` snapshot — AFTER the keycode had already
+        // been written into `current`. That left `previous == current`, so the
+        // None→Some(key) diff was gone and NO VirtualKeyDown ever fired for a
+        // printable key (Shift+letter included); only control chars, PUA
+        // function keys and Cmd/Ctrl combos, which skip the branch, kept theirs.
+        // It also inserted the text BEFORE dispatch, so a KeyDown handler could
+        // never suppress the insertion.
+        //
         // Note: interpretKeyEvents → insertText: does NOT work reliably with objc2's
         // protocol conformance. The insertText:replacementRange: method may not be called
-        // by the ObjC runtime. So we insert text directly here for printable characters.
+        // by the ObjC runtime. So we stage text here for printable characters.
         // Control characters and modified keys (Cmd+X, Ctrl+C) are NOT inserted as text.
         if let Some(ch) = character {
             let is_control_char = ch.is_control();
@@ -620,11 +687,16 @@ impl MacOSWindow {
                 let text_input = ch.to_string();
                 crate::log_debug!(
                     crate::desktop::shell2::common::debug_server::LogCategory::Input,
-                    "[handle_key_down] inserting text '{}' directly", text_input
+                    "[handle_key_down] recording text '{}' for this pass", text_input
                 );
-                self.handle_text_input(&text_input);
+                if let Some(layout_window) = self.get_layout_window_mut() {
+                    layout_window.record_text_input(&text_input);
+                }
             }
         }
+
+        // Update keyboard state with keycode
+        self.update_keyboard_state(key_code, modifiers, true);
 
         // V2 system will detect VirtualKeyDown from state diff
         let result = self.process_window_events(0);
@@ -655,8 +727,19 @@ impl MacOSWindow {
     ///
     /// This is the proper way to handle text input on macOS, as it respects
     /// the IME composition system for non-ASCII characters (accents, CJK, etc.)
+    ///
+    /// Routed through the SHARED `CallbackChange::CreateTextInput` arm (the same
+    /// one the headless runner and the debug server use) instead of a bespoke
+    /// re-implementation: the local copy dispatched the synthetic Input events
+    /// and applied the changeset correctly but omitted the arm's closing
+    /// `scroll_selection_into_view(Cursor, Instant)`, so typing ran off the
+    /// bottom of a scrollable text node without ever following the caret.
+    ///
+    /// NOT used by the key-down path any more — `handle_key_down` stages the
+    /// text with `record_text_input` and lets its own pass apply it, which is
+    /// what makes a KeyDown callback able to `prevent_default()` the insertion.
     pub fn handle_text_input(&mut self, text: &str) {
-        use azul_core::events::ProcessEventResult;
+        use azul_layout::callbacks::CallbackChange;
 
         let focused = self.common.layout_window.as_ref()
             .and_then(|lw| lw.focus_manager.get_focused_node().copied());
@@ -668,79 +751,21 @@ impl MacOSWindow {
             "[handle_text_input] text='{}', focused={:?}, has_cursor={}", text, focused, has_cursor
         );
 
-        // Save previous state BEFORE making changes
+        // Save previous state BEFORE making changes: the arm dispatches its own
+        // synthetic Input events and a user callback inside that dispatch may
+        // re-enter `process_window_events`, which needs a baseline.
         self.common.previous_window_state = Some(self.common.current_window_state.clone());
 
-        // Record text input - this returns a map of nodes that need TextInput event dispatched
-        let affected_nodes = if let Some(layout_window) = self.get_layout_window_mut() {
-            layout_window.record_text_input(text)
-        } else {
-            crate::log_debug!(
-                crate::desktop::shell2::common::debug_server::LogCategory::Input,
-                "[handle_text_input] no layout window!"
-            );
-            return;
-        };
-
-        crate::log_debug!(
-            crate::desktop::shell2::common::debug_server::LogCategory::Input,
-            "[handle_text_input] record_text_input returned {} affected nodes", affected_nodes.len()
-        );
-
-        if affected_nodes.is_empty() {
-            return;
-        }
-
-        // Manually process the generated text input event.
-        // We do NOT call process_window_events() here, because that function
-        // is for discovering events from state diffs. Here, we already know the exact event.
-        let mut overall_result = ProcessEventResult::DoNothing;
-
-        // Build synthetic events for each affected node
-        let now = {
-            #[cfg(feature = "std")]
-            { azul_core::task::Instant::from(std::time::Instant::now()) }
-            #[cfg(not(feature = "std"))]
-            { azul_core::task::Instant::Tick(azul_core::task::SystemTick::new(0)) }
-        };
-
-        let text_events: Vec<azul_core::events::SyntheticEvent> = affected_nodes.keys().map(|dom_node_id| {
-                azul_core::events::SyntheticEvent::new(
-                    azul_core::events::EventType::Input,
-                    azul_core::events::EventSource::User,
-                    *dom_node_id,
-                    now.clone(),
-                    azul_core::events::EventData::None,
-                )
-            })
-            .collect();
-
-        if !text_events.is_empty() {
-            let (text_changes_result, text_update, _) = self.dispatch_events_propagated(&text_events);
-            overall_result = overall_result.max(text_changes_result);
-            use azul_core::callbacks::Update;
-            if matches!(text_update, Update::RefreshDom | Update::RefreshDomAllWindows) {
-                overall_result = overall_result.max(ProcessEventResult::ShouldRegenerateDomCurrentWindow);
-            }
-        }
-
-        // Apply text changeset after callbacks
-        if let Some(layout_window) = self.get_layout_window_mut() {
-            let changeset_result = layout_window.apply_text_changeset();
-            if !changeset_result.dirty_nodes.is_empty() {
-                if changeset_result.needs_relayout {
-                    overall_result = overall_result.max(ProcessEventResult::ShouldIncrementalRelayout);
-                } else {
-                    overall_result = overall_result.max(ProcessEventResult::ShouldUpdateDisplayListCurrentWindow);
-                }
-            }
-        }
+        let result = self.apply_user_change(&CallbackChange::CreateTextInput {
+            text: text.into(),
+        });
 
         // Apply the result: text edits go through the incremental path
-        // (display_list_dirty), NOT the full DOM rebuild path (a regeneration request).
-        // The display list was already regenerated inside apply_text_changeset() →
-        // update_text_cache_after_edit() → regenerate_display_list_for_dom().
-        let event_result = self.convert_result_with_fanout(overall_result);
+        // (display_list_dirty / incremental_relayout), NOT the full DOM rebuild
+        // path (a regeneration request). The display list was already regenerated
+        // inside apply_text_changeset() → update_text_cache_after_edit() →
+        // regenerate_display_list_for_dom().
+        let event_result = self.convert_result_with_fanout(result);
         match event_result {
             EventProcessResult::RegenerateDisplayList => {
                 self.common.request_regeneration(azul_core::callbacks::RelayoutReason::RefreshDom);
@@ -750,6 +775,13 @@ impl MacOSWindow {
                 self.common.display_list_dirty = true;
                 self.request_redraw();
             }
+            // A text edit that changed the line count returns
+            // ShouldIncrementalRelayout. This arm was MISSING — it fell into
+            // `_ => {}`, so a reflowing edit ran no relayout and requested no
+            // frame at all and the window kept showing the pre-edit layout.
+            EventProcessResult::RegenerateLayoutIncremental => {
+                self.apply_incremental_relayout_result();
+            }
             EventProcessResult::RequestRedraw => {
                 self.request_redraw();
             }
@@ -758,46 +790,53 @@ impl MacOSWindow {
     }
 
     /// Process a flags changed event (modifier keys).
+    ///
+    /// A `flagsChanged:` event carries the keyCode of the ONE physical key whose
+    /// state flipped, so that is what decides which `VirtualKeyCode` to report —
+    /// the previous version only ever synthesized the `L*` twins from the
+    /// device-independent class flags, so a physical RShift/RAlt/RControl/RCmd
+    /// arrived as its left counterpart and Caps Lock produced nothing at all.
     pub fn handle_flags_changed(&mut self, event: &NSEvent) -> EventProcessResult {
         let modifiers = unsafe { event.modifierFlags() };
+        let key_code = unsafe { event.keyCode() };
+        let raw = modifiers.0 as usize;
 
-        // Determine which modifier keys are currently pressed
-        let shift_pressed = modifiers.contains(NSEventModifierFlags::Shift);
-        let ctrl_pressed = modifiers.contains(NSEventModifierFlags::Control);
-        let alt_pressed = modifiers.contains(NSEventModifierFlags::Option);
-        let cmd_pressed = modifiers.contains(NSEventModifierFlags::Command);
+        // Is the key that changed now DOWN? Read its device-DEPENDENT bit, not
+        // the class flag: releasing one Shift while the other is held leaves the
+        // `Shift` class flag set. Caps Lock is a LOCK — the class flag IS its
+        // state and the keyboard sends a flagsChanged on each toggle.
+        let is_down = match key_code {
+            MACOS_KEYCODE_LSHIFT => raw & NX_DEVICE_LSHIFT != 0,
+            MACOS_KEYCODE_RSHIFT => raw & NX_DEVICE_RSHIFT != 0,
+            MACOS_KEYCODE_LCONTROL => raw & NX_DEVICE_LCONTROL != 0,
+            MACOS_KEYCODE_RCONTROL => raw & NX_DEVICE_RCONTROL != 0,
+            MACOS_KEYCODE_LALT => raw & NX_DEVICE_LALT != 0,
+            MACOS_KEYCODE_RALT => raw & NX_DEVICE_RALT != 0,
+            MACOS_KEYCODE_LWIN => raw & NX_DEVICE_LWIN != 0,
+            MACOS_KEYCODE_RWIN => raw & NX_DEVICE_RWIN != 0,
+            MACOS_KEYCODE_CAPSLOCK => modifiers.contains(NSEventModifierFlags::CapsLock),
+            // Fn and anything else this table doesn't map: no engine key.
+            _ => return EventProcessResult::DoNothing,
+        };
 
-        // Track previous state to detect what changed
-        let keyboard_state = &self.common.current_window_state.keyboard_state;
-        let was_shift_down = keyboard_state.shift_down();
-        let was_ctrl_down = keyboard_state.ctrl_down();
-        let was_alt_down = keyboard_state.alt_down();
-        let was_cmd_down = keyboard_state.super_down();
-
-        // Update keyboard state based on changes
-        if shift_pressed != was_shift_down {
-            self.update_keyboard_state(MACOS_KEYCODE_LSHIFT, modifiers, shift_pressed);
-        }
-        if ctrl_pressed != was_ctrl_down {
-            self.update_keyboard_state(MACOS_KEYCODE_LCONTROL, modifiers, ctrl_pressed);
-        }
-        if alt_pressed != was_alt_down {
-            self.update_keyboard_state(MACOS_KEYCODE_LALT, modifiers, alt_pressed);
-        }
-        if cmd_pressed != was_cmd_down {
-            self.update_keyboard_state(MACOS_KEYCODE_LWIN, modifiers, cmd_pressed);
+        // Nothing to dispatch if the engine already agrees with the OS (a
+        // duplicate flagsChanged, or a modifier we re-synced on focus).
+        let Some(vk) = self.convert_keycode(key_code) else {
+            return EventProcessResult::DoNothing;
+        };
+        if self.common.current_window_state.keyboard_state.is_key_down(vk) == is_down {
+            return EventProcessResult::DoNothing;
         }
 
-        if shift_pressed != was_shift_down
-            || ctrl_pressed != was_ctrl_down
-            || alt_pressed != was_alt_down
-            || cmd_pressed != was_cmd_down
-        {
-            let result = self.process_window_events(0);
-            self.convert_result_with_fanout(result)
-        } else {
-            EventProcessResult::DoNothing
-        }
+        // Save previous state BEFORE making changes: this handler used to mutate
+        // in place and rely on the next handler's snapshot, which destroyed the
+        // very transition it had just produced.
+        self.common.previous_window_state = Some(self.common.current_window_state.clone());
+
+        self.update_keyboard_state(key_code, modifiers, is_down);
+
+        let result = self.process_window_events(0);
+        self.convert_result_with_fanout(result)
     }
 
     /// Process a window resize event.
@@ -812,8 +851,22 @@ impl MacOSWindow {
         // Store old context for comparison
         let old_context = self.dynamic_selector_context.clone();
 
-        // Update window state
-        self.common.current_window_state.size.dimensions = new_size;
+        // Save previous state BEFORE making changes. The size delta is what the
+        // shared pass turns into a `WindowResize` dispatch — this handler used to
+        // mutate in place with no snapshot and no pass, so the delta simply sat
+        // there until the NEXT handler's snapshot overwrote it and the resize
+        // was never dispatched to any callback.
+        self.common.previous_window_state = Some(self.common.current_window_state.clone());
+
+        // Update window state. Size REPORTED by the OS (source = Os): the
+        // OS-sync baseline must advance in lockstep, or the next
+        // `sync_window_state()` diffs a stale baseline against the new size and
+        // echoes a `setContentSize` back at AppKit — mid-live-resize that echo
+        // carries the PREVIOUS frame's size and fights the user's drag.
+        self.common.update_window_state(
+            crate::desktop::shell2::common::event::WindowStateSource::Os,
+            |ws| ws.size.dimensions = new_size,
+        );
 
         // Update dynamic selector context with new viewport dimensions
         self.dynamic_selector_context.viewport_width = new_width as f32;
@@ -835,7 +888,13 @@ impl MacOSWindow {
                 old_hidpi.inner.get(),
                 current_hidpi.inner.get()
             );
-            self.common.current_window_state.size.dpi = (current_hidpi.inner.get() * 96.0) as u32;
+            // Same Os-source routing as the dimension write above (the scale is
+            // an OS fact; keep the OS-sync baseline in lockstep).
+            let new_dpi = (current_hidpi.inner.get() * 96.0) as u32;
+            self.common.update_window_state(
+                crate::desktop::shell2::common::event::WindowStateSource::Os,
+                |ws| ws.size.dpi = new_dpi,
+            );
         }
 
         // Notify compositor of resize (this is private in mod.rs, so we inline it here)
@@ -851,8 +910,13 @@ impl MacOSWindow {
                     > 0.5;
 
         if !viewport_changed {
-            // No significant change, just update compositor
-            return EventProcessResult::RequestRedraw;
+            // No significant change, just update compositor. The pass still runs
+            // so the (sub-pixel) delta is consumed here instead of being left
+            // live for an unrelated later pass to re-detect as a resize.
+            let result = self.process_window_events(0);
+            return self
+                .convert_result_with_fanout(result)
+                .max(EventProcessResult::RequestRedraw);
         }
 
         // RESIZE POLICY (user ruling 2026-08-08, same as Wayland/X11/Win32):
@@ -887,10 +951,16 @@ impl MacOSWindow {
             );
         }
 
+        // Dispatch the size transition (WindowResize + any size-conditional
+        // restyle) and consume the delta.
+        let result = self.process_window_events(0);
+
         // Either way the compositor needs a frame; the caller's RequestRedraw
         // arm sets surface_needs_update + request_redraw, and the fast path's
-        // latch is consumed (once, coalesced) at the top of build_atomic_txn.
-        EventProcessResult::RequestRedraw
+        // latch is consumed (once, coalesced) at the top of build_atomic_txn —
+        // so the pass result is floored at RequestRedraw, never below it.
+        self.convert_result_with_fanout(result)
+            .max(EventProcessResult::RequestRedraw)
     }
 
     /// Process a file drop event (the user released the dragged files over the
@@ -1063,9 +1133,53 @@ fn convert_keycode(keycode: u16) -> Option<VirtualKeyCode> {
         0x39 => Some(VirtualKeyCode::Capital), // Caps Lock
         0x3A => Some(VirtualKeyCode::LAlt),    // Option
         0x3B => Some(VirtualKeyCode::LControl),
+        0x36 => Some(VirtualKeyCode::RWin), // Right Command
         0x3C => Some(VirtualKeyCode::RShift),
         0x3D => Some(VirtualKeyCode::RAlt),
         0x3E => Some(VirtualKeyCode::RControl),
+        // Keypad. Its digits/operators also produce ordinary characters, so the
+        // text-insert path in handle_key_down keeps working; these entries are
+        // what gives them a VirtualKeyDown as well.
+        0x41 => Some(VirtualKeyCode::NumpadDecimal),
+        0x43 => Some(VirtualKeyCode::NumpadMultiply),
+        0x45 => Some(VirtualKeyCode::NumpadAdd),
+        0x47 => Some(VirtualKeyCode::Numlock), // Keypad Clear sits in the NumLock position
+        0x4B => Some(VirtualKeyCode::NumpadDivide),
+        0x4C => Some(VirtualKeyCode::NumpadEnter),
+        0x4E => Some(VirtualKeyCode::NumpadSubtract),
+        0x51 => Some(VirtualKeyCode::NumpadEquals),
+        0x52 => Some(VirtualKeyCode::Numpad0),
+        0x53 => Some(VirtualKeyCode::Numpad1),
+        0x54 => Some(VirtualKeyCode::Numpad2),
+        0x55 => Some(VirtualKeyCode::Numpad3),
+        0x56 => Some(VirtualKeyCode::Numpad4),
+        0x57 => Some(VirtualKeyCode::Numpad5),
+        0x58 => Some(VirtualKeyCode::Numpad6),
+        0x59 => Some(VirtualKeyCode::Numpad7),
+        0x5B => Some(VirtualKeyCode::Numpad8),
+        0x5C => Some(VirtualKeyCode::Numpad9),
+        // Function row. macOS orders these by hardware position, not by number.
+        0x60 => Some(VirtualKeyCode::F5),
+        0x61 => Some(VirtualKeyCode::F6),
+        0x62 => Some(VirtualKeyCode::F7),
+        0x63 => Some(VirtualKeyCode::F3),
+        0x64 => Some(VirtualKeyCode::F8),
+        0x65 => Some(VirtualKeyCode::F9),
+        0x67 => Some(VirtualKeyCode::F11),
+        0x6D => Some(VirtualKeyCode::F10),
+        0x6E => Some(VirtualKeyCode::Apps), // PC "Menu" / contextual-menu key
+        0x6F => Some(VirtualKeyCode::F12),
+        0x76 => Some(VirtualKeyCode::F4),
+        0x78 => Some(VirtualKeyCode::F2),
+        0x7A => Some(VirtualKeyCode::F1),
+        // Navigation cluster. These emit Private-Use-Area characters
+        // (U+F700..U+F7FF), which handle_key_down correctly refuses to insert as
+        // text — so without an entry here they produced no engine event AT ALL.
+        0x73 => Some(VirtualKeyCode::Home),
+        0x74 => Some(VirtualKeyCode::PageUp),
+        0x75 => Some(VirtualKeyCode::Delete), // ForwardDelete (Back = 0x33 is Backspace)
+        0x77 => Some(VirtualKeyCode::End),
+        0x79 => Some(VirtualKeyCode::PageDown),
         0x7B => Some(VirtualKeyCode::Left),
         0x7C => Some(VirtualKeyCode::Right),
         0x7D => Some(VirtualKeyCode::Down),
@@ -1188,13 +1302,15 @@ impl MacOSWindow {
         Ok(())
     }
 
-    /// Try to show context menu for the given node at position.
-    /// Returns Some if a menu was shown, None otherwise.
-    fn try_show_context_menu(
+    /// Resolve a context menu for the given node at position and QUEUE it.
+    /// Returns Some if a menu was queued, None otherwise.
+    ///
+    /// Presentation is deliberately not done here — see `pending_context_menu`
+    /// and `take_pending_context_menu` in `macos/mod.rs`.
+    fn resolve_context_menu(
         &mut self,
         node: HitTestNode,
         position: LogicalPosition,
-        event: &NSEvent,
     ) -> Option<()> {
         use azul_core::dom::DomId;
 
@@ -1217,7 +1333,7 @@ impl MacOSWindow {
 
         log_debug!(
             LogCategory::Input,
-            "[Context Menu] Showing context menu at ({}, {}) for node {:?} with {} items",
+            "[Context Menu] Queuing context menu at ({}, {}) for node {:?} with {} items",
             position.x,
             position.y,
             node,
@@ -1226,7 +1342,7 @@ impl MacOSWindow {
 
         // Check if native context menus are enabled
         if self.common.current_window_state.flags.use_native_context_menus {
-            self.show_native_context_menu_at_position(&context_menu, position, event);
+            self.queue_native_context_menu_at_position(&context_menu, position);
         } else {
             self.show_window_based_context_menu(&context_menu, position);
         }
@@ -1234,15 +1350,15 @@ impl MacOSWindow {
         Some(())
     }
 
-    /// Show an NSMenu as a context menu at the given screen position.
-    fn show_native_context_menu_at_position(
+    /// Build the NSMenu for a context menu and park it in `pending_context_menu`
+    /// together with the view + view-space point it must pop up at.
+    fn queue_native_context_menu_at_position(
         &mut self,
         menu: &azul_core::menu::Menu,
         position: LogicalPosition,
-        event: &NSEvent,
     ) {
-        use objc2_app_kit::{NSMenu, NSMenuItem};
-        use objc2_foundation::{MainThreadMarker, NSPoint, NSString};
+        use objc2_app_kit::NSMenu;
+        use objc2_foundation::{MainThreadMarker, NSPoint};
 
         let mtm = match MainThreadMarker::new() {
             Some(m) => m,
@@ -1272,29 +1388,34 @@ impl MacOSWindow {
             y: (window_height - position.y) as f64,
         };
 
-        let view = if let Some(ref gl_view) = self.gl_view {
-            Some(&**gl_view as &objc2::runtime::AnyObject)
-        } else { self.cpu_view.as_ref().map(|cpu_view| &**cpu_view as &objc2::runtime::AnyObject) };
+        // Retain the view: the pending menu outlives this `&mut self` borrow by
+        // design, so it cannot hold a reference back into `self`.
+        use objc2::Message;
+        let view: Option<objc2::rc::Retained<objc2_app_kit::NSView>> =
+            if let Some(ref gl_view) = self.gl_view {
+                let v: &objc2_app_kit::NSView = &**gl_view;
+                Some(v.retain())
+            } else {
+                self.cpu_view.as_ref().map(|cpu_view| {
+                    let v: &objc2_app_kit::NSView = &**cpu_view;
+                    v.retain()
+                })
+            };
 
         if let Some(view) = view {
             log_debug!(
                 LogCategory::Input,
-                "[Context Menu] Showing native menu at position ({}, {}) with {} items",
+                "[Context Menu] Queued native menu at position ({}, {}) with {} items",
                 position.x,
                 position.y,
                 menu.items.as_slice().len()
             );
 
-            unsafe {
-                use objc2::{msg_send, runtime::AnyObject};
-
-                let _: () = msg_send![
-                    &ns_menu,
-                    popUpMenuPositioningItem: Option::<&AnyObject>::None,
-                    atLocation: view_point,
-                    inView: view
-                ];
-            }
+            self.pending_context_menu = Some(super::PendingContextMenu {
+                menu: ns_menu,
+                view,
+                location: view_point,
+            });
         }
     }
 
@@ -1417,5 +1538,61 @@ mod tests {
         assert_eq!(Some(VirtualKeyCode::LAlt), convert_keycode(0x3A));
         assert_eq!(Some(VirtualKeyCode::LWin), convert_keycode(0x37));
         assert_eq!(None, convert_keycode(0xFF));
+    }
+
+    /// The navigation cluster emits Private-Use-Area characters that the
+    /// text-input filter (correctly) refuses to insert, so a missing entry here
+    /// means the key produces NO engine event whatsoever.
+    #[test]
+    fn test_keycode_conversion_navigation() {
+        assert_eq!(Some(VirtualKeyCode::Home), convert_keycode(0x73));
+        assert_eq!(Some(VirtualKeyCode::End), convert_keycode(0x77));
+        assert_eq!(Some(VirtualKeyCode::PageUp), convert_keycode(0x74));
+        assert_eq!(Some(VirtualKeyCode::PageDown), convert_keycode(0x79));
+        // ForwardDelete, NOT Backspace (0x33 = Back).
+        assert_eq!(Some(VirtualKeyCode::Delete), convert_keycode(0x75));
+        assert_eq!(Some(VirtualKeyCode::Back), convert_keycode(0x33));
+        assert_eq!(Some(VirtualKeyCode::Left), convert_keycode(0x7B));
+        assert_eq!(Some(VirtualKeyCode::Up), convert_keycode(0x7E));
+    }
+
+    /// macOS orders the function row by hardware position, not by number — the
+    /// table is easy to transpose, so pin every entry.
+    #[test]
+    fn test_keycode_conversion_function_row() {
+        assert_eq!(Some(VirtualKeyCode::F1), convert_keycode(0x7A));
+        assert_eq!(Some(VirtualKeyCode::F2), convert_keycode(0x78));
+        assert_eq!(Some(VirtualKeyCode::F3), convert_keycode(0x63));
+        assert_eq!(Some(VirtualKeyCode::F4), convert_keycode(0x76));
+        assert_eq!(Some(VirtualKeyCode::F5), convert_keycode(0x60));
+        assert_eq!(Some(VirtualKeyCode::F6), convert_keycode(0x61));
+        assert_eq!(Some(VirtualKeyCode::F7), convert_keycode(0x62));
+        assert_eq!(Some(VirtualKeyCode::F8), convert_keycode(0x64));
+        assert_eq!(Some(VirtualKeyCode::F9), convert_keycode(0x65));
+        assert_eq!(Some(VirtualKeyCode::F10), convert_keycode(0x6D));
+        assert_eq!(Some(VirtualKeyCode::F11), convert_keycode(0x67));
+        assert_eq!(Some(VirtualKeyCode::F12), convert_keycode(0x6F));
+    }
+
+    #[test]
+    fn test_keycode_conversion_keypad_and_right_modifiers() {
+        assert_eq!(Some(VirtualKeyCode::Numpad0), convert_keycode(0x52));
+        assert_eq!(Some(VirtualKeyCode::Numpad7), convert_keycode(0x59));
+        assert_eq!(Some(VirtualKeyCode::Numpad8), convert_keycode(0x5B));
+        assert_eq!(Some(VirtualKeyCode::Numpad9), convert_keycode(0x5C));
+        assert_eq!(Some(VirtualKeyCode::NumpadEnter), convert_keycode(0x4C));
+        assert_eq!(Some(VirtualKeyCode::NumpadDecimal), convert_keycode(0x41));
+        assert_eq!(Some(VirtualKeyCode::NumpadAdd), convert_keycode(0x45));
+        assert_eq!(Some(VirtualKeyCode::NumpadSubtract), convert_keycode(0x4E));
+        assert_eq!(Some(VirtualKeyCode::NumpadMultiply), convert_keycode(0x43));
+        assert_eq!(Some(VirtualKeyCode::NumpadDivide), convert_keycode(0x4B));
+
+        // Right-hand modifiers must NOT collapse onto their left twins.
+        assert_eq!(Some(VirtualKeyCode::RWin), convert_keycode(0x36));
+        assert_eq!(Some(VirtualKeyCode::RShift), convert_keycode(0x3C));
+        assert_eq!(Some(VirtualKeyCode::RAlt), convert_keycode(0x3D));
+        assert_eq!(Some(VirtualKeyCode::RControl), convert_keycode(0x3E));
+        assert_eq!(Some(VirtualKeyCode::Capital), convert_keycode(0x39));
+        assert_eq!(Some(VirtualKeyCode::Apps), convert_keycode(0x6E));
     }
 }

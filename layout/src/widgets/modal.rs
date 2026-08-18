@@ -410,7 +410,7 @@ impl Modal {
         let mut panel_children = Vec::new();
 
         if self.show_close_button {
-            let close = Dom::create_text(AzString::from_const_str("\u{00D7}"))
+            let close = Dom::create_p_with_text(AzString::from_const_str("\u{00D7}"))
                 .with_ids_and_classes(IdOrClassVec::from_const_slice(MODAL_CLOSE_CLASS))
                 .with_css_props(CssPropertyWithConditionsVec::from_const_slice(MODAL_CLOSE_STYLE))
                 .with_tab_index(TabIndex::Auto)
@@ -431,7 +431,7 @@ impl Modal {
         }
 
         if !self.title.as_str().is_empty() {
-            let title = Dom::create_text(self.title)
+            let title = Dom::create_p_with_text(self.title)
                 .with_ids_and_classes(IdOrClassVec::from_const_slice(MODAL_TITLE_CLASS))
                 .with_css_props(CssPropertyWithConditionsVec::from_const_slice(MODAL_TITLE_STYLE));
             panel_children.push(title);
@@ -560,10 +560,18 @@ mod autotest_generated {
             .any(|c| matches!(c, Class(s) if s.as_str() == name))
     }
 
-    /// The text of a `NodeType::Text` node (`None` for any other node type).
+    /// The text of a text node, looking through the `<p>` block wrapper the
+    /// label convention mandates (`p > text`).
     fn text_of(node: &Dom) -> Option<&str> {
         match node.root.get_node_type() {
             NodeType::Text(s) => Some(s.as_ref().as_str()),
+            NodeType::P => match node.children.as_ref() {
+                [only] => match only.root.get_node_type() {
+                    NodeType::Text(s) => Some(s.as_ref().as_str()),
+                    _ => None,
+                },
+                _ => None,
+            },
             _ => None,
         }
     }
@@ -758,14 +766,15 @@ mod autotest_generated {
     }
 
     /// The flattened DOM of a default modal: `backdrop(0)`, `panel(1)`,
-    /// `close(2)`, `content-wrapper(3)`, `content(4)` — i.e. exactly the
-    /// hierarchy `on_modal_close` walks (hit node -> parent -> parent).
+    /// `close <p>(2)`, `close text(3)`, `content-wrapper(4)`, `content(5)` —
+    /// i.e. exactly the hierarchy `on_modal_close` walks (hit node -> parent ->
+    /// parent). The callback lives on the `<p>`, never on the text node.
     fn modal_styled_dom() -> StyledDom {
         let styled = StyledDom::create_from_dom(Modal::create(Dom::create_div()).dom());
         assert_eq!(
             styled.node_hierarchy.as_ref().len(),
-            5,
-            "fixture must flatten to backdrop/panel/close/wrapper/content"
+            6,
+            "fixture must flatten to backdrop/panel/close <p> + text/wrapper/content"
         );
         styled
     }
@@ -1362,7 +1371,7 @@ mod autotest_generated {
         assert_eq!(kids.len(), 2, "no title -> [close, content]");
         assert!(has_class(&kids[0], "__azul-native-modal-close"));
         assert!(has_class(&kids[1], "__azul-native-modal-content"));
-        assert_eq!(node_count(&dom), 5);
+        assert_eq!(node_count(&dom), 6); // close "x" is a <p> + its text leaf
     }
 
     #[test]
@@ -1379,7 +1388,7 @@ mod autotest_generated {
         assert!(has_class(&kids[1], "__azul-native-modal-title"));
         assert!(has_class(&kids[2], "__azul-native-modal-content"));
         assert_eq!(text_of(&kids[1]), Some("Title"));
-        assert_eq!(node_count(&dom), 6);
+        assert_eq!(node_count(&dom), 8); // close + title each: <p> + text leaf
     }
 
     #[test]
@@ -1529,8 +1538,9 @@ mod autotest_generated {
             .with_open(true)
             .dom();
 
-        // backdrop + panel + close + title + wrapper + content root + 2000*5
-        assert_eq!(node_count(&dom), 6 + 2_000 * 5);
+        // backdrop + panel + close(<p>+text) + title(<p>+text) + wrapper +
+        // content root + 2000*5
+        assert_eq!(node_count(&dom), 8 + 2_000 * 5);
         assert_eq!(count_callbacks(&dom), 1);
     }
 
@@ -1684,7 +1694,7 @@ mod autotest_generated {
 
     #[test]
     fn close_with_a_stale_hit_node_is_a_noop() {
-        // node 999 does not exist in the 5-node fixture
+        // node 999 does not exist in the 6-node fixture
         let mut data = RefAny::new(ModalStateWrapper {
             inner: ModalState { open: true },
             on_close: OptionModalOnClose::None,
@@ -1773,8 +1783,9 @@ mod autotest_generated {
         assert!(wrapper_open(&mut payload), "the snapshot starts open");
 
         let styled = StyledDom::create_from_dom(dom);
-        // backdrop(0), panel(1), close(2), title(3), wrapper(4), content(5)
-        assert_eq!(styled.node_hierarchy.as_ref().len(), 6);
+        // backdrop(0), panel(1), close <p>(2) + text(3), title <p>(4) + text(5),
+        // wrapper(6), content(7)
+        assert_eq!(styled.node_hierarchy.as_ref().len(), 8);
 
         let (update, changes) = run_close(Some(styled), 2, payload.clone());
 

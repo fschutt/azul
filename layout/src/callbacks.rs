@@ -3685,7 +3685,7 @@ impl CallbackInfo {
 
         // Build scroll offset map from the current ScrollManager state
         let scroll_offsets = layout_window.scroll_manager
-            .build_scroll_offset_map(dom_id, &layout_result.scroll_ids);
+            .build_scroll_offset_map(dom_id, &layout_result.scroll_id_to_node_id);
 
         // Build CPU render state from GpuValueCache - provides current
         // transform values (scrollbar thumb positions) and opacity values

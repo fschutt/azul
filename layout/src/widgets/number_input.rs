@@ -767,13 +767,18 @@ mod autotest_generated {
         wrapper.inner.get_text()
     }
 
-    /// The text actually *rendered* into the label node.
+    /// The text actually *rendered* into the label node (a styled `<p>`
+    /// wrapping its bare text leaf per the label convention).
     fn displayed_text(dom: &Dom) -> String {
-        dom.children.as_ref()[LABEL]
+        let label = &dom.children.as_ref()[LABEL];
+        label
             .root
             .get_node_type()
             .format()
-            .expect("the label child must be a text node")
+            .or_else(|| {
+                label.children.as_ref().first().and_then(|c| c.root.get_node_type().format())
+            })
+            .expect("the label child must wrap a text node")
     }
 
     fn cursor_pos(dom: &Dom) -> usize {
@@ -1101,11 +1106,12 @@ mod autotest_generated {
         );
         assert!(
             dom.children.as_ref()[PLACEHOLDER]
-                .root
-                .get_node_type()
-                .format()
+                .children
+                .as_ref()
+                .first()
+                .and_then(|c| c.root.get_node_type().format())
                 .is_some(),
-            "the placeholder child must be a text node",
+            "the placeholder child must wrap a text node",
         );
         assert_eq!(buffer_text(&dom), "-12.5");
         assert_eq!(displayed_text(&dom), "-12.5");

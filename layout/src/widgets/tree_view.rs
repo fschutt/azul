@@ -312,7 +312,7 @@ fn render_node(
     };
 
     // Build the label
-    let label = Dom::create_text(node.label.clone())
+    let label = Dom::create_p_with_text(node.label.clone())
         .with_css_props(CssPropertyWithConditionsVec::from_const_slice(LABEL_STYLE));
 
     // Build the row with click callback
@@ -568,9 +568,18 @@ mod autotest_generated {
     // Fixtures: DOM inspection
     // ------------------------------------------------------------------
 
+    /// The text of a text node, looking through the `<p>` block wrapper the
+    /// label convention mandates (`p > text`).
     fn text_of(dom: &Dom) -> Option<&str> {
         match dom.root.get_node_type() {
             NodeType::Text(s) => Some(s.as_ref().as_str()),
+            NodeType::P => match dom.children.as_ref() {
+                [only] => match only.root.get_node_type() {
+                    NodeType::Text(s) => Some(s.as_ref().as_str()),
+                    _ => None,
+                },
+                _ => None,
+            },
             _ => None,
         }
     }
