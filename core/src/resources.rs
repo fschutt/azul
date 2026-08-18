@@ -530,14 +530,12 @@ impl Default for ZombieFrame {
     }
 }
 
-/// TYPE-ERASED `extern "C"` entry point of a native presence animation.
-///
-/// Stored as `usize` for the same reason as [`crate::callbacks::CoreCallback`]:
-/// the REAL signature takes a `&mut TimerCallbackInfo` (full live-dom access,
-/// USER ruling 2026-08-17), and that type lives in `azul-layout`, above this
-/// crate. azul-layout defines the typed alias and casts on invocation:
-///
-/// `extern "C" fn(&mut RefAny, &mut TimerCallbackInfo, &ZombieAnimInfo) -> ZombieFrame`
+// TYPE-ERASED `extern "C"` entry point of a native presence animation:
+// stored as `usize` for the same reason as `crate::callbacks::CoreCallback` —
+// the REAL signature takes a `&mut TimerCallbackInfo` (full live-dom access,
+// USER ruling 2026-08-17), and that type lives in `azul-layout`, above this
+// crate. azul-layout defines the typed alias and casts on invocation:
+// `extern "C" fn(&mut RefAny, &mut TimerCallbackInfo, &ZombieAnimInfo) -> ZombieFrame`
 // (Erased alias removed: the PUBLIC `ZombieAnimCallbackType` name now
 // belongs to the GENERATED typed fn-pointer emitted from `ZombieAnimCallback`'s
 // callback_typedef in api.json — two same-name exports collided in codegen.
