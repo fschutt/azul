@@ -235,7 +235,39 @@ pub fn query_gpu_info(
     }
 
     let info = GpuInfo { vendor, renderer, version, glsl_version };
-    check_gpu_blacklist(&info)
+    let result = check_gpu_blacklist(&info);
+    publish_gpu_status(&result);
+    result
+}
+
+/// Publishes the probe outcome to `azul_layout::appenv` so the
+/// `SysDialogType::GpuCheck` dialog can show the user what the engine
+/// found (and why it fell back to CPU, if it did).
+fn publish_gpu_status(result: &GpuCheckResult) {
+    let status = match result {
+        GpuCheckResult::Ok(info) => azul_layout::appenv::GpuStatus {
+            vendor: info.vendor.clone(),
+            renderer: info.renderer.clone(),
+            version: info.version.clone(),
+            glsl_version: info.glsl_version.clone(),
+            verdict: "ok".to_owned(),
+            ok: true,
+        },
+        GpuCheckResult::Blacklisted { info, reason } => azul_layout::appenv::GpuStatus {
+            vendor: info.vendor.clone(),
+            renderer: info.renderer.clone(),
+            version: info.version.clone(),
+            glsl_version: info.glsl_version.clone(),
+            verdict: format!("blacklisted: {reason}"),
+            ok: false,
+        },
+        GpuCheckResult::QueryFailed(reason) => azul_layout::appenv::GpuStatus {
+            verdict: format!("query failed: {reason}"),
+            ok: false,
+            ..Default::default()
+        },
+    };
+    azul_layout::appenv::set_gpu_status(status);
 }
 
 /// Check if the current GPU is blacklisted.

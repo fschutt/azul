@@ -16,6 +16,7 @@
 // fn-item -> fn-pointer casts: required for the Into<Callback> generics;
 // the annotated-temporary alternative buries the callback wiring.
 #![allow(trivial_casts)]
+pub mod gpu_check;
 pub mod markdown;
 pub mod report_problem;
 #[cfg(feature = "updater")]

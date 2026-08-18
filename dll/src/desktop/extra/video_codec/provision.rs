@@ -457,6 +457,20 @@ impl ProvisionPlan {
     /// first failure. **Side-effecting** — call only after the user has reviewed
     /// `commands` and consented.
     pub fn run(&self) -> ProvisionRunResult {
+        self.run_with_progress(0, self.commands.len(), &mut |_, _, _| {})
+    }
+
+    /// [`run`](Self::run), reporting progress BEFORE each command:
+    /// `on_step(commands_finished_so_far, total, next_command_display)`.
+    /// `offset`/`total` let a caller that chains several plans (kernel
+    /// repair, then driver install) report one continuous count instead of
+    /// two bars that each restart at zero.
+    pub fn run_with_progress(
+        &self,
+        offset: usize,
+        total: usize,
+        on_step: &mut dyn FnMut(usize, usize, &str),
+    ) -> ProvisionRunResult {
         if !self.possible {
             return ProvisionRunResult {
                 ok: false,
@@ -468,6 +482,7 @@ impl ProvisionPlan {
         let elevator = elevator();
         let mut run = 0usize;
         for c in &self.commands {
+            on_step(offset + run, total, &c.display);
             let mut cmd = if c.elevated {
                 match elevator {
                     Some(e) => {
@@ -962,22 +977,52 @@ impl VideoStartupCheck {
     /// pkexec path. **Side-effecting**; call only after the user has seen
     /// `detail` and consented.
     pub fn remediate() -> VideoProvisionOutcome {
+        Self::remediate_with_progress(&mut |_, _, _| {})
+    }
+
+    /// [`remediate`](Self::remediate), reporting one continuous progress
+    /// count across BOTH plans it may run (kernel repair, then driver
+    /// install): `on_step(commands_finished, total, running_command)`.
+    ///
+    /// `total` is computed before anything runs, from the plans as they look
+    /// at that moment. The post-repair re-probe below can still decide the
+    /// driver plan is no longer needed — the count then simply stops short,
+    /// which is why the CALLER treats "finished" as the completion signal
+    /// rather than the bar reaching the end.
+    pub fn remediate_with_progress(
+        on_step: &mut dyn FnMut(usize, usize, &str),
+    ) -> VideoProvisionOutcome {
         #[cfg(target_os = "linux")]
-        if let Some(k) = newest_installed_kernel() {
-            let rp = repair_kernel_plan(&k);
-            if rp.possible {
-                let r = rp.run();
-                if !r.ok {
-                    return VideoProvisionOutcome::from(r);
-                }
+        let kernel_plan = newest_installed_kernel()
+            .map(|k| repair_kernel_plan(&k))
+            .filter(|p| p.possible);
+        #[cfg(not(target_os = "linux"))]
+        let kernel_plan: Option<ProvisionPlan> = None;
+
+        let driver_plan_preview = ProvisionPlan::detect();
+        let driver_needed_now = !probe_hw_decode().available || !display_ok();
+        let total = kernel_plan.as_ref().map_or(0, |p| p.commands.len())
+            + if driver_needed_now && driver_plan_preview.possible {
+                driver_plan_preview.commands.len()
+            } else {
+                0
+            };
+        let mut done = 0usize;
+
+        if let Some(rp) = &kernel_plan {
+            let r = rp.run_with_progress(done, total, on_step);
+            if !r.ok {
+                return VideoProvisionOutcome::from(r);
             }
+            done += rp.commands.len();
         }
         // Run the driver plan only when something needs it: decode missing, or the
         // display would boot black (the plan fixes both — fbdev driver + X11 net).
+        // Re-probed AFTER the kernel repair, which can change the answer.
         let need_driver = !probe_hw_decode().available || !display_ok();
         let dp = ProvisionPlan::detect();
         if need_driver && dp.possible {
-            return VideoProvisionOutcome::from(dp.run());
+            return VideoProvisionOutcome::from(dp.run_with_progress(done, total, on_step));
         }
         VideoProvisionOutcome {
             ok: true,

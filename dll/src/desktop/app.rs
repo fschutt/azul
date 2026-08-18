@@ -157,6 +157,34 @@ impl App {
         // system dialogs (support mailbox, changelog URL).
         azul_layout::appenv::set_app_env(azul_layout::appenv::AppEnv::from_config(&config));
 
+        // Hand the CPU dialogs the driver-provisioning entry points. They
+        // live in the dll (`video_codec::provision`) and the dialogs live
+        // BELOW it in azul-layout, so the dll publishes fn pointers rather
+        // than the type. `check` is inspection only; `remediate` is the
+        // consent-gated, pkexec-elevated repair.
+        azul_layout::appenv::set_gpu_provision_hooks(azul_layout::appenv::GpuProvisionHooks {
+            check: || {
+                let c = crate::unified::video_codec::provision::VideoStartupCheck::run();
+                azul_layout::appenv::GpuProvisionReport {
+                    hw_decode_ready: c.hw_decode_ready,
+                    boot_safe: c.boot_safe,
+                    can_remediate: c.can_remediate,
+                    needs_reboot: c.needs_reboot,
+                    summary: c.summary.as_str().to_string(),
+                    detail: c.detail.as_str().to_string(),
+                }
+            },
+            remediate: |on_step| {
+                let o = crate::unified::video_codec::provision::VideoStartupCheck::
+                    remediate_with_progress(on_step);
+                azul_layout::appenv::GpuProvisionOutcome {
+                    ok: o.ok,
+                    reboot_required: o.reboot_required,
+                    message: o.message.as_str().to_string(),
+                }
+            },
+        });
+
         // ENGINE TELEMETRY (dll feature "telemetry"): initialised for every
         // app, but the TIER stays OFF unless AZ_TELEMETRY / the config files
         // opted in — with nothing opted in, none of this collects or sends.

@@ -1350,6 +1350,9 @@ impl CallbackInfo {
                      without the `telemetry` feature; the dialog is unavailable"
                 );
             }
+            azul_core::window::SysDialogType::GpuCheck => {
+                crate::dialogs::gpu_check::open(self);
+            }
         }
     }
 

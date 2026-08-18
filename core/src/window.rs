@@ -2230,6 +2230,10 @@ pub enum SysDialogType {
     /// signal switches (crashes / logs / metrics / app state on crash), and
     /// "remember for all azul apps" (writes the machine-wide shared config).
     TelemetryConsent,
+    /// "Graphics check": shows what the engine's GPU probe found (vendor /
+    /// renderer / verdict) and, when GPU rendering is unusable, per-platform
+    /// driver guidance - for apps that NEED working video acceleration.
+    GpuCheck,
 }
 
 #[cfg(test)]

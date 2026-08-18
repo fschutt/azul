@@ -133,3 +133,106 @@ mod tests {
         assert_eq!(env.report_problem, None);
     }
 }
+
+/// What the shell's GL probe found, published the moment `query_gpu_info`
+/// runs (the chokepoint every GL-probing platform shares). `None` until a
+/// probe runs — a CPU-only session simply never probes.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct GpuStatus {
+    /// `GL_VENDOR`.
+    pub vendor: String,
+    /// `GL_RENDERER`.
+    pub renderer: String,
+    /// `GL_VERSION`.
+    pub version: String,
+    /// `GL_SHADING_LANGUAGE_VERSION`.
+    pub glsl_version: String,
+    /// Human-readable verdict: `ok`, `blacklisted: <reason>`, or
+    /// `query failed: <reason>`.
+    pub verdict: String,
+    /// Whether GPU rendering is actually usable.
+    pub ok: bool,
+}
+
+static GPU_STATUS: RwLock<Option<GpuStatus>> = RwLock::new(None);
+
+/// Publishes the probe outcome (called from the shell's GL init).
+pub fn set_gpu_status(status: GpuStatus) {
+    if let Ok(mut slot) = GPU_STATUS.write() {
+        *slot = Some(status);
+    }
+}
+
+/// The last published probe outcome, if any probe ran.
+#[must_use]
+pub fn gpu_status() -> Option<GpuStatus> {
+    GPU_STATUS.read().ok().and_then(|slot| slot.clone())
+}
+
+/// A readiness report from the driver-provisioning machinery — the layout
+/// mirror of `azul_dll::unified::video_codec::provision::VideoStartupCheck`
+/// (the dialogs live BELOW the dll, so the dll hands them fn pointers
+/// instead of the type).
+// Four independent readiness flags — that IS the report.
+#[allow(clippy::struct_excessive_bools)]
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct GpuProvisionReport {
+    /// Hardware video decode is usable right now.
+    pub hw_decode_ready: bool,
+    /// A fresh boot reaches a usable desktop (bootable kernel AND a display
+    /// that lights up). `false` is URGENT — the machine is one reboot away
+    /// from an initramfs shell or a black screen.
+    pub boot_safe: bool,
+    /// An automatic remediation exists (driver install and/or kernel repair).
+    pub can_remediate: bool,
+    /// Applying the remediation will require a reboot.
+    pub needs_reboot: bool,
+    /// One-line status.
+    pub summary: String,
+    /// Full multi-line report, including the exact commands a remediation
+    /// would run — this is what the user consents to.
+    pub detail: String,
+}
+
+/// What a remediation did — the mirror of `VideoProvisionOutcome`.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct GpuProvisionOutcome {
+    /// Everything applied cleanly.
+    pub ok: bool,
+    /// A reboot is needed before the change takes effect.
+    pub reboot_required: bool,
+    /// Human-readable result.
+    pub message: String,
+}
+
+/// Progress sink a remediation reports through:
+/// `(commands_finished, total, running_command)`.
+pub type GpuProvisionProgressFn<'a> = &'a mut dyn FnMut(usize, usize, &str);
+
+/// The dll's provisioning entry points, published by `App::run`. `check` is
+/// INSPECTION ONLY; `remediate` is side-effecting (pkexec) and must never be
+/// called without explicit user consent.
+#[derive(Debug, Copy, Clone)]
+pub struct GpuProvisionHooks {
+    /// Runs the readiness checks. Blocking — call it on a thread.
+    pub check: fn() -> GpuProvisionReport,
+    /// Applies what `check` found. Blocking, side-effecting, consent-gated.
+    /// Reports progress before each command it runs:
+    /// `on_step(commands_finished, total, running_command)`.
+    pub remediate: fn(GpuProvisionProgressFn<'_>) -> GpuProvisionOutcome,
+}
+
+static GPU_PROVISION: RwLock<Option<GpuProvisionHooks>> = RwLock::new(None);
+
+/// Publishes the provisioning hooks (called by `App::run`).
+pub fn set_gpu_provision_hooks(hooks: GpuProvisionHooks) {
+    if let Ok(mut slot) = GPU_PROVISION.write() {
+        *slot = Some(hooks);
+    }
+}
+
+/// The provisioning hooks, if a shell published them.
+#[must_use]
+pub fn gpu_provision_hooks() -> Option<GpuProvisionHooks> {
+    GPU_PROVISION.read().ok().and_then(|slot| *slot)
+}

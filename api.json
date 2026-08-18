@@ -7056,7 +7056,8 @@
                             {
                                 "ReportProblem": {},
                                 "UpdateVersion": {},
-                                "TelemetryConsent": {}
+                                "TelemetryConsent": {},
+                                "GpuCheck": {}
                             }
                         ],
                         "repr": "C"
