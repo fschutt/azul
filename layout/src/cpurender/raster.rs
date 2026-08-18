@@ -4082,6 +4082,7 @@ pub fn render_component_preview(
             last_reconcile_structure_preserved: false,
             last_build_was_patched: false,
             last_patch_damage: None,
+            last_dynamic_context: None,
             previous_sizes: Vec::new(),
             dom_diff_clean: None,
             last_fingerprint_skips: 0,
@@ -7411,7 +7412,7 @@ mod shadow_blur_cache_tests {
             offset_y: pv(4.0),
             blur_radius: pv(8.0),
             spread_radius: pv(0.0),
-            color: azul_css::props::basic::color::ColorU { r: 0, g: 0, b: 0, a: 128 },
+            color: ColorU { r: 0, g: 0, b: 0, a: 128 },
             clip_mode: BoxShadowClipMode::Outset,
         }
     }
@@ -7518,7 +7519,7 @@ mod shadow_ring_blit_tests {
             offset_y: pv(20.0),
             blur_radius: pv(2.0),
             spread_radius: pv(0.0),
-            color: azul_css::props::basic::color::ColorU { r: 0, g: 0, b: 0, a: 255 },
+            color: ColorU { r: 0, g: 0, b: 0, a: 255 },
             clip_mode: BoxShadowClipMode::Outset,
         };
         let bounds = LogicalRect {
@@ -7729,12 +7730,12 @@ mod layer_path_text_tests {
     /// "missing tail from x=88" was the 'fl' ascenders, i.e. the whole run).
     #[test]
     fn render_layers_text_equals_plain_render() {
-        let Some(font) = super::lcd_pretile_tests::load_test_font_pub() else {
+        let Some(font) = lcd_pretile_tests::load_test_font_pub() else {
             return;
         };
-        let (rr, fm, font_hash) = super::lcd_pretile_tests::rr_with_pub(&font);
+        let (rr, fm, font_hash) = lcd_pretile_tests::rr_with_pub(&font);
         let glyphs =
-            super::lcd_pretile_tests::shape_pub(&font, "grow reflow", 20.0, 8.0, 26.0);
+            lcd_pretile_tests::shape_pub(&font, "grow reflow", 20.0, 8.0, 26.0);
         let clip_rect: crate::solver3::display_list::WindowLogicalRect = LogicalRect {
             origin: LogicalPosition { x: 0.0, y: 0.0 },
             size: LogicalSize { width: 200.0, height: 40.0 },
@@ -7760,7 +7761,7 @@ mod layer_path_text_tests {
         layered.fill(255, 255, 255, 255);
         let mut gc3 = GlyphCache::new();
         let mut comp = CompositorState::new(200, 40);
-        comp.allocate_layers_from_display_list(&dl, 1.0, &std::collections::HashMap::new(), &std::collections::HashMap::new());
+        comp.allocate_layers_from_display_list(&dl, 1.0, &HashMap::new(), &HashMap::new());
         comp.render_layers(&dl, 1.0, &rr, &fm, &mut gc3, &state).unwrap();
         comp.composite_frame(&mut layered, 1.0);
         let ldiff = plain.data().iter().zip(layered.data().iter()).filter(|(a, b)| a != b).count();
@@ -7780,13 +7781,13 @@ mod damaged_vs_plain_text_tests {
     /// them disagreeing by one LCD fringe quantum.
     #[test]
     fn damaged_full_rect_text_equals_plain_render() {
-        let Some(font) = super::lcd_pretile_tests::load_test_font_pub() else {
+        let Some(font) = lcd_pretile_tests::load_test_font_pub() else {
             eprintln!("no system test font — skipping");
             return;
         };
-        let (rr, fm, font_hash) = super::lcd_pretile_tests::rr_with_pub(&font);
+        let (rr, fm, font_hash) = lcd_pretile_tests::rr_with_pub(&font);
         let glyphs =
-            super::lcd_pretile_tests::shape_pub(&font, "grow reflow", 20.0, 8.0, 26.0);
+            lcd_pretile_tests::shape_pub(&font, "grow reflow", 20.0, 8.0, 26.0);
         let clip_rect: crate::solver3::display_list::WindowLogicalRect = LogicalRect {
             origin: LogicalPosition { x: 0.0, y: 0.0 },
             size: LogicalSize { width: 200.0, height: 40.0 },

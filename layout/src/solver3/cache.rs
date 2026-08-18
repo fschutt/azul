@@ -386,6 +386,9 @@ impl LayoutCacheMap {
 }
 
 /// The persistent cache that holds the layout state between frames.
+// Independent per-pass state FLAGS, not a state machine to enum-ify: each
+// bool is set by a different stage and read by a different consumer.
+#[allow(clippy::struct_excessive_bools)]
 #[derive(Debug, Clone, Default)]
 pub struct LayoutCache {
     /// The fully laid-out tree from the previous frame. This is our primary cache.
@@ -417,7 +420,14 @@ pub struct LayoutCache {
     /// makes the renderer's old-vs-new item diff bail to a full repaint —
     /// but the patch knows exactly what it touched, so the renderers prefer
     /// this when the diff gives up. `None` after a full emission.
-    pub last_patch_damage: Option<Vec<azul_core::geom::LogicalRect>>,
+    pub last_patch_damage: Option<Vec<LogicalRect>>,
+    /// The `DynamicSelectorContext` the cached display list was BUILT under.
+    /// The structure-preserved patch arm requires the current context to be
+    /// EQUAL: a cascade-external flip (viewport crossing an @media bound, a
+    /// theme/OS change) restyles reused nodes without touching `NodeData` or
+    /// `css_dirty`, so spliced items would serve the OLD styles (the
+    /// blue-desktop-box-after-crossing-to-mobile bug).
+    pub last_dynamic_context: Option<azul_css::dynamic_selector::DynamicSelectorContext>,
     /// `used_size` of every layout node as of the PREVIOUS pass — captured at
     /// the resize-skip branch (the pass overwrites `used_size` in the shared
     /// tree object). DL patching diffs these against the new sizes: a node
@@ -1535,7 +1545,7 @@ pub fn reconcile_recursive(
     let old_children_indices: Vec<usize> = old_tree
         .and_then(|t| old_tree_idx.map(|idx| t.children(idx).to_vec()))
         .unwrap_or_default();
-    let old_children_by_dom: alloc::collections::BTreeMap<NodeId, usize> = old_tree
+    let old_children_by_dom: BTreeMap<NodeId, usize> = old_tree
         .and_then(|t| old_tree_idx.map(|idx| {
             t.children(idx).iter()
                 // Pseudo-element nodes (::marker on list items) are
@@ -4079,19 +4089,19 @@ mod autotest_generated {
     fn to_overflow_behavior_maps_every_layout_overflow_variant() {
         assert_eq!(
             to_overflow_behavior(MultiValue::Exact(LayoutOverflow::Visible)),
-            fc::OverflowBehavior::Visible
+            OverflowBehavior::Visible
         );
         assert_eq!(
             to_overflow_behavior(MultiValue::Exact(LayoutOverflow::Hidden)),
-            fc::OverflowBehavior::Hidden
+            OverflowBehavior::Hidden
         );
         assert_eq!(
             to_overflow_behavior(MultiValue::Exact(LayoutOverflow::Scroll)),
-            fc::OverflowBehavior::Scroll
+            OverflowBehavior::Scroll
         );
         assert_eq!(
             to_overflow_behavior(MultiValue::Exact(LayoutOverflow::Auto)),
-            fc::OverflowBehavior::Auto
+            OverflowBehavior::Auto
         );
         // BEHAVIOUR PIN: `overflow: clip` is folded into Hidden, so the distinct
         // `OverflowBehavior::Clip` variant is never produced here. Clip differs
@@ -4099,7 +4109,7 @@ mod autotest_generated {
         // a `clip` box is currently treated as a (non-scrollable) hidden box.
         assert_eq!(
             to_overflow_behavior(MultiValue::Exact(LayoutOverflow::Clip)),
-            fc::OverflowBehavior::Hidden
+            OverflowBehavior::Hidden
         );
     }
 
@@ -4108,7 +4118,7 @@ mod autotest_generated {
         // CSS Overflow 3: initial value is `visible`. Auto/Initial/Inherit here
         // are the *CSS-wide keyword* arms of MultiValue, not `overflow: auto`.
         for mv in [MultiValue::Auto, MultiValue::Initial, MultiValue::Inherit] {
-            assert_eq!(to_overflow_behavior(mv), fc::OverflowBehavior::Visible);
+            assert_eq!(to_overflow_behavior(mv), OverflowBehavior::Visible);
         }
     }
 
@@ -4127,11 +4137,11 @@ mod autotest_generated {
 
         assert_eq!(
             to_overflow_behavior(get_overflow_x(&sd, id, &state)),
-            fc::OverflowBehavior::Auto
+            OverflowBehavior::Auto
         );
         assert_eq!(
             to_overflow_behavior(get_overflow_y(&sd, id, &state)),
-            fc::OverflowBehavior::Scroll
+            OverflowBehavior::Scroll
         );
     }
 
