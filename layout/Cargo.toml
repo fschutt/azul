@@ -113,7 +113,7 @@ serde_json = { version = "1.0", default-features = false, features = ["std", "fl
 # git dependency is acceptable for this draft, but the crate must be
 # published (or path-vendored) before `crash-mail` can ship in a release:
 # the publish-safety gate rejects git deps.
-micromail = { git = "https://github.com/fschutt/micromail", rev = "1a162e8b8a31a0221ea469116db76aedce1e5cc9", optional = true, default-features = false }
+micromail = { version = "0.1.0", optional = true, default-features = false }
 
 # SPMC channel — ONLY used by the e2e-server HTTP transport (feature
 # `e2e-server-http`). The core op-dispatch does not need it.
