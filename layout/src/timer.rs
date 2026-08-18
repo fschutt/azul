@@ -242,6 +242,11 @@ impl Timer {
             _abi_mut: core::ptr::null_mut(),
         };
 
+        // Time THIS app callback under its own resolved symbol name
+        // (`cb:my_timer_fn`): the per-phase histogram then compares one
+        // callback's cost across versions, and a slow one is named in the
+        // slow-span WARN. Resolution is cached; recording-off is one atomic.
+        let _cb_span = crate::probe::Probe::span_for_fn(self.callback.cb as usize);
         let mut result = (self.callback.cb)(self.refany.clone(), timer_callback_info);
 
         if is_about_to_finish {

@@ -44,6 +44,12 @@ mod imp {
         /// Currently-open span count. Read when a span OPENS (its own
         /// depth) and decremented when it closes.
         static DEPTH: std::cell::Cell<u16> = const { std::cell::Cell::new(0) };
+        /// Names of the currently-open spans, outermost first. Maintained
+        /// UNCONDITIONALLY (even with recording off): this is what a crash
+        /// report reads as "what scope was the app in" — a diagnostic that
+        /// must not depend on AZ_PROFILE being set. Cost: one push/pop of a
+        /// `&'static str` per span.
+        static SPAN_NAMES: RefCell<Vec<&'static str>> = const { RefCell::new(Vec::new()) };
     }
 
     /// Whether spans/samples are RECORDED. The `probe` feature being compiled
@@ -93,6 +99,9 @@ mod imp {
 
     impl Drop for Span {
         fn drop(&mut self) {
+            let _ = SPAN_NAMES.try_with(|st| {
+                st.borrow_mut().pop();
+            });
             let Some(start) = self.start else { return };
             let dur_ns = start.elapsed().as_nanos() as u64;
             // try_with (not with): the lifted-to-wasm web backend has no real
@@ -112,6 +121,7 @@ mod imp {
     }
 
     pub(super) fn open(name: &'static str) -> Span {
+        let _ = SPAN_NAMES.try_with(|st| st.borrow_mut().push(name));
         if !recording() {
             return Span { name, start: None, depth: 0 };
         }
@@ -140,10 +150,61 @@ mod imp {
         });
     }
 
+    /// The path of currently-open spans on THIS thread, outermost first,
+    /// joined with `" > "` — e.g. `dispatch.timer > layout > text_shape`.
+    /// Empty when no span is open. Readable from a panic hook (same thread).
+    pub(super) fn span_path() -> String {
+        SPAN_NAMES
+            .try_with(|st| st.borrow().join(" > "))
+            .unwrap_or_default()
+    }
+
     pub(super) fn drain() -> Vec<super::Event> {
         EVENTS
             .try_with(|cell| core::mem::take(&mut *cell.borrow_mut()))
             .unwrap_or_default()
+    }
+
+    /// `dladdr`-backed pointer→symbol resolution with a leak-once cache.
+    /// Span names are `&'static str`, so each distinct callback leaks ONE
+    /// small string for the process lifetime — bounded by the number of
+    /// distinct callbacks an app has.
+    pub(super) fn resolve_fn_name(fn_ptr: usize) -> &'static str {
+        use std::collections::HashMap;
+        use std::sync::{Mutex, OnceLock};
+        static CACHE: OnceLock<Mutex<HashMap<usize, &'static str>>> = OnceLock::new();
+        let cache = CACHE.get_or_init(|| Mutex::new(HashMap::new()));
+        if let Ok(map) = cache.lock() {
+            if let Some(name) = map.get(&fn_ptr) {
+                return name;
+            }
+        }
+        let resolved: &'static str = {
+            #[cfg(unix)]
+            {
+                let mut info: libc::Dl_info = unsafe { core::mem::zeroed() };
+                let rc = unsafe { libc::dladdr(fn_ptr as *const libc::c_void, &raw mut info) };
+                if rc != 0 && !info.dli_sname.is_null() {
+                    let name = unsafe { core::ffi::CStr::from_ptr(info.dli_sname) };
+                    match name.to_str() {
+                        Ok(sym) if !sym.is_empty() => {
+                            Box::leak(format!("cb:{sym}").into_boxed_str())
+                        }
+                        _ => "cb:?",
+                    }
+                } else {
+                    "cb:?"
+                }
+            }
+            #[cfg(not(unix))]
+            {
+                "cb:?"
+            }
+        };
+        if let Ok(mut map) = cache.lock() {
+            map.insert(fn_ptr, resolved);
+        }
+        resolved
     }
 
     pub(super) fn drop_events() {
@@ -176,6 +237,16 @@ mod imp {
     #[inline]
     pub(super) const fn open(_name: &'static str) -> Span {
         Span
+    }
+
+    #[inline]
+    pub(super) const fn span_path() -> String {
+        String::new()
+    }
+
+    #[inline]
+    pub(super) const fn resolve_fn_name(_fn_ptr: usize) -> &'static str {
+        "cb:?"
     }
 
     #[inline]
@@ -277,6 +348,34 @@ impl Probe {
     #[allow(clippy::missing_const_for_fn)]
     #[must_use] pub fn drain() -> Vec<Event> {
         imp::drain()
+    }
+
+    /// The names of THIS thread's currently-open spans, outermost first,
+    /// joined with `" > "` (empty when none). Maintained even with recording
+    /// off — a crash report reads this as "what scope was the app in", and
+    /// that diagnostic must not depend on `AZ_PROFILE`.
+    #[inline]
+    // const only in the no-`probe` stub config; enabled `imp::` calls are non-const
+    #[allow(clippy::missing_const_for_fn)]
+    #[must_use] pub fn span_path() -> String {
+        imp::span_path()
+    }
+
+    /// A timed span NAMED AFTER the function the pointer points at,
+    /// resolved through the dynamic linker (`dladdr`) and cached forever:
+    /// an `extern "C"` app callback like `my_button_click` becomes span
+    /// `cb:my_button_click`, so the per-phase histogram answers
+    /// "`my_button_click` takes 0.2 ms on 1.5.0, took 0.1 ms on 1.4.3".
+    ///
+    /// Resolution runs ONCE per distinct pointer (a leak-once cache bounded
+    /// by the number of distinct callbacks); every later call is one map
+    /// lookup. Unresolvable pointers (dynamic symbols stripped, non-unix
+    /// targets) fall back to `cb:?`.
+    #[inline]
+    // const only in the no-`probe` stub config; enabled `imp::` calls are non-const
+    #[allow(clippy::missing_const_for_fn)]
+    #[must_use] pub fn span_for_fn(fn_ptr: usize) -> Span {
+        imp::open(imp::resolve_fn_name(fn_ptr))
     }
 
     /// Discard the per-thread event buffer without allocating a `Vec` to
