@@ -43,8 +43,10 @@
 //! declarative `0.5s` durations in the sidebar's CSS.
 
 use azul::prelude::*;
-use azul::widgets::Button;
-use azul::dom::IdOrClass;
+use azul::widgets::{Button, ZombieFrame};
+use azul::dom::{IdOrClass, ZombieAnimCallback};
+use azul::image::ZombieAnimInfo;
+use azul::option::OptionF32;
 
 /// Which demo screen is showing, and the toggles each one owns.
 ///
