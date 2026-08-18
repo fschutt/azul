@@ -492,6 +492,35 @@ pub fn observe(name: &str, value: f64) {
     metrics::histogram_record(name, value);
 }
 
+/// Records an app-defined counter with free-form labels. Labels are
+/// sanitized and capped (6 keys, 64-char values) and every distinct
+/// combination counts against the global series ceiling — see
+/// `metrics::InstrumentKey::with_labels`.
+pub fn count_with(name: &str, value: u64, labels: &[(&str, &str)]) {
+    if !is_collecting() {
+        return;
+    }
+    metrics::counter_add_labels(name, labels, value);
+}
+
+/// Records an app-defined histogram observation with free-form labels
+/// (same sanitization and caps as [`count_with`]).
+pub fn observe_with(name: &str, value: f64, labels: &[(&str, &str)]) {
+    if !is_collecting() {
+        return;
+    }
+    metrics::histogram_record_labels(name, labels, value);
+}
+
+/// Sets an app-defined gauge with free-form labels (same sanitization and
+/// caps as [`count_with`]).
+pub fn gauge_with(name: &str, value: f64, labels: &[(&str, &str)]) {
+    if !is_collecting() {
+        return;
+    }
+    metrics::gauge_set_labels(name, labels, value);
+}
+
 /// Buffers a structured log record for the next flush.
 ///
 /// Records below the severity floor, or below consent tier `Metrics`, are

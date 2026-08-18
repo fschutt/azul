@@ -249,6 +249,63 @@ impl HttpRequestConfig {
         ResultHttpResponseHttpError::Err(HttpError::other("http feature not enabled".into()))
     }
 
+    /// HTTP request with an arbitrary verb and an optional body, using this
+    /// configuration. An EMPTY `body` sends no body (GET/HEAD semantics);
+    /// `content_type` is only applied when a body is present.
+    ///
+    /// # Returns
+    /// * `ResultHttpResponseHttpError` - The response or an error
+    #[cfg(all(feature = "http", not(target_arch = "wasm32")))]
+    #[must_use] pub fn http_request(
+        &self,
+        method: HttpMethod,
+        url: AzString,
+        body: U8Vec,
+        content_type: AzString,
+    ) -> ResultHttpResponseHttpError {
+        let body_ref = body.as_ref();
+        let body_opt = if body_ref.is_empty() { None } else { Some(body_ref) };
+        http_request_with_config(method, url.as_str(), body_opt, content_type.as_str(), self)
+            .into()
+    }
+
+    /// Stub: `http` feature disabled.
+    #[cfg(any(not(feature = "http"), target_arch = "wasm32"))]
+    #[must_use] pub fn http_request(
+        &self,
+        _method: HttpMethod,
+        _url: AzString,
+        _body: U8Vec,
+        _content_type: AzString,
+    ) -> ResultHttpResponseHttpError {
+        ResultHttpResponseHttpError::Err(HttpError::other("http feature not enabled".into()))
+    }
+
+    /// HTTP POST with a body, using this configuration.
+    ///
+    /// # Returns
+    /// * `ResultHttpResponseHttpError` - The response or an error
+    #[cfg(all(feature = "http", not(target_arch = "wasm32")))]
+    #[must_use] pub fn http_post(
+        &self,
+        url: AzString,
+        body: U8Vec,
+        content_type: AzString,
+    ) -> ResultHttpResponseHttpError {
+        http_post_with_config(url.as_str(), body.as_ref(), content_type.as_str(), self).into()
+    }
+
+    /// Stub: `http` feature disabled.
+    #[cfg(any(not(feature = "http"), target_arch = "wasm32"))]
+    #[must_use] pub fn http_post(
+        &self,
+        _url: AzString,
+        _body: U8Vec,
+        _content_type: AzString,
+    ) -> ResultHttpResponseHttpError {
+        ResultHttpResponseHttpError::Err(HttpError::other("http feature not enabled".into()))
+    }
+
     /// Download URL to bytes with default configuration
     /// 
     /// # Arguments
@@ -446,6 +503,7 @@ fn make_agent(timeout_secs: u64, disable_tls_cert_verification: bool) -> ureq::A
 /// the C bindings keep the pre-existing `HttpRequestConfig::http_get` /
 /// `download_bytes` entry points.
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
+#[repr(C)]
 pub enum HttpMethod {
     Get,
     Head,

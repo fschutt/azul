@@ -9545,11 +9545,15 @@ impl LayoutWindow {
                 cursor_in_viewport,
             );
 
+            // "is the app's own code slow": writeback callbacks carry a
+            // cb:<name> span, same as timers and event callbacks.
+            let cb_span = crate::probe::Probe::span_for_fn(callback.cb as usize);
             let callback_update = (callback.cb)(
                 unsafe { (*writeback_data_ptr).clone() },
                 data_inner.clone(),
                 callback_info,
             );
+            drop(cb_span);
             update.max_self(callback_update);
 
             let collected_changes = callback_changes
@@ -9677,7 +9681,12 @@ impl LayoutWindow {
             cursor_in_viewport,
         );
 
+        // "is the app's own code slow": EVERY event callback runs inside a
+        // cb:<name> span (dladdr -> addr2line -> module-offset naming), so
+        // the callbacks sub-span panel shows real app code, not just timers.
+        let cb_span = crate::probe::Probe::span_for_fn(callback.cb as usize);
         let update = (callback.cb)(data.clone(), callback_info);
+        drop(cb_span);
 
         // Extract changes from the Arc<Mutex>
         let collected_changes = callback_changes

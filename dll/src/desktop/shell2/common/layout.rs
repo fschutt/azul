@@ -337,8 +337,14 @@ phases.mark("before_callback");
     // the drain below must see ONLY what this invocation queried.
     let _ = azul_core::callbacks::take_recorded_size_queries();
 
+    // The layout callback IS app code (DOM construction): give it a
+    // cb:<name> span so "app builds the DOM" separates from engine solving.
+    let _cb_span = azul_layout::probe::Probe::span_for_fn(
+        current_window_state.layout_callback.cb as usize,
+    );
     let user_dom =
         (current_window_state.layout_callback.cb)((*app_data_borrowed).clone(), callback_info);
+    drop(_cb_span);
 
     drop(app_data_borrowed); // Release borrow
 

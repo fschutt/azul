@@ -2058,7 +2058,7 @@
                     "displayName": "Lua",
                     "platforms": {
                         "linux": {
-                            "description": "Download the prebuilt library, generate the azul.lua binding, then run with LuaJIT (vanilla Lua has no ffi) (note: on x86-64, LuaJIT currently aborts at App.create with an NYI trace \u2014 arm64 is the verified path)",
+                            "description": "Download the prebuilt library, generate the azul.lua binding, then run with LuaJIT (vanilla Lua has no ffi) (note: on x86-64, LuaJIT currently aborts at App.create with an NYI trace — arm64 is the verified path)",
                             "steps": [
                                 {
                                     "type": "command",
@@ -2100,7 +2100,7 @@
                             ]
                         },
                         "windows": {
-                            "description": "Download the prebuilt DLL, generate the azul.lua binding, then run with LuaJIT (vanilla Lua has no ffi) (note: on x86-64, LuaJIT currently aborts at App.create with an NYI trace \u2014 arm64 is the verified path)",
+                            "description": "Download the prebuilt DLL, generate the azul.lua binding, then run with LuaJIT (vanilla Lua has no ffi) (note: on x86-64, LuaJIT currently aborts at App.create with an NYI trace — arm64 is the verified path)",
                             "steps": [
                                 {
                                     "type": "command",
@@ -2782,7 +2782,7 @@
                     "displayName": "Python",
                     "platforms": {
                         "linux": {
-                            "description": "Install the abi3 wheel from the azul.rs package index \u2014 a standard PEP 503 simple index, so it works with pip, uv, poetry or pdm (e.g. `uv pip install azul --index-url $HOSTNAME/ui`)",
+                            "description": "Install the abi3 wheel from the azul.rs package index — a standard PEP 503 simple index, so it works with pip, uv, poetry or pdm (e.g. `uv pip install azul --index-url $HOSTNAME/ui`)",
                             "steps": [
                                 {
                                     "type": "command",
@@ -2799,7 +2799,7 @@
                             ]
                         },
                         "macos": {
-                            "description": "Install the abi3 wheel from the azul.rs package index \u2014 a standard PEP 503 simple index, so it works with pip, uv, poetry or pdm (e.g. `uv pip install azul --index-url $HOSTNAME/ui`)",
+                            "description": "Install the abi3 wheel from the azul.rs package index — a standard PEP 503 simple index, so it works with pip, uv, poetry or pdm (e.g. `uv pip install azul --index-url $HOSTNAME/ui`)",
                             "steps": [
                                 {
                                     "type": "command",
@@ -2816,7 +2816,7 @@
                             ]
                         },
                         "windows": {
-                            "description": "Install the abi3 wheel from the azul.rs package index \u2014 a standard PEP 503 simple index, so it works with pip, uv, poetry or pdm (e.g. `uv pip install azul --index-url $HOSTNAME/ui`)",
+                            "description": "Install the abi3 wheel from the azul.rs package index — a standard PEP 503 simple index, so it works with pip, uv, poetry or pdm (e.g. `uv pip install azul --index-url $HOSTNAME/ui`)",
                             "steps": [
                                 {
                                     "type": "command",
@@ -3069,7 +3069,7 @@
                     "displayName": "Scala",
                     "platforms": {
                         "linux": {
-                            "description": "Download the prebuilt library and the generated Java (JNA) bindings \u2014 Scala rides on them directly \u2014 plus the Scala hello-world, then compile and run with scala-cli",
+                            "description": "Download the prebuilt library and the generated Java (JNA) bindings — Scala rides on them directly — plus the Scala hello-world, then compile and run with scala-cli",
                             "steps": [
                                 {
                                     "type": "command",
@@ -3102,7 +3102,7 @@
                             ]
                         },
                         "macos": {
-                            "description": "Download the prebuilt library and the generated Java (JNA) bindings \u2014 Scala rides on them directly \u2014 plus the Scala hello-world, then compile and run with scala-cli",
+                            "description": "Download the prebuilt library and the generated Java (JNA) bindings — Scala rides on them directly — plus the Scala hello-world, then compile and run with scala-cli",
                             "steps": [
                                 {
                                     "type": "command",
@@ -3135,7 +3135,7 @@
                             ]
                         },
                         "windows": {
-                            "description": "Download the prebuilt library and the generated Java (JNA) bindings \u2014 Scala rides on them directly \u2014 plus the Scala hello-world, then compile and run with scala-cli",
+                            "description": "Download the prebuilt library and the generated Java (JNA) bindings — Scala rides on them directly — plus the Scala hello-world, then compile and run with scala-cli",
                             "steps": [
                                 {
                                     "type": "command",
@@ -3681,7 +3681,7 @@
                     "racket": "racket/hello-world.rkt",
                     "red": "red/hello-world.red",
                     "ruby": "ruby/hello-world.rb",
-                    "scala": "// examples/scala/HelloWorld.scala \u2014 Python-quality Scala port.\n//\n// Rides on the Java codegen's `com.azul.*` JNA bindings. The smart\n// `WindowCreateOptions.create(LAYOUT_INVOKER)` factory hides the\n// host-invoker plumbing; user code never has to touch `getByteArray`\n// or splice bytes through `Pointer.write`. Builds at ~50 LOC.\n//\n// Build:  scalac -cp ../java/target/classes:$JNA_JAR HelloWorld.scala -d HelloWorld.jar\n// Run:    DYLD_LIBRARY_PATH=. java -XstartOnFirstThread -Djna.library.path=. \\\n//             -cp HelloWorld.jar:../java/target/classes:$JNA_JAR:$SCALA_LIB:$SCALA3_LIB \\\n//             com.azul.HelloWorld\n//\n// macOS requires `-XstartOnFirstThread` (Cocoa main-thread rule).\n\npackage com.azul\n\nimport com.sun.jna.{Pointer, Structure}\n\nobject HelloWorld {\n\n  class MyDataModel(var counter: Int)\n  private val MODEL = new MyDataModel(5)\n\n  private val ON_CLICK: AzulNativeManaged.ButtonOnClickCallbackInvokerCallback =\n    new AzulNativeManaged.ButtonOnClickCallbackInvokerCallback {\n      override def invoke(id: Long, dataPtr: Pointer, infoPtr: Pointer, outPtr: Pointer): Unit =\n        AzulHostInvoker.refanyGet(dataPtr) match {\n          case m: MyDataModel =>\n            m.counter += 1\n            outPtr.setInt(0, AzUpdate.RefreshDom.value)\n          case _ =>\n            outPtr.setInt(0, AzUpdate.DoNothing.value)\n        }\n    }\n\n  private def writeDom(outPtr: Pointer, dom: Dom): Unit = {\n    val raw = Structure.newInstance(classOf[AzDom.ByValue], dom.rawPointer())\n    raw.read()\n    outPtr.write(0, raw.getPointer().getByteArray(0, raw.size()), 0, raw.size())\n  }\n\n  private val LAYOUT: AzulNativeManaged.LayoutCallbackInvokerCallback =\n    new AzulNativeManaged.LayoutCallbackInvokerCallback {\n      override def invoke(id: Long, dataPtr: Pointer, infoPtr: Pointer, outPtr: Pointer): Unit =\n        AzulHostInvoker.refanyGet(dataPtr) match {\n          case m: MyDataModel =>\n            val label = Dom.createDiv()\n              .withCss(\"font-size: 32px;\")\n              .withChild(Dom.createText(String.valueOf(m.counter)))\n            val buttonDom = new Dom(\n              Button.create(\"Increase counter\")\n                .withButtonType(AzButtonType.Primary.value)\n                .onClick(m, ON_CLICK)\n                .dom()\n                .rawPointer())\n            writeDom(outPtr, Dom.createBody().withChild(label).withChild(buttonDom))\n          case _ =>\n            writeDom(outPtr, Dom.createBody())\n        }\n    }\n\n  def main(args: Array[String]): Unit = {\n    // Smart factory: hides the host-invoker register + bytes-splice\n    // (compare with the pre-rewrite version's ~6 lines of boilerplate).\n    val wco = WindowCreateOptions.create(LAYOUT)\n    val rawWco = Structure.newInstance(classOf[AzWindowCreateOptions.ByValue], wco.rawPointer())\n    rawWco.read()\n    val app = AzulNativeApp.AzApp_create(AzulHostInvoker.refanyCreate(MODEL), AzulNativeApp.AzAppConfig_create())\n    app.write()\n    AzulNativeApp.AzApp_run(app.getPointer(), rawWco)\n  }\n}\n",
+                    "scala": "// examples/scala/HelloWorld.scala — Python-quality Scala port.\n//\n// Rides on the Java codegen's `com.azul.*` JNA bindings. The smart\n// `WindowCreateOptions.create(LAYOUT_INVOKER)` factory hides the\n// host-invoker plumbing; user code never has to touch `getByteArray`\n// or splice bytes through `Pointer.write`. Builds at ~50 LOC.\n//\n// Build:  scalac -cp ../java/target/classes:$JNA_JAR HelloWorld.scala -d HelloWorld.jar\n// Run:    DYLD_LIBRARY_PATH=. java -XstartOnFirstThread -Djna.library.path=. \\\n//             -cp HelloWorld.jar:../java/target/classes:$JNA_JAR:$SCALA_LIB:$SCALA3_LIB \\\n//             com.azul.HelloWorld\n//\n// macOS requires `-XstartOnFirstThread` (Cocoa main-thread rule).\n\npackage com.azul\n\nimport com.sun.jna.{Pointer, Structure}\n\nobject HelloWorld {\n\n  class MyDataModel(var counter: Int)\n  private val MODEL = new MyDataModel(5)\n\n  private val ON_CLICK: AzulNativeManaged.ButtonOnClickCallbackInvokerCallback =\n    new AzulNativeManaged.ButtonOnClickCallbackInvokerCallback {\n      override def invoke(id: Long, dataPtr: Pointer, infoPtr: Pointer, outPtr: Pointer): Unit =\n        AzulHostInvoker.refanyGet(dataPtr) match {\n          case m: MyDataModel =>\n            m.counter += 1\n            outPtr.setInt(0, AzUpdate.RefreshDom.value)\n          case _ =>\n            outPtr.setInt(0, AzUpdate.DoNothing.value)\n        }\n    }\n\n  private def writeDom(outPtr: Pointer, dom: Dom): Unit = {\n    val raw = Structure.newInstance(classOf[AzDom.ByValue], dom.rawPointer())\n    raw.read()\n    outPtr.write(0, raw.getPointer().getByteArray(0, raw.size()), 0, raw.size())\n  }\n\n  private val LAYOUT: AzulNativeManaged.LayoutCallbackInvokerCallback =\n    new AzulNativeManaged.LayoutCallbackInvokerCallback {\n      override def invoke(id: Long, dataPtr: Pointer, infoPtr: Pointer, outPtr: Pointer): Unit =\n        AzulHostInvoker.refanyGet(dataPtr) match {\n          case m: MyDataModel =>\n            val label = Dom.createDiv()\n              .withCss(\"font-size: 32px;\")\n              .withChild(Dom.createText(String.valueOf(m.counter)))\n            val buttonDom = new Dom(\n              Button.create(\"Increase counter\")\n                .withButtonType(AzButtonType.Primary.value)\n                .onClick(m, ON_CLICK)\n                .dom()\n                .rawPointer())\n            writeDom(outPtr, Dom.createBody().withChild(label).withChild(buttonDom))\n          case _ =>\n            writeDom(outPtr, Dom.createBody())\n        }\n    }\n\n  def main(args: Array[String]): Unit = {\n    // Smart factory: hides the host-invoker register + bytes-splice\n    // (compare with the pre-rewrite version's ~6 lines of boilerplate).\n    val wco = WindowCreateOptions.create(LAYOUT)\n    val rawWco = Structure.newInstance(classOf[AzWindowCreateOptions.ByValue], wco.rawPointer())\n    rawWco.read()\n    val app = AzulNativeApp.AzApp_create(AzulHostInvoker.refanyCreate(MODEL), AzulNativeApp.AzAppConfig_create())\n    app.write()\n    AzulNativeApp.AzApp_run(app.getPointer(), rawWco)\n  }\n}\n",
                     "smalltalk": "smalltalk/HelloWorld.st",
                     "swift": "swift/hello-world.swift",
                     "v": "v/hello-world.v",
@@ -6143,6 +6143,44 @@
                         ],
                         "repr": "C"
                     },
+                    "HttpMethod": {
+                        "doc": [
+                            "HTTP verb for HttpRequestConfig::http_request."
+                        ],
+                        "external": "azul_layout::http::HttpMethod",
+                        "custom_impls": [
+                            "Display"
+                        ],
+                        "derive": [
+                            "Debug",
+                            "Copy",
+                            "Clone",
+                            "PartialEq",
+                            "Eq",
+                            "Hash"
+                        ],
+                        "enum_fields": [
+                            {
+                                "Get": {}
+                            },
+                            {
+                                "Head": {}
+                            },
+                            {
+                                "Post": {}
+                            },
+                            {
+                                "Put": {}
+                            },
+                            {
+                                "Patch": {}
+                            },
+                            {
+                                "Delete": {}
+                            }
+                        ],
+                        "repr": "C"
+                    },
                     "HttpResponse": {
                         "external": "azul_layout::http::HttpResponse",
                         "derive": [
@@ -6457,6 +6495,57 @@
                                     "type": "bool"
                                 },
                                 "fn_body": "azul_layout::http::HttpRequestConfig::is_url_reachable(url)"
+                            },
+                            "http_request": {
+                                "doc": [
+                                    "HTTP request with an arbitrary verb and optional body, using this",
+                                    "configuration. An empty body sends no body (GET/HEAD semantics);",
+                                    "content_type only applies when a body is present."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    },
+                                    {
+                                        "method": "HttpMethod"
+                                    },
+                                    {
+                                        "url": "String"
+                                    },
+                                    {
+                                        "body": "U8Vec"
+                                    },
+                                    {
+                                        "content_type": "String"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "ResultHttpResponseHttpError"
+                                },
+                                "fn_body": "object.http_request(method, url, body, content_type)"
+                            },
+                            "http_post": {
+                                "doc": [
+                                    "HTTP POST with a body, using this configuration."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    },
+                                    {
+                                        "url": "String"
+                                    },
+                                    {
+                                        "body": "U8Vec"
+                                    },
+                                    {
+                                        "content_type": "String"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "ResultHttpResponseHttpError"
+                                },
+                                "fn_body": "object.http_post(url, body, content_type)"
                             }
                         },
                         "repr": "C"
@@ -12580,6 +12669,71 @@
                                     "type": "ThreadId"
                                 },
                                 "fn_body": "object.check_for_updates(data, callback, options)"
+                            },
+                            "record_counter": {
+                                "doc": [
+                                    "Records an app-defined COUNTER metric with free-form labels (pass an",
+                                    "empty vec for none). Labels are sanitized and capped (6 keys, 64-char",
+                                    "values); every distinct combination counts against the global series",
+                                    "ceiling. No-op unless telemetry is compiled in and consented to."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "refmut"
+                                    },
+                                    {
+                                        "name": "String"
+                                    },
+                                    {
+                                        "value": "u64"
+                                    },
+                                    {
+                                        "labels": "StringPairVec"
+                                    }
+                                ],
+                                "fn_body": "object.record_counter(name, value, labels)"
+                            },
+                            "record_histogram": {
+                                "doc": [
+                                    "Records an app-defined HISTOGRAM observation with free-form labels",
+                                    "(same sanitization and caps as record_counter)."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "refmut"
+                                    },
+                                    {
+                                        "name": "String"
+                                    },
+                                    {
+                                        "value": "f64"
+                                    },
+                                    {
+                                        "labels": "StringPairVec"
+                                    }
+                                ],
+                                "fn_body": "object.record_histogram(name, value, labels)"
+                            },
+                            "record_gauge": {
+                                "doc": [
+                                    "Sets an app-defined GAUGE with free-form labels (same sanitization",
+                                    "and caps as record_counter)."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "refmut"
+                                    },
+                                    {
+                                        "name": "String"
+                                    },
+                                    {
+                                        "value": "f64"
+                                    },
+                                    {
+                                        "labels": "StringPairVec"
+                                    }
+                                ],
+                                "fn_body": "object.record_gauge(name, value, labels)"
                             }
                         },
                         "repr": "C"

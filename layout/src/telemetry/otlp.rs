@@ -165,15 +165,15 @@ pub fn encode_metrics(snapshot: &MetricsSnapshot, resource: &ResourceInfo) -> Op
         .series
         .iter()
         .map(|series| {
-            // Every data point carries the four bounded labels plus, at most,
-            // the instrument's one code-chosen dimension.
+            // Every data point carries the four bounded resource labels plus
+            // the instrument's sanitized, capped code-chosen labels.
             let label_pairs = snapshot.labels.pairs();
-            let dim = series
+            let dims = series
                 .key
-                .dim_key
-                .as_deref()
-                .zip(series.key.dim_value.as_deref());
-            let attributes = jattrs(label_pairs.into_iter().chain(dim));
+                .dims
+                .iter()
+                .map(|(k, v)| (k.as_str(), v.as_str()));
+            let attributes = jattrs(label_pairs.into_iter().chain(dims));
 
             let body = match &series.value {
                 InstrumentValue::Counter(total) => json!({

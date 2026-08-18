@@ -125,16 +125,26 @@ impl MetricLabels {
     }
 }
 
-/// Identifies one series: an instrument name plus at most one extra
-/// code-chosen dimension.
+/// Hard cap on code-chosen labels per metric. Extra labels are dropped
+/// (with a one-time warning), never silently admitted: each label KEY
+/// multiplies potential cardinality.
+pub const MAX_LABELS_PER_METRIC: usize = 6;
+
+/// Longest admitted label value; longer values are truncated. Bounds the
+/// wire size and stops "the whole document title as a label value".
+pub const MAX_LABEL_VALUE_LEN: usize = 64;
+
+/// Identifies one series: an instrument name plus a SMALL, sanitized set of
+/// code-chosen labels (sorted by key, deduped, capped at
+/// [`MAX_LABELS_PER_METRIC`]). The global [`MAX_SERIES`] ceiling still
+/// applies to every distinct (name, labels) combination — free-form labels
+/// widen the API, not the cardinality contract.
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
 pub struct InstrumentKey {
     /// Instrument name, e.g. `app_crashes_total`.
     pub name: String,
-    /// The extra dimension's key, e.g. `scope`.
-    pub dim_key: Option<String>,
-    /// The extra dimension's value, e.g. `relayout`.
-    pub dim_value: Option<String>,
+    /// Sorted, sanitized `(key, value)` labels.
+    pub dims: Vec<(String, String)>,
 }
 
 impl InstrumentKey {
@@ -143,18 +153,68 @@ impl InstrumentKey {
     pub fn plain(name: &str) -> Self {
         Self {
             name: name.to_owned(),
-            dim_key: None,
-            dim_value: None,
+            dims: Vec::new(),
         }
     }
 
     /// A key carrying one extra dimension.
     #[must_use]
     pub fn with_dim(name: &str, dim_key: &str, dim_value: &str) -> Self {
+        Self::with_labels(name, &[(dim_key, dim_value)])
+    }
+
+    /// A key carrying free-form labels, SANITIZED into a stable identity:
+    /// keys are lowercased with anything outside `[a-z0-9_]` replaced by
+    /// `_`, values are truncated to [`MAX_LABEL_VALUE_LEN`], the set is
+    /// sorted by key and deduped (last write wins), and anything beyond
+    /// [`MAX_LABELS_PER_METRIC`] is dropped with a one-time warning. The
+    /// same labels in any order therefore name the SAME series.
+    #[must_use]
+    pub fn with_labels(name: &str, labels: &[(&str, &str)]) -> Self {
+        let mut dims: Vec<(String, String)> = Vec::with_capacity(labels.len().min(MAX_LABELS_PER_METRIC));
+        for (k, v) in labels {
+            let key: String = k
+                .chars()
+                .map(|c| {
+                    let c = c.to_ascii_lowercase();
+                    if c.is_ascii_lowercase() || c.is_ascii_digit() || c == '_' {
+                        c
+                    } else {
+                        '_'
+                    }
+                })
+                .collect();
+            if key.is_empty() {
+                continue;
+            }
+            let mut value = (*v).to_owned();
+            if value.len() > MAX_LABEL_VALUE_LEN {
+                let mut cut = MAX_LABEL_VALUE_LEN;
+                while !value.is_char_boundary(cut) {
+                    cut -= 1;
+                }
+                value.truncate(cut);
+            }
+            match dims.iter_mut().find(|(existing, _)| *existing == key) {
+                Some((_, slot)) => *slot = value,
+                None => dims.push((key, value)),
+            }
+        }
+        dims.sort_by(|a, b| a.0.cmp(&b.0));
+        if dims.len() > MAX_LABELS_PER_METRIC {
+            use std::sync::atomic::{AtomicBool, Ordering};
+            static WARNED: AtomicBool = AtomicBool::new(false);
+            if !WARNED.swap(true, Ordering::Relaxed) {
+                eprintln!(
+                    "[azul telemetry] metric {name:?}: more than {MAX_LABELS_PER_METRIC} labels; \
+                     extra labels are DROPPED (this warning prints once)"
+                );
+            }
+            dims.truncate(MAX_LABELS_PER_METRIC);
+        }
         Self {
             name: name.to_owned(),
-            dim_key: Some(dim_key.to_owned()),
-            dim_value: Some(dim_value.to_owned()),
+            dims,
         }
     }
 }
@@ -334,6 +394,11 @@ pub fn counter_add_dim(name: &str, dim_key: &str, dim_value: &str, value: u64) {
     add_to_counter(InstrumentKey::with_dim(name, dim_key, dim_value), value);
 }
 
+/// Adds to a counter carrying free-form (sanitized, capped) labels.
+pub fn counter_add_labels(name: &str, labels: &[(&str, &str)], value: u64) {
+    add_to_counter(InstrumentKey::with_labels(name, labels), value);
+}
+
 fn add_to_counter(key: InstrumentKey, value: u64) {
     with_registry(|reg| {
         if !admit(reg, &key) {
@@ -363,6 +428,11 @@ pub fn gauge_set_dim(name: &str, dim_key: &str, dim_value: &str, value: f64) {
     set_gauge(InstrumentKey::with_dim(name, dim_key, dim_value), value);
 }
 
+/// Sets a gauge carrying free-form (sanitized, capped) labels.
+pub fn gauge_set_labels(name: &str, labels: &[(&str, &str)], value: f64) {
+    set_gauge(InstrumentKey::with_labels(name, labels), value);
+}
+
 fn set_gauge(key: InstrumentKey, value: f64) {
     with_registry(|reg| {
         if !admit(reg, &key) {
@@ -387,6 +457,11 @@ pub fn histogram_record(name: &str, value: f64) {
 /// Records a histogram observation on a series carrying one extra dimension.
 pub fn histogram_record_dim(name: &str, dim_key: &str, dim_value: &str, value: f64) {
     record_in_histogram(InstrumentKey::with_dim(name, dim_key, dim_value), name, value);
+}
+
+/// Records a histogram observation on a series carrying free-form labels.
+pub fn histogram_record_labels(name: &str, labels: &[(&str, &str)], value: f64) {
+    record_in_histogram(InstrumentKey::with_labels(name, labels), name, value);
 }
 
 fn record_in_histogram(key: InstrumentKey, name: &str, value: f64) {
@@ -562,5 +637,50 @@ mod tests {
         assert_eq!(hist.bounds, vec![1.0, 10.0]);
         assert_eq!(hist.counts, vec![0, 1, 0]);
         assert!(snap.now_unix_nanos >= snap.start_unix_nanos);
+    }
+
+    #[test]
+    fn labels_sanitize_into_one_stable_series_identity() {
+        // Same labels in ANY order, with hostile keys and an oversized
+        // value, must collapse to the SAME sorted, sanitized key.
+        let long_value = "v".repeat(200);
+        let a = InstrumentKey::with_labels(
+            "test_labels_total",
+            &[("Doc-Type", "pdf"), ("SIZE!", &long_value)],
+        );
+        let b = InstrumentKey::with_labels(
+            "test_labels_total",
+            &[("size_", &long_value), ("doc_type", "pdf")],
+        );
+        // "SIZE!" sanitizes to "size_", so both spell the same two keys.
+        assert_eq!(a, b, "label order / raw spelling must not fork series");
+        assert_eq!(a.dims.len(), 2);
+        assert_eq!(a.dims[0].0, "doc_type");
+        assert_eq!(a.dims[1].0, "size_");
+        assert_eq!(a.dims[1].1.len(), MAX_LABEL_VALUE_LEN, "value must be truncated");
+    }
+
+    #[test]
+    fn labels_beyond_the_cap_are_dropped_not_admitted() {
+        let labels: Vec<(String, String)> = (0..10)
+            .map(|i| (format!("k{i}"), format!("v{i}")))
+            .collect();
+        let borrowed: Vec<(&str, &str)> =
+            labels.iter().map(|(k, v)| (k.as_str(), v.as_str())).collect();
+        let key = InstrumentKey::with_labels("test_labels_cap_total", &borrowed);
+        assert_eq!(
+            key.dims.len(),
+            MAX_LABELS_PER_METRIC,
+            "extra labels must be dropped, never silently admitted"
+        );
+    }
+
+    #[test]
+    fn duplicate_label_keys_last_write_wins() {
+        let key = InstrumentKey::with_labels(
+            "test_labels_dupe_total",
+            &[("phase", "first"), ("phase", "second")],
+        );
+        assert_eq!(key.dims, vec![("phase".to_owned(), "second".to_owned())]);
     }
 }

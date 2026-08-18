@@ -1236,6 +1236,81 @@ impl CallbackInfo {
         thread_id
     }
 
+    /// Records an app-defined COUNTER metric with free-form labels (pass an
+    /// empty vec for none). Labels are sanitized and capped (6 keys, 64-char
+    /// values); every distinct combination counts against the global series
+    /// ceiling. No-op unless the `telemetry` feature is on and the user's
+    /// consent tier collects metrics.
+    #[cfg(feature = "std")]
+    pub fn record_counter(
+        &mut self,
+        name: AzString,
+        value: u64,
+        labels: azul_core::window::StringPairVec,
+    ) {
+        #[cfg(feature = "telemetry")]
+        {
+            let pairs: Vec<(&str, &str)> = labels
+                .as_ref()
+                .iter()
+                .map(|p| (p.key.as_str(), p.value.as_str()))
+                .collect();
+            crate::telemetry::count_with(name.as_str(), value, &pairs);
+        }
+        #[cfg(not(feature = "telemetry"))]
+        {
+            drop((name, value, labels));
+        }
+    }
+
+    /// Records an app-defined HISTOGRAM observation with free-form labels
+    /// (same sanitization/caps as [`Self::record_counter`]).
+    #[cfg(feature = "std")]
+    pub fn record_histogram(
+        &mut self,
+        name: AzString,
+        value: f64,
+        labels: azul_core::window::StringPairVec,
+    ) {
+        #[cfg(feature = "telemetry")]
+        {
+            let pairs: Vec<(&str, &str)> = labels
+                .as_ref()
+                .iter()
+                .map(|p| (p.key.as_str(), p.value.as_str()))
+                .collect();
+            crate::telemetry::observe_with(name.as_str(), value, &pairs);
+        }
+        #[cfg(not(feature = "telemetry"))]
+        {
+            drop((name, value, labels));
+        }
+    }
+
+    /// Sets an app-defined GAUGE with free-form labels (same
+    /// sanitization/caps as [`Self::record_counter`]).
+    #[cfg(feature = "std")]
+    pub fn record_gauge(
+        &mut self,
+        name: AzString,
+        value: f64,
+        labels: azul_core::window::StringPairVec,
+    ) {
+        #[cfg(feature = "telemetry")]
+        {
+            let pairs: Vec<(&str, &str)> = labels
+                .as_ref()
+                .iter()
+                .map(|p| (p.key.as_str(), p.value.as_str()))
+                .collect();
+            crate::telemetry::gauge_with(name.as_str(), value, &pairs);
+        }
+        #[cfg(not(feature = "telemetry"))]
+        {
+            drop((name, value, labels));
+        }
+    }
+
     /// Opens one of the built-in system dialogs (always CPU-rendered — a
     /// dialog reporting a problem must not depend on the GPU working):
     ///
