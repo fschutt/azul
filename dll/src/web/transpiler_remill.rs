@@ -6503,9 +6503,14 @@ fn preflight_scan(fn_name: &str, ir: &str, ud2_in_bytes: u32) {
         // rustc's abort lowering). Remill stores the vector number into the
         // State's first field right before the error call — nothing else
         // stores an i32 directly to %state base.
-        let is_int_abort = window
-            .iter()
-            .any(|l| l.contains("store i32 ") && l.contains(", ptr %state, align"));
+        // Class 5: interrupt-family instructions lifted through
+        // __remill_sync_hyper_call (int3 hot-patch/padding bytes under
+        // synthesized PDB-gap entries, int1, hlt) — the error is the
+        // faithful lift of an instruction that traps natively too.
+        let is_int_abort = window.iter().any(|l| {
+            (l.contains("store i32 ") && l.contains(", ptr %state, align"))
+                || l.contains("@__remill_sync_hyper_call")
+        });
         if is_int_abort {
             snan += 1; // reported jointly as "guarded fault semantics"
             continue;
