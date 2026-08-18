@@ -13,6 +13,7 @@
 //! Coordinates are in **absolute window-logical pixels** ([`WindowLogicalRect`]).
 //! `HiDPI` scaling and scroll-offset conversion happen in the compositor.
 
+use crate::solver3::layout_tree::LayoutNodeId;
 use std::{collections::{BTreeMap, HashMap}, sync::Arc};
 
 use azul_core::{
@@ -2466,7 +2467,7 @@ pub fn generate_display_list<T: ParsedFontTrait + Sync + 'static>(
     tree: &LayoutTree,
     calculated_positions: &super::PositionVec,
     scroll_offsets: &BTreeMap<NodeId, ScrollPosition>,
-    scroll_ids: &HashMap<usize, u64>,
+    scroll_ids: &HashMap<LayoutNodeId, u64>,
     gpu_value_cache: Option<&GpuValueCache>,
     renderer_resources: &RendererResources,
     id_namespace: IdNamespace,
@@ -2488,7 +2489,7 @@ pub fn generate_display_list_impl<T: ParsedFontTrait + Sync + 'static>(
     tree: &LayoutTree,
     calculated_positions: &super::PositionVec,
     scroll_offsets: &BTreeMap<NodeId, ScrollPosition>,
-    scroll_ids: &HashMap<usize, u64>,
+    scroll_ids: &HashMap<LayoutNodeId, u64>,
     gpu_value_cache: Option<&GpuValueCache>,
     renderer_resources: &RendererResources,
     id_namespace: IdNamespace,
@@ -2539,7 +2540,7 @@ pub fn generate_display_list_impl<T: ParsedFontTrait + Sync + 'static>(
     //    This is critical when <html> doesn't have height:100% — without this,
     //    the body's background only covers the body's content area, not the viewport.
     {
-        let root_node = tree.get(tree.root);
+        let root_node = tree.get(LayoutNodeId::new(tree.root));
         if let Some(root) = root_node {
             if let Some(root_dom_id) = root.dom_node_id {
                 let root_state = generator.get_styled_node_state(root_dom_id);
@@ -2596,7 +2597,7 @@ struct DisplayListGenerator<'a, 'b, T: ParsedFontTrait> {
     ctx: &'a mut LayoutContext<'b, T>,
     scroll_offsets: &'a BTreeMap<NodeId, ScrollPosition>,
     positioned_tree: &'a PositionedTree<'a>,
-    scroll_ids: &'a HashMap<usize, u64>,
+    scroll_ids: &'a HashMap<LayoutNodeId, u64>,
     gpu_value_cache: Option<&'a GpuValueCache>,
     renderer_resources: &'a RendererResources,
     id_namespace: IdNamespace,
@@ -2938,7 +2939,7 @@ where
         ctx: &'a mut LayoutContext<'b, T>,
         scroll_offsets: &'a BTreeMap<NodeId, ScrollPosition>,
         positioned_tree: &'a PositionedTree<'a>,
-        scroll_ids: &'a HashMap<usize, u64>,
+        scroll_ids: &'a HashMap<LayoutNodeId, u64>,
         gpu_value_cache: Option<&'a GpuValueCache>,
         renderer_resources: &'a RendererResources,
         id_namespace: IdNamespace,
@@ -2969,7 +2970,7 @@ where
         source_node_index: usize,
     ) -> Option<(ColorU, WindowLogicalRect)> {
         let tree = self.positioned_tree.tree;
-        let dom_id_opt = tree.get(source_node_index).and_then(|n| n.dom_node_id);
+        let dom_id_opt = tree.get(LayoutNodeId::new(source_node_index)).and_then(|n| n.dom_node_id);
         if let (Some(sel), Some(dom_id)) = (
             self.ctx.text_selections.get(&self.ctx.styled_dom.dom_id),
             dom_id_opt,
@@ -2980,7 +2981,7 @@ where
         }
         let mut cur = Some(source_node_index);
         while let Some(idx) = cur {
-            if let Some(dom_id) = tree.get(idx).and_then(|n| n.dom_node_id) {
+            if let Some(dom_id) = tree.get(LayoutNodeId::new(idx)).and_then(|n| n.dom_node_id) {
                 let state = self.get_styled_node_state(dom_id);
                 let contents = get_background_contents(
                     self.ctx.styled_dom,
@@ -3011,7 +3012,7 @@ where
                 }
                 let _ = saw_any;
             }
-            cur = tree.get(idx).and_then(|n| n.parent);
+            cur = tree.get(LayoutNodeId::new(idx)).and_then(|n| n.parent);
         }
         None
     }
@@ -3080,7 +3081,7 @@ where
     // with visibility:visible inside a hidden parent must still be painted.
     fn is_node_hidden(&self, node_index: usize) -> bool {
         use azul_css::props::style::effects::StyleVisibility;
-        let Some(node) = self.positioned_tree.tree.get(node_index) else {
+        let Some(node) = self.positioned_tree.tree.get(LayoutNodeId::new(node_index)) else {
             return false;
         };
         let Some(dom_id) = node.dom_node_id else {
@@ -3160,7 +3161,7 @@ where
         let node = self
             .positioned_tree
             .tree
-            .get(node_index)
+            .get(LayoutNodeId::new(node_index))
             .ok_or(LayoutError::InvalidTree)?;
         let Some(dom_id) = node.dom_node_id else {
             return Ok(());
@@ -3197,7 +3198,7 @@ where
         let anchor_bp = self
             .positioned_tree
             .tree
-            .get(ifc_root_index).map_or_else(|| node.box_props.unpack(), |n| n.box_props.unpack());
+            .get(LayoutNodeId::new(ifc_root_index)).map_or_else(|| node.box_props.unpack(), |n| n.box_props.unpack());
         let content_box_offset_x = anchor_pos.x + anchor_bp.padding.left + anchor_bp.border.left;
         let content_box_offset_y = anchor_pos.y + anchor_bp.padding.top + anchor_bp.border.top;
 
@@ -3249,7 +3250,7 @@ where
         tree.dom_to_layout.get(&dom_id).is_some_and(|indices| {
             indices
                 .iter()
-                .any(|&idx| tree.get_ifc_root_layout_index(idx) == node_index)
+                .any(|&idx| tree.get_ifc_root_layout_index(idx.index()) == node_index)
         })
     }
 
@@ -3276,7 +3277,7 @@ where
         let node = self
             .positioned_tree
             .tree
-            .get(node_index)
+            .get(LayoutNodeId::new(node_index))
             .ok_or(LayoutError::InvalidTree)?;
         let Some(dom_id) = node.dom_node_id else {
             return Ok(());
@@ -3450,7 +3451,7 @@ where
         let node = self
             .positioned_tree
             .tree
-            .get(node_index)
+            .get(LayoutNodeId::new(node_index))
             .ok_or(LayoutError::InvalidTree)?;
         let z_index = get_z_index(self.ctx.styled_dom, node.dom_node_id);
 
@@ -3528,7 +3529,7 @@ where
         let node = self
             .positioned_tree
             .tree
-            .get(context.node_index)
+            .get(LayoutNodeId::new(context.node_index))
             .ok_or(LayoutError::InvalidTree)?;
 
         if let Some(dom_id) = node.dom_node_id {
@@ -3841,7 +3842,7 @@ where
             let child_node = self
                 .positioned_tree
                 .tree
-                .get(child_index)
+                .get(LayoutNodeId::new(child_index))
                 .ok_or(LayoutError::InvalidTree)?;
 
             // Check if this child is being dragged (paint last for z-order)
@@ -3880,7 +3881,7 @@ where
             let child_node = self
                 .positioned_tree
                 .tree
-                .get(child_index)
+                .get(LayoutNodeId::new(child_index))
                 .ok_or(LayoutError::InvalidTree)?;
 
             // Check if this child has a GPU transform (CSS transform or drag)
@@ -3971,7 +3972,7 @@ where
             let child_node = self
                 .positioned_tree
                 .tree
-                .get(child_index)
+                .get(LayoutNodeId::new(child_index))
                 .ok_or(LayoutError::InvalidTree)?;
 
             // Check if this child has a GPU transform (CSS transform or drag)
@@ -4050,7 +4051,7 @@ where
             let child_node = self
                 .positioned_tree
                 .tree
-                .get(child_index)
+                .get(LayoutNodeId::new(child_index))
                 .ok_or(LayoutError::InvalidTree)?;
 
             // Check if this child has a GPU transform (CSS transform or drag)
@@ -4142,7 +4143,7 @@ where
         builder: &mut DisplayListBuilder,
         node_index: usize,
     ) -> bool {
-        let Some(node) = self.positioned_tree.tree.get(node_index) else {
+        let Some(node) = self.positioned_tree.tree.get(LayoutNodeId::new(node_index)) else {
             return false;
         };
         let Some(dom_id) = node.dom_node_id else {
@@ -4296,7 +4297,7 @@ where
         let border = &bp.border;
 
         // Get scrollbar info to adjust clip rect for content area
-        let scrollbar_info = self.positioned_tree.tree.warm(node_index)
+        let scrollbar_info = self.positioned_tree.tree.warm(LayoutNodeId::new(node_index))
             .and_then(|w| w.scrollbar_info)
             .unwrap_or_default();
 
@@ -4352,8 +4353,8 @@ where
         // VirtualViewPlaceholder emitted after pop_node_clips in
         // generate_for_stacking_context — so VirtualView nodes get only the clip.
         if (overflow_x.is_scroll() || overflow_y.is_scroll()) && !is_virtual_view {
-            let scroll_id = self.scroll_ids.get(&node_index).copied().unwrap_or(0);
-            let content_size = get_scroll_content_size(node, self.positioned_tree.tree.warm(node_index));
+            let scroll_id = self.scroll_ids.get(&LayoutNodeId::new(node_index)).copied().unwrap_or(0);
+            let content_size = get_scroll_content_size(node, self.positioned_tree.tree.warm(LayoutNodeId::new(node_index)));
             builder.push_scroll_frame(clip_rect, content_size, scroll_id);
         }
 
@@ -4454,7 +4455,7 @@ where
     /// transforms handle this. Subtracting here would cause double-offset and
     /// parallax effects (backgrounds and text moving at different speeds).
     fn get_paint_rect(&self, node_index: usize) -> Option<LogicalRect> {
-        let node = self.positioned_tree.tree.get(node_index)?;
+        let node = self.positioned_tree.tree.get(LayoutNodeId::new(node_index))?;
         let pos = self
             .positioned_tree
             .calculated_positions
@@ -4498,7 +4499,7 @@ where
         let node = self
             .positioned_tree
             .tree
-            .get(node_index)
+            .get(LayoutNodeId::new(node_index))
             .ok_or(LayoutError::InvalidTree)?;
 
         // Set current node for node mapping (for pagination break properties)
@@ -4550,7 +4551,7 @@ where
         // IMPORTANT: The parent check must look at the PARENT NODE's formatting_context,
         // not the current node's. If parent is Flex/Grid, we paint this element as a flex/grid item.
         // Also check parent_formatting_context field which stores parent's FC during tree construction.
-        let warm = self.positioned_tree.tree.warm(node_index);
+        let warm = self.positioned_tree.tree.warm(LayoutNodeId::new(node_index));
         let parent_is_flex_or_grid = warm
             .and_then(|w| w.parent_formatting_context.as_ref().map(|fc| matches!(fc, FormattingContext::Flex | FormattingContext::Grid)))
             .unwrap_or(false);
@@ -4732,7 +4733,7 @@ where
         let table_node = self
             .positioned_tree
             .tree
-            .get(table_index)
+            .get(LayoutNodeId::new(table_index))
             .ok_or(LayoutError::InvalidTree)?;
 
         let Some(table_paint_rect) = self.get_paint_rect(table_index) else {
@@ -4763,7 +4764,7 @@ where
         // Layer 2: Column group backgrounds
         // Layer 3: Column backgrounds (columns are children of column groups)
         for &child_idx in self.positioned_tree.tree.children(table_index) {
-            let child_node = self.positioned_tree.tree.get(child_idx);
+            let child_node = self.positioned_tree.tree.get(LayoutNodeId::new(child_idx));
             if let Some(node) = child_node {
                 if matches!(node.formatting_context, FormattingContext::TableColumnGroup) {
                     // Paint column group background
@@ -4781,7 +4782,7 @@ where
         // Layer 5: Row backgrounds
         // Layer 6: Cell backgrounds
         for &child_idx in self.positioned_tree.tree.children(table_index) {
-            let child_node = self.positioned_tree.tree.get(child_idx);
+            let child_node = self.positioned_tree.tree.get(LayoutNodeId::new(child_idx));
             if let Some(node) = child_node {
                 match node.formatting_context {
                     FormattingContext::TableRowGroup => {
@@ -4818,7 +4819,7 @@ where
     /// keep the initial value (separate).
     fn table_is_border_collapsed(&self, table_index: usize) -> bool {
         use azul_css::props::layout::table::StyleBorderCollapse;
-        let Some(node) = self.positioned_tree.tree.get(table_index) else {
+        let Some(node) = self.positioned_tree.tree.get(LayoutNodeId::new(table_index)) else {
             return false;
         };
         let Some(dom_id) = node.dom_node_id else {
@@ -4842,9 +4843,9 @@ where
     /// Whether a node lives inside a `border-collapse: collapse` table
     /// (walks the layout-tree parent chain to the nearest Table node).
     fn is_inside_collapsed_table(&self, node_index: usize) -> bool {
-        let mut cur = self.positioned_tree.tree.get(node_index).and_then(|n| n.parent);
+        let mut cur = self.positioned_tree.tree.get(LayoutNodeId::new(node_index)).and_then(|n| n.parent);
         while let Some(idx) = cur {
-            let Some(node) = self.positioned_tree.tree.get(idx) else {
+            let Some(node) = self.positioned_tree.tree.get(LayoutNodeId::new(idx)) else {
                 return false;
             };
             if matches!(node.formatting_context, FormattingContext::Table) {
@@ -4884,7 +4885,7 @@ where
         // (cell layout-tree index, paint rect, owning row index) per row
         let mut rows: Vec<(usize, Vec<(usize, LogicalRect)>)> = Vec::new();
         for &child_idx in self.positioned_tree.tree.children(table_index) {
-            let Some(child) = self.positioned_tree.tree.get(child_idx) else {
+            let Some(child) = self.positioned_tree.tree.get(LayoutNodeId::new(child_idx)) else {
                 continue;
             };
             match child.formatting_context {
@@ -4905,17 +4906,17 @@ where
         }
 
         let cell_border = |idx: usize| -> Option<[CollapsedBorder; 4]> {
-            let node = self.positioned_tree.tree.get(idx)?;
+            let node = self.positioned_tree.tree.get(LayoutNodeId::new(idx))?;
             Some(collapsed_border_info(self.ctx, node, BorderSource::Cell).into())
         };
         let row_border = |idx: usize| -> Option<[CollapsedBorder; 4]> {
-            let node = self.positioned_tree.tree.get(idx)?;
+            let node = self.positioned_tree.tree.get(LayoutNodeId::new(idx))?;
             Some(collapsed_border_info(self.ctx, node, BorderSource::Row).into())
         };
         let table_border: Option<[CollapsedBorder; 4]> = self
             .positioned_tree
             .tree
-            .get(table_index)
+            .get(LayoutNodeId::new(table_index))
             .map(|node| collapsed_border_info(self.ctx, node, BorderSource::Table).into());
         const TOP: usize = 0;
         const RIGHT: usize = 1;
@@ -5053,7 +5054,7 @@ where
         // Rows don't have entries in calculated_positions (adding them would
         // double-offset cells during position recursion). Compute the row rect
         // from the bounding box of its cell children.
-        if let Some(row_node) = self.positioned_tree.tree.get(row_idx) {
+        if let Some(row_node) = self.positioned_tree.tree.get(LayoutNodeId::new(row_idx)) {
             if let Some(dom_id) = row_node.dom_node_id {
                 let styled_node_state = self.get_styled_node_state(dom_id);
                 let bg_color = get_background_color(self.ctx.styled_dom, dom_id, &styled_node_state);
@@ -5083,7 +5084,7 @@ where
         }
 
         // Layer 6: Paint cell backgrounds (topmost layer)
-        if let Some(_node) = self.positioned_tree.tree.get(row_idx) {
+        if let Some(_node) = self.positioned_tree.tree.get(LayoutNodeId::new(row_idx)) {
             for &cell_idx in self.positioned_tree.tree.children(row_idx) {
                 self.paint_element_background(builder, cell_idx);
             }
@@ -5102,7 +5103,7 @@ where
             return;
         };
 
-        let Some(node) = self.positioned_tree.tree.get(node_index) else {
+        let Some(node) = self.positioned_tree.tree.get(LayoutNodeId::new(node_index)) else {
             return;
         };
         let Some(dom_id) = node.dom_node_id else {
@@ -5163,9 +5164,9 @@ where
         let node = self
             .positioned_tree
             .tree
-            .get(node_index)
+            .get(LayoutNodeId::new(node_index))
             .ok_or(LayoutError::InvalidTree)?;
-        let node_warm = self.positioned_tree.tree.warm(node_index);
+        let node_warm = self.positioned_tree.tree.warm(LayoutNodeId::new(node_index));
 
         // Set current node for node mapping (for pagination break properties)
         builder.set_current_node(node.dom_node_id);
@@ -5342,7 +5343,7 @@ where
         let node = self
             .positioned_tree
             .tree
-            .get(node_index)
+            .get(LayoutNodeId::new(node_index))
             .ok_or(LayoutError::InvalidTree)?;
 
         let Some(paint_rect) = self.get_paint_rect(node_index) else {
@@ -5350,7 +5351,7 @@ where
         };
 
         // Check if we need to draw scrollbars for this node.
-        let mut scrollbar_info = self.positioned_tree.tree.warm(node_index)
+        let mut scrollbar_info = self.positioned_tree.tree.warm(LayoutNodeId::new(node_index))
             .and_then(|w| w.scrollbar_info)
             .unwrap_or_default();
 
@@ -5530,7 +5531,7 @@ where
         // For VirtualView nodes, the virtual_scroll_size (propagated through ScrollPosition.children_rect)
         // is more accurate than the layout-computed content size.
         let content_size = node_id
-            .and_then(|nid| self.scroll_offsets.get(&nid)).map_or_else(|| self.positioned_tree.tree.get_content_size(node_index), |pos| pos.children_rect.size);
+            .and_then(|nid| self.scroll_offsets.get(&nid)).map_or_else(|| self.positioned_tree.tree.get_content_size(LayoutNodeId::new(node_index)), |pos| pos.children_rect.size);
 
         // Calculate thumb border-radius (half the scrollbar width for pill-shaped thumb)
         let thumb_radius = scrollbar_style.visual_width_px / 2.0;
@@ -6246,7 +6247,7 @@ where
         // double-rendering. Skip it.
         if let Some(indices) = self.positioned_tree.tree.dom_to_layout.get(&node_id) {
             if let Some(&idx) = indices.first() {
-                if self.establishes_stacking_context(idx) {
+                if self.establishes_stacking_context(idx.index()) {
                     return;
                 }
             }
@@ -6268,7 +6269,7 @@ where
             crate::solver3::geometry::EdgeSizes::default,
             |indices| indices.first().map_or_else(
                 crate::solver3::geometry::EdgeSizes::default,
-                |&idx| self.positioned_tree.tree.nodes[idx].box_props.unpack().margin,
+                |&idx| self.positioned_tree.tree.nodes[idx.index()].box_props.unpack().margin,
             ),
         );
 
@@ -6328,7 +6329,7 @@ where
     // +spec:positioning:b84cfa - z-index stacking context creation: integer z-index on positioned elements creates SC; auto on fixed/root creates SC
     // +spec:positioning:d06368 - relative/absolute with z-index:auto do not form stacking context but are painted as if they did
     fn establishes_stacking_context(&self, node_index: usize) -> bool {
-        let Some(node) = self.positioned_tree.tree.get(node_index) else {
+        let Some(node) = self.positioned_tree.tree.get(LayoutNodeId::new(node_index)) else {
             return false;
         };
         let Some(dom_id) = node.dom_node_id else {

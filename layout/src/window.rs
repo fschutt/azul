@@ -18,6 +18,7 @@
 //! - **Scrolling**: scroll state, scrollbar opacity, and
 //!   scroll-into-view for cursors and selections
 
+use crate::solver3::layout_tree::LayoutNodeId;
 use std::{
     collections::{BTreeMap, BTreeSet, HashMap},
     sync::{
@@ -683,7 +684,7 @@ pub struct DomLayoutResult {
     pub display_list: Arc<DisplayList>,
     /// Stable scroll IDs computed from `node_data_hash`
     /// Maps layout node index -> external scroll ID
-    pub scroll_ids: HashMap<usize, u64>,
+    pub scroll_ids: HashMap<LayoutNodeId, u64>,
     /// Mapping from scroll IDs to DOM `NodeIds` for hit testing
     /// This allows us to map `WebRender` scroll IDs back to DOM nodes
     pub scroll_id_to_node_id: HashMap<u64, NodeId>,
@@ -1947,7 +1948,7 @@ impl LayoutWindow {
                 .get(&node_id)
                 .and_then(|v| v.first())
             {
-                if let Some(pos) = solver3::pos_get(&lr.calculated_positions, layout_idx) {
+                if let Some(pos) = solver3::pos_get(&lr.calculated_positions, layout_idx.index()) {
                     self.pagination_dirty_from =
                         Some(self.pagination_dirty_from.map_or(pos.y, |p| p.min(pos.y)));
                 }
@@ -5221,7 +5222,7 @@ impl LayoutWindow {
         // Use dom_to_layout mapping since layout tree indices differ from DOM indices
         let layout_indices = layout_result.layout_tree.dom_to_layout.get(&nid)?;
         let layout_index = *layout_indices.first()?;
-        let position = layout_result.calculated_positions.get(layout_index)?;
+        let position = layout_result.calculated_positions.get(layout_index.index())?;
         Some(*position)
     }
 
@@ -5285,7 +5286,7 @@ impl LayoutWindow {
             rect = crate::headless::node_rect_to_screen(
                 layout_result,
                 node_id.dom,
-                idx,
+                idx.index(),
                 rect,
                 &|d, n| self.scroll_manager.get_current_offset(d, n),
                 &|d, n| {
@@ -6693,7 +6694,7 @@ impl LayoutWindow {
         let layout_result = self.layout_results.get(&dom_id)?;
         let layout_indices = layout_result.layout_tree.dom_to_layout.get(&node_id)?;
         let layout_index = *layout_indices.first()?;
-        layout_result.layout_tree.get_dense_for_node(layout_index)
+        layout_result.layout_tree.get_dense_for_node(layout_index.index())
     }
 
     pub fn get_inline_layout_for_node(
@@ -6707,7 +6708,7 @@ impl LayoutWindow {
         let layout_index = *layout_indices.first()?;
 
         // Use the centralized LayoutTree method that handles IFC membership
-        layout_result.layout_tree.get_inline_layout_for_node(layout_index)
+        layout_result.layout_tree.get_inline_layout_for_node(layout_index.index())
     }
 
     /// (d6f) Dense-first step resolution: the dense dispatcher when the
@@ -8115,7 +8116,7 @@ impl LayoutWindow {
         // Iterate over all nodes with scrollbar info
         for (node_idx, node) in layout_tree.nodes.iter().enumerate() {
             // Check if node needs scrollbars
-            let warm = layout_tree.warm(node_idx);
+            let warm = layout_tree.warm(LayoutNodeId::new(node_idx));
             let Some(scrollbar_info) = warm.and_then(|w| w.scrollbar_info.as_ref()) else {
                 continue;
             };
@@ -8283,7 +8284,7 @@ impl LayoutWindow {
     #[must_use] pub fn compute_scroll_ids(
         layout_tree: &LayoutTree,
         styled_dom: &StyledDom,
-    ) -> (HashMap<usize, u64>, HashMap<u64, NodeId>) {
+    ) -> (HashMap<LayoutNodeId, u64>, HashMap<u64, NodeId>) {
         use azul_css::props::layout::LayoutOverflow;
 
         use crate::solver3::getters::{get_overflow_x, get_overflow_y};
@@ -8326,13 +8327,13 @@ impl LayoutWindow {
             let scroll_id = {
                 use std::hash::{Hash, Hasher, DefaultHasher};
                 let mut h = DefaultHasher::new();
-                if let Some(cold) = layout_tree.cold(layout_idx) {
+                if let Some(cold) = layout_tree.cold(LayoutNodeId::new(layout_idx)) {
                     cold.node_data_fingerprint.hash(&mut h);
                 }
                 h.finish()
             };
 
-            scroll_ids.insert(layout_idx, scroll_id);
+            scroll_ids.insert(LayoutNodeId::new(layout_idx), scroll_id);
             scroll_id_to_node_id.insert(scroll_id, dom_node_id);
         }
 
@@ -8641,10 +8642,10 @@ impl LayoutWindow {
         // sentinel; geometry runs on the transient expansion. (An
         // instrumentation pass once clobbered this line — the caret
         // reveal died sentinel-blind until caret_scroll_glide caught it.)
-        let inline_layout = tree.materialized_inline_layout_for_node(layout_idx)?;
+        let inline_layout = tree.materialized_inline_layout_for_node(layout_idx.index())?;
         // `pos_get` (not a raw index) so the POSITION_UNSET sentinel reads as
         // "not laid out yet" instead of placing the caret at f32::MIN.
-        let origin = solver3::pos_get(&layout_result.calculated_positions, layout_idx)?;
+        let origin = solver3::pos_get(&layout_result.calculated_positions, layout_idx.index())?;
         Some((inline_layout, origin))
     }
 
@@ -8994,7 +8995,7 @@ impl LayoutWindow {
                 .position(|node| node.dom_node_id == current_node_id)?;
 
             // Check if this node has scrollbar info (meaning it's scrollable)
-            if layout_tree.warm(layout_idx).and_then(|w| w.scrollbar_info.as_ref()).is_some() {
+            if layout_tree.warm(LayoutNodeId::new(layout_idx)).and_then(|w| w.scrollbar_info.as_ref()).is_some() {
                 // Check if it actually has a scroll state registered
                 let check_node_id = current_node_id?;
                 if self
@@ -9013,8 +9014,8 @@ impl LayoutWindow {
             }
 
             // Move to parent
-            let parent_idx = layout_tree.get(layout_idx)?.parent?;
-            let parent_node = layout_tree.get(parent_idx)?;
+            let parent_idx = layout_tree.get(LayoutNodeId::new(layout_idx))?.parent?;
+            let parent_node = layout_tree.get(LayoutNodeId::new(parent_idx))?;
             current_node_id = parent_node.dom_node_id;
         }
     }
@@ -11821,7 +11822,7 @@ impl LayoutWindow {
                 for &idx in layout_indices {
                     if let Some(w) = layout_result.layout_tree.warm(idx) {
                         if let Some(ref cached) = w.inline_layout_result {
-                            found = Some((idx, cached));
+                            found = Some((idx.index(), cached));
                             break;
                         }
                     }
@@ -11836,7 +11837,7 @@ impl LayoutWindow {
                         for &idx in child_indices {
                             if let Some(w) = layout_result.layout_tree.warm(idx) {
                                 if let Some(ref cached) = w.inline_layout_result {
-                                    found = Some((idx, cached));
+                                    found = Some((idx.index(), cached));
                                     break;
                                 }
                             }
@@ -11891,10 +11892,10 @@ impl LayoutWindow {
 
             // Fallback: walk up the IFC's ancestors in the layout tree
             if !found_width {
-                if let Some(parent_idx) = layout_result.layout_tree.get(ifc_layout_index)
+                if let Some(parent_idx) = layout_result.layout_tree.get(LayoutNodeId::new(ifc_layout_index))
                     .and_then(|n| n.parent)
                 {
-                    if let Some(parent_node) = layout_result.layout_tree.get(parent_idx) {
+                    if let Some(parent_node) = layout_result.layout_tree.get(LayoutNodeId::new(parent_idx)) {
                         if let Some(parent_size) = parent_node.used_size {
                             let bp = parent_node.box_props.unpack();
                             let content_width = parent_size.width
@@ -11921,7 +11922,7 @@ impl LayoutWindow {
         let cached_snapshot = self
             .layout_results
             .get(&dom_id)
-            .and_then(|lr| lr.layout_tree.warm(ifc_layout_index))
+            .and_then(|lr| lr.layout_tree.warm(LayoutNodeId::new(ifc_layout_index)))
             .and_then(|w| w.inline_layout_result.as_ref())
             .cloned();
 
@@ -11940,7 +11941,7 @@ impl LayoutWindow {
         // 4. Update the layout cache with the new layout
         // Use the ifc_layout_index we found earlier (correct layout tree index)
         if let Some(layout_result) = self.layout_results.get_mut(&dom_id) {
-            let old_size = layout_result.layout_tree.get(ifc_layout_index).and_then(|n| n.used_size);
+            let old_size = layout_result.layout_tree.get(LayoutNodeId::new(ifc_layout_index)).and_then(|n| n.used_size);
             let new_bounds = new_layout.bounds();
             let new_size = Some(LogicalSize {
                 width: new_bounds.width,
@@ -11958,7 +11959,7 @@ impl LayoutWindow {
             }
 
             // Update the inline layout result with the new layout but preserve constraints (warm data)
-            if let Some(warm_node) = layout_result.layout_tree.warm_mut(ifc_layout_index) {
+            if let Some(warm_node) = layout_result.layout_tree.warm_mut(LayoutNodeId::new(ifc_layout_index)) {
                 warm_node.inline_layout_result = Some(Box::new(CachedInlineLayout::new_with_constraints(
                     Arc::new(new_layout),
                     constraints.available_width,
@@ -12213,7 +12214,7 @@ impl LayoutWindow {
                     if let Some(cached) = self.layout_cache.cached_display_list.as_mut() {
                         let root_hash = layout_result
                             .layout_tree
-                            .cold(layout_result.layout_tree.root)
+                            .cold(LayoutNodeId::new(layout_result.layout_tree.root))
                             .map(|c| c.subtree_hash);
                         if let Some(h) = root_hash {
                             *cached = (
@@ -12556,7 +12557,7 @@ impl LayoutWindow {
         let size = node.used_size?;
 
         // Get position from calculated_positions — uses layout tree index, not DOM node index
-        let position = layout_result.calculated_positions.get(idx)?;
+        let position = layout_result.calculated_positions.get(idx.index())?;
 
         Some(LayoutRect {
             origin: azul_css::props::basic::LayoutPoint {
@@ -12875,7 +12876,7 @@ impl LayoutWindow {
         // (d6h) Materialized: sentinel-safe for every geometry/search
         // caller of this accessor (caret scroll, selection paint,
         // occurrence search).
-        tree.materialized_inline_layout_for_node(layout_idx)
+        tree.materialized_inline_layout_for_node(layout_idx.index())
     }
 
     /// Edit the text content of a node (used for text input actions)
@@ -13041,7 +13042,7 @@ impl LayoutWindow {
                     let Some(layout_node_idx) = layout_node_idx else {
                         continue;
                     };
-                    let Some(warm_node) = tree.warm(layout_node_idx) else {
+                    let Some(warm_node) = tree.warm(LayoutNodeId::new(layout_node_idx)) else {
                         continue;
                     };
 
@@ -13052,8 +13053,8 @@ impl LayoutWindow {
                         (cached, *node_id)
                     } else if let Some(ref membership) = warm_node.ifc_membership {
                         // This node participates in an IFC - get layout and NodeId from IFC root
-                        match tree.warm(membership.ifc_root_layout_index) {
-                            Some(ifc_root_warm) => match (ifc_root_warm.inline_layout_result.as_ref(), tree.get(membership.ifc_root_layout_index).and_then(|n| n.dom_node_id)) {
+                        match tree.warm(LayoutNodeId::new(membership.ifc_root_layout_index)) {
+                            Some(ifc_root_warm) => match (ifc_root_warm.inline_layout_result.as_ref(), tree.get(LayoutNodeId::new(membership.ifc_root_layout_index)).and_then(|n| n.dom_node_id)) {
                                 (Some(cached), Some(root_dom_id)) => (cached, root_dom_id),
                                 _ => continue,
                             },
@@ -13098,7 +13099,7 @@ impl LayoutWindow {
 
                 // Only iterate IFC roots (nodes with inline_layout_result)
                 for (node_idx, layout_node) in tree.nodes.iter().enumerate() {
-                    let Some(warm) = tree.warm(node_idx) else {
+                    let Some(warm) = tree.warm(LayoutNodeId::new(node_idx)) else {
                         continue;
                     };
                     let Some(cached_layout) = warm.inline_layout_result.as_ref() else {
@@ -13178,7 +13179,7 @@ impl LayoutWindow {
 
             // Find layout node - ifc_root_node_id is always the IFC root, so it has inline_layout_result
             let layout_idx = tree.nodes.iter().position(|n| n.dom_node_id == Some(ifc_root_node_id))?;
-            let cached_layout = tree.warm(layout_idx)?.inline_layout_result.as_ref()?;
+            let cached_layout = tree.warm(LayoutNodeId::new(layout_idx))?.inline_layout_result.as_ref()?;
             let layout = &cached_layout.layout;
 
             match click_count {
@@ -13329,7 +13330,7 @@ impl LayoutWindow {
             .unwrap_or_default();
         // (the anchor node's cached inline layout is re-borrowed below,
         // after the cross-block branch may have taken &mut self)
-        tree.warm(layout_idx)?.inline_layout_result.as_ref()?;
+        tree.warm(LayoutNodeId::new(layout_idx))?.inline_layout_result.as_ref()?;
 
         let local_pos = LogicalPosition {
             x: current_position.x - node_pos.x,
@@ -13343,7 +13344,7 @@ impl LayoutWindow {
         // regular single-node range below.
         let anchor_rect_contains = {
             let size = tree
-                .get(layout_idx)
+                .get(LayoutNodeId::new(layout_idx))
                 .and_then(|n| n.used_size)
                 .unwrap_or_default();
             local_pos.x >= 0.0
@@ -13369,7 +13370,7 @@ impl LayoutWindow {
         // Re-borrow after the possible &mut use above.
         let layout_result = self.layout_results.get(&dom_id)?;
         let tree = &layout_result.layout_tree;
-        let cached = tree.warm(layout_idx)?.inline_layout_result.as_ref()?;
+        let cached = tree.warm(LayoutNodeId::new(layout_idx))?.inline_layout_result.as_ref()?;
         // (d6h) Materialized: sentinel-safe click hittest.
         let focus = Self::materialized_inline_layout(cached).hittest_cursor(local_pos)?;
 
@@ -13411,7 +13412,7 @@ impl LayoutWindow {
         let mut best: Option<(f32, NodeId, LogicalPosition)> = None; // (y-distance, node, local)
         for (idx, node) in tree.nodes.iter().enumerate() {
             let Some(node_dom_id) = node.dom_node_id else { continue };
-            let Some(warm) = tree.warm(idx) else { continue };
+            let Some(warm) = tree.warm(LayoutNodeId::new(idx)) else { continue };
             if warm.inline_layout_result.is_none() {
                 continue;
             }
@@ -13442,10 +13443,10 @@ impl LayoutWindow {
             .nodes
             .iter()
             .position(|n| n.dom_node_id == Some(node_dom_id))?;
-        let cached = tree.warm(layout_idx)?.inline_layout_result.as_ref()?;
+        let cached = tree.warm(LayoutNodeId::new(layout_idx))?.inline_layout_result.as_ref()?;
         // Clamp the local point into the block so line hit-testing lands on
         // the nearest line instead of failing outside the box.
-        let size = tree.get(layout_idx).and_then(|n| n.used_size).unwrap_or_default();
+        let size = tree.get(LayoutNodeId::new(layout_idx)).and_then(|n| n.used_size).unwrap_or_default();
         let clamped = LogicalPosition {
             x: local.x.clamp(0.0, size.width.max(0.0)),
             y: local.y.clamp(0.0, size.height.max(0.0)),
@@ -13928,7 +13929,7 @@ impl LayoutWindow {
         let layout_index = layout_indices[0];
 
         // Get position
-        let position = *layout_result.calculated_positions.get(layout_index)?;
+        let position = *layout_result.calculated_positions.get(layout_index.index())?;
 
         // Get size
         let layout_node = layout_result.layout_tree.get(layout_index)?;

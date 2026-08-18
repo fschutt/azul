@@ -13,6 +13,7 @@
 //!     (which previously only looked at fonts that exist as files on disk);
 //!  2. N distinct families must produce N distinct `FontId`s.
 
+use azul_layout::solver3::LayoutNodeId;
 use std::collections::{BTreeMap, HashMap};
 
 use azul_core::{
@@ -109,11 +110,11 @@ fn layout_and_measure(
 
     let tree = layout_cache.tree.as_ref().expect("layout tree");
     let mut i = 0;
-    while let Some(n) = tree.get(i) {
+    while let Some(n) = tree.get(LayoutNodeId::new(i)) {
         println!("  node {i}: used_size={:?}", n.used_size);
         i += 1;
     }
-    tree.get(node_index)
+    tree.get(LayoutNodeId::new(node_index))
         .expect("node exists")
         .used_size
         .expect("used_size")

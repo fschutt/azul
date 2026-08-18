@@ -6,6 +6,7 @@
 //! The regenerate_layout function takes direct field references instead of using trait methods
 //! to avoid borrow checker issues (similar to invoke_callbacks pattern).
 
+use azul_layout::solver3::LayoutNodeId;
 use std::{cell::RefCell, sync::Arc};
 
 use azul_core::{
@@ -77,7 +78,7 @@ fn register_scroll_nodes(layout_window: &mut LayoutWindow) {
 
             let Some(mut scrollbar_info) = layout_result
                 .layout_tree
-                .warm(node_idx)
+                .warm(LayoutNodeId::new(node_idx))
                 .and_then(|w| w.scrollbar_info)
             else {
                 continue;
@@ -100,7 +101,7 @@ fn register_scroll_nodes(layout_window: &mut LayoutWindow) {
                     &mut scrollbar_info,
                 );
                 if raised {
-                    if let Some(warm) = layout_result.layout_tree.warm_mut(node_idx) {
+                    if let Some(warm) = layout_result.layout_tree.warm_mut(LayoutNodeId::new(node_idx)) {
                         warm.scrollbar_info = Some(scrollbar_info);
                     }
                 }
@@ -115,7 +116,7 @@ fn register_scroll_nodes(layout_window: &mut LayoutWindow) {
                 size: container_size,
             };
 
-            let content_size = layout_result.layout_tree.get_content_size(node_idx);
+            let content_size = layout_result.layout_tree.get_content_size(LayoutNodeId::new(node_idx));
 
             // Use the layout-computed scrollbar width, not the
             // hardcoded default. On macOS with overlay scrollbars,

@@ -7,6 +7,7 @@
 //! which is called from `fc.rs` when a flex or grid formatting context is
 //! encountered during layout.
 
+use crate::solver3::layout_tree::LayoutNodeId;
 use crate::solver3::calc::CalcResolveContext;
 use crate::solver3::getters::{get_overflow_x, get_overflow_y};
 use azul_core::dom::FormattingContext;
@@ -383,7 +384,7 @@ fn compute_taffy_scrollbar_info<T: ParsedFontTrait>(
 ) -> (crate::solver3::scrollbar::ScrollbarRequirements, f32, f32) {
     use crate::solver3::scrollbar::ScrollbarRequirements;
 
-    let node = tree.get(node_idx);
+    let node = tree.get(LayoutNodeId::new(node_idx));
     let dom_id = node.and_then(|n| n.dom_node_id);
 
     let Some(dom_id) = dom_id else {
@@ -400,7 +401,7 @@ fn compute_taffy_scrollbar_info<T: ParsedFontTrait>(
 
     // Compute padding + border from the node's box_props
     let (padding_width, padding_height, border_width, border_height, border_left, border_top) = tree
-        .get(node_idx)
+        .get(LayoutNodeId::new(node_idx))
         .map_or((0.0, 0.0, 0.0, 0.0, 0.0, 0.0), |node| {
             let bp = node.box_props.unpack();
             (
@@ -1216,7 +1217,7 @@ impl<'a, 'b, T: ParsedFontTrait> TaffyBridge<'a, 'b, T> {
 
     /// Gets or computes the Taffy style for a given node index.
     fn get_taffy_style(&self, node_idx: usize) -> Style {
-        let dom_id = self.tree.get(node_idx).and_then(|n| n.dom_node_id);
+        let dom_id = self.tree.get(LayoutNodeId::new(node_idx)).and_then(|n| n.dom_node_id);
         let mut style = self.translate_style_to_taffy_cached(dom_id);
         
         // CSS 2.1 § 10.3.3: Root element margin handling for Flex/Grid.
@@ -1234,7 +1235,7 @@ impl<'a, 'b, T: ParsedFontTrait> TaffyBridge<'a, 'b, T> {
         // Zeroing the style margin for root nodes prevents this double-subtraction.
         // This is NOT a hack — it's the correct integration point between Azul's
         // BFC-level sizing and Taffy's Flex/Grid algorithm.
-        let is_root = self.tree.get(node_idx).is_some_and(|n| n.parent.is_none());
+        let is_root = self.tree.get(LayoutNodeId::new(node_idx)).is_some_and(|n| n.parent.is_none());
         if is_root {
             style.margin = Rect::zero();
         }
@@ -1267,12 +1268,12 @@ impl<'a, 'b, T: ParsedFontTrait> TaffyBridge<'a, 'b, T> {
     /// Returns (`suppress_width`, `suppress_height`) booleans.
     #[allow(clippy::match_same_arms)] // enum/value mapping/dispatch table: one arm per input variant (or cross-type bindings that can't merge)
     fn should_suppress_cross_intrinsic(&self, node_idx: usize, style: &Style) -> (bool, bool) {
-        let Some(node) = self.tree.get(node_idx) else {
+        let Some(node) = self.tree.get(LayoutNodeId::new(node_idx)) else {
             return (false, false);
         };
 
         // Check if parent is a flex or grid container
-        let Some(parent_fc) = self.tree.warm(node_idx).and_then(|w| w.parent_formatting_context) else {
+        let Some(parent_fc) = self.tree.warm(LayoutNodeId::new(node_idx)).and_then(|w| w.parent_formatting_context) else {
             return (false, false);
         };
 
@@ -1282,7 +1283,7 @@ impl<'a, 'b, T: ParsedFontTrait> TaffyBridge<'a, 'b, T> {
                 let Some(parent_idx) = node.parent else {
                     return (false, false);
                 };
-                let parent_dom_id = self.tree.get(parent_idx).and_then(|n| n.dom_node_id);
+                let parent_dom_id = self.tree.get(LayoutNodeId::new(parent_idx)).and_then(|n| n.dom_node_id);
                 let parent_style = self.translate_style_to_taffy_cached(parent_dom_id);
 
                 // Determine if flex container is row or column
@@ -1339,14 +1340,14 @@ impl<'a, 'b, T: ParsedFontTrait> TaffyBridge<'a, 'b, T> {
     /// Helper to get children that participate in layout (i.e., not `display: none`).
     fn get_layout_children(&self, node_idx: usize) -> Vec<usize> {
         use crate::solver3::getters::{get_display_property, MultiValue};
-        let Some(node) = self.tree.get(node_idx) else {
+        let Some(node) = self.tree.get(LayoutNodeId::new(node_idx)) else {
             return Vec::new();
         };
 
         self.tree.children(node_idx)
             .iter()
             .filter(|&&child_idx| {
-                let Some(child_node) = self.tree.get(child_idx) else {
+                let Some(child_node) = self.tree.get(LayoutNodeId::new(child_idx)) else {
                     return false;
                 };
                 let Some(child_dom_id) = child_node.dom_node_id else {
@@ -1416,7 +1417,7 @@ pub fn layout_taffy_subtree<T: ParsedFontTrait>(
     let text_cache_ptr = core::ptr::from_mut::<crate::font_traits::TextLayoutCache>(text_cache);
 
     let mut bridge = TaffyBridge::new(ctx, tree, text_cache_ptr);
-    let node = bridge.tree.get(node_idx).unwrap();
+    let node = bridge.tree.get(LayoutNodeId::new(node_idx)).unwrap();
 
     let output = match node.formatting_context {
         FormattingContext::Flex => compute_flexbox_layout(&mut bridge, node_idx.into(), inputs),
@@ -1433,10 +1434,10 @@ pub fn layout_taffy_subtree<T: ParsedFontTrait>(
 
         // Log child layout results
         for &child_idx in &children {
-            if let Some(child) = bridge.tree.get(child_idx) {
+            if let Some(child) = bridge.tree.get(LayoutNodeId::new(child_idx)) {
                 bridge.ctx.debug_info_inner(format!(
                     "[TAFFY CHILD RESULT] child_idx={} used_size={:?} relative_pos={:?}",
-                    child_idx, child.used_size, bridge.tree.warm(child_idx).and_then(|w| w.relative_position)
+                    child_idx, child.used_size, bridge.tree.warm(LayoutNodeId::new(child_idx)).and_then(|w| w.relative_position)
                 ));
             }
         }
@@ -1496,9 +1497,9 @@ impl<T: ParsedFontTrait> LayoutPartialTree for TaffyBridge<'_, '_, T> {
         // Azul expects positions relative to the parent's Content Box origin.
         // We must subtract the parent's border and padding from the Taffy-returned position.
         let (parent_border_left, parent_border_top, parent_padding_left, parent_padding_top) = {
-            if let Some(child) = self.tree.get(node_idx) {
+            if let Some(child) = self.tree.get(LayoutNodeId::new(node_idx)) {
                 if let Some(parent_idx) = child.parent {
-                    self.tree.get(parent_idx).map_or((0.0, 0.0, 0.0, 0.0), |parent| {
+                    self.tree.get(LayoutNodeId::new(parent_idx)).map_or((0.0, 0.0, 0.0, 0.0), |parent| {
                         let pbp = parent.box_props.unpack();
                         (
                             pbp.border.left,
@@ -1515,7 +1516,7 @@ impl<T: ParsedFontTrait> LayoutPartialTree for TaffyBridge<'_, '_, T> {
             }
         };
 
-        if let Some(node) = self.tree.get_mut(node_idx) {
+        if let Some(node) = self.tree.get_mut(LayoutNodeId::new(node_idx)) {
             let size = translate_taffy_size_back(layout.size);
             let mut pos = translate_taffy_point_back(layout.location);
 
@@ -1544,7 +1545,7 @@ impl<T: ParsedFontTrait> LayoutPartialTree for TaffyBridge<'_, '_, T> {
 
             node.used_size = Some(size);
         }
-        if let Some(warm) = self.tree.warm_mut(node_idx) {
+        if let Some(warm) = self.tree.warm_mut(LayoutNodeId::new(node_idx)) {
             let mut pos = translate_taffy_point_back(layout.location);
             pos.x -= parent_border_left + parent_padding_left;
             pos.y -= parent_border_top + parent_padding_top;
@@ -1587,7 +1588,7 @@ impl<T: ParsedFontTrait> LayoutPartialTree for TaffyBridge<'_, '_, T> {
         // Get formatting context
         let fc = self
             .tree
-            .get(node_idx)
+            .get(LayoutNodeId::new(node_idx))
             .map(|s| s.formatting_context)
             .unwrap_or_default();
 
@@ -1620,7 +1621,7 @@ impl<T: ParsedFontTrait> LayoutPartialTree for TaffyBridge<'_, '_, T> {
             None
         };
         if let Some(slot) = pure_measure_slot {
-            if let Some(warm) = self.tree.warm(node_idx) {
+            if let Some(warm) = self.tree.warm(LayoutNodeId::new(node_idx)) {
                 let cached = match slot {
                     0 => warm.measured_content_sizes.0,
                     _ => warm.measured_content_sizes.1,
@@ -1637,7 +1638,7 @@ impl<T: ParsedFontTrait> LayoutPartialTree for TaffyBridge<'_, '_, T> {
             let node_idx: usize = node_id.into();
             let fc = tree
                 .tree
-                .get(node_idx)
+                .get(LayoutNodeId::new(node_idx))
                 .map(|s| s.formatting_context)
                 .unwrap_or_default();
 
@@ -1652,7 +1653,7 @@ impl<T: ParsedFontTrait> LayoutPartialTree for TaffyBridge<'_, '_, T> {
 
         // Populate the pure-measure cache from the result we just computed.
         if let Some(slot) = pure_measure_slot {
-            if let Some(warm) = self.tree.warm_mut(node_idx) {
+            if let Some(warm) = self.tree.warm_mut(LayoutNodeId::new(node_idx)) {
                 match slot {
                     0 => warm.measured_content_sizes.0 = Some(result),
                     _ => warm.measured_content_sizes.1 = Some(result),
@@ -1661,7 +1662,7 @@ impl<T: ParsedFontTrait> LayoutPartialTree for TaffyBridge<'_, '_, T> {
         }
 
         // Store layout for container nodes - Taffy only calls set_unrounded_layout for leaf nodes
-        if let Some(node) = self.tree.get_mut(node_idx) {
+        if let Some(node) = self.tree.get_mut(LayoutNodeId::new(node_idx)) {
             let size = translate_taffy_size_back(result.size);
             node.used_size = Some(size);
         }
@@ -1697,7 +1698,7 @@ impl<T: ParsedFontTrait> LayoutPartialTree for TaffyBridge<'_, '_, T> {
                     ContentSizeOrigin::BorderBox,
                 );
 
-            if let Some(warm) = self.tree.warm_mut(node_idx) {
+            if let Some(warm) = self.tree.warm_mut(LayoutNodeId::new(node_idx)) {
                 warm.scrollbar_info = Some(scrollbar_info);
                 // eff_content_w/h are already in content-box coordinates
                 // (the border+padding inset is subtracted in
@@ -1729,7 +1730,7 @@ impl<T: ParsedFontTrait> TaffyBridge<'_, '_, T> {
         // Get padding/border early so we can convert border-box → content-box.
         let (node_padding_width, node_padding_height, node_border_width, node_border_height) = self
             .tree
-            .get(node_idx)
+            .get(LayoutNodeId::new(node_idx))
             .map_or((0.0, 0.0, 0.0, 0.0), |node| {
                 let bp = node.box_props.unpack();
                 (
@@ -1794,7 +1795,7 @@ impl<T: ParsedFontTrait> TaffyBridge<'_, '_, T> {
         // Get text-align from CSS for this node (important for centering content in flex items)
         let text_align = self
             .tree
-            .get(node_idx)
+            .get(LayoutNodeId::new(node_idx))
             .and_then(|node| node.dom_node_id)
             .map(|dom_id| {
                 let node_state =
@@ -1843,7 +1844,7 @@ impl<T: ParsedFontTrait> TaffyBridge<'_, '_, T> {
         // content). Reset `used_size` to the border-box dims Taffy fixed for THIS
         // measure. When width is unknown (an intrinsic pass), clear it so layout_bfc
         // falls back to `constraints.available_size` (INFINITY → true intrinsic).
-        if let Some(n) = self.tree.get_mut(node_idx) {
+        if let Some(n) = self.tree.get_mut(LayoutNodeId::new(node_idx)) {
             n.used_size = match (inputs.known_dimensions.width, inputs.known_dimensions.height) {
                 (Some(w), Some(h)) => Some(LogicalSize {
                     width: w,
@@ -1899,7 +1900,7 @@ impl<T: ParsedFontTrait> TaffyBridge<'_, '_, T> {
                 // Get intrinsic sizes for min/max-content queries
                 let intrinsic = self
                     .tree
-                    .warm(node_idx)
+                    .warm(LayoutNodeId::new(node_idx))
                     .and_then(|w| w.intrinsic_sizes)
                     .unwrap_or_default();
 
@@ -1916,7 +1917,7 @@ impl<T: ParsedFontTrait> TaffyBridge<'_, '_, T> {
                 // shrink-to-fit its content. This is per CSS 2.1 § 10.3.9: "shrink-to-fit width".
                 let fc = self
                     .tree
-                    .get(node_idx)
+                    .get(LayoutNodeId::new(node_idx))
                     .map(|s| s.formatting_context)
                     .unwrap_or_default();
                 
@@ -1957,7 +1958,7 @@ impl<T: ParsedFontTrait> TaffyBridge<'_, '_, T> {
                 // calculate_used_size_for_node (border-box) — strip padding+border back
                 // to content-box. Fixes blank / 0-height images as flex/grid items.
                 let (effective_content_width, content_height) = {
-                    let dom_id = self.tree.get(node_idx).and_then(|n| n.dom_node_id);
+                    let dom_id = self.tree.get(LayoutNodeId::new(node_idx)).and_then(|n| n.dom_node_id);
                     let is_replaced = dom_id
                         .is_some_and(|id| {
                             let nd = &self.ctx.styled_dom.node_data.as_container()[id];
@@ -1966,7 +1967,7 @@ impl<T: ParsedFontTrait> TaffyBridge<'_, '_, T> {
                         });
                     match (is_replaced, dom_id) {
                         (true, Some(id)) => {
-                            let bp = self.tree.get(node_idx).unwrap().box_props.unpack();
+                            let bp = self.tree.get(LayoutNodeId::new(node_idx)).unwrap().box_props.unpack();
                             crate::solver3::sizing::calculate_used_size_for_node(
                                 self.ctx.styled_dom,
                                 Some(id),
@@ -2003,9 +2004,9 @@ impl<T: ParsedFontTrait> TaffyBridge<'_, '_, T> {
                     // Check if parent is a grid container and available_space is definite
                     let parent_is_grid = self
                         .tree
-                        .get(node_idx)
+                        .get(LayoutNodeId::new(node_idx))
                         .and_then(|n| n.parent)
-                        .and_then(|p| self.tree.get(p))
+                        .and_then(|p| self.tree.get(LayoutNodeId::new(p)))
                         .is_some_and(|p| matches!(p.formatting_context, FormattingContext::Grid));
 
                     if parent_is_grid {
@@ -2027,7 +2028,7 @@ impl<T: ParsedFontTrait> TaffyBridge<'_, '_, T> {
                 // Without this, children of flex items won't have their relative_position set,
                 // causing them to all render at (0,0) relative to their parent.
                 for (child_idx, child_pos) in &output.positions {
-                    if let Some(child_warm) = self.tree.warm_mut(*child_idx) {
+                    if let Some(child_warm) = self.tree.warm_mut(LayoutNodeId::new(*child_idx)) {
                         child_warm.relative_position = Some(*child_pos);
                     }
                 }
@@ -2051,13 +2052,13 @@ impl<T: ParsedFontTrait> TaffyBridge<'_, '_, T> {
                 );
 
                 // Store the border-box size and scrollbar_info on the node for display list generation
-                if let Some(node) = self.tree.get_mut(node_idx) {
+                if let Some(node) = self.tree.get_mut(LayoutNodeId::new(node_idx)) {
                     node.used_size = Some(LogicalSize {
                         width: final_width,
                         height: final_height,
                     });
                 }
-                if let Some(warm) = self.tree.warm_mut(node_idx) {
+                if let Some(warm) = self.tree.warm_mut(LayoutNodeId::new(node_idx)) {
                     warm.scrollbar_info = Some(scrollbar_info);
                     // Store the actual content size for scroll calculations
                     warm.overflow_content_size = Some(LogicalSize {
@@ -2087,7 +2088,7 @@ impl<T: ParsedFontTrait> TaffyBridge<'_, '_, T> {
             }
             Err(_e) => {
                 // Fallback to intrinsic sizes if layout fails
-                let intrinsic = self.tree.warm(node_idx).and_then(|w| w.intrinsic_sizes).unwrap_or_default();
+                let intrinsic = self.tree.warm(LayoutNodeId::new(node_idx)).and_then(|w| w.intrinsic_sizes).unwrap_or_default();
 
                 let width = inputs
                     .known_dimensions
@@ -2119,7 +2120,7 @@ impl<T: ParsedFontTrait> CacheTree for TaffyBridge<'_, '_, T> {
     ) -> Option<LayoutOutput> {
         let node_idx: usize = node_id.into();
         let hit = self.tree
-            .warm(node_idx)?
+            .warm(LayoutNodeId::new(node_idx))?
             .taffy_cache
             .get(input);
         drop(crate::probe::Probe::span(if hit.is_some() {
@@ -2153,7 +2154,7 @@ impl<T: ParsedFontTrait> CacheTree for TaffyBridge<'_, '_, T> {
         layout_output: LayoutOutput,
     ) {
         let node_idx: usize = node_id.into();
-        if let Some(warm) = self.tree.warm_mut(node_idx) {
+        if let Some(warm) = self.tree.warm_mut(LayoutNodeId::new(node_idx)) {
             warm.taffy_cache
                 .store(input, layout_output);
         }
@@ -2162,7 +2163,7 @@ impl<T: ParsedFontTrait> CacheTree for TaffyBridge<'_, '_, T> {
     fn cache_clear(&mut self, node_id: taffy::NodeId) {
         drop(crate::probe::Probe::span("taffy_cache_clear"));
         let node_idx: usize = node_id.into();
-        if let Some(warm) = self.tree.warm_mut(node_idx) {
+        if let Some(warm) = self.tree.warm_mut(LayoutNodeId::new(node_idx)) {
             warm.taffy_cache.clear();
             warm.measured_content_sizes = (None, None);
         }

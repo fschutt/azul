@@ -9,6 +9,7 @@
 //! - Forced breaks carry `causing_node` end to end (display-list recording
 //!   through `PageBreakPosition`).
 
+use azul_layout::solver3::LayoutNodeId;
 use azul_core::dom::{Dom, DomId};
 use azul_core::geom::{LogicalPosition, LogicalRect, LogicalSize};
 use azul_core::resources::RendererResources;
@@ -344,7 +345,7 @@ fn materialized_breaks_reproduce_the_estimated_boundaries() {
         .get(&block2_dom)
         .and_then(|v| v.first())
         .expect("block 2 laid out");
-    let block2_y = cache_b.calculated_positions.get(li).map(|p| p.y).unwrap();
+    let block2_y = cache_b.calculated_positions.get(li.index()).map(|p| p.y).unwrap();
     assert!(
         (block2_y - 300.0).abs() < 1.0,
         "inserting the empty break element must not move block 2 (margin \
@@ -741,7 +742,7 @@ fn estimator_node_heights(xml: &str, label: &str) {
     if let Some(t) = layout_cache.tree.as_ref() {
         for (i, n) in t.nodes.iter().enumerate() {
             let lines = t
-                .warm(i)
+                .warm(LayoutNodeId::new(i))
                 .and_then(|w| w.inline_layout_result.as_ref())
                 .map(|r| format!("{:?}", r.layout.bounds()))
                 .unwrap_or_else(|| "-".into());

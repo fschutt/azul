@@ -17,6 +17,7 @@
 //!
 //! Activated with `AZUL_HEADLESS=1` (optionally `AZ_DEBUG=1` for the debug server).
 
+use crate::solver3::layout_tree::LayoutNodeId;
 use std::collections::BTreeMap;
 
 use azul_core::{
@@ -95,7 +96,7 @@ struct ScrollContainerEntry {
     dom_id: DomId,
     node_id: NodeId,
     /// Index of this node in its DOM's layout tree (for content-size lookup).
-    layout_idx: usize,
+    layout_idx: LayoutNodeId,
     scroll_id: u64,
     /// Static viewport box, window space (placement-translated).
     rect: LogicalRect,
@@ -326,7 +327,7 @@ pub fn node_rect_to_screen(
         }
         let Some(anc_node) = nodes.get(anc) else { break };
         if let Some(anid) = anc_node.dom_node_id {
-            if layout_result.scroll_ids.contains_key(&anc) {
+            if layout_result.scroll_ids.contains_key(&LayoutNodeId::new(anc)) {
                 links_rev.push(HitChainLink::Scroll(dom_id, anid));
             }
             if resolve_transform(dom_id, anid).is_some() {
@@ -442,7 +443,7 @@ fn compute_node_chains(
                 } else {
                     chain_of[p]
                 };
-                let is_scroll = scroll_ids.contains_key(&p);
+                let is_scroll = scroll_ids.contains_key(&LayoutNodeId::new(p));
                 let pnid = nodes[p].dom_node_id;
                 let parent_transforms = pnid.is_some_and(has_transform);
                 match (pnid, is_scroll || parent_transforms) {
@@ -710,9 +711,9 @@ impl CpuHitTester {
             // them), but css-overflow-3 disables their user-triggered
             // scrolling, so the hit-tester must not route the wheel there.
             for (&layout_idx, &scroll_id) in scroll_ids {
-                let Some(n) = nodes.get(layout_idx) else { continue };
+                let Some(n) = nodes.get(layout_idx.index()) else { continue };
                 let Some(node_id) = n.dom_node_id else { continue };
-                let (Some(pos), Some(size)) = (positions.get(layout_idx), n.used_size) else {
+                let (Some(pos), Some(size)) = (positions.get(layout_idx.index()), n.used_size) else {
                     continue;
                 };
                 let user_scrollable = styled_dom
@@ -741,7 +742,7 @@ impl CpuHitTester {
                         },
                         size,
                     },
-                    chain: chain_of[layout_idx],
+                    chain: chain_of[layout_idx.index()],
                 });
             }
 
@@ -951,7 +952,7 @@ pub fn convert_cpu_hit_test_to_full(
                     .get(node_id)
                     .and_then(|indices| indices.first())
                     .and_then(|&idx| {
-                        let node_pos = lr.calculated_positions.get(idx)?;
+                        let node_pos = lr.calculated_positions.get(idx.index())?;
                         let node = lr.layout_tree.get(idx)?;
                         let bp = node.box_props.unpack();
                         let content_x =
@@ -1027,7 +1028,7 @@ pub fn convert_cpu_hit_test_to_full(
                 continue;
             }
             let parent_rect = LogicalRect::new(node_pos, node_size);
-            let child_rect = compute_scroll_child_rect(lr, layout_idx, parent_rect);
+            let child_rect = compute_scroll_child_rect(lr, layout_idx.index(), parent_rect);
 
             let scroll_node = OverflowingScrollNode {
                 parent_rect,
@@ -1089,7 +1090,7 @@ pub fn compute_scroll_child_rect(
     layout_idx: usize,
     parent_rect: LogicalRect,
 ) -> LogicalRect {
-    let content_size = layout_result.layout_tree.get_content_size(layout_idx);
+    let content_size = layout_result.layout_tree.get_content_size(LayoutNodeId::new(layout_idx));
     LogicalRect::new(
         parent_rect.origin,
         LogicalSize::new(

@@ -39,6 +39,7 @@
 //! Key types: [`SplitPane`], [`SplitPaneState`], [`SplitDirection`],
 //! [`SplitPaneOnResize`].
 
+use crate::solver3::layout_tree::LayoutNodeId;
 use std::vec::Vec;
 
 use azul_core::{
@@ -819,7 +820,7 @@ mod autotest_generated {
         for (layout_index, (node_index, used)) in boxes.iter().enumerate() {
             lr.layout_tree
                 .dom_to_layout
-                .insert(NodeId::new(*node_index), vec![layout_index]);
+                .insert(NodeId::new(*node_index), vec![LayoutNodeId::new(layout_index)]);
             lr.layout_tree.nodes.push(LayoutNodeHot {
                 box_props: PackedBoxProps::default(),
                 dom_node_id: Some(NodeId::new(*node_index)),

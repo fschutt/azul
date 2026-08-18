@@ -59,6 +59,7 @@ use azul_core::{
 use std::sync::{Arc, Mutex};
 
 use crate::managers::hover::InputPointId;
+use crate::solver3::layout_tree::LayoutNodeId;
 use crate::solver3::scrollbar::compute_scrollbar_geometry_with_button_size;
 
 /// Minimum change in scroll offset (in logical pixels) to consider the position
@@ -3313,17 +3314,20 @@ mod autotest_generated {
         );
         m.set_scroll_position(DOM, node(2), pos(0.0, 300.0), at(1));
 
-        let mut scroll_ids: HashMap<usize, u64> = HashMap::new();
-        scroll_ids.insert(0, 100);
-        scroll_ids.insert(5, 500);
+        let mut scroll_ids: HashMap<LayoutNodeId, u64> = HashMap::new();
+        scroll_ids.insert(LayoutNodeId::new(0), 100);
+        scroll_ids.insert(LayoutNodeId::new(5), 500);
         let mut scroll_id_to_node_id: HashMap<u64, NodeId> = HashMap::new();
         scroll_id_to_node_id.insert(100, node(0));
         scroll_id_to_node_id.insert(500, node(2));
 
         // The premise, asserted rather than assumed: for this tree the DOM
-        // NodeId is NOT a valid key into the layout-index table.
+        // NodeId is NOT a valid key into the layout-index table. Note the
+        // deliberate cross-space cast: since `LayoutNodeId` landed, this
+        // probe is the ONLY way to even ask the question — the conflation
+        // this test guards against no longer type-checks in production code.
         assert!(
-            !scroll_ids.contains_key(&node(2).index()),
+            !scroll_ids.contains_key(&LayoutNodeId::new(node(2).index())),
             "fixture must actually diverge, otherwise it re-tests the coinciding case"
         );
 

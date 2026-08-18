@@ -188,7 +188,7 @@ impl A11yManager {
                     .and_then(|&layout_idx| {
                         let hot = layout_result.layout_tree.get(layout_idx)?;
                         let abs_pos = layout_result.calculated_positions
-                            .get(layout_idx).copied();
+                            .get(layout_idx.index()).copied();
                         Some((hot, layout_idx, abs_pos))
                     });
 

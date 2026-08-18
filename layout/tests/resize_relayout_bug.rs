@@ -14,6 +14,7 @@
 //! asserts the absolutely-positioned grandchild grows to fill the new viewport.
 //! Without the fix the second layout leaves it at 480 tall (the bug).
 
+use azul_layout::solver3::LayoutNodeId;
 use azul_core::{
     dom::{Dom, DomId, DomNodeId, IdOrClass, NodeId},
     geom::LogicalSize,
@@ -442,7 +443,7 @@ fn resize_only_hint_skips_reconcile_but_still_resizes() {
             .get(&DomId::ROOT_ID)
             .expect("layout result");
         let tree = &lr.layout_tree;
-        tree.get(tree.root)
+        tree.get(LayoutNodeId::new(tree.root))
             .and_then(|n| n.used_size)
             .map(|s| s.width)
             .expect("root used_size")

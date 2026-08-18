@@ -1,5 +1,6 @@
 //! Intrinsic and used size calculations for layout nodes
 
+use crate::solver3::layout_tree::LayoutNodeId;
 use crate::debug_log;
 use std::{
     collections::BTreeSet,
@@ -197,7 +198,7 @@ pub fn calculate_intrinsic_sizes<T: ParsedFontTrait>(
     unsafe {
         crate::az_mark(0x60730_u32, (tree.root as u32));
         crate::az_mark(0x60734_u32, (tree.nodes.len() as u32));
-        crate::az_mark(0x60738_u32, u32::from(tree.get(tree.root).is_some()));
+        crate::az_mark(0x60738_u32, u32::from(tree.get(LayoutNodeId::new(tree.root)).is_some()));
         // [az-diag g55] 0x4075C = the `tree` ptr the CALLEE sees. Compare with 0x40748
         // (caller's &new_tree). Same → nodes-field-offset mis-lift; differ → &mut arg mis-passed.
         crate::az_mark(0x6075C_u32, ((std::ptr::from_ref::<LayoutTree>(tree) as usize) as u32));
@@ -218,7 +219,7 @@ pub(crate) fn compute_dirty_ancestor_closure(
             if !closure.insert(idx) {
                 break;
             }
-            cur = tree.get(idx).and_then(|n| n.parent);
+            cur = tree.get(LayoutNodeId::new(idx)).and_then(|n| n.parent);
         }
     }
     closure
@@ -268,7 +269,7 @@ impl<'a, 'b, 'c, T: ParsedFontTrait> IntrinsicSizeCalculator<'a, 'b, 'c, T> {
         if let Some(closure) = self.dirty_closure.as_ref() {
             if !closure.contains(&node_index) {
                 if let Some(cached) = tree
-                    .warm(node_index)
+                    .warm(LayoutNodeId::new(node_index))
                     .and_then(|w| w.intrinsic_sizes)
                 {
                     drop(crate::probe::Probe::span("intrinsic_cache_hit"));
@@ -297,7 +298,7 @@ impl<'a, 'b, 'c, T: ParsedFontTrait> IntrinsicSizeCalculator<'a, 'b, 'c, T> {
                 .is_some_and(|v| !v)
         {
             let default = IntrinsicSizes::default();
-            if let Some(n) = tree.warm_mut(node_index) {
+            if let Some(n) = tree.warm_mut(LayoutNodeId::new(node_index)) {
                 n.intrinsic_sizes = Some(default);
             }
             return Ok(default);
@@ -309,7 +310,7 @@ impl<'a, 'b, 'c, T: ParsedFontTrait> IntrinsicSizeCalculator<'a, 'b, 'c, T> {
         // Vec<usize> for children and a TaffyCache on every recursion
         // (~300x on excel.html).
         let dom_node_id = tree
-            .get(node_index)
+            .get(LayoutNodeId::new(node_index))
             .ok_or(LayoutError::InvalidTree)?
             .dom_node_id;
 
@@ -341,7 +342,7 @@ impl<'a, 'b, 'c, T: ParsedFontTrait> IntrinsicSizeCalculator<'a, 'b, 'c, T> {
         // Propagate STF flag: children inherit `ancestor_is_stf=true` if any
         // ancestor up to and including self is STF.
         let self_is_stf = tree
-            .get(node_index)
+            .get(LayoutNodeId::new(node_index))
             .is_some_and(|n| {
                 crate::solver3::layout_tree::is_shrink_to_fit_context(
                     self.ctx.styled_dom,
@@ -361,7 +362,7 @@ impl<'a, 'b, 'c, T: ParsedFontTrait> IntrinsicSizeCalculator<'a, 'b, 'c, T> {
             // at line ~226 and abort the WHOLE intrinsic-sizing pass. Skip gracefully so
             // measurement continues — mirrors process_layout_children's guard (line ~1079).
             // REAL fix = reconcile not listing the stray child.
-            if tree.get(child_index).is_none() {
+            if tree.get(LayoutNodeId::new(child_index)).is_none() {
                 continue;
             }
             let child_intrinsic =
@@ -374,7 +375,7 @@ impl<'a, 'b, 'c, T: ParsedFontTrait> IntrinsicSizeCalculator<'a, 'b, 'c, T> {
         let mut intrinsic = self.calculate_node_intrinsic_sizes(tree, node_index, &child_intrinsics)?;
 
         // +spec:min-max-sizing:970fef - if min-width/min-height is a <length>, use as floor for intrinsic sizes
-        if let Some(dom_id) = tree.get(node_index).and_then(|n| n.dom_node_id) {
+        if let Some(dom_id) = tree.get(LayoutNodeId::new(node_index)).and_then(|n| n.dom_node_id) {
             use crate::solver3::getters::{get_css_min_width, get_css_min_height, MultiValue};
 
             let node_state = &self.ctx.styled_dom.styled_nodes.as_container()[dom_id].styled_node_state;
@@ -400,7 +401,7 @@ impl<'a, 'b, 'c, T: ParsedFontTrait> IntrinsicSizeCalculator<'a, 'b, 'c, T> {
                     _ => LayoutBoxSizing::ContentBox,
                 };
                 let bp = tree
-                    .get(node_index)
+                    .get(LayoutNodeId::new(node_index))
                     .map(|n| n.box_props.unpack())
                     .unwrap_or_default();
                 if let MultiValue::Exact(LayoutWidth::Px(px)) =
@@ -446,7 +447,7 @@ impl<'a, 'b, 'c, T: ParsedFontTrait> IntrinsicSizeCalculator<'a, 'b, 'c, T> {
             }
         }
 
-        if let Some(n) = tree.warm_mut(node_index) {
+        if let Some(n) = tree.warm_mut(LayoutNodeId::new(node_index)) {
             n.intrinsic_sizes = Some(intrinsic);
         }
 
@@ -467,7 +468,7 @@ impl<'a, 'b, 'c, T: ParsedFontTrait> IntrinsicSizeCalculator<'a, 'b, 'c, T> {
         node_index: usize,
         child_intrinsics: &[(usize, IntrinsicSizes)],
     ) -> Result<IntrinsicSizes> {
-        let node = tree.get(node_index).ok_or(LayoutError::InvalidTree)?;
+        let node = tree.get(LayoutNodeId::new(node_index)).ok_or(LayoutError::InvalidTree)?;
 
         // +spec:block-formatting-context:30def2 - replaced elements use physical 300x150 default, not re-oriented by writing-mode
         // +spec:display-property:015c41 - replaced elements default to 300x150 intrinsic size per css-sizing-3 §5.1
@@ -562,7 +563,7 @@ impl<'a, 'b, 'c, T: ParsedFontTrait> IntrinsicSizeCalculator<'a, 'b, 'c, T> {
                 // FormattingContext::Inline (meaning "establishes IFC for its children"),
                 // which is different from being an inline element itself.
                 let has_block_child = tree.children(node_index).iter().any(|&child_idx| {
-                    tree.get(child_idx)
+                    tree.get(LayoutNodeId::new(child_idx))
                         .and_then(|c| c.dom_node_id)
                         .is_some_and(|dom_id| {
                             let node_data = &self.ctx.styled_dom.node_data.as_container()[dom_id];
@@ -576,7 +577,7 @@ impl<'a, 'b, 'c, T: ParsedFontTrait> IntrinsicSizeCalculator<'a, 'b, 'c, T> {
                 });
 
                 let has_inline_child = tree.children(node_index).iter().any(|&child_idx| {
-                    tree.get(child_idx)
+                    tree.get(LayoutNodeId::new(child_idx))
                         .and_then(|c| c.dom_node_id)
                         .is_some_and(|dom_id| {
                             let node_data = &self.ctx.styled_dom.node_data.as_container()[dom_id];
@@ -664,7 +665,7 @@ impl<'a, 'b, 'c, T: ParsedFontTrait> IntrinsicSizeCalculator<'a, 'b, 'c, T> {
                 // Check layout tree children AND direct DOM text children (text nodes
                 // are not in the layout tree, only in the DOM).
                 let has_inline_children = tree.children(node_index).iter().any(|&child_idx| {
-                    tree.get(child_idx)
+                    tree.get(LayoutNodeId::new(child_idx))
                         .is_some_and(|c| matches!(c.formatting_context, FormattingContext::Inline))
                 });
 
@@ -765,7 +766,7 @@ impl<'a, 'b, 'c, T: ParsedFontTrait> IntrinsicSizeCalculator<'a, 'b, 'c, T> {
         // element reports a min-content SMALLER than its true unbreakable width and
         // the flex/shrink-to-fit algorithm clips it.
         let mut constraints = UnifiedConstraints::default();
-        if let Some(dom_id) = tree.get(node_index).and_then(|n| n.dom_node_id) {
+        if let Some(dom_id) = tree.get(LayoutNodeId::new(node_index)).and_then(|n| n.dom_node_id) {
             use crate::solver3::getters::{get_white_space_property, MultiValue};
             use azul_css::props::style::text::StyleWhiteSpace;
             let node_state =
@@ -865,7 +866,7 @@ impl<'a, 'b, 'c, T: ParsedFontTrait> IntrinsicSizeCalculator<'a, 'b, 'c, T> {
         node_index: usize,
         child_intrinsics: &[(usize, IntrinsicSizes)],
     ) -> Result<IntrinsicSizes> {
-        let node = tree.get(node_index).ok_or(LayoutError::InvalidTree)?;
+        let node = tree.get(LayoutNodeId::new(node_index)).ok_or(LayoutError::InvalidTree)?;
         let writing_mode = node.dom_node_id.map_or_else(LayoutWritingMode::default, |dom_id| {
             let node_state =
                 &self.ctx.styled_dom.styled_nodes.as_container()[dom_id].styled_node_state;
@@ -889,7 +890,7 @@ impl<'a, 'b, 'c, T: ParsedFontTrait> IntrinsicSizeCalculator<'a, 'b, 'c, T> {
         for &child_index in tree.children(node_index) {
             if let Some(child_intrinsic) = child_intrinsics.iter().find(|(k, _)| k == &child_index).map(|(_, v)| v) {
                 // +spec:intrinsic-sizing:ed72bb - intrinsic contributions based on outer size, auto margins as zero
-                let child_node = tree.get(child_index);
+                let child_node = tree.get(LayoutNodeId::new(child_index));
                 let (cross_extras, main_border_padding, main_margin_start, main_margin_end) =
                     child_node.map_or((0.0, 0.0, 0.0, 0.0), |cn| {
                         let bp = cn.box_props.unpack();
@@ -977,7 +978,7 @@ impl<'a, 'b, 'c, T: ParsedFontTrait> IntrinsicSizeCalculator<'a, 'b, 'c, T> {
         node_index: usize,
         child_intrinsics: &[(usize, IntrinsicSizes)],
     ) -> Result<IntrinsicSizes> {
-        let node = tree.get(node_index).ok_or(LayoutError::InvalidTree)?;
+        let node = tree.get(LayoutNodeId::new(node_index)).ok_or(LayoutError::InvalidTree)?;
 
         // Determine flex-direction to know if main axis is horizontal or vertical
         let is_row = node.dom_node_id.is_none_or(|dom_id| {
@@ -1082,13 +1083,13 @@ impl<'a, 'b, 'c, T: ParsedFontTrait> IntrinsicSizeCalculator<'a, 'b, 'c, T> {
         // Iterate rows — children may be row groups (thead/tbody/tfoot) or direct rows
         let mut rows: Vec<usize> = Vec::new();
         for &child_idx in tree.children(node_index) {
-            let Some(child) = tree.get(child_idx) else { continue };
+            let Some(child) = tree.get(LayoutNodeId::new(child_idx)) else { continue };
             match child.formatting_context {
                 FormattingContext::TableRow => rows.push(child_idx),
                 FormattingContext::TableRowGroup => {
                     // Row group contains rows
                     for &row_idx in tree.children(child_idx) {
-                        if let Some(row) = tree.get(row_idx) {
+                        if let Some(row) = tree.get(LayoutNodeId::new(row_idx)) {
                             if matches!(row.formatting_context, FormattingContext::TableRow) {
                                 rows.push(row_idx);
                             }
@@ -1114,7 +1115,7 @@ impl<'a, 'b, 'c, T: ParsedFontTrait> IntrinsicSizeCalculator<'a, 'b, 'c, T> {
                 };
 
                 // Add cell box-model extras
-                let cell_node = tree.get(cell_idx);
+                let cell_node = tree.get(LayoutNodeId::new(cell_idx));
                 let (h_extras, v_extras) = cell_node.map_or((0.0, 0.0), |cn| {
                     let bp = cn.box_props.unpack();
                     (bp.padding.left + bp.padding.right + bp.border.left + bp.border.right,
@@ -1207,7 +1208,7 @@ fn collect_inline_content_recursive<T: ParsedFontTrait>(
     // visible even though a PRIOR successful call already wrote B8. This is the suspected
     // InvalidTree site (phase stuck at 0xA0 + B8 reached ⇒ a 2nd IFC call fails at this get).
     unsafe { crate::az_mark(0x60754_u32, (node_index as u32)); }
-    let Some(node) = tree.get(node_index) else {
+    let Some(node) = tree.get(LayoutNodeId::new(node_index)) else {
         unsafe { crate::az_mark(0x6071C_u32, (0xBADu32)); }
         return Err(LayoutError::InvalidTree);
     };
@@ -1298,7 +1299,7 @@ fn process_layout_children<T: ParsedFontTrait>(
         // InvalidTree BEFORE the inline text got measured → label height 0. Skip gracefully so
         // measurement continues (the inline text is collected separately above, at the
         // collect_inline_content_recursive DOM-children loop). REAL fix = reconcile not listing it.
-        let Some(child_node) = tree.get(child_index) else { continue; };
+        let Some(child_node) = tree.get(LayoutNodeId::new(child_index)) else { continue; };
         let Some(child_dom_id) = child_node.dom_node_id else {
             continue;
         };
@@ -1315,7 +1316,7 @@ fn process_layout_children<T: ParsedFontTrait>(
             // Non-inline children are treated as atomic inline-level boxes
             // (e.g., inline-block, images, floats)
             // Their intrinsic size must have been calculated in the bottom-up pass
-            let intrinsic_sizes = tree.warm(child_index).and_then(|w| w.intrinsic_sizes).unwrap_or_default();
+            let intrinsic_sizes = tree.warm(LayoutNodeId::new(child_index)).and_then(|w| w.intrinsic_sizes).unwrap_or_default();
 
             // CSS 2.2 § 10.3.9: For inline-block elements with explicit CSS width/height,
             // use the CSS-defined values instead of intrinsic sizes.
@@ -2500,11 +2501,11 @@ mod autotest_generated {
 
     /// The single layout index of a DOM node (fixtures never produce splits).
     fn layout_index(tree: &LayoutTree, dom_id: NodeId) -> usize {
-        *tree
-            .dom_to_layout
+        tree.dom_to_layout
             .get(&dom_id)
             .and_then(|v| v.first())
             .expect("DOM node has a layout node")
+            .index()
     }
 
     // ==================================================================
@@ -2891,14 +2892,14 @@ mod autotest_generated {
         let r = calc.calculate_intrinsic_recursive(&mut tree, 0, false);
         let sizes = r.expect("a stray child index must be skipped, not fatal");
         assert!(sizes.min_content_width.is_finite());
-        assert!(tree.warm(0).and_then(|w| w.intrinsic_sizes).is_some());
+        assert!(tree.warm(LayoutNodeId::new(0)).and_then(|w| w.intrinsic_sizes).is_some());
     }
 
     #[test]
     fn calculate_intrinsic_recursive_reuses_the_cache_for_nodes_outside_the_dirty_closure() {
         let mut tree = chain_tree();
         let cached = isz(11.0, 22.0, 33.0, 44.0);
-        tree.warm_mut(0)
+        tree.warm_mut(LayoutNodeId::new(0))
             .expect("root warm slot")
             .intrinsic_sizes = Some(cached);
 
@@ -2918,7 +2919,7 @@ mod autotest_generated {
         assert_eq!(sizes.min_content_height, 33.0);
         assert_eq!(sizes.max_content_height, 44.0);
         // Children were never visited, so their warm slots stay empty.
-        assert!(tree.warm(1).and_then(|w| w.intrinsic_sizes).is_none());
+        assert!(tree.warm(LayoutNodeId::new(1)).and_then(|w| w.intrinsic_sizes).is_none());
     }
 
     // ==================================================================
@@ -3254,7 +3255,7 @@ mod autotest_generated {
         // max-content (+spec:min-max-sizing:970fef).
         let a = layout_index(&tree, NodeId::new(2));
         let a_sizes = tree
-            .warm(a)
+            .warm(LayoutNodeId::new(a))
             .and_then(|w| w.intrinsic_sizes)
             .expect("`.a` was measured");
         assert_eq!(a_sizes.min_content_width, 120.0);
@@ -3265,7 +3266,7 @@ mod autotest_generated {
         // The flex container aggregates its single item on both axes.
         let f = layout_index(&tree, NodeId::new(1));
         let f_sizes = tree
-            .warm(f)
+            .warm(LayoutNodeId::new(f))
             .and_then(|w| w.intrinsic_sizes)
             .expect("`.flex` was measured");
         assert_eq!(f_sizes.min_content_width, 120.0);
@@ -3285,7 +3286,7 @@ mod autotest_generated {
 
         calculate_intrinsic_sizes(&mut ctx, &mut tree, &mut text_cache, &dirty)
             .expect("stale dirty ids must be ignored, not fatal");
-        let root = tree.warm(tree.root).and_then(|w| w.intrinsic_sizes);
+        let root = tree.warm(LayoutNodeId::new(tree.root)).and_then(|w| w.intrinsic_sizes);
         assert!(root.is_some(), "the root is still measured");
     }
 
@@ -3299,10 +3300,10 @@ mod autotest_generated {
 
         calculate_intrinsic_sizes(&mut ctx, &mut tree, &mut text_cache, &dirty).expect("pass 1");
         let a = layout_index(&tree, NodeId::new(2));
-        let first = tree.warm(a).and_then(|w| w.intrinsic_sizes).expect("measured");
+        let first = tree.warm(LayoutNodeId::new(a)).and_then(|w| w.intrinsic_sizes).expect("measured");
 
         calculate_intrinsic_sizes(&mut ctx, &mut tree, &mut text_cache, &dirty).expect("pass 2");
-        let second = tree.warm(a).and_then(|w| w.intrinsic_sizes).expect("measured");
+        let second = tree.warm(LayoutNodeId::new(a)).and_then(|w| w.intrinsic_sizes).expect("measured");
 
         assert_eq!(first.min_content_width, second.min_content_width);
         assert_eq!(first.max_content_width, second.max_content_width);
@@ -3340,7 +3341,7 @@ mod autotest_generated {
             .get(&text_dom)
             .and_then(|v| v.first())
             .copied()
-            .unwrap_or_else(|| layout_index(tree, block_dom))
+            .unwrap_or_else(|| LayoutNodeId::new(layout_index(tree, block_dom))).index()
     }
 
     #[test]

@@ -7,6 +7,7 @@
 // 4. Verify damage rects cover only the text region
 // 5. Test cursor movement, selection, backspace
 
+use azul_layout::solver3::LayoutNodeId;
 use std::path::PathBuf;
 use azul_core::{
     dom::{Dom, DomId, DomNodeId, IdOrClass, NodeId, NodeType, TabIndex},
@@ -305,10 +306,10 @@ impl ContentEditableHarness {
         let result = lw.layout_results.get(&dom_id).unwrap();
         let tree = &result.layout_tree;
         for idx in 0..tree.nodes.len() {
-            let node = tree.get(idx).unwrap();
+            let node = tree.get(LayoutNodeId::new(idx)).unwrap();
             let children = tree.children(idx);
-            let has_ifc = tree.warm(idx).and_then(|w| w.ifc_membership.as_ref()).is_some();
-            let has_inline = tree.warm(idx).and_then(|w| w.inline_layout_result.as_ref()).is_some();
+            let has_ifc = tree.warm(LayoutNodeId::new(idx)).and_then(|w| w.ifc_membership.as_ref()).is_some();
+            let has_inline = tree.warm(LayoutNodeId::new(idx)).and_then(|w| w.inline_layout_result.as_ref()).is_some();
             eprintln!("  [layout_tree] idx={} dom_node_id={:?} children={:?} ifc_member={} has_inline={}",
                 idx, node.dom_node_id, children, has_ifc, has_inline);
         }
@@ -993,7 +994,7 @@ fn contenteditable_overflow_wraps_at_end_not_start() {
     // Find the inline layout result (on the text child or the contenteditable div)
     let mut inline_layout = None;
     for idx in 0..layout_result.layout_tree.nodes.len() {
-        if let Some(w) = layout_result.layout_tree.warm(idx) {
+        if let Some(w) = layout_result.layout_tree.warm(LayoutNodeId::new(idx)) {
             if let Some(ref cached) = w.inline_layout_result {
                 // (d7) materialized(): the stored layout is the
                 // retirement sentinel under the dense default; the
@@ -1415,12 +1416,12 @@ mod structural_roundtrip {
                 Some(azul_layout::solver3::layout_tree::AnonymousBoxType::SplitPreviewPart),
             );
             assert_eq!(
-                lr.layout_tree.children(part1).len(),
+                lr.layout_tree.children(part1.index()).len(),
                 2,
                 "alpha + beta stay in part 1"
             );
             assert_eq!(
-                lr.layout_tree.children(part2).len(),
+                lr.layout_tree.children(part2.index()).len(),
                 1,
                 "gamma moves to the preview part"
             );
@@ -1518,7 +1519,7 @@ mod structural_roundtrip {
             let lr = lw.layout_results.get(&dom_id).unwrap();
             let idx = lr.layout_tree.dom_to_layout.get(&ul_node).unwrap()[0];
             assert_eq!(
-                lr.layout_tree.children(idx).len(),
+                lr.layout_tree.children(idx.index()).len(),
                 2,
                 "the removed child's layout node detached from the preview tree"
             );
@@ -1587,7 +1588,7 @@ mod structural_roundtrip {
             let lr = lw.layout_results.get(&dom_id).unwrap();
             let p1_idx = lr.layout_tree.dom_to_layout.get(&p1_node).unwrap()[0];
             assert_eq!(
-                lr.layout_tree.children(p1_idx).len(),
+                lr.layout_tree.children(p1_idx.index()).len(),
                 2,
                 "p2's text child moved onto p1 in the preview tree"
             );
@@ -1595,7 +1596,7 @@ mod structural_roundtrip {
             let editor_idx = lr.layout_tree.dom_to_layout.get(&NodeId::new(1)).unwrap()[0];
             let p2_idx = lr.layout_tree.dom_to_layout.get(&p2_node).unwrap()[0];
             assert!(
-                !lr.layout_tree.children(editor_idx).contains(&p2_idx),
+                !lr.layout_tree.children(editor_idx.index()).contains(&p2_idx.index()),
                 "the merged-away block detached from its parent"
             );
         }
@@ -1674,8 +1675,8 @@ mod structural_roundtrip {
             let (p1, p2) = (indices[0], indices[1]);
             // Ordinal conservation: everything renders exactly once.
             let (n1, n2) = (
-                lr.layout_tree.children(p1).len(),
-                lr.layout_tree.children(p2).len(),
+                lr.layout_tree.children(p1.index()).len(),
+                lr.layout_tree.children(p2.index()).len(),
             );
             assert_eq!(
                 n1, 1,
@@ -1753,12 +1754,12 @@ mod structural_roundtrip {
             assert_eq!(indices.len(), 2, "two layout slots (part 1 + preview part)");
             let (p1, p2) = (indices[0], indices[1]);
             assert_eq!(
-                lr.layout_tree.children(p1).len(),
+                lr.layout_tree.children(p1.index()).len(),
                 1,
                 "part 1: the first half of the split wrapper"
             );
             assert_eq!(
-                lr.layout_tree.children(p2).len(),
+                lr.layout_tree.children(p2.index()).len(),
                 2,
                 "part 2: the wrapper's second half + the p"
             );

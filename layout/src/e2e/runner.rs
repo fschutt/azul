@@ -28,6 +28,7 @@
 //! `tests/contenteditable_e2e.rs` (LayoutWindow + `RendererResources::default()`
 //! + `ExternalSystemCallbacks::rust_internal()` + `FullWindowState`).
 
+use crate::solver3::layout_tree::LayoutNodeId;
 use std::collections::BTreeMap;
 use std::sync::{Arc, Mutex};
 use std::time::Instant;
@@ -2931,7 +2932,7 @@ impl Runner {
                 };
                 let Some(mut sb) = layout_result
                     .layout_tree
-                    .warm(node_idx)
+                    .warm(LayoutNodeId::new(node_idx))
                     .and_then(|w| w.scrollbar_info)
                 else {
                     continue;
@@ -2952,7 +2953,7 @@ impl Runner {
                         &mut sb,
                     );
                     if raised {
-                        if let Some(warm) = layout_result.layout_tree.warm_mut(node_idx) {
+                        if let Some(warm) = layout_result.layout_tree.warm_mut(LayoutNodeId::new(node_idx)) {
                             warm.scrollbar_info = Some(sb);
                         }
                     }
@@ -2966,7 +2967,7 @@ impl Runner {
                     .copied()
                     .unwrap_or_else(LogicalPosition::zero);
                 let container_rect = LogicalRect { origin: container_origin, size: container_size };
-                let content_size = layout_result.layout_tree.get_content_size(node_idx);
+                let content_size = layout_result.layout_tree.get_content_size(LayoutNodeId::new(node_idx));
                 let thickness = sb.scrollbar_width.max(sb.scrollbar_height);
                 regs.push((
                     *dom_id,

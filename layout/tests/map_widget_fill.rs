@@ -2,6 +2,7 @@
 /// no size, so it collapsed to zero height → the VirtualView got zero bounds →
 /// no tiles rendered (the azul-maps demo showed only the container background).
 /// build_dom now gives the outer div + VirtualView `width/height:100%`.
+use azul_layout::solver3::LayoutNodeId;
 use azul_core::dom::{Dom, DomId};
 use azul_core::geom::{LogicalPosition, LogicalRect, LogicalSize};
 use azul_core::resources::RendererResources;
@@ -80,7 +81,7 @@ fn test_map_widget_fills_flex_container() {
     let tree = layout_cache.tree.as_ref().expect("tree");
     println!("\n=== FULL CHAIN (640x480, body→header→map_area→mapdiv→vview) ===");
     for i in 0..8 {
-        if let Some(n) = tree.get(i) {
+        if let Some(n) = tree.get(LayoutNodeId::new(i)) {
             let s = n.used_size.unwrap_or_default();
             let nt = n.dom_node_id;
             println!("Node {}: fc={:?} size=({:.1},{:.1}) dom={:?}", i, n.formatting_context, s.width, s.height, nt);
@@ -90,8 +91,8 @@ fn test_map_widget_fills_flex_container() {
     // (height:100%) — must fill the ~441px box. The VirtualView (deepest, node 5) is
     // the one that previously collapsed to 0: a %-height child of an absolute-inset
     // parent whose height was resolved AFTER its subtree was (never) laid out.
-    let widget_div_h = tree.get(4).and_then(|n| n.used_size).map(|s| s.height).unwrap_or(0.0);
-    let vview_h = tree.get(5).and_then(|n| n.used_size).map(|s| s.height).unwrap_or(0.0);
+    let widget_div_h = tree.get(LayoutNodeId::new(4)).and_then(|n| n.used_size).map(|s| s.height).unwrap_or(0.0);
+    let vview_h = tree.get(LayoutNodeId::new(5)).and_then(|n| n.used_size).map(|s| s.height).unwrap_or(0.0);
     println!("=> map widget div height={widget_div_h:.1}, VirtualView height={vview_h:.1}");
     assert!(widget_div_h > 400.0, "abs map widget div collapsed: {widget_div_h:.1}");
     assert!(
@@ -158,7 +159,7 @@ fn test_map_widget_fills_container() {
     println!("\n=== MAP WIDGET TREE ===");
     let mut max_inner_h = 0.0f32;
     for i in 0..10 {
-        if let Some(node) = tree.get(i) {
+        if let Some(node) = tree.get(LayoutNodeId::new(i)) {
             let s = node.used_size.unwrap_or_default();
             println!("Node {}: fc={:?} size=({:.1},{:.1})", i, node.formatting_context, s.width, s.height);
             // nodes 2+ are the map widget div + virtual view (inside the 400px area)

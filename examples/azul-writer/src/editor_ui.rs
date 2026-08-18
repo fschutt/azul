@@ -131,17 +131,13 @@ fn canvas(
             crate::on_pages_unmounted as azul_layout::callbacks::CallbackType as usize,
         )
         // The VirtualView node IS the scroll container (same as
-        // examples/rust/src/infinity.rs): it needs its own scroll id to become
-        // a wheel target, or its ScrollManager offset never moves and
-        // `check_reinvoke` never sees an edge scroll — no paging, no scrollbar.
-        // `scroll` rather than `auto` because a VirtualView is a replaced
-        // element with no flow content, so the layout-side `auto` test
-        // (content > container) can never fire; `scroll` also reserves the
-        // bar's width during layout so it doesn't overlay the sheets.
-        .with_css(
-            "flex-grow: 1; min-height: 0px; width: 100%; \
-             overflow-x: hidden; overflow-y: scroll;",
-        ),
+        // examples/rust/src/infinity.rs). No overflow CSS needed: the UA
+        // stylesheet defaults a VirtualView to `overflow: auto`, and the
+        // virtual-size-aware necessity rule paints/updates the bar exactly
+        // when the published `virtual_scroll_size` overflows the viewport.
+        // (A VV that must not wheel-scroll opts out with `overflow: hidden`,
+        // as the map and video widgets do.)
+        .with_css("flex-grow: 1; min-height: 0px; width: 100%;"),
     );
     area
 }

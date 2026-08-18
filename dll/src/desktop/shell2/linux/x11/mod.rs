@@ -12,6 +12,7 @@
 //! - [`X11Window::render_and_present`] — full render cycle: layout
 //!   regeneration, WebRender update, and buffer swap (GPU) or XPutImage (CPU).
 
+use azul_layout::solver3::LayoutNodeId;
 use crate::impl_platform_window_getters;
 
 pub mod accessibility;
@@ -3905,7 +3906,7 @@ impl X11Window {
             .layout_window
             .as_ref()
             .and_then(|lw| lw.layout_results.get(&azul_core::dom::DomId { inner: 0 }))
-            .map(|lr| lr.layout_tree.get_content_size(0));
+            .map(|lr| lr.layout_tree.get_content_size(LayoutNodeId::new(0)));
 
         // 3. Resize to it (≥1px). DPI handled by WindowSize's logical→physical.
         let mut final_size = orig;

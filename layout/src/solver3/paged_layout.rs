@@ -10,6 +10,7 @@
 //! **Note**: Full CSS `@page` rule parsing is not yet implemented. The `FakePageConfig`
 //! provides programmatic control over page decoration as a temporary solution.
 
+use crate::solver3::layout_tree::LayoutNodeId;
 use crate::debug_log;
 use std::collections::BTreeMap;
 
@@ -741,7 +742,7 @@ fn compute_layout_with_fragmentation<T: ParsedFontTrait + Sync + 'static>(
 
     // Step 1.2: Clear Taffy Caches for Dirty Nodes
     for &node_idx in &recon_result.intrinsic_dirty {
-        if let Some(warm) = new_tree.warm_mut(node_idx) {
+        if let Some(warm) = new_tree.warm_mut(LayoutNodeId::new(node_idx)) {
             warm.taffy_cache.clear();
             warm.measured_content_sizes = (None, None);
         }
@@ -974,7 +975,7 @@ pub fn spine_path_at_y(
 
     let mut best: Option<(f32, u32, NodeId)> = None;
     for idx in 0..tree.nodes.len() {
-        let Some(node) = tree.get(idx) else { continue };
+        let Some(node) = tree.get(LayoutNodeId::new(idx)) else { continue };
         let Some(dom_id) = node.dom_node_id else { continue };
         if !crate::solver3::layout_tree::is_block_level(styled_dom, dom_id) {
             continue;
@@ -2112,7 +2113,7 @@ fn spine_layout_hit_at_y(
     };
     let mut best: Option<(u32, usize, f32)> = None;
     for idx in 0..tree.nodes.len() {
-        let Some(node) = tree.get(idx) else { continue };
+        let Some(node) = tree.get(LayoutNodeId::new(idx)) else { continue };
         let Some(dom_id) = node.dom_node_id else { continue };
         if !crate::solver3::layout_tree::is_block_level(styled_dom, dom_id) {
             continue;
@@ -2148,7 +2149,7 @@ fn spine_layout_hit_at_y(
     let hierarchy = styled_dom.node_hierarchy.as_container();
     // Re-find the spine block the path addresses (same selection rule).
     let (layout_idx, node_top) = spine_layout_hit_at_y(tree, positions, styled_dom, y)?;
-    let node = tree.get(layout_idx)?;
+    let node = tree.get(LayoutNodeId::new(layout_idx))?;
     let bp = node.box_props.unpack();
     let content_top = node_top + bp.padding.top + bp.border.top;
     let rel_y = y - content_top;
@@ -2571,7 +2572,7 @@ where
         let content = cache
             .tree
             .as_ref()
-            .and_then(|t| t.get(0))
+            .and_then(|t| t.get(LayoutNodeId::new(0)))
             .and_then(|n| n.used_size)
             .map_or(0.0, |sz| sz.height);
 
