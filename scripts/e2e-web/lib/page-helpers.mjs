@@ -20,9 +20,12 @@ export const PAGE_HELPERS = `
     // --- selector translation -------------------------------------------
     H.candidates = function(sel) {
         var out = [];
-        if (typeof sel === 'string' && sel.charAt(0) === '#' && sel.indexOf('#az_') !== 0) {
-            // user id -> data-az-id remap (html_render.rs:366-369)
-            out.push('[data-az-id="' + sel.slice(1).replace(/"/g, '\\\\"') + '"]');
+        if (typeof sel === 'string' && sel.indexOf('#') !== -1) {
+            // user id -> data-az-id remap (html_render.rs:366-369), applied
+            // per ID TOKEN so compound selectors ("#foo > div", "div#foo.bar")
+            // translate too; #az_N mirror ids stay literal.
+            var remapped = sel.replace(/#(?!az_)([A-Za-z_][\\w-]*)/g, '[data-az-id="$1"]');
+            if (remapped !== sel) out.push(remapped);
         }
         // Desktop's "body" selects the azul root node; the mirror emits that
         // root as div#az_0 inside <body><div id="az-body"> (verified against
