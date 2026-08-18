@@ -373,7 +373,7 @@ pub fn run(
     if !err_new.is_empty() {
         err_new.sort_by(|a, b| b.1.cmp(&a.1));
         eprintln!(
-            "[azul-web][lift-audit] ✗ F5 {} fn(s) with __remill_error NOT in the reviewed allowlist — debug each (benign COMISS sNaN path → add to lift_audit_allowlist.txt with reason; anything else → real mis-lift):",
+            "[azul-web][lift-audit] ✗ F5 {} fn(s) with UNEXPLAINED __remill_error (sNaN-guard and ud2 classes already excluded) — debug each; a verified-benign residual goes into lift_audit_allowlist.txt WITH its reason, anything else is a real mis-lift:",
             err_new.len(),
         );
         for (name, e, mb) in err_new.iter().take(20) {
