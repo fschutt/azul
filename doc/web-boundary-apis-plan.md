@@ -37,9 +37,13 @@ were evaluated (§4): (a) callback-based API redesign, (b) JSPI
 (`WebAssembly.Suspending`), (c) worker + SharedArrayBuffer + `Atomics.wait`
 sync bridge, (d) hybrid.
 
-**Recommendation: (d) hybrid, with (a) callback/continuation APIs as the one
-portable surface, and (b) JSPI as a later Chromium-only compatibility layer for
-the legacy sync functions.** Rationale:
+**Recommendation (CONFIRMED by Felix 2026-08-18): (d) hybrid, with (a) the
+RESUMABLE CALLBACK STYLE (§4.1) as the one portable surface — request never
+blocks, result re-enters as a fresh callback activation, user code is a state
+machine over its RefAny — and (b) JSPI as a later Chromium-only compatibility
+layer for the legacy sync functions.** This is what makes the APIs both
+*liftable* (no wasm suspension) and *native-web-API-capable* (the JS boundary
+impl is free to await pickers/fetch/permissions). Rationale:
 
 1. azul is already callback-driven — user code *only ever runs inside callbacks*,
    and the API already contains three async idioms that fit the browser exactly:
@@ -349,11 +353,58 @@ family of ~40 functions inventoried across rows 38, 44-58).
 
 ## 4. The async design question
 
-### 4.1 Option A — callback/continuation APIs (portable redesign)
+### 4.1 Option A — the RESUMABLE CALLBACK STYLE (portable redesign) — CHOSEN
 
-Shape: every OS request that is async-on-web gains a variant taking
-`(data: RefAny, callback: <Result>Callback)`; the sync original stays for
-desktop-only code and STUBs honestly on web.
+> Direction confirmed by Felix 2026-08-18: *"we need to redesign some APIs with
+> resumable callback style so they work for async JS and we can actually lift
+> them and use the native web APIs."* This section is the normative definition;
+> §5.1 is its concrete instantiation. Every FUTURE OS-facing Az API must be
+> introduced in this style — the sync form is the compatibility variant, not
+> the other way around.
+
+**The pattern.** An OS-facing operation is split at every await point into
+*request* and *resume*:
+
+1. **Request** — inside any user callback, the app calls
+   `…_with(args…, data: RefAny, on_result: <Result>Callback)`. The call NEVER
+   blocks: it registers `{request_id, callback fn-ptr, RefAny}` in
+   `EventloopState` and returns a `RequestId` immediately. The user callback
+   then returns `Update::…` normally and the activation ENDS.
+2. **Resume** — when the result exists, the *runtime* re-enters the guest
+   through the single dispatch surface (web: JS promise resolution →
+   `AzStartup_completeRequest(state, request_id, status, payload…)`; desktop:
+   the deferred-apply queue), invoking `on_result(data, info, result)` as a
+   fresh, ordinary callback activation. A resume can issue the next request —
+   a chain of awaits becomes a chain of resumes, i.e. the user callback set is
+   a **state machine over its RefAny state**, resumable at each labeled point.
+
+**Why this is THE portable shape:**
+
+- **Liftable by construction.** The guest never suspends mid-activation, so
+  the lifted wasm keeps its synchronous-in/synchronous-out single-activation
+  model — no JSPI, no stack switching, no shadow-stack surgery. The resume
+  entry lifts exactly like `dispatchEvent` (it IS dispatchEvent-shaped), and
+  the stored `on_result` fn-ptr routes through the existing M12.7 indirect-call
+  dispatcher.
+- **Native-web-API-ready.** Because the guest has already returned when the JS
+  boundary impl runs, that impl is free to be fully async: `await
+  showOpenFilePicker()`, `await fetch()`, permission prompts, user-gesture
+  gates — the browser's real APIs, not sync emulations of them.
+- **Re-entrancy-safe.** Resumes serialize with clicks/keys through the one
+  dispatch entry; there is never a second concurrent activation mutating
+  `EventloopState` (the JSPI hazard, §4.2.1, cannot occur).
+- **Desktop-identical.** The desktop impl performs the sync OS call and
+  delivers the resume through the deferred-apply queue — same ordering
+  contract, same user code, zero `#[cfg]` in apps.
+
+*Ergonomics note (future, not Phase 1):* the request/resume split is exactly
+the compiler-built state machine of `async fn`. Once the primitive is stable, a
+native-side sugar (proc-macro or generator lowering an `async`-looking body
+into tagged resumes over its RefAny) can hide the ceremony without changing
+the runtime model — the wasm still never suspends.
+
+The sync originals stay for desktop-only code and STUB honestly on web
+(return None/Err immediately, documented).
 
 - Desktop implementation: perform the blocking call, then invoke the callback
   **via the deferred-apply queue that `CallbackInfo` already uses** ("applied
@@ -434,12 +485,13 @@ the async browser work and `Atomics.notify`s.
 
 ### 4.4 Recommendation (restated, concrete)
 
-**Hybrid, callback-first:**
+**Hybrid, resumable-callback-first:**
 
-1. **Portable surface = Option A** callback variants + the existing
-   fire-and-forget/poll idioms (§3 dispositions JS-FIRE / POLL / EVENT cover a
-   large majority of the surface without any new API at all — only dialogs,
-   file reads, and HTTP need CB-API variants).
+1. **Portable surface = the resumable callback style (§4.1, chosen)** + the
+   existing fire-and-forget/poll idioms (§3 dispositions JS-FIRE / POLL /
+   EVENT cover a large majority of the surface without any new API at all —
+   only dialogs, file reads, and HTTP need resumable variants). New OS-facing
+   APIs (iroh included) are designed in this style from the start.
 2. **Web mechanics** = JS-implemented boundary imports (§5.2) + one new
    generic completion export + a timer pump (Phase 0).
 3. **JSPI = Phase 5 progressive enhancement** for legacy sync calls on
@@ -457,6 +509,10 @@ run within the same frame on desktop and always runs on a later task on web.*
 ## 5. Concrete API & mechanism changes
 
 ### 5.1 New api.json entries (module `dialog`, `http`, `svg`/file)
+
+These are the first resumable-callback-style (§4.1) APIs: each `…_with`
+function is a *request* (returns a `RequestId`, never blocks) and each
+`<Result>Callback` is its *resume* point.
 
 New callback typedef classes (module `callbacks`, mirroring
 `FileInputOnPathChangeCallbackType`'s `{fn_args, returns}` shape):
