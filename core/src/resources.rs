@@ -500,7 +500,7 @@ pub struct ZombieAnimInfo {
 }
 
 /// One frame of a native presence animation, returned by a
-/// [`ZombieAnimCallbackType`]. Absolute values, not deltas.
+/// the zombie animation callback. Absolute values, not deltas.
 #[derive(Debug, Clone, Copy, PartialEq)]
 #[repr(C)]
 pub struct ZombieFrame {
@@ -538,13 +538,16 @@ impl Default for ZombieFrame {
 /// crate. azul-layout defines the typed alias and casts on invocation:
 ///
 /// `extern "C" fn(&mut RefAny, &mut TimerCallbackInfo, &ZombieAnimInfo) -> ZombieFrame`
-pub type ZombieAnimCallbackType = usize;
+// (Erased alias removed: the PUBLIC `ZombieAnimCallbackType` name now
+// belongs to the GENERATED typed fn-pointer emitted from `ZombieAnimCallback`'s
+// callback_typedef in api.json — two same-name exports collided in codegen.
+// Internally the erasure is just `usize`.)
 
-/// See [`ZombieAnimCallbackType`].
+/// The type-erased component animation callback (a fn pointer as `usize`).
 #[repr(C)]
 #[derive(Clone, Copy)]
 pub struct ZombieAnimCallback {
-    pub cb: ZombieAnimCallbackType,
+    pub cb: usize,
 }
 
 impl fmt::Debug for ZombieAnimCallback {

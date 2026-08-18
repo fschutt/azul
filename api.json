@@ -14729,29 +14729,6 @@
                                 "type": "LogicalRect"
                             }
                         }
-                    },
-                    "ZombieAnimCallbackType": {
-                        "doc": [
-                            "Called once per frame with the registered data, a FULL TimerCallbackInfo (live dom, change queue, momentum API - everything a timer callback can do) and the zombie-specific ZombieAnimInfo (RAW linear t, the DECLARED timing, entry velocity). The callback owns the easing math: apply the requested timing via AnimationTiming::evaluate(info.t) or substitute its own; returns the frame to show."
-                        ],
-                        "external": "azul_core::resources::ZombieAnimCallbackType",
-                        "callback_typedef": {
-                            "fn_args": [
-                                {
-                                    "type": "RefAny"
-                                },
-                                {
-                                    "type": "TimerCallbackInfo",
-                                    "ref_kind": "refmut"
-                                },
-                                {
-                                    "type": "ZombieAnimInfo"
-                                }
-                            ],
-                            "returns": {
-                                "type": "ZombieFrame"
-                            }
-                        }
                     }
                 }
             },
@@ -24267,6 +24244,32 @@
                             }
                         ],
                         "repr": "C"
+                    },
+                    "ZombieAnimCallback": {
+                        "doc": [
+                            "C-ABI wrapper over a `ZombieAnimCallbackType` (native presence-animation frame function)"
+                        ],
+                        "external": "azul_core::resources::ZombieAnimCallback",
+                        "custom_impls": [
+                            "Debug",
+                            "Eq",
+                            "Hash",
+                            "Ord",
+                            "PartialEq",
+                            "PartialOrd"
+                        ],
+                        "derive": [
+                            "Clone",
+                            "Copy"
+                        ],
+                        "struct_fields": [
+                            {
+                                "cb": {
+                                    "type": "usize"
+                                }
+                            }
+                        ],
+                        "repr": "C"
                     }
                 }
             },
@@ -24803,6 +24806,15 @@
                                 },
                                 "CaretAnimationDuration": {
                                     "type": "CaretAnimationDurationValue"
+                                },
+                                "Animation": {
+                                    "type": "StyleAnimationVecValue"
+                                },
+                                "AnimationIn": {
+                                    "type": "StyleAnimationVecValue"
+                                },
+                                "AnimationOut": {
+                                    "type": "StyleAnimationVecValue"
                                 },
                                 "CaretWidth": {
                                     "type": "CaretWidthValue"
@@ -25346,15 +25358,6 @@
                                 },
                                 "StringSet": {
                                     "type": "StringSetValue"
-                                },
-                                "Animation": {
-                                    "type": "StyleAnimationVecValue"
-                                },
-                                "AnimationIn": {
-                                    "type": "StyleAnimationVecValue"
-                                },
-                                "AnimationOut": {
-                                    "type": "StyleAnimationVecValue"
                                 }
                             }
                         ],
@@ -37594,6 +37597,9 @@
                             {
                                 "CaretColor": {},
                                 "CaretAnimationDuration": {},
+                                "Animation": {},
+                                "AnimationIn": {},
+                                "AnimationOut": {},
                                 "CaretWidth": {},
                                 "SelectionBackgroundColor": {},
                                 "SelectionColor": {},
@@ -37774,10 +37780,7 @@
                                 "CounterIncrement": {},
                                 "ListStyleType": {},
                                 "ListStylePosition": {},
-                                "StringSet": {},
-                                "Animation": {},
-                                "AnimationIn": {},
-                                "AnimationOut": {}
+                                "StringSet": {}
                             }
                         ],
                         "repr": "C"
@@ -44681,7 +44684,6 @@
                                 }
                             }
                         ],
-                        "repr": "C, u8",
                         "functions": {
                             "evaluate": {
                                 "doc": [
@@ -44700,13 +44702,17 @@
                                 },
                                 "fn_body": "object.evaluate(t)"
                             }
-                        }
+                        },
+                        "repr": "C, u8"
                     },
                     "StyleAnimation": {
                         "doc": [
                             "One entry of animation / -azul-animation-in / -azul-animation-out: <name> <duration> [<delay>] [<timing>] [infinite | <count>] [no-clip], e.g. flyOutLeft 1s, all 2s ease-out, spin 1s linear infinite, myFn 500ms cubic-bezier(0.4, 0, 0.2, 1) no-clip."
                         ],
                         "external": "azul_css::props::basic::animation::StyleAnimation",
+                        "custom_impls": [
+                            "Default"
+                        ],
                         "derive": [
                             "Debug",
                             "Clone",
@@ -44715,9 +44721,6 @@
                             "PartialOrd",
                             "Ord",
                             "Hash"
-                        ],
-                        "custom_impls": [
-                            "Default"
                         ],
                         "struct_fields": [
                             {
@@ -44818,142 +44821,6 @@
                             {
                                 "stops": {
                                     "type": "KeyframeStopVec"
-                                }
-                            }
-                        ],
-                        "repr": "C"
-                    },
-                    "ZombieAnimInfo": {
-                        "doc": [
-                            "Everything a registered native animation function may inspect while producing one frame of a presence animation (`-azul-animation-in` / `-azul-animation-out: fooFunc 1s`). Pointers are BORROWED for the call: walk the tree (e.g. measure text), never store them - for an exit the tree is the retained zombie frame, freed when the animation completes."
-                        ],
-                        "external": "azul_core::resources::ZombieAnimInfo",
-                        "derive": [
-                            "Debug"
-                        ],
-                        "struct_fields": [
-                            {
-                                "styled_dom": {
-                                    "type": "StyledDom",
-                                    "ref_kind": "constptr",
-                                    "doc": [
-                                        "The tree the node lives in - retained for exits, live for enters. Never null during a call."
-                                    ]
-                                }
-                            },
-                            {
-                                "node_id": {
-                                    "type": "u64"
-                                }
-                            },
-                            {
-                                "rect": {
-                                    "type": "LogicalRect",
-                                    "doc": [
-                                        "The node's rect in logical px: frozen for exits, solved for enters."
-                                    ]
-                                }
-                            },
-                            {
-                                "viewport": {
-                                    "type": "LogicalRect"
-                                }
-                            },
-                            {
-                                "dpi_factor": {
-                                    "type": "f32"
-                                }
-                            },
-                            {
-                                "t": {
-                                    "type": "f32",
-                                    "doc": [
-                                        "RAW LINEAR progress 0..=1 - the engine does NOT pre-apply easing for native functions; the declared timing arrives in `timing` and the callback owns the math."
-                                    ]
-                                }
-                            },
-                            {
-                                "timing": {
-                                    "type": "AnimationTiming"
-                                }
-                            },
-                            {
-                                "velocity_x": {
-                                    "type": "f32",
-                                    "doc": [
-                                        "The animation's velocity ENTERING this frame, logical px/s - the derivative of the previous two samples (one-frame lag; zero on the first frame and for enter/live tracks today). The momentum read for native functions."
-                                    ]
-                                }
-                            },
-                            {
-                                "velocity_y": {
-                                    "type": "f32"
-                                }
-                            }
-                        ],
-                        "repr": "C"
-                    },
-                    "ZombieFrame": {
-                        "doc": [
-                            "One frame of a native presence animation. Absolute values, not deltas: translation in logical px about the node's origin, opacity (0.0 skips the node), an optional absolute painted width (left-anchored narrowing for exits) and whether to clip the exit to its frozen rect."
-                        ],
-                        "external": "azul_core::resources::ZombieFrame",
-                        "derive": [
-                            "Debug",
-                            "Copy",
-                            "Clone",
-                            "PartialEq"
-                        ],
-                        "custom_impls": [
-                            "Default"
-                        ],
-                        "struct_fields": [
-                            {
-                                "translate_x": {
-                                    "type": "f32"
-                                }
-                            },
-                            {
-                                "translate_y": {
-                                    "type": "f32"
-                                }
-                            },
-                            {
-                                "opacity": {
-                                    "type": "f32"
-                                }
-                            },
-                            {
-                                "width": {
-                                    "type": "OptionF32"
-                                }
-                            },
-                            {
-                                "clip_to_frozen_rect": {
-                                    "type": "bool"
-                                }
-                            }
-                        ],
-                        "repr": "C"
-                    },
-                    "ZombieAnimCallback": {
-                        "doc": [
-                            "C-ABI wrapper over a `ZombieAnimCallbackType` (native presence-animation frame function)"
-                        ],
-                        "external": "azul_core::resources::ZombieAnimCallback",
-                        "custom_impls": [
-                            "Clone",
-                            "Debug",
-                            "Eq",
-                            "Hash",
-                            "Ord",
-                            "PartialEq",
-                            "PartialOrd"
-                        ],
-                        "struct_fields": [
-                            {
-                                "cb": {
-                                    "type": "ZombieAnimCallbackType"
                                 }
                             }
                         ],
@@ -45068,6 +44935,52 @@
                             }
                         ],
                         "repr": "C"
+                    },
+                    "StyleAnimationVecSlice": {
+                        "external": "azul_css::props::basic::animation::StyleAnimationVecSlice",
+                        "derive": [
+                            "Debug",
+                            "Clone",
+                            "Copy"
+                        ],
+                        "struct_fields": [
+                            {
+                                "ptr": {
+                                    "type": "StyleAnimation",
+                                    "ref_kind": "constptr",
+                                    "doc": [
+                                        "Pointer to the slice data"
+                                    ]
+                                },
+                                "len": {
+                                    "type": "usize",
+                                    "doc": [
+                                        "Number of elements in the slice"
+                                    ]
+                                }
+                            }
+                        ],
+                        "repr": "C"
+                    },
+                    "StyleAnimationParseErrorOwned": {
+                        "external": "azul_css::props::basic::animation::StyleAnimationParseErrorOwned",
+                        "derive": [
+                            "Debug",
+                            "Clone",
+                            "PartialEq",
+                            "Eq"
+                        ],
+                        "enum_fields": [
+                            {
+                                "Empty": {
+                                    "type": "String"
+                                },
+                                "Duration": {
+                                    "type": "DurationParseErrorOwned"
+                                }
+                            }
+                        ],
+                        "repr": "C, u8"
                     }
                 }
             },
@@ -56481,6 +56394,101 @@
                                 "fn_body": "azul_layout::widgets::ribbon::RibbonBehavior::inert()"
                             }
                         },
+                        "repr": "C"
+                    },
+                    "ZombieFrame": {
+                        "doc": [
+                            "One frame of a native presence animation. Absolute values, not deltas: translation in logical px about the node's origin, opacity (0.0 skips the node), an optional absolute painted width (left-anchored narrowing for exits) and whether to clip the exit to its frozen rect."
+                        ],
+                        "external": "azul_core::resources::ZombieFrame",
+                        "custom_impls": [
+                            "Default"
+                        ],
+                        "derive": [
+                            "Debug",
+                            "Copy",
+                            "Clone",
+                            "PartialEq"
+                        ],
+                        "struct_fields": [
+                            {
+                                "translate_x": {
+                                    "type": "f32"
+                                }
+                            },
+                            {
+                                "translate_y": {
+                                    "type": "f32"
+                                }
+                            },
+                            {
+                                "opacity": {
+                                    "type": "f32"
+                                }
+                            },
+                            {
+                                "width": {
+                                    "type": "OptionF32"
+                                }
+                            },
+                            {
+                                "clip_to_frozen_rect": {
+                                    "type": "bool"
+                                }
+                            }
+                        ],
+                        "repr": "C"
+                    },
+                    "KeyframeStopVecSlice": {
+                        "external": "azul_css::css::KeyframeStopVecSlice",
+                        "derive": [
+                            "Debug",
+                            "Clone",
+                            "Copy"
+                        ],
+                        "struct_fields": [
+                            {
+                                "ptr": {
+                                    "type": "KeyframeStop",
+                                    "ref_kind": "constptr",
+                                    "doc": [
+                                        "Pointer to the slice data"
+                                    ]
+                                },
+                                "len": {
+                                    "type": "usize",
+                                    "doc": [
+                                        "Number of elements in the slice"
+                                    ]
+                                }
+                            }
+                        ],
+                        "repr": "C"
+                    },
+                    "KeyframesVecSlice": {
+                        "external": "azul_css::css::KeyframesVecSlice",
+                        "derive": [
+                            "Debug",
+                            "Clone",
+                            "Copy"
+                        ],
+                        "struct_fields": [
+                            {
+                                "ptr": {
+                                    "type": "Keyframes",
+                                    "ref_kind": "constptr",
+                                    "doc": [
+                                        "Pointer to the slice data"
+                                    ]
+                                },
+                                "len": {
+                                    "type": "usize",
+                                    "doc": [
+                                        "Number of elements in the slice"
+                                    ]
+                                }
+                            }
+                        ],
                         "repr": "C"
                     }
                 }
@@ -71007,6 +71015,45 @@
                             {
                                 "run_destructor": {
                                     "type": "bool"
+                                }
+                            }
+                        ],
+                        "repr": "C"
+                    },
+                    "ZombieAnimInfo": {
+                        "external": "azul_core::resources::ZombieAnimInfo",
+                        "derive": [
+                            "Debug"
+                        ],
+                        "struct_fields": [
+                            {
+                                "styled_dom": {
+                                    "type": "c_void",
+                                    "ref_kind": "constptr"
+                                },
+                                "node_id": {
+                                    "type": "u64"
+                                },
+                                "rect": {
+                                    "type": "LogicalRect"
+                                },
+                                "viewport": {
+                                    "type": "LogicalRect"
+                                },
+                                "dpi_factor": {
+                                    "type": "f32"
+                                },
+                                "t": {
+                                    "type": "f32"
+                                },
+                                "timing": {
+                                    "type": "AnimationTiming"
+                                },
+                                "velocity_x": {
+                                    "type": "f32"
+                                },
+                                "velocity_y": {
+                                    "type": "f32"
                                 }
                             }
                         ],
@@ -96445,6 +96492,7 @@
                         "custom_impls": [
                             "Clone",
                             "Debug",
+                            "Eq",
                             "PartialEq"
                         ],
                         "custom_destructor": true,
@@ -96520,6 +96568,102 @@
                                     "type": "KeyframeStopVec"
                                 },
                                 "fn_body": "KeyframeStopVec::from_item(item)"
+                            },
+                            "with_capacity": {
+                                "doc": [
+                                    "Creates a `KeyframeStopVec` with a given capacity"
+                                ],
+                                "fn_args": [
+                                    {
+                                        "cap": "usize"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "KeyframeStopVec"
+                                },
+                                "fn_body": "Self::with_capacity(cap)"
+                            },
+                            "capacity": {
+                                "doc": [
+                                    "Returns the capacity of the Vec"
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "usize"
+                                },
+                                "fn_body": "keyframe_stop_vec.capacity()"
+                            },
+                            "copy_from_ptr": {
+                                "doc": [
+                                    "Copies elements from a C array into a `KeyframeStopVec`. The array must be valid for `len` elements."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "ptr": "*const KeyframeStop"
+                                    },
+                                    {
+                                        "len": "usize"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "KeyframeStopVec"
+                                },
+                                "fn_body": "unsafe { Self::copy_from_ptr(ptr, len) }"
+                            },
+                            "c_get": {
+                                "doc": [
+                                    "Returns a copy of the element at the given index, or None if out of bounds. C-API compatible."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    },
+                                    {
+                                        "index": "usize"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "OptionKeyframeStop"
+                                },
+                                "fn_body": "keyframe_stop_vec.c_get(index).into()"
+                            },
+                            "as_c_slice": {
+                                "doc": [
+                                    "Returns a C-compatible slice of the entire Vec as a `KeyframeStopVecSlice`."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "KeyframeStopVecSlice"
+                                },
+                                "fn_body": "keyframe_stop_vec.as_c_slice()"
+                            },
+                            "as_c_slice_range": {
+                                "doc": [
+                                    "Returns a C-compatible slice of a range within the Vec. Range is clamped to valid bounds."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    },
+                                    {
+                                        "start": "usize"
+                                    },
+                                    {
+                                        "end": "usize"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "KeyframeStopVecSlice"
+                                },
+                                "fn_body": "keyframe_stop_vec.as_c_slice_range(start, end)"
                             }
                         },
                         "repr": "C"
@@ -96561,6 +96705,7 @@
                         "custom_impls": [
                             "Clone",
                             "Debug",
+                            "Eq",
                             "PartialEq"
                         ],
                         "custom_destructor": true,
@@ -96636,6 +96781,102 @@
                                     "type": "KeyframesVec"
                                 },
                                 "fn_body": "KeyframesVec::from_item(item)"
+                            },
+                            "with_capacity": {
+                                "doc": [
+                                    "Creates a `KeyframesVec` with a given capacity"
+                                ],
+                                "fn_args": [
+                                    {
+                                        "cap": "usize"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "KeyframesVec"
+                                },
+                                "fn_body": "Self::with_capacity(cap)"
+                            },
+                            "capacity": {
+                                "doc": [
+                                    "Returns the capacity of the Vec"
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "usize"
+                                },
+                                "fn_body": "keyframes_vec.capacity()"
+                            },
+                            "copy_from_ptr": {
+                                "doc": [
+                                    "Copies elements from a C array into a `KeyframesVec`. The array must be valid for `len` elements."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "ptr": "*const Keyframes"
+                                    },
+                                    {
+                                        "len": "usize"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "KeyframesVec"
+                                },
+                                "fn_body": "unsafe { Self::copy_from_ptr(ptr, len) }"
+                            },
+                            "c_get": {
+                                "doc": [
+                                    "Returns a copy of the element at the given index, or None if out of bounds. C-API compatible."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    },
+                                    {
+                                        "index": "usize"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "OptionKeyframes"
+                                },
+                                "fn_body": "keyframes_vec.c_get(index).into()"
+                            },
+                            "as_c_slice": {
+                                "doc": [
+                                    "Returns a C-compatible slice of the entire Vec as a `KeyframesVecSlice`."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "KeyframesVecSlice"
+                                },
+                                "fn_body": "keyframes_vec.as_c_slice()"
+                            },
+                            "as_c_slice_range": {
+                                "doc": [
+                                    "Returns a C-compatible slice of a range within the Vec. Range is clamped to valid bounds."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    },
+                                    {
+                                        "start": "usize"
+                                    },
+                                    {
+                                        "end": "usize"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "KeyframesVecSlice"
+                                },
+                                "fn_body": "keyframes_vec.as_c_slice_range(start, end)"
                             }
                         },
                         "repr": "C"
@@ -96756,6 +96997,102 @@
                                     "type": "StyleAnimationVec"
                                 },
                                 "fn_body": "StyleAnimationVec::from_item(item)"
+                            },
+                            "with_capacity": {
+                                "doc": [
+                                    "Creates a `StyleAnimationVec` with a given capacity"
+                                ],
+                                "fn_args": [
+                                    {
+                                        "cap": "usize"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "StyleAnimationVec"
+                                },
+                                "fn_body": "Self::with_capacity(cap)"
+                            },
+                            "capacity": {
+                                "doc": [
+                                    "Returns the capacity of the Vec"
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "usize"
+                                },
+                                "fn_body": "style_animation_vec.capacity()"
+                            },
+                            "copy_from_ptr": {
+                                "doc": [
+                                    "Copies elements from a C array into a `StyleAnimationVec`. The array must be valid for `len` elements."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "ptr": "*const StyleAnimation"
+                                    },
+                                    {
+                                        "len": "usize"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "StyleAnimationVec"
+                                },
+                                "fn_body": "unsafe { Self::copy_from_ptr(ptr, len) }"
+                            },
+                            "c_get": {
+                                "doc": [
+                                    "Returns a copy of the element at the given index, or None if out of bounds. C-API compatible."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    },
+                                    {
+                                        "index": "usize"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "OptionStyleAnimation"
+                                },
+                                "fn_body": "style_animation_vec.c_get(index).into()"
+                            },
+                            "as_c_slice": {
+                                "doc": [
+                                    "Returns a C-compatible slice of the entire Vec as a `StyleAnimationVecSlice`."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "StyleAnimationVecSlice"
+                                },
+                                "fn_body": "style_animation_vec.as_c_slice()"
+                            },
+                            "as_c_slice_range": {
+                                "doc": [
+                                    "Returns a C-compatible slice of a range within the Vec. Range is clamped to valid bounds."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    },
+                                    {
+                                        "start": "usize"
+                                    },
+                                    {
+                                        "end": "usize"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "StyleAnimationVecSlice"
+                                },
+                                "fn_body": "style_animation_vec.as_c_slice_range(start, end)"
                             }
                         },
                         "repr": "C"
@@ -102106,6 +102443,81 @@
                             }
                         ],
                         "repr": "C, u8"
+                    },
+                    "OptionStyleAnimation": {
+                        "external": "azul_css::props::basic::animation::OptionStyleAnimation",
+                        "derive": [
+                            "Debug",
+                            "Clone",
+                            "Eq",
+                            "PartialEq"
+                        ],
+                        "enum_fields": [
+                            {
+                                "None": {
+                                    "doc": [
+                                        "No value"
+                                    ]
+                                },
+                                "Some": {
+                                    "type": "StyleAnimation",
+                                    "doc": [
+                                        "Some value of type StyleAnimation"
+                                    ]
+                                }
+                            }
+                        ],
+                        "repr": "C, u8"
+                    },
+                    "OptionKeyframes": {
+                        "external": "azul_css::css::OptionKeyframes",
+                        "derive": [
+                            "Debug",
+                            "Clone",
+                            "Eq",
+                            "PartialEq"
+                        ],
+                        "enum_fields": [
+                            {
+                                "None": {
+                                    "doc": [
+                                        "No value"
+                                    ]
+                                },
+                                "Some": {
+                                    "type": "Keyframes",
+                                    "doc": [
+                                        "Some value of type Keyframes"
+                                    ]
+                                }
+                            }
+                        ],
+                        "repr": "C, u8"
+                    },
+                    "OptionKeyframeStop": {
+                        "external": "azul_css::css::OptionKeyframeStop",
+                        "derive": [
+                            "Debug",
+                            "Clone",
+                            "Eq",
+                            "PartialEq"
+                        ],
+                        "enum_fields": [
+                            {
+                                "None": {
+                                    "doc": [
+                                        "No value"
+                                    ]
+                                },
+                                "Some": {
+                                    "type": "KeyframeStop",
+                                    "doc": [
+                                        "Some value of type KeyframeStop"
+                                    ]
+                                }
+                            }
+                        ],
+                        "repr": "C, u8"
                     }
                 }
             },
@@ -104249,6 +104661,9 @@
                                 },
                                 "CaretAnimationDuration": {
                                     "type": "DurationParseErrorOwned"
+                                },
+                                "Animation": {
+                                    "type": "StyleAnimationParseErrorOwned"
                                 },
                                 "CaretWidth": {
                                     "type": "CssPixelValueParseErrorOwned"

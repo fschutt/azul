@@ -2635,8 +2635,8 @@ impl NodeData {
     /// Attach a presence-animation function under `name`, resolvable from
     /// this node's `-azul-animation-in` / `-azul-animation-out` after
     /// stylesheet `@keyframes`. `callback` is the TYPE-ERASED
-    /// `azul_layout::callbacks::ZombieAnimCallbackType` fn pointer cast to
-    /// `usize` (see [`crate::resources::ZombieAnimCallbackType`]).
+    /// `azul_layout::callbacks::ZombieAnimFnType` fn pointer cast to
+    /// `usize` (the type-erased `ZombieAnimCallback.cb`).
     pub fn add_animation_callback(
         &mut self,
         name: AzString,
