@@ -249,12 +249,12 @@ extern "C" fn layout(data: RefAny, _: LayoutCallbackInfo) -> Dom {
     if state.sidebar_open {
         let mut sidebar = div_with_id("sidebar", SIDEBAR_OPEN)
             .with_animation_callback(
-                "sidebarFlyOut".into(),
+                "sidebarFlyOut",
                 ZombieAnimCallback { cb: sidebar_fly_out as usize },
                 RefAny::new(()),
             )
             .with_animation_callback(
-                "sidebarFlyIn".into(),
+                "sidebarFlyIn",
                 ZombieAnimCallback { cb: sidebar_fly_in as usize },
                 RefAny::new(()),
             );
