@@ -325,6 +325,11 @@ telemetry = ["std", "http", "dep:serde_json"]
 # message. Manual send from the app's next-launch dialog, never automatic.
 crash-mail = ["telemetry", "dep:micromail"]
 
+# Version checks + update policy (Phase 4). Notify-first: managed installs
+# (dpkg, /usr, snap, flatpak, WindowsApps) are CLAMPED to notify-only at
+# runtime — the system package manager owns those updates.
+updater = ["std", "http", "dep:serde_json"]
+
 # Icon provider support (material icons, icon packs from fonts or ZIP files)
 icons = ["std", "zip", "dep:material-icons", "dep:brotli-decompressor"]
 

@@ -76,6 +76,11 @@ struct Args {
     /// Parent mode: spawn N simulated users (child invocations of this
     /// binary) across three versions and exit.
     fleet: Option<usize>,
+    /// Update drill: check this manifest URL at session end.
+    update_manifest: Option<String>,
+    /// `download_automatically` for the drill (auto mode); without it the
+    /// drill is manual: notify, then download+apply on simulated consent.
+    update_auto: bool,
     /// Crash-mail drill: after a crash is persisted, the relaunch mails the
     /// dump to this address (with --mail-port against a local sink).
     mail_to: Option<String>,
@@ -95,6 +100,8 @@ impl Args {
             doc_paragraphs: None,
             crash_bug: false,
             fleet: None,
+            update_manifest: None,
+            update_auto: false,
             mail_to: None,
             mail_port: None,
         };
@@ -118,6 +125,8 @@ impl Args {
                 "--doc-size" => args.doc_paragraphs = value().parse().ok(),
                 "--crash-bug" => args.crash_bug = true,
                 "--fleet" => args.fleet = value().parse().ok(),
+                "--update-manifest" => args.update_manifest = Some(value()),
+                "--update-auto" => args.update_auto = true,
                 "--mail-to" => args.mail_to = Some(value()),
                 "--mail-port" => args.mail_port = value().parse().ok(),
                 // (also readable from AZ_DEMO_MAIL_TO / AZ_DEMO_MAIL_PORT —
@@ -437,6 +446,12 @@ fn main() {
         }
     }
 
+    // ── Update drill (localhost manifest; auto + manual modes) ─────────
+    #[cfg(feature = "updater")]
+    if let Some(manifest) = &args.update_manifest {
+        run_update_drill(manifest, &args.version, args.update_auto);
+    }
+
     // ── Clean shutdown ──────────────────────────────────────────────────
     telemetry::log(
         Severity::Info,
@@ -653,4 +668,101 @@ extern "C" fn demo_button_click(nodes: u64) -> u64 {
         acc = acc.wrapping_add(i).rotate_left(3) ^ 0x5A5A;
     }
     acc
+}
+
+
+/// The UPDATE drill: check → notify → (auto-stage | consent-download) →
+/// APPLY onto a scratch "installed app" copy, proving the whole chain incl.
+/// resume. A real app runs the check via `CallbackInfo::check_for_updates`
+/// (async on an azul Thread) and shows the UpdateVersion dialog instead of
+/// printing.
+#[cfg(feature = "updater")]
+fn run_update_drill(manifest_url: &str, current_version: &str, auto: bool) {
+    use azul_layout::updater as up;
+
+    let install = up::InstallKind::detect();
+    let mode = up::effective_mode(up::UpdateMode::SelfUpdate, &install);
+    println!("update: install={install:?} effective_mode={mode:?}");
+
+    let state_dir = std::env::temp_dir().join("azul-update-demo");
+    let mut state = up::UpdateState::load(&state_dir);
+    let result = up::check_for_updates_blocking(manifest_url, current_version, &mut state);
+    state.save(&state_dir);
+
+    let release = match result {
+        up::UpdateCheckResult::UpToDate => {
+            println!("update: {current_version} is up to date");
+            return;
+        }
+        up::UpdateCheckResult::Error(e) => {
+            println!("update: check failed: {}", e.as_str());
+            return;
+        }
+        up::UpdateCheckResult::Available(r) => r,
+    };
+    println!(
+        "update: {} -> {} available ({} mode)",
+        current_version,
+        release.version.as_str(),
+        if auto { "auto" } else { "manual" }
+    );
+
+    // The changelog the UpdateVersion dialog would render (Markdown).
+    if !release.changelog_md_url.as_str().is_empty() {
+        if let Ok(resp) = azul_layout::http::http_get_with_config(
+            release.changelog_md_url.as_str(),
+            &azul_layout::http::HttpRequestConfig::new(),
+        ) {
+            let md = String::from_utf8_lossy(resp.body.as_ref());
+            println!("update: changelog ({} lines):", md.lines().count());
+            for line in md.lines().take(4) {
+                println!("    | {line}");
+            }
+        }
+    }
+
+    let staging = state_dir.join("staging");
+    if auto {
+        // AUTO: stage in the background; consent still gates the swap.
+        match up::download_update(&release, &staging) {
+            Ok(o) => println!(
+                "update: auto-staged {} ({} bytes this call, resumed_from={}, cached={}, range-resume-honored={})",
+                o.path.display(), o.bytes_written, o.resumed_from_bytes, o.used_cached,
+                o.server_supports_resume
+            ),
+            Err(e) => println!("update: staging failed: {e}"),
+        }
+        println!("update: waiting for user consent to install (auto mode ends here)");
+        return;
+    }
+
+    // MANUAL: simulate the dialog's "Install now" consent, then download +
+    // apply onto a scratch installed-app copy (never the running binary in
+    // a demo).
+    println!("update: [dialog] user consents to install");
+    let outcome = match up::download_update(&release, &staging) {
+        Ok(o) => o,
+        Err(e) => {
+            println!("update: download failed: {e}");
+            return;
+        }
+    };
+    println!(
+        "update: downloaded {} ({} bytes this call, resumed_from={}, range-resume-honored={})",
+        outcome.path.display(), outcome.bytes_written, outcome.resumed_from_bytes,
+        outcome.server_supports_resume
+    );
+    let fake_install = state_dir.join("installed-app.bin");
+    drop(std::fs::write(&fake_install, b"OLD-VERSION-BINARY"));
+    match up::apply_update(&outcome.path, &fake_install) {
+        Ok(()) => {
+            let new_len = std::fs::metadata(&fake_install).map_or(0, |m| m.len());
+            println!(
+                "update: APPLIED — {} is now {} bytes (was 18: the old binary)",
+                fake_install.display(),
+                new_len
+            );
+        }
+        Err(e) => println!("update: apply failed: {e}"),
+    }
 }

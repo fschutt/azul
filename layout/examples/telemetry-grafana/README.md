@@ -244,3 +244,92 @@ identity proxy.
 rm -rf ~/.local/share/azul-telemetry-demo    # the client's pending-ping queue
 rm -f  ~/.config/azul-telemetry-demo/telemetry.json
 ```
+
+## Query cookbook — finding crashes, slowness, memory
+
+All Loki queries assume the stream selector `{service_name="<your app id>"}`
+(this demo: `azul-telemetry-demo`). `client_id` and every `crash.*` / `sys.*`
+/ `slow.*` field ride as structured metadata — filter them with `| key="…"`,
+NOT with `|= "…"` body matching.
+
+### Crashes
+
+```logql
+# every crash record (red, Severity::Error, event.kind="crash")
+{service_name="azul-telemetry-demo"} | event_kind="crash"
+
+# …the same by body prefix, when you just want to eyeball it
+{service_name="azul-telemetry-demo"} |= "crash: "
+
+# crash COUNT over time — fleet-accurate (one record per crash per client;
+# the app_panics_total METRIC undercounts multi-client fleets until the
+# ingest proxy aggregates per-client cumulative series)
+sum(count_over_time({service_name="azul-telemetry-demo"} | event_kind="crash" [1h]))
+
+# one user's whole story, oldest first (iterations, slow warns, crash, relaunch)
+{service_name="azul-telemetry-demo"} | client_id="sim-user-016"
+```
+
+Each crash record carries: `crash.message` (the `expect` reason),
+`crash.location` (`file:line`, paths stripped), `crash.scope` (the live
+probe-span path, e.g. `demo.autosave`), `crash.backtrace` (paths stripped),
+`app.document_size`, and the full `sys.*` snapshot.
+
+### Slowness
+
+```logql
+# slow frames / timer ticks / spans, with the exact name and ms
+{service_name="azul-telemetry-demo"} |~ "slow (total|timer|span)"
+
+# only slow SPANS, i.e. WHICH phase was slow
+{service_name="azul-telemetry-demo"} | event_kind="slow_span"
+```
+
+```promql
+# frame duration p95 in ms, by scope (the smoothness number)
+histogram_quantile(0.95, sum by (le, scope)
+  (rate(app_frame_seconds_bucket[$__rate_interval])))
+
+# timer-tick p95 — the clock animations ride
+histogram_quantile(0.95, sum by (le, version)
+  (rate(app_timer_frame_seconds_bucket[$__rate_interval])))
+
+# slow-frame rate per minute, by scope (incl. cb:<callback> names)
+sum by (scope) (rate(app_slow_frames_total[$__rate_interval])) * 60
+
+# one NAMED app callback across versions ("my_button_click got slower in 1.5.0")
+histogram_quantile(0.95, sum by (le, version)
+  (rate(app_phase_seconds_bucket{phase="cb:demo_button_click"}[$__rate_interval])))
+```
+
+The FIRST slow event of a session attaches `sys.cpu_model`, `sys.cpu_count`,
+`sys.ram_total_bytes`, `sys.os`, `sys.windowing`, `sys.gpu` — hardware
+context ships only when something was actually slow.
+
+### Memory vs document size
+
+```promql
+# is high RSS explained by a big document? (flat = yes)
+max by (version) (app_document_rss_bytes_per_unit)
+
+# RSS at the checkpoints the app records
+max by (version, checkpoint) (app_rss_bytes)
+
+# the raw pair: RSS delta of the open vs the document size itself
+max by (version) (app_document_rss_delta_bytes)
+max by (version) (app_document_size)
+```
+
+### The rollout gate
+
+```promql
+# adoption
+sum by (version) (app_sessions_started_total)
+
+# startup p50 by version (regression check after an update)
+histogram_quantile(0.50, sum by (le, version)
+  (increase(app_startup_seconds_bucket[$__range])))
+
+# updater observing itself
+sum by (result) (increase(app_update_check_total[$__range]))
+```

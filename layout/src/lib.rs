@@ -255,6 +255,11 @@ pub mod probe;
     clippy::missing_const_for_fn
 )]
 pub mod telemetry;
+/// Version checking + update policy (Phase 4): manifest source, install-kind
+/// backstops (package-managed binaries never self-update), anti-downgrade,
+/// cooldown/suspend state. Requires the `updater` feature.
+#[cfg(feature = "updater")]
+pub mod updater;
 /// Image decoding and encoding (wraps the `image` crate).
 #[cfg(feature = "image_decoding")]
 pub mod image;
