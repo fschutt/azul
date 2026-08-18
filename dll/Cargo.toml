@@ -29,7 +29,7 @@ azul-css = { path = "../css", version = "0.0.14", default-features = false, opti
 # feature unification handed the full default set to every crate in the
 # graph. Scoping webrender (2026-08-05) exposed the under-declaration -
 # the dll stopped compiling until this line named what it actually uses.
-azul-layout = { path = "../layout", version = "0.0.14", default-features = false, features = ["font_loading", "text_layout", "svg", "xml", "cpurender", "widgets", "extra", "icons", "image_decoding"], optional = true }
+azul-layout = { path = "../layout", version = "0.0.14", default-features = false, features = ["font_loading", "text_layout", "svg", "xml", "cpurender", "widgets", "extra", "icons", "image_decoding", "updater"], optional = true }
 
 # Logging
 log = { version = "0.4.17", default-features = false, optional = true }
@@ -701,6 +701,16 @@ _internal_deps = [
 # For link-dynamic, std has no effect since those crates aren't included
 std = ["azul-core?/std", "azul-layout?/std"]
 logging = ["log"]
+
+# OTLP telemetry + crash capture (see layout/src/telemetry). NOT default:
+# the shipped dll stays lean and phones nowhere. Enabling this also arms the
+# AZ_CRASH_DUMP crash-reporter takeover in `App::run`.
+telemetry = ["azul-layout?/telemetry"]
+# Crash reports by EMAIL (micromail SMTP; the release-branch "backup" when
+# telemetry is off). Implies telemetry (the dump format + queue live there).
+# ⚠ micromail is a GIT dependency in azul-layout — publish or vendor it
+# before shipping this feature (publish-safety rejects git deps).
+crash-mail = ["telemetry", "azul-layout?/crash-mail"]
 
 # Debug server / inspector / E2E runner. OFF by default so the shipped
 # `azul.{so,dll,dylib}` is LEAN: no embedded HTTP server (AZ_DEBUG=<port> is a

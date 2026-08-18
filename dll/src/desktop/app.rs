@@ -152,6 +152,36 @@ impl App {
         let font_registry = self.ptr.font_registry.clone();
         let undo_manager = self.ptr.undo_manager.clone();
 
+        // Publish the AppConfig snapshot the engine services read outside
+        // callbacks: the updater (manifest URL, version, mode) and the
+        // system dialogs (support mailbox, changelog URL).
+        azul_layout::appenv::set_app_env(azul_layout::appenv::AppEnv::from_config(&config));
+
+        // CRASH-REPORTER TAKEOVER: a crashed sibling process (telemetry off,
+        // crash contact configured) re-spawned this executable with
+        // AZ_CRASH_DUMP=<dump.json>. This invocation IS the crash reporter:
+        // show the dump in a CPU-rendered dialog instead of running the app.
+        #[cfg(feature = "telemetry")]
+        if let Some(dump) = azul_layout::telemetry::crash_dump_from_env() {
+            crate::plog_info!(
+                "[azul] AZ_CRASH_DUMP set — running the crash-reporter dialog for {:?}",
+                dump.path
+            );
+            let dialog = azul_layout::dialogs::crash_reporter::window(dump);
+            let err = crate::desktop::shell2::run(
+                data,
+                undo_manager,
+                config,
+                fc_cache,
+                font_registry,
+                dialog,
+            );
+            if let Err(e) = err {
+                eprintln!("[azul] crash-reporter dialog failed: {e:?}");
+            }
+            return;
+        }
+
         // Use shell2 for the actual run loop
         let err = crate::desktop::shell2::run(data, undo_manager, config, fc_cache, font_registry, root_window);
 
