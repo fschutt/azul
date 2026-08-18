@@ -716,8 +716,45 @@ own REDESIGN track:
    adds sync-status/progress callbacks, explicit `sync_now` push/pull,
    conflict policy, and an offline queue.
 
+**Requirements (Felix, 2026-08-18, second pass):**
+
+a) **Backup-sync URL is a first-class config** on BOTH targets: the store
+   opens with `(local_name, backup_sync_url: OptionString, …)`. Desktop and
+   web share the same semantics — local-first, remote is the backup/sync
+   endpoint.
+
+b) **The cut happens IN THE LIFTER.** On web, the db API functions classify
+   as JS-implemented boundary imports (`ApiFnClass::WebJsImpl` →
+   `FnClass::BoundaryJsImport`, §5.1) so the transitive walk stops at the
+   API boundary and **never lifts the turso engine**. Belt-and-suspenders: a
+   defensive module cut for `turso::` / `turso_core::` symbols (NeverLift —
+   reaching them on web is a design error, so trap loudly rather than
+   no-op). Apply the display_list lesson (2026-08-17, symbol_table.rs): match
+   the module path WITH `::`, exempt `alloc::`/`core::`/`std::` generics that
+   merely mention turso types as parameters, and never substring-match a
+   crate name.
+
+c) **Partial DB copying (working-set replication).** Local stores are
+   size-constrained (browser quotas especially), so whole-DB replication is
+   out. The API must support operating on a SUBSET locally and syncing at
+   app-chosen points:
+   - open/subscribe with a **scope** (collections / key ranges /
+     index predicates) + a local size budget — this defines the working set
+     that gets copied down;
+   - explicit **sync points**: `sync_now(scope?)` push-then-refresh, plus
+     optional auto-sync (idle/timer) — "sync at certain points with the
+     remote endpoint if possible" (offline = queue, not error);
+   - **eviction**: clean rows may be dropped under quota pressure
+     (`navigator.storage.estimate()` on web); dirty rows are never evicted
+     before a successful push;
+   - **status surface** (resumable callbacks): working-set coverage,
+     pending-push count, last-sync time, quota usage, conflict events with a
+     per-collection policy (LWW default, custom merge callback option).
+
 Sequencing: the db redesign must NOT block Phase 1 (dialogs/files/http); it
-lands as its own phase once the resumable primitive is proven.
+lands as its own phase once the resumable primitive is proven. The lifter-side
+turso cut (b) is cheap and can land EARLY (it is just classification), keeping
+AzWriter-class apps liftable even before the new db API exists.
 
 ---
 
