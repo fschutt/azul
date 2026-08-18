@@ -109,6 +109,11 @@ webpki-roots = { version = "1.0", optional = true }
 # valid literals near f64::MAX outright ("number out of range"), so
 # `json_parse(json_stringify(x)) != x`. See core/Cargo.toml.
 serde_json = { version = "1.0", default-features = false, features = ["std", "float_roundtrip"], optional = true }
+# Crash-report MAIL transport (EHLO SMTP client). NOT on crates.io yet — a
+# git dependency is acceptable for this draft, but the crate must be
+# published (or path-vendored) before `crash-mail` can ship in a release:
+# the publish-safety gate rejects git deps.
+micromail = { git = "https://github.com/fschutt/micromail", rev = "1a162e8b8a31a0221ea469116db76aedce1e5cc9", optional = true, default-features = false }
 
 # SPMC channel — ONLY used by the e2e-server HTTP transport (feature
 # `e2e-server-http`). The core op-dispatch does not need it.
@@ -313,6 +318,12 @@ json = ["dep:serde_json", "std", "azul-core/serde-json"]
 # compile-time switch, so a consent toggle can flip it inside a running
 # process.
 telemetry = ["std", "http", "dep:serde_json"]
+
+# Crash reports by EMAIL — the backup for deployments with no collector:
+# telemetry tier `crashes` (metrics off), no Grafana/Loki, just a support
+# mailbox that receives the crash dump as an attachment plus the user's
+# message. Manual send from the app's next-launch dialog, never automatic.
+crash-mail = ["telemetry", "dep:micromail"]
 
 # Icon provider support (material icons, icon packs from fonts or ZIP files)
 icons = ["std", "zip", "dep:material-icons", "dep:brotli-decompressor"]
