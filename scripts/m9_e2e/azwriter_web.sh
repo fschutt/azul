@@ -8,7 +8,7 @@ cd /c/Users/felix/Development/azul
 LOG=/c/rb/azwriter_web.log; : > "$LOG"
 
 # 1. wait for the (already running) cargo build to finish.
-# 2026-08-17: the binary now builds with the dll's lift-friendly recipe
+# The binary now builds with the dll's lift-friendly recipe
 # (build-std + -Cpanic=abort + explicit target triple), so it lands under the
 # target-triple dir, not target/release.
 BIN=target/x86_64-pc-windows-msvc/release/azul-doc-demo.exe

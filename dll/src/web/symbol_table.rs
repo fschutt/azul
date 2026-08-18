@@ -2509,7 +2509,7 @@ fn classify_for_name(name: &str, api: &HashMap<String, ApiFnClass>) -> FnClass {
     // gradients, borders, tables, images, …) — a large lift-surface +
     // lift-time reduction.
     //
-    // 2026-08-17: this rule was `name.contains("display_list")`, which is
+    // Historical note: this rule was `name.contains("display_list")`, which is
     // FOUR distinct bugs in one substring:
     //   1. `set_skip_display_list` — the SETTER of the very gate that makes
     //      this cut sound — matched and was stubbed, so the gate byte
