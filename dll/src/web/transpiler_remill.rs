@@ -7152,6 +7152,12 @@ fn reloc_translate(
             let (name, off_hex) = name_off.rsplit_once("+0x")?;
             let soff = u64::from_str_radix(off_hex, 16).ok()?;
             let e = table?.by_name(name)?;
+            // An entry can share the target's NATIVE address (fingerprint
+            // trivially matches) while its synthetic address was never
+            // assigned — translating through it produced values like 1551.
+            if e.synthetic_addr < 0x1000 {
+                return None;
+            }
             let cand_synth = (e.synthetic_addr as u64).checked_add(soff)?;
             let cand_native = cand_synth.wrapping_add(new_bias);
             let (lo, hi) = new_img?;
