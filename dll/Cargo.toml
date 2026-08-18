@@ -612,7 +612,14 @@ default = [
     "logging",
     "a11y",
     "all_img_formats",
+    "web-e2e-runner",
 ]
+
+# Embedded web-e2e executor: bundles scripts/e2e-web (brotli, build.rs) into
+# the binary so `AZ_BACKEND=<http url> AZ_E2E=<dir|file>` makes ANY azul app
+# act as the test runner against a web server (spawns node/bun/deno on the
+# extracted bundle; desktop-parity cargo-test output). On by default.
+web-e2e-runner = ["dep:brotli-decompressor"]
 
 # -----------------------------------------------------------------------------
 # Codegen Block Features (granular — each gates a generated include!() file)
