@@ -1075,6 +1075,9 @@ impl RemillTranspiler {
             unreachable!("use_native_remill() returns false without the feature");
         }
         let _ = arch_tag; // host arch validated above; the helper re-derives it
+        // Counted here, not in lift_fn_fresh: the v6 probe lift at store time
+        // would otherwise double every "fresh lift" in the telemetry.
+        RELOC_CACHE_LIFTS.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
         let ir = self.lift_fn_fresh(fn_name, fn_addr, &bytes, lift_addr, &lifted_ir_path)?;
         // Store the freshly-lifted IR in the on-disk cache for future runs.
         if let Some(ref cp) = cache_path {
@@ -1156,7 +1159,6 @@ impl RemillTranspiler {
             args.push("--extra_data");
             args.push(&extra_data);
         }
-        RELOC_CACHE_LIFTS.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
         run_tool(tools.remill_lift, &args, fn_name)?;
         std::fs::read_to_string(lifted_ir_path).map_err(|e| TranspileError {
             fn_name: fn_name.to_string(),
