@@ -114,6 +114,8 @@ serde_json = { version = "1.0", default-features = false, features = ["std", "fl
 # published (or path-vendored) before `crash-mail` can ship in a release:
 # the publish-safety gate rejects git deps.
 micromail = { version = "0.1.0", optional = true, default-features = false }
+# Digest verification of update downloads (already in the tree transitively).
+sha2 = { version = "0.10", optional = true }
 
 # SPMC channel — ONLY used by the e2e-server HTTP transport (feature
 # `e2e-server-http`). The core op-dispatch does not need it.
@@ -331,7 +333,7 @@ crash-mail = ["telemetry", "dep:micromail"]
 # Version checks + update policy (Phase 4). Notify-first: managed installs
 # (dpkg, /usr, snap, flatpak, WindowsApps) are CLAMPED to notify-only at
 # runtime — the system package manager owns those updates.
-updater = ["std", "http", "dep:serde_json"]
+updater = ["std", "http", "dep:serde_json", "dep:sha2"]
 
 # Icon provider support (material icons, icon packs from fonts or ZIP files)
 icons = ["std", "zip", "dep:material-icons", "dep:brotli-decompressor"]

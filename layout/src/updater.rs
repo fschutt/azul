@@ -595,6 +595,44 @@ fn record_check(result: &str) {
     let _ = result;
 }
 
+/// Verifies a staged artifact against the manifest's `digest` field.
+///
+/// Accepted forms: `sha256:<hex>` or bare hex (interpreted as SHA-256).
+/// An EMPTY digest verifies trivially — the manifest simply did not pin
+/// one (the minisign signature chain is the next rung and rides the same
+/// field). A non-empty digest that does not match is a hard error and the
+/// caller must DISCARD the file: a mismatch is corruption or tampering,
+/// never something to install.
+///
+/// # Errors
+///
+/// Returns a description on IO failure, an unsupported digest scheme, or
+/// a mismatch (the message names both hashes).
+pub fn verify_digest(path: &Path, digest: &str) -> Result<(), String> {
+    let digest = digest.trim();
+    if digest.is_empty() {
+        return Ok(());
+    }
+    let expected = digest
+        .strip_prefix("sha256:")
+        .unwrap_or(digest)
+        .to_ascii_lowercase();
+    if expected.len() != 64 || !expected.bytes().all(|b| b.is_ascii_hexdigit()) {
+        return Err(format!("unsupported digest format: {digest:?} (expected sha256 hex)"));
+    }
+    use sha2::Digest as _;
+    let bytes = std::fs::read(path).map_err(|e| format!("digest read: {e}"))?;
+    let actual = sha2::Sha256::digest(&bytes);
+    let actual_hex: String = actual.iter().map(|b| format!("{b:02x}")).collect();
+    if actual_hex == expected {
+        Ok(())
+    } else {
+        Err(format!(
+            "digest mismatch: manifest pinned sha256:{expected}, downloaded file is sha256:{actual_hex}"
+        ))
+    }
+}
+
 /// What [`download_update`] did — enough to log an honest story
 /// ("resumed at byte N", "already staged").
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -648,6 +686,12 @@ pub fn download_update(
         );
     let final_path = staging_dir.join(&file_name);
     if final_path.exists() {
+        // A cached artifact is only reusable if it still matches the pin —
+        // a stale or corrupted staging file must re-download, not install.
+        if let Err(e) = verify_digest(&final_path, release.digest.as_str()) {
+            drop(std::fs::remove_file(&final_path));
+            return Err(format!("cached artifact failed verification ({e}); removed — retry the download"));
+        }
         return Ok(DownloadOutcome {
             path: final_path,
             resumed_from_bytes: 0,
@@ -712,6 +756,12 @@ pub fn download_update(
             416 => break,
             code => return Err(format!("download HTTP {code}")),
         }
+    }
+    // Verify BEFORE the artifact gains its final (trusted-looking) name; a
+    // mismatch discards the partial so the next attempt starts clean.
+    if let Err(e) = verify_digest(&partial_path, release.digest.as_str()) {
+        drop(std::fs::remove_file(&partial_path));
+        return Err(e);
     }
     std::fs::rename(&partial_path, &final_path).map_err(|e| e.to_string())?;
     Ok(DownloadOutcome {
@@ -1189,4 +1239,37 @@ mod tests {
         assert_eq!(parse_manifest_datetime(&json!("not a date")), None);
         assert_eq!(parse_manifest_datetime(&json!("2026-13-01")), None, "month 13");
     }
+
+    // ---- digest verification -------------------------------------------
+
+    #[test]
+    fn digest_verifies_matches_and_rejects_mismatch_and_garbage() {
+        let dir = std::env::temp_dir().join(format!("azul-digest-test-{}", std::process::id()));
+        drop(std::fs::create_dir_all(&dir));
+        let file = dir.join("artifact.bin");
+        std::fs::write(&file, b"hello update artifact").expect("write");
+        // sha256 of the exact bytes above (python hashlib oracle).
+        let good = "f58c1a1c453ed138b0ffa8050949df98ab92da901f592bc92afa50f8391d8f75";
+
+        assert!(verify_digest(&file, "").is_ok(), "empty digest = no pin");
+        assert!(verify_digest(&file, good).is_ok(), "bare hex form");
+        assert!(
+            verify_digest(&file, &format!("sha256:{good}")).is_ok(),
+            "prefixed form"
+        );
+        assert!(
+            verify_digest(&file, &good.to_uppercase()).is_ok(),
+            "hex compare is case-insensitive"
+        );
+
+        // THE LAW: a wrong pin is a hard error naming both hashes.
+        let wrong = format!("sha256:{}", "0".repeat(64));
+        let err = verify_digest(&file, &wrong).expect_err("mismatch must fail");
+        assert!(err.contains("mismatch"), "{err}");
+        // Unsupported scheme fails loudly instead of verifying nothing.
+        assert!(verify_digest(&file, "md5:abcd").is_err());
+        assert!(verify_digest(&file, "not-a-digest").is_err());
+        drop(std::fs::remove_dir_all(&dir));
+    }
 }
+
