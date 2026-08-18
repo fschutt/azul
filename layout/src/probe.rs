@@ -182,6 +182,12 @@ mod imp {
         let resolved: &'static str = {
             #[cfg(unix)]
             {
+                // dladdr resolves names from .dynsym only — a statically
+                // linked, non--rdynamic binary yields NO symbol for its own
+                // functions. Fall back to the MODULE-RELATIVE offset
+                // (`cb:+0x<offset>`): stable across runs of the same binary
+                // (ASLR shifts the base, not the offset), so distinct
+                // callbacks stay distinguishable and comparable per version.
                 let mut info: libc::Dl_info = unsafe { core::mem::zeroed() };
                 let rc = unsafe { libc::dladdr(fn_ptr as *const libc::c_void, &raw mut info) };
                 if rc != 0 && !info.dli_sname.is_null() {
@@ -190,15 +196,20 @@ mod imp {
                         Ok(sym) if !sym.is_empty() => {
                             Box::leak(format!("cb:{sym}").into_boxed_str())
                         }
-                        _ => "cb:?",
+                        _ => Box::leak(format!("cb:0x{fn_ptr:x}").into_boxed_str()),
                     }
+                } else if rc != 0 && !info.dli_fbase.is_null() {
+                    let offset = fn_ptr.wrapping_sub(info.dli_fbase as usize);
+                    Box::leak(format!("cb:+0x{offset:x}").into_boxed_str())
                 } else {
-                    "cb:?"
+                    // dladdr failed outright: the raw address still separates
+                    // one callback from another within this run.
+                    Box::leak(format!("cb:0x{fn_ptr:x}").into_boxed_str())
                 }
             }
             #[cfg(not(unix))]
             {
-                "cb:?"
+                Box::leak(format!("cb:0x{fn_ptr:x}").into_boxed_str())
             }
         };
         if let Ok(mut map) = cache.lock() {
@@ -369,8 +380,12 @@ impl Probe {
     ///
     /// Resolution runs ONCE per distinct pointer (a leak-once cache bounded
     /// by the number of distinct callbacks); every later call is one map
-    /// lookup. Unresolvable pointers (dynamic symbols stripped, non-unix
-    /// targets) fall back to `cb:?`.
+    /// lookup. When the symbol is unresolvable (static non-`-rdynamic`
+    /// binaries keep their own functions out of `.dynsym`), the span falls
+    /// back to the module-relative offset `cb:+0x<offset>` — stable across
+    /// runs of the same binary, so distinct callbacks remain
+    /// distinguishable and per-version comparisons still work; `cb:0x<addr>`
+    /// is the last resort when `dladdr` fails entirely.
     #[inline]
     // const only in the no-`probe` stub config; enabled `imp::` calls are non-const
     #[allow(clippy::missing_const_for_fn)]
@@ -2282,5 +2297,31 @@ mod allocator_stats_tests {
         // Only deltas large enough to dominate concurrent noise (64 MiB) are
         // safe to assert here.
         drop(big);
+    }
+
+    #[test]
+    fn fn_name_resolution_never_collapses_to_a_bare_question_mark() {
+        // The static-link fallback law: two DIFFERENT functions must get
+        // DIFFERENT span names even when dladdr cannot name them — "cb:?"
+        // for everything made the per-callback panels a single useless bar.
+        // #[inline(never)] + distinct bodies: release-mode ICF merges
+        // identical functions into ONE address, which is not what this
+        // test is about.
+        #[inline(never)]
+        fn f_one() -> u32 { std::hint::black_box(1) }
+        #[inline(never)]
+        fn f_two() -> u32 { std::hint::black_box(2) }
+        let a = Probe::span_for_fn(f_one as usize);
+        let b = Probe::span_for_fn(f_two as usize);
+        drop(a);
+        drop(b);
+        let names = super::imp::resolve_fn_name(f_one as usize);
+        let names2 = super::imp::resolve_fn_name(f_two as usize);
+        assert_ne!(names, "cb:?", "unresolved symbol must fall back to an address form");
+        assert_ne!(names, names2, "distinct fns must resolve to distinct span names");
+        assert!(
+            names.starts_with("cb:"),
+            "span name keeps the cb: family prefix: {names}"
+        );
     }
 }
