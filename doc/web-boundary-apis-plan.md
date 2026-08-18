@@ -37,7 +37,7 @@ were evaluated (§4): (a) callback-based API redesign, (b) JSPI
 (`WebAssembly.Suspending`), (c) worker + SharedArrayBuffer + `Atomics.wait`
 sync bridge, (d) hybrid.
 
-**DECISION (Felix, 2026-08-18): NO HYBRID MODE. There is exactly ONE public
+**DECISION (maintainer, 2026-08-18): NO HYBRID MODE. There is exactly ONE public
 API surface — the RESUMABLE CALLBACK STYLE (§4.1) — and it is 1:1 identical
 on desktop and web.** Desktop gets the continuation-style APIs in api.json
 too; the existing blocking forms are REMODELED OR REMOVED (breaking changes
@@ -360,7 +360,7 @@ family of ~40 functions inventoried across rows 38, 44-58).
 
 ### 4.1 Option A — the RESUMABLE CALLBACK STYLE (portable redesign) — CHOSEN
 
-> Direction confirmed by Felix 2026-08-18: *"we need to redesign some APIs with
+> Direction confirmed by the maintainer, 2026-08-18: *"we need to redesign some APIs with
 > resumable callback style so they work for async JS and we can actually lift
 > them and use the native web APIs."* This section is the normative definition;
 > §5.1 is its concrete instantiation. Every FUTURE OS-facing Az API must be
@@ -684,7 +684,7 @@ the sanctioned way for portable apps to branch, replacing `#[cfg]`.
 
 ### 5.6 SQL/DB remodel — local-first + backup sync (maintainer direction 2026-08-18)
 
-> Felix: *"the sql functions should not ship an entire SQLite database via
+> Maintainer: *"the sql functions should not ship an entire SQLite database via
 > turso [on web] — they should use localstorage, which IS a SQLite database
 > [i.e. the browser already maintains a storage engine], or use a remote
 > string to sync 'in addition' — remodel the SQL APIs and make them MORE
@@ -716,7 +716,7 @@ own REDESIGN track:
    adds sync-status/progress callbacks, explicit `sync_now` push/pull,
    conflict policy, and an offline queue.
 
-**Requirements (Felix, 2026-08-18, second pass):**
+**Requirements (maintainer, 2026-08-18, second pass):**
 
 a) **Backup-sync URL is a first-class config** on BOTH targets: the store
    opens with `(local_name, backup_sync_url: OptionString, …)`. Desktop and
