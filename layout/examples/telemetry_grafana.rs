@@ -66,6 +66,20 @@ struct Args {
     pace_ms: u64,
     panic_at: Option<u64>,
     remember: bool,
+    /// The session's document size in paragraphs (the app-level "document
+    /// size" unit this demo reports via `set_document_size`).
+    doc_paragraphs: Option<usize>,
+    /// Enables the INTRODUCED CRASH BUG: sessions with a big document
+    /// crash mid-run with a realistic `expect` reason. Shipped (per the
+    /// drill) in 1.5.0 only.
+    crash_bug: bool,
+    /// Parent mode: spawn N simulated users (child invocations of this
+    /// binary) across three versions and exit.
+    fleet: Option<usize>,
+    /// Crash-mail drill: after a crash is persisted, the relaunch mails the
+    /// dump to this address (with --mail-port against a local sink).
+    mail_to: Option<String>,
+    mail_port: Option<u16>,
 }
 
 impl Args {
@@ -78,7 +92,18 @@ impl Args {
             pace_ms: 200,
             panic_at: None,
             remember: false,
+            doc_paragraphs: None,
+            crash_bug: false,
+            fleet: None,
+            mail_to: None,
+            mail_port: None,
         };
+        if let Ok(to) = std::env::var("AZ_DEMO_MAIL_TO") {
+            args.mail_to = Some(to);
+        }
+        if let Ok(port) = std::env::var("AZ_DEMO_MAIL_PORT") {
+            args.mail_port = port.parse().ok();
+        }
         let mut argv = std::env::args().skip(1);
         while let Some(flag) = argv.next() {
             let mut value = || argv.next().unwrap_or_default();
@@ -90,11 +115,20 @@ impl Args {
                 "--pace-ms" => args.pace_ms = value().parse().unwrap_or(200),
                 "--panic-at" => args.panic_at = value().parse().ok(),
                 "--remember" => args.remember = true,
+                "--doc-size" => args.doc_paragraphs = value().parse().ok(),
+                "--crash-bug" => args.crash_bug = true,
+                "--fleet" => args.fleet = value().parse().ok(),
+                "--mail-to" => args.mail_to = Some(value()),
+                "--mail-port" => args.mail_port = value().parse().ok(),
+                // (also readable from AZ_DEMO_MAIL_TO / AZ_DEMO_MAIL_PORT —
+                // env survives the panic hook's reporter reinvoke, argv does
+                // not)
                 "--help" | "-h" => {
                     println!(
                         "usage: telemetry_grafana [--version V] [--channel C] \
                          [--iterations N] [--flush-every N] [--pace-ms N] [--panic-at N] \
-                         [--remember]"
+                         [--remember] [--doc-size PARAGRAPHS] [--crash-bug] [--fleet N] \
+                         [--mail-to ADDR] [--mail-port P]"
                     );
                     std::process::exit(0);
                 }
@@ -168,6 +202,11 @@ fn count_nodes(nodes: &[azul_core::xml::XmlNodeChild]) -> usize {
 fn main() {
     let process_start = Instant::now();
     let args = Args::parse();
+    if let Some(users) = args.fleet {
+        run_fleet(users, &args);
+        return;
+    }
+
 
     // ── Consent ─────────────────────────────────────────────────────────
     // Reads AZ_TELEMETRY plus the layered config files. Tier is `off` unless
@@ -178,6 +217,19 @@ fn main() {
         AppMeta::new(&args.version, &args.channel),
     );
     telemetry::install_panic_hook();
+    // The app registers its support mailbox right after init — it must exist
+    // both in the normal launch (arming the reinvoke-reporter) and in the
+    // reporter process itself (init also gives the mail subject its
+    // app-name + version).
+    register_crash_contact(&args);
+    // Crash-REPORTER mode: the panic hook of a previous (endpoint-less)
+    // process respawned us with AZ_CRASH_DUMP. We are not the app now — show
+    // the dump and offer submission. A real shell does this as a small
+    // CPU-rendered window (`AzApp::run` checks the same env var); this
+    // headless demo prints it and submits with a canned user message.
+    if run_crash_reporter_if_spawned(&args) {
+        return;
+    }
     // Opt into the Probe -> metrics bridge. Without this, `Probe` stays
     // dormant unless AZ_PROFILE is set and the per-phase histogram would be
     // empty — which reads exactly like "everything is fast".
@@ -242,16 +294,28 @@ fn main() {
     // that 120 iterations finish in a couple of seconds. Sub-microsecond work
     // would pile every observation into the first histogram bucket and the
     // latency panels would be a flat line at zero.
-    let mut paragraphs = 2_000_usize;
+    let mut paragraphs = args.doc_paragraphs.unwrap_or(2_000);
+    // Slow frames (and probe spans) at or above this warn — and the FIRST
+    // slow event of the session carries the machine's system info.
+    telemetry::set_slow_frame_threshold_ms(25.0);
+
+    // "Open the document": RSS before, build + parse (the resident copy IS
+    // the open document — it stays alive for the whole session so RSS
+    // genuinely scales with document size), RSS after + delta-per-unit.
+    let doc_open = telemetry::record_document_open_begin();
     let mut document = build_document(paragraphs);
+    let resident_doc: Vec<String> = vec![document.clone()];
     let first_nodes = run_workload(&document);
+    telemetry::record_document_opened(doc_open, paragraphs as f64);
     let startup_secs = process_start.elapsed().as_secs_f64();
     telemetry::record_startup(startup_secs, current_rss().unwrap_or(0));
     println!(
-        "startup {startup_secs:.3}s, first pass parsed {first_nodes} nodes, \
-         rss {} MiB",
-        current_rss().unwrap_or(0) / (1024 * 1024)
+        "startup {:.1} ms, opened a {paragraphs}-paragraph document \
+         ({first_nodes} nodes), rss {:.1} MiB",
+        startup_secs * 1_000.0,
+        current_rss().unwrap_or(0) as f64 / (1024.0 * 1024.0)
     );
+    assert!(!resident_doc.is_empty()); // the resident copy must stay alive
 
     // ── Workload loop ───────────────────────────────────────────────────
     let mut iteration: u64 = 0;
@@ -266,6 +330,23 @@ fn main() {
             // writes the queue to disk; the *next* run uploads it. That
             // "never upload from a dying process" ordering is the design.
             panic!("--panic-at {iteration}: deliberate demo panic");
+        }
+        // THE INTRODUCED CRASH BUG (drill): 1.5.0 sessions with a big
+        // document die mid-session on a realistic `expect`. The hook turns
+        // this into a red Loki record + a queued crash dump with the
+        // message, location, stripped backtrace, live span scope and system
+        // info — which is exactly what the fleet run exists to verify.
+        if args.crash_bug && paragraphs > 5_200 && iteration == args.iterations / 2 {
+            let _guard = azul_layout::probe::Probe::span("demo.autosave");
+            // The bug: the "cache lookup" comes back empty for huge
+            // documents and the expect fires. Opaque to clippy on purpose —
+            // a literal `None.expect()` would be linted away.
+            let glyph_page: Option<u32> = [7_u32]
+                .iter()
+                .copied()
+                .find(|_| paragraphs < 5_200);
+            let _ = glyph_page
+                .expect("glyph cache page must exist for documents over 5200 paragraphs");
         }
 
         // Resize the document every 12 iterations. The size change is what
@@ -290,6 +371,20 @@ fn main() {
         let elapsed = started.elapsed().as_secs_f64();
         slowest = slowest.max(elapsed);
 
+        // An app callback timed under its own SYMBOL NAME (dladdr): shows
+        // up as span `cb:demo_button_click` in the per-phase panels — the
+        // "my_button_click is slower on 1.5.0" comparison.
+        {
+            let _cb = azul_layout::probe::Probe::span_for_fn(demo_button_click as usize);
+            demo_button_click(nodes as u64);
+        }
+
+        // Per-frame DURATION histograms (query these in ms): the whole
+        // iteration as scope `total`, and the same duration again as a TIMER
+        // tick — this demo's loop stands in for the animation timer, so a
+        // slow iteration is exactly a slow animation frame.
+        telemetry::record_frame("total", elapsed);
+        telemetry::record_timer_frame(elapsed);
         telemetry::record_relayout_scope(if resized { "relayout" } else { "repaint" });
         telemetry::observe("demo_document_nodes", nodes as f64);
         telemetry::count("demo_iterations_total", 1);
@@ -307,7 +402,10 @@ fn main() {
         if elapsed > 0.020 {
             telemetry::log(
                 Severity::Warn,
-                format!("slow iteration {iteration}: {elapsed:.4}s for {nodes} nodes"),
+                format!(
+                    "slow iteration {iteration}: {:.1} ms for {nodes} nodes",
+                    elapsed * 1_000.0
+                ),
             );
         }
 
@@ -315,14 +413,16 @@ fn main() {
             telemetry::log(
                 Severity::Info,
                 format!(
-                    "iteration {iteration}: {nodes} nodes in {elapsed:.4}s \
-                     ({paragraphs} paragraphs)"
+                    "iteration {iteration}: {nodes} nodes in {:.1} ms \
+                     ({paragraphs} paragraphs)",
+                    elapsed * 1_000.0
                 ),
             );
             let outcome = telemetry::flush();
             println!(
-                "iter {iteration:>4}  {elapsed:.4}s  {nodes:>6} nodes  \
+                "iter {iteration:>4}  {:>7.1} ms  {nodes:>6} nodes  \
                  flush: queued_metrics={} queued_logs={} uploaded={} dropped={} retained={}{}",
+                elapsed * 1_000.0,
                 outcome.queued_metrics,
                 outcome.queued_logs,
                 outcome.upload.uploaded,
@@ -340,7 +440,10 @@ fn main() {
     // ── Clean shutdown ──────────────────────────────────────────────────
     telemetry::log(
         Severity::Info,
-        format!("demo finished after {iteration} iterations, slowest {slowest:.3}s"),
+        format!(
+            "demo finished after {iteration} iterations, slowest {:.1} ms",
+            slowest * 1_000.0
+        ),
     );
     let outcome = telemetry::shutdown();
     println!();
@@ -362,4 +465,192 @@ fn main() {
             );
         }
     }
+}
+
+
+/// Deterministic tiny LCG so the fleet is reproducible without pulling in a
+/// rand crate (and without `SystemTime` seeding, which would make two runs
+/// incomparable).
+fn lcg(state: &mut u64) -> u64 {
+    *state = state
+        .wrapping_mul(6_364_136_223_846_793_005)
+        .wrapping_add(1_442_695_040_888_963_407);
+    *state >> 33
+}
+
+/// Parent mode: simulate `users` real users as CHILD INVOCATIONS of this
+/// binary across three versions.
+///
+/// Each user gets a stable `AZ_TELEMETRY_CLIENT_ID` (`sim-user-NNN`), a
+/// version from a rollout-shaped weighting (50% 1.4.2, 30% 1.4.3, 20%
+/// 1.5.0), and a document size from a skewed distribution. 1.5.0 carries
+/// the INTRODUCED CRASH BUG (`--crash-bug`): its users with documents over
+/// 5200 paragraphs crash mid-session. Crashed users are relaunched once —
+/// the real "next launch" that uploads the persisted crash — and, when
+/// `--mail-to` is set, the relaunch also mails the crash dump.
+fn run_fleet(users: usize, args: &Args) {
+    let exe = std::env::current_exe().expect("own path");
+    let versions = ["1.4.2", "1.4.3", "1.5.0"];
+    let mut crashed: Vec<(usize, String, usize)> = Vec::new();
+    let mut running: Vec<(usize, std::process::Child)> = Vec::new();
+    let max_parallel = 6usize;
+    let mut spawned = 0usize;
+    let mut finished = 0usize;
+
+    println!("fleet: {users} users across {versions:?} (crash bug shipped in 1.5.0)");
+    let spawn = |i: usize| -> (std::process::Child, String, usize, bool) {
+        let mut seed = 0x00C0_FFEE ^ (i as u64).wrapping_mul(0x9E37_79B9);
+        let v = match lcg(&mut seed) % 10 {
+            0..=4 => versions[0],
+            5..=7 => versions[1],
+            _ => versions[2],
+        };
+        // 1500..=7500 paragraphs, skewed small (min of two draws) so most
+        // users have modest documents and a tail has huge ones.
+        let d1 = 1_500 + (lcg(&mut seed) % 6_000) as usize;
+        let d2 = 1_500 + (lcg(&mut seed) % 6_000) as usize;
+        let doc = d1.min(d2);
+        let iters = 14 + (lcg(&mut seed) % 16);
+        let has_bug = v == "1.5.0";
+        let mut cmd = std::process::Command::new(&exe);
+        cmd.env("AZ_TELEMETRY_CLIENT_ID", format!("sim-user-{i:03}"))
+            .arg("--version").arg(v)
+            .arg("--channel").arg(&args.channel)
+            .arg("--iterations").arg(iters.to_string())
+            .arg("--pace-ms").arg("40")
+            .arg("--flush-every").arg("5")
+            .arg("--doc-size").arg(doc.to_string())
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null());
+        if has_bug {
+            cmd.arg("--crash-bug");
+        }
+        (cmd.spawn().expect("spawn child"), v.to_owned(), doc, has_bug)
+    };
+
+    let mut meta: std::collections::HashMap<usize, (String, usize)> =
+        std::collections::HashMap::new();
+    while finished < users {
+        while spawned < users && running.len() < max_parallel {
+            let (child, v, doc, _bug) = spawn(spawned);
+            meta.insert(spawned, (v, doc));
+            running.push((spawned, child));
+            spawned += 1;
+        }
+        let mut still: Vec<(usize, std::process::Child)> = Vec::new();
+        for (i, mut child) in running.drain(..) {
+            match child.try_wait() {
+                Ok(Some(status)) => {
+                    finished += 1;
+                    let (v, doc) = meta.get(&i).cloned().unwrap_or_default();
+                    if !status.success() {
+                        println!("  user {i:03} v{v} doc={doc}: CRASHED ({status})");
+                        crashed.push((i, v, doc));
+                    }
+                    if finished % 20 == 0 {
+                        println!("  {finished}/{users} sessions done");
+                    }
+                }
+                _ => still.push((i, child)),
+            }
+        }
+        running = still;
+        std::thread::sleep(std::time::Duration::from_millis(30));
+    }
+
+    // The "next launch" of every crashed user: uploads the persisted crash
+    // (metrics + the red Loki record), and optionally mails the dump.
+    println!(
+        "fleet: {} of {users} users crashed — relaunching each once (the drain)",
+        crashed.len()
+    );
+    for (i, v, doc) in &crashed {
+        let mut cmd = std::process::Command::new(&exe);
+        cmd.env("AZ_TELEMETRY_CLIENT_ID", format!("sim-user-{i:03}"))
+            .arg("--version").arg(v)
+            .arg("--channel").arg(&args.channel)
+            .arg("--iterations").arg("6")
+            .arg("--pace-ms").arg("20")
+            .arg("--flush-every").arg("3")
+            .arg("--doc-size").arg(doc.to_string())
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null());
+        drop(cmd.status());
+    }
+    println!("fleet: done ({} crash drains)", crashed.len());
+}
+
+/// Registers the support mailbox — which ARMS the reinvoke-reporter: a
+/// panic with no OTLP endpoint then writes its dump to a temp file and
+/// respawns this executable with AZ_CRASH_DUMP set.
+#[cfg(feature = "crash-mail")]
+fn register_crash_contact(args: &Args) {
+    let Some(to) = &args.mail_to else { return };
+    let mut config = telemetry::crash_mail::CrashMailConfig::new(
+        to.clone(),
+        "crash-reporter@azul-demo.invalid",
+        "azul-demo.invalid",
+    )
+    .with_tls(false);
+    if let Some(port) = args.mail_port {
+        config = config.with_ports(vec![port]);
+    }
+    telemetry::crash_mail::set_crash_contact(config);
+}
+
+#[cfg(not(feature = "crash-mail"))]
+fn register_crash_contact(_args: &Args) {}
+
+/// The reporter half: when AZ_CRASH_DUMP is set, this process exists only
+/// to show the previous process's crash and offer submission. Returns true
+/// when it ran (the caller must exit instead of starting the app).
+#[cfg(feature = "crash-mail")]
+fn run_crash_reporter_if_spawned(_args: &Args) -> bool {
+    let Some(dump) = telemetry::crash_dump_from_env() else {
+        return false;
+    };
+    println!("┌─ azul crash reporter ────────────────────────────────");
+    println!("│ the application crashed:");
+    println!("│   {}", dump.message);
+    println!("│ at    {}", dump.location);
+    println!("│ scope {}", dump.scope);
+    println!("│ backtrace (paths stripped):");
+    for line in dump.backtrace.lines().take(8) {
+        println!("│   {line}");
+    }
+    println!("└──────────────────────────────────────────────────────");
+    match telemetry::crash_mail::crash_contact() {
+        Some(contact) => {
+            // The real UI collects the message from the user here.
+            let user_message = "simulated user message: it crashed while I was typing";
+            match telemetry::crash_mail::send_dump_file(contact, &dump.path, user_message) {
+                Ok(()) => println!("crash-reporter: dump mailed to {}", contact.to),
+                Err(e) => println!("crash-reporter: {e} (dump kept at {})", dump.path.display()),
+            }
+        }
+        None => println!(
+            "crash-reporter: no contact registered — dump kept at {}",
+            dump.path.display()
+        ),
+    }
+    true
+}
+
+#[cfg(not(feature = "crash-mail"))]
+fn run_crash_reporter_if_spawned(_args: &Args) -> bool {
+    false
+}
+
+
+/// A stand-in for an app's own `extern "C"` UI callback — timed via
+/// `Probe::span_for_fn`, so its RESOLVED NAME becomes the span/phase.
+#[unsafe(no_mangle)]
+extern "C" fn demo_button_click(nodes: u64) -> u64 {
+    // A little real work proportional to the document, so versions with
+    // bigger documents genuinely spend more time "in the callback".
+    let mut acc = 0u64;
+    for i in 0..(nodes / 8).max(1) {
+        acc = acc.wrapping_add(i).rotate_left(3) ^ 0x5A5A;
+    }
+    acc
 }
