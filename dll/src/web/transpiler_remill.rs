@@ -2220,6 +2220,7 @@ impl RemillTranspiler {
             sig: CallbackSignature,
             export_as: String,
             cache_key: (usize, String),
+            raw_ir: String,
         }
         let mut obj_jobs: Vec<ObjJob> = Vec::new();
         while let Some(target) = queue.pop_front() {
@@ -2370,7 +2371,7 @@ impl RemillTranspiler {
                     // translated-cache runs the in-loop half is nearly free,
                     // so the walk collapses to discovery speed.
                     match self.lift_fn(&name, addr, size, lift_addr) {
-                        Ok(_raw_ir) => {
+                        Ok(raw_ir) => {
                             let obj_idx = object_paths.len();
                             object_paths.push(PathBuf::new()); // patched at drain
                             exports.push(export_as.clone());
@@ -2382,6 +2383,13 @@ impl RemillTranspiler {
                                 sig: sig.clone(),
                                 export_as: export_as.clone(),
                                 cache_key: cache_key.clone(),
+                                // Carried in-memory: the walk's fn_name-stemmed
+                                // .lifted.ll gets OVERWRITTEN by a later lift of a
+                                // same-named monomorphization copy (write_fmt<String>
+                                // exists at two addresses), so a deferred file
+                                // re-read hands the second fn's IR to both jobs and
+                                // wasm-ld dies on duplicate sub_<hex> defines.
+                                raw_ir,
                             });
                         }
                         Err(e) => {
@@ -2606,18 +2614,9 @@ impl RemillTranspiler {
                             break;
                         }
                         let j = &obj_jobs[i];
-                        let stem = sanitize_filename(&j.name);
-                        let ir_path = self.scratch_dir.join(format!("{}.lifted.ll", stem));
-                        let r = std::fs::read_to_string(&ir_path)
-                            .map_err(|e| TranspileError {
-                                fn_name: j.name.clone(),
-                                reason: format!("read lifted IR for object job: {e}"),
-                            })
-                            .and_then(|ir| {
-                                self.produce_object_from_lifted_ir(
-                                    &j.name, j.addr, j.lift_addr, &j.sig, &j.export_as, &ir,
-                                )
-                            });
+                        let r = self.produce_object_from_lifted_ir(
+                            &j.name, j.addr, j.lift_addr, &j.sig, &j.export_as, &j.raw_ir,
+                        );
                         *results[i].lock().unwrap() = Some(r);
                     });
                 }
