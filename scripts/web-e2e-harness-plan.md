@@ -1,7 +1,19 @@
 # Web E2E Harness Plan — "mini puppeteer" for cross-backend scenario testing
 
-Status: PLANNING (2026-08-17). No code written yet; every claim below is verified
-against the cited file:line.
+Status: P1 + P2-keyboard-subset IMPLEMENTED (2026-08-18) under `scripts/e2e-web/`
+(task-directed dir name; §4.1 below still says `scripts/web_e2e/` — the layout is
+otherwise as designed). Entry point: `node scripts/e2e-web/run.mjs <spec.json|dir>`;
+usage, golden workflow, and the fallback-settle caveat: `scripts/e2e-web/README.md`.
+Verified live 2026-08-18 against the running :8800 hello-world + Edge :9222:
+`tests/e2e/hello_world_counter.json` PASSES 9/9 (clicks targeted via the wasm
+positioned-rects cache, counter 5→6→8 through the lifted cb); golden
+bootstrap → compare-pass → deliberate-fail-with-diff-heatmap all exercised.
+One selector-translation rule was added beyond §4.2: desktop `body` ≡ mirror
+`#az_0` (the az root div carries the body 8px margin; the real `<body>` wraps it
+in `#az-body`). Not yet built: §5 cross-backend screenshot tiers (web-local
+goldens only), §6 `run_all.sh` lane runner, `"x-web": {"allow_trap"}`.
+Historical planning notes below are unchanged; claims verified against the
+cited file:line as of 2026-08-17.
 
 Goal: execute the **same JSON e2e scenarios** that already drive the desktop
 backend against the **web backend** (native x86-64 lifted to wasm, served by the
