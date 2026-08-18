@@ -9478,10 +9478,6 @@ impl LayoutWindow {
         let thread_ids: Vec<ThreadId> = self.threads.keys().copied().collect();
 
         for thread_id in thread_ids {
-            let Some(thread) = self.threads.get_mut(&thread_id) else {
-                continue;
-            };
-
             let hit_dom_node = DomNodeId {
                 dom: DomId::ROOT_ID,
                 node: NodeHierarchyItemId::from_crate_internal(None),
@@ -9489,24 +9485,48 @@ impl LayoutWindow {
             let cursor_relative_to_item = OptionLogicalPosition::None;
             let cursor_in_viewport = OptionLogicalPosition::None;
 
+            // DRAIN the queue, don't sip it. The old code read ONE message
+            // per frame and then removed the thread if the worker had
+            // finished — so a worker that reports progress (several
+            // writebacks, then its result) had everything after the first
+            // message thrown away with the thread. Now: read until the queue
+            // is empty, and only retire a finished thread once it is.
+            let mut ticked = false;
+            loop {
             let (msg, writeback_data_ptr, is_finished) = {
+                // Re-acquired every iteration: the borrow must end before the
+                // body below, which needs `self` for CallbackInfoRefData.
+                let Some(thread) = self.threads.get_mut(&thread_id) else {
+                    break;
+                };
                 let thread_inner = &mut *if let Ok(s) = thread.ptr.lock() { s } else {
                     all_changes.push(CallbackChange::RemoveThread { thread_id });
-                    continue;
+                    break;
                 };
 
-                let _ = thread_inner.sender_send(ThreadSendMsg::Tick);
+                if !ticked {
+                    let _ = thread_inner.sender_send(ThreadSendMsg::Tick);
+                    ticked = true;
+                }
                 let recv = thread_inner.receiver_try_recv();
+                let is_finished = thread_inner.is_finished();
                 let msg = match recv {
-                    OptionThreadReceiveMsg::None => continue,
+                    // Queue empty: a finished worker has now delivered
+                    // everything it ever will, so it can be retired.
+                    OptionThreadReceiveMsg::None => {
+                        if is_finished {
+                            all_changes.push(CallbackChange::RemoveThread { thread_id });
+                        }
+                        break;
+                    }
                     OptionThreadReceiveMsg::Some(s) => s,
                 };
 
                 let writeback_data_ptr: *mut RefAny = &raw mut thread_inner.writeback_data;
-                let is_finished = thread_inner.is_finished();
 
                 (msg, writeback_data_ptr, is_finished)
             };
+            let _ = is_finished;
 
             let ThreadWriteBackMsg {
                 refany: mut data_inner,
@@ -9562,9 +9582,6 @@ impl LayoutWindow {
                 .unwrap_or_default();
 
             all_changes.extend(collected_changes);
-
-            if is_finished {
-                all_changes.push(CallbackChange::RemoveThread { thread_id });
             }
         }
 
@@ -13800,6 +13817,105 @@ mod autotest_generated {
 
     fn fresh_window() -> LayoutWindow {
         LayoutWindow::new(FcFontCache::default()).expect("LayoutWindow::new must succeed")
+    }
+
+    // ---- thread writeback drain ------------------------------------------
+
+    /// Counts the writebacks that actually reached the main thread.
+    static DRAIN_DELIVERED: std::sync::atomic::AtomicUsize =
+        std::sync::atomic::AtomicUsize::new(0);
+
+    struct DrainStep(usize);
+
+    /// A worker that reports PROGRESS: three messages, then it returns.
+    extern "C" fn multi_writeback_worker(
+        mut _init: RefAny,
+        mut sender: crate::thread::ThreadSender,
+        _recv: azul_core::task::ThreadReceiver,
+    ) {
+        for step in 0..3 {
+            let _ = sender.send(crate::thread::ThreadReceiveMsg::WriteBack(
+                crate::thread::ThreadWriteBackMsg::new(
+                    drain_writeback as crate::thread::WriteBackCallbackType,
+                    RefAny::new(DrainStep(step)),
+                ),
+            ));
+        }
+    }
+
+    extern "C" fn drain_writeback(
+        mut _state: RefAny,
+        mut msg: RefAny,
+        _info: crate::callbacks::CallbackInfo,
+    ) -> Update {
+        if msg.downcast_ref::<DrainStep>().is_some() {
+            DRAIN_DELIVERED.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+        }
+        Update::DoNothing
+    }
+
+    /// LAW: every writeback a worker sends reaches the main thread.
+    ///
+    /// `run_all_threads` used to read ONE message per frame and retire the
+    /// thread as soon as the worker had finished — so a worker that reports
+    /// progress (several writebacks, then its result) had everything after
+    /// the first message dropped on the floor with the thread. Anything
+    /// built on progress reporting (the graphics-check dialog's install
+    /// progress bar) would silently show one step and then freeze.
+    #[test]
+    fn every_writeback_a_worker_sends_reaches_the_main_thread() {
+        use azul_core::window::RawWindowHandle;
+
+        DRAIN_DELIVERED.store(0, std::sync::atomic::Ordering::SeqCst);
+
+        let mut win = fresh_window();
+        let thread_id = ThreadId::unique();
+        win.threads.insert(
+            thread_id,
+            crate::thread::Thread::create(
+                RefAny::new(()),
+                RefAny::new(()),
+                multi_writeback_worker as crate::thread::ThreadCallbackType,
+            ),
+        );
+
+        let mut data = RefAny::new(());
+        let handle = RawWindowHandle::Unsupported;
+        let gl = OptionGlContextPtr::None;
+        let style = Arc::new(azul_css::system::SystemStyle::default());
+        let sc = ExternalSystemCallbacks::rust_internal();
+        let prev = None;
+        let cur = FullWindowState::default();
+        let rr = RendererResources::default();
+
+        // Poll until the thread retires itself (or we run out of patience —
+        // a hang here is a failure, not a pass).
+        let mut retired = false;
+        for _ in 0..200 {
+            let (changes, _) = win.run_all_threads(
+                &mut data, &handle, &gl, style.clone(), &sc, &prev, &cur, &rr,
+            );
+            for change in &changes {
+                if matches!(
+                    change,
+                    crate::callbacks::CallbackChange::RemoveThread { .. }
+                ) {
+                    retired = true;
+                }
+            }
+            if retired {
+                break;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(2));
+        }
+
+        assert!(retired, "the finished worker must eventually be retired");
+        assert_eq!(
+            DRAIN_DELIVERED.load(std::sync::atomic::Ordering::SeqCst),
+            3,
+            "all three writebacks must be delivered — a progress-reporting \
+             worker must not lose messages to thread retirement"
+        );
     }
 
     /// A `DomLayoutResult` carrying a real `StyledDom` but an *empty* layout
