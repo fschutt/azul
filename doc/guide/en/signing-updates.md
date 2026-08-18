@@ -69,6 +69,67 @@ optional. Everything else about delivery — where you host it, whether it is
 S3 or a static file — is up to you; the client only needs to be able to GET
 those two URLs.
 
+## You do not have to publish that manifest
+
+`manifest_url` is one URL, but the updater does not insist on one format.
+It fetches whatever is there and works out what it got, so the smallest
+useful deployment is a text file and the largest is the manifest above.
+
+| What is at the URL | What you get |
+| --- | --- |
+| The manifest above | Everything: rollout, changelog, signature chain |
+| A flat object `{"version": "2.0.0", "url": "…"}` | Version + download; same optional fields, no `latest` wrapper |
+| A GitHub release | Version, asset, changelog, digest, signatures — see below |
+| A bare version number, e.g. a `VERSION` file | Notification only: "there is a 2.0.0", with no download |
+
+The lenience is about SHAPE, never about verification. Whatever the source,
+the digest and the signature chain are checked identically, and a body that
+matches none of these shapes is an error — an HTML error page from a
+misconfigured host must never look like "you are up to date".
+
+### GitHub releases
+
+Point `manifest_url` at the repository. All of these mean the same thing:
+
+```text
+github://owner/repo
+https://github.com/owner/repo
+https://github.com/owner/repo/releases/latest
+https://api.github.com/repos/owner/repo/releases/latest
+```
+
+The updater then maps a release onto a `ReleaseInfo`:
+
+* `tag_name` is the version, with a leading `v` stripped.
+* The release **body** is the changelog, inline — no second request, and it
+  still works if the release page is unreachable.
+* `published_at` seeds the [rollout ladder](#staged-rollout), so staged
+  rollout works with no extra fields at all.
+* The **asset** is chosen by matching this build's OS and architecture
+  against the asset names (`…-x86_64-unknown-linux-musl.tar.gz`,
+  `…_windows_amd64.zip`, `…-aarch64-apple-darwin.tar.gz` all work). Pin it
+  explicitly with `github://owner/repo?asset=myapp-{version}-linux.bin` —
+  `*` globs are allowed. If nothing matches this platform the updater
+  reports the new version but **refuses to nominate a download**: handing
+  someone an arbitrary binary is worse than telling them to fetch it.
+* The **digest** comes from the asset's own `digest` field where GitHub
+  provides one, and otherwise from a sibling `myapp.bin.sha256` or
+  `SHA256SUMS` asset, matched by filename.
+* The **signature chain** rides as sibling assets:
+  `myapp.bin.minisig`, `signing-key-statement.txt` and
+  `signing-key-statement.txt.minisig`. Upload the files
+  `scripts/sign-release.sh` produced alongside the artifact and the chain
+  verifies exactly as it does from a manifest.
+
+Draft and pre-release entries are skipped. An unauthenticated client makes
+one or two API calls per check, well inside GitHub's rate limit for a
+per-user application.
+
+A GitHub release with no signature assets is *unsigned*: fine if your app
+does not pin a `root_public_key`, and a hard refusal if it does. That is the
+intended behaviour — an app that has been told to require signatures should
+not quietly accept a release that has none.
+
 ## Why there are two keys
 
 A single signing key is a bad trade: it has to live wherever your CI signs
@@ -185,6 +246,20 @@ update: install=UserWritable effective_mode=SelfUpdate
 update: 1.0.0 -> 2.0.0 available (manual mode)
 update: staged AND VERIFIED …/staging/myapp-2.0.0.bin (4096 bytes, cached=false)
         — signature chain OK, key generation now 1
+```
+
+The same drill takes a GitHub repository, which is the quickest way to see
+source resolution working against something real:
+
+```bash
+cargo run -p azul-layout --features updater,telemetry \
+    --example telemetry_grafana -- \
+    --update-manifest github://BurntSushi/ripgrep --version 0.1.0
+```
+
+```text
+update: 0.1.0 -> 15.2.0 available (manual mode)
+update: downloaded …/ripgrep-15.2.0-x86_64-unknown-linux-musl.tar.gz (2265718 bytes)
 ```
 
 Then break it on purpose, which is the half worth running:

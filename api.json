@@ -111037,6 +111037,12 @@
                                 "changelog_md_url": {
                                     "type": "String"
                                 },
+                                "changelog_md_inline": {
+                                    "type": "String",
+                                    "doc": [
+                                        "The changelog Markdown itself, when the source carried it inline (a GitHub release body does). Preferred over fetching changelog_md_url."
+                                    ]
+                                },
                                 "digest": {
                                     "type": "String"
                                 },

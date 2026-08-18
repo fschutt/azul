@@ -163,6 +163,12 @@ extern "C" fn check_worker(mut init: RefAny, mut sender: ThreadSender, _recv: Th
 /// The release's own changelog link wins; `AppConfig.changelog_md` is the
 /// fallback. Capped at 256 KiB — this renders into a dialog, not a pager.
 fn fetch_changelog(release: &ReleaseInfo, fallback: Option<&str>) -> String {
+    // A source that carried the changelog inline (a GitHub release body)
+    // has already given us the Markdown — no request, and it works even if
+    // the release page is unreachable.
+    if !release.changelog_md_inline.as_str().is_empty() {
+        return release.changelog_md_inline.as_str().to_owned();
+    }
     let url = if release.changelog_md_url.as_str().is_empty() {
         fallback.unwrap_or("")
     } else {

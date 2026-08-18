@@ -209,6 +209,10 @@ pub struct ReleaseInfo {
     pub download_url: AzString,
     /// The release's changelog (Markdown), for the `UpdateVersion` dialog.
     pub changelog_md_url: AzString,
+    /// The changelog Markdown ITSELF, when the source carried it inline (a
+    /// GitHub release body does). Preferred over fetching
+    /// `changelog_md_url`, which saves a request and works offline-ish.
+    pub changelog_md_inline: AzString,
     /// Hex digest of the artifact (verified when non-empty).
     pub digest: AzString,
     /// Minisign signature of the ARTIFACT by the release-signing key (the
@@ -573,12 +577,599 @@ pub fn parse_manifest_v1(json: &str) -> Result<(ReleaseInfo, RolloutPlan), Strin
         version: version.into(),
         download_url: get("download_url").into(),
         changelog_md_url: get("changelog_md").into(),
+        changelog_md_inline: get("changelog_md_inline").into(),
         digest: get("digest").into(),
         signature: get("signature").into(),
         signing_key_statement: get("signing_key_statement").into(),
         signing_key_statement_sig: get("signing_key_statement_sig").into(),
     };
     Ok((release, parse_rollout(latest)))
+}
+
+// ===========================================================================
+// UPDATE SOURCES — one URL in the app config, several kinds of thing behind it
+// ===========================================================================
+
+/// What answered at the update URL.
+///
+/// The app configures ONE URL. Rather than making every deployment stand up
+/// a manifest server, the updater looks at what it actually got back and
+/// works with it — from a plain text file on static hosting all the way to
+/// a full manifest. Lenient about SHAPE, never about VERIFICATION: whatever
+/// the source, the digest and signature chain are checked identically.
+#[derive(Debug, Copy, Clone, PartialEq, Eq, Default)]
+#[repr(C)]
+pub enum UpdateSourceKind {
+    /// Azul manifest v1: `{"latest": {…}}`. The full-featured form —
+    /// staged rollout, changelog URL, signature chain.
+    #[default]
+    ManifestV1,
+    /// A flat JSON object: `{"version": …, "download_url": …}`. Same fields,
+    /// no `latest` wrapper — what people write by hand on the first day.
+    FlatJson,
+    /// A GitHub release (the API's release object, or an array of them).
+    GitHubRelease,
+    /// A bare version string, e.g. a `VERSION` file on static hosting.
+    /// There is no artifact URL, so this can only NOTIFY — which is still
+    /// worth having: it costs one file and no infrastructure.
+    PlainVersion,
+}
+
+impl UpdateSourceKind {
+    /// Lowercase name, for logs and the `app_update_check_total` label.
+    #[must_use]
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::ManifestV1 => "manifest_v1",
+            Self::FlatJson => "flat_json",
+            Self::GitHubRelease => "github_release",
+            Self::PlainVersion => "plain_version",
+        }
+    }
+}
+
+/// A release plus the shape it was read from.
+#[derive(Debug, Clone, PartialEq)]
+pub struct ResolvedRelease {
+    /// The release itself.
+    pub release: ReleaseInfo,
+    /// Its rollout plan.
+    pub rollout: RolloutPlan,
+    /// Which source shape produced it.
+    pub kind: UpdateSourceKind,
+}
+
+/// A file the source referenced but did not inline (GitHub keeps signatures
+/// and checksums in sibling assets). Fetched after the document is parsed.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Sidecar {
+    /// Which `ReleaseInfo` field the fetched text fills.
+    pub field: SidecarField,
+    /// Where to get it.
+    pub url: String,
+}
+
+/// Which field a [`Sidecar`] fills.
+#[derive(Debug, Copy, Clone, PartialEq, Eq)]
+pub enum SidecarField {
+    /// `ReleaseInfo::signature`.
+    Signature,
+    /// `ReleaseInfo::signing_key_statement`.
+    Statement,
+    /// `ReleaseInfo::signing_key_statement_sig`.
+    StatementSig,
+    /// `ReleaseInfo::digest`, from a `.sha256` / `SHA256SUMS`-style file.
+    Digest,
+}
+
+/// An update URL, rewritten to something fetchable.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct NormalizedUrl {
+    /// What to GET.
+    pub fetch_url: String,
+    /// Explicit asset name pattern from `?asset=…`, if the URL carried one.
+    /// The placeholders `{version}` / `{target}` in it are substituted.
+    pub asset_pattern: Option<String>,
+}
+
+/// Rewrites the configured URL into something fetchable.
+///
+/// Accepted, all meaning "the latest GitHub release of that repo":
+/// `github://owner/repo`, `https://github.com/owner/repo`,
+/// `https://github.com/owner/repo/releases[/latest]`, and the API URL
+/// itself. A `?asset=` query pins which asset is the artifact; without it
+/// the asset is chosen by matching this build's OS and architecture.
+///
+/// Anything else is returned unchanged — a manifest URL is just a URL.
+#[must_use]
+pub fn normalize_update_url(url: &str) -> NormalizedUrl {
+    let url = url.trim();
+    let (base, query) = url.split_once('?').map_or((url, ""), |(b, q)| (b, q));
+    let asset_pattern = query
+        .split('&')
+        .find_map(|kv| kv.strip_prefix("asset="))
+        .map(percent_decode);
+
+    let repo = base
+        .strip_prefix("github://")
+        .or_else(|| base.strip_prefix("https://github.com/"))
+        .or_else(|| base.strip_prefix("http://github.com/"))
+        .or_else(|| base.strip_prefix("www.github.com/"))
+        .map(|rest| {
+            // owner/repo, ignoring any /releases/latest tail.
+            let mut parts = rest.trim_matches('/').split('/');
+            let owner = parts.next().unwrap_or_default();
+            let repo = parts.next().unwrap_or_default();
+            (owner.to_owned(), repo.to_owned())
+        })
+        .filter(|(o, r)| !o.is_empty() && !r.is_empty());
+
+    match repo {
+        Some((owner, repo)) => NormalizedUrl {
+            fetch_url: format!("https://api.github.com/repos/{owner}/{repo}/releases/latest"),
+            asset_pattern,
+        },
+        None => NormalizedUrl {
+            fetch_url: base.to_owned(),
+            asset_pattern,
+        },
+    }
+}
+
+/// Minimal percent-decoding for the `?asset=` value.
+fn percent_decode(s: &str) -> String {
+    let bytes = s.as_bytes();
+    let mut out = String::with_capacity(s.len());
+    let mut i = 0;
+    while i < bytes.len() {
+        if bytes[i] == b'%' && i + 2 < bytes.len() {
+            if let Ok(b) = u8::from_str_radix(&s[i + 1..i + 3], 16) {
+                out.push(b as char);
+                i += 3;
+                continue;
+            }
+        }
+        out.push(bytes[i] as char);
+        i += 1;
+    }
+    out
+}
+
+/// Version strings are compared numerically, so a `v` prefix has to go.
+#[must_use]
+pub fn strip_version_prefix(tag: &str) -> String {
+    let t = tag.trim();
+    t.strip_prefix('v')
+        .or_else(|| t.strip_prefix('V'))
+        .filter(|rest| rest.starts_with(|c: char| c.is_ascii_digit()))
+        .unwrap_or(t)
+        .to_owned()
+}
+
+/// Reads whatever the update URL returned.
+///
+/// The shape is SNIFFED, not configured: a `latest` key means manifest v1,
+/// `tag_name` + `assets` means a GitHub release, an array means a list of
+/// them, a flat object with a `version` means a hand-written manifest, and a
+/// body that is just a version number means notify-only. A body that is
+/// none of those is an error naming what it looked like — silently treating
+/// an HTML error page as "no update" would hide a broken deployment
+/// forever.
+///
+/// # Errors
+///
+/// Returns a description when the body matches no known shape.
+pub fn parse_release_document(
+    body: &str,
+    asset_pattern: Option<&str>,
+) -> Result<(ResolvedRelease, Vec<Sidecar>), String> {
+    let trimmed = body.trim();
+    if trimmed.is_empty() {
+        return Err("the update URL returned an empty body".to_owned());
+    }
+
+    let Ok(value) = serde_json::from_str::<serde_json::Value>(trimmed) else {
+        // Not JSON. A bare version number is a legitimate, minimal source;
+        // anything else is a mistake worth naming.
+        let first = trimmed.lines().next().unwrap_or_default().trim();
+        let version = strip_version_prefix(first);
+        if !version.is_empty()
+            && version.starts_with(|c: char| c.is_ascii_digit())
+            && version.len() <= 64
+            && version
+                .chars()
+                .all(|c| c.is_ascii_alphanumeric() || matches!(c, '.' | '-' | '+' | '_'))
+        {
+            return Ok((
+                ResolvedRelease {
+                    release: ReleaseInfo {
+                        version: version.into(),
+                        ..ReleaseInfo::default()
+                    },
+                    rollout: RolloutPlan::Immediate,
+                    kind: UpdateSourceKind::PlainVersion,
+                },
+                Vec::new(),
+            ));
+        }
+        return Err(format!(
+            "the update URL returned neither JSON nor a version number (it starts with {:?})",
+            &trimmed[..trimmed.len().min(40)]
+        ));
+    };
+
+    // A GitHub /releases list: take the newest published, non-draft,
+    // non-prerelease entry.
+    if let Some(array) = value.as_array() {
+        let picked = array
+            .iter()
+            .find(|r| {
+                r.get("draft") != Some(&serde_json::Value::Bool(true))
+                    && r.get("prerelease") != Some(&serde_json::Value::Bool(true))
+            })
+            .ok_or("the releases list has no published, non-prerelease entry")?;
+        return parse_github_release(picked, asset_pattern);
+    }
+
+    if value.get("latest").is_some() {
+        let (release, rollout) = parse_manifest_v1(trimmed)?;
+        return Ok((
+            ResolvedRelease {
+                release,
+                rollout,
+                kind: UpdateSourceKind::ManifestV1,
+            },
+            Vec::new(),
+        ));
+    }
+
+    if value.get("tag_name").is_some() || value.get("assets").is_some() {
+        return parse_github_release(&value, asset_pattern);
+    }
+
+    // A flat, hand-written object.
+    if let Some(version) = value.get("version").and_then(serde_json::Value::as_str) {
+        let get = |k: &str| {
+            value
+                .get(k)
+                .and_then(serde_json::Value::as_str)
+                .unwrap_or("")
+                .to_owned()
+        };
+        let download = if get("download_url").is_empty() {
+            get("url")
+        } else {
+            get("download_url")
+        };
+        return Ok((
+            ResolvedRelease {
+                release: ReleaseInfo {
+                    version: strip_version_prefix(version).into(),
+                    download_url: download.into(),
+                    changelog_md_url: get("changelog_md").into(),
+                    changelog_md_inline: get("changelog_md_inline").into(),
+                    digest: get("digest").into(),
+                    signature: get("signature").into(),
+                    signing_key_statement: get("signing_key_statement").into(),
+                    signing_key_statement_sig: get("signing_key_statement_sig").into(),
+                },
+                rollout: parse_rollout(&value),
+                kind: UpdateSourceKind::FlatJson,
+            },
+            Vec::new(),
+        ));
+    }
+
+    Err("the update URL returned JSON with no `latest`, `tag_name` or `version`".to_owned())
+}
+
+/// One GitHub release object → a `ReleaseInfo` plus the sibling assets that
+/// still have to be fetched.
+fn parse_github_release(
+    release: &serde_json::Value,
+    asset_pattern: Option<&str>,
+) -> Result<(ResolvedRelease, Vec<Sidecar>), String> {
+    let tag = release
+        .get("tag_name")
+        .and_then(serde_json::Value::as_str)
+        .ok_or("GitHub release has no tag_name")?;
+    let version = strip_version_prefix(tag);
+    let empty = Vec::new();
+    let assets = release
+        .get("assets")
+        .and_then(serde_json::Value::as_array)
+        .unwrap_or(&empty);
+
+    // `published_at` gives the rollout ladder its start date for free.
+    let mut rollout_src = serde_json::Map::new();
+    if let Some(published) = release.get("published_at") {
+        rollout_src.insert("release_date".to_owned(), published.clone());
+    }
+    let rollout = parse_rollout(&serde_json::Value::Object(rollout_src));
+
+    let mut info = ReleaseInfo {
+        version: version.clone().into(),
+        // The release body IS the changelog, already Markdown — no URL to
+        // fetch. `changelog_md_url` stays empty; the dialog falls back to
+        // `AppConfig.changelog_md` when there is no inline text.
+        ..ReleaseInfo::default()
+    };
+    if let Some(body) = release.get("body").and_then(serde_json::Value::as_str) {
+        info.changelog_md_inline = body.into();
+    }
+
+    // The placeholders are assembled rather than written literally: a bare
+    // "{version}" in source reads as a formatting argument to clippy.
+    let version_ph = concat!('{', "version", '}');
+    let target_ph = concat!('{', "target", '}');
+    let pattern = asset_pattern.map(|p| {
+        p.replace(version_ph, &version)
+            .replace(target_ph, std::env::consts::ARCH)
+    });
+    let Some(artifact) = select_github_asset(assets, pattern.as_deref()) else {
+        // Nothing here matches this platform. Report the version anyway:
+        // "there is a newer release" is true and useful, and refusing to
+        // guess which binary is right is the honest half.
+        return Ok((
+            ResolvedRelease {
+                release: info,
+                rollout,
+                kind: UpdateSourceKind::GitHubRelease,
+            },
+            Vec::new(),
+        ));
+    };
+
+    let artifact_name = asset_str(artifact, "name");
+    info.download_url = asset_str(artifact, "browser_download_url").into();
+
+    // GitHub populates `digest` for newer uploads and leaves it null on
+    // older ones — fall back to a sibling checksum file.
+    let mut sidecars = Vec::new();
+    match artifact.get("digest").and_then(serde_json::Value::as_str) {
+        Some(d) if !d.is_empty() => info.digest = d.into(),
+        _ => {
+            if let Some(sum) = find_asset(assets, |n| {
+                n == format!("{artifact_name}.sha256")
+                    || n.eq_ignore_ascii_case("sha256sums")
+                    || n.eq_ignore_ascii_case("sha256.sum")
+            }) {
+                sidecars.push(Sidecar {
+                    field: SidecarField::Digest,
+                    url: asset_str(sum, "browser_download_url"),
+                });
+            }
+        }
+    }
+
+    // The signature chain rides as sibling assets.
+    if let Some(sig) = find_asset(assets, |n| {
+        n == format!("{artifact_name}.minisig") || n == format!("{artifact_name}.sig")
+    }) {
+        sidecars.push(Sidecar {
+            field: SidecarField::Signature,
+            url: asset_str(sig, "browser_download_url"),
+        });
+    }
+    if let Some(st) = find_asset(assets, |n| {
+        n == "signing-key-statement.txt" || n == "signing-key-statement"
+    }) {
+        sidecars.push(Sidecar {
+            field: SidecarField::Statement,
+            url: asset_str(st, "browser_download_url"),
+        });
+    }
+    if let Some(sts) = find_asset(assets, |n| {
+        n == "signing-key-statement.txt.minisig" || n == "signing-key-statement.minisig"
+    }) {
+        sidecars.push(Sidecar {
+            field: SidecarField::StatementSig,
+            url: asset_str(sts, "browser_download_url"),
+        });
+    }
+
+    Ok((
+        ResolvedRelease {
+            release: info,
+            rollout,
+            kind: UpdateSourceKind::GitHubRelease,
+        },
+        sidecars,
+    ))
+}
+
+fn asset_str(asset: &serde_json::Value, key: &str) -> String {
+    asset
+        .get(key)
+        .and_then(serde_json::Value::as_str)
+        .unwrap_or("")
+        .to_owned()
+}
+
+fn find_asset(
+    assets: &[serde_json::Value],
+    pred: impl Fn(&str) -> bool,
+) -> Option<&serde_json::Value> {
+    assets.iter().find(|a| pred(&asset_str(a, "name")))
+}
+
+/// Names that are never the artifact: signatures, checksums, metadata.
+fn is_sidecar_name(name: &str) -> bool {
+    const SIDECAR_SUFFIXES: &[&str] = &[
+        ".minisig", ".sig", ".asc", ".pem", ".sha256", ".sha512", ".sum", ".txt", ".json",
+    ];
+    let lower = name.to_ascii_lowercase();
+    SIDECAR_SUFFIXES.iter().any(|suffix| lower.ends_with(suffix))
+        || lower.contains("checksum")
+        || lower.contains("sha256sums")
+}
+
+/// Picks the artifact for THIS build.
+///
+/// An explicit `?asset=` pattern wins (exact name, or a `*` glob). Otherwise
+/// assets are scored by whether their name carries this platform's OS and
+/// architecture; a name matching neither is never chosen, because shipping
+/// the user a random binary is worse than telling them to download it
+/// themselves.
+#[must_use]
+pub fn select_github_asset<'a>(
+    assets: &'a [serde_json::Value],
+    pattern: Option<&str>,
+) -> Option<&'a serde_json::Value> {
+    if let Some(pat) = pattern {
+        return assets.iter().find(|a| glob_match(pat, &asset_str(a, "name")));
+    }
+    let os_tokens: &[&str] = match std::env::consts::OS {
+        "linux" => &["linux"],
+        "macos" => &["macos", "darwin", "apple", "osx"],
+        "windows" => &["windows", "win"],
+        "android" => &["android"],
+        "ios" => &["ios"],
+        other => return assets.iter().find(|a| {
+            let n = asset_str(a, "name").to_ascii_lowercase();
+            !is_sidecar_name(&n) && n.contains(other)
+        }),
+    };
+    let arch_tokens: &[&str] = match std::env::consts::ARCH {
+        "x86_64" => &["x86_64", "amd64", "x64"],
+        "aarch64" => &["aarch64", "arm64"],
+        "x86" => &["i686", "i386", "x86"],
+        "arm" => &["armv7", "armhf", "arm"],
+        _ => &[],
+    };
+
+    let mut best: Option<(u8, &serde_json::Value)> = None;
+    for asset in assets {
+        let name = asset_str(asset, "name");
+        if name.is_empty() || is_sidecar_name(&name) {
+            continue;
+        }
+        let lower = name.to_ascii_lowercase();
+        let mut score = 0u8;
+        if os_tokens.iter().any(|t| lower.contains(t)) {
+            score += 2;
+        }
+        if arch_tokens.iter().any(|t| lower.contains(t)) {
+            score += 2;
+        }
+        if score == 0 {
+            continue;
+        }
+        if best.is_none_or(|(b, _)| score > b) {
+            best = Some((score, asset));
+        }
+    }
+    best.map(|(_, a)| a)
+}
+
+/// `*` glob, enough for asset names.
+fn glob_match(pattern: &str, name: &str) -> bool {
+    if !pattern.contains('*') {
+        return pattern == name;
+    }
+    let mut rest = name;
+    let mut parts = pattern.split('*');
+    if let Some(first) = parts.next() {
+        if !rest.starts_with(first) {
+            return false;
+        }
+        rest = &rest[first.len()..];
+    }
+    let parts: Vec<&str> = parts.collect();
+    for (i, part) in parts.iter().enumerate() {
+        if part.is_empty() {
+            continue;
+        }
+        if i + 1 == parts.len() && !pattern.ends_with('*') {
+            return rest.ends_with(part);
+        }
+        match rest.find(part) {
+            Some(at) => rest = &rest[at + part.len()..],
+            None => return false,
+        }
+    }
+    true
+}
+
+/// Fetches the update URL and reads whatever kind of source answered,
+/// including any sibling files a GitHub release keeps its signatures in.
+///
+/// # Errors
+///
+/// Returns a description on transport failure or an unreadable body.
+#[cfg(feature = "http")]
+pub fn resolve_release(url: &str) -> Result<ResolvedRelease, String> {
+    let normalized = normalize_update_url(url);
+    let config = crate::http::HttpRequestConfig::new()
+        .with_header("Accept", "application/vnd.github+json");
+    let response = crate::http::http_get_with_config(&normalized.fetch_url, &config)
+        .map_err(|e| format!("update source fetch: {e:?}"))?;
+    if !(200..300).contains(&response.status_code) {
+        return Err(format!(
+            "update source HTTP {} from {}",
+            response.status_code, normalized.fetch_url
+        ));
+    }
+    let body = String::from_utf8_lossy(response.body.as_ref()).into_owned();
+    let (mut resolved, sidecars) =
+        parse_release_document(&body, normalized.asset_pattern.as_deref())?;
+
+    // Sidecars are small text files; a failure to fetch one is NOT fatal —
+    // it leaves the field empty, and an app that pins a root key then
+    // refuses the release as unsigned, which is the correct outcome.
+    for sidecar in sidecars {
+        let Ok(r) = crate::http::http_get_with_config(&sidecar.url, &config) else {
+            continue;
+        };
+        if !(200..300).contains(&r.status_code) {
+            continue;
+        }
+        let text = String::from_utf8_lossy(r.body.as_ref()).into_owned();
+        match sidecar.field {
+            SidecarField::Signature => resolved.release.signature = text.trim().into(),
+            SidecarField::Statement => {
+                // The statement is signed as exact bytes; the file may end
+                // with the newline an editor added.
+                resolved.release.signing_key_statement = text.trim_end_matches(['\n', '\r']).into();
+            }
+            SidecarField::StatementSig => {
+                resolved.release.signing_key_statement_sig = text.trim().into();
+            }
+            SidecarField::Digest => {
+                if let Some(hex) = parse_checksum_file(&text, resolved.release.download_url.as_str())
+                {
+                    resolved.release.digest = format!("sha256:{hex}").into();
+                }
+            }
+        }
+    }
+    Ok(resolved)
+}
+
+/// Pulls this artifact's hash out of a `.sha256` file (bare hex) or a
+/// `SHA256SUMS`-style listing (`<hex>  <name>` per line).
+#[must_use]
+pub fn parse_checksum_file(text: &str, download_url: &str) -> Option<String> {
+    let artifact = download_url.rsplit('/').next().unwrap_or_default();
+    let is_hex = |s: &str| s.len() == 64 && s.bytes().all(|b| b.is_ascii_hexdigit());
+    for line in text.lines() {
+        let line = line.trim();
+        if line.is_empty() {
+            continue;
+        }
+        if is_hex(line) {
+            return Some(line.to_ascii_lowercase());
+        }
+        let mut parts = line.split_whitespace();
+        let (Some(hex), Some(name)) = (parts.next(), parts.next()) else {
+            continue;
+        };
+        let name = name.trim_start_matches('*');
+        if is_hex(hex) && (name == artifact || artifact.is_empty()) {
+            return Some(hex.to_ascii_lowercase());
+        }
+    }
+    None
 }
 
 /// BLOCKING check against a manifest URL — run it on an azul `Thread`
@@ -602,20 +1193,10 @@ pub fn check_for_updates_blocking(
         .map_or(0, |d| d.as_secs());
     state.last_check_unix = now;
 
-    let response = match crate::http::http_get_with_config(manifest_url, &crate::http::HttpRequestConfig::new()) {
-        Ok(r) if (200..300).contains(&r.status_code) => r,
-        Ok(r) => {
-            record_check("error");
-            return UpdateCheckResult::Error(format!("manifest HTTP {}", r.status_code).into());
-        }
-        Err(e) => {
-            record_check("error");
-            return UpdateCheckResult::Error(format!("manifest fetch: {e:?}").into());
-        }
-    };
-    let body = String::from_utf8_lossy(response.body.as_ref());
-    let (release, rollout) = match parse_manifest_v1(&body) {
-        Ok(r) => r,
+    // ANY supported source shape: azul manifest, flat JSON, a GitHub
+    // release, or a bare version file. See `resolve_release`.
+    let (release, rollout) = match resolve_release(manifest_url) {
+        Ok(resolved) => (resolved.release, resolved.rollout),
         Err(e) => {
             record_check("error");
             return UpdateCheckResult::Error(e.into());
@@ -1400,6 +1981,191 @@ mod tests {
         drop(std::fs::remove_dir_all(&dir));
     }
 
+    // ---- update sources ---------------------------------------------------
+
+    #[test]
+    fn github_urls_in_every_spelling_normalize_to_the_api() {
+        let expect = "https://api.github.com/repos/fschutt/azul/releases/latest";
+        for spelling in [
+            "github://fschutt/azul",
+            "https://github.com/fschutt/azul",
+            "https://github.com/fschutt/azul/",
+            "https://github.com/fschutt/azul/releases",
+            "https://github.com/fschutt/azul/releases/latest",
+        ] {
+            assert_eq!(
+                normalize_update_url(spelling).fetch_url,
+                expect,
+                "{spelling} must resolve to the releases API"
+            );
+        }
+        // An asset pattern rides through, percent-decoded.
+        let n = normalize_update_url("github://fschutt/azul?asset=azul-%2A-linux.bin");
+        assert_eq!(n.asset_pattern.as_deref(), Some("azul-*-linux.bin"));
+        // A manifest URL is left ALONE — the abstraction must not rewrite
+        // what it does not recognise.
+        assert_eq!(
+            normalize_update_url("https://ex.invalid/updates.json").fetch_url,
+            "https://ex.invalid/updates.json"
+        );
+    }
+
+    /// LAW: the shape is sniffed, and every supported shape yields a version.
+    #[test]
+    fn every_source_shape_is_recognised() {
+        // 1. azul manifest v1
+        let (r, _) = parse_release_document(
+            r#"{"latest":{"version":"2.0.0","download_url":"http://x/a.bin"}}"#,
+            None,
+        )
+        .unwrap();
+        assert_eq!(r.kind, UpdateSourceKind::ManifestV1);
+        assert_eq!(r.release.version.as_str(), "2.0.0");
+
+        // 2. flat, hand-written JSON — `url` accepted as well as `download_url`
+        let (r, _) = parse_release_document(r#"{"version":"v3.1","url":"http://x/b.bin"}"#, None)
+            .unwrap();
+        assert_eq!(r.kind, UpdateSourceKind::FlatJson);
+        assert_eq!(r.release.version.as_str(), "3.1", "the v prefix must go");
+        assert_eq!(r.release.download_url.as_str(), "http://x/b.bin");
+
+        // 3. a bare version file on static hosting: notify-only
+        let (r, _) = parse_release_document("v4.2.0\n", None).unwrap();
+        assert_eq!(r.kind, UpdateSourceKind::PlainVersion);
+        assert_eq!(r.release.version.as_str(), "4.2.0");
+        assert!(
+            r.release.download_url.as_str().is_empty(),
+            "a version file cannot say where the artifact is"
+        );
+
+        // 4. anything else is an ERROR, not a silent "up to date" — an HTML
+        //    error page must not look like "no update available".
+        let err = parse_release_document("<html><body>404</body></html>", None).unwrap_err();
+        assert!(err.contains("neither JSON nor a version"), "{err}");
+        assert!(parse_release_document("", None).is_err());
+        assert!(parse_release_document(r#"{"whatever":1}"#, None).is_err());
+    }
+
+    fn gh_asset(name: &str, digest: Option<&str>) -> serde_json::Value {
+        serde_json::json!({
+            "name": name,
+            "browser_download_url": format!("https://dl.invalid/{name}"),
+            "digest": digest,
+        })
+    }
+
+    #[test]
+    fn a_github_release_becomes_a_release_info() {
+        let target = format!(
+            "app-2.0.0-{}-{}.bin",
+            std::env::consts::ARCH,
+            std::env::consts::OS
+        );
+        let release = serde_json::json!({
+            "tag_name": "v2.0.0",
+            "published_at": "2027-01-01T00:00:00Z",
+            "prerelease": false,
+            "body": "# 2.0.0\n\n- a change",
+            "assets": [
+                gh_asset("app-2.0.0-somethingelse.bin", None),
+                gh_asset(&target, Some("sha256:abc")),
+                gh_asset(&format!("{target}.minisig"), None),
+                gh_asset("signing-key-statement.txt", None),
+                gh_asset("signing-key-statement.txt.minisig", None),
+            ],
+        });
+        let (r, sidecars) = parse_github_release(&release, None).unwrap();
+        assert_eq!(r.kind, UpdateSourceKind::GitHubRelease);
+        assert_eq!(r.release.version.as_str(), "2.0.0");
+        assert_eq!(
+            r.release.download_url.as_str(),
+            format!("https://dl.invalid/{target}"),
+            "the asset for THIS platform must win"
+        );
+        assert_eq!(r.release.digest.as_str(), "sha256:abc");
+        assert!(
+            r.release.changelog_md_inline.as_str().contains("a change"),
+            "the release body IS the changelog"
+        );
+        // published_at seeds the rollout ladder without any extra fields.
+        assert!(
+            matches!(r.rollout, RolloutPlan::Staged(_)),
+            "published_at must give the default ladder"
+        );
+        // The signature chain rides as sibling assets.
+        let fields: Vec<SidecarField> = sidecars.iter().map(|s| s.field).collect();
+        assert!(fields.contains(&SidecarField::Signature));
+        assert!(fields.contains(&SidecarField::Statement));
+        assert!(fields.contains(&SidecarField::StatementSig));
+    }
+
+    /// LAW: with no asset for this platform we still report the VERSION but
+    /// refuse to nominate a download — handing the user an arbitrary binary
+    /// is worse than telling them to fetch it themselves.
+    #[test]
+    fn an_unmatched_platform_notifies_but_never_guesses() {
+        let release = serde_json::json!({
+            "tag_name": "9.9.9",
+            "assets": [gh_asset("app-for-some-other-os.bin", None)],
+        });
+        let (r, _) = parse_github_release(&release, None).unwrap();
+        assert_eq!(r.release.version.as_str(), "9.9.9");
+        assert!(r.release.download_url.as_str().is_empty());
+    }
+
+    #[test]
+    fn signatures_and_checksums_are_never_mistaken_for_the_artifact() {
+        let os = std::env::consts::OS;
+        let assets = vec![
+            gh_asset(&format!("app-{os}.bin.minisig"), None),
+            gh_asset(&format!("app-{os}.bin.sha256"), None),
+            gh_asset("SHA256SUMS", None),
+            gh_asset(&format!("app-{os}.bin"), None),
+        ];
+        let picked = select_github_asset(&assets, None).expect("an artifact must be picked");
+        assert_eq!(picked.get("name").unwrap().as_str().unwrap(), format!("app-{os}.bin"));
+        // An explicit pattern wins outright, globs included.
+        let picked = select_github_asset(&assets, Some("*.sha256")).unwrap();
+        assert!(picked.get("name").unwrap().as_str().unwrap().ends_with(".sha256"));
+    }
+
+    /// GitHub leaves `digest` null on older uploads, so a checksum file has
+    /// to be readable in both common layouts.
+    #[test]
+    fn checksum_files_are_read_in_both_layouts() {
+        assert_eq!(
+            parse_checksum_file(&"a".repeat(64), "http://x/app.bin").as_deref(),
+            Some("a".repeat(64).as_str()),
+            "a bare .sha256 file"
+        );
+        let sums = format!(
+            "{}  other.bin\n{}  app.bin\n",
+            "b".repeat(64),
+            "c".repeat(64)
+        );
+        assert_eq!(
+            parse_checksum_file(&sums, "http://x/app.bin"),
+            Some("c".repeat(64)),
+            "SHA256SUMS must be matched by FILENAME, not by position"
+        );
+        assert_eq!(parse_checksum_file("nonsense", "http://x/app.bin"), None);
+    }
+
+    #[test]
+    fn a_releases_list_skips_drafts_and_prereleases() {
+        let list = serde_json::json!([
+            {"tag_name": "3.0.0-rc1", "prerelease": true, "assets": []},
+            {"tag_name": "2.9.0", "draft": true, "assets": []},
+            {"tag_name": "2.8.0", "prerelease": false, "assets": []},
+        ]);
+        let (r, _) = parse_release_document(&list.to_string(), None).unwrap();
+        assert_eq!(
+            r.release.version.as_str(),
+            "2.8.0",
+            "a prerelease must never be offered as the latest stable"
+        );
+    }
+
     // ---- signature chain --------------------------------------------------
 
     /// Everything a chain test needs: a ROOT keypair, a SIGNING keypair, a
@@ -1453,6 +2219,7 @@ mod tests {
                 version: "2.0.0".into(),
                 download_url: "http://x/update-2.0.0.bin".into(),
                 changelog_md_url: "".into(),
+                changelog_md_inline: "".into(),
                 digest: "".into(),
                 signature: artifact_sig.into(),
                 signing_key_statement: statement.into(),
