@@ -217,6 +217,11 @@ pub struct UpdateState {
     pub last_check_unix: u64,
     /// "Remind me later": checks report `UpToDate` until this passes.
     pub suspended_until_unix: u64,
+    /// This client's PHASED-ROLLOUT cohort (0-99), drawn once and persisted
+    /// so the client stays in the same A/B cohort for every release. `None`
+    /// until the first gated check draws it — see
+    /// [`UpdateState::rollout_bucket`].
+    pub rollout_bucket: Option<u8>,
 }
 
 impl UpdateState {
@@ -244,7 +249,38 @@ impl UpdateState {
                 .get("suspended_until_unix")
                 .and_then(serde_json::Value::as_u64)
                 .unwrap_or(0),
+            rollout_bucket: v
+                .get("rollout_bucket")
+                .and_then(serde_json::Value::as_u64)
+                .and_then(|b| u8::try_from(b).ok())
+                .filter(|b| *b < 100),
         }
+    }
+
+    /// This client's rollout cohort (0-99): the "fake-rand" that decides
+    /// WHEN a phased rollout reaches this install. Drawn once (from the
+    /// clock's sub-second noise), then PERSISTED — the client stays in the
+    /// same cohort for every release, which is what makes per-version A/B
+    /// comparisons in Grafana meaningful. `AZ_UPDATE_BUCKET=<0-99>`
+    /// overrides for drills and tests.
+    pub fn rollout_bucket(&mut self) -> u8 {
+        if let Some(forced) = std::env::var("AZ_UPDATE_BUCKET")
+            .ok()
+            .and_then(|v| v.parse::<u8>().ok())
+            .filter(|b| *b < 100)
+        {
+            return forced;
+        }
+        if let Some(bucket) = self.rollout_bucket {
+            return bucket;
+        }
+        let nanos = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map_or(0, |d| d.subsec_nanos());
+        let bucket = u8::try_from((u64::from(nanos) ^ u64::from(std::process::id())) % 100)
+            .unwrap_or(0);
+        self.rollout_bucket = Some(bucket);
+        bucket
     }
 
     /// Writes to `dir/update-state.json`.
@@ -253,9 +289,168 @@ impl UpdateState {
             "highest_seen": self.highest_seen,
             "last_check_unix": self.last_check_unix,
             "suspended_until_unix": self.suspended_until_unix,
+            "rollout_bucket": self.rollout_bucket,
         });
         drop(std::fs::create_dir_all(dir));
         drop(std::fs::write(dir.join("update-state.json"), value.to_string()));
+    }
+}
+
+/// One stage of a PHASED rollout: `percent`% of the auto-update fleet may
+/// see the release once `at_unix` passes.
+#[derive(Debug, Copy, Clone, PartialEq, Eq)]
+pub struct RolloutStage {
+    /// Cumulative percent of the fleet (1-100).
+    pub percent: u8,
+    /// Unix seconds when this stage opens.
+    pub at_unix: u64,
+}
+
+/// The slow-rollout plan for one release — the manifest's `latest.slow`
+/// field. ON BY DEFAULT: a manifest carrying `release_date` but no `slow`
+/// gets [`RolloutPlan::default_ladder`]; only an explicit `"slow": "off"`
+/// (or a manifest with neither field) releases to everyone at once.
+///
+/// Purpose: a cooldown for inspecting Grafana per-version before the new
+/// version reaches the whole fleet. Each client draws a persistent cohort
+/// bucket ([`UpdateState::rollout_bucket`]); the AUTO-UPDATE path opens
+/// stage by stage, and the NOTIFY path (package-managed installs) shows
+/// "please update" only once the rollout hits 100%.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum RolloutPlan {
+    /// No staggering: everyone immediately.
+    Immediate,
+    /// Stages sorted by time; percent 100 completes the rollout.
+    Staged(Vec<RolloutStage>),
+}
+
+impl RolloutPlan {
+    /// The DEFAULT ladder when a manifest has a `release_date` but no
+    /// explicit `slow` config: day 1 → 10%, day 2 → 30%, day 3 → 50%,
+    /// day 4 → 100%.
+    #[must_use]
+    pub fn default_ladder(release_unix: u64) -> Self {
+        const DAY: u64 = 86_400;
+        Self::Staged(vec![
+            RolloutStage { percent: 10, at_unix: release_unix + DAY },
+            RolloutStage { percent: 30, at_unix: release_unix + 2 * DAY },
+            RolloutStage { percent: 50, at_unix: release_unix + 3 * DAY },
+            RolloutStage { percent: 100, at_unix: release_unix + 4 * DAY },
+        ])
+    }
+
+    /// Percent of the fleet allowed to update at `now` (0 before the first
+    /// stage opens; a plan whose LAST stage is below 100 still completes —
+    /// reaching the final stage means "the rollout has run its course").
+    #[must_use]
+    pub fn allowed_percent(&self, now_unix: u64) -> u8 {
+        match self {
+            Self::Immediate => 100,
+            Self::Staged(stages) => {
+                let reached = stages
+                    .iter()
+                    .filter(|st| st.at_unix <= now_unix)
+                    .map(|st| st.percent)
+                    .max()
+                    .unwrap_or(0);
+                let last_open = stages.iter().all(|st| st.at_unix <= now_unix);
+                if last_open { 100 } else { reached }
+            }
+        }
+    }
+
+    /// Whether the rollout has reached everyone — the gate for the
+    /// notify-only "please update" hint on system-installed versions.
+    #[must_use]
+    pub fn is_complete(&self, now_unix: u64) -> bool {
+        self.allowed_percent(now_unix) >= 100
+    }
+}
+
+/// Which rollout gate applies to this client.
+#[derive(Debug, Copy, Clone, PartialEq, Eq)]
+pub enum UpdateAudience {
+    /// Self-updating install: eligible once its cohort bucket falls under
+    /// the currently-open percent.
+    AutoUpdate,
+    /// Package-managed / notify-only install: sees the notification only
+    /// after the rollout completes (100%).
+    NotifyOnly,
+}
+
+/// `"2026-08-18"` / `"2026-08-18T12:30:00Z"` / unix seconds (number or
+/// numeric string) → unix seconds. Returns `None` for anything else.
+#[must_use]
+pub fn parse_manifest_datetime(v: &serde_json::Value) -> Option<u64> {
+    if let Some(n) = v.as_u64() {
+        return Some(n);
+    }
+    let text = v.as_str()?.trim();
+    if let Ok(n) = text.parse::<u64>() {
+        return Some(n);
+    }
+    // YYYY-MM-DD[THH:MM[:SS][Z]]
+    let (date, time) = match text.split_once('T') {
+        Some((d, t)) => (d, t.trim_end_matches('Z')),
+        None => (text, ""),
+    };
+    let mut parts = date.split('-');
+    let year: i64 = parts.next()?.parse().ok()?;
+    let month: u32 = parts.next()?.parse().ok()?;
+    let day: u32 = parts.next()?.parse().ok()?;
+    if !(1..=12).contains(&month) || !(1..=31).contains(&day) {
+        return None;
+    }
+    // Howard Hinnant's days-from-civil.
+    let y = if month <= 2 { year - 1 } else { year };
+    let era = y.div_euclid(400);
+    let yoe = u64::try_from(y - era * 400).ok()?;
+    let mp = u64::from((month + 9) % 12);
+    let doy = (153 * mp + 2) / 5 + u64::from(day) - 1;
+    let doe = yoe * 365 + yoe / 4 - yoe / 100 + doy;
+    let days = era * 146_097 + i64::try_from(doe).ok()? - 719_468;
+    let mut secs = u64::try_from(days).ok()? * 86_400;
+    if !time.is_empty() {
+        let mut hms = time.split(':');
+        let h: u64 = hms.next()?.parse().ok()?;
+        let m: u64 = hms.next().unwrap_or("0").parse().ok()?;
+        let sec: u64 = hms.next().unwrap_or("0").parse().ok()?;
+        secs += h * 3600 + m * 60 + sec;
+    }
+    Some(secs)
+}
+
+/// Extracts the rollout plan from `latest`: explicit `"slow": "off"` →
+/// immediate; explicit `"slow": {"10": <datetime>, …}` → those stages;
+/// absent `slow` → the default ladder from `release_date`, or immediate
+/// when there is no `release_date` to ladder from.
+#[must_use]
+pub fn parse_rollout(latest: &serde_json::Value) -> RolloutPlan {
+    let release_date = latest
+        .get("release_date")
+        .and_then(parse_manifest_datetime);
+    match latest.get("slow") {
+        Some(serde_json::Value::String(s)) if s.eq_ignore_ascii_case("off") => {
+            RolloutPlan::Immediate
+        }
+        Some(serde_json::Value::Object(map)) => {
+            let mut stages: Vec<RolloutStage> = map
+                .iter()
+                .filter_map(|(percent, when)| {
+                    let percent: u8 = percent.trim().parse().ok().filter(|p| (1..=100).contains(p))?;
+                    let at_unix = parse_manifest_datetime(when)?;
+                    Some(RolloutStage { percent, at_unix })
+                })
+                .collect();
+            stages.sort_by_key(|st| (st.at_unix, st.percent));
+            if stages.is_empty() {
+                // A malformed slow-map must not silently ship to everyone.
+                release_date.map_or(RolloutPlan::Immediate, RolloutPlan::default_ladder)
+            } else {
+                RolloutPlan::Staged(stages)
+            }
+        }
+        _ => release_date.map_or(RolloutPlan::Immediate, RolloutPlan::default_ladder),
     }
 }
 
@@ -276,6 +471,17 @@ impl UpdateState {
 /// Returns a description when the JSON does not parse or `latest.version`
 /// is missing.
 pub fn parse_manifest(json: &str) -> Result<ReleaseInfo, String> {
+    parse_manifest_v1(json).map(|(release, _)| release)
+}
+
+/// [`parse_manifest`] plus the release's [`RolloutPlan`] (from
+/// `latest.slow` / `latest.release_date`; see [`parse_rollout`]).
+///
+/// # Errors
+///
+/// Returns a description when the JSON does not parse or `latest.version`
+/// is missing.
+pub fn parse_manifest_v1(json: &str) -> Result<(ReleaseInfo, RolloutPlan), String> {
     let v: serde_json::Value =
         serde_json::from_str(json).map_err(|e| format!("manifest parse: {e}"))?;
     let latest = v
@@ -292,24 +498,28 @@ pub fn parse_manifest(json: &str) -> Result<ReleaseInfo, String> {
     if version.is_empty() {
         return Err("manifest: missing `latest.version`".to_owned());
     }
-    Ok(ReleaseInfo {
+    let release = ReleaseInfo {
         version: version.into(),
         download_url: get("download_url").into(),
         changelog_md_url: get("changelog_md").into(),
         digest: get("digest").into(),
-    })
+    };
+    Ok((release, parse_rollout(latest)))
 }
 
 /// BLOCKING check against a manifest URL — run it on an azul `Thread`
 /// (`CallbackInfo::check_for_updates` does exactly that), never on the UI
-/// thread. Applies the anti-downgrade high-water mark and the suspension
-/// window from `state`, updates `state`'s bookkeeping, and observes itself
-/// through `app_update_check_total{result}`.
+/// thread. Applies the anti-downgrade high-water mark, the suspension
+/// window AND the release's slow-rollout gate (the client's persistent
+/// cohort bucket vs the currently-open stage; notify-only audiences wait
+/// for 100%), updates `state`'s bookkeeping, and observes itself through
+/// `app_update_check_total{result}` — a gated client records `staggered`.
 #[cfg(feature = "http")]
 pub fn check_for_updates_blocking(
     manifest_url: &str,
     current_version: &str,
     state: &mut UpdateState,
+    audience: UpdateAudience,
 ) -> UpdateCheckResult {
     use core::cmp::Ordering;
 
@@ -330,7 +540,7 @@ pub fn check_for_updates_blocking(
         }
     };
     let body = String::from_utf8_lossy(response.body.as_ref());
-    let release = match parse_manifest(&body) {
+    let (release, rollout) = match parse_manifest_v1(&body) {
         Ok(r) => r,
         Err(e) => {
             record_check("error");
@@ -355,13 +565,27 @@ pub fn check_for_updates_blocking(
         return UpdateCheckResult::UpToDate;
     }
 
-    if compare_versions(&offered, current_version) == Ordering::Greater {
-        record_check("available");
-        UpdateCheckResult::Available(release)
-    } else {
+    if compare_versions(&offered, current_version) != Ordering::Greater {
         record_check("up_to_date");
-        UpdateCheckResult::UpToDate
+        return UpdateCheckResult::UpToDate;
     }
+
+    // SLOW-ROLLOUT gate: a newer version exists, but this client may not be
+    // in the open cohort yet. Auto-updaters compare their persistent bucket
+    // against the currently-open stage; notify-only installs (package-
+    // managed) do not even see the notification until the rollout hits
+    // 100%. A gated client reports UpToDate — from the app's point of view
+    // the release does not exist for it YET.
+    let eligible = match audience {
+        UpdateAudience::AutoUpdate => state.rollout_bucket() < rollout.allowed_percent(now),
+        UpdateAudience::NotifyOnly => rollout.is_complete(now),
+    };
+    if !eligible {
+        record_check("staggered");
+        return UpdateCheckResult::UpToDate;
+    }
+    record_check("available");
+    UpdateCheckResult::Available(release)
 }
 
 fn record_check(result: &str) {
@@ -732,8 +956,13 @@ extern "C" fn update_check_worker(
             "no update manifest configured (AppConfig.updates.manifest_url)".into(),
         ),
         (Some(url), _) => {
+            let audience = if effective == UpdateMode::SelfUpdate {
+                UpdateAudience::AutoUpdate
+            } else {
+                UpdateAudience::NotifyOnly
+            };
             let mut state = UpdateState::load(&state_dir);
-            let r = check_for_updates_blocking(url, &task.env.current_version, &mut state);
+            let r = check_for_updates_blocking(url, &task.env.current_version, &mut state, audience);
             state.save(&state_dir);
             r
         }
@@ -857,9 +1086,107 @@ mod tests {
             highest_seen: "1.5.0".to_owned(),
             last_check_unix: 1_700_000_000,
             suspended_until_unix: 1_700_100_000,
+            rollout_bucket: Some(42),
         };
         state.save(&dir);
         assert_eq!(UpdateState::load(&dir), state);
         drop(std::fs::remove_dir_all(&dir));
+    }
+
+    // ---- slow rollout -----------------------------------------------------
+
+    const DAY: u64 = 86_400;
+    const REL: u64 = 1_800_000_000;
+
+    fn manifest_with(extra: &str) -> String {
+        format!(
+            r#"{{"latest": {{"version": "2.0.0", "download_url": "http://x/a.bin",
+                 "changelog_md": "", "digest": ""{extra}}}}}"#
+        )
+    }
+
+    #[test]
+    fn explicit_slow_map_parses_sorted_and_gates_by_time() {
+        let json = manifest_with(&format!(
+            r#", "release_date": {REL},
+                "slow": {{"50": {}, "10": {}}}"#,
+            REL + 2 * DAY,
+            REL + DAY
+        ));
+        let (_, plan) = parse_manifest_v1(&json).expect("manifest parses");
+        // Before day 1: nobody. After day 1: 10%. After day 2 (the LAST
+        // stage): the rollout has run its course = 100%.
+        assert_eq!(plan.allowed_percent(REL), 0);
+        assert_eq!(plan.allowed_percent(REL + DAY + 1), 10);
+        assert_eq!(plan.allowed_percent(REL + 2 * DAY + 1), 100);
+    }
+
+    #[test]
+    fn slow_off_means_immediate_and_absent_release_date_means_immediate() {
+        let (_, plan) = parse_manifest_v1(&manifest_with(r#", "slow": "off""#))
+            .expect("manifest parses");
+        assert_eq!(plan, RolloutPlan::Immediate);
+        // No slow AND no release_date: nothing to ladder from.
+        let (_, plan) = parse_manifest_v1(&manifest_with("")).expect("manifest parses");
+        assert_eq!(plan, RolloutPlan::Immediate);
+    }
+
+    #[test]
+    fn default_ladder_is_on_by_default_when_release_date_exists() {
+        // THE default: 1d/10, 2d/30, 3d/50, 4d/100 — no "slow" key needed.
+        let (_, plan) = parse_manifest_v1(&manifest_with(&format!(
+            r#", "release_date": {REL}"#
+        )))
+        .expect("manifest parses");
+        assert_eq!(plan.allowed_percent(REL + DAY / 2), 0, "release day: nobody");
+        assert_eq!(plan.allowed_percent(REL + DAY), 10);
+        assert_eq!(plan.allowed_percent(REL + 2 * DAY), 30);
+        assert_eq!(plan.allowed_percent(REL + 3 * DAY), 50);
+        assert_eq!(plan.allowed_percent(REL + 4 * DAY), 100);
+        assert!(!plan.is_complete(REL + 3 * DAY));
+        assert!(plan.is_complete(REL + 4 * DAY));
+    }
+
+    #[test]
+    fn auto_audience_gates_by_bucket_and_notify_waits_for_full_rollout() {
+        let plan = RolloutPlan::default_ladder(REL);
+        let day1 = REL + DAY; // 10% open
+        // Cohort bucket 5 is inside the first 10%; bucket 42 is not.
+        assert!(5 < plan.allowed_percent(day1));
+        assert!(42 >= plan.allowed_percent(day1));
+        // bucket 42 opens at day 3 (50%)...
+        assert!(42 < plan.allowed_percent(REL + 3 * DAY));
+        // ...but the NOTIFY audience (system-installed) sees NOTHING until
+        // 100%: the "please update" hint must not race the fleet cooldown.
+        assert!(!plan.is_complete(REL + 3 * DAY));
+        assert!(plan.is_complete(REL + 4 * DAY));
+    }
+
+    #[test]
+    fn rollout_bucket_draws_once_persists_and_env_overrides() {
+        let dir = std::env::temp_dir().join(format!("azul-bucket-test-{}", std::process::id()));
+        let mut state = UpdateState::default();
+        let drawn = state.rollout_bucket();
+        assert!(drawn < 100);
+        assert_eq!(state.rollout_bucket(), drawn, "second draw = same cohort");
+        state.save(&dir);
+        let mut reloaded = UpdateState::load(&dir);
+        assert_eq!(reloaded.rollout_bucket(), drawn, "cohort survives restart");
+        drop(std::fs::remove_dir_all(&dir));
+    }
+
+    #[test]
+    fn manifest_datetime_accepts_unix_and_iso_forms() {
+        use serde_json::json;
+        assert_eq!(parse_manifest_datetime(&json!(1_800_000_000_u64)), Some(1_800_000_000));
+        assert_eq!(parse_manifest_datetime(&json!("1800000000")), Some(1_800_000_000));
+        // 2026-08-18 00:00:00 UTC = 1787011200 (python datetime oracle).
+        assert_eq!(parse_manifest_datetime(&json!("2026-08-18")), Some(1_787_011_200));
+        assert_eq!(
+            parse_manifest_datetime(&json!("2026-08-18T01:30:00Z")),
+            Some(1_787_011_200 + 5400)
+        );
+        assert_eq!(parse_manifest_datetime(&json!("not a date")), None);
+        assert_eq!(parse_manifest_datetime(&json!("2026-13-01")), None, "month 13");
     }
 }

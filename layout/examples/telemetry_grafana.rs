@@ -78,6 +78,7 @@ struct Args {
     fleet: Option<usize>,
     /// Update drill: check this manifest URL at session end.
     update_manifest: Option<String>,
+    rollout_drill: Option<String>,
     /// `download_automatically` for the drill (auto mode); without it the
     /// drill is manual: notify, then download+apply on simulated consent.
     update_auto: bool,
@@ -101,6 +102,7 @@ impl Args {
             crash_bug: false,
             fleet: None,
             update_manifest: None,
+            rollout_drill: None,
             update_auto: false,
             mail_to: None,
             mail_port: None,
@@ -126,6 +128,7 @@ impl Args {
                 "--crash-bug" => args.crash_bug = true,
                 "--fleet" => args.fleet = value().parse().ok(),
                 "--update-manifest" => args.update_manifest = Some(value()),
+                "--rollout-drill" => args.rollout_drill = Some(value()),
                 "--update-auto" => args.update_auto = true,
                 "--mail-to" => args.mail_to = Some(value()),
                 "--mail-port" => args.mail_port = value().parse().ok(),
@@ -448,6 +451,10 @@ fn main() {
 
     // ── Update drill (localhost manifest; auto + manual modes) ─────────
     #[cfg(feature = "updater")]
+    if let Some(manifest) = &args.rollout_drill {
+        #[cfg(feature = "updater")]
+        run_rollout_drill(manifest, &args.version);
+    }
     if let Some(manifest) = &args.update_manifest {
         run_update_drill(manifest, &args.version, args.update_auto);
     }
@@ -657,6 +664,62 @@ fn run_crash_reporter_if_spawned(_args: &Args) -> bool {
 }
 
 
+/// The SLOW-ROLLOUT drill: runs the REAL check path (HTTP + manifest +
+/// persisted state + cohort gate) as several cohort buckets against one
+/// manifest, so "10% today, 50% tomorrow" is observable: low buckets get
+/// the release, high buckets read `staggered` (= UpToDate for now), and
+/// the notify-only audience stays quiet until the rollout completes.
+#[cfg(feature = "updater")]
+fn run_rollout_drill(manifest_url: &str, current_version: &str) {
+    use azul_layout::updater as up;
+
+    println!("rollout: drilling {manifest_url} as several cohort buckets");
+    let state_dir = std::env::temp_dir().join("azul-rollout-demo");
+    drop(std::fs::remove_dir_all(&state_dir)); // fresh cohorts per drill
+
+    for bucket in [5u8, 25, 42, 75, 95] {
+        // AZ_UPDATE_BUCKET forces the cohort — exactly what a fleet of
+        // machines would each draw once and persist.
+        std::env::set_var("AZ_UPDATE_BUCKET", bucket.to_string());
+        let mut state = up::UpdateState::load(&state_dir);
+        let verdict = up::check_for_updates_blocking(
+            manifest_url,
+            current_version,
+            &mut state,
+            up::UpdateAudience::AutoUpdate,
+        );
+        let text = match &verdict {
+            up::UpdateCheckResult::Available(r) => {
+                format!("AVAILABLE {} (this cohort is open)", r.version.as_str())
+            }
+            up::UpdateCheckResult::UpToDate => "staggered/up-to-date (cohort not open yet)".to_owned(),
+            up::UpdateCheckResult::Error(e) => format!("ERROR {}", e.as_str()),
+        };
+        println!("rollout: bucket {bucket:>2} auto   -> {text}");
+    }
+
+    // The system-installed audience: no notification until 100%.
+    std::env::set_var("AZ_UPDATE_BUCKET", "0");
+    let mut state = up::UpdateState::load(&state_dir);
+    let verdict = up::check_for_updates_blocking(
+        manifest_url,
+        current_version,
+        &mut state,
+        up::UpdateAudience::NotifyOnly,
+    );
+    let text = match &verdict {
+        up::UpdateCheckResult::Available(r) => {
+            format!("NOTIFY {} (rollout complete)", r.version.as_str())
+        }
+        up::UpdateCheckResult::UpToDate => {
+            "quiet (rollout not at 100% yet - system installs wait)".to_owned()
+        }
+        up::UpdateCheckResult::Error(e) => format!("ERROR {}", e.as_str()),
+    };
+    println!("rollout: notify-only audience -> {text}");
+    std::env::remove_var("AZ_UPDATE_BUCKET");
+}
+
 /// A stand-in for an app's own `extern "C"` UI callback — timed via
 /// `Probe::span_for_fn`, so its RESOLVED NAME becomes the span/phase.
 #[unsafe(no_mangle)]
@@ -686,7 +749,12 @@ fn run_update_drill(manifest_url: &str, current_version: &str, auto: bool) {
 
     let state_dir = std::env::temp_dir().join("azul-update-demo");
     let mut state = up::UpdateState::load(&state_dir);
-    let result = up::check_for_updates_blocking(manifest_url, current_version, &mut state);
+    let result = up::check_for_updates_blocking(
+        manifest_url,
+        current_version,
+        &mut state,
+        up::UpdateAudience::AutoUpdate,
+    );
     state.save(&state_dir);
 
     let release = match result {
