@@ -2832,7 +2832,7 @@ fn builtin_render_fn(
     if let Some(text_str) = data.get_default_string("text") {
         let prepared = prepare_string(text_str);
         if !prepared.is_empty() {
-            dom = dom.with_children(alloc::vec![Dom::create_text(prepared)].into());
+            dom = dom.with_children(alloc::vec![Dom::create_text_do_not_use_without_block_level_wrapper(prepared)].into());
         }
     }
     let r: Result<StyledDom, RenderDomError> = Ok(StyledDom::create(&mut dom, Css::empty()));
@@ -2854,7 +2854,7 @@ fn builtin_compile_fn(
     let r: Result<AzString, CompileError> = match target {
         CompileTarget::Rust => {
             text.map_or_else(|| Ok(format!("Dom::create_node(NodeType::{type_name})").into()), |text_str| Ok(format!(
-                    "Dom::create_node(NodeType::{}).with_children(vec![Dom::create_text(\"{}\")])",
+                    "Dom::create_node(NodeType::{}).with_children(vec![Dom::create_text_do_not_use_without_block_level_wrapper(\"{}\")])",
                     type_name,
                     text_str.as_str().replace('\\', "\\\\").replace('"', "\\\"")
                 ).into()))
@@ -2880,7 +2880,7 @@ fn push_scalar_field(children: &mut Vec<Dom>, field_name: &str, value: &dyn fmt:
     use crate::dom::{Dom, NodeType};
     let text = alloc::format!("{field_name}: {value}");
     children.push(
-        Dom::create_node(NodeType::Div).with_children(alloc::vec![Dom::create_text(text)].into()),
+        Dom::create_node(NodeType::Div).with_children(alloc::vec![Dom::create_text_do_not_use_without_block_level_wrapper(text)].into()),
     );
 }
 
@@ -2920,7 +2920,7 @@ fn push_scalar_field(children: &mut Vec<Dom>, field_name: &str, value: &dyn fmt:
                         let text = s.as_str().trim();
                         if !text.is_empty() {
                             let label_dom = Dom::create_node(NodeType::Div).with_children(
-                                alloc::vec![Dom::create_text(text.to_string())].into(),
+                                alloc::vec![Dom::create_text_do_not_use_without_block_level_wrapper(text.to_string())].into(),
                             );
                             children.push(label_dom);
                         }
@@ -2960,7 +2960,7 @@ fn push_scalar_field(children: &mut Vec<Dom>, field_name: &str, value: &dyn fmt:
                         );
                         children.push(
                             Dom::create_node(NodeType::Div)
-                                .with_children(alloc::vec![Dom::create_text(text)].into()),
+                                .with_children(alloc::vec![Dom::create_text_do_not_use_without_block_level_wrapper(text)].into()),
                         );
                     }
                     ComponentDefaultValue::ComponentInstance(ci) => {
@@ -2980,7 +2980,7 @@ fn push_scalar_field(children: &mut Vec<Dom>, field_name: &str, value: &dyn fmt:
                                     );
                                     children.push(
                                         Dom::create_node(NodeType::Div).with_children(
-                                            alloc::vec![Dom::create_text(text)].into(),
+                                            alloc::vec![Dom::create_text_do_not_use_without_block_level_wrapper(text)].into(),
                                         ),
                                     );
                                 }
@@ -2993,7 +2993,7 @@ fn push_scalar_field(children: &mut Vec<Dom>, field_name: &str, value: &dyn fmt:
                                     );
                                     children.push(
                                         Dom::create_node(NodeType::Div).with_children(
-                                            alloc::vec![Dom::create_text(text)].into(),
+                                            alloc::vec![Dom::create_text_do_not_use_without_block_level_wrapper(text)].into(),
                                         ),
                                     );
                                 }
@@ -3006,7 +3006,7 @@ fn push_scalar_field(children: &mut Vec<Dom>, field_name: &str, value: &dyn fmt:
                             );
                             children.push(
                                 Dom::create_node(NodeType::Div)
-                                    .with_children(alloc::vec![Dom::create_text(text)].into()),
+                                    .with_children(alloc::vec![Dom::create_text_do_not_use_without_block_level_wrapper(text)].into()),
                             );
                         }
                     }
@@ -3015,14 +3015,14 @@ fn push_scalar_field(children: &mut Vec<Dom>, field_name: &str, value: &dyn fmt:
                         let text = alloc::format!("{}: fn({})", field_name, name.as_str());
                         children.push(
                             Dom::create_node(NodeType::Div)
-                                .with_children(alloc::vec![Dom::create_text(text)].into()),
+                                .with_children(alloc::vec![Dom::create_text_do_not_use_without_block_level_wrapper(text)].into()),
                         );
                     }
                     ComponentDefaultValue::Json(json_str) => {
                         let text = alloc::format!("{}: {}", field_name, json_str.as_str());
                         children.push(
                             Dom::create_node(NodeType::Div)
-                                .with_children(alloc::vec![Dom::create_text(text)].into()),
+                                .with_children(alloc::vec![Dom::create_text_do_not_use_without_block_level_wrapper(text)].into()),
                         );
                     }
                     ComponentDefaultValue::None => {
@@ -3082,12 +3082,12 @@ fn push_scalar_field(children: &mut Vec<Dom>, field_name: &str, value: &dyn fmt:
                     OptionComponentDefaultValue::Some(ComponentDefaultValue::String(s)) => {
                         let escaped = s.as_str().replace('\\', "\\\\").replace('"', "\\\"");
                         lines.push(alloc::format!(
-                            "{inner_indent}children.push(Dom::create_text(\"{escaped}\"));"
+                            "{inner_indent}children.push(Dom::create_text_do_not_use_without_block_level_wrapper(\"{escaped}\"));"
                         ));
                     }
                     OptionComponentDefaultValue::Some(ComponentDefaultValue::Bool(b)) => {
                         lines.push(alloc::format!(
-                            "{inner_indent}children.push(Dom::create_text(format!(\"{{}}: {{}}\", \"{fname}\", {b}).as_str()));"
+                            "{inner_indent}children.push(Dom::create_text_do_not_use_without_block_level_wrapper(format!(\"{{}}: {{}}\", \"{fname}\", {b}).as_str()));"
                         ));
                     }
                     OptionComponentDefaultValue::Some(
@@ -3167,7 +3167,7 @@ fn push_scalar_field(children: &mut Vec<Dom>, field_name: &str, value: &dyn fmt:
                     OptionComponentDefaultValue::Some(ComponentDefaultValue::String(s)) => {
                         let escaped = s.as_str().replace('\\', "\\\\").replace('"', "\\\"");
                         lines.push(alloc::format!(
-                            "{inner_indent}root.add_child(Dom::create_text(String(\"{escaped}\")));"
+                            "{inner_indent}root.add_child(Dom::create_text_do_not_use_without_block_level_wrapper(String(\"{escaped}\")));"
                         ));
                     }
                     OptionComponentDefaultValue::Some(
@@ -3203,7 +3203,7 @@ fn push_scalar_field(children: &mut Vec<Dom>, field_name: &str, value: &dyn fmt:
                             .replace('"', "\\\"")
                             .replace('\'', "\\'");
                         lines.push(alloc::format!(
-                            "{inner_indent}root = root.with_child(Dom.create_text(\"{escaped}\"))"
+                            "{inner_indent}root = root.with_child(Dom.create_text_do_not_use_without_block_level_wrapper(\"{escaped}\"))"
                         ));
                     }
                     OptionComponentDefaultValue::Some(
@@ -4152,7 +4152,7 @@ fn builtin_if_render_fn(
         "if: false (else branch)"
     };
     let mut dom =
-        Dom::create_node(NodeType::Div).with_children(alloc::vec![Dom::create_text(label)].into());
+        Dom::create_node(NodeType::Div).with_children(alloc::vec![Dom::create_text_do_not_use_without_block_level_wrapper(label)].into());
     let css = Css::empty();
     ResultStyledDomRenderDomError::Ok(StyledDom::create(&mut dom, css))
 }
@@ -4227,7 +4227,7 @@ fn builtin_for_render_fn(
     for i in 0..count {
         items.push(
             Dom::create_node(NodeType::Div)
-                .with_children(alloc::vec![Dom::create_text(alloc::format!("Item {i}"))].into()),
+                .with_children(alloc::vec![Dom::create_text_do_not_use_without_block_level_wrapper(alloc::format!("Item {i}"))].into()),
         );
     }
     let mut dom = Dom::create_node(NodeType::Div).with_children(items.into());
@@ -4308,7 +4308,7 @@ fn builtin_map_render_fn(
 
     let label = alloc::format!("map: data_json={data_str}");
     let mut dom =
-        Dom::create_node(NodeType::Div).with_children(alloc::vec![Dom::create_text(label)].into());
+        Dom::create_node(NodeType::Div).with_children(alloc::vec![Dom::create_text_do_not_use_without_block_level_wrapper(label)].into());
     let css = Css::empty();
     ResultStyledDomRenderDomError::Ok(StyledDom::create(&mut dom, css))
 }
@@ -5824,7 +5824,7 @@ fn xml_node_to_dom_fast<'a>(
                 children.push(child_dom);
             }
             XmlNodeChild::Text(text) => {
-                let text_dom = Dom::create_text(AzString::from(text.as_str()));
+                let text_dom = Dom::create_text_do_not_use_without_block_level_wrapper(AzString::from(text.as_str()));
                 children.push(text_dom);
             }
         }
@@ -5993,7 +5993,7 @@ fn xml_node_to_fast_dom<'a>(
                     )?;
                 }
                 XmlNodeChild::Text(text) => {
-                    builder.add_leaf(NodeData::create_text(AzString::from(text.as_str())));
+                    builder.add_leaf(NodeData::create_text_do_not_use_without_block_level_wrapper(AzString::from(text.as_str())));
                 }
             }
         }
@@ -6713,7 +6713,7 @@ pub fn compile_body_node_to_rust_code<'a>(
                     if !text.is_empty() {
                         let escaped = text.replace('\\', "\\\\").replace('"', "\\\"");
                         let _ = write!(dom_string,
-                            "{t}Dom::create_text(\"{escaped}\"),\r\n"
+                            "{t}Dom::create_text_do_not_use_without_block_level_wrapper(\"{escaped}\"),\r\n"
                         );
                     }
                 }
@@ -6985,7 +6985,7 @@ fn compile_node_to_rust_code_inner(
                     let t2 = String::from("    ").repeat(tabs);
                     let escaped = text.replace('\\', "\\\\").replace('"', "\\\"");
                     Some(Ok(format!(
-                        "{t2}Dom::create_text(\"{escaped}\")"
+                        "{t2}Dom::create_text_do_not_use_without_block_level_wrapper(\"{escaped}\")"
                     )))
                 }
             }
@@ -7480,7 +7480,7 @@ const CPP_SYNTAX: FluentSyntax = FluentSyntax {
     // — `NodeType` is a tagged union, so `create_node` would need union
     // construction; the per-tag creators exist for every common HTML element.
     create_node: |tag| alloc::format!("Dom::create_{}()", tag.to_lowercase()),
-    create_text: |s| alloc::format!("Dom::create_text(String(\"{s}\"))"),
+    create_text: |s| alloc::format!("Dom::create_text_do_not_use_without_block_level_wrapper(String(\"{s}\"))"),
     with_css: |s| alloc::format!(".with_css(String(\"{s}\"))"),
     with_class: |s| alloc::format!(".with_class(String(\"{s}\"))"),
     with_id: |s| alloc::format!(".with_id(String(\"{s}\"))"),
@@ -7491,7 +7491,7 @@ const PYTHON_SYNTAX: FluentSyntax = FluentSyntax {
     target: CompileTarget::Python,
     // Per-tag creators (azul.Dom.create_div(), …) — see CPP_SYNTAX note.
     create_node: |tag| alloc::format!("azul.Dom.create_{}()", tag.to_lowercase()),
-    create_text: |s| alloc::format!("azul.Dom.create_text(\"{s}\")"),
+    create_text: |s| alloc::format!("azul.Dom.create_text_do_not_use_without_block_level_wrapper(\"{s}\")"),
     with_css: |s| alloc::format!(".with_css(\"{s}\")"),
     with_class: |s| alloc::format!(".with_class(\"{s}\")"),
     with_id: |s| alloc::format!(".with_id(\"{s}\")"),
@@ -7921,10 +7921,10 @@ mod tests {
         // since we're testing the parsing logic
         let expected_dom = Dom::create_p().with_children(
             vec![
-                Dom::create_text("Text before "),
+                Dom::create_text_do_not_use_without_block_level_wrapper("Text before "),
                 Dom::create_node(NodeType::Span)
-                    .with_children(vec![Dom::create_text("inline text")].into()),
-                Dom::create_text(" text after."),
+                    .with_children(vec![Dom::create_text_do_not_use_without_block_level_wrapper("inline text")].into()),
+                Dom::create_text_do_not_use_without_block_level_wrapper(" text after."),
             ]
             .into(),
         );
@@ -10586,8 +10586,8 @@ mod autotest_generated {
     fn compact_dom_builder_keeps_hierarchy_and_data_parallel() {
         let mut b = CompactDomBuilder::new();
         b.open_node(NodeData::create_node(NodeType::Html));
-        b.add_leaf(NodeData::create_text("a"));
-        b.add_leaf(NodeData::create_text("b"));
+        b.add_leaf(NodeData::create_text_do_not_use_without_block_level_wrapper("a"));
+        b.add_leaf(NodeData::create_text_do_not_use_without_block_level_wrapper("b"));
         b.close_node();
         let fd = b.finish();
         assert_eq!(fd.node_data.as_ref().len(), 3);

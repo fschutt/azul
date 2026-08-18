@@ -829,7 +829,7 @@ mod tests {
     #[test]
     fn dom_to_pdf_embeds_text_fonts() {
         let dom = Dom::create_body()
-            .with_child(Dom::create_text("Hello PDF text — glyphs must embed"));
+            .with_child(Dom::create_text_do_not_use_without_block_level_wrapper("Hello PDF text — glyphs must embed"));
         let bytes = dom_to_pdf(dom, 595.0, 842.0);
         assert!(!bytes.as_ref().is_empty(), "PDF generation produced no bytes");
 
@@ -891,7 +891,7 @@ mod tests {
     #[test]
     fn pdf_roundtrips_to_svg_pages_and_dom() {
         let dom = Dom::create_body()
-            .with_child(Dom::create_text("Reverse-path text for SVG extraction"));
+            .with_child(Dom::create_text_do_not_use_without_block_level_wrapper("Reverse-path text for SVG extraction"));
         let bytes = dom_to_pdf(dom, 595.0, 842.0);
         let pages = pdf_to_svg_pages(bytes.as_ref());
         assert_eq!(pages.len(), 1, "expected exactly one SVG page");

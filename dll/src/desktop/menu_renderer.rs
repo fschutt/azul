@@ -312,7 +312,7 @@ fn create_string_menu_item_dom(
         .with_ids_and_classes(IdOrClassVec::from_vec(vec![IdOrClass::Class(
             "menu-item-label".into(),
         )]))
-        .with_child(Dom::create_text(item.label.clone()));
+        .with_child(Dom::create_text_do_not_use_without_block_level_wrapper(item.label.clone()));
     item_dom = item_dom.with_child(label_dom);
 
     // Keyboard shortcut (if present)
@@ -322,7 +322,7 @@ fn create_string_menu_item_dom(
             .with_ids_and_classes(IdOrClassVec::from_vec(vec![IdOrClass::Class(
                 "menu-item-shortcut".into(),
             )]))
-            .with_child(Dom::create_text(shortcut_text));
+            .with_child(Dom::create_text_do_not_use_without_block_level_wrapper(shortcut_text));
         item_dom = item_dom.with_child(shortcut_dom);
     }
 
@@ -332,7 +332,7 @@ fn create_string_menu_item_dom(
             .with_ids_and_classes(IdOrClassVec::from_vec(vec![IdOrClass::Class(
                 "menu-item-arrow".into(),
             )]))
-            .with_child(Dom::create_text("▶"));
+            .with_child(Dom::create_text_do_not_use_without_block_level_wrapper("▶"));
         item_dom = item_dom.with_child(arrow_dom);
     }
 
@@ -398,7 +398,7 @@ fn create_icon_dom(icon: &OptionMenuItemIcon) -> Dom {
                 // Add checkmark if checked
                 if *checked {
                     icon_dom =
-                        Dom::create_text("✓").with_ids_and_classes(IdOrClassVec::from_vec(vec![
+                        Dom::create_text_do_not_use_without_block_level_wrapper("✓").with_ids_and_classes(IdOrClassVec::from_vec(vec![
                             IdOrClass::Class("menu-item-icon".into()),
                             IdOrClass::Class("menu-item-checkbox".into()),
                             IdOrClass::Class("menu-item-checkbox-checked".into()),

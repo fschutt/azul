@@ -33,7 +33,7 @@ Dom make_button(RefAny& calc, const char* label, int evt, char digit, int op, co
     bd.digit = digit;
     bd.op = op;
     
-    Dom text = Dom::create_text(String(label));
+    Dom text = Dom::create_text_do_not_use_without_block_level_wrapper(String(label));
     Dom btn = Dom::create_div();
     btn.set_css(String(style));
     btn.add_child(text);
@@ -46,7 +46,7 @@ AzDom layout(AzRefAny data, AzLayoutCallbackInfo info) {
     const Calculator* c = Calculator_downcast_ref(data_wrapper);
     if (!c) return AzDom_createBody();
     
-    Dom display_text = Dom::create_text(String(c->display));
+    Dom display_text = Dom::create_text_do_not_use_without_block_level_wrapper(String(c->display));
     Dom display = Dom::create_div();
     display.set_css(String("background:#2d2d2d;color:white;font-size:48px;text-align:right;padding:20px;min-height:80px;"));
     display.add_child(display_text);

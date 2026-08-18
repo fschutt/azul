@@ -4116,14 +4116,14 @@ mod autotest_generated {
             Dom::create_body()
                 .with_child(
                     div_class("block")
-                        .with_child(Dom::create_text("hello"))
-                        .with_child(div_class("inline").with_child(Dom::create_text("world"))),
+                        .with_child(Dom::create_text_do_not_use_without_block_level_wrapper("hello"))
+                        .with_child(div_class("inline").with_child(Dom::create_text_do_not_use_without_block_level_wrapper("world"))),
                 )
                 .with_child(
                     div_class("mixed")
-                        .with_child(Dom::create_text(" \n\t"))
+                        .with_child(Dom::create_text_do_not_use_without_block_level_wrapper(" \n\t"))
                         .with_child(div_class("block2"))
-                        .with_child(Dom::create_text("tail")),
+                        .with_child(Dom::create_text_do_not_use_without_block_level_wrapper("tail")),
                 ),
             ".block { display: block; } .inline { display: inline; } .mixed { display: block; } \
              .block2 { display: block; }",
@@ -5421,7 +5421,7 @@ mod autotest_generated {
     #[test]
     fn the_marker_pseudo_element_is_inserted_as_the_first_child_of_a_list_item() {
         let sd = styled(
-            Dom::create_body().with_child(div_class("li").with_child(Dom::create_text("item"))),
+            Dom::create_body().with_child(div_class("li").with_child(Dom::create_text_do_not_use_without_block_level_wrapper("item"))),
             ".li { display: list-item; }",
         );
         let tree = build_tree(&sd);
@@ -5500,7 +5500,7 @@ mod autotest_generated {
         let sd = styled(
             Dom::create_body().with_child(
                 div_class("t")
-                    .with_child(Dom::create_text("   "))
+                    .with_child(Dom::create_text_do_not_use_without_block_level_wrapper("   "))
                     .with_child(div_class("row")),
             ),
             ".t { display: table; } .row { display: table-row; }",
@@ -6117,7 +6117,7 @@ mod autotest_generated {
     #[test]
     fn is_inline_level_is_always_true_for_text_regardless_of_display() {
         let sd = styled(
-            Dom::create_body().with_child(div_class("b").with_child(Dom::create_text("t"))),
+            Dom::create_body().with_child(div_class("b").with_child(Dom::create_text_do_not_use_without_block_level_wrapper("t"))),
             ".b { display: block; }",
         );
         let t = text_node(&sd, "t");
@@ -6214,7 +6214,7 @@ mod autotest_generated {
 
     fn ws_dom(text: &str, css: &str) -> StyledDom {
         styled(
-            Dom::create_body().with_child(div_class("p").with_child(Dom::create_text(text))),
+            Dom::create_body().with_child(div_class("p").with_child(Dom::create_text_do_not_use_without_block_level_wrapper(text))),
             css,
         )
     }
@@ -6427,7 +6427,7 @@ mod autotest_generated {
             let nd = NodeData::create_node(nt.clone());
             assert!(!is_replaced_element(&nd), "{nt:?} is not replaced");
         }
-        assert!(!is_replaced_element(&NodeData::create_text("hello")));
+        assert!(!is_replaced_element(&NodeData::create_text_do_not_use_without_block_level_wrapper("hello")));
     }
 
     #[test]
@@ -7003,7 +7003,7 @@ mod autotest_generated {
                 ".t { display: table; } .c { display: table-cell; }",
             ),
             styled(
-                Dom::create_body().with_child(div_class("li").with_child(Dom::create_text("x"))),
+                Dom::create_body().with_child(div_class("li").with_child(Dom::create_text_do_not_use_without_block_level_wrapper("x"))),
                 ".li { display: list-item; }",
             ),
         ] {

@@ -660,10 +660,14 @@ impl Backstage {
             if item.gap_before {
                 part_style = merged_style(&part_style, &style.nav_item_gap_style);
             }
+            // The nav item div is display:flex — a raw text run cannot be a
+            // flex item (no anonymous-block wrapping in azul), so the label
+            // gets its `<p>` per the label convention. Caught by `dom_lint`
+            // on its very first run.
             let mut d = Dom::create_div()
                 .with_ids_and_classes(IdOrClassVec::from_const_slice(classes))
                 .with_css_props(part_style)
-                .with_children(DomVec::from_vec(vec![Dom::create_text(item.label)]));
+                .with_children(DomVec::from_vec(vec![Dom::create_p_with_text(item.label)]));
             if let Some(cb) = on_nav_select.as_ref() {
                 d = d.with_callbacks(vec![CoreCallbackData {
                     event: EventFilter::Hover(HoverEventFilter::MouseUp),

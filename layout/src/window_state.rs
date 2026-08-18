@@ -209,11 +209,11 @@ mod autotest_generated {
     }
 
     extern "C" fn cb_beta(_: RefAny, _: LayoutCallbackInfo) -> Dom {
-        Dom::create_text("beta")
+        Dom::create_text_do_not_use_without_block_level_wrapper("beta")
     }
 
     extern "C" fn cb_gamma(_: RefAny, _: LayoutCallbackInfo) -> Dom {
-        Dom::create_text("gamma-gamma-gamma")
+        Dom::create_text_do_not_use_without_block_level_wrapper("gamma-gamma-gamma")
     }
 
     /// Stored by `create` but never invoked by it — invoking it fails the test.

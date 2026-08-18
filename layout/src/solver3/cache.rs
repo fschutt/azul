@@ -3587,10 +3587,10 @@ mod autotest_generated {
         styled(
             Dom::create_body().with_child(
                 div_class("p")
-                    .with_child(Dom::create_text(" \n\t"))
-                    .with_child(Dom::create_text("hi"))
+                    .with_child(Dom::create_text_do_not_use_without_block_level_wrapper(" \n\t"))
+                    .with_child(Dom::create_text_do_not_use_without_block_level_wrapper("hi"))
                     .with_child(Dom::create_div())
-                    .with_child(Dom::create_text("\u{00A0}")),
+                    .with_child(Dom::create_text_do_not_use_without_block_level_wrapper("\u{00A0}")),
             ),
             css_str,
         )
@@ -5021,7 +5021,7 @@ mod autotest_generated {
         let sd = styled(
             Dom::create_body()
                 .with_child(Dom::create_div())
-                .with_child(Dom::create_text(" "))
+                .with_child(Dom::create_text_do_not_use_without_block_level_wrapper(" "))
                 .with_child(div_class("hide")),
             ".hide { display: none; }",
         );

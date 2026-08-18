@@ -694,7 +694,7 @@ mod autotest_generated {
 
     #[test]
     fn section_new_stores_args_and_starts_closed() {
-        let content = Dom::create_div().with_child(Dom::create_text("body"));
+        let content = Dom::create_div().with_child(Dom::create_text_do_not_use_without_block_level_wrapper("body"));
         let sec = AccordionSection::new("Title", content.clone());
 
         assert_eq!(sec.title.as_str(), "Title");
@@ -729,7 +729,7 @@ mod autotest_generated {
 
     #[test]
     fn section_with_open_sets_flag_without_touching_other_fields() {
-        let content = Dom::create_text("x");
+        let content = Dom::create_text_do_not_use_without_block_level_wrapper("x");
         let base = AccordionSection::new("t", content.clone());
 
         let opened = base.clone().with_open(true);
@@ -855,8 +855,8 @@ mod autotest_generated {
     #[test]
     fn dom_display_follows_is_open() {
         let acc = Accordion::new(AccordionSectionVec::from_vec(alloc::vec![
-            AccordionSection::new("closed", Dom::create_text("c0")),
-            AccordionSection::new("open", Dom::create_text("c1")).with_open(true),
+            AccordionSection::new("closed", Dom::create_text_do_not_use_without_block_level_wrapper("c0")),
+            AccordionSection::new("open", Dom::create_text_do_not_use_without_block_level_wrapper("c1")).with_open(true),
         ]));
         let dom = acc.dom();
         assert_eq!(dom.children.as_ref().len(), 2);
@@ -926,7 +926,7 @@ mod autotest_generated {
         // deeply nested content + many sections: `estimated_total_children` must
         // still equal the real descendant count, otherwise the compact-DOM arena
         // under-allocates and panics later.
-        let mut deep = Dom::create_text("leaf");
+        let mut deep = Dom::create_text_do_not_use_without_block_level_wrapper("leaf");
         for _ in 0..64 {
             deep = Dom::create_div().with_child(deep);
         }

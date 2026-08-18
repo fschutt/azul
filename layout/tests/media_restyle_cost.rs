@@ -31,7 +31,7 @@ fn document_scale_dom() -> (Dom, &'static str) {
                 .with_ids_and_classes(
                     vec![azul_core::dom::IdOrClass::Class("para".into())].into(),
                 )
-                .with_child(Dom::create_text(azul_css::AzString::from(
+                .with_child(Dom::create_text_do_not_use_without_block_level_wrapper(azul_css::AzString::from(
                     format!("Section {s} paragraph {p} with some running text"),
                 )));
             section = section.with_child(para);

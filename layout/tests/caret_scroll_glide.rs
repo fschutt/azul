@@ -30,7 +30,7 @@ fn build(animations: SystemAnimations) -> LayoutWindow {
     let mut dom = Dom::create_body().with_child(
         Dom::create_div()
             .with_ids_and_classes(vec![azul_core::dom::IdOrClass::Class("clip".into())].into())
-            .with_child(editor.with_child(Dom::create_text(long.as_str()))),
+            .with_child(editor.with_child(Dom::create_text_do_not_use_without_block_level_wrapper(long.as_str()))),
     );
     let (css, _) = azul_css::parser2::new_from_str(CSS);
     let styled_dom = StyledDom::create(&mut dom, css);

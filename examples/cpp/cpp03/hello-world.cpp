@@ -25,7 +25,7 @@ AzDom layout(AzRefAny data, AzLayoutCallbackInfo info) {
 
     Dom label = Dom::create_div()
         .with_css(String("font-size: 32px;"))
-        .with_child(Dom::create_text(String(buffer)));
+        .with_child(Dom::create_text_do_not_use_without_block_level_wrapper(String(buffer)));
 
     Button button = Button::create(String("Increase counter"))
         .with_button_type(ButtonType::Primary)

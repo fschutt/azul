@@ -123,7 +123,7 @@ object HelloWorld {
           case m: MyDataModel =>
             val label = Dom.createDiv()
               .withCss("font-size: 32px;")
-              .withChild(Dom.createText(String.valueOf(m.counter)))
+              .withChild(Dom.createTextDoNotUseWithoutBlockLevelWrapper(String.valueOf(m.counter)))
             val buttonDom = new Dom(
               Button.create("Increase counter")
                 .withButtonType(ButtonType.Primary.value)

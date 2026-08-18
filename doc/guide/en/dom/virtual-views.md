@@ -208,7 +208,7 @@ extern "C" fn table_render(
 
     let dom: Dom = tdata.visible_rows.iter().map(|r| {
         Dom::create_div()
-            .with_child(Dom::create_text(r.text.clone()))
+            .with_child(Dom::create_text_do_not_use_without_block_level_wrapper(r.text.clone()))
             .with_css(format!("height: {}px;", tdata.row_height))
     }).collect();
 

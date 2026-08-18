@@ -2779,7 +2779,7 @@ mod tests {
             .map(|s| s.label.clone())
             .unwrap_or_default();
         Dom::create_body()
-            .with_child(Dom::create_div().with_child(Dom::create_text(label.as_str())))
+            .with_child(Dom::create_div().with_child(Dom::create_text_do_not_use_without_block_level_wrapper(label.as_str())))
     }
 
     /// One embedded font for the whole harness. Using a bundled font instead of
@@ -2952,7 +2952,7 @@ mod tests {
                     ]
                     .into(),
                 )
-                .with_child(Dom::create_text(text))
+                .with_child(Dom::create_text_do_not_use_without_block_level_wrapper(text))
         };
         let spacer = Dom::create_div().with_css_props(
             vec![C::simple(CssProperty::flex_grow(LayoutFlexGrow::const_new(1)))].into(),
@@ -2973,7 +2973,7 @@ mod tests {
             .with_css_props(
                 vec![C::simple(CssProperty::text_align(StyleTextAlign::Center))].into(),
             )
-            .with_child(Dom::create_text(label.as_str()));
+            .with_child(Dom::create_text_do_not_use_without_block_level_wrapper(label.as_str()));
         Dom::create_body().with_child(row).with_child(centered)
     }
 
@@ -3701,7 +3701,7 @@ mod tests {
             // stays on the incremental path — see the note on the test.
             let div = Dom::create_div()
                 .with_css_props(props.into())
-                .with_child(Dom::create_text("one two three"));
+                .with_child(Dom::create_text_do_not_use_without_block_level_wrapper("one two three"));
             Dom::create_body().with_child(div)
         }
 
@@ -3796,7 +3796,7 @@ mod tests {
                     ]
                     .into(),
                 )
-                .with_child(Dom::create_text("native backbuffer"));
+                .with_child(Dom::create_text_do_not_use_without_block_level_wrapper("native backbuffer"));
             Dom::create_body().with_child(div)
         }
 
@@ -3891,7 +3891,7 @@ mod tests {
         fn doc_dom() -> Dom {
             let mut body = Dom::create_body();
             for i in 0..14usize {
-                body = body.with_child(Dom::create_text(match i % 3 {
+                body = body.with_child(Dom::create_text_do_not_use_without_block_level_wrapper(match i % 3 {
                     0 => "alpha beta gamma delta epsilon zeta eta theta iota kappa",
                     1 => "the quick brown fox jumps over the lazy dog again and again",
                     _ => "lorem ipsum dolor sit amet consectetur adipiscing elit sed do",
@@ -5284,7 +5284,7 @@ mod tests {
                     ))]
                     .into(),
                 )
-                .with_child(Dom::create_text("Label"))
+                .with_child(Dom::create_text_do_not_use_without_block_level_wrapper("Label"))
         };
         Dom::create_body()
             .with_child(label(255, 0, 0))

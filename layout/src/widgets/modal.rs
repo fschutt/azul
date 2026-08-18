@@ -948,7 +948,7 @@ mod autotest_generated {
 
     #[test]
     fn create_is_a_closed_modal_with_a_close_button_and_no_title() {
-        let content = Dom::create_div().with_child(Dom::create_text("hi"));
+        let content = Dom::create_div().with_child(Dom::create_text_do_not_use_without_block_level_wrapper("hi"));
         let m = Modal::create(content.clone());
 
         assert!(!m.modal_state.inner.open, "a fresh modal must start closed");
@@ -1036,7 +1036,7 @@ mod autotest_generated {
 
     #[test]
     fn set_title_touches_nothing_else() {
-        let content = Dom::create_div().with_child(Dom::create_text("body"));
+        let content = Dom::create_div().with_child(Dom::create_text_do_not_use_without_block_level_wrapper("body"));
         let mut m = Modal::create(content.clone()).with_open(true);
         let before = m.backdrop_style.clone();
 
@@ -1082,8 +1082,8 @@ mod autotest_generated {
 
     #[test]
     fn set_content_replaces_and_last_write_wins() {
-        let a = Dom::create_div().with_child(Dom::create_text("a"));
-        let b = Dom::create_text("b");
+        let a = Dom::create_div().with_child(Dom::create_text_do_not_use_without_block_level_wrapper("a"));
+        let b = Dom::create_text_do_not_use_without_block_level_wrapper("b");
 
         let mut m = Modal::create(a.clone());
         assert_eq!(m.content, a);
@@ -1317,7 +1317,7 @@ mod autotest_generated {
 
     #[test]
     fn swap_with_default_returns_the_original_and_resets_self() {
-        let content = Dom::create_div().with_child(Dom::create_text("body"));
+        let content = Dom::create_div().with_child(Dom::create_text_do_not_use_without_block_level_wrapper("body"));
         let mut m = Modal::create(content.clone())
             .with_title(AzString::from("Title"))
             .with_open(true)
@@ -1771,7 +1771,7 @@ mod autotest_generated {
     fn close_end_to_end_through_the_real_dom_payload() {
         // Take the *actual* RefAny the widget wired into its close button and
         // drive the *actual* handler the widget registered against it.
-        let modal = Modal::create(Dom::create_text("body"))
+        let modal = Modal::create(Dom::create_text_do_not_use_without_block_level_wrapper("body"))
             .with_title(AzString::from("Title"))
             .with_open(true);
         let dom = modal.dom();

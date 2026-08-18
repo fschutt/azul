@@ -48,7 +48,7 @@ fn test_map_widget_fills_flex_container() {
         .with_css("flex-grow: 1; position: relative; background: #cbd2d8; overflow: hidden;")
         .with_child(map);
     let header = Dom::create_div().with_css("background: #2b2b2b; padding: 10px 16px; flex-shrink: 0;")
-        .with_child(Dom::create_text("AzulMaps"));
+        .with_child(Dom::create_text_do_not_use_without_block_level_wrapper("AzulMaps"));
     let body = Dom::create_body()
         .with_css("display: flex; flex-direction: column; height: 100%;")
         .with_child(header)

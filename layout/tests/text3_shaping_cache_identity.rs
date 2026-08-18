@@ -61,12 +61,12 @@ fn layout_two_same_text_nodes() -> Vec<RunIdentity> {
         .with_child(
             Dom::create_div()
                 .with_ids_and_classes(vec![IdOrClass::Class("a".into())].into())
-                .with_child(Dom::create_text("Layout")),
+                .with_child(Dom::create_text_do_not_use_without_block_level_wrapper("Layout")),
         )
         .with_child(
             Dom::create_div()
                 .with_ids_and_classes(vec![IdOrClass::Class("b".into())].into())
-                .with_child(Dom::create_text("Layout")),
+                .with_child(Dom::create_text_do_not_use_without_block_level_wrapper("Layout")),
         );
     let css_str = r#"
         .a { color: rgb(200, 30, 30); }

@@ -911,9 +911,9 @@ mod tests {
         // exact ids come from creation order; resolve them dynamically).
         let mut dom = Dom::create_div();
         let mut p1 = Dom::create_p();
-        p1.add_child(Dom::create_text("one"));
+        p1.add_child(Dom::create_text_do_not_use_without_block_level_wrapper("one"));
         let mut p2 = Dom::create_p();
-        p2.add_child(Dom::create_text("two"));
+        p2.add_child(Dom::create_text_do_not_use_without_block_level_wrapper("two"));
         dom.add_child(p1);
         dom.add_child(p2);
         let styled = StyledDom::create_from_dom(dom);
@@ -1017,7 +1017,7 @@ mod tests {
 
         // DOM: div > [text "committed"]
         let mut dom = azul_core::dom::Dom::create_div();
-        dom.add_child(azul_core::dom::Dom::create_text("committed"));
+        dom.add_child(azul_core::dom::Dom::create_text_do_not_use_without_block_level_wrapper("committed"));
         let styled = StyledDom::create_from_dom(dom);
         let text_node = NodeId::new(1);
 

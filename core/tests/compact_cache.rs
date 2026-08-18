@@ -42,7 +42,7 @@ fn test_h1_display_block_from_ua() {
     // H1 should get display:block from UA CSS even without any author CSS
     let dom = Dom::create_html().with_child(
         Dom::create_body().with_child(
-            Dom::create_node(NodeType::H1).with_child(Dom::create_text("heading"))
+            Dom::create_node(NodeType::H1).with_child(Dom::create_text_do_not_use_without_block_level_wrapper("heading"))
         )
     );
     let s = styled(dom, "");
@@ -57,8 +57,8 @@ fn test_h1_display_block_from_ua() {
 fn test_div_block_span_inline_from_ua() {
     let dom = Dom::create_html().with_child(
         Dom::create_body()
-            .with_child(Dom::create_div().with_child(Dom::create_text("div")))
-            .with_child(Dom::create_node(NodeType::Span).with_child(Dom::create_text("span")))
+            .with_child(Dom::create_div().with_child(Dom::create_text_do_not_use_without_block_level_wrapper("div")))
+            .with_child(Dom::create_node(NodeType::Span).with_child(Dom::create_text_do_not_use_without_block_level_wrapper("span")))
     );
     let s = styled(dom, "");
     // 0=Html, 1=Body, 2=Div, 3=text, 4=Span, 5=text
@@ -70,7 +70,7 @@ fn test_div_block_span_inline_from_ua() {
 fn test_h1_bold_from_ua() {
     let dom = Dom::create_html().with_child(
         Dom::create_body().with_child(
-            Dom::create_node(NodeType::H1).with_child(Dom::create_text("h"))
+            Dom::create_node(NodeType::H1).with_child(Dom::create_text_do_not_use_without_block_level_wrapper("h"))
         )
     );
     let s = styled(dom, "");
@@ -84,7 +84,7 @@ fn test_h1_font_size_from_ua() {
     // H1 should get font-size: 2em from UA CSS
     let dom = Dom::create_html().with_child(
         Dom::create_body().with_child(
-            Dom::create_node(NodeType::H1).with_child(Dom::create_text("h"))
+            Dom::create_node(NodeType::H1).with_child(Dom::create_text_do_not_use_without_block_level_wrapper("h"))
         )
     );
     let s = styled(dom, "");
@@ -113,7 +113,7 @@ fn test_h1_font_size_from_ua() {
 fn test_author_css_display_flex_overrides_ua_block() {
     let dom = Dom::create_html().with_child(
         Dom::create_body().with_child(
-            Dom::create_div().with_child(Dom::create_text("flex"))
+            Dom::create_div().with_child(Dom::create_text_do_not_use_without_block_level_wrapper("flex"))
         )
     );
     let s = styled(dom, "div { display: flex; }");
@@ -126,7 +126,7 @@ fn test_global_star_doesnt_override_ua_display() {
     // `* { margin: 0; }` should NOT change display (it doesn't set display)
     let dom = Dom::create_html().with_child(
         Dom::create_body().with_child(
-            Dom::create_node(NodeType::H1).with_child(Dom::create_text("h1"))
+            Dom::create_node(NodeType::H1).with_child(Dom::create_text_do_not_use_without_block_level_wrapper("h1"))
         )
     );
     let s = styled(dom, "* { margin: 0; padding: 0; }");
@@ -151,7 +151,7 @@ fn test_font_weight_inherits_from_parent() {
                     CssProperty::font_weight(StyleFontWeight::Bold)
                 )
             ].into())
-            .with_child(Dom::create_div().with_child(Dom::create_text("child")))
+            .with_child(Dom::create_div().with_child(Dom::create_text_do_not_use_without_block_level_wrapper("child")))
     );
     let s = styled(dom, "");
     // 0=Html, 1=Body (bold), 2=Div, 3=text
@@ -166,7 +166,7 @@ fn test_display_does_not_inherit() {
     // Body is display:block, but a Span child should NOT inherit block
     let dom = Dom::create_html().with_child(
         Dom::create_body().with_child(
-            Dom::create_node(NodeType::Span).with_child(Dom::create_text("span"))
+            Dom::create_node(NodeType::Span).with_child(Dom::create_text_do_not_use_without_block_level_wrapper("span"))
         )
     );
     let s = styled(dom, "");
@@ -194,7 +194,7 @@ fn test_inline_css_overrides_stylesheet() {
                         CssProperty::width(azul_css::props::layout::LayoutWidth::Px(PixelValue::px(200.0)))
                     )
                 ].into())
-                .with_child(Dom::create_text("wide"))
+                .with_child(Dom::create_text_do_not_use_without_block_level_wrapper("wide"))
         )
     );
     let s = styled(dom, "div { width: 100px; }");
@@ -217,7 +217,7 @@ fn test_background_color_via_class_selector() {
         Dom::create_body().with_child(
             Dom::create_div()
                 .with_ids_and_classes(vec![IdOrClass::Class("red".into())].into())
-                .with_child(Dom::create_text("red bg"))
+                .with_child(Dom::create_text_do_not_use_without_block_level_wrapper("red bg"))
         )
     );
     let s = styled(dom, ".red { background-color: #ff0000; }");
@@ -491,7 +491,7 @@ fn test_text_color_inherits_from_parent_div() {
         Dom::create_body().with_child(
             Dom::create_div()
                 .with_ids_and_classes(vec![IdOrClass::Class("c".into())].into())
-                .with_child(Dom::create_text("hello"))
+                .with_child(Dom::create_text_do_not_use_without_block_level_wrapper("hello"))
         )
     );
     let s = styled(dom, ".c { color: #ff0000; }");
@@ -517,7 +517,7 @@ fn test_text_color_white_on_red_background() {
         Dom::create_body().with_child(
             Dom::create_div()
                 .with_ids_and_classes(vec![IdOrClass::Class("box".into())].into())
-                .with_child(Dom::create_text("visible"))
+                .with_child(Dom::create_text_do_not_use_without_block_level_wrapper("visible"))
         )
     );
     let s = styled(dom, ".box { background-color: #ff0000; color: #ffffff; }");
@@ -555,19 +555,19 @@ fn test_dom_node_id_mapping_with_whitespace_text() {
     // HTML: <body>\n  <div class="a">text</div>\n  <div class="b">text</div>\n</body>
     let dom = Dom::create_html().with_child(
         Dom::create_body()
-            .with_child(Dom::create_text("\n  "))
+            .with_child(Dom::create_text_do_not_use_without_block_level_wrapper("\n  "))
             .with_child(
                 Dom::create_div()
                     .with_ids_and_classes(vec![azul_core::dom::IdOrClass::Class("a".into())].into())
-                    .with_child(Dom::create_text("first"))
+                    .with_child(Dom::create_text_do_not_use_without_block_level_wrapper("first"))
             )
-            .with_child(Dom::create_text("\n  "))
+            .with_child(Dom::create_text_do_not_use_without_block_level_wrapper("\n  "))
             .with_child(
                 Dom::create_div()
                     .with_ids_and_classes(vec![azul_core::dom::IdOrClass::Class("b".into())].into())
-                    .with_child(Dom::create_text("second"))
+                    .with_child(Dom::create_text_do_not_use_without_block_level_wrapper("second"))
             )
-            .with_child(Dom::create_text("\n"))
+            .with_child(Dom::create_text_do_not_use_without_block_level_wrapper("\n"))
     );
     let s = styled(dom, ".a { color: #ff0000; padding: 10px; } .b { color: #0000ff; padding: 20px; }");
 
@@ -624,12 +624,12 @@ fn test_multiple_text_children_with_different_parent_styles() {
             .with_child(
                 Dom::create_div()
                     .with_ids_and_classes(vec![IdOrClass::Class("red".into())].into())
-                    .with_child(Dom::create_text("red text"))
+                    .with_child(Dom::create_text_do_not_use_without_block_level_wrapper("red text"))
             )
             .with_child(
                 Dom::create_div()
                     .with_ids_and_classes(vec![IdOrClass::Class("blue".into())].into())
-                    .with_child(Dom::create_text("blue text"))
+                    .with_child(Dom::create_text_do_not_use_without_block_level_wrapper("blue text"))
             )
     );
     let s = styled(dom, ".red { color: #ff0000; background: #ffcccc; } .blue { color: #0000ff; background: #ccccff; }");
@@ -658,7 +658,7 @@ fn test_font_family_inherits_from_body() {
         Dom::create_body().with_child(
             Dom::create_div()
                 .with_ids_and_classes(vec![IdOrClass::Class("box".into())].into())
-                .with_child(Dom::create_text("hello"))
+                .with_child(Dom::create_text_do_not_use_without_block_level_wrapper("hello"))
         )
     );
     let s = styled(dom, "body { font-family: sans-serif; } .box { background: red; }");
@@ -681,7 +681,7 @@ fn test_font_hash_to_families_populated() {
         Dom::create_body().with_child(
             Dom::create_div()
                 .with_ids_and_classes(vec![IdOrClass::Class("box".into())].into())
-                .with_child(Dom::create_text("hello"))
+                .with_child(Dom::create_text_do_not_use_without_block_level_wrapper("hello"))
         )
     );
     let s = styled(dom, "body { font-family: sans-serif; }");
@@ -712,7 +712,7 @@ fn test_font_hash_to_families_text_node_inherits() {
         Dom::create_body().with_child(
             Dom::create_div()
                 .with_ids_and_classes(vec![IdOrClass::Class("box".into())].into())
-                .with_child(Dom::create_text("hello"))
+                .with_child(Dom::create_text_do_not_use_without_block_level_wrapper("hello"))
         )
     );
     let s = styled(dom, "body { font-family: sans-serif; }");

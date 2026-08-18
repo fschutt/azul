@@ -26,11 +26,11 @@ AzDom layout(AzRefAny data, AzLayoutCallbackInfo info) {
     // Create button
     Dom button = Dom::create_div();
     button.set_css(String("margin-bottom: 10px; padding: 10px; background: #4CAF50; color: white;"));
-    button.add_child(Dom::create_text(String("Click me!")));
+    button.add_child(Dom::create_text_do_not_use_without_block_level_wrapper(String("Click me!")));
     button.add_callback(AzEventFilter_hover(AzHoverEventFilter_MouseUp), data_wrapper.clone(), on_button_click);
 
     // Create title
-    Dom title = Dom::create_text(String("Widget Showcase"));
+    Dom title = Dom::create_text_do_not_use_without_block_level_wrapper(String("Widget Showcase"));
     title.set_css(String("font-size: 24px; margin-bottom: 20px;"));
 
     // Compose body

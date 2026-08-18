@@ -105,7 +105,7 @@ extern "C" fn icon_demo_layout(_data: RefAny, _info: LayoutCallbackInfo) -> Dom 
         .with_child(edit_icon)
         .with_child(delete_icon);
     
-    let mut note = Dom::create_text("Note: Icons show '?' when no icon provider is registered.");
+    let mut note = Dom::create_text_do_not_use_without_block_level_wrapper("Note: Icons show '?' when no icon provider is registered.");
     note.set_ids_and_classes(IdOrClassVec::from_vec(vec![
         IdOrClass::Class(AzString::from("note"))
     ]));
@@ -115,9 +115,9 @@ extern "C" fn icon_demo_layout(_data: RefAny, _info: LayoutCallbackInfo) -> Dom 
         IdOrClass::Class(AzString::from("container"))
     ]));
     container = container
-        .with_child(Dom::create_text("Navigation Icons"))
+        .with_child(Dom::create_text_do_not_use_without_block_level_wrapper("Navigation Icons"))
         .with_child(nav_row)
-        .with_child(Dom::create_text("Action Icons"))
+        .with_child(Dom::create_text_do_not_use_without_block_level_wrapper("Action Icons"))
         .with_child(action_row)
         .with_child(note);
     

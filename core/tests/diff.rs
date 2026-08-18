@@ -660,9 +660,9 @@ fn test_different_node_types() {
 fn test_text_nodes() {
     use azul_css::AzString;
     
-    let text_a = NodeData::create_text(AzString::from("Hello"));
-    let text_b = NodeData::create_text(AzString::from("World"));
-    let text_a_copy = NodeData::create_text(AzString::from("Hello"));
+    let text_a = NodeData::create_text_do_not_use_without_block_level_wrapper(AzString::from("Hello"));
+    let text_b = NodeData::create_text_do_not_use_without_block_level_wrapper(AzString::from("World"));
+    let text_a_copy = NodeData::create_text_do_not_use_without_block_level_wrapper(AzString::from("Hello"));
     
     // Old: ["Hello", "World"], New: ["World", "Hello"]
     let old_data = vec![text_a.clone(), text_b.clone()];
@@ -1305,8 +1305,8 @@ fn test_structural_hash_text_nodes_match() {
     use azul_css::AzString;
     
     // Two text nodes with different content should have same structural hash
-    let text_a = NodeData::create_text(AzString::from("Hello"));
-    let text_b = NodeData::create_text(AzString::from("Hello World"));
+    let text_a = NodeData::create_text_do_not_use_without_block_level_wrapper(AzString::from("Hello"));
+    let text_b = NodeData::create_text_do_not_use_without_block_level_wrapper(AzString::from("Hello World"));
     
     // Content hash should be different
     assert_ne!(text_a.calculate_node_data_hash(), text_b.calculate_node_data_hash());
@@ -1321,7 +1321,7 @@ fn test_structural_hash_different_types() {
     
     // Div and Text should have different structural hashes
     let div = NodeData::create_div();
-    let text = NodeData::create_text(AzString::from("Hello"));
+    let text = NodeData::create_text_do_not_use_without_block_level_wrapper(AzString::from("Hello"));
     
     assert_ne!(div.calculate_structural_hash(), text.calculate_structural_hash());
 }
@@ -1332,8 +1332,8 @@ fn test_text_nodes_match_by_structural_hash() {
     
     // Old DOM has Text("Hello"), new DOM has Text("Hello World")
     // They should match by structural hash
-    let old_data = vec![NodeData::create_text(AzString::from("Hello"))];
-    let new_data = vec![NodeData::create_text(AzString::from("Hello World"))];
+    let old_data = vec![NodeData::create_text_do_not_use_without_block_level_wrapper(AzString::from("Hello"))];
+    let new_data = vec![NodeData::create_text_do_not_use_without_block_level_wrapper(AzString::from("Hello World"))];
     
     let mut old_layout = OrderedMap::default();
     old_layout.insert(NodeId::new(0), LogicalRect::zero());

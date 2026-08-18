@@ -48,7 +48,7 @@ fn text_in_an_embedded_fontref_family_rasterizes() {
 
     // Exactly what `layout/src/icon.rs::create_font_icon_from_original` builds for
     // every widget icon: a text node whose font-family is `StyleFontFamily::Ref`.
-    let mut text = Dom::create_text("HELLO");
+    let mut text = Dom::create_text_do_not_use_without_block_level_wrapper("HELLO");
     text.root
         .set_css_props(CssPropertyWithConditionsVec::from_vec(vec![
             CssPropertyWithConditions::simple(CssProperty::font_family(

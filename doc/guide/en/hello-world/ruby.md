@@ -95,7 +95,7 @@ layout = lambda do |data_ptr, _info|
   # Style a node with a plain CSS string via .with_css.
   label = Azul::Dom.create_div
     .with_css('font-size: 32px;')
-    .with_child(Azul::Dom.create_text(m.counter.to_s))
+    .with_child(Azul::Dom.create_text_do_not_use_without_block_level_wrapper(m.counter.to_s))
 
   # Smart .on_click(data, &block) wraps refany + registers internally.
   button = Azul::Button.create('Increase counter')

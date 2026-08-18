@@ -64,7 +64,7 @@ fn reconcile_dom_with_changes_flat(
 fn identical_dom_no_changes() {
     let data = vec![
         NodeData::create_div(),
-        NodeData::create_text("Hello"),
+        NodeData::create_text_do_not_use_without_block_level_wrapper("Hello"),
     ];
     let layout = make_layout(data.len());
     
@@ -84,7 +84,7 @@ fn identical_dom_no_changes() {
 
 #[test]
 fn identical_dom_accumulator_empty() {
-    let data = vec![NodeData::create_div(), NodeData::create_text("Hi")];
+    let data = vec![NodeData::create_div(), NodeData::create_text_do_not_use_without_block_level_wrapper("Hi")];
     let layout = make_layout(data.len());
     
     let extended = reconcile_dom_with_changes_flat(
@@ -106,8 +106,8 @@ fn identical_dom_accumulator_empty() {
 
 #[test]
 fn text_edit_detected() {
-    let old = vec![NodeData::create_text("Hello")];
-    let new = vec![NodeData::create_text("World")];
+    let old = vec![NodeData::create_text_do_not_use_without_block_level_wrapper("Hello")];
+    let new = vec![NodeData::create_text_do_not_use_without_block_level_wrapper("World")];
     
     let old_layout = make_layout(1);
     let new_layout = make_layout(1);
@@ -127,8 +127,8 @@ fn text_edit_detected() {
 
 #[test]
 fn text_edit_accumulator_shows_ifc_scope() {
-    let old = vec![NodeData::create_text("Hello")];
-    let new = vec![NodeData::create_text("World")];
+    let old = vec![NodeData::create_text_do_not_use_without_block_level_wrapper("Hello")];
+    let new = vec![NodeData::create_text_do_not_use_without_block_level_wrapper("World")];
     
     let old_layout = make_layout(1);
     let new_layout = make_layout(1);
@@ -261,7 +261,7 @@ fn node_added_detected_as_mount() {
     let old = vec![NodeData::create_div()];
     let new = vec![
         NodeData::create_div(),
-        NodeData::create_text("new"),
+        NodeData::create_text_do_not_use_without_block_level_wrapper("new"),
     ];
     
     let old_layout = make_layout(1);
@@ -290,7 +290,7 @@ fn node_added_detected_as_mount() {
 fn node_removed_detected_as_unmount() {
     let old = vec![
         NodeData::create_div(),
-        NodeData::create_text("old"),
+        NodeData::create_text_do_not_use_without_block_level_wrapper("old"),
     ];
     let new = vec![NodeData::create_div()];
     
@@ -342,14 +342,14 @@ fn node_type_change_full_scope() {
 #[test]
 fn only_changed_node_flagged() {
     let old = vec![
-        NodeData::create_text("Line 1"),
-        NodeData::create_text("Line 2"),
-        NodeData::create_text("Line 3"),
+        NodeData::create_text_do_not_use_without_block_level_wrapper("Line 1"),
+        NodeData::create_text_do_not_use_without_block_level_wrapper("Line 2"),
+        NodeData::create_text_do_not_use_without_block_level_wrapper("Line 3"),
     ];
     let new = vec![
-        NodeData::create_text("Line 1"),         // same
-        NodeData::create_text("Line 2 edited"),  // changed
-        NodeData::create_text("Line 3"),          // same
+        NodeData::create_text_do_not_use_without_block_level_wrapper("Line 1"),         // same
+        NodeData::create_text_do_not_use_without_block_level_wrapper("Line 2 edited"),  // changed
+        NodeData::create_text_do_not_use_without_block_level_wrapper("Line 3"),          // same
     ];
     
     let old_layout = make_layout(3);
@@ -416,13 +416,13 @@ fn keyed_reorder_no_content_change() {
 #[test]
 fn insert_at_beginning() {
     let old = vec![
-        NodeData::create_text("Item 1"),
-        NodeData::create_text("Item 2"),
+        NodeData::create_text_do_not_use_without_block_level_wrapper("Item 1"),
+        NodeData::create_text_do_not_use_without_block_level_wrapper("Item 2"),
     ];
     let new = vec![
-        NodeData::create_text("Item 0"),  // new
-        NodeData::create_text("Item 1"),  // old[0]
-        NodeData::create_text("Item 2"),  // old[1]
+        NodeData::create_text_do_not_use_without_block_level_wrapper("Item 0"),  // new
+        NodeData::create_text_do_not_use_without_block_level_wrapper("Item 1"),  // old[0]
+        NodeData::create_text_do_not_use_without_block_level_wrapper("Item 2"),  // old[1]
     ];
     
     let old_layout = make_layout(2);
@@ -449,13 +449,13 @@ fn insert_at_beginning() {
 #[test]
 fn delete_from_middle() {
     let old = vec![
-        NodeData::create_text("A"),
-        NodeData::create_text("B"),
-        NodeData::create_text("C"),
+        NodeData::create_text_do_not_use_without_block_level_wrapper("A"),
+        NodeData::create_text_do_not_use_without_block_level_wrapper("B"),
+        NodeData::create_text_do_not_use_without_block_level_wrapper("C"),
     ];
     let new = vec![
-        NodeData::create_text("A"),
-        NodeData::create_text("C"),
+        NodeData::create_text_do_not_use_without_block_level_wrapper("A"),
+        NodeData::create_text_do_not_use_without_block_level_wrapper("C"),
     ];
     
     let old_layout = make_layout(3);
@@ -515,7 +515,7 @@ fn realistic_todo_list_update() {
     // Simulate a todo list: user marks item 2 as complete (class change)
     // and edits item 3's text
     let make_todo = |text: &str, done: bool| -> NodeData {
-        let mut nd = NodeData::create_text(text);
+        let mut nd = NodeData::create_text_do_not_use_without_block_level_wrapper(text);
         if done {
             nd.add_class(AzString::from("done"));
         }
@@ -577,7 +577,7 @@ fn empty_to_empty_no_changes() {
 #[test]
 fn empty_to_populated() {
     let old: Vec<NodeData> = vec![];
-    let new = vec![NodeData::create_div(), NodeData::create_text("hello")];
+    let new = vec![NodeData::create_div(), NodeData::create_text_do_not_use_without_block_level_wrapper("hello")];
     
     let old_layout = OrderedMap::default();
     let new_layout = make_layout(2);
@@ -599,7 +599,7 @@ fn empty_to_populated() {
 
 #[test]
 fn populated_to_empty() {
-    let old = vec![NodeData::create_div(), NodeData::create_text("hello")];
+    let old = vec![NodeData::create_div(), NodeData::create_text_do_not_use_without_block_level_wrapper("hello")];
     let new: Vec<NodeData> = vec![];
     
     let old_layout = make_layout(2);

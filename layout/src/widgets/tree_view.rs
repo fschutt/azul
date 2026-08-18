@@ -1183,7 +1183,7 @@ mod autotest_generated {
         let on_click = some_click(record_click, &log);
 
         // Pre-existing content in `out` must be preserved, not clobbered.
-        let mut out = vec![Dom::create_div(), Dom::create_text("sentinel")];
+        let mut out = vec![Dom::create_div(), Dom::create_text_do_not_use_without_block_level_wrapper("sentinel")];
         let mut index = start;
         render_node(&shape, &on_click, &mut index, &mut out);
 

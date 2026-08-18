@@ -27,8 +27,8 @@ fn identical_divs_produce_empty_changeset() {
 
 #[test]
 fn identical_text_nodes_produce_empty_changeset() {
-    let a = NodeData::create_text("Hello");
-    let b = NodeData::create_text("Hello");
+    let a = NodeData::create_text_do_not_use_without_block_level_wrapper("Hello");
+    let b = NodeData::create_text_do_not_use_without_block_level_wrapper("Hello");
     let cs = compute_node_changes(&a, &b, None, None);
     assert!(cs.is_empty(), "identical text nodes should have empty changeset");
 }
@@ -47,8 +47,8 @@ fn empty_changeset_is_visually_unchanged() {
 
 #[test]
 fn text_change_sets_text_content_flag() {
-    let a = NodeData::create_text("Hello");
-    let b = NodeData::create_text("World");
+    let a = NodeData::create_text_do_not_use_without_block_level_wrapper("Hello");
+    let b = NodeData::create_text_do_not_use_without_block_level_wrapper("World");
     let cs = compute_node_changes(&a, &b, None, None);
     assert!(cs.contains(NodeChangeSet::TEXT_CONTENT),
         "changing text content should set TEXT_CONTENT flag");
@@ -56,16 +56,16 @@ fn text_change_sets_text_content_flag() {
 
 #[test]
 fn text_change_needs_layout() {
-    let a = NodeData::create_text("short");
-    let b = NodeData::create_text("a much longer text that changes layout");
+    let a = NodeData::create_text_do_not_use_without_block_level_wrapper("short");
+    let b = NodeData::create_text_do_not_use_without_block_level_wrapper("a much longer text that changes layout");
     let cs = compute_node_changes(&a, &b, None, None);
     assert!(cs.needs_layout(), "text change should need layout");
 }
 
 #[test]
 fn text_same_length_different_content_sets_flag() {
-    let a = NodeData::create_text("AAAA");
-    let b = NodeData::create_text("BBBB");
+    let a = NodeData::create_text_do_not_use_without_block_level_wrapper("AAAA");
+    let b = NodeData::create_text_do_not_use_without_block_level_wrapper("BBBB");
     let cs = compute_node_changes(&a, &b, None, None);
     assert!(cs.contains(NodeChangeSet::TEXT_CONTENT),
         "same-length different text should still set TEXT_CONTENT");
@@ -73,16 +73,16 @@ fn text_same_length_different_content_sets_flag() {
 
 #[test]
 fn text_empty_to_nonempty_sets_flag() {
-    let a = NodeData::create_text("");
-    let b = NodeData::create_text("content");
+    let a = NodeData::create_text_do_not_use_without_block_level_wrapper("");
+    let b = NodeData::create_text_do_not_use_without_block_level_wrapper("content");
     let cs = compute_node_changes(&a, &b, None, None);
     assert!(cs.contains(NodeChangeSet::TEXT_CONTENT));
 }
 
 #[test]
 fn text_nonempty_to_empty_sets_flag() {
-    let a = NodeData::create_text("content");
-    let b = NodeData::create_text("");
+    let a = NodeData::create_text_do_not_use_without_block_level_wrapper("content");
+    let b = NodeData::create_text_do_not_use_without_block_level_wrapper("");
     let cs = compute_node_changes(&a, &b, None, None);
     assert!(cs.contains(NodeChangeSet::TEXT_CONTENT));
 }
@@ -103,14 +103,14 @@ fn div_to_span_sets_node_type_changed() {
 #[test]
 fn div_to_text_sets_node_type_changed() {
     let a = NodeData::create_div();
-    let b = NodeData::create_text("text");
+    let b = NodeData::create_text_do_not_use_without_block_level_wrapper("text");
     let cs = compute_node_changes(&a, &b, None, None);
     assert!(cs.contains(NodeChangeSet::NODE_TYPE_CHANGED));
 }
 
 #[test]
 fn text_to_div_sets_node_type_changed() {
-    let a = NodeData::create_text("text");
+    let a = NodeData::create_text_do_not_use_without_block_level_wrapper("text");
     let b = NodeData::create_div();
     let cs = compute_node_changes(&a, &b, None, None);
     assert!(cs.contains(NodeChangeSet::NODE_TYPE_CHANGED));
@@ -322,8 +322,8 @@ fn combined_flags_bitwise_or() {
 
 #[test]
 fn multiple_changes_combined() {
-    let a = NodeData::create_text("Hello");
-    let mut b = NodeData::create_text("World");
+    let a = NodeData::create_text_do_not_use_without_block_level_wrapper("Hello");
+    let mut b = NodeData::create_text_do_not_use_without_block_level_wrapper("World");
     b.add_class(AzString::from("changed"));
     let cs = compute_node_changes(&a, &b, None, None);
     assert!(cs.contains(NodeChangeSet::TEXT_CONTENT), "text changed");
@@ -332,8 +332,8 @@ fn multiple_changes_combined() {
 
 #[test]
 fn text_and_style_change_combined() {
-    let a = NodeData::create_text("old");
-    let b = NodeData::create_text("new").with_css("width: 50px;");
+    let a = NodeData::create_text_do_not_use_without_block_level_wrapper("old");
+    let b = NodeData::create_text_do_not_use_without_block_level_wrapper("new").with_css("width: 50px;");
     let cs = compute_node_changes(&a, &b, None, None);
     assert!(cs.contains(NodeChangeSet::TEXT_CONTENT));
     assert!(

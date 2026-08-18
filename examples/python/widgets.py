@@ -16,13 +16,13 @@ CLICK = EventFilter.Hover(HoverEventFilter.MouseUp)
 
 
 def layout(data, info):
-    title = (Dom.create_text("Widget Showcase")
+    title = (Dom.create_text_do_not_use_without_block_level_wrapper("Widget Showcase")
              .with_css("font-size:24px;margin-bottom:20px;"))
 
     button = (Dom.create_div()
               .with_css("margin-bottom:10px;padding:10px;background:#4CAF50;"
                         "color:white;cursor:pointer;")
-              .with_child(Dom.create_text("Click me!"))
+              .with_child(Dom.create_text_do_not_use_without_block_level_wrapper("Click me!"))
               .with_callback(CLICK, data, on_button_click))
 
     checkbox = (CheckBox.create(data.checkbox_checked)

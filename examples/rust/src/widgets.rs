@@ -71,14 +71,14 @@ extern "C" fn layout(mut data: RefAny, _: LayoutCallbackInfo) -> Dom {
         .with_on_choice_change(data.clone(), on_dropdown_change)
         .dom()
         .with_css(margin);
-    let selected_label = Dom::create_text(
+    let selected_label = Dom::create_text_do_not_use_without_block_level_wrapper(
         format!("Selected: {}", CHOICES[showcase.selected_choice.min(CHOICES.len() - 1)]).as_str(),
     )
     .with_css("margin-bottom: 10px; color: #2a6;");
 
     // Heading
     let heading = Dom::create_p()
-        .with_child(Dom::create_text("Widget Showcase"))
+        .with_child(Dom::create_text_do_not_use_without_block_level_wrapper("Widget Showcase"))
         .with_css("font-size: 24px; font-weight: bold; margin-bottom: 20px;");
 
     // Final DOM composition

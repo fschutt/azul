@@ -6574,14 +6574,14 @@ fn eval_assert_manager_invariants(
     /// invariant somebody sketches must land here, not in silence.
     const UNIMPLEMENTED_CROSS: &[(&str, &str)] = &[];
 
-    /// Managers this assertion does NOT check, each with the reason. Recorded
-    /// rather than omitted: gpu_state was simply absent from KNOWN_MANAGERS, and
-    /// that silence is exactly how the scrollbar-fade latch stayed invisible to
-    /// every invariant in this file. A reader comparing this list against
-    /// layout/src/managers/ must be able to account for all 22.
-    ///
-    /// Naming one of these in a scenario is a hard failure with its reason
-    /// attached, so nobody can go green believing they asserted something here.
+    // Managers this assertion does NOT check, each with the reason. Recorded
+    // rather than omitted: gpu_state was simply absent from KNOWN_MANAGERS, and
+    // that silence is exactly how the scrollbar-fade latch stayed invisible to
+    // every invariant in this file. A reader comparing this list against
+    // layout/src/managers/ must be able to account for all 22.
+    //
+    // Naming one of these in a scenario is a hard failure with its reason
+    // attached, so nobody can go green believing they asserted something here.
 
     let list = |key: &str, default: &[&str]| -> Result<Vec<String>, String> {
         match params.get(key) {
@@ -11010,7 +11010,7 @@ extern "C" fn {slot_name}(data: &mut RefAny, info: &mut CallbackInfo) -> Update 
     let mut layout_body = String::new();
     if components.is_empty() {
         layout_body.push_str("    Dom::create_body()\n");
-        layout_body.push_str("        .with_child(Dom::create_text(\"Hello from Azul!\"))\n");
+        layout_body.push_str("        .with_child(Dom::create_text_do_not_use_without_block_level_wrapper(\"Hello from Azul!\"))\n");
         layout_body.push_str("        .with_css(\"\")\n");
     } else {
         layout_body.push_str("    Dom::create_body()\n");
@@ -11197,7 +11197,7 @@ fn generate_cpp_scaffold(components: &[ScaffoldComponentInfo]) -> Vec<(String, S
     let mut layout_body = String::new();
     layout_body.push_str("    auto body = Dom::create_body();\n");
     if components.is_empty() {
-        layout_body.push_str("    body.add_child(Dom::create_text(String(\"Hello from Azul!\")));\n");
+        layout_body.push_str("    body.add_child(Dom::create_text_do_not_use_without_block_level_wrapper(String(\"Hello from Azul!\")));\n");
     } else {
         for comp in components {
             let struct_name = to_pascal_case(&comp.name);
@@ -11293,7 +11293,7 @@ fn generate_python_scaffold(components: &[ScaffoldComponentInfo]) -> Vec<(String
     let mut layout_body = String::new();
     layout_body.push_str("    body = Dom.create_body()\n");
     if components.is_empty() {
-        layout_body.push_str("    body = body.with_child(Dom.create_text(\"Hello from Azul!\"))\n");
+        layout_body.push_str("    body = body.with_child(Dom.create_text_do_not_use_without_block_level_wrapper(\"Hello from Azul!\"))\n");
     } else {
         for comp in components {
             let class_name = format!("{}Data", to_pascal_case(&comp.name));

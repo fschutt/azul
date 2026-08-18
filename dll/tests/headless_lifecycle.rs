@@ -101,13 +101,13 @@ extern "C" fn layout_cb(mut data: RefAny, _info: LayoutCallbackInfo) -> Dom {
     match frame {
         0 => Dom::create_body(),
         1 => {
-            let mut a = NodeData::create_text("A");
+            let mut a = NodeData::create_text_do_not_use_without_block_level_wrapper("A");
             a.add_callback(
                 EventFilter::Component(ComponentEventFilter::AfterMount),
                 RefAny::new(counters.clone()),
                 mount_cb,
             );
-            let mut b = NodeData::create_text("B");
+            let mut b = NodeData::create_text_do_not_use_without_block_level_wrapper("B");
             b.add_callback(
                 EventFilter::Component(ComponentEventFilter::BeforeUnmount),
                 RefAny::new(counters.clone()),
@@ -121,7 +121,7 @@ extern "C" fn layout_cb(mut data: RefAny, _info: LayoutCallbackInfo) -> Dom {
             // Keep B (so it'll see BeforeUnmount) — no, we *remove* both A and B
             // to force two unmounts; then add C with AfterMount + Updated so the
             // next frame can fire Updated on the same keyed node.
-            let mut c = NodeData::create_text("v1").with_key(0xC0FFEEu64);
+            let mut c = NodeData::create_text_do_not_use_without_block_level_wrapper("v1").with_key(0xC0FFEEu64);
             c.add_callback(
                 EventFilter::Component(ComponentEventFilter::AfterMount),
                 RefAny::new(counters.clone()),
@@ -136,7 +136,7 @@ extern "C" fn layout_cb(mut data: RefAny, _info: LayoutCallbackInfo) -> Dom {
         }
         _ => {
             // Same keyed C, but with new content — this is the Updated path.
-            let mut c = NodeData::create_text("v2").with_key(0xC0FFEEu64);
+            let mut c = NodeData::create_text_do_not_use_without_block_level_wrapper("v2").with_key(0xC0FFEEu64);
             c.add_callback(
                 EventFilter::Component(ComponentEventFilter::AfterMount),
                 RefAny::new(counters.clone()),
@@ -204,7 +204,7 @@ extern "C" fn layout_cb_widgets_on_first_frame(
     for i in 0..widget_count {
         // Distinct keys so the nodes are stable across relayout (Tier-1 match →
         // no spurious unmount/remount on a second regenerate).
-        let mut w = NodeData::create_text("widget").with_key(0xA000u64 + i as u64);
+        let mut w = NodeData::create_text_do_not_use_without_block_level_wrapper("widget").with_key(0xA000u64 + i as u64);
         w.add_callback(
             EventFilter::Component(ComponentEventFilter::AfterMount),
             RefAny::new(counters.clone()),
@@ -379,7 +379,7 @@ extern "C" fn layout_cb_counting(mut data: RefAny, _info: LayoutCallbackInfo) ->
 
     let cb = Callback { cb: on_mount_asking_for_refresh, ctx: azul_core::refany::OptionRefAny::None }
         .to_core();
-    let mut w = NodeData::create_text("widget").with_key(0xBEEF_0001u64);
+    let mut w = NodeData::create_text_do_not_use_without_block_level_wrapper("widget").with_key(0xBEEF_0001u64);
     w.add_callback(
         EventFilter::Component(ComponentEventFilter::AfterMount),
         RefAny::new(counters.clone()),

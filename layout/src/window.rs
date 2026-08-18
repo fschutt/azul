@@ -1837,6 +1837,16 @@ impl LayoutWindow {
             self.scroll_focused_cursor_into_view();
         }
 
+        // Developer warning pass: raw text nodes used without a containing
+        // block (azul does not auto-wrap them in anonymous blocks the way
+        // browsers do — state on a text node is inert). One warning per
+        // unique finding per process; a correct app emits nothing.
+        if result.is_ok() {
+            for lr in self.layout_results.values() {
+                crate::dom_lint::warn_text_without_block_container(&lr.styled_dom);
+            }
+        }
+
         result
     }
 
@@ -2551,7 +2561,7 @@ impl LayoutWindow {
             let _ = &mut root;
             let replacement = Dom {
                 root,
-                children: alloc::vec![Dom::create_text(merged_text)]
+                children: alloc::vec![Dom::create_text_do_not_use_without_block_level_wrapper(merged_text)]
                     .into(),
                 css: Vec::new().into(),
                 estimated_total_children: 1,
@@ -15496,7 +15506,7 @@ mod autotest_generated {
 
         // body > text("hello") => 2 nodes.
         let with_text =
-            StyledDom::create_from_dom(Dom::create_body().with_child(Dom::create_text("hello")));
+            StyledDom::create_from_dom(Dom::create_body().with_child(Dom::create_text_do_not_use_without_block_level_wrapper("hello")));
         assert_eq!(with_text.node_hierarchy.len(), 2);
         assert!(
             LayoutWindow::node_has_text_content(&with_text, NodeId::new(0)),
@@ -15509,7 +15519,7 @@ mod autotest_generated {
 
         // Empty and astral-plane text still count as text nodes.
         for s in ["", "🇺🇳👩‍👩‍👧‍👦", "\u{202e}\u{0}"] {
-            let d = StyledDom::create_from_dom(Dom::create_body().with_child(Dom::create_text(s)));
+            let d = StyledDom::create_from_dom(Dom::create_body().with_child(Dom::create_text_do_not_use_without_block_level_wrapper(s)));
             assert!(LayoutWindow::node_has_text_content(&d, NodeId::new(1)), "{s:?}");
             assert!(LayoutWindow::node_has_text_content(&d, NodeId::new(0)), "{s:?}");
         }
@@ -15591,7 +15601,7 @@ mod autotest_generated {
         let w = window_for(StyledDom::create_from_dom(
             Dom::create_div()
                 .with_contenteditable(true)
-                .with_child(Dom::create_p().with_child(Dom::create_text("hello"))),
+                .with_child(Dom::create_p().with_child(Dom::create_text_do_not_use_without_block_level_wrapper("hello"))),
         ));
         assert_eq!(text_of(&w, 0), "hello", "a <p> wrapper must not hide the value");
         assert_eq!(text_of(&w, 1), "hello", "and the <p> itself reads the same");
@@ -15601,9 +15611,9 @@ mod autotest_generated {
         let w = window_for(StyledDom::create_from_dom(
             Dom::create_div().with_child(
                 Dom::create_p()
-                    .with_child(Dom::create_text("a"))
-                    .with_child(Dom::create_em().with_child(Dom::create_text("b")))
-                    .with_child(Dom::create_span().with_child(Dom::create_text("c"))),
+                    .with_child(Dom::create_text_do_not_use_without_block_level_wrapper("a"))
+                    .with_child(Dom::create_em().with_child(Dom::create_text_do_not_use_without_block_level_wrapper("b")))
+                    .with_child(Dom::create_span().with_child(Dom::create_text_do_not_use_without_block_level_wrapper("c"))),
             ),
         ));
         assert_eq!(text_of(&w, 0), "abc");
@@ -15615,8 +15625,8 @@ mod autotest_generated {
         // must not leak into an editable value.
         let w = window_for(StyledDom::create_from_dom(
             Dom::create_div()
-                .with_child(Dom::create_head().with_child(Dom::create_text("metadata")))
-                .with_child(Dom::create_p().with_child(Dom::create_text("body"))),
+                .with_child(Dom::create_head().with_child(Dom::create_text_do_not_use_without_block_level_wrapper("metadata")))
+                .with_child(Dom::create_p().with_child(Dom::create_text_do_not_use_without_block_level_wrapper("body"))),
         ));
         assert_eq!(text_of(&w, 0), "body");
         assert_eq!(text_of(&w, 1), "", "a metadata container collects nothing");
@@ -15634,9 +15644,9 @@ mod autotest_generated {
                 .with_child(
                     Dom::create_p()
                         .with_attribute(AttributeType::ContentEditable(false))
-                        .with_child(Dom::create_text("Type here...")),
+                        .with_child(Dom::create_text_do_not_use_without_block_level_wrapper("Type here...")),
                 )
-                .with_child(Dom::create_p().with_child(Dom::create_text("real value"))),
+                .with_child(Dom::create_p().with_child(Dom::create_text_do_not_use_without_block_level_wrapper("real value"))),
         ));
         assert_eq!(text_of(&w, 0), "real value");
         // The wall is about the parent's collection, not a global mute: asked
@@ -15652,8 +15662,8 @@ mod autotest_generated {
         // the placeholder, so `reshape_text_node` has to ask the caret first.
         let mut w = window_for(StyledDom::create_from_dom(
             Dom::create_div()
-                .with_child(Dom::create_p().with_child(Dom::create_text("prompt")))
-                .with_child(Dom::create_p().with_child(Dom::create_text("value"))),
+                .with_child(Dom::create_p().with_child(Dom::create_text_do_not_use_without_block_level_wrapper("prompt")))
+                .with_child(Dom::create_p().with_child(Dom::create_text_do_not_use_without_block_level_wrapper("value"))),
         ));
 
         assert_eq!(
@@ -16426,8 +16436,8 @@ mod autotest_generated {
         // inline layout) and programmatic focus never painted a caret.
         let dom = StyledDom::create_from_dom(Dom::create_body().with_child(
             Dom::create_div()
-                .with_child(Dom::create_div().with_child(Dom::create_text("first para")))
-                .with_child(Dom::create_div().with_child(Dom::create_text("last para"))),
+                .with_child(Dom::create_div().with_child(Dom::create_text_do_not_use_without_block_level_wrapper("first para")))
+                .with_child(Dom::create_div().with_child(Dom::create_text_do_not_use_without_block_level_wrapper("last para"))),
         ));
         let win = laid_out(dom, 400.0, 300.0);
         let container = NodeId::new(1); // body(0) > div(1)
@@ -16452,7 +16462,7 @@ mod autotest_generated {
     #[test]
     fn text_node_navigation_walks_a_real_dom_without_running_off_the_end() {
         let dom = StyledDom::create_from_dom(
-            Dom::create_body().with_child(Dom::create_text("hello world")),
+            Dom::create_body().with_child(Dom::create_text_do_not_use_without_block_level_wrapper("hello world")),
         );
         let win = laid_out(dom, 200.0, 150.0);
         let node_count = win

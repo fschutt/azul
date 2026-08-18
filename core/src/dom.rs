@@ -2336,9 +2336,28 @@ impl NodeData {
         Self::create_node(NodeType::Br)
     }
 
+    /// Creates a RAW text node - read this before using it.
+    ///
+    /// **WARNING**: azul does NOT auto-wrap raw text in an anonymous block
+    /// the way browsers do. A bare text node has NO box of its own: it gets
+    /// no rect, no clip, and no layout constraints. Every box-model CSS
+    /// property (width/height/position/overflow/background/border/padding),
+    /// every callback, every `tab_index` and every `dataset` attached to a
+    /// text node is silently INERT. This has broken shipped widgets before
+    /// (text escaping its container, click targets that never fire).
+    ///
+    /// A raw text node is only correct as the bare leaf INSIDE a block-level
+    /// wrapper that carries the styling - `p`, `div`, `h1`... Prefer the
+    /// `create_*_with_text` family (`Dom::create_p_with_text`,
+    /// `Dom::create_div_with_text`, `Dom::create_span_with_text`, ...), which
+    /// builds that shape for you. The engine also logs a warning after layout
+    /// when it finds a text node used without a containing block.
+    ///
     /// Shorthand for `NodeData::create_node(NodeType::Text(value.into()))`.
     #[inline]
-    pub fn create_text<S: Into<AzString>>(value: S) -> Self {
+    pub fn create_text_do_not_use_without_block_level_wrapper<S: Into<AzString>>(
+        value: S,
+    ) -> Self {
         Self::create_node(NodeType::Text(BoxOrStatic::heap(value.into())))
     }
 
@@ -3933,7 +3952,7 @@ impl Dom {
     /// announce the disclosure heading.
     #[inline]
     pub fn create_summary_with_text_no_a11y<S: Into<AzString>>(text: S) -> Self {
-        Self::create_summary_no_a11y().with_child(Self::create_text(text))
+        Self::create_summary_no_a11y().with_child(Self::create_text_do_not_use_without_block_level_wrapper(text))
     }
 
     /// Creates a summary element with text and accessibility information for details.
@@ -3986,8 +4005,26 @@ impl Dom {
             estimated_total_children: 0,
         }
     }
+    /// Creates a RAW text node - read this before using it.
+    ///
+    /// **WARNING**: azul does NOT auto-wrap raw text in an anonymous block
+    /// the way browsers do. A bare text node has NO box of its own: it gets
+    /// no rect, no clip, and no layout constraints. Every box-model CSS
+    /// property (width/height/position/overflow/background/border/padding),
+    /// every callback, every `tab_index` and every `dataset` attached to a
+    /// text node is silently INERT. This has broken shipped widgets before
+    /// (text escaping its container, click targets that never fire).
+    ///
+    /// A raw text node is only correct as the bare leaf INSIDE a block-level
+    /// wrapper that carries the styling - `p`, `div`, `h1`... Prefer the
+    /// `create_*_with_text` family ([`Dom::create_p_with_text`],
+    /// [`Dom::create_div_with_text`], [`Dom::create_span_with_text`], ...),
+    /// which builds that shape for you. The engine also logs a warning after
+    /// layout when it finds a text node used without a containing block.
     #[inline]
-    pub fn create_text<S: Into<AzString>>(value: S) -> Self {
+    pub fn create_text_do_not_use_without_block_level_wrapper<S: Into<AzString>>(
+        value: S,
+    ) -> Self {
         Self::create_node(NodeType::Text(BoxOrStatic::heap(value.into())))
     }
     #[inline]
@@ -4064,7 +4101,7 @@ impl Dom {
     /// - `text`: Heading text
     #[inline]
     pub fn create_h1_with_text<S: Into<AzString>>(text: S) -> Self {
-        Self::create_h1().with_child(Self::create_text(text))
+        Self::create_h1().with_child(Self::create_text_do_not_use_without_block_level_wrapper(text))
     }
 
     /// Creates an empty heading level 2 element.
@@ -4088,7 +4125,7 @@ impl Dom {
     /// - `text`: Heading text
     #[inline]
     pub fn create_h2_with_text<S: Into<AzString>>(text: S) -> Self {
-        Self::create_h2().with_child(Self::create_text(text))
+        Self::create_h2().with_child(Self::create_text_do_not_use_without_block_level_wrapper(text))
     }
 
     /// Creates an empty heading level 3 element.
@@ -4112,7 +4149,7 @@ impl Dom {
     /// - `text`: Heading text
     #[inline]
     pub fn create_h3_with_text<S: Into<AzString>>(text: S) -> Self {
-        Self::create_h3().with_child(Self::create_text(text))
+        Self::create_h3().with_child(Self::create_text_do_not_use_without_block_level_wrapper(text))
     }
 
     /// Creates an empty heading level 4 element.
@@ -4132,7 +4169,7 @@ impl Dom {
     /// - `text`: Heading text
     #[inline]
     pub fn create_h4_with_text<S: Into<AzString>>(text: S) -> Self {
-        Self::create_h4().with_child(Self::create_text(text))
+        Self::create_h4().with_child(Self::create_text_do_not_use_without_block_level_wrapper(text))
     }
 
     /// Creates an empty heading level 5 element.
@@ -4152,7 +4189,7 @@ impl Dom {
     /// - `text`: Heading text
     #[inline]
     pub fn create_h5_with_text<S: Into<AzString>>(text: S) -> Self {
-        Self::create_h5().with_child(Self::create_text(text))
+        Self::create_h5().with_child(Self::create_text_do_not_use_without_block_level_wrapper(text))
     }
 
     /// Creates an empty heading level 6 element.
@@ -4172,7 +4209,7 @@ impl Dom {
     /// - `text`: Heading text
     #[inline]
     pub fn create_h6_with_text<S: Into<AzString>>(text: S) -> Self {
-        Self::create_h6().with_child(Self::create_text(text))
+        Self::create_h6().with_child(Self::create_text_do_not_use_without_block_level_wrapper(text))
     }
 
     /// Creates an empty generic inline container (span).
@@ -4198,7 +4235,7 @@ impl Dom {
     /// - `text`: Span content
     #[inline]
     pub fn create_span_with_text<S: Into<AzString>>(text: S) -> Self {
-        Self::create_span().with_child(Self::create_text(text))
+        Self::create_span().with_child(Self::create_text_do_not_use_without_block_level_wrapper(text))
     }
 
     /// Creates an empty strong importance element.
@@ -4223,7 +4260,7 @@ impl Dom {
     /// - `text`: Text to emphasize
     #[inline]
     pub fn create_strong_with_text<S: Into<AzString>>(text: S) -> Self {
-        Self::create_strong().with_child(Self::create_text(text))
+        Self::create_strong().with_child(Self::create_text_do_not_use_without_block_level_wrapper(text))
     }
 
     /// Creates an empty emphasis element (stress emphasis).
@@ -4248,7 +4285,7 @@ impl Dom {
     /// - `text`: Text to emphasize
     #[inline]
     pub fn create_em_with_text<S: Into<AzString>>(text: S) -> Self {
-        Self::create_em().with_child(Self::create_text(text))
+        Self::create_em().with_child(Self::create_text_do_not_use_without_block_level_wrapper(text))
     }
 
     /// Creates an empty code element.
@@ -4268,7 +4305,7 @@ impl Dom {
     /// - `code`: Code content
     #[inline]
     pub fn create_code_with_text<S: Into<AzString>>(code: S) -> Self {
-        Self::create_code().with_child(Self::create_text(code))
+        Self::create_code().with_child(Self::create_text_do_not_use_without_block_level_wrapper(code))
     }
 
     /// Creates an empty preformatted text element.
@@ -4288,7 +4325,7 @@ impl Dom {
     /// - `text`: Preformatted content
     #[inline]
     pub fn create_pre_with_text<S: Into<AzString>>(text: S) -> Self {
-        Self::create_pre().with_child(Self::create_text(text))
+        Self::create_pre().with_child(Self::create_text_do_not_use_without_block_level_wrapper(text))
     }
 
     /// Creates an empty blockquote element.
@@ -4308,7 +4345,7 @@ impl Dom {
     /// - `text`: Quote content
     #[inline]
     pub fn create_blockquote_with_text<S: Into<AzString>>(text: S) -> Self {
-        Self::create_blockquote().with_child(Self::create_text(text))
+        Self::create_blockquote().with_child(Self::create_text_do_not_use_without_block_level_wrapper(text))
     }
 
     /// Creates an empty citation element.
@@ -4328,7 +4365,7 @@ impl Dom {
     /// - `text`: Citation text
     #[inline]
     pub fn create_cite_with_text<S: Into<AzString>>(text: S) -> Self {
-        Self::create_cite().with_child(Self::create_text(text))
+        Self::create_cite().with_child(Self::create_text_do_not_use_without_block_level_wrapper(text))
     }
 
     /// Creates an empty abbreviation element.
@@ -4352,7 +4389,7 @@ impl Dom {
     #[must_use] pub fn create_abbr_with_title(abbr_text: AzString, title: AzString) -> Self {
         Self::create_node(NodeType::Abbr)
             .with_attribute(AttributeType::Title(title))
-            .with_child(Self::create_text(abbr_text))
+            .with_child(Self::create_text_do_not_use_without_block_level_wrapper(abbr_text))
     }
 
     /// Creates an empty keyboard input element.
@@ -4372,7 +4409,7 @@ impl Dom {
     /// - `text`: Keyboard instruction
     #[inline]
     pub fn create_kbd_with_text<S: Into<AzString>>(text: S) -> Self {
-        Self::create_kbd().with_child(Self::create_text(text))
+        Self::create_kbd().with_child(Self::create_text_do_not_use_without_block_level_wrapper(text))
     }
 
     /// Creates an empty sample output element.
@@ -4391,7 +4428,7 @@ impl Dom {
     /// - `text`: Sample text
     #[inline]
     pub fn create_samp_with_text<S: Into<AzString>>(text: S) -> Self {
-        Self::create_samp().with_child(Self::create_text(text))
+        Self::create_samp().with_child(Self::create_text_do_not_use_without_block_level_wrapper(text))
     }
 
     /// Creates an empty variable element.
@@ -4410,7 +4447,7 @@ impl Dom {
     /// - `text`: Variable name
     #[inline]
     pub fn create_var_with_text<S: Into<AzString>>(text: S) -> Self {
-        Self::create_var().with_child(Self::create_text(text))
+        Self::create_var().with_child(Self::create_text_do_not_use_without_block_level_wrapper(text))
     }
 
     /// Creates an empty subscript element.
@@ -4427,7 +4464,7 @@ impl Dom {
     /// - `text`: Subscript content
     #[inline]
     pub fn create_sub_with_text<S: Into<AzString>>(text: S) -> Self {
-        Self::create_sub().with_child(Self::create_text(text))
+        Self::create_sub().with_child(Self::create_text_do_not_use_without_block_level_wrapper(text))
     }
 
     /// Creates an empty superscript element.
@@ -4444,7 +4481,7 @@ impl Dom {
     /// - `text`: Superscript content
     #[inline]
     pub fn create_sup_with_text<S: Into<AzString>>(text: S) -> Self {
-        Self::create_sup().with_child(Self::create_text(text))
+        Self::create_sup().with_child(Self::create_text_do_not_use_without_block_level_wrapper(text))
     }
 
     /// Creates an empty underline element.
@@ -4459,7 +4496,7 @@ impl Dom {
     /// Use semantic elements when possible (e.g., `<em>` for emphasis).
     #[inline]
     pub fn create_u_with_text<S: Into<AzString>>(text: S) -> Self {
-        Self::create_u().with_child(Self::create_text(text))
+        Self::create_u().with_child(Self::create_text_do_not_use_without_block_level_wrapper(text))
     }
 
     /// Creates an empty strikethrough element.
@@ -4474,7 +4511,7 @@ impl Dom {
     /// Consider using `<del>` for deleted content with datetime attribute.
     #[inline]
     pub fn create_s_with_text<S: Into<AzString>>(text: S) -> Self {
-        Self::create_s().with_child(Self::create_text(text))
+        Self::create_s().with_child(Self::create_text_do_not_use_without_block_level_wrapper(text))
     }
 
     /// Creates an empty mark element.
@@ -4489,7 +4526,7 @@ impl Dom {
     /// Screen readers may announce this as "highlighted".
     #[inline]
     pub fn create_mark_with_text<S: Into<AzString>>(text: S) -> Self {
-        Self::create_mark().with_child(Self::create_text(text))
+        Self::create_mark().with_child(Self::create_text_do_not_use_without_block_level_wrapper(text))
     }
 
     /// Creates an empty deleted text element.
@@ -4504,7 +4541,7 @@ impl Dom {
     /// Use with `datetime` and `cite` attributes for edit tracking.
     #[inline]
     pub fn create_del_with_text<S: Into<AzString>>(text: S) -> Self {
-        Self::create_del().with_child(Self::create_text(text))
+        Self::create_del().with_child(Self::create_text_do_not_use_without_block_level_wrapper(text))
     }
 
     /// Creates an empty inserted text element.
@@ -4519,7 +4556,7 @@ impl Dom {
     /// Use with `datetime` and `cite` attributes for edit tracking.
     #[inline]
     pub fn create_ins_with_text<S: Into<AzString>>(text: S) -> Self {
-        Self::create_ins().with_child(Self::create_text(text))
+        Self::create_ins().with_child(Self::create_text_do_not_use_without_block_level_wrapper(text))
     }
 
     /// Creates an empty definition element.
@@ -4534,7 +4571,7 @@ impl Dom {
     /// Often used within a definition list or with `<abbr>`.
     #[inline]
     pub fn create_dfn_with_text<S: Into<AzString>>(text: S) -> Self {
-        Self::create_dfn().with_child(Self::create_text(text))
+        Self::create_dfn().with_child(Self::create_text_do_not_use_without_block_level_wrapper(text))
     }
 
     /// Creates a time element.
@@ -4547,7 +4584,7 @@ impl Dom {
     /// - `datetime`: Optional machine-readable datetime
     #[inline]
     #[must_use] pub fn create_time(text: AzString, datetime: OptionString) -> Self {
-        let mut element = Self::create_node(NodeType::Time).with_child(Self::create_text(text));
+        let mut element = Self::create_node(NodeType::Time).with_child(Self::create_text_do_not_use_without_block_level_wrapper(text));
         if let OptionString::Some(dt) = datetime {
             element = element.with_attribute(AttributeType::Custom(AttributeNameValue {
                 attr_name: "datetime".into(),
@@ -4570,7 +4607,7 @@ impl Dom {
     /// **Accessibility**: Overrides text direction. Use `dir` attribute (ltr/rtl).
     #[inline]
     pub fn create_bdo_with_text<S: Into<AzString>>(text: S) -> Self {
-        Self::create_bdo().with_child(Self::create_text(text))
+        Self::create_bdo().with_child(Self::create_text_do_not_use_without_block_level_wrapper(text))
     }
 
     // Additional inline / text-level elements
@@ -4591,7 +4628,7 @@ impl Dom {
     /// - `text`: Bold text content
     #[inline]
     pub fn create_b_with_text<S: Into<AzString>>(text: S) -> Self {
-        Self::create_b().with_child(Self::create_text(text))
+        Self::create_b().with_child(Self::create_text_do_not_use_without_block_level_wrapper(text))
     }
 
     /// Creates an empty italic element.
@@ -4610,7 +4647,7 @@ impl Dom {
     /// - `text`: Italic text content
     #[inline]
     pub fn create_i_with_text<S: Into<AzString>>(text: S) -> Self {
-        Self::create_i().with_child(Self::create_text(text))
+        Self::create_i().with_child(Self::create_text_do_not_use_without_block_level_wrapper(text))
     }
 
     /// Creates an empty small text element.
@@ -4627,7 +4664,7 @@ impl Dom {
     /// - `text`: Small text content
     #[inline]
     pub fn create_small_with_text<S: Into<AzString>>(text: S) -> Self {
-        Self::create_small().with_child(Self::create_text(text))
+        Self::create_small().with_child(Self::create_text_do_not_use_without_block_level_wrapper(text))
     }
 
     /// Creates an empty `<big>` element.
@@ -4643,7 +4680,7 @@ impl Dom {
     /// **Note**: Deprecated in HTML5. Prefer CSS `font-size`.
     #[inline]
     pub fn create_big_with_text<S: Into<AzString>>(text: S) -> Self {
-        Self::create_big().with_child(Self::create_text(text))
+        Self::create_big().with_child(Self::create_text_do_not_use_without_block_level_wrapper(text))
     }
 
     /// Creates an empty bi-directional isolate element.
@@ -4661,7 +4698,7 @@ impl Dom {
     /// keeping it from affecting surrounding bidi layout.
     #[inline]
     pub fn create_bdi_with_text<S: Into<AzString>>(text: S) -> Self {
-        Self::create_bdi().with_child(Self::create_text(text))
+        Self::create_bdi().with_child(Self::create_text_do_not_use_without_block_level_wrapper(text))
     }
 
     /// Creates an empty word break opportunity element.
@@ -4696,7 +4733,7 @@ impl Dom {
     /// - `text`: Ruby annotation content
     #[inline]
     pub fn create_rt_with_text<S: Into<AzString>>(text: S) -> Self {
-        Self::create_rt().with_child(Self::create_text(text))
+        Self::create_rt().with_child(Self::create_text_do_not_use_without_block_level_wrapper(text))
     }
 
     /// Creates an empty ruby text container element.
@@ -4721,7 +4758,7 @@ impl Dom {
     /// - `text`: Parenthesis text (typically "(" or ")")
     #[inline]
     pub fn create_rp_with_text<S: Into<AzString>>(text: S) -> Self {
-        Self::create_rp().with_child(Self::create_text(text))
+        Self::create_rp().with_child(Self::create_text_do_not_use_without_block_level_wrapper(text))
     }
 
     /// Creates a `<data>` element binding a machine-readable value to its content.
@@ -4740,7 +4777,7 @@ impl Dom {
     /// - `text`: Human-readable text content.
     #[inline]
     #[must_use] pub fn create_data_with_text(value: AzString, text: AzString) -> Self {
-        Self::create_data(value).with_child(Self::create_text(text))
+        Self::create_data(value).with_child(Self::create_text_do_not_use_without_block_level_wrapper(text))
     }
 
     /// Creates an empty directory list element.
@@ -4770,7 +4807,7 @@ impl Dom {
     #[must_use] pub fn create_a_no_a11y(href: AzString, label: OptionString) -> Self {
         let mut link = Self::create_node(NodeType::A).with_attribute(AttributeType::Href(href));
         if let OptionString::Some(text) = label {
-            link = link.with_child(Self::create_text(text));
+            link = link.with_child(Self::create_text_do_not_use_without_block_level_wrapper(text));
         }
         link
     }
@@ -4784,7 +4821,7 @@ impl Dom {
     /// - `text`: Button label text
     #[inline]
     #[must_use] pub fn create_button_no_a11y(text: AzString) -> Self {
-        Self::create_node(NodeType::Button).with_child(Self::create_text(text))
+        Self::create_node(NodeType::Button).with_child(Self::create_text_do_not_use_without_block_level_wrapper(text))
     }
 
     /// Creates a label element for form controls without accessibility information.
@@ -4801,7 +4838,7 @@ impl Dom {
                 attr_name: "for".into(),
                 value: for_id,
             }))
-            .with_child(Self::create_text(text))
+            .with_child(Self::create_text_do_not_use_without_block_level_wrapper(text))
     }
 
     /// Creates an input element without accessibility information.
@@ -4860,7 +4897,7 @@ impl Dom {
     #[must_use] pub fn create_option_no_a11y(value: AzString, text: AzString) -> Self {
         Self::create_node(NodeType::SelectOption)
             .with_attribute(AttributeType::Value(value))
-            .with_child(Self::create_text(text))
+            .with_child(Self::create_text_do_not_use_without_block_level_wrapper(text))
     }
 
     /// Creates an option element for select dropdowns with accessibility information.
@@ -5180,7 +5217,7 @@ impl Dom {
     /// **Note**: Deprecated in HTML5. Consider using `create_abbr_with_title()` instead.
     #[inline]
     pub fn create_acronym_with_text<S: Into<AzString>>(text: S) -> Self {
-        Self::create_acronym().with_child(Self::create_text(text))
+        Self::create_acronym().with_child(Self::create_text_do_not_use_without_block_level_wrapper(text))
     }
 
     /// Creates a menu element without accessibility information.
@@ -5239,7 +5276,7 @@ impl Dom {
     /// distinct accessible name in addition to the visible text.
     #[inline]
     pub fn create_menuitem_with_text_no_a11y<S: Into<AzString>>(text: S) -> Self {
-        Self::create_menuitem_no_a11y().with_child(Self::create_text(text))
+        Self::create_menuitem_no_a11y().with_child(Self::create_text_do_not_use_without_block_level_wrapper(text))
     }
 
     /// Creates a menu item element with text and accessibility information.
@@ -5615,7 +5652,7 @@ impl Dom {
     /// Should be unique and descriptive. Keep under 60 characters.
     #[inline]
     pub fn create_title_with_text<S: Into<AzString>>(text: S) -> Self {
-        Self::create_title().with_child(Self::create_text(text))
+        Self::create_title().with_child(Self::create_text_do_not_use_without_block_level_wrapper(text))
     }
 
     /// Creates a meta element.
@@ -5679,7 +5716,7 @@ impl Dom {
     /// This creates a `<style>` HTML element for embedded stylesheets.
     #[inline]
     pub fn create_style_with_text<S: Into<AzString>>(text: S) -> Self {
-        Self::create_style().with_child(Self::create_text(text))
+        Self::create_style().with_child(Self::create_text_do_not_use_without_block_level_wrapper(text))
     }
 
     /// Creates a base element for document base URL.
@@ -5704,7 +5741,7 @@ impl Dom {
     #[must_use] pub fn create_th_with_scope(scope: AzString, text: AzString) -> Self {
         Self::create_node(NodeType::Th)
             .with_attribute(AttributeType::Scope(scope))
-            .with_child(Self::create_text(text))
+            .with_child(Self::create_text_do_not_use_without_block_level_wrapper(text))
     }
 
     /// Creates a table data cell with text.
@@ -5713,7 +5750,7 @@ impl Dom {
     /// - `text`: Cell content
     #[inline]
     pub fn create_td_with_text<S: Into<AzString>>(text: S) -> Self {
-        Self::create_td().with_child(Self::create_text(text))
+        Self::create_td().with_child(Self::create_text_do_not_use_without_block_level_wrapper(text))
     }
 
     /// Creates a table header cell with text.
@@ -5722,7 +5759,7 @@ impl Dom {
     /// - `text`: Header text
     #[inline]
     pub fn create_th_with_text<S: Into<AzString>>(text: S) -> Self {
-        Self::create_th().with_child(Self::create_text(text))
+        Self::create_th().with_child(Self::create_text_do_not_use_without_block_level_wrapper(text))
     }
 
     /// Creates a list item with text.
@@ -5731,7 +5768,7 @@ impl Dom {
     /// - `text`: List item content
     #[inline]
     pub fn create_li_with_text<S: Into<AzString>>(text: S) -> Self {
-        Self::create_li().with_child(Self::create_text(text))
+        Self::create_li().with_child(Self::create_text_do_not_use_without_block_level_wrapper(text))
     }
 
     /// Creates a paragraph with text.
@@ -5740,7 +5777,23 @@ impl Dom {
     /// - `text`: Paragraph content
     #[inline]
     pub fn create_p_with_text<S: Into<AzString>>(text: S) -> Self {
-        Self::create_p().with_child(Self::create_text(text))
+        Self::create_p()
+            .with_child(Self::create_text_do_not_use_without_block_level_wrapper(text))
+    }
+
+    /// Creates a generic block container (div) with text.
+    ///
+    /// The div is the box the text lives in: put your styling, callbacks and
+    /// `tab_index` on the DIV, never on the text leaf (a text node has no box
+    /// of its own - see
+    /// [`Dom::create_text_do_not_use_without_block_level_wrapper`]).
+    ///
+    /// **Parameters:**
+    /// - `text`: Div content
+    #[inline]
+    pub fn create_div_with_text<S: Into<AzString>>(text: S) -> Self {
+        Self::create_div()
+            .with_child(Self::create_text_do_not_use_without_block_level_wrapper(text))
     }
 
     // Accessibility-Aware Constructors
@@ -5857,7 +5910,7 @@ impl Dom {
     #[allow(clippy::needless_pass_by_value)] // owned azul C-ABI value taken by value (FFI ownership-transfer convention)
     pub fn create_table<S: Into<AzString>>(caption: S, aria: SmallAriaInfo) -> Self {
         let mut table = Self::create_table_no_a11y()
-            .with_child(Self::create_caption().with_child(Self::create_text(caption)));
+            .with_child(Self::create_caption().with_child(Self::create_text_do_not_use_without_block_level_wrapper(caption)));
         table.root.set_accessibility_info(aria.to_full_info());
         table
     }
@@ -5891,7 +5944,7 @@ impl Dom {
     pub fn from_xml<S: AsRef<str>>(xml_str: S) -> Self {
         // TODO: Implement full XML parsing
         // For now, just create a text node showing that XML was loaded
-        Self::create_text(format!(
+        Self::create_text_do_not_use_without_block_level_wrapper(format!(
             "XML content loaded ({} bytes)",
             xml_str.as_ref().len()
         ))
@@ -5900,7 +5953,7 @@ impl Dom {
     /// Parse XML/XHTML string into a DOM (fallback without xml feature)
     #[cfg(not(feature = "xml"))]
     pub fn from_xml<S: AsRef<str>>(xml_str: S) -> Self {
-        Self::create_text(format!(
+        Self::create_text_do_not_use_without_block_level_wrapper(format!(
             "XML parsing requires 'xml' feature ({} bytes)",
             xml_str.as_ref().len()
         ))
@@ -6407,7 +6460,7 @@ mod audit_tests {
     // Miri can validate the raw write / box ownership transfer for UB.
     #[test]
     fn copy_special_moving_complex_moves_text_node_type() {
-        let mut nd = NodeData::create_text("hello").with_css("color: red;");
+        let mut nd = NodeData::create_text_do_not_use_without_block_level_wrapper("hello").with_css("color: red;");
         assert!(!nd.style.rules.is_empty(), "precondition: style set");
 
         let copy = nd.copy_special_moving_complex();
@@ -7480,12 +7533,12 @@ mod autotest_generated {
     #[test]
     fn create_text_accepts_empty_unicode_and_huge_input() {
         for s in ["", "x", "日本語 🎉"] {
-            let nd = NodeData::create_text(s);
+            let nd = NodeData::create_text_do_not_use_without_block_level_wrapper(s);
             assert!(nd.is_text_node());
             assert_eq!(nd.get_node_type().format(), Some(s.to_string()));
         }
         let big = huge_unicode_string();
-        let nd = NodeData::create_text(big.clone());
+        let nd = NodeData::create_text_do_not_use_without_block_level_wrapper(big.clone());
         assert!(nd.is_text_node());
         assert_eq!(nd.get_node_type().format(), Some(big));
     }
@@ -7615,7 +7668,7 @@ mod autotest_generated {
 
     #[test]
     fn is_node_type_is_content_sensitive_for_text() {
-        let nd = NodeData::create_text("a");
+        let nd = NodeData::create_text_do_not_use_without_block_level_wrapper("a");
         assert!(nd.is_node_type(NodeType::Text(BoxOrStatic::heap(AzString::from("a")))));
         assert!(
             !nd.is_node_type(NodeType::Text(BoxOrStatic::heap(AzString::from("b")))),
@@ -7626,7 +7679,7 @@ mod autotest_generated {
 
     #[test]
     fn is_text_node_and_is_virtual_view_node() {
-        assert!(NodeData::create_text("x").is_text_node());
+        assert!(NodeData::create_text_do_not_use_without_block_level_wrapper("x").is_text_node());
         assert!(!NodeData::create_div().is_text_node());
 
         let vv = NodeData::create_virtual_view(RefAny::new(1u32), virtual_view_callback());
@@ -8081,8 +8134,8 @@ mod autotest_generated {
     fn structural_hash_ignores_text_content_but_data_hash_does_not() {
         // Documented behaviour: Text("Hello") must match Text("Hello World") during
         // reconciliation so the cursor survives an edit.
-        let a = NodeData::create_text("Hello");
-        let b = NodeData::create_text("Hello World");
+        let a = NodeData::create_text_do_not_use_without_block_level_wrapper("Hello");
+        let b = NodeData::create_text_do_not_use_without_block_level_wrapper("Hello World");
 
         assert_eq!(
             a.calculate_structural_hash(),
@@ -8195,7 +8248,7 @@ mod autotest_generated {
 
     #[test]
     fn node_data_display_wraps_text_content_in_a_tag_pair() {
-        let s = format!("{}", NodeData::create_text("hello"));
+        let s = format!("{}", NodeData::create_text_do_not_use_without_block_level_wrapper("hello"));
         assert!(s.starts_with('<'));
         assert!(s.ends_with('>'));
         assert!(s.contains("hello"), "{s}");
@@ -8214,7 +8267,7 @@ mod autotest_generated {
             "日本語 🎉",
             "line\nbreak\ttab",
         ] {
-            let s = format!("{}", NodeData::create_text(text));
+            let s = format!("{}", NodeData::create_text_do_not_use_without_block_level_wrapper(text));
             assert!(s.contains(text), "Display dropped content for {text:?}");
         }
     }
@@ -8222,7 +8275,7 @@ mod autotest_generated {
     #[test]
     fn node_data_display_survives_a_huge_text_payload() {
         let big = huge_unicode_string();
-        let s = format!("{}", NodeData::create_text(big.clone()));
+        let s = format!("{}", NodeData::create_text_do_not_use_without_block_level_wrapper(big.clone()));
         assert!(s.len() > big.len());
     }
 
@@ -8343,7 +8396,7 @@ mod autotest_generated {
 
     #[test]
     fn swap_with_default_returns_the_original_and_leaves_a_div() {
-        let mut nd = NodeData::create_text("payload");
+        let mut nd = NodeData::create_text_do_not_use_without_block_level_wrapper("payload");
         let taken = nd.swap_with_default();
         assert!(taken.is_text_node());
         assert!(nd.is_node_type(NodeType::Div), "the slot becomes a fresh div");
@@ -8380,7 +8433,7 @@ mod autotest_generated {
         let mut v: NodeDataVec = vec![
             NodeData::create_div(),
             NodeData::create_br(),
-            NodeData::create_text("t"),
+            NodeData::create_text_do_not_use_without_block_level_wrapper("t"),
         ]
         .into();
         assert_eq!(v.as_container().internal.len(), 3);
@@ -8602,8 +8655,8 @@ mod autotest_generated {
     fn dom_clone_and_eq_agree_on_a_nested_tree() {
         let d = Dom::create_div()
             .with_id("r".into())
-            .with_child(Dom::create_text("a"))
-            .with_child(Dom::create_div().with_child(Dom::create_text("b")));
+            .with_child(Dom::create_text_do_not_use_without_block_level_wrapper("a"))
+            .with_child(Dom::create_div().with_child(Dom::create_text_do_not_use_without_block_level_wrapper("b")));
         let c = d.clone();
         assert_eq!(d, c);
         assert_eq!(hash_of(&d), hash_of(&c));
@@ -8615,7 +8668,7 @@ mod autotest_generated {
     #[test]
     fn dom_debug_does_not_panic_on_a_nested_tree() {
         let d = Dom::create_div()
-            .with_child(Dom::create_text("日本語 🎉"))
+            .with_child(Dom::create_text_do_not_use_without_block_level_wrapper("日本語 🎉"))
             .with_child(Dom::create_div().with_child(Dom::create_br()));
         let s = format!("{d:?}");
         assert!(s.contains("Dom"));

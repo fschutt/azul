@@ -386,7 +386,7 @@ mod autotest_generated {
     /// A `Dom` nested `depth` levels deep — a stress input for the recursive
     /// child bookkeeping `dom()` relies on.
     fn nested_anchor(depth: usize) -> Dom {
-        let mut d = Dom::create_div().with_child(Dom::create_text("leaf"));
+        let mut d = Dom::create_div().with_child(Dom::create_text_do_not_use_without_block_level_wrapper("leaf"));
         for _ in 0..depth {
             d = Dom::create_div().with_child(d);
         }
@@ -567,7 +567,7 @@ mod autotest_generated {
 
     #[test]
     fn new_stores_anchor_and_text_verbatim() {
-        let anchor = Dom::create_div().with_child(Dom::create_text("anchor"));
+        let anchor = Dom::create_div().with_child(Dom::create_text_do_not_use_without_block_level_wrapper("anchor"));
         let text = AzString::from("tip".to_string());
         let t = Tooltip::new(anchor.clone(), text.clone());
 
@@ -665,7 +665,7 @@ mod autotest_generated {
     fn set_text_and_with_text_agree_and_touch_nothing_else() {
         for s in adversarial_texts() {
             let base = Tooltip::new(
-                Dom::create_div().with_child(Dom::create_text("a")),
+                Dom::create_div().with_child(Dom::create_text_do_not_use_without_block_level_wrapper("a")),
                 AzString::from_const_str("initial"),
             );
 
@@ -784,7 +784,7 @@ mod autotest_generated {
     #[test]
     fn swap_with_default_returns_the_old_value_and_leaves_a_default() {
         let original = Tooltip::new(
-            Dom::create_div().with_child(Dom::create_text("anchor")),
+            Dom::create_div().with_child(Dom::create_text_do_not_use_without_block_level_wrapper("anchor")),
             AzString::from("tip".to_string()),
         )
         .with_tip_style(style_of(vec![CssProperty::const_opacity(
@@ -922,7 +922,7 @@ mod autotest_generated {
 
     #[test]
     fn dom_builds_a_wrapper_with_the_anchor_then_the_tip() {
-        let anchor = Dom::create_div().with_child(Dom::create_text("anchor"));
+        let anchor = Dom::create_div().with_child(Dom::create_text_do_not_use_without_block_level_wrapper("anchor"));
         let dom = Tooltip::new(anchor.clone(), AzString::from_const_str("tip")).dom();
 
         assert!(has_class(&dom, WRAPPER_CLASS_NAME));
@@ -1009,7 +1009,7 @@ mod autotest_generated {
     #[test]
     fn dom_binds_no_callbacks_on_the_anchor_or_the_tip() {
         let dom = Tooltip::new(
-            Dom::create_div().with_child(Dom::create_text("a")),
+            Dom::create_div().with_child(Dom::create_text_do_not_use_without_block_level_wrapper("a")),
             AzString::from_const_str("t"),
         )
         .dom();
@@ -1028,7 +1028,7 @@ mod autotest_generated {
         // deliberately compared field-by-field rather than with `==`.
         let make = || {
             Tooltip::new(
-                Dom::create_div().with_child(Dom::create_text("a")),
+                Dom::create_div().with_child(Dom::create_text_do_not_use_without_block_level_wrapper("a")),
                 AzString::from_const_str("tip"),
             )
         };

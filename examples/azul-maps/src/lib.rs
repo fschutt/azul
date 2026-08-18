@@ -237,14 +237,14 @@ extern "C" fn layout(mut data: RefAny, _info: LayoutCallbackInfo) -> Dom {
 
     let header = Dom::create_div()
         .with_css(HEADER)
-        .with_child(Dom::create_text(header_text.as_str()))
+        .with_child(Dom::create_text_do_not_use_without_block_level_wrapper(header_text.as_str()))
         .with_child(
             Dom::create_div()
                 .with_css("display: flex; flex-direction: row;")
                 .with_child(
                     Dom::create_div()
                         .with_css(BTN)
-                        .with_child(Dom::create_text("←"))
+                        .with_child(Dom::create_text_do_not_use_without_block_level_wrapper("←"))
                         .with_callback(
                             EventFilter::Hover(HoverEventFilter::MouseUp),
                             data.clone(),
@@ -254,7 +254,7 @@ extern "C" fn layout(mut data: RefAny, _info: LayoutCallbackInfo) -> Dom {
                 .with_child(
                     Dom::create_div()
                         .with_css(BTN)
-                        .with_child(Dom::create_text("→"))
+                        .with_child(Dom::create_text_do_not_use_without_block_level_wrapper("→"))
                         .with_callback(
                             EventFilter::Hover(HoverEventFilter::MouseUp),
                             data.clone(),
@@ -264,7 +264,7 @@ extern "C" fn layout(mut data: RefAny, _info: LayoutCallbackInfo) -> Dom {
                 .with_child(
                     Dom::create_div()
                         .with_css(BTN)
-                        .with_child(Dom::create_text("↑"))
+                        .with_child(Dom::create_text_do_not_use_without_block_level_wrapper("↑"))
                         .with_callback(
                             EventFilter::Hover(HoverEventFilter::MouseUp),
                             data.clone(),
@@ -274,7 +274,7 @@ extern "C" fn layout(mut data: RefAny, _info: LayoutCallbackInfo) -> Dom {
                 .with_child(
                     Dom::create_div()
                         .with_css(BTN)
-                        .with_child(Dom::create_text("↓"))
+                        .with_child(Dom::create_text_do_not_use_without_block_level_wrapper("↓"))
                         .with_callback(
                             EventFilter::Hover(HoverEventFilter::MouseUp),
                             data.clone(),
@@ -284,7 +284,7 @@ extern "C" fn layout(mut data: RefAny, _info: LayoutCallbackInfo) -> Dom {
                 .with_child(
                     Dom::create_div()
                         .with_css(BTN)
-                        .with_child(Dom::create_text("+"))
+                        .with_child(Dom::create_text_do_not_use_without_block_level_wrapper("+"))
                         .with_callback(
                             EventFilter::Hover(HoverEventFilter::MouseUp),
                             data.clone(),
@@ -294,7 +294,7 @@ extern "C" fn layout(mut data: RefAny, _info: LayoutCallbackInfo) -> Dom {
                 .with_child(
                     Dom::create_div()
                         .with_css(BTN)
-                        .with_child(Dom::create_text("−"))
+                        .with_child(Dom::create_text_do_not_use_without_block_level_wrapper("−"))
                         .with_callback(
                             EventFilter::Hover(HoverEventFilter::MouseUp),
                             data.clone(),
@@ -304,7 +304,7 @@ extern "C" fn layout(mut data: RefAny, _info: LayoutCallbackInfo) -> Dom {
                 .with_child(
                     Dom::create_div()
                         .with_css(BTN)
-                        .with_child(Dom::create_text("Recentre"))
+                        .with_child(Dom::create_text_do_not_use_without_block_level_wrapper("Recentre"))
                         .with_callback(
                             EventFilter::Hover(HoverEventFilter::MouseUp),
                             data.clone(),
@@ -314,7 +314,7 @@ extern "C" fn layout(mut data: RefAny, _info: LayoutCallbackInfo) -> Dom {
                 .with_child(
                     Dom::create_div()
                         .with_css(if locating { BTN_ON } else { BTN })
-                        .with_child(Dom::create_text(if locating {
+                        .with_child(Dom::create_text_do_not_use_without_block_level_wrapper(if locating {
                             "Locating…"
                         } else if locate_failed {
                             "Location N/A"
@@ -330,7 +330,7 @@ extern "C" fn layout(mut data: RefAny, _info: LayoutCallbackInfo) -> Dom {
                 .with_child(
                     Dom::create_div()
                         .with_css(BTN)
-                        .with_child(Dom::create_text("Clear pins"))
+                        .with_child(Dom::create_text_do_not_use_without_block_level_wrapper("Clear pins"))
                         .with_callback(
                             EventFilter::Hover(HoverEventFilter::MouseUp),
                             data.clone(),
@@ -392,7 +392,7 @@ extern "C" fn layout(mut data: RefAny, _info: LayoutCallbackInfo) -> Dom {
             .with_child(
                 Dom::create_div()
                     .with_css(LOCATION_READOUT)
-                    .with_child(Dom::create_text(readout.as_str())),
+                    .with_child(Dom::create_text_do_not_use_without_block_level_wrapper(readout.as_str())),
             );
     }
 
@@ -432,7 +432,7 @@ extern "C" fn layout(mut data: RefAny, _info: LayoutCallbackInfo) -> Dom {
             map_container = map_container.with_child(
                 Dom::create_div()
                     .with_css(callout_style.as_str())
-                    .with_child(Dom::create_text(
+                    .with_child(Dom::create_text_do_not_use_without_block_level_wrapper(
                         format!("{:.4}, {:.4}", lat, lon).as_str(),
                     )),
             );
@@ -464,7 +464,7 @@ extern "C" fn layout(mut data: RefAny, _info: LayoutCallbackInfo) -> Dom {
     map_container = map_container.with_child(
         Dom::create_div()
             .with_css(ATTRIB)
-            .with_child(Dom::create_text(attribution_text.as_str())),
+            .with_child(Dom::create_text_do_not_use_without_block_level_wrapper(attribution_text.as_str())),
     );
 
     Dom::create_body()

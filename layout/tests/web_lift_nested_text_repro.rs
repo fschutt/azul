@@ -52,7 +52,7 @@ fn node_id(n: usize) -> DomNodeId {
 /// web-text-min's WORKING case: body directly contains text (body FC = Inline).
 #[test]
 fn body_with_direct_text_lays_out() {
-    let dom = Dom::create_body().with_child(Dom::create_text("Hello"));
+    let dom = Dom::create_body().with_child(Dom::create_text_do_not_use_without_block_level_wrapper("Hello"));
     let lw = layout_dom(dom, "", 800.0, 600.0);
     let body = lw.get_node_layout_rect(node_id(0)).expect("body rect");
     eprintln!("[direct] body rect = {body:?}");
@@ -69,7 +69,7 @@ fn nested_div_with_text_has_nonzero_height() {
     let dom = Dom::create_body().with_child(
         Dom::create_div()
             .with_ids_and_classes(vec![IdOrClass::Class("counter".into())].into())
-            .with_child(Dom::create_text("5")),
+            .with_child(Dom::create_text_do_not_use_without_block_level_wrapper("5")),
     );
     let lw = layout_dom(dom, ".counter { font-size: 32px; }", 800.0, 600.0);
     // node 0 = body, node 1 = div.counter, node 2 = text "5"

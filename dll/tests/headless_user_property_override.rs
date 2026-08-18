@@ -97,7 +97,7 @@ extern "C" fn layout_cb(mut data: RefAny, _info: LayoutCallbackInfo) -> Dom {
     }
     .to_core();
 
-    let mut child = NodeData::create_text("target");
+    let mut child = NodeData::create_text_do_not_use_without_block_level_wrapper("target");
     child.add_callback(
         EventFilter::Component(ComponentEventFilter::AfterMount),
         RefAny::new(state),

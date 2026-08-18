@@ -83,7 +83,7 @@ const TRIG_TRACK: &str = "width: 124px; height: 16px; border-radius: 8px; \
 fn chip(label: &str, pressed: bool) -> Dom {
     Dom::create_div()
         .with_css(if pressed { CHIP_ON } else { CHIP_OFF })
-        .with_child(Dom::create_text(label))
+        .with_child(Dom::create_text_do_not_use_without_block_level_wrapper(label))
 }
 
 fn button_row(pad: &GamepadState, group: &[(&str, GamepadButton)]) -> Dom {
@@ -124,11 +124,11 @@ extern "C" fn layout(mut data: RefAny, _info: LayoutCallbackInfo) -> Dom {
     let body = match pad {
         None => Dom::create_div()
             .with_css(WAITING)
-            .with_child(Dom::create_text("No controller connected — plug one in.")),
+            .with_child(Dom::create_text_do_not_use_without_block_level_wrapper("No controller connected — plug one in.")),
         Some(p) => Dom::create_div()
             .with_css(PANEL)
             .with_child(
-                Dom::create_text(format!("Controller #{}", p.id.id).as_str()).with_css(SUBTITLE),
+                Dom::create_text_do_not_use_without_block_level_wrapper(format!("Controller #{}", p.id.id).as_str()).with_css(SUBTITLE),
             )
             .with_child(button_row(&p, &FACE))
             .with_child(button_row(&p, &SHOULDER))
@@ -151,7 +151,7 @@ extern "C" fn layout(mut data: RefAny, _info: LayoutCallbackInfo) -> Dom {
     Dom::create_body().with_child(
         Dom::create_div()
             .with_css(ROOT)
-            .with_child(Dom::create_text("🎮 Gamepad").with_css(TITLE))
+            .with_child(Dom::create_text_do_not_use_without_block_level_wrapper("🎮 Gamepad").with_css(TITLE))
             .with_child(body),
     )
 }

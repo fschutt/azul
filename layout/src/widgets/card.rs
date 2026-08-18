@@ -467,7 +467,7 @@ mod autotest_generated {
     #[test]
     fn create_stores_pathological_content_verbatim() {
         for t in ADVERSARIAL_TEXT {
-            let c = Card::create(Dom::create_text(t));
+            let c = Card::create(Dom::create_text_do_not_use_without_block_level_wrapper(t));
             assert_eq!(
                 text_of(&c.content),
                 Some(t),
@@ -508,7 +508,7 @@ mod autotest_generated {
 
     #[test]
     fn swap_with_default_moves_every_field_out_and_leaves_a_default() {
-        let mut c = Card::create(Dom::create_text("payload")).with_flex_grow(2.5);
+        let mut c = Card::create(Dom::create_text_do_not_use_without_block_level_wrapper("payload")).with_flex_grow(2.5);
         c.set_on_click(RefAny::new(7u32), click_a as CardOnClickCallbackType);
 
         let taken = c.swap_with_default();
@@ -524,7 +524,7 @@ mod autotest_generated {
 
     #[test]
     fn repeated_swap_with_default_never_accumulates_state() {
-        let mut c = Card::create(Dom::create_text("x")).with_flex_grow(1.0);
+        let mut c = Card::create(Dom::create_text_do_not_use_without_block_level_wrapper("x")).with_flex_grow(1.0);
         let _first = c.swap_with_default();
 
         for i in 0..8 {
@@ -545,9 +545,9 @@ mod autotest_generated {
 
     #[test]
     fn set_content_replaces_rather_than_appends() {
-        let mut c = Card::create(Dom::create_text("first"));
-        c.set_content(Dom::create_text("second"));
-        c.set_content(Dom::create_text("third"));
+        let mut c = Card::create(Dom::create_text_do_not_use_without_block_level_wrapper("first"));
+        c.set_content(Dom::create_text_do_not_use_without_block_level_wrapper("second"));
+        c.set_content(Dom::create_text_do_not_use_without_block_level_wrapper("third"));
 
         assert_eq!(text_of(&c.content), Some("third"), "the last content did not win");
 
@@ -562,8 +562,8 @@ mod autotest_generated {
 
     #[test]
     fn with_content_touches_only_the_content_field() {
-        let base = Card::create(Dom::create_text("old")).with_flex_grow(3.0);
-        let c = base.with_content(Dom::create_text("new"));
+        let base = Card::create(Dom::create_text_do_not_use_without_block_level_wrapper("old")).with_flex_grow(3.0);
+        let c = base.with_content(Dom::create_text_do_not_use_without_block_level_wrapper("new"));
 
         assert_eq!(text_of(&c.content), Some("new"));
         assert_eq!(c.flex_grow, 3.0, "with_content clobbered flex_grow");
@@ -574,7 +574,7 @@ mod autotest_generated {
     fn with_content_preserves_an_already_installed_callback() {
         let c = Card::default()
             .with_on_click(RefAny::new(1u8), click_a as CardOnClickCallbackType)
-            .with_content(Dom::create_text("late content"));
+            .with_content(Dom::create_text_do_not_use_without_block_level_wrapper("late content"));
 
         assert!(c.on_click.is_some(), "with_content dropped the callback");
         let dom = c.dom();
@@ -618,7 +618,7 @@ mod autotest_generated {
 
     #[test]
     fn with_flex_grow_touches_only_the_numeric_field() {
-        let c = Card::create(Dom::create_text("body"))
+        let c = Card::create(Dom::create_text_do_not_use_without_block_level_wrapper("body"))
             .with_on_click(RefAny::new(1u8), click_a as CardOnClickCallbackType)
             .with_flex_grow(f32::NAN);
 
@@ -767,7 +767,7 @@ mod autotest_generated {
         let cb: CardOnClickCallbackType = click_a;
         let expected_ptr = cb as *const () as usize;
 
-        let dom = Card::create(Dom::create_text("clickable"))
+        let dom = Card::create(Dom::create_text_do_not_use_without_block_level_wrapper("clickable"))
             .with_on_click(RefAny::new(0xDEAD_BEEF_u32), cb)
             .dom();
 
@@ -817,7 +817,7 @@ mod autotest_generated {
 
     #[test]
     fn a_card_without_a_callback_registers_no_callbacks() {
-        let dom = Card::create(Dom::create_text("inert")).with_flex_grow(1.0).dom();
+        let dom = Card::create(Dom::create_text_do_not_use_without_block_level_wrapper("inert")).with_flex_grow(1.0).dom();
         assert!(
             dom.root.callbacks.as_ref().is_empty(),
             "a callback appeared on a card that was never given one",
@@ -826,7 +826,7 @@ mod autotest_generated {
 
     #[test]
     fn set_on_click_does_not_disturb_the_other_fields() {
-        let mut c = Card::create(Dom::create_text("body")).with_flex_grow(2.0);
+        let mut c = Card::create(Dom::create_text_do_not_use_without_block_level_wrapper("body")).with_flex_grow(2.0);
         c.set_on_click(RefAny::new("payload".to_string()), click_a as CardOnClickCallbackType);
 
         assert_eq!(text_of(&c.content), Some("body"), "set_on_click clobbered the content");
@@ -845,7 +845,7 @@ mod autotest_generated {
 
     #[test]
     fn dom_builds_a_single_card_div_holding_the_content_as_its_only_child() {
-        let dom = Card::create(Dom::create_text("body")).dom();
+        let dom = Card::create(Dom::create_text_do_not_use_without_block_level_wrapper("body")).dom();
 
         assert_eq!(*dom.root.get_node_type(), NodeType::Div, "the card container must be a div");
         assert_eq!(
@@ -979,7 +979,7 @@ mod autotest_generated {
         // would be a use-after-free (and the third a double-free). Build, drop, re-read.
         let survivor = Card::default().dom();
         for _ in 0..64 {
-            drop(Card::create(Dom::create_text("throwaway")).with_flex_grow(1.0).dom());
+            drop(Card::create(Dom::create_text_do_not_use_without_block_level_wrapper("throwaway")).with_flex_grow(1.0).dom());
         }
 
         assert_eq!(CARD_SHADOW.offset_y.inner.number.get(), 2.0, "the static shadow was mutated or freed");
@@ -1014,13 +1014,13 @@ mod autotest_generated {
 
     #[test]
     fn from_card_for_dom_is_exactly_dom() {
-        let c = Card::create(Dom::create_text("body")).with_flex_grow(1.5);
+        let c = Card::create(Dom::create_text_do_not_use_without_block_level_wrapper("body")).with_flex_grow(1.5);
         assert_eq!(Dom::from(c.clone()), c.dom(), "the From impl diverged from Card::dom");
     }
 
     #[test]
     fn cards_nest_without_desyncing_the_child_counts() {
-        let inner = Card::create(Dom::create_text("inner")).with_flex_grow(1.0).dom();
+        let inner = Card::create(Dom::create_text_do_not_use_without_block_level_wrapper("inner")).with_flex_grow(1.0).dom();
         let outer = Card::create(inner).with_flex_grow(2.0).dom();
 
         assert_eq!(

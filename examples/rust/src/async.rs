@@ -91,7 +91,7 @@ impl ConnectionStatus {
     pub fn dom(&self, data_clone: RefAny) -> Dom {
         match self {
             NotConnected { database } => Dom::create_div()
-                .with_child(Dom::create_text("Enter database to connect to:"))
+                .with_child(Dom::create_text_do_not_use_without_block_level_wrapper("Enter database to connect to:"))
                 .with_child(
                     TextInput::create()
                         .with_text(database.clone())
@@ -112,19 +112,19 @@ impl ConnectionStatus {
                 use self::ConnectionStage::*;
 
                 let progress_div = match stage {
-                    EstablishingConnection => Dom::create_text("Establishing connection..."),
+                    EstablishingConnection => Dom::create_text_do_not_use_without_block_level_wrapper("Establishing connection..."),
                     ConnectionEstablished => {
-                        Dom::create_text("Connection established! Waiting for data...")
+                        Dom::create_text_do_not_use_without_block_level_wrapper("Connection established! Waiting for data...")
                     }
                     LoadingData { percent_done } => Dom::create_div()
-                        .with_child(Dom::create_text("Loading data..."))
+                        .with_child(Dom::create_text_do_not_use_without_block_level_wrapper("Loading data..."))
                         .with_child(ProgressBar::create(*percent_done).dom()),
-                    LoadingFinished => Dom::create_text("Loading finished!"),
+                    LoadingFinished => Dom::create_text_do_not_use_without_block_level_wrapper("Loading finished!"),
                 };
 
                 let mut data_rendered_div = Dom::create_div();
                 for chunk in data_in_progress.chunks(10) {
-                    data_rendered_div.add_child(Dom::create_text(format!("{:?}", chunk).as_str()));
+                    data_rendered_div.add_child(Dom::create_text_do_not_use_without_block_level_wrapper(format!("{:?}", chunk).as_str()));
                 }
 
                 let stop_btn = Button::create("Stop thread")
@@ -139,7 +139,7 @@ impl ConnectionStatus {
             DataLoaded { data: data_loaded } => {
                 let mut data_rendered_div = Dom::create_div();
                 for chunk in data_loaded.chunks(10) {
-                    data_rendered_div.add_child(Dom::create_text(format!("{:?}", chunk).as_str()));
+                    data_rendered_div.add_child(Dom::create_text_do_not_use_without_block_level_wrapper(format!("{:?}", chunk).as_str()));
                 }
 
                 let reset_btn = Button::create("Reset")
@@ -151,7 +151,7 @@ impl ConnectionStatus {
                     .with_child(reset_btn)
             }
             Error { error } => {
-                let error_div = Dom::create_text(format!("{}", error).as_str());
+                let error_div = Dom::create_text_do_not_use_without_block_level_wrapper(format!("{}", error).as_str());
 
                 let reset_btn = Button::create("Reset")
                     .with_on_click(data_clone.clone(), reset)

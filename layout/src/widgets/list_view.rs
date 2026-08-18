@@ -1906,7 +1906,7 @@ mod autotest_generated {
         ListViewRow {
             cells: DomVec::from_vec(
                 (0..n)
-                    .map(|i| Dom::create_text(format!("c{i}")))
+                    .map(|i| Dom::create_text_do_not_use_without_block_level_wrapper(format!("c{i}")))
                     .collect::<Vec<_>>(),
             ),
             height: None.into(),

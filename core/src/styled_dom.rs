@@ -3632,7 +3632,7 @@ mod autotest_generated {
         assert!(sd.get_styled_node_state(&NodeId::ZERO).is_normal());
     }
 
-    /// miniword ENGINE-ISSUE 4: `Dom::create_text(..).with_css(..)` silently
+    /// miniword ENGINE-ISSUE 4: `Dom::create_text_do_not_use_without_block_level_wrapper(..).with_css(..)` silently
     /// dropped EVERY declaration — the bare-decl wrapper parses to
     /// `* { .. }`, and the `Global` matcher refused text nodes even for
     /// rules scoped to exactly that node. All four reported strings now
@@ -3652,7 +3652,7 @@ mod autotest_generated {
             let dom = crate::dom::Dom::create_body().with_child(
                 crate::dom::Dom::create_div()
                     .with_css("color: #444444; font-size: 10px;")
-                    .with_child(crate::dom::Dom::create_text("X").with_css(css_str)),
+                    .with_child(crate::dom::Dom::create_text_do_not_use_without_block_level_wrapper("X").with_css(css_str)),
             );
             // create_from_dom is the production path (scope_inline_css +
             // collect_css_from_dom); plain create() ignores dom.css.
@@ -3694,7 +3694,7 @@ mod autotest_generated {
         let dom = crate::dom::Dom::create_body().with_child(
             crate::dom::Dom::create_div()
                 .with_css("color: #444444;")
-                .with_child(crate::dom::Dom::create_text("X")),
+                .with_child(crate::dom::Dom::create_text_do_not_use_without_block_level_wrapper("X")),
         );
         let styled = StyledDom::create_from_dom(dom);
         let cache = styled.get_css_property_cache();

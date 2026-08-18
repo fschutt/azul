@@ -83,7 +83,7 @@ fn azwriter_like_ribbon() -> Dom {
         }))
     };
     let cells: Vec<RibbonGalleryCell> = (0..4)
-        .map(|i| RibbonGalleryCell::new(Dom::create_text("AaBbCcDc"), format!("Style {i}").into()))
+        .map(|i| RibbonGalleryCell::new(Dom::create_text_do_not_use_without_block_level_wrapper("AaBbCcDc"), format!("Style {i}").into()))
         .collect();
 
     let tab = RibbonTab::new("HOME".into())
@@ -323,7 +323,7 @@ fn nc_squeezed_label_is_detected_as_wrapped() {
         Dom::create_div().with_ids_and_classes(class("row")).with_child(
             Dom::create_p()
                 .with_ids_and_classes(class("sq"))
-                .with_child(Dom::create_text("PAGE LAYOUT")),
+                .with_child(Dom::create_text_do_not_use_without_block_level_wrapper("PAGE LAYOUT")),
         ),
     );
     let lw = layout_dom_css(dom, NC_CSS, 800.0, 200.0);
@@ -355,7 +355,7 @@ fn nc_non_growing_caption_is_detected_off_center() {
             .with_child(
                 Dom::create_p()
                     .with_ids_and_classes(class("cap"))
-                    .with_child(Dom::create_text("Clipboard")),
+                    .with_child(Dom::create_text_do_not_use_without_block_level_wrapper("Clipboard")),
             )
             .with_child(Dom::create_div().with_ids_and_classes(class("fill"))),
     );

@@ -23,8 +23,8 @@ fn identical_divs_have_identical_fingerprint() {
 
 #[test]
 fn identical_text_nodes_have_identical_fingerprint() {
-    let a = NodeData::create_text("Hello World");
-    let b = NodeData::create_text("Hello World");
+    let a = NodeData::create_text_do_not_use_without_block_level_wrapper("Hello World");
+    let b = NodeData::create_text_do_not_use_without_block_level_wrapper("Hello World");
     let fa = NodeDataFingerprint::compute(&a, None);
     let fb = NodeDataFingerprint::compute(&b, None);
     assert!(fa.is_identical(&fb));
@@ -54,8 +54,8 @@ fn identical_fingerprint_with_styled_state() {
 
 #[test]
 fn text_change_detected_by_fingerprint() {
-    let a = NodeData::create_text("Hello");
-    let b = NodeData::create_text("World");
+    let a = NodeData::create_text_do_not_use_without_block_level_wrapper("Hello");
+    let b = NodeData::create_text_do_not_use_without_block_level_wrapper("World");
     let fa = NodeDataFingerprint::compute(&a, None);
     let fb = NodeDataFingerprint::compute(&b, None);
     assert!(!fa.is_identical(&fb));
@@ -76,7 +76,7 @@ fn node_type_change_detected_by_fingerprint() {
 #[test]
 fn div_to_text_changes_content_hash() {
     let a = NodeData::create_div();
-    let b = NodeData::create_text("hello");
+    let b = NodeData::create_text_do_not_use_without_block_level_wrapper("hello");
     let fa = NodeDataFingerprint::compute(&a, None);
     let fb = NodeDataFingerprint::compute(&b, None);
     assert_ne!(fa.content_hash, fb.content_hash);
@@ -235,8 +235,8 @@ fn tab_index_change_detected_by_attrs_hash() {
 
 #[test]
 fn might_affect_layout_text_change() {
-    let a = NodeData::create_text("Hello");
-    let b = NodeData::create_text("World");
+    let a = NodeData::create_text_do_not_use_without_block_level_wrapper("Hello");
+    let b = NodeData::create_text_do_not_use_without_block_level_wrapper("World");
     let fa = NodeDataFingerprint::compute(&a, None);
     let fb = NodeDataFingerprint::compute(&b, None);
     assert!(fa.might_affect_layout(&fb));
@@ -292,8 +292,8 @@ fn tier1_identical_skips_tier2() {
 
 #[test]
 fn tier1_mismatch_tier2_confirms_text_change() {
-    let a = NodeData::create_text("Hello");
-    let b = NodeData::create_text("World");
+    let a = NodeData::create_text_do_not_use_without_block_level_wrapper("Hello");
+    let b = NodeData::create_text_do_not_use_without_block_level_wrapper("World");
     let fa = NodeDataFingerprint::compute(&a, None);
     let fb = NodeDataFingerprint::compute(&b, None);
 
@@ -311,8 +311,8 @@ fn tier1_mismatch_tier2_confirms_text_change() {
 fn tier1_conservative_content_hash_refined_by_tier2() {
     // Fingerprint diff is conservative: content_hash mismatch sets both
     // TEXT_CONTENT and IMAGE_CHANGED. Tier 2 should be more precise.
-    let a = NodeData::create_text("Hello");
-    let b = NodeData::create_text("World");
+    let a = NodeData::create_text_do_not_use_without_block_level_wrapper("Hello");
+    let b = NodeData::create_text_do_not_use_without_block_level_wrapper("World");
     let fa = NodeDataFingerprint::compute(&a, None);
     let fb = NodeDataFingerprint::compute(&b, None);
 
@@ -361,7 +361,7 @@ fn computed_fingerprint_non_zero_for_div() {
 
 #[test]
 fn fingerprint_deterministic() {
-    let a = NodeData::create_text("test");
+    let a = NodeData::create_text_do_not_use_without_block_level_wrapper("test");
     let mut b = NodeData::create_div();
     b.add_class(AzString::from("my-class"));
     b.set_contenteditable(true);
@@ -381,8 +381,8 @@ fn fingerprint_deterministic() {
 
 #[test]
 fn text_change_only_affects_content_hash() {
-    let a = NodeData::create_text("Hello");
-    let b = NodeData::create_text("World");
+    let a = NodeData::create_text_do_not_use_without_block_level_wrapper("Hello");
+    let b = NodeData::create_text_do_not_use_without_block_level_wrapper("World");
     // Same ids/classes, same CSS, same attrs
     let fa = NodeDataFingerprint::compute(&a, None);
     let fb = NodeDataFingerprint::compute(&b, None);

@@ -434,6 +434,9 @@ pub mod glyph_cache;
 /// Default keyboard actions (copy, paste, select-all, undo, etc.).
 #[cfg(feature = "text_layout")]
 pub mod default_actions;
+/// Post-layout developer warnings for raw text nodes used without a
+/// containing block (azul does not auto-wrap them the way browsers do).
+pub mod dom_lint;
 /// Apply structural `DocumentOperation`s to a plain XML tree.
 ///
 /// The Path-2 helper for apps without their own document model (the PDF

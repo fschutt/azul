@@ -94,7 +94,7 @@ function layout(dataPtr, _info) {
         .with_css_property(
             CssPropertyWithConditions.simple(
                 CssProperty.font_size(StyleFontSize.px(32.0))))
-        .with_child(Dom.create_text(String(m.counter)));
+        .with_child(Dom.create_text_do_not_use_without_block_level_wrapper(String(m.counter)));
 
     const button = Button.create('Increase counter')
         .with_button_type(ButtonType.Primary)

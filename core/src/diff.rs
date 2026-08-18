@@ -2356,7 +2356,7 @@ mod autotest_generated {
     #[test]
     fn autotest_text_content_round_trips_unicode() {
         for s in UNICODE_SAMPLES {
-            let node = NodeData::create_text(*s);
+            let node = NodeData::create_text_do_not_use_without_block_level_wrapper(*s);
             assert_eq!(
                 get_node_text_content(&node),
                 Some(*s),
@@ -2478,8 +2478,8 @@ mod autotest_generated {
 
     #[test]
     fn autotest_compute_changes_identical_nodes_report_nothing() {
-        let a = NodeData::create_text("same");
-        let b = NodeData::create_text("same");
+        let a = NodeData::create_text_do_not_use_without_block_level_wrapper("same");
+        let b = NodeData::create_text_do_not_use_without_block_level_wrapper("same");
         let changes = compute_node_changes(&a, &b, None, None);
         assert!(
             changes.is_empty(),
@@ -2497,7 +2497,7 @@ mod autotest_generated {
         // sit in different styled states.
         let old = NodeData::create_div();
         let new = with_cb(
-            NodeData::create_text("now a text node")
+            NodeData::create_text_do_not_use_without_block_level_wrapper("now a text node")
                 .with_ids_and_classes(vec![IdOrClass::Class("brand-new".into())].into())
                 .with_css("width: 10px")
                 .with_tab_index(TabIndex::NoKeyboardFocus)
@@ -2525,10 +2525,10 @@ mod autotest_generated {
     #[test]
     fn autotest_compute_changes_text_content_unicode() {
         for (i, s) in UNICODE_SAMPLES.iter().enumerate() {
-            let old = NodeData::create_text(*s);
+            let old = NodeData::create_text_do_not_use_without_block_level_wrapper(*s);
 
             // Same text -> no TEXT_CONTENT flag.
-            let same = NodeData::create_text(*s);
+            let same = NodeData::create_text_do_not_use_without_block_level_wrapper(*s);
             assert!(
                 !compute_node_changes(&old, &same, None, None)
                     .contains(NodeChangeSet::TEXT_CONTENT),
@@ -2540,7 +2540,7 @@ mod autotest_generated {
             if other == *s {
                 continue;
             }
-            let changed = NodeData::create_text(other);
+            let changed = NodeData::create_text_do_not_use_without_block_level_wrapper(other);
             assert!(
                 compute_node_changes(&old, &changed, None, None)
                     .contains(NodeChangeSet::TEXT_CONTENT),
@@ -2712,7 +2712,7 @@ mod autotest_generated {
         let node_data = vec![
             NodeData::create_div(),
             class_node("row"),
-            NodeData::create_text("leaf"),
+            NodeData::create_text_do_not_use_without_block_level_wrapper("leaf"),
             id_node("footer"),
         ];
         let hierarchy = vec![
@@ -2738,7 +2738,7 @@ mod autotest_generated {
         // Priority 1 is absolute: it ignores the CSS ID, the classes, the node
         // type and the position in the tree.
         let bare = NodeData::create_div().with_key(7u32);
-        let decorated = NodeData::create_text("totally different")
+        let decorated = NodeData::create_text_do_not_use_without_block_level_wrapper("totally different")
             .with_key(7u32)
             .with_ids_and_classes(
                 vec![IdOrClass::Id("hero".into()), IdOrClass::Class("x".into())].into(),
@@ -2770,7 +2770,7 @@ mod autotest_generated {
     fn autotest_rec_key_node_type_participates_in_the_structural_key() {
         let div = calculate_reconciliation_key(&[NodeData::create_div()], &[], NodeId::new(0));
         let txt =
-            calculate_reconciliation_key(&[NodeData::create_text("x")], &[], NodeId::new(0));
+            calculate_reconciliation_key(&[NodeData::create_text_do_not_use_without_block_level_wrapper("x")], &[], NodeId::new(0));
         assert_ne!(div, txt, "the node-type discriminant must feed the structural key");
     }
 
@@ -2843,8 +2843,8 @@ mod autotest_generated {
         // siblings must not collide (nth-of-type is folded in).
         let node_data = vec![
             NodeData::create_div(),
-            NodeData::create_text("A"),
-            NodeData::create_text("B"),
+            NodeData::create_text_do_not_use_without_block_level_wrapper("A"),
+            NodeData::create_text_do_not_use_without_block_level_wrapper("B"),
         ];
         let hierarchy = vec![
             hitem(None, None, None, Some(2)),
@@ -2954,11 +2954,11 @@ mod autotest_generated {
         // must NOT fall through to the content/structural tiers, even though
         // the two nodes are otherwise byte-identical.
         let old = vec![with_cb(
-            NodeData::create_text("same content").with_key(1u32),
+            NodeData::create_text_do_not_use_without_block_level_wrapper("same content").with_key(1u32),
             ComponentEventFilter::BeforeUnmount,
         )];
         let new = vec![with_cb(
-            NodeData::create_text("same content").with_key(2u32),
+            NodeData::create_text_do_not_use_without_block_level_wrapper("same content").with_key(2u32),
             ComponentEventFilter::AfterMount,
         )];
 
@@ -2975,9 +2975,9 @@ mod autotest_generated {
     #[test]
     fn autotest_reconcile_update_fires_only_on_rec_key_match_with_changed_content() {
         // Same key, changed text, Updated callback present -> Update event.
-        let old = vec![NodeData::create_text("v1").with_key(1u32)];
+        let old = vec![NodeData::create_text_do_not_use_without_block_level_wrapper("v1").with_key(1u32)];
         let new = vec![with_cb(
-            NodeData::create_text("v2").with_key(1u32),
+            NodeData::create_text_do_not_use_without_block_level_wrapper("v2").with_key(1u32),
             ComponentEventFilter::Updated,
         )];
 
@@ -2990,7 +2990,7 @@ mod autotest_generated {
         // so the Updated handler has to be present on BOTH sides — otherwise the
         // hashes differ for the callback alone and we'd be testing nothing.
         let stable = with_cb(
-            NodeData::create_text("v1").with_key(1u32),
+            NodeData::create_text_do_not_use_without_block_level_wrapper("v1").with_key(1u32),
             ComponentEventFilter::Updated,
         );
         let old = vec![stable.clone()];
@@ -3008,8 +3008,8 @@ mod autotest_generated {
     #[test]
     fn autotest_reconcile_update_requires_the_callback() {
         // Content changed under a stable key, but no Updated callback -> silent.
-        let old = vec![NodeData::create_text("v1").with_key(1u32)];
-        let new = vec![NodeData::create_text("v2").with_key(1u32)];
+        let old = vec![NodeData::create_text_do_not_use_without_block_level_wrapper("v1").with_key(1u32)];
+        let new = vec![NodeData::create_text_do_not_use_without_block_level_wrapper("v2").with_key(1u32)];
         let r = diff_flat(&old, &new);
         assert_eq!(r.node_moves.len(), 1);
         assert!(r.events.is_empty());
@@ -3202,7 +3202,7 @@ mod autotest_generated {
         let old_nd = vec![
             NodeData::create_div(),
             id_node("left"),
-            NodeData::create_text("leaf"),
+            NodeData::create_text_do_not_use_without_block_level_wrapper("leaf"),
         ];
         let old_hier = vec![
             hitem(None, None, None, Some(1)),
@@ -3213,7 +3213,7 @@ mod autotest_generated {
         let new_nd = vec![
             NodeData::create_div(),
             id_node("right"),
-            NodeData::create_text("leaf"),
+            NodeData::create_text_do_not_use_without_block_level_wrapper("leaf"),
         ];
         let new_hier = old_hier.clone();
 
@@ -3713,8 +3713,8 @@ mod autotest_generated {
 
     #[test]
     fn autotest_accumulator_merge_extended_diff_extracts_text_change() {
-        let old_nd = vec![NodeData::create_text("héllo")];
-        let new_nd = vec![NodeData::create_text("héllo wörld")];
+        let old_nd = vec![NodeData::create_text_do_not_use_without_block_level_wrapper("héllo")];
+        let new_nd = vec![NodeData::create_text_do_not_use_without_block_level_wrapper("héllo wörld")];
 
         let extended = ExtendedDiffResult {
             diff: DiffResult {
@@ -3870,8 +3870,8 @@ mod autotest_generated {
 
     #[test]
     fn autotest_reconcile_with_changes_reports_one_entry_per_move() {
-        let old = vec![NodeData::create_text("v1").with_key(1u32)];
-        let new = vec![NodeData::create_text("v2").with_key(1u32)];
+        let old = vec![NodeData::create_text_do_not_use_without_block_level_wrapper("v1").with_key(1u32)];
+        let new = vec![NodeData::create_text_do_not_use_without_block_level_wrapper("v2").with_key(1u32)];
 
         let r = reconcile_dom_with_changes(
             &old,
@@ -3929,8 +3929,8 @@ mod autotest_generated {
     #[test]
     fn autotest_reconcile_with_changes_feeds_the_accumulator() {
         // End-to-end: reconcile -> ExtendedDiffResult -> ChangeAccumulator.
-        let old = vec![NodeData::create_text("before").with_key(1u32)];
-        let new = vec![NodeData::create_text("after").with_key(1u32)];
+        let old = vec![NodeData::create_text_do_not_use_without_block_level_wrapper("before").with_key(1u32)];
+        let new = vec![NodeData::create_text_do_not_use_without_block_level_wrapper("after").with_key(1u32)];
 
         let extended = reconcile_dom_with_changes(
             &old,
@@ -3985,8 +3985,8 @@ mod autotest_generated {
         // identical fingerprint (no address or allocation identity leaking in).
         let state = StyledNodeState::default();
         for s in UNICODE_SAMPLES {
-            let a = NodeDataFingerprint::compute(&NodeData::create_text(*s), Some(&state));
-            let b = NodeDataFingerprint::compute(&NodeData::create_text(*s), Some(&state));
+            let a = NodeDataFingerprint::compute(&NodeData::create_text_do_not_use_without_block_level_wrapper(*s), Some(&state));
+            let b = NodeDataFingerprint::compute(&NodeData::create_text_do_not_use_without_block_level_wrapper(*s), Some(&state));
             assert_eq!(a, b, "fingerprint of {s:?} is not deterministic");
             assert!(a.is_identical(&b));
             assert!(a.diff(&b).is_empty());
@@ -3995,7 +3995,7 @@ mod autotest_generated {
 
     #[test]
     fn autotest_fingerprint_diff_is_symmetric() {
-        let a = NodeDataFingerprint::compute(&NodeData::create_text("a"), None);
+        let a = NodeDataFingerprint::compute(&NodeData::create_text_do_not_use_without_block_level_wrapper("a"), None);
         let b = NodeDataFingerprint::compute(&class_node("x").with_css("width: 1px"), None);
 
         assert_eq!(a.diff(&b), b.diff(&a), "diff must be symmetric");
@@ -4009,8 +4009,8 @@ mod autotest_generated {
 
     #[test]
     fn autotest_fingerprint_text_change_is_layout_and_visual() {
-        let a = NodeDataFingerprint::compute(&NodeData::create_text("one"), None);
-        let b = NodeDataFingerprint::compute(&NodeData::create_text("two"), None);
+        let a = NodeDataFingerprint::compute(&NodeData::create_text_do_not_use_without_block_level_wrapper("one"), None);
+        let b = NodeDataFingerprint::compute(&NodeData::create_text_do_not_use_without_block_level_wrapper("two"), None);
 
         assert!(!a.is_identical(&b));
         let changes = a.diff(&b);
@@ -4107,7 +4107,7 @@ mod autotest_generated {
         let state = StyledNodeState::default();
         let samples = vec![
             NodeData::create_div(),
-            NodeData::create_text("hello 🌍"),
+            NodeData::create_text_do_not_use_without_block_level_wrapper("hello 🌍"),
             class_node("row"),
             id_node("main"),
             NodeData::create_div().with_css("color: red"),
@@ -4361,10 +4361,10 @@ mod dom_fingerprint_tests {
     fn sample_dom() -> Dom {
         Dom::create_node(NodeType::Div)
             .with_class("page".into())
-            .with_child(Dom::create_text("hello"))
+            .with_child(Dom::create_text_do_not_use_without_block_level_wrapper("hello"))
             .with_child(
                 Dom::create_node(NodeType::Div)
-                    .with_child(Dom::create_text("world")),
+                    .with_child(Dom::create_text_do_not_use_without_block_level_wrapper("world")),
             )
     }
 
@@ -4385,10 +4385,10 @@ mod dom_fingerprint_tests {
         let (a, _) = fingerprint_dom(&sample_dom());
         let changed = Dom::create_node(NodeType::Div)
             .with_class("page".into())
-            .with_child(Dom::create_text("hellX"))
+            .with_child(Dom::create_text_do_not_use_without_block_level_wrapper("hellX"))
             .with_child(
                 Dom::create_node(NodeType::Div)
-                    .with_child(Dom::create_text("world")),
+                    .with_child(Dom::create_text_do_not_use_without_block_level_wrapper("world")),
             );
         let (b, _) = fingerprint_dom(&changed);
         assert_ne!(a.structure_root, b.structure_root, "text is structure");
@@ -4429,10 +4429,10 @@ mod dom_fingerprint_tests {
         let (a, _) = fingerprint_dom(&sample_dom());
         let changed = Dom::create_node(NodeType::Div)
             .with_class("pages".into())
-            .with_child(Dom::create_text("hello"))
+            .with_child(Dom::create_text_do_not_use_without_block_level_wrapper("hello"))
             .with_child(
                 Dom::create_node(NodeType::Div)
-                    .with_child(Dom::create_text("world")),
+                    .with_child(Dom::create_text_do_not_use_without_block_level_wrapper("world")),
             );
         let (b, _) = fingerprint_dom(&changed);
         assert_ne!(
@@ -4444,7 +4444,7 @@ mod dom_fingerprint_tests {
     #[test]
     fn added_child_changes_the_parent_and_the_shape() {
         let (a, _) = fingerprint_dom(&sample_dom());
-        let (b, _) = fingerprint_dom(&sample_dom().with_child(Dom::create_text("extra")));
+        let (b, _) = fingerprint_dom(&sample_dom().with_child(Dom::create_text_do_not_use_without_block_level_wrapper("extra")));
         assert_ne!(a.structure_root, b.structure_root);
         assert_ne!(a.structure.len(), b.structure.len());
         // The parent's own hash moved too (child count is folded in), so a

@@ -2567,7 +2567,7 @@ mod autotest_generated {
     // ==================================================================
 
     fn nested(depth: usize) -> Dom {
-        let mut dom = Dom::create_text("leaf");
+        let mut dom = Dom::create_text_do_not_use_without_block_level_wrapper("leaf");
         for _ in 0..depth {
             dom = Dom::create_div().with_child(dom);
         }

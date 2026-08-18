@@ -184,7 +184,7 @@ fn create_font_icon_from_original(
     original: &StyledDom,
     system_style: &SystemStyle,
 ) -> StyledDom {
-    let mut dom = Dom::create_text(font_icon.icon_char.clone());
+    let mut dom = Dom::create_text_do_not_use_without_block_level_wrapper(font_icon.icon_char.clone());
     
     // Add font family
     let font_prop = CssPropertyWithConditions::simple(

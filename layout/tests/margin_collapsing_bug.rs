@@ -19,7 +19,7 @@ fn test_margin_collapsing() {
         )
         .with_child(
             Dom::create_p()
-                .with_child(Dom::create_text("Paragraph"))
+                .with_child(Dom::create_text_do_not_use_without_block_level_wrapper("Paragraph"))
                 .with_ids_and_classes(vec![IdOrClass::Class("my-p".into())].into()),
         );
 

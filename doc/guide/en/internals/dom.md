@@ -74,7 +74,7 @@ Anonymous boxes are inserted by the table-layout fixup pass when a `<table>` anc
 
 ## Building a Dom
 
-The builder API is method-chained. `Dom::create_div()`, `Dom::create_p()`, `Dom::create_text(s)` are `const fn` constructors; `with_child`, `with_id`, `with_class`, `with_callback` consume `self` and return it:
+The builder API is method-chained. `Dom::create_div()`, `Dom::create_p()`, `Dom::create_text_do_not_use_without_block_level_wrapper(s)` are `const fn` constructors; `with_child`, `with_id`, `with_class`, `with_callback` consume `self` and return it:
 
 ```rust,ignore
 use azul::dom::{Dom, On};
@@ -85,7 +85,7 @@ let dom = Dom::create_div()
     .with_class("container".into())
     .with_child(
         Dom::create_p()
-            .with_child(Dom::create_text("Hello"))
+            .with_child(Dom::create_text_do_not_use_without_block_level_wrapper("Hello"))
     )
     .with_child(
         Dom::create_button()

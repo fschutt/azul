@@ -85,8 +85,8 @@ fn deep_nested_mount_produces_mount_events_for_each_new_node() {
 
     let mount_cb = lifecycle_cb(ComponentEventFilter::AfterMount);
     let new_dom = Dom::create_from_data(NodeData::create_div())
-        .with_child(Dom::create_from_data(mount_cb(NodeData::create_text("inner1"))))
-        .with_child(Dom::create_from_data(mount_cb(NodeData::create_text("inner2"))));
+        .with_child(Dom::create_from_data(mount_cb(NodeData::create_text_do_not_use_without_block_level_wrapper("inner1"))))
+        .with_child(Dom::create_from_data(mount_cb(NodeData::create_text_do_not_use_without_block_level_wrapper("inner2"))));
 
     let (old_nd, old_hier) = flatten(old_dom);
     let (new_nd, new_hier) = flatten(new_dom);
@@ -130,7 +130,7 @@ fn deep_nested_unmount_fires_for_removed_subtree_root_only() {
     let unmount_cb = lifecycle_cb(ComponentEventFilter::BeforeUnmount);
     let old_dom = Dom::create_from_data(NodeData::create_div()).with_child(
         Dom::create_from_data(unmount_cb(NodeData::create_div()))
-            .with_child(Dom::create_from_data(NodeData::create_text("leaf"))),
+            .with_child(Dom::create_from_data(NodeData::create_text_do_not_use_without_block_level_wrapper("leaf"))),
     );
     let new_dom = Dom::create_from_data(NodeData::create_div());
 
@@ -245,12 +245,12 @@ fn identical_leaves_under_different_parents_do_not_match() {
             .with_child(
                 Dom::create_from_data(NodeData::create_div())
                     .with_class("X".into())
-                    .with_child(Dom::create_from_data(mount_cb(NodeData::create_text("leaf")))),
+                    .with_child(Dom::create_from_data(mount_cb(NodeData::create_text_do_not_use_without_block_level_wrapper("leaf")))),
             )
             .with_child(
                 Dom::create_from_data(NodeData::create_div())
                     .with_class("Y".into())
-                    .with_child(Dom::create_from_data(mount_cb(NodeData::create_text("leaf")))),
+                    .with_child(Dom::create_from_data(mount_cb(NodeData::create_text_do_not_use_without_block_level_wrapper("leaf")))),
             )
     };
 
@@ -303,7 +303,7 @@ fn deep_resize_event_fires_when_bounds_change_on_matched_node() {
 
     let build = |label: &str| -> Dom {
         Dom::create_from_data(NodeData::create_div())
-            .with_child(Dom::create_from_data(resize_cb(NodeData::create_text(label))))
+            .with_child(Dom::create_from_data(resize_cb(NodeData::create_text_do_not_use_without_block_level_wrapper(label))))
     };
 
     let (old_nd, old_hier) = flatten(build("content"));
@@ -372,7 +372,7 @@ fn keyed_update_fires_on_content_change() {
     let make = |text: &str| -> Dom {
         Dom::create_from_data(NodeData::create_div()).with_child(Dom::create_from_data(
             lifecycle_cb(ComponentEventFilter::Updated)(
-                NodeData::create_text(text).with_key(42u64),
+                NodeData::create_text_do_not_use_without_block_level_wrapper(text).with_key(42u64),
             ),
         ))
     };

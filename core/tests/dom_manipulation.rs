@@ -21,22 +21,22 @@ fn test_dom_body_creation() {
 
 #[test]
 fn test_dom_text_creation() {
-    let dom = Dom::create_text("Hello World");
+    let dom = Dom::create_text_do_not_use_without_block_level_wrapper("Hello World");
     assert!(matches!(dom.root.node_type, NodeType::Text(_)));
 }
 
 #[test]
 fn test_dom_with_child() {
-    let dom = Dom::create_div().with_child(Dom::create_text("Child"));
+    let dom = Dom::create_div().with_child(Dom::create_text_do_not_use_without_block_level_wrapper("Child"));
     assert_eq!(dom.children.len(), 1);
 }
 
 #[test]
 fn test_dom_with_multiple_children() {
     let dom = Dom::create_div()
-        .with_child(Dom::create_text("First"))
-        .with_child(Dom::create_text("Second"))
-        .with_child(Dom::create_text("Third"));
+        .with_child(Dom::create_text_do_not_use_without_block_level_wrapper("First"))
+        .with_child(Dom::create_text_do_not_use_without_block_level_wrapper("Second"))
+        .with_child(Dom::create_text_do_not_use_without_block_level_wrapper("Third"));
     assert_eq!(dom.children.len(), 3);
 }
 
@@ -44,9 +44,9 @@ fn test_dom_with_multiple_children() {
 fn test_dom_with_children_vec() {
     let dom = Dom::create_div().with_children(
         vec![
-            Dom::create_text("One"),
-            Dom::create_text("Two"),
-            Dom::create_text("Three"),
+            Dom::create_text_do_not_use_without_block_level_wrapper("One"),
+            Dom::create_text_do_not_use_without_block_level_wrapper("Two"),
+            Dom::create_text_do_not_use_without_block_level_wrapper("Three"),
         ]
         .into(),
     );
@@ -56,14 +56,14 @@ fn test_dom_with_children_vec() {
 #[test]
 fn test_dom_nested_structure() {
     let dom =
-        Dom::create_div().with_child(Dom::create_div().with_child(Dom::create_text("Nested")));
+        Dom::create_div().with_child(Dom::create_div().with_child(Dom::create_text_do_not_use_without_block_level_wrapper("Nested")));
     assert_eq!(dom.children.len(), 1);
 }
 
 #[test]
 fn test_dom_deeply_nested() {
     let dom = Dom::create_div().with_child(Dom::create_div().with_child(
-        Dom::create_div().with_child(Dom::create_div().with_child(Dom::create_text("Deep"))),
+        Dom::create_div().with_child(Dom::create_div().with_child(Dom::create_text_do_not_use_without_block_level_wrapper("Deep"))),
     ));
     assert_eq!(dom.children.len(), 1);
 }
@@ -121,16 +121,16 @@ fn test_dom_with_empty_children_vec() {
 #[test]
 fn test_dom_mixed_node_types() {
     let dom = Dom::create_div()
-        .with_child(Dom::create_node(NodeType::P).with_child(Dom::create_text("Paragraph")))
-        .with_child(Dom::create_node(NodeType::Span).with_child(Dom::create_text("Span")))
-        .with_child(Dom::create_node(NodeType::H1).with_child(Dom::create_text("Heading")));
+        .with_child(Dom::create_node(NodeType::P).with_child(Dom::create_text_do_not_use_without_block_level_wrapper("Paragraph")))
+        .with_child(Dom::create_node(NodeType::Span).with_child(Dom::create_text_do_not_use_without_block_level_wrapper("Span")))
+        .with_child(Dom::create_node(NodeType::H1).with_child(Dom::create_text_do_not_use_without_block_level_wrapper("Heading")));
     assert_eq!(dom.children.len(), 3);
 }
 
 #[test]
 fn test_dom_text_content() {
     let text = "Test content";
-    let dom = Dom::create_text(text);
+    let dom = Dom::create_text_do_not_use_without_block_level_wrapper(text);
     if let NodeType::Text(content) = &dom.root.node_type {
         assert_eq!(content.as_str(), text);
     } else {
@@ -141,7 +141,7 @@ fn test_dom_text_content() {
 #[test]
 fn test_dom_unicode_text() {
     let text = "日本語テスト 🎉 مرحبا";
-    let dom = Dom::create_text(text);
+    let dom = Dom::create_text_do_not_use_without_block_level_wrapper(text);
     if let NodeType::Text(content) = &dom.root.node_type {
         assert_eq!(content.as_str(), text);
     } else {
@@ -151,7 +151,7 @@ fn test_dom_unicode_text() {
 
 #[test]
 fn test_dom_empty_text() {
-    let dom = Dom::create_text("");
+    let dom = Dom::create_text_do_not_use_without_block_level_wrapper("");
     if let NodeType::Text(content) = &dom.root.node_type {
         assert!(content.as_str().is_empty());
     } else {
@@ -162,7 +162,7 @@ fn test_dom_empty_text() {
 #[test]
 fn test_dom_very_long_text() {
     let text = "a".repeat(10000);
-    let dom = Dom::create_text(text.clone());
+    let dom = Dom::create_text_do_not_use_without_block_level_wrapper(text.clone());
     if let NodeType::Text(content) = &dom.root.node_type {
         assert_eq!(content.as_str().len(), 10000);
     } else {
@@ -173,7 +173,7 @@ fn test_dom_very_long_text() {
 #[test]
 fn test_dom_whitespace_text() {
     let text = "   \n\t\r\n   ";
-    let dom = Dom::create_text(text);
+    let dom = Dom::create_text_do_not_use_without_block_level_wrapper(text);
     if let NodeType::Text(content) = &dom.root.node_type {
         assert_eq!(content.as_str(), text);
     } else {
@@ -186,13 +186,13 @@ fn test_dom_table_structure() {
     let dom = Dom::create_node(NodeType::Table)
         .with_child(
             Dom::create_node(NodeType::Tr)
-                .with_child(Dom::create_node(NodeType::Td).with_child(Dom::create_text("Cell 1")))
-                .with_child(Dom::create_node(NodeType::Td).with_child(Dom::create_text("Cell 2"))),
+                .with_child(Dom::create_node(NodeType::Td).with_child(Dom::create_text_do_not_use_without_block_level_wrapper("Cell 1")))
+                .with_child(Dom::create_node(NodeType::Td).with_child(Dom::create_text_do_not_use_without_block_level_wrapper("Cell 2"))),
         )
         .with_child(
             Dom::create_node(NodeType::Tr)
-                .with_child(Dom::create_node(NodeType::Td).with_child(Dom::create_text("Cell 3")))
-                .with_child(Dom::create_node(NodeType::Td).with_child(Dom::create_text("Cell 4"))),
+                .with_child(Dom::create_node(NodeType::Td).with_child(Dom::create_text_do_not_use_without_block_level_wrapper("Cell 3")))
+                .with_child(Dom::create_node(NodeType::Td).with_child(Dom::create_text_do_not_use_without_block_level_wrapper("Cell 4"))),
         );
     assert_eq!(dom.children.len(), 2);
 }
@@ -200,9 +200,9 @@ fn test_dom_table_structure() {
 #[test]
 fn test_dom_list_structure() {
     let dom = Dom::create_node(NodeType::Ul)
-        .with_child(Dom::create_node(NodeType::Li).with_child(Dom::create_text("Item 1")))
-        .with_child(Dom::create_node(NodeType::Li).with_child(Dom::create_text("Item 2")))
-        .with_child(Dom::create_node(NodeType::Li).with_child(Dom::create_text("Item 3")));
+        .with_child(Dom::create_node(NodeType::Li).with_child(Dom::create_text_do_not_use_without_block_level_wrapper("Item 1")))
+        .with_child(Dom::create_node(NodeType::Li).with_child(Dom::create_text_do_not_use_without_block_level_wrapper("Item 2")))
+        .with_child(Dom::create_node(NodeType::Li).with_child(Dom::create_text_do_not_use_without_block_level_wrapper("Item 3")));
     assert_eq!(dom.children.len(), 3);
 }
 
@@ -210,46 +210,46 @@ fn test_dom_list_structure() {
 fn test_dom_form_structure() {
     let dom = Dom::create_node(NodeType::Form)
         .with_child(Dom::create_node(NodeType::Input))
-        .with_child(Dom::create_node(NodeType::Button).with_child(Dom::create_text("Submit")));
+        .with_child(Dom::create_node(NodeType::Button).with_child(Dom::create_text_do_not_use_without_block_level_wrapper("Submit")));
     assert_eq!(dom.children.len(), 2);
 }
 
 #[test]
 fn test_dom_semantic_elements() {
     let dom = Dom::create_node(NodeType::Article)
-        .with_child(Dom::create_node(NodeType::Header).with_child(Dom::create_text("Title")))
-        .with_child(Dom::create_node(NodeType::Section).with_child(Dom::create_text("Content")))
-        .with_child(Dom::create_node(NodeType::Footer).with_child(Dom::create_text("Footer")));
+        .with_child(Dom::create_node(NodeType::Header).with_child(Dom::create_text_do_not_use_without_block_level_wrapper("Title")))
+        .with_child(Dom::create_node(NodeType::Section).with_child(Dom::create_text_do_not_use_without_block_level_wrapper("Content")))
+        .with_child(Dom::create_node(NodeType::Footer).with_child(Dom::create_text_do_not_use_without_block_level_wrapper("Footer")));
     assert_eq!(dom.children.len(), 3);
 }
 
 #[test]
 fn test_dom_all_heading_levels() {
     let dom = Dom::create_div()
-        .with_child(Dom::create_node(NodeType::H1).with_child(Dom::create_text("H1")))
-        .with_child(Dom::create_node(NodeType::H2).with_child(Dom::create_text("H2")))
-        .with_child(Dom::create_node(NodeType::H3).with_child(Dom::create_text("H3")))
-        .with_child(Dom::create_node(NodeType::H4).with_child(Dom::create_text("H4")))
-        .with_child(Dom::create_node(NodeType::H5).with_child(Dom::create_text("H5")))
-        .with_child(Dom::create_node(NodeType::H6).with_child(Dom::create_text("H6")));
+        .with_child(Dom::create_node(NodeType::H1).with_child(Dom::create_text_do_not_use_without_block_level_wrapper("H1")))
+        .with_child(Dom::create_node(NodeType::H2).with_child(Dom::create_text_do_not_use_without_block_level_wrapper("H2")))
+        .with_child(Dom::create_node(NodeType::H3).with_child(Dom::create_text_do_not_use_without_block_level_wrapper("H3")))
+        .with_child(Dom::create_node(NodeType::H4).with_child(Dom::create_text_do_not_use_without_block_level_wrapper("H4")))
+        .with_child(Dom::create_node(NodeType::H5).with_child(Dom::create_text_do_not_use_without_block_level_wrapper("H5")))
+        .with_child(Dom::create_node(NodeType::H6).with_child(Dom::create_text_do_not_use_without_block_level_wrapper("H6")));
     assert_eq!(dom.children.len(), 6);
 }
 
 #[test]
 fn test_dom_inline_elements() {
     let dom = Dom::create_node(NodeType::P)
-        .with_child(Dom::create_text("Normal "))
-        .with_child(Dom::create_node(NodeType::Strong).with_child(Dom::create_text("bold")))
-        .with_child(Dom::create_text(" and "))
-        .with_child(Dom::create_node(NodeType::Em).with_child(Dom::create_text("italic")))
-        .with_child(Dom::create_text(" text"));
+        .with_child(Dom::create_text_do_not_use_without_block_level_wrapper("Normal "))
+        .with_child(Dom::create_node(NodeType::Strong).with_child(Dom::create_text_do_not_use_without_block_level_wrapper("bold")))
+        .with_child(Dom::create_text_do_not_use_without_block_level_wrapper(" and "))
+        .with_child(Dom::create_node(NodeType::Em).with_child(Dom::create_text_do_not_use_without_block_level_wrapper("italic")))
+        .with_child(Dom::create_text_do_not_use_without_block_level_wrapper(" text"));
     assert_eq!(dom.children.len(), 5);
 }
 
 #[test]
 fn test_dom_many_children() {
     let children: Vec<Dom> = (0..100)
-        .map(|i| Dom::create_text(format!("Child {i}")))
+        .map(|i| Dom::create_text_do_not_use_without_block_level_wrapper(format!("Child {i}")))
         .collect();
     let dom = Dom::create_div().with_children(children.into());
     assert_eq!(dom.children.len(), 100);
@@ -277,7 +277,7 @@ fn test_dom_deep_tree() {
     // Test a deep but narrow tree
     fn create_deep(depth: usize) -> Dom {
         if depth == 0 {
-            Dom::create_text("Leaf")
+            Dom::create_text_do_not_use_without_block_level_wrapper("Leaf")
         } else {
             Dom::create_div().with_child(create_deep(depth - 1))
         }

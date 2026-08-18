@@ -31,7 +31,7 @@ AzDom layout(AzRefAny data, AzLayoutCallbackInfo info) {
     add_prop(&body, AzCssProperty_fontSize(AzStyleFontSize_px(16.0f)));
 
     /* [az-diag REVERT] capture the AzString that AzString_copyFromBytes returns, BEFORE
-       createText, to split copy_from_bytes-bug from createText-bug. Gated native-safe: in
+       createTextDoNotUseWithoutBlockLevelWrapper, to split copy_from_bytes-bug from createTextDoNotUseWithoutBlockLevelWrapper-bug. Gated native-safe: in
        wasm the "Hello" literal is the LOW mirrored addr (<16MB); natively it's a HIGH real
        addr so the marker writes are SKIPPED (no wild native write / crash). */
     const char* az_hp = "Hello";

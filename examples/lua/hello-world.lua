@@ -19,7 +19,7 @@ local function layout(data, _info)
     local label_wrapper = azul.Dom.create_div()
         :add_css_property(azul.CssPropertyWithConditions.simple(
             azul.CssProperty.font_size(azul.StyleFontSize.px(32.0))))
-        :add_child(azul.Dom.create_text(tostring(m.counter)))
+        :add_child(azul.Dom.create_text_do_not_use_without_block_level_wrapper(tostring(m.counter)))
 
     local button_dom = azul.Button.create('Increase counter')
         :set_button_type(azul.ButtonType.Primary)

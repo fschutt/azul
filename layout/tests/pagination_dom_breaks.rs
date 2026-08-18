@@ -281,7 +281,7 @@ fn materialized_breaks_reproduce_the_estimated_boundaries() {
                 d.root.set_ids_and_classes(vec![
                     azul_core::dom::IdOrClass::Class("p".into()),
                 ].into());
-                d.with_child(Dom::create_text(format!("block {i}")))
+                d.with_child(Dom::create_text_do_not_use_without_block_level_wrapper(format!("block {i}")))
             })
             .collect()
     }
@@ -377,7 +377,7 @@ fn midblock_breaks_materialize_at_the_spine_block_top() {
                 d.root.set_ids_and_classes(vec![
                     azul_core::dom::IdOrClass::Class("p".into()),
                 ].into());
-                d.with_child(Dom::create_text(format!("block {i}")))
+                d.with_child(Dom::create_text_do_not_use_without_block_level_wrapper(format!("block {i}")))
             })
             .collect()
     }
@@ -998,9 +998,9 @@ fn applied_edit_inverse_resume_makes_undo_a_verbatim_replay() {
     }
 
     let mut model = Dom::create_div()
-        .with_child(Dom::create_p().with_child(Dom::create_text("First paragraph here.")))
-        .with_child(Dom::create_p().with_child(Dom::create_text("Second.")))
-        .with_child(Dom::create_p().with_child(Dom::create_text("Third.")));
+        .with_child(Dom::create_p().with_child(Dom::create_text_do_not_use_without_block_level_wrapper("First paragraph here.")))
+        .with_child(Dom::create_p().with_child(Dom::create_text_do_not_use_without_block_level_wrapper("Second.")))
+        .with_child(Dom::create_p().with_child(Dom::create_text_do_not_use_without_block_level_wrapper("Third.")));
     model.fixup_children_estimated();
     let before = block_texts(&model);
 
@@ -1040,9 +1040,9 @@ fn applied_edit_inverse_resume_makes_undo_a_verbatim_replay() {
     // naively reach for) must NOT restore it — otherwise this test would
     // pass even with inverse_resume removed.
     let mut model2 = Dom::create_div()
-        .with_child(Dom::create_p().with_child(Dom::create_text("First paragraph here.")))
-        .with_child(Dom::create_p().with_child(Dom::create_text("Second.")))
-        .with_child(Dom::create_p().with_child(Dom::create_text("Third.")));
+        .with_child(Dom::create_p().with_child(Dom::create_text_do_not_use_without_block_level_wrapper("First paragraph here.")))
+        .with_child(Dom::create_p().with_child(Dom::create_text_do_not_use_without_block_level_wrapper("Second.")))
+        .with_child(Dom::create_p().with_child(Dom::create_text_do_not_use_without_block_level_wrapper("Third.")));
     model2.fixup_children_estimated();
     let applied2 =
         azul_layout::document_edit::apply_document_operation(&mut model2, &[], &forward)

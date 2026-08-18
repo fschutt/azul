@@ -124,7 +124,7 @@ mod xml_compilation_tests {
         // import path that holds for both forms.
         assert!(rust_code.contains("use azul::"));
         assert!(rust_code.contains("dom::Dom"));
-        // Text content will be in Dom::create_text() calls
+        // Text content will be in Dom::create_text_do_not_use_without_block_level_wrapper() calls
         assert!(rust_code.contains("Dom::text") || rust_code.contains("Hello World"));
     }
 
@@ -350,7 +350,7 @@ mod xml_compilation_tests {
         assert!(py.contains("azul.Dom.create_p_with_text(\"hi\")"), "{}", py);
         // text folded into the ctor — never also emitted as a child text node
         assert!(!c.contains("AzDom_createText(AZ_STR(\"hi\"))"), "text not consumed: {}", c);
-        assert!(!rust.contains("Dom::create_text(\"hi\")"), "text not consumed: {}", rust);
+        assert!(!rust.contains("Dom::create_text_do_not_use_without_block_level_wrapper(\"hi\")"), "text not consumed: {}", rust);
     }
 
     // Tier C — `<button aria-label="Go">Go</button>` → create_button(text, aria).

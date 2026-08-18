@@ -196,8 +196,8 @@ fn div_with_id(id: &str, css: &str) -> Dom {
 /// would be nothing to animate BETWEEN.
 fn shared_card(title: &str) -> Dom {
     let mut card = div_with_id("shared-card", CARD);
-    card.add_child(Dom::create_text(title));
-    card.add_child(Dom::create_text("same node, different screen").with_css(HINT));
+    card.add_child(Dom::create_text_do_not_use_without_block_level_wrapper(title));
+    card.add_child(Dom::create_text_do_not_use_without_block_level_wrapper("same node, different screen").with_css(HINT));
     card
 }
 
@@ -206,7 +206,7 @@ fn overview(state: &AppState) -> Dom {
     content.add_child(shared_card("Overview"));
     for label in &state.rows {
         let mut row = div_with_id(label, ROW);
-        row.add_child(Dom::create_text(*label));
+        row.add_child(Dom::create_text_do_not_use_without_block_level_wrapper(*label));
         content.add_child(row);
     }
     content
@@ -218,13 +218,13 @@ fn detail(state: &AppState) -> Dom {
         "height: 90px; background: #191926; border-radius: 10px; \
          margin-bottom: 16px; padding: 14px; color: #6a7080; font-size: 13px;",
     );
-    spacer.add_child(Dom::create_text("Detail header"));
+    spacer.add_child(Dom::create_text_do_not_use_without_block_level_wrapper("Detail header"));
     content.add_child(spacer);
     // The shared card is BELOW a header here and at the very top on Overview,
     // so swapping screens moves it — that displacement is the animation.
     content.add_child(shared_card("Detail"));
     let mut note = Dom::create_div().with_css(CARD);
-    note.add_child(Dom::create_text(format!("Shuffles so far: {}", state.shuffles).as_str()));
+    note.add_child(Dom::create_text_do_not_use_without_block_level_wrapper(format!("Shuffles so far: {}", state.shuffles).as_str()));
     content.add_child(note);
     content
 }
@@ -259,7 +259,7 @@ extern "C" fn layout(data: RefAny, _: LayoutCallbackInfo) -> Dom {
                 RefAny::new(()),
             );
         for item in ["Inbox", "Drafts", "Archive", "Trash"] {
-            sidebar.add_child(Dom::create_text(item).with_css(SIDE_ITEM));
+            sidebar.add_child(Dom::create_text_do_not_use_without_block_level_wrapper(item).with_css(SIDE_ITEM));
         }
         body.add_child(sidebar);
     }

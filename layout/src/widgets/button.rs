@@ -493,7 +493,7 @@ impl Button {
             button = button.with_child(
                 Dom::create_p()
                     .with_css_props(self.label_style)
-                    .with_children(azul_core::dom::DomVec::from_vec(vec![Dom::create_text(self.label)])),
+                    .with_children(azul_core::dom::DomVec::from_vec(vec![Dom::create_text_do_not_use_without_block_level_wrapper(self.label)])),
             );
         }
 

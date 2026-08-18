@@ -15228,13 +15228,31 @@
                                 "fn_args": [],
                                 "fn_body": "azul_core::dom::Dom::create_br()"
                             },
-                            "create_text": {
+                            "create_text_do_not_use_without_block_level_wrapper": {
                                 "fn_args": [
                                     {
                                         "value": "String"
                                     }
                                 ],
-                                "fn_body": "azul_core::dom::Dom::create_text(value)"
+                                "fn_body": "azul_core::dom::Dom::create_text_do_not_use_without_block_level_wrapper(value)",
+                                "doc": [
+                                    "Creates a RAW text node - read this before using it.",
+                                    "",
+                                    "WARNING: azul does NOT auto-wrap raw text in an anonymous block the way",
+                                    "browsers do. A bare text node has NO box of its own: it gets no rect, no",
+                                    "clip and no layout constraints. Every box-model CSS property",
+                                    "(width / height / position / overflow / background / border / padding),",
+                                    "every callback, every tab_index and every dataset attached to a text",
+                                    "node is silently INERT. This has broken shipped widgets before (text",
+                                    "escaping its container, click targets that never fire).",
+                                    "",
+                                    "A raw text node is only correct as the bare leaf INSIDE a block-level",
+                                    "wrapper that carries the styling - p, div, h1... Prefer the",
+                                    "create_*_with_text family (create_p_with_text, create_div_with_text,",
+                                    "create_span_with_text, ...), which builds that shape for you. The engine",
+                                    "also logs a warning after layout when it finds a text node used without",
+                                    "a containing block."
+                                ]
                             },
                             "create_image": {
                                 "fn_args": [
@@ -17628,6 +17646,21 @@
                                 ],
                                 "fn_body": "azul_core::dom::Dom::create_p_with_text(text)"
                             },
+                            "create_div_with_text": {
+                                "doc": [
+                                    "Creates a generic block container (div) with text.",
+                                    "",
+                                    "The div is the box the text lives in: put your styling, callbacks and",
+                                    "tab_index on the DIV, never on the text leaf (a text node has no box of",
+                                    "its own - see create_text_do_not_use_without_block_level_wrapper)."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "text": "String"
+                                    }
+                                ],
+                                "fn_body": "azul_core::dom::Dom::create_div_with_text(text)"
+                            },
                             "create_geolocation_probe": {
                                 "doc": [
                                     "Creates an invisible `NodeType::GeolocationProbe` node that",
@@ -18302,16 +18335,31 @@
                                 "fn_args": [],
                                 "fn_body": "azul_core::dom::NodeData::create_br()"
                             },
-                            "create_text": {
+                            "create_text_do_not_use_without_block_level_wrapper": {
                                 "doc": [
-                                    "Shorthand for `NodeData::create_node(NodeType::Text(value.into()))`."
+                                    "Creates a RAW text node - read this before using it.",
+                                    "",
+                                    "WARNING: azul does NOT auto-wrap raw text in an anonymous block the way",
+                                    "browsers do. A bare text node has NO box of its own: it gets no rect, no",
+                                    "clip and no layout constraints. Every box-model CSS property",
+                                    "(width / height / position / overflow / background / border / padding),",
+                                    "every callback, every tab_index and every dataset attached to a text",
+                                    "node is silently INERT. This has broken shipped widgets before (text",
+                                    "escaping its container, click targets that never fire).",
+                                    "",
+                                    "A raw text node is only correct as the bare leaf INSIDE a block-level",
+                                    "wrapper that carries the styling - p, div, h1... Prefer the",
+                                    "create_*_with_text family (create_p_with_text, create_div_with_text,",
+                                    "create_span_with_text, ...), which builds that shape for you. The engine",
+                                    "also logs a warning after layout when it finds a text node used without",
+                                    "a containing block."
                                 ],
                                 "fn_args": [
                                     {
                                         "value": "String"
                                     }
                                 ],
-                                "fn_body": "azul_core::dom::NodeData::create_text(value)"
+                                "fn_body": "azul_core::dom::NodeData::create_text_do_not_use_without_block_level_wrapper(value)"
                             },
                             "create_image": {
                                 "doc": [

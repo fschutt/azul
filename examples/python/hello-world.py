@@ -16,7 +16,7 @@ def layout(data, info):
     # .with_css(...) consumes self and returns a new Dom, so builder
     # calls chain inline.
     label = (Dom.create_div()
-             .with_child(Dom.create_text(str(data.counter)))
+             .with_child(Dom.create_text_do_not_use_without_block_level_wrapper(str(data.counter)))
              .with_css("font-size: 32px;"))
 
     # Button widget with a click handler. with_on_click(data, callback)

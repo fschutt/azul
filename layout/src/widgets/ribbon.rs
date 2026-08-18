@@ -2117,7 +2117,7 @@ impl Ribbon {
             .with_children(DomVec::from_vec(vec![
                 Dom::create_p()
                     .with_css_props(style.mobile_tab_label_style.clone())
-                    .with_children(DomVec::from_vec(vec![Dom::create_text(active_label)])),
+                    .with_children(DomVec::from_vec(vec![Dom::create_text_do_not_use_without_block_level_wrapper(active_label)])),
                 Dom::create_icon(AzString::from_const_str("expand_more"))
                     .with_css_props(style.mobile_tab_arrow_style.clone()),
             ]));
@@ -2440,7 +2440,7 @@ fn group_dom(group: RibbonGroup, s: &RibbonStyle, b: RibbonBehavior) -> Dom {
         Dom::create_p()
             .with_ids_and_classes(IdOrClassVec::from_const_slice(CLS_GROUP_LABEL))
             .with_css_props(s.group_label_style.clone())
-            .with_children(DomVec::from_vec(vec![Dom::create_text(label)])),
+            .with_children(DomVec::from_vec(vec![Dom::create_text_do_not_use_without_block_level_wrapper(label)])),
     );
     if let Some(l) = launcher.into_option() {
         footer_children.push(styled_button(
@@ -2494,7 +2494,7 @@ fn gallery_dom(gallery: RibbonGallery, s: &RibbonStyle, b: RibbonBehavior) -> Do
             };
             let label = Dom::create_p()
                 .with_css_props(s.gallery_cell_label_style.clone())
-                .with_children(DomVec::from_vec(vec![Dom::create_text(cell.label.clone())]));
+                .with_children(DomVec::from_vec(vec![Dom::create_text_do_not_use_without_block_level_wrapper(cell.label.clone())]));
             let mut d = Dom::create_div()
                 .with_ids_and_classes(IdOrClassVec::from_const_slice(classes))
                 .with_css_props(cell_style)
@@ -3682,7 +3682,7 @@ mod tests {
 
     #[test]
     fn custom_items_pass_through_verbatim() {
-        let custom = Dom::create_text("¶");
+        let custom = Dom::create_text_do_not_use_without_block_level_wrapper("¶");
         let node = render_item(RibbonItem::Custom(custom.clone()));
         assert_eq!(node, custom);
     }
@@ -3695,7 +3695,7 @@ mod tests {
         let v: Vec<RibbonGalleryCell> = (0..cells)
             .map(|i| {
                 RibbonGalleryCell::new(
-                    Dom::create_text(format!("AaBbCc{i}")),
+                    Dom::create_text_do_not_use_without_block_level_wrapper(format!("AaBbCc{i}")),
                     AzString::from(format!("Style {i}")),
                 )
             })

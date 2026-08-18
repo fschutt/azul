@@ -23,8 +23,8 @@ fn page_dom() -> StyledDom {
         .with_child(
             Dom::create_node(NodeType::Div)
                 .with_ids_and_classes(vec![IdOrClass::Class("page".into())].into())
-                .with_child(Dom::create_text("blit golden paragraph one"))
-                .with_child(Dom::create_text("second line of golden text")),
+                .with_child(Dom::create_text_do_not_use_without_block_level_wrapper("blit golden paragraph one"))
+                .with_child(Dom::create_text_do_not_use_without_block_level_wrapper("second line of golden text")),
         );
     let css = r#"
         * { margin: 0px; padding: 0px; }
