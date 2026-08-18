@@ -588,6 +588,46 @@ own), IME/caret rendering, `:hover`-dependent AA on rounded borders.
 7. **Dual-lane mode** (P3): run desktop-headless first (references), then web,
    then cross-compare — one combined report.
 
+## 6.5 E2E mock protocol — deterministic OS results (maintainer direction)
+
+The first boundary interceptions (file open/load for AzWriter) must be
+DETERMINISTIC under e2e so CDP can verify that what the browser shows stays
+in sync with what the wasm side says (selection, cursor movement, rendered
+content). One contract, three parties:
+
+1. **The page global** — `window.__az_e2e_mock`, absent in production. Shape:
+
+   ```js
+   window.__az_e2e_mock = {
+     file_open:  { path: "e2e://docs/sample.txt" },          // dialog result
+     file_read:  { "e2e://docs/sample.txt": { b64: "..." } }, // path → content
+     // later: save_file, color_pick, http: { "<url>": {status, b64} }, …
+   };
+   ```
+
+2. **The JS boundary impls** consult it FIRST: a mocked `open_file` request
+   resolves immediately with the predefined path (no picker, no gesture
+   requirement); a mocked read serves the canned bytes. Unmocked requests in
+   an e2e context fail loudly (`status: "unmocked"`), never fall through to
+   real pickers — a hanging modal is the worst e2e outcome. The resume path
+   is the NORMAL one (`AzStartup_completeRequest`) so the mock exercises the
+   entire §4.1 resumable machinery except the browser-API call itself —
+   which is exactly the split the sync-verification tests need.
+
+3. **The harness op** — `{"op": "mock", "set": {…}}` merges into the global
+   via CDP `Runtime.evaluate` before subsequent steps; specs stay
+   self-contained. Desktop lane: the SAME spec op maps to the desktop
+   runner's env-based mock (`AZ_E2E_TEST` already forces deterministic
+   biometric/keyring paths — extend that mechanism to dialogs), keeping one
+   spec valid in both lanes.
+
+Sequencing note: this protocol needs the dialog/file boundaries to be
+JS-implemented (`BoundaryJsImport`, boundary plan §5.1-§5.2). Current gates
+run legacy bundled mode ("manifest has no boundary shards"), where dialog
+calls stub to honest-cancel — the first interception milestone is therefore
+(a) classify the dialog/file-read Az fns as `BoundaryJsImport`, (b) emit
+their JS trampolines with mock-first logic, (c) land the `mock` op here.
+
 ---
 
 ## 7. Phased plan (rough sizes)
