@@ -7077,6 +7077,13 @@ fn reloc_templateize(
                     let rel = va.wrapping_sub(lift_addr);
                     let ident = if rel < fn_len as u64 {
                         format!("@rel:{rel:x}")
+                    } else if !(0x100000..0x6000000).contains(&va) {
+                        // Out of every synth band: cannot be an image
+                        // address, so its probe-variation is pc-ARITHMETIC
+                        // (`pc - fixed` difference tokens in backward-offset
+                        // computations). Those translate by the fn's own
+                        // lift delta, no identity involved.
+                        format!("@delta:{va:x}")
                     } else {
                         ident_for(va)?
                     };
@@ -7147,6 +7154,9 @@ fn reloc_translate(
         let ident = f.next()?;
         let val = if let Some(rel_hex) = ident.strip_prefix("@rel:") {
             new_lift_addr.checked_add(u64::from_str_radix(rel_hex, 16).ok()?)?
+        } else if let Some(va_hex) = ident.strip_prefix("@delta:") {
+            let old_va = u64::from_str_radix(va_hex, 16).ok()?;
+            old_va.wrapping_add(new_lift_addr.wrapping_sub(_old_lift))
         } else if let Some(rest) = ident.strip_prefix("near:") {
             let (name_off, fp_hex) = rest.rsplit_once(':')?;
             let (name, off_hex) = name_off.rsplit_once("+0x")?;
