@@ -799,6 +799,7 @@ impl FontContext {
         let mut fm = FontManager {
             fc_cache: self.fc_cache.clone(),
             parsed_fonts: self.parsed_fonts.clone(),
+            condemned_fonts: Arc::new(Mutex::new(CondemnedFonts::default())),
             font_chain_cache: self.font_chain_cache.clone(),
             embedded_fonts: Mutex::new(self.embedded_fonts.clone()),
             font_hash_to_families: self.font_hash_to_families.clone(),
@@ -906,6 +907,25 @@ fn parse_face_style(bytes: &[u8], family: &str) -> FaceStyle {
     }
 }
 
+/// The font GC's grace pool: faces evicted from `parsed_fonts` wait here for
+/// one resurrection window (see `FontManager::condemned_fonts`).
+#[derive(Debug)]
+pub struct CondemnedFonts<T> {
+    /// Evicted faces, each stamped with the GC generation that evicted it.
+    pub faces: HashMap<FontId, (T, u64)>,
+    /// Monotonic GC pass counter.
+    pub generation: u64,
+}
+
+impl<T> Default for CondemnedFonts<T> {
+    fn default() -> Self {
+        Self {
+            faces: HashMap::new(),
+            generation: 0,
+        }
+    }
+}
+
 #[derive(Debug)]
 pub struct FontManager<T> {
     /// The font-path cache. `FcFontCache` in rust-fontconfig 4.1 is
@@ -917,6 +937,18 @@ pub struct FontManager<T> {
     /// Wrapped in Arc so multiple `FontManager` instances can share the same
     /// pool of already-parsed fonts (avoids re-reading from disk).
     pub parsed_fonts: Arc<Mutex<HashMap<FontId, T>>>,
+    /// Faces the font GC evicted, kept for a RESURRECTION window instead of
+    /// dropped: any hash resolution against a condemned face moves it back
+    /// into `parsed_fonts`, and only a face nobody resolved for two GC
+    /// generations is truly dropped.
+    ///
+    /// This exists because the GC's original safety argument — "eviction is
+    /// always safe, the next layout re-loads what it needs" — is FALSE when
+    /// a shaping cache serves cached glyphs without re-loading: the display
+    /// list then carries a `font_hash` whose face is gone and the renderer
+    /// silently loses the text (the azwriter textless-window bug; the
+    /// failing hash appeared verbatim in the GC's eviction trace).
+    pub condemned_fonts: Arc<Mutex<CondemnedFonts<T>>>,
     // Cache for font chains - populated by resolve_all_font_chains() before layout
     // This is read-only during layout - no locking needed for reads
     pub font_chain_cache: HashMap<FontChainKey, rust_fontconfig::FontFallbackChain>,
@@ -977,6 +1009,7 @@ impl<T: ParsedFontTrait> FontManager<T> {
         Self {
             fc_cache: self.fc_cache.clone(),
             parsed_fonts: Arc::clone(&self.parsed_fonts),
+            condemned_fonts: Arc::clone(&self.condemned_fonts),
             font_chain_cache: self.font_chain_cache.clone(),
             embedded_fonts: Mutex::new(
                 self.embedded_fonts
@@ -1001,6 +1034,7 @@ impl<T: ParsedFontTrait> FontManager<T> {
         let mut fm = Self {
             fc_cache,
             parsed_fonts: Arc::new(Mutex::new(HashMap::new())),
+            condemned_fonts: Arc::new(Mutex::new(CondemnedFonts::default())),
             font_chain_cache: HashMap::new(),
             embedded_fonts: Mutex::new(HashMap::new()),
             font_hash_to_families: HashMap::new(),
@@ -1304,6 +1338,7 @@ impl<T: ParsedFontTrait> FontManager<T> {
         let mut fm = Self {
             fc_cache,
             parsed_fonts,
+            condemned_fonts: Arc::new(Mutex::new(CondemnedFonts::default())),
             font_chain_cache: HashMap::new(),
             embedded_fonts: Mutex::new(HashMap::new()),
             font_hash_to_families: HashMap::new(),
@@ -1405,7 +1440,26 @@ impl<T: ParsedFontTrait> FontManager<T> {
             .find(|(_, font)| font.get_hash() == font_hash)
             .map(|(_, font)| font.clone());
         drop(parsed);
-        found
+        if found.is_some() {
+            return found;
+        }
+        // RESURRECTION: the hash is still referenced (someone is resolving
+        // it), so a GC-condemned face moves back into the live pool. This is
+        // what makes the font GC safe against shaping caches that serve
+        // cached glyphs without re-loading their face.
+        let mut condemned = self.condemned_fonts.lock().unwrap();
+        let id = condemned
+            .faces
+            .iter()
+            .find(|(_, (font, _))| font.get_hash() == font_hash)
+            .map(|(id, _)| *id)?;
+        let (font, _) = condemned.faces.remove(&id)?;
+        drop(condemned);
+        if std::env::var_os("AZ_FONT_GC_TRACE").is_some() {
+            eprintln!("[azul][font][gc] RESURRECT id={id} face_hash={font_hash}");
+        }
+        self.parsed_fonts.lock().unwrap().insert(id, font.clone());
+        Some(font)
     }
 
     /// THE font lookup: resolve a `font_hash` — the value layout stamps onto every
@@ -1630,12 +1684,52 @@ impl<T: ParsedFontTrait> FontManager<T> {
         keep_ids: &HashSet<FontId>,
         keep_hashes: &HashSet<u64>,
     ) -> usize {
+        let trace = std::env::var_os("AZ_FONT_GC_TRACE").is_some();
+        let mut condemned = self.condemned_fonts.lock().unwrap();
+        condemned.generation = condemned.generation.saturating_add(1);
+        let generation = condemned.generation;
+
+        // Phase 1: CONDEMN (not drop) everything outside the keep-set. A
+        // condemned face stays resolvable by hash — `get_font_by_hash`
+        // resurrects it — because shaping caches legitimately keep serving
+        // glyphs stamped with its hash without re-loading the face.
         let evicted = {
             let mut parsed = self.parsed_fonts.lock().unwrap();
             let before = parsed.len();
-            parsed.retain(|id, _| keep_ids.contains(id));
+            let goners: Vec<FontId> = parsed
+                .keys()
+                .filter(|id| !keep_ids.contains(*id))
+                .copied()
+                .collect();
+            for id in goners {
+                if let Some(font) = parsed.remove(&id) {
+                    if trace {
+                        eprintln!(
+                            "[azul][font][gc] CONDEMN id={id} face_hash={} gen={generation}",
+                            font.get_hash()
+                        );
+                    }
+                    condemned.faces.insert(id, (font, generation));
+                }
+            }
             before.saturating_sub(parsed.len())
         };
+
+        // Phase 2: truly drop faces nobody resolved for two generations —
+        // the leak the GC exists for (font-cycling apps retained every font
+        // they ever touched) stays fixed.
+        condemned.faces.retain(|id, (font, gen)| {
+            let live = generation.saturating_sub(*gen) < 2;
+            if !live && trace {
+                eprintln!(
+                    "[azul][font][gc] DROP id={id} face_hash={} (condemned at gen {gen}, now {generation})",
+                    font.get_hash()
+                );
+            }
+            live
+        });
+        drop(condemned);
+
         self.font_hash_to_families
             .retain(|h, _| keep_hashes.contains(h));
         evicted
@@ -16690,4 +16784,69 @@ mod autotest_generated {
         let weird = h.hyphenate("\u{1F600}\u{0301}");
         assert!(weird.breaks.len() < 8, "no runaway break list");
     }
+
+    // =====================================================================
+    // FONT GC: the eviction-resurrection contract
+    // =====================================================================
+
+    /// THE LAW the azwriter textless-window bug broke: the GC's safety
+    /// argument ("eviction is always safe — the next layout re-loads what it
+    /// needs") is FALSE when a shaping cache serves cached glyphs without
+    /// re-loading, so a face whose hash is still referenced by live shaped
+    /// output must remain RESOLVABLE after the GC condemned it. Verified
+    /// live: the exact hash the renderer reported as unresolvable
+    /// (14253617078591575638) appeared in the GC's eviction trace.
+    #[test]
+    fn gc_condemned_face_still_resolves_by_hash_and_resurrects() {
+        let mut m: FontManager<TestFont> =
+            FontManager::new(FcFontCache::default()).expect("FontManager::new");
+        let id = FontId(7);
+        m.insert_font(id, tf(0xF00D));
+
+        // GC with a keep-set that does NOT contain the face — the state the
+        // azwriter run produced (UI chains resolved, fallback face outside).
+        let keep_ids = std::collections::HashSet::new();
+        let keep_hashes = std::collections::HashSet::new();
+        let _ = m.garbage_collect_fonts(&keep_ids, &keep_hashes);
+
+        // A display list / shaping cache still carries hash 0xF00D. It MUST
+        // resolve — a dropped face here is user-visible text loss.
+        let resurrected = m.get_font_by_hash(0xF00D);
+        assert!(
+            resurrected.is_some(),
+            "a GC pass must not make a still-referenced font hash unresolvable"
+        );
+
+        // Resurrection is real: the face is back in the live pool, so a
+        // SECOND resolution does not depend on the condemned window.
+        let _ = m.garbage_collect_fonts(
+            &[id].into_iter().collect(),
+            &keep_hashes,
+        );
+        assert!(m.get_font_by_hash(0xF00D).is_some(), "resurrected face is live again");
+    }
+
+    /// The NEGATIVE CONTROL guarding the leak fix the GC exists for: a face
+    /// whose hash nobody resolves for TWO consecutive GC generations is
+    /// genuinely dropped. Without this, "keep everything forever" would also
+    /// pass the law above.
+    #[test]
+    fn gc_drops_a_face_no_one_referenced_for_two_generations() {
+        let mut m: FontManager<TestFont> =
+            FontManager::new(FcFontCache::default()).expect("FontManager::new");
+        m.insert_font(FontId(9), tf(0xDEAD));
+
+        let keep_ids = std::collections::HashSet::new();
+        let keep_hashes = std::collections::HashSet::new();
+        // Three GC passes, never resolved in between: condemned -> aged -> gone.
+        let _ = m.garbage_collect_fonts(&keep_ids, &keep_hashes);
+        let _ = m.garbage_collect_fonts(&keep_ids, &keep_hashes);
+        let _ = m.garbage_collect_fonts(&keep_ids, &keep_hashes);
+        assert!(
+            m.get_font_by_hash(0xDEAD).is_none(),
+            "an unreferenced face must eventually be dropped — the GC exists \
+             because font-cycling apps leaked every font they ever touched"
+        );
+    }
 }
+
