@@ -3909,8 +3909,8 @@ impl LayoutWindow {
                 let (rss, _virt) = crate::probe::current_rss_bytes();
                 let peak = crate::probe::peak_rss_bytes_pub();
                 eprintln!("[MEM] after layout: current rss={:.1} MiB  peak rss={:.1} MiB  (unreturned={:.1} MiB)",
-                    rss as f64 / 1048576.0, peak as f64 / 1048576.0,
-                    (peak.saturating_sub(rss)) as f64 / 1048576.0);
+                    rss as f64 / 1_048_576.0, peak as f64 / 1_048_576.0,
+                    (peak.saturating_sub(rss)) as f64 / 1_048_576.0);
                 // `grand_total` is the layout_cache walk ONLY. `layout_results`
                 // holds a second StyledDom + LayoutTree and is measured later
                 // in the frame (see the walk at the insert site), so the best
@@ -3923,7 +3923,7 @@ impl LayoutWindow {
                     grand_total as f64 * 100.0 / (rss as f64).max(1.0));
                 if lr > 0 {
                     eprintln!("[MEM]   incl. layout_results ({:.1} MiB, previous frame) = {:.1}%",
-                        lr as f64 / 1048576.0,
+                        lr as f64 / 1_048_576.0,
                         (grand_total as u64 + lr) as f64 * 100.0 / (rss as f64).max(1.0));
                 } else {
                     eprintln!("[MEM]   layout_results not yet measured this run — the ratio above is a FLOOR.");

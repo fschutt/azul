@@ -298,7 +298,9 @@ fn main() {
         }
         // Probe spans -> app_phase_seconds{phase}. This is the bridge the
         // plan calls for: the profiler's buffer, drained into metrics.
-        telemetry::drain_probe_events();
+        // Bridge Probe spans into app_phase_seconds; the returned count is
+        // only informative here.
+        let _ = telemetry::drain_probe_events();
 
         // Real, load-bearing log lines: the WARN is the one you would want to
         // find in Loki sitting next to a latency spike.

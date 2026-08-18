@@ -275,7 +275,7 @@ pub fn parse_xml_to_styled_dom(xml: &str) -> Result<StyledDom, XmlError> {
 #[cfg(all(unix, feature = "probe"))]
 fn peak_rss_bytes() -> u64 {
     let mut usage: libc::rusage = unsafe { std::mem::zeroed() };
-    if unsafe { libc::getrusage(libc::RUSAGE_SELF, &mut usage) } != 0 {
+    if unsafe { libc::getrusage(libc::RUSAGE_SELF, &raw mut usage) } != 0 {
         return 0;
     }
     let ru = usage.ru_maxrss as u64;

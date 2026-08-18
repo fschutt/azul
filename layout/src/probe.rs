@@ -51,10 +51,10 @@ mod imp {
     /// unconditionally, and the event buffer is only drained by the
     /// `AZ_PROFILE=cpu` report path. Every plain run therefore pushed ~40 B
     /// per span into a thread-local Vec that nothing ever emptied: unbounded
-    /// growth, invisible to the LayoutCache memory walk (it's a thread-local).
+    /// growth, invisible to the `LayoutCache` memory walk (it's a thread-local).
     /// A 5 s resize drag alone is ~375 relayouts × hundreds of spans.
     ///
-    /// 0 = uninitialized (resolve from AZ_PROFILE on first probe),
+    /// 0 = uninitialized (resolve from `AZ_PROFILE` on first probe),
     /// 1 = recording, 2 = off.
     static RECORDING: AtomicU8 = AtomicU8::new(0);
 
@@ -154,7 +154,7 @@ mod imp {
         EVENTS.try_with(|cell| cell.borrow().len()).unwrap_or(0)
     }
 
-    pub(super) fn enabled() -> bool {
+    pub(super) const fn enabled() -> bool {
         true
     }
 }
@@ -447,14 +447,14 @@ pub fn sample_peak_rss(label: &'static str) {
 }
 
 #[cfg(feature = "probe")]
-pub fn peak_rss_bytes_pub() -> u64 { peak_rss_bytes_self() }
+#[must_use] pub fn peak_rss_bytes_pub() -> u64 { peak_rss_bytes_self() }
 
 #[cfg(feature = "probe")]
 fn peak_rss_bytes_self() -> u64 {
     #[cfg(unix)]
     unsafe {
         let mut ru: libc::rusage = core::mem::zeroed();
-        if libc::getrusage(libc::RUSAGE_SELF, &mut ru) != 0 {
+        if libc::getrusage(libc::RUSAGE_SELF, &raw mut ru) != 0 {
             return 0;
         }
         let raw = ru.ru_maxrss as u64;
@@ -548,7 +548,7 @@ pub fn hint_purge_allocator() {
 }
 
 /// Sample the process's "real" memory footprint (not peak).
-/// Returns (footprint_bytes, virtual_bytes). On macOS this is
+/// Returns (`footprint_bytes`, `virtual_bytes`). On macOS this is
 /// `phys_footprint` from `TASK_VM_INFO` — matches Activity Monitor
 /// "Memory" and `vmmap`'s "Physical footprint" line, and excludes
 /// shared library text pages that would otherwise inflate RSS
@@ -557,7 +557,7 @@ pub fn hint_purge_allocator() {
 /// equivalent; the shared-lib inflation is much smaller there).
 /// More useful than `getrusage.ru_maxrss` which only moves upward.
 #[cfg(feature = "probe")]
-pub fn current_rss_bytes() -> (u64, u64) {
+#[must_use] pub fn current_rss_bytes() -> (u64, u64) {
     // Miri cannot call the mach `task_info` foreign function; memory profiling
     // is meaningless under Miri anyway, so report zero.
     #[cfg(miri)]
@@ -760,7 +760,7 @@ pub fn malloc_heap_bytes() -> u64 {
             // the constant for linux-gnu, so spell it out.
             let sym = libc::dlsym(
                 core::ptr::null_mut(),
-                b"mallinfo2\0".as_ptr().cast::<core::ffi::c_char>(),
+                c"mallinfo2".as_ptr(),
             );
             if sym.is_null() {
                 None
@@ -771,12 +771,12 @@ pub fn malloc_heap_bytes() -> u64 {
                 >(sym))
             }
         });
-        return match resolved {
+        match resolved {
             Some(mallinfo2) => unsafe { mallinfo2().uordblks as u64 },
             // Pre-2.33 glibc. `uordblks` is a signed int that wraps past
             // 2 GiB; clamp rather than report a negative byte count.
             None => unsafe { libc::mallinfo().uordblks.max(0) as u64 },
-        };
+        }
     }
     #[cfg(not(any(
         target_os = "macos",
@@ -791,13 +791,13 @@ pub fn malloc_heap_bytes() -> u64 {
 /// other kernel-mapped regions that inflate the traditional RSS
 /// number without actually costing the process anything. For a
 /// short-lived headless render this is a much more honest figure:
-/// on a ~20 MiB ru_maxrss run, phys_footprint is typically ~8 MiB.
+/// on a ~20 MiB `ru_maxrss` run, `phys_footprint` is typically ~8 MiB.
 /// Returns 0 on non-macOS or if the Mach call fails.
 ///
-/// There's no direct "peak phys_footprint" field; track the max
+/// There's no direct "peak `phys_footprint`" field; track the max
 /// across calls in application code if you need it.
 #[cfg(feature = "probe")]
-pub fn phys_footprint_bytes() -> u64 {
+#[must_use] pub const fn phys_footprint_bytes() -> u64 {
     // Miri cannot call the mach `task_info` foreign function.
     #[cfg(miri)]
     return 0;
@@ -855,11 +855,11 @@ pub fn phys_footprint_bytes() -> u64 {
     { 0 }
 }
 
-/// Background sampler for peak phys_footprint. Spawns a thread that
+/// Background sampler for peak `phys_footprint`. Spawns a thread that
 /// polls `phys_footprint_bytes()` every ~2 ms and updates a shared
-/// atomic. The kernel does not expose a direct "peak phys_footprint"
-/// — unlike `resident_size_peak` in TASK_VM_INFO — so polling is
-/// the only way to catch mid-phase transients that are MADV_FREE'd
+/// atomic. The kernel does not expose a direct "peak `phys_footprint`"
+/// — unlike `resident_size_peak` in `TASK_VM_INFO` — so polling is
+/// the only way to catch mid-phase transients that are `MADV_FREE`'d
 /// before the next explicit sample point.
 ///
 /// Not started by default; call `start_peak_sampler()` once at
@@ -867,7 +867,7 @@ pub fn phys_footprint_bytes() -> u64 {
 /// (~1-5 µs per poll on macOS, 500 Hz → <0.25% CPU of one core).
 /// `peak_phys_footprint_seen()` reads the current high-water mark.
 #[cfg(feature = "probe")]
-pub fn start_peak_sampler() {
+pub const fn start_peak_sampler() {
     #[cfg(target_os = "macos")]
     {
         use std::sync::atomic::Ordering;
@@ -902,7 +902,7 @@ pub fn peak_phys_footprint_seen() -> u64 {
     PEAK_PHYS_FOOTPRINT.load(std::sync::atomic::Ordering::Relaxed)
 }
 
-/// Reset the global peak high-water mark to the current phys_footprint.
+/// Reset the global peak high-water mark to the current `phys_footprint`.
 /// Paired with `peak_phys_footprint_seen()` so a caller can record
 /// "peak during phase X" — call `reset_peak()` at phase entry, then
 /// `peak_phys_footprint_seen()` at phase exit. The 500 Hz background
@@ -976,8 +976,7 @@ pub fn emit_phase_heap(label: &str) {
     {
         drop(writeln!(
             f,
-            r#"{{"ev":"phase","call":{},"label":"{}","heap":{}}}"#,
-            call_id, label, heap
+            r#"{{"ev":"phase","call":{call_id},"label":"{label}","heap":{heap}}}"#
         ));
     }
 }
@@ -1007,8 +1006,7 @@ pub fn emit_phase_heap_extra(label: &str, extra: u64) {
     {
         drop(writeln!(
             f,
-            r#"{{"ev":"phase","call":0,"label":"{}","heap":{},"extra":{}}}"#,
-            label, heap, extra
+            r#"{{"ev":"phase","call":0,"label":"{label}","heap":{heap},"extra":{extra}}}"#
         ));
     }
 }
@@ -1031,7 +1029,7 @@ fn heap_jsonl_enabled() -> bool {
 /// without pulling in `azul_core::profile` directly.
 #[cfg(feature = "probe")]
 #[inline]
-pub fn detail_enabled() -> bool {
+#[must_use] pub fn detail_enabled() -> bool {
     azul_core::profile::detail_enabled()
 }
 

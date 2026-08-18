@@ -220,8 +220,8 @@ impl HttpRequestConfig {
     /// # Returns
     /// * `ResultHttpResponseHttpError` - The response or an error
     #[cfg(feature = "http")]
-    pub fn http_get_default(url: AzString) -> ResultHttpResponseHttpError {
-        let config = HttpRequestConfig::default();
+    #[must_use] pub fn http_get_default(url: AzString) -> ResultHttpResponseHttpError {
+        let config = Self::default();
         http_get_with_config(url.as_str(), &config).into()
     }
 
@@ -239,7 +239,7 @@ impl HttpRequestConfig {
     /// # Returns
     /// * `ResultHttpResponseHttpError` - The response or an error
     #[cfg(feature = "http")]
-    pub fn http_get(&self, url: AzString) -> ResultHttpResponseHttpError {
+    #[must_use] pub fn http_get(&self, url: AzString) -> ResultHttpResponseHttpError {
         http_get_with_config(url.as_str(), self).into()
     }
 
@@ -257,7 +257,7 @@ impl HttpRequestConfig {
     /// # Returns
     /// * `ResultU8VecHttpError` - The response body or an error
     #[cfg(feature = "http")]
-    pub fn download_bytes_default(url: AzString) -> ResultU8VecHttpError {
+    #[must_use] pub fn download_bytes_default(url: AzString) -> ResultU8VecHttpError {
         download_bytes(url.as_str()).into()
     }
 
@@ -275,7 +275,7 @@ impl HttpRequestConfig {
     /// # Returns
     /// * `ResultU8VecHttpError` - The response body or an error
     #[cfg(feature = "http")]
-    pub fn download_bytes(&self, url: AzString) -> ResultU8VecHttpError {
+    #[must_use] pub fn download_bytes(&self, url: AzString) -> ResultU8VecHttpError {
         download_bytes_with_config(url.as_str(), self).into()
     }
 
@@ -293,7 +293,7 @@ impl HttpRequestConfig {
     /// # Returns
     /// * `bool` - True if reachable (2xx status)
     #[cfg(feature = "http")]
-    pub fn is_url_reachable(url: AzString) -> bool {
+    #[must_use] pub fn is_url_reachable(url: AzString) -> bool {
         is_url_reachable(url.as_str())
     }
 
@@ -775,13 +775,13 @@ pub fn download_bytes_with_config(_url: &str, _config: &HttpRequestConfig) -> Ht
 /// # Returns
 /// * `bool` - True if reachable (2xx status)
 #[cfg(feature = "http")]
-pub fn is_url_reachable(url: &str) -> bool {
+#[must_use] pub fn is_url_reachable(url: &str) -> bool {
     const REACHABILITY_TIMEOUT_SECS: u64 = 10;
     let agent = make_agent(REACHABILITY_TIMEOUT_SECS, false);
     match agent.head(url).call() {
         Ok(resp) => {
             let code = resp.status().as_u16();
-            code >= 200 && code < 300
+            (200..300).contains(&code)
         }
         Err(_) => false,
     }
