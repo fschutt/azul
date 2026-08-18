@@ -1469,7 +1469,11 @@ window.addEventListener('popstate', function() {
 function azBootstrapTracked() {
     Promise.resolve()
         .then(azBootstrap)
-        .catch(function(e) { console.error('[azul-web] bootstrap FAILED:', e && e.message); })
+        .catch(function(e) {
+            // The stack is the diagnosis: wasm frames name the trapping
+            // function (wasm-function[N]:0x... → wfunc.mjs → symbol).
+            console.error('[azul-web] bootstrap FAILED:', (e && (e.stack || e.message)) || e);
+        })
         .then(function() { window.__az_pending--; });
 }
 if (document.readyState === 'loading') {
