@@ -1870,6 +1870,17 @@ fn probe_incremental_keystroke_median() {
         eprintln!("[probe] dev profile: thresholds skipped (edit {med_e:?}, present {med_d:?})");
         return;
     }
+    // Same reasoning for COVERAGE builds: -C instrument-coverage puts LLVM
+    // profile counters inside exactly these hot loops, and the probe would
+    // measure the instrumentation, not the engine (locally 4.1 ms release vs
+    // >15 ms instrumented on the CI runner). The plain release jobs keep the
+    // gate. LLVM_PROFILE_FILE is set by the coverage harness at runtime.
+    if std::env::var_os("LLVM_PROFILE_FILE").is_some() {
+        eprintln!(
+            "[probe] coverage-instrumented build: thresholds skipped              (edit {med_e:?}, present {med_d:?})"
+        );
+        return;
+    }
     assert!(
         med_e < std::time::Duration::from_millis(15),
         "edit median regressed: {med_e:?} (was ~5 ms; #11 target 8 ms)"
