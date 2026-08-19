@@ -3,9 +3,10 @@
 //! Browsers wrap a raw text run in an ANONYMOUS BLOCK whenever it needs one;
 //! azul does not. A bare `NodeType::Text` therefore has no box of its own —
 //! no rect, no clip, no layout constraints — and every box-model CSS
-//! property, callback, `tab_index` or `dataset` attached to one is silently
-//! inert. That silence has shipped real bugs (text escaping its widget,
-//! click targets that never fire), which is why the raw constructor is named
+//! property, every id or class a stylesheet could reach it by, and every
+//! callback, `tab_index` or `dataset` attached to one is silently inert.
+//! That silence has shipped real bugs (text escaping its widget, click
+//! targets that never fire), which is why the raw constructor is named
 //! `create_text_do_not_use_without_block_level_wrapper` and why this pass
 //! exists: after layout, every text node in a shape azul cannot honor is
 //! reported to the developer, once per unique finding.
@@ -74,10 +75,11 @@ fn is_suppressed() -> bool {
 /// State on a text node that a text node cannot carry, as a bitset so the
 /// scan can record a finding without allocating.
 const INERT_CSS: u8 = 1 << 0;
-const INERT_CALLBACKS: u8 = 1 << 1;
-const INERT_TAB_INDEX: u8 = 1 << 2;
-const INERT_DATASET: u8 = 1 << 3;
-const INERT_CHILDREN: u8 = 1 << 4;
+const INERT_IDS_CLASSES: u8 = 1 << 1;
+const INERT_CALLBACKS: u8 = 1 << 2;
+const INERT_TAB_INDEX: u8 = 1 << 3;
+const INERT_DATASET: u8 = 1 << 4;
+const INERT_CHILDREN: u8 = 1 << 5;
 
 /// One finding, kept as a tag until a message is known to be needed.
 #[derive(Clone, Copy)]
@@ -114,6 +116,13 @@ impl Finding {
 
 const fn is_text(node_type: &NodeType) -> bool {
     matches!(node_type, NodeType::Text(_))
+}
+
+fn has_ids_or_classes(data: &azul_core::dom::NodeData) -> bool {
+    data.attributes()
+        .as_ref()
+        .iter()
+        .any(|a| matches!(a, AttributeType::Id(_) | AttributeType::Class(_)))
 }
 
 fn display_of(styled_dom: &StyledDom, node_id: NodeId) -> LayoutDisplay {
@@ -162,10 +171,15 @@ fn collect_findings(styled_dom: &StyledDom) -> Vec<(usize, Finding)> {
         if is_text(data.get_node_type()) {
             // W1 — state on a box-less node: every one of these is inert on
             // a text node, because only the wrapping block box carries a
-            // rect.
+            // rect. An id or a class counts: it is how a stylesheet reaches
+            // the node, and every rule it selects computes onto a node that
+            // never gets one.
             let mut inert = 0u8;
             if !data.get_style().rules.as_ref().is_empty() {
                 inert |= INERT_CSS;
+            }
+            if has_ids_or_classes(data) {
+                inert |= INERT_IDS_CLASSES;
             }
             if !data.get_callbacks().as_ref().is_empty() {
                 inert |= INERT_CALLBACKS;
@@ -290,6 +304,9 @@ fn render(data: &azul_core::dom::NodeData, idx: usize, finding: Finding) -> Stri
             let mut inert = Vec::new();
             if flags & INERT_CSS != 0 {
                 inert.push("css properties");
+            }
+            if flags & INERT_IDS_CLASSES != 0 {
+                inert.push("ids/classes");
             }
             if flags & INERT_CALLBACKS != 0 {
                 inert.push("callbacks");
@@ -437,7 +454,7 @@ fn snippet_of(text: &str) -> String {
 
 #[cfg(test)]
 mod autotest_generated {
-    use azul_core::dom::{Dom, TabIndex};
+    use azul_core::dom::{Dom, IdOrClass, IdOrClassVec, TabIndex};
     use azul_core::styled_dom::StyledDom;
     use azul_css::css::Css;
 
@@ -483,6 +500,27 @@ mod autotest_generated {
         assert_eq!(w.len(), 1, "{w:?}");
         assert!(w[0].contains("INERT"), "{w:?}");
         assert!(w[0].contains("tab_index"), "{w:?}");
+    }
+
+    #[test]
+    fn ids_and_classes_on_a_text_node_are_reported_as_inert() {
+        // The shipped menu_renderer defect: the checkmark's three classes
+        // ended up on the text node instead of the icon <div> that boxes it.
+        // The text is that div's only child — the shape every placement check
+        // calls sanctioned — so the classes are the only thing left to report.
+        let icon = raw_text("✓").with_ids_and_classes(IdOrClassVec::from_vec(vec![
+            IdOrClass::Class("menu-item-icon".into()),
+            IdOrClass::Class("menu-item-checkbox".into()),
+            IdOrClass::Class("menu-item-checkbox-checked".into()),
+        ]));
+        let sd = styled(
+            Dom::create_body().with_child(Dom::create_div().with_child(icon)),
+            "",
+        );
+        let w = collect_text_placement_warnings(&sd);
+        assert_eq!(w.len(), 1, "{w:?}");
+        assert!(w[0].contains("INERT"), "{w:?}");
+        assert!(w[0].contains("ids/classes"), "{w:?}");
     }
 
     #[test]

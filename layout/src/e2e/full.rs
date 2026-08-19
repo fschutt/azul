@@ -1895,6 +1895,23 @@ pub enum DebugEvent {
         key: String,
         #[serde(default)]
         modifiers: Modifiers,
+        /// The PRINTABLE text this key press produces, if any — the shell
+        /// ingress, not the C-API one.
+        ///
+        /// A native shell records the text of a keystroke (`XLookupString`,
+        /// `wl_keyboard` / xkb, `WM_CHAR`, `NSTextInputClient`) into the text
+        /// changeset BEFORE it runs the state-diff pass, so ONE pass carries
+        /// both the KeyDown and the Input event and the pass's post-callback
+        /// filter decides whether the recorded edit lands. That is what makes a
+        /// KeyDown handler's `prevent_default()` able to veto an insertion.
+        ///
+        /// `text_input` is the OTHER ingress (`CallbackChange::CreateTextInput`
+        /// — the debug server / C API / IME commit), which records, dispatches
+        /// `Input` and applies inside a single change. A veto raised by a
+        /// KeyDown handler cannot be observed through it, because no KeyDown is
+        /// dispatched in that window at all.
+        #[serde(default)]
+        text: Option<String>,
     },
     KeyUp {
         key: String,
@@ -4009,6 +4026,18 @@ pub struct E2eSetup {
     /// If set, `set_app_state` is called before the first step.
     #[serde(default)]
     pub app_state: Option<serde_json::Value>,
+    /// Run this scenario with the caret / selection tweens (and the focus-ring
+    /// glide, and `caret_scroll_glide`) TURNED ON, i.e. with
+    /// `SystemAnimations::default()` instead of `SystemAnimations::disabled()`.
+    ///
+    /// Off by default, because a scenario that does not drive the clock in
+    /// fixed steps would screenshot geometry mid-glide. It is safe to turn on
+    /// precisely because engine time is virtual here: `run_e2e_test` freezes
+    /// the clock for the scenario's thread and `tick_ms` / `wait` are the only
+    /// things that advance it, so a tween's progress is a pure function of the
+    /// ops the scenario ran.
+    #[serde(default)]
+    pub animations: bool,
 }
 
 #[cfg(feature = "std")]
@@ -6768,14 +6797,14 @@ fn eval_assert_manager_invariants(
                 // either be applied to whatever now occupies that id, or dropped
                 // silently. Both are wrong, and neither shows up in the DOM.
                 "text_input" => {
-                    if let Some(pending) = lw.text_input_manager.pending_changeset.as_ref() {
+                    for queued in lw.text_input_manager.pending_changesets.iter() {
                         checked += 1;
-                        if !dom_node_is_live(lw, pending.node) {
+                        if !dom_node_is_live(lw, queued.edit.node) {
                             violations.push(format!(
                                 "X10 text_input: a pending text edit is staged for ({}, {:?}), which \
                                  no longer exists",
-                                pending.node.dom.inner,
-                                pending.node.node.into_crate_internal().map(|n| n.index())
+                                queued.edit.node.dom.inner,
+                                queued.edit.node.node.into_crate_internal().map(|n| n.index())
                             ));
                         }
                     }
@@ -7841,26 +7870,27 @@ fn fp_text_edit(m: &azul_layout::managers::text_edit::TextEditManager) -> Manage
 #[cfg(feature = "std")]
 fn fp_text_input(m: &azul_layout::managers::text_input::TextInputManager) -> ManagerFingerprint {
     let mut population = 0usize;
-    let pending = match m.pending_changeset.as_ref() {
-        None => "none".to_string(),
-        Some(p) => {
+    let entries: Vec<String> = m
+        .pending_changesets
+        .iter()
+        .map(|q| {
             population += 1;
             format!(
-                "({},{:?})+{}/{}",
-                p.node.dom.inner,
-                p.node.node.into_crate_internal().map(|n| n.index()),
-                p.inserted_text.as_str().len(),
-                p.old_text.as_str().len()
+                "({},{:?})+{}/{}@{:?}",
+                q.edit.node.dom.inner,
+                q.edit.node.node.into_crate_internal().map(|n| n.index()),
+                q.edit.inserted_text.as_str().len(),
+                q.edit.old_text.as_str().len(),
+                q.source
             )
-        }
+        })
+        .collect();
+    let pending = if entries.is_empty() {
+        "none".to_string()
+    } else {
+        entries.join(",")
     };
-    if m.input_source.is_some() {
-        population += 1;
-    }
-    ManagerFingerprint::new(
-        population,
-        format!("pending={pending} source={:?}", m.input_source),
-    )
+    ManagerFingerprint::new(population, format!("pending={pending}"))
 }
 
 #[cfg(feature = "std")]
@@ -15049,15 +15079,58 @@ pub fn process_debug_event(
             }
         }
 
-        DebugEvent::KeyDown { key, modifiers } => {
+        DebugEvent::KeyDown { key, modifiers, text } => {
             use azul_core::window::{VirtualKeyCode, VirtualKeyCodeVec};
-            
+
             log(
                 LogLevel::Debug,
                 LogCategory::EventLoop,
                 format!("Debug key down: {} (shift={}, ctrl={}, alt={})", key, modifiers.shift, modifiers.ctrl, modifiers.alt),
                 None,
             );
+
+            // SHELL INGRESS. Every native backend records the keystroke's
+            // printable text into the changeset and then runs ONE state-diff
+            // pass, so the KeyDown and the Input event share a pass and the
+            // pass's post-callback filter decides whether the edit lands:
+            //
+            //   x11/events.rs      layout_window.record_text_input(text);
+            //                      … apply_key_state_change(…);
+            //                      self.process_window_events(0)
+            //
+            // Recorded here, BEFORE `modify_window_state` — the changes drain
+            // in push order, so `SetTextChangeset` (record only, `DoNothing`,
+            // and the SAME arm in both hosts) lands before `ModifyWindowState`
+            // runs the pass.
+            //
+            // KNOWN DELTA: `set_changeset` onto an empty queue labels the entry
+            // `TextInputSource::Programmatic`, so the `Input` event this raises
+            // carries `EventSource::Programmatic` where a real keystroke
+            // carries `User`. Nothing dispatches on that label — it is a label
+            // — and closing it needs a `record`-with-source `CallbackChange`
+            // that does not exist yet.
+            if let Some(text) = text.as_deref().filter(|t| !t.is_empty()) {
+                let layout_window = callback_info.get_layout_window();
+                let recorded = layout_window
+                    .focus_manager
+                    .get_focused_node()
+                    .copied()
+                    .and_then(|focused| {
+                        let node_id = focused.node.into_crate_internal()?;
+                        let old_inline =
+                            layout_window.get_text_before_textinput(focused.dom, node_id);
+                        let old_text =
+                            layout_window.extract_text_from_inline_content(&old_inline);
+                        Some(azul_layout::managers::text_input::PendingTextEdit {
+                            node: focused,
+                            inserted_text: text.into(),
+                            old_text: old_text.into(),
+                        })
+                    });
+                if let Some(changeset) = recorded {
+                    callback_info.set_text_changeset(changeset);
+                }
+            }
 
             let mut new_state = callback_info.get_current_window_state().clone();
             
@@ -17135,8 +17208,12 @@ mod non_interference_can_fail {
             "text_input",
             azul_layout::managers::text_input::TextInputManager::new(),
             |m: &mut azul_layout::managers::text_input::TextInputManager| {
-                m.input_source =
-                    Some(azul_layout::managers::text_input::TextInputSource::Keyboard);
+                m.record_input(
+                    azul_core::dom::DomNodeId::ROOT,
+                    "x".to_string(),
+                    String::new(),
+                    azul_layout::managers::text_input::TextInputSource::Keyboard,
+                );
             },
             super::fp_text_input
         );

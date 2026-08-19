@@ -309,37 +309,50 @@ fn default_caret_tween_math_hits_both_endpoints_and_moves_between() {
 }
 
 #[test]
-fn default_selection_tween_pairs_rects_by_index() {
+fn default_selection_tween_pairs_rects_by_line_not_by_index() {
     use azul_core::callbacks::{default_selection_tween, SelectionTweenInfo};
     use azul_core::geom::LogicalPosition;
     use azul_core::refany::RefAny;
 
-    let r = |x: f32| LogicalRect {
-        origin: LogicalPosition { x, y: 0.0 },
+    // One rect per LINE; `y` identifies the line.
+    let line = |y: f32, x: f32| LogicalRect {
+        origin: LogicalPosition { x, y },
         size: LogicalSize::new(50.0, 18.0),
     };
-    // Past has ONE rect, current has TWO: the second (new) rect appears at
-    // its final geometry, the first lerps.
-    let info = SelectionTweenInfo {
-        past: vec![r(0.0)].into(),
-        current: vec![r(100.0), r(300.0)].into(),
-        t: 1.0,
+    let at = |past: Vec<LogicalRect>, current: Vec<LogicalRect>, t: f32| -> Vec<LogicalRect> {
+        default_selection_tween(
+            RefAny::new(()),
+            SelectionTweenInfo { past: past.into(), current: current.into(), t },
+        )
+        .into_library_owned_vec()
     };
-    let out: Vec<LogicalRect> =
-        default_selection_tween(RefAny::new(()), info).into_library_owned_vec();
-    assert_eq!(out.len(), 2, "one rect per CURRENT rect");
-    assert_eq!(out[0], r(100.0));
-    assert_eq!(out[1], r(300.0));
 
-    let info = SelectionTweenInfo {
-        past: vec![r(0.0)].into(),
-        current: vec![r(100.0), r(300.0)].into(),
-        t: 0.0,
-    };
-    let out: Vec<LogicalRect> =
-        default_selection_tween(RefAny::new(()), info).into_library_owned_vec();
-    assert_eq!(out[0], r(0.0), "paired rect starts at its past geometry");
-    assert_eq!(out[1], r(300.0), "unpaired (new) rect pops at final geometry");
+    // Extending UPWARD prepends a line. The pre-existing line (y = 20) must
+    // start the tween at its OWN old geometry, and the new first line (y = 0)
+    // must pop at its final geometry — index pairing lerped y=0 from the old
+    // y=20 rect and slid the whole band.
+    let out = at(vec![line(20.0, 0.0)], vec![line(0.0, 0.0), line(20.0, 100.0)], 0.0);
+    assert_eq!(out.len(), 2, "one rect per CURRENT rect");
+    assert_eq!(out[0], line(0.0, 0.0), "the new first line pops, it does not slide");
+    assert_eq!(out[1], line(20.0, 0.0), "line y=20 tweens from its own past rect");
+
+    // …and lands exactly on the current geometry.
+    let out = at(vec![line(20.0, 0.0)], vec![line(0.0, 0.0), line(20.0, 100.0)], 1.0);
+    assert_eq!(out, vec![line(0.0, 0.0), line(20.0, 100.0)]);
+
+    // Growing DOWNWARD keeps working (this is what the old test covered).
+    let out = at(vec![line(0.0, 0.0)], vec![line(0.0, 100.0), line(20.0, 300.0)], 0.0);
+    assert_eq!(out[0], line(0.0, 0.0), "paired rect starts at its past geometry");
+    assert_eq!(out[1], line(20.0, 300.0), "unpaired (new) rect pops at final geometry");
+
+    // Two rects on ONE line (bidi splits a line) pair one-to-one, not both
+    // against the same past rect.
+    let out = at(
+        vec![line(0.0, 0.0), line(0.0, 60.0)],
+        vec![line(0.0, 10.0), line(0.0, 70.0)],
+        0.0,
+    );
+    assert_eq!(out, vec![line(0.0, 0.0), line(0.0, 60.0)]);
 }
 
 // ---------------------------------------------------------------------------

@@ -189,6 +189,14 @@ pub struct TextTweenState {
     /// DOM the tracked geometry belongs to. A caret/selection appearing on a
     /// DIFFERENT dom resets tracking (no cross-dom tween).
     pub dom_id: Option<DomId>,
+    /// Node the tracked caret/selection geometry belongs to — the editing
+    /// session's node, maintained by [`TextEditManager`].
+    ///
+    /// Without it the geometry is unattributable, and a DOM reconcile that
+    /// moves or unmounts the edited node leaves `last_caret`/`last_selection`
+    /// describing a rectangle that belongs to nothing: the next frame then
+    /// glides the caret across the screen from a dead rect.
+    pub node: Option<DomNodeId>,
     /// In-flight caret tween, if any.
     pub caret: Option<CaretTweenTrack>,
     /// Caret rect the last display-list pass RENDERED (tween target space).
@@ -207,13 +215,28 @@ pub struct TextTweenState {
     pub tick_flag: Arc<AtomicBool>,
 }
 
-/// Cloning a manager must NOT share the original's tween-timer flag (the
-/// clone would steer the original's timer), and tween state is transient
-/// visual state anyway — a clone starts untweened, like `PartialEq` below
-/// ignores transient state.
+/// Cloning a manager must NOT share the original's tween-timer flag: the two
+/// copies would steer one timer, and dropping either would tell that timer the
+/// other's tweens had finished. So the flag is the ONE field that is not
+/// shared — the clone gets its own `Arc` holding the same value. Everything
+/// else is copied, because a `clone()` that quietly returned
+/// `Self::default()` reported "no tween in flight, no rendered geometry" for a
+/// manager that had both.
 impl Clone for TextTweenState {
     fn clone(&self) -> Self {
-        Self::default()
+        Self {
+            dom_id: self.dom_id,
+            node: self.node,
+            caret: self.caret.clone(),
+            last_caret: self.last_caret,
+            selection: self.selection.clone(),
+            last_selection: self.last_selection.clone(),
+            focus_ring: self.focus_ring.clone(),
+            last_focus_ring: self.last_focus_ring,
+            tick_flag: Arc::new(AtomicBool::new(
+                self.tick_flag.load(AtomicOrdering::Acquire),
+            )),
+        }
     }
 }
 
@@ -232,6 +255,7 @@ impl TextTweenState {
     /// Reset all tracking (focus lost / editing cleared / dom switched).
     pub fn reset(&mut self) {
         self.dom_id = None;
+        self.node = None;
         self.caret = None;
         self.last_caret = None;
         self.selection = None;
@@ -243,7 +267,11 @@ impl TextTweenState {
 
     /// Reset only the TEXT tweens (caret + selection) — the focus ring has
     /// its own lifecycle (it runs without an editing session).
+    ///
+    /// `node` goes with them: it anchors the caret/selection geometry, not the
+    /// ring.
     pub fn reset_text_tweens(&mut self) {
+        self.node = None;
         self.caret = None;
         self.last_caret = None;
         self.selection = None;
@@ -440,6 +468,10 @@ impl TextEditManager {
             dom_node_id,
             contenteditable_key,
         ));
+        // The tween now tracks THIS node's caret. The previously rendered
+        // geometry is kept on purpose — that is what makes the caret glide
+        // from the field it left to the one it entered.
+        self.tween.node = Some(dom_node_id);
         self.blink.reset_blink_on_input(Instant::now());
         self.clear_preedit();
         self.mark_dirty();
@@ -606,15 +638,15 @@ impl TextEditManager {
     /// `LayoutContext.text_selections` expects: `BTreeMap<DomId, TextSelection>`.
     /// The `affected_nodes` map uses the editing node's `NodeId` as key.
     ///
-    /// `anchor`, `focus`, `is_forward` and the range in `affected_nodes` all
-    /// describe the SAME range — the session's primary. They used to disagree:
-    /// the endpoints came from the first range, `affected_nodes` kept the last
-    /// (each insert overwrote the same key), and `is_forward` was hard-coded.
+    /// `anchor`, `focus` and `is_forward` all describe the SAME range — the
+    /// session's primary, which is also one of the ranges in `affected_nodes`.
+    /// They used to disagree: the endpoints came from the first range,
+    /// `affected_nodes` kept the last (each insert overwrote the same key), and
+    /// `is_forward` was hard-coded.
     ///
-    /// ONE RANGE PER NODE, STILL: `affected_nodes` maps a `NodeId` to a single
-    /// `SelectionRange`, so a multi-range session paints its primary occurrence
-    /// only. [`Self::session_selection_ranges`] carries all of them; the range
-    /// list has to reach `TextSelection` for them to render (`HANDOFF-text-fix.md`).
+    /// `affected_nodes` carries EVERY range of the session under the one node
+    /// key, so a multi-range (Ctrl+D) session paints all of its occurrences and
+    /// not just the primary one.
     #[must_use] pub fn build_text_selections_map(&self) -> std::collections::BTreeMap<DomId, azul_core::selection::TextSelection> {
         if let Some(cb) = &self.cross_block {
             let mut map = std::collections::BTreeMap::new();
@@ -630,7 +662,7 @@ impl TextEditManager {
         let range = session.primary;
 
         let mut affected_nodes = std::collections::BTreeMap::new();
-        affected_nodes.insert(session.node_id, range);
+        affected_nodes.insert(session.node_id, session.ranges);
 
         map.insert(session.dom_id, TextSelection {
             dom_id: session.dom_id,
@@ -654,32 +686,115 @@ impl TextEditManager {
 }
 
 impl crate::managers::NodeIdRemap for TextEditManager {
-    /// Remap the multi-cursor / selection state onto the rebuilt DOM.
+    /// Remap every node-keyed piece of editing state onto the rebuilt DOM: the
+    /// multi-cursor session, the caret/selection tween geometry, the
+    /// cross-block selection, and the queued edit notifications.
     ///
     /// `MultiCursorState::remap_node_ids` clears the selections when the edited
     /// node is gone; here we additionally drop the whole editing session, since a
     /// cursor whose IFC root no longer exists is not an editing session.
     fn remap_node_ids(&mut self, dom: DomId, map: &crate::managers::NodeIdMap) {
-        let Some(ref mut mc) = self.multi_cursor else {
+        // The tween's caret/selection geometry belongs to the session's node.
+        // Resolve that anchor BEFORE the session below can be dropped — and
+        // fall back to the session for state that was installed by writing
+        // `multi_cursor` directly (which cannot set the anchor), so a stale
+        // `None` heals itself here instead of leaving the geometry orphaned.
+        let tween_node = self
+            .tween
+            .node
+            .or_else(|| self.multi_cursor.as_ref().map(|mc| mc.node_id));
+
+        if let Some(ref mut mc) = self.multi_cursor {
+            if mc.node_id.dom == dom {
+                let unmounted = mc
+                    .node_id
+                    .node
+                    .into_crate_internal()
+                    .is_none_or(|old| map.resolve(old).is_none());
+                if unmounted {
+                    self.multi_cursor = None;
+                    self.preedit_text = None;
+                    self.preedit_cursor_begin = -1;
+                    self.preedit_cursor_end = -1;
+                    self.display_list_dirty = true;
+                } else {
+                    mc.remap_node_ids(dom, map.as_btree_map());
+                }
+            }
+        }
+
+        // The tween follows its node, and dies with it: `last_caret` /
+        // `last_selection` describe a rectangle that belonged to a node which
+        // is now gone, and the next display-list pass would glide the caret
+        // out of it across the screen.
+        if let Some(old) = tween_node {
+            match map.resolve_dom_node_id(dom, old) {
+                Some(new_id) => self.tween.node = Some(new_id),
+                None => self.tween.reset_text_tweens(),
+            }
+        }
+
+        // A cross-block selection is render-ready geometry keyed by IFC-root
+        // NodeIds. Unremapped, it paints a highlight over whichever nodes
+        // inherited those indices.
+        if self
+            .cross_block
+            .as_ref()
+            .is_some_and(|cb| cb.dom_id == dom)
+        {
+            self.remap_cross_block_selection(map);
+        }
+
+        // Queued `Input` notifications name the host they belong to; a host
+        // that was unmounted has no event to dispatch, and keeping the id
+        // would dispatch it at the node that took its place.
+        self.pending_edit_notifications
+            .retain_mut(|node| match map.resolve_dom_node_id(dom, *node) {
+                Some(new_id) => {
+                    *node = new_id;
+                    true
+                }
+                None => false,
+            });
+    }
+}
+
+impl TextEditManager {
+    /// Rewrite the cross-block selection's IFC-root ids for the rebuilt DOM.
+    ///
+    /// The selection is dropped outright when either endpoint's root is gone:
+    /// a band whose anchor or focus no longer exists has no endpoints to paint
+    /// between. Interior roots that were unmounted are dropped individually.
+    fn remap_cross_block_selection(&mut self, map: &crate::managers::NodeIdMap) {
+        let Some(ref mut cb) = self.cross_block else {
             return;
         };
-        if mc.node_id.dom != dom {
-            return;
-        }
-        let unmounted = mc
-            .node_id
-            .node
-            .into_crate_internal()
-            .is_none_or(|old| map.resolve(old).is_none());
-        if unmounted {
-            self.multi_cursor = None;
-            self.preedit_text = None;
-            self.preedit_cursor_begin = -1;
-            self.preedit_cursor_end = -1;
+        let (Some(anchor), Some(focus)) = (
+            map.resolve(cb.anchor.ifc_root_node_id),
+            map.resolve(cb.focus.ifc_root_node_id),
+        ) else {
+            self.cross_block = None;
             self.display_list_dirty = true;
             return;
+        };
+        let mut changed =
+            anchor != cb.anchor.ifc_root_node_id || focus != cb.focus.ifc_root_node_id;
+        cb.anchor.ifc_root_node_id = anchor;
+        cb.focus.ifc_root_node_id = focus;
+
+        let before: Vec<NodeId> = cb.affected_nodes.keys().copied().collect();
+        cb.affected_nodes = core::mem::take(&mut cb.affected_nodes)
+            .into_iter()
+            .filter_map(|(node, ranges)| map.resolve(node).map(|new| (new, ranges)))
+            .collect();
+        changed |= !cb.affected_nodes.keys().copied().eq(before);
+
+        // Only owe a repaint when the painted band actually moved:
+        // `display_list_dirty` is a latch, and a rebuild that renumbered
+        // nothing has no pixels to redraw (see `clear_editing`).
+        if changed {
+            self.display_list_dirty = true;
         }
-        mc.remap_node_ids(dom, map.as_btree_map());
     }
 }
 
@@ -1524,7 +1639,8 @@ mod autotest_generated {
         assert_eq!(sel.focus.cursor, end);
         assert!(sel.is_forward);
         assert_eq!(sel.affected_nodes.len(), 1);
-        assert_eq!(sel.affected_nodes.get(&node), Some(&range(start, end)));
+        assert_eq!(sel.ranges_for_node(&node), &[range(start, end)]);
+        assert_eq!(sel.get_range_for_node(&node), Some(&range(start, end)));
     }
 
     #[test]
@@ -1557,10 +1673,11 @@ mod autotest_generated {
 
     #[test]
     fn autotest_build_text_selections_map_multi_range_endpoints_match_the_painted_range() {
-        // The two halves of the emitted `TextSelection` must agree: whichever
-        // range `affected_nodes` paints is the one `anchor`/`focus` describe.
-        // They used to disagree — endpoints from the FIRST range, the map from
-        // the LAST. The one that survives is the PRIMARY (last-added).
+        // The two halves of the emitted `TextSelection` must agree: the
+        // `anchor`/`focus` endpoints describe the PRIMARY range, and that range
+        // is one of the ranges `affected_nodes` paints. They used to disagree —
+        // endpoints from the FIRST range, the map from the LAST (each insert
+        // overwrote the same key, so a Ctrl+D session painted ONE occurrence).
         let node = NodeId::new(4);
         let first = range(cursor(0, 0), cursor(0, 1));
         let last = range(cursor(0, 5), cursor(0, 8));
@@ -1581,15 +1698,18 @@ mod autotest_generated {
         let sel = map.get(&DOM0).expect("keyed by the editing DomId");
         assert_eq!(sel.anchor.cursor, last.start, "endpoints from the PRIMARY range");
         assert_eq!(sel.focus.cursor, last.end);
+        assert_eq!(sel.affected_nodes.len(), 1, "one node key, several ranges");
         assert_eq!(
-            sel.affected_nodes.get(&node),
-            Some(&last),
-            "the painted range IS the range the endpoints describe"
+            sel.ranges_for_node(&node),
+            &[first, last],
+            "BOTH occurrences reach the painter, in document order"
+        );
+        assert!(
+            sel.ranges_for_node(&node).contains(&last),
+            "the range the endpoints describe is one of the painted ones"
         );
 
-        // …and no range is lost on the way: the session reports both, so the
-        // painter can draw every occurrence once `affected_nodes` carries a
-        // list (HANDOFF-text-fix.md).
+        // …and no range is lost on the way: the session reports both.
         let session = m.session_selection_ranges().expect("a session with ranges");
         assert_eq!(session.dom_id, DOM0);
         assert_eq!(session.node_id, node);
@@ -1660,7 +1780,7 @@ mod autotest_generated {
         let sel = map.get(&DOM_MAX).expect("keyed by the editing DomId");
         assert_eq!(sel.anchor.cursor, point);
         assert_eq!(sel.focus.cursor, point);
-        assert_eq!(sel.affected_nodes.get(&node), Some(&range(point, point)));
+        assert_eq!(sel.ranges_for_node(&node), &[range(point, point)]);
     }
 
     // ------------------------------------------------------------------
@@ -1763,5 +1883,288 @@ mod autotest_generated {
             "a cursor with no IFC root is not an editing session"
         );
         assert!(m.display_list_dirty);
+    }
+
+    // ------------------------------------------------------------------
+    // TextTweenState — the tween must follow (and die with) its node
+    // ------------------------------------------------------------------
+
+    fn rect(x: f32, y: f32) -> LogicalRect {
+        LogicalRect::new(
+            azul_core::geom::LogicalPosition { x, y },
+            azul_core::geom::LogicalSize {
+                width: 2.0,
+                height: 16.0,
+            },
+        )
+    }
+
+    fn instant() -> Instant {
+        Instant::Tick(SystemTick::new(0))
+    }
+
+    /// A manager editing `node` in `DOM0` with a caret tween and a selection
+    /// tween both mid-flight, and both "last rendered" geometries recorded.
+    fn manager_with_live_tween(node: NodeId) -> TextEditManager {
+        let mut m = TextEditManager::new();
+        m.initialize_editing(cursor(0, 0), DOM0, node, 7);
+        m.tween.dom_id = Some(DOM0);
+        m.tween.caret = Some(CaretTweenTrack {
+            from: rect(10.0, 0.0),
+            to: rect(40.0, 0.0),
+            start: instant(),
+        });
+        m.tween.last_caret = Some(rect(25.0, 0.0));
+        m.tween.selection = Some(SelectionTweenTrack {
+            from: vec![rect(0.0, 0.0)],
+            to: vec![rect(60.0, 0.0)],
+            start: instant(),
+        });
+        m.tween.last_selection = vec![rect(30.0, 0.0)];
+        m.tween.publish_active();
+        m
+    }
+
+    #[test]
+    fn autotest_remap_keeps_the_tween_anchored_to_a_moved_node() {
+        let mut m = manager_with_live_tween(NodeId::new(3));
+        assert_eq!(m.tween.node, Some(dom_node(DOM0, Some(NodeId::new(3)))));
+
+        // A sibling was inserted ahead of it: same node, new index.
+        m.remap_node_ids(DOM0, &NodeIdMap::from_pairs([(NodeId::new(3), NodeId::new(4))]));
+
+        assert_eq!(
+            m.tween.node,
+            Some(dom_node(DOM0, Some(NodeId::new(4)))),
+            "the tween must follow the node it belongs to"
+        );
+        assert_eq!(m.get_editing_node_id(), Some(NodeId::new(4)));
+        // The geometry is where the caret was actually RENDERED last frame, so
+        // a move keeps it: that is what makes the glide continuous.
+        assert_eq!(m.tween.last_caret, Some(rect(25.0, 0.0)));
+        assert_eq!(m.tween.last_selection, vec![rect(30.0, 0.0)]);
+        assert!(m.tween.caret.is_some());
+        assert!(m.tween.selection.is_some());
+        assert!(m.tween.is_active());
+    }
+
+    #[test]
+    fn autotest_remap_clears_the_tween_when_the_edited_node_is_unmounted() {
+        let mut m = manager_with_live_tween(NodeId::new(3));
+        assert!(m.tween.tick_flag.load(AtomicOrdering::Acquire));
+
+        // Node 3 is absent from the map => unmounted.
+        m.remap_node_ids(DOM0, &NodeIdMap::from_pairs([(NodeId::new(9), NodeId::new(9))]));
+
+        assert!(m.tween.node.is_none());
+        assert!(
+            m.tween.caret.is_none() && m.tween.last_caret.is_none(),
+            "caret geometry belonging to a deleted node must not survive"
+        );
+        assert!(m.tween.selection.is_none());
+        assert!(m.tween.last_selection.is_empty());
+        assert!(!m.tween.is_active());
+        assert!(
+            !m.tween.tick_flag.load(AtomicOrdering::Acquire),
+            "the timer flag must be republished, or the tween timer keeps ticking"
+        );
+    }
+
+    #[test]
+    fn autotest_remap_clears_the_tween_of_a_session_installed_without_the_anchor() {
+        // `multi_cursor` is a public field and several call sites assign it
+        // directly, which cannot set `tween.node`. The remap re-derives the
+        // anchor from the session so that state is not orphaned.
+        let mut m = TextEditManager::new();
+        m.multi_cursor = Some(multi_cursor_with(
+            dom_node(DOM0, Some(NodeId::new(2))),
+            vec![Selection::Cursor(cursor(0, 0))],
+            1,
+        ));
+        m.tween.last_caret = Some(rect(11.0, 0.0));
+        assert!(m.tween.node.is_none());
+
+        m.remap_node_ids(DOM0, &NodeIdMap::from_pairs([(NodeId::new(5), NodeId::new(5))]));
+
+        assert!(m.tween.last_caret.is_none());
+        assert!(m.tween.node.is_none());
+    }
+
+    #[test]
+    fn autotest_remap_leaves_the_tween_of_another_dom_alone() {
+        let mut m = TextEditManager::new();
+        m.initialize_editing(cursor(0, 0), DOM1, NodeId::new(3), 7);
+        m.tween.last_caret = Some(rect(12.0, 0.0));
+
+        m.remap_node_ids(DOM0, &NodeIdMap::default());
+
+        assert_eq!(m.tween.node, Some(dom_node(DOM1, Some(NodeId::new(3)))));
+        assert_eq!(m.tween.last_caret, Some(rect(12.0, 0.0)));
+    }
+
+    #[test]
+    fn autotest_text_tween_state_clone_copies_every_field() {
+        let m = manager_with_live_tween(NodeId::new(3));
+        let clone = m.tween.clone();
+
+        assert_eq!(clone.dom_id, m.tween.dom_id);
+        assert_eq!(clone.node, m.tween.node);
+        assert_eq!(clone.last_caret, m.tween.last_caret);
+        assert_eq!(clone.last_selection, m.tween.last_selection);
+        let (a, b) = (
+            clone.caret.as_ref().expect("in-flight caret must be cloned"),
+            m.tween.caret.as_ref().expect("original"),
+        );
+        assert_eq!(a.from, b.from);
+        assert_eq!(a.to, b.to);
+        let (a, b) = (
+            clone
+                .selection
+                .as_ref()
+                .expect("in-flight selection must be cloned"),
+            m.tween.selection.as_ref().expect("original"),
+        );
+        assert_eq!(a.from, b.from);
+        assert_eq!(a.to, b.to);
+        assert!(clone.is_active(), "a clone of a running tween is running");
+        assert!(clone.tick_flag.load(AtomicOrdering::Acquire));
+    }
+
+    #[test]
+    fn autotest_text_tween_state_clone_does_not_share_the_timer_flag() {
+        // Two managers sharing one flag would steer each other's tween timer.
+        let m = manager_with_live_tween(NodeId::new(3));
+        let mut clone = m.tween.clone();
+        assert!(!Arc::ptr_eq(&clone.tick_flag, &m.tween.tick_flag));
+
+        clone.reset();
+        assert!(!clone.tick_flag.load(AtomicOrdering::Acquire));
+        assert!(
+            m.tween.tick_flag.load(AtomicOrdering::Acquire),
+            "the original's timer must keep running"
+        );
+    }
+
+    #[test]
+    fn autotest_manager_clone_carries_the_tween() {
+        let m = manager_with_live_tween(NodeId::new(3));
+        let clone = m.clone();
+        assert_eq!(clone.tween.node, m.tween.node);
+        assert_eq!(clone.tween.last_caret, m.tween.last_caret);
+        assert!(clone.tween.is_active());
+    }
+
+    // ------------------------------------------------------------------
+    // Cross-block selection + queued edit notifications also carry NodeIds
+    // ------------------------------------------------------------------
+
+    fn cross_block_selection(anchor: NodeId, focus: NodeId) -> azul_core::selection::TextSelection {
+        use azul_core::selection::{SelectionAnchor, SelectionFocus, TextSelection};
+        let mut affected = alloc::collections::BTreeMap::new();
+        affected.insert(anchor, vec![range(cursor(0, 0), cursor(0, 1))]);
+        affected.insert(focus, vec![range(cursor(0, 0), cursor(0, 2))]);
+        TextSelection {
+            dom_id: DOM0,
+            anchor: SelectionAnchor {
+                ifc_root_node_id: anchor,
+                cursor: cursor(0, 0),
+                char_bounds: LogicalRect::zero(),
+                mouse_position: azul_core::geom::LogicalPosition::zero(),
+            },
+            focus: SelectionFocus {
+                ifc_root_node_id: focus,
+                cursor: cursor(0, 2),
+                mouse_position: azul_core::geom::LogicalPosition::zero(),
+            },
+            affected_nodes: affected,
+            is_forward: true,
+        }
+    }
+
+    #[test]
+    fn autotest_remap_rewrites_the_cross_block_selection() {
+        let mut m = TextEditManager::new();
+        m.set_cross_block_selection(cross_block_selection(NodeId::new(2), NodeId::new(5)));
+
+        m.remap_node_ids(
+            DOM0,
+            &NodeIdMap::from_pairs([(NodeId::new(2), NodeId::new(3)), (NodeId::new(5), NodeId::new(6))]),
+        );
+
+        let cb = m.get_cross_block_selection().expect("both roots survived");
+        assert_eq!(cb.anchor.ifc_root_node_id, NodeId::new(3));
+        assert_eq!(cb.focus.ifc_root_node_id, NodeId::new(6));
+        assert_eq!(cb.ranges_for_node(&NodeId::new(3)).len(), 1);
+        assert_eq!(cb.ranges_for_node(&NodeId::new(6)).len(), 1);
+        assert!(
+            cb.ranges_for_node(&NodeId::new(2)).is_empty(),
+            "the old index must not still paint"
+        );
+    }
+
+    #[test]
+    fn autotest_remap_drops_the_cross_block_selection_when_an_endpoint_is_gone() {
+        let mut m = TextEditManager::new();
+        m.set_cross_block_selection(cross_block_selection(NodeId::new(2), NodeId::new(5)));
+
+        m.remap_node_ids(DOM0, &NodeIdMap::from_pairs([(NodeId::new(2), NodeId::new(2))]));
+
+        assert!(
+            m.get_cross_block_selection().is_none(),
+            "a band with no focus root has nothing to paint between"
+        );
+    }
+
+    #[test]
+    fn autotest_remap_leaves_a_cross_block_selection_of_another_dom_alone() {
+        let mut m = TextEditManager::new();
+        let mut sel = cross_block_selection(NodeId::new(2), NodeId::new(5));
+        sel.dom_id = DOM1;
+        m.set_cross_block_selection(sel);
+
+        m.remap_node_ids(DOM0, &NodeIdMap::default());
+
+        let cb = m.get_cross_block_selection().expect("other DOM is untouched");
+        assert_eq!(cb.anchor.ifc_root_node_id, NodeId::new(2));
+        assert_eq!(cb.focus.ifc_root_node_id, NodeId::new(5));
+    }
+
+    #[test]
+    fn autotest_remap_of_a_stable_cross_block_selection_owes_no_repaint() {
+        let mut m = TextEditManager::new();
+        m.set_cross_block_selection(cross_block_selection(NodeId::new(2), NodeId::new(5)));
+        m.display_list_dirty = false;
+
+        m.remap_node_ids(
+            DOM0,
+            &NodeIdMap::from_pairs([(NodeId::new(2), NodeId::new(2)), (NodeId::new(5), NodeId::new(5))]),
+        );
+
+        assert!(m.get_cross_block_selection().is_some());
+        assert!(
+            !m.display_list_dirty,
+            "a rebuild that renumbered nothing has no pixels to redraw"
+        );
+    }
+
+    #[test]
+    fn autotest_remap_rewrites_and_prunes_pending_edit_notifications() {
+        let mut m = TextEditManager::new();
+        m.pending_edit_notifications = vec![
+            dom_node(DOM0, Some(NodeId::new(1))),
+            dom_node(DOM0, Some(NodeId::new(4))),
+            dom_node(DOM1, Some(NodeId::new(4))),
+        ];
+
+        m.remap_node_ids(DOM0, &NodeIdMap::from_pairs([(NodeId::new(1), NodeId::new(0))]));
+
+        assert_eq!(
+            m.pending_edit_notifications,
+            vec![
+                dom_node(DOM0, Some(NodeId::new(0))),
+                dom_node(DOM1, Some(NodeId::new(4))),
+            ],
+            "surviving hosts are rewritten, unmounted ones dropped, other DOMs untouched"
+        );
     }
 }

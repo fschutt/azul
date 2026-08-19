@@ -425,3 +425,67 @@ fn set_virtual_view_geometry_updates_scrollbar_math_without_reinvoke() {
         "SetVirtualViewGeometry must not re-invoke the VirtualView callback"
     );
 }
+
+/// Where the content ends up on screen, read off the display list the
+/// rasteriser consumes.
+fn vv_content_offset(lw: &LayoutWindow) -> Option<LogicalPosition> {
+    use azul_layout::solver3::display_list::DisplayListItem;
+    lw.get_layout_result(&DomId::ROOT_ID)?
+        .display_list
+        .items
+        .iter()
+        .find_map(|item| match item {
+            DisplayListItem::VirtualView { content_offset, .. } => Some(*content_offset),
+            _ => None,
+        })
+}
+
+/// The whole point of a scrollable VirtualView, pinned end to end: scrolling
+/// must move the CONTENT, not just the scrollbar.
+///
+/// This is the user-visible half of the original bug. The callback's window
+/// origin was written into a field nothing read, and a VirtualView opts out of
+/// scroll frames — so the rasteriser composited the child display list at the
+/// container origin with no scroll delta, forever. The thumb moved and the
+/// page did not.
+#[test]
+fn scrolling_a_virtual_view_moves_its_content_not_only_its_scrollbar() {
+    let model = fresh_model();
+    let mut lw = LayoutWindow::new(FcFontCache::build()).unwrap();
+    let mut window_state = FullWindowState::default();
+    window_state.size.dimensions = LogicalSize::new(800.0, 600.0);
+    lw.current_window_state = window_state;
+
+    relayout(&mut lw, &model);
+    let vv_node = NodeId::new(1);
+    let before = vv_content_offset(&lw).expect("a VirtualView item in the display list");
+
+    lw.scroll_manager.set_scroll_position(
+        DomId::ROOT_ID,
+        vv_node,
+        LogicalPosition::new(0.0, 230.0),
+        azul_core::task::Instant::from(std::time::Instant::now()),
+    );
+    relayout(&mut lw, &model);
+
+    let after = vv_content_offset(&lw).expect("a VirtualView item in the display list");
+    assert_ne!(
+        after, before,
+        "the content offset never changed, so nothing moved on screen"
+    );
+
+    // And it moved by exactly the placement law, not by some other amount:
+    // container.origin + (materialized.origin - scroll_offset).
+    let origin = lw
+        .virtual_view_manager
+        .materialized_window_origin(DomId::ROOT_ID, vv_node)
+        .expect("a materialized window after two invokes");
+    let offset = lw
+        .scroll_manager
+        .get_current_offset(DomId::ROOT_ID, vv_node)
+        .expect("a scroll offset");
+    assert_eq!(
+        after,
+        LogicalPosition::new(origin.x - offset.x, origin.y - offset.y)
+    );
+}

@@ -107,7 +107,12 @@ fn cross_block_selection_builds_ranges_for_every_spanned_block() {
         "anchor + middle + focus: {:?}",
         sel.affected_nodes
     );
-    let r1 = sel.affected_nodes.get(&node_id(P1)).expect("anchor range");
+    // One range per spanned block: a cross-block selection never multi-selects
+    // inside a block (that is the Ctrl+D session's job).
+    for (node, ranges) in &sel.affected_nodes {
+        assert_eq!(ranges.len(), 1, "node {node:?} contributes exactly one range");
+    }
+    let r1 = sel.get_range_for_node(&node_id(P1)).expect("anchor range");
     assert_eq!(r1.start.cluster_id.start_byte_in_run, 6);
     // End = Trailing on the LAST cluster ("after the final grapheme"), so
     // the byte names the final cluster's START, not the string length.
@@ -116,14 +121,14 @@ fn cross_block_selection_builds_ranges_for_every_spanned_block() {
         "first paragraph".len() - 1,
         "anchor end sits on the last cluster (Trailing)"
     );
-    let r2 = sel.affected_nodes.get(&node_id(P2)).expect("middle range");
+    let r2 = sel.get_range_for_node(&node_id(P2)).expect("middle range");
     assert_eq!(r2.start.cluster_id.start_byte_in_run, 0);
     assert_eq!(
         r2.end.cluster_id.start_byte_in_run as usize,
         "second paragraph".len() - 1,
         "middle end sits on its last cluster (Trailing)"
     );
-    let r3 = sel.affected_nodes.get(&node_id(P3)).expect("focus range");
+    let r3 = sel.get_range_for_node(&node_id(P3)).expect("focus range");
     assert_eq!(r3.start.cluster_id.start_byte_in_run, 0);
     assert_eq!(r3.end.cluster_id.start_byte_in_run, 5);
 }
@@ -145,11 +150,11 @@ fn backward_cross_block_selection_normalizes_to_document_order() {
     assert_eq!(sel.affected_nodes.len(), 3);
     // Ranges are stored in DOCUMENT order regardless of drag direction.
     assert_eq!(
-        sel.affected_nodes.get(&node_id(P1)).unwrap().start.cluster_id.start_byte_in_run,
+        sel.get_range_for_node(&node_id(P1)).unwrap().start.cluster_id.start_byte_in_run,
         6
     );
     assert_eq!(
-        sel.affected_nodes.get(&node_id(P3)).unwrap().end.cluster_id.start_byte_in_run,
+        sel.get_range_for_node(&node_id(P3)).unwrap().end.cluster_id.start_byte_in_run,
         5
     );
 }

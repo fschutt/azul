@@ -682,3 +682,39 @@ fn a_pending_focus_on_an_unlaid_node_retries_before_seeding_the_start() {
     assert!(!lw.focus_manager.needs_cursor_initialization());
     assert_eq!(session_node(&lw), Some(unlaid));
 }
+
+/// Two keystrokes arriving before one pass must BOTH land.
+///
+/// `record_input` overwrote a single slot, so the first character was gone
+/// before it was ever applied. Making it a queue is only half the fix: a queue
+/// drained one entry per pass and then cleared loses exactly the same
+/// characters, so the apply path has to run to empty.
+#[test]
+fn two_keystrokes_recorded_before_one_pass_both_land() {
+    let mut lw = flat_editable("");
+    start_editing(&mut lw, EDITOR, 0);
+
+    let _ = lw.record_text_input("a");
+    let _ = lw.record_text_input("b");
+    let _ = lw.apply_text_changeset();
+
+    assert_eq!(
+        text_of(&lw, EDITOR),
+        "ab",
+        "the first keystroke was dropped before it reached the document"
+    );
+}
+
+/// And a whole burst, in order — a fast typist outrunning one frame.
+#[test]
+fn a_burst_of_keystrokes_lands_in_order() {
+    let mut lw = flat_editable("");
+    start_editing(&mut lw, EDITOR, 0);
+
+    for ch in ["h", "e", "l", "l", "o"] {
+        let _ = lw.record_text_input(ch);
+    }
+    let _ = lw.apply_text_changeset();
+
+    assert_eq!(text_of(&lw, EDITOR), "hello");
+}

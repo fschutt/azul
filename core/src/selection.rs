@@ -663,8 +663,9 @@ pub struct SelectionFocus {
 ///
 /// ## Storage Model
 ///
-/// Uses `BTreeMap<NodeId, SelectionRange>` for O(log N) lookup during rendering.
-/// The key is the **IFC root `NodeId`**, and the value is the `SelectionRange` for that IFC.
+/// Uses `BTreeMap<NodeId, Vec<SelectionRange>>` for O(log N) lookup during rendering.
+/// The key is the **IFC root `NodeId`**, and the value is every `SelectionRange`
+/// that IFC contributes.
 ///
 /// ## Example
 ///
@@ -684,12 +685,15 @@ pub struct TextSelection {
     /// The focus point - where the selection currently ends (moves during drag).
     pub focus: SelectionFocus,
     
-    /// Map from IFC root `NodeId` to the `SelectionRange` for that IFC.
+    /// Map from IFC root `NodeId` to the `SelectionRange`s for that IFC.
     /// This allows O(log N) lookup during rendering.
     ///
-    /// The `SelectionRange` contains the actual `TextCursor` positions for that IFC,
+    /// Each `SelectionRange` contains the actual `TextCursor` positions for that IFC,
     /// ready to be passed to `UnifiedLayout::get_selection_rects()`.
-    pub affected_nodes: BTreeMap<NodeId, SelectionRange>,
+    ///
+    /// A node carries SEVERAL ranges when a multi-cursor session selects several
+    /// occurrences in it (Ctrl+D); the ranges are disjoint and in document order.
+    pub affected_nodes: BTreeMap<NodeId, Vec<SelectionRange>>,
     
     /// Indicates whether anchor comes before focus in document order.
     /// True = forward selection (left-to-right), False = backward selection.
@@ -720,10 +724,10 @@ impl TextSelection {
         
         // For a collapsed selection, the anchor node has a zero-width range
         let mut affected_nodes = BTreeMap::new();
-        affected_nodes.insert(ifc_root_node_id, SelectionRange {
+        affected_nodes.insert(ifc_root_node_id, vec![SelectionRange {
             start: cursor,
             end: cursor,
-        });
+        }]);
         
         Self {
             dom_id,
@@ -740,12 +744,18 @@ impl TextSelection {
             && self.anchor.cursor == self.focus.cursor
     }
     
-    /// Get the selection range for a specific IFC root node.
+    /// Get the FIRST selection range for a specific IFC root node.
     /// Returns `None` if this node is not part of the selection.
+    ///
+    /// A multi-range node has more; [`Self::ranges_for_node`] returns all of them.
     #[must_use] pub fn get_range_for_node(&self, ifc_root_node_id: &NodeId) -> Option<&SelectionRange> {
-        self.affected_nodes.get(ifc_root_node_id)
+        self.affected_nodes.get(ifc_root_node_id).and_then(|r| r.first())
     }
 
+    /// Every range this IFC root contributes (empty slice when unaffected).
+    #[must_use] pub fn ranges_for_node(&self, ifc_root_node_id: &NodeId) -> &[SelectionRange] {
+        self.affected_nodes.get(ifc_root_node_id).map_or(&[], Vec::as_slice)
+    }
 }
 
 impl_option!(
@@ -1781,6 +1791,37 @@ mod autotest_generated {
     }
 
     #[test]
+    fn move_all_cursors_without_boundary_collapse_performs_the_step_from_the_focus() {
+        // Home over an active range: the caret goes where the step points, not
+        // to the range's near edge. `move_fn` here is "go to byte 0".
+        let mut mc = empty_state();
+        mc.set_single_range(rng(3, 9));
+        mc.move_all_cursors_with(false, false, |_| c(0));
+        assert_eq!(mc.len(), 1);
+        assert_eq!(mc.selections[0].selection, Selection::Cursor(c(0)));
+
+        // The same step with the arrow-key rule still answers the boundary.
+        let mut arrow = empty_state();
+        arrow.set_single_range(rng(3, 9));
+        arrow.move_all_cursors_with(false, true, |_| c(0));
+        assert_eq!(arrow.selections[0].selection, Selection::Cursor(c(3)));
+
+        // End over the same range: byte 20 is past `hi`, which the boundary
+        // rule would have clamped to 9.
+        let mut end = empty_state();
+        end.set_single_range(rng(3, 9));
+        end.move_all_cursors_with(false, false, |_| c(20));
+        assert_eq!(end.selections[0].selection, Selection::Cursor(c(20)));
+
+        // A bare cursor is unaffected by the flag either way.
+        for collapse in [false, true] {
+            let mut bare = state(5);
+            bare.move_all_cursors_with(false, collapse, |_| c(0));
+            assert_eq!(bare.selections[0].selection, Selection::Cursor(c(0)));
+        }
+    }
+
+    #[test]
     fn move_all_cursors_extend_back_onto_the_anchor_collapses_to_a_cursor() {
         let mut mc = empty_state();
         mc.set_single_range(rng(3, 4));
@@ -2082,6 +2123,39 @@ mod autotest_generated {
         sel.affected_nodes.clear();
         assert!(sel.get_range_for_node(&node).is_none());
         assert!(sel.is_collapsed(), "collapsedness does not depend on the map");
+    }
+
+    #[test]
+    fn ranges_for_node_returns_every_range_the_node_carries() {
+        // A Ctrl+D session puts all of its occurrences on ONE node, so the
+        // carrier has to be a list — the map used to hold a single range and
+        // every occurrence but one was unexpressible.
+        let node = NodeId::new(3);
+        let mut sel = TextSelection::new_collapsed(
+            DomId::ROOT_ID,
+            node,
+            c(0),
+            rect(0.0, 0.0, 0.0, 0.0),
+            LogicalPosition::new(0.0, 0.0),
+        );
+        let first = SelectionRange { start: c(0), end: c(2) };
+        let second = SelectionRange { start: c(5), end: c(7) };
+        sel.affected_nodes.insert(node, vec![first, second]);
+
+        assert_eq!(sel.ranges_for_node(&node), &[first, second]);
+        assert_eq!(
+            sel.get_range_for_node(&node),
+            Some(&first),
+            "the single-range accessor answers with the FIRST range"
+        );
+        assert!(sel.ranges_for_node(&NodeId::new(4)).is_empty());
+
+        sel.affected_nodes.insert(node, Vec::new());
+        assert!(sel.ranges_for_node(&node).is_empty());
+        assert!(
+            sel.get_range_for_node(&node).is_none(),
+            "an empty list is not a range"
+        );
     }
 
     #[test]

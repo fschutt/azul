@@ -3198,19 +3198,9 @@ where
         // assigned (stays the `f32::MIN` sentinel), so we must anchor to the IFC root's
         // position + padding/border — exactly the box that owns the inline layout. (The
         // caret avoids this because paint_cursor runs on the IFC-root node directly.)
-        let ifc_root_index = self.positioned_tree.tree.get_ifc_root_layout_index(node_index);
-        let anchor_pos = self
-            .positioned_tree
-            .calculated_positions
-            .get(ifc_root_index)
-            .copied()
-            .unwrap_or(node_pos);
-        let anchor_bp = self
-            .positioned_tree
-            .tree
-            .get(LayoutNodeId::new(ifc_root_index)).map_or_else(|| node.box_props.unpack(), |n| n.box_props.unpack());
-        let content_box_offset_x = anchor_pos.x + anchor_bp.padding.left + anchor_bp.border.left;
-        let content_box_offset_y = anchor_pos.y + anchor_bp.padding.top + anchor_bp.border.top;
+        let anchor = self.ifc_content_box_origin(node_index, node_pos);
+        let content_box_offset_x = anchor.x;
+        let content_box_offset_y = anchor.y;
 
         // Check if text is selectable (respects CSS user-select property)
         let node_state = &self.ctx.styled_dom.styled_nodes.as_container()[dom_id].styled_node_state;
@@ -3221,11 +3211,16 @@ where
 
         // === NEW: Check text_selections first (multi-node selection support) ===
         if let Some(text_selection) = self.ctx.text_selections.get(&self.ctx.styled_dom.dom_id) {
-            if let Some(range) = text_selection.affected_nodes.get(&dom_id) {
+            if let Some(ranges) = text_selection.affected_nodes.get(&dom_id) {
                 let is_collapsed = text_selection.is_collapsed();
                 // Only draw selection highlight if NOT collapsed
                 if !is_collapsed {
-                    let rects = layout.get_selection_rects(range);
+                    // A multi-cursor session (Ctrl+D) puts EVERY occurrence on
+                    // this one node, so every range gets its own rects.
+                    let rects: Vec<LogicalRect> = ranges
+                        .iter()
+                        .flat_map(|range| layout.get_selection_rects(range))
+                        .collect();
                     let style = get_selection_style(self.ctx.styled_dom, Some(dom_id), self.ctx.system_style.as_ref());
 
                     let border_radius = BorderRadius {
@@ -3247,6 +3242,102 @@ where
         }
 
         Ok(())
+    }
+
+    /// Selection rects covering this IFC, already translated into the same
+    /// space as the offset glyph positions, plus the `::selection` text colour
+    /// — or `None` when there is nothing to recolour.
+    ///
+    /// Resolves the selection through `ifc_root_owns_dom_node` rather than off
+    /// the IFC root's own `dom_node_id`: an editing session keys `affected_nodes`
+    /// on the TEXT node (`initialize_editing` puts the caret there), while this
+    /// pass runs on the root that owns the inline layout. A cross-block
+    /// selection keys on the block, which is its own IFC root — both resolve.
+    /// The `user-select` gate matches `paint_selections` on purpose: the
+    /// recolour must cover exactly the glyphs the highlight covers.
+    /// The origin of the content box that owns an IFC's inline layout.
+    ///
+    /// Selection rects come out of `get_selection_rects` in this space. An
+    /// inline text node's own box position is never assigned (it keeps the
+    /// `f32::MIN` sentinel), so the anchor has to be the IFC ROOT's box — which
+    /// is why both the highlight and the recolour resolve it here rather than
+    /// each computing its own.
+    fn ifc_content_box_origin(
+        &self,
+        node_index: usize,
+        fallback: LogicalPosition,
+    ) -> LogicalPosition {
+        let ifc_root_index = self.positioned_tree.tree.get_ifc_root_layout_index(node_index);
+        let pos = self
+            .positioned_tree
+            .calculated_positions
+            .get(ifc_root_index)
+            .copied()
+            .unwrap_or(fallback);
+        let bp = self
+            .positioned_tree
+            .tree
+            .get(LayoutNodeId::new(ifc_root_index))
+            .map(|n| n.box_props.unpack());
+        let (pad_left, pad_top, bor_left, bor_top) = bp.map_or((0.0, 0.0, 0.0, 0.0), |b| {
+            (b.padding.left, b.padding.top, b.border.left, b.border.top)
+        });
+        LogicalPosition::new(
+            pos.x + pad_left + bor_left,
+            pos.y + pad_top + bor_top,
+        )
+    }
+
+    fn selection_recolour_for_ifc(
+        &self,
+        source_node_index: usize,
+    ) -> Option<(Vec<LogicalRect>, ColorU)> {
+        let sel = self.ctx.text_selections.get(&self.ctx.styled_dom.dom_id)?;
+        if sel.is_collapsed() {
+            return None;
+        }
+        let (dom_id, ranges) = sel
+            .affected_nodes
+            .iter()
+            .find(|&(node, _)| self.ifc_root_owns_dom_node(source_node_index, *node))?;
+        let node_state = self.get_styled_node_state(*dom_id);
+        if !super::getters::is_text_selectable(self.ctx.styled_dom, *dom_id, &node_state) {
+            return None;
+        }
+        let style = get_selection_style(
+            self.ctx.styled_dom,
+            Some(*dom_id),
+            self.ctx.system_style.as_ref(),
+        );
+        let text_color = style.text_color?;
+        // The SAME geometry the highlight is painted from: the sentinel-safe
+        // materialized layout, anchored on the IFC root's content box. Reading
+        // the raw cached layout here yielded no rects at all, so the recolour
+        // silently never applied.
+        let layout = self
+            .positioned_tree
+            .tree
+            .materialized_inline_layout_for_node(source_node_index)?;
+        let node_pos = self
+            .positioned_tree
+            .calculated_positions
+            .get(source_node_index)
+            .copied()
+            .unwrap_or_default();
+        let anchor = self.ifc_content_box_origin(source_node_index, node_pos);
+        let rects: Vec<LogicalRect> = ranges
+            .iter()
+            .flat_map(|r| layout.get_selection_rects(r))
+            .map(|mut r| {
+                r.origin.x += anchor.x;
+                r.origin.y += anchor.y;
+                r
+            })
+            .collect();
+        if rects.is_empty() {
+            return None;
+        }
+        Some((rects, text_color))
     }
 
     /// Does the IFC rooted at `node_index` own the inline content of `dom_id`?
@@ -5960,6 +6051,9 @@ where
         // carrying its OWN background paints it directly underneath).
         let ifc_uniform_bg = self.compute_uniform_text_bg(source_node_index);
 
+        // The `::selection` recolour band, resolved once for the whole IFC.
+        let selection_recolour = self.selection_recolour_for_ifc(source_node_index);
+
         // SECOND PASS: Render text runs
         for glyph_run in glyph_runs {
             // Clip text to the viewport-sized content box, not the full scroll
@@ -6046,15 +6140,64 @@ where
                     )
                 })
                 .unwrap_or(glyph_run.color);
-            builder.push_text_run(
-                offset_glyphs,
-                FontHash::from_hash(glyph_run.font_hash),
-                glyph_run.font_size_px,
-                live_color,
-                clip_rect,
-                Some(source_node_index),
-                uniform_bg,
-            );
+            match &selection_recolour {
+                Some((rects, selected_color)) => {
+                    // A glyph's `point` is its pen position ON THE BASELINE at
+                    // the left edge of its advance. A selection rect covers
+                    // [start_x, end_x) of the clusters it spans and the whole
+                    // line box vertically, so the origin of a selected glyph
+                    // falls inside it while the origin of the first glyph
+                    // AFTER the selection sits exactly on its right edge —
+                    // hence the half-open x test. (A zero-advance mark sitting
+                    // exactly on the right edge stays unselected; it is one
+                    // combining mark at the very end of a selection.)
+                    let inside = |g: &GlyphInstance| {
+                        rects.iter().any(|r| {
+                            g.point.x >= r.min_x() - 0.5
+                                && g.point.x < r.max_x() - 0.5
+                                && g.point.y >= r.min_y()
+                                && g.point.y <= r.max_y()
+                        })
+                    };
+                    let (selected, normal): (Vec<GlyphInstance>, Vec<GlyphInstance>) =
+                        offset_glyphs.into_iter().partition(inside);
+                    if !normal.is_empty() {
+                        builder.push_text_run(
+                            normal,
+                            FontHash::from_hash(glyph_run.font_hash),
+                            glyph_run.font_size_px,
+                            live_color,
+                            clip_rect,
+                            Some(source_node_index),
+                            uniform_bg,
+                        );
+                    }
+                    if !selected.is_empty() {
+                        builder.push_text_run(
+                            selected,
+                            FontHash::from_hash(glyph_run.font_hash),
+                            glyph_run.font_size_px,
+                            *selected_color,
+                            clip_rect,
+                            Some(source_node_index),
+                            // The proven background under a selected glyph is
+                            // the HIGHLIGHT, not the ancestor's colour.
+                            None,
+                        );
+                    }
+                }
+                None => {
+                    builder.push_text_run(
+                        offset_glyphs,
+                        FontHash::from_hash(glyph_run.font_hash),
+                        glyph_run.font_size_px,
+                        live_color,
+                        clip_rect,
+                        Some(source_node_index),
+                        uniform_bg,
+                    );
+                }
+            }
 
             // Render text decorations if present OR if this is IME composition preview
             let needs_underline = glyph_run.text_decoration.underline || glyph_run.is_ime_preview;

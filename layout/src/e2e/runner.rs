@@ -132,7 +132,7 @@ struct Runner {
 }
 
 impl Runner {
-    fn new(width: f32, height: f32, dpi: u32) -> Self {
+    fn new(width: f32, height: f32, dpi: u32, animations: bool) -> Self {
         let mut ws = FullWindowState::default();
         ws.size.dimensions = LogicalSize::new(width, height);
         ws.size.dpi = dpi;
@@ -176,10 +176,19 @@ impl Runner {
             layout_window: {
                 let mut lw =
                     LayoutWindow::new(app_fc_cache.clone()).expect("LayoutWindow::new");
-                // e2e runs must be deterministic: no caret / selection tween
-                // (a screenshot must never catch geometry mid-glide).
-                lw.system_animations_override =
-                    Some(azul_core::resources::SystemAnimations::disabled());
+                // Tweens OFF unless the scenario asked for them (`setup.animations`).
+                // The default stays off so a scenario that never drives the clock
+                // cannot screenshot geometry mid-glide — but "off, always, with no
+                // flag" is what left the animated caret and the selection tween
+                // with ZERO e2e coverage. Turning them on is deterministic here:
+                // `run_e2e_test` freezes this thread's clock and only `tick_ms` /
+                // `wait` advance it, so a tween's progress is a pure function of
+                // the ops the scenario ran.
+                lw.system_animations_override = Some(if animations {
+                    azul_core::resources::SystemAnimations::default()
+                } else {
+                    azul_core::resources::SystemAnimations::disabled()
+                });
                 lw
             },
             renderer_resources: RendererResources::default(),
@@ -560,6 +569,8 @@ impl Runner {
             ProcessEventResult::ShouldReRenderCurrentWindow => self.render_and_record(),
         }
 
+        self.arm_tween_timer();
+
         // Keep servicing the redraws the frames themselves ask for, until the
         // window stops changing. The platform loops do this across turns of the
         // event loop; here it has to happen INSIDE one `service()`, because the
@@ -577,6 +588,33 @@ impl Runner {
         // [`Runner::rebuild_hit_tester`].
         self.rebuild_hit_tester();
         self.purge_ended_touch_points();
+    }
+
+    /// Arm the caret / selection tween driver if the display-list pass this
+    /// frame ran left a tween in flight — port of the shared site at the tail
+    /// of the DLL's `process_window_events`
+    /// (`dll/src/desktop/shell2/common/event.rs`). The timer self-terminates
+    /// via its `RefAny`'d flag when the tween finishes, so there is no matching
+    /// stop call.
+    ///
+    /// PLACEMENT DIFFERS FROM THE DLL ON PURPOSE. The DLL arms inside the event
+    /// pass because a shell's frame ends there; this host's frame ends in
+    /// [`Runner::service`], and the ops that move a caret (`text_input`,
+    /// `move_cursor`, `set_text_selection`) reach `apply_user_change` straight
+    /// from `service` without a state-diff pass. Arming inside
+    /// `process_window_events` alone would leave every op-driven tween
+    /// un-driven — which is indistinguishable, from a scenario, from the tween
+    /// not existing.
+    fn arm_tween_timer(&mut self) {
+        use azul_core::task::CARET_TWEEN_TIMER_ID;
+
+        if !self.layout_window.text_edit_manager.tween.is_active()
+            || self.layout_window.timers.contains_key(&CARET_TWEEN_TIMER_ID)
+        {
+            return;
+        }
+        let timer = self.layout_window.create_caret_tween_timer();
+        self.layout_window.add_timer(CARET_TWEEN_TIMER_ID, timer);
     }
 
     /// Run every timer that is due, i.e. the timer half of the DLL's
@@ -839,6 +877,56 @@ impl Runner {
         ) {
             result = result.max(ProcessEventResult::ShouldRegenerateDomCurrentWindow);
             should_recurse = true;
+        }
+
+        // ── 3b. POST-CALLBACK TEXT INPUT ─────────────────────────────────
+        //
+        // Port of the DLL's `post_callback_filter_system_changes` →
+        // `SystemChange::ApplyPendingTextInput` → `ApplyTextChangeset` tail.
+        // The DECISION is not re-derived here: the same `azul_core` function
+        // both hosts call answers it.
+        //
+        // THIS STAGE DID NOT EXIST. Text recorded but not yet applied — which
+        // is what a native shell has at this point in the pass, because it
+        // calls `record_text_input` BEFORE running the pass — was never landed
+        // by this host, and a callback's `prevent_default()` never killed a
+        // recorded edit either. The e2e corpus could reach text only through
+        // `CallbackChange::CreateTextInput`, whose own arm records, dispatches
+        // and applies in one go; a KeyDown handler's veto is structurally
+        // invisible to that shape, so no scenario could express the thing every
+        // shell does on every keystroke.
+        {
+            use azul_core::events::SystemChange;
+
+            let new_focus_now = self.layout_window.focus_manager.get_focused_node().copied();
+            let post_changes = azul_core::events::post_callback_filter_system_changes(
+                prevent_default,
+                &[],
+                old_focus,
+                new_focus_now,
+            );
+            if post_changes
+                .iter()
+                .any(|c| matches!(c, SystemChange::ApplyPendingTextInput))
+            {
+                let changeset_result = self.layout_window.apply_text_changeset();
+                if !changeset_result.dirty_nodes.is_empty() {
+                    result = result.max(if changeset_result.needs_relayout {
+                        ProcessEventResult::ShouldIncrementalRelayout
+                    } else {
+                        ProcessEventResult::ShouldUpdateDisplayListCurrentWindow
+                    });
+                    self.layout_window.scroll_selection_into_view(
+                        azul_layout::window::SelectionScrollType::Cursor,
+                        azul_layout::window::ScrollMode::Instant,
+                    );
+                }
+            } else if prevent_default {
+                // A vetoed edit must DIE, not wait: the pending record would
+                // otherwise survive into the next pass, whose unconditional
+                // apply would land the vetoed character late.
+                self.layout_window.text_input_manager.clear_changeset();
+            }
         }
 
         // ── 4. MOUSE CLICK-TO-FOCUS (W3C default action) ─────────────────
@@ -1950,35 +2038,21 @@ impl Runner {
                 ProcessEventResult::ShouldReRenderCurrentWindow
             }
             CallbackChange::DeleteBackward { dom_id, node_id } => {
-                let lw = &mut self.layout_window;
-                if let Some(cursor) = lw.text_edit_manager.get_primary_cursor() {
-                    let content = lw.get_text_before_textinput(*dom_id, *node_id);
-                    let (updated_content, new_cursor) =
-                        azul_layout::text3::edit::delete_backward(&content, &cursor);
-                    if let Some(mc) = lw.text_edit_manager.multi_cursor.as_mut() {
-                        mc.set_single_cursor(new_cursor);
-                    }
-                    lw.update_text_cache_after_edit(*dom_id, *node_id, updated_content);
-                }
-                ProcessEventResult::ShouldUpdateDisplayListCurrentWindow
+                self.apply_capi_delete(*dom_id, *node_id, false)
             }
             CallbackChange::DeleteForward { dom_id, node_id } => {
-                let lw = &mut self.layout_window;
-                if let Some(cursor) = lw.text_edit_manager.get_primary_cursor() {
-                    let content = lw.get_text_before_textinput(*dom_id, *node_id);
-                    let (updated_content, new_cursor) =
-                        azul_layout::text3::edit::delete_forward(&content, &cursor);
-                    if let Some(mc) = lw.text_edit_manager.multi_cursor.as_mut() {
-                        mc.set_single_cursor(new_cursor);
-                    }
-                    lw.update_text_cache_after_edit(*dom_id, *node_id, updated_content);
-                }
-                ProcessEventResult::ShouldUpdateDisplayListCurrentWindow
+                self.apply_capi_delete(*dom_id, *node_id, true)
             }
-            CallbackChange::MoveCursor { dom_id: _, node_id: _, cursor } => {
-                if let Some(mc) = self.layout_window.text_edit_manager.multi_cursor.as_mut() {
-                    mc.set_single_cursor(*cursor);
-                }
+            // Same route as every `MoveCursor{Left,Right,…}` arm, and as the
+            // DLL's. Setting the cursor straight on the multi-cursor state
+            // skips the display-list rebuild `handle_cursor_movement` does, so
+            // a programmatic move repainted the OLD caret position — the
+            // pre-fix body the DLL already replaced. `extend_selection` is
+            // false because this variant carries an absolute cursor, not a
+            // movement.
+            CallbackChange::MoveCursor { dom_id, node_id, cursor } => {
+                self.layout_window
+                    .handle_cursor_movement(*dom_id, *node_id, *cursor, false);
                 ProcessEventResult::ShouldReRenderCurrentWindow
             }
             CallbackChange::SetSelection { dom_id: _, node_id: _, selection } => {
@@ -1992,7 +2066,7 @@ impl Runner {
                 ProcessEventResult::ShouldReRenderCurrentWindow
             }
             CallbackChange::SetTextChangeset { changeset } => {
-                self.layout_window.text_input_manager.pending_changeset = Some(changeset.clone());
+                self.layout_window.text_input_manager.set_changeset(changeset.clone());
                 ProcessEventResult::DoNothing
             }
 
@@ -2538,6 +2612,36 @@ impl Runner {
         }
     }
 
+    /// Port of `PlatformWindow::apply_capi_delete`
+    /// (`dll/src/desktop/shell2/common/event.rs`) — the `DeleteBackward` /
+    /// `DeleteForward` arms, routed onto the SAME path Backspace and Delete
+    /// take.
+    ///
+    /// This host used to carry the PRE-FIX body the DLL deleted: primary
+    /// CURSOR only via `text3::edit::delete_backward` / `delete_forward`, so a
+    /// Range selection was invisible to it (it deleted one grapheme next to the
+    /// selection's cursor instead of the selection), nothing was recorded for
+    /// undo, and the caret kept blinking through the edit. A scenario that
+    /// deleted through this host therefore validated semantics no shell has.
+    fn apply_capi_delete(
+        &mut self,
+        dom_id: DomId,
+        node_id: NodeId,
+        forward: bool,
+    ) -> ProcessEventResult {
+        let target = DomNodeId {
+            dom: dom_id,
+            node: NodeHierarchyItemId::from_crate_internal(Some(node_id)),
+        };
+        let now = self.now();
+        let lw = &mut self.layout_window;
+        if lw.delete_selection(target, forward).is_none() {
+            return ProcessEventResult::DoNothing;
+        }
+        lw.text_edit_manager.blink.reset_blink_on_input(now);
+        ProcessEventResult::ShouldUpdateDisplayListCurrentWindow
+    }
+
     /// Shared body of the eight `MoveCursor*` arms (port of the DLL's, which are
     /// the same call with a different closure).
     fn move_cursor(
@@ -3074,6 +3178,10 @@ fn arm_caret_for_focus(
         CursorBlinkTimerAction::Start(timer) => {
             layout_window.add_timer(CURSOR_BLINK_TIMER_ID, timer);
         }
+        CursorBlinkTimerAction::Restart(timer) => {
+            layout_window.remove_timer(&CURSOR_BLINK_TIMER_ID);
+            layout_window.add_timer(CURSOR_BLINK_TIMER_ID, timer);
+        }
         CursorBlinkTimerAction::Stop => {
             layout_window.remove_timer(&CURSOR_BLINK_TIMER_ID);
         }
@@ -3209,11 +3317,16 @@ pub fn run_e2e_test(test: &E2eTest) -> E2eTestResult {
     // ambient state. It has exactly the lifetime of this run.
     let mut session = E2eSession::new();
 
-    let (w, h, dpi) = match &test.setup {
-        Some(s) => (s.window_width as f32, s.window_height as f32, s.dpi),
-        None => (800.0, 600.0, 96),
+    let (w, h, dpi, animations) = match &test.setup {
+        Some(s) => (
+            s.window_width as f32,
+            s.window_height as f32,
+            s.dpi,
+            s.animations,
+        ),
+        None => (800.0, 600.0, 96, false),
     };
-    let mut runner = Runner::new(w, h, dpi);
+    let mut runner = Runner::new(w, h, dpi, animations);
 
     let (tx, rx) = std::sync::mpsc::channel();
     let request = DebugRequest {
@@ -3329,4 +3442,435 @@ fn unsupported_to_failure(mut result: E2eTestResult, unsupported: &[String]) -> 
     result.steps_failed += seen.len();
     result.step_count = result.steps.len();
     result
+}
+
+// ── Un-fork pins ─────────────────────────────────────────────────────────────
+//
+// This host is a PORT of the shells, not a second implementation, so every
+// place it re-derived behaviour instead of calling the engine is a place where
+// a scenario could go green on semantics no user has. These pin the three that
+// had actually drifted.
+
+#[cfg(test)]
+mod tests {
+    use azul_core::{
+        callbacks::{CaretTweenInfo, Update},
+        dom::{Dom, NodeId as CoreNodeId},
+        events::EventFilter,
+        geom::LogicalRect,
+        refany::RefAny,
+        selection::{CursorAffinity, GraphemeClusterId, SelectionRange, TextCursor},
+        task::{advance_test_clock_ms, freeze_test_clock, reset_test_clock, Duration},
+        window::{VirtualKeyCode, VirtualKeyCodeVec},
+    };
+    use azul_layout::{
+        callbacks::{CallbackInfo, CallbackType},
+        solver3::display_list::DisplayListItem,
+    };
+
+    use super::*;
+
+    /// body = 0, div (contenteditable) = 1, text = 2.
+    const EDITOR: usize = 1;
+
+    const CSS: &str = "* { margin: 0; padding: 0; } \
+                       body { font-size: 16px; width: 600px; }";
+
+    fn cursor(byte: u32) -> azul_core::selection::TextCursor {
+        TextCursor {
+            cluster_id: GraphemeClusterId {
+                source_run: 0,
+                start_byte_in_run: byte,
+            },
+            affinity: CursorAffinity::Leading,
+        }
+    }
+
+    fn editor_node() -> DomNodeId {
+        DomNodeId {
+            dom: DomId::ROOT_ID,
+            node: NodeHierarchyItemId::from_crate_internal(Some(NodeId::new(EDITOR))),
+        }
+    }
+
+    /// A runner with one contenteditable div laid out and an editing session on
+    /// it — the shape every text scenario mounts.
+    fn editor_runner(content: &str, animations: bool, on_key_down: Option<CallbackType>) -> Runner {
+        reset_test_clock();
+        freeze_test_clock();
+
+        let mut editor = Dom::create_div()
+            .with_contenteditable(true)
+            .with_child(Dom::create_text_do_not_use_without_block_level_wrapper(
+                content,
+            ));
+        if let Some(cb) = on_key_down {
+            editor = editor.with_callback(
+                EventFilter::Focus(azul_core::events::FocusEventFilter::VirtualKeyDown),
+                RefAny::new(()),
+                cb as usize,
+            );
+        }
+        let mut dom = Dom::create_body().with_child(editor);
+        let (css, _) = azul_css::parser2::new_from_str(CSS);
+        let styled_dom = StyledDom::create(&mut dom, css);
+
+        let mut runner = Runner::new(800.0, 600.0, 96, animations);
+        runner.layout(styled_dom);
+        runner
+            .layout_window
+            .focus_manager
+            .set_focused_node(Some(editor_node()));
+        runner.layout_window.text_edit_manager.initialize_editing(
+            cursor(0),
+            DomId::ROOT_ID,
+            NodeId::new(EDITOR),
+            0,
+        );
+        runner.layout_window.text_edit_manager.blink.set_visibility(true);
+        runner
+            .layout_window
+            .regenerate_display_list_for_dom(DomId::ROOT_ID);
+        runner
+    }
+
+    fn text_of(runner: &Runner) -> String {
+        let content = runner
+            .layout_window
+            .get_text_before_textinput(DomId::ROOT_ID, NodeId::new(EDITOR));
+        runner
+            .layout_window
+            .extract_text_from_inline_content(&content)
+    }
+
+    /// The LAST `CursorRect` item = the primary caret (the rule the tween
+    /// post-pass itself uses).
+    fn caret_rect(runner: &Runner) -> LogicalRect {
+        runner
+            .layout_window
+            .get_layout_result(&DomId::ROOT_ID)
+            .expect("layout result")
+            .display_list
+            .items
+            .iter()
+            .rev()
+            .find_map(|item| match item {
+                DisplayListItem::CursorRect { bounds, .. } => Some(bounds.0),
+                _ => None,
+            })
+            .expect("the display list carries a caret")
+    }
+
+    fn no_changes() -> Arc<Mutex<Vec<CallbackChange>>> {
+        Arc::new(Mutex::new(Vec::new()))
+    }
+
+    /// Press a printable key the way a shell does: RECORD the text into the
+    /// changeset first, then run the state-diff pass (this is what the
+    /// `key_down` op's `text` parameter drives).
+    fn press_key_with_text(runner: &mut Runner, key: VirtualKeyCode, text: &str) {
+        use azul_layout::managers::text_input::PendingTextEdit;
+
+        let focused = runner
+            .layout_window
+            .focus_manager
+            .get_focused_node()
+            .copied()
+            .expect("a focused node");
+        let node_id = focused.node.into_crate_internal().expect("a real node");
+        let old_inline = runner
+            .layout_window
+            .get_text_before_textinput(focused.dom, node_id);
+        let old_text = runner
+            .layout_window
+            .extract_text_from_inline_content(&old_inline);
+        let _ = runner.apply_user_change(&CallbackChange::SetTextChangeset {
+            changeset: PendingTextEdit {
+                node: focused,
+                inserted_text: text.into(),
+                old_text: old_text.into(),
+            },
+        });
+
+        let mut state = runner.window_state.clone();
+        state.keyboard_state.current_virtual_keycode = Some(key).into();
+        state.keyboard_state.pressed_virtual_keycodes = VirtualKeyCodeVec::from_vec(vec![key]);
+        let _ = runner.apply_user_change(&CallbackChange::ModifyWindowState { state });
+    }
+
+    extern "C" fn veto_key_down(_data: RefAny, mut info: CallbackInfo) -> Update {
+        info.prevent_default();
+        Update::DoNothing
+    }
+
+    extern "C" fn observe_key_down(_data: RefAny, _info: CallbackInfo) -> Update {
+        Update::DoNothing
+    }
+
+    // ── 1. The C-API delete arms ─────────────────────────────────────────────
+
+    #[test]
+    fn capi_delete_backward_deletes_the_whole_selection() {
+        let mut runner = editor_runner("hello world", false, None);
+        runner
+            .layout_window
+            .text_edit_manager
+            .multi_cursor
+            .as_mut()
+            .expect("editing session")
+            .set_single_range(SelectionRange {
+                start: cursor(0),
+                end: cursor(6),
+            });
+
+        let _ = runner.apply_user_change(&CallbackChange::DeleteBackward {
+            dom_id: DomId::ROOT_ID,
+            node_id: NodeId::new(EDITOR),
+        });
+
+        // The pre-fix body deleted ONE grapheme at the range's cursor
+        // (`get_primary_cursor` answers `range.end`), leaving "hellworld".
+        assert_eq!(
+            text_of(&runner),
+            "world",
+            "the whole range goes, not one grapheme at the primary cursor"
+        );
+    }
+
+    #[test]
+    fn capi_delete_forward_deletes_the_whole_selection() {
+        let mut runner = editor_runner("hello world", false, None);
+        runner
+            .layout_window
+            .text_edit_manager
+            .multi_cursor
+            .as_mut()
+            .expect("editing session")
+            .set_single_range(SelectionRange {
+                start: cursor(0),
+                end: cursor(6),
+            });
+
+        let _ = runner.apply_user_change(&CallbackChange::DeleteForward {
+            dom_id: DomId::ROOT_ID,
+            node_id: NodeId::new(EDITOR),
+        });
+
+        assert_eq!(text_of(&runner), "world");
+    }
+
+    #[test]
+    fn capi_delete_records_undo_and_holds_the_caret_solid() {
+        let mut runner = editor_runner("hello world", false, None);
+        // A caret, not a range: the undo record and the blink reset are owed to
+        // every delete, not only to the selection case.
+        runner
+            .layout_window
+            .text_edit_manager
+            .multi_cursor
+            .as_mut()
+            .expect("editing session")
+            .set_single_cursor(cursor(5));
+        runner.layout_window.text_edit_manager.blink.set_visibility(false);
+        assert!(
+            !runner
+                .layout_window
+                .undo_redo_manager
+                .can_undo(CoreNodeId::new(EDITOR)),
+            "premise: nothing is undoable before the delete"
+        );
+
+        let _ = runner.apply_user_change(&CallbackChange::DeleteBackward {
+            dom_id: DomId::ROOT_ID,
+            node_id: NodeId::new(EDITOR),
+        });
+
+        assert_eq!(text_of(&runner), "hell world");
+        assert!(
+            runner
+                .layout_window
+                .undo_redo_manager
+                .can_undo(CoreNodeId::new(EDITOR)),
+            "a delete is an undoable edit — the pre-fix body recorded nothing"
+        );
+        assert!(
+            runner.layout_window.text_edit_manager.blink.is_visible,
+            "editing keeps the caret solid, same as typing"
+        );
+    }
+
+    // ── 2. Tweens are reachable, and deterministic on the virtual clock ──────
+
+    #[test]
+    fn animations_off_lands_the_caret_immediately() {
+        let mut runner = editor_runner("hello world", false, None);
+        let before = caret_rect(&runner);
+
+        let _ = runner.apply_user_change(&CallbackChange::MoveCursor {
+            dom_id: DomId::ROOT_ID,
+            node_id: NodeId::new(EDITOR),
+            cursor: cursor(6),
+        });
+
+        assert!(
+            runner.layout_window.text_edit_manager.tween.caret.is_none(),
+            "`setup.animations` defaults to off, so no tween is ever armed"
+        );
+        assert!(
+            (caret_rect(&runner).origin.x - before.origin.x).abs() > 1.0,
+            "premise: byte 6 is a different x from byte 0"
+        );
+    }
+
+    #[test]
+    fn animations_on_tweens_the_caret_on_the_virtual_clock() {
+        const STEP_MS: u64 = 20;
+        const DURATION_MS: u64 = 60;
+
+        let mut runner = editor_runner("hello world", true, None);
+        let changes = no_changes();
+        let from = caret_rect(&runner);
+
+        let _ = runner.apply_user_change(&CallbackChange::MoveCursor {
+            dom_id: DomId::ROOT_ID,
+            node_id: NodeId::new(EDITOR),
+            cursor: cursor(6),
+        });
+
+        let track = runner
+            .layout_window
+            .text_edit_manager
+            .tween
+            .caret
+            .clone()
+            .expect("`setup.animations: true` arms the caret tween");
+        assert_eq!(track.from, from, "the tween starts from the RENDERED rect");
+        let to = track.to;
+        assert!(
+            (to.origin.x - from.origin.x).abs() > 1.0,
+            "premise: the caret really moved"
+        );
+        assert_eq!(
+            caret_rect(&runner),
+            from,
+            "at t = 0 the caret is still painted where it was — the move is a glide, not a jump"
+        );
+
+        // The driver timer is armed by the frame tail, exactly like the shells'.
+        runner.service(&changes, false);
+        assert!(
+            runner
+                .layout_window
+                .timers
+                .contains_key(&azul_core::task::CARET_TWEEN_TIMER_ID),
+            "an in-flight tween arms its 16ms driver"
+        );
+
+        // Fixed steps on the FROZEN clock: the geometry at step k is a pure
+        // function of k, so this asserts a number, not a race.
+        for step in 1..=2u64 {
+            let _ = advance_test_clock_ms(STEP_MS);
+            runner.service(&changes, false);
+
+            let t = Duration::from_millis(STEP_MS * step).div(&Duration::from_millis(DURATION_MS));
+            let expected = (azul_core::resources::SystemAnimations::default().caret_tween.cb)(
+                RefAny::new(()),
+                CaretTweenInfo {
+                    past: from,
+                    current: to,
+                    t,
+                },
+            );
+            assert_eq!(
+                caret_rect(&runner),
+                expected,
+                "step {step}: the caret sits at the interpolator's answer for t = {t}"
+            );
+            assert_ne!(caret_rect(&runner), to, "step {step}: still in flight");
+        }
+
+        let _ = advance_test_clock_ms(STEP_MS);
+        runner.service(&changes, false);
+        assert_eq!(
+            caret_rect(&runner),
+            to,
+            "the tween lands exactly on the target at its duration"
+        );
+        assert!(
+            runner.layout_window.text_edit_manager.tween.caret.is_none(),
+            "and retires itself"
+        );
+    }
+
+    // ── 3. One text ingress: the shells' record-then-pass ────────────────────
+
+    #[test]
+    fn the_shell_ingress_lands_the_text() {
+        let mut runner = editor_runner("ab", false, Some(observe_key_down));
+
+        press_key_with_text(&mut runner, VirtualKeyCode::X, "X");
+
+        assert_eq!(
+            text_of(&runner),
+            "Xab",
+            "text recorded before the pass is applied BY the pass — the stage this host \
+             did not have"
+        );
+    }
+
+    /// The op wiring, end to end through `process_debug_event`: `key_down`
+    /// carrying `text` must record BEFORE the pass and the pass must land it.
+    /// The tests above drive `apply_user_change` directly and so cannot see a
+    /// mistake in the op itself.
+    #[test]
+    fn the_key_down_op_types_through_the_shell_ingress() {
+        let test: super::E2eTest = serde_json::from_value(serde_json::json!({
+            "name": "key_down_text_ingress",
+            "setup": { "window_width": 400, "window_height": 200, "dpi": 96 },
+            "steps": [
+                { "op": "mount",
+                  "html": ["<div id=\"ed\" contenteditable=\"true\">ab</div>"],
+                  "css": ["html, body { margin: 0; padding: 0; }",
+                          "body { font-size: 24px; color: black; background: white; }",
+                          "#ed { width: 300px; height: 60px; background: white; }"] },
+                { "op": "wait_frame" },
+                { "op": "focus_node", "selector": "#ed" },
+                { "op": "wait_frame" },
+                { "op": "key_down", "key": "x", "text": "X" },
+                { "op": "key_up", "key": "x" },
+                { "op": "wait_frame" },
+                { "op": "assert_text", "selector": "#ed", "expected": "abX" }
+            ]
+        }))
+        .expect("scenario json");
+
+        let result = run_e2e_test(&test);
+        assert_eq!(
+            result.status, "pass",
+            "the key_down text ingress must type at the caret focus_node seeded (end of text): {:#?}",
+            result.steps
+        );
+    }
+
+    #[test]
+    fn a_keydown_veto_kills_the_recorded_text() {
+        let mut runner = editor_runner("ab", false, Some(veto_key_down));
+
+        press_key_with_text(&mut runner, VirtualKeyCode::X, "X");
+
+        assert_eq!(
+            text_of(&runner),
+            "ab",
+            "a KeyDown callback's prevent_default() vetoes the insertion, exactly as on a \
+             real platform"
+        );
+        assert!(
+            runner
+                .layout_window
+                .text_input_manager
+                .get_pending_changeset()
+                .is_none(),
+            "the vetoed record dies now — surviving into the next pass would land it late"
+        );
+    }
 }
