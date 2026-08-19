@@ -112,3 +112,50 @@ a.docs-card.is-missing .docs-card-file::after {
     display: block;
     margin-bottom: 6px;
 }
+
+/* ---- Downloads by platform -------------------------------------------
+   Seven platform groups stacked one under another made the release page
+   enormous for what is, per group, four short links. They are columns
+   now: auto-fit means the row count follows the width instead of a
+   breakpoint, and no group is ever alone on a line at desktop widths.
+   The Docker group keeps the full measure - it holds code blocks, not
+   links. */
+.release-demos {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+    gap: 22px 30px;
+    list-style: none;
+    margin: 0 0 28px;
+    padding: 0;
+}
+
+.release-demos > .release-os > strong {
+    display: block;
+    margin-bottom: 6px;
+    font-family: var(--font-caps);
+    font-weight: 700;
+    font-variant: all-small-caps;
+    letter-spacing: 0.1em;
+    color: var(--fl-soft1);
+}
+
+.release-demos > .release-os > ul {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+}
+
+.release-demos > .release-os > ul > li { margin: 0 0 2px; }
+
+.release-demos > .release-os-web {
+    grid-column: 1 / -1;
+    margin-top: 4px;
+}
+
+.release-demos > .release-os-web > ul {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+    gap: 12px 24px;
+}
+
+.release-demos > .release-os-web pre { margin: 4px 0 0; }

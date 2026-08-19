@@ -2316,7 +2316,7 @@ jobs:
           failed=()
           reused=()
           built=()
-          for demo in azul-paint azul-widgets azul-maps azul-vault azul-writer azul-gamepad azul-camera-app azul-screenshare-app azul-video-app azul-meet azul-self-test; do
+          for demo in azul-widgets azul-maps azul-paint azul-meet azul-writer; do
             demo_dir=""
             for cand in "examples/$demo" "demos/$demo" "$demo"; do
               [ -d "$cand" ] && { demo_dir="$cand"; break; }
@@ -2377,7 +2377,7 @@ jobs:
           mkdir -p demos-staging
           # Each demo is a single self-contained binary (static libazul.a linked
           # in) — no DLL to ship alongside, same as the old link-static output.
-          for demo in azul-paint azul-widgets azul-maps azul-vault azul-writer azul-gamepad azul-camera-app azul-screenshare-app azul-video-app azul-meet azul-self-test; do
+          for demo in azul-widgets azul-maps azul-paint azul-meet azul-writer; do
             src="target/release/${demo}${{ matrix.bin_ext }}"
             if [ -f "$src" ]; then
               dst="demos-staging/${demo}-${{ matrix.os_suffix }}${{ matrix.bin_ext }}"
@@ -3411,7 +3411,7 @@ jobs:
           # needs signing to install on a phone) and the simulator slice
           # (aarch64-apple-ios-sim → <demo>-ios-sim.app.zip, runs UNSIGNED in the
           # iOS Simulator via `xcrun simctl install`).
-          for demo in azul-paint azul-widgets azul-maps azul-vault azul-writer azul-gamepad azul-camera-app azul-screenshare-app azul-video-app azul-meet azul-self-test; do
+          for demo in azul-widgets azul-maps azul-paint azul-meet azul-writer; do
             for tgt in aarch64-apple-ios aarch64-apple-ios-sim; do
               echo "=== iOS .app: $demo ($tgt) ==="
               suffix="ios"; [ "$tgt" = "aarch64-apple-ios-sim" ] && suffix="ios-sim"
@@ -3523,7 +3523,7 @@ jobs:
           export CARGO_TARGET_AARCH64_LINUX_ANDROID_AR="$NDKBIN/llvm-ar"
           BT="$ANDROID_SDK_ROOT/build-tools/34.0.0"
           mkdir -p mobile-apps
-          for demo in azul-maps azul-paint azul-widgets azul-self-test; do
+          for demo in azul-maps azul-paint azul-widgets; do
             echo "=== Android APK: $demo ==="
             AZ_ANDROID_NO_DEPLOY=1 \
               bash scripts/build-android.sh aarch64-linux-android "$demo" "com.azul.${demo//-/_}" "$demo"
@@ -5147,6 +5147,49 @@ jobs:
           # collector decides where the FILE ends up, and a disagreement is a
           # 404. GitHub Release assets are flat, so nested files upload as their
           # bare basenames (matching asset_url(), which strips the path).
+          # Gatekeeper blocks anything downloaded from the web until azul is
+          # notarized. Rather than telling the reader about it on the release
+          # page (where it is a wall of text next to a download button), every
+          # macOS archive carries the fix and the instructions inside it.
+          write_macos_unquarantine() {
+            printf '%s\n' \
+              '#!/bin/bash' \
+              "# Double-click me - I live next to $2. I clear the macOS" \
+              '# download quarantine on that file so macOS will open it.' \
+              'cd "$(dirname "$0")" || exit 1' \
+              "xattr -dr com.apple.quarantine \"./$2\" 2>/dev/null || true" \
+              "echo \"Un-quarantined ./$2\"" \
+              > "$1/unquarantine.command"
+            chmod +x "$1/unquarantine.command"
+          }
+
+          write_macos_readme() {
+            printf '%s\n' \
+              'Running this on macOS' \
+              '=====================' \
+              '' \
+              "This archive contains $2." \
+              '' \
+              'macOS marks everything downloaded from the web as quarantined,' \
+              'and refuses to open it until the developer is verified. Azul is' \
+              'not yet notarized with Apple, so you will see:' \
+              '' \
+              '    "cannot be opened because the developer cannot be verified"' \
+              '' \
+              'To clear that, double-click' \
+              '' \
+              '    unquarantine.command' \
+              '' \
+              'in this folder. It removes the quarantine flag from the file' \
+              'next to it, and nothing else. If Finder will not run it either,' \
+              'open Terminal in this folder and run:' \
+              '' \
+              "    xattr -dr com.apple.quarantine $2" \
+              '' \
+              'You only need to do this once per download.' \
+              > "$1/README-macOS.txt"
+          }
+
           LARGE=()
           while IFS= read -r f; do LARGE+=("$f"); done < <(
             {
@@ -5188,49 +5231,6 @@ jobs:
             # (.so/.dylib/.dll/.pyd) is far more useful as a direct download.
             # deploy.rs links the .tar.gz for the former
             # (asset_url -> <basename>.tar.gz when is_tarred()).
-            # Gatekeeper blocks anything downloaded from the web until azul is
-            # notarized. Rather than telling the reader about it on the release
-            # page (where it is a wall of text next to a download button), every
-            # macOS archive carries the fix and the instructions inside it.
-            write_macos_unquarantine() {
-              printf '%s\n' \
-                '#!/bin/bash' \
-                "# Double-click me - I live next to $2. I clear the macOS" \
-                '# download quarantine on that file so macOS will open it.' \
-                'cd "$(dirname "$0")" || exit 1' \
-                "xattr -dr com.apple.quarantine \"./$2\" 2>/dev/null || true" \
-                "echo \"Un-quarantined ./$2\"" \
-                > "$1/unquarantine.command"
-              chmod +x "$1/unquarantine.command"
-            }
-
-            write_macos_readme() {
-              printf '%s\n' \
-                'Running this on macOS' \
-                '=====================' \
-                '' \
-                "This archive contains $2." \
-                '' \
-                'macOS marks everything downloaded from the web as quarantined,' \
-                'and refuses to open it until the developer is verified. Azul is' \
-                'not yet notarized with Apple, so you will see:' \
-                '' \
-                '    "cannot be opened because the developer cannot be verified"' \
-                '' \
-                'To clear that, double-click' \
-                '' \
-                '    unquarantine.command' \
-                '' \
-                'in this folder. It removes the quarantine flag from the file' \
-                'next to it, and nothing else. If Finder will not run it either,' \
-                'open Terminal in this folder and run:' \
-                '' \
-                "    xattr -dr com.apple.quarantine $2" \
-                '' \
-                'You only need to do this once per download.' \
-                > "$1/README-macOS.txt"
-            }
-
             UPLOAD=()
             for f in "${LARGE[@]}"; do
               case "$f" in
@@ -5287,6 +5287,21 @@ jobs:
             for f in "${LARGE[@]}"; do rm -f "$f" "$f.tar.gz" && echo "removed $f"; done
             rmdir "$REL/demos" "$REL/mobile-apps" 2>/dev/null || true
           fi
+
+          # ---- macOS drop-in libs: companion archive with the Gatekeeper fix.
+          # These two are PAGES_PINNED (api.json curls them by URL, Homebrew
+          # pins their sha256), so the bare files stay put and the archive is
+          # published next to them. deploy.rs links the archive.
+          for base in libazul.dylib libazul.x86_64.dylib; do
+            f="$REL/$base"
+            [ -f "$f" ] || continue
+            write_macos_unquarantine "$REL" "$base"
+            write_macos_readme "$REL" "$base"
+            tar -czf "$REL/${base}.tar.gz" -C "$REL" \
+              "$base" unquarantine.command README-macOS.txt
+            rm -f "$REL/unquarantine.command" "$REL/README-macOS.txt"
+            echo "bundled $base -> ${base}.tar.gz (+ unquarantine.command + README)"
+          done
 
           # Mobile static .a libs live at mobile/<label>/libazul.a (depth 3, so
           # the maxdepth-1 collector above misses them) and were the ~480 MB that

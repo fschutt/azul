@@ -223,7 +223,7 @@ impl BinaryAsset {
     pub const MACOS_ASSETS: &'static [BinaryAsset] = &[
         BinaryAsset {
             filename: "libazul.dylib",
-            description: "MacOS 64-bit SO",
+            description: "MacOS 64-bit SO (.tar.gz, with macOS un-quarantine helper)",
             platform: Platform::MacOS,
         },
         BinaryAsset {
@@ -1194,6 +1194,19 @@ pub fn create_java_bindings_zip(version_dir: &Path, codegen_dir: &Path) -> Resul
 ///
 /// Moving any of these trades a size problem for a dead-link problem. If one
 /// ever has to move, update every reference above in the same commit.
+/// macOS drop-in libs that ship WITH the Gatekeeper helper beside them.
+///
+/// The bare file stays at its pinned URL (see [`PAGES_PINNED`]) because
+/// api.json and the Homebrew formula fetch it there; CI additionally
+/// publishes `<name>.tar.gz` containing the lib, `unquarantine.command` and
+/// `README-macOS.txt`, and the release page links THAT - a reader clicking a
+/// download gets the fix in the box, while the install scripts keep curling
+/// the bare file.
+///
+/// MUST stay in sync with the `for base in ...` loop in rust.yml's "Host
+/// LARGE assets" step.
+const MACOS_BUNDLED: &[&str] = &["libazul.dylib", "libazul.x86_64.dylib"];
+
 const PAGES_PINNED: &[&str] = &[
     "libazul.so",
     "libazul.dylib",
@@ -1282,6 +1295,12 @@ fn is_tarred(filename: &str) -> bool {
 /// (GitHub flattens the path: a demo at `demos/azul-maps-linux` uploads as the
 /// bare `azul-maps-linux` asset). SMALL → `https://azul.rs/ui/release/{version}/{filename}`.
 fn asset_url(version: &str, filename: &str) -> String {
+    // macOS drop-in libs are linked as their companion archive, which carries
+    // the un-quarantine helper and the README. The bare file is still served
+    // at the un-suffixed URL for api.json and Homebrew.
+    if MACOS_BUNDLED.contains(&filename) {
+        return format!("{HTML_ROOT}/release/{version}/{filename}.tar.gz");
+    }
     if is_large(filename) {
         // GitHub Release assets are flat — strip any `demos/` path prefix so the
         // link matches the uploaded asset name. Tarred assets (.a, demos) get a
@@ -1590,29 +1609,21 @@ pub fn generate_release_html(version: &str, api_data: &ApiData, assets: &Release
     // unconditionally (like the exotic-arch/package links) since the skeleton
     // build doesn't placeholder these — a not-yet-built one 404s rather than
     // vanishing. (crate, friendly name, one-line description.)
+    // Five apps, each showing something the others do not, in the order a
+    // reader should meet them. The set was pruned: AzVideo, AzScreenShare and
+    // AzCamera are all things AzMeet already does in one app; AzGamepad is a
+    // desktop rarity; AzSelfTest is a CI smoke test rather than a demo; and
+    // AzVault duplicated AzWriter's "real application" role.
     const DEMO_APPS: &[(&str, &str, &str)] = &[
-        ("azul-paint", "AzulPaint", "a small raster paint / drawing app"),
-        ("azul-widgets", "AzWidgets", "a showcase of all Azul widgets"),
-        ("azul-maps", "AzulMaps", "a slippy-map tile viewer"),
-        ("azul-vault", "AzulVault", "an encrypted SQLite-backed password vault"),
-        ("azul-gamepad", "AzGamepad", "a live gamepad / controller input tester"),
-        ("azul-camera-app", "AzCamera", "a webcam capture & preview widget demo"),
-        (
-            "azul-screenshare-app",
-            "AzScreenShare",
-            "a screen-capture / screenshare widget demo",
-        ),
-        ("azul-video-app", "AzVideo", "a video playback widget demo"),
+        ("azul-widgets", "AzWidgets", "every built-in widget in one window"),
+        ("azul-maps", "AzMaps", "a slippy-map tile viewer - async work in the UI"),
+        ("azul-paint", "AzPaint", "a small paint app - canvas drawing"),
         (
             "azul-meet",
             "AzMeet",
-            "a tiny video-call demo (UDP + audio sink + microphone)",
+            "screenshare, video and audio capture and playback",
         ),
-        (
-            "azul-self-test",
-            "AzSelfTest",
-            "unattended camera/mic/UDP/sensors/gamepad smoke test (logs to a file and exits)",
-        ),
+        ("azul-writer", "AzWriter", "a document editor - a full application"),
     ];
     // OS suffix → label + filename extension, matching the build_demos staging
     // names (azul-maps-linux, azul-maps-macos, azul-maps-windows.exe).
@@ -1624,7 +1635,7 @@ pub fn generate_release_html(version: &str, api_data: &ApiData, assets: &Release
     // Grouped by OS: each OS is a heading with a sub-list of "Name: what it is",
     // so the OS and filename aren't repeated on every line. .apk = the demos set
     // up as a NativeActivity cdylib; every demo ships an installable iOS .app.
-    const ANDROID_READY: &[&str] = &["azul-maps", "azul-paint", "azul-widgets", "azul-self-test"];
+    const ANDROID_READY: &[&str] = &["azul-maps", "azul-paint", "azul-widgets"];
     // (os heading, path template with {c}=crate). Desktop = demos/<crate>-<os>[.exe];
     // mobile = mobile-apps/<crate>-{ios.app.zip,android.apk} (Pages-hosted).
     let os_groups: &[(&str, &str, fn(&str) -> bool)] = &[
@@ -1655,7 +1666,7 @@ pub fn generate_release_html(version: &str, api_data: &ApiData, assets: &Release
                 .collect::<Vec<_>>()
                 .join("\n                    ");
             format!(
-                "<li><strong>{os_label}</strong>\n                  \
+                "<li class='release-os'><strong>{os_label}</strong>\n                  \
                  <ul>\n                    {items}\n                  </ul></li>",
                 os_label = os_label,
                 items = items
@@ -1673,19 +1684,23 @@ pub fn generate_release_html(version: &str, api_data: &ApiData, assets: &Release
         .iter()
         .map(|(crate_name, friendly, _desc)| {
             let url = asset_url(version, &format!("{crate_name}.Dockerfile"));
+            // The image tag is the app's own name, lowercased - so the command
+            // a reader copies names the thing they just clicked on, not the
+            // crate it happens to be built from.
+            let tag = friendly.to_lowercase();
             format!(
                 "<li><strong>{friendly}</strong>\n                      \
                  <pre>\
-                 <code class='language-bash'>docker build {url} -t {crate_name}\ndocker run -p 8080:8080 {crate_name}</code></pre></li>",
+                 <code class='language-bash'>docker build {url} -t {tag}\ndocker run -p 8080:8080 {tag}</code></pre></li>",
                 friendly = friendly,
                 url = url,
-                crate_name = crate_name
+                tag = tag
             )
         })
         .collect::<Vec<_>>()
         .join("\n                    ");
     demo_links.push_str(&format!(
-        "\n                <li><strong>Web (Docker, experimental)</strong>\n                  \
+        "\n                <li class='release-os release-os-web'><strong>Web (Docker, experimental)</strong>\n                  \
          <ul>\n                    {web_items}\n                  </ul></li>",
         web_items = web_items
     ));
