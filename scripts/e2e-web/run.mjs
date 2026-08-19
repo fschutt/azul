@@ -89,8 +89,25 @@ function parseArgs(argv) {
     // Desktop-parity env interface: AZ_BACKEND holds a URL when targeting a
     // web server (the desktop runner's value there is "headless"); AZ_E2E is
     // the spec file-or-dir exactly as on desktop. CLI flags override env.
-    const envBackend = /^https?:\/\//.test(process.env.AZ_BACKEND || '')
-        ? process.env.AZ_BACKEND : null;
+    //
+    // `web://host:port` is what the SERVER is launched with, so it is the value
+    // closest to hand and the one a person naturally reuses here. It denotes the
+    // same server, so accept it by rewriting the scheme. Previously it failed the
+    // https? test and fell through to the default port — silently testing a
+    // DIFFERENT server (8800 is hello-world, 8801 is AzWriter) and reporting a
+    // green run for a target nobody asked about. Anything else non-empty and
+    // non-"headless" is a typo: fail loudly instead of defaulting.
+    const rawBackend = process.env.AZ_BACKEND || '';
+    let envBackend = null;
+    if (/^https?:\/\//.test(rawBackend)) {
+        envBackend = rawBackend;
+    } else if (/^web:\/\//.test(rawBackend)) {
+        envBackend = rawBackend.replace(/^web:\/\//, 'http://');
+    } else if (rawBackend && rawBackend !== 'headless') {
+        console.error(`AZ_BACKEND=${rawBackend} is not a URL this harness can target.`);
+        console.error('Expected http://host:port (or web://host:port for the server\'s own form).');
+        process.exit(2);
+    }
     const opts = {
         specs: [],
         url: envBackend || 'http://127.0.0.1:8800',
