@@ -7,7 +7,7 @@
 //! Ties P4.1 (biometric) + P4.3 (db-sqlite) together using only the public
 //! `azul::` api.json surface.
 //!
-//! Async caveat (same as AzulMaps' locate): the OS prompt resolves on
+//! Async caveat (same as AzMaps' locate): the OS prompt resolves on
 //! another thread, so the result is polled on the next Unlock tap — a
 //! Timer-driven auto-unlock is a follow-up. This first cut adds + counts
 //! sample entries; custom key/value text input + a listing view (which

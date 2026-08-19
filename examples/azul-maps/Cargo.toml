@@ -5,7 +5,7 @@ edition = "2021"
 authors = ["Felix Schütt <felix.schuett@maps4print.com>"]
 license = "MIT"
 description = """
-    AzulMaps — the P3 goal app from SUPER_PLAN_2. Demonstrates the
+    AzMaps — the P3 goal app from SUPER_PLAN_2. Demonstrates the
     `MapWidget` (layout/src/widgets/map.rs) end-to-end on desktop:
     Web Mercator tile grid, viewport state, GPU-translated tile
     divs, `MapTileCache` `RefAny` dataset that survives relayout via

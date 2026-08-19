@@ -8,9 +8,9 @@
 # functions are pre-lifted into /cache at `docker build` time). STATUS: DRAFT
 # concept — see https://azul.rs/guide/deploying-web.
 #
-#   docker build --build-arg AZUL_VERSION=0.2.0 -t azul-widgets \
+#   docker build --build-arg AZUL_VERSION=0.2.0 -t azwidgets \
 #     https://raw.githubusercontent.com/fschutt/azul/0.2.0/examples/azul-widgets/Dockerfile
-#   docker run -p 8080:8080 azul-widgets        # then open http://localhost:8080
+#   docker run -p 8080:8080 azwidgets        # then open http://localhost:8080
 ARG AZUL_VERSION=0.2.0
 
 # ---- prelift: warm the WASM cache at BUILD time (azul library + app fns) -----

@@ -8,9 +8,9 @@
 # pre-lifted into /cache at `docker build` time). STATUS: DRAFT concept — see
 # https://azul.rs/guide/deploying-web.
 #
-#   docker build --build-arg AZUL_VERSION=0.2.0 -t azul-maps \
+#   docker build --build-arg AZUL_VERSION=0.2.0 -t azmaps \
 #     https://raw.githubusercontent.com/fschutt/azul/0.2.0/examples/azul-maps/Dockerfile
-#   docker run -p 8080:8080 azul-maps          # then open http://localhost:8080
+#   docker run -p 8080:8080 azmaps          # then open http://localhost:8080
 ARG AZUL_VERSION=0.2.0
 
 # ---- prelift: warm the WASM cache at BUILD time (azul library + app fns) -----

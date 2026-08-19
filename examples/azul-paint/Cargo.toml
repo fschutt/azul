@@ -5,7 +5,7 @@ edition = "2021"
 authors = ["Felix Schütt <felix.schuett@maps4print.com>"]
 license = "MIT"
 description = """
-    AzulPaint — finger / stylus paint demo. The P2 goal app from
+    AzPaint — finger / stylus paint demo. The P2 goal app from
     SUPER_PLAN_2 — exercises multi-touch TouchPointVec, the populated
     PenState (pressure + tilt), and the cross-platform mobile event
     surface. Save-as-SVG / Save-as-PNG round-trips through the mobile

@@ -1,4 +1,4 @@
-//! AzulMaps — the P3 goal app from SUPER_PLAN_2.
+//! AzMaps — the P3 goal app from SUPER_PLAN_2.
 //!
 //! Exercises the `MapWidget` skeleton landed in
 //! `layout/src/widgets/map.rs`. The widget computes the visible-tile
@@ -228,7 +228,7 @@ extern "C" fn layout(mut data: RefAny, _info: LayoutCallbackInfo) -> Dom {
 
     let attribution_text = layer.attribution.as_str().to_owned();
     let mut header_text = format!(
-        "AzulMaps — centre {:.4}°, {:.4}° · zoom {:.1}",
+        "AzMaps — centre {:.4}°, {:.4}° · zoom {:.1}",
         viewport.centre_lat_deg, viewport.centre_lon_deg, viewport.zoom
     );
     if let Some(h) = heading {
