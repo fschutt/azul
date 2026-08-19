@@ -27,7 +27,6 @@ pub fn generate_api_html(api_data: &ApiData, version: &str) -> String {
     let main_html = format!(
         r#"<section class="docs-hero">
       <div class="container">
-        <p class="docs-eyebrow">API reference</p>
         <h1>{title}</h1>
       </div>
     </section>
@@ -562,9 +561,8 @@ pub fn generate_api_index(api_data: &ApiData) -> String {
     let mut content = String::new();
     for version in api_data.get_sorted_versions() {
         content.push_str(&format!(
-            "<a class=\"docs-card\" href=\"{}/api/{}\"><h4>{}</h4><p>Full class and function \
-             reference for version {}</p></a>\n",
-            HTML_ROOT, version, version, version
+            "<a class=\"docs-card\" href=\"{}/api/{}\"><h4>{}</h4></a>\n",
+            HTML_ROOT, version, version
         ));
     }
 
@@ -574,9 +572,7 @@ pub fn generate_api_index(api_data: &ApiData) -> String {
     let main_html = format!(
         r#"<section class="docs-hero">
       <div class="container">
-        <p class="docs-eyebrow">API reference</p>
         <h1>{title}</h1>
-        <div id="azul-search-mount"></div>
       </div>
     </section>
     <section class="docs-body">

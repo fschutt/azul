@@ -1833,6 +1833,7 @@ fn main() -> anyhow::Result<()> {
                 config.deploy_mode,
                 &examples_dir,
                 &codegen_dir,
+                is_debug,
             )?;
 
             // Generate releases index page
@@ -1988,7 +1989,8 @@ fn main() -> anyhow::Result<()> {
                 ("azlin-index.template.html", "index.html", "workspace"),
             ] {
                 let page = fs::read_to_string(templates_dir.join(template))?
-                    .replace("<!-- NAV -->", &docgen::azlin_root_nav(active));
+                    .replace("<!-- NAV -->", &docgen::azlin_root_nav(active))
+                    .replace("<!-- FOOTER -->", &docgen::azlin_footer());
                 fs::write(root_dir.join(out), page)?;
             }
             // Clean-URL twins for the root marketing stubs (/ws, /os):
@@ -2034,6 +2036,7 @@ fn generate_release_pages(
     deploy_mode: dllgen::deploy::DeployMode,
     examples_dir: &std::path::Path,
     codegen_dir: &std::path::Path,
+    is_debug: bool,
 ) -> anyhow::Result<()> {
     use codegen::CppStandard;
     use dllgen::deploy::{DeployMode, ReleaseAssets};
@@ -2185,9 +2188,14 @@ fn generate_release_pages(
             let assets = ReleaseAssets::collect(&version_dir);
 
             // Generate release HTML page with dynamic sizes
-            let release_html = strip_html_links(&dllgen::deploy::generate_release_html(
+            let mut release_html = strip_html_links(&dllgen::deploy::generate_release_html(
                 version, api_data, &assets,
             ));
+            // Same rewrite every other page gets: without it a local preview
+            // loads the production stylesheets over the network.
+            if is_debug {
+                release_html = release_html.replace("https://azul.rs", "");
+            }
             // Twin release/<version>/index.html lands INSIDE the artifact
             // dir, making the extensionless /release/<version> URL resolve.
             write_page_with_clean_twin(
@@ -2201,9 +2209,14 @@ fn generate_release_pages(
         // Generate release HTML page with dynamic sizes (for strict mode, after validation)
         if deploy_mode == DeployMode::Strict {
             let assets = ReleaseAssets::collect(&version_dir);
-            let release_html = strip_html_links(&dllgen::deploy::generate_release_html(
+            let mut release_html = strip_html_links(&dllgen::deploy::generate_release_html(
                 version, api_data, &assets,
             ));
+            // Same rewrite every other page gets: without it a local preview
+            // loads the production stylesheets over the network.
+            if is_debug {
+                release_html = release_html.replace("https://azul.rs", "");
+            }
             // Twin release/<version>/index.html lands INSIDE the artifact
             // dir, making the extensionless /release/<version> URL resolve.
             write_page_with_clean_twin(

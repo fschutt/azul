@@ -1700,7 +1700,6 @@ pub fn generate_release_html(version: &str, api_data: &ApiData, assets: &Release
     let main_html = format!(
         "<section class='docs-hero'>
       <div class='container'>
-        <p class='docs-eyebrow'>Release</p>
         <h1>v{version}</h1>
         <p class='docs-lede'>Released {date} &middot; <a href='https://github.com/fschutt/azul/commit/{git}'>git {git}</a></p>
       </div>
@@ -1714,7 +1713,7 @@ pub fn generate_release_html(version: &str, api_data: &ApiData, assets: &Release
               </div>
 
               <nav class='release-jump' aria-label='Release sections'>
-                <strong>Jump to:</strong>
+                <strong class='docs-jump-label'>Jump to:</strong>
                 <ul>
                   <li><a href='#native-libraries'>Native libraries</a></li>
                   <li><a href='#debug-libraries'>Debug libraries</a></li>
@@ -1956,16 +1955,13 @@ pub fn generate_releases_index(versions: &[String]) -> String {
     // the BTreeMap, so iterate in reverse).
     let mut version_items = String::new();
     for (i, version) in versions.iter().rev().enumerate() {
-        let meta = if i == 0 {
-            "<p class='docs-meta'>Latest release</p>\n        "
-        } else {
-            ""
-        };
+        // The list is newest-first; a "latest release" label on the first
+        // entry tells the reader what the order already told them.
+        let meta = "";
         version_items.push_str(&format!(
             "<article class='docs-list-item'>
-        <h3><a href='{HTML_ROOT}/release/{version}'>Azul {version}</a></h3>
-        {meta}<p>Native libraries, language bindings, Linux packages, demos and release \
-             notes for Azul {version}.</p>
+        <h3><a href='{HTML_ROOT}/release/{version}'>v{version}</a></h3>
+        {meta}
         <a class='docs-read-more' href='{HTML_ROOT}/release/{version}'>Downloads &amp; release \
              notes</a>
       </article>\n      ",
@@ -1975,7 +1971,6 @@ pub fn generate_releases_index(versions: &[String]) -> String {
     let main_html = format!(
         "<section class='docs-hero'>
       <div class='container'>
-        <p class='docs-eyebrow'>Releases</p>
         <h1>Releases</h1>
       </div>
     </section>

@@ -197,20 +197,15 @@ pub fn generate_blog_post_html(post: &BlogPost) -> String {
         r#"    <section class="docs-hero">
       <div class="container">
         <h1>{title}</h1>
-        <p class="docs-lede docs-meta">Posted on {date}</p>
+        <p class="docs-meta">{date}</p>
       </div>
     </section>
     <section class="docs-body">
       <div class="container">
-        <div class="docs-layout">
         <div class="docs-content">
 {content}
           <hr/>
           <p><a href="{HTML_ROOT}/blog">&larr; Back to blog</a></p>
-        </div>
-        <aside class="docs-search-rail">
-          <div id="azul-search-mount" data-azs-inline></div>
-        </aside>
         </div>
       </div>
     </section>"#
@@ -248,7 +243,7 @@ pub fn generate_blog_index() -> String {
         post_items.push_str(&format!(
             r#"        <article class="docs-list-item">
           <h3><a href="{href}">{title}</a></h3>
-          <p class="docs-meta">Posted on {date}</p>
+          <p class="docs-meta">{date}</p>
           <p>{excerpt}</p>
           <a class="docs-read-more" href="{href}">Read more &rarr;</a>
         </article>
@@ -260,7 +255,6 @@ pub fn generate_blog_index() -> String {
     let main_html = format!(
         r#"    <section class="docs-hero">
       <div class="container">
-        <p class="docs-eyebrow">Blog</p>
         <h1>Blog</h1>
       </div>
     </section>

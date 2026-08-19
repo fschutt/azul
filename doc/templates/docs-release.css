@@ -98,3 +98,17 @@ a.docs-card.is-missing .docs-card-file::after {
 .docs-content .release-demos pre {
     margin: 8px 0 12px;
 }
+
+/* ---- "Jump to" strip -------------------------------------------------
+   The label sat at the browser's default size because nothing claimed it,
+   which put it a third smaller than the prose around it. */
+.docs-jump-label {
+    font-family: var(--font-caps);
+    font-size: 1rem;
+    font-weight: 700;
+    font-variant: all-small-caps;
+    letter-spacing: 0.1em;
+    color: var(--fl-soft1);
+    display: block;
+    margin-bottom: 6px;
+}
