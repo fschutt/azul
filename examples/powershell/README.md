@@ -62,7 +62,7 @@ $app.Run($wco)
 ```
 
 Phase I / J auto-conversion lights up identically through the C#
-bindings (strings flow through `Dom.CreateText("hi")`, `Equals` /
+bindings (strings flow through `Dom.CreateTextDoNotUseWithoutBlockLevelWrapper("hi")`, `Equals` /
 `GetHashCode` / `ToString` route through the C-ABI helpers, etc.).
 
 ## Files

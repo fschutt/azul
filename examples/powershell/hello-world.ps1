@@ -54,7 +54,7 @@ $layout = {
     }
 
     # Counter label, wrapped in a font-size-32 div.
-    $counterDom = [Azul.Dom]::CreateText((Convert-AzulString -Value ([string]$m.Counter)))
+    $counterDom = [Azul.Dom]::CreateTextDoNotUseWithoutBlockLevelWrapper((Convert-AzulString -Value ([string]$m.Counter)))
     $labelDiv   = [Azul.Dom]::CreateDiv().WithCss((Convert-AzulString -Value 'font-size: 32px;'))
     $labelDiv   = $labelDiv.WithChild($counterDom.Raw)
 

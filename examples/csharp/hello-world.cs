@@ -29,7 +29,7 @@ namespace HelloWorld
             if (m == null) return Dom.CreateBody();
             var label = Dom.CreateDiv()
                 .WithCss("font-size: 32px;")
-                .WithChild(Dom.CreateText(m.Counter.ToString()));
+                .WithChild(Dom.CreateTextDoNotUseWithoutBlockLevelWrapper(m.Counter.ToString()));
             var buttonDom = Button.Create("Increase counter")
                 .WithButtonType(ButtonType.Primary)
                 .OnClick(m, new Func<IntPtr, IntPtr, int>(OnClick))

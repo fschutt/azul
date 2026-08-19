@@ -73,11 +73,11 @@ begin
     Exit;
   end;
 
-  { Idiomatic wrapper classes: TDom.CreateText / CreateDiv / CreateBody are
+  { Idiomatic wrapper classes: TDom.CreateTextDoNotUseWithoutBlockLevelWrapper / CreateDiv / CreateBody are
     named constructors; builder methods return fresh TDom wrappers and
     consume their by-value inputs (ownership flips off, so .Free on a
     consumed wrapper only releases the object shell, never the DOM). }
-  counter_text := TDom.CreateText(MakeAzString(IntToStr(TMyModel(m).Counter)));
+  counter_text := TDom.CreateTextDoNotUseWithoutBlockLevelWrapper(MakeAzString(IntToStr(TMyModel(m).Counter)));
   label_wrap := TDom.CreateDiv.WithCss(MakeAzString('font-size: 32px;'))
                               .WithChild(counter_text);
 
