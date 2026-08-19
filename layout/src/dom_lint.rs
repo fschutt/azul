@@ -128,7 +128,7 @@ pub fn collect_text_placement_warnings(styled_dom: &StyledDom) -> Vec<String> {
             let mut c = hierarchy.get(parent_id).and_then(|p| p.first_child_id(parent_id));
             while let Some(cc) = c {
                 child_count += 1;
-                c = hierarchy.get(cc).and_then(|s| s.next_sibling_id());
+                c = hierarchy.get(cc).and_then(azul_core::styled_dom::NodeHierarchyItem::next_sibling_id);
             }
             if child_count > 1 {
                 out.push(format!(
@@ -167,7 +167,8 @@ pub fn collect_text_placement_warnings(styled_dom: &StyledDom) -> Vec<String> {
                     break;
                 }
             }
-            sibling = hierarchy.get(sib).and_then(|s| s.next_sibling_id());
+            sibling = hierarchy.get(sib)
+            .and_then(azul_core::styled_dom::NodeHierarchyItem::next_sibling_id);
         }
         if has_block_sibling {
             out.push(format!(

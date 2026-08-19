@@ -3402,17 +3402,16 @@ where
                                 None => (item.line_index, lo, hi),
                             });
                         }
-                        let (underline_x, preedit_width) = match span {
-                            Some((_, lo, hi)) => (lo + content_box_offset_x, hi - lo),
-                            None => {
-                                // Composition not (yet) in the cache — keep the
-                                // old estimate rather than drawing nothing.
-                                let char_count = preedit.chars().count() as f32;
-                                (
-                                    rect.origin.x + rect.size.width,
-                                    char_count * style.width.max(8.0),
-                                )
-                            }
+                        let (underline_x, preedit_width) = if let Some((_, lo, hi)) = span {
+                            (lo + content_box_offset_x, hi - lo)
+                        } else {
+                            // Composition not (yet) in the cache — keep the
+                            // old estimate rather than drawing nothing.
+                            let char_count = preedit.chars().count() as f32;
+                            (
+                                rect.origin.x + rect.size.width,
+                                char_count * style.width.max(8.0),
+                            )
                         };
                         let underline_bounds = LogicalRect {
                             origin: LogicalPosition {

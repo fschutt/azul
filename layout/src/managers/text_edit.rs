@@ -263,7 +263,7 @@ pub struct TextEditManager {
     /// break). The host pass drains this and dispatches an `Input` event per
     /// host, so widget mirrors observe every committed edit, not only
     /// insertions. Filled by `LayoutWindow::record_text_edit_undo`.
-    pub pending_edit_notifications: Vec<azul_core::dom::DomNodeId>,
+    pub pending_edit_notifications: Vec<DomNodeId>,
 }
 
 impl Default for TextEditManager {

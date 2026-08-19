@@ -2196,7 +2196,7 @@ pub fn apply_virtual_scroll_necessity(
         .node_data
         .as_container()
         .get(dom_id)
-        .is_some_and(|nd| nd.is_virtual_view_node());
+        .is_some_and(azul_core::dom::NodeData::is_virtual_view_node);
     if !is_virtual_view {
         return false;
     }
@@ -2212,22 +2212,19 @@ pub fn apply_virtual_scroll_necessity(
     let overflow_x = raw_overflow_x.resolve_computed(&raw_overflow_y);
     let overflow_y = raw_overflow_y.resolve_computed(&raw_overflow_x);
 
-    let mut raised = false;
-    if !reqs.needs_horizontal
+    let raise_horizontal = !reqs.needs_horizontal
         && overflow_x.allows_user_scrolling()
-        && virtual_content_size.width > padding_box_size.width + EPSILON
-    {
+        && virtual_content_size.width > padding_box_size.width + EPSILON;
+    if raise_horizontal {
         reqs.needs_horizontal = true;
-        raised = true;
     }
-    if !reqs.needs_vertical
+    let raise_vertical = !reqs.needs_vertical
         && overflow_y.allows_user_scrolling()
-        && virtual_content_size.height > padding_box_size.height + EPSILON
-    {
+        && virtual_content_size.height > padding_box_size.height + EPSILON;
+    if raise_vertical {
         reqs.needs_vertical = true;
-        raised = true;
     }
-    raised
+    raise_horizontal || raise_vertical
 }
 
 /// Determines scrollbar requirements for a node based on content overflow.

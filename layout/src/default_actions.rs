@@ -48,6 +48,9 @@ use std::collections::BTreeMap;
 /// caller (`LayoutWindow::build_editing_query_state`) because the decision
 /// function itself deliberately cannot see cursors.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+// Four independent facts about one caret position, not a state enum: any
+// combination of them can hold at once.
+#[allow(clippy::struct_excessive_bools)]
 pub struct EditingQueryState {
     /// The focused node is inside a `contenteditable` host.
     pub is_contenteditable: bool,

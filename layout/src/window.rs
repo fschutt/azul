@@ -2076,8 +2076,8 @@ impl LayoutWindow {
         &mut self,
         target: DomNodeId,
         pre_state: crate::managers::undo_redo::NodeStateSnapshot,
-        pre_content: Vec<crate::text3::cache::InlineContent>,
-        post_content: Vec<crate::text3::cache::InlineContent>,
+        pre_content: Vec<InlineContent>,
+        post_content: Vec<InlineContent>,
         operation: crate::managers::changeset::TextOperation,
         notify: TextEditNotify,
     ) -> usize {
@@ -2112,7 +2112,7 @@ impl LayoutWindow {
     /// (deduplicated, order-preserving). The host pass dispatches one
     /// `EventType::Input` per returned host.
     pub fn take_text_edit_notifications(&mut self) -> Vec<DomNodeId> {
-        let mut seen = std::collections::BTreeSet::new();
+        let mut seen = BTreeSet::new();
         self.text_edit_manager
             .pending_edit_notifications
             .drain(..)
@@ -12010,7 +12010,7 @@ impl LayoutWindow {
     /// Shape the live IME composition into the node's inline layout and
     /// regenerate the display list.
     ///
-    /// Called from the platform IME handler (setMarkedText / preedit_string).
+    /// Called from the platform IME handler (`setMarkedText` / `preedit_string`).
     /// Composes `base text + preedit` at the caret and re-shapes THAT — the
     /// composed string is never written to the content overlay, so it exists
     /// only as glyphs.
