@@ -4211,24 +4211,18 @@ unsafe extern "system" fn window_proc(
             // Control Panel / mouse-driver scroll speed did nothing on
             // Windows.
             //
-            // WHEEL_TICK_PIXELS is calibrated for the Windows DEFAULT of 3
-            // lines (and matches X11_SCROLL_TICK_PIXELS), so the setting is
-            // applied as a ratio against that default rather than as an
-            // absolute line height, which keeps the default behaviour
-            // bit-identical.
-            const WHEEL_TICK_PIXELS: f32 =
-                crate::desktop::shell2::common::event::WHEEL_SCROLL_PIXELS_PER_LINE;
-            const DEFAULT_WHEEL_SCROLL_LINES: f32 = 3.0;
-            // WHEEL_PAGESCROLL: "scroll one screen at a time".
-            const WHEEL_PAGESCROLL: u32 = u32::MAX;
+            // The ratio-against-the-default rule and the WHEEL_PAGESCROLL
+            // sentinel live in `common` so they are tested on every host —
+            // nothing in CI compiles this module. 0 lines is a legal setting
+            // meaning "wheel scrolling off", and the `px_per_notch > 0.0` gate
+            // below is what honours it.
             let wheel_lines = window.common.system_style.input.wheel_scroll_lines;
-            let px_per_notch = if wheel_lines == WHEEL_PAGESCROLL {
-                let dims = window.common.current_window_state.size.dimensions;
-                if horizontal { dims.width } else { dims.height }
-            } else {
-                // 0 lines is a legal setting and means "wheel scrolling off".
-                WHEEL_TICK_PIXELS * (wheel_lines as f32 / DEFAULT_WHEEL_SCROLL_LINES)
-            };
+            let dims = window.common.current_window_state.size.dimensions;
+            let px_per_notch =
+                crate::desktop::shell2::common::event::win32_wheel_pixels_per_notch(
+                    wheel_lines,
+                    if horizontal { dims.width } else { dims.height },
+                );
 
             // MWA-C-scroll: WM_MOUSEWHEEL/WM_MOUSEHWHEEL carry SCREEN
             // coordinates in lparam (unlike the client-relative WM_MOUSE*
@@ -4488,30 +4482,13 @@ unsafe extern "system" fn window_proc(
             // Character input - for text input
             let char_code = wparam as u32;
 
-            // Handle UTF-16 surrogate pairs
-            let is_high_surrogate = 0xD800 <= char_code && char_code <= 0xDBFF;
-            let is_low_surrogate = 0xDC00 <= char_code && char_code <= 0xDFFF;
-
-            let mut char_opt = None;
-            if is_high_surrogate {
-                window.high_surrogate = Some(char_code as u16);
-            } else if is_low_surrogate {
-                if let Some(high) = window.high_surrogate {
-                    // Decode UTF-16 surrogate pair
-                    let pair = [high, char_code as u16];
-                    if let Some(Ok(chr)) = char::decode_utf16(pair.iter().copied()).next() {
-                        char_opt = Some(chr);
-                    }
-                }
-                window.high_surrogate = None;
-            } else {
-                window.high_surrogate = None;
-                if let Some(chr) = char::from_u32(char_code) {
-                    if !chr.is_control() {
-                        char_opt = Some(chr);
-                    }
-                }
-            }
+            // UTF-16 surrogate pairing lives in `common` so it is tested on
+            // every host — nothing in CI compiles this module.
+            let char_opt =
+                crate::desktop::shell2::common::event::win32_utf16_stream_char(
+                    &mut window.high_surrogate,
+                    char_code,
+                );
 
             // Update keyboard state with character
             if let Some(chr) = char_opt {
@@ -4703,28 +4680,11 @@ unsafe extern "system" fn window_proc(
             // — pair them with the same `high_surrogate` slot WM_CHAR uses
             // (the two messages never interleave: an IME commit produces one
             // or the other, not both).
-            let is_high_surrogate = (0xD800..=0xDBFF).contains(&char_code);
-            let is_low_surrogate = (0xDC00..=0xDFFF).contains(&char_code);
-
-            let mut char_opt = None;
-            if is_high_surrogate {
-                window.high_surrogate = Some(char_code as u16);
-            } else if is_low_surrogate {
-                if let Some(high) = window.high_surrogate {
-                    let pair = [high, char_code as u16];
-                    if let Some(Ok(chr)) = char::decode_utf16(pair.iter().copied()).next() {
-                        char_opt = Some(chr);
-                    }
-                }
-                window.high_surrogate = None;
-            } else {
-                window.high_surrogate = None;
-                if let Some(chr) = char::from_u32(char_code) {
-                    if !chr.is_control() {
-                        char_opt = Some(chr);
-                    }
-                }
-            }
+            let char_opt =
+                crate::desktop::shell2::common::event::win32_utf16_stream_char(
+                    &mut window.high_surrogate,
+                    char_code,
+                );
 
             if let Some(chr) = char_opt {
                 window.common.previous_window_state = Some(window.common.current_window_state.clone());
@@ -5430,10 +5390,34 @@ impl Win32Window {
     /// deletion has to happen inside a frame. Never doing so crashed debug
     /// builds on close and leaked GPU resources in release.
     ///
+    /// `deinit()` issues real GL calls, so OUR context must be current: with
+    /// several windows open, whichever window rendered last left ITS context
+    /// current, and deinit would then delete textures/programs in the wrong
+    /// context (cross-context corruption + leaking the real resources). Same
+    /// reasoning, and the same prologue, as `X11Window::close`.
+    ///
     /// Must run while the HWND and the GL context are still alive, i.e. before
     /// `DestroyWindow`. `deinit_renderer()` takes the renderer out of the
     /// common state, so calling this twice is a no-op.
-    fn release_gpu_resources(&mut self) {
+    ///
+    /// `pub(crate)` because the WM_QUIT exit in `shell2::run` tears its windows
+    /// down without a WM_CLOSE/WM_DESTROY ever running.
+    pub(crate) fn release_gpu_resources(&mut self) {
+        if let RenderMode::Gpu { gl_context: hglrc, hdc: stored_hdc } = &self.render_mode {
+            #[cfg(target_os = "windows")]
+            unsafe {
+                use winapi::um::wingdi::wglMakeCurrent;
+                let hdc = if !stored_hdc.is_null() {
+                    *stored_hdc
+                } else {
+                    (self.win32.user32.GetDC)(self.hwnd)
+                };
+                wglMakeCurrent(
+                    hdc as winapi::shared::windef::HDC,
+                    *hglrc as winapi::shared::windef::HGLRC,
+                );
+            }
+        }
         self.common.deinit_renderer();
         if let Some(doc_id) = self.common.document_id {
             crate::desktop::gl_texture_integration::remove_document_textures(&doc_id);

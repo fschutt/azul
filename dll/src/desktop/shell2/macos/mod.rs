@@ -6069,9 +6069,11 @@ impl MacOSWindow {
             y: (window_height - position.y) as f64,
         };
 
-        let view = if let Some(ref gl_view) = self.gl_view {
-            Some(&**gl_view as &objc2::runtime::AnyObject)
-        } else { self.cpu_view.as_ref().map(|cpu_view| &**cpu_view as &objc2::runtime::AnyObject) };
+        let view: Option<&NSView> = if let Some(ref gl_view) = self.gl_view {
+            Some(&**gl_view)
+        } else {
+            self.cpu_view.as_ref().map(|cpu_view| &**cpu_view as &NSView)
+        };
 
         if let Some(view) = view {
             log_debug!(
@@ -6082,18 +6084,16 @@ impl MacOSWindow {
                 menu.items.as_slice().len()
             );
 
-            unsafe {
-                use objc2::{msg_send, runtime::AnyObject};
-
-                // msg_send! (not msg_send_id!): the method returns BOOL, not an
-                // object — matches the identical call in events.rs.
-                let _: () = msg_send![
-                    &ns_menu,
-                    popUpMenuPositioningItem: Option::<&AnyObject>::None,
-                    atLocation: view_point,
-                    inView: view
-                ];
-            }
+            // Typed binding, not msg_send!: the method returns BOOL and a
+            // `let _: () = msg_send![…]` declares a void return, which objc2's
+            // debug-assertions signature verification panics on. Same call as
+            // `present_pending_context_menu`; the BOOL is deliberately unused
+            // (activation arrives through the item's target/action).
+            let _selected: bool = ns_menu.popUpMenuPositioningItem_atLocation_inView(
+                None,
+                view_point,
+                Some(view),
+            );
         }
     }
 

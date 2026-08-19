@@ -1438,17 +1438,23 @@ pub fn run(
     // Two ways in. `registry::is_empty()` — every window already went through
     // WM_CLOSE/WM_DESTROY, so this loop finds nothing to do. Or `break
     // 'event_loop` on WM_QUIT — windows are still OPEN and got neither, so this
-    // is the only place their renderer is released. `Renderer::deinit()` is not
+    // is the only place their GPU side is released. `Renderer::deinit()` is not
     // a `Drop` (see `CommonWindowState::deinit_renderer`): dropping the boxed
     // window instead deletes textures outside a frame, which aborts a debug
-    // build in `SharedDepthTarget::drop`. It takes the renderer, so a window
-    // that DID go through the close path is unaffected.
+    // build in `SharedDepthTarget::drop`. `release_gpu_resources()` is the
+    // whole teardown the close path runs — it makes THIS window's wgl context
+    // current first (deinit issues GL calls, and with several windows open the
+    // one that rendered last left its own context current) and drops the
+    // window's document textures. It takes the renderer, so a window that DID
+    // go through the close path is unaffected. X11/Wayland/macOS reach the
+    // equivalent teardown from their `Drop` impls; `Win32Window` has none, so
+    // the call is explicit here.
     let window_handles = registry::get_all_window_handles();
     for hwnd in window_handles {
         if let Some(win_ptr) = registry::unregister_window(hwnd) {
             // SAFETY: We created this pointer with Box::into_raw
             unsafe {
-                (*win_ptr).common.deinit_renderer();
+                (*win_ptr).release_gpu_resources();
                 drop(Box::from_raw(win_ptr));
             }
         }

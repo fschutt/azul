@@ -979,6 +979,37 @@ pub struct WaylandDragState {
     pub pending_has_uri_list: bool,
 }
 
+impl WaylandDragState {
+    /// `wl_data_device.data_offer`: a new offer exists. It may turn out to be a
+    /// drag or a clipboard selection; nothing says which yet.
+    ///
+    /// This event fires for EVERY incoming offer, including every clipboard
+    /// change in every OTHER application. Resetting `has_uri_list` here is what
+    /// made a mid-drag clipboard change stop `data_device_motion` from
+    /// accepting, so the drop was refused.
+    pub(super) fn begin_offer(&mut self, id: *mut wl_data_offer) {
+        self.pending_offer = id;
+        self.pending_has_uri_list = false;
+    }
+
+    /// `wl_data_offer.offer`: one advertised mime type of `offer`. An offer's
+    /// mime list arrives BEFORE the `enter`/`selection` that reveals what the
+    /// offer is for, so it is accumulated against the offer itself.
+    pub(super) fn note_offered_mime(&mut self, offer: *mut wl_data_offer, mime: &str) {
+        if mime == URI_LIST_MIME && offer == self.pending_offer {
+            self.pending_has_uri_list = true;
+        }
+    }
+
+    /// `wl_data_device.enter`: THIS offer is a drag. The only writer of
+    /// `has_uri_list` — and it promotes the advertisement of this offer, never
+    /// of whatever clipboard offer happened to arrive last.
+    pub(super) fn begin_drag(&mut self, id: *mut wl_data_offer) {
+        self.has_uri_list =
+            !id.is_null() && id == self.pending_offer && self.pending_has_uri_list;
+    }
+}
+
 /// Create the wl_data_device once both the manager and the seat are bound
 /// (idempotent; called from both registry arms in any order — mirrors
 /// `try_init_tablet`).
@@ -1012,9 +1043,7 @@ extern "C" fn data_offer_offer(
     let mime = unsafe { CStr::from_ptr(mime_type).to_str().unwrap_or_default() };
     // Record against the OFFER, not the drag. Whether this offer is a drag or a
     // clipboard selection is not known until `enter` / `selection` arrives.
-    if mime == URI_LIST_MIME && offer == window.drag.pending_offer {
-        window.drag.pending_has_uri_list = true;
-    }
+    window.drag.note_offered_mime(offer, mime);
 }
 extern "C" fn data_offer_source_actions(
     _data: *mut c_void,
@@ -1043,8 +1072,7 @@ extern "C" fn data_device_data_offer(
     // change in any other app also delivers an offer here, and resetting the drag
     // flag from it made a mid-drag clipboard change stop `data_device_motion`
     // from accepting — the drop was then refused.
-    window.drag.pending_offer = id;
-    window.drag.pending_has_uri_list = false;
+    window.drag.begin_offer(id);
     unsafe { (window.wayland.wl_data_offer_add_listener)(id, &WL_DATA_OFFER_LISTENER, data) };
 }
 
@@ -1138,9 +1166,7 @@ extern "C" fn data_device_enter(
     window.drag.enter_serial = serial;
     // This is the event that says "that offer is a DRAG" — promote its
     // accumulated mime advertisement now.
-    window.drag.has_uri_list = !id.is_null()
-        && id == window.drag.pending_offer
-        && window.drag.pending_has_uri_list;
+    window.drag.begin_drag(id);
     // wl_fixed (24.8) -> logical pixels.
     let pos = azul_core::geom::LogicalPosition::new(x as f32 / 256.0, y as f32 / 256.0);
     window.drag.position = pos;
@@ -1269,19 +1295,34 @@ pub(super) unsafe fn receive_offer_bytes(
     (window.wayland.wl_display_flush)(window.display);
     libc::close(write_fd);
 
-    // The fd on the other end belongs to a FOREIGN process. A source that hangs,
-    // is stopped, or dies without closing its write end used to freeze the whole
-    // UI thread in `read()` forever — blocking calls on the UI thread are
-    // forbidden, and this one was reachable from an ordinary Ctrl+V. Non-blocking
-    // read end (the write end keeps its blocking semantics — it is the source's
-    // fd and O_NONBLOCK there would truncate large payloads) plus a poll deadline,
-    // matching the XWayland fallback's CLIPBOARD_READ_TIMEOUT.
+    drain_offer_pipe(read_fd, OFFER_READ_TIMEOUT, mime_type)
+}
+
+/// Read a `wl_data_offer` pipe to EOF, giving up after `timeout`. Closes
+/// `read_fd` on every exit path.
+///
+/// The fd on the other end belongs to a FOREIGN process. A source that hangs,
+/// is stopped, or dies without closing its write end used to freeze the whole
+/// UI thread in `read()` forever — blocking calls on the UI thread are
+/// forbidden, and this one was reachable from an ordinary Ctrl+V. So: a
+/// non-blocking read end (the write end keeps its blocking semantics — it is
+/// the source's fd and `O_NONBLOCK` there would truncate large payloads) plus a
+/// poll deadline, matching the XWayland fallback's `CLIPBOARD_READ_TIMEOUT`. A
+/// timeout returns whatever arrived rather than never returning.
+///
+/// # Safety
+/// `read_fd` must be an owned, open fd; this function closes it.
+pub(super) unsafe fn drain_offer_pipe(
+    read_fd: i32,
+    timeout: std::time::Duration,
+    mime_type: &str,
+) -> Vec<u8> {
     let flags = libc::fcntl(read_fd, libc::F_GETFL, 0);
     if flags >= 0 {
         libc::fcntl(read_fd, libc::F_SETFL, flags | libc::O_NONBLOCK);
     }
 
-    let deadline = std::time::Instant::now() + OFFER_READ_TIMEOUT;
+    let deadline = std::time::Instant::now() + timeout;
     let mut buf = Vec::new();
     let mut chunk = [0u8; 4096];
     'transfer: loop {
@@ -1292,7 +1333,7 @@ pub(super) unsafe fn receive_offer_bytes(
                 "[Wayland] '{}' transfer timed out after {:?} ({} bytes read) — abandoning the \
                  pipe rather than blocking the UI thread",
                 mime_type,
-                OFFER_READ_TIMEOUT,
+                timeout,
                 buf.len()
             );
             break;
@@ -2046,25 +2087,32 @@ extern "C" fn keyboard_enter_handler(
 ) {
     let window = unsafe { &mut *(data as *mut WaylandWindow) };
 
-    // `keys` is a wl_array of the evdev keycodes held down AT THE MOMENT focus
-    // arrives — the compositor never replays their press events. Dropping it
-    // meant a key held across the focus change (Ctrl during Alt-Tab) was invisible
-    // to us until its release, which then removed something we never added.
-    // The listener types it as *mut c_void; the protocol type is wl_array.
-    let held: Vec<u32> = if keys.is_null() {
-        Vec::new()
-    } else {
-        let array = unsafe { &*(keys as *const wl_array) };
-        if array.data.is_null() {
-            Vec::new()
-        } else {
-            let count = array.size / std::mem::size_of::<u32>();
-            let keycodes = array.data as *const u32;
-            (0..count).map(|i| unsafe { *keycodes.add(i) }).collect()
-        }
-    };
-
+    let held = unsafe { held_keycodes_from_wl_array(keys) };
     window.handle_keyboard_enter(&held);
+}
+
+/// Decode the `keys` argument of `wl_keyboard.enter` — the evdev keycodes held
+/// down AT THE MOMENT focus arrives.
+///
+/// The compositor never replays the presses of those keys, so discarding the
+/// array left a key held across the focus change (Ctrl during Alt-Tab)
+/// invisible until its release, which then removed something we never added.
+/// The listener types the argument `*mut c_void`; the protocol type is
+/// `wl_array`, whose `size` is in BYTES.
+///
+/// # Safety
+/// `keys` must be null or a live `wl_array` of `u32`.
+pub(super) unsafe fn held_keycodes_from_wl_array(keys: *mut c_void) -> Vec<u32> {
+    if keys.is_null() {
+        return Vec::new();
+    }
+    let array = unsafe { &*(keys as *const wl_array) };
+    if array.data.is_null() {
+        return Vec::new();
+    }
+    let count = array.size / std::mem::size_of::<u32>();
+    let keycodes = array.data as *const u32;
+    (0..count).map(|i| unsafe { *keycodes.add(i) }).collect()
 }
 extern "C" fn keyboard_leave_handler(
     data: *mut c_void,
@@ -2398,5 +2446,204 @@ mod tests {
         };
         assert!(MARSHAL_CALLS.lock().unwrap().is_empty());
         assert!(DESTROY_CALLS.lock().unwrap().is_empty());
+    }
+
+    fn offer(n: usize) -> *mut wl_data_offer {
+        n as *mut wl_data_offer
+    }
+
+    /// `wl_data_device.data_offer` fires for EVERY incoming offer, including
+    /// every clipboard change in every other running application. It must not
+    /// touch the in-progress drag: doing so cleared `has_uri_list`,
+    /// `data_device_motion` stopped accepting, and the drop was refused —
+    /// "dragging a file in stops working if anything copies text meanwhile".
+    ///
+    /// NEGATIVE CONTROL: add `self.has_uri_list = false;` to `begin_offer` (the
+    /// pre-fix line) — the assertion after the clipboard offer goes red.
+    #[test]
+    fn a_clipboard_offer_mid_drag_does_not_cancel_the_drop() {
+        let mut drag = WaylandDragState::default();
+        let dragged = offer(0x1001);
+        let clipboard = offer(0x2002);
+
+        drag.begin_offer(dragged);
+        drag.note_offered_mime(dragged, URI_LIST_MIME);
+        drag.begin_drag(dragged);
+        assert!(drag.has_uri_list);
+
+        drag.begin_offer(clipboard);
+        drag.note_offered_mime(clipboard, "text/plain");
+        assert!(
+            drag.has_uri_list,
+            "another app's clipboard change is not this drag's business"
+        );
+    }
+
+    /// The mime advertisement belongs to the offer that advertised it. A
+    /// clipboard offer carrying `text/uri-list` (a file manager copying a file)
+    /// must not make the NEXT drag droppable when that drag offers nothing.
+    ///
+    /// NEGATIVE CONTROL: reduce `begin_drag` to
+    /// `self.has_uri_list = self.pending_has_uri_list;` — dropping the identity
+    /// check makes the second `begin_drag` inherit the first offer's flag.
+    #[test]
+    fn a_drag_only_inherits_its_own_mime_advertisement() {
+        let mut drag = WaylandDragState::default();
+        let with_files = offer(0x1001);
+        let without = offer(0x2002);
+
+        drag.begin_offer(with_files);
+        drag.note_offered_mime(with_files, URI_LIST_MIME);
+        drag.begin_offer(without);
+        drag.begin_drag(without);
+        assert!(!drag.has_uri_list);
+
+        // ... and a mime advertised against a DIFFERENT offer than the pending
+        // one is never recorded at all.
+        drag.note_offered_mime(with_files, URI_LIST_MIME);
+        assert!(!drag.pending_has_uri_list);
+    }
+
+    /// A drag with no offer at all (the compositor signalling "nothing here")
+    /// is not droppable.
+    #[test]
+    fn a_null_drag_offer_is_not_droppable() {
+        let mut drag = WaylandDragState::default();
+        drag.begin_offer(std::ptr::null_mut());
+        drag.note_offered_mime(std::ptr::null_mut(), URI_LIST_MIME);
+        drag.begin_drag(std::ptr::null_mut());
+        assert!(!drag.has_uri_list);
+    }
+
+    /// `wl_keyboard.enter` carries the keys already held when focus arrives;
+    /// the compositor never replays their presses. Discarding the array left
+    /// Ctrl-held-through-Alt-Tab invisible until a release that then removed a
+    /// code nothing had added.
+    ///
+    /// NEGATIVE CONTROL: `return Vec::new();` as the first line of
+    /// `held_keycodes_from_wl_array` — the held-key assertion goes red.
+    #[test]
+    fn the_enter_array_yields_every_held_keycode() {
+        let mut held: Vec<u32> = vec![29, 42, 16];
+        let mut array = wl_array {
+            size: held.len() * std::mem::size_of::<u32>(),
+            alloc: held.len() * std::mem::size_of::<u32>(),
+            data: held.as_mut_ptr() as *mut c_void,
+        };
+
+        let decoded =
+            unsafe { held_keycodes_from_wl_array(&mut array as *mut wl_array as *mut c_void) };
+        assert_eq!(decoded, vec![29, 42, 16]);
+    }
+
+    /// `wl_array.size` is in BYTES; reading it as an element count would run
+    /// four times past the end of the allocation.
+    ///
+    /// NEGATIVE CONTROL: `let count = array.size;` (dropping the
+    /// `/ size_of::<u32>()`) returns 4 entries for a 1-key array.
+    #[test]
+    fn the_enter_array_size_is_bytes_not_elements() {
+        let mut held: Vec<u32> = vec![58];
+        let mut array = wl_array {
+            size: std::mem::size_of::<u32>(),
+            alloc: std::mem::size_of::<u32>(),
+            data: held.as_mut_ptr() as *mut c_void,
+        };
+        let decoded =
+            unsafe { held_keycodes_from_wl_array(&mut array as *mut wl_array as *mut c_void) };
+        assert_eq!(decoded, vec![58]);
+    }
+
+    /// Focus arriving with nothing held, and the degenerate arrays a
+    /// compositor may send.
+    #[test]
+    fn an_empty_or_null_enter_array_holds_nothing() {
+        assert!(unsafe { held_keycodes_from_wl_array(std::ptr::null_mut()) }.is_empty());
+
+        let mut empty = wl_array {
+            size: 0,
+            alloc: 0,
+            data: std::ptr::null_mut(),
+        };
+        assert!(unsafe {
+            held_keycodes_from_wl_array(&mut empty as *mut wl_array as *mut c_void)
+        }
+        .is_empty());
+    }
+
+    /// A `wl_data_offer` pipe whose FOREIGN source never writes and never
+    /// closes must not hold the UI thread. Before the deadline this was a
+    /// `read()` to EOF on the main thread, reachable from an ordinary Ctrl+V.
+    ///
+    /// The drain runs on a worker so a regression fails this test instead of
+    /// hanging the suite.
+    ///
+    /// NEGATIVE CONTROL: delete the `if remaining.is_zero() { … break; }`
+    /// guard, or drop the `timeout_ms` argument to `poll` in favour of `-1` —
+    /// the receiver times out and the test panics.
+    #[test]
+    fn a_silent_pipe_source_cannot_hold_the_ui_thread() {
+        let mut fds = [0i32; 2];
+        assert_eq!(unsafe { libc::pipe2(fds.as_mut_ptr(), libc::O_CLOEXEC) }, 0);
+        let (read_fd, write_fd) = (fds[0], fds[1]);
+
+        let (tx, rx) = std::sync::mpsc::channel();
+        std::thread::spawn(move || {
+            let started = std::time::Instant::now();
+            let got = unsafe {
+                drain_offer_pipe(read_fd, std::time::Duration::from_millis(120), "text/plain")
+            };
+            let _ = tx.send((got, started.elapsed()));
+        });
+
+        let (got, elapsed) = rx
+            .recv_timeout(std::time::Duration::from_secs(5))
+            .expect("the drain must give up on its own deadline, not block forever");
+        assert!(got.is_empty());
+        assert!(
+            elapsed >= std::time::Duration::from_millis(100),
+            "it must WAIT for the deadline, not spin: {elapsed:?}"
+        );
+        unsafe { libc::close(write_fd) };
+    }
+
+    /// The deadline must not truncate a source that does answer: everything
+    /// written before EOF has to arrive.
+    ///
+    /// NEGATIVE CONTROL: `break 'transfer;` in place of the
+    /// `EAGAIN`/`EWOULDBLOCK` `continue 'transfer` — a payload that arrives in
+    /// more than one chunk comes back short.
+    #[test]
+    fn a_pipe_that_answers_is_read_to_eof() {
+        let mut fds = [0i32; 2];
+        assert_eq!(unsafe { libc::pipe2(fds.as_mut_ptr(), libc::O_CLOEXEC) }, 0);
+        let (read_fd, write_fd) = (fds[0], fds[1]);
+
+        let payload = vec![b'z'; 200_000];
+        let expected = payload.len();
+        let writer = std::thread::spawn(move || {
+            let mut sent = 0usize;
+            while sent < payload.len() {
+                let n = unsafe {
+                    libc::write(
+                        write_fd,
+                        payload[sent..].as_ptr() as *const c_void,
+                        payload.len() - sent,
+                    )
+                };
+                if n <= 0 {
+                    break;
+                }
+                sent += n as usize;
+            }
+            unsafe { libc::close(write_fd) };
+        });
+
+        let got = unsafe {
+            drain_offer_pipe(read_fd, std::time::Duration::from_secs(5), "text/plain")
+        };
+        writer.join().unwrap();
+        assert_eq!(got.len(), expected);
+        assert!(got.iter().all(|b| *b == b'z'));
     }
 }

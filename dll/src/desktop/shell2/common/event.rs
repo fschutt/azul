@@ -153,7 +153,7 @@ use azul_core::{
     refany::RefAny,
     resources::{IdNamespace, ImageCache, RendererResources},
     styled_dom::NodeHierarchyItemId,
-    window::RawWindowHandle,
+    window::{RawWindowHandle, VirtualKeyCode},
     FastBTreeSet,
 };
 use azul_layout::{
@@ -945,6 +945,214 @@ pub fn check_input_delta_consumed(
             "[AZ_VALIDATE] unconsumed input delta at {site}: previous_window_state.{field} != \
              current_window_state.{field}"
         );
+    }
+}
+
+// Platform input translation
+//
+// Pure functions the `#[cfg(target_os = ...)]` backends delegate to. They live
+// HERE, not in `windows/` or `macos/`, for one reason: nothing in CI builds
+// those modules — the only `azul-dll` unit-test run is `cd dll && cargo test`
+// on ubuntu — so a test placed next to the code it pins never executes, and a
+// table or a unit conversion that silently regresses stays silent until a user
+// on that OS notices. Everything below compiles and is tested on every host.
+
+/// Decode one UTF-16 code unit of a Win32 character stream (`WM_CHAR` /
+/// `WM_IME_CHAR`), pairing surrogates across messages.
+///
+/// Win32 delivers text as UTF-16, so anything outside the BMP — a
+/// supplementary-plane CJK ideograph, an emoji committed by an IME — arrives as
+/// TWO messages carrying the halves of a surrogate pair. `char::from_u32`
+/// answers `None` for a lone half, so passing `wparam` straight to it dropped
+/// both halves and the character never appeared at all. `high_surrogate` is the
+/// caller's one-slot carry (`Win32Window::high_surrogate`); `WM_CHAR` and
+/// `WM_IME_CHAR` never interleave for one commit, so a single slot serves both.
+///
+/// `None` means "nothing to insert yet": a pair still waiting for its low half,
+/// an unpaired low half, or a control character (never text input).
+#[must_use]
+pub fn win32_utf16_stream_char(high_surrogate: &mut Option<u16>, code_unit: u32) -> Option<char> {
+    if (0xD800..=0xDBFF).contains(&code_unit) {
+        *high_surrogate = Some(code_unit as u16);
+        return None;
+    }
+    if (0xDC00..=0xDFFF).contains(&code_unit) {
+        let high = high_surrogate.take()?;
+        let pair = [high, code_unit as u16];
+        return match char::decode_utf16(pair.iter().copied()).next() {
+            Some(Ok(chr)) => Some(chr),
+            _ => None,
+        };
+    }
+    *high_surrogate = None;
+    char::from_u32(code_unit).filter(|chr| !chr.is_control())
+}
+
+/// Logical pixels one wheel notch scrolls on Win32, from the user's
+/// `SPI_GETWHEELSCROLLLINES` setting (`SystemStyle::input::wheel_scroll_lines`).
+///
+/// The setting was captured and then read by nobody — the notch was hardcoded —
+/// so the Control Panel / mouse-driver scroll speed did nothing on Windows.
+/// Applied as a RATIO against the Windows default of 3 lines rather than as an
+/// absolute line height, which keeps the default bit-identical to
+/// [`WHEEL_SCROLL_PIXELS_PER_LINE`] (and therefore to X11 and macOS).
+///
+/// `viewport_extent` is the scroll axis' viewport size, used only by the
+/// "one screen at a time" sentinel. `0` lines is a legal setting meaning
+/// "wheel scrolling off" and yields `0.0`, which the caller must treat as a
+/// gate — recording the scroll AND arming the physics timer.
+#[must_use]
+pub fn win32_wheel_pixels_per_notch(wheel_scroll_lines: u32, viewport_extent: f32) -> f32 {
+    // The SPI_GETWHEELSCROLLLINES sentinel for "scroll one screen at a time".
+    const WHEEL_PAGESCROLL: u32 = u32::MAX;
+    const DEFAULT_WHEEL_SCROLL_LINES: f32 = 3.0;
+
+    if wheel_scroll_lines == WHEEL_PAGESCROLL {
+        viewport_extent
+    } else {
+        WHEEL_SCROLL_PIXELS_PER_LINE * (wheel_scroll_lines as f32 / DEFAULT_WHEEL_SCROLL_LINES)
+    }
+}
+
+/// Convert one axis of a scroll delta to the engine's raw-delta unit, PIXELS.
+///
+/// A precise device (trackpad, `hasPreciseScrollingDeltas()`) already reports
+/// pixels and passes through untouched. A ratcheting wheel reports LINES — about
+/// ±1 per notch — and has to be scaled, or the same physical notch scrolls ~20x
+/// less than it does on X11/Win32, which is exactly how macOS wheels ended up
+/// crawling.
+#[must_use]
+pub fn discrete_scroll_delta_to_pixels(raw_delta: f64, has_precise_deltas: bool) -> f64 {
+    if has_precise_deltas {
+        raw_delta
+    } else {
+        raw_delta * f64::from(WHEEL_SCROLL_PIXELS_PER_LINE)
+    }
+}
+
+/// Translate a macOS hardware keycode (`NSEvent::keyCode`) to a
+/// [`VirtualKeyCode`].
+///
+/// `None` means the engine emits NOTHING for that key: `update_keyboard_state`
+/// returns early, so an unmapped key is not merely unlabelled, it is dead. The
+/// navigation cluster, the function row, the keypad and the right-hand modifiers
+/// were all missing for exactly that reason — the nav keys emit Private-Use-Area
+/// characters (U+F700..U+F7FF) that the text-input filter correctly refuses to
+/// insert, so a missing entry produced no engine event whatsoever.
+///
+/// Keycode list: <https://eastmanreference.com/complete-list-of-applescript-key-codes>
+#[must_use]
+pub fn macos_keycode_to_virtual_key(keycode: u16) -> Option<VirtualKeyCode> {
+    match keycode {
+        0x00 => Some(VirtualKeyCode::A),
+        0x01 => Some(VirtualKeyCode::S),
+        0x02 => Some(VirtualKeyCode::D),
+        0x03 => Some(VirtualKeyCode::F),
+        0x04 => Some(VirtualKeyCode::H),
+        0x05 => Some(VirtualKeyCode::G),
+        0x06 => Some(VirtualKeyCode::Z),
+        0x07 => Some(VirtualKeyCode::X),
+        0x08 => Some(VirtualKeyCode::C),
+        0x09 => Some(VirtualKeyCode::V),
+        0x0B => Some(VirtualKeyCode::B),
+        0x0C => Some(VirtualKeyCode::Q),
+        0x0D => Some(VirtualKeyCode::W),
+        0x0E => Some(VirtualKeyCode::E),
+        0x0F => Some(VirtualKeyCode::R),
+        0x10 => Some(VirtualKeyCode::Y),
+        0x11 => Some(VirtualKeyCode::T),
+        0x12 => Some(VirtualKeyCode::Key1),
+        0x13 => Some(VirtualKeyCode::Key2),
+        0x14 => Some(VirtualKeyCode::Key3),
+        0x15 => Some(VirtualKeyCode::Key4),
+        0x16 => Some(VirtualKeyCode::Key6),
+        0x17 => Some(VirtualKeyCode::Key5),
+        0x18 => Some(VirtualKeyCode::Equals),
+        0x19 => Some(VirtualKeyCode::Key9),
+        0x1A => Some(VirtualKeyCode::Key7),
+        0x1B => Some(VirtualKeyCode::Minus),
+        0x1C => Some(VirtualKeyCode::Key8),
+        0x1D => Some(VirtualKeyCode::Key0),
+        0x1E => Some(VirtualKeyCode::RBracket),
+        0x1F => Some(VirtualKeyCode::O),
+        0x20 => Some(VirtualKeyCode::U),
+        0x21 => Some(VirtualKeyCode::LBracket),
+        0x22 => Some(VirtualKeyCode::I),
+        0x23 => Some(VirtualKeyCode::P),
+        0x24 => Some(VirtualKeyCode::Return),
+        0x25 => Some(VirtualKeyCode::L),
+        0x26 => Some(VirtualKeyCode::J),
+        0x27 => Some(VirtualKeyCode::Apostrophe),
+        0x28 => Some(VirtualKeyCode::K),
+        0x29 => Some(VirtualKeyCode::Semicolon),
+        0x2A => Some(VirtualKeyCode::Backslash),
+        0x2B => Some(VirtualKeyCode::Comma),
+        0x2C => Some(VirtualKeyCode::Slash),
+        0x2D => Some(VirtualKeyCode::N),
+        0x2E => Some(VirtualKeyCode::M),
+        0x2F => Some(VirtualKeyCode::Period),
+        0x30 => Some(VirtualKeyCode::Tab),
+        0x31 => Some(VirtualKeyCode::Space),
+        0x32 => Some(VirtualKeyCode::Grave),
+        0x33 => Some(VirtualKeyCode::Back),
+        0x35 => Some(VirtualKeyCode::Escape),
+        0x37 => Some(VirtualKeyCode::LWin), // Command
+        0x38 => Some(VirtualKeyCode::LShift),
+        0x39 => Some(VirtualKeyCode::Capital), // Caps Lock
+        0x3A => Some(VirtualKeyCode::LAlt),    // Option
+        0x3B => Some(VirtualKeyCode::LControl),
+        0x36 => Some(VirtualKeyCode::RWin), // Right Command
+        0x3C => Some(VirtualKeyCode::RShift),
+        0x3D => Some(VirtualKeyCode::RAlt),
+        0x3E => Some(VirtualKeyCode::RControl),
+        // Keypad. Its digits/operators also produce ordinary characters, so the
+        // text-insert path in handle_key_down keeps working; these entries are
+        // what gives them a VirtualKeyDown as well.
+        0x41 => Some(VirtualKeyCode::NumpadDecimal),
+        0x43 => Some(VirtualKeyCode::NumpadMultiply),
+        0x45 => Some(VirtualKeyCode::NumpadAdd),
+        0x47 => Some(VirtualKeyCode::Numlock), // Keypad Clear sits in the NumLock position
+        0x4B => Some(VirtualKeyCode::NumpadDivide),
+        0x4C => Some(VirtualKeyCode::NumpadEnter),
+        0x4E => Some(VirtualKeyCode::NumpadSubtract),
+        0x51 => Some(VirtualKeyCode::NumpadEquals),
+        0x52 => Some(VirtualKeyCode::Numpad0),
+        0x53 => Some(VirtualKeyCode::Numpad1),
+        0x54 => Some(VirtualKeyCode::Numpad2),
+        0x55 => Some(VirtualKeyCode::Numpad3),
+        0x56 => Some(VirtualKeyCode::Numpad4),
+        0x57 => Some(VirtualKeyCode::Numpad5),
+        0x58 => Some(VirtualKeyCode::Numpad6),
+        0x59 => Some(VirtualKeyCode::Numpad7),
+        0x5B => Some(VirtualKeyCode::Numpad8),
+        0x5C => Some(VirtualKeyCode::Numpad9),
+        // Function row. macOS orders these by hardware position, not by number.
+        0x60 => Some(VirtualKeyCode::F5),
+        0x61 => Some(VirtualKeyCode::F6),
+        0x62 => Some(VirtualKeyCode::F7),
+        0x63 => Some(VirtualKeyCode::F3),
+        0x64 => Some(VirtualKeyCode::F8),
+        0x65 => Some(VirtualKeyCode::F9),
+        0x67 => Some(VirtualKeyCode::F11),
+        0x6D => Some(VirtualKeyCode::F10),
+        0x6E => Some(VirtualKeyCode::Apps), // PC "Menu" / contextual-menu key
+        0x6F => Some(VirtualKeyCode::F12),
+        0x76 => Some(VirtualKeyCode::F4),
+        0x78 => Some(VirtualKeyCode::F2),
+        0x7A => Some(VirtualKeyCode::F1),
+        // Navigation cluster. These emit Private-Use-Area characters
+        // (U+F700..U+F7FF), which handle_key_down correctly refuses to insert as
+        // text — so without an entry here they produced no engine event AT ALL.
+        0x73 => Some(VirtualKeyCode::Home),
+        0x74 => Some(VirtualKeyCode::PageUp),
+        0x75 => Some(VirtualKeyCode::Delete), // ForwardDelete (Back = 0x33 is Backspace)
+        0x77 => Some(VirtualKeyCode::End),
+        0x79 => Some(VirtualKeyCode::PageDown),
+        0x7B => Some(VirtualKeyCode::Left),
+        0x7C => Some(VirtualKeyCode::Right),
+        0x7D => Some(VirtualKeyCode::Down),
+        0x7E => Some(VirtualKeyCode::Up),
+        _ => None,
     }
 }
 
@@ -2723,6 +2931,10 @@ pub trait PlatformWindow {
                             azul_layout::CursorBlinkTimerAction::Start(timer) => {
                                 self.start_timer(azul_core::task::CURSOR_BLINK_TIMER_ID.id, timer);
                             }
+                            azul_layout::CursorBlinkTimerAction::Restart(timer) => {
+                                self.stop_timer(azul_core::task::CURSOR_BLINK_TIMER_ID.id);
+                                self.start_timer(azul_core::task::CURSOR_BLINK_TIMER_ID.id, timer);
+                            }
                             azul_layout::CursorBlinkTimerAction::Stop => {
                                 self.stop_timer(azul_core::task::CURSOR_BLINK_TIMER_ID.id);
                             }
@@ -2745,7 +2957,8 @@ pub trait PlatformWindow {
 
                     if let Some(action) = timer_action {
                         match action {
-                            azul_layout::CursorBlinkTimerAction::Start(_) => {}
+                            azul_layout::CursorBlinkTimerAction::Start(_)
+                            | azul_layout::CursorBlinkTimerAction::Restart(_) => {}
                             azul_layout::CursorBlinkTimerAction::Stop => {
                                 self.stop_timer(azul_core::task::CURSOR_BLINK_TIMER_ID.id);
                             }
@@ -4702,6 +4915,10 @@ pub trait PlatformWindow {
                 if let Some(timer_action) = timer_action {
                     match timer_action {
                         azul_layout::CursorBlinkTimerAction::Start(timer) => {
+                            self.start_timer(azul_core::task::CURSOR_BLINK_TIMER_ID.id, timer);
+                        }
+                        azul_layout::CursorBlinkTimerAction::Restart(timer) => {
+                            self.stop_timer(azul_core::task::CURSOR_BLINK_TIMER_ID.id);
                             self.start_timer(azul_core::task::CURSOR_BLINK_TIMER_ID.id, timer);
                         }
                         azul_layout::CursorBlinkTimerAction::Stop => {
@@ -7796,5 +8013,414 @@ pub trait PlatformWindow {
         }
 
         ProcessEventResult::ShouldReRenderCurrentWindow
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use azul_core::{
+        geom::{LogicalSize, PhysicalPositionI32},
+        icon::{IconProviderHandle, SharedIconProvider},
+        resources::AppConfig,
+        window::{CursorPosition, VirtualKeyCode, WindowFrame, WindowPosition, WindowTheme},
+    };
+    use azul_layout::window_state::WindowCreateOptions;
+
+    use super::*;
+    use crate::desktop::shell2::headless::HeadlessWindow;
+
+    // R2: the unconsumed-input-delta guard
+
+    /// Turn the validation gate on, or fail LOUDLY.
+    ///
+    /// [`validation_enabled`] is unconditionally true in a debug build; a
+    /// release test binary reads `AZ_VALIDATE` through a `OnceLock`, so the
+    /// variable has to be set before the first read anywhere in the process.
+    /// If some earlier reader already latched it off, every test below would
+    /// pass VACUOUSLY — the guard would simply return. Assert instead: a
+    /// `#[should_panic]` test then fails on the wrong message, and the negative
+    /// controls fail outright.
+    fn require_validation_gate() {
+        // A debug build validates unconditionally, so touching the environment
+        // there is unnecessary (and racy in a threaded test binary).
+        #[cfg(not(debug_assertions))]
+        {
+            std::env::set_var("AZ_VALIDATE", "1");
+        }
+        assert!(
+            validation_enabled(),
+            "the validation gate is OFF in this test binary, so \
+             check_input_delta_consumed cannot fire and this suite proves nothing"
+        );
+    }
+
+    fn state_pair() -> (FullWindowState, FullWindowState) {
+        (FullWindowState::default(), FullWindowState::default())
+    }
+
+    #[test]
+    #[should_panic(expected = "unconsumed input delta at test.cursor: previous_window_state.mouse_state")]
+    fn check_input_delta_consumed_panics_on_an_unconsumed_cursor_move() {
+        require_validation_gate();
+        let (previous, mut current) = state_pair();
+        current.mouse_state.cursor_position =
+            CursorPosition::InWindow(LogicalPosition::new(12.0, 34.0));
+        check_input_delta_consumed(Some(&previous), &current, "test.cursor");
+    }
+
+    #[test]
+    #[should_panic(expected = "unconsumed input delta at test.resize: previous_window_state.size.dimensions")]
+    fn check_input_delta_consumed_panics_on_an_unconsumed_resize() {
+        require_validation_gate();
+        let (previous, mut current) = state_pair();
+        current.size.dimensions = LogicalSize::new(1234.0, 567.0);
+        check_input_delta_consumed(Some(&previous), &current, "test.resize");
+    }
+
+    #[test]
+    #[should_panic(expected = "unconsumed input delta at test.move: previous_window_state.position")]
+    fn check_input_delta_consumed_panics_on_an_unconsumed_window_move() {
+        require_validation_gate();
+        let (previous, mut current) = state_pair();
+        current.position = WindowPosition::Initialized(PhysicalPositionI32::new(400, 300));
+        check_input_delta_consumed(Some(&previous), &current, "test.move");
+    }
+
+    #[test]
+    #[should_panic(expected = "unconsumed input delta at test.dpi: previous_window_state.size.dpi")]
+    fn check_input_delta_consumed_panics_on_an_unconsumed_dpi_change() {
+        require_validation_gate();
+        let (previous, mut current) = state_pair();
+        current.size.dpi = 192;
+        check_input_delta_consumed(Some(&previous), &current, "test.dpi");
+    }
+
+    #[test]
+    #[should_panic(expected = "unconsumed input delta at test.theme: previous_window_state.theme")]
+    fn check_input_delta_consumed_panics_on_an_unconsumed_theme_change() {
+        require_validation_gate();
+        let (previous, mut current) = state_pair();
+        current.theme = match current.theme {
+            WindowTheme::DarkMode => WindowTheme::LightMode,
+            WindowTheme::LightMode => WindowTheme::DarkMode,
+        };
+        check_input_delta_consumed(Some(&previous), &current, "test.theme");
+    }
+
+    /// Negative control: without this the panicking tests above could pass for
+    /// the wrong reason (any panic at all satisfies a substring that happens to
+    /// match).
+    #[test]
+    fn check_input_delta_consumed_is_silent_on_a_consumed_delta() {
+        require_validation_gate();
+        let (mut previous, mut current) = state_pair();
+        current.mouse_state.cursor_position =
+            CursorPosition::InWindow(LogicalPosition::new(12.0, 34.0));
+        current.size.dimensions = LogicalSize::new(1234.0, 567.0);
+        // What the end of a pass does: advance the event baseline.
+        previous.clone_from(&current);
+        check_input_delta_consumed(Some(&previous), &current, "test.consumed");
+    }
+
+    /// The first frame has no baseline to consume.
+    #[test]
+    fn check_input_delta_consumed_is_silent_without_a_baseline() {
+        require_validation_gate();
+        let (_, mut current) = state_pair();
+        current.size.dimensions = LogicalSize::new(1234.0, 567.0);
+        check_input_delta_consumed(None, &current, "test.first-frame");
+    }
+
+    /// The allow-list is STRICT, not a deny-list over `PartialEq`: a field no
+    /// event is derived from cannot encode a lost event, and every backend
+    /// writes `ime_position` after the pass has already consumed the delta.
+    /// A catch-all here panicked on the next poll as soon as the user typed.
+    #[test]
+    fn check_input_delta_consumed_ignores_fields_no_event_is_derived_from() {
+        require_validation_gate();
+        let (previous, mut current) = state_pair();
+        current.title = "a different title".to_string().into();
+        current.ime_position = azul_core::window::ImePosition::Initialized(
+            azul_core::geom::LogicalRect::new(
+                LogicalPosition::new(1.0, 2.0),
+                LogicalSize::new(3.0, 4.0),
+            ),
+        );
+        current.flags.frame = WindowFrame::Maximized;
+        check_input_delta_consumed(Some(&previous), &current, "test.not-event-bearing");
+    }
+
+    fn headless_stub() -> HeadlessWindow {
+        HeadlessWindow::new(
+            WindowCreateOptions::default(),
+            Arc::new(RefCell::new(RefAny::new(()))),
+            SharedUndoManager::new(),
+            AppConfig::default(),
+            SharedIconProvider::from_handle(IconProviderHandle::default()),
+            Arc::new(FcFontCache::default()),
+            None,
+        )
+        .unwrap()
+    }
+
+    /// The guard is WIRED: `snapshot_window_state_baseline` — the call every
+    /// platform handler opens with — is what trips on a handler that mutated
+    /// and returned without a pass.
+    #[test]
+    #[should_panic(expected = "unconsumed input delta at test.next-handler")]
+    fn snapshot_window_state_baseline_trips_on_a_delta_the_previous_handler_left_live() {
+        require_validation_gate();
+        let mut window = headless_stub();
+        window.snapshot_window_state_baseline("test.seed");
+        // A handler that mutates and returns without running a pass.
+        window.get_current_window_state_mut().mouse_state.cursor_position =
+            CursorPosition::InWindow(LogicalPosition::new(80.0, 90.0));
+        window.snapshot_window_state_baseline("test.next-handler");
+    }
+
+    /// The sanctioned escape hatch: a handler that consumed the input itself
+    /// (scrollbar-thumb drag, a key eaten by an open popup) advances the
+    /// baseline so the next snapshot does not read its mutation as a lost event.
+    #[test]
+    fn discard_input_delta_suppresses_the_guard_for_a_swallowed_input() {
+        require_validation_gate();
+        let mut window = headless_stub();
+        window.snapshot_window_state_baseline("test.seed");
+        window.get_current_window_state_mut().mouse_state.cursor_position =
+            CursorPosition::InWindow(LogicalPosition::new(80.0, 90.0));
+        window.discard_input_delta("test.scrollbar-drag");
+        window.snapshot_window_state_baseline("test.next-handler");
+    }
+
+    // The OS-sync / event-diff baseline split
+
+    /// The WM_SIZE / windowDidResize contract, both halves at once: an
+    /// OS-reported geometry change must LEAVE the event delta intact (or no
+    /// `WindowResize` is ever dispatched — the Win32 and macOS resize findings)
+    /// while leaving the OS-sync diff EMPTY (or `sync_window_state` echoes the
+    /// size straight back and fights a live drag).
+    #[test]
+    fn os_reported_resize_keeps_the_event_delta_and_echoes_nothing() {
+        let mut window = headless_stub();
+        window.common.update_window_state(WindowStateSource::App, |ws| {
+            ws.size.dimensions = LogicalSize::new(800.0, 600.0);
+            ws.flags.frame = WindowFrame::Normal;
+        });
+        window.common.mark_os_synced();
+        let before = window.common.current_window_state.clone();
+        window.common.previous_window_state = Some(before.clone());
+
+        window.common.update_window_state(WindowStateSource::Os, |ws| {
+            ws.size.dimensions = LogicalSize::new(1234.0, 567.0);
+            ws.flags.frame = WindowFrame::Maximized;
+        });
+
+        let baseline = window
+            .common
+            .previous_window_state
+            .as_ref()
+            .expect("event baseline was seeded above");
+        assert_eq!(
+            baseline.size.dimensions, before.size.dimensions,
+            "update_window_state must never write the EVENT baseline — doing so \
+             zeroes the previous->current diff and the resize reaches no callback"
+        );
+        assert_ne!(
+            baseline.size.dimensions, window.common.current_window_state.size.dimensions,
+            "the resize delta must still be there for the pass to dispatch"
+        );
+
+        let (synced, current) = window
+            .common
+            .take_os_sync_diff()
+            .expect("the OS-sync baseline was seeded by mark_os_synced");
+        assert_eq!(
+            synced.size.dimensions, current.size.dimensions,
+            "an OS-reported size must leave a ZERO sync diff, or sync_window_state \
+             pushes the size we last saw back at the OS mid-drag"
+        );
+        assert_eq!(
+            synced.flags.frame, current.flags.frame,
+            "same for the frame flag: the Fullscreen sync arm is a TOGGLE, so a \
+             stale OS baseline flaps the window in and out forever"
+        );
+    }
+
+    /// The other direction: an APP-requested change is exactly what the sync is
+    /// for, so it must still show up in the diff.
+    #[test]
+    fn app_requested_change_is_left_for_the_os_sync_to_push() {
+        let mut window = headless_stub();
+        window.common.update_window_state(WindowStateSource::App, |ws| {
+            ws.flags.frame = WindowFrame::Normal;
+        });
+        window.common.mark_os_synced();
+        window.common.update_window_state(WindowStateSource::App, |ws| {
+            ws.flags.frame = WindowFrame::Fullscreen;
+        });
+
+        let (synced, current) = window
+            .common
+            .take_os_sync_diff()
+            .expect("the OS-sync baseline was seeded by mark_os_synced");
+        assert_ne!(
+            synced.flags.frame, current.flags.frame,
+            "an App-sourced change is not on the OS yet — the sync has to push it"
+        );
+        assert_eq!(current.flags.frame, WindowFrame::Fullscreen);
+    }
+
+    // Win32: UTF-16 text stream
+
+    #[test]
+    fn win32_utf16_stream_pairs_a_surrogate_pair_into_one_char() {
+        let mut carry = None;
+        // U+20BB7 (a supplementary-plane CJK ideograph) = D842 DFB7.
+        assert_eq!(None, win32_utf16_stream_char(&mut carry, 0xD842));
+        assert_eq!(Some(0xD842), carry);
+        assert_eq!(Some('\u{20BB7}'), win32_utf16_stream_char(&mut carry, 0xDFB7));
+        assert_eq!(None, carry, "the carry must be cleared after the pair");
+
+        // U+1F600 GRINNING FACE = D83D DE00 (an IME emoji commit).
+        assert_eq!(None, win32_utf16_stream_char(&mut carry, 0xD83D));
+        assert_eq!(Some('\u{1F600}'), win32_utf16_stream_char(&mut carry, 0xDE00));
+    }
+
+    #[test]
+    fn win32_utf16_stream_passes_bmp_text_and_drops_controls() {
+        let mut carry = None;
+        assert_eq!(Some('a'), win32_utf16_stream_char(&mut carry, u32::from('a')));
+        assert_eq!(Some('\u{3042}'), win32_utf16_stream_char(&mut carry, 0x3042));
+        // Backspace / Return / Escape arrive as WM_CHAR too and are not text.
+        assert_eq!(None, win32_utf16_stream_char(&mut carry, 0x08));
+        assert_eq!(None, win32_utf16_stream_char(&mut carry, 0x0D));
+        assert_eq!(None, win32_utf16_stream_char(&mut carry, 0x1B));
+    }
+
+    #[test]
+    fn win32_utf16_stream_rejects_orphaned_surrogates() {
+        let mut carry = None;
+        // A low half with no high half is not a character.
+        assert_eq!(None, win32_utf16_stream_char(&mut carry, 0xDFB7));
+        assert_eq!(None, carry);
+        // A high half followed by ordinary text: the orphan is dropped, the
+        // text still arrives.
+        assert_eq!(None, win32_utf16_stream_char(&mut carry, 0xD842));
+        assert_eq!(Some('x'), win32_utf16_stream_char(&mut carry, u32::from('x')));
+        assert_eq!(None, carry);
+    }
+
+    // Win32: wheel notch distance
+
+    #[test]
+    fn win32_wheel_pixels_per_notch_tracks_the_user_setting() {
+        // The Windows default of 3 lines must stay bit-identical to the shared
+        // per-line constant (and therefore to X11 and macOS).
+        assert_eq!(
+            WHEEL_SCROLL_PIXELS_PER_LINE,
+            win32_wheel_pixels_per_notch(3, 800.0)
+        );
+        // Doubling the Control Panel setting doubles the scroll distance —
+        // the setting was captured and consumed by nobody before.
+        assert_eq!(
+            WHEEL_SCROLL_PIXELS_PER_LINE * 2.0,
+            win32_wheel_pixels_per_notch(6, 800.0)
+        );
+        // 0 lines is a legal setting: "wheel scrolling off".
+        assert_eq!(0.0, win32_wheel_pixels_per_notch(0, 800.0));
+        // WHEEL_PAGESCROLL (u32::MAX): "one screen at a time".
+        assert_eq!(800.0, win32_wheel_pixels_per_notch(u32::MAX, 800.0));
+    }
+
+    // macOS: discrete wheel deltas are LINES, the engine takes PIXELS
+
+    #[test]
+    fn discrete_scroll_delta_is_scaled_to_pixels_and_precise_deltas_are_not() {
+        // One wheel notch (~1 line) has to travel the same distance it does on
+        // X11/Win32; passing the line count through raw made macOS wheels crawl.
+        assert_eq!(
+            f64::from(WHEEL_SCROLL_PIXELS_PER_LINE),
+            discrete_scroll_delta_to_pixels(1.0, false)
+        );
+        assert_eq!(
+            -f64::from(WHEEL_SCROLL_PIXELS_PER_LINE) * 3.0,
+            discrete_scroll_delta_to_pixels(-3.0, false)
+        );
+        // A trackpad already reports pixels.
+        assert_eq!(7.5, discrete_scroll_delta_to_pixels(7.5, true));
+        assert_eq!(0.0, discrete_scroll_delta_to_pixels(0.0, false));
+    }
+
+    // macOS: the hardware keycode table
+    //
+    // Moved here from `macos/events.rs` so it RUNS: no CI job compiles that
+    // module, so the tests that lived next to the table never executed.
+
+    #[test]
+    fn macos_keycode_conversion() {
+        assert_eq!(Some(VirtualKeyCode::A), macos_keycode_to_virtual_key(0x00));
+        assert_eq!(Some(VirtualKeyCode::Return), macos_keycode_to_virtual_key(0x24));
+        assert_eq!(Some(VirtualKeyCode::Space), macos_keycode_to_virtual_key(0x31));
+        assert_eq!(Some(VirtualKeyCode::LShift), macos_keycode_to_virtual_key(0x38));
+        assert_eq!(Some(VirtualKeyCode::LControl), macos_keycode_to_virtual_key(0x3B));
+        assert_eq!(Some(VirtualKeyCode::LAlt), macos_keycode_to_virtual_key(0x3A));
+        assert_eq!(Some(VirtualKeyCode::LWin), macos_keycode_to_virtual_key(0x37));
+        assert_eq!(None, macos_keycode_to_virtual_key(0xFF));
+    }
+
+    /// The navigation cluster emits Private-Use-Area characters that the
+    /// text-input filter (correctly) refuses to insert, so a missing entry here
+    /// means the key produces NO engine event whatsoever.
+    #[test]
+    fn macos_keycode_conversion_navigation() {
+        assert_eq!(Some(VirtualKeyCode::Home), macos_keycode_to_virtual_key(0x73));
+        assert_eq!(Some(VirtualKeyCode::End), macos_keycode_to_virtual_key(0x77));
+        assert_eq!(Some(VirtualKeyCode::PageUp), macos_keycode_to_virtual_key(0x74));
+        assert_eq!(Some(VirtualKeyCode::PageDown), macos_keycode_to_virtual_key(0x79));
+        // ForwardDelete, NOT Backspace (0x33 = Back).
+        assert_eq!(Some(VirtualKeyCode::Delete), macos_keycode_to_virtual_key(0x75));
+        assert_eq!(Some(VirtualKeyCode::Back), macos_keycode_to_virtual_key(0x33));
+        assert_eq!(Some(VirtualKeyCode::Left), macos_keycode_to_virtual_key(0x7B));
+        assert_eq!(Some(VirtualKeyCode::Up), macos_keycode_to_virtual_key(0x7E));
+    }
+
+    /// macOS orders the function row by hardware position, not by number — the
+    /// table is easy to transpose, so pin every entry.
+    #[test]
+    fn macos_keycode_conversion_function_row() {
+        assert_eq!(Some(VirtualKeyCode::F1), macos_keycode_to_virtual_key(0x7A));
+        assert_eq!(Some(VirtualKeyCode::F2), macos_keycode_to_virtual_key(0x78));
+        assert_eq!(Some(VirtualKeyCode::F3), macos_keycode_to_virtual_key(0x63));
+        assert_eq!(Some(VirtualKeyCode::F4), macos_keycode_to_virtual_key(0x76));
+        assert_eq!(Some(VirtualKeyCode::F5), macos_keycode_to_virtual_key(0x60));
+        assert_eq!(Some(VirtualKeyCode::F6), macos_keycode_to_virtual_key(0x61));
+        assert_eq!(Some(VirtualKeyCode::F7), macos_keycode_to_virtual_key(0x62));
+        assert_eq!(Some(VirtualKeyCode::F8), macos_keycode_to_virtual_key(0x64));
+        assert_eq!(Some(VirtualKeyCode::F9), macos_keycode_to_virtual_key(0x65));
+        assert_eq!(Some(VirtualKeyCode::F10), macos_keycode_to_virtual_key(0x6D));
+        assert_eq!(Some(VirtualKeyCode::F11), macos_keycode_to_virtual_key(0x67));
+        assert_eq!(Some(VirtualKeyCode::F12), macos_keycode_to_virtual_key(0x6F));
+    }
+
+    #[test]
+    fn macos_keycode_conversion_keypad_and_right_modifiers() {
+        assert_eq!(Some(VirtualKeyCode::Numpad0), macos_keycode_to_virtual_key(0x52));
+        assert_eq!(Some(VirtualKeyCode::Numpad7), macos_keycode_to_virtual_key(0x59));
+        assert_eq!(Some(VirtualKeyCode::Numpad8), macos_keycode_to_virtual_key(0x5B));
+        assert_eq!(Some(VirtualKeyCode::Numpad9), macos_keycode_to_virtual_key(0x5C));
+        assert_eq!(Some(VirtualKeyCode::NumpadEnter), macos_keycode_to_virtual_key(0x4C));
+        assert_eq!(Some(VirtualKeyCode::NumpadDecimal), macos_keycode_to_virtual_key(0x41));
+        assert_eq!(Some(VirtualKeyCode::NumpadAdd), macos_keycode_to_virtual_key(0x45));
+        assert_eq!(Some(VirtualKeyCode::NumpadSubtract), macos_keycode_to_virtual_key(0x4E));
+        assert_eq!(Some(VirtualKeyCode::NumpadMultiply), macos_keycode_to_virtual_key(0x43));
+        assert_eq!(Some(VirtualKeyCode::NumpadDivide), macos_keycode_to_virtual_key(0x4B));
+
+        // Right-hand modifiers must NOT collapse onto their left twins.
+        assert_eq!(Some(VirtualKeyCode::RWin), macos_keycode_to_virtual_key(0x36));
+        assert_eq!(Some(VirtualKeyCode::RShift), macos_keycode_to_virtual_key(0x3C));
+        assert_eq!(Some(VirtualKeyCode::RAlt), macos_keycode_to_virtual_key(0x3D));
+        assert_eq!(Some(VirtualKeyCode::RControl), macos_keycode_to_virtual_key(0x3E));
+        assert_eq!(Some(VirtualKeyCode::Capital), macos_keycode_to_virtual_key(0x39));
+        assert_eq!(Some(VirtualKeyCode::Apps), macos_keycode_to_virtual_key(0x6E));
     }
 }
