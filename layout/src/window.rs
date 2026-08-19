@@ -5852,7 +5852,13 @@ impl LayoutWindow {
     ///
     /// The 16ms driver timer is armed by the shared event dispatcher
     /// (`process_window_events` tail) whenever `tween.is_active()`.
-    fn apply_text_tweens(
+    ///
+    /// Crate-visible so `tween_clock_unit_tests` can drive it at instants of its
+    /// own choosing. Both production callers hardcode the wall clock, which is
+    /// the one clock on which the truncating and the exact spellings of the
+    /// progress ratio agree — so on the wall clock the unit bug below is
+    /// untestable by construction.
+    pub(crate) fn apply_text_tweens(
         &mut self,
         dom_id: DomId,
         display_list: &mut Arc<DisplayList>,
@@ -17892,3 +17898,382 @@ mod reconciliation_tests {
     }
 }
 
+
+/// The tween progress ratio is a ratio of two CLOCK durations, not of two
+/// millisecond integers.
+///
+/// Audit finding 21. `apply_text_tweens` used to compute
+/// `elapsed.as_millis_u64() as f32 / caret_ms as f32`, which truncates the
+/// elapsed time to whole milliseconds before dividing. Every other tween test
+/// runs on the wall clock, where the elapsed value between two
+/// `regenerate_display_list_for_dom` calls happens to be arbitrary anyway and
+/// no assertion is tight enough to notice the missing fraction — so reverting
+/// the fix left the whole suite green.
+///
+/// These drive `apply_text_tweens` directly at instants of the test's own
+/// choosing, at durations where the discarded fraction is most of the progress.
+#[cfg(test)]
+mod tween_clock_unit_tests {
+    use azul_core::{
+        callbacks::{CaretTweenInfo, SelectionTweenInfo},
+        dom::{Dom, DomId, DomNodeId, IdOrClass, NodeId, TabIndex},
+        geom::{LogicalPosition, LogicalRect, LogicalRectVec, LogicalSize},
+        refany::RefAny,
+        resources::{RendererResources, SystemAnimations},
+        selection::{CursorAffinity, GraphemeClusterId, MultiCursorState, TextCursor},
+        styled_dom::{NodeHierarchyItemId, StyledDom},
+        task::{Duration, Instant, SystemTick, SystemTimeDiff},
+    };
+    use rust_fontconfig::FcFontCache;
+
+    use super::*;
+    use crate::{
+        callbacks::ExternalSystemCallbacks,
+        managers::text_edit::{CaretTweenTrack, SelectionTweenTrack},
+        solver3::display_list::DisplayListItem,
+        window_state::FullWindowState,
+    };
+
+    std::thread_local! {
+        /// Every `t` the engine handed an interpolator during the last
+        /// `apply_text_tweens` call.
+        static RECORDED_T: std::cell::RefCell<Vec<f32>> =
+            const { std::cell::RefCell::new(Vec::new()) };
+    }
+
+    /// Stands in for the user's caret interpolator (which the focus-ring glide
+    /// also runs through) and records the progress value the ENGINE computed,
+    /// which is the thing under test. Returns `past` so the patched geometry
+    /// stays deterministic.
+    extern "C" fn recording_caret_tween(_data: RefAny, info: CaretTweenInfo) -> LogicalRect {
+        RECORDED_T.with(|slot| slot.borrow_mut().push(info.t));
+        info.past
+    }
+
+    /// The same, for the selection band. Returns `current` so the rect count
+    /// always satisfies the interpolator contract.
+    extern "C" fn recording_selection_tween(
+        _data: RefAny,
+        info: SelectionTweenInfo,
+    ) -> LogicalRectVec {
+        RECORDED_T.with(|slot| slot.borrow_mut().push(info.t));
+        info.current
+    }
+
+    const CSS: &str = "* { margin: 0; padding: 0; } \
+                       body { font-size: 16px; width: 600px; } \
+                       .p { display: block; }";
+
+    fn animations(caret_ms: u32, sel_ms: u32, ring_ms: u32) -> SystemAnimations {
+        let mut anim = SystemAnimations {
+            caret_tween_duration_ms: caret_ms,
+            selection_tween_duration_ms: sel_ms,
+            focus_ring_duration_ms: ring_ms,
+            ..SystemAnimations::default()
+        };
+        anim.caret_tween.cb = recording_caret_tween;
+        anim.selection_tween.cb = recording_selection_tween;
+        anim
+    }
+
+    fn laid_out(mut dom: Dom, anim: SystemAnimations) -> LayoutWindow {
+        let (css, _) = azul_css::parser2::new_from_str(CSS);
+        let styled_dom = StyledDom::create(&mut dom, css);
+        let mut win = LayoutWindow::new(FcFontCache::build()).expect("LayoutWindow::new");
+        win.system_animations_override = Some(anim);
+        let mut ws = FullWindowState::default();
+        ws.size.dimensions = LogicalSize::new(800.0, 600.0);
+        win.current_window_state = ws.clone();
+        win.layout_and_generate_display_list(
+            styled_dom,
+            &ws,
+            &RendererResources::default(),
+            &ExternalSystemCallbacks::rust_internal(),
+            &mut Some(Vec::new()),
+        )
+        .expect("layout must succeed");
+        win
+    }
+
+    fn dnid(node: usize) -> DomNodeId {
+        DomNodeId {
+            dom: DomId::ROOT_ID,
+            node: NodeHierarchyItemId::from_crate_internal(Some(NodeId::new(node))),
+        }
+    }
+
+    fn cursor(byte: u32) -> TextCursor {
+        TextCursor {
+            cluster_id: GraphemeClusterId {
+                source_run: 0,
+                start_byte_in_run: byte,
+            },
+            affinity: CursorAffinity::Leading,
+        }
+    }
+
+    fn editable_paragraph(text: &str) -> Dom {
+        let mut editor = Dom::create_div()
+            .with_ids_and_classes(vec![IdOrClass::Class("p".into())].into());
+        editor.set_contenteditable(true);
+        editor.set_tab_index(TabIndex::Auto);
+        editor.with_child(Dom::create_text_do_not_use_without_block_level_wrapper(text))
+    }
+
+    /// `body(0) > div[contenteditable](1) > text(2)`, laid out, with an editing
+    /// session so the display list carries a `CursorRect`.
+    fn recording_window(caret_ms: u32) -> LayoutWindow {
+        let mut win = laid_out(
+            Dom::create_body().with_child(editable_paragraph("hello world tween target")),
+            animations(caret_ms, 0, 0),
+        );
+        win.text_edit_manager
+            .initialize_editing(cursor(0), DomId::ROOT_ID, NodeId::new(2), 0);
+        win.text_edit_manager.multi_cursor =
+            Some(MultiCursorState::new_with_cursor(cursor(0), dnid(2), 0));
+        win.regenerate_display_list_for_dom(DomId::ROOT_ID);
+        win
+    }
+
+    /// The same DOM with NO editing session and a focused node — the only
+    /// state in which the focus-ring glide runs at all.
+    fn recording_ring_window(ring_ms: u32) -> LayoutWindow {
+        let mut win = laid_out(
+            Dom::create_body().with_child(editable_paragraph("hello world tween target")),
+            animations(0, 0, ring_ms),
+        );
+        win.focus_manager.set_focused_node(Some(dnid(1)));
+        win.regenerate_display_list_for_dom(DomId::ROOT_ID);
+        win
+    }
+
+    /// Three paragraphs with a cross-block selection, so the display list
+    /// carries `SelectionRect` items.
+    fn recording_selection_window(sel_ms: u32) -> LayoutWindow {
+        let mut win = laid_out(
+            Dom::create_body()
+                .with_child(editable_paragraph("first paragraph"))
+                .with_child(editable_paragraph("second paragraph"))
+                .with_child(editable_paragraph("third paragraph")),
+            animations(0, sel_ms, 0),
+        );
+        assert!(
+            win.set_cross_block_selection(
+                DomId::ROOT_ID,
+                NodeId::new(1),
+                cursor(6),
+                NodeId::new(3),
+                cursor(6),
+            ),
+            "premise: the fixture must accept a cross-block selection"
+        );
+        win.regenerate_display_list_for_dom(DomId::ROOT_ID);
+        win
+    }
+
+    fn stored_list(win: &LayoutWindow) -> Arc<DisplayList> {
+        win.get_layout_result(&DomId::ROOT_ID)
+            .expect("layout result")
+            .display_list
+            .clone()
+    }
+
+    /// The caret rect in the stored list (the LAST `CursorRect`, the same rule
+    /// the post-pass uses).
+    fn caret_rect(win: &LayoutWindow) -> LogicalRect {
+        stored_list(win)
+            .items
+            .iter()
+            .rev()
+            .find_map(|item| match item {
+                DisplayListItem::CursorRect { bounds, .. } => Some(bounds.0),
+                _ => None,
+            })
+            .expect("an editing session paints a CursorRect")
+    }
+
+    fn selection_bands(win: &LayoutWindow) -> Vec<LogicalRect> {
+        let bands: Vec<LogicalRect> = stored_list(win)
+            .items
+            .iter()
+            .filter_map(|item| match item {
+                DisplayListItem::SelectionRect { bounds, .. } => Some(bounds.0),
+                _ => None,
+            })
+            .collect();
+        assert!(!bands.is_empty(), "premise: the selection must paint bands");
+        bands
+    }
+
+    /// The focused node's border box inflated by 2px — what the pass computes
+    /// as the ring target, recomputed here so the armed `to` matches it and the
+    /// pass evaluates progress instead of retargeting.
+    fn ring_target(win: &LayoutWindow) -> LogicalRect {
+        let r = win
+            .get_node_layout_rect(dnid(1))
+            .expect("the focused node must have a layout rect");
+        LogicalRect {
+            origin: LogicalPosition {
+                x: r.origin.x - 2.0,
+                y: r.origin.y - 2.0,
+            },
+            size: LogicalSize {
+                width: r.size.width + 4.0,
+                height: r.size.height + 4.0,
+            },
+        }
+    }
+
+    /// A rect that is nowhere near `target`, so `from != to` and the tween has
+    /// somewhere to travel.
+    fn far_from(target: LogicalRect) -> LogicalRect {
+        LogicalRect {
+            origin: LogicalPosition { x: 0.0, y: 0.0 },
+            size: target.size,
+        }
+    }
+
+    /// Run the pass at `now` and return the single `t` it computed.
+    fn progress_at(win: &mut LayoutWindow, now: Instant) -> f32 {
+        let mut dl = stored_list(win);
+        RECORDED_T.with(|slot| slot.borrow_mut().clear());
+        win.apply_text_tweens(DomId::ROOT_ID, &mut dl, now);
+        RECORDED_T.with(|slot| {
+            let recorded = slot.borrow();
+            assert_eq!(
+                recorded.len(),
+                1,
+                "the pass must evaluate the interpolator exactly once, got {recorded:?} — an \
+                 empty list means the tween retired or never armed, and the assertion that \
+                 follows would be vacuous"
+            );
+            recorded[0]
+        })
+    }
+
+    fn after_nanos(start: &Instant, nanos: u64) -> Instant {
+        start.add_optional_duration(Some(&Duration::System(SystemTimeDiff::from_nanos(nanos))))
+    }
+
+    fn tick(n: u64) -> Instant {
+        Instant::Tick(SystemTick { tick_counter: n })
+    }
+
+    // ---- caret ------------------------------------------------------------
+
+    fn arm_caret(win: &mut LayoutWindow, target: LogicalRect, start: Instant) {
+        win.text_edit_manager.tween.dom_id = Some(DomId::ROOT_ID);
+        win.text_edit_manager.tween.last_caret = Some(target);
+        win.text_edit_manager.tween.caret = Some(CaretTweenTrack {
+            from: far_from(target),
+            to: target,
+            start,
+        });
+    }
+
+    /// 0.9 ms into a 1 ms tween is 90% done. Truncating the elapsed time to
+    /// whole milliseconds first makes it 0% — the caret sits perfectly still
+    /// for the whole animation and then jumps.
+    #[test]
+    fn caret_sub_millisecond_progress_is_not_truncated_away() {
+        let mut win = recording_window(1);
+        let target = caret_rect(&win);
+        let start = Instant::now();
+        arm_caret(&mut win, target, start.clone());
+
+        let t = progress_at(&mut win, after_nanos(&start, 900_000));
+        assert!(
+            (t - 0.9).abs() < 1e-4,
+            "0.9ms into a 1ms caret tween is t = 0.9, got {t}. A t of 0.0 means the elapsed \
+             duration was truncated to whole milliseconds before the division; the ratio has to \
+             be taken between the two Durations."
+        );
+    }
+
+    /// A `Tick` clock — the unit a backend with no wall clock reports, one tick
+    /// = one frame — divided by a `System` tween duration. Truncation is worst
+    /// here: a frame is 16.67 ms and the .67 is discarded on every sample.
+    #[test]
+    fn caret_tick_elapsed_divides_on_the_nanosecond_scale() {
+        let mut win = recording_window(20);
+        let target = caret_rect(&win);
+        arm_caret(&mut win, target, tick(0));
+
+        let t = progress_at(&mut win, tick(1));
+        assert!(
+            (t - (1000.0 / 60.0 / 20.0)).abs() < 1e-4,
+            "one 60Hz frame into a 20ms caret tween is t = {}, got {t}. Truncating the tick \
+             duration to 16 whole milliseconds answers {} instead.",
+            1000.0 / 60.0 / 20.0,
+            16.0 / 20.0
+        );
+    }
+
+    /// The guard the assertions above lean on: a finished tween retires without
+    /// calling the interpolator, so a recorded `t` is always a measured one.
+    #[test]
+    fn a_finished_caret_tween_retires_instead_of_reporting_progress() {
+        let mut win = recording_window(1);
+        let target = caret_rect(&win);
+        let start = Instant::now();
+        arm_caret(&mut win, target, start.clone());
+
+        let mut dl = stored_list(&win);
+        RECORDED_T.with(|slot| slot.borrow_mut().clear());
+        win.apply_text_tweens(DomId::ROOT_ID, &mut dl, after_nanos(&start, 5_000_000));
+        RECORDED_T.with(|slot| assert!(slot.borrow().is_empty(), "t >= 1 must not interpolate"));
+        assert!(
+            win.text_edit_manager.tween.caret.is_none(),
+            "a tween past its duration retires"
+        );
+    }
+
+    // ---- selection band ---------------------------------------------------
+
+    /// The band tween has its own division site, and it is the one that runs
+    /// while a drag-selection is in flight.
+    #[test]
+    fn selection_sub_millisecond_progress_is_not_truncated_away() {
+        let mut win = recording_selection_window(1);
+        let bands = selection_bands(&win);
+        let start = Instant::now();
+        win.text_edit_manager.tween.dom_id = Some(DomId::ROOT_ID);
+        win.text_edit_manager.tween.last_selection = bands.clone();
+        win.text_edit_manager.tween.selection = Some(SelectionTweenTrack {
+            from: bands.iter().copied().map(far_from).collect(),
+            to: bands,
+            start: start.clone(),
+        });
+
+        let t = progress_at(&mut win, after_nanos(&start, 900_000));
+        assert!(
+            (t - 0.9).abs() < 1e-4,
+            "0.9ms into a 1ms selection tween is t = 0.9, got {t}"
+        );
+    }
+
+    // ---- focus ring -------------------------------------------------------
+
+    /// The focus-ring glide is the third division site. It runs only WITHOUT an
+    /// editing session (with one, the caret is the focus indicator), so no
+    /// caret-driven test can reach it.
+    #[test]
+    fn focus_ring_sub_millisecond_progress_is_not_truncated_away() {
+        let mut win = recording_ring_window(1);
+        let target = ring_target(&win);
+        let start = Instant::now();
+        win.text_edit_manager.tween.dom_id = Some(DomId::ROOT_ID);
+        win.text_edit_manager.tween.last_focus_ring = Some(target);
+        win.text_edit_manager.tween.focus_ring = Some(CaretTweenTrack {
+            from: far_from(target),
+            to: target,
+            start: start.clone(),
+        });
+
+        let t = progress_at(&mut win, after_nanos(&start, 900_000));
+        assert!(
+            (t - 0.9).abs() < 1e-4,
+            "0.9ms into a 1ms focus-ring glide is t = 0.9, got {t}"
+        );
+    }
+}

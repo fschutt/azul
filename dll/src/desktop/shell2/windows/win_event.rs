@@ -1,5 +1,14 @@
 //! Win32 keyboard event handling: VK code translation, scancode processing,
 //! and cursor management. Adapted from winit.
+//!
+//! The translation TABLE itself lives in
+//! [`crate::desktop::shell2::common::event::win32_vkey_to_virtual_key`], next to
+//! the macOS one, so the shared keycode-coverage manifest
+//! (`layout/tests/keycode_table_manifest_is_exhaustive.rs`) can compare all
+//! four platform tables against each other. Under `#[cfg(target_os = "windows")]`
+//! it was invisible to every test the CI host can run. What stays here is the
+//! part that genuinely needs Windows: resolving the seven layout-dependent
+//! `VK_OEM_*` codes through `MapVirtualKeyA`.
 //
 // Copied and modified from:
 // https://github.com/rust-windowing/winit/blob/1c4d6e7613c3a3870cecb4cfa0eecc97409d45ff/src/platform_impl/windows/event.rs
@@ -216,205 +225,51 @@ use core::char;
 use azul_core::window::VirtualKeyCode;
 use winapi::um::winuser;
 
-pub fn vkey_to_winit_vkey(vkey: i32) -> Option<VirtualKeyCode> {
-    // VK_* codes are documented here https://msdn.microsoft.com/en-us/library/windows/desktop/dd375731(v=vs.85).aspx
-    match vkey {
-        //winuser::VK_LBUTTON => Some(VirtualKeyCode::Lbutton),
-        //winuser::VK_RBUTTON => Some(VirtualKeyCode::Rbutton),
-        //winuser::VK_CANCEL => Some(VirtualKeyCode::Cancel),
-        //winuser::VK_MBUTTON => Some(VirtualKeyCode::Mbutton),
-        //winuser::VK_XBUTTON1 => Some(VirtualKeyCode::Xbutton1),
-        //winuser::VK_XBUTTON2 => Some(VirtualKeyCode::Xbutton2),
-        winuser::VK_BACK => Some(VirtualKeyCode::Back),
-        winuser::VK_TAB => Some(VirtualKeyCode::Tab),
-        //winuser::VK_CLEAR => Some(VirtualKeyCode::Clear),
-        winuser::VK_RETURN => Some(VirtualKeyCode::Return),
-        winuser::VK_LSHIFT => Some(VirtualKeyCode::LShift),
-        winuser::VK_RSHIFT => Some(VirtualKeyCode::RShift),
-        winuser::VK_LCONTROL => Some(VirtualKeyCode::LControl),
-        winuser::VK_RCONTROL => Some(VirtualKeyCode::RControl),
-        winuser::VK_LMENU => Some(VirtualKeyCode::LAlt),
-        winuser::VK_RMENU => Some(VirtualKeyCode::RAlt),
-        // MWA-A2: WM_KEYDOWN/WM_KEYUP deliver the GENERIC modifier codes
-        // (VK_SHIFT/VK_CONTROL/VK_MENU) unless the caller runs MapVirtualKey
-        // on the scancode — dropping them meant ctrl_down() was NEVER true
-        // on Windows and every Ctrl shortcut was dead. Map generic → left
-        // variant (side doesn't matter for shortcut state).
-        winuser::VK_SHIFT => Some(VirtualKeyCode::LShift),
-        winuser::VK_CONTROL => Some(VirtualKeyCode::LControl),
-        winuser::VK_MENU => Some(VirtualKeyCode::LAlt),
-        winuser::VK_PAUSE => Some(VirtualKeyCode::Pause),
-        winuser::VK_CAPITAL => Some(VirtualKeyCode::Capital),
-        winuser::VK_KANA => Some(VirtualKeyCode::Kana),
-        //winuser::VK_HANGUEL => Some(VirtualKeyCode::Hanguel),
-        //winuser::VK_HANGUL => Some(VirtualKeyCode::Hangul),
-        //winuser::VK_JUNJA => Some(VirtualKeyCode::Junja),
-        //winuser::VK_FINAL => Some(VirtualKeyCode::Final),
-        //winuser::VK_HANJA => Some(VirtualKeyCode::Hanja),
-        winuser::VK_KANJI => Some(VirtualKeyCode::Kanji),
-        winuser::VK_ESCAPE => Some(VirtualKeyCode::Escape),
-        winuser::VK_CONVERT => Some(VirtualKeyCode::Convert),
-        winuser::VK_NONCONVERT => Some(VirtualKeyCode::NoConvert),
-        //winuser::VK_ACCEPT => Some(VirtualKeyCode::Accept),
-        //winuser::VK_MODECHANGE => Some(VirtualKeyCode::Modechange),
-        winuser::VK_SPACE => Some(VirtualKeyCode::Space),
-        winuser::VK_PRIOR => Some(VirtualKeyCode::PageUp),
-        winuser::VK_NEXT => Some(VirtualKeyCode::PageDown),
-        winuser::VK_END => Some(VirtualKeyCode::End),
-        winuser::VK_HOME => Some(VirtualKeyCode::Home),
-        winuser::VK_LEFT => Some(VirtualKeyCode::Left),
-        winuser::VK_UP => Some(VirtualKeyCode::Up),
-        winuser::VK_RIGHT => Some(VirtualKeyCode::Right),
-        winuser::VK_DOWN => Some(VirtualKeyCode::Down),
-        //winuser::VK_SELECT => Some(VirtualKeyCode::Select),
-        //winuser::VK_PRINT => Some(VirtualKeyCode::Print),
-        //winuser::VK_EXECUTE => Some(VirtualKeyCode::Execute),
-        winuser::VK_SNAPSHOT => Some(VirtualKeyCode::Snapshot),
-        winuser::VK_INSERT => Some(VirtualKeyCode::Insert),
-        winuser::VK_DELETE => Some(VirtualKeyCode::Delete),
-        //winuser::VK_HELP => Some(VirtualKeyCode::Help),
-        0x30 => Some(VirtualKeyCode::Key0),
-        0x31 => Some(VirtualKeyCode::Key1),
-        0x32 => Some(VirtualKeyCode::Key2),
-        0x33 => Some(VirtualKeyCode::Key3),
-        0x34 => Some(VirtualKeyCode::Key4),
-        0x35 => Some(VirtualKeyCode::Key5),
-        0x36 => Some(VirtualKeyCode::Key6),
-        0x37 => Some(VirtualKeyCode::Key7),
-        0x38 => Some(VirtualKeyCode::Key8),
-        0x39 => Some(VirtualKeyCode::Key9),
-        0x41 => Some(VirtualKeyCode::A),
-        0x42 => Some(VirtualKeyCode::B),
-        0x43 => Some(VirtualKeyCode::C),
-        0x44 => Some(VirtualKeyCode::D),
-        0x45 => Some(VirtualKeyCode::E),
-        0x46 => Some(VirtualKeyCode::F),
-        0x47 => Some(VirtualKeyCode::G),
-        0x48 => Some(VirtualKeyCode::H),
-        0x49 => Some(VirtualKeyCode::I),
-        0x4A => Some(VirtualKeyCode::J),
-        0x4B => Some(VirtualKeyCode::K),
-        0x4C => Some(VirtualKeyCode::L),
-        0x4D => Some(VirtualKeyCode::M),
-        0x4E => Some(VirtualKeyCode::N),
-        0x4F => Some(VirtualKeyCode::O),
-        0x50 => Some(VirtualKeyCode::P),
-        0x51 => Some(VirtualKeyCode::Q),
-        0x52 => Some(VirtualKeyCode::R),
-        0x53 => Some(VirtualKeyCode::S),
-        0x54 => Some(VirtualKeyCode::T),
-        0x55 => Some(VirtualKeyCode::U),
-        0x56 => Some(VirtualKeyCode::V),
-        0x57 => Some(VirtualKeyCode::W),
-        0x58 => Some(VirtualKeyCode::X),
-        0x59 => Some(VirtualKeyCode::Y),
-        0x5A => Some(VirtualKeyCode::Z),
-        winuser::VK_LWIN => Some(VirtualKeyCode::LWin),
-        winuser::VK_RWIN => Some(VirtualKeyCode::RWin),
-        winuser::VK_APPS => Some(VirtualKeyCode::Apps),
-        winuser::VK_SLEEP => Some(VirtualKeyCode::Sleep),
-        winuser::VK_NUMPAD0 => Some(VirtualKeyCode::Numpad0),
-        winuser::VK_NUMPAD1 => Some(VirtualKeyCode::Numpad1),
-        winuser::VK_NUMPAD2 => Some(VirtualKeyCode::Numpad2),
-        winuser::VK_NUMPAD3 => Some(VirtualKeyCode::Numpad3),
-        winuser::VK_NUMPAD4 => Some(VirtualKeyCode::Numpad4),
-        winuser::VK_NUMPAD5 => Some(VirtualKeyCode::Numpad5),
-        winuser::VK_NUMPAD6 => Some(VirtualKeyCode::Numpad6),
-        winuser::VK_NUMPAD7 => Some(VirtualKeyCode::Numpad7),
-        winuser::VK_NUMPAD8 => Some(VirtualKeyCode::Numpad8),
-        winuser::VK_NUMPAD9 => Some(VirtualKeyCode::Numpad9),
-        winuser::VK_MULTIPLY => Some(VirtualKeyCode::NumpadMultiply),
-        winuser::VK_ADD => Some(VirtualKeyCode::NumpadAdd),
-        //winuser::VK_SEPARATOR => Some(VirtualKeyCode::Separator),
-        winuser::VK_SUBTRACT => Some(VirtualKeyCode::NumpadSubtract),
-        winuser::VK_DECIMAL => Some(VirtualKeyCode::NumpadDecimal),
-        winuser::VK_DIVIDE => Some(VirtualKeyCode::NumpadDivide),
-        winuser::VK_F1 => Some(VirtualKeyCode::F1),
-        winuser::VK_F2 => Some(VirtualKeyCode::F2),
-        winuser::VK_F3 => Some(VirtualKeyCode::F3),
-        winuser::VK_F4 => Some(VirtualKeyCode::F4),
-        winuser::VK_F5 => Some(VirtualKeyCode::F5),
-        winuser::VK_F6 => Some(VirtualKeyCode::F6),
-        winuser::VK_F7 => Some(VirtualKeyCode::F7),
-        winuser::VK_F8 => Some(VirtualKeyCode::F8),
-        winuser::VK_F9 => Some(VirtualKeyCode::F9),
-        winuser::VK_F10 => Some(VirtualKeyCode::F10),
-        winuser::VK_F11 => Some(VirtualKeyCode::F11),
-        winuser::VK_F12 => Some(VirtualKeyCode::F12),
-        winuser::VK_F13 => Some(VirtualKeyCode::F13),
-        winuser::VK_F14 => Some(VirtualKeyCode::F14),
-        winuser::VK_F15 => Some(VirtualKeyCode::F15),
-        winuser::VK_F16 => Some(VirtualKeyCode::F16),
-        winuser::VK_F17 => Some(VirtualKeyCode::F17),
-        winuser::VK_F18 => Some(VirtualKeyCode::F18),
-        winuser::VK_F19 => Some(VirtualKeyCode::F19),
-        winuser::VK_F20 => Some(VirtualKeyCode::F20),
-        winuser::VK_F21 => Some(VirtualKeyCode::F21),
-        winuser::VK_F22 => Some(VirtualKeyCode::F22),
-        winuser::VK_F23 => Some(VirtualKeyCode::F23),
-        winuser::VK_F24 => Some(VirtualKeyCode::F24),
-        winuser::VK_NUMLOCK => Some(VirtualKeyCode::Numlock),
-        winuser::VK_SCROLL => Some(VirtualKeyCode::Scroll),
-        winuser::VK_BROWSER_BACK => Some(VirtualKeyCode::NavigateBackward),
-        winuser::VK_BROWSER_FORWARD => Some(VirtualKeyCode::NavigateForward),
-        winuser::VK_BROWSER_REFRESH => Some(VirtualKeyCode::WebRefresh),
-        winuser::VK_BROWSER_STOP => Some(VirtualKeyCode::WebStop),
-        winuser::VK_BROWSER_SEARCH => Some(VirtualKeyCode::WebSearch),
-        winuser::VK_BROWSER_FAVORITES => Some(VirtualKeyCode::WebFavorites),
-        winuser::VK_BROWSER_HOME => Some(VirtualKeyCode::WebHome),
-        winuser::VK_VOLUME_MUTE => Some(VirtualKeyCode::Mute),
-        winuser::VK_VOLUME_DOWN => Some(VirtualKeyCode::VolumeDown),
-        winuser::VK_VOLUME_UP => Some(VirtualKeyCode::VolumeUp),
-        winuser::VK_MEDIA_NEXT_TRACK => Some(VirtualKeyCode::NextTrack),
-        winuser::VK_MEDIA_PREV_TRACK => Some(VirtualKeyCode::PrevTrack),
-        winuser::VK_MEDIA_STOP => Some(VirtualKeyCode::MediaStop),
-        winuser::VK_MEDIA_PLAY_PAUSE => Some(VirtualKeyCode::PlayPause),
-        winuser::VK_LAUNCH_MAIL => Some(VirtualKeyCode::Mail),
-        winuser::VK_LAUNCH_MEDIA_SELECT => Some(VirtualKeyCode::MediaSelect),
-        /*winuser::VK_LAUNCH_APP1 => Some(VirtualKeyCode::Launch_app1),
-        winuser::VK_LAUNCH_APP2 => Some(VirtualKeyCode::Launch_app2),*/
-        winuser::VK_OEM_PLUS => Some(VirtualKeyCode::Equals),
-        winuser::VK_OEM_COMMA => Some(VirtualKeyCode::Comma),
-        winuser::VK_OEM_MINUS => Some(VirtualKeyCode::Minus),
-        winuser::VK_OEM_PERIOD => Some(VirtualKeyCode::Period),
-        winuser::VK_OEM_1 => map_text_keys(vkey),
-        winuser::VK_OEM_2 => map_text_keys(vkey),
-        winuser::VK_OEM_3 => map_text_keys(vkey),
-        winuser::VK_OEM_4 => map_text_keys(vkey),
-        winuser::VK_OEM_5 => map_text_keys(vkey),
-        winuser::VK_OEM_6 => map_text_keys(vkey),
-        winuser::VK_OEM_7 => map_text_keys(vkey),
-        /* winuser::VK_OEM_8 => Some(VirtualKeyCode::Oem_8), */
-        winuser::VK_OEM_102 => Some(VirtualKeyCode::OEM102),
-        /*winuser::VK_PROCESSKEY => Some(VirtualKeyCode::Processkey),
-        winuser::VK_PACKET => Some(VirtualKeyCode::Packet),
-        winuser::VK_ATTN => Some(VirtualKeyCode::Attn),
-        winuser::VK_CRSEL => Some(VirtualKeyCode::Crsel),
-        winuser::VK_EXSEL => Some(VirtualKeyCode::Exsel),
-        winuser::VK_EREOF => Some(VirtualKeyCode::Ereof),
-        winuser::VK_PLAY => Some(VirtualKeyCode::Play),
-        winuser::VK_ZOOM => Some(VirtualKeyCode::Zoom),
-        winuser::VK_NONAME => Some(VirtualKeyCode::Noname),
-        winuser::VK_PA1 => Some(VirtualKeyCode::Pa1),
-        winuser::VK_OEM_CLEAR => Some(VirtualKeyCode::Oem_clear),*/
-        _ => None,
+use crate::desktop::shell2::common::event::{win32_vk, win32_vkey_to_virtual_key};
+
+/// The shared table's `VK_*` constants must be `winapi`'s, digit for digit.
+///
+/// `common/event.rs` is compiled on every platform and cannot depend on
+/// `winapi`, so it transcribes the codes. This makes a mistyped transcription a
+/// BUILD ERROR on Windows instead of one key that quietly stops working.
+const _: () = {
+    macro_rules! transcribed_correctly {
+        ($($name:ident),* $(,)?) => { $( assert!(win32_vk::$name == winuser::$name); )* };
     }
+    transcribed_correctly!(
+        VK_BACK, VK_TAB, VK_RETURN, VK_SHIFT, VK_CONTROL, VK_MENU, VK_PAUSE, VK_CAPITAL, VK_KANA,
+        VK_KANJI, VK_ESCAPE, VK_CONVERT, VK_NONCONVERT, VK_SPACE, VK_PRIOR, VK_NEXT, VK_END,
+        VK_HOME, VK_LEFT, VK_UP, VK_RIGHT, VK_DOWN, VK_SNAPSHOT, VK_INSERT, VK_DELETE, VK_LWIN,
+        VK_RWIN, VK_APPS, VK_SLEEP, VK_NUMPAD0, VK_NUMPAD1, VK_NUMPAD2, VK_NUMPAD3, VK_NUMPAD4,
+        VK_NUMPAD5, VK_NUMPAD6, VK_NUMPAD7, VK_NUMPAD8, VK_NUMPAD9, VK_MULTIPLY, VK_ADD,
+        VK_SUBTRACT, VK_DECIMAL, VK_DIVIDE, VK_F1, VK_F2, VK_F3, VK_F4, VK_F5, VK_F6, VK_F7, VK_F8,
+        VK_F9, VK_F10, VK_F11, VK_F12, VK_F13, VK_F14, VK_F15, VK_F16, VK_F17, VK_F18, VK_F19,
+        VK_F20, VK_F21, VK_F22, VK_F23, VK_F24, VK_NUMLOCK, VK_SCROLL, VK_LSHIFT, VK_RSHIFT,
+        VK_LCONTROL, VK_RCONTROL, VK_LMENU, VK_RMENU, VK_BROWSER_BACK, VK_BROWSER_FORWARD,
+        VK_BROWSER_REFRESH, VK_BROWSER_STOP, VK_BROWSER_SEARCH, VK_BROWSER_FAVORITES,
+        VK_BROWSER_HOME, VK_VOLUME_MUTE, VK_VOLUME_DOWN, VK_VOLUME_UP, VK_MEDIA_NEXT_TRACK,
+        VK_MEDIA_PREV_TRACK, VK_MEDIA_STOP, VK_MEDIA_PLAY_PAUSE, VK_LAUNCH_MAIL,
+        VK_LAUNCH_MEDIA_SELECT, VK_OEM_1, VK_OEM_PLUS, VK_OEM_COMMA, VK_OEM_MINUS, VK_OEM_PERIOD,
+        VK_OEM_2, VK_OEM_3, VK_OEM_4, VK_OEM_5, VK_OEM_6, VK_OEM_7, VK_OEM_102,
+    );
+};
+
+/// Translate a Win32 VK code to a [`VirtualKeyCode`] against the ACTIVE layout.
+///
+/// The table is shared (`common::event::win32_vkey_to_virtual_key`); all this
+/// adds is the one thing only Windows can answer — which character the active
+/// layout puts on a `VK_OEM_*` position.
+pub fn vkey_to_winit_vkey(vkey: i32) -> Option<VirtualKeyCode> {
+    win32_vkey_to_virtual_key(vkey, active_layout_char(vkey))
 }
 
-// This is needed as windows doesn't properly distinguish
-// some virtual key codes for different keyboard layouts
-fn map_text_keys(win_virtual_key: i32) -> Option<VirtualKeyCode> {
+/// The character the active keyboard layout produces for `vkey`, if any.
+///
+/// This is needed as windows doesn't properly distinguish
+/// some virtual key codes for different keyboard layouts.
+fn active_layout_char(win_virtual_key: i32) -> Option<char> {
     let char_key =
         unsafe { winuser::MapVirtualKeyA(win_virtual_key as u32, winuser::MAPVK_VK_TO_CHAR) }
             & 0x7FFF;
-    match char::from_u32(char_key) {
-        Some(';') => Some(VirtualKeyCode::Semicolon),
-        Some('/') => Some(VirtualKeyCode::Slash),
-        Some('`') => Some(VirtualKeyCode::Grave),
-        Some('[') => Some(VirtualKeyCode::LBracket),
-        Some(']') => Some(VirtualKeyCode::RBracket),
-        Some('\'') => Some(VirtualKeyCode::Apostrophe),
-        Some('\\') => Some(VirtualKeyCode::Backslash),
-        _ => None,
-    }
+    char::from_u32(char_key)
 }
