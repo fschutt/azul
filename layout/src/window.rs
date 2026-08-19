@@ -961,6 +961,11 @@ pub enum TextEditNotify {
 /// multi-cursor paste). Replaces the three formerly hand-picked per-site id
 /// bands, which existed only so the sites could not collide.
 static CHANGESET_COUNTER: AtomicUsize = AtomicUsize::new(0);
+/// How many nodes [`LayoutWindow::ifc_candidate_children`] will visit looking
+/// for the box that owns an editable's inline layout. Editable subtrees are
+/// small; the bound only stops a malformed hierarchy from spinning.
+const IFC_CANDIDATE_SCAN_LIMIT: usize = 4096;
+
 /// How far [`LayoutWindow::accumulated_scroll_for_node`] walks up summing
 /// scroll offsets. Bounded only so a malformed tree cannot spin.
 const SCROLL_ANCESTOR_WALK_LIMIT: usize = 256;
@@ -11871,18 +11876,34 @@ impl LayoutWindow {
             return Vec::new();
         };
         let node_hierarchy = layout_result.styled_dom.node_hierarchy.as_ref();
-        let Some(parent_item) = node_hierarchy.get(node_id.index()) else {
-            return Vec::new();
-        };
 
+        // Breadth-first over the WHOLE subtree, not just the direct children.
+        // An editable's text can sit any number of blocks down
+        // (`div[contenteditable] > section > p > text`); a one-level scan found
+        // no `inline_layout_result` there, so `reshape_text_node` returned
+        // early and the keystroke was SILENTLY DROPPED. Direct children still
+        // come first, so the flat case is unchanged.
         let mut children = Vec::new();
-        let mut child = parent_item.first_child_id(node_id);
-        while let Some(child_id) = child {
-            children.push(child_id);
-            let Some(child_item) = node_hierarchy.get(child_id.index()) else {
+        let mut queue = alloc::collections::VecDeque::new();
+        queue.push_back(node_id);
+        let mut visited = 0usize;
+        while let Some(parent) = queue.pop_front() {
+            visited += 1;
+            if visited > IFC_CANDIDATE_SCAN_LIMIT {
                 break;
+            }
+            let Some(item) = node_hierarchy.get(parent.index()) else {
+                continue;
             };
-            child = child_item.next_sibling_id();
+            let mut child = item.first_child_id(parent);
+            while let Some(child_id) = child {
+                children.push(child_id);
+                queue.push_back(child_id);
+                let Some(child_item) = node_hierarchy.get(child_id.index()) else {
+                    break;
+                };
+                child = child_item.next_sibling_id();
+            }
         }
 
         let caret = self
@@ -15891,8 +15912,8 @@ mod autotest_generated {
 
         assert_eq!(
             w.ifc_candidate_children(DomId::ROOT_ID, NodeId::new(0)),
-            vec![NodeId::new(1), NodeId::new(3)],
-            "with no caret the order is the document's"
+            vec![NodeId::new(1), NodeId::new(3), NodeId::new(2), NodeId::new(4)],
+            "direct children in document order first, then deeper descendants"
         );
 
         // Caret on the TEXT LEAF of the second <p>: the block that owns it wins.
@@ -15909,7 +15930,7 @@ mod autotest_generated {
         ));
         assert_eq!(
             w.ifc_candidate_children(DomId::ROOT_ID, NodeId::new(0)),
-            vec![NodeId::new(3), NodeId::new(1)],
+            vec![NodeId::new(3), NodeId::new(1), NodeId::new(2), NodeId::new(4)],
             "the caret's block must be searched first"
         );
     }

@@ -718,3 +718,36 @@ fn a_burst_of_keystrokes_lands_in_order() {
 
     assert_eq!(text_of(&lw, EDITOR), "hello");
 }
+
+/// An IME composition two blocks down: `div[contenteditable] > div > div > text`.
+///
+/// `reshape_text_node` looks for the box that owns the editable's inline
+/// layout by scanning the editable's children — and that scan walked ONE
+/// level, so in ordinary nested markup it found nothing and returned early.
+/// The composition never appeared on screen.
+#[test]
+fn an_ime_composition_in_a_deeply_nested_editable_is_shaped() {
+    let dom = Dom::create_body().with_child(
+        Dom::create_div().with_contenteditable(true).with_child(
+            Dom::create_div().with_child(Dom::create_div().with_child(text("ab"))),
+        ),
+    );
+    let mut lw = layout(dom);
+
+    // body(0) > div[ce](1) > div(2) > div(3) > text(4)
+    let editable = 1;
+    let leaf = 4;
+    lw.focus_manager.set_focused_node(Some(dnid(leaf)));
+    lw.text_edit_manager
+        .initialize_editing(cursor(0), DomId::ROOT_ID, NodeId::new(leaf), 0);
+
+    let before = glyph_count(&lw);
+    lw.text_edit_manager.set_preedit("xy".to_string(), -1, -1);
+    lw.apply_preedit_to_text_cache(DomId::ROOT_ID, NodeId::new(editable));
+
+    assert!(
+        glyph_count(&lw) > before,
+        "the composition was never shaped: {before} glyphs before, {} after",
+        glyph_count(&lw)
+    );
+}
