@@ -80,9 +80,6 @@ pub fn generate_donation_page(yaml_str: &str) -> anyhow::Result<String> {
       <div class="container">
         <p class="docs-eyebrow">Support Azul</p>
         <h1>Donate</h1>
-        <p class="docs-lede">Azul is an open-source GUI framework that relies on community
-        support to continue development. Your contributions help maintain the project,
-        implement new features, and keep resources available to everyone.</p>
       </div>
     </section>
     <section class="docs-body">

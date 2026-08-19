@@ -54,8 +54,12 @@ body.ui-landing {
 
 .ui-hero .container {
     display: grid;
-    grid-template-columns: 1.15fr 0.85fr;
-    gap: 56px;
+    /* minmax(0, ...) lets the text column shrink below its content width;
+       minmax(230px, ...) stops the card collapsing to nothing. Between them
+       the two columns give way to each other continuously, so there is no
+       width at which the layout has to park the card in open space. */
+    grid-template-columns: minmax(0, 1.15fr) minmax(230px, 0.85fr);
+    gap: clamp(20px, 3.5vw, 56px);
     /* the card heads with the heading, not with the column's middle */
     align-items: start;
     position: relative;
@@ -511,8 +515,6 @@ img.showcase.windows { display: initial; }
 
 /* ---- Responsive ---- */
 @media (max-width: 1024px) {
-    .ui-hero .container { grid-template-columns: 1fr; gap: 48px; }
-    .ui-hero-side { padding-top: 0; }
     .ui-example-grid {
         grid-template-columns: 1fr;
         grid-template-areas:
@@ -521,6 +523,13 @@ img.showcase.windows { display: initial; }
             "code";
         gap: 32px;
     }
+}
+/* Only now does the card go under the heading - and when it does it takes
+   the full measure rather than sitting in the middle of an empty column. */
+@media (max-width: 720px) {
+    .ui-hero .container { grid-template-columns: 1fr; gap: 36px; }
+    .ui-hero-side { padding-top: 0; justify-content: stretch; }
+    #latestrelease { max-width: none; }
 }
 @media (max-width: 768px) {
     .ui-hero { padding: 104px 0 70px; }

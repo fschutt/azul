@@ -262,7 +262,6 @@ pub fn generate_blog_index() -> String {
       <div class="container">
         <p class="docs-eyebrow">Blog</p>
         <h1>Blog</h1>
-        <p class="docs-lede">News, updates, and tutorials for the Azul GUI framework.</p>
       </div>
     </section>
     <section class="docs-body">

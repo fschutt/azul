@@ -29,7 +29,6 @@ pub fn generate_api_html(api_data: &ApiData, version: &str) -> String {
       <div class="container">
         <p class="docs-eyebrow">API reference</p>
         <h1>{title}</h1>
-        <p class="docs-lede">Every module, class, enum, callback and function exported by libazul {version}.</p>
       </div>
     </section>
     <section class="docs-body">
@@ -577,7 +576,6 @@ pub fn generate_api_index(api_data: &ApiData) -> String {
       <div class="container">
         <p class="docs-eyebrow">API reference</p>
         <h1>{title}</h1>
-        <p class="docs-lede">Pick a release to browse the full API listing, or search across the latest version right here.</p>
         <div id="azul-search-mount"></div>
       </div>
     </section>

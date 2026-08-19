@@ -1977,7 +1977,6 @@ pub fn generate_releases_index(versions: &[String]) -> String {
       <div class='container'>
         <p class='docs-eyebrow'>Releases</p>
         <h1>Releases</h1>
-        <p class='docs-lede'>Every published version of the Azul GUI framework, with downloads, release notes and per-language install instructions.</p>
       </div>
     </section>
     <section class='docs-body'>

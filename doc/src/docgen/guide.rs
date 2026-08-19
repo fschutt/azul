@@ -403,13 +403,11 @@ pub fn generate_guide_html(guide: &Guide, _version: &str) -> String {
         guide.file_name,
     ));
 
-    let lede = match &guide.description {
-        Some(d) => format!(
-            "\n      <p class=\"docs-lede\">{}</p>",
-            transform_german_quotes(&html_escape(d)),
-        ),
-        None => String::new(),
-    };
+    // No lede on a chapter page. The frontmatter description exists so the
+    // guide INDEX can say what a chapter covers; repeating it under the
+    // chapter's own title tells the reader what they just clicked.
+    let _ = &guide.description;
+    let lede = String::new();
 
     let main_html = format!(
         r#"<section class="docs-hero">
