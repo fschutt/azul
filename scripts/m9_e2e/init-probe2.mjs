@@ -23,6 +23,25 @@ const real = {
     memcpy: (d, s, n) => { new Uint8Array(memory.buffer).copyWithin(Number(d), Number(s), Number(s) + Number(n)); return d; },
     memmove: (d, s, n) => { new Uint8Array(memory.buffer).copyWithin(Number(d), Number(s), Number(s) + Number(n)); return d; },
     sqrtf: Math.sqrt, sqrt: Math.sqrt,
+    // 128-bit helpers: zero-stubbing these makes EVERY float/u128 path trap,
+    // which looks exactly like a mis-lift. Always provide them (the lab note
+    // in weblift-fast-debug-loop.md exists because this cost hours once).
+    __multi3: (sret, aLo, aHi, bLo, bHi) => {
+        const d = dv(), M = 0xFFFFFFFFFFFFFFFFn;
+        const a = (BigInt.asUintN(64, BigInt(aHi)) << 64n) | BigInt.asUintN(64, BigInt(aLo));
+        const b = (BigInt.asUintN(64, BigInt(bHi)) << 64n) | BigInt.asUintN(64, BigInt(bLo));
+        const p128 = BigInt.asUintN(128, a * b);
+        d.setBigUint64(Number(sret), p128 & M, true);
+        d.setBigUint64(Number(sret) + 8, (p128 >> 64n) & M, true);
+    },
+    __udivti3: (sret, aLo, aHi, bLo, bHi) => {
+        const d = dv(), M = 0xFFFFFFFFFFFFFFFFn;
+        const a = (BigInt.asUintN(64, BigInt(aHi)) << 64n) | BigInt.asUintN(64, BigInt(aLo));
+        const b = (BigInt.asUintN(64, BigInt(bHi)) << 64n) | BigInt.asUintN(64, BigInt(bLo));
+        const q = b === 0n ? 0n : a / b;
+        d.setBigUint64(Number(sret), q & M, true);
+        d.setBigUint64(Number(sret) + 8, (q >> 64n) & M, true);
+    },
     __indirect_function_table: new WebAssembly.Table({ initial: 4096, element: 'anyfunc' }),
 };
 const env = new Proxy({}, {
@@ -55,3 +74,23 @@ try {
 dump('post-init ');
 console.log('NeverLift marker(262216)=0x' + u64(262216).toString(16),
     ' unk=' + u32(0x40158), ' mb=' + u32(0x400FC));
+
+// fmt matrix: the mini carries AzStartup_probeFmt (13 staged format! shapes,
+// markers at 0x40910+4i). A trap inside ToString::to_string means the fmt
+// chain returned Err in THIS binary, so run the probe to see which stage.
+if (typeof m.AzStartup_probeFmt === 'function') {
+    try {
+        const total = m.AzStartup_probeFmt(255) >>> 0;
+        console.log('probeFmt total_len=' + total);
+    } catch (e) {
+        console.log('probeFmt TRAPPED: ' + e.message);
+    }
+    const names = ['1 write_str', '2 pieces', '3 {char}', '4 {str}', '5 {u8}', '6 {u32:x}',
+                   '7 {u32}', '8 format!', '9 {f32}', '10 {f32:.2}', '11 {:?}Some',
+                   '12 {:>5}', '13 composite'];
+    console.log(names.map((n, i) =>
+        n + '=0x' + (dv().getUint32(0x40910 + i * 4, true) >>> 0).toString(16)).join('  '));
+}
+console.log('post-probe marker(262216)=0x' + u64(262216).toString(16),
+    ' unk=' + u32(0x40158), ' upc=0x' + u32(0x40900).toString(16),
+    ' mb=' + u32(0x400FC), ' mb_last=0x' + u32(0x400F8).toString(16));
