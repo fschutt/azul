@@ -573,7 +573,6 @@ pub unsafe extern "C" fn AzStartup_hydrateJson(
         Err(_) => return 0,
     };
     mark(3);
-    core::ptr::write_volatile(0x40984 as *mut u32, json.to_string().as_str().len() as u32);
     mark(4);
     let refany = match azul_layout::json::json_deserialize_to_refany(json, deser_fn) {
         azul_layout::json::ResultRefAnyString::Ok(r) => r,
