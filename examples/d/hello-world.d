@@ -102,7 +102,7 @@ extern(C) AzDom layout(AzRefAny data, AzLayoutCallbackInfo info) {
     ubyte[16] buf;
     size_t n = u32_write(m.counter, buf[]);
     AzString counter_str = AzString_fromUtf8(buf.ptr, n);
-    AzDom label = AzDom_createText(counter_str);
+    AzDom label = AzDom_createTextDoNotUseWithoutBlockLevelWrapper(counter_str);
 
     AzDom label_wrapper = AzDom_createDiv();
     AzStyleFontSize font_size = AzStyleFontSize_px(32.0);

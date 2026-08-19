@@ -81,7 +81,7 @@ fn layout(data azul.AzRefAny, info azul.AzLayoutCallbackInfo) azul.AzDom {
 	// Counter label (wrapped in a div so the font-size sticks).
 	counter_val := unsafe { m.counter }
 	counter_str := az_str(counter_val.str())
-	label := C.AzDom_createText(counter_str)
+	label := C.AzDom_createTextDoNotUseWithoutBlockLevelWrapper(counter_str)
 
 	mut label_wrapper := C.AzDom_createDiv()
 	font_size := C.AzStyleFontSize_px(32.0)

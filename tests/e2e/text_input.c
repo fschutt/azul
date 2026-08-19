@@ -98,7 +98,7 @@ AzDom layout(AzRefAny data, AzLayoutCallbackInfo info) {
     AzDom input = AzDom_createDiv();
     
     // Add text content
-    AzDom text_node = AzDom_createText(AZ_STR(ref.ptr->text));
+    AzDom text_node = AzDom_createTextDoNotUseWithoutBlockLevelWrapper(AZ_STR(ref.ptr->text));
     AzDom_addChild(&input, text_node);
     
     // Make it focusable and contenteditable
@@ -119,7 +119,7 @@ AzDom layout(AzRefAny data, AzLayoutCallbackInfo info) {
              ref.ptr->selection_start, ref.ptr->selection_end);
     
     AzDom status_label = AzDom_createDiv();
-    AzDom_addChild(&status_label, AzDom_createText(AZ_STR(status)));
+    AzDom_addChild(&status_label, AzDom_createTextDoNotUseWithoutBlockLevelWrapper(AZ_STR(status)));
     AzDom_addClass(&status_label, AZ_STR("status"));
     
     TextInputDataRef_delete(&ref);
@@ -129,7 +129,7 @@ AzDom layout(AzRefAny data, AzLayoutCallbackInfo info) {
     
     // Label
     AzDom label = AzDom_createDiv();
-    AzDom_addChild(&label, AzDom_createText(AZ_STR("Single-Line Input (Tab to focus, then type):")));
+    AzDom_addChild(&label, AzDom_createTextDoNotUseWithoutBlockLevelWrapper(AZ_STR("Single-Line Input (Tab to focus, then type):")));
     AzDom_addClass(&label, AZ_STR("label"));
     AzDom_addChild(&body, label);
     

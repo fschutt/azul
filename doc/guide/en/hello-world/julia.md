@@ -149,7 +149,7 @@ function layout(data::Azul.AzRefAny, info::Azul.AzLayoutCallbackInfo)::Azul.AzDo
     end
     counter === nothing && return Azul.AzDom_createBody()
 
-    label = Azul.AzDom_createText(Azul.az_string(string(counter)))
+    label = Azul.AzDom_createTextDoNotUseWithoutBlockLevelWrapper(Azul.az_string(string(counter)))
     label_wrapper = Ref(Azul.AzDom_createDiv())
     css_prop = Azul.AzCssProperty_fontSize(Azul.AzStyleFontSize_px(32.0f0))
     cond = Azul.AzCssPropertyWithConditions_simple(css_prop)

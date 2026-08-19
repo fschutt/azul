@@ -30,7 +30,7 @@ AzDom layout(AzRefAny data, AzLayoutCallbackInfo info) {
     add_prop(&body, AzCssProperty_width(AzLayoutWidth_px(AzPixelValue_px(800.0f))));
     add_prop(&body, AzCssProperty_height(AzLayoutHeight_px(AzPixelValue_px(600.0f))));
 
-    AzDom text = AzDom_createText(s("Hello"));
+    AzDom text = AzDom_createTextDoNotUseWithoutBlockLevelWrapper(s("Hello"));
     AzDom_addChild(&body, text);
 
     return body;

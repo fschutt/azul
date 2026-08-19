@@ -2861,7 +2861,7 @@ fn builtin_compile_fn(
         }
         CompileTarget::C => {
             text.map_or_else(|| Ok(format!("AzDom_create{type_name}()").into()), |text_str| Ok(format!(
-                    "AzDom_createText(AZ_STR(\"{}\"))",
+                    "AzDom_createTextDoNotUseWithoutBlockLevelWrapper(AZ_STR(\"{}\"))",
                     text_str
                         .as_str()
                         .replace('\\', "\\\\")
@@ -3133,7 +3133,7 @@ fn push_scalar_field(children: &mut Vec<Dom>, field_name: &str, value: &dyn fmt:
                     OptionComponentDefaultValue::Some(ComponentDefaultValue::String(s)) => {
                         let escaped = s.as_str().replace('\\', "\\\\").replace('"', "\\\"");
                         lines.push(alloc::format!(
-                            "{inner_indent}AzDom_addChild(&root, AzDom_createText(AZ_STR(\"{escaped}\")));"
+                            "{inner_indent}AzDom_addChild(&root, AzDom_createTextDoNotUseWithoutBlockLevelWrapper(AZ_STR(\"{escaped}\")));"
                         ));
                     }
                     OptionComponentDefaultValue::Some(
@@ -7816,7 +7816,7 @@ fn compile_node_c(
                 if !text.is_empty() {
                     let esc = text.replace('\\', "\\\\").replace('"', "\\\"");
                     let _ = writeln!(out,
-                        "    AzDom_addChild(&{var}, AzDom_createText(AZ_STR(\"{esc}\")));"
+                        "    AzDom_addChild(&{var}, AzDom_createTextDoNotUseWithoutBlockLevelWrapper(AZ_STR(\"{esc}\")));"
                     );
                 }
             }
@@ -7872,7 +7872,7 @@ pub fn str_to_c_code<'a>(
                 if !text.is_empty() {
                     let esc = text.replace('\\', "\\\\").replace('"', "\\\"");
                     let _ = writeln!(body,
-                        "    AzDom_addChild(&{root}, AzDom_createText(AZ_STR(\"{esc}\")));"
+                        "    AzDom_addChild(&{root}, AzDom_createTextDoNotUseWithoutBlockLevelWrapper(AZ_STR(\"{esc}\")));"
                     );
                 }
             }

@@ -121,7 +121,7 @@ AzDom layout(AzRefAny data, AzLayoutCallbackInfo info) {
     AzDom textarea = AzDom_createDiv();
     
     // Add text content
-    AzDom text_node = AzDom_createText(AZ_STR(ref.ptr->text));
+    AzDom text_node = AzDom_createTextDoNotUseWithoutBlockLevelWrapper(AZ_STR(ref.ptr->text));
     AzDom_addChild(&textarea, text_node);
     
     // Make it focusable
@@ -146,7 +146,7 @@ AzDom layout(AzRefAny data, AzLayoutCallbackInfo info) {
              ref.ptr->key_count, ref.ptr->scroll_count);
     
     AzDom status_bar = AzDom_createDiv();
-    AzDom_addChild(&status_bar, AzDom_createText(AZ_STR(status)));
+    AzDom_addChild(&status_bar, AzDom_createTextDoNotUseWithoutBlockLevelWrapper(AZ_STR(status)));
     AzDom_addClass(&status_bar, AZ_STR("status"));
     
     TextAreaDataRef_delete(&ref);
@@ -156,7 +156,7 @@ AzDom layout(AzRefAny data, AzLayoutCallbackInfo info) {
     
     // Label
     AzDom label = AzDom_createDiv();
-    AzDom_addChild(&label, AzDom_createText(AZ_STR("Multi-Line Text Area (scroll test):")));
+    AzDom_addChild(&label, AzDom_createTextDoNotUseWithoutBlockLevelWrapper(AZ_STR("Multi-Line Text Area (scroll test):")));
     AzDom_addClass(&label, AZ_STR("label"));
     AzDom_addChild(&body, label);
     

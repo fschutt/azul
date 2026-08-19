@@ -147,7 +147,7 @@ layout :: proc "c" (data: azul.AzRefAny, info: azul.AzLayoutCallbackInfo) -> azu
 	buf: [16]u8
 	n := u32_write(m.counter, buf[:])
 	counter_str := azul.AzString_fromUtf8(raw_data(buf[:]), uint(n))
-	label := azul.AzDom_createText(counter_str)
+	label := azul.AzDom_createTextDoNotUseWithoutBlockLevelWrapper(counter_str)
 
 	label_wrapper := azul.AzDom_createDiv()
 	font_size := azul.AzStyleFontSize_px(32.0)

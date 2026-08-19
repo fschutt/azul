@@ -69,7 +69,7 @@ proc layout(data: AzRefAny, info: AzLayoutCallbackInfo): AzDom {.cdecl.} =
     return AzDom_createBody()
 
   # Counter label, wrapped in a div so the font-size sticks.
-  let label = AzDom_createText(azStr($m.counter))
+  let label = AzDom_createTextDoNotUseWithoutBlockLevelWrapper(azStr($m.counter))
   var labelWrapper = AzDom_createDiv()
   let cond = AzCssPropertyWithConditions_simple(
     AzCssProperty_fontSize(AzStyleFontSize_px(32.0'f32)))

@@ -69,7 +69,7 @@ AzDom create_item(int index) {
     
     AzString text = AzString_copyFromBytes((uint8_t*)buffer, 0, len);
     AzDom item = AzDom_createDiv();
-    AzDom_addChild(&item, AzDom_createText(text));
+    AzDom_addChild(&item, AzDom_createTextDoNotUseWithoutBlockLevelWrapper(text));
     
     // Alternate colors
     const char* bg_color = (index % 2 == 0) ? "#3498db" : "#2980b9";
@@ -111,12 +111,12 @@ AzDom layout(AzRefAny data, AzLayoutCallbackInfo info) {
     
     // Status bar
     AzDom status_bar = AzDom_createDiv();
-    AzDom_addChild(&status_bar, AzDom_createText(AZ_STR(status)));
+    AzDom_addChild(&status_bar, AzDom_createTextDoNotUseWithoutBlockLevelWrapper(AZ_STR(status)));
     AzDom_addClass(&status_bar, AZ_STR("status"));
     
     // Instructions
     AzDom instructions = AzDom_createDiv();
-    AzDom_addChild(&instructions, AzDom_createText(AZ_STR(
+    AzDom_addChild(&instructions, AzDom_createTextDoNotUseWithoutBlockLevelWrapper(AZ_STR(
         "Test scrollbar interaction:\n"
         "1. Wheel scroll on container\n"
         "2. Drag scrollbar thumb\n"
@@ -129,7 +129,7 @@ AzDom layout(AzRefAny data, AzLayoutCallbackInfo info) {
     AzDom body = AzDom_createBody();
     
     AzDom label = AzDom_createDiv();
-    AzDom_addChild(&label, AzDom_createText(AZ_STR("Scrollbar Drag Test:")));
+    AzDom_addChild(&label, AzDom_createTextDoNotUseWithoutBlockLevelWrapper(AZ_STR("Scrollbar Drag Test:")));
     AzDom_addClass(&label, AZ_STR("label"));
     AzDom_addChild(&body, label);
     

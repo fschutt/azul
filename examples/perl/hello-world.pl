@@ -42,7 +42,7 @@ my $layout = sub {
     my $label = Azul::FFI::AzDom_createDiv();
     $label = Azul::FFI::AzDom_withCss($label, mk_str('font-size: 32px;'));
     $label = Azul::FFI::AzDom_withChild(
-        $label, Azul::FFI::AzDom_createText(mk_str($m->{counter})));
+        $label, Azul::FFI::AzDom_createTextDoNotUseWithoutBlockLevelWrapper(mk_str($m->{counter})));
 
     my $click_cb   = Azul::register_callback('ButtonOnClickCallback', $on_click);
     my $click_data = Azul::refany_create($model);

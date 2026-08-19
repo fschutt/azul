@@ -146,7 +146,7 @@ proc layout(data: AzRefAny, info: AzLayoutCallbackInfo): AzDom {.cdecl.} =
   let m = myDataDowncast(addr d)
   if m == nil: return AzDom_createBody()
 
-  let label = AzDom_createText(azStr($m.counter))
+  let label = AzDom_createTextDoNotUseWithoutBlockLevelWrapper(azStr($m.counter))
   var labelWrapper = AzDom_createDiv()
   let cond = AzCssPropertyWithConditions_simple(
     AzCssProperty_fontSize(AzStyleFontSize_px(32.0'f32)))

@@ -67,7 +67,7 @@ Function layout Cdecl (ByVal data As AzRefAny, ByVal info As AzLayoutCallbackInf
     ' Counter label, wrapped in a div so the font-size CSS sticks.
     buf = Str(modelPtr->counter)
     labelText  = AzStr(buf)
-    labelDom   = AzDom_createText(labelText)
+    labelDom   = AzDom_createTextDoNotUseWithoutBlockLevelWrapper(labelText)
     labelWrapper = AzDom_createDiv()
 
     fontSize = AzCssProperty_fontSize(AzStyleFontSize_px(32.0))

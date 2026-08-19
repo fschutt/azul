@@ -84,7 +84,7 @@ function layout(data::Azul.AzRefAny, info::Azul.AzLayoutCallbackInfo)::Azul.AzDo
     counter === nothing && return Azul.AzDom_createBody()
 
     # Counter label (wrapped in a div so the font-size sticks).
-    label = Azul.AzDom_createText(Azul.az_string(string(counter)))
+    label = Azul.AzDom_createTextDoNotUseWithoutBlockLevelWrapper(Azul.az_string(string(counter)))
 
     label_wrapper = Ref(Azul.AzDom_createDiv())
     font_size = Azul.AzStyleFontSize_px(32.0f0)

@@ -18,7 +18,7 @@ AzDom layout(AzRefAny data, AzLayoutCallbackInfo info) {
     MyDataModelRef_delete(&d);
 
     AzString label_text = AzString_copyFromBytes(buffer, 0, written);
-    AzDom label = AzDom_createText(label_text);
+    AzDom label = AzDom_createTextDoNotUseWithoutBlockLevelWrapper(label_text);
     
     AzCssProperty font_size = AzCssProperty_fontSize(AzStyleFontSize_px(50.0));
     AzCssPropertyWithConditions font_size_prop = AzCssPropertyWithConditions_simple(font_size);
@@ -29,7 +29,7 @@ AzDom layout(AzRefAny data, AzLayoutCallbackInfo info) {
     AzCssPropertyWithConditions flex_grow_prop = AzCssPropertyWithConditions_simple(flex_grow);
     AzDom_addCssProperty(&button, flex_grow_prop);
     AzString button_text = AzString_copyFromBytes("Increase counter", 0, 16);
-    AzDom_addChild(&button, AzDom_createText(button_text));
+    AzDom_addChild(&button, AzDom_createTextDoNotUseWithoutBlockLevelWrapper(button_text));
     
     AzEventFilter event = AzEventFilter_hover(AzHoverEventFilter_mouseUp());
     AzRefAny data_clone = AzRefAny_clone(&data);

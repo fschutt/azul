@@ -150,7 +150,7 @@ AzDom layout(AzRefAny data_ref, AzLayoutCallbackInfo info) {
     set_flex_grow(&sidebar, 0.0);
 
     AzDom stitle = AzDom_createP();
-    AzDom_addChild(&stitle, AzDom_createText(az("Favorites")));
+    AzDom_addChild(&stitle, AzDom_createTextDoNotUseWithoutBlockLevelWrapper(az("Favorites")));
     set_font_size(&stitle, 11.0);
     set_text_color(&stitle, 140, 140, 140);
     AzDom_addChild(&sidebar, stitle);
@@ -161,7 +161,7 @@ AzDom layout(AzRefAny data_ref, AzLayoutCallbackInfo info) {
     };
     for (int i = 0; i < 8; i++) {
         AzDom item = AzDom_createP();
-        AzDom_addChild(&item, AzDom_createText(az(sidebar_items[i])));
+        AzDom_addChild(&item, AzDom_createTextDoNotUseWithoutBlockLevelWrapper(az(sidebar_items[i])));
         set_font_size(&item, 13.0);
         AzDom_addChild(&sidebar, item);
     }
@@ -181,7 +181,7 @@ AzDom layout(AzRefAny data_ref, AzLayoutCallbackInfo info) {
     const char* cols[] = { "Name", "Date Modified", "Size", "Kind" };
     for (int i = 0; i < 4; i++) {
         AzDom c = AzDom_createP();
-        AzDom_addChild(&c, AzDom_createText(az(cols[i])));
+        AzDom_addChild(&c, AzDom_createTextDoNotUseWithoutBlockLevelWrapper(az(cols[i])));
         set_flex_grow(&c, 1.0);
         AzDom_addChild(&hdr, c);
     }
@@ -196,7 +196,7 @@ AzDom layout(AzRefAny data_ref, AzLayoutCallbackInfo info) {
         const char* cells[] = { FILES[i].name, FILES[i].date, FILES[i].size, FILES[i].kind };
         for (int j = 0; j < 4; j++) {
             AzDom cell = AzDom_createP();
-            AzDom_addChild(&cell, AzDom_createText(az(cells[j])));
+            AzDom_addChild(&cell, AzDom_createTextDoNotUseWithoutBlockLevelWrapper(az(cells[j])));
             set_flex_grow(&cell, 1.0);
             AzDom_addChild(&row, cell);
         }
@@ -209,7 +209,7 @@ AzDom layout(AzRefAny data_ref, AzLayoutCallbackInfo info) {
     char status[64];
     int slen = snprintf(status, sizeof(status), "%d items", NUM_FILES);
     AzDom sbar = AzDom_createP();
-    AzDom_addChild(&sbar, AzDom_createText(AzString_copyFromBytes((const uint8_t*)status, 0, slen)));
+    AzDom_addChild(&sbar, AzDom_createTextDoNotUseWithoutBlockLevelWrapper(AzString_copyFromBytes((const uint8_t*)status, 0, slen)));
     set_font_size(&sbar, 11.0);
     set_text_color(&sbar, 140, 140, 140);
     AzDom_addChild(&body, sbar);

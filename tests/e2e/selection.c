@@ -52,7 +52,7 @@ AzDom layout(AzRefAny data, AzLayoutCallbackInfo info) {
     AzDom p1 = AzDom_createDiv();
     
     // Create text node with click handler
-    AzDom p1_text_node = AzDom_createText(p1_text);
+    AzDom p1_text_node = AzDom_createTextDoNotUseWithoutBlockLevelWrapper(p1_text);
     AzEventFilter p1_text_event = AzEventFilter_hover(AzHoverEventFilter_mouseDown());
     AzDom_addCallback(&p1_text_node, p1_text_event, AzRefAny_clone(&data), on_p1_text_click);
     AzDom_addChild(&p1, p1_text_node);
@@ -71,7 +71,7 @@ AzDom layout(AzRefAny data, AzLayoutCallbackInfo info) {
     AzString p2_text = AzString_copyFromBytes(
         "SECOND PARAGRAPH - user-select: none - This should be SKIPPED!", 0, 63);
     AzDom p2 = AzDom_createDiv();
-    AzDom_addChild(&p2, AzDom_createText(p2_text));
+    AzDom_addChild(&p2, AzDom_createTextDoNotUseWithoutBlockLevelWrapper(p2_text));
     AzString p2_style = AzString_copyFromBytes(
         "font-size: 28px; padding: 15px; background-color: #ffc0c0; margin: 8px; user-select: none;", 0, 92);
     AzDom_setInlineStyle(&p2, p2_style);
@@ -82,7 +82,7 @@ AzDom layout(AzRefAny data, AzLayoutCallbackInfo info) {
     AzString p3_text = AzString_copyFromBytes(
         "THIRD PARAGRAPH - This text is also selectable. End your selection here.", 0, 73);
     AzDom p3 = AzDom_createDiv();
-    AzDom_addChild(&p3, AzDom_createText(p3_text));
+    AzDom_addChild(&p3, AzDom_createTextDoNotUseWithoutBlockLevelWrapper(p3_text));
     AzString p3_style = AzString_copyFromBytes(
         "font-size: 28px; padding: 15px; background-color: #c0c0ff; margin: 8px;", 0, 73);
     AzDom_setInlineStyle(&p3, p3_style);

@@ -81,7 +81,7 @@ AzUpdate on_button3_click(AzRefAny data, AzCallbackInfo info) {
 AzDom create_button(const char* label, int button_num, AzCallbackType click_callback, AzRefAny data) {
     AzString text = AzString_copyFromBytes((const uint8_t*)label, 0, strlen(label));
     AzDom button = AzDom_createDiv();
-    AzDom_addChild(&button, AzDom_createText(text));
+    AzDom_addChild(&button, AzDom_createTextDoNotUseWithoutBlockLevelWrapper(text));
     
     // Add click callback - use leftMouseUp for click
     AzEventFilter event = AzEventFilter_hover(AzHoverEventFilter_leftMouseUp());
@@ -122,7 +122,7 @@ AzDom layout(AzRefAny data, AzLayoutCallbackInfo info) {
     // Create header
     AzString header_text = AzString_copyFromBytes((const uint8_t*)"Focus & Tab Navigation Test", 0, 28);
     AzDom header = AzDom_createDiv();
-    AzDom_addChild(&header, AzDom_createText(header_text));
+    AzDom_addChild(&header, AzDom_createTextDoNotUseWithoutBlockLevelWrapper(header_text));
     AzString header_style = AzString_copyFromBytes((const uint8_t*)
         "padding: 20px; background-color: #2c3e50; color: white; "
         "font-size: 28px; font-weight: bold; text-align: center;", 0, 111);
@@ -132,7 +132,7 @@ AzDom layout(AzRefAny data, AzLayoutCallbackInfo info) {
     AzString instructions_text = AzString_copyFromBytes((const uint8_t*)
         "Press Tab to navigate between buttons. Press Enter or Space to activate. Press Escape to clear focus.", 0, 102);
     AzDom instructions = AzDom_createDiv();
-    AzDom_addChild(&instructions, AzDom_createText(instructions_text));
+    AzDom_addChild(&instructions, AzDom_createTextDoNotUseWithoutBlockLevelWrapper(instructions_text));
     AzString instructions_style = AzString_copyFromBytes((const uint8_t*)
         "padding: 15px; background-color: #ecf0f1; color: #2c3e50; "
         "font-size: 16px; text-align: center; border-bottom: 1px solid #bdc3c7;", 0, 126);
@@ -165,7 +165,7 @@ AzDom layout(AzRefAny data, AzLayoutCallbackInfo info) {
     
     AzString status_text = AzString_copyFromBytes((const uint8_t*)status_buf, 0, status_len);
     AzDom status = AzDom_createDiv();
-    AzDom_addChild(&status, AzDom_createText(status_text));
+    AzDom_addChild(&status, AzDom_createTextDoNotUseWithoutBlockLevelWrapper(status_text));
     AzString status_id = AzString_copyFromBytes((const uint8_t*)"status", 0, 6);
     status = AzDom_withId(status, status_id);
     AzString status_style = AzString_copyFromBytes((const uint8_t*)

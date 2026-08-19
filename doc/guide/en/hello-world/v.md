@@ -148,7 +148,7 @@ fn layout(data azul.AzRefAny, info azul.AzLayoutCallbackInfo) azul.AzDom {
 	}
 
 	counter_val := unsafe { m.counter }
-	label := C.AzDom_createText(az_str(counter_val.str()))
+	label := C.AzDom_createTextDoNotUseWithoutBlockLevelWrapper(az_str(counter_val.str()))
 
 	mut label_wrapper := C.AzDom_createDiv()
 	css_prop := C.AzCssProperty_fontSize(C.AzStyleFontSize_px(32.0))
