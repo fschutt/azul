@@ -142,8 +142,7 @@ the DOM.
 
 > **Maturity (WIP).** `on_click` → counter works end-to-end for `hello-world`.
 > Broader event wiring (`mousemove`/`keydown`/…), full DOM diff/patch, and
-> arbitrary hydration payloads are in progress — see
-> [internals/web](internals/web.md#whats-bypassed). Complex apps fall back to
+> arbitrary hydration payloads are in progress. Complex apps fall back to
 > server-side `POST /az/exec/{node_id}` execution.
 
 ## Routes
@@ -190,5 +189,3 @@ my-app.example.com {
 ## Related
 
 - [Headless rendering](headless-rendering.md) — the render pipeline without a window
-- [Security model](security.md) — what azul does and doesn't defend against
-- [Web backend internals](internals/web.md) — the full lift/dispatch deep dive (for contributors)

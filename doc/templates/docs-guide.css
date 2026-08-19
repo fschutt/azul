@@ -7,16 +7,38 @@
    ========================================================================== */
 
 /* ---- Guide index: sub-chapter lists inside a .docs-list-item ---- */
+/* Sub-chapters run ACROSS, not down. Hello World alone has twenty language
+   pages; as a bulleted column that is twenty lines for what is really one
+   row of choices. Their one-line descriptions come off - the parent's blurb
+   already says what the group is about, and the titles are the navigation. */
 .docs-content ul.docs-sublist {
-    margin: 0 0 14px;
-    padding-left: 22px;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 4px 8px;
+    margin: 0 0 6px;
+    padding-left: 0;
+    list-style: none;
 }
 .docs-content .docs-sublist li {
-    font-size: 15px;
-    line-height: 1.6;
-    margin-bottom: 6px;
+    font-size: 0.95rem;
+    line-height: 1.4;
+    margin: 0;
 }
-.docs-sub-desc { color: var(--color-text-light); }
+.docs-content .docs-sublist li::after {
+    content: "·";
+    margin-left: 8px;
+    color: var(--fl-soft2);
+}
+.docs-content .docs-sublist li:last-child::after { content: none; }
+
+/* A nested sub-list (a sub-chapter with children of its own) breaks the row
+   and indents, so the hierarchy still reads. */
+.docs-content .docs-sublist .docs-sublist {
+    flex-basis: 100%;
+    margin: 2px 0 2px 14px;
+}
+
+.docs-sub-desc { display: none; }
 
 /* ---- Prev/next chapter footer: plain accent links (colored by the shared
         .docs-content a rule) in a hairline-topped row ---- */

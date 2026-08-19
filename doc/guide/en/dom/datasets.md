@@ -116,8 +116,7 @@ extern "C" fn on_keydown(_unused: RefAny, mut info: CallbackInfo) -> Update {
 
 Borrow rules follow `RefAny`. A `downcast_ref` blocks a `downcast_mut`.
 Drop the guard before calling anything that may borrow the same
-dataset. The full rules are in
-[Understanding RefAny](../architecture/understanding-refany.md).
+dataset.
 
 ## Marker structs
 

@@ -267,13 +267,14 @@ fn extract_metadata(
 /// Three-tree bucket for the guide index.
 pub(crate) fn classify_tree(g: &Guide) -> &'static str {
     match g.audience.as_deref() {
-        Some("contributor") => "contributor",
+        // `contributor` used to be its own tree; the pages that carried it
+        // are gone, so any straggler lands in advanced rather than a section
+        // that no longer exists.
+        Some("contributor") => "advanced",
         _ => match g.guide_order {
             Some(n) if n >= 200 => "advanced",
             Some(_) => "getting-started",
-            // External pages without guide_order (e.g. binding subpages)
-            // — group with advanced unless slug starts with internals/.
-            None if g.file_name.starts_with("internals/") => "contributor",
+            // External pages without guide_order (e.g. binding subpages).
             None => "advanced",
         },
     }
@@ -446,13 +447,13 @@ pub fn generate_guide_html(guide: &Guide, _version: &str) -> String {
 pub fn generate_guide_mainpage(_version: &str) -> String {
     let pages = get_guide_list();
 
-    // Bucket pages by tree.
+    // Two trees. The contributor tree is gone with the internals pages it
+    // held - it had drifted far enough from the code that it was misleading
+    // rather than merely stale.
     let mut tree1: Vec<&Guide> = Vec::new(); // getting-started
     let mut tree2: Vec<&Guide> = Vec::new(); // advanced
-    let mut tree3: Vec<&Guide> = Vec::new(); // contributor
     for g in &pages {
         match classify_tree(g) {
-            "contributor" => tree3.push(g),
             "advanced" => tree2.push(g),
             _ => tree1.push(g),
         }
@@ -460,7 +461,6 @@ pub fn generate_guide_mainpage(_version: &str) -> String {
 
     let getting_started = render_tree(&tree1);
     let advanced = render_tree(&tree2);
-    let contributor = render_tree(&tree3);
 
     let search_script = crate::docgen::get_search_init(crate::docgen::PageKind::Guide(&[]));
 
@@ -478,8 +478,6 @@ pub fn generate_guide_mainpage(_version: &str) -> String {
 {getting_started}
           <h2 id="advanced">Advanced</h2>
 {advanced}
-          <h2 id="contributors">Contributors</h2>
-{contributor}
         </div>
       </div>
     </section>"#

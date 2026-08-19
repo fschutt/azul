@@ -377,7 +377,7 @@ Every field on `CssMockEnvironment` is optional — the ones not set
 fall back to auto-detected values. Combined with the
 `SystemStyle::android_material_light()`,
 `SystemStyle::windows_xp_luna()`, and other curated presets in
-[`css::system::defaults`](../internals/styling/system-style.md#compile-time-defaults),
+`css::system::defaults`,
 this gives a single binary the ability to render its UI as if it
 were running on any supported target — useful for screenshot
 testing, designer review, and "what would my app look like, pixel by

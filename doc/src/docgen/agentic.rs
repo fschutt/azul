@@ -78,11 +78,6 @@ pub fn generate_llms_txt(api_data: &ApiData) -> String {
 
     out.push_str("## Guide (concept pages, raw markdown)\n\n");
     for g in ordered_guides() {
-        // Skip internals/contributor pages from the headline index — they live
-        // under the dedicated section below.
-        if g.file_name.starts_with("internals/") {
-            continue;
-        }
         let desc = g
             .description
             .as_deref()
@@ -95,17 +90,6 @@ pub fn generate_llms_txt(api_data: &ApiData) -> String {
     }
     out.push('\n');
 
-    out.push_str("## Internals (contributor docs)\n\n");
-    for g in ordered_guides() {
-        if !g.file_name.starts_with("internals/") {
-            continue;
-        }
-        out.push_str(&format!(
-            "- [{}]({}/guide/{}.md)\n",
-            g.title, HTML_ROOT, g.file_name
-        ));
-    }
-    out.push('\n');
 
     out.push_str("## API reference\n\n");
     out.push_str(&format!(
@@ -206,8 +190,7 @@ pub fn generate_skill_md(api_data: &ApiData) -> String {
          Depth: see "
     );
     s.push_str(&format!(
-        "{HTML_ROOT}/guide/architecture.md, {HTML_ROOT}/guide/dom.md, and \
-         {HTML_ROOT}/guide/internals/dom.md.\n\n"
+        "{HTML_ROOT}/guide/architecture.md and {HTML_ROOT}/guide/dom.md.\n\n"
     ));
 
     // --- Mental model + hello world -----------------------------------------

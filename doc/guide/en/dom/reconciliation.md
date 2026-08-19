@@ -130,10 +130,8 @@ and the Unmount event fires.
 
 ## Internals
 
-The full algorithm (matching tiers, the property-change bitmask, the
-relayout-scope enum, damage-rect coalescing) lives in
-[internals/events.md](../internals/events.md) and
-[internals/rendering.md](../internals/rendering.md).
+The full algorithm covers matching tiers, the property-change bitmask,
+the relayout-scope enum and damage-rect coalescing.
 
 ## Coming Up Next
 

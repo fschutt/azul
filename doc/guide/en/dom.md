@@ -8,7 +8,6 @@ maturity: mature
 guide_order: 30
 topic_only: false
 short_desc: Node types, hierarchy, and CSS scoping
-prerequisites: [architecture/understanding-refany]
 tracked_files:
   - core/src/dom.rs
   - core/src/styled_dom.rs
@@ -52,9 +51,7 @@ Azul's DOM differs from a browser DOM in four places:
    bit-packed into a single `u64` per node. The numbers and the cold
    paint properties live in two more arrays. The point is to make the
    per-node working set small enough that the layout pass stays in L2
-   instead of round-tripping to RAM. The compact-cache implementation
-   itself is documented separately, in
-   [internals/styling/compact-cache.md](internals/styling/compact-cache.md).
+   instead of round-tripping to RAM.
 
 The result is a tree like this:
 
@@ -458,9 +455,7 @@ during `layout()`. The framework collects the rules at the end of
 the callback, sorts by `(priority, specificity)`, and walks the tree
 once to fill the compact cache. Selector matching, inheritance, and
 the compact-cache build all happen there. CSS work inside `layout()`
-is cheap because each call is just a parse and a push. For the
-internal cache layout that the layout engine reads, see
-[internals/styling/compact-cache.md](internals/styling/compact-cache.md).
+is cheap because each call is just a parse and a push.
 
 ### Inside the layout callback
 
