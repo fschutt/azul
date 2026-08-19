@@ -141,6 +141,28 @@ jobs:
           fi
           echo "shell2 backends route every event-diff baseline write through PlatformWindow"
 
+      - name: Backends must not block the UI thread on I/O
+        # A blocking wait inside a platform handler freezes the whole app: the
+        # X11 paste that stalled the UI for six seconds, and the Wayland
+        # clipboard read that did it for three, were both a bare wait on a
+        # channel or a pipe reached from the event loop. The fix in both cases
+        # was a worker thread plus a short deadline on the UI side, so the
+        # sanctioned shapes are:
+        #   `while let Ok(job) = rx.recv()`   - the WORKER's own drain loop
+        #   `answer.recv_timeout(deadline)`   - the UI side, bounded
+        # An unbounded `.recv()` anywhere else is the bug coming back.
+        run: |
+          set -e
+          violations=$(grep -rnE '\.recv\(\)'             dll/src/desktop/shell2             --include='*.rs'             | grep -v '/common/'             | grep -vE '^[^:]*:[0-9]+:\s*//'             | grep -vE 'while let Ok\([^)]*\) = [A-Za-z_][A-Za-z0-9_.]*\.recv\(\)'             || true)
+          if [ -n "$violations" ]; then
+            echo "Unbounded .recv() in a backend. The UI thread must not block:"
+            echo "  worker side : while let Ok(job) = rx.recv()   - drains its own queue, off the UI thread"
+            echo "  UI side     : rx.recv_timeout(<deadline>)     - bounded, so a dead peer costs the deadline and nothing more"
+            echo "$violations"
+            exit 1
+          fi
+          echo "shell2 backends keep blocking waits off the UI thread"
+
   lint_and_check:
     name: Lint & Static Checks
     if: github.event_name != 'workflow_dispatch' || github.event.inputs.run_mode == 'ci' || github.event.inputs.run_mode == 'deploy' || github.event.inputs.run_mode == 'website'

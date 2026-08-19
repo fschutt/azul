@@ -453,8 +453,12 @@ extern "C" fn auto_scroll_timer_callback(
     let hierarchy_id = azul_core::styled_dom::NodeHierarchyItemId::from_crate_internal(Some(scroll_parent));
     timer_info.scroll_to(dom_id, hierarchy_id, new_pos);
 
+    // DoNothing, not RefreshDom: `scroll_to` already yields
+    // ShouldReRenderCurrentWindow through the CallbackChange::ScrollTo arm.
+    // Returning RefreshDom re-invoked the APP's layout() callback every 16ms
+    // for the entire duration of a drag-autoscroll.
     azul_core::callbacks::TimerCallbackReturn {
-        should_update: azul_core::callbacks::Update::RefreshDom,
+        should_update: azul_core::callbacks::Update::DoNothing,
         should_terminate: TerminateTimer::Continue,
     }
 }
@@ -792,6 +796,11 @@ pub enum WindowStateSource {
 /// what the battery and every shipped binary are — has to opt in with
 /// `AZ_VALIDATE=1`.
 #[must_use]
+/// How many nodes the Ctrl+A block scan will visit under the editing host.
+/// Editable subtrees are small; the bound only stops a malformed hierarchy
+/// from spinning.
+const SELECT_ALL_BLOCK_SCAN_LIMIT: usize = 4096;
+
 pub fn validation_enabled() -> bool {
     if cfg!(debug_assertions) {
         return true;
@@ -4622,17 +4631,45 @@ pub trait PlatformWindow {
                         };
                         let hierarchy = lr.styled_dom.node_hierarchy.as_container();
                         let node_data = lr.styled_dom.node_data.as_container();
+                        // DESCEND. A child that owns no inline layout is a
+                        // WRAPPER, not a leaf — scanning only direct children
+                        // made Ctrl+A a no-op for the ordinary shape
+                        // `div[contenteditable] > section > p`, because
+                        // `section` has no IFC of its own and was skipped
+                        // without ever looking inside it.
                         let mut out = Vec::new();
-                        let mut child = hierarchy[sel_root].first_child_id(sel_root);
-                        while let Some(c) = child {
+                        let siblings_of = |parent: NodeId| {
+                            let mut kids = Vec::new();
+                            let mut child = hierarchy[parent].first_child_id(parent);
+                            while let Some(c) = child {
+                                kids.push(c);
+                                child = hierarchy[c].next_sibling_id();
+                            }
+                            kids
+                        };
+                        // Reversed, so `pop()` yields document order.
+                        let mut stack: Vec<NodeId> =
+                            siblings_of(sel_root).into_iter().rev().collect();
+                        let mut visited = 0usize;
+                        while let Some(c) = stack.pop() {
+                            visited += 1;
+                            if visited > SELECT_ALL_BLOCK_SCAN_LIMIT {
+                                break;
+                            }
                             let is_text = matches!(
                                 node_data[c].get_node_type(),
                                 azul_core::dom::NodeType::Text(_)
                             );
-                            if !is_text && lw.get_inline_layout_for_node(dom_id, c).is_some() {
-                                out.push(c);
+                            if is_text {
+                                continue;
                             }
-                            child = hierarchy[c].next_sibling_id();
+                            if lw.get_inline_layout_for_node(dom_id, c).is_some() {
+                                // Owns inline content: it IS a block to select,
+                                // and its inline runs are not blocks.
+                                out.push(c);
+                                continue;
+                            }
+                            stack.extend(siblings_of(c).into_iter().rev());
                         }
                         out
                     }
