@@ -1193,7 +1193,7 @@ impl LayoutNode {
 /// them with [`LayoutNodeId::new`] — an explicit, greppable assertion that
 /// the value really is a layout index.
 ///
-/// The raw SoA vectors (`nodes`, `warm`, `cold`, `children_arena`) stay
+/// The raw `SoA` vectors (`nodes`, `warm`, `cold`, `children_arena`) stay
 /// `usize`-indexed for interior arithmetic; the typed boundary is the
 /// accessor surface (`get`/`warm`/`cold`/`get_content_size`/...), which is
 /// what map-derived consumer code calls.
