@@ -85,6 +85,8 @@ struct Args {
     /// Base64 minisign ROOT public key: when given, the drill stages through
     /// the SIGNED path (`download_and_verify`) exactly as a real client does.
     update_root_key: Option<String>,
+    /// Release channel the drill follows ("" = stable).
+    update_channel: String,
     /// Crash-mail drill: after a crash is persisted, the relaunch mails the
     /// dump to this address (with --mail-port against a local sink).
     mail_to: Option<String>,
@@ -108,6 +110,7 @@ impl Args {
             rollout_drill: None,
             update_auto: false,
             update_root_key: None,
+            update_channel: String::new(),
             mail_to: None,
             mail_port: None,
         };
@@ -135,6 +138,7 @@ impl Args {
                 "--rollout-drill" => args.rollout_drill = Some(value()),
                 "--update-auto" => args.update_auto = true,
                 "--update-root-key" => args.update_root_key = Some(value()),
+                "--update-channel" => args.update_channel = value(),
                 "--mail-to" => args.mail_to = Some(value()),
                 "--mail-port" => args.mail_port = value().parse().ok(),
                 // (also readable from AZ_DEMO_MAIL_TO / AZ_DEMO_MAIL_PORT —
@@ -614,13 +618,14 @@ fn main() {
     // ── Update drill (localhost manifest; auto + manual modes) ─────────
     #[cfg(feature = "updater")]
     if let Some(manifest) = &args.rollout_drill {
-        run_rollout_drill(manifest, &args.version);
+        run_rollout_drill(manifest, &args.version, &args.update_channel);
     }
     #[cfg(feature = "updater")]
     if let Some(manifest) = &args.update_manifest {
         run_update_drill(
             manifest,
             &args.version,
+            &args.update_channel,
             args.update_auto,
             args.update_root_key.as_deref(),
         );
@@ -841,7 +846,7 @@ fn run_crash_reporter_if_spawned(_args: &Args) -> bool {
 /// the release, high buckets read `staggered` (= UpToDate for now), and
 /// the notify-only audience stays quiet until the rollout completes.
 #[cfg(feature = "updater")]
-fn run_rollout_drill(manifest_url: &str, current_version: &str) {
+fn run_rollout_drill(manifest_url: &str, current_version: &str, channel: &str) {
     use azul_layout::updater as up;
 
     println!("rollout: drilling {manifest_url} as several cohort buckets");
@@ -856,6 +861,7 @@ fn run_rollout_drill(manifest_url: &str, current_version: &str) {
         let verdict = up::check_for_updates_blocking(
             manifest_url,
             current_version,
+            channel,
             &mut state,
             up::UpdateAudience::AutoUpdate,
         );
@@ -875,6 +881,7 @@ fn run_rollout_drill(manifest_url: &str, current_version: &str) {
     let verdict = up::check_for_updates_blocking(
         manifest_url,
         current_version,
+        channel,
         &mut state,
         up::UpdateAudience::NotifyOnly,
     );
@@ -914,6 +921,7 @@ extern "C" fn demo_button_click(nodes: u64) -> u64 {
 fn run_update_drill(
     manifest_url: &str,
     current_version: &str,
+    channel: &str,
     auto: bool,
     root_key: Option<&str>,
 ) {
@@ -928,6 +936,7 @@ fn run_update_drill(
     let result = up::check_for_updates_blocking(
         manifest_url,
         current_version,
+        channel,
         &mut state,
         up::UpdateAudience::AutoUpdate,
     );

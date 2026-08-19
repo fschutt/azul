@@ -15060,6 +15060,12 @@
                                 "build_tag": {
                                     "type": "String"
                                 },
+                                "channel": {
+                                    "type": "String",
+                                    "doc": [
+                                        "The release channel this binary follows: stable (the default when empty), beta, nightly, or whatever the publisher names. Compiled in, so a manifest cannot move a nightly build onto the stable track."
+                                    ]
+                                },
                                 "root_public_key": {
                                     "type": "String",
                                     "doc": [

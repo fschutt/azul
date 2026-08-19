@@ -171,6 +171,12 @@ pub struct UpdateSettings {
     /// RESERVED: the build's VCS tag (or commit), compiled in by the APP.
     /// Same carriage as `build_date`.
     pub build_tag: AzString,
+    /// The RELEASE CHANNEL this binary follows: `stable` (the default when
+    /// empty), `beta`, `nightly`, or whatever names the publisher uses.
+    /// Compiled in, so a nightly build cannot be talked onto the stable
+    /// track by a manifest: the binary decides which channel it reads, the
+    /// publisher decides what is in it.
+    pub channel: AzString,
     /// Base64 minisign ROOT public key, compiled in by the APP. Non-empty
     /// arms the update SIGNATURE CHAIN: the manifest must then carry a
     /// root-signed signing-key statement and an artifact signature, and an
@@ -188,6 +194,7 @@ impl Default for UpdateSettings {
             app_name: AzString::from_const_str("azul-app"),
             build_date: AzString::from_const_str(""),
             build_tag: AzString::from_const_str(""),
+            channel: AzString::from_const_str(""),
             root_public_key: AzString::from_const_str(""),
         }
     }

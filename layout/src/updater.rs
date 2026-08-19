@@ -642,10 +642,15 @@ impl UpdateSourceKind {
 pub struct ResolvedRelease {
     /// The release itself.
     pub release: ReleaseInfo,
-    /// Its rollout plan.
+    /// Its rollout plan — each release has its OWN, which is why a newer
+    /// release cannot hold an older, fully-rolled-out one hostage.
     pub rollout: RolloutPlan,
     /// Which source shape produced it.
     pub kind: UpdateSourceKind,
+    /// Files still to fetch before this release can be verified. Only the
+    /// candidate actually offered is hydrated, so listing ten releases does
+    /// not cost ten signature downloads.
+    pub sidecars: Vec<Sidecar>,
 }
 
 /// A file the source referenced but did not inline (GitHub keeps signatures
@@ -921,6 +926,7 @@ pub fn parse_oci_manifest(
         release,
         rollout,
         kind: UpdateSourceKind::OciRegistry,
+        sidecars: Vec::new(),
     })
 }
 
@@ -954,15 +960,25 @@ pub fn strip_version_prefix(tag: &str) -> String {
         .to_owned()
 }
 
-/// Reads whatever the update URL returned.
+/// Reads whatever the update URL returned, as a LIST of candidate releases.
 ///
-/// The shape is SNIFFED, not configured: a `latest` key means manifest v1,
-/// `tag_name` + `assets` means a GitHub release, an array means a list of
-/// them, a flat object with a `version` means a hand-written manifest, and a
-/// body that is just a version number means notify-only. A body that is
-/// none of those is an error naming what it looked like — silently treating
-/// an HTML error page as "no update" would hide a broken deployment
-/// forever.
+/// The shape is SNIFFED, not configured: `latest` (and/or `releases`) means
+/// an azul manifest, `tag_name` + `assets` means a GitHub release, an array
+/// means several of them, a flat object with a `version` means a
+/// hand-written manifest, and a body that is just a version number means
+/// notify-only. A body that is none of those is an error naming what it
+/// looked like — silently treating an HTML error page as "no update" would
+/// hide a broken deployment forever.
+///
+/// CHANNELS: a manifest may carry `channels: {"stable": …, "beta": …}`, and
+/// the client reads the one its binary was built to follow
+/// (`AppConfig.updates.channel`, empty = `stable`). Falls back to
+/// `latest`/`releases` when the manifest has no such map. For GitHub, a
+/// non-stable channel is what includes PRERELEASES.
+///
+/// Several candidates come back where the source offers them, because the
+/// gate must be able to pick the newest release this client is ELIGIBLE
+/// for — see [`select_update_candidate`].
 ///
 /// # Errors
 ///
@@ -970,11 +986,13 @@ pub fn strip_version_prefix(tag: &str) -> String {
 pub fn parse_release_document(
     body: &str,
     asset_pattern: Option<&str>,
-) -> Result<(ResolvedRelease, Vec<Sidecar>), String> {
+    channel: &str,
+) -> Result<Vec<ResolvedRelease>, String> {
     let trimmed = body.trim();
     if trimmed.is_empty() {
         return Err("the update URL returned an empty body".to_owned());
     }
+    let stable = channel.trim().is_empty() || channel.eq_ignore_ascii_case("stable");
 
     let Ok(value) = serde_json::from_str::<serde_json::Value>(trimmed) else {
         // Not JSON. A bare version number is a legitimate, minimal source;
@@ -988,17 +1006,15 @@ pub fn parse_release_document(
                 .chars()
                 .all(|c| c.is_ascii_alphanumeric() || matches!(c, '.' | '-' | '+' | '_'))
         {
-            return Ok((
-                ResolvedRelease {
-                    release: ReleaseInfo {
-                        version: version.into(),
-                        ..ReleaseInfo::default()
-                    },
-                    rollout: RolloutPlan::Immediate,
-                    kind: UpdateSourceKind::PlainVersion,
+            return Ok(vec![ResolvedRelease {
+                release: ReleaseInfo {
+                    version: version.into(),
+                    ..ReleaseInfo::default()
                 },
-                Vec::new(),
-            ));
+                rollout: RolloutPlan::Immediate,
+                kind: UpdateSourceKind::PlainVersion,
+                sidecars: Vec::new(),
+            }]);
         }
         return Err(format!(
             "the update URL returned neither JSON nor a version number (it starts with {:?})",
@@ -1006,70 +1022,110 @@ pub fn parse_release_document(
         ));
     };
 
-    // A GitHub /releases list: take the newest published, non-draft,
-    // non-prerelease entry.
+    // A GitHub /releases list. On the stable channel prereleases and drafts
+    // are skipped; on any other channel prereleases ARE the point.
     if let Some(array) = value.as_array() {
-        let picked = array
-            .iter()
-            .find(|r| {
-                r.get("draft") != Some(&serde_json::Value::Bool(true))
-                    && r.get("prerelease") != Some(&serde_json::Value::Bool(true))
-            })
-            .ok_or("the releases list has no published, non-prerelease entry")?;
-        return parse_github_release(picked, asset_pattern);
+        let mut out = Vec::new();
+        for entry in array {
+            if entry.get("draft") == Some(&serde_json::Value::Bool(true)) {
+                continue;
+            }
+            if stable && entry.get("prerelease") == Some(&serde_json::Value::Bool(true)) {
+                continue;
+            }
+            if let Ok(r) = parse_github_release(entry, asset_pattern) {
+                out.push(r);
+            }
+        }
+        if out.is_empty() {
+            return Err(
+                "the releases list has no entry for this channel (all drafts or prereleases?)"
+                    .to_owned(),
+            );
+        }
+        return Ok(out);
     }
 
-    if value.get("latest").is_some() {
-        let (release, rollout) = parse_manifest_v1(trimmed)?;
-        return Ok((
-            ResolvedRelease {
-                release,
-                rollout,
-                kind: UpdateSourceKind::ManifestV1,
-            },
-            Vec::new(),
-        ));
+    // A manifest: an explicit channel map wins over `latest`/`releases`.
+    let channel_key = if stable { "stable" } else { channel.trim() };
+    if let Some(entry) = value.get("channels").and_then(|c| c.get(channel_key)) {
+        let mut out = Vec::new();
+        match entry {
+            serde_json::Value::Array(list) => {
+                for item in list {
+                    out.push(manifest_entry_to_release(item));
+                }
+            }
+            item => out.push(manifest_entry_to_release(item)),
+        }
+        if !out.is_empty() {
+            return Ok(out);
+        }
+    }
+
+    if value.get("latest").is_some() || value.get("releases").is_some() {
+        let mut out = Vec::new();
+        if let Some(latest) = value.get("latest") {
+            out.push(manifest_entry_to_release(latest));
+        }
+        if let Some(list) = value.get("releases").and_then(serde_json::Value::as_array) {
+            for item in list {
+                out.push(manifest_entry_to_release(item));
+            }
+        }
+        if out.iter().all(|r| r.release.version.as_str().is_empty()) {
+            return Err("manifest: missing `latest.version`".to_owned());
+        }
+        out.retain(|r| !r.release.version.as_str().is_empty());
+        return Ok(out);
     }
 
     if value.get("tag_name").is_some() || value.get("assets").is_some() {
-        return parse_github_release(&value, asset_pattern);
+        return Ok(vec![parse_github_release(&value, asset_pattern)?]);
     }
 
     // A flat, hand-written object.
-    if let Some(version) = value.get("version").and_then(serde_json::Value::as_str) {
-        let get = |k: &str| {
-            value
-                .get(k)
-                .and_then(serde_json::Value::as_str)
-                .unwrap_or("")
-                .to_owned()
-        };
-        let download = if get("download_url").is_empty() {
-            get("url")
-        } else {
-            get("download_url")
-        };
-        return Ok((
-            ResolvedRelease {
-                release: ReleaseInfo {
-                    version: strip_version_prefix(version).into(),
-                    download_url: download.into(),
-                    changelog_md_url: get("changelog_md").into(),
-                    changelog_md_inline: get("changelog_md_inline").into(),
-                    digest: get("digest").into(),
-                    signature: get("signature").into(),
-                    signing_key_statement: get("signing_key_statement").into(),
-                    signing_key_statement_sig: get("signing_key_statement_sig").into(),
-                    download_headers: Vec::new().into(),
-                },
-                rollout: parse_rollout(&value),
-                kind: UpdateSourceKind::FlatJson,
-            },
-            Vec::new(),
-        ));
+    if value.get("version").and_then(serde_json::Value::as_str).is_some() {
+        let mut resolved = manifest_entry_to_release(&value);
+        resolved.kind = UpdateSourceKind::FlatJson;
+        return Ok(vec![resolved]);
     }
 
-    Err("the update URL returned JSON with no `latest`, `tag_name` or `version`".to_owned())
+    Err("the update URL returned JSON with no `latest`, `channels`, `tag_name` or `version`"
+        .to_owned())
+}
+
+/// One manifest entry (the object under `latest`, inside `releases`, or
+/// under a channel) → a candidate.
+fn manifest_entry_to_release(entry: &serde_json::Value) -> ResolvedRelease {
+    let get = |k: &str| {
+        entry
+            .get(k)
+            .and_then(serde_json::Value::as_str)
+            .unwrap_or("")
+            .to_owned()
+    };
+    let download = if get("download_url").is_empty() {
+        get("url")
+    } else {
+        get("download_url")
+    };
+    ResolvedRelease {
+        release: ReleaseInfo {
+            version: strip_version_prefix(&get("version")).into(),
+            download_url: download.into(),
+            changelog_md_url: get("changelog_md").into(),
+            changelog_md_inline: get("changelog_md_inline").into(),
+            digest: get("digest").into(),
+            signature: get("signature").into(),
+            signing_key_statement: get("signing_key_statement").into(),
+            signing_key_statement_sig: get("signing_key_statement_sig").into(),
+            download_headers: Vec::new().into(),
+        },
+        rollout: parse_rollout(entry),
+        kind: UpdateSourceKind::ManifestV1,
+        sidecars: Vec::new(),
+    }
 }
 
 /// One GitHub release object → a `ReleaseInfo` plus the sibling assets that
@@ -1077,7 +1133,7 @@ pub fn parse_release_document(
 fn parse_github_release(
     release: &serde_json::Value,
     asset_pattern: Option<&str>,
-) -> Result<(ResolvedRelease, Vec<Sidecar>), String> {
+) -> Result<ResolvedRelease, String> {
     let tag = release
         .get("tag_name")
         .and_then(serde_json::Value::as_str)
@@ -1119,14 +1175,12 @@ fn parse_github_release(
         // Nothing here matches this platform. Report the version anyway:
         // "there is a newer release" is true and useful, and refusing to
         // guess which binary is right is the honest half.
-        return Ok((
-            ResolvedRelease {
-                release: info,
-                rollout,
-                kind: UpdateSourceKind::GitHubRelease,
-            },
-            Vec::new(),
-        ));
+        return Ok(ResolvedRelease {
+            release: info,
+            rollout,
+            kind: UpdateSourceKind::GitHubRelease,
+            sidecars: Vec::new(),
+        });
     };
 
     let artifact_name = asset_str(artifact, "name");
@@ -1177,14 +1231,12 @@ fn parse_github_release(
         });
     }
 
-    Ok((
-        ResolvedRelease {
-            release: info,
-            rollout,
-            kind: UpdateSourceKind::GitHubRelease,
-        },
+    Ok(ResolvedRelease {
+        release: info,
+        rollout,
+        kind: UpdateSourceKind::GitHubRelease,
         sidecars,
-    ))
+    })
 }
 
 fn asset_str(asset: &serde_json::Value, key: &str) -> String {
@@ -1405,17 +1457,22 @@ fn resolve_oci(
     Ok(resolved)
 }
 
-/// Fetches the update URL and reads whatever kind of source answered,
-/// including any sibling files a GitHub release keeps its signatures in.
+/// Fetches the update URL and reads every candidate release the source
+/// offers, WITHOUT fetching their sidecars — hydrate the one you offer with
+/// [`hydrate_sidecars`].
 ///
 /// # Errors
 ///
 /// Returns a description on transport failure or an unreadable body.
 #[cfg(feature = "http")]
-pub fn resolve_release(url: &str) -> Result<ResolvedRelease, String> {
+pub fn resolve_release_candidates(
+    url: &str,
+    channel: &str,
+) -> Result<Vec<ResolvedRelease>, String> {
     let normalized = normalize_update_url(url);
     if let Some(oci) = &normalized.oci {
-        return resolve_oci(&normalized.fetch_url, oci, normalized.asset_pattern.as_deref());
+        return resolve_oci(&normalized.fetch_url, oci, normalized.asset_pattern.as_deref())
+            .map(|r| vec![r]);
     }
     let config = crate::http::HttpRequestConfig::new()
         .with_header("Accept", "application/vnd.github+json");
@@ -1428,13 +1485,20 @@ pub fn resolve_release(url: &str) -> Result<ResolvedRelease, String> {
         ));
     }
     let body = String::from_utf8_lossy(response.body.as_ref()).into_owned();
-    let (mut resolved, sidecars) =
-        parse_release_document(&body, normalized.asset_pattern.as_deref())?;
+    parse_release_document(&body, normalized.asset_pattern.as_deref(), channel)
+}
 
-    // Sidecars are small text files; a failure to fetch one is NOT fatal —
-    // it leaves the field empty, and an app that pins a root key then
-    // refuses the release as unsigned, which is the correct outcome.
-    for sidecar in sidecars {
+/// Fetches the sidecar files a candidate referenced (signatures, a checksum
+/// file) and folds them into its `ReleaseInfo`.
+///
+/// A sidecar that cannot be fetched is NOT fatal — it leaves the field
+/// empty, and an app that pins a root key then refuses the release as
+/// unsigned, which is the correct outcome.
+#[cfg(feature = "http")]
+pub fn hydrate_sidecars(resolved: &mut ResolvedRelease) {
+    let config = crate::http::HttpRequestConfig::new()
+        .with_header("Accept", "application/vnd.github+json");
+    for sidecar in core::mem::take(&mut resolved.sidecars) {
         let Ok(r) = crate::http::http_get_with_config(&sidecar.url, &config) else {
             continue;
         };
@@ -1447,20 +1511,95 @@ pub fn resolve_release(url: &str) -> Result<ResolvedRelease, String> {
             SidecarField::Statement => {
                 // The statement is signed as exact bytes; the file may end
                 // with the newline an editor added.
-                resolved.release.signing_key_statement = text.trim_end_matches(['\n', '\r']).into();
+                resolved.release.signing_key_statement =
+                    text.trim_end_matches(['\n', '\r']).into();
             }
             SidecarField::StatementSig => {
                 resolved.release.signing_key_statement_sig = text.trim().into();
             }
             SidecarField::Digest => {
-                if let Some(hex) = parse_checksum_file(&text, resolved.release.download_url.as_str())
+                if let Some(hex) =
+                    parse_checksum_file(&text, resolved.release.download_url.as_str())
                 {
                     resolved.release.digest = format!("sha256:{hex}").into();
                 }
             }
         }
     }
-    Ok(resolved)
+}
+
+/// The newest release this client may actually install right now.
+///
+/// Every candidate carries its OWN rollout plan, and this walks them from
+/// newest down, returning the first that is BOTH newer than what is
+/// installed and open to this client's cohort.
+///
+/// That walk is the point. With a single-release manifest, publishing 2.1.0
+/// while 2.0.0 was mid-rollout RESET the gate: a client whose bucket had
+/// already opened for 2.0.0 saw only 2.1.0, was gated out of it, and sat on
+/// the old version until the new ladder caught up. Now it takes 2.0.0 —
+/// the newest thing it is allowed to have — and moves to 2.1.0 when that
+/// opens.
+///
+/// Returns `None` when nothing is newer, or when everything newer is still
+/// gated (the caller reports that as `staggered`, not as an error).
+#[must_use]
+pub fn select_update_candidate<'a>(
+    candidates: &'a [ResolvedRelease],
+    current_version: &str,
+    bucket: u8,
+    audience: UpdateAudience,
+    now_unix: u64,
+) -> Option<&'a ResolvedRelease> {
+    use core::cmp::Ordering;
+    let mut best: Option<&ResolvedRelease> = None;
+    for candidate in candidates {
+        let version = candidate.release.version.as_str();
+        if version.is_empty()
+            || compare_versions(version, current_version) != Ordering::Greater
+        {
+            continue;
+        }
+        let eligible = match audience {
+            UpdateAudience::AutoUpdate => bucket < candidate.rollout.allowed_percent(now_unix),
+            UpdateAudience::NotifyOnly => candidate.rollout.is_complete(now_unix),
+        };
+        if !eligible {
+            continue;
+        }
+        if best.is_none_or(|b| {
+            compare_versions(version, b.release.version.as_str()) == Ordering::Greater
+        }) {
+            best = Some(candidate);
+        }
+    }
+    best
+}
+
+/// Fetches the update URL and returns the newest candidate, sidecars
+/// hydrated — the simple path for callers that do not run the rollout gate
+/// themselves.
+///
+/// # Errors
+///
+/// Returns a description on transport failure or an unreadable body.
+#[cfg(feature = "http")]
+pub fn resolve_release(url: &str, channel: &str) -> Result<ResolvedRelease, String> {
+    let candidates = resolve_release_candidates(url, channel)?;
+    let mut newest = candidates
+        .into_iter()
+        .reduce(|a, b| {
+            if compare_versions(b.release.version.as_str(), a.release.version.as_str())
+                == core::cmp::Ordering::Greater
+            {
+                b
+            } else {
+                a
+            }
+        })
+        .ok_or("the update source offered no releases")?;
+    hydrate_sidecars(&mut newest);
+    Ok(newest)
 }
 
 /// Pulls this artifact's hash out of a `.sha256` file (bare hex) or a
@@ -1500,6 +1639,7 @@ pub fn parse_checksum_file(text: &str, download_url: &str) -> Option<String> {
 pub fn check_for_updates_blocking(
     manifest_url: &str,
     current_version: &str,
+    channel: &str,
     state: &mut UpdateState,
     audience: UpdateAudience,
 ) -> UpdateCheckResult {
@@ -1510,26 +1650,39 @@ pub fn check_for_updates_blocking(
         .map_or(0, |d| d.as_secs());
     state.last_check_unix = now;
 
-    // ANY supported source shape: azul manifest, flat JSON, a GitHub
-    // release, or a bare version file. See `resolve_release`.
-    let (release, rollout) = match resolve_release(manifest_url) {
-        Ok(resolved) => (resolved.release, resolved.rollout),
+    // ANY supported source shape: azul manifest (optionally per-channel),
+    // flat JSON, GitHub releases, an OCI registry, or a bare version file.
+    let candidates = match resolve_release_candidates(manifest_url, channel) {
+        Ok(c) if !c.is_empty() => c,
+        Ok(_) => {
+            record_check("error");
+            return UpdateCheckResult::Error("the update source offered no releases".into());
+        }
         Err(e) => {
             record_check("error");
             return UpdateCheckResult::Error(e.into());
         }
     };
 
-    // Anti-downgrade: never offer less than the highest version ever seen.
-    let offered = release.version.as_str().to_owned();
+    // ANTI-DOWNGRADE, applied to the SOURCE rather than to one release: the
+    // attack it stops is a manifest that regresses wholesale to an old,
+    // vulnerable version. Individual candidates below the high-water mark
+    // are fine — that is exactly how a client takes the newest release it
+    // is eligible for while a newer one is still rolling out.
+    let highest_offered = candidates
+        .iter()
+        .map(|c| c.release.version.as_str())
+        .max_by(|a, b| compare_versions(a, b))
+        .unwrap_or_default()
+        .to_owned();
     if !state.highest_seen.is_empty()
-        && compare_versions(&offered, &state.highest_seen) == Ordering::Less
+        && compare_versions(&highest_offered, &state.highest_seen) == Ordering::Less
     {
         record_check("downgrade_refused");
         return UpdateCheckResult::UpToDate;
     }
-    if compare_versions(&offered, &state.highest_seen) == Ordering::Greater {
-        state.highest_seen.clone_from(&offered);
+    if compare_versions(&highest_offered, &state.highest_seen) == Ordering::Greater {
+        state.highest_seen.clone_from(&highest_offered);
     }
 
     if state.suspended_until_unix > now {
@@ -1537,27 +1690,28 @@ pub fn check_for_updates_blocking(
         return UpdateCheckResult::UpToDate;
     }
 
-    if compare_versions(&offered, current_version) != Ordering::Greater {
+    if compare_versions(&highest_offered, current_version) != Ordering::Greater {
         record_check("up_to_date");
         return UpdateCheckResult::UpToDate;
     }
 
-    // SLOW-ROLLOUT gate: a newer version exists, but this client may not be
-    // in the open cohort yet. Auto-updaters compare their persistent bucket
-    // against the currently-open stage; notify-only installs (package-
-    // managed) do not even see the notification until the rollout hits
-    // 100%. A gated client reports UpToDate — from the app's point of view
-    // the release does not exist for it YET.
-    let eligible = match audience {
-        UpdateAudience::AutoUpdate => state.rollout_bucket() < rollout.allowed_percent(now),
-        UpdateAudience::NotifyOnly => rollout.is_complete(now),
-    };
-    if !eligible {
+    // SLOW-ROLLOUT gate, walked over EVERY candidate: take the newest
+    // release this client's cohort is open for. Auto-updaters compare
+    // their persistent bucket against each release's own stage; notify-only
+    // installs wait for 100%. When something newer exists but none of it is
+    // open yet, the client reports UpToDate — from the app's point of view
+    // those releases do not exist for it YET.
+    let bucket = state.rollout_bucket();
+    let Some(chosen) = select_update_candidate(&candidates, current_version, bucket, audience, now)
+    else {
         record_check("staggered");
         return UpdateCheckResult::UpToDate;
-    }
+    };
+    let mut chosen = chosen.clone();
+    // Only the release actually offered pays for its signature files.
+    hydrate_sidecars(&mut chosen);
     record_check("available");
-    UpdateCheckResult::Available(release)
+    UpdateCheckResult::Available(chosen.release)
 }
 
 // const only without the telemetry feature; the metrics call is not const.
@@ -2177,7 +2331,13 @@ extern "C" fn update_check_worker(
                 UpdateAudience::NotifyOnly
             };
             let mut state = UpdateState::load(&state_dir);
-            let r = check_for_updates_blocking(url, &task.env.current_version, &mut state, audience);
+            let r = check_for_updates_blocking(
+                url,
+                &task.env.current_version,
+                &task.env.update_channel,
+                &mut state,
+                audience,
+            );
             state.save(&state_dir);
             r
         }
@@ -2357,23 +2517,27 @@ mod tests {
     #[test]
     fn every_source_shape_is_recognised() {
         // 1. azul manifest v1
-        let (r, _) = parse_release_document(
+        let c = parse_release_document(
             r#"{"latest":{"version":"2.0.0","download_url":"http://x/a.bin"}}"#,
             None,
+            "",
         )
         .unwrap();
+        let r = &c[0];
         assert_eq!(r.kind, UpdateSourceKind::ManifestV1);
         assert_eq!(r.release.version.as_str(), "2.0.0");
 
         // 2. flat, hand-written JSON — `url` accepted as well as `download_url`
-        let (r, _) = parse_release_document(r#"{"version":"v3.1","url":"http://x/b.bin"}"#, None)
+        let c = parse_release_document(r#"{"version":"v3.1","url":"http://x/b.bin"}"#, None, "")
             .unwrap();
+        let r = &c[0];
         assert_eq!(r.kind, UpdateSourceKind::FlatJson);
         assert_eq!(r.release.version.as_str(), "3.1", "the v prefix must go");
         assert_eq!(r.release.download_url.as_str(), "http://x/b.bin");
 
         // 3. a bare version file on static hosting: notify-only
-        let (r, _) = parse_release_document("v4.2.0\n", None).unwrap();
+        let c = parse_release_document("v4.2.0\n", None, "").unwrap();
+        let r = &c[0];
         assert_eq!(r.kind, UpdateSourceKind::PlainVersion);
         assert_eq!(r.release.version.as_str(), "4.2.0");
         assert!(
@@ -2383,10 +2547,10 @@ mod tests {
 
         // 4. anything else is an ERROR, not a silent "up to date" — an HTML
         //    error page must not look like "no update available".
-        let err = parse_release_document("<html><body>404</body></html>", None).unwrap_err();
+        let err = parse_release_document("<html><body>404</body></html>", None, "").unwrap_err();
         assert!(err.contains("neither JSON nor a version"), "{err}");
-        assert!(parse_release_document("", None).is_err());
-        assert!(parse_release_document(r#"{"whatever":1}"#, None).is_err());
+        assert!(parse_release_document("", None, "").is_err());
+        assert!(parse_release_document(r#"{"whatever":1}"#, None, "").is_err());
     }
 
     fn gh_asset(name: &str, digest: Option<&str>) -> serde_json::Value {
@@ -2417,7 +2581,8 @@ mod tests {
                 gh_asset("signing-key-statement.txt.minisig", None),
             ],
         });
-        let (r, sidecars) = parse_github_release(&release, None).unwrap();
+        let r = parse_github_release(&release, None).unwrap();
+        let sidecars = &r.sidecars;
         assert_eq!(r.kind, UpdateSourceKind::GitHubRelease);
         assert_eq!(r.release.version.as_str(), "2.0.0");
         assert_eq!(
@@ -2451,7 +2616,7 @@ mod tests {
             "tag_name": "9.9.9",
             "assets": [gh_asset("app-for-some-other-os.bin", None)],
         });
-        let (r, _) = parse_github_release(&release, None).unwrap();
+        let r = parse_github_release(&release, None).unwrap();
         assert_eq!(r.release.version.as_str(), "9.9.9");
         assert!(r.release.download_url.as_str().is_empty());
     }
@@ -2501,7 +2666,8 @@ mod tests {
             {"tag_name": "2.9.0", "draft": true, "assets": []},
             {"tag_name": "2.8.0", "prerelease": false, "assets": []},
         ]);
-        let (r, _) = parse_release_document(&list.to_string(), None).unwrap();
+        let c = parse_release_document(&list.to_string(), None, "").unwrap();
+        let r = &c[0];
         assert_eq!(
             r.release.version.as_str(),
             "2.8.0",
@@ -2627,6 +2793,175 @@ mod tests {
             .expect_err("an empty download URL must be refused");
         assert!(err.contains("names no download"), "{err}");
         assert!(err.contains("5.0.0"), "the message must name the version: {err}");
+    }
+
+    // ---- channels + the eligibility walk ----------------------------------
+
+    fn candidate(version: &str, rollout: RolloutPlan) -> ResolvedRelease {
+        ResolvedRelease {
+            release: ReleaseInfo {
+                version: version.into(),
+                ..ReleaseInfo::default()
+            },
+            rollout,
+            kind: UpdateSourceKind::ManifestV1,
+            sidecars: Vec::new(),
+        }
+    }
+
+    /// LAW: a client takes the NEWEST release it is eligible for — never
+    /// nothing.
+    ///
+    /// The bug this pins: with one release per manifest, publishing 2.1.0
+    /// while 2.0.0 was mid-rollout reset the gate. A client already inside
+    /// 2.0.0's cohort saw only 2.1.0, was gated out, and sat on 1.0.0 until
+    /// the new ladder caught up — held back BY an update.
+    #[test]
+    fn a_newer_gated_release_never_holds_back_an_older_eligible_one() {
+        // A ladder is COMPLETE once its last stage opens, so "still rolling
+        // out" needs a stage in the future.
+        let now = REL + 2 * DAY;
+        // 2.0.0: both stages past => fully open.
+        let open = RolloutPlan::Staged(vec![
+            RolloutStage { percent: 10, at_unix: REL },
+            RolloutStage { percent: 100, at_unix: REL + DAY },
+        ]);
+        // 2.1.0: just published, 10% open, 100% still days away.
+        let fresh = RolloutPlan::Staged(vec![
+            RolloutStage { percent: 10, at_unix: now },
+            RolloutStage { percent: 100, at_unix: now + 4 * DAY },
+        ]);
+        let candidates = vec![candidate("2.0.0", open), candidate("2.1.0", fresh.clone())];
+
+        // Bucket 50: outside 2.1.0's 10% cohort, inside 2.0.0's.
+        let chosen = select_update_candidate(
+            &candidates,
+            "1.0.0",
+            50,
+            UpdateAudience::AutoUpdate,
+            now,
+        )
+        .expect("an eligible release exists and must be offered");
+        assert_eq!(
+            chosen.release.version.as_str(),
+            "2.0.0",
+            "the client must move to the newest release its cohort is open for"
+        );
+
+        // Bucket 5 IS inside 2.1.0's cohort and must get the newer one.
+        let chosen = select_update_candidate(
+            &candidates,
+            "1.0.0",
+            5,
+            UpdateAudience::AutoUpdate,
+            now,
+        )
+        .unwrap();
+        assert_eq!(chosen.release.version.as_str(), "2.1.0");
+
+        // Nothing open at all => None, which the caller reports as
+        // `staggered` rather than as an error.
+        let all_gated = vec![candidate("2.1.0", fresh)];
+        assert!(select_update_candidate(
+            &all_gated,
+            "1.0.0",
+            50,
+            UpdateAudience::AutoUpdate,
+            now
+        )
+        .is_none());
+
+        // Already current => nothing to offer.
+        assert!(select_update_candidate(
+            &candidates,
+            "2.1.0",
+            5,
+            UpdateAudience::AutoUpdate,
+            now
+        )
+        .is_none());
+    }
+
+    /// Notify-only installs wait for 100%, per release.
+    #[test]
+    fn notify_only_waits_for_the_rollout_to_finish() {
+        let half = RolloutPlan::Staged(vec![
+            RolloutStage { percent: 50, at_unix: REL },
+            RolloutStage { percent: 100, at_unix: REL + 4 * DAY },
+        ]);
+        let done = RolloutPlan::Staged(vec![RolloutStage { percent: 100, at_unix: REL }]);
+        let candidates = vec![candidate("2.0.0", done), candidate("2.1.0", half)];
+        let chosen = select_update_candidate(
+            &candidates,
+            "1.0.0",
+            0,
+            UpdateAudience::NotifyOnly,
+            REL + DAY,
+        )
+        .unwrap();
+        assert_eq!(
+            chosen.release.version.as_str(),
+            "2.0.0",
+            "a half-rolled-out release is not announced to notify-only installs"
+        );
+    }
+
+    /// LAW: the binary decides which channel it reads.
+    #[test]
+    fn the_channel_selects_which_releases_are_visible() {
+        let manifest = r#"{
+            "channels": {
+                "stable": {"version": "2.0.0", "download_url": "http://x/s.bin"},
+                "beta":   [
+                    {"version": "2.1.0-rc1", "download_url": "http://x/b1.bin"},
+                    {"version": "2.2.0-rc2", "download_url": "http://x/b2.bin"}
+                ]
+            },
+            "latest": {"version": "2.0.0", "download_url": "http://x/s.bin"}
+        }"#;
+        // Empty channel means stable.
+        for name in ["", "stable"] {
+            let c = parse_release_document(manifest, None, name).unwrap();
+            assert_eq!(c.len(), 1, "stable has one release");
+            assert_eq!(c[0].release.version.as_str(), "2.0.0");
+        }
+        let beta = parse_release_document(manifest, None, "beta").unwrap();
+        assert_eq!(beta.len(), 2, "a channel may list several releases");
+        assert_eq!(beta[1].release.version.as_str(), "2.2.0-rc2");
+        // An unknown channel falls back to latest rather than failing —
+        // a typo must not silently stop updates forever.
+        let unknown = parse_release_document(manifest, None, "typo").unwrap();
+        assert_eq!(unknown[0].release.version.as_str(), "2.0.0");
+    }
+
+    /// A manifest may list a HISTORY, which is what makes the walk possible.
+    #[test]
+    fn a_manifest_may_carry_several_releases() {
+        let manifest = r#"{
+            "latest": {"version": "2.1.0", "download_url": "http://x/b.bin"},
+            "releases": [{"version": "2.0.0", "download_url": "http://x/a.bin"}]
+        }"#;
+        let c = parse_release_document(manifest, None, "").unwrap();
+        assert_eq!(c.len(), 2);
+        let versions: Vec<&str> = c.iter().map(|r| r.release.version.as_str()).collect();
+        assert!(versions.contains(&"2.0.0") && versions.contains(&"2.1.0"));
+    }
+
+    /// On the stable channel a GitHub prerelease is invisible; on any other
+    /// channel it is the whole point.
+    #[test]
+    fn prereleases_belong_to_non_stable_channels() {
+        let list = serde_json::json!([
+            {"tag_name": "3.0.0-rc1", "prerelease": true, "assets": []},
+            {"tag_name": "2.8.0", "prerelease": false, "assets": []},
+        ])
+        .to_string();
+        let stable = parse_release_document(&list, None, "stable").unwrap();
+        assert_eq!(stable.len(), 1);
+        assert_eq!(stable[0].release.version.as_str(), "2.8.0");
+
+        let beta = parse_release_document(&list, None, "beta").unwrap();
+        assert_eq!(beta.len(), 2, "a beta channel sees prereleases too");
     }
 
     // ---- signature chain --------------------------------------------------

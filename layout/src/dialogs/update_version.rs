@@ -132,7 +132,13 @@ extern "C" fn check_worker(mut init: RefAny, mut sender: ThreadSender, _recv: Th
                 crate::updater::UpdateAudience::NotifyOnly
             };
             let mut state = UpdateState::load(&dir);
-            let result = check_for_updates_blocking(url, &env.current_version, &mut state, audience);
+            let result = check_for_updates_blocking(
+                url,
+                &env.current_version,
+                &env.update_channel,
+                &mut state,
+                audience,
+            );
             state.save(&dir);
             match result {
                 UpdateCheckResult::UpToDate => UpdatePhase::UpToDate {

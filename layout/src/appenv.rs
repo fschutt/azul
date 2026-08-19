@@ -32,6 +32,9 @@ pub struct AppEnv {
     /// `AppConfig.updates.root_public_key` — the compiled-in minisign root
     /// key that arms the update signature chain (None = digest-only).
     pub update_root_public_key: Option<String>,
+    /// `AppConfig.updates.channel` — the release channel this binary
+    /// follows ("" = stable).
+    pub update_channel: String,
 }
 
 impl Default for AppEnv {
@@ -44,6 +47,7 @@ impl Default for AppEnv {
             changelog_md: None,
             report_problem: None,
             update_root_public_key: None,
+            update_channel: String::new(),
         }
     }
 }
@@ -64,6 +68,7 @@ impl AppEnv {
                 let k = config.updates.root_public_key.as_str();
                 if k.is_empty() { None } else { Some(k.to_owned()) }
             },
+            update_channel: config.updates.channel.as_str().to_owned(),
             changelog_md: opt(&config.changelog_md),
             report_problem: match &config.report_problem {
                 azul_core::resources::OptionEmailAddress::Some(e) => {
