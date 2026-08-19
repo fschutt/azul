@@ -25,10 +25,14 @@
   <style>
     /* Reftest-specific styles */
     :root {
-      --color-pass: #2ecc71;
-      --color-warning: #f39c12;
-      --color-fail: #e74c3c;
-      --color-primary: #004e92;
+      /* Status reads through hue, but at the palette's saturation - a
+         traffic-light green next to this ground looks like a different
+         website. Night values follow, since the report inherits the
+         site-wide light/dark switch. */
+      --color-pass: #3F6049;
+      --color-warning: #8B7D52;
+      --color-fail: #7B4B45;
+      --color-primary: var(--fl-acc);
       --font-mono: "SFMono-Regular", Consolas, "Liberation Mono", Menlo, monospace;
       --border-radius: 6px;
     }
@@ -41,7 +45,7 @@
       align-items: center;
       padding: 0.75rem 0;
       margin-bottom: 1rem;
-      border-bottom: 1px solid #ddd;
+      border-bottom: 1px solid var(--fl-sep);
       font-size: 0.95rem;
     }
     .summary-bar .stat {
@@ -56,12 +60,12 @@
     .summary-bar .stat-value.fail { color: var(--color-fail); }
     .summary-bar .stat-value.warning { color: var(--color-warning); }
     .summary-bar .meta {
-      color: #666;
+      color: var(--fl-soft2);
       font-size: 0.85rem;
     }
     .summary-bar .meta a { color: var(--color-primary); }
     .summary-bar .meta code {
-      background: #f0f0f0;
+      background: var(--fl-rB);
       padding: 0.1rem 0.4rem;
       border-radius: 3px;
       font-size: 0.8rem;
@@ -81,7 +85,7 @@
       max-width: 350px;
       padding: 0.5rem 0.75rem;
       font-size: 0.9rem;
-      border: 1px solid #ccc;
+      border: 1px solid var(--fl-bd2);
       border-radius: var(--border-radius);
       font-family: inherit;
     }
@@ -91,16 +95,28 @@
       gap: 0.25rem;
     }
     .btn {
-      padding: 0.5rem 0.75rem;
-      background: #f5f5f5;
-      border: 1px solid #ccc;
-      border-radius: var(--border-radius);
+      /* The house raised face, so a report control and a site button are the
+         same object. Flora's .btn already sets the hand and the capitals. */
+      padding: 3px 12px;
+      border: 1px solid var(--fl-bd2);
+      border-radius: var(--fl-r);
+      background: linear-gradient(var(--fl-rT), var(--fl-rB));
+      box-shadow: var(--fl-lip), var(--fl-shadow-1);
       cursor: pointer;
-      font-size: 0.85rem;
-      transition: all 0.15s;
     }
-    .btn:hover { background: #e8e8e8; }
-    .btn.active { background: var(--color-primary); color: white; border-color: var(--color-primary); }
+    .btn:hover {
+      background: linear-gradient(var(--fl-hT), var(--fl-hB));
+      border-color: var(--fl-bd3);
+    }
+    .btn.active {
+      color: var(--fl-on-acc);
+      border-color: transparent;
+      background:
+        var(--fl-gem-sunken) padding-box,
+        var(--fl-rolled) border-box;
+      box-shadow: inset 0 2px 5px rgba(0, 0, 0, 0.45);
+      text-shadow: 0 1px 1px rgba(0, 0, 0, 0.35);
+    }
     .btn.pass { border-left: 3px solid var(--color-pass); }
     .btn.warning { border-left: 3px solid var(--color-warning); }
     .btn.fail { border-left: 3px solid var(--color-fail); }
@@ -118,15 +134,15 @@
     .category-header:first-child { margin-top: 0; }
 
     .test-card {
-      background: #fafafa;
+      background: var(--fl-strip);
       border-radius: var(--border-radius);
       margin-bottom: 0.5rem;
-      border-left: 4px solid #ccc;
+      border-left: 4px solid var(--fl-bd2);
       overflow: hidden;
     }
-    .test-card.pass { border-left-color: var(--color-pass); background: rgba(46, 204, 113, 0.05); }
-    .test-card.warning { border-left-color: var(--color-warning); background: rgba(243, 156, 18, 0.05); }
-    .test-card.fail { border-left-color: var(--color-fail); background: rgba(231, 76, 60, 0.05); }
+    .test-card.pass { border-left-color: var(--color-pass); background: color-mix(in srgb, var(--color-pass) 9%, transparent); }
+    .test-card.warning { border-left-color: var(--color-warning); background: color-mix(in srgb, var(--color-warning) 9%, transparent); }
+    .test-card.fail { border-left-color: var(--color-fail); background: color-mix(in srgb, var(--color-fail) 9%, transparent); }
 
     .test-header {
       padding: 0.6rem 0.8rem;
@@ -136,7 +152,7 @@
       cursor: pointer;
       user-select: none;
     }
-    .test-header:hover { background: rgba(0,0,0,0.03); }
+    .test-header:hover { background: var(--fl-hov); }
     .test-header-left {
       display: flex;
       align-items: center;
@@ -145,7 +161,7 @@
     .collapse-icon {
       font-size: 0.8rem;
       transition: transform 0.15s;
-      color: #666;
+      color: var(--fl-soft2);
     }
     .test-card.collapsed .collapse-icon { transform: rotate(-90deg); }
     .test-card.collapsed .test-body { display: none; }
@@ -166,7 +182,7 @@
     .test-badge.fail { background: var(--color-fail); }
     .diff-count {
       font-size: 0.8rem;
-      color: #666;
+      color: var(--fl-soft2);
       margin-left: 0.5rem;
     }
     .size-dots {
@@ -180,7 +196,7 @@
       align-items: center;
       gap: 0.15rem;
       font-size: 0.7rem;
-      color: #666;
+      color: var(--fl-soft2);
     }
     .size-dot .dot {
       width: 8px;
@@ -198,14 +214,14 @@
     }
     .size-tab {
       padding: 0.3rem 0.6rem;
-      background: #f0f0f0;
-      border: 1px solid #ccc;
+      background: var(--fl-rB);
+      border: 1px solid var(--fl-bd2);
       border-radius: var(--border-radius);
       cursor: pointer;
       font-size: 0.8rem;
       transition: all 0.15s;
     }
-    .size-tab:hover { background: #e0e0e0; }
+    .size-tab:hover { background: var(--fl-pT); }
     .size-tab.active { background: var(--color-primary); color: white; border-color: var(--color-primary); }
     .size-tab .tab-dot {
       display: inline-block;
@@ -219,7 +235,7 @@
     .size-panel { display: none; }
     .size-panel.active { display: block; }
 
-    .test-body { padding: 0.8rem; border-top: 1px solid #eee; }
+    .test-body { padding: 0.8rem; border-top: 1px solid var(--fl-sep2); }
     .test-images {
       display: grid;
       grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
@@ -230,13 +246,13 @@
     .test-img-box img {
       max-width: 100%;
       height: auto;
-      border: 1px solid #ddd;
+      border: 1px solid var(--fl-sep);
       border-radius: var(--border-radius);
     }
     .test-img-label {
       margin-top: 0.3rem;
       font-size: 0.8rem;
-      color: #666;
+      color: var(--fl-soft2);
     }
     .test-actions {
       display: flex;
@@ -245,35 +261,35 @@
     }
     .action-btn {
       padding: 0.35rem 0.6rem;
-      background: #f0f0f0;
-      border: 1px solid #ccc;
+      background: var(--fl-rB);
+      border: 1px solid var(--fl-bd2);
       border-radius: var(--border-radius);
       cursor: pointer;
       font-size: 0.8rem;
       transition: all 0.15s;
     }
-    .action-btn:hover { background: #e0e0e0; }
+    .action-btn:hover { background: var(--fl-pT); }
     .action-btn.primary { background: var(--color-primary); color: white; border-color: var(--color-primary); }
-    .action-btn.primary:hover { background: #3a5bc9; }
+    .action-btn.primary:hover { background: var(--fl-deep); }
 
     /* Overlay modal */
     .overlay {
       display: none;
       position: fixed;
       top: 0; left: 0; right: 0; bottom: 0;
-      background: rgba(0,0,0,0.7);
+      background: rgba(20, 19, 16, 0.72);
       z-index: 1000;
       overflow-y: auto;
       backdrop-filter: blur(2px);
     }
     .overlay-content {
-      background: white;
+      background: var(--fl-sur);
       margin: 2rem auto;
       padding: 1.25rem;
       max-width: 95%;
       width: 900px;
       border-radius: var(--border-radius);
-      box-shadow: 0 4px 20px rgba(0,0,0,0.3);
+      box-shadow: 0 4px 20px rgba(0, 0, 0, 0.35);
     }
     .overlay-header {
       display: flex;
@@ -281,7 +297,7 @@
       align-items: center;
       margin-bottom: 0.75rem;
       padding-bottom: 0.5rem;
-      border-bottom: 1px solid #ddd;
+      border-bottom: 1px solid var(--fl-sep);
     }
     .overlay-title { margin: 0; font-size: 1.2rem; }
     .overlay-close {
@@ -293,11 +309,11 @@
       justify-content: center;
       border-radius: 50%;
     }
-    .overlay-close:hover { background: #f0f0f0; }
+    .overlay-close:hover { background: var(--fl-rB); }
     .overlay-data {
       max-height: 65vh;
       overflow: auto;
-      background: #f8f8f8;
+      background: var(--fl-fld2);
       padding: 0.75rem;
       border-radius: var(--border-radius);
       font-family: var(--font-mono);
@@ -311,8 +327,8 @@
       display: none;
       text-align: center;
       padding: 2rem;
-      color: #666;
-      background: #f9f9f9;
+      color: var(--fl-soft2);
+      background: var(--fl-strip);
       border-radius: var(--border-radius);
     }
 
@@ -340,7 +356,7 @@
         <a href="https://github.com/fschutt/azul" role="menuitem">code</a>
         <a href="https://azul.rs/ui/guide" role="menuitem">guide</a>
         <a href="https://azul.rs/ui/api" role="menuitem">api</a>
-        <a href="https://azul.rs/ui/reftest" role="menuitem" class="active"><span class="fl-tab-shoulder fl-tab-shoulder-l" aria-hidden="true"></span><span class="fl-tab-shoulder fl-tab-shoulder-r" aria-hidden="true"></span><span class="fl-tab-seam" aria-hidden="true"></span><span class="fl-tab-foot" aria-hidden="true"></span><span class="fl-tab-edge fl-tab-edge-l" aria-hidden="true"></span><span class="fl-tab-edge fl-tab-edge-r" aria-hidden="true"></span>reftests</a>
+        <a href="https://azul.rs/ui/reftest" role="menuitem" class="active"><span class="fl-tab-flare fl-tab-flare-l" aria-hidden="true"></span><span class="fl-tab-flare fl-tab-flare-r" aria-hidden="true"></span><span class="fl-tab-cove fl-tab-cove-l" aria-hidden="true"></span><span class="fl-tab-cove fl-tab-cove-r" aria-hidden="true"></span><span class="fl-tab-runout fl-tab-runout-l" aria-hidden="true"></span><span class="fl-tab-runout fl-tab-runout-r" aria-hidden="true"></span><span class="fl-tab-foot" aria-hidden="true"></span>reftests</a>
         <a href="https://azul.rs/ui/blog" role="menuitem">blog</a>
         <a href="https://azul.rs/ui/donate" role="menuitem">donate</a>
       </div>
@@ -393,7 +409,6 @@
   <main id="main-content" role="main">
     <section class="docs-hero">
       <div class="container">
-        <p class="docs-eyebrow">Reftests</p>
         <h1>CSS reftest results</h1>
       </div>
     </section>
@@ -439,7 +454,9 @@
   </main>
   <footer role="contentinfo" class="docs-footer">
     <div class="container">
-      <p>&#169; 2026 Azul &#183; MIT-licensed &#183; <a href="https://github.com/fschutt/azul" target="_blank" rel="noopener noreferrer">GitHub</a> &#183; <a href="https://azul.rs/ui/donate">Donate</a></p>
+      <!-- Keep in sync with docgen::azlin_footer. This template is rendered
+           at reftest time, outside the generator, so it cannot call it. -->
+      <p><a href="https://en.wikipedia.org/wiki/Ad_maiorem_Dei_gloriam" target="_blank" rel="noopener noreferrer">A.M.D.G.</a> &mdash; Azlin Project 2026</p>
     </div>
   </footer>
   <script>document.querySelectorAll('.mobile-menu a, .nav-links a').forEach(function(a){a.addEventListener('click',function(){document.body.classList.remove('nav-open');});});</script>

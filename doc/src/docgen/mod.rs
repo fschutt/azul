@@ -417,6 +417,7 @@ fn generate_index_html(
         .replace("$$ROOT_RELATIVE$$", "https://azul.rs")
         .replace("<!-- HEAD -->", &get_landing_head_tags(inline_css))
         .replace("<!-- NAV -->", &azlin_nav("overview"))
+        .replace("<!-- FOOTER -->", &azlin_footer())
         .replace(
             "<!-- PRISM_SCRIPT -->",
             &format!("{}\n{}", get_prism_script(), get_search_init(PageKind::Other)),
@@ -969,7 +970,15 @@ pub fn get_search_init(kind: PageKind<'_>) -> String {
             false,
             "_blank",
             serde_json::to_string(defaults).unwrap_or_else(|_| "[]".to_string()),
-            format!("{{ type: 'pagefind', url: '{UI_PATH}/pagefind/' }}"),
+            // COMPOSITE, not pagefind alone. The pagefind adapter degrades to
+            // an empty source when the bundle is missing - which is exactly
+            // what it does on any build where `pagefind` was not installed -
+            // and a lone empty source means the guide search answers every
+            // query with "No matches". Pairing it with the api index gives
+            // the box something to find either way.
+            format!(
+                "[{{ type: 'pagefind', url: '{UI_PATH}/pagefind/' }}, {{ type: 'api-default' }}]"
+            ),
             "Search guide",
         ),
         // Individual guide page: search the API index and open new tabs so a
@@ -1170,15 +1179,11 @@ pub fn get_docs_head_tags(inline_css: bool, page_css: Option<&'static str>) -> S
 /// (single source of truth for docs pages; the landing templates keep their
 /// static copies - keep the link list in sync with index.template.html and
 /// azlin-index.template.html).
-/// The cove fillets on the selected tab. Two elements, each one radial
-/// gradient - see `.fl-tab-shoulder` in flora.css.
+/// The corner assembly on the selected tab: the flare, the cove, the run-out
+/// and the foot, on each side. Order matters - the cove's outer antialias has
+/// to land over the flare, not under it. See `.fl-tab-flare` in flora.css.
 pub const AZLIN_TAB_SHOULDERS: &str =
-    "<span class=\"fl-tab-shoulder fl-tab-shoulder-l\" aria-hidden=\"true\"></span>\
-     <span class=\"fl-tab-shoulder fl-tab-shoulder-r\" aria-hidden=\"true\"></span>\
-     <span class=\"fl-tab-seam\" aria-hidden=\"true\"></span>\
-     <span class=\"fl-tab-foot\" aria-hidden=\"true\"></span>\
-     <span class=\"fl-tab-edge fl-tab-edge-l\" aria-hidden=\"true\"></span>\
-     <span class=\"fl-tab-edge fl-tab-edge-r\" aria-hidden=\"true\"></span>";
+    "<span class=\"fl-tab-flare fl-tab-flare-l\" aria-hidden=\"true\"></span><span class=\"fl-tab-flare fl-tab-flare-r\" aria-hidden=\"true\"></span><span class=\"fl-tab-cove fl-tab-cove-l\" aria-hidden=\"true\"></span><span class=\"fl-tab-cove fl-tab-cove-r\" aria-hidden=\"true\"></span><span class=\"fl-tab-runout fl-tab-runout-l\" aria-hidden=\"true\"></span><span class=\"fl-tab-runout fl-tab-runout-r\" aria-hidden=\"true\"></span><span class=\"fl-tab-foot\" aria-hidden=\"true\"></span>";
 
 /// The docs strip: everything under /ui.
 pub fn azlin_nav(active: &str) -> String {
@@ -1305,11 +1310,14 @@ pub fn azlin_orb() -> &'static str {
         </button>"##
 }
 
-/// Docs footer, same voice as the /ui landing footer.
+/// THE footer. Every page on the site gets this one - docs pages call it
+/// directly, the landing templates carry a `<!-- FOOTER -->` marker that the
+/// build fills in. It used to be copied by hand into five places, and a
+/// change to the wording reached three of them.
 pub fn azlin_footer() -> String {
     r#"<footer role="contentinfo" class="docs-footer">
     <div class="container">
-      <p>© 2026 Azul · MIT-licensed · <a href="https://github.com/fschutt/azul" target="_blank" rel="noopener noreferrer">GitHub</a> · <a href="https://azul.rs/ui/donate">Donate</a></p>
+      <p><a href="https://en.wikipedia.org/wiki/Ad_maiorem_Dei_gloriam" target="_blank" rel="noopener noreferrer">A.M.D.G.</a> &mdash; Azlin Project 2026</p>
     </div>
   </footer>
   <script>document.querySelectorAll('.mobile-menu a, .nav-links a').forEach(function(a){a.addEventListener('click',function(){document.body.classList.remove('nav-open');});});</script>

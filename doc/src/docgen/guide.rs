@@ -412,7 +412,6 @@ pub fn generate_guide_html(guide: &Guide, _version: &str) -> String {
     let main_html = format!(
         r#"<section class="docs-hero">
       <div class="container">
-        <div class="docs-eyebrow">Guide</div>
         <h1>{title}</h1>{lede}
       </div>
     </section>
@@ -468,7 +467,6 @@ pub fn generate_guide_mainpage(_version: &str) -> String {
     let main_html = format!(
         r#"<section class="docs-hero">
       <div class="container">
-        <div class="docs-eyebrow">Guide</div>
         <h1>User guide</h1>
         <p class="docs-lede">Learn Azul chapter by chapter, from the first window to the framework internals.</p>
         <div id="azul-search-mount" class="azs-mount-inline"></div>

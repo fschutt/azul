@@ -78,7 +78,6 @@ pub fn generate_donation_page(yaml_str: &str) -> anyhow::Result<String> {
     let main_html = format!(
         r#"    <section class="docs-hero">
       <div class="container">
-        <p class="docs-eyebrow">Support Azul</p>
         <h1>Donate</h1>
       </div>
     </section>
