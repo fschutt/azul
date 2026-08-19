@@ -11,8 +11,11 @@
 //!   applies physics, and pushes `CallbackChange::ScrollTo` for each updated node.
 //! - **Event processing** (`event_v2.rs)`: Processes `ScrollTo` changes, sets scroll
 //!   positions, and checks `VirtualView` re-invocation transparently.
-//! - **Gesture manager** (gesture.rs): Tracks drag state and emits
-//!   `AutoScrollDirection` — does NOT modify scroll offsets directly.
+//! - **Drag autoscroll** (`shell2/common/event.rs`): while a text-selection
+//!   drag is held past a container's edge, a 60Hz timer pushes
+//!   `CallbackChange::ScrollTo`. It does NOT go through the gesture manager —
+//!   an earlier `AutoScrollDirection` design did, and was documented here
+//!   long after it stopped being constructed anywhere.
 //! - **Render loop**: Calls `tick()` every frame to advance easing animations.
 //! - **`WebRender` sync** (`wr_translate2.rs)`: Reads offsets via
 //!   `get_scroll_states_for_dom()` to synchronize scroll frames.

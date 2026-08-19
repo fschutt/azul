@@ -56,10 +56,6 @@ pub struct TextSelectionDrag {
     pub start_mouse_position: LogicalPosition,
     /// Current mouse position
     pub current_mouse_position: LogicalPosition,
-    /// Whether we should auto-scroll (mouse near edge of scroll container)
-    pub auto_scroll_direction: AutoScrollDirection,
-    /// The scroll container that should be auto-scrolled (if any)
-    pub auto_scroll_container: Option<NodeId>,
 }
 
 /// Scrollbar thumb drag state.
@@ -188,21 +184,6 @@ pub struct FileDropDrag {
     pub drop_effect: DropEffect,
 }
 
-/// Direction for auto-scrolling during drag operations
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
-#[repr(C)]
-pub enum AutoScrollDirection {
-    #[default]
-    None,
-    Up,
-    Down,
-    Left,
-    Right,
-    UpLeft,
-    UpRight,
-    DownLeft,
-    DownRight,
-}
 
 /// Drop effect — the operation that will happen if the data is dropped
 /// on the current target (HTML5 `DataTransfer.dropEffect`).
@@ -395,8 +376,6 @@ impl DragContext {
                 anchor_cursor: None,
                 start_mouse_position,
                 current_mouse_position: start_mouse_position,
-                auto_scroll_direction: AutoScrollDirection::None,
-                auto_scroll_container: None,
             }),
             session_id,
         )
@@ -717,13 +696,6 @@ impl DragContext {
                     drag.anchor_ifc_node = new_id;
                 } else {
                     return false; // anchor node removed
-                }
-                if let Some(ref mut container) = drag.auto_scroll_container {
-                    if let Some(&new_id) = node_id_map.get(container) {
-                        *container = new_id;
-                    } else {
-                        drag.auto_scroll_container = None;
-                    }
                 }
                 true
             }
@@ -1254,8 +1226,6 @@ mod autotest_generated {
         assert_eq!(ts.dom_id, dom(usize::MAX));
         assert_eq!(ts.anchor_ifc_node, NodeId::new(usize::MAX));
         assert!(ts.anchor_cursor.is_none());
-        assert!(ts.auto_scroll_container.is_none());
-        assert_eq!(ts.auto_scroll_direction, AutoScrollDirection::None);
         // start == current at construction, bit-for-bit (quantized PartialEq
         // would happily accept a saturated mismatch here, so compare raw bits).
         assert_eq!(ts.start_mouse_position.x.to_bits(), f32::MIN.to_bits());
@@ -1486,12 +1456,8 @@ mod autotest_generated {
             DragContext::text_selection(dom(0), NodeId::new(1), LogicalPosition::zero(), 0);
         {
             let ts = ctx.as_text_selection_mut().unwrap();
-            ts.auto_scroll_direction = AutoScrollDirection::DownRight;
-            ts.auto_scroll_container = Some(NodeId::new(77));
         }
         let ts = ctx.as_text_selection().unwrap();
-        assert_eq!(ts.auto_scroll_direction, AutoScrollDirection::DownRight);
-        assert_eq!(ts.auto_scroll_container, Some(NodeId::new(77)));
     }
 
     #[test]
@@ -1803,22 +1769,17 @@ mod autotest_generated {
     }
 
     #[test]
-    fn remap_text_selection_clears_only_the_missing_auto_scroll_container() {
+    fn remap_text_selection_follows_the_anchor_and_survives() {
         let mut ctx =
             DragContext::text_selection(dom(0), NodeId::new(5), LogicalPosition::zero(), 0);
-        ctx.as_text_selection_mut().unwrap().auto_scroll_container = Some(NodeId::new(9));
 
-        // Container survives if it is in the map.
         assert!(ctx.remap_node_ids(dom(0), &nid_map(&[(5, 50), (9, 90)])));
         let ts = ctx.as_text_selection().unwrap();
         assert_eq!(ts.anchor_ifc_node, NodeId::new(50));
-        assert_eq!(ts.auto_scroll_container, Some(NodeId::new(90)));
 
-        // Container is dropped (but the drag survives) if it is gone.
         assert!(ctx.remap_node_ids(dom(0), &nid_map(&[(50, 51)])));
         let ts = ctx.as_text_selection().unwrap();
         assert_eq!(ts.anchor_ifc_node, NodeId::new(51));
-        assert_eq!(ts.auto_scroll_container, None);
     }
 
     #[test]

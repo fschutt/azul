@@ -19,7 +19,7 @@ use std::sync::atomic::{AtomicU64, Ordering};
 
 use azul_core::{
     dom::{DomId, NodeId},
-    drag::{ActiveDragType, AutoScrollDirection, DragContext, DragData},
+    drag::{ActiveDragType, DragContext, DragData},
     geom::{LogicalPosition, PhysicalPositionI32},
     hit_test::HitTest,
     task::{Duration as CoreDuration, Instant as CoreInstant},
@@ -1547,15 +1547,6 @@ impl GestureAndDragManager {
                     file_drop.drop_target = target.into();
                 }
                 _ => {}
-            }
-        }
-    }
-
-    /// Update auto-scroll direction for text selection drag
-    pub const fn update_auto_scroll_direction(&mut self, direction: AutoScrollDirection) {
-        if let Some(ref mut drag) = self.active_drag {
-            if let Some(text_drag) = drag.as_text_selection_mut() {
-                text_drag.auto_scroll_direction = direction;
             }
         }
     }
@@ -3236,8 +3227,6 @@ mod autotest_generated {
             .into_option()
             .is_none());
 
-        // Auto-scroll only applies to text-selection drags: a no-op here.
-        m.update_auto_scroll_direction(AutoScrollDirection::DownRight);
         assert!(m.is_node_drag_active());
 
         let ctx = m.end_drag().expect("the drag context is returned");
@@ -3247,18 +3236,17 @@ mod autotest_generated {
     }
 
     #[test]
-    fn drop_target_and_auto_scroll_updates_without_a_drag_do_not_panic() {
+    fn drop_target_updates_without_a_drag_do_not_panic() {
         let mut m = GestureAndDragManager::new();
         m.update_drop_target(None);
         m.update_active_drag_positions(pos(f32::NAN, f32::INFINITY));
-        m.update_auto_scroll_direction(AutoScrollDirection::UpLeft);
         m.cancel_drag();
         assert!(!m.is_dragging());
         assert!(m.get_drag_context_mut().is_none());
     }
 
     #[test]
-    fn text_selection_context_accepts_the_auto_scroll_direction() {
+    fn a_text_selection_drag_is_not_a_node_drag() {
         let mut m = GestureAndDragManager::new();
         m.active_drag = Some(DragContext::text_selection(
             DomId::ROOT_ID,
@@ -3268,13 +3256,6 @@ mod autotest_generated {
         ));
         assert!(m.is_text_selection_dragging());
         assert!(!m.is_node_drag_active());
-        m.update_auto_scroll_direction(AutoScrollDirection::DownRight);
-        assert_eq!(
-            m.get_drag_context()
-                .and_then(DragContext::as_text_selection)
-                .map(|t| t.auto_scroll_direction),
-            Some(AutoScrollDirection::DownRight)
-        );
         // update_drop_target must leave a text-selection drag untouched.
         m.update_drop_target(None);
         assert!(m.is_text_selection_dragging());
