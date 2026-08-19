@@ -5,38 +5,63 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <meta name="description" content="Azlin Workspace is a native productivity suite (Office, Video, Calendar and a Drive alternative) built on the open-source Azlin UI Toolkit. Fast, local-first, no telemetry. Coming soon. The Azlin UI Toolkit is available today.">
     <title>Azlin - a native productivity suite, done right</title>
-    <link rel="stylesheet" href="/azlin.css">
+    <script>
+      (function () {
+        try {
+          var t = localStorage.getItem('flora-theme');
+          if (t === 'light' || t === 'dark') {
+            document.documentElement.setAttribute('data-theme', t);
+          }
+        } catch (e) { /* private mode: fall back to the system preference */ }
+      })();
+    </script>
+    <link rel="stylesheet" href="/flora.css">
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=Crimson+Pro:wght@400;600;700&family=IM+Fell+English:ital,wght@0,400;0,700;1,400;1,700&family=Playfair+Display:wght@400;600;700;800;900&family=Rubik:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=EB+Garamond:ital,wght@0,400;0,500;0,600;0,700;1,400&amp;family=Grenze+Gotisch:wght@400;500;600;700&amp;family=Grenze:ital,wght@0,400;0,500;0,600;0,700;1,400&amp;display=swap" rel="stylesheet">
 </head>
 <body>
     <a href="#main-content" class="skip-to-content">Skip to main content</a>
     <nav class="navbar" role="navigation" aria-label="Main navigation">
-        <div class="container">
-            <a href="/" class="nav-brand-link" aria-label="Go to Azlin homepage">
-                <img src="/logo.svg" alt="Azlin" class="nav-brand-logo">
-            </a>
-            <div class="nav-right">
-                <button class="nav-toggle" aria-label="Toggle menu" aria-expanded="false" onclick="document.body.classList.toggle('nav-open');this.setAttribute('aria-expanded',document.body.classList.contains('nav-open'));"><span></span><span></span><span></span></button>
-                <div class="nav-links" role="menu">
-                    <a href="/ws" role="menuitem">/WS</a>
-                    <a href="/ui/" role="menuitem">/UI</a>
-                    <a href="/os" role="menuitem">/OS</a>
-                </div>
-            </div>
+      <div class="container">
+        <div class="nav-links" role="menu">
+          <a href="/ws" role="menuitem">/WS</a>
+          <a href="/ui/" role="menuitem">/UI</a>
+          <a href="/os" role="menuitem">/OS</a>
         </div>
+        <div class="nav-right">
+          <button class="fl-lamp" type="button" aria-label="Switch between light and dark" title="Light / dark"
+          onclick="(function(b){var r=document.documentElement;var c=r.getAttribute('data-theme');var sysDark=window.matchMedia('(prefers-color-scheme: dark)').matches;var next=(c==='dark'||(!c&&sysDark))?'light':'dark';if((next==='dark')===sysDark){r.removeAttribute('data-theme');try{localStorage.removeItem('flora-theme');}catch(e){}}else{r.setAttribute('data-theme',next);try{localStorage.setItem('flora-theme',next);}catch(e){}}})(this)">
+          <svg class="fl-lamp-moon" viewBox="0 0 24 24" aria-hidden="true"><path d="M20 14.5A8.2 8.2 0 0 1 9.5 4 8.5 8.5 0 1 0 20 14.5z"/></svg>
+          <svg class="fl-lamp-sun" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="4.2"/><path d="M12 2.4v2.2M12 19.4v2.2M2.4 12h2.2M19.4 12h2.2M5.2 5.2l1.6 1.6M17.2 17.2l1.6 1.6M18.8 5.2l-1.6 1.6M6.8 17.2l-1.6 1.6"/></svg>
+        </button>
+          <button class="fl-orb" type="button" aria-label="Open site navigation" aria-expanded="false" aria-controls="site-nav-panel"
+          onclick="var o=document.body.classList.toggle('nav-open');this.setAttribute('aria-expanded',o);">
+          <span class="fl-orb-well" aria-hidden="true">
+            <span class="fl-orb-well-shadow"></span>
+            <span class="fl-orb-well-bounce"></span>
+          </span>
+          <span class="fl-orb-collar" aria-hidden="true"></span>
+          <span class="fl-orb-stone">
+            <img src="/logo.svg" alt="Azul" class="nav-brand-logo">
+            <span class="fl-orb-gloss" aria-hidden="true"></span>
+            <span class="fl-orb-edge" aria-hidden="true"></span>
+          </span>
+        </button>
+        </div>
+      </div>
     </nav>
     <div class="nav-overlay" aria-hidden="true" onclick="document.body.classList.remove('nav-open')"></div>
-    <aside class="mobile-menu" aria-label="Mobile navigation">
-        <a href="/ws">/WS</a>
-        <a href="/ui/">/UI</a>
-        <a href="/os">/OS</a>
+    <aside class="mobile-menu" id="site-nav-panel" aria-label="Site navigation">
+    <a href="/">home</a>
+    <a href="/ws">/WS</a>
+    <a href="/ui/">/UI</a>
+    <a href="/os">/OS</a>
     </aside>
 
     <main id="main-content" role="main">
 
-    <section class="hero has-gradient" style="background: linear-gradient(135deg, #000428 0%, #004e92 50%, #0084ff 100%);" aria-labelledby="hero-heading">
+    <section class="hero" aria-labelledby="hero-heading">
         <div class="container">
             <div class="hero-content">
                 <h1 id="hero-heading" tabindex="0" role="heading" aria-level="1">Azlin - Built For Beauty And Speed</h1>
@@ -57,7 +82,7 @@
             <h2 id="suite-heading">Inside Azlin Workspace</h2>
             <div class="features-grid grid-2x2" role="list">
 
-        <article class="feature-card has-gradient" style="--card-gradient: linear-gradient(135deg, #000428 0%, #004e92 50%, #0084ff 100%);" role="region" aria-label="Office" tabindex="0">
+        <article class="feature-card has-gradient" role="region" aria-label="Office" tabindex="0">
             <h3 role="heading" aria-level="3">Office <span class="pill pill-soon">Coming soon</span></h3>
             <p>Documents, spreadsheets and presentations with native speed and open file formats.</p>
         </article>
@@ -72,7 +97,7 @@
             <p>Scheduling that's yours: local-first, fast to navigate, and synced on your terms.</p>
         </article>
 
-        <article class="feature-card has-gradient" style="--card-gradient: linear-gradient(135deg, #000428 0%, #004e92 50%, #0084ff 100%);" role="region" aria-label="Drive" tabindex="0">
+        <article class="feature-card has-gradient" role="region" aria-label="Drive" tabindex="0">
             <h3 role="heading" aria-level="3">Drive <span class="pill pill-soon">Coming soon</span></h3>
             <p>A storage and file-sync alternative that keeps your data on hardware you control.</p>
         </article>
@@ -123,7 +148,7 @@
             <p>The native productivity suite - Office, Video, Calendar, Drive and more. <a href="/ws">Learn more →</a></p>
         </article>
 
-        <article class="feature-card has-gradient" style="--card-gradient: linear-gradient(135deg, #000428 0%, #004e92 50%, #0084ff 100%);" role="region" aria-label="Azlin UI Toolkit, available now" tabindex="0">
+        <article class="feature-card has-gradient" role="region" aria-label="Azlin UI Toolkit, available now" tabindex="0">
             <h3 role="heading" aria-level="3">Azlin UI <span class="pill pill-live">Available now</span></h3>
             <p>The open-source toolkit every Azlin app is built on. <a href="/ui/">Open the docs →</a></p>
         </article>

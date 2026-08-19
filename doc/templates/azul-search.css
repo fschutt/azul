@@ -10,39 +10,86 @@
  *    expands the popover to a full-screen overlay. Used on pages with no
  *    designated mount point.
  *
- * The colour palette echoes the rest of the site: deep blue background
- * (#004e92), aliceblue accents, serif body, monospace for type signatures.
+ * The palette is the Flora one, pulled from flora.css tokens where the file
+ * is loaded alongside it and falling back to literal values where the panel
+ * is mounted standalone: a raised leaf, brass ink for the accent, and the
+ * accent stone for the selected row.
  */
 
 .azul-search {
-  --azs-bg: #ffffff;
-  --azs-fg: #1a1a1a;
-  --azs-muted: #555;
-  --azs-accent: #004e92;
-  --azs-accent-soft: #e8f0fa;
-  --azs-border: #3f5168;
-  --azs-shadow: 0 8px 30px rgba(0, 4, 40, 0.25);
-  --azs-mark: #fff5a8;
+  --azs-bg: var(--fl-sur, #F5F0E8);
+  --azs-fg: var(--fl-ink, #2B2620);
+  --azs-muted: var(--fl-soft2, #8A7C63);
+  --azs-accent: var(--fl-qt, #7A5C1E);
+  --azs-accent-soft: var(--fl-soft, #E4EBE2);
+  --azs-border: var(--fl-bd2, #B9AE9B);
+  --azs-shadow: 0 2px 5px rgba(60, 48, 30, 0.16), 0 10px 26px rgba(60, 48, 30, 0.13);
+  --azs-mark: #F2E3A8;
 
-  font-family: "Red Hat Display", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  font-family: var(--font-ui, 'EB Garamond', Georgia, serif);
   color: var(--azs-fg);
-  font-size: 14px;
-  line-height: 1.4;
+  font-size: 15px;
+  line-height: 1.45;
 }
 
-/* Dark mode: re-theme the search surface so the inline bar + results panel
-   stay legible on a dark page. Tokens live on .azul-search (not :root). */
+/* Dark. Two blocks, deliberately identical: one for the system preference
+   (unless the reader has explicitly asked for light), one for the explicit
+   toggle. An UNGUARDED `prefers-color-scheme` block here would ignore the
+   toggle and leave a dark search panel on a light page. Keep them in sync. */
 @media (prefers-color-scheme: dark) {
-  .azul-search {
-    --azs-bg: #15181f;
-    --azs-fg: #e6e6e6;
-    --azs-muted: #9aa3ad;
-    --azs-accent: #4a9eff;
-    --azs-accent-soft: rgba(74, 158, 255, 0.15);
-    --azs-border: #6b7a90;
-    --azs-shadow: 0 8px 30px rgba(0, 0, 0, 0.55);
-    --azs-mark: #5a4a00;
+  :root:not([data-theme="light"]) .azul-search {
+    /* Standalone fallbacks: where flora.css is loaded these already follow
+       it, so only the panel's own bespoke values matter here. */
+    --azs-bg: var(--fl-sur, #24241F);
+    --azs-fg: var(--fl-ink, #E8E6DE);
+    --azs-muted: var(--fl-soft2, #8F8C80);
+    --azs-accent: var(--fl-qt, #BCAE86);
+    --azs-accent-soft: var(--fl-hB, #35342C);
+    --azs-border: var(--fl-bd2, #4E4D44);
+    --azs-shadow: 0 8px 30px rgba(0, 0, 0, 0.6);
+    --azs-mark: #4A4426;
+
+    /* Kind badges recut for the dark ground: the same hues, washed down. */
+    --azs-kind-bg: #2E2D26;  --azs-kind-fg: #ABA89C;
+    --azs-k-m-bg:  #262E27;  --azs-k-m-fg:  #93B79C;
+    --azs-k-s-bg:  #332826;  --azs-k-s-fg:  #C9998F;
+    --azs-k-e-bg:  #232E26;  --azs-k-e-fg:  #93B79C;
+    --azs-k-fp-bg: #2E2C22;  --azs-k-fp-fg: #C3B893;
+    --azs-k-fn-bg: #302D22;  --azs-k-fn-fg: #BCAE86;
+    --azs-k-cn-bg: #29272F;  --azs-k-cn-fg: #ACA3C4;
+    --azs-k-ev-bg: #322F23;  --azs-k-ev-fg: #C3B893;
+    --azs-k-f-bg:  #2B2A23;  --azs-k-f-fg:  #9D9A8E;
+    --azs-k-g-bg:  #302729;  --azs-k-g-fg:  #C2A2A7;
+    --azs-sig-fg:  #C3B893;
+    --azs-sig-bg:  #1F1E19;
   }
+}
+
+:root[data-theme="dark"] .azul-search {
+    /* Standalone fallbacks: where flora.css is loaded these already follow
+       it, so only the panel's own bespoke values matter here. */
+    --azs-bg: var(--fl-sur, #24241F);
+    --azs-fg: var(--fl-ink, #E8E6DE);
+    --azs-muted: var(--fl-soft2, #8F8C80);
+    --azs-accent: var(--fl-qt, #BCAE86);
+    --azs-accent-soft: var(--fl-hB, #35342C);
+    --azs-border: var(--fl-bd2, #4E4D44);
+    --azs-shadow: 0 8px 30px rgba(0, 0, 0, 0.6);
+    --azs-mark: #4A4426;
+
+    /* Kind badges recut for the dark ground: the same hues, washed down. */
+    --azs-kind-bg: #2E2D26;  --azs-kind-fg: #ABA89C;
+    --azs-k-m-bg:  #262E27;  --azs-k-m-fg:  #93B79C;
+    --azs-k-s-bg:  #332826;  --azs-k-s-fg:  #C9998F;
+    --azs-k-e-bg:  #232E26;  --azs-k-e-fg:  #93B79C;
+    --azs-k-fp-bg: #2E2C22;  --azs-k-fp-fg: #C3B893;
+    --azs-k-fn-bg: #302D22;  --azs-k-fn-fg: #BCAE86;
+    --azs-k-cn-bg: #29272F;  --azs-k-cn-fg: #ACA3C4;
+    --azs-k-ev-bg: #322F23;  --azs-k-ev-fg: #C3B893;
+    --azs-k-f-bg:  #2B2A23;  --azs-k-f-fg:  #9D9A8E;
+    --azs-k-g-bg:  #302729;  --azs-k-g-fg:  #C2A2A7;
+    --azs-sig-fg:  #C3B893;
+    --azs-sig-bg:  #1F1E19;
 }
 
 .azul-search * { box-sizing: border-box; }
@@ -122,7 +169,7 @@
   background: var(--azs-bg);
   border: 1px solid var(--azs-border);
   border-radius: 8px;
-  box-shadow: 0 4px 20px rgba(0, 4, 40, 0.15);
+  box-shadow: var(--azs-shadow);
   display: none;
   max-height: min(60vh, 480px);
   flex-direction: column;
@@ -160,7 +207,7 @@
 .azs-toggle-icon { font-size: 18px; line-height: 1; }
 .azs-toggle-label { font-family: inherit; }
 .azs-toggle-key {
-  font-family: ui-monospace, "SFMono-Regular", Menlo, monospace;
+  font-family: var(--font-mono, ui-monospace, "SFMono-Regular", Menlo, monospace);
   font-size: 11px;
   padding: 2px 6px;
   background: var(--azs-accent-soft);
@@ -225,7 +272,7 @@
   font-size: 12px;
   color: var(--azs-muted);
   border-bottom: 1px solid var(--azs-border);
-  background: #fafbfd;
+  background: var(--fl-strip, #EBE3D2);
 }
 
 .azs-results {
@@ -239,7 +286,7 @@
 .azs-result a {
   display: block;
   padding: 8px 14px;
-  border-bottom: 1px solid #eef1f6;
+  border-bottom: 1px solid var(--fl-sep2, #E2D9C6);
   color: inherit;
   text-decoration: none;
   /* Native focus ring — visible during keyboard navigation. */
@@ -262,7 +309,7 @@
   gap: 8px;
 }
 .azs-compact {
-  font-family: ui-monospace, "SFMono-Regular", Menlo, monospace;
+  font-family: var(--font-mono, ui-monospace, "SFMono-Regular", Menlo, monospace);
   font-size: 13px;
   font-weight: 600;
   color: var(--azs-fg);
@@ -289,35 +336,55 @@
 
 .azs-kind {
   display: inline-block;
-  font-family: ui-monospace, "SFMono-Regular", Menlo, monospace;
+  font-family: var(--font-mono, ui-monospace, "SFMono-Regular", Menlo, monospace);
   font-size: 10px;
   font-weight: 700;
-  letter-spacing: 0.04em;
+  letter-spacing: 0.06em;
   text-transform: uppercase;
   padding: 2px 6px;
-  border-radius: 4px;
+  border-radius: var(--fl-r, 3px);
   margin-right: 8px;
   vertical-align: middle;
-  background: #e9eef5;
-  color: #2a3a55;
+  background: var(--azs-kind-bg);
+  color: var(--azs-kind-fg);
 }
-.azs-kind.k-m  { background: #d3e3f5; color: #0446bf; }
-.azs-kind.k-s  { background: #ddeedd; color: #2b6a2d; }
-.azs-kind.k-e  { background: #f5e3d3; color: #905900; }
-.azs-kind.k-fp { background: #efe1f5; color: #5a1c8a; }
-.azs-kind.k-fn { background: #d3def5; color: #004e92; }
-.azs-kind.k-cn { background: #d8e7d8; color: #1d5e1d; }
-.azs-kind.k-ev { background: #f5e8d3; color: #6a4a14; }
-.azs-kind.k-f  { background: #f0f0f0; color: #555; }
+
+/* The kind badges use the same four accent hues docs-api.css gives these
+   concepts in the API listing. Each is a pale wash carrying the hue's own
+   ink - never a saturated chip. */
+.azul-search {
+  --azs-kind-bg: #E4E2DB;  --azs-kind-fg: #66645C;   /* generic      */
+  --azs-k-m-bg:  #E0E4DE;  --azs-k-m-fg:  #47614F;   /* module       */
+  --azs-k-s-bg:  #EDE3E0;  --azs-k-s-fg:  #7B4B45;   /* struct       */
+  --azs-k-e-bg:  #E1E7E2;  --azs-k-e-fg:  #2F4C39;   /* enum         */
+  --azs-k-fp-bg: #E9E5D9;  --azs-k-fp-fg: #6B6046;   /* fnptr        */
+  --azs-k-fn-bg: #EDE9D9;  --azs-k-fn-fg: #6E6349;   /* method       */
+  --azs-k-cn-bg: #E5E3EA;  --azs-k-cn-fg: #4E4762;   /* constructor  */
+  --azs-k-ev-bg: #EFEBDC;  --azs-k-ev-fg: #776B49;   /* enum variant */
+  --azs-k-f-bg:  #E7E5DD;  --azs-k-f-fg:  #74716A;   /* field        */
+  --azs-k-g-bg:  #EEE4E5;  --azs-k-g-fg:  #7E5A60;   /* guide        */
+  --azs-sig-fg:  #6B6046;
+  --azs-sig-bg:  #EFEDE7;
+}
+
+.azs-kind.k-m  { background: var(--azs-k-m-bg);  color: var(--azs-k-m-fg); }
+.azs-kind.k-s  { background: var(--azs-k-s-bg);  color: var(--azs-k-s-fg); }
+.azs-kind.k-e  { background: var(--azs-k-e-bg);  color: var(--azs-k-e-fg); }
+.azs-kind.k-fp { background: var(--azs-k-fp-bg); color: var(--azs-k-fp-fg); }
+.azs-kind.k-fn { background: var(--azs-k-fn-bg); color: var(--azs-k-fn-fg); }
+.azs-kind.k-cn { background: var(--azs-k-cn-bg); color: var(--azs-k-cn-fg); }
+.azs-kind.k-ev { background: var(--azs-k-ev-bg); color: var(--azs-k-ev-fg); }
+.azs-kind.k-f  { background: var(--azs-k-f-bg);  color: var(--azs-k-f-fg); }
+.azs-kind.k-g  { background: var(--azs-k-g-bg);  color: var(--azs-k-g-fg); }
 
 
 .azs-sig {
   display: inline-block;
   margin-top: 4px;
-  font-family: ui-monospace, "SFMono-Regular", Menlo, monospace;
+  font-family: var(--font-mono, ui-monospace, "SFMono-Regular", Menlo, monospace);
   font-size: 11px;
-  color: #4c1c1a;
-  background: #fafafa;
+  color: var(--azs-sig-fg);
+  background: var(--azs-sig-bg);
   padding: 1px 6px;
   border-radius: 3px;
   white-space: pre-wrap;
@@ -364,40 +431,6 @@
 /* Print: hide search entirely. */
 @media print {
   .azul-search { display: none !important; }
-}
-
-/* Dark mode — flips the colour tokens; layout/specifics inherit. */
-@media (prefers-color-scheme: dark) {
-  .azul-search {
-    --azs-bg: #1d2028;
-    --azs-fg: #e8e8e8;
-    --azs-muted: #9aa0a8;
-    --azs-accent: #79b8ff;
-    --azs-accent-soft: #1f2a3d;
-    --azs-border: #6b7a90;
-    --azs-shadow: 0 8px 30px rgba(0, 0, 0, 0.6);
-    --azs-mark: #6e5c1c;
-  }
-
-  .azs-meta { background: #1a1d24; }
-  .azs-result a { border-bottom-color: #2a2e38; }
-
-  /* Recolour the kind badges so they stay legible on a dark row. */
-  .azs-kind        { background: #2a2f3a; color: #c8c8c8; }
-  .azs-kind.k-m    { background: #1a3158; color: #79b8ff; }
-  .azs-kind.k-s    { background: #1c3a1c; color: #98d398; }
-  .azs-kind.k-e    { background: #3a2a16; color: #e5c07b; }
-  .azs-kind.k-fp   { background: #321b3a; color: #c089d6; }
-  .azs-kind.k-fn   { background: #1f2a4a; color: #79b8ff; }
-  .azs-kind.k-cn   { background: #1c3a1c; color: #98d398; }
-  .azs-kind.k-ev   { background: #3a311a; color: #d6b770; }
-  .azs-kind.k-f    { background: #2a2e38; color: #b0b0b0; }
-  .azs-kind.k-g    { background: #2a3548; color: #a3c4ff; }
-
-  .azs-sig {
-    color: #f0a8a4;
-    background: #1b1e25;
-  }
 }
 
 /* ===== Round 4: square, high-contrast, bold search bar ===== */

@@ -1,6 +1,6 @@
 /* ==========================================================================
    docs-release.css - release-pages family stylesheet (releases index +
-   per-version release pages). Layers on azlin.css (tokens) and
+   per-version release pages). Layers on flora.css (tokens) and
    azul-docs.css (shell/content). Part of the 2026-07-04 CSS
    rearchitecture: NO inline <style> blocks in Rust strings.
    ========================================================================== */
@@ -23,7 +23,7 @@
 /* ---- "Jump to" section nav under the release notes ---- */
 .release-jump {
     margin: 12px 0 8px;
-    font-family: var(--font-sans);
+    font-family: var(--font-ui);
 }
 .release-jump strong {
     font-size: 15px;
@@ -55,7 +55,7 @@
 
 /* ---- Download tiles: filename line ---- */
 .docs-card .docs-card-file {
-    font-family: "Red Hat Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+    font-family: var(--font-mono);
     font-size: 12.5px;
     line-height: 1.5;
     color: var(--color-text-light);

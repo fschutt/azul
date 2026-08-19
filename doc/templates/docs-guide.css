@@ -1,5 +1,5 @@
 /* ==========================================================================
-   docs-guide.css - guide-family styles, layered on azlin.css + azul-docs.css.
+   docs-guide.css - guide-family styles, layered on flora.css + azul-docs.css.
    Covers only what the shared docs design system does not: the fake-window
    chrome around azul-render screenshots, markdown alert boxes, the guide
    index sub-chapter lists, the prev/next chapter footer, and the print/PDF
@@ -47,22 +47,23 @@
 .azul-window {
     display: inline-block;
     text-align: left;
-    border: 1px solid #b8b8b8;
-    border-radius: 8px;
+    border: 1px solid var(--fl-bd5);
+    border-radius: var(--fl-r2);
     overflow: hidden;
-    box-shadow: 0 6px 18px rgba(0, 0, 0, 0.18);
-    background: #fff;
+    box-shadow: var(--fl-shadow-2);
+    background: var(--fl-sur);
     max-width: 100%;
 }
 .azul-titlebar {
     display: flex;
     align-items: center;
     padding: 7px 12px;
-    background: linear-gradient(to bottom, #ececec, #d6d6d6);
-    border-bottom: 1px solid #b8b8b8;
-    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
-    font-size: 12px;
-    color: #444;
+    background: linear-gradient(var(--fl-ct), var(--fl-cb));
+    border-bottom: 1px solid var(--fl-bd5);
+    font-family: var(--font-display);
+    font-size: 14px;
+    letter-spacing: 0.02em;
+    color: #F2F2F2;
     user-select: none;
 }
 .azul-tb-traffic {
@@ -76,11 +77,14 @@
     width: 11px;
     height: 11px;
     border-radius: 50%;
-    border: 0.5px solid rgba(0, 0, 0, 0.18);
+    border: 0.5px solid rgba(20, 12, 0, 0.35);
 }
-.azul-tb-close { background: #ff5f57; }
-.azul-tb-min { background: #febc2e; }
-.azul-tb-max { background: #28c840; }
+/* The window controls keep the traffic-light metaphor (it is what tells the
+   reader "this is a window") but are cut from the Flora accent family rather
+   than the macOS primaries, and lit from the same upper-left source. */
+.azul-tb-close { background: radial-gradient(circle at 35% 30%, #B3877E, #7B4B45 75%); }
+.azul-tb-min   { background: radial-gradient(circle at 35% 30%, #D2C79E, #8B7D52 75%); }
+.azul-tb-max   { background: radial-gradient(circle at 35% 30%, #7FA98C, #44684F 75%); }
 .azul-tb-title {
     flex: 1;
     text-align: center;
@@ -103,25 +107,35 @@
 }
 
 /* ---- Markdown alerts (comrak alerts extension) ---- */
+/* An alert is a marginal note: "read this twice". The metal goes on the
+   border, the field stays paper - never a filled brass box. */
 .markdown-alert-warning {
-    padding: 10px 14px;
-    border-radius: 8px;
-    border: 1px dashed #facb26;
+    padding: 12px 16px;
     margin: 20px 0;
-    background: #fff8be;
-    color: #222;
-    box-shadow: 0px 0px 20px #facb2655;
+    border: 1px solid transparent;
+    border-radius: var(--fl-r);
+    background:
+        linear-gradient(var(--fl-hT), var(--fl-fld2)) padding-box,
+        var(--fl-leaf-a) border-box,
+        var(--fl-leaf-b) border-box;
+    color: var(--fl-ink2);
+    box-shadow: var(--fl-shadow-1);
 }
 .markdown-alert-warning .markdown-alert-title {
-    font-weight: bold;
-    font-size: 1.1em;
+    font-family: var(--font-caps);
+    font-weight: 700;
+    font-variant: all-small-caps;
+    letter-spacing: 0.1em;
+    font-size: 1.05em;
+    color: var(--fl-qt);
 }
 
 /* ---- Print / PDF (azul-doc -> Chrome print-to-pdf): drop the nav chrome,
         use the full page width, WRAP long code lines (on-screen they
         overflow-x:auto, which would clip them in a PDF), and keep figures /
         screenshots / tables from being split across page breaks. The
-        on-screen code theme is already light, so no token overrides. ---- */
+        on-screen code slab is ink-dark, so it is flipped back to paper
+        here - a black field would flood the page with toner. ---- */
 @media print {
     @page { margin: 1.4cm; }
     .navbar, .nav-overlay, .mobile-menu, .docs-footer,
@@ -137,6 +151,33 @@
         break-after: avoid;
         cursor: auto !important;
     }
+    .docs-content pre,
+    .docs-content pre[class*="language-"] {
+        background: #FAF9F5 !important;
+        background-image: none !important;
+        color: #262521 !important;
+        border: 1px solid #C6C3BB !important;
+    }
+    .docs-content pre .token.comment,
+    .docs-content pre .token.prolog,
+    .docs-content pre .token.cdata { color: #74716A !important; }
+    .docs-content pre .token.punctuation { color: #66645C !important; }
+    .docs-content pre .token.string,
+    .docs-content pre .token.char,
+    .docs-content pre .token.attr-value { color: #2F4C39 !important; }
+    .docs-content pre .token.keyword,
+    .docs-content pre .token.atrule,
+    .docs-content pre .token.rule { color: #776B49 !important; }
+    .docs-content pre .token.function,
+    .docs-content pre .token.class-name { color: #7B4B45 !important; }
+    .docs-content pre .token.number,
+    .docs-content pre .token.boolean,
+    .docs-content pre .token.constant { color: #4E4762 !important; }
+    .docs-content pre .token.operator,
+    .docs-content pre .token.variable { color: #2E2C26 !important; }
+    .docs-content pre .token.property,
+    .docs-content pre .token.tag,
+    .docs-content pre .token.attr-name { color: #7B4B45 !important; }
     .docs-content pre,
     .docs-content pre code {
         white-space: pre-wrap !important;

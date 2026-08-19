@@ -1,9 +1,9 @@
 /* ==========================================================================
    azul-docs.css - shared shell + content styles for ALL docs pages
-   (api / guide / releases / donate / blog). Layers on top of azlin.css
-   (tokens, .navbar, .container, .btn) - same recipe as the marketing
-   frontpage and /ui landing: floating glass navbar, 1200px canvas,
-   narrow reading measure, oversized serif openers, hairlines not boxes.
+   (api / guide / releases / donate / blog). Layers on top of flora.css
+   (Flora Design: tokens, .navbar, .container, .btn) - same recipe as the
+   marketing frontpage and /ui landing: floating nav strip, 1200px canvas,
+   narrow reading measure, oversized display openers, hairlines not boxes.
 
    Rearchitecture note (2026-07-04): this file REPLACES main.css and every
    per-page inline <style> block (API_CSS, donation_css, release styles).
@@ -12,38 +12,41 @@
    ========================================================================== */
 
 body.docs {
-    background: var(--color-bg);
+    background-color: var(--color-bg);
+    background-image: var(--fl-grain);
     color: var(--color-text);
 }
 
 /* ---- Page opener ("airy" subpage treatment: no hero, big heading in
         whitespace; the fixed navbar needs ~170px clearance) ---- */
 .docs-hero {
-    padding: 170px 0 16px;
+    padding: 124px 0 16px;
 }
+/* The eyebrow is a running head: small capitals, widely tracked, in faded
+   ink - never a colored all-caps label. */
 .docs-hero .docs-eyebrow {
-    font-family: var(--font-sans);
-    font-size: 14px;
-    font-weight: 600;
-    letter-spacing: 0.08em;
-    text-transform: uppercase;
-    color: var(--color-accent);
-    margin-bottom: 12px;
+    font-family: var(--font-caps);
+    font-size: 16px;
+    font-weight: 700;
+    font-variant: all-small-caps;
+    letter-spacing: 0.14em;
+    color: var(--fl-soft1);
+    margin-bottom: 10px;
 }
 .docs-hero h1 {
-    font-family: var(--font-serif);
-    font-size: 56px;
-    font-weight: 700;
-    line-height: 1.08;
-    letter-spacing: -0.02em;
+    font-family: var(--font-display);
+    font-size: 58px;
+    font-weight: 500;
+    line-height: 1.06;
+    letter-spacing: 0.015em;
     margin: 0 0 16px;
     color: var(--color-text);
 }
 .docs-hero .docs-lede {
-    font-family: var(--font-sans);
-    font-size: 19px;
-    font-weight: 500;
-    line-height: 1.7;
+    font-family: var(--font-serif);
+    font-size: 21px;
+    font-weight: 400;
+    line-height: 1.6;
     color: var(--color-text-light);
     max-width: 720px;
     text-wrap: balance;
@@ -64,33 +67,41 @@ body.docs {
 /* ---- Prose ---- */
 .docs-content p,
 .docs-content li {
-    font-family: var(--font-sans);
-    font-size: 17px;
-    line-height: 1.8;
+    font-family: var(--font-serif);
+    font-size: 18.5px;
+    line-height: 1.7;
     color: var(--color-text);
 }
 .docs-content p { margin: 0 0 20px; }
 .docs-content ul,
 .docs-content ol { margin: 0 0 20px; padding-left: 28px; }
 .docs-content li { margin-bottom: 8px; }
+/* h2 keeps the display hand; below that the ranks drop to the UI hand in
+   capitals, which stays readable at body-adjacent sizes. */
 .docs-content h2 {
-    font-family: var(--font-serif);
-    font-size: 32px;
-    font-weight: 600;
-    line-height: 1.2;
-    letter-spacing: -0.01em;
+    font-family: var(--font-display);
+    font-size: 34px;
+    font-weight: 500;
+    line-height: 1.18;
+    letter-spacing: 0.015em;
     margin: 56px 0 20px;
+    padding-bottom: 8px;
+    border-bottom: 1px solid var(--fl-sep);
 }
 .docs-content h3 {
-    font-family: var(--font-serif);
-    font-size: 24px;
-    font-weight: 600;
+    font-family: var(--font-ui);
+    font-size: 23px;
+    font-weight: 700;
+    letter-spacing: 0.02em;
     margin: 40px 0 16px;
 }
 .docs-content h4 {
-    font-family: var(--font-sans);
-    font-size: 17px;
+    font-family: var(--font-caps);
+    font-size: 18px;
     font-weight: 700;
+    font-variant: all-small-caps;
+    letter-spacing: 0.1em;
+    color: var(--fl-soft1);
     margin: 32px 0 12px;
 }
 .docs-content h2:first-child,
@@ -103,8 +114,8 @@ body.docs {
 .docs-content a:visited {
     color: var(--color-accent);
     text-decoration: none;
-    border-bottom: 1px solid transparent;
-    transition: border-color 0.15s ease;
+    border-bottom: 1px solid color-mix(in srgb, var(--color-accent) 38%, transparent);
+    transition: border-color 0.15s ease, color 0.15s ease;
 }
 .docs-content a:hover {
     color: var(--color-accent-hover);
@@ -114,10 +125,11 @@ body.docs {
 .docs-content blockquote {
     margin: 0 0 20px;
     padding: 12px 20px;
-    border-left: 3px solid var(--color-accent);
-    background: white;
-    border-radius: 0 8px 8px 0;
-    color: var(--color-text-light);
+    border-left: 2px solid var(--color-gold);
+    background: var(--fl-sur);
+    border-radius: 0 var(--fl-r) var(--fl-r) 0;
+    color: var(--fl-intro);
+    font-style: italic;
 }
 .docs-content blockquote p:last-child { margin-bottom: 0; }
 .docs-content hr {
@@ -128,59 +140,68 @@ body.docs {
 .docs-content img {
     max-width: 100%;
     height: auto;
-    border-radius: 10px;
-    border: 1px solid var(--color-border);
-    box-shadow: 0 8px 32px rgba(0, 4, 40, 0.10);
+    border-radius: var(--fl-r2);
+    border: 1px solid var(--fl-bd5);
+    box-shadow: var(--fl-shadow-2);
     margin: 8px 0 24px;
 }
 
 /* ---- Code ---- */
 .docs-content code,
 .docs-content kbd {
-    font-family: "Red Hat Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
-    font-size: 0.88em;
-    background: #eceae7;
-    border-radius: 4px;
-    padding: 2px 6px;
+    font-family: var(--font-mono);
+    font-size: 0.86em;
+    color: var(--fl-ink2);
+    background: var(--fl-fld2);
+    border: 1px solid var(--fl-sep);
+    border-radius: var(--fl-r);
+    padding: 1px 6px;
+    box-shadow: var(--fl-well);
 }
 .docs-content pre {
     position: relative;
-    background: white;
-    border: 1px solid var(--color-border);
-    border-radius: 10px;
+    background: var(--fl-code-bg);
+    color: var(--fl-code-fg);
+    border: 1px solid var(--fl-code-bd);
+    border-radius: var(--fl-r);
     padding: 18px 20px;
     overflow-x: auto;
     margin: 0 0 24px;
-    box-shadow: 0 4px 16px rgba(0, 4, 40, 0.05);
+    box-shadow: inset 0 2px 6px rgba(0, 0, 0, 0.4), var(--fl-shadow-1);
 }
 .docs-copy-btn {
     position: absolute;
     top: 10px;
     right: 10px;
-    font-family: var(--font-sans);
-    font-size: 12px;
-    font-weight: 600;
+    font-family: var(--font-caps);
+    font-size: 14px;
+    font-weight: 700;
     line-height: 1;
-    padding: 4px 10px;
-    border-radius: 6px;
-    border: 1px solid var(--color-border);
-    background: white;
-    color: var(--color-text-light);
+    padding: 3px 10px;
+    border-radius: var(--fl-r);
+    border: 1px solid rgba(232, 222, 198, 0.3);
+    background: rgba(20, 14, 4, 0.7);
+    color: rgba(232, 222, 198, 0.9);
+    font-variant: all-small-caps;
+    letter-spacing: 0.08em;
     cursor: pointer;
     opacity: 0.8;
-    box-shadow: 0 1px 4px rgba(0, 4, 40, 0.08);
+    box-shadow: var(--fl-shadow-1);
 }
-.docs-copy-btn:hover { opacity: 1; color: var(--color-text); }
+.docs-copy-btn:hover { opacity: 1; background: rgba(232, 222, 198, 0.2); }
 .docs-content pre code {
     background: transparent;
+    border: 0;
+    box-shadow: none;
+    color: inherit;
     padding: 0;
     font-size: 13.5px;
-    line-height: 1.55;
+    line-height: 1.6;
 }
 /* Neutralize Prism default-theme backgrounds (beige pre + translucent
-   boxes behind operator tokens) - our white pre card is the background. */
+   boxes behind operator tokens) - our ink slab is the background. */
 .docs-content pre[class*="language-"] {
-    background: white;
+    background: var(--fl-code-bg);
     margin: 0 0 24px;
     padding: 18px 20px;
 }
@@ -196,29 +217,30 @@ body.docs {
     width: 100%;
     border-collapse: collapse;
     margin: 0 0 24px;
-    font-size: 15px;
-    background: white;
-    border: 1px solid var(--color-border);
-    border-radius: 10px;
+    font-size: 16px;
+    background: var(--fl-sur);
+    border: 1px solid var(--fl-bd);
+    border-radius: var(--fl-r);
     overflow: hidden;
 }
 .docs-content th {
-    font-family: var(--font-sans);
-    font-size: 12px;
+    font-family: var(--font-caps);
+    font-size: 15px;
     font-weight: 700;
-    letter-spacing: 0.06em;
-    text-transform: uppercase;
+    font-variant: all-small-caps;
+    letter-spacing: 0.1em;
     text-align: left;
-    color: var(--color-text-light);
-    padding: 12px 16px;
-    border-bottom: 1px solid var(--color-border);
-    background: var(--color-bg);
+    color: var(--fl-soft1);
+    padding: 9px 16px;
+    border-bottom: 1px solid var(--fl-bd);
+    background: var(--fl-strip);
 }
 .docs-content td {
-    padding: 10px 16px;
-    border-bottom: 1px solid var(--color-border);
+    padding: 9px 16px;
+    border-bottom: 1px solid var(--fl-sep2);
     vertical-align: top;
 }
+.docs-content tbody tr:nth-child(even) { background: var(--fl-strip); }
 .docs-content tr:last-child td { border-bottom: none; }
 
 /* ---- Index/list pages: hairline lists (erp-style, no cards) ---- */
@@ -234,21 +256,56 @@ body.docs {
 }
 .docs-list-item:last-child { border-bottom: none; }
 .docs-list-item h3 {
-    font-family: var(--font-serif);
+    font-family: var(--font-display);
     font-size: 28px;
-    font-weight: 600;
+    font-weight: 500;
     margin: 0 0 10px;
 }
+/* A button inside prose is a button, not a link: the prose rule would
+   repaint its label in brass and underline it, which is unreadable on a
+   stone. Buttons and cards define their own colour - restore it. */
+.docs-content .btn,
+.docs-content .btn:visited,
+.docs-content .btn:hover,
+.docs-content a.docs-card,
+.docs-content a.docs-card:visited {
+    border-bottom: none;
+    text-decoration: none;
+}
+.docs-content .btn-primary,
+.docs-content .btn-primary:visited,
+.docs-content .btn-primary:hover { color: var(--fl-on-acc); }
+.docs-content .btn-secondary,
+.docs-content .btn-secondary:visited,
+.docs-content .btn-secondary:hover,
+.docs-content .btn-hero-primary,
+.docs-content .btn-hero-primary:visited,
+.docs-content .btn-hero-primary:hover { color: var(--fl-ink); }
+.docs-content .btn-primary.btn-hero-primary,
+.docs-content .btn-primary.btn-hero-primary:visited,
+.docs-content .btn-primary.btn-hero-primary:hover { color: var(--fl-on-acc); }
+.docs-content .btn-quiet,
+.docs-content .btn-quiet:visited { color: var(--fl-qt); }
+.docs-content a.docs-card,
+.docs-content a.docs-card:visited { color: var(--color-text); }
+
+/* A heading that is a link keeps the heading's ink and drops the prose
+   hairline - the size already says it is a target. */
 .docs-list-item h3 a,
-.docs-list-item h3 a:visited {
+.docs-list-item h3 a:visited,
+.docs-content h1 a, .docs-content h2 a,
+.docs-content h3 a, .docs-content h4 a {
     color: var(--color-text);
     text-decoration: none;
+    border-bottom: none;
 }
 .docs-list-item h3 a:hover { color: var(--color-accent); }
 .docs-list-item .docs-meta {
-    font-family: var(--font-sans);
-    font-size: 14px;
-    color: var(--color-text-light);
+    font-family: var(--font-caps);
+    font-size: 16px;
+    font-variant: all-small-caps;
+    letter-spacing: 0.08em;
+    color: var(--fl-soft2);
     margin-bottom: 12px;
 }
 .docs-list-item p {
@@ -275,10 +332,11 @@ body.docs {
 }
 .docs-card {
     display: block;
-    background: white;
-    border: 1px solid var(--color-border);
-    border-radius: 12px;
+    background: var(--fl-sur);
+    border: 1px solid var(--fl-bd);
+    border-radius: var(--fl-r);
     padding: 20px 22px;
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.5), var(--fl-shadow-1);
     text-decoration: none;
     color: var(--color-text);
     transition: transform 0.15s ease, box-shadow 0.15s ease;
@@ -286,12 +344,15 @@ body.docs {
 a.docs-card:visited { color: var(--color-text); }
 a.docs-card:hover {
     transform: translateY(-2px);
-    box-shadow: 0 8px 24px rgba(0, 4, 40, 0.10);
+    border-color: var(--fl-bd3);
+    box-shadow: var(--fl-shadow-2);
 }
 .docs-card h4 {
-    font-family: var(--font-sans);
-    font-size: 16px;
+    font-family: var(--font-caps);
+    font-size: 18px;
     font-weight: 700;
+    font-variant: all-small-caps;
+    letter-spacing: 0.08em;
     margin: 0 0 6px;
 }
 .docs-card p {
@@ -303,12 +364,13 @@ a.docs-card:hover {
 
 /* ---- Footer (same voice as the /ui landing footer) ---- */
 .docs-footer {
-    border-top: 1px solid var(--color-border);
-    background: white;
+    border-top: 1px solid var(--fl-bd);
+    background-color: var(--fl-desk);
+    background-image: var(--fl-grain);
     padding: 44px 0;
-    font-family: var(--font-sans);
-    font-size: 14px;
-    color: var(--color-text-light);
+    font-family: var(--font-serif);
+    font-size: 16px;
+    color: var(--fl-soft1);
 }
 .docs-footer p { margin: 0; }
 .docs-footer a,
@@ -330,7 +392,7 @@ a.docs-card:hover {
 }
 .docs-search-rail {
     position: sticky;
-    top: 96px;
+    top: 72px;
     min-width: 0;
 }
 @media (max-width: 1024px) {
@@ -342,7 +404,7 @@ a.docs-card:hover {
 
 /* ---- Responsive ---- */
 @media (max-width: 768px) {
-    .docs-hero { padding: 130px 0 8px; }
+    .docs-hero { padding: 104px 0 8px; }
     .docs-hero h1 { font-size: 40px; }
     .docs-hero .docs-lede { font-size: 17px; }
     .docs-content h2 { font-size: 27px; margin-top: 44px; }

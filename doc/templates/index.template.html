@@ -8,14 +8,9 @@
 <body class="ui-landing">
   <a href="#main-content" class="skip-to-content">Skip to main content</a>
   <nav class="navbar" role="navigation" aria-label="Main navigation">
-    <div class="container">
-      <a href="/" class="nav-brand-link" aria-label="Go to homepage">
-        <img src="/logo.svg" alt="Azul" class="nav-brand-logo">
-      </a>
-      <div class="nav-right">
-        <button class="nav-toggle" aria-label="Toggle menu" aria-expanded="false" onclick="document.body.classList.toggle('nav-open');this.setAttribute('aria-expanded',document.body.classList.contains('nav-open'));"><span></span><span></span><span></span></button>
+      <div class="container">
         <div class="nav-links" role="menu">
-          <a href="https://azul.rs/ui" role="menuitem" class="active">overview</a>
+          <a href="https://azul.rs/ui" role="menuitem" class="active"><span class="fl-tab-shoulder fl-tab-shoulder-l" aria-hidden="true"></span><span class="fl-tab-shoulder fl-tab-shoulder-r" aria-hidden="true"></span><span class="fl-tab-seam" aria-hidden="true"></span><span class="fl-tab-foot" aria-hidden="true"></span>overview</a>
           <a href="https://azul.rs/ui/releases" role="menuitem">releases</a>
           <a href="https://github.com/fschutt/azul" role="menuitem">code</a>
           <a href="https://azul.rs/ui/guide" role="menuitem">guide</a>
@@ -24,12 +19,32 @@
           <a href="https://azul.rs/ui/blog" role="menuitem">blog</a>
           <a href="https://azul.rs/ui/donate" role="menuitem">donate</a>
         </div>
+        <div class="nav-right">
+          <button class="fl-lamp" type="button" aria-label="Switch between light and dark" title="Light / dark"
+          onclick="(function(b){var r=document.documentElement;var c=r.getAttribute('data-theme');var sysDark=window.matchMedia('(prefers-color-scheme: dark)').matches;var next=(c==='dark'||(!c&&sysDark))?'light':'dark';if((next==='dark')===sysDark){r.removeAttribute('data-theme');try{localStorage.removeItem('flora-theme');}catch(e){}}else{r.setAttribute('data-theme',next);try{localStorage.setItem('flora-theme',next);}catch(e){}}})(this)">
+          <svg class="fl-lamp-moon" viewBox="0 0 24 24" aria-hidden="true"><path d="M20 14.5A8.2 8.2 0 0 1 9.5 4 8.5 8.5 0 1 0 20 14.5z"/></svg>
+          <svg class="fl-lamp-sun" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="4.2"/><path d="M12 2.4v2.2M12 19.4v2.2M2.4 12h2.2M19.4 12h2.2M5.2 5.2l1.6 1.6M17.2 17.2l1.6 1.6M18.8 5.2l-1.6 1.6M6.8 17.2l-1.6 1.6"/></svg>
+        </button>
+          <button class="fl-orb" type="button" aria-label="Open site navigation" aria-expanded="false" aria-controls="site-nav-panel"
+          onclick="var o=document.body.classList.toggle('nav-open');this.setAttribute('aria-expanded',o);">
+          <span class="fl-orb-well" aria-hidden="true">
+            <span class="fl-orb-well-shadow"></span>
+            <span class="fl-orb-well-bounce"></span>
+          </span>
+          <span class="fl-orb-collar" aria-hidden="true"></span>
+          <span class="fl-orb-stone">
+            <img src="/logo.svg" alt="Azul" class="nav-brand-logo">
+            <span class="fl-orb-gloss" aria-hidden="true"></span>
+            <span class="fl-orb-edge" aria-hidden="true"></span>
+          </span>
+        </button>
+        </div>
       </div>
-    </div>
-  </nav>
-  <div class="nav-overlay" aria-hidden="true" onclick="document.body.classList.remove('nav-open')"></div>
-  <aside class="mobile-menu" aria-label="Mobile navigation">
-    <a href="https://azul.rs/ui">overview</a>
+    </nav>
+    <div class="nav-overlay" aria-hidden="true" onclick="document.body.classList.remove('nav-open')"></div>
+    <aside class="mobile-menu" id="site-nav-panel" aria-label="Site navigation">
+    <a href="/">home</a>
+    <a href="https://azul.rs/ui" class="active">overview</a>
     <a href="https://azul.rs/ui/releases">releases</a>
     <a href="https://github.com/fschutt/azul">code</a>
     <a href="https://azul.rs/ui/guide">guide</a>
@@ -37,7 +52,7 @@
     <a href="https://azul.rs/ui/reftest">reftests</a>
     <a href="https://azul.rs/ui/blog">blog</a>
     <a href="https://azul.rs/ui/donate">donate</a>
-  </aside>
+    </aside>
 
   <main id="main-content" role="main">
 
