@@ -1166,6 +1166,142 @@ pub fn macos_keycode_to_virtual_key(keycode: u16) -> Option<VirtualKeyCode> {
     }
 }
 
+/// Write ONE pointer button transition into a [`MouseState`], together with the
+/// position it happened at.
+///
+/// Only the button that actually changed is touched: assigning all three from a
+/// `button == …` comparison clears the others, and pressing Right while Left is
+/// held then synthesizes a phantom `LeftMouseUp` that kills drags and text
+/// selections mid-gesture — the Wayland finding, which is why this is a shared
+/// helper rather than three hand-written assignments per backend.
+///
+/// `MouseButton::Other` (thumb back/forward, buttons 4/5) records only the
+/// position: [`MouseState`] has no field for them, so no backend derives a
+/// MouseDown/MouseUp from those buttons.
+///
+/// [`MouseState`]: azul_core::window::MouseState
+pub fn apply_pointer_button_state(
+    mouse_state: &mut azul_core::window::MouseState,
+    position: LogicalPosition,
+    button: azul_core::events::MouseButton,
+    is_down: bool,
+) {
+    use azul_core::{events::MouseButton, window::CursorPosition};
+
+    mouse_state.cursor_position = CursorPosition::InWindow(position);
+    match button {
+        MouseButton::Left => mouse_state.left_down = is_down,
+        MouseButton::Right => mouse_state.right_down = is_down,
+        MouseButton::Middle => mouse_state.middle_down = is_down,
+        _ => {}
+    }
+}
+
+/// The `MouseButton` a `WM_XBUTTONDOWN` / `WM_XBUTTONUP` names, from its WPARAM.
+///
+/// Unlike every other `WM_*BUTTON*` message, the X-button messages carry the
+/// button in the HIGH word of `wParam` (`XBUTTON1` = 1 = thumb "back",
+/// `XBUTTON2` = 2 = thumb "forward") and the low word holds the modifier keys.
+/// Reading `wParam` whole therefore names the wrong button as soon as Shift or
+/// Ctrl is held.
+///
+/// Numbering follows AppKit's `buttonNumber` — 0 left, 1 right, 2 middle,
+/// 3 back, 4 forward — so the same physical thumb button reports the same
+/// `Other(n)` on macOS and Win32. (X11 reports its own button numbers, 8 and 9,
+/// and is not aligned with either.) `None` is a button no Windows version
+/// defines: the high word is documented as `XBUTTON1` or `XBUTTON2` and
+/// nothing else.
+#[must_use]
+pub fn win32_xbutton_to_mouse_button(wparam: usize) -> Option<azul_core::events::MouseButton> {
+    use azul_core::events::MouseButton;
+
+    const XBUTTON1: u16 = 0x0001;
+    const XBUTTON2: u16 = 0x0002;
+
+    match ((wparam >> 16) & 0xFFFF) as u16 {
+        XBUTTON1 => Some(MouseButton::Other(3)),
+        XBUTTON2 => Some(MouseButton::Other(4)),
+        _ => None,
+    }
+}
+
+/// Apply one Win32 key transition to a [`KeyboardState`].
+///
+/// `virtual_key` is `None` for a key `vkey_to_winit_vkey` has no entry for — a
+/// media key, the browser cluster, an OEM key on a non-US layout. The SCANCODE
+/// is written either way, which is the whole point: it names the PHYSICAL key
+/// and needs no translation table to be true. Gating its write on the
+/// translation (what the Win32 backend did) left every unmapped key missing
+/// from `pressed_scancodes` — and, because the release was gated away by the
+/// same test, a key that DID make it in could never come back out.
+///
+/// `current_virtual_keycode` is deliberately left ALONE for an unmapped key.
+/// `determine_all_events` derives `KeyUp` from `previous.is_some() &&
+/// current.is_none()`, so writing `None` there would fire a KeyUp for whatever
+/// key is still physically HELD the moment the user touches a key the table
+/// does not know — a spurious release in the middle of a two-key rollover.
+/// Nothing is derived from `pressed_scancodes`, so recording the physical key
+/// is purely additive: the pass sees a keyboard delta, consumes it, and emits
+/// no event.
+///
+/// [`KeyboardState`]: azul_core::window::KeyboardState
+pub fn apply_win32_key_state_change(
+    keyboard_state: &mut azul_core::window::KeyboardState,
+    virtual_key: Option<VirtualKeyCode>,
+    scan_code: u32,
+    is_down: bool,
+) {
+    use azul_core::window::OptionVirtualKeyCode;
+
+    if is_down {
+        if let Some(vk) = virtual_key {
+            keyboard_state.current_virtual_keycode = OptionVirtualKeyCode::Some(vk);
+            keyboard_state.pressed_virtual_keycodes.insert_hm_item(vk);
+        }
+        keyboard_state.pressed_scancodes.insert_hm_item(scan_code);
+    } else {
+        if let Some(vk) = virtual_key {
+            keyboard_state.current_virtual_keycode = OptionVirtualKeyCode::None;
+            keyboard_state.pressed_virtual_keycodes.remove_hm_item(&vk);
+        }
+        keyboard_state.pressed_scancodes.remove_hm_item(&scan_code);
+    }
+}
+
+/// Everything the OS-side IME state is a function of: whether the window has
+/// the focus, WHICH node is being edited, and where the caret sits inside it.
+///
+/// A backend keeps the last one it pushed and re-pushes only on a change, so
+/// the sync can be called from every event pass and every frame without the
+/// caret-rect walk running 60 times a second for nothing.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub struct ImeSyncKey {
+    /// The IME only engages for the focused window.
+    pub window_focused: bool,
+    /// `(dom index, node index)` of the editing session, if any.
+    pub editing_node: Option<(usize, usize)>,
+    /// Where the over-the-spot candidate window belongs.
+    pub cursor: Option<azul_core::selection::TextCursor>,
+}
+
+/// Read the live [`ImeSyncKey`] off a window.
+///
+/// Kept next to the key so every backend derives it from the same three
+/// sources. Focus has to be one of them: without it a blur would leave the key
+/// unchanged and the IME engaged for a window that no longer has the keyboard.
+#[must_use]
+pub fn ime_sync_key(window_focused: bool, layout_window: Option<&LayoutWindow>) -> ImeSyncKey {
+    ImeSyncKey {
+        window_focused,
+        editing_node: layout_window.and_then(|lw| {
+            let dom = lw.text_edit_manager.get_editing_dom_id()?;
+            let node = lw.text_edit_manager.get_editing_node_id()?;
+            Some((dom.inner, node.index()))
+        }),
+        cursor: layout_window.and_then(|lw| lw.text_edit_manager.get_primary_cursor()),
+    }
+}
+
 /// App-global undo/redo manager handle, shared (Arc) between the App and every
 /// window. The actual mini-git manager only exists under the `json` feature;
 /// without it every method is a no-op so the type can be threaded unconditionally.
@@ -7569,6 +7705,70 @@ pub trait PlatformWindow {
         }
     }
 
+    /// THE scrollbar press path: record the pointer state the scrollbar is
+    /// about to consume, run [`Self::handle_scrollbar_click`], and swallow the
+    /// delta.
+    ///
+    /// A thumb drag is routed around the event system by design — that is what
+    /// the `discard_input_delta` is for — but the button is still PHYSICALLY
+    /// DOWN and the cursor still moved. A handler that returns before writing
+    /// `mouse_state` leaves `left_down == false` and `cursor_position` stale
+    /// for the whole drag, so every reader of the live pointer state
+    /// (`CallbackInfo`'s mouse state, `MouseState::matches`, a widget's own
+    /// "am I being dragged" test) disagrees with the hardware for as long as
+    /// the user holds the thumb. The headless backend — the one the E2E suite
+    /// scripts against, so the one whose answer the tests encode — already
+    /// wrote them; every desktop backend returned first. macOS and Win32 route
+    /// through here now; X11 and Wayland still early-return and should adopt
+    /// this too.
+    ///
+    /// `site` is the audit string for the sanctioned swallow, e.g.
+    /// `"macos.handle_mouse_down.scrollbar_click"`.
+    fn handle_scrollbar_press(
+        &mut self,
+        hit_id: azul_core::hit_test::ScrollbarHitId,
+        position: azul_core::geom::LogicalPosition,
+        button: azul_core::events::MouseButton,
+        site: &str,
+    ) -> ProcessEventResult {
+        apply_pointer_button_state(
+            &mut self.get_current_window_state_mut().mouse_state,
+            position,
+            button,
+            true,
+        );
+        let result = self.handle_scrollbar_click(hit_id, position);
+        self.discard_input_delta(site);
+        result
+    }
+
+    /// The other half of [`Self::handle_scrollbar_press`]: end an active
+    /// scrollbar drag and record the release that ended it.
+    ///
+    /// `None` means there was no drag and the caller must run its normal
+    /// button-up path. Clearing the button here is not optional — the press
+    /// set it, and a release that skipped the write would leave the button
+    /// latched DOWN forever after the first thumb drag.
+    fn end_scrollbar_drag(
+        &mut self,
+        position: azul_core::geom::LogicalPosition,
+        button: azul_core::events::MouseButton,
+        site: &str,
+    ) -> Option<ProcessEventResult> {
+        if self.get_scrollbar_drag_state().is_none() {
+            return None;
+        }
+        *self.get_scrollbar_drag_state_mut() = None;
+        apply_pointer_button_state(
+            &mut self.get_current_window_state_mut().mouse_state,
+            position,
+            button,
+            false,
+        );
+        self.discard_input_delta(site);
+        Some(ProcessEventResult::ShouldReRenderCurrentWindow)
+    }
+
     /// Handle a click on the non-thumb part of a scrollbar: arrow buttons
     /// line-scroll, track clicks follow the OS preference (jump-to-position
     /// or page-up/down).
@@ -8542,5 +8742,409 @@ mod tests {
         assert_eq!(Some(VirtualKeyCode::RControl), macos_keycode_to_virtual_key(0x3E));
         assert_eq!(Some(VirtualKeyCode::Capital), macos_keycode_to_virtual_key(0x39));
         assert_eq!(Some(VirtualKeyCode::Apps), macos_keycode_to_virtual_key(0x6E));
+    }
+
+    // Pointer state a scrollbar consumes
+
+    fn thumb_hit() -> azul_core::hit_test::ScrollbarHitId {
+        azul_core::hit_test::ScrollbarHitId::VerticalThumb(DomId { inner: 0 }, CoreNodeId::ZERO)
+    }
+
+    /// The scrollbar is routed around the event system, but the BUTTON is still
+    /// physically down. A press that skips the `mouse_state` write reports
+    /// `left_down == false` for the whole drag, so every reader of the live
+    /// pointer state disagrees with the hardware until the user lets go.
+    #[test]
+    fn a_scrollbar_press_records_the_button_and_swallows_the_delta() {
+        require_validation_gate();
+        let mut window = headless_stub();
+        window.snapshot_window_state_baseline("test.seed");
+
+        let at = LogicalPosition::new(310.0, 120.0);
+        let _ = window.handle_scrollbar_press(
+            thumb_hit(),
+            at,
+            azul_core::events::MouseButton::Left,
+            "test.scrollbar.press",
+        );
+
+        assert!(
+            window.get_current_window_state().mouse_state.left_down,
+            "the thumb is being HELD: left_down must be true for the whole drag"
+        );
+        assert_eq!(
+            window.get_current_window_state().mouse_state.cursor_position,
+            CursorPosition::InWindow(at),
+            "the press position must reach the live pointer state"
+        );
+        assert!(
+            !window.get_current_window_state().mouse_state.right_down
+                && !window.get_current_window_state().mouse_state.middle_down,
+            "only the button that changed may be written"
+        );
+        // SANCTIONED SWALLOW: the write must NOT also surface as a MouseDown —
+        // this snapshot panics if the delta was left live.
+        window.snapshot_window_state_baseline("test.scrollbar.next-handler");
+    }
+
+    /// The other half: the release that ends the drag has to CLEAR what the
+    /// press latched, or the button stays down forever after the first drag.
+    #[test]
+    fn ending_a_scrollbar_drag_releases_the_button_the_press_latched() {
+        require_validation_gate();
+        let mut window = headless_stub();
+        window.snapshot_window_state_baseline("test.seed");
+
+        let down_at = LogicalPosition::new(310.0, 120.0);
+        let _ = window.handle_scrollbar_press(
+            thumb_hit(),
+            down_at,
+            azul_core::events::MouseButton::Left,
+            "test.scrollbar.press",
+        );
+        assert!(
+            window.get_scrollbar_drag_state().is_some(),
+            "a thumb press starts a drag"
+        );
+
+        let up_at = LogicalPosition::new(310.0, 200.0);
+        let ended = window.end_scrollbar_drag(
+            up_at,
+            azul_core::events::MouseButton::Left,
+            "test.scrollbar.release",
+        );
+
+        assert!(ended.is_some(), "an active drag must report that it ended");
+        assert!(
+            window.get_scrollbar_drag_state().is_none(),
+            "the drag is over"
+        );
+        assert!(
+            !window.get_current_window_state().mouse_state.left_down,
+            "the release must clear the button the press set"
+        );
+        assert_eq!(
+            window.get_current_window_state().mouse_state.cursor_position,
+            CursorPosition::InWindow(up_at)
+        );
+        window.snapshot_window_state_baseline("test.scrollbar.next-handler");
+
+        assert!(
+            window
+                .end_scrollbar_drag(
+                    up_at,
+                    azul_core::events::MouseButton::Left,
+                    "test.scrollbar.none",
+                )
+                .is_none(),
+            "with no drag active the caller must run its normal button-up path"
+        );
+    }
+
+    /// Buttons 4/5 have no `MouseState` field, so a press may only move the
+    /// cursor — but it must not silently clear the buttons that ARE held.
+    #[test]
+    fn an_extra_button_press_records_the_position_without_clearing_held_buttons() {
+        let mut mouse = azul_core::window::MouseState::default();
+        mouse.left_down = true;
+        apply_pointer_button_state(
+            &mut mouse,
+            LogicalPosition::new(7.0, 9.0),
+            azul_core::events::MouseButton::Other(3),
+            true,
+        );
+        assert!(mouse.left_down, "a thumb button may not release the left one");
+        assert_eq!(
+            mouse.cursor_position,
+            CursorPosition::InWindow(LogicalPosition::new(7.0, 9.0))
+        );
+    }
+
+    // Win32 X-buttons (mouse 4/5)
+
+    /// The X-button messages are the ONLY `WM_*BUTTON*` messages that carry the
+    /// button in the HIGH word of wParam; the low word is the modifier-key set.
+    /// Reading wParam whole names the wrong button the moment Shift is held.
+    #[test]
+    fn win32_xbutton_reads_the_high_word_not_the_whole_wparam() {
+        use azul_core::events::MouseButton;
+
+        const MK_SHIFT: usize = 0x0004;
+        const MK_CONTROL: usize = 0x0008;
+
+        assert_eq!(
+            win32_xbutton_to_mouse_button(0x0001 << 16),
+            Some(MouseButton::Other(3)),
+            "XBUTTON1 is the thumb BACK button"
+        );
+        assert_eq!(
+            win32_xbutton_to_mouse_button(0x0002 << 16),
+            Some(MouseButton::Other(4)),
+            "XBUTTON2 is the thumb FORWARD button"
+        );
+        // Modifiers ride in the low word and must not change the answer.
+        assert_eq!(
+            win32_xbutton_to_mouse_button((0x0001 << 16) | MK_SHIFT | MK_CONTROL),
+            Some(MouseButton::Other(3))
+        );
+        assert_eq!(win32_xbutton_to_mouse_button(MK_SHIFT), None);
+        assert_eq!(win32_xbutton_to_mouse_button(0x0003 << 16), None);
+    }
+
+    // Win32 key state
+
+    /// The scancode names the PHYSICAL key and needs no translation table to be
+    /// true. Gating its write on `vkey_to_winit_vkey` — what the Win32 backend
+    /// did — dropped every key the table does not know.
+    #[test]
+    fn an_unmapped_win32_key_still_records_its_scancode() {
+        let mut ks = azul_core::window::KeyboardState::default();
+
+        apply_win32_key_state_change(&mut ks, None, 0x6A, true);
+        assert!(
+            ks.pressed_scancodes.as_ref().contains(&0x6A),
+            "an unmapped key is still a key that is DOWN"
+        );
+        assert!(
+            ks.pressed_virtual_keycodes.as_ref().is_empty(),
+            "there is no virtual key to record"
+        );
+
+        apply_win32_key_state_change(&mut ks, None, 0x6A, false);
+        assert!(
+            ks.pressed_scancodes.as_ref().is_empty(),
+            "and the release must be able to take it back out again"
+        );
+    }
+
+    /// Recording the physical key must stay ADDITIVE. `KeyUp` is derived from
+    /// `previous.current_virtual_keycode.is_some() && current.is_none()`, so an
+    /// unmapped key that cleared that field would fire a release for a key the
+    /// user is still holding down.
+    #[test]
+    fn an_unmapped_win32_key_does_not_release_the_key_still_held() {
+        let mut ks = azul_core::window::KeyboardState::default();
+        apply_win32_key_state_change(&mut ks, Some(VirtualKeyCode::A), 0x1E, true);
+
+        // A media key pressed and released while A is still down.
+        apply_win32_key_state_change(&mut ks, None, 0x6A, true);
+        assert_eq!(
+            ks.current_virtual_keycode,
+            azul_core::window::OptionVirtualKeyCode::Some(VirtualKeyCode::A),
+            "an unmapped PRESS must not synthesize a KeyUp for the held key"
+        );
+        apply_win32_key_state_change(&mut ks, None, 0x6A, false);
+        assert_eq!(
+            ks.current_virtual_keycode,
+            azul_core::window::OptionVirtualKeyCode::Some(VirtualKeyCode::A),
+            "nor must its RELEASE"
+        );
+        assert!(
+            ks.pressed_virtual_keycodes.as_ref().contains(&VirtualKeyCode::A),
+            "A is still held throughout"
+        );
+        assert!(
+            ks.pressed_scancodes.as_ref().contains(&0x1E)
+                && !ks.pressed_scancodes.as_ref().contains(&0x6A),
+            "the physical set tracks both keys correctly"
+        );
+    }
+
+    /// The mapped case still has to work, and the release must remove both.
+    #[test]
+    fn a_mapped_win32_key_records_both_the_scancode_and_the_virtual_key() {
+        let mut ks = azul_core::window::KeyboardState::default();
+
+        apply_win32_key_state_change(&mut ks, Some(VirtualKeyCode::A), 0x1E, true);
+        assert!(ks.pressed_scancodes.as_ref().contains(&0x1E));
+        assert!(ks.pressed_virtual_keycodes.as_ref().contains(&VirtualKeyCode::A));
+        assert_eq!(
+            ks.current_virtual_keycode,
+            azul_core::window::OptionVirtualKeyCode::Some(VirtualKeyCode::A)
+        );
+
+        apply_win32_key_state_change(&mut ks, Some(VirtualKeyCode::A), 0x1E, false);
+        assert!(ks.pressed_scancodes.as_ref().is_empty());
+        assert!(ks.pressed_virtual_keycodes.as_ref().is_empty());
+        assert_eq!(
+            ks.current_virtual_keycode,
+            azul_core::window::OptionVirtualKeyCode::None
+        );
+    }
+
+    // The IME re-sync key
+
+    /// Focus is part of the key, so losing it re-syncs. A backend that left it
+    /// out kept the IME engaged for an unfocused window.
+    #[test]
+    fn losing_the_focus_changes_the_ime_sync_key() {
+        let window = headless_stub();
+        let focused = ime_sync_key(true, window.get_layout_window());
+        let blurred = ime_sync_key(false, window.get_layout_window());
+        assert_ne!(focused, blurred);
+        assert_eq!(focused, ime_sync_key(true, window.get_layout_window()));
+        assert_eq!(
+            focused.editing_node, None,
+            "nothing is being edited in a freshly built window"
+        );
+    }
+
+    // What a window-frame transition actually does
+
+    /// `WM_SIZE` and `set_window_frame_and_dispatch` both used to justify their
+    /// event pass by claiming the app's Maximize / Restore (resp. window-frame)
+    /// callbacks now fire. There is no such event: `flags.frame` is DELIBERATELY
+    /// excluded from the event-bearing set, so the pass feeds
+    /// `current_window_state` and the OS-sync baseline and dispatches nothing
+    /// for the transition itself. Adding the field here would make every
+    /// maximize trip the unconsumed-delta guard instead.
+    #[test]
+    fn a_window_frame_transition_is_not_event_bearing() {
+        let (previous, mut current) = state_pair();
+        current.flags.frame = WindowFrame::Fullscreen;
+        assert_eq!(
+            first_differing_state_field(&previous, &current),
+            None,
+            "flags.frame carries no event"
+        );
+
+        // Positive control: `flags` is not skipped wholesale — close_requested,
+        // which DOES have an EventType, is compared.
+        let (previous, mut current) = state_pair();
+        current.flags.close_requested = true;
+        assert_eq!(
+            first_differing_state_field(&previous, &current),
+            Some("flags.close_requested")
+        );
+    }
+
+    // Source-text invariants for the two backends nothing here can compile
+    //
+    // `macos/` and `windows/` sit behind `#[cfg(target_os = ...)]`, so a test
+    // that needs a real window can only ever run on that OS's CI job. These
+    // pin the two shapes whose ABSENCE is the defect and which have no pure
+    // core left to hoist.
+
+    const MACOS_MOD_RS: &str = include_str!("../macos/mod.rs");
+    const WINDOWS_MOD_RS: &str = include_str!("../windows/mod.rs");
+
+    /// The body of `source`'s first `fn name`, up to the next method in the
+    /// same impl block (4-space indent, this file's style).
+    fn fn_body<'a>(source: &'a str, name: &str) -> &'a str {
+        let start = source
+            .find(name)
+            .unwrap_or_else(|| panic!("{name} not found — was it renamed?"));
+        let rest = &source[start..];
+        match rest[1..].find("\n    fn ") {
+            Some(end) => &rest[..=end],
+            None => rest,
+        }
+    }
+
+    /// THE aliasing invariant of the macOS backend.
+    ///
+    /// `popUpMenuPositioningItem:atLocation:inView:` spins a SYNCHRONOUS nested
+    /// tracking run loop. The tick timers are registered in
+    /// `kCFRunLoopCommonModes` (deliberately — blink and tweens have to survive
+    /// menu tracking and live resize) and `tickTimers:` reconstructs its own
+    /// `&mut MacOSWindow` from the registry's raw pointer, so a pop-up sent
+    /// while such a borrow is live aliases `&mut` with itself on top of plain
+    /// re-entrancy. The only sound shape is park-then-present: the pending menu
+    /// holds a RETAINED menu and view and borrows nothing, and the presenter
+    /// runs after the borrow has ended. Keeping the pop-up to ONE call site is
+    /// what makes that reviewable.
+    #[test]
+    fn the_macos_menu_runloop_is_entered_from_exactly_one_place() {
+        let call_sites = MACOS_MOD_RS
+            .matches("popUpMenuPositioningItem_atLocation_inView")
+            .count();
+        assert_eq!(
+            call_sites, 1,
+            "every synchronous menu pop-up must go through \
+             present_pending_context_menu, which is only ever called with no \
+             &mut MacOSWindow live"
+        );
+
+        let presenter = MACOS_MOD_RS
+            .find("fn present_pending_context_menu")
+            .expect("present_pending_context_menu is THE presenter");
+        let struct_after = MACOS_MOD_RS
+            .find("pub struct MacOSWindow")
+            .expect("the presenter sits directly above the window struct");
+        let call = MACOS_MOD_RS
+            .find("popUpMenuPositioningItem_atLocation_inView")
+            .expect("checked above");
+        assert!(
+            call > presenter && call < struct_after,
+            "the one pop-up call must be inside present_pending_context_menu"
+        );
+    }
+
+    /// `info.open_menu()` reaches `show_menu_from_callback` from INSIDE a pass,
+    /// i.e. with the handler's `&mut MacOSWindow` live. It must park the menu
+    /// and let a later run-loop turn present it — the same conversion the
+    /// right-click path already got.
+    #[test]
+    fn a_callback_opened_native_menu_is_parked_not_presented() {
+        let body = fn_body(MACOS_MOD_RS, "fn show_menu_from_callback");
+        assert!(
+            body.contains("queue_native_context_menu_at_position"),
+            "the native branch must QUEUE the menu"
+        );
+        assert!(
+            body.contains("schedule_pending_menu_presentation"),
+            "and hand the presentation to a later run-loop turn"
+        );
+        assert!(
+            !body.contains("popUpMenuPositioningItem"),
+            "it must never pop the menu up while &mut self is held"
+        );
+    }
+
+    /// Win32 messages the window procedure used to drop on the floor. There is
+    /// no pure core to hoist here — the arms ARE the fix — so pin the wiring.
+    #[test]
+    fn the_win32_wndproc_handles_the_messages_it_used_to_drop() {
+        for (name, value) in [
+            ("WM_XBUTTONDOWN", "0x020B"),
+            ("WM_XBUTTONUP", "0x020C"),
+            ("WM_ENTERSIZEMOVE", "0x0231"),
+            ("WM_EXITSIZEMOVE", "0x0232"),
+        ] {
+            assert!(
+                WINDOWS_MOD_RS.contains(&format!("const {name}: u32 = {value};")),
+                "{name} ({value}) is not even declared"
+            );
+            assert!(
+                WINDOWS_MOD_RS.contains(&format!("{name} =>"))
+                    || WINDOWS_MOD_RS.contains(&format!("{name} |")),
+                "{name} is declared but the window procedure has no arm for it"
+            );
+        }
+    }
+
+    /// The modal size/move pump must not reuse the thread-poll timer's id:
+    /// `SetTimer` with an id already in use REPLACES that timer, so a collision
+    /// would silently kill background-thread polling for the rest of the run,
+    /// and `KillTimer` at `WM_EXITSIZEMOVE` would never bring it back.
+    #[test]
+    fn the_win32_modal_pump_timer_has_its_own_id() {
+        fn timer_id(name: &str) -> &'static str {
+            WINDOWS_MOD_RS
+                .lines()
+                .find_map(|line| {
+                    let line = line.trim();
+                    let line = line.strip_prefix("pub(crate) ").unwrap_or(line);
+                    let value = line.strip_prefix("const ")?.strip_prefix(name)?;
+                    value.split('=').nth(1).map(|v| v.trim().trim_end_matches(';'))
+                })
+                .unwrap_or_else(|| panic!("{name} is not declared in windows/mod.rs"))
+        }
+
+        assert_ne!(
+            timer_id("MODAL_LOOP_TIMER_ID"),
+            timer_id("THREAD_POLL_TIMER_ID"),
+            "the modal pump and the thread poll cannot share a Win32 timer id"
+        );
     }
 }
