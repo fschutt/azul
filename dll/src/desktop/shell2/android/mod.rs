@@ -585,7 +585,7 @@ fn drain_pending_theme(window: &mut AndroidWindow) {
     if window.common.current_window_state.theme == theme {
         return;
     }
-    window.common.previous_window_state = Some(window.common.current_window_state.clone());
+    window.snapshot_window_state_baseline("android.drain_pending_theme");
     window.common.current_window_state.theme = theme;
     window.common.request_regeneration(RelayoutReason::ThemeChange);
     let _ = window.process_window_events(0);
@@ -611,8 +611,7 @@ fn handle_poll_event(app: &AndroidApp, window: &mut AndroidWindow, event: PollEv
                 // dispatched WindowResize/WindowDpiChanged — these arms wrote
                 // geometry with no snapshot and no pass, so the diff either
                 // never existed or tripped the validation check later.
-                window.common.previous_window_state =
-                    Some(window.common.current_window_state.clone());
+                window.snapshot_window_state_baseline("android.main_event.init_window");
                 // Sync the framework's window state to the native
                 // surface: physical dimensions + DPI. azul-layout uses
                 // 96 as the "1x" baseline (CSS pixel = 1/96 inch), so
@@ -658,8 +657,7 @@ fn handle_poll_event(app: &AndroidApp, window: &mut AndroidWindow, event: PollEv
             }
             MainEvent::WindowResized { .. } => {
                 // Contract shape (snapshot → mutate → pass) — see InitWindow.
-                window.common.previous_window_state =
-                    Some(window.common.current_window_state.clone());
+                window.snapshot_window_state_baseline("android.main_event.window_resized");
                 #[cfg(feature = "ndk")]
                 {
                     if let Some(nw) = window.native_window.as_ref() {
@@ -687,8 +685,7 @@ fn handle_poll_event(app: &AndroidApp, window: &mut AndroidWindow, event: PollEv
                 if window.common.current_window_state.size.dpi != dpi {
                     // Contract shape (snapshot → mutate → pass) — the dpi
                     // diff is what dispatches WindowDpiChanged.
-                    window.common.previous_window_state =
-                        Some(window.common.current_window_state.clone());
+                    window.snapshot_window_state_baseline("android.main_event.config_changed");
                     let reason = resize_reason(window);
                     window.common.current_window_state.size.dpi = dpi;
                     #[cfg(feature = "ndk")]
@@ -876,8 +873,7 @@ fn drain_input(app: &AndroidApp, window: &mut AndroidWindow) {
 
     for update in motion_updates {
         // Snapshot previous state — required by the state-diffing event system.
-        window.common.previous_window_state =
-            Some(window.common.current_window_state.clone());
+        window.snapshot_window_state_baseline("android.drain_input.motion");
 
         {
             let ms = &mut window.common.current_window_state.mouse_state;
@@ -951,8 +947,7 @@ fn drain_input(app: &AndroidApp, window: &mut AndroidWindow) {
 
     // Apply collected key updates.
     for (action, vkc) in key_updates {
-        window.common.previous_window_state =
-            Some(window.common.current_window_state.clone());
+        window.snapshot_window_state_baseline("android.drain_input.key");
         {
             let ks = &mut window.common.current_window_state.keyboard_state;
             match (action, vkc) {

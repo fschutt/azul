@@ -429,8 +429,7 @@ fn handle_touch(this: &Object, touches: *mut Object, phase: u8) {
     }
 
     // Snapshot previous state for the diff pipeline; mirrors Android.
-    window.common.previous_window_state =
-        Some(window.common.current_window_state.clone());
+    window.snapshot_window_state_baseline("ios.handle_touch");
 
     {
         // Refresh TouchState FIRST — the mouse-button emulation below needs
@@ -913,7 +912,7 @@ unsafe fn adopt_device_appearance(
     }
     // The diff pipeline compares against previous_window_state to decide a
     // ThemeChanged event fired; without this snapshot no callback runs.
-    common.previous_window_state = Some(common.current_window_state.clone());
+    common.snapshot_window_state_baseline("ios.adopt_device_appearance");
     common.current_window_state.theme = theme;
     true
 }

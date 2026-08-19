@@ -114,6 +114,33 @@ jobs:
           fi
           echo "shell2 backends are content-state clean"
 
+      - name: Backends must not hand-write the event-diff baseline
+        # `previous_window_state` is the EVENT-DIFF baseline. Assigning it by hand
+        # advances it past whatever delta a previous handler left unconsumed, and
+        # that delta IS the lost event (a resize, a DPI change, a mouse move that
+        # never reached a callback) — silently, on every backend, which is exactly
+        # how the bug class stayed invisible for four backends' worth of handlers.
+        # The named helpers on PlatformWindow are the only sanctioned writers:
+        # they carry a `site` string and route through check_input_delta_consumed.
+        run: |
+          set -e
+          violations=$(grep -rnE 'previous_window_state\s*=[^=]' \
+            dll/src/desktop/shell2 \
+            --include='*.rs' \
+            | grep -v '/common/' \
+            | grep -vE '^[^:]*:[0-9]+:\s*//' \
+            || true)
+          if [ -n "$violations" ]; then
+            echo "Do not assign previous_window_state directly. Use, from PlatformWindow:"
+            echo "  self.snapshot_window_state_baseline(\"<backend>.<handler>\")  - a platform event arrived: snapshot, then mutate, then run the pass"
+            echo "  self.discard_input_delta(\"<backend>.<handler>.<why>\")       - SANCTIONED SWALLOW, this handler consumed the input itself"
+            echo "  self.seed_window_state_baseline(\"<backend>.<site>\")         - creation-time seeding only, before any pass has run"
+            echo "  self.set_previous_window_state(<baseline>)                    - an audited baseline captured BEFORE this handler mutated"
+            echo "$violations"
+            exit 1
+          fi
+          echo "shell2 backends route every event-diff baseline write through PlatformWindow"
+
   lint_and_check:
     name: Lint & Static Checks
     if: github.event_name != 'workflow_dispatch' || github.event.inputs.run_mode == 'ci' || github.event.inputs.run_mode == 'deploy' || github.event.inputs.run_mode == 'website'

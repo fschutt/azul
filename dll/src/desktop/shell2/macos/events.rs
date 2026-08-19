@@ -186,7 +186,7 @@ impl MacOSWindow {
         }
 
         // Save previous state BEFORE making changes
-        self.common.previous_window_state = Some(self.common.current_window_state.clone());
+        self.snapshot_window_state_baseline("macos.handle_mouse_down");
 
         // Update mouse state
         self.common.current_window_state.mouse_state.cursor_position = CursorPosition::InWindow(position);
@@ -231,7 +231,7 @@ impl MacOSWindow {
         }
 
         // Save previous state BEFORE making changes
-        self.common.previous_window_state = Some(self.common.current_window_state.clone());
+        self.snapshot_window_state_baseline("macos.handle_mouse_up");
 
         // Update mouse state - clear appropriate button flag
         match button {
@@ -322,7 +322,7 @@ impl MacOSWindow {
         }
 
         // Save previous state BEFORE making changes
-        self.common.previous_window_state = Some(self.common.current_window_state.clone());
+        self.snapshot_window_state_baseline("macos.handle_mouse_move");
 
         // Update mouse state
         self.common.current_window_state.mouse_state.cursor_position = CursorPosition::InWindow(position);
@@ -379,7 +379,7 @@ impl MacOSWindow {
         let position = macos_to_azul_coords(location, window_height);
 
         // Save previous state BEFORE making changes
-        self.common.previous_window_state = Some(self.common.current_window_state.clone());
+        self.snapshot_window_state_baseline("macos.handle_mouse_entered");
 
         // Update mouse state - cursor is now in window
         self.common.current_window_state.mouse_state.cursor_position = CursorPosition::InWindow(position);
@@ -399,7 +399,7 @@ impl MacOSWindow {
         let position = macos_to_azul_coords(location, window_height);
 
         // Save previous state BEFORE making changes
-        self.common.previous_window_state = Some(self.common.current_window_state.clone());
+        self.snapshot_window_state_baseline("macos.handle_mouse_exited");
 
         // Update mouse state - cursor left window
         self.common.current_window_state.mouse_state.cursor_position =
@@ -449,7 +449,7 @@ impl MacOSWindow {
         let position = macos_to_azul_coords(location, window_height);
 
         // Save previous state BEFORE making changes
-        self.common.previous_window_state = Some(self.common.current_window_state.clone());
+        self.snapshot_window_state_baseline("macos.handle_scroll_wheel");
 
         // Update hit test FIRST (required for scroll manager)
         self.update_hit_test(position);
@@ -637,7 +637,7 @@ impl MacOSWindow {
             prev_snapshot.keyboard_state.current_virtual_keycode =
                 azul_core::window::OptionVirtualKeyCode::None;
         }
-        self.common.previous_window_state = Some(prev_snapshot);
+        self.set_previous_window_state(prev_snapshot);
 
         // RECORD (do not apply) the text this key produces, BEFORE the pass —
         // the same order X11 and Wayland use. `record_text_input` only stages a
@@ -699,7 +699,7 @@ impl MacOSWindow {
         let modifiers = unsafe { event.modifierFlags() };
 
         // Save previous state BEFORE making changes
-        self.common.previous_window_state = Some(self.common.current_window_state.clone());
+        self.snapshot_window_state_baseline("macos.handle_key_up");
 
         // Update keyboard state
         self.update_keyboard_state(key_code, modifiers, false);
@@ -740,7 +740,7 @@ impl MacOSWindow {
         // Save previous state BEFORE making changes: the arm dispatches its own
         // synthetic Input events and a user callback inside that dispatch may
         // re-enter `process_window_events`, which needs a baseline.
-        self.common.previous_window_state = Some(self.common.current_window_state.clone());
+        self.snapshot_window_state_baseline("macos.handle_text_input");
 
         let result = self.apply_user_change(&CallbackChange::CreateTextInput {
             text: text.into(),
@@ -817,7 +817,7 @@ impl MacOSWindow {
         // Save previous state BEFORE making changes: this handler used to mutate
         // in place and rely on the next handler's snapshot, which destroyed the
         // very transition it had just produced.
-        self.common.previous_window_state = Some(self.common.current_window_state.clone());
+        self.snapshot_window_state_baseline("macos.handle_flags_changed");
 
         self.update_keyboard_state(key_code, modifiers, is_down);
 
@@ -842,7 +842,7 @@ impl MacOSWindow {
         // mutate in place with no snapshot and no pass, so the delta simply sat
         // there until the NEXT handler's snapshot overwrote it and the resize
         // was never dispatched to any callback.
-        self.common.previous_window_state = Some(self.common.current_window_state.clone());
+        self.snapshot_window_state_baseline("macos.handle_resize");
 
         // Update window state. Size REPORTED by the OS (source = Os): the
         // OS-sync baseline must advance in lockstep, or the next
@@ -965,7 +965,7 @@ impl MacOSWindow {
         paths: Vec<String>,
     ) -> EventProcessResult {
         // Save previous state BEFORE making changes
-        self.common.previous_window_state = Some(self.common.current_window_state.clone());
+        self.snapshot_window_state_baseline("macos.handle_file_drop");
         // MWA-B7: the OS drag location is the ONLY fresh position — no
         // mouse-move events arrive during an OS drag, so the cached cursor
         // is stale (wherever the pointer was before the drag started).
@@ -1006,7 +1006,7 @@ impl MacOSWindow {
         paths: Vec<String>,
     ) -> EventProcessResult {
         // Save previous state BEFORE making changes
-        self.common.previous_window_state = Some(self.common.current_window_state.clone());
+        self.snapshot_window_state_baseline("macos.handle_file_drag_entered");
 
         // Record ALL hovered files (MWA-B7).
         if !paths.is_empty() {
@@ -1034,7 +1034,7 @@ impl MacOSWindow {
     /// `draggingExited:` delegate (see `handle_file_drop`).
     pub fn handle_file_drag_exited(&mut self) -> EventProcessResult {
         // Save previous state BEFORE making changes
-        self.common.previous_window_state = Some(self.common.current_window_state.clone());
+        self.snapshot_window_state_baseline("macos.handle_file_drag_exited");
 
         // Clear the hovered file; the Some -> None transition latches the
         // one-shot hover-cancel flag so FileHoverCancel can fire this pass.

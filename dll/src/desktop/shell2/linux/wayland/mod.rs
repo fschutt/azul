@@ -2510,6 +2510,15 @@ impl WaylandWindow {
                         "[Wayland] display connection lost (revents {:#x}) — closing window",
                         pollfds[0].revents,
                     );
+                    // Tell the app before we go, the same way the titlebar X
+                    // does — otherwise a compositor crash discarded unsaved
+                    // work with no callback ever running. Unlike
+                    // xdg_toplevel.close this is NOT vetoable: the connection
+                    // is gone, so the flag goes back up whatever the callback
+                    // did with it. The pass is also what consumes the delta.
+                    self.snapshot_window_state_baseline("wayland.display_connection_lost");
+                    self.common.current_window_state.flags.close_requested = true;
+                    let _ = self.process_window_events(0);
                     self.common.current_window_state.flags.close_requested = true;
                     return Ok(());
                 }
@@ -2738,7 +2747,7 @@ impl WaylandWindow {
                     azul_core::window::OptionVirtualKeyCode::None;
             }
         }
-        self.common.previous_window_state = Some(prev_snapshot);
+        self.set_previous_window_state(prev_snapshot);
 
         // Phase 2: OnFocus callback (delayed) - if we receive keyboard events, we must have focus
         // Wayland doesn't have explicit focus events like X11, so we detect focus from keyboard
@@ -3060,7 +3069,7 @@ impl WaylandWindow {
     pub fn handle_touch_point(&mut self, id: i32, x: f64, y: f64) {
         use azul_core::window::{TouchPoint, TouchPointVec};
         let pos = LogicalPosition::new(x as f32, y as f32);
-        self.common.previous_window_state = Some(self.common.current_window_state.clone());
+        self.snapshot_window_state_baseline("wayland.handle_touch_point");
         let ts = &mut self.common.current_window_state.touch_state;
         let mut pts: Vec<TouchPoint> = ts.touch_points.clone().into_library_owned_vec();
         let is_new = !pts.iter().any(|p| p.id == id as u64);
@@ -3098,7 +3107,7 @@ impl WaylandWindow {
     /// Remove a touch point (up) by id, then process.
     pub fn handle_touch_up(&mut self, id: i32) {
         use azul_core::window::{TouchPoint, TouchPointVec};
-        self.common.previous_window_state = Some(self.common.current_window_state.clone());
+        self.snapshot_window_state_baseline("wayland.handle_touch_up");
         let ts = &mut self.common.current_window_state.touch_state;
         let mut pts: Vec<TouchPoint> = ts.touch_points.clone().into_library_owned_vec();
         let last_pos = pts
@@ -3122,7 +3131,7 @@ impl WaylandWindow {
     /// Clear all touch points (cancel — compositor took over the sequence).
     pub fn handle_touch_cancel(&mut self) {
         use azul_core::window::TouchPointVec;
-        self.common.previous_window_state = Some(self.common.current_window_state.clone());
+        self.snapshot_window_state_baseline("wayland.handle_touch_cancel");
         let ts = &mut self.common.current_window_state.touch_state;
         ts.touch_points = TouchPointVec::from_vec(Vec::new());
         ts.num_touches = 0;
@@ -3141,7 +3150,7 @@ impl WaylandWindow {
     /// Feed the accumulated tablet pen state on the tool's `frame` event.
     pub fn handle_tablet_frame(&mut self) {
         let p = self.tablet_pen;
-        self.common.previous_window_state = Some(self.common.current_window_state.clone());
+        self.snapshot_window_state_baseline("wayland.handle_tablet_frame");
         if let Some(lw) = self.common.layout_window.as_mut() {
             lw.gesture_drag_manager.update_pen_state_full(
                 p.position,
@@ -3180,7 +3189,7 @@ impl WaylandWindow {
         }
 
         // Save previous state BEFORE making changes
-        self.common.previous_window_state = Some(self.common.current_window_state.clone());
+        self.snapshot_window_state_baseline("wayland.handle_pointer_motion");
 
         self.common.current_window_state.mouse_state.cursor_position =
             CursorPosition::InWindow(logical_pos);
@@ -3284,7 +3293,7 @@ impl WaylandWindow {
         };
 
         // Save previous state BEFORE making changes
-        self.common.previous_window_state = Some(self.common.current_window_state.clone());
+        self.snapshot_window_state_baseline("wayland.handle_pointer_button");
 
         // MWA-B11: CSD resize edges — frameless windows previously had NO
         // way to resize. A press in the border band hands the resize to the
@@ -3453,7 +3462,7 @@ impl WaylandWindow {
         }
 
         // Save previous state BEFORE making changes
-        self.common.previous_window_state = Some(self.common.current_window_state.clone());
+        self.snapshot_window_state_baseline("wayland.flush_pending_axis");
 
         // The scroll target is whatever is under the cursor NOW. Reusing the
         // hover manager's last hit test meant a stationary cursor over content
@@ -3618,7 +3627,7 @@ impl WaylandWindow {
         // MWA-C-hover: save previous state + run the event pass so
         // MouseEnter callbacks and :hover styling fire on the entry itself
         // instead of on the first subsequent motion event.
-        self.common.previous_window_state = Some(self.common.current_window_state.clone());
+        self.snapshot_window_state_baseline("wayland.handle_pointer_enter");
         self.common.current_window_state.mouse_state.cursor_position =
             CursorPosition::InWindow(logical_pos);
         self.update_hit_test(logical_pos);
@@ -3631,7 +3640,7 @@ impl WaylandWindow {
     pub fn handle_keyboard_leave(&mut self) {
         // Focus is gone — the compositor will not send the key release.
         self.disarm_key_repeat();
-        self.common.previous_window_state = Some(self.common.current_window_state.clone());
+        self.snapshot_window_state_baseline("wayland.handle_keyboard_leave");
         self.common.current_window_state.window_focused = false;
         self.dynamic_selector_context.window_focused = false;
         // Every held key is released somewhere we will never hear about, so drop
@@ -3869,7 +3878,7 @@ impl WaylandWindow {
     /// events, so they must be seeded here or the engine's derived modifier set
     /// stays wrong until each of them is released.
     pub fn handle_keyboard_enter(&mut self, held_scancodes: &[u32]) {
-        self.common.previous_window_state = Some(self.common.current_window_state.clone());
+        self.snapshot_window_state_baseline("wayland.handle_keyboard_enter");
         self.common.current_window_state.window_focused = true;
         self.dynamic_selector_context.window_focused = true;
 
@@ -3923,7 +3932,7 @@ impl WaylandWindow {
         // requested a redraw, so per-node MouseLeave callbacks, the tooltip
         // stop and the :hover restyle were all deferred to whatever event
         // happened to arrive next (macOS/X11/Windows all diff immediately).
-        self.common.previous_window_state = Some(self.common.current_window_state.clone());
+        self.snapshot_window_state_baseline("wayland.handle_pointer_leave");
         self.common.current_window_state.mouse_state.cursor_position =
             CursorPosition::OutOfWindow(last_pos);
         if let Some(ref mut layout_window) = self.common.layout_window {
@@ -3960,7 +3969,7 @@ impl WaylandWindow {
         position: LogicalPosition,
         paths: Vec<String>,
     ) -> ProcessEventResult {
-        self.common.previous_window_state = Some(self.common.current_window_state.clone());
+        self.snapshot_window_state_baseline("wayland.handle_file_drag_entered");
         self.common.current_window_state.mouse_state.cursor_position =
             CursorPosition::InWindow(position);
         if !paths.is_empty() {
@@ -3979,7 +3988,7 @@ impl WaylandWindow {
     /// wl_data_device drag leaving without a drop (emits
     /// `EventType::FileHoverCancel`). Mirrors the X11/macOS handlers.
     pub fn handle_file_drag_exited(&mut self) -> ProcessEventResult {
-        self.common.previous_window_state = Some(self.common.current_window_state.clone());
+        self.snapshot_window_state_baseline("wayland.handle_file_drag_exited");
         if let Some(layout_window) = self.common.layout_window.as_mut() {
             layout_window.file_drop_manager.set_hovered_file(None);
         }
@@ -3998,7 +4007,7 @@ impl WaylandWindow {
         position: LogicalPosition,
         paths: Vec<String>,
     ) -> ProcessEventResult {
-        self.common.previous_window_state = Some(self.common.current_window_state.clone());
+        self.snapshot_window_state_baseline("wayland.handle_file_drop");
         self.common.current_window_state.mouse_state.cursor_position =
             CursorPosition::InWindow(position);
         if !paths.is_empty() {
@@ -4321,7 +4330,7 @@ impl WaylandWindow {
         // now applied on the toplevel, so sync_window_state() must not re-push
         // it. Until mark_os_synced() has run, take_os_sync_diff() answers None
         // and nothing is pushed at the compositor.
-        self.common.previous_window_state = Some(self.common.current_window_state.clone());
+        self.seed_window_state_baseline("wayland.apply_initial_window_state");
         self.common.mark_os_synced();
     }
 
@@ -5729,6 +5738,10 @@ impl WaylandWindow {
             // call turned a successful render into SIGSEGV (verified: exit 139).
             // The run loop already honours this flag at run.rs:1388 and closes at
             // a point where teardown is safe.
+            self.snapshot_window_state_baseline("wayland.exit_after_frame_render");
+            self.common.current_window_state.flags.close_requested = true;
+            let _ = self.process_window_events(0);
+            // A synthetic shutdown, so it is announced but not refusable.
             self.common.current_window_state.flags.close_requested = true;
             return;
         }

@@ -1300,7 +1300,7 @@ pub(crate) fn adopt_observed_theme(
     // The diff pipeline compares against previous_window_state to decide that a
     // ThemeChanged event fired; without this snapshot the event is never
     // determined and no callback runs.
-    common.previous_window_state = Some(common.current_window_state.clone());
+    common.snapshot_window_state_baseline("linux.adopt_observed_theme");
     common.current_window_state.theme = theme;
     true
 }

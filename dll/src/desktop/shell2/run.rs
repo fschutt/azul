@@ -1310,7 +1310,7 @@ pub fn run(
 
                     // Save previous state if not already done
                     if window.common.previous_window_state.is_none() {
-                        window.common.previous_window_state = Some(window.common.current_window_state.clone());
+                        window.seed_window_state_baseline("windows.run.seed_baseline");
                     }
                     // R5: the OS-sync baseline is a SEPARATE field with its own
                     // seeding — sharing one baseline with event determination is

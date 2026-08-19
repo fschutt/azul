@@ -1019,7 +1019,7 @@ fn handle_xi_device_event(
             // manager and return DoNothing, so TouchStart/Move/End never fired
             // and no redraw was requested — AND the un-snapshotted mutation
             // destroyed the delta of whatever event came next.
-            win.common.previous_window_state = Some(win.common.current_window_state.clone());
+            win.snapshot_window_state_baseline("x11.handle_xi_device_event.touch");
 
             // Touch: ev.detail = touch tracking id; merge into touch_state.
             let is_up = evtype == defines::XI_TouchEnd;
@@ -3202,8 +3202,7 @@ impl X11Window {
                 if is_grab_focus_change(unsafe { &event.focus }) {
                     ProcessEventResult::DoNothing
                 } else {
-                    self.common.previous_window_state =
-                        Some(self.common.current_window_state.clone());
+                    self.snapshot_window_state_baseline("x11.handle_event.focus_in");
                     self.common.current_window_state.window_focused = true;
                     self.dynamic_selector_context.window_focused = true;
                     // The keyboard state is a guess again: everything released
@@ -3226,8 +3225,7 @@ impl X11Window {
                 if is_grab_focus_change(unsafe { &event.focus }) {
                     ProcessEventResult::DoNothing
                 } else {
-                    self.common.previous_window_state =
-                        Some(self.common.current_window_state.clone());
+                    self.snapshot_window_state_baseline("x11.handle_event.focus_out");
                     self.common.current_window_state.window_focused = false;
                     self.dynamic_selector_context.window_focused = false;
                     // Releases that happen while another window has focus are
@@ -3255,7 +3253,7 @@ impl X11Window {
                 if self.common.current_window_state.keyboard_state == baseline.keyboard_state {
                     ProcessEventResult::DoNothing
                 } else {
-                    self.common.previous_window_state = Some(baseline);
+                    self.set_previous_window_state(baseline);
                     self.process_window_events(0)
                 }
             }
@@ -3372,8 +3370,7 @@ impl X11Window {
                 // next handler's delta).
                 let needs_pass = size_changed || position_changed;
                 if needs_pass {
-                    self.common.previous_window_state =
-                        Some(self.common.current_window_state.clone());
+                    self.snapshot_window_state_baseline("x11.handle_event.configure_notify");
                 }
 
                 if size_changed {
@@ -4112,6 +4109,29 @@ impl X11Window {
 
         // 5. Re-layout at the final size (drops the scrollbars the tiny pass added).
         self.common.request_regeneration(azul_core::callbacks::RelayoutReason::RefreshDom);
+
+        // Both baselines have to be told, and they are told different things.
+        //
+        // The OS-sync baseline: we pushed this geometry to the server ourselves
+        // (XResizeWindow/XMoveWindow above), so acknowledge it as Os-sourced —
+        // otherwise sync_window_state pushes it a second time and the
+        // ConfigureNotify echoing our own resize reads as a fresh OS change.
+        //
+        // The event-diff baseline: SEED, do not check. Steps 1-3 walk the size
+        // through a 16x16 measure pass, and this window has never been mapped,
+        // so there is no user-visible resize to lose — but the walk does leave
+        // `current != previous`, which the guard would otherwise (correctly)
+        // report as an unconsumed delta at whatever handler ran next.
+        let settled_size = self.common.current_window_state.size;
+        let settled_position = self.common.current_window_state.position;
+        self.common.update_window_state(
+            crate::desktop::shell2::common::event::WindowStateSource::Os,
+            |ws| {
+                ws.size = settled_size;
+                ws.position = settled_position;
+            },
+        );
+        self.seed_window_state_baseline("x11.apply_size_to_content");
     }
 
     pub fn regenerate_layout_inner(&mut self) -> Result<crate::desktop::shell2::common::layout::LayoutRegenerateResult, String> {
@@ -5013,7 +5033,7 @@ impl X11Window {
         // Seed BOTH baselines: the event-diff one (so the first pass has
         // something to diff against) and the OS-sync one — everything above is
         // now applied on the window, so sync_window_state() must not re-push it.
-        self.common.previous_window_state = Some(self.common.current_window_state.clone());
+        self.seed_window_state_baseline("x11.apply_initial_window_state");
         self.common.mark_os_synced();
     }
 

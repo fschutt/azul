@@ -263,7 +263,7 @@ pub(super) extern "C" fn wl_surface_enter_handler(
 /// delta between previous and current, so writing `current` alone left the next
 /// handler's snapshot to erase the change and the app never heard about it.
 fn apply_os_dpi_change(window: &mut WaylandWindow, new_dpi: u32) {
-    window.common.previous_window_state = Some(window.common.current_window_state.clone());
+    window.snapshot_window_state_baseline("wayland.apply_os_dpi_change");
     // Source = Os: the compositor already applied the scale, so the write lands
     // in `current` AND the OS-sync baseline, and never in `previous_window_state`
     // (the event delta the pass at the bottom consumes).
@@ -1803,7 +1803,7 @@ pub(super) extern "C" fn xdg_toplevel_configure_handler(
             || height != window.common.current_window_state.size.dimensions.height as i32);
 
     if frame_changed || size_changed {
-        window.common.previous_window_state = Some(window.common.current_window_state.clone());
+        window.snapshot_window_state_baseline("wayland.xdg_toplevel_configure_handler");
     }
     if let Some(frame) = new_frame {
         // Source = Os: the compositor has already applied the frame state, so
@@ -1933,7 +1933,7 @@ pub(super) extern "C" fn xdg_toplevel_close_handler(
     // could veto it. Same protocol as Win32 WM_CLOSE: flip `close_requested`
     // false -> true and run a pass so EventType::WindowClose fires; a callback
     // that clears the flag cancels the close.
-    window.common.previous_window_state = Some(window.common.current_window_state.clone());
+    window.snapshot_window_state_baseline("wayland.xdg_toplevel_close_handler");
     window.common.current_window_state.flags.close_requested = true;
 
     let result = window.process_window_events(0);

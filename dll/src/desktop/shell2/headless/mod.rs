@@ -1725,7 +1725,7 @@ impl HeadlessWindow {
         // previous_window_state is what the diff pipeline compares against to
         // decide that a ThemeChanged event fired; without this snapshot the
         // event is never determined and the callbacks never run.
-        self.common.previous_window_state = Some(self.common.current_window_state.clone());
+        self.snapshot_window_state_baseline("headless.set_system_theme");
         self.common.current_window_state.theme = theme;
 
         // Same shape as the HeadlessEvent arms in `run()`: pump the events the
@@ -1779,7 +1779,7 @@ impl HeadlessWindow {
         // Contract shape (snapshot → mutate → pass): the size diff dispatches
         // `WindowResize` exactly as a native configure does, and no live delta
         // is left behind for the validation check to flag.
-        self.common.previous_window_state = Some(self.common.current_window_state.clone());
+        self.snapshot_window_state_baseline("headless.simulate_resize");
         self.common.current_window_state.size.dimensions = LogicalSize { width, height };
         self.common.request_regeneration(azul_core::callbacks::RelayoutReason::Resize);
         let _ = self.process_window_events(0);
@@ -1810,7 +1810,7 @@ impl HeadlessWindow {
     pub fn inject_touch_points(&mut self, points: impl IntoIterator<Item = TouchPoint>) {
         // Contract shape (snapshot → mutate → pass): the touch_state diff is
         // what dispatches TouchStart/Move/End, same as the native shells.
-        self.common.previous_window_state = Some(self.common.current_window_state.clone());
+        self.snapshot_window_state_baseline("headless.inject_touch_points");
         let vec: TouchPointVec = points.into_iter().collect::<Vec<_>>().into();
         let touch_state = &mut self.common.current_window_state.touch_state;
         touch_state.num_touches = vec.len();
@@ -2092,8 +2092,7 @@ impl HeadlessWindow {
                         // position + hit test + hovered-file into the manager,
                         // then an event pass (dispatches HoveredFile).
                         use azul_core::window::CursorPosition;
-                        self.common.previous_window_state =
-                            Some(self.common.current_window_state.clone());
+                        self.snapshot_window_state_baseline("headless.run.file_hover");
                         let pos = LogicalPosition { x, y };
                         self.common.current_window_state.mouse_state.cursor_position =
                             CursorPosition::InWindow(pos);
@@ -2111,8 +2110,7 @@ impl HeadlessWindow {
                     }
                     HeadlessEvent::FileDrop { x, y, paths } => {
                         use azul_core::window::CursorPosition;
-                        self.common.previous_window_state =
-                            Some(self.common.current_window_state.clone());
+                        self.snapshot_window_state_baseline("headless.run.file_drop");
                         let pos = LogicalPosition { x, y };
                         self.common.current_window_state.mouse_state.cursor_position =
                             CursorPosition::InWindow(pos);
@@ -2135,8 +2133,7 @@ impl HeadlessWindow {
                         }
                     }
                     HeadlessEvent::FileHoverCancel => {
-                        self.common.previous_window_state =
-                            Some(self.common.current_window_state.clone());
+                        self.snapshot_window_state_baseline("headless.run.file_hover_cancel");
                         if let Some(lw) = self.common.layout_window.as_mut() {
                             // Some→None flags the cancel; the pass dispatches
                             // HoveredFileCancelled, then we clear the flag.
@@ -2153,8 +2150,7 @@ impl HeadlessWindow {
                     }
                     HeadlessEvent::MouseMove { x, y } => {
                         use azul_core::window::CursorPosition;
-                        self.common.previous_window_state =
-                            Some(self.common.current_window_state.clone());
+                        self.snapshot_window_state_baseline("headless.run.mouse_move");
                         let pos = LogicalPosition { x, y };
                         self.common.current_window_state.mouse_state.cursor_position =
                             CursorPosition::InWindow(pos);
@@ -2186,8 +2182,7 @@ impl HeadlessWindow {
                         }
                     }
                     HeadlessEvent::MouseDown { button } => {
-                        self.common.previous_window_state =
-                            Some(self.common.current_window_state.clone());
+                        self.snapshot_window_state_baseline("headless.run.mouse_down");
                         // MWA-C-scroll: scrollbar hit first (desktop pattern).
                         let sb_hit = if matches!(button, azul_core::events::MouseButton::Left) {
                             self.common
@@ -2209,6 +2204,14 @@ impl HeadlessWindow {
                             if !matches!(r, azul_core::events::ProcessEventResult::DoNothing) {
                                 events_need_redraw = true;
                             }
+                            // SANCTIONED SWALLOW: the scrollbar consumed this
+                            // press; the left_down delta must not surface as a
+                            // MouseDown event later. Same exception as the
+                            // motion arm above.
+                            PlatformWindow::discard_input_delta(
+                                &mut self,
+                                "headless.mouse_down.scrollbar_click",
+                            );
                         } else {
                         match button {
                             azul_core::events::MouseButton::Left => {
@@ -2231,8 +2234,7 @@ impl HeadlessWindow {
                         }
                     }
                     HeadlessEvent::MouseUp { button } => {
-                        self.common.previous_window_state =
-                            Some(self.common.current_window_state.clone());
+                        self.snapshot_window_state_baseline("headless.run.mouse_up");
                         // MWA-C-scroll: a release ends any scrollbar drag.
                         if self.common.scrollbar_drag_state.is_some() {
                             self.common.scrollbar_drag_state = None;
@@ -2258,8 +2260,7 @@ impl HeadlessWindow {
                         }
                     }
                     HeadlessEvent::KeyDown { virtual_keycode } => {
-                        self.common.previous_window_state =
-                            Some(self.common.current_window_state.clone());
+                        self.snapshot_window_state_baseline("headless.run.key_down");
                         self.common.current_window_state.keyboard_state.current_virtual_keycode =
                             azul_core::window::OptionVirtualKeyCode::Some(virtual_keycode);
                         self.common.current_window_state.keyboard_state
@@ -2271,8 +2272,7 @@ impl HeadlessWindow {
                         }
                     }
                     HeadlessEvent::KeyUp { virtual_keycode } => {
-                        self.common.previous_window_state =
-                            Some(self.common.current_window_state.clone());
+                        self.snapshot_window_state_baseline("headless.run.key_up");
                         self.common.current_window_state.keyboard_state.current_virtual_keycode =
                             azul_core::window::OptionVirtualKeyCode::None;
                         self.common.current_window_state.keyboard_state
@@ -2291,8 +2291,7 @@ impl HeadlessWindow {
                         // arm used to be an empty stub, which silently
                         // swallowed injected text (and made
                         // `synthesize_character_input` a no-op end to end).
-                        self.common.previous_window_state =
-                            Some(self.common.current_window_state.clone());
+                        self.snapshot_window_state_baseline("headless.run.text_input");
                         let r = self.apply_user_change(
                             &azul_layout::callbacks::CallbackChange::CreateTextInput {
                                 text: text.clone().into(),
@@ -2304,8 +2303,7 @@ impl HeadlessWindow {
                         }
                     }
                     HeadlessEvent::Resize { width, height } => {
-                        self.common.previous_window_state =
-                            Some(self.common.current_window_state.clone());
+                        self.snapshot_window_state_baseline("headless.run.resize");
                         self.common.current_window_state.size.dimensions.width = width;
                         self.common.current_window_state.size.dimensions.height = height;
                         // Tag the upcoming regenerate_layout with the REAL
@@ -5434,8 +5432,7 @@ mod tests {
         use azul_core::window::CursorPosition;
         use crate::desktop::shell2::common::event::PlatformWindow;
 
-        window.common.previous_window_state =
-            Some(window.common.current_window_state.clone());
+        window.snapshot_window_state_baseline("headless.test.step");
         let mut needs_redraw = false;
         match event {
             HeadlessEvent::MouseMove { x, y } => {
@@ -5447,6 +5444,12 @@ mod tests {
                     needs_redraw = !matches!(
                         PlatformWindow::handle_scrollbar_drag(window, pos),
                         ProcessEventResult::DoNothing
+                    );
+                    // SANCTIONED SWALLOW: mirrors `run()`'s MouseMove arm — the
+                    // thumb drag consumed this motion.
+                    PlatformWindow::discard_input_delta(
+                        window,
+                        "headless.test.step.scrollbar_drag",
                     );
                 } else {
                     window.update_hit_test_at(pos);
@@ -5478,6 +5481,12 @@ mod tests {
                     needs_redraw = !matches!(
                         PlatformWindow::handle_scrollbar_click(window, hit, p),
                         ProcessEventResult::DoNothing
+                    );
+                    // SANCTIONED SWALLOW: mirrors `run()`'s MouseDown arm — the
+                    // scrollbar consumed this press.
+                    PlatformWindow::discard_input_delta(
+                        window,
+                        "headless.test.step.scrollbar_click",
                     );
                 } else {
                     match button {
