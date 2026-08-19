@@ -1854,8 +1854,13 @@ fn generate_enhanced_html_report(
         "error"
     };
 
-    // Replace placeholders with actual data
+    // Replace placeholders with actual data. The strip and the footer come
+    // from the generator - this template used to carry its own copy of both,
+    // which is how it kept an older nav and an older footer than the rest of
+    // the site.
     let html_content = html_template
+        .replace("<!-- NAV -->", &crate::docgen::azlin_nav("reftests"))
+        .replace("<!-- FOOTER -->", &crate::docgen::azlin_footer())
         .replace("CURRENT_TIME", current_time)
         .replace("CHROME_CLASS", chrome_class)
         .replace("CHROME_VERSION", &chrome_version.replace("Google ", ""))
