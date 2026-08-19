@@ -26,31 +26,17 @@ body.ui-landing {
 .ui-hero::before {
     content: "";
     position: absolute;
+    /* The tile carries the motif upright and already contains the half-drop,
+       so the layer is a plain axis-aligned repeat over the band. */
     inset: 0;
     pointer-events: none;
-    /* Oversized and turned on the diagonal: a mask cannot be rotated on its
-       own, so the layer carrying it is. It is sized far larger than the band
-       in both axes and centred, so the rotation can never leave a bare
-       corner whatever the band's aspect ratio. */
-    inset: auto;
-    top: 50%;
-    left: 50%;
-    width: 260%;
-    height: 520%;
-    transform: translate(-50%, -50%) rotate(45deg);
     background-color: var(--fl-band-fig);
-    /* Two offset copies of the same tile. The tile is twice the motif's
-       size with the motif in one quarter, so laying a second layer down at
-       half a tile in each axis staggers every other row - a half-drop
-       field, not a grid. */
-    -webkit-mask-image: var(--fl-figure), var(--fl-figure);
-            mask-image: var(--fl-figure), var(--fl-figure);
-    -webkit-mask-repeat: repeat, repeat;
-            mask-repeat: repeat, repeat;
-    -webkit-mask-size: 44px 44px, 44px 44px;
-            mask-size: 44px 44px, 44px 44px;
-    -webkit-mask-position: 0 0, 22px 22px;
-            mask-position: 0 0, 22px 22px;
+    -webkit-mask-image: var(--fl-figure);
+            mask-image: var(--fl-figure);
+    -webkit-mask-repeat: repeat;
+            mask-repeat: repeat;
+    -webkit-mask-size: 62px 62px;
+            mask-size: 62px 62px;
 }
 .ui-hero::after {
     content: "";
@@ -234,16 +220,16 @@ body.ui-landing {
 }
 img.showcase { display: none; }
 img.showcase.windows { display: initial; }
+/* Every screenshot carries its own window frame and its own shadow, baked
+   into the PNG. A card behind it double-frames the window and puts a pale
+   slab where the page should show through. All three render bare. */
 .feature-image img.showcase.windows,
-.feature-image img.showcase.linux {
-    border-radius: var(--fl-r2);
-    box-shadow: var(--fl-shadow-3);
-    background: var(--fl-sur);
-    border: 1px solid var(--fl-bd5);
-}
+.feature-image img.showcase.linux,
 .feature-image img.showcase.mac {
-    /* shadow + corner rounding are baked into the PNG */
     background: transparent;
+    border: 0;
+    border-radius: 0;
+    box-shadow: none;
 }
 
 /* Code column */
@@ -265,7 +251,13 @@ img.showcase.windows { display: initial; }
 .lang-grid button,
 .lang-tab-dropdown .dialect-select,
 .tab-bar select {
-    padding: 2px 12px;
+    /* One explicit box for BOTH the buttons and the <select>. The select
+       was sizing itself off its own line-box and made its whole row taller
+       than the next one. */
+    height: 27px;
+    line-height: 25px;
+    padding: 0 12px;
+    box-sizing: border-box;
     border: 1px solid var(--fl-bd2);
     background: linear-gradient(var(--fl-rT), var(--fl-rB));
     color: var(--fl-soft1);
@@ -298,12 +290,25 @@ img.showcase.windows { display: initial; }
 .lang-tab-dropdown { display: inline-flex; align-items: center; position: relative; }
 .lang-tab-dropdown .dialect-select,
 .tab-bar select {
+    /* Strip the control back to a box we draw ourselves. Left in, any one
+       of these lets the platform re-assert a height or a font. */
     appearance: none;
     -webkit-appearance: none;
     -moz-appearance: none;
-    height: auto;
-    line-height: inherit;
-    padding: 2px 26px 2px 12px;
+    height: 27px;
+    min-height: 0;
+    line-height: 25px;
+    padding: 0 26px 0 12px;
+    margin: 0;
+    box-sizing: border-box;
+    vertical-align: middle;
+    border-radius: var(--fl-r);
+    text-align: left;
+    text-indent: 0;
+    text-shadow: none;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
     /* A bare `background-image` here used to wipe the pill's gradient (the
        shorthand sets the image slot), which is why this one control never
        matched the rest. Both layers are declared together instead. */
@@ -397,7 +402,8 @@ img.showcase.windows { display: initial; }
     scrollbar-width: none;
     -ms-overflow-style: none;
 }
-.install-commands::-webkit-scrollbar { display: none; }
+.install-commands::-webkit-scrollbar { display: none; width: 0; height: 0; }
+.install-commands { overscroll-behavior-x: contain; }
 .install-step {
     display: flex;
     align-items: center;
@@ -442,7 +448,14 @@ img.showcase.windows { display: initial; }
     cursor: pointer;
     opacity: 0.85;
 }
-.copy-btn:hover { opacity: 1; background: rgba(232, 222, 198, 0.2); }
+/* Opaque on hover: the command scrolling underneath used to read straight
+   through the button. */
+.copy-btn:hover {
+    opacity: 1;
+    background: var(--fl-code-bd);
+    border-color: rgba(232, 222, 198, 0.55);
+    color: #FFFDF6;
+}
 
 .example-code {
     position: relative;
@@ -467,6 +480,12 @@ img.showcase.windows { display: initial; }
 .example-code .token.url {
     background: none;
 }
+.example-code .token.comment,
+.example-code .token.prolog,
+.example-code .token.cdata,
+.install-commands .token.comment { font-style: italic; }
+.example-code pre,
+.example-code pre[class*="language-"] { border: 0; box-shadow: none; }
 .example-code code,
 .example-code code[class*="language-"] {
     background: transparent;

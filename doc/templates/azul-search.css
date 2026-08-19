@@ -26,7 +26,9 @@
   --azs-shadow: 0 2px 5px rgba(60, 48, 30, 0.16), 0 10px 26px rgba(60, 48, 30, 0.13);
   --azs-mark: #F2E3A8;
 
-  font-family: var(--font-ui, 'EB Garamond', Georgia, serif);
+  /* Garamond, like every other piece of running text on the site - the
+     UI hand reads as decoration at this size. */
+  font-family: var(--font-serif, 'EB Garamond', Georgia, serif);
   color: var(--azs-fg);
   font-size: 15px;
   line-height: 1.45;
