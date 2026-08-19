@@ -2140,7 +2140,15 @@ impl RemillTranspiler {
 
         let mut pool_handles = Vec::new();
         for _ in 0..n_workers {
-            pool_handles.push(__pool_sc.spawn(|| loop {
+            // Explicit big stack: scoped threads default to ~2 MiB while the
+            // main thread gets 8, and object production runs LLVM-sized IR
+            // through the rewriters. A worker blowing its stack takes the
+            // whole process down with no panic message — which is exactly
+            // what two runs of an identical binary did, dying at different
+            // functions each time.
+            let spawned = std::thread::Builder::new()
+                .stack_size(32 * 1024 * 1024)
+                .spawn_scoped(__pool_sc, || loop {
                 let job = {
                     let mut q = pool_jobs.lock().unwrap();
                     let c = pool_claimed.load(std::sync::atomic::Ordering::SeqCst);
@@ -2168,7 +2176,14 @@ impl RemillTranspiler {
                         std::thread::sleep(std::time::Duration::from_millis(15));
                     }
                 }
-            }));
+            });
+            match spawned {
+                Ok(h) => pool_handles.push(h),
+                Err(e) => {
+                    eprintln!("[azul-web] could not spawn object-pool worker ({e}) — continuing with fewer");
+                    break;
+                }
+            }
         }
 
         let mut visited: HashSet<usize> = HashSet::new();
@@ -2338,6 +2353,8 @@ impl RemillTranspiler {
             if !visited.insert(addr) {
                 continue;
             }
+            // Set when this iteration lifts fresh; consumed by the dep walk.
+            let mut walk_ir: Option<String> = None;
             lifted_count += 1;
             if lifted_count > max_recursive_depth {
                 return Err(TranspileError {
@@ -2480,6 +2497,7 @@ impl RemillTranspiler {
                     // so the walk collapses to discovery speed.
                     match self.lift_fn(&name, addr, size, lift_addr) {
                         Ok(raw_ir) => {
+                            walk_ir = Some(raw_ir.clone());
                             let obj_idx = object_paths.len();
                             object_paths.push(PathBuf::new()); // patched at drain
                             exports.push(export_as.clone());
@@ -2541,9 +2559,18 @@ impl RemillTranspiler {
             }
 
             // Parse this lift's branch externs + enqueue deps.
+            // The IR comes from the lift we JUST ran, in memory. Reading it
+            // back from `<fn_name>.lifted.ll` made dep discovery depend on
+            // file state that the object-production pool races with (and
+            // that same-named monomorphizations overwrite), so the walk
+            // found a different dep set on every run — observed as export
+            // counts drifting between identical builds.
             let stem = sanitize_filename(&name);
             let lifted_ir_path = self.scratch_dir.join(format!("{}.lifted.ll", stem));
-            let lifted_ir = match std::fs::read_to_string(&lifted_ir_path) {
+            let lifted_ir = match walk_ir.take().map_or_else(
+                || std::fs::read_to_string(&lifted_ir_path),
+                Ok,
+            ) {
                 Ok(s) => s,
                 Err(_) => {
                     // remill should always produce the .lifted.ll
