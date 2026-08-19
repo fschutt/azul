@@ -1790,17 +1790,12 @@ brew install fschutt/azul/azul</code></pre>
               <ul class='release-demos' id='demo-list'>
                 {demo_links}
               </ul>
-              <p class='release-note'><strong>macOS note:</strong> if macOS complains it cannot verify the developer, run <code>sh unquarantine.sh &lt;binary-name&gt;</code> (<a href='{HTML_ROOT}/release/{version}/unquarantine.sh'>unquarantine.sh</a>).</p>
-              <p>Building, installing and debugging these &mdash; and going from Rust to a final .apk / .ipa cross-platform &mdash; is covered in the <a href='{HTML_ROOT}/guide/mobile'>Mobile guide</a>.</p>
+              <p>For further instructions, see the <a href='{HTML_ROOT}/guide/mobile'>Mobile guide</a>.</p>
 
               <h2 id='language-bindings'>Installation instructions</h2>
               <div class='docs-card-grid'>
                 {binding_links}
               </div>
-              <p class='release-note'>Azul is NOT published to PyPI, npm, RubyGems, NuGet, Maven Central or crates.io
-              (same-named packages there are unrelated projects). Instead, azul.rs self-hosts
-              its own distribution channels, regenerated from this exact release by CI
-              (a channel whose package did not build in a given run is simply absent):</p>
               <pre><code class='language-bash'># macOS - Homebrew tap (self-hosted bare git repo, see above)
 brew tap fschutt/azul {HTML_ROOT}/homebrew-azul.git
 brew install fschutt/azul/azul
@@ -1830,14 +1825,12 @@ gem install azul --clear-sources --source {HTML_ROOT}/gems
 # ...or the stable file URLs, as a local NuGet feed / a local gem install:
 #   {HTML_ROOT}/nuget/flatcontainer/azul.net/{version}/azul.net.{version}.nupkg
 #   {HTML_ROOT}/gems/gems/azul-{version}.gem</code></pre>
-              <p class='release-note'>Every binding file is also served
-              directly from this page:</p>
               <pre><code class='language-bash'># grab one binding file directly (no examples.zip needed):
 curl -O {HTML_ROOT}/release/{version}/Azul.cs
 curl -O {HTML_ROOT}/release/{version}/Azul.hs
 curl -LO {HTML_ROOT}/release/{version}/azul-java.zip</code></pre>
 
-              <h3>Use Azul as a Rust dependency</h3>
+              <h3>Rust (cargo)</h3>
               <pre><code class='language-toml'># Cargo.toml (azul is NOT on crates.io; the crate in the repo is azul-dll,
 # renamed to `azul` for use)
 [dependencies.azul]
@@ -1865,7 +1858,7 @@ tag = \"{version}\"
                 <a class='docs-card' href='{HTML_ROOT}/llms-full.txt'><h4>llms-full.txt</h4><p>full machine-readable index</p></a>
               </div>
 
-              <h3>Deploy a web app (pre-lifted WASM base image: experimental preview)</h3>
+              <h3>Web Apps (experimental)</h3>
               <p><a href='{HTML_ROOT}/guide/deploying-web'>Guide: deploying azul web apps</a></p>
               <pre><code class='language-bash'># prebuilt web base image (experimental; the web backend is not yet stable)
 docker pull ghcr.io/fschutt/azul:{version}</code></pre>
