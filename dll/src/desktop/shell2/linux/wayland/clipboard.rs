@@ -1,37 +1,20 @@
-//! Wayland clipboard integration
+//! Wayland clipboard integration.
 //!
-//! Currently relies on the `x11-clipboard` crate, which requires an X11
-//! connection (XWayland). On pure Wayland sessions without XWayland,
-//! `Clipboard::new()` will fail and clipboard operations will be unavailable.
+//! Native `wl_data_device` / `zwp_primary_selection_v1` first — those work on
+//! a pure Wayland session with no XWayland at all. When the compositor has
+//! announced no selection, the XWayland path is used as a fallback, and it is
+//! routed through the X11 backend's clipboard worker (`x11/clipboard.rs`)
+//! rather than a second `x11_clipboard::Clipboard` of this module's own: one
+//! selection owner per process, and — the point — no blocking X round trip on
+//! the UI thread.
 //!
 //! `sync_clipboard` is called from `wayland/mod.rs` after user callbacks
 //! to commit pending clipboard changes to the system clipboard.
 
-use std::time::Duration;
-
 use azul_layout::managers::clipboard::ClipboardManager;
-
-/// Timeout for clipboard read operations.
-const CLIPBOARD_READ_TIMEOUT: Duration = Duration::from_secs(3);
-use x11_clipboard::Clipboard;
 
 use super::super::super::common::debug_server::LogCategory;
 use crate::{log_debug, log_error, log_info, log_trace, log_warn};
-
-/// Process-wide persistent clipboard owner — same rationale as the X11 backend
-/// (`x11/clipboard.rs`): `x11_clipboard::Clipboard` spawns a thread that OWNS
-/// the selection, so the copied content only survives while that `Clipboard`
-/// stays alive. Creating + dropping one per copy (the previous behaviour here)
-/// killed the owner thread and lost the selection immediately — Ctrl+C appeared
-/// to do nothing and Ctrl+V pasted stale content. Keep ONE alive for the
-/// process. NOTE: this is still the XWayland fallback; native `wl_data_device`
-/// (for pure-Wayland sessions) is task #7 and not yet implemented.
-fn clipboard() -> Option<std::sync::MutexGuard<'static, Option<Clipboard>>> {
-    static CLIPBOARD: std::sync::OnceLock<std::sync::Mutex<Option<Clipboard>>> =
-        std::sync::OnceLock::new();
-    let m = CLIPBOARD.get_or_init(|| std::sync::Mutex::new(Clipboard::new().ok()));
-    m.lock().ok()
-}
 
 /// Synchronize clipboard manager content to Wayland system clipboard
 ///
@@ -124,16 +107,11 @@ pub(crate) fn write_to_clipboard(text: &str) -> Result<(), ClipboardError> {
     }
     clear_native_copy();
 
-    // XWayland fallback (x11-clipboard) — pre-existing path.
-    let guard = clipboard().ok_or(ClipboardError::InitFailed)?;
-    let clipboard = guard.as_ref().ok_or(ClipboardError::InitFailed)?;
-
-    clipboard
-        .store(
-            clipboard.setter.atoms.clipboard,
-            clipboard.setter.atoms.utf8_string,
-            text.as_bytes(),
-        )
+    // XWayland fallback, through the X11 backend's clipboard WORKER rather
+    // than a second `x11_clipboard::Clipboard` of our own. Same mechanism,
+    // minus the four synchronous X round trips this used to spend on the UI
+    // thread — see `x11/clipboard.rs::write_to_clipboard`.
+    super::super::x11::clipboard::write_to_clipboard(text)
         .map_err(|_| ClipboardError::WriteFailed)
 }
 
@@ -150,26 +128,135 @@ fn read_from_clipboard() -> Result<String, ClipboardError> {
         return Ok(text);
     }
 
-    // XWayland fallback (x11-clipboard) — pre-existing path.
-    let guard = clipboard().ok_or(ClipboardError::InitFailed)?;
-    let clipboard = guard.as_ref().ok_or(ClipboardError::InitFailed)?;
-
-    let data = clipboard
-        .load(
-            clipboard.getter.atoms.clipboard,
-            clipboard.getter.atoms.utf8_string,
-            clipboard.getter.atoms.property,
-            CLIPBOARD_READ_TIMEOUT,
-        )
-        .map_err(|_| ClipboardError::ReadFailed)?;
-
-    String::from_utf8(data).map_err(|_| ClipboardError::EncodingError)
+    // XWayland fallback, through the X11 backend's clipboard WORKER. This was
+    // the LAST blocking clipboard call on the Wayland UI thread: a three-second
+    // `Clipboard::load` right here, reached by every Ctrl+V on a session whose
+    // compositor had not announced a selection. The X11 module does the read on
+    // its worker and gives up after `PASTE_UI_DEADLINE`.
+    super::super::x11::clipboard::get_clipboard_content().ok_or(ClipboardError::ReadFailed)
 }
 
+/// Why a clipboard operation could not be completed.
+///
+/// `InitFailed` and `EncodingError` went away with the inline
+/// `x11_clipboard::Clipboard`: there is no connection to fail to open here any
+/// more, and the X11 module decodes the bytes. What is left is what this
+/// module can still decide.
 #[derive(Debug)]
 pub(crate) enum ClipboardError {
-    InitFailed,
+    /// Neither the native selection nor the XWayland fallback took the text.
     WriteFailed,
+    /// Nothing answered — no compositor selection and no XWayland owner.
     ReadFailed,
-    EncodingError,
+}
+// --- Native primary selection (middle-click paste) ---
+
+/// Text we currently offer on the native Wayland PRIMARY selection.
+/// `Some` = we own it: `events::primary_selection_source_send` serves the
+/// pasting client from here, and `primary_selection_source_cancelled` clears
+/// it when another client takes over.
+static NATIVE_PRIMARY: std::sync::Mutex<Option<String>> = std::sync::Mutex::new(None);
+
+/// The text served to pasting clients while we own the primary selection.
+pub(super) fn native_primary_text() -> Option<String> {
+    NATIVE_PRIMARY.lock().ok().and_then(|g| g.clone())
+}
+
+/// Primary-selection ownership lost.
+pub(super) fn clear_native_primary() {
+    if let Ok(mut g) = NATIVE_PRIMARY.lock() {
+        *g = None;
+    }
+}
+
+/// Claim the primary selection for `text` — the Wayland half of the X11
+/// select-to-copy idiom (`x11/clipboard.rs::write_to_primary`).
+///
+/// Selecting text claims PRIMARY without touching CLIPBOARD: an explicit copy
+/// is what owns CLIPBOARD, and clobbering it on every selection would destroy
+/// whatever the user copied.
+pub(crate) fn write_to_primary(text: &str) -> Result<(), ClipboardError> {
+    if let Ok(mut g) = NATIVE_PRIMARY.lock() {
+        *g = Some(text.to_owned());
+    }
+    if with_wayland_window(|w| w.wayland_set_primary_selection()) == Some(true) {
+        return Ok(());
+    }
+    // We did NOT take the selection, so stop answering as if we had. Ownership
+    // is only tracked for a selection we hold: `primary_selection_source_cancelled`
+    // is what clears this cell when another client takes over, and it can only
+    // arrive for a source we created. Leaving the text parked here would make
+    // every later middle click paste OUR last selection, for the rest of the
+    // session, no matter what the user selected somewhere else.
+    clear_native_primary();
+
+    // No compositor support (GNOME shipped zwp_primary_selection_v1 only in
+    // 42): try XWayland, which shares the X PRIMARY selection with the rest of
+    // the session and does track ownership. Queued to the X11 worker, so this
+    // stays off the UI thread.
+    super::super::x11::clipboard::write_to_primary(text)
+        .map_err(|_| ClipboardError::WriteFailed)
+}
+
+/// Read the primary selection — the middle-click paste source.
+///
+/// Answers locally when we own it: a `receive()` on our OWN offer would
+/// deadlock the single-threaded event loop, because the `send` event that
+/// serves it cannot dispatch while we block on the pipe.
+pub(crate) fn get_primary_content() -> Option<String> {
+    if let Some(text) = native_primary_text() {
+        return Some(text);
+    }
+    if let Some(text) = with_wayland_window(|w| w.read_wayland_primary_selection()).flatten() {
+        return Some(text);
+    }
+    // XWayland fallback, same as the CLIPBOARD path and for the same reason:
+    // a compositor without zwp_primary_selection_v1 still has an X PRIMARY
+    // selection if XWayland is running.
+    super::super::x11::clipboard::get_primary_content()
+}
+
+#[cfg(test)]
+mod tests {
+    /// No BLOCKING clipboard call may survive on the Wayland UI path.
+    ///
+    /// Both halves of this module used to make one: `Clipboard::store` (four
+    /// synchronous X round trips) on every copy and `Clipboard::load` with a
+    /// three-second deadline on every paste that the native path did not
+    /// answer. Both now go through the X11 backend's worker, which the UI
+    /// thread waits on for `PASTE_UI_DEADLINE` at most.
+    ///
+    /// NEGATIVE CONTROL: restore either inline `x11_clipboard` call.
+    #[test]
+    fn nothing_here_talks_to_x11_synchronously() {
+        let source = include_str!("clipboard.rs");
+        // Comments discuss what was removed, by name. Scan the CODE.
+        let body: String = source
+            .split_once("mod tests {")
+            .map_or(source, |(before, _)| before)
+            .lines()
+            .filter(|l| !l.trim_start().starts_with("//"))
+            .collect::<Vec<_>>()
+            .join("\n");
+
+        for blocking in ["x11_clipboard::Clipboard", ".load(", ".store("] {
+            assert!(
+                !body.contains(blocking),
+                "`{blocking}` is back on the Wayland UI thread — route it through \
+                 x11::clipboard's worker instead"
+            );
+        }
+        for fallback in [
+            "x11::clipboard::get_clipboard_content",
+            "x11::clipboard::write_to_clipboard",
+            "x11::clipboard::get_primary_content",
+            "x11::clipboard::write_to_primary",
+        ] {
+            assert!(
+                body.contains(fallback),
+                "the XWayland fallback `{fallback}` must still exist, just off \
+                 the UI thread"
+            );
+        }
+    }
 }

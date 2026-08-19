@@ -477,6 +477,125 @@ fn try_create_argb_window(
     Some((window, true, Some(colormap)))
 }
 
+/// How long after the last continuous-scroll event X11 declares the trackpad
+/// gesture over.
+///
+/// XI2 has NO gesture-end event. Wayland gets `wl_pointer.axis_stop` and macOS
+/// gets `NSEventPhase::Ended` the instant the fingers lift; the X server's
+/// input drivers do not forward libinput's stop, and XI 2.4's gesture events
+/// cover pinch and swipe, not scroll. So the end has to be inferred from
+/// silence, and the only question is how much silence.
+///
+/// libinput emits scroll events continuously while the fingers move, at the
+/// device's report rate (100-1000 Hz on every modern touchpad), so 100 ms is
+/// two orders of magnitude more than the gap inside a gesture — while still
+/// being a spring-back the user reads as immediate. It is only ever consulted
+/// when a rubber band is actually stretched, so a wheel misclassified as
+/// continuous (X11's touchpad verdict is a heuristic — any fractional detent)
+/// costs nothing: a wheel scroll is hard-clamped and has no overshoot to
+/// release.
+pub(super) const TRACKPAD_GESTURE_IDLE: std::time::Duration =
+    std::time::Duration::from_millis(100);
+
+/// Has the trackpad gesture that last scrolled at `last_scroll` gone quiet
+/// long enough to call it over?
+pub(super) fn trackpad_gesture_ended(
+    last_scroll: Option<std::time::Instant>,
+    now: std::time::Instant,
+) -> bool {
+    last_scroll.is_some_and(|t| now.saturating_duration_since(t) >= TRACKPAD_GESTURE_IDLE)
+}
+
+/// Clamp the event-loop `poll()` timeout so the idle deadline above can
+/// actually be observed.
+///
+/// This is the load-bearing half. The loop parks in `poll()` with a timeout of
+/// -1 (block forever) whenever nothing else needs a tick, and a gesture end
+/// inferred from silence is by definition not announced by any fd — so without
+/// this the deadline elapses inside a `poll()` that nobody wakes, and the
+/// rubber band stays stretched until the user's NEXT scroll. Returns
+/// milliseconds, `-1` for "block indefinitely".
+pub(super) fn poll_timeout_with_trackpad_deadline(
+    timeout_ms: std::os::raw::c_int,
+    last_scroll: Option<std::time::Instant>,
+    now: std::time::Instant,
+) -> std::os::raw::c_int {
+    let Some(last_scroll) = last_scroll else {
+        return timeout_ms;
+    };
+    let remaining = TRACKPAD_GESTURE_IDLE.saturating_sub(now.saturating_duration_since(last_scroll));
+    // `.max(1)`: a deadline already reached must still let poll() return
+    // immediately rather than be read as "block forever".
+    let deadline_ms = (remaining.as_millis().min(i32::MAX as u128) as std::os::raw::c_int).max(1);
+    if timeout_ms < 0 {
+        deadline_ms
+    } else {
+        timeout_ms.min(deadline_ms)
+    }
+}
+
+/// What a `MapNotify` owes.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(super) enum MapWork {
+    /// The window has never been mapped: it owes its whole first frame,
+    /// including the DOM.
+    FirstMap,
+    /// It has been mapped before — unminimize, a workspace switch back, a
+    /// window manager unmap/map. Only the pixels are owed.
+    Remap,
+}
+
+/// Record that the window was mapped and say what THIS map owes.
+pub(super) fn record_map(has_been_mapped: &mut bool) -> MapWork {
+    if *has_been_mapped {
+        MapWork::Remap
+    } else {
+        *has_been_mapped = true;
+        MapWork::FirstMap
+    }
+}
+
+/// How a `ConfigureNotify` should learn the window's root-absolute origin.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(super) enum AbsoluteOriginPlan {
+    /// The event already carries it (a synthetic, WM-sent configure).
+    UseEvent,
+    /// Reuse the last resolved origin — this configure is about to be
+    /// superseded by one already sitting in the queue.
+    Reuse(i32, i32),
+    /// Ask the server: `XTranslateCoordinates`, one synchronous round trip.
+    Translate,
+}
+
+/// Decide how to resolve the absolute origin for one `ConfigureNotify`.
+///
+/// ICCCM: only a SYNTHETIC configure carries root-absolute x/y; a real one is
+/// parent-relative, which under a reparenting WM is an offset inside the frame.
+/// So a real configure has to ask — but asking is a flush-and-wait round trip,
+/// and a drag-resize delivers one configure per pixel.
+///
+/// `queued` is how many events are ALREADY in the client queue
+/// (`XEventsQueued(QueuedAlready)`, no socket traffic). Non-zero means this
+/// configure is not the last of its burst: whatever position it resolves is
+/// overwritten before anything renders, so the previous answer is good enough.
+/// The last configure of every burst — the only one anyone sees — still
+/// resolves properly, which is what keeps this a pure cost saving rather than
+/// a staleness trade.
+pub(super) fn absolute_origin_plan(
+    synthetic: bool,
+    queued: std::os::raw::c_int,
+    last_resolved: Option<(i32, i32)>,
+    can_translate: bool,
+) -> AbsoluteOriginPlan {
+    if synthetic || !can_translate {
+        return AbsoluteOriginPlan::UseEvent;
+    }
+    match last_resolved {
+        Some((x, y)) if queued > 0 => AbsoluteOriginPlan::Reuse(x, y),
+        _ => AbsoluteOriginPlan::Translate,
+    }
+}
+
 /// The smooth-scroll (XI2.1) axes of ONE physical device.
 ///
 /// A scroll valuator carries an ACCUMULATING absolute value; a scroll delta is
@@ -1283,10 +1402,28 @@ pub struct X11Window {
     pub owns_display: bool,
     pub window: Window,
     pub is_open: bool,
+    /// Has a `MapNotify` ever arrived? Only the FIRST one owes a DOM rebuild.
+    has_been_mapped: bool,
+    /// Last root-absolute origin resolved from a `ConfigureNotify`, reused by
+    /// the configures in the middle of a drag-resize burst.
+    last_absolute_origin: Option<(i32, i32)>,
+    /// When the last CONTINUOUS (trackpad) scroll arrived. `None` between
+    /// gestures. XI2 has no gesture-end event, so the end is inferred from
+    /// this going quiet — see [`TRACKPAD_GESTURE_IDLE`].
+    pub(super) last_continuous_scroll: Option<std::time::Instant>,
     wm_delete_window_atom: Atom,
     /// XDND drop-target protocol state (atoms + live drag session).
     xdnd: XdndState,
     ime_manager: Option<events::ImeManager>,
+    /// Dead keys / the Compose key, for the NO-XIM path only.
+    ///
+    /// With an input method the `Xutf8LookupString` family composes for us —
+    /// feeding those keysyms in here as well would compose twice. Without one
+    /// (no `XOpenIM`, `XMODIFIERS=@im=none`, a broken IM daemon) the core
+    /// `XLookupString` fallback below has never composed anything, so `´` + `e`
+    /// typed `´e`. That fallback is not rare: it is what every session without
+    /// an IME daemon runs on.
+    compose: Option<crate::desktop::shell2::linux::common::compose::ComposeSequencer>,
     /// MWA-C-text_input: whether the XIC currently holds input focus (XIC is
     /// focused at creation, so this starts true). Diffed against
     /// editable-focus × window-focus in sync_ime_focus_state.
@@ -2319,6 +2456,7 @@ impl X11Window {
         };
 
         let is_cpu_mode = matches!(render_mode, RenderMode::Cpu(_));
+        let xkb_for_compose = Rc::clone(&xkb);
         let mut window = Self {
             xlib,
             egl,
@@ -2330,8 +2468,18 @@ impl X11Window {
             owns_display,
             window: window_handle,
             is_open: true,
+            has_been_mapped: false,
+            last_absolute_origin: None,
+            last_continuous_scroll: None,
             wm_delete_window_atom,
             xdnd,
+            compose: if ime_manager.is_some() {
+                None
+            } else {
+                xkb_for_compose
+                    .compose_fns()
+                    .and_then(crate::desktop::shell2::linux::common::compose::ComposeSequencer::new)
+            },
             ime_manager,
             ime_ic_focused: true,
             render_mode,
@@ -2941,6 +3089,12 @@ impl X11Window {
                 .map(|lw| !lw.threads.is_empty())
                 .unwrap_or(false);
             let timeout_ms: i32 = if has_threads { 16 } else { -1 };
+            // A trackpad gesture end is inferred from SILENCE (XI2 has no
+            // gesture-end event), so nothing will wake this poll to observe
+            // it. Shorten the park to the remaining idle budget instead —
+            // no extra fd, no timerfd churn at touchpad event rates.
+            let timeout_ms =
+                poll_timeout_with_trackpad_deadline(timeout_ms, self.earliest_trackpad_deadline(), std::time::Instant::now());
 
             let result = libc::poll(
                 pollfds.as_mut_ptr(),
@@ -3022,12 +3176,93 @@ impl X11Window {
             // appeared frozen until some unrelated event forced a repaint.
             // Run it on every wake while threads are active (the 16ms tick
             // guarantees we get here) so tile-fetch writebacks drain promptly.
+            // A trackpad gesture that has gone quiet is over: release the
+            // rubber band. Runs on EVERY wake, including the timeout wake the
+            // clamp above arranges.
+            self.flush_trackpad_gesture_end_all();
+
             if any_timer_fired || has_threads {
                 self.check_timers_and_threads();
             }
         }
 
         Ok(())
+    }
+
+    /// The oldest pending trackpad scroll across every window on this display —
+    /// whichever one's idle deadline expires first.
+    fn earliest_trackpad_deadline(&self) -> Option<std::time::Instant> {
+        let mut earliest = self.last_continuous_scroll;
+        for wid in super::registry::get_all_window_ids() {
+            if wid == self.window as u64 {
+                continue;
+            }
+            if let Some(wptr) = unsafe { super::registry::get_window(wid) } {
+                if let super::LinuxWindow::X11(w) = unsafe { &*wptr } {
+                    if let Some(t) = w.last_continuous_scroll {
+                        earliest = Some(earliest.map_or(t, |e| e.min(t)));
+                    }
+                }
+            }
+        }
+        earliest
+    }
+
+    /// Emit the synthetic `TrackpadEnd` on every window whose gesture has gone
+    /// quiet. Children share this display, so the owner's loop drives them all
+    /// (same fan-out as `flush_pending_motion_all`).
+    fn flush_trackpad_gesture_end_all(&mut self) {
+        let now = std::time::Instant::now();
+        self.flush_trackpad_gesture_end(now);
+        for wid in super::registry::get_all_window_ids() {
+            if wid == self.window as u64 {
+                continue;
+            }
+            if let Some(wptr) = unsafe { super::registry::get_window(wid) } {
+                if let super::LinuxWindow::X11(w) = unsafe { &mut *wptr } {
+                    w.flush_trackpad_gesture_end(now);
+                }
+            }
+        }
+    }
+
+    /// If this window's trackpad gesture has gone quiet, tell the scroll
+    /// physics the fingers are off.
+    ///
+    /// Zero delta, `ScrollInputSource::TrackpadEnd` — byte for byte what
+    /// Wayland sends from `wl_pointer.axis_stop` and macOS from
+    /// `NSEventPhase::Ended`. It is the ONLY input that sets
+    /// `is_rubber_banding`, and without it an X11 touchpad scroll past the top
+    /// or bottom edge left the content displaced by up to
+    /// `max_overscroll_distance` pixels permanently: the last
+    /// `TrackpadContinuous` tick REMOVES the node from `node_velocities`, so the
+    /// spring integration never visits it, the physics timer finds nothing
+    /// pending and terminates, and the offset only ever moves again on the
+    /// user's next scroll.
+    fn flush_trackpad_gesture_end(&mut self, now: std::time::Instant) {
+        if !trackpad_gesture_ended(self.last_continuous_scroll, now) {
+            return;
+        }
+        self.last_continuous_scroll = None;
+
+        use azul_core::task::Instant;
+        use azul_layout::managers::{hover::InputPointId, scroll_state::ScrollInputSource};
+        if let Some(ref mut layout_window) = self.common.layout_window {
+            let stamp = Instant::from(std::time::Instant::now());
+            layout_window.scroll_manager.record_scroll_from_hit_test(
+                0.0,
+                0.0,
+                ScrollInputSource::TrackpadEnd,
+                azul_layout::managers::scroll_state::ScrollInputDevice::Touchpad,
+                &layout_window.hover_manager,
+                &InputPointId::Mouse,
+                stamp,
+            );
+        }
+        // The physics timer is still running from the TrackpadContinuous
+        // inputs that produced the overshoot; the spring-back rides it out.
+        // Ask for the frames it will produce.
+        self.needs_redraw.raise();
     }
 
     fn handle_event(&mut self, event: &mut XEvent) {
@@ -3252,6 +3487,12 @@ impl X11Window {
                     // never delivered here, so anything still held would stay
                     // held forever (the classic stuck Alt after Alt-Tab).
                     self.clear_keyboard_state();
+                    // Same for a half-typed compose sequence: leaving it armed
+                    // makes the first keystroke after refocus complete a
+                    // sequence the user started in another window.
+                    if let Some(compose) = self.compose.as_mut() {
+                        compose.reset();
+                    }
                     #[cfg(feature = "a11y")]
                     self.accessibility_adapter.set_focus(false);
                     self.sync_ime_focus_state();
@@ -3296,7 +3537,7 @@ impl X11Window {
                 ProcessEventResult::DoNothing
             }
             defines::MapNotify => {
-                // The window just became visible and owes its FIRST frame.
+                // The window became visible and owes a frame.
                 //
                 // Setting only the redraw request was not enough: the forced-render
                 // gate in poll_event used to test the regeneration request alone and
@@ -3304,13 +3545,26 @@ impl X11Window {
                 // of render_and_present, so nothing downstream acted on it. A freshly
                 // mapped window therefore stayed blank until some unrelated later event
                 // happened to request a regeneration. Both of those are fixed (the gate
-                // reads both; the clear moved to the end); raise both anyway, because a
-                // map owes a full rebuild AND a present.
+                // reads both; the clear moved to the end).
                 self.needs_redraw.raise();
                 self.os_present_requested = true;
-                self.common
-                    .request_regeneration(azul_core::callbacks::RelayoutReason::RefreshDom);
-                ProcessEventResult::ShouldRegenerateDomCurrentWindow
+                match record_map(&mut self.has_been_mapped) {
+                    MapWork::FirstMap => {
+                        self.common.request_regeneration(
+                            azul_core::callbacks::RelayoutReason::RefreshDom,
+                        );
+                        ProcessEventResult::ShouldRegenerateDomCurrentWindow
+                    }
+                    // A RE-map — unminimize, a workspace switch back, any
+                    // unmap/map the window manager does on its own. Nothing
+                    // about the DOM changed while the window was invisible, so
+                    // the unconditional RefreshDom here was a full rebuild
+                    // (layout() re-invoked, the whole StyledDom rebuilt, every
+                    // display item re-emitted) bought for a repaint. The pixels
+                    // are what is owed, and both requests above already ask for
+                    // them.
+                    MapWork::Remap => ProcessEventResult::ShouldReRenderCurrentWindow,
+                }
             }
             defines::ConfigureNotify => {
                 let ev = unsafe { &event.configure };
@@ -3347,29 +3601,54 @@ impl X11Window {
                 // popup/menu/tooltip placement (resolve_parent_origin), and
                 // the per-monitor DPI pick below. For real events, ask the
                 // server where (0,0) of this window is on the root instead.
-                let (abs_x, abs_y) = if ev.send_event != 0 {
-                    (ev.x, ev.y)
-                } else if let Some(translate) = self.xlib.XTranslateCoordinates {
-                    unsafe {
-                        let screen = (self.xlib.XDefaultScreen)(self.display);
-                        let root = (self.xlib.XRootWindow)(self.display, screen);
-                        let (mut rx, mut ry) = (0i32, 0i32);
-                        let mut child: Window = 0;
-                        (translate)(
-                            self.display,
-                            self.window,
-                            root,
-                            0,
-                            0,
-                            &mut rx,
-                            &mut ry,
-                            &mut child,
-                        );
-                        (rx, ry)
+                //
+                // …but not once per event. `XTranslateCoordinates` FLUSHES and
+                // WAITS for a reply, and a drag-resize delivers one
+                // ConfigureNotify per pixel of pointer travel: a 400 px drag
+                // paid 400 synchronous server round trips, in the one code path
+                // whose per-event cost decides whether the drag feels smooth.
+                // Only the LAST configure of a burst can still be true — every
+                // earlier one is superseded before anything renders — so a
+                // configure with more events already waiting in the client
+                // queue reuses the last resolved origin. The queue length is
+                // read with `XEventsQueued(QueuedAlready)`, which answers from
+                // the client-side queue and never touches the socket.
+                let queued = self
+                    .xlib
+                    .XEventsQueued
+                    .map_or(0, |q| unsafe { (q)(self.display, defines::QueuedAlready) });
+                let (abs_x, abs_y) = match absolute_origin_plan(
+                    ev.send_event != 0,
+                    queued,
+                    self.last_absolute_origin,
+                    self.xlib.XTranslateCoordinates.is_some(),
+                ) {
+                    AbsoluteOriginPlan::UseEvent => (ev.x, ev.y),
+                    AbsoluteOriginPlan::Reuse(x, y) => (x, y),
+                    AbsoluteOriginPlan::Translate => {
+                        match self.xlib.XTranslateCoordinates {
+                            Some(translate) => unsafe {
+                                let screen = (self.xlib.XDefaultScreen)(self.display);
+                                let root = (self.xlib.XRootWindow)(self.display, screen);
+                                let (mut rx, mut ry) = (0i32, 0i32);
+                                let mut child: Window = 0;
+                                (translate)(
+                                    self.display,
+                                    self.window,
+                                    root,
+                                    0,
+                                    0,
+                                    &mut rx,
+                                    &mut ry,
+                                    &mut child,
+                                );
+                                (rx, ry)
+                            },
+                            None => (ev.x, ev.y),
+                        }
                     }
-                } else {
-                    (ev.x, ev.y)
                 };
+                self.last_absolute_origin = Some((abs_x, abs_y));
 
                 let old_context = self.dynamic_selector_context.clone();
                 let size_changed = self.common.current_window_state.size.get_physical_size()
@@ -6279,6 +6558,203 @@ mod error_decode_tests {
         let names: std::collections::BTreeSet<_> =
             (1u8..=17).map(x11_error_name).collect();
         assert_eq!(names.len(), 17, "core error names must be distinct");
+    }
+}
+
+#[cfg(test)]
+mod trackpad_gesture_end_tests {
+    use std::time::{Duration, Instant};
+
+    use super::{
+        poll_timeout_with_trackpad_deadline, trackpad_gesture_ended, TRACKPAD_GESTURE_IDLE,
+    };
+
+    /// XI2 has no gesture-end event, so the end of a touchpad scroll is
+    /// inferred from silence. It must not be inferred DURING the gesture:
+    /// libinput reports at 100-1000 Hz, so any gap inside a gesture is
+    /// microseconds, but a threshold that fires on one is a spring-back the
+    /// user's own fingers fight.
+    ///
+    /// NEGATIVE CONTROL: make `trackpad_gesture_ended` answer
+    /// `last_scroll.is_some()` — the mid-gesture assertions fail.
+    #[test]
+    fn a_gesture_ends_only_after_the_scroll_goes_quiet() {
+        let start = Instant::now();
+        assert!(!trackpad_gesture_ended(Some(start), start));
+        assert!(!trackpad_gesture_ended(
+            Some(start),
+            start + TRACKPAD_GESTURE_IDLE - Duration::from_millis(1)
+        ));
+        assert!(trackpad_gesture_ended(
+            Some(start),
+            start + TRACKPAD_GESTURE_IDLE
+        ));
+        assert!(trackpad_gesture_ended(Some(start), start + Duration::from_secs(5)));
+    }
+
+    /// No gesture in flight, nothing to end — a mouse-wheel-only session must
+    /// never synthesize one.
+    #[test]
+    fn nothing_ends_when_no_gesture_is_armed() {
+        assert!(!trackpad_gesture_ended(None, Instant::now()));
+    }
+
+    /// THE load-bearing half. The event loop parks in `poll(-1)` — block
+    /// forever — whenever nothing needs a tick, and a deadline inferred from
+    /// silence has no fd to announce it. Without the clamp the idle budget
+    /// elapses inside a `poll()` nobody wakes, and the rubber band stays
+    /// stretched until the user's next scroll.
+    ///
+    /// NEGATIVE CONTROL: make `poll_timeout_with_trackpad_deadline` return
+    /// `timeout_ms` unchanged — the infinite-park assertion fails.
+    #[test]
+    fn an_armed_gesture_stops_the_loop_parking_forever() {
+        let now = Instant::now();
+        let scrolled_at = now - Duration::from_millis(40);
+
+        let clamped = poll_timeout_with_trackpad_deadline(-1, Some(scrolled_at), now);
+        assert!(
+            clamped > 0,
+            "poll() must not block indefinitely with a gesture end pending"
+        );
+        assert!(
+            clamped <= TRACKPAD_GESTURE_IDLE.as_millis() as i32,
+            "and must wake inside the idle budget, not after it"
+        );
+    }
+
+    /// A deadline already reached still has to let `poll()` return — `0` there
+    /// is fine but `-1` would be "block forever" all over again.
+    #[test]
+    fn an_expired_deadline_never_becomes_an_infinite_park() {
+        let now = Instant::now();
+        let long_ago = now - Duration::from_secs(10);
+        assert_eq!(poll_timeout_with_trackpad_deadline(-1, Some(long_ago), now), 1);
+    }
+
+    /// The clamp only ever SHORTENS the park: the 16 ms thread tick and every
+    /// other reason the loop already had to wake keep working.
+    #[test]
+    fn the_clamp_never_lengthens_an_existing_timeout() {
+        let now = Instant::now();
+        assert_eq!(
+            poll_timeout_with_trackpad_deadline(16, Some(now), now),
+            16,
+            "a 16ms tick is already shorter than the idle budget"
+        );
+        assert_eq!(
+            poll_timeout_with_trackpad_deadline(16, None, now),
+            16,
+            "no gesture, no change"
+        );
+        assert_eq!(
+            poll_timeout_with_trackpad_deadline(-1, None, now),
+            -1,
+            "no gesture, still allowed to block forever"
+        );
+    }
+}
+
+#[cfg(test)]
+mod map_and_configure_tests {
+    use super::{absolute_origin_plan, record_map, AbsoluteOriginPlan, MapWork};
+
+    /// The FIRST map owes the whole first frame. Every map after it does not:
+    /// an unminimize, a workspace switch back, or any window-manager
+    /// unmap/map used to force a full `RefreshDom` — layout() re-invoked and
+    /// the StyledDom rebuilt from scratch — to put back pixels that never
+    /// changed.
+    ///
+    /// NEGATIVE CONTROL: make `record_map` always answer `MapWork::FirstMap`
+    /// (i.e. drop the `if *has_been_mapped` arm) — the remap assertions fail.
+    #[test]
+    fn only_the_first_map_owes_a_dom_rebuild() {
+        let mut mapped = false;
+        assert_eq!(record_map(&mut mapped), MapWork::FirstMap);
+        assert_eq!(record_map(&mut mapped), MapWork::Remap);
+        assert_eq!(record_map(&mut mapped), MapWork::Remap);
+    }
+
+    /// A drag-resize delivers one ConfigureNotify per pixel and each one used
+    /// to pay a synchronous `XTranslateCoordinates` round trip. Only the last
+    /// configure of a burst survives to be rendered, so only it has to ask.
+    ///
+    /// NEGATIVE CONTROL: drop the `queued > 0` guard from
+    /// `absolute_origin_plan` (reuse unconditionally when a cache exists) —
+    /// the final configure below reports `Reuse` and the window's position
+    /// would be one burst stale forever.
+    #[test]
+    fn a_resize_burst_costs_one_round_trip_not_one_per_event() {
+        let mut resolved = None;
+        let mut translations = 0;
+
+        // 40 configures, 39 of them with successors already queued.
+        for index in 0..40 {
+            let queued = if index < 39 { 7 } else { 0 };
+            match absolute_origin_plan(false, queued, resolved, true) {
+                AbsoluteOriginPlan::Translate => {
+                    translations += 1;
+                    resolved = Some((100, 200));
+                }
+                AbsoluteOriginPlan::Reuse(x, y) => {
+                    assert_eq!((x, y), (100, 200));
+                    resolved = Some((x, y));
+                }
+                AbsoluteOriginPlan::UseEvent => panic!("a real configure carries no origin"),
+            }
+        }
+
+        assert_eq!(
+            translations, 2,
+            "one round trip to seed the cache and one for the last configure \
+             of the burst — nothing in between"
+        );
+    }
+
+    /// The last configure of a burst must resolve for real, or a drag-resize
+    /// that also moves the window (from the top-left corner) leaves the
+    /// position permanently wrong.
+    #[test]
+    fn the_final_configure_of_a_burst_always_asks() {
+        assert_eq!(
+            absolute_origin_plan(false, 0, Some((5, 6)), true),
+            AbsoluteOriginPlan::Translate
+        );
+    }
+
+    /// ICCCM: a synthetic (WM-sent) configure already carries root-absolute
+    /// coordinates, so it never asks — and never wants to, since it is exactly
+    /// how a window MOVE is announced.
+    #[test]
+    fn a_synthetic_configure_never_round_trips() {
+        assert_eq!(
+            absolute_origin_plan(true, 0, None, true),
+            AbsoluteOriginPlan::UseEvent
+        );
+        assert_eq!(
+            absolute_origin_plan(true, 9, Some((1, 2)), true),
+            AbsoluteOriginPlan::UseEvent
+        );
+    }
+
+    /// With no cached answer there is nothing to reuse, however deep the
+    /// queue is.
+    #[test]
+    fn the_first_configure_of_the_session_asks() {
+        assert_eq!(
+            absolute_origin_plan(false, 99, None, true),
+            AbsoluteOriginPlan::Translate
+        );
+    }
+
+    /// Without `XTranslateCoordinates` there is nothing to skip: fall back to
+    /// the event's own (parent-relative) coordinates exactly as before.
+    #[test]
+    fn a_server_without_translate_coordinates_uses_the_event() {
+        assert_eq!(
+            absolute_origin_plan(false, 0, Some((1, 2)), false),
+            AbsoluteOriginPlan::UseEvent
+        );
     }
 }
 

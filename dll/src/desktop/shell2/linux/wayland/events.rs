@@ -14,6 +14,7 @@ use super::{defines, defines::*, WaylandWindow};
 
 use super::super::super::common::debug_server::LogCategory;
 use super::super::super::common::event::PlatformWindow;
+use super::super::common::compose::{ComposeAction, ComposeSequencer};
 use crate::{log_debug, log_error, log_info, log_trace, log_warn};
 
 // -- State for input devices --
@@ -23,6 +24,10 @@ pub(super) struct WaylandKeyboardState {
     pub(super) context: *mut xkb_context,
     pub(super) keymap: *mut xkb_keymap,
     pub(super) state: *mut xkb_state,
+    /// Dead keys / the Compose key. `None` when the locale has no Compose
+    /// file or libxkbcommon predates the compose API; the key path then falls
+    /// back to the raw keysym, which is what it did everywhere before.
+    pub(super) compose: Option<ComposeSequencer>,
 }
 
 impl WaylandKeyboardState {
@@ -31,6 +36,7 @@ impl WaylandKeyboardState {
             context: std::ptr::null_mut(),
             keymap: std::ptr::null_mut(),
             state: std::ptr::null_mut(),
+            compose: None,
         }
     }
 }
@@ -469,6 +475,7 @@ pub(super) extern "C" fn registry_global_handler(
             window.track_listener(seat);
             unsafe { try_init_tablet(window, data) };
             unsafe { try_init_data_device(window, data) };
+            unsafe { try_init_primary_selection(window, data) };
         }
         "zwp_tablet_manager_v2" => {
             window.tablet_manager = unsafe {
@@ -496,6 +503,19 @@ pub(super) extern "C" fn registry_global_handler(
                 ) as *mut _
             };
             unsafe { try_init_data_device(window, data) };
+        }
+        "zwp_primary_selection_device_manager_v1" => {
+            // The Wayland PRIMARY selection (select-to-copy / middle-click
+            // paste). Unstable-v1 has exactly one version.
+            window.primary_selection_manager = unsafe {
+                (window.wayland.wl_registry_bind)(
+                    registry,
+                    name,
+                    get_primary_selection_device_manager_v1_interface(),
+                    version.min(1),
+                ) as *mut _
+            };
+            unsafe { try_init_primary_selection(window, data) };
         }
         "wl_output" => {
             let output = unsafe {
@@ -1265,10 +1285,25 @@ unsafe fn receive_uri_list(window: &WaylandWindow, offer: *mut wl_data_offer) ->
     parse_uri_list(&text)
 }
 
-/// Deadline for a `wl_data_offer` pipe transfer. Matches the XWayland
-/// fallback's `CLIPBOARD_READ_TIMEOUT` — the peer is another process and may
-/// never write or close.
+/// Deadline for a `wl_data_offer` pipe transfer, ON THE WORKER THREAD. The
+/// peer is another process and may never write or close.
 const OFFER_READ_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(3);
+
+/// How long the UI THREAD waits for a transfer before giving up on it.
+///
+/// The transfer itself is a pipe fed by a FOREIGN process, and when that
+/// process is wedged or gone it never writes and never closes. The three-second
+/// deadline above is the right budget for the transfer; it is a catastrophic
+/// one for the event loop, and until this existed an ordinary Ctrl+V spent it
+/// there — caret blink, tweens and rendering stalled with it. Long enough for
+/// any peer that is actually alive (a real transfer is a few milliseconds),
+/// short enough that a dead one costs a hitch instead of a freeze. Same budget,
+/// same reasoning, as `x11/clipboard.rs::PASTE_UI_DEADLINE`.
+pub(super) const PASTE_UI_DEADLINE: std::time::Duration =
+    std::time::Duration::from_millis(400);
+
+/// `wl_data_offer.receive` — opcode 1, signature "sh".
+const WL_DATA_OFFER_RECEIVE_OPCODE: u32 = 1;
 
 /// MWA-B3: receive an arbitrary mime payload from a `wl_data_offer` through a
 /// pipe — the generalization of the DnD uri-list receive, shared with the
@@ -1278,24 +1313,139 @@ pub(super) unsafe fn receive_offer_bytes(
     offer: *mut wl_data_offer,
     mime_type: &str,
 ) -> Vec<u8> {
+    receive_from_offer(
+        window,
+        offer as *mut wl_proxy,
+        WL_DATA_OFFER_RECEIVE_OPCODE,
+        mime_type,
+    )
+}
+
+/// [`receive_offer_bytes`] for ANY offer object. The primary-selection offer
+/// has the same `receive(mime, fd)` shape but a different opcode (0, not 1),
+/// which is the only thing that differs between the two protocols here.
+///
+/// The libwayland half — allocate the pipe, marshal `receive`, flush — stays on
+/// the UI thread, because a proxy call from another thread would race the
+/// single-threaded event loop. Only the DRAIN, which is the part that can block
+/// for seconds, is handed off.
+pub(super) unsafe fn receive_from_offer(
+    window: &WaylandWindow,
+    offer: *mut wl_proxy,
+    receive_opcode: u32,
+    mime_type: &str,
+) -> Vec<u8> {
     let mut fds = [0i32; 2];
     if libc::pipe2(fds.as_mut_ptr(), libc::O_CLOEXEC) != 0 {
         return Vec::new();
     }
     let (read_fd, write_fd) = (fds[0], fds[1]);
 
-    // wl_data_offer.receive(mime_type, fd): opcode 1, signature "sh".
-    let mime = std::ffi::CString::new(mime_type).unwrap();
+    let Ok(mime) = std::ffi::CString::new(mime_type) else {
+        libc::close(read_fd);
+        libc::close(write_fd);
+        return Vec::new();
+    };
     let f: unsafe extern "C" fn(*mut wl_proxy, u32, *const c_char, i32) =
         std::mem::transmute(window.wayland.wl_proxy_marshal);
-    f(offer as *mut wl_proxy, 1, mime.as_ptr(), write_fd);
+    f(offer, receive_opcode, mime.as_ptr(), write_fd);
 
     // Flush BEFORE closing the write fd, otherwise the request never reaches the
     // server and the read end blocks forever (deadlock).
     (window.wayland.wl_display_flush)(window.display);
     libc::close(write_fd);
 
-    drain_offer_pipe(read_fd, OFFER_READ_TIMEOUT, mime_type)
+    drain_offer_pipe_off_thread(read_fd, OFFER_READ_TIMEOUT, PASTE_UI_DEADLINE, mime_type)
+}
+
+/// Work handed to the Wayland transfer worker: drain this pipe and answer.
+struct TransferJob {
+    read_fd: i32,
+    timeout: std::time::Duration,
+    mime_type: String,
+    reply: std::sync::mpsc::SyncSender<Vec<u8>>,
+}
+
+/// Handle to the (lazily spawned) transfer worker.
+///
+/// One long-lived thread rather than one per paste: a wedged peer must not be
+/// able to pile up threads, and serializing the transfers means an abandoned
+/// one is still draining while the next is queued rather than racing it.
+fn transfer_worker() -> Option<std::sync::MutexGuard<'static, std::sync::mpsc::Sender<TransferJob>>>
+{
+    use std::sync::{mpsc, Mutex, OnceLock};
+    static WORKER: OnceLock<Mutex<mpsc::Sender<TransferJob>>> = OnceLock::new();
+    let m = WORKER.get_or_init(|| {
+        let (tx, rx) = mpsc::channel::<TransferJob>();
+        let _ = std::thread::Builder::new()
+            .name("azul-wayland-transfer".to_string())
+            .spawn(move || {
+                while let Ok(job) = rx.recv() {
+                    // `drain_offer_pipe` closes the fd on every exit path, so
+                    // abandoning the reply never leaks it.
+                    let bytes =
+                        unsafe { drain_offer_pipe(job.read_fd, job.timeout, &job.mime_type) };
+                    let _ = job.reply.try_send(bytes);
+                }
+            });
+        Mutex::new(tx)
+    });
+    m.lock().ok()
+}
+
+/// Drain `read_fd` on the transfer worker and wait at most `ui_deadline` for
+/// the result.
+///
+/// Giving up costs a paste; not giving up costs the frame loop. The worker
+/// keeps draining (and closing) the abandoned fd on its own.
+///
+/// # Safety
+/// `read_fd` must be an owned, open fd; ownership moves to the worker.
+pub(super) unsafe fn drain_offer_pipe_off_thread(
+    read_fd: i32,
+    timeout: std::time::Duration,
+    ui_deadline: std::time::Duration,
+    mime_type: &str,
+) -> Vec<u8> {
+    let (reply, answer) = std::sync::mpsc::sync_channel(1);
+    let queued = match transfer_worker() {
+        Some(sender) => sender
+            .send(TransferJob {
+                read_fd,
+                timeout,
+                mime_type: mime_type.to_owned(),
+                reply,
+            })
+            .is_ok(),
+        None => false,
+    };
+    if !queued {
+        // No worker: fall back to draining here rather than losing the paste
+        // entirely. Still bounded, just by the transfer deadline.
+        return drain_offer_pipe(read_fd, timeout, mime_type);
+    }
+    await_transfer(&answer, ui_deadline, mime_type)
+}
+
+/// Wait for the worker's answer, but never longer than `deadline`.
+fn await_transfer(
+    answer: &std::sync::mpsc::Receiver<Vec<u8>>,
+    deadline: std::time::Duration,
+    mime_type: &str,
+) -> Vec<u8> {
+    match answer.recv_timeout(deadline) {
+        Ok(bytes) => bytes,
+        Err(_) => {
+            log_warn!(
+                LogCategory::Platform,
+                "[Wayland] '{}' source did not answer within {:?} — abandoning the transfer \
+                 rather than blocking the UI thread",
+                mime_type,
+                deadline
+            );
+            Vec::new()
+        }
+    }
 }
 
 /// Read a `wl_data_offer` pipe to EOF, giving up after `timeout`. Closes
@@ -1445,6 +1595,191 @@ extern "C" fn data_device_selection(
     window.clipboard_offer = id;
 }
 
+// --- Primary selection (zwp_primary_selection_v1) ---
+//
+// The Wayland spelling of the X11 select-to-copy / middle-click-to-paste
+// idiom. X11 has had both halves for years (`x11/clipboard.rs::write_to_primary`
+// on every selection-ending release, `get_primary_content` on middle click);
+// Wayland had NEITHER, so middle-click paste under a Wayland session did
+// nothing at all and a selection was invisible to every other application.
+
+/// `zwp_primary_selection_offer_v1.destroy` — opcode **1**.
+///
+/// NOT the 2 of `wl_data_offer.destroy`: the primary-selection offer has no
+/// `accept`/`finish` requests in front of it. Sending the wrong opcode here is
+/// a protocol error that disconnects the client and makes the window vanish.
+const PRIMARY_OFFER_DESTROY_OPCODE: u32 = 1;
+/// `zwp_primary_selection_offer_v1.receive` — opcode **0** (`wl_data_offer`'s
+/// is 1, for the same reason).
+pub(super) const PRIMARY_OFFER_RECEIVE_OPCODE: u32 = 0;
+/// `zwp_primary_selection_source_v1.destroy` — opcode 1.
+const PRIMARY_SOURCE_DESTROY_OPCODE: u32 = 1;
+
+static PRIMARY_SELECTION_DEVICE_LISTENER: zwp_primary_selection_device_v1_listener =
+    zwp_primary_selection_device_v1_listener {
+        data_offer: primary_selection_data_offer,
+        selection: primary_selection_selection,
+    };
+
+static PRIMARY_SELECTION_OFFER_LISTENER: zwp_primary_selection_offer_v1_listener =
+    zwp_primary_selection_offer_v1_listener {
+        offer: primary_selection_offer_mime,
+    };
+
+pub(super) static PRIMARY_SELECTION_SOURCE_LISTENER:
+    zwp_primary_selection_source_v1_listener =
+    zwp_primary_selection_source_v1_listener {
+        send: primary_selection_source_send,
+        cancelled: primary_selection_source_cancelled,
+    };
+
+/// Create the primary-selection device once both the manager and the seat are
+/// bound (idempotent; called from both registry arms in either order — mirrors
+/// `try_init_data_device`).
+pub(super) unsafe fn try_init_primary_selection(
+    window: &mut WaylandWindow,
+    data: *mut c_void,
+) {
+    if window.primary_selection_initialized
+        || window.primary_selection_manager.is_null()
+        || window.seat.is_null()
+    {
+        return;
+    }
+    // get_device(new_id<device>, seat): opcode 1, signature "no".
+    type GetDeviceCtor = unsafe extern "C" fn(
+        *mut wl_proxy,
+        u32,
+        *const wl_interface,
+        *mut c_void,
+        *mut wl_seat,
+    ) -> *mut wl_proxy;
+    let ctor: GetDeviceCtor =
+        std::mem::transmute(window.wayland.wl_proxy_marshal_constructor);
+    let dev = ctor(
+        window.primary_selection_manager as *mut wl_proxy,
+        1,
+        get_primary_selection_device_v1_interface(),
+        std::ptr::null_mut(),
+        window.seat,
+    );
+    if dev.is_null() {
+        return;
+    }
+    (window.wayland.wl_proxy_add_listener)(
+        dev,
+        &PRIMARY_SELECTION_DEVICE_LISTENER as *const _ as *const _,
+        data,
+    );
+    window.primary_selection_device = dev as *mut zwp_primary_selection_device_v1;
+    window.track_listener(dev);
+    window.primary_selection_initialized = true;
+    log_debug!(
+        LogCategory::Platform,
+        "[Wayland] primary selection bound — middle-click paste is live"
+    );
+}
+
+/// A fresh offer was announced. Listen on it so the compositor's `offer`
+/// events have somewhere to go; `selection` below decides whether we keep it.
+extern "C" fn primary_selection_data_offer(
+    data: *mut c_void,
+    _dev: *mut zwp_primary_selection_device_v1,
+    offer: *mut zwp_primary_selection_offer_v1,
+) {
+    let window = unsafe { &mut *(data as *mut WaylandWindow) };
+    unsafe {
+        (window.wayland.wl_proxy_add_listener)(
+            offer as *mut wl_proxy,
+            &PRIMARY_SELECTION_OFFER_LISTENER as *const _ as *const _,
+            data,
+        );
+    }
+}
+
+/// One `offer` event per advertised mime type. Nothing to record: we ask for
+/// the canonical UTF-8 plain-text spelling when reading, and a source that
+/// does not have it simply answers with an empty pipe.
+extern "C" fn primary_selection_offer_mime(
+    _data: *mut c_void,
+    _offer: *mut zwp_primary_selection_offer_v1,
+    _mime: *const c_char,
+) {
+}
+
+/// The current primary selection changed hands. `id == NULL` clears it.
+extern "C" fn primary_selection_selection(
+    data: *mut c_void,
+    _dev: *mut zwp_primary_selection_device_v1,
+    id: *mut zwp_primary_selection_offer_v1,
+) {
+    let window = unsafe { &mut *(data as *mut WaylandWindow) };
+    let old = window.primary_selection_offer;
+    if !old.is_null() && old != id {
+        unsafe { destroy_primary_offer(window, old) };
+    }
+    window.primary_selection_offer = id;
+}
+
+/// Dispose of a primary-selection offer: the destroy REQUEST for the server
+/// AND `wl_proxy_destroy` for the client id. Both halves, for the reason
+/// spelled out on `destroy_data_offer_raw` — offer ids are server-allocated
+/// and RECYCLED, and a leaked one makes the next offer a protocol error.
+pub(super) unsafe fn destroy_primary_offer(
+    window: &WaylandWindow,
+    offer: *mut zwp_primary_selection_offer_v1,
+) {
+    destroy_primary_offer_raw(
+        std::mem::transmute(window.wayland.wl_proxy_marshal),
+        window.wayland.wl_proxy_destroy,
+        offer,
+    );
+}
+
+/// [`destroy_primary_offer`] against explicit libwayland entry points, so the
+/// pair can be exercised without a compositor (see the tests below).
+unsafe fn destroy_primary_offer_raw(
+    marshal: unsafe extern "C" fn(*mut wl_proxy, u32),
+    proxy_destroy: unsafe extern "C" fn(*mut wl_proxy),
+    offer: *mut zwp_primary_selection_offer_v1,
+) {
+    if offer.is_null() {
+        return;
+    }
+    marshal(offer as *mut wl_proxy, PRIMARY_OFFER_DESTROY_OPCODE);
+    proxy_destroy(offer as *mut wl_proxy);
+}
+
+/// The compositor (on behalf of the pasting client) pulls our selected text.
+extern "C" fn primary_selection_source_send(
+    _data: *mut c_void,
+    _source: *mut zwp_primary_selection_source_v1,
+    _mime: *const c_char,
+    fd: i32,
+) {
+    let text = super::clipboard::native_primary_text().unwrap_or_default();
+    write_all_then_close(fd, text.as_bytes());
+}
+
+/// Another client claimed the primary selection: stop serving, and release our
+/// source (both halves, like every destructor here).
+extern "C" fn primary_selection_source_cancelled(
+    data: *mut c_void,
+    source: *mut zwp_primary_selection_source_v1,
+) {
+    let window = unsafe { &mut *(data as *mut WaylandWindow) };
+    super::clipboard::clear_native_primary();
+    if window.primary_selection_source == source {
+        window.primary_selection_source = std::ptr::null_mut();
+    }
+    unsafe {
+        let destroy: unsafe extern "C" fn(*mut wl_proxy, u32) =
+            std::mem::transmute(window.wayland.wl_proxy_marshal);
+        destroy(source as *mut wl_proxy, PRIMARY_SOURCE_DESTROY_OPCODE);
+        (window.wayland.wl_proxy_destroy)(source as *mut wl_proxy);
+    }
+}
+
 // --- wl_data_source events (MWA-B3: outgoing clipboard) ---
 
 extern "C" fn data_source_target(
@@ -1463,7 +1798,13 @@ extern "C" fn data_source_send(
 ) {
     // Every offered mime is a plain-UTF-8 spelling, so serve the same bytes.
     let text = super::clipboard::native_copy_text().unwrap_or_default();
-    let bytes = text.as_bytes();
+    write_all_then_close(fd, text.as_bytes());
+}
+
+/// Serve a selection: write every byte to the compositor's fd, then close it.
+/// Closing is what tells the pasting client the transfer is over — an fd left
+/// open leaves it blocked until its own deadline.
+fn write_all_then_close(fd: i32, bytes: &[u8]) {
     let mut off = 0usize;
     while off < bytes.len() {
         let n = unsafe {
@@ -1640,6 +1981,14 @@ pub(super) extern "C" fn keyboard_keymap_handler(
     window.keyboard_state.context = context;
     window.keyboard_state.keymap = keymap;
     window.keyboard_state.state = state;
+    // Compose sequences live on the LOCALE, not on the compositor's keymap, so
+    // the sequencer owns its own xkb_context and survives the layout switches
+    // that replace the one above. Built once: a second keymap event must not
+    // throw away a sequence in flight.
+    if window.keyboard_state.compose.is_none() {
+        window.keyboard_state.compose =
+            window.xkb.compose_fns().and_then(ComposeSequencer::new);
+    }
 }
 
 pub(super) extern "C" fn keyboard_key_handler(
@@ -2340,6 +2689,13 @@ pub(super) extern "C" fn text_input_done_handler(
         // regen. The old inline match called regenerate_layout() directly, which on
         // Wayland does NOT build/send the WebRender transaction — so committed IME
         // text only became visible on the next event (e.g. a mouse click).
+        //
+        // The IME commit is `EventType::Input` from the TextInputManager provider,
+        // not a previous→current state diff, so a fresh baseline suppresses nothing
+        // this pass owes. What it DOES suppress is somebody else's: without it this
+        // was the one pass in the backend running on whatever baseline the last
+        // handler left, resurrecting that handler's delta and reporting it here.
+        window.snapshot_window_state_baseline("wayland.text_input_done_handler");
         let result = window.process_window_events(0);
         window.handle_process_event_result(result);
     }
@@ -2388,10 +2744,383 @@ mod tests {
         ORDER.lock().unwrap().push("destroy");
     }
 
-    fn reset() {
-        MARSHAL_CALLS.lock().unwrap().clear();
-        DESTROY_CALLS.lock().unwrap().clear();
-        ORDER.lock().unwrap().clear();
+    /// The recorders above are process-global and `cargo test` runs tests in
+    /// PARALLEL, so every test that drives the stubs has to hold this for its
+    /// whole body — otherwise one test's `reset()` erases another's recording
+    /// and the failure looks like a bug in the code under test.
+    static RECORDER: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
+    /// Clear the recorders and take the lock that keeps them ours.
+    ///
+    /// Poison-tolerant throughout: an assertion in one of these tests unwinds
+    /// while holding a recorder's guard, which POISONS it, and a bare
+    /// `.unwrap()` here would turn one real failure into three — the next two
+    /// tests failing on the poison instead of on anything they tested.
+    #[must_use]
+    fn reset() -> std::sync::MutexGuard<'static, ()> {
+        let guard = RECORDER.lock().unwrap_or_else(|e| e.into_inner());
+        MARSHAL_CALLS.lock().unwrap_or_else(|e| e.into_inner()).clear();
+        DESTROY_CALLS.lock().unwrap_or_else(|e| e.into_inner()).clear();
+        ORDER.lock().unwrap_or_else(|e| e.into_inner()).clear();
+        guard
+    }
+
+    /// Split this file into top-level item bodies, keyed by the item's first
+    /// line. Everything in here is at column 0, so a line that starts with a
+    /// non-space, non-`}` character opens the next item.
+    fn top_level_items(source: &str) -> Vec<(String, String)> {
+        let mut items: Vec<(String, String)> = Vec::new();
+        let mut header: Option<String> = None;
+        let mut body = String::new();
+        for line in source.lines() {
+            let opens_item = !line.is_empty()
+                && !line.starts_with(char::is_whitespace)
+                && !line.starts_with('}')
+                && !line.starts_with("//")
+                && !line.starts_with('#');
+            if opens_item {
+                if let Some(h) = header.take() {
+                    items.push((h, std::mem::take(&mut body)));
+                }
+                header = Some(line.to_string());
+            }
+            if header.is_some() {
+                body.push_str(line);
+                body.push('\n');
+            }
+        }
+        if let Some(h) = header {
+            items.push((h, body));
+        }
+        items
+    }
+
+    /// EVERY event pass in this file must open on a fresh event-diff baseline.
+    ///
+    /// `process_window_events` derives its events from previous -> current. A
+    /// pass that runs on whatever baseline the LAST handler happened to leave
+    /// behind resurrects that handler's unconsumed delta and reports it as if
+    /// it had just happened here — a resize attributed to an IME commit, a
+    /// cursor move attributed to a configure. `text_input_done_handler` was
+    /// the one pass in the backend doing exactly that.
+    ///
+    /// The sanctioned openers are the named `PlatformWindow` helpers, which
+    /// carry a site string and route through `check_input_delta_consumed`.
+    ///
+    /// NEGATIVE CONTROL: delete the
+    /// `snapshot_window_state_baseline("wayland.text_input_done_handler")`
+    /// line and this reports that handler.
+    #[test]
+    fn every_event_pass_in_this_file_opens_on_a_fresh_baseline() {
+        const OPENERS: [&str; 3] = [
+            "snapshot_window_state_baseline",
+            "seed_window_state_baseline",
+            "discard_input_delta",
+        ];
+
+        let mut offenders = Vec::new();
+        for (header, body) in top_level_items(include_str!("events.rs")) {
+            if header.starts_with("mod tests") {
+                continue;
+            }
+            let Some(pass_at) = body.find("process_window_events(") else {
+                continue;
+            };
+            let before_pass = &body[..pass_at];
+            if !OPENERS.iter().any(|opener| before_pass.contains(opener)) {
+                offenders.push(header);
+            }
+        }
+
+        assert!(
+            offenders.is_empty(),
+            "these handlers run an event pass on a stale event-diff baseline: {offenders:#?}"
+        );
+    }
+
+    // --- primary selection (zwp_primary_selection_v1) ---
+
+    /// Decode a hand-rolled `wl_interface` back into what libwayland will read
+    /// out of it.
+    unsafe fn describe(
+        i: &wl_interface,
+    ) -> (String, i32, Vec<(String, String)>, Vec<(String, String)>) {
+        let name = CStr::from_ptr(i.name).to_string_lossy().into_owned();
+        let read = |ptr: *const wl_message, count: i32| -> Vec<(String, String)> {
+            (0..count)
+                .map(|k| {
+                    let m = &*ptr.offset(k as isize);
+                    (
+                        CStr::from_ptr(m.name).to_string_lossy().into_owned(),
+                        CStr::from_ptr(m.signature).to_string_lossy().into_owned(),
+                    )
+                })
+                .collect()
+        };
+        let methods = read(i.methods, i.method_count);
+        let events = if i.event_count > 0 {
+            read(i.events, i.event_count)
+        } else {
+            Vec::new()
+        };
+        (name, i.version, methods, events)
+    }
+
+    /// The hand-rolled primary-selection interfaces, against
+    /// `primary-selection-unstable-v1.xml`.
+    ///
+    /// libwayland indexes requests and events BY POSITION, so a reordering or
+    /// a wrong signature is not a subtle bug: it marshals the wrong opcode,
+    /// the compositor raises a protocol error, and the client is disconnected —
+    /// the window simply vanishes. There is no compositor in CI to catch that,
+    /// so the table is checked here instead.
+    ///
+    /// NEGATIVE CONTROL: swap `receive` and `destroy` in
+    /// `get_primary_selection_offer_v1_interface` — the offer assertion fails.
+    #[test]
+    fn the_primary_selection_interfaces_match_the_protocol() {
+        unsafe {
+            let (name, version, methods, events) =
+                describe(get_primary_selection_device_manager_v1_interface());
+            assert_eq!(name, "zwp_primary_selection_device_manager_v1");
+            assert_eq!(version, 1);
+            assert_eq!(
+                methods,
+                vec![
+                    ("create_source".to_string(), "n".to_string()),
+                    ("get_device".to_string(), "no".to_string()),
+                    ("destroy".to_string(), String::new()),
+                ]
+            );
+            assert!(events.is_empty());
+
+            let (name, version, methods, events) =
+                describe(get_primary_selection_device_v1_interface());
+            assert_eq!(name, "zwp_primary_selection_device_v1");
+            assert_eq!(version, 1);
+            assert_eq!(
+                methods,
+                vec![
+                    ("set_selection".to_string(), "?ou".to_string()),
+                    ("destroy".to_string(), String::new()),
+                ]
+            );
+            assert_eq!(
+                events,
+                vec![
+                    ("data_offer".to_string(), "n".to_string()),
+                    ("selection".to_string(), "?o".to_string()),
+                ]
+            );
+
+            let (name, version, methods, events) =
+                describe(get_primary_selection_offer_v1_interface());
+            assert_eq!(name, "zwp_primary_selection_offer_v1");
+            assert_eq!(version, 1);
+            assert_eq!(
+                methods,
+                vec![
+                    ("receive".to_string(), "sh".to_string()),
+                    ("destroy".to_string(), String::new()),
+                ]
+            );
+            assert_eq!(events, vec![("offer".to_string(), "s".to_string())]);
+
+            let (name, version, methods, events) =
+                describe(get_primary_selection_source_v1_interface());
+            assert_eq!(name, "zwp_primary_selection_source_v1");
+            assert_eq!(version, 1);
+            assert_eq!(
+                methods,
+                vec![
+                    ("offer".to_string(), "s".to_string()),
+                    ("destroy".to_string(), String::new()),
+                ]
+            );
+            assert_eq!(
+                events,
+                vec![
+                    ("send".to_string(), "sh".to_string()),
+                    ("cancelled".to_string(), String::new()),
+                ]
+            );
+        }
+    }
+
+    /// The `data_offer` event carries a `new_id`: libwayland allocates the
+    /// proxy itself and needs the interface pointer to do it. A NULL there is
+    /// a segfault inside libwayland the first time anything is copied.
+    ///
+    /// NEGATIVE CONTROL: change that message's `types` to `n` (the null table)
+    /// in `get_primary_selection_device_v1_interface`.
+    #[test]
+    fn the_new_id_event_carries_its_interface() {
+        unsafe {
+            let device = get_primary_selection_device_v1_interface();
+            let data_offer = &*device.methods.offset(0);
+            // Requests first: set_selection takes an OBJECT, not a new_id, so
+            // its type slot is legitimately null.
+            assert_eq!(
+                CStr::from_ptr(data_offer.name).to_string_lossy(),
+                "set_selection"
+            );
+
+            let event = &*device.events.offset(0);
+            assert_eq!(CStr::from_ptr(event.name).to_string_lossy(), "data_offer");
+            assert!(!event.types.is_null());
+            let referenced = *event.types;
+            assert!(!referenced.is_null(), "data_offer's new_id has no interface");
+            assert_eq!(
+                CStr::from_ptr((*referenced).name).to_string_lossy(),
+                "zwp_primary_selection_offer_v1"
+            );
+        }
+    }
+
+    /// A primary-selection offer is disposed of with the destroy REQUEST and
+    /// the local PROXY, in that order — and with opcode **1**, not the 2 of
+    /// `wl_data_offer.destroy`. Sending the wrong opcode is a protocol error.
+    ///
+    /// NEGATIVE CONTROL: change `PRIMARY_OFFER_DESTROY_OPCODE` to 2, or drop
+    /// either call from `destroy_primary_offer_raw`.
+    #[test]
+    fn a_primary_offer_is_destroyed_with_its_own_opcode_and_both_halves() {
+        let _recorder = reset();
+        let offer = 0x5150 as *mut zwp_primary_selection_offer_v1;
+        unsafe { destroy_primary_offer_raw(stub_marshal, stub_proxy_destroy, offer) };
+
+        // The opcode is spelled out, NOT read back from the constant: a test
+        // that compares the constant with itself would pass whatever it was
+        // changed to.
+        assert_eq!(*MARSHAL_CALLS.lock().unwrap(), vec![(0x5150usize, 1u32)]);
+        assert_eq!(*DESTROY_CALLS.lock().unwrap(), vec![0x5150usize]);
+        assert_eq!(*ORDER.lock().unwrap(), vec!["marshal", "destroy"]);
+    }
+
+    /// The opcodes the marshalling uses ARE the positions in the interface
+    /// table. Nothing enforces that at compile time — the constants are typed
+    /// `u32` and the table is a slice — so a table edit that moves a request
+    /// silently starts marshalling the wrong one.
+    ///
+    /// NEGATIVE CONTROL: set `PRIMARY_OFFER_RECEIVE_OPCODE` to 1.
+    #[test]
+    fn the_marshalled_opcodes_are_the_table_positions() {
+        let (_, _, methods, _) = unsafe { describe(get_primary_selection_offer_v1_interface()) };
+        let position = |name: &str| {
+            methods
+                .iter()
+                .position(|(n, _)| n == name)
+                .unwrap_or_else(|| panic!("{name} is not in the offer interface")) as u32
+        };
+        assert_eq!(PRIMARY_OFFER_RECEIVE_OPCODE, position("receive"));
+        assert_eq!(PRIMARY_OFFER_DESTROY_OPCODE, position("destroy"));
+
+        let (_, _, methods, _) = unsafe { describe(get_primary_selection_source_v1_interface()) };
+        assert_eq!(
+            PRIMARY_SOURCE_DESTROY_OPCODE as usize,
+            methods.iter().position(|(n, _)| n == "destroy").unwrap()
+        );
+    }
+
+    /// A null offer calls nothing.
+    #[test]
+    fn a_null_primary_offer_calls_nothing() {
+        let _recorder = reset();
+        unsafe { destroy_primary_offer_raw(stub_marshal, stub_proxy_destroy, std::ptr::null_mut()) };
+        assert!(MARSHAL_CALLS.lock().unwrap().is_empty());
+        assert!(DESTROY_CALLS.lock().unwrap().is_empty());
+    }
+
+    // --- clipboard read off the UI thread (C1) ---
+
+    /// A selection source that never writes and never closes — routine the
+    /// moment the application that owns it is stopped or gone — must cost a
+    /// paste, not the frame loop. The transfer deadline is three seconds and
+    /// it used to be spent right here, on the UI thread, on an ordinary
+    /// Ctrl+V.
+    ///
+    /// NEGATIVE CONTROL: call `drain_offer_pipe(read_fd, timeout, mime)`
+    /// directly in place of the off-thread wait — the elapsed assertion below
+    /// fails after the full three seconds.
+    #[test]
+    fn a_silent_wayland_source_costs_only_the_ui_deadline() {
+        let mut fds = [0i32; 2];
+        assert_eq!(unsafe { libc::pipe2(fds.as_mut_ptr(), libc::O_CLOEXEC) }, 0);
+        let (read_fd, write_fd) = (fds[0], fds[1]);
+
+        let started = std::time::Instant::now();
+        let bytes = unsafe {
+            drain_offer_pipe_off_thread(
+                read_fd,
+                std::time::Duration::from_secs(3),
+                std::time::Duration::from_millis(80),
+                "text/plain;charset=utf-8",
+            )
+        };
+        let elapsed = started.elapsed();
+
+        assert!(bytes.is_empty());
+        assert!(
+            elapsed < std::time::Duration::from_secs(1),
+            "the UI thread waited {elapsed:?} on a silent source"
+        );
+        // Only now let the abandoned worker finish and close the read end.
+        unsafe { libc::close(write_fd) };
+    }
+
+    /// A source that DOES answer is read to EOF through the worker, unchanged.
+    #[test]
+    fn a_wayland_source_that_answers_is_read_to_eof() {
+        let mut fds = [0i32; 2];
+        assert_eq!(unsafe { libc::pipe2(fds.as_mut_ptr(), libc::O_CLOEXEC) }, 0);
+        let (read_fd, write_fd) = (fds[0], fds[1]);
+
+        let payload = b"pasted text";
+        unsafe {
+            libc::write(write_fd, payload.as_ptr() as *const c_void, payload.len());
+            libc::close(write_fd);
+        }
+
+        let bytes = unsafe {
+            drain_offer_pipe_off_thread(
+                read_fd,
+                std::time::Duration::from_secs(3),
+                std::time::Duration::from_secs(5),
+                "text/plain;charset=utf-8",
+            )
+        };
+        assert_eq!(bytes, payload.to_vec());
+    }
+
+    /// The budget the UI thread is allowed to spend on a paste. Anything
+    /// approaching a second is a visible stall, not a hitch — and the transfer
+    /// deadline it replaces is three seconds.
+    ///
+    /// NEGATIVE CONTROL: set `PASTE_UI_DEADLINE` to `OFFER_READ_TIMEOUT`.
+    #[test]
+    fn the_wayland_paste_budget_stays_sub_second() {
+        assert!(
+            PASTE_UI_DEADLINE <= std::time::Duration::from_millis(500),
+            "PASTE_UI_DEADLINE = {PASTE_UI_DEADLINE:?}"
+        );
+        assert!(PASTE_UI_DEADLINE < OFFER_READ_TIMEOUT);
+    }
+
+    /// Negative control for the audit above: it must actually be looking at
+    /// bodies that contain a pass, or an empty offender list means nothing.
+    #[test]
+    fn the_baseline_audit_actually_finds_the_passes() {
+        let passes = top_level_items(include_str!("events.rs"))
+            .into_iter()
+            .filter(|(header, body)| {
+                !header.starts_with("mod tests") && body.contains("process_window_events(")
+            })
+            .count();
+        assert!(
+            passes >= 3,
+            "the audit only found {passes} event passes in wayland/events.rs — the item \
+             splitter stopped matching this file"
+        );
     }
 
     /// Disposing of an offer must send the destroy REQUEST and free the local
@@ -2408,7 +3137,7 @@ mod tests {
     /// fails this — run and seen for both.
     #[test]
     fn destroys_the_request_and_the_proxy_in_that_order() {
-        reset();
+        let _recorder = reset();
         let offer = 0xDEAD_BEEF_usize as *mut wl_data_offer;
         unsafe { destroy_data_offer_raw(stub_marshal, stub_proxy_destroy, offer) };
 
@@ -2437,7 +3166,7 @@ mod tests {
     /// progress, selection cleared) and must not reach libwayland.
     #[test]
     fn a_null_offer_calls_nothing() {
-        reset();
+        let _recorder = reset();
         unsafe {
             destroy_data_offer_raw(stub_marshal, stub_proxy_destroy, std::ptr::null_mut())
         };
