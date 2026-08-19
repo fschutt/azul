@@ -6,6 +6,16 @@
   <meta name='viewport' content='width=device-width, initial-scale=1'>
   <meta http-equiv='Content-Type' content='text/html; charset=utf-8'/>
   <meta name='description' content='CSS rendering reference tests for azul-layout'>
+  <script>
+    (function () {
+      try {
+        var t = localStorage.getItem('flora-theme');
+        if (t === 'light' || t === 'dark') {
+          document.documentElement.setAttribute('data-theme', t);
+        }
+      } catch (e) { /* private mode: fall back to the system preference */ }
+    })();
+  </script>
   <link rel='shortcut icon' type='image/x-icon' href='https://azul.rs/ui/favicon.ico'>
   <link rel='preconnect' href='https://fonts.googleapis.com'>
   <link rel='preconnect' href='https://fonts.gstatic.com' crossorigin>
@@ -319,34 +329,52 @@
 </head>
 <body class="docs">
   <a href="#main-content" class="skip-to-content">Skip to main content</a>
+  <!-- Keep this strip in sync with docgen::azlin_nav / index.template.html.
+       The report is rendered from this file at reftest time, so it cannot
+       call the generator. -->
   <nav class="navbar" role="navigation" aria-label="Main navigation">
     <div class="container">
-      <a href="/" class="nav-brand-link" aria-label="Go to homepage">
-        <img src="https://azul.rs/logo.svg" alt="Azul" class="nav-brand-logo">
-      </a>
+      <div class="nav-links" role="menu">
+        <a href="https://azul.rs/ui" role="menuitem">overview</a>
+        <a href="https://azul.rs/ui/releases" role="menuitem">releases</a>
+        <a href="https://github.com/fschutt/azul" role="menuitem">code</a>
+        <a href="https://azul.rs/ui/guide" role="menuitem">guide</a>
+        <a href="https://azul.rs/ui/api" role="menuitem">api</a>
+        <a href="https://azul.rs/ui/reftest" role="menuitem" class="active"><span class="fl-tab-shoulder fl-tab-shoulder-l" aria-hidden="true"></span><span class="fl-tab-shoulder fl-tab-shoulder-r" aria-hidden="true"></span><span class="fl-tab-seam" aria-hidden="true"></span><span class="fl-tab-foot" aria-hidden="true"></span><span class="fl-tab-edge fl-tab-edge-l" aria-hidden="true"></span><span class="fl-tab-edge fl-tab-edge-r" aria-hidden="true"></span>reftests</a>
+        <a href="https://azul.rs/ui/blog" role="menuitem">blog</a>
+        <a href="https://azul.rs/ui/donate" role="menuitem">donate</a>
+      </div>
       <div class="nav-right">
-        <button class="nav-toggle" aria-label="Toggle menu" aria-expanded="false" onclick="document.body.classList.toggle('nav-open');this.setAttribute('aria-expanded',document.body.classList.contains('nav-open'));"><span></span><span></span><span></span></button>
-        <div class="nav-links" role="menu">
-          <a href="https://azul.rs/ui" role="menuitem">overview</a>
-          <a href="https://azul.rs/ui/releases" role="menuitem">releases</a>
-          <a href="https://github.com/fschutt/azul" role="menuitem">code</a>
-          <a href="https://azul.rs/ui/guide" role="menuitem">guide</a>
-          <a href="https://azul.rs/ui/api" role="menuitem">api</a>
-          <a href="https://azul.rs/ui/reftest" role="menuitem" class="active">reftests</a>
-          <a href="https://azul.rs/ui/blog" role="menuitem">blog</a>
-          <a href="https://azul.rs/ui/donate" role="menuitem">donate</a>
-        </div>
+        <button class="fl-lamp" type="button" aria-label="Switch between light and dark" title="Light / dark"
+          onclick="(function(b){var r=document.documentElement;var c=r.getAttribute('data-theme');var sysDark=window.matchMedia('(prefers-color-scheme: dark)').matches;var next=(c==='dark'||(!c&&sysDark))?'light':'dark';if((next==='dark')===sysDark){r.removeAttribute('data-theme');try{localStorage.removeItem('flora-theme');}catch(e){}}else{r.setAttribute('data-theme',next);try{localStorage.setItem('flora-theme',next);}catch(e){}}})(this)">
+          <svg class="fl-lamp-moon" viewBox="0 0 24 24" aria-hidden="true"><path d="M20 14.5A8.2 8.2 0 0 1 9.5 4 8.5 8.5 0 1 0 20 14.5z"/></svg>
+          <svg class="fl-lamp-sun" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="4.2"/><path d="M12 2.4v2.2M12 19.4v2.2M2.4 12h2.2M19.4 12h2.2M5.2 5.2l1.6 1.6M17.2 17.2l1.6 1.6M18.8 5.2l-1.6 1.6M6.8 17.2l-1.6 1.6"/></svg>
+        </button>
+        <button class="fl-orb" type="button" aria-label="Open site navigation" aria-expanded="false" aria-controls="site-nav-panel"
+          onclick="var o=document.body.classList.toggle('nav-open');this.setAttribute('aria-expanded',o);">
+          <span class="fl-orb-well" aria-hidden="true">
+            <span class="fl-orb-well-shadow"></span>
+            <span class="fl-orb-well-bounce"></span>
+          </span>
+          <span class="fl-orb-collar" aria-hidden="true"></span>
+          <span class="fl-orb-stone">
+            <img src="https://azul.rs/logo.svg" alt="Azul" class="nav-brand-logo">
+            <span class="fl-orb-gloss" aria-hidden="true"></span>
+            <span class="fl-orb-edge" aria-hidden="true"></span>
+          </span>
+        </button>
       </div>
     </div>
   </nav>
   <div class="nav-overlay" aria-hidden="true" onclick="document.body.classList.remove('nav-open')"></div>
-  <aside class="mobile-menu" aria-label="Mobile navigation">
+  <aside class="mobile-menu" id="site-nav-panel" aria-label="Site navigation">
+    <a href="/">home</a>
     <a href="https://azul.rs/ui">overview</a>
     <a href="https://azul.rs/ui/releases">releases</a>
     <a href="https://github.com/fschutt/azul">code</a>
     <a href="https://azul.rs/ui/guide">guide</a>
     <a href="https://azul.rs/ui/api">api</a>
-    <a href="https://azul.rs/ui/reftest">reftests</a>
+    <a href="https://azul.rs/ui/reftest" class="active">reftests</a>
     <a href="https://azul.rs/ui/blog">blog</a>
     <a href="https://azul.rs/ui/donate">donate</a>
   </aside>

@@ -319,6 +319,40 @@ pub fn run_reftests(config: RunRefTestsConfig) -> anyhow::Result<ReftestOutcome>
 /// If test_dir doesn't exist or is empty, it will show "0 tests found".
 ///
 /// This function also copies existing reftest results and images from the standard
+
+/// Copy a reftest report, repointing its stylesheet at the current design
+/// system on the way.
+///
+/// The report is produced by a reftest RUN and cached under `target/reftest`,
+/// so a deploy can ship an artefact generated months earlier by an older
+/// template. Those older reports link `https://azul.rs/main.css`, which no
+/// page serves any more - the result is an unstyled report, or worse, one
+/// that pulls the previous design over the network. Rewriting at the copy
+/// step means a stale artefact still lands on Flora without forcing a rerun.
+pub fn copy_report_html(src: &Path, dst: &Path) -> std::io::Result<()> {
+    let html = fs::read_to_string(src)?;
+    // Root-relative on purpose: the copy lands under /ui/, and the same file
+    // has to style correctly on azul.rs AND on a local `deploy debug`
+    // preview. An absolute https:// link would pull production CSS into the
+    // local server's page.
+    let flora = concat!(
+        "<link rel='stylesheet' type='text/css' href='/flora.css'>\n",
+        "  <link rel='stylesheet' type='text/css' href='/azul-docs.css'>"
+    );
+    let mut out = html;
+    for stale in [
+        "<link rel='stylesheet' type='text/css' href='https://azul.rs/main.css'>",
+        "<link rel=\"stylesheet\" type=\"text/css\" href=\"https://azul.rs/main.css\">",
+        "<link rel='stylesheet' type='text/css' href='https://azul.rs/ui/main.css'>",
+        "<link rel=\"stylesheet\" type=\"text/css\" href=\"https://azul.rs/ui/main.css\">",
+        "<link rel='stylesheet' type='text/css' href='https://azul.rs/flora.css'>",
+        "<link rel='stylesheet' type='text/css' href='https://azul.rs/azul-docs.css'>",
+    ] {
+        out = out.replace(stale, flora);
+    }
+    fs::write(dst, out)
+}
+
 /// reftest output directory (doc/target/reftest) if they exist.
 pub fn generate_reftest_page(output_dir: &Path, test_dir: Option<&Path>) -> anyhow::Result<()> {
     fs::create_dir_all(output_dir)?;
@@ -335,9 +369,34 @@ pub fn generate_reftest_page(output_dir: &Path, test_dir: Option<&Path>) -> anyh
     if existing_results_json.exists() && existing_index_html.exists() {
         println!("  Found existing reftest results, copying...");
 
-        // Copy index.html
-        fs::copy(&existing_index_html, output_dir.join("index.html"))?;
-        println!("    Copied index.html");
+        // Re-RENDER the report from the cached results rather than copying
+        // the cached HTML. The HTML is a build artefact of whichever
+        // template was current when the reftests last ran, so copying it
+        // ships an old page shape (and an old stylesheet) forever. The
+        // results are data and stay valid, so rendering them through the
+        // current template keeps the report in step with the site.
+        let rerendered = fs::read_to_string(&existing_results_json)
+            .ok()
+            .and_then(|raw| serde_json::from_str::<TestResults>(&raw).ok())
+            .map(|parsed| {
+                generate_enhanced_html_report(
+                    &output_dir.join("index.html"),
+                    &parsed.tests,
+                    "cached run",
+                    "cached run",
+                    "cached",
+                    true,
+                )
+            });
+        match rerendered {
+            Some(Ok(())) => println!("    Re-rendered index.html from cached results"),
+            _ => {
+                // Unreadable or older results shape: fall back to the cached
+                // HTML, at least repointing its stylesheet.
+                copy_report_html(&existing_index_html, &output_dir.join("index.html"))?;
+                println!("    Copied index.html (results.json not re-renderable)");
+            }
+        }
 
         // Copy results.json
         fs::copy(&existing_results_json, output_dir.join("results.json"))?;

@@ -1900,7 +1900,10 @@ fn main() -> anyhow::Result<()> {
                         }
                         let reftest_html = reftest_output_dir.join("index.html");
                         if reftest_html.exists() {
-                            fs::copy(&reftest_html, output_dir.join("reftest.html"))?;
+                            reftest::copy_report_html(
+                                &reftest_html,
+                                &output_dir.join("reftest.html"),
+                            )?;
                             println!("  [OK] Copied reftest.html to deploy folder");
                         }
                     }
@@ -1914,9 +1917,9 @@ fn main() -> anyhow::Result<()> {
                 match reftest::generate_reftest_page(&reftest_output_dir, Some(&test_dir)) {
                     Ok(_) => {
                         if reftest_output_dir.join("index.html").exists() {
-                            fs::copy(
-                                reftest_output_dir.join("index.html"),
-                                output_dir.join("reftest.html"),
+                            reftest::copy_report_html(
+                                &reftest_output_dir.join("index.html"),
+                                &output_dir.join("reftest.html"),
                             )?;
                             println!("  [OK] Generated: reftest.html");
                         }

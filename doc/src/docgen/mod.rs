@@ -1175,7 +1175,9 @@ pub const AZLIN_TAB_SHOULDERS: &str =
     "<span class=\"fl-tab-shoulder fl-tab-shoulder-l\" aria-hidden=\"true\"></span>\
      <span class=\"fl-tab-shoulder fl-tab-shoulder-r\" aria-hidden=\"true\"></span>\
      <span class=\"fl-tab-seam\" aria-hidden=\"true\"></span>\
-     <span class=\"fl-tab-foot\" aria-hidden=\"true\"></span>";
+     <span class=\"fl-tab-foot\" aria-hidden=\"true\"></span>\
+     <span class=\"fl-tab-edge fl-tab-edge-l\" aria-hidden=\"true\"></span>\
+     <span class=\"fl-tab-edge fl-tab-edge-r\" aria-hidden=\"true\"></span>";
 
 pub fn azlin_nav(active: &str) -> String {
     const LINKS: [(&str, &str); 8] = [
