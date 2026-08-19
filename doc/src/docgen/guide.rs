@@ -265,7 +265,7 @@ fn extract_metadata(
 }
 
 /// Three-tree bucket for the guide index.
-fn classify_tree(g: &Guide) -> &'static str {
+pub(crate) fn classify_tree(g: &Guide) -> &'static str {
     match g.audience.as_deref() {
         Some("contributor") => "contributor",
         _ => match g.guide_order {
@@ -468,7 +468,6 @@ pub fn generate_guide_mainpage(_version: &str) -> String {
         r#"<section class="docs-hero">
       <div class="container">
         <h1>User guide</h1>
-        <p class="docs-lede">Learn Azul chapter by chapter, from the first window to the framework internals.</p>
         <div id="azul-search-mount" class="azs-mount-inline"></div>
       </div>
     </section>
@@ -590,10 +589,10 @@ fn render_list_item(
         }
         s.push_str("</ul>\n");
     }
-    s.push_str(&format!(
-        "<a class=\"docs-read-more\" href=\"{HTML_ROOT}/guide/{}\">Read chapter &rarr;</a>\n</div>\n",
-        g.file_name,
-    ));
+    // No "Read chapter" link: the chapter's own title above is that link, and
+    // pointing at the same page twice from one card is the duplication this
+    // index is meant to avoid.
+    s.push_str("</div>\n");
     s
 }
 

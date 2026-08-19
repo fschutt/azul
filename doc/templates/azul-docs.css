@@ -289,15 +289,28 @@ body.docs {
 .docs-content a.docs-card,
 .docs-content a.docs-card:visited { color: var(--color-text); }
 
-/* A heading that is a link keeps the heading's ink and drops the prose
-   hairline - the size already says it is a target. */
-.docs-list-item h3 a,
-.docs-list-item h3 a:visited,
+/* A heading inside prose keeps the heading's ink and no hairline - it is a
+   heading that happens to be anchored. A heading in a LIST is the item's
+   only link, so it carries the hairline: without it the card read as static
+   text and the reader went looking for a separate link. */
 .docs-content h1 a, .docs-content h2 a,
 .docs-content h3 a, .docs-content h4 a {
     color: var(--color-text);
     text-decoration: none;
     border-bottom: none;
+}
+
+.docs-list-item h3 a,
+.docs-list-item h3 a:visited {
+    color: var(--color-text);
+    text-decoration: none;
+    border-bottom: 2px solid color-mix(in srgb, var(--color-accent) 55%, transparent);
+    transition: border-color 0.15s ease, color 0.15s ease;
+}
+
+.docs-list-item h3 a:hover {
+    color: var(--color-accent-hover);
+    border-bottom-color: var(--color-accent);
 }
 .docs-list-item h3 a:hover { color: var(--color-accent); }
 .docs-list-item .docs-meta {

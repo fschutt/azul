@@ -259,3 +259,93 @@ fn callback_signature(cb: &CallbackDefinition) -> String {
     }
     sig
 }
+
+/// Build the GUIDE search index, in the same shape the api index uses so the
+/// existing `api-index` adapter can read it unchanged.
+///
+/// The guide box says "Search guide", and until now it searched the API. It
+/// was pointed at pagefind, whose adapter degrades to an empty source when
+/// the CLI was not installed at deploy time; pairing it with the api index
+/// stopped it answering "No matches" but made it answer with the wrong
+/// corpus. The guide's text is right here in the generator, so it indexes
+/// itself and depends on nothing external.
+///
+/// Anchors are absolute paths (`/ui/guide/<slug>`), which `resolveHref`
+/// passes through untouched.
+pub fn generate_guide_index(guides: &[crate::docgen::guide::Guide]) -> String {
+    #[derive(serde_derive::Serialize)]
+    struct GuideEntry<'a> {
+        k: &'static str,
+        n: &'a str,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        p: Option<&'a str>,
+        a: String,
+        d: String,
+    }
+    #[derive(serde_derive::Serialize)]
+    struct GuideIndex<'a> {
+        v: &'a str,
+        e: Vec<GuideEntry<'a>>,
+    }
+
+    let entries = guides
+        .iter()
+        .map(|g| GuideEntry {
+            k: "g",
+            n: &g.title,
+            // The section, so a result reads "Getting Started / Hello World".
+            // The one-line description is prose ABOUT the chapter, not a name
+            // for it - it belongs in the body below, where it is searchable
+            // and shows as the snippet.
+            p: Some(match crate::docgen::guide::classify_tree(g) {
+                "contributor" => "Contributors",
+                "advanced" => "Advanced",
+                _ => "Getting Started",
+            }),
+            a: format!("{}/guide/{}", crate::docgen::UI_PATH, g.file_name),
+            // The chapter's prose, stripped of markdown furniture. Fences are
+            // dropped whole: a search for a word should land on the chapter
+            // that TEACHES it, not on one that happens to print it in a code
+            // sample.
+            d: match &g.description {
+                Some(desc) => format!("{desc}. {}", markdown_to_search_text(&g.content)),
+                None => markdown_to_search_text(&g.content),
+            },
+        })
+        .collect();
+
+    serde_json::to_string(&GuideIndex { v: "guide", e: entries }).unwrap_or_default()
+}
+
+/// Reduce markdown to the plain words a reader would search for.
+fn markdown_to_search_text(md: &str) -> String {
+    let mut out = String::with_capacity(md.len() / 2);
+    let mut in_fence = false;
+    for line in md.lines() {
+        let t = line.trim_start();
+        if t.starts_with("```") {
+            in_fence = !in_fence;
+            continue;
+        }
+        if in_fence {
+            continue;
+        }
+        let cleaned: String = t
+            .trim_start_matches(|c| c == '#' || c == '>' || c == '-' || c == '*' || c == ' ')
+            .chars()
+            .filter(|c| !matches!(c, '`' | '|' | '[' | ']' | '(' | ')' | '_'))
+            .collect();
+        let cleaned = cleaned.trim();
+        if cleaned.is_empty() {
+            continue;
+        }
+        out.push_str(cleaned);
+        out.push(' ');
+        // A chapter's opening is what identifies it; the rest adds noise
+        // faster than it adds recall.
+        if out.len() > 4000 {
+            break;
+        }
+    }
+    out.trim_end().to_string()
+}
