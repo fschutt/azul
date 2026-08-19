@@ -12,10 +12,13 @@
 //!   F1 stub mini            — transpiler available but the mini has no
 //!                             exports (e.g. the dlsym-on-static-exe bug:
 //!                             every page load fails at bootstrap)
-//!   F2 remill lift failures — functions Leaf-stubbed because remill/llc
-//!                             CRASHED. A crash stub returns 0 and never
-//!                             writes its sret: the unwritten-sret silent-
-//!                             corruption class (capacity_overflow bug).
+//!   W3 remill lift failures — functions stubbed because remill/llc CRASHED.
+//!                             The stub TRAPS (marker at 0x40048) rather than
+//!                             returning 0, so it can't feed a fake result
+//!                             into its caller — the unwritten-sret silent-
+//!                             corruption class. Warn, not fatal: the build
+//!                             is servable while that code is unreached, and
+//!                             the trap names it the moment it is not.
 //!   F3 unknown env imports  — the final wasm imports a symbol the loader
 //!                             provably does not implement; the loader's
 //!                             Proxy zero-stubs it and the first call
@@ -371,10 +374,14 @@ pub fn run(
     }
 
     if lift_failures > 0 {
+        // These now get TRAP stubs, not zero-returning ones: a function we
+        // could not lift announces itself at 0x40048 and halts instead of
+        // feeding a fake 0 into its caller. That makes them a warning, not
+        // a fatal — a build is servable as long as the un-liftable code is
+        // never actually reached, and if it is, the trap says which.
         eprintln!(
-            "[azul-web][lift-audit] ✗ F2 {lift_failures} function(s) Leaf-stubbed by remill/llc CRASHES — unwritten-sret corruption class; see the per-fn warnings above",
+            "[azul-web][lift-audit] ⚠ W3 {lift_failures} function(s) TRAP-stubbed (remill/llc could not lift them) — they halt loudly at 0x40048 if ever called; see the per-fn warnings above",
         );
-        fatal = true;
     }
 
     // F5: __remill_error, aggressive — every non-allowlisted fn is fatal.
