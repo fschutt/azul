@@ -5188,6 +5188,49 @@ jobs:
             # (.so/.dylib/.dll/.pyd) is far more useful as a direct download.
             # deploy.rs links the .tar.gz for the former
             # (asset_url -> <basename>.tar.gz when is_tarred()).
+            # Gatekeeper blocks anything downloaded from the web until azul is
+            # notarized. Rather than telling the reader about it on the release
+            # page (where it is a wall of text next to a download button), every
+            # macOS archive carries the fix and the instructions inside it.
+            write_macos_unquarantine() {
+              printf '%s\n' \
+                '#!/bin/bash' \
+                "# Double-click me - I live next to $2. I clear the macOS" \
+                '# download quarantine on that file so macOS will open it.' \
+                'cd "$(dirname "$0")" || exit 1' \
+                "xattr -dr com.apple.quarantine \"./$2\" 2>/dev/null || true" \
+                "echo \"Un-quarantined ./$2\"" \
+                > "$1/unquarantine.command"
+              chmod +x "$1/unquarantine.command"
+            }
+
+            write_macos_readme() {
+              printf '%s\n' \
+                'Running this on macOS' \
+                '=====================' \
+                '' \
+                "This archive contains $2." \
+                '' \
+                'macOS marks everything downloaded from the web as quarantined,' \
+                'and refuses to open it until the developer is verified. Azul is' \
+                'not yet notarized with Apple, so you will see:' \
+                '' \
+                '    "cannot be opened because the developer cannot be verified"' \
+                '' \
+                'To clear that, double-click' \
+                '' \
+                '    unquarantine.command' \
+                '' \
+                'in this folder. It removes the quarantine flag from the file' \
+                'next to it, and nothing else. If Finder will not run it either,' \
+                'open Terminal in this folder and run:' \
+                '' \
+                "    xattr -dr com.apple.quarantine $2" \
+                '' \
+                'You only need to do this once per download.' \
+                > "$1/README-macOS.txt"
+            }
+
             UPLOAD=()
             for f in "${LARGE[@]}"; do
               case "$f" in
@@ -5209,10 +5252,23 @@ jobs:
                     "exec \"./$bn\"" \
                     > "$dir/unquarantine.command"
                   chmod +x "$dir/unquarantine.command"
-                  tar -czf "$f.tar.gz" -C "$dir" "$bn" unquarantine.command
-                  rm -f "$dir/unquarantine.command"
+                  write_macos_readme "$dir" "$bn"
+                  tar -czf "$f.tar.gz" -C "$dir" "$bn" unquarantine.command README-macOS.txt
+                  rm -f "$dir/unquarantine.command" "$dir/README-macOS.txt"
                   UPLOAD+=("$f.tar.gz")
-                  echo "tar.gz $bn (+ unquarantine.command)"
+                  echo "tar.gz $bn (+ unquarantine.command + README)"
+                  ;;
+                *macos*.a|*-apple-*.a)
+                  # macOS static lib: same Gatekeeper story as the demos, so it
+                  # travels with the same helper and the same README rather than
+                  # relying on a note the download page cannot carry.
+                  bn="$(basename "$f")"; dir="$(dirname "$f")"
+                  write_macos_unquarantine "$dir" "$bn"
+                  write_macos_readme "$dir" "$bn"
+                  tar -czf "$f.tar.gz" -C "$dir" "$bn" unquarantine.command README-macOS.txt
+                  rm -f "$dir/unquarantine.command" "$dir/README-macOS.txt"
+                  UPLOAD+=("$f.tar.gz")
+                  echo "tar.gz $bn (+ unquarantine.command + README)"
                   ;;
                 *.a|*.lib|*/demos/*)
                   tar -czf "$f.tar.gz" -C "$(dirname "$f")" "$(basename "$f")"
