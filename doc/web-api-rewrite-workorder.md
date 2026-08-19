@@ -40,11 +40,12 @@ source at HEAD `4d57444d7`.
    `AzStartup_registerStateDeserializer` (`:675`), loader side `azHydrateJsonMarkers`
    (`dll/src/web/loader_js.rs:734`, calling the setter at `:752`), extra-root seeding of the
    deserializer (`dll/src/web/mod.rs:1077-1085`). Treat the reflection bridge as **present**.
-5. `web-boundary-apis-plan.md` §5.1 proposes an optional api.json `"web"` key. **A raw JSON key
-   cannot work**: `ClassData`/`FunctionData` (`doc/src/api.rs:1064-1125`, `:1268-1298`) have no
-   unknown-field capture and every `normalize`/`patch` run re-serializes the file, so an unknown
-   key is **silently dropped**. See §4.5 — this becomes a `doc/src/api.rs` code change, not a JSON
-   edit.
+5. `web-boundary-apis-plan.md` §5.1 proposes an optional api.json `"web"` key marking which
+   functions are JS-implemented. **There is no such key and none is to be added.** api.json
+   describes ONE API. A function's signature is identical on desktop and web, and on web the
+   function body is *lifted like any other* — the JS boundary is crossed at a single runtime
+   primitive (the pending-request table and `AzStartup_completeRequest`), not at a per-function
+   classification. See §4.5.
 6. `web-boundary-apis-plan.md` §3 row 59 says the desktop db engine is `rusqlite`. It is **turso**
    (pure-Rust SQLite, `dll/src/desktop/extra/sqlite/`).
 7. The plan's §4.1 claim that a resume "runs the normal Update→relayout→patch cycle" overstates
@@ -162,8 +163,9 @@ FIFO; append nested completions to the **end** of the queue, never recurse.
 
 ### 1.5 Web implements the same signature as a JS-backed boundary
 
-* The request function is classified `classify::FnClass::WebJsImpl` →
-  `symbol_table::FnClass::BoundaryJsImport`; the transitive lift stops there and the caller gets an
+* The request function is classified `symbol_table::FnClass::BoundaryImport` — a **lifter-side**
+  decision made by name in `dll/src/web/symbol_table.rs`, with no api.json involvement (§4.5). The
+  transitive lift stops there and the caller gets an
   `env.sub_<hex>` import (`BoundaryImport` documented `dll/src/web/symbol_table.rs:123`;
   loader-side substitution map `azBoundarySymbols` declared `dll/src/web/loader_js.rs:207`,
   preferred over the no-op stub at `:327-328`, populated by `azLoadBoundaryShards()` at
@@ -709,16 +711,19 @@ Generated outputs the web backend depends on:
 * `target/codegen/api.json.br` — brotli of minified api.json, `include_bytes!`d by
   `dll/src/web/classify.rs:13-16`. `classify_api_functions()` (`classify.rs:78`) walks
   *version → api → module → classes → {constructors, functions}* (`:99-119`) and derives the C name
-  `Az{Class}_{snake_case_to_lower_camel(fn)}` (`:113-114`). **Adding a function to api.json changes
-  web classification with no Rust edit — but only after `codegen all` regenerates this file.**
+  `Az{Class}_{snake_case_to_lower_camel(fn)}` (`:113-114`). **A function added to api.json is picked
+  up by the web backend with no Rust edit — but only after `codegen all` regenerates this file.**
 * `target/codegen/dll_api_internal.rs` — the `cabi_export` bodies, `include!`d into `azul-dll` at
   `dll/src/lib.rs:195-209`. C-name synthesis: `ir_builder.rs:1466-1471`; helper
   `doc/src/utils/string.rs:2-15`.
 
-`classify_fn` (`classify.rs:144-151`) is **prefix-based only** (`AzApp_run` → ServerEntryPoint,
-`AzDisplayList_*`/`AzGl_*` → ReplaceWithDomPatcher, everything else → `Framework`). Every new
-`Az*` function therefore defaults to `Framework` — i.e. it gets pulled into wasm — unless §4.5's
-mechanism marks it otherwise.
+`classify_fn` (`dll/src/web/classify.rs:144-151`) is **prefix-based only** (`AzApp_run` →
+ServerEntryPoint, `AzDisplayList_*`/`AzGl_*` → ReplaceWithDomPatcher, everything else →
+`Framework`). Every new `Az*` function therefore defaults to `Framework` — i.e. it gets lifted into
+wasm — **and that is the correct outcome**: on web these functions *are* lifted framework
+functions. Nothing marks them otherwise (§4.5). The only names that get a different verdict are the
+lifter-side stop-points chosen by module path in `symbol_table.rs` (`BoundaryImport` for the db
+surface, §5.6) — a decision made in Rust about symbols, never in api.json about API functions.
 
 Never hand-edit anything under `target/codegen/`.
 
@@ -839,30 +844,44 @@ Phase 0.
 * Class ordering inside a module is irrelevant — phase 9 topologically sorts types by dependency
   (`ir_builder.rs:72`, `:789-792`).
 
-### 4.5 The `web` classification key — a code change, not a JSON key
+### 4.5 There is no `web` classification key — one api.json, one API
 
-The boundary plan proposes a per-function `"web": {"class": "js", "hook": "…"}` key so
-`classify.rs` can return `WebJsImpl` → `BoundaryJsImport`. **A bare JSON key will not survive.**
-`ClassData` (`doc/src/api.rs:1064-1125`) and `FunctionData` (`:1268-1298`) have no
-`#[serde(deny_unknown_fields)]` and no flattened catch-all map, and every `normalize`/`patch` run
-re-serializes the whole file through `to_json_pretty_4space` (`main.rs:24-31`) — so unknown keys are
-**silently dropped and surviving keys are reordered to struct-declaration order**.
+The boundary plan floated a per-function `"web": {"class": "js", "hook": "…"}` key so codegen could
+tell "JS-implemented" functions from lifted ones. **Do not add it.** No new `FunctionData` field, no
+sidecar `web-classification.json`, no per-function classification of any kind.
 
-**Do this instead, in Phase 0:**
+The rule this program is built on:
 
-1. Add a field to `FunctionData` in `doc/src/api.rs:1268-1298`:
-   ```rust
-   #[serde(default, skip_serializing_if = "Option::is_none")]
-   pub web: Option<WebFnClass>,   // { class: "js"|"server"|"lift", hook: Option<String> }
-   ```
-2. Confirm no other language target emits it: `codegen all` and diff every file under
-   `target/codegen/`. Only `classify.rs` should ever read it (it parses raw JSON, so it needs no
-   change beyond looking the key up).
-3. Round-trip test: add the key to one existing function, run the full §4.1 sequence, and verify
-   `git diff api.json` shows only your addition.
+> **api.json describes exactly one API.** Every function has one signature, one doc comment and one
+> Rust implementation, and that same implementation is what gets lifted to wasm. If a function needs
+> a different shape to work on the web, then *that new shape is the API on both targets* — that is
+> what the resumable-callback remodel is for, and catching it now is the entire point of doing this
+> before anyone depends on us.
 
-The sidecar `web-classification.json` remains the fallback if step 2 turns up a binding that chokes.
-Decide in Phase 0; do not discover in Phase 1.
+Concretely, `file.FilePath.read_to_string` does not become "native on desktop, JS on web". It
+becomes `read_to_string(data, callback) -> RequestId` **everywhere**. On desktop the runtime
+services that request from a thread pool; on web the lifted body enqueues into the same pending
+table and JS services it. The bodies differ, the API does not.
+
+**Where the boundary actually lives.** Not in codegen — at one runtime primitive:
+
+* a request function stores `(RequestId, user RefAny, resume fn-ptr)` in the pending table and
+  returns immediately;
+* the platform layer (native thread pool, or the JS host via the loader) does the work;
+* `AzStartup_completeRequest(request_id, result_ptr, result_len, …)` (§5.1) delivers the result
+  struct and drives the resume.
+
+That is one export and one table, not 88 classification entries. `classify_fn`
+(`classify.rs:144-151`) can keep treating every `Az*` function as `Framework` — which is correct,
+because on web they *are* all lifted framework functions.
+
+**What this deletes from the plan:** the proposed `WebFnClass` enum, the `doc/src/api.rs` field, its
+round-trip proof, the sidecar fallback, and the risk row that guarded all of it (§8 skips R6).
+
+Two names to strike while you are here — earlier drafts cited `classify::FnClass::WebJsImpl` and
+`symbol_table::FnClass::BoundaryJsImport`. **Neither exists.** The real classifier is
+`classify_fn` in **`dll/src/web/classify.rs:144`** (there is no `doc/src/classify.rs`), and the real
+lifter variant is `BoundaryImport` (`dll/src/web/symbol_table.rs:123`).
 
 ---
 
@@ -997,36 +1016,43 @@ the mini lift seeds it as an extra root."*
 So `AzStartup_completeRequest` just calls `(callback.cb)(data, info, result)` in Rust. **No new
 bridge, no new `FnClass`.** What it *does* require is §5.4.
 
-⚠ The dispatcher's `%unk` default label is a **no-op, not a trap** (`transpiler_remill.rs:2938-2946`)
-— an unlifted fn-pointer target is silently dropped. Add a loud trap there as part of Phase 0, or
-this class of bug stays invisible.
+⚠ The dispatcher's `%unk` default label is a **no-op, not a trap** — verified at
+`transpiler_remill.rs:2999`: it bumps a counter at `0x40158`, records the low 32 bits of the PC at
+`0x40900`, and `ret`s. A dispatch to a body that is not in the bundle therefore *returns as if the
+call succeeded*. That is the one real defect in this area; see §5.4.
 
-### 5.4 Fn-pointer-only lift seeding — the gating unknown
+### 5.4 Fn-pointer seeding — mechanical, with one defect to fix first
 
-A `ResumeCallback` fn-pointer passed **only** to a request function is discovered by neither of the
-transpiler's two scans — `scan_guest_branch_targets` (`transpiler_remill.rs:3214`, BL/B byte scan)
-nor `scan_guest_code_addr_targets` (`:3222`, code-address materialisation scan) — because the
-pointer arrives as a *runtime value*. Its body is then absent from the bundle and the dispatcher's
-`%unk` label swallows the call. **This gates every resumable API.**
+**Resume callbacks are not invisible to the lifter.** They are `extern "C" fn` items with real
+symbols, so they are present in the symbol table with a name, address and size, and
+`resolve_fn_ptr(ptr)` maps a runtime pointer value straight back to that entry. Nothing about them
+is undiscoverable — the question is only whether a given build *seeded* them, since the transitive
+walk starts from roots (`EVENTLOOP_SYMBOLS` plus `extra_roots`) and a pointer that arrives as a
+runtime value is not a byte-scan-reachable edge.
 
-Two seeding levers exist today:
+Three levers already exist, all proven in-tree:
 
-* **Extra roots into the mini lift.** `fn lift_eventloop_mini_wasm(extra_roots: &[(String, usize, usize)])`
-  — `dll/src/web/mod.rs:930` (body `:930-987`; roots merged at `:955-968` with the comment *"Extra
-  roots reachable ONLY through a function pointer — the byte-scan walk can never discover them.
-  Today: the app's JSON state deserializer."*). The **only** call site is `mod.rs:1077-1085`, which
-  passes exactly one root: `app_data.get_deserialize_fn()`.
-* **Force-seed by name.** `SymbolTable::find_recursable_by_name(&self, must_contain: &[&str])` —
-  `dll/src/web/symbol_table.rs:1023` (doc `:1018-1022`). Consumed at
-  `transpiler_remill.rs:3179-3198`, whose hardcoded pattern list (`:3180-3183`) is how
-  `GetSystemTimeCallback`'s target gets lifted. Cheap, but name-based — it works for
-  framework-owned callbacks (the internal `FileInput` resume) and not for arbitrary user ones.
+* **Extra roots into the mini lift.** `lift_eventloop_mini_wasm(extra_roots: &[(String, usize, usize)])`
+  — `dll/src/web/mod.rs:930` (roots merged at `:955-968`). The call site at `:1077-1084` shows the
+  whole pattern in six lines: take the fn-pointer, `resolve_fn_ptr` it, push `(name, addr, size)`.
+  Today it passes one root (the state deserializer) because that is all that needed one.
+* **Force-seed by name.** `SymbolTable::find_recursable_by_name(must_contain)`
+  (`symbol_table.rs:1023`), consumed at `transpiler_remill.rs:3179-3198` — how
+  `GetSystemTimeCallback`'s target is lifted today.
+* **Data-resident pointer discovery.** The walk already scans a function's guest data accesses and
+  queues any value that resolves to a Recursable canonical entry, so callbacks reachable from a
+  static or a vtable are picked up with no seeding at all.
 
-**Recommendation for Phase 0: extend the extra-roots path.** Scan the app image for
-`ResumeCallback`-shaped statics server-side when the lift plan is built and pass them all through
-`lift_eventloop_mini_wasm`'s existing parameter. Use the name-based lever as the stopgap for the
-framework's own resume callbacks. **Prove this before writing any Phase-1 api.json entry** — if
-callbacks cannot be reached, nothing downstream works.
+**So this is a seeding chore, not a research question.** Phase 0 work item: extend the extra-roots
+call site to sweep every `extern "C"` resume-callback symbol (name-pattern or attribute-driven) into
+`extra_roots` instead of the single hand-wired deserializer. Over-seeding is cheap — an unused
+lifted body costs bundle size, nothing else.
+
+**The part that genuinely must land first is the trap**, because it converts this whole class from
+silent to loud: replace the `%unk` `ret` with a store to the trap marker plus `unreachable`, exactly
+like the crash-stub bodies. Then a missed seed shows up as a wasm trap at the first dispatch with the
+offending PC already recorded at `0x40900`, instead of a resume that quietly never fires. Do that
+before any api.json edit; everything after it is verifiable.
 
 ### 5.5 The RefAny reflection bridge — **PRESENT, reuse it**
 
@@ -1045,8 +1071,9 @@ lifted Rust from a flat TLV payload (§5.1 step 4). JS never hand-builds Rust me
 
 Pure classification, no api.json churn, lands with Phase 0:
 
-1. Classify the `AzDb_*` names `classify::FnClass::WebJsImpl` → `BoundaryJsImport` so the
-   transitive walk stops at the API boundary and **never descends into turso**.
+1. Classify the `AzDb_*` names `symbol_table::FnClass::BoundaryImport` (`symbol_table.rs:123`) so
+   the transitive walk stops at the API boundary and **never descends into turso**. This is a
+   name-match in the lifter's `classify_for_name`, not an api.json key.
 2. Classify every `turso::` / `turso_core::` module-path symbol `NeverLift` with a **loud trap**
    body — reaching one on web is a design error, and today it silently lifts megabytes of engine
    that no-ops at the fs syscall leaves.
@@ -1192,13 +1219,14 @@ the desktop `AZ_BACKEND=headless` lane on `hello_world_counter.json`).
 
 ### Checkpoint 0 — the primitive works end to end
 
-Steps: §5.4 seeding decision **and proof** → loud trap on the dispatcher's `%unk` label → pending
+Steps: **loud trap on the dispatcher's `%unk` label first** (§5.4 — it is what makes every later
+step verifiable) → extra-roots sweep for `extern "C"` resume callbacks + proof → pending
 table (§5.2) → `AzStartup_completeRequest` + `eventloop_symbols!` entry +
 `signature_for_eventloop_fn` arm + `azCompleteRequest` + the single-flight gate (§5.1) →
 `AzStartup_tickTimers` + the `Instant::now` boundary → `CallbackChange::CompleteRequest` + the
-desktop completion pump (§6.1) → `task.RequestId` + `ResumeCallback(Type)` (§3.1) → the two
-`module_map.rs` arms + regression cases + the stale `CascadeInfo` fix (§4.3) → the `web` field on
-`FunctionData` and its round-trip proof (§4.5) → the db lifter cut (§5.6).
+desktop completion pump (§6.1) → `task.RequestId` + `ResumeCallback(Type)` (§3.1) → the
+`module_map.rs` arms + regression cases + the stale `CascadeInfo` fix (§4.3) → the db lifter cut
+(§5.6).
 
 **Proof:** new spec `tests/e2e/resume_primitive.json` — a button click issues a synthetic request
 against a debug-only echo boundary, the resume callback mutates state, and the assertion is
@@ -1277,12 +1305,11 @@ rescue it has no user-visible role.
 
 | # | Risk | Why it matters | Cheapest experiment |
 |---|---|---|---|
-| R1 | **Fn-pointer-only callbacks are never lifted** (§5.4). Neither transpiler scan can see a pointer that arrives as a runtime value, the mini lift takes exactly one extra root today (`mod.rs:1077-1085`), and the dispatcher's `%unk` default is a **no-op, not a trap** (`transpiler_remill.rs:2938-2946`) — so the resume silently never fires. | Gates the entire program. | Before any api.json work: a debug export that stores a fn-ptr handed in from a click callback and calls it one tick later through the dispatcher. Land the loud `%unk` trap first so the failure is visible. If it does not resolve, extra-roots seeding is mandatory and lands before Phase 1. One afternoon. |
+| R1 | **A missed resume callback fails silently** (§5.4). Not because callbacks are undiscoverable — they are `extern "C"`, carry real symbols and `resolve_fn_ptr` maps a pointer straight back to them — but because the dispatcher's `%unk` default `ret`s instead of trapping (verified, `transpiler_remill.rs:2999`), so a body that was never seeded looks like a call that succeeded. | Turns a mechanical seeding miss into an invisible one. | Make `%unk` trap (store the marker + `unreachable`, like the crash stubs) before any api.json edit — a one-function change. After it, the same debug export that stores a fn-ptr from a click callback and calls it a tick later either works or traps with the PC already at `0x40900`. Extend the extra-roots sweep in the same commit. |
 | R2 | **`repr(C)` result structs cross the boundary wrong.** Nested `Vec`/`String` inside `ResultHttpResponseHttpError` etc. are built in lifted Rust from a flat TLV payload; a layout mismatch is silent corruption, not a crash. `cd dll && cargo test` memtest only checks the top-level size/align. | Every non-trivial result (HTTP, dir listing, decoded image) rides this. | Round-trip **one** struct first: `HttpReachableResult { reachable: bool, error: OptionString }` — one bool, one string. Assert both fields with `assert_text`. Only then attempt `ResultHttpResponseHttpError`. |
-| R3 | **The autofixer moves, renames, or deletes new classes** (§4.2). `FilePath` already went to `svg` for exactly this reason; `RequestId` has **no rescue path at all** today and would drag a brand-new `misc` module into api.json. CI fails on any diff the autofix sequence produces (`rust.yml:97-110`). | Costs a full regen cycle per class, and a wrong `external` can produce a layout-mismatched transmute. | Add all ~35 new class names to `test_get_correct_module` **in one commit, before writing any api.json entry**, and run `cargo test -p azul-doc --release module_map`. Land the two `module_from_external_path` arms (`azul_core::task::`, `azul_layout::http::`) in the same commit, plus the stale `CascadeInfo` fix. Minutes. |
+| R3 | **The autofixer puts new classes in a module you did not choose** (§4.2) — a known chore, not a hazard. `determine_module` buckets by name substring (`module_map.rs:500-575`); `RequestId` matches no module name and no keyword, so it lands in the `misc` fallback (`:556`). Verified live, and it is the same shape as the `FilePath`→`svg` bug already fixed on this branch (`4bd0ca520`). CI fails on any diff the autofix sequence leaves behind (`rust.yml:97-110`), so an unnoticed move is caught, just late. | One wasted regen cycle per class if skipped; a wrong `external` path can also produce a layout-mismatched transmute. | Add the new class names to `test_get_correct_module` and run `cargo test -p azul-doc --release module_map` **in the same commit that adds them**, and run the §4.1 autofix sequence locally before pushing. Where the verdict is wrong, fix `module_map.rs` — never api.json by hand. Minutes. |
 | R4 | **`completeRequest` re-entrancy.** A promise can resolve between two synchronous dispatches; two activations then mutate `EventloopState` and the bump allocator interleaved. Lifted Rust assumes `&mut` uniqueness — silent corruption, the same hazard that sank JSPI. | Corruption, not a clean failure. | Loader-side single-flight FIFO from day one (§5.1), plus a spec that fires a click while a mocked slow request is outstanding and asserts both complete in order. |
 | R5 | **Bump-allocator pressure.** The web allocator never frees (`FnClass::BumpDealloc`, `symbol_table.rs:149`, is a documented no-op). Large downloads and decoded images allocate per request and leak by construction. | An app that fetches in a loop dies. | A spec that issues 200 mocked 1 MiB downloads while reading the bump pointer via `AzStartup_peekU32` (`eventloop.rs:2008`). Linear growth to exhaustion ⇒ a per-request arena reset is a Phase-2 prerequisite, not a Phase-5 nicety. |
-| R6 | **The `web` classification key cannot be a bare JSON key** (§4.5) — `FunctionData` has no unknown-field capture and `normalize`/`patch` re-serialize the file, so it is silently dropped. Without it, `classify_fn` (`classify.rs:144-151`) leaves every new request function as `Framework` and the JS-impl mechanism has no trigger. | Blocks classifying anything as `BoundaryJsImport`. | Not an experiment — a work item: add `web: Option<WebFnClass>` to `doc/src/api.rs:1268-1298`, run `codegen all`, and diff every file under `target/codegen/` to confirm no other binding emits it. Half a day, a Phase-0 gate. Sidecar `web-classification.json` is the fallback. |
 | R7 | **Cancellation and RefAny lifetime.** The pending table clones the user `RefAny` and holds it until completion. Window close, repeated requests, and subscriptions (PR-17/PR-20, which never complete) all leak entries. `CallbackInfo::cancel_request(RequestId)` is deliberately **out of scope for v1**. | A long-running app grows a pending table forever. | Decide the GC policy in Phase 0 and encode it in `PendingRequest`: drop everything on window close; subscription entries are owned by the object that created them (`Db`, capture widget) and dropped with it. Assert with a spec that opens and closes 100 subscriptions and checks `pending.len()` via a debug probe. |
 | R8 | **The e2e mock protocol does not exist.** §6.5 is committed as documentation only — no `__az_e2e_mock` anywhere in `scripts/e2e-web/`, and `{"op":"mock"}` currently reports `skip` (`driver.mjs:378`), i.e. **a spec that should fail passes**. `scripts/e2e-web/golden/` does not exist either, so the first screenshot run auto-creates baselines and passes. | Every checkpoint from 1 onward claims proof from specs that would be vacuous. | Implement the mock op in Checkpoint 1 *before* writing the specs that depend on it; make an unmocked request fail loudly (`status: "unmocked"`); fix the `"name"` vs `"reference"` bug in `tests/e2e/azwriter_boot.json:15-17`; commit golden baselines explicitly rather than letting a first run mint them. |
 | R9 | **File System Access is Chromium-only, permanently.** Firefox and Safari hold negative standards positions on `showOpenFilePicker`/`showDirectoryPicker`/`showSaveFilePicker`; this will not become Baseline. | `SaveTarget`, `open_directory`, and any "re-save to the same file" story are tier-1-Chromium features. | Nothing to experiment on — it is a fact. Design `SaveTarget` with the `<a download>` fallback as the *default* path, not the exception, and make `as_path() -> None` a documented, tested case (Checkpoint 3 spec). |
