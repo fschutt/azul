@@ -288,6 +288,23 @@ impl VirtualViewManager {
     /// least once). Used to re-invoke *all* views after a shared-dataset change
     /// arrives out-of-band (e.g. a background tile-fetch writeback) without
     /// needing to know which node the data belongs to.
+    /// Which VirtualView HOSTS a nested dom: the inverse of
+    /// [`Self::get_nested_dom_id`].
+    ///
+    /// A nested dom's display list is 0-relative — the rasteriser composites
+    /// it at `host_bounds.origin + content_offset` — so every geometry
+    /// accessor that must answer in WINDOW space has to walk back up through
+    /// its hosts. Without this there was no way to ask "where does this dom
+    /// actually sit", and a caret rect inside a VirtualView was handed to the
+    /// platform IME as if the host were at the window origin.
+    #[must_use]
+    pub fn host_of_nested_dom(&self, nested: DomId) -> Option<(DomId, NodeId)> {
+        self.states
+            .iter()
+            .find(|(_, state)| state.nested_dom_id == nested)
+            .map(|((dom_id, node_id), _)| (*dom_id, *node_id))
+    }
+
     #[must_use] pub fn all_view_keys(&self) -> Vec<(DomId, NodeId)> {
         self.states.keys().copied().collect()
     }
