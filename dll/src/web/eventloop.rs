@@ -555,23 +555,38 @@ pub unsafe extern "C" fn AzStartup_hydrateJson(
     if state == 0 || json_ptr == 0 || json_len == 0 {
         return 0;
     }
+    // [AZ-DIAG REVERT] step markers at 0x40980 — a trap anywhere in this
+    // chain otherwise only says "unreachable" somewhere under hydrateJson.
+    // 1 entered, 2 deserializer registered, 3 JSON parsed, 4 about to call
+    // the app fn, 5 it returned Ok, 6 RefAny stored.
+    let mark = |v: u32| core::ptr::write_volatile(0x40980 as *mut u32, v);
+    mark(1);
     let s = &mut *(state as usize as *mut EventloopState);
     let deser_fn = s.state_deserializer as usize;
     if deser_fn == 0 {
         return 0;
     }
+    mark(2);
     let text = core::slice::from_raw_parts(json_ptr as usize as *const u8, json_len as usize);
     let json = match azul_core::json::Json::parse_bytes(text) {
         Ok(j) => j,
         Err(_) => return 0,
     };
+    mark(3);
+    core::ptr::write_volatile(0x40984 as *mut u32, json.to_string().as_str().len() as u32);
+    mark(4);
     let refany = match azul_layout::json::json_deserialize_to_refany(json, deser_fn) {
         azul_layout::json::ResultRefAnyString::Ok(r) => r,
-        azul_layout::json::ResultRefAnyString::Err(_) => return 0,
+        azul_layout::json::ResultRefAnyString::Err(_) => {
+            mark(0xE0);
+            return 0;
+        }
     };
+    mark(5);
     let boxed = Box::new(refany);
     let ptr = Box::into_raw(boxed) as usize as u32;
     s.refany_ptr = ptr;
+    mark(6);
     ptr
 }
 

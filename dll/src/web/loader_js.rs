@@ -752,6 +752,17 @@ function azHydrate() {
     // the app registered a deserializer, the server ships its synth
     // address and the state travels as JSON instead.
     // See doc/web-json-hydrate-plan.md.
+    // [AZ-DIAG REVERT] read the wasm-side hydrateJson step markers (0x40980)
+    // so a trap inside the chain names its step instead of just "unreachable".
+    function azHydrateJsonMarkers() {
+        try {
+            var dv = new DataView(azMemory.buffer);
+            console.error('[azul-web] hydrateJson step=' + dv.getUint32(0x40980, true)
+                + ' json_len_roundtrip=' + dv.getUint32(0x40984, true)
+                + '  [1 entered, 2 deser registered, 3 parsed, 4 calling app fn,'
+                + ' 5 app fn Ok, 6 stored, 0xE0 app fn Err]');
+        } catch (e) { /* memory detached */ }
+    }
     var deserFn = (typeof payload.deserialize_fn === 'number') ? payload.deserialize_fn : 0;
     var usedJsonHydrate = false;
     if (deserFn !== 0 && payload.json !== null && typeof payload.json === 'object'
@@ -773,6 +784,7 @@ function azHydrate() {
                 // that is exactly the corruption this exists to avoid.
                 console.error('[azul-web] AzStartup_hydrateJson failed (deserializer 0x'
                     + deserFn.toString(16) + ') — app state will be missing');
+                azHydrateJsonMarkers();
             }
         }
     }
@@ -1508,6 +1520,11 @@ function azBootstrapTracked() {
             // The stack is the diagnosis: wasm frames name the trapping
             // function (wasm-function[N]:0x... → wfunc.mjs → symbol).
             console.error('[azul-web] bootstrap FAILED:', (e && (e.stack || e.message)) || e);
+            try {
+                var dv = new DataView(azMemory.buffer);
+                console.error('[azul-web] hydrateJson step marker=' + dv.getUint32(0x40980, true)
+                    + ' json_len_roundtrip=' + dv.getUint32(0x40984, true));
+            } catch (e2) { /* no memory yet */ }
         })
         .then(function() { window.__az_pending--; });
 }
