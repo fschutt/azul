@@ -756,7 +756,18 @@ impl SymbolTable {
         // ascending order with 1 MiB rounding so different images
         // sit in separate megabyte-aligned bands.
         rebases.sort_by_key(|r| r.native_base);
-        const FIRST_SYNTH_BASE: usize = 0x10000;   // 64 KiB
+        // The first image must start ABOVE the runtime's fixed low region:
+        // the bump cursor (0x40020), its size/count slots, the dispatcher
+        // and missing-block recorders (0x400FC/0x40158/0x40160/0x40900),
+        // NeverLift + probe markers (0x40048, 0x40910+) and the C stack all
+        // live at hardcoded addresses below 1 MiB. A base of 64 KiB put the
+        // FIRST image's mirrored data straight over them: for a
+        // statically-linked host exe (~18 MiB span starting at 0x10000) the
+        // data segments zeroed the bump cursor, so every allocation
+        // returned null and init died in handle_alloc_error. azul.dll only
+        // escaped because it happened to be the second image, based above
+        // the region.
+        const FIRST_SYNTH_BASE: usize = 0x10_0000; // 1 MiB — past the runtime region
         const SYNTH_ALIGN: usize = 0x10_0000;       // 1 MiB
         let mut next_synth = FIRST_SYNTH_BASE;
         for r in &mut rebases {
