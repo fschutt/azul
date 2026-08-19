@@ -5640,13 +5640,61 @@ impl LayoutWindow {
         options: crate::managers::scroll_into_view::ScrollIntoViewOptions,
         now: Instant,
     ) -> Vec<crate::managers::scroll_into_view::ScrollAdjustment> {
+        // Precomputed, because the resolver would otherwise borrow `self`
+        // immutably while `scroll_manager` is borrowed mutably below.
+        let hops = self.nested_dom_hops();
+        let hop = move |d: DomId| hops.get(&d).copied();
         crate::managers::scroll_into_view::scroll_node_into_view(
             node_id,
             &self.layout_results,
             &mut self.scroll_manager,
             options,
             now,
+            &hop,
         )
+    }
+
+    /// Every nested dom mapped to `(host's dom, host node, the offset that
+    /// converts geometry in the nested dom to the host's space)`.
+    ///
+    /// This is the per-hop form of [`Self::window_space_offset_of_dom`]. A
+    /// scroll-ancestor walk needs the hops one at a time, because it collects
+    /// containers in each dom on the way up.
+    #[must_use]
+    pub fn nested_dom_hops(
+        &self,
+    ) -> alloc::collections::BTreeMap<DomId, (DomId, NodeId, LogicalPosition)> {
+        let mut hops = alloc::collections::BTreeMap::new();
+        for (parent_dom, host_node) in self.virtual_view_manager.all_view_keys() {
+            let Some(nested) = self
+                .virtual_view_manager
+                .get_nested_dom_id(parent_dom, host_node)
+            else {
+                continue;
+            };
+            let Some(parent_result) = self.layout_results.get(&parent_dom) else {
+                continue;
+            };
+            let host_pos = parent_result
+                .layout_tree
+                .dom_to_layout
+                .get(&host_node)
+                .and_then(|indices| indices.first().copied())
+                .and_then(|idx| {
+                    solver3::pos_get(&parent_result.calculated_positions, idx.index())
+                });
+            let Some(host_pos) = host_pos else { continue };
+            let content = self.virtual_view_content_offset(parent_dom, host_node);
+            hops.insert(
+                nested,
+                (
+                    parent_dom,
+                    host_node,
+                    LogicalPosition::new(host_pos.x + content.x, host_pos.y + content.y),
+                ),
+            );
+        }
+        hops
     }
 
     // NOTE: no `LayoutWindow::scroll_cursor_into_view` wrapper. Caret reveal
