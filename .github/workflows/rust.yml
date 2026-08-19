@@ -791,6 +791,32 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          stage1=rust9x/build/x86_64-pc-windows-msvc/stage1
+
+          # Ship a COMPILER, not a compiler development kit. Packing stage1
+          # whole gave a 1.2 GB tree / 355 MB tarball, and a third of that is
+          # weight no azul build ever reads:
+          #   *.pdb            108 MB  debug symbols for rustc itself
+          #   llc.exe          103 MB  standalone LLVM backend driver
+          #   opt.exe          103 MB  standalone LLVM optimiser driver
+          #   llvm-nm.exe       42 MB  symbol lister
+          #   llvm-objdump.exe  35 MB  disassembler
+          # rustc links LLVM in-process and never shells out to llc/opt, and
+          # the other three are inspection tools. Everything the compiler
+          # actually invokes stays: rustc_driver.dll, rust-lld.exe (the
+          # linker), llvm-ar.exe, and every rlib/rmeta for all four targets.
+          # Measured on the real artifact: 355 MB -> 246 MB, -31%. That size
+          # is not cosmetic -- this download is the flakiest step in the job,
+          # and deploy_pages `needs:` it.
+          find "$stage1" -name '*.pdb' -delete
+          for tool in llc.exe opt.exe llvm-nm.exe llvm-objdump.exe; do
+            find "$stage1" -name "$tool" -delete
+          done
+          # Fail loudly rather than publish a toolchain that cannot link.
+          test -f "$stage1/bin/rustc.exe"
+          test -f "$stage1/lib/rustlib/x86_64-pc-windows-msvc/bin/rust-lld.exe"
+          ls "$stage1"/bin/rustc_driver-*.dll >/dev/null
+
           tar -czf "$RUST9X_ASSET" -C rust9x/build/x86_64-pc-windows-msvc stage1
           # Create the release once; thereafter just clobber the asset.
           gh release view "$RUST9X_TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1 || \
