@@ -1634,7 +1634,9 @@ mod autotest_generated {
         layout_window
             .layout_results
             .insert(DomId::ROOT_ID, layout_result(env.styled_dom));
-        layout_window.text_input_manager.pending_changeset = env.changeset;
+        if let Some(changeset) = env.changeset {
+            layout_window.text_input_manager.set_changeset(changeset);
+        }
         let layout_window = layout_window;
 
         let renderer_resources = RendererResources::default();

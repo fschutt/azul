@@ -1029,7 +1029,9 @@ mod autotest_generated {
                 .layout_results
                 .insert(DomId::ROOT_ID, layout_result(sd));
         }
-        layout_window.text_input_manager.pending_changeset = env.changeset;
+        if let Some(changeset) = env.changeset {
+            layout_window.text_input_manager.set_changeset(changeset);
+        }
 
         let renderer_resources = RendererResources::default();
         let previous_window_state: Option<FullWindowState> = None;

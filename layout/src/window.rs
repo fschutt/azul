@@ -961,6 +961,10 @@ pub enum TextEditNotify {
 /// multi-cursor paste). Replaces the three formerly hand-picked per-site id
 /// bands, which existed only so the sites could not collide.
 static CHANGESET_COUNTER: AtomicUsize = AtomicUsize::new(0);
+/// How far [`LayoutWindow::accumulated_scroll_for_node`] walks up summing
+/// scroll offsets. Bounded only so a malformed tree cannot spin.
+const SCROLL_ANCESTOR_WALK_LIMIT: usize = 256;
+
 
 #[allow(clippy::struct_excessive_bools)]
 #[derive(Debug)]
@@ -11343,24 +11347,41 @@ impl LayoutWindow {
     /// Returns the nodes that need to be marked dirty for re-layout,
     /// and whether a full re-layout is needed (text size changed).
     #[allow(clippy::too_many_lines)] // large but cohesive: single-purpose layout/render/parse routine (one branch per case)
+    /// Apply EVERY edit the input manager has queued, oldest first.
+    ///
+    /// `record_input` used to overwrite a single slot, so two keystrokes
+    /// arriving before one pass lost the first. It is a queue now — but a
+    /// queue drained one entry at a time and then cleared loses exactly the
+    /// same characters, so this drains it to empty and accumulates the result.
     pub fn apply_text_changeset(&mut self) -> TextChangesetResult {
+        let mut dirty_nodes: Vec<DomNodeId> = Vec::new();
+        let mut needs_relayout = false;
+
+        while let Some(queued) = self.text_input_manager.take_next_changeset() {
+            let result = self.apply_one_text_changeset(queued.edit);
+            needs_relayout |= result.needs_relayout;
+            for node in result.dirty_nodes {
+                if !dirty_nodes.contains(&node) {
+                    dirty_nodes.push(node);
+                }
+            }
+        }
+
+        TextChangesetResult { dirty_nodes, needs_relayout }
+    }
+
+    /// One queued edit. The entry is ALREADY popped, so every early-out here
+    /// simply skips it rather than clearing the queue behind the loop's back.
+    fn apply_one_text_changeset(
+        &mut self,
+        changeset: crate::managers::text_input::PendingTextEdit,
+    ) -> TextChangesetResult {
         use crate::managers::changeset::{TextOpInsertText, TextOperation};
         use crate::text3::edit::{edit_text, TextEdit};
 
-        // Get the changeset from TextInputManager
         let empty = TextChangesetResult { dirty_nodes: Vec::new(), needs_relayout: false };
 
-        let changeset = match self.text_input_manager.get_pending_changeset() {
-            Some(cs) => {
-                cs.clone()
-            }
-            None => {
-                return empty;
-            }
-        };
-
         let Some(node_id) = changeset.node.node.into_crate_internal() else {
-            self.text_input_manager.clear_changeset();
             return empty;
         };
 
@@ -11374,7 +11395,6 @@ impl LayoutWindow {
         // one is editable too. An own-node-only test here accepted the input
         // in `record_text_input` and then silently dropped the changeset.
         if !self.is_node_contenteditable_inherited_internal(dom_id, node_id) {
-            self.text_input_manager.clear_changeset();
             return empty;
         }
 
@@ -11484,9 +11504,6 @@ impl LayoutWindow {
             }),
             TextEditNotify::AlreadyDispatched,
         );
-
-        // Clear the changeset now that it's been applied
-        self.text_input_manager.clear_changeset();
 
         // MWA-C-text_edit: typing resets the blink phase so the caret is
         // solid while the user types (W3C/native behavior) — previously the
@@ -12455,6 +12472,36 @@ impl LayoutWindow {
     /// geometry readers — caret rect, selection rects, click hittest.
     /// Flag-off / verify / non-pure layouts return the stored Arc
     /// untouched.
+    /// The scroll the raster has ALREADY applied to a node: the sum of its own
+    /// and every ancestor's current scroll offset, within one DOM.
+    ///
+    /// The CPU raster paints `screen = T_total(static_pos - scroll_total)`, so
+    /// a window-space pointer converts to node-local space as
+    /// `local = screen - static_pos + scroll_total`. `calculated_positions` is
+    /// STATIC (unscrolled) geometry — reading it without this term is why
+    /// drag-select disagreed with the click that started it by exactly the
+    /// scroll offset, and why a drag held past the edge resolved the SAME
+    /// endpoint on every autoscroll tick while the view moved underneath it.
+    fn accumulated_scroll_for_node(&self, dom_id: DomId, layout_idx: usize) -> LogicalPosition {
+        let Some(layout_result) = self.layout_results.get(&dom_id) else {
+            return LogicalPosition::zero();
+        };
+        let tree = &layout_result.layout_tree;
+        let mut total = LogicalPosition::zero();
+        let mut cursor = Some(layout_idx);
+        for _ in 0..SCROLL_ANCESTOR_WALK_LIMIT {
+            let Some(idx) = cursor else { break };
+            if let Some(node_dom_id) = tree.nodes.get(idx).and_then(|n| n.dom_node_id) {
+                if let Some(offset) = self.scroll_manager.get_current_offset(dom_id, node_dom_id) {
+                    total.x += offset.x;
+                    total.y += offset.y;
+                }
+            }
+            cursor = tree.nodes.get(idx).and_then(|n| n.parent);
+        }
+        total
+    }
+
     fn materialized_inline_layout(
         cached: &solver3::layout_tree::CachedInlineLayout,
     ) -> Arc<UnifiedLayout> {
@@ -13262,21 +13309,28 @@ impl LayoutWindow {
                         .copied()
                         .unwrap_or_default();
 
-                    // Check if position is within node bounds
+                    // Check if position is within node bounds. `calculated_positions`
+                    // is STATIC geometry, so the node's on-screen box is
+                    // `static - scroll`; comparing the window-space pointer
+                    // against the raw static box tested the wrong rectangle
+                    // entirely inside a scrolled container.
                     let node_size = layout_node.used_size.unwrap_or_else(|| {
                         let bounds = cached_layout.layout.bounds();
                         LogicalSize::new(bounds.width, bounds.height)
                     });
+                    let node_scroll = self.accumulated_scroll_for_node(*dom_id, node_idx);
+                    let screen_x = node_pos.x - node_scroll.x;
+                    let screen_y = node_pos.y - node_scroll.y;
 
-                    if position.x < node_pos.x || position.x > node_pos.x + node_size.width ||
-                       position.y < node_pos.y || position.y > node_pos.y + node_size.height {
+                    if position.x < screen_x || position.x > screen_x + node_size.width ||
+                       position.y < screen_y || position.y > screen_y + node_size.height {
                         continue;
                     }
 
                     // Convert global position to node-local coordinates
                     let local_pos = LogicalPosition {
-                        x: position.x - node_pos.x,
-                        y: position.y - node_pos.y,
+                        x: position.x - screen_x,
+                        y: position.y - screen_y,
                     };
 
                     let layout = Self::materialized_inline_layout(cached_layout);
@@ -13472,9 +13526,10 @@ impl LayoutWindow {
         // after the cross-block branch may have taken &mut self)
         tree.warm(LayoutNodeId::new(layout_idx))?.inline_layout_result.as_ref()?;
 
+        let drag_scroll = self.accumulated_scroll_for_node(dom_id, layout_idx);
         let local_pos = LogicalPosition {
-            x: current_position.x - node_pos.x,
-            y: current_position.y - node_pos.y,
+            x: current_position.x - node_pos.x + drag_scroll.x,
+            y: current_position.y - node_pos.y + drag_scroll.y,
         };
 
         // Outside the anchor block (or in another block entirely): this is a
@@ -13549,7 +13604,8 @@ impl LayoutWindow {
     ) -> Option<(NodeId, TextCursor)> {
         let layout_result = self.layout_results.get(&dom_id)?;
         let tree = &layout_result.layout_tree;
-        let mut best: Option<(f32, NodeId, LogicalPosition)> = None; // (y-distance, node, local)
+        // (vertical distance, horizontal distance, node, node-local point)
+        let mut best: Option<(f32, f32, NodeId, LogicalPosition)> = None;
         for (idx, node) in tree.nodes.iter().enumerate() {
             let Some(node_dom_id) = node.dom_node_id else { continue };
             let Some(warm) = tree.warm(LayoutNodeId::new(idx)) else { continue };
@@ -13562,23 +13618,46 @@ impl LayoutWindow {
                 .copied()
                 .unwrap_or_default();
             let size = node.used_size.unwrap_or_default();
+            let candidate_scroll = self.accumulated_scroll_for_node(dom_id, idx);
             let local = LogicalPosition {
-                x: position.x - pos.x,
-                y: position.y - pos.y,
+                x: position.x - pos.x + candidate_scroll.x,
+                y: position.y - pos.y + candidate_scroll.y,
             };
-            let dy = if position.y < pos.y {
-                pos.y - position.y
-            } else if position.y > pos.y + size.height {
-                position.y - (pos.y + size.height)
+            // Rank against where the candidate actually IS on screen
+            // (`static - scroll`), not against its unscrolled position: with a
+            // scrolled container the two differ by the whole scroll offset, so
+            // the pointer kept picking the same block however far the view had
+            // moved.
+            let screen_top = pos.y - candidate_scroll.y;
+            let screen_left = pos.x - candidate_scroll.x;
+            let dy = if position.y < screen_top {
+                screen_top - position.y
+            } else if position.y > screen_top + size.height {
+                position.y - (screen_top + size.height)
             } else {
                 0.0
             };
-            match &best {
-                Some((bd, _, _)) if *bd <= dy => {}
-                _ => best = Some((dy, node_dom_id, local)),
+            // Horizontal distance breaks ties WITHIN a row. Ranking on dy alone
+            // made a pointer to the right of a short line pick whichever block
+            // happened to be scanned first among everything on that line.
+            let dx = if position.x < screen_left {
+                screen_left - position.x
+            } else if position.x > screen_left + size.width {
+                position.x - (screen_left + size.width)
+            } else {
+                0.0
+            };
+            let better = match &best {
+                None => true,
+                Some((best_dy, best_dx, _, _)) => {
+                    dy < *best_dy || (dy - *best_dy).abs() < f32::EPSILON && dx < *best_dx
+                }
+            };
+            if better {
+                best = Some((dy, dx, node_dom_id, local));
             }
         }
-        let (_, node_dom_id, local) = best?;
+        let (_, _, node_dom_id, local) = best?;
         let layout_idx = tree
             .nodes
             .iter()
