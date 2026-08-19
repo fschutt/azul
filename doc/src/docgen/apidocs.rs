@@ -51,7 +51,10 @@ pub fn generate_api_html(api_data: &ApiData, version: &str) -> String {
         title,
         active_nav: "api",
         head_extra: format!("{prism_script}\n{search_script}"),
-        page_css: Some(include_str!("../../templates/docs-api.css")),
+        page_css: Some(concat!(
+            include_str!("../../templates/docs-api.css"),
+            include_str!("../../templates/docs-guide.css"),
+        )),
         main_html,
     };
 
@@ -561,7 +564,10 @@ pub fn generate_api_index(api_data: &ApiData) -> String {
     let mut content = String::new();
     for version in api_data.get_sorted_versions() {
         content.push_str(&format!(
-            "<a class=\"docs-card\" href=\"{}/api/{}\"><h4>{}</h4></a>\n",
+            // Same card as the guide index and the releases overview - the
+            // version is the destination and the whole of the card.
+            "<div class=\"guide-card\"><h3><a class=\"guide-link guide-link-lead\" \
+             href=\"{}/api/{}\">v{}</a></h3></div>\n",
             HTML_ROOT, version, version
         ));
     }
@@ -578,7 +584,7 @@ pub fn generate_api_index(api_data: &ApiData) -> String {
     <section class="docs-body">
       <div class="container">
         <div class="docs-content docs-wide">
-          <div class="docs-card-grid api-version-grid">
+          <div class="guide-grid api-version-grid">
           {content}
           </div>
         </div>
@@ -590,7 +596,10 @@ pub fn generate_api_index(api_data: &ApiData) -> String {
         title,
         active_nav: "api",
         head_extra: format!("{prism_script}\n{search_script}"),
-        page_css: Some(include_str!("../../templates/docs-api.css")),
+        page_css: Some(concat!(
+            include_str!("../../templates/docs-api.css"),
+            include_str!("../../templates/docs-guide.css"),
+        )),
         main_html,
     };
 

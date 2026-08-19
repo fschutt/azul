@@ -7,38 +7,123 @@
    ========================================================================== */
 
 /* ---- Guide index: sub-chapter lists inside a .docs-list-item ---- */
-/* Sub-chapters run ACROSS, not down. Hello World alone has twenty language
-   pages; as a bulleted column that is twenty lines for what is really one
-   row of choices. Their one-line descriptions come off - the parent's blurb
-   already says what the group is about, and the titles are the navigation. */
-.docs-content ul.docs-sublist {
+/* ---- THE CHAPTER CARDS ------------------------------------------------
+   The guide index is a set of destinations, and a destination wants a target
+   you can hit. It was a column of hairline-underlined text links; it is a
+   grid of leaves now, each holding the chapter's articles as raised buttons
+   in the house idiom.
+
+   The heading is a link ONLY on a card that has no buttons - see
+   render_list_item. A card with sub-articles leads with an "Introduction"
+   button (the parent page) so every destination on the card looks the same.
+   ---------------------------------------------------------------------- */
+.guide-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(330px, 1fr));
+    gap: 16px;
+    align-items: start;
+    max-width: 100%;
+    margin: 0 0 40px;
+}
+
+/* A card with many articles spans the row - see render_list_item. */
+.guide-card-wide { grid-column: 1 / -1; }
+
+.guide-card {
+    padding: 14px 16px 16px;
+    border: 1px solid var(--fl-bd);
+    border-radius: var(--fl-r);
+    background: var(--fl-sur);
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.5), var(--fl-shadow-1);
+}
+
+.guide-card h3,
+.docs-content .guide-card h3 {
+    font-family: var(--font-display);
+    font-size: 21px;
+    font-weight: 500;
+    letter-spacing: 0.015em;
+    margin: 0 0 4px;
+}
+
+.guide-card p,
+.docs-content .guide-card p {
+    font-size: 0.95rem;
+    line-height: 1.45;
+    color: var(--color-text-light);
+    margin: 0 0 10px;
+}
+
+/* The buttons. Same raised face as .btn-secondary, at the size a dense row
+   of them wants. */
+.guide-links {
     display: flex;
     flex-wrap: wrap;
-    gap: 4px 8px;
-    margin: 0 0 6px;
-    padding-left: 0;
-    list-style: none;
-}
-.docs-content .docs-sublist li {
-    font-size: 0.95rem;
-    line-height: 1.4;
-    margin: 0;
-}
-.docs-content .docs-sublist li::after {
-    content: "·";
-    margin-left: 8px;
-    color: var(--fl-soft2);
-}
-.docs-content .docs-sublist li:last-child::after { content: none; }
-
-/* A nested sub-list (a sub-chapter with children of its own) breaks the row
-   and indents, so the hierarchy still reads. */
-.docs-content .docs-sublist .docs-sublist {
-    flex-basis: 100%;
-    margin: 2px 0 2px 14px;
+    gap: 6px;
 }
 
-.docs-sub-desc { display: none; }
+a.guide-link,
+.docs-content a.guide-link {
+    display: inline-block;
+    padding: 1px 10px;
+    border: 1px solid var(--fl-bd2);
+    border-radius: var(--fl-r);
+    background: linear-gradient(var(--fl-rT), var(--fl-rB));
+    box-shadow: var(--fl-lip);
+    color: var(--fl-ink);
+    font-family: var(--font-caps);
+    font-size: 1rem;
+    font-weight: 700;
+    font-variant: all-small-caps;
+    letter-spacing: 0.06em;
+    line-height: 1.45;
+    text-decoration: none;
+    white-space: nowrap;
+    transition: background var(--fl-dur) var(--fl-ease),
+                border-color var(--fl-dur) var(--fl-ease),
+                color var(--fl-dur) var(--fl-ease);
+}
+
+a.guide-link:hover,
+.docs-content a.guide-link:hover {
+    background: linear-gradient(var(--fl-hT), var(--fl-hB));
+    border-color: var(--fl-bd3);
+    color: var(--fl-ink);
+}
+
+a.guide-link:active,
+.docs-content a.guide-link:active {
+    background: linear-gradient(var(--fl-pT), var(--fl-pB));
+    box-shadow: inset 0 1px 3px rgba(48, 45, 38, 0.18);
+}
+
+/* A card with no sub-articles: the heading IS the button, so it takes the
+   metal edge that marks the one destination on the card. */
+h3 a.guide-link-lead,
+.docs-content h3 a.guide-link-lead {
+    display: inline-block;
+    padding: 2px 12px;
+    border-color: transparent;
+    background:
+        linear-gradient(var(--fl-rT), var(--fl-rB)) padding-box,
+        var(--fl-leaf-a) border-box,
+        var(--fl-leaf-b) border-box;
+    font-family: var(--font-display);
+    font-size: 21px;
+    font-weight: 500;
+    font-variant: normal;
+    letter-spacing: 0.015em;
+    white-space: normal;
+}
+
+h3 a.guide-link-lead:hover,
+.docs-content h3 a.guide-link-lead:hover {
+    filter: brightness(1.05) drop-shadow(0 0 8px rgba(255, 216, 96, 0.4));
+    background:
+        linear-gradient(var(--fl-hT), var(--fl-hB)) padding-box,
+        var(--fl-leaf-a) border-box,
+        var(--fl-leaf-b) border-box;
+}
 
 /* ---- Prev/next chapter footer: plain accent links (colored by the shared
         .docs-content a rule) in a hairline-topped row ---- */

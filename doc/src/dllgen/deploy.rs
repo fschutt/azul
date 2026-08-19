@@ -1931,7 +1931,10 @@ docker pull ghcr.io/fschutt/azul:{version}</code></pre>
             crate::docgen::get_search_init(crate::docgen::PageKind::Other),
             linkcheck_script
         ),
-        page_css: Some(include_str!("../../templates/docs-release.css")),
+        page_css: Some(concat!(
+            include_str!("../../templates/docs-release.css"),
+            include_str!("../../templates/docs-guide.css"),
+        )),
         main_html,
     };
     crate::docgen::azlin_page(&page, true)
@@ -1945,13 +1948,14 @@ pub fn generate_releases_index(versions: &[String]) -> String {
         // The list is newest-first; a "latest release" label on the first
         // entry tells the reader what the order already told them.
         let meta = "";
+        // Same card as the guide index and the api picker: the version IS
+        // the destination, so it is the whole card. "Downloads & release
+        // notes" under it was a second link to the same page.
+        let _ = meta;
         version_items.push_str(&format!(
-            "<article class='docs-list-item'>
-        <h3><a href='{HTML_ROOT}/release/{version}'>v{version}</a></h3>
-        {meta}
-        <a class='docs-read-more' href='{HTML_ROOT}/release/{version}'>Downloads &amp; release \
-             notes</a>
-      </article>\n      ",
+            "<div class='guide-card'>
+        <h3><a class='guide-link guide-link-lead' href='{HTML_ROOT}/release/{version}'>v{version}</a></h3>
+      </div>\n      ",
         ));
     }
 
@@ -1963,9 +1967,9 @@ pub fn generate_releases_index(versions: &[String]) -> String {
     </section>
     <section class='docs-body'>
       <div class='container'>
-        <div class='docs-list'>
-      {version_items}
-        </div>
+        <div class='guide-grid'>
+          {version_items}
+          </div>
       </div>
     </section>"
     );
@@ -1974,7 +1978,10 @@ pub fn generate_releases_index(versions: &[String]) -> String {
         title: "Releases - Azul GUI framework".to_string(),
         active_nav: "releases",
         head_extra: String::new(),
-        page_css: Some(include_str!("../../templates/docs-release.css")),
+        page_css: Some(concat!(
+            include_str!("../../templates/docs-release.css"),
+            include_str!("../../templates/docs-guide.css"),
+        )),
         main_html,
     };
     crate::docgen::azlin_page(&page, true)
