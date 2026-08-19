@@ -3070,8 +3070,36 @@ impl RemillTranspiler {
             "  br label %unkdone\n",
             "unkdone:\n",
             "  %umr = phi ptr [ %um3, %unk ], [ %um4, %unkfirst ]\n",
-            "  ret ptr %umr\n}\n",
         ));
+        // Recording says WHAT was dispatched but never WHO dispatched it, and the
+        // dispatching site is the thing worth knowing: the target is often a
+        // computed value that appears nowhere in the image, so it cannot be traced
+        // back statically (a `lea`-materialised address is a displacement, not a
+        // literal, and remill emits these rip-relative computations symbolically —
+        // grepping the IR for the constant finds nothing).
+        //
+        // Trapping here instead makes V8 unwind the guest stack, and the frame
+        // BELOW the dispatcher is the lifted function that jumped — one
+        // `wfunc.mjs` lookup away from a name.
+        //
+        // Off by default: an unmatched dispatch is always a defect, but turning
+        // every one into a hard stop would take out a bundle that currently boots
+        // through benign ones, and the hello-world gate is the regression baseline
+        // this whole hunt is measured against. Flip it on for the run you are
+        // debugging. Once the known misses are routed this should become the
+        // default, since returning as if a call succeeded is never right.
+        let unk_traps = std::env::var("AZ_UNK_TRAP").map(|v| v != "0").unwrap_or(false);
+        if unk_traps {
+            ir.push_str(
+                "  %umt = call ptr @__remill_write_memory_32(ptr %umr, i64 262216, i32 %pclo)\n  \
+                 unreachable\n}\n",
+            );
+            eprintln!(
+                "[azul-web]   M12.7: AZ_UNK_TRAP=1 — unmatched dispatches TRAP (stack names the caller)"
+            );
+        } else {
+            ir.push_str("  ret ptr %umr\n}\n");
+        }
         let disp_o = self.scratch_dir.join("az_indirect_dispatch.o");
         if self.use_native_remill() {
             #[cfg(feature = "web-transpiler-static")]
