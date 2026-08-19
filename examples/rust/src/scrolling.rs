@@ -37,7 +37,7 @@ fn row(i: usize) -> Dom {
 }
 
 extern "C" fn vv_rows(mut _data: RefAny, info: VirtualViewCallbackInfo) -> VirtualViewReturn {
-    let first = (info.virtual_scroll_offset.y.max(0.0) / ROW_H) as usize;
+    let first = (info.scroll_offset.y.max(0.0) / ROW_H) as usize;
     let visible = (info.bounds.get_logical_size().height / ROW_H).ceil() as usize + 2;
     let end = (first + visible).min(ROWS);
 
@@ -47,12 +47,19 @@ extern "C" fn vv_rows(mut _data: RefAny, info: VirtualViewCallbackInfo) -> Virtu
         col.add_child(row(i));
     }
 
+    // Each size+offset pair is one rect now: `materialized` is the slice
+    // actually rendered and where it sits, `virtual_rect` is the whole
+    // document the scrollbar represents.
     VirtualViewReturn {
         dom: OptionDom::Some(col),
-        scroll_size: LogicalSize::create(0.0, (end - first) as f32 * ROW_H),
-        scroll_offset: LogicalPosition::create(0.0, first as f32 * ROW_H),
-        virtual_scroll_size: LogicalSize::create(0.0, ROWS as f32 * ROW_H),
-        virtual_scroll_offset: LogicalPosition::create(0.0, 0.0),
+        materialized: LogicalRect::create(
+            LogicalPosition::create(0.0, first as f32 * ROW_H),
+            LogicalSize::create(0.0, (end - first) as f32 * ROW_H),
+        ),
+        virtual_rect: LogicalRect::create(
+            LogicalPosition::create(0.0, 0.0),
+            LogicalSize::create(0.0, ROWS as f32 * ROW_H),
+        ),
     }
 }
 
