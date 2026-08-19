@@ -105714,6 +105714,28 @@
                                 "fn_body": "azul_core::resources::AppConfig::create()"
                             }
                         },
+                        "functions": {
+                            "add_component_library": {
+                                "doc": [
+                                    "Register a component library under a vendor name.",
+                                    "",
+                                    "Calls register_fn once to build the library, then stores it under",
+                                    "name. Registering the same name twice replaces the earlier entry."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "refmut"
+                                    },
+                                    {
+                                        "name": "String"
+                                    },
+                                    {
+                                        "register_fn": "RegisterComponentLibraryFnType"
+                                    }
+                                ],
+                                "fn_body": "object.add_component_library(name, register_fn)"
+                            }
+                        },
                         "repr": "C"
                     },
                     "App": {
@@ -107560,6 +107582,21 @@
                             }
                         ],
                         "repr": "C"
+                    },
+                    "RegisterComponentLibraryFnType": {
+                        "doc": [
+                            "Raw function pointer that returns a complete ComponentLibrary when called.",
+                            "",
+                            "Pass one to AppConfig.add_component_library to register a vendored",
+                            "component set. The library is built once, at registration time."
+                        ],
+                        "external": "azul_core::xml::RegisterComponentLibraryFnType",
+                        "callback_typedef": {
+                            "fn_args": [],
+                            "returns": {
+                                "type": "ComponentLibrary"
+                            }
+                        }
                     },
                     "ComponentMap": {
                         "external": "azul_core::xml::ComponentMap",
