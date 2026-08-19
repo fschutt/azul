@@ -8628,14 +8628,33 @@ impl LayoutWindow {
 
         // A DOM node can map to several layout nodes; the caret lives on the
         // one that actually carries an inline layout.
-        let layout_idx = tree
-            .dom_to_layout
-            .get(&node_id)?
+        let candidates = tree.dom_to_layout.get(&node_id)?;
+        let layout_idx = candidates
             .iter()
             .copied()
             .find(|&idx| {
                 tree.warm(idx)
                     .is_some_and(|w| w.inline_layout_result.is_some())
+            })
+            .or_else(|| {
+                // ...or on the IFC ROOT above it. A session is anchored either
+                // on the block that establishes the inline context (the click
+                // path passes `ifc_root_node_id`) or on the raw text node
+                // inside it (the focus path passes `pending.text_node_id`),
+                // and a text node carries no inline layout of its own. Looking
+                // only at the anchored node left every focus-opened session
+                // with no caret rect at all -- and with it, no caret reveal.
+                let mut cur = tree.nodes.get(candidates.first()?.index())?.parent;
+                while let Some(idx) = cur {
+                    if tree
+                        .warm(LayoutNodeId::new(idx))
+                        .is_some_and(|w| w.inline_layout_result.is_some())
+                    {
+                        return Some(LayoutNodeId::new(idx));
+                    }
+                    cur = tree.nodes.get(idx)?.parent;
+                }
+                None
             })?;
 
         // (d6h) Materialized: the stored layout may be the retirement
@@ -9071,13 +9090,26 @@ impl LayoutWindow {
             }
         };
 
-        // Get the focused node (or bail if no focus)
-        let Some(focused_node) = self.focus_manager.focused_node else {
+        // Anchor the ancestor search on the SAME node the caret geometry came
+        // from. `get_focused_cursor_rect` was re-keyed onto the editing
+        // SESSION's node (focus sits on the contenteditable container while
+        // the caret is anchored on the IFC root inside it); leaving this on
+        // `focus_manager` meant the two disagreed — the rect resolved, then
+        // the reveal bailed looking for a scrollable ancestor of a different
+        // node, or of no node at all when the session had never taken window
+        // focus. The caret then never scrolled into view.
+        let anchor_node = self
+            .text_edit_manager
+            .multi_cursor
+            .as_ref()
+            .map(|mc| mc.node_id)
+            .or(self.focus_manager.focused_node);
+        let Some(anchor_node) = anchor_node else {
             return false;
         };
 
         // Find scrollable ancestor
-        let Some(scroll_container) = self.find_scrollable_ancestor(focused_node) else {
+        let Some(scroll_container) = self.find_scrollable_ancestor(anchor_node) else {
             return false; // No scrollable ancestor
         };
 
@@ -12862,14 +12894,33 @@ impl LayoutWindow {
         let tree = &self.layout_results.get(&dom_id)?.layout_tree;
 
         // Find the layout node index carrying the inline layout for this DOM node
-        let layout_idx = tree
-            .dom_to_layout
-            .get(&node_id)?
+        let candidates = tree.dom_to_layout.get(&node_id)?;
+        let layout_idx = candidates
             .iter()
             .copied()
             .find(|&idx| {
                 tree.warm(idx)
                     .is_some_and(|w| w.inline_layout_result.is_some())
+            })
+            .or_else(|| {
+                // ...or on the IFC ROOT above it. A session is anchored either
+                // on the block that establishes the inline context (the click
+                // path passes `ifc_root_node_id`) or on the raw text node
+                // inside it (the focus path passes `pending.text_node_id`),
+                // and a text node carries no inline layout of its own. Looking
+                // only at the anchored node left every focus-opened session
+                // with no caret rect at all -- and with it, no caret reveal.
+                let mut cur = tree.nodes.get(candidates.first()?.index())?.parent;
+                while let Some(idx) = cur {
+                    if tree
+                        .warm(LayoutNodeId::new(idx))
+                        .is_some_and(|w| w.inline_layout_result.is_some())
+                    {
+                        return Some(LayoutNodeId::new(idx));
+                    }
+                    cur = tree.nodes.get(idx)?.parent;
+                }
+                None
             })?;
 
         // Return the inline layout result (warm data).
