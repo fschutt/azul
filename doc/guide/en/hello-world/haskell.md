@@ -209,7 +209,7 @@ buildLayout counter master clickCb _data _info outPtr = do
     allocaBytes szDom $ \txt ->
       allocaBytes szString $ \label -> do
         mkAzString (show n) label
-        c_AzDom_createText_via label txt  -- consumes label
+        c_AzDom_createTextDoNotUseWithoutBlockLevelWrapper_via label txt  -- consumes label
         c_AzDom_addChild_via divBuf txt   -- consumes txt
     c_AzDom_addChild_via outPtr divBuf    -- consumes divBuf
 

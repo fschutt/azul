@@ -174,7 +174,7 @@ AzDom layout(AzRefAny data, AzLayoutCallbackInfo info) {
         written /* num_bytes to copy */
     );
 
-    // AzDom_create_text would just creates the raw inline text node
+    // AzDom_createTextDoNotUseWithoutBlockLevelWrapper creates the raw inline text node
     // ("p::text" in CSS) - but we have to wrap it in a <p> block here
     AzDom label_dom = AzDom_createPWithText(label_text);
     AzDom_setCss(&label_dom, AZ_CONST_STR(
