@@ -2994,6 +2994,7 @@ impl RemillTranspiler {
             ir.push_str("declare void @llvm.memmove.p0.p0.i64(ptr, ptr, i64, i1)\n");
             for intrin in ["trunc", "floor", "ceil", "fabs", "sqrt"] {
                 ir.push_str(&format!("declare double @llvm.{intrin}.f64(double)\n"));
+                ir.push_str(&format!("declare float @llvm.{intrin}.f32(float)\n"));
             }
         }
         // WEB-LIFT FIX (2026-06-02): mask %pc to low 32 bits before the switch. Tail-jump
@@ -4198,7 +4199,10 @@ enum ImportIntercept {
     /// These come from ucrtbase, which the first pass of import routing did not
     /// cover at all — `Display for Json`'s Number arm reaches `ucrtbase!trunc`
     /// through `f64_as_i64` and silently gets a no-op.
-    F64Unary(&'static str),
+    /// `(llvm intrinsic stem, is_f32)` — the f32 forms are separate ucrtbase
+    /// exports and the guest calls them directly (an audit of a real bundle
+    /// turned up floorf/ceilf alongside floor).
+    F64Unary(&'static str, bool),
 }
 
 #[cfg(feature = "web-transpiler")]
@@ -4212,7 +4216,7 @@ impl ImportIntercept {
             ImportIntercept::Memcmp => "memcmp",
             ImportIntercept::Memmove => "memmove",
             ImportIntercept::Memset => "memset",
-            ImportIntercept::F64Unary(n) => n,
+            ImportIntercept::F64Unary(n, _) => n,
         }
     }
 
@@ -4325,18 +4329,24 @@ impl ImportIntercept {
                     l = l, a0 = a0, a1 = a1, a2 = a2, ret = ret, mid = mid,
                 )
             }
-            ImportIntercept::F64Unary(intrin) => format!(
-                // Argument and result both live in XMM0. llvm.trunc/floor/ceil/
-                // fabs/sqrt.f64 each lower to a single wasm instruction, so this
-                // stays self-contained — no new env symbol that a probe harness
-                // could zero-stub and make look like a mis-lift.
+            ImportIntercept::F64Unary(intrin, is_f32) => format!(
+                // Argument and result both live in XMM0 (the f32 forms use its
+                // low half). llvm.trunc/floor/ceil/fabs/sqrt each lower to a
+                // single wasm instruction in both widths, so this stays
+                // self-contained — no new env symbol that a probe harness could
+                // zero-stub and make look like a mis-lift.
                 "imp{l}:\n\
                  \x20 %xp{l} = getelementptr inbounds i8, ptr %state, i64 {x0}\n\
-                 \x20 %xv{l} = load double, ptr %xp{l}, align 8\n\
-                 \x20 %xr{l} = call double @llvm.{intrin}.f64(double %xv{l})\n\
-                 \x20 store double %xr{l}, ptr %xp{l}, align 8\n\
+                 \x20 %xv{l} = load {ty}, ptr %xp{l}, align {al}\n\
+                 \x20 %xr{l} = call {ty} @llvm.{intrin}.{sfx}({ty} %xv{l})\n\
+                 \x20 store {ty} %xr{l}, ptr %xp{l}, align {al}\n\
                  \x20 ret ptr %memory\n",
-                l = l, x0 = pcs::XMM[0], intrin = intrin,
+                l = l,
+                x0 = pcs::XMM[0],
+                intrin = intrin,
+                ty = if is_f32 { "float" } else { "double" },
+                sfx = if is_f32 { "f32" } else { "f64" },
+                al = if is_f32 { 4 } else { 8 },
             ),
             ImportIntercept::Memcmp => format!(
                 // Byte loop through the guest memory intrinsic. Importing a
@@ -4422,11 +4432,19 @@ fn intercepted_import_labels(cases: &[(u64, u64)]) -> Vec<(u64, ImportIntercept,
         // Anything needing a real libm (pow/exp/log/fmod) is left out rather
         // than approximated, and `round` too: its half-away-from-zero rule is
         // NOT wasm's f64.nearest, which rounds half to even.
-        ("ucrtbase.dll\0", "trunc\0", ImportIntercept::F64Unary("trunc")),
-        ("ucrtbase.dll\0", "floor\0", ImportIntercept::F64Unary("floor")),
-        ("ucrtbase.dll\0", "ceil\0", ImportIntercept::F64Unary("ceil")),
-        ("ucrtbase.dll\0", "fabs\0", ImportIntercept::F64Unary("fabs")),
-        ("ucrtbase.dll\0", "sqrt\0", ImportIntercept::F64Unary("sqrt")),
+        ("ucrtbase.dll\0", "trunc\0", ImportIntercept::F64Unary("trunc", false)),
+        ("ucrtbase.dll\0", "floor\0", ImportIntercept::F64Unary("floor", false)),
+        ("ucrtbase.dll\0", "ceil\0", ImportIntercept::F64Unary("ceil", false)),
+        ("ucrtbase.dll\0", "fabs\0", ImportIntercept::F64Unary("fabs", false)),
+        ("ucrtbase.dll\0", "sqrt\0", ImportIntercept::F64Unary("sqrt", false)),
+        // The f32 forms are separate exports and the guest calls them directly:
+        // auditing a real bundle turned up floorf/ceilf alongside floor. Same
+        // single-instruction rule, on `float` (XMM0's low half).
+        ("ucrtbase.dll\0", "truncf\0", ImportIntercept::F64Unary("trunc", true)),
+        ("ucrtbase.dll\0", "floorf\0", ImportIntercept::F64Unary("floor", true)),
+        ("ucrtbase.dll\0", "ceilf\0", ImportIntercept::F64Unary("ceil", true)),
+        ("ucrtbase.dll\0", "fabsf\0", ImportIntercept::F64Unary("fabs", true)),
+        ("ucrtbase.dll\0", "sqrtf\0", ImportIntercept::F64Unary("sqrt", true)),
     ];
     let table = symbol_table::get();
     let mut used: HashSet<u64> = cases.iter().map(|(l, _)| *l).collect();

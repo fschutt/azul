@@ -300,11 +300,39 @@ pub fn audit_wasm(bytes: &[u8], img: Option<(u64, u64)>) -> WasmAudit {
     out
 }
 
-/// Windows maps executable modules into `0x00007ff0_00000000 ..
-/// 0x00008000_00000000`. Both the guest exe and the system DLLs live there, so
-/// a qword in this band that is not inside the tracked image is a raw pointer
-/// into another module — never a legitimate guest value, since a translated
-/// pointer would be a small synth.
+/// Is `v` a raw pointer into a loaded module other than the tracked image?
+///
+/// The address band alone is not enough. Ordinary float constants land in it —
+/// NaN and exponent masks like `0x7fff00003fff`, `0x7ffb7ffb7ffb`,
+/// `0x7fffffff7fff` are all "in band" and are not pointers at all. Reporting
+/// those as unrouted imports puts noise in front of the real ones, which is
+/// the opposite of what this check is for.
+///
+/// So ask the OS whether the address belongs to a loaded module.
+/// `GetModuleHandleExA` with `FROM_ADDRESS` answers exactly that and fails
+/// cleanly for an address that is not in one — unlike walking down to an 'MZ'
+/// header, which would read unmapped memory and fault on precisely the mask
+/// constants this is meant to reject.
+#[cfg(target_os = "windows")]
+fn is_module_band(v: u64) -> bool {
+    extern "system" {
+        fn GetModuleHandleExA(
+            flags: u32,
+            addr: *const core::ffi::c_void,
+            module: *mut *mut core::ffi::c_void,
+        ) -> i32;
+    }
+    // FROM_ADDRESS | UNCHANGED_REFCOUNT — a query, so it must not pin the module.
+    const FLAGS: u32 = 0x4 | 0x2;
+    if !(0x0000_7ff0_0000_0000..0x0000_8000_0000_0000).contains(&v) {
+        return false;
+    }
+    let mut h: *mut core::ffi::c_void = core::ptr::null_mut();
+    // SAFETY: the address is only tested for module membership, never read.
+    unsafe { GetModuleHandleExA(FLAGS, v as usize as *const _, &mut h) != 0 }
+}
+
+#[cfg(not(target_os = "windows"))]
 fn is_module_band(v: u64) -> bool {
     (0x0000_7ff0_0000_0000..0x0000_8000_0000_0000).contains(&v)
 }
