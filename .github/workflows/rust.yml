@@ -727,18 +727,14 @@ jobs:
         id: rust9x_asset
         shell: bash
         run: |
-          # Permanent store: an asset on the `rust9x-toolchain` release. Absent
-          # => build it below.
+          # Permanent store: an asset on the `rust9x-toolchain` release.
+          # Absent => build it below.
           #
-          # The asset is ~350 MB, so the download is the flakiest step in this
-          # job, and "flaky" here is expensive: one dropped transfer used to
-          # send the job straight into the 90-minute inline toolchain build,
-          # which then dies on the runner for want of cl.exe -- and because
-          # deploy_pages `needs:` this job, that takes the website release
-          # with it. Retry before concluding the asset is gone, and KEEP the
-          # error: piping the only diagnostic to /dev/null made a network
-          # blip, an auth failure and a genuinely missing asset all print the
-          # same "not found" line.
+          # The asset is ~250 MB, so a dropped transfer is the likely failure
+          # mode, and the fallback costs 90 minutes. Retry before concluding
+          # the asset is gone, and report the error instead of discarding it:
+          # sending stderr to /dev/null made a network blip and a genuinely
+          # missing asset look the same.
           mkdir -p dist
           found=false
           for attempt in 1 2 3; do
@@ -793,21 +789,17 @@ jobs:
           set -euo pipefail
           stage1=rust9x/build/x86_64-pc-windows-msvc/stage1
 
-          # Ship a COMPILER, not a compiler development kit. Packing stage1
-          # whole gave a 1.2 GB tree / 355 MB tarball, and a third of that is
-          # weight no azul build ever reads:
-          #   *.pdb            108 MB  debug symbols for rustc itself
+          # Drop what no azul build reads before packing. stage1 whole is a
+          # 1.2 GB tree / 355 MB tarball; these are a third of it:
+          #   *.pdb            108 MB  rustc's own debug symbols
           #   llc.exe          103 MB  standalone LLVM backend driver
           #   opt.exe          103 MB  standalone LLVM optimiser driver
           #   llvm-nm.exe       42 MB  symbol lister
           #   llvm-objdump.exe  35 MB  disassembler
-          # rustc links LLVM in-process and never shells out to llc/opt, and
-          # the other three are inspection tools. Everything the compiler
-          # actually invokes stays: rustc_driver.dll, rust-lld.exe (the
-          # linker), llvm-ar.exe, and every rlib/rmeta for all four targets.
-          # Measured on the real artifact: 355 MB -> 246 MB, -31%. That size
-          # is not cosmetic -- this download is the flakiest step in the job,
-          # and deploy_pages `needs:` it.
+          # rustc links LLVM in-process and does not invoke llc/opt; the other
+          # three are inspection tools. What it does invoke stays:
+          # rustc_driver.dll, rust-lld.exe (the linker), llvm-ar.exe, and
+          # every rlib/rmeta for all four targets. Measured: 355 -> 246 MB.
           find "$stage1" -name '*.pdb' -delete
           for tool in llc.exe opt.exe llvm-nm.exe llvm-objdump.exe; do
             find "$stage1" -name "$tool" -delete
