@@ -2091,6 +2091,37 @@ impl LayoutWindow {
         )
     }
 
+    /// The stable session key for an editing session anchored on `node_id`.
+    ///
+    /// Keyed on the contenteditable HOST above the anchor, never on the anchor
+    /// itself: the three ways a session opens anchor it on three different
+    /// nodes (the click path on the IFC root, the focus path on the text node,
+    /// the accessibility path on the host), and only the host's key is the one
+    /// [`Self::find_host_by_contenteditable_key`] can resolve and
+    /// [`Self::compute_edit_resume_point`] stores. Two of the three used to
+    /// pass a literal `0`, so the same editable opened by click and by focus
+    /// carried two different session identities.
+    fn contenteditable_session_key(&self, dom_id: DomId, node_id: NodeId) -> u64 {
+        let anchor = self
+            .find_contenteditable_host(dom_id, node_id)
+            .unwrap_or(node_id);
+        self.layout_results.get(&dom_id).map_or(0, |lr| {
+            let node_data = lr.styled_dom.node_data.as_ref();
+            // A focus request can name a node this generation's DOM does not
+            // have (the pre-first-layout retry path holds exactly that shape),
+            // and `calculate_contenteditable_key` INDEXES `node_data`. No node,
+            // no identity — 0, not a panic.
+            if anchor.index() >= node_data.len() {
+                return 0;
+            }
+            azul_core::diff::calculate_contenteditable_key(
+                node_data,
+                lr.styled_dom.node_hierarchy.as_ref(),
+                anchor,
+            )
+        })
+    }
+
     /// The nearest self-or-ancestor node with `contenteditable` (the editing
     /// host), if any.
     #[must_use]
@@ -6757,7 +6788,9 @@ impl LayoutWindow {
                 pending.text_node_id, cursor, text_layout.is_some()
             );
         }
-        self.text_edit_manager.initialize_editing(cursor, pending.dom_id, pending.text_node_id, 0);
+        let ce_key = self.contenteditable_session_key(pending.dom_id, pending.text_node_id);
+        self.text_edit_manager
+            .initialize_editing(cursor, pending.dom_id, pending.text_node_id, ce_key);
         true
     }
 
@@ -8703,10 +8736,10 @@ impl LayoutWindow {
     /// holds the ROOT dom, and matched a bare `dom_node_id` with no `DomId`
     /// alongside it — so in a virtualized view the caret answered for whatever
     /// unrelated node happened to occupy the same index, or for nothing at all.
-    fn session_inline_geometry(
+    fn session_geometry_node(
         &self,
         node: DomNodeId,
-    ) -> Option<(Arc<UnifiedLayout>, LogicalPosition)> {
+    ) -> Option<(&DomLayoutResult, LayoutNodeId)> {
         let node_id = node.node.into_crate_internal()?;
         let layout_result = self.layout_results.get(&node.dom)?;
         let tree = &layout_result.layout_tree;
@@ -8741,12 +8774,22 @@ impl LayoutWindow {
                 }
                 None
             })?;
+        Some((layout_result, layout_idx))
+    }
+
+    fn session_inline_geometry(
+        &self,
+        node: DomNodeId,
+    ) -> Option<(Arc<UnifiedLayout>, LogicalPosition)> {
+        let (layout_result, layout_idx) = self.session_geometry_node(node)?;
 
         // (d6h) Materialized: the stored layout may be the retirement
         // sentinel; geometry runs on the transient expansion. (An
         // instrumentation pass once clobbered this line — the caret
         // reveal died sentinel-blind until caret_scroll_glide caught it.)
-        let inline_layout = tree.materialized_inline_layout_for_node(layout_idx.index())?;
+        let inline_layout = layout_result
+            .layout_tree
+            .materialized_inline_layout_for_node(layout_idx.index())?;
         // `pos_get` (not a raw index) so the POSITION_UNSET sentinel reads as
         // "not laid out yet" instead of placing the caret at f32::MIN.
         let origin = solver3::pos_get(&layout_result.calculated_positions, layout_idx.index())?;
@@ -9009,9 +9052,9 @@ impl LayoutWindow {
     /// visible cursor location, not the absolute layout position.
     ///
     /// Returns None if:
-    /// - No node is focused
-    /// - Focused node has no text cursor
-    /// - Focused node has no layout
+    /// - No editing session exists
+    /// - The session node has no text cursor
+    /// - The session node has no layout
     /// - Text cache cannot find cursor position
     ///
     /// For scroll-into-view calculations (absolute coordinates), use `get_focused_cursor_rect()`.
@@ -9019,41 +9062,29 @@ impl LayoutWindow {
         // Start with absolute position
         let mut cursor_rect = self.get_focused_cursor_rect()?;
 
-        // Get the focused node
-        let focused_node = self.focus_manager.focused_node?;
+        // Correct the SAME layout node the rect was measured on, in the
+        // session's OWN dom. This used to walk `layout_cache.tree` (the ROOT
+        // dom only) anchored on `focus_manager.focused_node`, matching a bare
+        // arena index: for a nested DOM it corrected the caret by whatever
+        // unrelated root node happened to share that index, or bailed to None
+        // — so every IME candidate window inside a virtualized view was placed
+        // at the wrong spot on screen.
+        let session_node = self.text_edit_manager.multi_cursor.as_ref()?.node_id;
+        let (layout_result, layout_idx) = self.session_geometry_node(session_node)?;
+        let layout_tree = &layout_result.layout_tree;
 
-        // Get the layout tree from cache
-        let layout_tree = self.layout_cache.tree.as_ref()?;
+        // STEP 1: Apply scroll offsets from the node and all scrollable ancestors
+        let scroll = self.accumulated_scroll_for_node(session_node.dom, layout_idx.index());
+        cursor_rect.origin.x -= scroll.x;
+        cursor_rect.origin.y -= scroll.y;
 
-        // Find the layout node index corresponding to the focused DOM node
-        let target_node_id = focused_node.node.into_crate_internal();
-        let layout_idx = layout_tree
-            .nodes
-            .iter()
-            .position(|node| node.dom_node_id == target_node_id)?;
-
-        // Get the GPU cache for this DOM (if it exists)
-        let gpu_cache = self.gpu_state_manager.caches.get(&focused_node.dom);
-
-        // CRITICAL STEP 1: Apply scroll offsets from all scrollable ancestors
-        // CRITICAL STEP 2: Apply inverse GPU transforms from all transformed ancestors
-        // Walk up the tree and apply both corrections
-        let mut current_layout_idx = layout_idx;
+        // STEP 2: Apply inverse GPU transforms from all transformed ancestors
+        let gpu_cache = self.gpu_state_manager.caches.get(&session_node.dom);
+        let mut current_layout_idx = layout_idx.index();
 
         while let Some(parent_idx) = layout_tree.nodes.get(current_layout_idx)?.parent {
             // Get the DOM node ID of the parent (if it's not anonymous)
             if let Some(parent_dom_node_id) = layout_tree.nodes.get(parent_idx)?.dom_node_id {
-                // STEP 1: Check if this parent is scrollable and has scroll state
-                if let Some(scroll_state) = self
-                    .scroll_manager
-                    .get_scroll_state(focused_node.dom, parent_dom_node_id)
-                {
-                    // Subtract scroll offset (scrolling down = positive offset, moves content up)
-                    cursor_rect.origin.x -= scroll_state.current_offset.x;
-                    cursor_rect.origin.y -= scroll_state.current_offset.y;
-                }
-
-                // STEP 2: Check if this parent has a GPU transform applied
                 if let Some(cache) = gpu_cache {
                     if let Some(transform) = cache.current_transform_values.get(&parent_dom_node_id)
                     {
@@ -9082,46 +9113,57 @@ impl LayoutWindow {
     /// exists
     pub fn find_scrollable_ancestor(
         &self,
-        mut node_id: DomNodeId,
+        node_id: DomNodeId,
     ) -> Option<DomNodeId> {
-        // Get the layout tree
-        let layout_tree = self.layout_cache.tree.as_ref()?;
+        // The TARGET's own dom. This used to read `layout_cache.tree` — the
+        // ROOT dom only — and then re-find each ancestor by bare arena index
+        // while keying the scroll-state lookup by the target's `DomId`. For a
+        // node inside a virtualized view that does not answer None: it walks
+        // the ROOT dom's ancestor chain and can return a node that is not an
+        // ancestor of the target at all, so the reveal scrolled the wrong
+        // container. Walking layout indices in the node's own tree also stops
+        // an ANONYMOUS ancestor (`dom_node_id == None`) from re-matching the
+        // first anonymous node in the tree.
+        let layout_result = self.layout_results.get(&node_id.dom)?;
+        let layout_tree = &layout_result.layout_tree;
 
-        // Convert to internal NodeId
-        let mut current_node_id = node_id.node.into_crate_internal();
+        let mut current_layout_idx = *layout_tree
+            .dom_to_layout
+            .get(&node_id.node.into_crate_internal()?)?
+            .first()?;
 
         // Walk up the tree looking for a scrollable node
-        loop {
-            // Find layout node index
-            let layout_idx = layout_tree
-                .nodes
-                .iter()
-                .position(|node| node.dom_node_id == current_node_id)?;
-
+        for _ in 0..SCROLL_ANCESTOR_WALK_LIMIT {
             // Check if this node has scrollbar info (meaning it's scrollable)
-            if layout_tree.warm(LayoutNodeId::new(layout_idx)).and_then(|w| w.scrollbar_info.as_ref()).is_some() {
-                // Check if it actually has a scroll state registered
-                let check_node_id = current_node_id?;
-                if self
-                    .scroll_manager
-                    .get_scroll_state(node_id.dom, check_node_id)
-                    .is_some()
+            // and actually has a scroll state registered
+            if layout_tree
+                .warm(current_layout_idx)
+                .and_then(|w| w.scrollbar_info.as_ref())
+                .is_some()
+            {
+                if let Some(check_node_id) =
+                    layout_tree.get(current_layout_idx).and_then(|n| n.dom_node_id)
                 {
-                    // Found a scrollable ancestor
-                    return Some(DomNodeId {
-                        dom: node_id.dom,
-                        node: NodeHierarchyItemId::from_crate_internal(
-                            Some(check_node_id),
-                        ),
-                    });
+                    if self
+                        .scroll_manager
+                        .get_scroll_state(node_id.dom, check_node_id)
+                        .is_some()
+                    {
+                        // Found a scrollable ancestor
+                        return Some(DomNodeId {
+                            dom: node_id.dom,
+                            node: NodeHierarchyItemId::from_crate_internal(Some(check_node_id)),
+                        });
+                    }
                 }
             }
 
             // Move to parent
-            let parent_idx = layout_tree.get(LayoutNodeId::new(layout_idx))?.parent?;
-            let parent_node = layout_tree.get(LayoutNodeId::new(parent_idx))?;
-            current_node_id = parent_node.dom_node_id;
+            let parent_idx = layout_tree.get(current_layout_idx)?.parent?;
+            current_layout_idx = LayoutNodeId::new(parent_idx);
         }
+
+        None
     }
 
     /// Scroll selection or cursor into view with distance-based acceleration.
@@ -9131,21 +9173,19 @@ impl LayoutWindow {
     /// scroll speed increases with distance from container edge.
     ///
     /// ## Algorithm
-    /// 1. Get bounds to scroll (cursor rect, selection rect, or mouse position)
-    /// 2. Find scrollable ancestor container
-    /// 3. Calculate distance from bounds to container edges
-    /// 4. Compute scroll delta (instant with padding, or accelerated with zones)
-    /// 5. Apply scroll with appropriate animation
+    /// 1. Get bounds to scroll (cursor rect or selection rect)
+    /// 2. Find the scrollable ancestor of the SESSION's node
+    /// 3. Compute the instant scroll delta ([`calculate_instant_scroll_delta`],
+    ///    a fixed 5px padding on every edge)
+    /// 4. Apply it — as a glide through the physics `AnimateTo` spring when the
+    ///    system allows caret-scroll animation, as a zero-duration jump when it
+    ///    does not
     ///
-    /// ## Distance-Based Acceleration (`ScrollMode::Accelerated`)
-    /// ```text
-    /// Distance from edge:  Scroll speed per frame:
-    /// 0-20px              Dead zone (no scroll)
-    /// 20-50px             Slow (2px/frame)
-    /// 50-100px            Medium (4px/frame)
-    /// 100-200px           Fast (8px/frame)
-    /// 200+px              Very fast (16px/frame)
-    /// ```
+    /// [`ScrollMode`] has exactly one variant, [`ScrollMode::Instant`]. The
+    /// distance-accelerated drag mode this doc once described had zero call
+    /// sites and was deleted: drag-autoscroll lives in the shells'
+    /// `auto_scroll_timer_callback`, which also extends the selection as the
+    /// view moves.
     ///
     /// ## Returns
     /// `true` if scrolling was applied, `false` if already visible
@@ -9198,33 +9238,41 @@ impl LayoutWindow {
             return false; // No scrollable ancestor
         };
 
-        // Get container bounds and current scroll state
-        let Some(layout_tree) = self.layout_cache.tree.as_ref() else {
-            return false;
-        };
-
+        // Container bounds and scroll state, measured in the CONTAINER'S OWN
+        // dom. Reading `layout_cache` here (the ROOT dom) undid the ancestor
+        // search directly above it: for a caret inside a virtualized view the
+        // container was named correctly in the nested dom and then measured
+        // against whatever root node shared its arena index — so the reveal
+        // computed its delta from a rectangle belonging to another element.
         let Some(scrollable_node_internal) = scroll_container.node.into_crate_internal() else {
             return false;
         };
 
-        let Some(layout_idx) = layout_tree
-            .nodes
-            .iter()
-            .position(|n| n.dom_node_id == Some(scrollable_node_internal))
+        let Some(container_layout) = self.layout_results.get(&scroll_container.dom) else {
+            return false;
+        };
+
+        let Some(&layout_idx) = container_layout
+            .layout_tree
+            .dom_to_layout
+            .get(&scrollable_node_internal)
+            .and_then(|candidates| candidates.first())
         else {
             return false;
         };
 
-        let Some(scrollable_layout_node) = layout_tree.nodes.get(layout_idx) else {
+        let Some(scrollable_layout_node) = container_layout.layout_tree.get(layout_idx) else {
             return false;
         };
 
-        let container_pos = self
-            .layout_cache
-            .calculated_positions
-            .get(layout_idx)
-            .copied()
-            .unwrap_or_default();
+        // `pos_get`, not a raw index: the POSITION_UNSET sentinel means "not
+        // laid out yet", and a container at f32::MIN sends the caret reveal
+        // scrolling to the end of the coordinate space.
+        let Some(container_pos) =
+            solver3::pos_get(&container_layout.calculated_positions, layout_idx.index())
+        else {
+            return false;
+        };
 
         let container_size = scrollable_layout_node.used_size.unwrap_or_default();
 
@@ -10916,10 +10964,21 @@ impl LayoutWindow {
                                         cluster_id: GraphemeClusterId { source_run: 0, start_byte_in_run: 0 },
                                         affinity: CursorAffinity::Trailing,
                                     });
-                                self.text_edit_manager.initialize_editing(cursor, dom_id, node_id, 0);
+                                let ce_key = self.contenteditable_session_key(dom_id, node_id);
+                                self.text_edit_manager
+                                    .initialize_editing(cursor, dom_id, node_id, ce_key);
 
-                                // Scroll cursor into view if necessary
-                                self.scroll_cursor_into_view_if_needed(dom_id, node_id, now.clone());
+                                // Reveal the caret the way a keyboard focus does:
+                                // the canonical session-anchored path, which knows
+                                // the session's own DOM, pads by 5px on every edge
+                                // and glides. The a11y-only copy that used to live
+                                // here anchored on the focused node, padded by 0,
+                                // teleported, and called a caret clipped at the
+                                // bottom edge "visible".
+                                self.scroll_selection_into_view(
+                                    SelectionScrollType::Cursor,
+                                    ScrollMode::Instant,
+                                );
                             }
                         } else {
                             // Not editable - clear cursor
@@ -10928,8 +10987,16 @@ impl LayoutWindow {
                     }
                 }
 
-                // Optionally scroll into view
-                self.scroll_to_node_if_needed(dom_id, node_id, now);
+                // Reveal the node itself through the canonical W3C
+                // scroll-into-view (the same call the shells make for a
+                // keyboard focus move): it walks the WHOLE scroll-container
+                // ancestry across DOMs, where the a11y-only copy adjusted a
+                // single ancestor of the root dom.
+                self.scroll_node_into_view(
+                    dom_node_id,
+                    crate::managers::scroll_into_view::ScrollIntoViewOptions::nearest(),
+                    now,
+                );
             }
             AccessibilityAction::Blur => {
                 self.focus_manager.clear_focus();
@@ -10948,7 +11015,15 @@ impl LayoutWindow {
 
             // Scroll actions
             AccessibilityAction::ScrollIntoView => {
-                self.scroll_to_node_if_needed(dom_id, node_id, now);
+                let dom_node_id = DomNodeId {
+                    dom: dom_id,
+                    node: NodeHierarchyItemId::from_crate_internal(Some(node_id)),
+                };
+                self.scroll_node_into_view(
+                    dom_node_id,
+                    crate::managers::scroll_into_view::ScrollIntoViewOptions::nearest(),
+                    now,
+                );
             }
             AccessibilityAction::ScrollLeft |
             AccessibilityAction::ScrollRight |
@@ -12753,199 +12828,6 @@ impl LayoutWindow {
         })
     }
 
-    /// Scroll a node into view if it's not currently visible in the viewport
-    #[cfg(feature = "a11y")]
-    #[allow(clippy::cast_precision_loss)] // bounded layout/render numeric cast
-    fn scroll_to_node_if_needed(
-        &mut self,
-        dom_id: DomId,
-        node_id: NodeId,
-        now: Instant,
-    ) {
-        // 1. Get target node bounds
-        let Some(target_bounds) = self.get_node_bounds(dom_id, node_id) else {
-            return;
-        };
-
-        // 2. Find nearest scrollable ancestor
-        let dom_node_id = DomNodeId {
-            dom: dom_id,
-            node: NodeHierarchyItemId::from_crate_internal(Some(node_id)),
-        };
-        let Some(scroll_ancestor) = self.find_scrollable_ancestor(dom_node_id) else {
-            return;
-        };
-        let Some(scroll_node_id) = scroll_ancestor.node.into_crate_internal() else {
-            return;
-        };
-        let Some(ancestor_bounds) = self.get_node_bounds(dom_id, scroll_node_id) else {
-            return;
-        };
-
-        let current_scroll = self
-            .scroll_manager
-            .get_current_offset(dom_id, scroll_node_id)
-            .unwrap_or_default();
-
-        // 3. Check if target is already visible in the ancestor viewport
-        let vp_x = ancestor_bounds.origin.x as f32 + current_scroll.x;
-        let vp_y = ancestor_bounds.origin.y as f32 + current_scroll.y;
-        let vp_w = ancestor_bounds.size.width as f32;
-        let vp_h = ancestor_bounds.size.height as f32;
-
-        let target_x = target_bounds.origin.x as f32;
-        let target_y = target_bounds.origin.y as f32;
-        let target_w = target_bounds.size.width as f32;
-        let target_h = target_bounds.size.height as f32;
-
-        let visible_x = target_x >= vp_x && (target_x + target_w) <= (vp_x + vp_w);
-        let visible_y = target_y >= vp_y && (target_y + target_h) <= (vp_y + vp_h);
-
-        if visible_x && visible_y {
-            return; // Already visible
-        }
-
-        // 4. Calculate scroll offset to bring target into view
-        let mut scroll_x = current_scroll.x;
-        let mut scroll_y = current_scroll.y;
-
-        if target_x < vp_x {
-            scroll_x = target_x - ancestor_bounds.origin.x as f32;
-        } else if (target_x + target_w) > (vp_x + vp_w) {
-            scroll_x = (target_x + target_w) - ancestor_bounds.origin.x as f32 - vp_w;
-        }
-
-        if target_y < vp_y {
-            scroll_y = target_y - ancestor_bounds.origin.y as f32;
-        } else if (target_y + target_h) > (vp_y + vp_h) {
-            scroll_y = (target_y + target_h) - ancestor_bounds.origin.y as f32 - vp_h;
-        }
-
-        self.scroll_manager.scroll_to(
-            dom_id,
-            scroll_node_id,
-            LogicalPosition { x: scroll_x, y: scroll_y },
-            std::time::Duration::from_millis(300).into(),
-            EasingFunction::EaseOut,
-            now,
-        );
-    }
-
-    /// Scroll the cursor into view if it's not currently visible
-    ///
-    /// This is automatically called when:
-    /// - Focus lands on a contenteditable element
-    /// - Cursor is moved programmatically
-    /// - Text is inserted/deleted
-    ///
-    /// The function:
-    /// 1. Gets the cursor rectangle from the text layout
-    /// 2. Checks if the cursor is visible in the current viewport
-    /// 3. If not, calculates the minimum scroll offset needed
-    /// 4. Animates the scroll to bring the cursor into view
-    #[allow(clippy::cast_precision_loss)] // bounded layout/render numeric cast
-    fn scroll_cursor_into_view_if_needed(
-        &mut self,
-        dom_id: DomId,
-        node_id: NodeId,
-        now: Instant,
-    ) {
-        // Get the cursor from multi_cursor
-        let Some(cursor) = self.text_edit_manager.get_primary_cursor() else {
-            return;
-        };
-
-        // Get the inline layout for this node
-        let Some(inline_layout) = self.get_node_inline_layout(dom_id, node_id) else {
-            return;
-        };
-
-        // Get the cursor rectangle from the text layout
-        let Some(cursor_rect) = inline_layout.get_cursor_rect(&cursor) else {
-            return;
-        };
-
-        // Get the node bounds
-        let Some(node_bounds) = self.get_node_bounds(dom_id, node_id) else {
-            return;
-        };
-
-        // Calculate the cursor's absolute position
-        let cursor_abs_x = node_bounds.origin.x as f32 + cursor_rect.origin.x;
-        let cursor_abs_y = node_bounds.origin.y as f32 + cursor_rect.origin.y;
-
-        // Walk up the DOM tree to find the nearest scrollable ancestor
-        let dom_node_id = DomNodeId {
-            dom: dom_id,
-            node: NodeHierarchyItemId::from_crate_internal(Some(node_id)),
-        };
-        let Some(scroll_ancestor) = self.find_scrollable_ancestor(dom_node_id) else {
-            return; // No scrollable container
-        };
-        let Some(scroll_node_id) = scroll_ancestor.node.into_crate_internal() else {
-            return;
-        };
-
-        // Get the scrollable ancestor's bounds and scroll offset
-        let Some(ancestor_bounds) = self.get_node_bounds(dom_id, scroll_node_id) else {
-            return;
-        };
-        let current_scroll = self
-            .scroll_manager
-            .get_current_offset(dom_id, scroll_node_id)
-            .unwrap_or_default();
-
-        // Calculate visible viewport from the scrollable ancestor
-        let viewport_x = ancestor_bounds.origin.x as f32 + current_scroll.x;
-        let viewport_y = ancestor_bounds.origin.y as f32 + current_scroll.y;
-        let viewport_width = ancestor_bounds.size.width as f32;
-        let viewport_height = ancestor_bounds.size.height as f32;
-
-        // Check if cursor is visible
-        let cursor_visible_x = cursor_abs_x >= viewport_x
-            && cursor_abs_x <= viewport_x + viewport_width;
-        let cursor_visible_y = cursor_abs_y >= viewport_y
-            && cursor_abs_y <= viewport_y + viewport_height;
-
-        if cursor_visible_x && cursor_visible_y {
-            // Cursor is already visible
-            return;
-        }
-
-        // Calculate scroll offset to make cursor visible
-        let mut target_scroll_x = current_scroll.x;
-        let mut target_scroll_y = current_scroll.y;
-
-        // Adjust horizontal scroll if needed
-        if cursor_abs_x < viewport_x {
-            target_scroll_x = cursor_abs_x - ancestor_bounds.origin.x as f32;
-        } else if cursor_abs_x > viewport_x + viewport_width {
-            target_scroll_x = cursor_abs_x - ancestor_bounds.origin.x as f32 - viewport_width
-                + cursor_rect.size.width;
-        }
-
-        // Adjust vertical scroll if needed
-        if cursor_abs_y < viewport_y {
-            target_scroll_y = cursor_abs_y - ancestor_bounds.origin.y as f32;
-        } else if cursor_abs_y > viewport_y + viewport_height {
-            target_scroll_y = cursor_abs_y - ancestor_bounds.origin.y as f32 - viewport_height
-                + cursor_rect.size.height;
-        }
-
-        // Animate scroll on the scrollable ancestor
-        self.scroll_manager.scroll_to(
-            dom_id,
-            scroll_node_id,
-            LogicalPosition {
-                x: target_scroll_x,
-                y: target_scroll_y,
-            },
-            std::time::Duration::from_millis(200).into(),
-            EasingFunction::EaseOut,
-            now,
-        );
-    }
-
     /// Convert a byte offset in the text to a `TextCursor` position
     ///
     /// This is used for accessibility `SetTextSelection` action, which provides
@@ -13452,13 +13334,7 @@ impl LayoutWindow {
         // appear until the next full layout (e.g., resize).
 
         // Initialize editing at the clicked position via unified API.
-        let ce_key = self.layout_results.get(&dom_id).map_or(0, |lr| {
-            azul_core::diff::calculate_contenteditable_key(
-                lr.styled_dom.node_data.as_ref(),
-                lr.styled_dom.node_hierarchy.as_ref(),
-                ifc_root_node_id,
-            )
-        });
+        let ce_key = self.contenteditable_session_key(dom_id, ifc_root_node_id);
         self.text_edit_manager.initialize_editing(
             final_range.start, dom_id, ifc_root_node_id, ce_key,
         );
@@ -13613,10 +13489,13 @@ impl LayoutWindow {
 
     /// The IFC root + text cursor under a window-space position, searched
     /// across ALL laid-out IFC roots of `dom_id` (the cross-block drag needs
-    /// a target outside the anchor block). Direct containment wins; a miss
-    /// falls back to the vertically NEAREST block within its horizontal
-    /// span-extended row (Word-style: dragging into the gap between
-    /// paragraphs selects to the closer one).
+    /// a target outside the anchor block). Candidates are ranked against where
+    /// they actually sit ON SCREEN (static position minus accumulated scroll)
+    /// by vertical distance first, horizontal distance second — so direct
+    /// containment (both zero) wins, and a miss falls back to the vertically
+    /// nearest block, ties among equally-near blocks going to the horizontally
+    /// nearest (Word-style: dragging into the gap between paragraphs selects to
+    /// the closer one).
     #[must_use]
     pub fn hittest_text_position_global(
         &self,
@@ -16678,7 +16557,7 @@ mod autotest_generated {
         let win = fresh_window();
         assert!(
             win.find_scrollable_ancestor(dnid(0)).is_none(),
-            "no layout_cache tree => no scrollable ancestor"
+            "no layout result for the node's dom => no scrollable ancestor"
         );
     }
 

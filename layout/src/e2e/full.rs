@@ -7045,7 +7045,8 @@ fn eval_assert_manager_invariants(
     //
     // What IS retained is the engine's record that a cursor scroll is OWED:
     // `cursor_needs_initialization` and `pending_contenteditable_focus` are what
-    // make the next pass call `scroll_cursor_into_view_if_needed`. If focus is
+    // make the next pass seed a caret and reveal it through
+    // `scroll_selection_into_view`. If focus is
     // gone and either is still set, the engine will initialize a cursor for a
     // node nothing is focused on and scroll to it — which is precisely the bug
     // X7 names, caught one step earlier than the plan proposed.
@@ -7232,7 +7233,8 @@ fn check_x1_target_is_visible(
 
     // Layout coordinates are UNSCROLLED; the visible window into the content is
     // the container's rect displaced by the current offset. Same arithmetic
-    // `scroll_cursor_into_view_if_needed` uses to decide whether to scroll.
+    // `managers::scroll_into_view::check_if_scrollable` uses to build the
+    // visible rect it decides against.
     const TOL: f32 = 1.0;
     let vis_x = arect.origin.x as f32 + info.current_offset.x;
     let vis_y = arect.origin.y as f32 + info.current_offset.y;
