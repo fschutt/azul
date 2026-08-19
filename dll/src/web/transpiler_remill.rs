@@ -306,6 +306,12 @@ pub fn signature_for_eventloop_fn(name: &str) -> Option<CallbackSignature> {
             args: vec![wreg_arg(0), wreg_arg(1), wreg_arg(2), wreg_arg(3)],
             ret: ret_w(),
         }),
+        "AzStartup_hydrateJson" => Some(CallbackSignature {
+            kind: "AzStartup_hydrateJson".to_string(),
+            // (state: u32, json_ptr: u32, json_len: u32) -> refany_ptr: u32
+            args: vec![wreg_arg(0), wreg_arg(1), wreg_arg(2)],
+            ret: ret_w(),
+        }),
         "AzStartup_dispatchEvent" => Some(CallbackSignature {
             kind: "AzStartup_dispatchEvent".to_string(),
             // (state, kind, evt_ptr, evt_len, out_len_ptr) -> patches_ptr
@@ -10764,16 +10770,75 @@ fn parse_sub_hex_as_addr(sym_name: &str) -> Option<usize> {
 /// Only forms that stay type-consistent under a uniform token swap are
 /// rewritten; anything else returns `None`, leaving the IR untouched so the
 /// crash-stub path and the startup audit's F2 finding still fire loudly.
+/// Re-encode LLVM `0xK…` (x87 extended) float literals as f64 bit patterns.
+/// Zero maps to zero; normals re-bias 16383 -> 1023 and drop the explicit
+/// integer bit. Anything malformed is left alone so the caller's own guards
+/// (and llc) still reject it loudly rather than silently mis-encoding.
+fn rewrite_fp80_literals(ir: &str) -> String {
+    let mut out = String::with_capacity(ir.len());
+    let mut rest = ir;
+    while let Some(pos) = rest.find("0xK") {
+        out.push_str(&rest[..pos]);
+        let tail = &rest[pos + 3..];
+        let hex_len = tail
+            .char_indices()
+            .take_while(|(_, c)| c.is_ascii_hexdigit())
+            .count();
+        if hex_len != 20 {
+            out.push_str("0xK");
+            rest = tail;
+            continue;
+        }
+        let (hex, after) = tail.split_at(20);
+        let se = u16::from_str_radix(&hex[..4], 16).unwrap_or(0);
+        let mant = u64::from_str_radix(&hex[4..], 16).unwrap_or(0);
+        let sign = ((se >> 15) as u64) << 63;
+        let exp = (se & 0x7FFF) as i64;
+        let bits = if exp == 0 && mant == 0 {
+            sign
+        } else {
+            let e64 = exp - 16383 + 1023;
+            if e64 <= 0 || e64 >= 0x7FF {
+                sign | if e64 >= 0x7FF { 0x7FF0_0000_0000_0000 } else { 0 }
+            } else {
+                sign | ((e64 as u64) << 52) | ((mant >> 11) & 0x000F_FFFF_FFFF_FFFF)
+            }
+        };
+        out.push_str(&format!("0x{:016X}", bits));
+        rest = after;
+    }
+    out.push_str(rest);
+    out
+}
+
 fn demote_x86_fp80(ir: &str) -> Option<String> {
     if !ir.contains("x86_fp80") {
         return None;
     }
-    for bad in ["fptrunc x86_fp80", "fpext x86_fp80", "call x86_fp80", "x86_fp80 @"] {
+    // Conversions between fp80 and another float width would need real SSA
+    // surgery (the value changes type mid-chain), so those still bail.
+    for bad in ["fptrunc x86_fp80", "fpext x86_fp80", "to x86_fp80"] {
         if ir.contains(bad) {
             return None;
         }
     }
-    Some(ir.replace("x86_fp80", "double"))
+    // remill models the x87 register file as raw i80 bit patterns and casts
+    // into the float domain with `bitcast i80 %v to x86_fp80`. Decoding that
+    // to f64 is expressible in LLVM but needs i80 shifts/truncs, which the
+    // wasm backend cannot legalize (it segfaults outright), so functions
+    // carrying x87 BIT-PATTERN plumbing are left for the crash path and the
+    // audit's F2 finding — deliberately not silently stubbed. Only the
+    // float-domain shapes below are demoted.
+    if ir.contains("bitcast i80") {
+        return None;
+    }
+    let out = ir.to_string();
+    // fp80 LITERALS: LLVM writes them as `0xK` + 20 hex digits (16-bit
+    // sign/exponent, then the 64-bit mantissa with its explicit integer
+    // bit). Re-encode each as the equivalent f64 bit pattern (`0x` + 16
+    // hex), the same decode the runtime sequence above performs.
+    let out = rewrite_fp80_literals(&out);
+    Some(out.replace("x86_fp80", "double").replace(".f80", ".f64"))
 }
 
 fn rewrite_sub_names_to_canonical(
