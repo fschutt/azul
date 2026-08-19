@@ -73,34 +73,71 @@ pub fn sync_clipboard(clipboard_manager: &mut ClipboardManager) {
     clipboard_manager.clear();
 }
 
-/// Write text to the X11 clipboard
+/// The text this process last put on the clipboard.
 ///
-/// Writes to both CLIPBOARD (Ctrl+C/V) and PRIMARY (middle-click) selections,
-/// using the persistent owner so the content survives this call.
-/// Returns Ok(()) if successful, Err if clipboard access fails.
+/// It is what makes the copy SAFE the instant the user presses Ctrl+X, before
+/// any X traffic has happened: [`get_clipboard_content`] falls back to it when
+/// the selection read comes back with nothing, so a Cut can never delete text
+/// that then turns out to be unpasteable.
+static LAST_WRITTEN: Mutex<Option<String>> = Mutex::new(None);
+
+/// The same, for PRIMARY. A separate cell because the two selections carry
+/// DIFFERENT text: PRIMARY follows every selection gesture, CLIPBOARD only an
+/// explicit copy, and answering a middle click out of the copy cell would
+/// paste whatever was last copied instead of what is selected.
+static LAST_PRIMARY: Mutex<Option<String>> = Mutex::new(None);
+
+/// Park what we are about to put on PRIMARY. Both writers go through here:
+/// `write_to_clipboard` stores to PRIMARY as well as CLIPBOARD, and
+/// `write_to_primary` stores to PRIMARY alone.
+fn park_primary(text: &str) {
+    if let Ok(mut parked) = LAST_PRIMARY.lock() {
+        *parked = Some(text.to_owned());
+    }
+}
+
+/// Write text to the X11 clipboard.
+///
+/// Writes to both CLIPBOARD (Ctrl+C/V) and PRIMARY (middle-click) selections.
+///
+/// NOT on the UI thread any more. `Clipboard::store` is four synchronous X
+/// round trips per copy — `set_selection_owner(..).check()` and
+/// `get_selection_owner(..).reply()`, for CLIPBOARD and again for PRIMARY —
+/// plus a write lock shared with the in-flight read on the getter thread. That
+/// ran on the UI thread on every Ctrl+C and every Ctrl+X, and blocking calls
+/// on the UI thread are forbidden.
+///
+/// The return value could not simply be dropped: `set_system_clipboard()` in
+/// `common/event.rs` gates whether Cut DELETES the selection on it, so an
+/// unconditional `Ok` would let a failed copy destroy the user's text. What
+/// makes `Ok` truthful without waiting is [`LAST_WRITTEN`]: the text is parked
+/// in-process FIRST, so it is already retrievable by the time this returns,
+/// and only the X handoff is left to the worker.
 pub fn write_to_clipboard(text: &str) -> Result<(), ClipboardError> {
-    let guard = clipboard().ok_or(ClipboardError::InitFailed)?;
-    let clipboard = guard.as_ref().ok_or(ClipboardError::InitFailed)?;
+    let sender = worker().ok_or(ClipboardError::InitFailed)?;
+    // A copy claims PRIMARY too, so both cells answer for it.
+    park_primary(text);
+    commit_copy(&LAST_WRITTEN, &sender, text)
+}
 
-    // Store to CLIPBOARD selection (Ctrl+C/V)
-    clipboard
-        .store(
-            clipboard.setter.atoms.clipboard,
-            clipboard.setter.atoms.utf8_string,
-            text.as_bytes(),
-        )
-        .map_err(|_| ClipboardError::WriteFailed)?;
-
-    // Also store to PRIMARY selection (middle-click paste)
-    clipboard
-        .store(
-            clipboard.setter.atoms.primary,
-            clipboard.setter.atoms.utf8_string,
-            text.as_bytes(),
-        )
-        .map_err(|_| ClipboardError::WriteFailed)?;
-
-    Ok(())
+/// The UI-thread half of a copy: park the text, then queue the X handoff.
+///
+/// Taking a `Sender` rather than doing the work is the whole point — a channel
+/// send cannot block on the X server no matter how wedged the selection
+/// machinery is.
+fn commit_copy(
+    park: &Mutex<Option<String>>,
+    sender: &Sender<ClipboardJob>,
+    text: &str,
+) -> Result<(), ClipboardError> {
+    // Park BEFORE queueing: this is the step that makes `Ok` true.
+    match park.lock() {
+        Ok(mut parked) => *parked = Some(text.to_owned()),
+        Err(_) => return Err(ClipboardError::WriteFailed),
+    }
+    sender
+        .send(ClipboardJob::Store(text.to_owned()))
+        .map_err(|_| ClipboardError::WriteFailed)
 }
 
 /// Claim ONLY the PRIMARY selection (the X11 select/middle-click-paste idiom).
@@ -114,6 +151,7 @@ pub fn write_to_clipboard(text: &str) -> Result<(), ClipboardError> {
 /// in-flight read. `Ok` therefore means "queued", not "owned".
 pub fn write_to_primary(text: &str) -> Result<(), ClipboardError> {
     let sender = worker().ok_or(ClipboardError::InitFailed)?;
+    park_primary(text);
     sender
         .send(ClipboardJob::ClaimPrimary(text.to_string()))
         .map_err(|_| ClipboardError::WriteFailed)
@@ -129,6 +167,7 @@ enum SelectionKind {
 }
 
 /// Work handed to the clipboard thread.
+#[derive(Debug)]
 enum ClipboardJob {
     /// Read a selection and answer on `reply`.
     Load {
@@ -137,6 +176,9 @@ enum ClipboardJob {
     },
     /// Take ownership of PRIMARY with this text (fire and forget).
     ClaimPrimary(String),
+    /// Take ownership of CLIPBOARD *and* PRIMARY with this text — the four
+    /// X round trips that used to happen on the UI thread.
+    Store(String),
 }
 
 /// Handle to the (lazily spawned) clipboard worker thread.
@@ -160,12 +202,39 @@ fn worker() -> Option<MutexGuard<'static, Sender<ClipboardJob>>> {
                             let _ = reply.try_send(load_selection(kind));
                         }
                         ClipboardJob::ClaimPrimary(text) => claim_primary(&text),
+                        ClipboardJob::Store(text) => store_both_selections(&text),
                     }
                 }
             });
         Mutex::new(tx)
     });
     m.lock().ok()
+}
+
+/// Worker-thread side of a copy: take CLIPBOARD (Ctrl+C/V) and PRIMARY
+/// (middle-click). Blocking — never call this on the UI thread.
+fn store_both_selections(text: &str) {
+    let Some(guard) = clipboard() else {
+        return;
+    };
+    let Some(clipboard) = guard.as_ref() else {
+        return;
+    };
+    for selection in [
+        clipboard.setter.atoms.clipboard,
+        clipboard.setter.atoms.primary,
+    ] {
+        if clipboard
+            .store(selection, clipboard.setter.atoms.utf8_string, text.as_bytes())
+            .is_err()
+        {
+            log_warn!(
+                LogCategory::Resources,
+                "[X11] failed to take a selection for the copied text — pasting inside this \
+                 app still works from the parked copy, other apps will not see it"
+            );
+        }
+    }
 }
 
 /// Worker-thread side of a PRIMARY claim.
@@ -268,12 +337,34 @@ fn await_selection_reply(
 /// the clipboard worker thread and this call gives up after
 /// [`PASTE_UI_DEADLINE`] with an empty result.
 pub fn get_clipboard_content() -> Option<String> {
-    request(SelectionKind::Clipboard)
+    resolve_paste(
+        request(SelectionKind::Clipboard),
+        LAST_WRITTEN.lock().ok().and_then(|g| g.clone()),
+    )
+}
+
+/// What a paste resolves to: the live X selection, or — only when that answered
+/// with nothing — the text this process last copied.
+///
+/// The fallback is what lets [`write_to_clipboard`] return `Ok` without waiting
+/// on the X handoff. It is second, never first: another application that owns
+/// the selection must win, or Ctrl+C elsewhere followed by Ctrl+V here would
+/// paste our own stale text.
+fn resolve_paste(from_selection: Option<String>, parked: Option<String>) -> Option<String> {
+    from_selection.filter(|s| !s.is_empty()).or(parked)
 }
 
 /// Read the PRIMARY selection only — the middle-click paste source.
+///
+/// Same fallback as [`get_clipboard_content`], and for the same reason: the
+/// claim is queued to the worker now, so a middle click a few milliseconds
+/// after the selection gesture can beat the X handoff. Without the fallback
+/// that paste would come back empty.
 pub fn get_primary_content() -> Option<String> {
-    request(SelectionKind::Primary)
+    resolve_paste(
+        request(SelectionKind::Primary),
+        LAST_PRIMARY.lock().ok().and_then(|g| g.clone()),
+    )
 }
 
 #[derive(Debug, Copy, Clone)]
@@ -293,9 +384,13 @@ impl std::fmt::Display for ClipboardError {
 
 #[cfg(test)]
 mod tests {
+    use std::sync::Mutex;
     use std::{sync::mpsc, time::Duration, time::Instant};
 
-    use super::{await_selection_reply, PASTE_UI_DEADLINE, SELECTION_LOAD_TIMEOUT};
+    use super::{
+        await_selection_reply, commit_copy, resolve_paste, ClipboardJob, PASTE_UI_DEADLINE,
+        SELECTION_LOAD_TIMEOUT,
+    };
 
     /// A selection owner that is gone or wedged — routine the moment the app
     /// that copied the text exits — must cost a paste, not the frame loop.
@@ -339,6 +434,102 @@ mod tests {
             await_selection_reply(&answer, Duration::from_secs(5)),
             Some("hello".to_string())
         );
+    }
+
+    /// A copy hands the four X round trips to the worker and returns — even
+    /// when nothing is draining the queue, which is the worst the X server can
+    /// do to us. `Clipboard::store` is `set_selection_owner(..).check()` plus
+    /// `get_selection_owner(..).reply()`, twice (CLIPBOARD and PRIMARY), and
+    /// all of it used to run on the UI thread on every Ctrl+C.
+    ///
+    /// NEGATIVE CONTROL: drop the `sender.send(...)` from `commit_copy` — the
+    /// `try_recv` below reports `Empty` and the copy never reaches X at all.
+    #[test]
+    fn a_copy_queues_the_selection_handoff_instead_of_performing_it() {
+        let park = Mutex::new(None);
+        let (tx, rx) = mpsc::channel::<ClipboardJob>();
+
+        let started = Instant::now();
+        assert!(commit_copy(&park, &tx, "hello").is_ok());
+        let elapsed = started.elapsed();
+
+        assert!(
+            elapsed < Duration::from_millis(50),
+            "the UI thread spent {elapsed:?} on a copy"
+        );
+        match rx.try_recv() {
+            Ok(ClipboardJob::Store(text)) => assert_eq!(text, "hello"),
+            other => panic!("the copy never reached the worker: {other:?}"),
+        }
+    }
+
+    /// `Ok` from a copy is what `set_system_clipboard` gates the Cut DELETION
+    /// on, so it has to mean "this text is safe" — which is only true because
+    /// the copy is parked in-process before the queueing.
+    ///
+    /// NEGATIVE CONTROL: remove the `*parked = Some(...)` from `commit_copy` —
+    /// the assert below sees `None` and a Cut would have deleted text nothing
+    /// was holding.
+    #[test]
+    fn a_copy_is_retrievable_before_any_x_traffic_has_happened() {
+        let park = Mutex::new(None);
+        let (tx, _rx) = mpsc::channel::<ClipboardJob>();
+
+        assert!(commit_copy(&park, &tx, "cut me").is_ok());
+
+        assert_eq!(
+            resolve_paste(None, park.lock().unwrap().clone()),
+            Some("cut me".to_string()),
+            "the worker has not run yet, so only the parked copy can answer"
+        );
+    }
+
+    /// CLIPBOARD and PRIMARY carry DIFFERENT text — PRIMARY follows every
+    /// selection gesture, CLIPBOARD only an explicit copy — so they need
+    /// separate parked cells. One shared cell would answer a middle click
+    /// with whatever was last COPIED instead of what is selected.
+    ///
+    /// NEGATIVE CONTROL: make `write_to_primary` park into `LAST_WRITTEN`, or
+    /// make `get_primary_content` read `LAST_WRITTEN`.
+    #[test]
+    fn the_two_selections_do_not_share_a_parked_copy() {
+        use super::{LAST_PRIMARY, LAST_WRITTEN};
+        *LAST_WRITTEN.lock().unwrap() = Some("copied".to_string());
+        *LAST_PRIMARY.lock().unwrap() = Some("selected".to_string());
+
+        assert_eq!(
+            resolve_paste(None, LAST_WRITTEN.lock().unwrap().clone()),
+            Some("copied".to_string())
+        );
+        assert_eq!(
+            resolve_paste(None, LAST_PRIMARY.lock().unwrap().clone()),
+            Some("selected".to_string())
+        );
+    }
+
+    /// The parked copy is a FALLBACK. Another application that owns the
+    /// selection wins, or Ctrl+C elsewhere then Ctrl+V here would paste our
+    /// own stale text.
+    ///
+    /// NEGATIVE CONTROL: swap the order in `resolve_paste` to
+    /// `parked.or(from_selection)`.
+    #[test]
+    fn a_live_selection_owner_beats_the_parked_copy() {
+        assert_eq!(
+            resolve_paste(Some("theirs".into()), Some("ours".into())),
+            Some("theirs".to_string())
+        );
+        assert_eq!(
+            resolve_paste(None, Some("ours".into())),
+            Some("ours".to_string())
+        );
+        // An owner that answers with an EMPTY string is answering with
+        // nothing, and must not shadow the fallback either.
+        assert_eq!(
+            resolve_paste(Some(String::new()), Some("ours".into())),
+            Some("ours".to_string())
+        );
+        assert_eq!(resolve_paste(None, None), None);
     }
 
     /// The budget the UI thread is allowed to spend on a paste. Six seconds of

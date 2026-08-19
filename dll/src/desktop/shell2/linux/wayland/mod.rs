@@ -233,7 +233,7 @@ use self::{
     dlopen::{Library, Wayland, Xkb},
 };
 use super::{
-    common::gl::GlFunctions,
+    common::{compose::ComposeAction, gl::GlFunctions},
     x11::{accessibility::LinuxAccessibilityAdapter, dlopen::Gtk3Im},
 };
 use crate::desktop::shell2::common::debug_server::LogCategory;
@@ -420,6 +420,18 @@ pub struct WaylandWindow {
     /// MWA-B3: most recent input serial (pointer button OR key press) —
     /// wl_data_device.set_selection requires a real input serial.
     last_input_serial: u32,
+    // zwp_primary_selection_v1 — the Wayland select-to-copy / middle-click
+    // paste idiom. Null when the compositor does not implement the protocol,
+    // in which case both halves simply stay inert.
+    primary_selection_manager: *mut defines::zwp_primary_selection_device_manager_v1,
+    primary_selection_device: *mut defines::zwp_primary_selection_device_v1,
+    /// The offer the compositor last named as the primary selection
+    /// (null = no selection).
+    primary_selection_offer: *mut defines::zwp_primary_selection_offer_v1,
+    /// Our live outgoing primary-selection source (null when another client
+    /// owns it). Destroyed and replaced on every selection.
+    primary_selection_source: *mut defines::zwp_primary_selection_source_v1,
+    primary_selection_initialized: bool,
     /// MWA-C-scroll: wl_pointer.axis_source of the current pointer frame
     /// (0=wheel, 1=finger, 2=continuous, 3=wheel_tilt). Finger/continuous
     /// axis events classify as TrackpadContinuous so the physics timer
@@ -829,6 +841,21 @@ fn apply_key_state_change(
 ///
 /// Finger and continuous sources deliver POSITION deltas; treating them as
 /// wheel ticks stacked velocity impulses and made touchpad scrolling fly.
+/// Does this pointer-button event ask for a middle-click paste?
+///
+/// The RELEASE, not the press — the press is what moved the caret to the click
+/// point, and pasting on it would insert at wherever the caret used to be.
+/// Only when something editable has focus: the read waits on the selection
+/// OWNER, so a middle click anywhere else must not pay for it (and
+/// `record_text_input` would drop the text anyway).
+pub(super) fn primary_paste_wanted(
+    button: MouseButton,
+    is_down: bool,
+    has_active_editing: bool,
+) -> bool {
+    button == MouseButton::Middle && !is_down && has_active_editing
+}
+
 fn axis_source_is_trackpad(source: u32) -> bool {
     source == WL_AXIS_SOURCE_FINGER || source == WL_AXIS_SOURCE_CONTINUOUS
 }
@@ -1602,6 +1629,11 @@ impl WaylandWindow {
             clipboard_offer: std::ptr::null_mut(),
             clipboard_source: std::ptr::null_mut(),
             last_input_serial: 0,
+            primary_selection_manager: std::ptr::null_mut(),
+            primary_selection_device: std::ptr::null_mut(),
+            primary_selection_offer: std::ptr::null_mut(),
+            primary_selection_source: std::ptr::null_mut(),
+            primary_selection_initialized: false,
             current_axis_source: 0,
             pending_axis_value: (0.0, 0.0),
             pending_axis_discrete: (0.0, 0.0),
@@ -2914,6 +2946,39 @@ impl WaylandWindow {
             is_pressed,
         );
 
+        // Compose sequences (dead keys, the Compose key) come FIRST: they are
+        // defined over keysyms, and `xkb_state_key_get_utf8` below knows
+        // nothing about them — it hands back the dead key's own accent
+        // character, which is how `´` + `e` typed `´e` instead of `é`.
+        let compose = if is_pressed {
+            match self.keyboard_state.compose.as_mut() {
+                Some(sequencer) => sequencer.feed(keysym),
+                None => ComposeAction::Pass,
+            }
+        } else {
+            ComposeAction::Pass
+        };
+        match compose {
+            ComposeAction::Commit(text) => {
+                if let Some(ref mut layout_window) = self.common.layout_window {
+                    layout_window.record_text_input(&text);
+                }
+                let result = self.process_window_events(0);
+                self.handle_process_event_result(result);
+                return;
+            }
+            ComposeAction::Composing | ComposeAction::Cancelled => {
+                // The key belongs to the sequence, not to the document: no
+                // text, and the pass still runs so the keydown itself reaches
+                // the app (a shortcut must not be swallowed by a sequence that
+                // is only half typed).
+                let result = self.process_window_events(0);
+                self.handle_process_event_result(result);
+                return;
+            }
+            ComposeAction::Pass => {}
+        }
+
         // Get UTF-8 character (if printable)
         if is_pressed {
             let mut buffer = [0i8; 32];
@@ -3389,9 +3454,66 @@ impl WaylandWindow {
         };
         self.record_input_sample(position, button_state, is_down, !is_down, None);
 
+        // Middle-click paste: the primary selection is inserted at the caret,
+        // which the button-2 PRESS already moved to the click point. Recorded
+        // BEFORE the pass so the changeset is applied by it, exactly like typed
+        // text — the same shape as `x11/events.rs`, which has had this for
+        // years while Wayland had neither half of the idiom.
+        if primary_paste_wanted(
+            mouse_button,
+            is_down,
+            self.common
+                .layout_window
+                .as_ref()
+                .is_some_and(|lw| lw.text_edit_manager.has_active_editing()),
+        ) {
+            if let Some(text) = clipboard::get_primary_content() {
+                if !text.is_empty() {
+                    if let Some(ref mut layout_window) = self.common.layout_window {
+                        layout_window.record_text_input(&text);
+                    }
+                }
+            }
+        }
+
         // V2: Process events through state-diffing system
         let result = self.process_window_events(0);
+
+        // The release that ends a selection gesture claims the primary
+        // selection (run AFTER the pass, which is what finalizes the
+        // selection).
+        if !is_down && mouse_button == MouseButton::Left {
+            self.publish_primary_selection();
+        }
+
         self.handle_process_event_result(result);
+    }
+
+    /// Claim the Wayland primary selection for the current text selection.
+    ///
+    /// On Wayland as on X11, *selecting* text is itself a primary-selection
+    /// claim — no copy involved — and middle-click pastes it.
+    fn publish_primary_selection(&mut self) {
+        let text = {
+            let Some(lw) = self.common.layout_window.as_ref() else {
+                return;
+            };
+            if !lw.text_edit_manager.has_active_editing() {
+                return;
+            }
+            let dom_id = lw
+                .text_edit_manager
+                .get_editing_dom_id()
+                .unwrap_or(azul_core::dom::DomId { inner: 0 });
+            match lw.get_selected_content_for_clipboard(&dom_id) {
+                Some(content) => content.plain_text.as_str().to_string(),
+                None => return,
+            }
+        };
+        if text.is_empty() {
+            return;
+        }
+        let _ = clipboard::write_to_primary(&text);
     }
 
     /// Accumulate one `wl_pointer.axis` event into the current pointer frame.
@@ -3658,6 +3780,12 @@ impl WaylandWindow {
         // across the focus change keeps an entry that a much later release of the
         // same physical key would use to remove a code nobody pressed.
         self.pressed_key_vks.clear();
+        // A half-typed compose sequence dies with the focus too: leaving it
+        // armed makes the FIRST keystroke after coming back complete a
+        // sequence the user started in another window.
+        if let Some(compose) = self.keyboard_state.compose.as_mut() {
+            compose.reset();
+        }
         // MWA-A3b: forward to AT-SPI — accesskit_unix never learns window
         // focus on its own (Orca got no focus events on Wayland).
         #[cfg(feature = "a11y")]
@@ -3864,6 +3992,112 @@ impl WaylandWindow {
         }
         let bytes = unsafe {
             events::receive_offer_bytes(self, self.clipboard_offer, "text/plain;charset=utf-8")
+        };
+        if bytes.is_empty() {
+            return None;
+        }
+        Some(String::from_utf8_lossy(&bytes).into_owned())
+    }
+
+    // --- Primary selection (zwp_primary_selection_v1) ---
+
+    /// Claim the primary selection for `text`.
+    ///
+    /// On Wayland as on X11, *selecting* text claims PRIMARY — no copy
+    /// involved, and CLIPBOARD is untouched. Returns `false` when the
+    /// compositor does not implement the protocol (GNOME did not until 42) or
+    /// when there is no input serial yet, so the caller can stay silent rather
+    /// than pretend.
+    pub(super) fn wayland_set_primary_selection(&mut self) -> bool {
+        if self.primary_selection_manager.is_null() || self.primary_selection_device.is_null() {
+            return false;
+        }
+        if self.last_input_serial == 0 {
+            return false;
+        }
+        unsafe {
+            // Release any previous source. destroy: opcode 1, "". BOTH halves.
+            if !self.primary_selection_source.is_null() {
+                let destroy: unsafe extern "C" fn(*mut defines::wl_proxy, u32) =
+                    std::mem::transmute(self.wayland.wl_proxy_marshal);
+                destroy(self.primary_selection_source as *mut defines::wl_proxy, 1);
+                (self.wayland.wl_proxy_destroy)(
+                    self.primary_selection_source as *mut defines::wl_proxy,
+                );
+                self.primary_selection_source = std::ptr::null_mut();
+            }
+
+            // create_source: opcode 0 on the manager, "n".
+            type CreateSrcCtor = unsafe extern "C" fn(
+                *mut defines::wl_proxy,
+                u32,
+                *const defines::wl_interface,
+                *mut std::ffi::c_void,
+            ) -> *mut defines::wl_proxy;
+            let ctor: CreateSrcCtor =
+                std::mem::transmute(self.wayland.wl_proxy_marshal_constructor);
+            let src = ctor(
+                self.primary_selection_manager as *mut defines::wl_proxy,
+                0,
+                defines::get_primary_selection_source_v1_interface(),
+                std::ptr::null_mut(),
+            );
+            if src.is_null() {
+                return false;
+            }
+
+            // offer(mime_type): opcode 0, "s".
+            let offer: unsafe extern "C" fn(
+                *mut defines::wl_proxy,
+                u32,
+                *const std::os::raw::c_char,
+            ) = std::mem::transmute(self.wayland.wl_proxy_marshal);
+            for mime in ["text/plain;charset=utf-8", "UTF8_STRING", "text/plain"] {
+                let Ok(c) = std::ffi::CString::new(mime) else {
+                    continue;
+                };
+                offer(src, 0, c.as_ptr());
+            }
+
+            (self.wayland.wl_proxy_add_listener)(
+                src,
+                &events::PRIMARY_SELECTION_SOURCE_LISTENER as *const _ as *const _,
+                self as *mut Self as *mut _,
+            );
+
+            // set_selection(source, serial): opcode 0 on the DEVICE — not the
+            // 1 of wl_data_device.set_selection.
+            let set_selection: unsafe extern "C" fn(
+                *mut defines::wl_proxy,
+                u32,
+                *mut defines::wl_proxy,
+                u32,
+            ) = std::mem::transmute(self.wayland.wl_proxy_marshal);
+            set_selection(
+                self.primary_selection_device as *mut defines::wl_proxy,
+                0,
+                src,
+                self.last_input_serial,
+            );
+            (self.wayland.wl_display_flush)(self.display);
+
+            self.primary_selection_source = src as *mut defines::zwp_primary_selection_source_v1;
+        }
+        true
+    }
+
+    /// Read the current primary selection (another client's offer) as UTF-8.
+    pub(super) fn read_wayland_primary_selection(&mut self) -> Option<String> {
+        if self.primary_selection_offer.is_null() {
+            return None;
+        }
+        let bytes = unsafe {
+            events::receive_from_offer(
+                self,
+                self.primary_selection_offer as *mut defines::wl_proxy,
+                events::PRIMARY_OFFER_RECEIVE_OPCODE,
+                "text/plain;charset=utf-8",
+            )
         };
         if bytes.is_empty() {
             return None;
@@ -6087,6 +6321,13 @@ impl Drop for WaylandWindow {
                 events::destroy_data_offer_for_teardown(self, self.clipboard_offer);
                 self.clipboard_offer = std::ptr::null_mut();
             }
+            // Same for the primary-selection offer, for the same reason: each
+            // `selection` event releases its PREDECESSOR, so exactly one is
+            // still held at teardown and nothing else will ever release it.
+            if !self.primary_selection_offer.is_null() {
+                events::destroy_primary_offer(self, self.primary_selection_offer);
+                self.primary_selection_offer = std::ptr::null_mut();
+            }
 
             // Clean up text-input v3 resources
             if let Some(text_input) = self.text_input.take() {
@@ -8089,6 +8330,41 @@ extern "C" fn popup_done(data: *mut c_void, _xdg_popup: *mut defines::xdg_popup)
 /// and libwayland's hard per-message size cap. An oversized string here is a
 /// CONNECTION-FATAL protocol failure, not a cosmetic truncation, so these pin
 /// the budget, the UTF-8 boundary safety, and the offset rebasing.
+#[cfg(test)]
+mod primary_selection_tests {
+    use azul_core::events::MouseButton;
+
+    use super::primary_paste_wanted;
+
+    /// Middle-click paste is the RELEASE, matching X11: the press is what
+    /// moved the caret to the click point, so pasting on it would insert at
+    /// wherever the caret happened to be before.
+    ///
+    /// NEGATIVE CONTROL: drop the `!is_down` term from `primary_paste_wanted`
+    /// — the press case then wants a paste and this fails.
+    #[test]
+    fn middle_click_pastes_on_release_only() {
+        assert!(primary_paste_wanted(MouseButton::Middle, false, true));
+        assert!(!primary_paste_wanted(MouseButton::Middle, true, true));
+    }
+
+    /// The read waits on the selection OWNER, another process. A middle click
+    /// with nothing editable focused must not pay for it — and
+    /// `record_text_input` would drop the text anyway.
+    #[test]
+    fn a_middle_click_outside_an_editable_costs_nothing() {
+        assert!(!primary_paste_wanted(MouseButton::Middle, false, false));
+    }
+
+    /// Only the middle button. Left ends a selection (which CLAIMS the primary
+    /// selection) and right opens the context menu.
+    #[test]
+    fn the_other_buttons_never_paste() {
+        assert!(!primary_paste_wanted(MouseButton::Left, false, true));
+        assert!(!primary_paste_wanted(MouseButton::Right, false, true));
+    }
+}
+
 #[cfg(test)]
 mod trim_surrounding_text_tests {
     use super::trim_surrounding_text;

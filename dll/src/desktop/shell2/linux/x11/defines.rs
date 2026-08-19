@@ -676,6 +676,13 @@ pub type XInternAtom = unsafe extern "C" fn(*mut Display, *const c_char, c_int) 
 pub type XSetWMProtocols = unsafe extern "C" fn(*mut Display, Window, *mut Atom, c_int) -> c_int;
 pub type XSelectInput = unsafe extern "C" fn(*mut Display, Window, c_long) -> c_int;
 pub type XPending = unsafe extern "C" fn(*mut Display) -> c_int;
+/// `XEventsQueued(display, mode)` — how many events are in the CLIENT queue.
+///
+/// With [`QueuedAlready`] it never touches the socket and never round-trips,
+/// which is what makes it usable in the resize hot path.
+pub type XEventsQueued = unsafe extern "C" fn(*mut Display, c_int) -> c_int;
+/// `XEventsQueued` mode: answer from the client queue only.
+pub const QueuedAlready: c_int = 0;
 pub type XNextEvent = unsafe extern "C" fn(*mut Display, *mut XEvent) -> c_int;
 
 // ===== XInput2 (XI2) — touch + pen/tablet. ABI per scripts/WACOM_TOUCH_API_RESEARCH.md =====

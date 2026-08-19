@@ -1543,3 +1543,154 @@ pub use super::super::x11::defines::{
     EGL_GREEN_SIZE, EGL_NONE, EGL_OPENGL_API, EGL_OPENGL_BIT, EGL_RED_SIZE, EGL_RENDERABLE_TYPE,
     EGL_STENCIL_SIZE, EGL_SURFACE_TYPE, EGL_WINDOW_BIT,
 };
+// ===== Primary selection (zwp_primary_selection_unstable_v1) =====
+// The Wayland spelling of the X11 PRIMARY selection: SELECTING text claims it,
+// MIDDLE-CLICK pastes it. X11 has had both halves for years and Wayland had
+// neither, so middle-click paste did nothing at all under a Wayland session.
+//
+// libwayland does not export these interfaces (an unstable protocol), so they
+// are hand-rolled like the tablet family. All v1. Requests are listed in
+// OPCODE order and events in event order — libwayland indexes both by
+// position, so a reordering here is a protocol error that disconnects the
+// client. Only `data_offer` carries a new_id, so it is the only message with a
+// non-NULL `types` entry.
+#[repr(C)]
+pub struct zwp_primary_selection_device_manager_v1 {
+    _private: [u8; 0],
+}
+#[repr(C)]
+pub struct zwp_primary_selection_device_v1 {
+    _private: [u8; 0],
+}
+#[repr(C)]
+pub struct zwp_primary_selection_offer_v1 {
+    _private: [u8; 0],
+}
+#[repr(C)]
+pub struct zwp_primary_selection_source_v1 {
+    _private: [u8; 0],
+}
+
+/// Listener for `zwp_primary_selection_device_v1`: the compositor announces a
+/// fresh offer, then names it as the current primary selection (or NULL when
+/// the selection was cleared).
+#[repr(C)]
+pub struct zwp_primary_selection_device_v1_listener {
+    pub data_offer: extern "C" fn(
+        data: *mut c_void,
+        device: *mut zwp_primary_selection_device_v1,
+        offer: *mut zwp_primary_selection_offer_v1,
+    ),
+    pub selection: extern "C" fn(
+        data: *mut c_void,
+        device: *mut zwp_primary_selection_device_v1,
+        id: *mut zwp_primary_selection_offer_v1,
+    ),
+}
+
+/// Listener for `zwp_primary_selection_offer_v1` (one `offer` event per mime).
+#[repr(C)]
+pub struct zwp_primary_selection_offer_v1_listener {
+    pub offer: extern "C" fn(
+        data: *mut c_void,
+        offer: *mut zwp_primary_selection_offer_v1,
+        mime_type: *const c_char,
+    ),
+}
+
+/// Listener for `zwp_primary_selection_source_v1`: the compositor pulls our
+/// selected text through `send`, and tells us when someone else took the
+/// selection over through `cancelled`.
+#[repr(C)]
+pub struct zwp_primary_selection_source_v1_listener {
+    pub send: extern "C" fn(
+        data: *mut c_void,
+        source: *mut zwp_primary_selection_source_v1,
+        mime_type: *const c_char,
+        fd: i32,
+    ),
+    pub cancelled:
+        extern "C" fn(data: *mut c_void, source: *mut zwp_primary_selection_source_v1),
+}
+
+pub fn get_primary_selection_offer_v1_interface() -> &'static wl_interface {
+    use std::sync::OnceLock;
+    static I: OnceLock<SyncInterface> = OnceLock::new();
+    I.get_or_init(|| SyncInterface({
+        let n = leak_null_types();
+        let requests: &'static [wl_message] = Box::leak(Box::new([
+            wl_message { name: b"receive\0".as_ptr() as _, signature: b"sh\0".as_ptr() as _, types: n },
+            wl_message { name: b"destroy\0".as_ptr() as _, signature: b"\0".as_ptr() as _, types: n },
+        ]));
+        let events: &'static [wl_message] = Box::leak(Box::new([
+            wl_message { name: b"offer\0".as_ptr() as _, signature: b"s\0".as_ptr() as _, types: n },
+        ]));
+        Box::leak(Box::new(wl_interface {
+            name: b"zwp_primary_selection_offer_v1\0".as_ptr() as _, version: 1,
+            method_count: 2, methods: requests.as_ptr(),
+            event_count: 1, events: events.as_ptr(),
+        }))
+    })).0
+}
+
+pub fn get_primary_selection_source_v1_interface() -> &'static wl_interface {
+    use std::sync::OnceLock;
+    static I: OnceLock<SyncInterface> = OnceLock::new();
+    I.get_or_init(|| SyncInterface({
+        let n = leak_null_types();
+        let requests: &'static [wl_message] = Box::leak(Box::new([
+            wl_message { name: b"offer\0".as_ptr() as _, signature: b"s\0".as_ptr() as _, types: n },
+            wl_message { name: b"destroy\0".as_ptr() as _, signature: b"\0".as_ptr() as _, types: n },
+        ]));
+        let events: &'static [wl_message] = Box::leak(Box::new([
+            wl_message { name: b"send\0".as_ptr() as _, signature: b"sh\0".as_ptr() as _, types: n },
+            wl_message { name: b"cancelled\0".as_ptr() as _, signature: b"\0".as_ptr() as _, types: n },
+        ]));
+        Box::leak(Box::new(wl_interface {
+            name: b"zwp_primary_selection_source_v1\0".as_ptr() as _, version: 1,
+            method_count: 2, methods: requests.as_ptr(),
+            event_count: 2, events: events.as_ptr(),
+        }))
+    })).0
+}
+
+pub fn get_primary_selection_device_v1_interface() -> &'static wl_interface {
+    use std::sync::OnceLock;
+    static I: OnceLock<SyncInterface> = OnceLock::new();
+    I.get_or_init(|| SyncInterface({
+        let n = leak_null_types();
+        let requests: &'static [wl_message] = Box::leak(Box::new([
+            wl_message { name: b"set_selection\0".as_ptr() as _, signature: b"?ou\0".as_ptr() as _, types: n },
+            wl_message { name: b"destroy\0".as_ptr() as _, signature: b"\0".as_ptr() as _, types: n },
+        ]));
+        let events: &'static [wl_message] = Box::leak(Box::new([
+            // The ONLY new_id here: libwayland allocates the proxy itself and
+            // needs the interface to do it.
+            wl_message { name: b"data_offer\0".as_ptr() as _, signature: b"n\0".as_ptr() as _, types: leak_one_type(get_primary_selection_offer_v1_interface()) },
+            wl_message { name: b"selection\0".as_ptr() as _, signature: b"?o\0".as_ptr() as _, types: n },
+        ]));
+        Box::leak(Box::new(wl_interface {
+            name: b"zwp_primary_selection_device_v1\0".as_ptr() as _, version: 1,
+            method_count: 2, methods: requests.as_ptr(),
+            event_count: 2, events: events.as_ptr(),
+        }))
+    })).0
+}
+
+pub fn get_primary_selection_device_manager_v1_interface() -> &'static wl_interface {
+    use std::sync::OnceLock;
+    static I: OnceLock<SyncInterface> = OnceLock::new();
+    I.get_or_init(|| SyncInterface({
+        let n = leak_null_types();
+        let requests: &'static [wl_message] = Box::leak(Box::new([
+            wl_message { name: b"create_source\0".as_ptr() as _, signature: b"n\0".as_ptr() as _, types: n },
+            wl_message { name: b"get_device\0".as_ptr() as _, signature: b"no\0".as_ptr() as _, types: n },
+            wl_message { name: b"destroy\0".as_ptr() as _, signature: b"\0".as_ptr() as _, types: n },
+        ]));
+        Box::leak(Box::new(wl_interface {
+            name: b"zwp_primary_selection_device_manager_v1\0".as_ptr() as _, version: 1,
+            method_count: 3, methods: requests.as_ptr(),
+            event_count: 0, events: std::ptr::null(),
+        }))
+    })).0
+}

@@ -10,6 +10,7 @@ use std::{
 use super::defines::*;
 // Re-export types from defines for convenience
 pub use super::defines::{Atom, Display, Drawable, Window, XSetWindowAttributes, GC};
+use super::super::common::compose::{ComposeFns, xkb_compose_state, xkb_compose_table};
 use crate::desktop::shell2::common::{
     dlopen::load_first_available, DlError, DynamicLibrary as DynamicLibraryTrait,
 };
@@ -149,6 +150,9 @@ pub struct Xlib {
     /// reliable absolute window position under a reparenting WM (ConfigureNotify
     /// x/y are parent-relative for non-synthetic events).
     pub XTranslateCoordinates: Option<XTranslateCoordinates>,
+    /// Purely local queue length — see [`XEventsQueued`]. Used to tell a
+    /// ConfigureNotify in the middle of a drag-resize burst from the last one.
+    pub XEventsQueued: Option<XEventsQueued>,
     /// Optional (lenient): refresh the client-side keycode → keysym table after
     /// a `MappingNotify`. Without it a keyboard-layout switch leaves every
     /// translation on the layout that was active when the connection opened.
@@ -252,6 +256,7 @@ impl Xlib {
             XTranslateCoordinates: unsafe {
                 lib.get_symbol::<XTranslateCoordinates>("XTranslateCoordinates").ok()
             },
+            XEventsQueued: unsafe { lib.get_symbol::<XEventsQueued>("XEventsQueued").ok() },
             XRefreshKeyboardMapping: unsafe {
                 lib.get_symbol::<XRefreshKeyboardMapping>("XRefreshKeyboardMapping").ok()
             },
@@ -380,6 +385,24 @@ pub struct Xkb {
     /// several function keys do not), which is strictly better than a
     /// hand-rolled list of "keys that should not repeat".
     pub xkb_keymap_key_repeats: unsafe extern "C" fn(*mut xkb_keymap, xkb_keycode_t) -> i32,
+
+    // Compose (dead keys / the Compose key). OPTIONAL as a group: libxkbcommon
+    // only grew this API in 0.5, and a hard `load_symbol!` on a missing symbol
+    // aborts the whole `Xkb::new()` — which would trade "no dead keys" for "no
+    // keyboard at all". See `linux/common/compose.rs`.
+    pub xkb_compose_table_new_from_locale: Option<
+        unsafe extern "C" fn(*mut xkb_context, *const c_char, u32) -> *mut xkb_compose_table,
+    >,
+    pub xkb_compose_table_unref: Option<unsafe extern "C" fn(*mut xkb_compose_table)>,
+    pub xkb_compose_state_new:
+        Option<unsafe extern "C" fn(*mut xkb_compose_table, u32) -> *mut xkb_compose_state>,
+    pub xkb_compose_state_unref: Option<unsafe extern "C" fn(*mut xkb_compose_state)>,
+    pub xkb_compose_state_feed: Option<unsafe extern "C" fn(*mut xkb_compose_state, u32) -> i32>,
+    pub xkb_compose_state_reset: Option<unsafe extern "C" fn(*mut xkb_compose_state)>,
+    pub xkb_compose_state_get_status:
+        Option<unsafe extern "C" fn(*mut xkb_compose_state) -> i32>,
+    pub xkb_compose_state_get_utf8:
+        Option<unsafe extern "C" fn(*mut xkb_compose_state, *mut c_char, usize) -> i32>,
 }
 
 impl Xkb {
@@ -397,8 +420,41 @@ impl Xkb {
             xkb_state_key_get_one_sym: load_symbol!(lib, _, "xkb_state_key_get_one_sym"),
             xkb_state_key_get_utf8: load_symbol!(lib, _, "xkb_state_key_get_utf8"),
             xkb_keymap_key_repeats: load_symbol!(lib, _, "xkb_keymap_key_repeats"),
+            xkb_compose_table_new_from_locale: unsafe {
+                lib.get_symbol("xkb_compose_table_new_from_locale").ok()
+            },
+            xkb_compose_table_unref: unsafe { lib.get_symbol("xkb_compose_table_unref").ok() },
+            xkb_compose_state_new: unsafe { lib.get_symbol("xkb_compose_state_new").ok() },
+            xkb_compose_state_unref: unsafe { lib.get_symbol("xkb_compose_state_unref").ok() },
+            xkb_compose_state_feed: unsafe { lib.get_symbol("xkb_compose_state_feed").ok() },
+            xkb_compose_state_reset: unsafe { lib.get_symbol("xkb_compose_state_reset").ok() },
+            xkb_compose_state_get_status: unsafe {
+                lib.get_symbol("xkb_compose_state_get_status").ok()
+            },
+            xkb_compose_state_get_utf8: unsafe {
+                lib.get_symbol("xkb_compose_state_get_utf8").ok()
+            },
             _lib: lib,
         }))
+    }
+
+    /// The compose entry points, or `None` when libxkbcommon predates them.
+    ///
+    /// All-or-nothing on purpose: a partial set cannot drive a sequence, and
+    /// the caller's fallback (no compose) is the same either way.
+    pub fn compose_fns(&self) -> Option<ComposeFns> {
+        Some(ComposeFns {
+            context_new: self.xkb_context_new,
+            context_unref: self.xkb_context_unref,
+            table_new_from_locale: self.xkb_compose_table_new_from_locale?,
+            table_unref: self.xkb_compose_table_unref?,
+            state_new: self.xkb_compose_state_new?,
+            state_unref: self.xkb_compose_state_unref?,
+            state_feed: self.xkb_compose_state_feed?,
+            state_reset: self.xkb_compose_state_reset?,
+            state_get_status: self.xkb_compose_state_get_status?,
+            state_get_utf8: self.xkb_compose_state_get_utf8?,
+        })
     }
 }
 

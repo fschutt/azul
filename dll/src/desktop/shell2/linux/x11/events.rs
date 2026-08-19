@@ -22,7 +22,7 @@ use azul_core::{
     dom::{DomId, NodeId},
     events::{EventFilter, MouseButton, ProcessEventResult},
     geom::{LogicalPosition, PhysicalPosition},
-    hit_test::FullHitTest,
+    hit_test::{FullHitTest, HitTest},
     window::{CursorPosition, VirtualKeyCode},
 };
 use crate::desktop::shell2::common::event::{
@@ -33,6 +33,7 @@ use azul_layout::{
 };
 
 use super::{defines::*, dlopen::Xlib, X11Window};
+use super::super::common::compose::ComposeAction;
 use crate::desktop::shell2::common::event::PlatformWindow;
 
 use super::super::super::common::debug_server::LogCategory;
@@ -793,12 +794,12 @@ impl X11Window {
         } else if event.type_ == LeaveNotify {
             self.common.current_window_state.mouse_state.cursor_position =
                 CursorPosition::OutOfWindow(position);
-            // Clear hit test since mouse is out
-            if let Some(ref mut layout_window) = self.common.layout_window {
-                layout_window
-                    .hover_manager
-                    .push_hit_test(InputPointId::Mouse, FullHitTest::empty(None));
-            }
+            // Clear hit test since mouse is out — unless a drag is in flight,
+            // in which case the latch keeps the target (see
+            // push_hit_test_latched). A drag past the window edge is an
+            // ordinary NotifyNormal crossing, which the grab-mode filter above
+            // does not and must not catch.
+            self.push_hit_test_latched(FullHitTest::empty(None));
         }
 
         // V2 system will detect MouseEnter/MouseLeave from state diff
@@ -839,6 +840,15 @@ impl X11Window {
     ) -> ProcessEventResult {
         // Save previous state BEFORE making changes
         self.snapshot_window_state_baseline("x11.handle_scroll_input");
+
+        // Arm / re-arm the synthetic gesture-end deadline. XI2 has no
+        // gesture-end event, so the fingers coming off the touchpad is only
+        // ever visible as this going quiet — see `trackpad_gesture_ended`.
+        // A wheel is not a gesture and must not arm it: it would fire a
+        // TrackpadEnd 100 ms after every detent.
+        if continuous {
+            self.last_continuous_scroll = Some(std::time::Instant::now());
+        }
 
         // Update hit test
         self.update_hit_test(position);
@@ -979,6 +989,25 @@ impl X11Window {
                 String::new()
             };
             (Some(chars), Some(keysym))
+        };
+
+        // Compose sequences (dead keys, the Compose key) — the half the core
+        // lookup has never had. `XLookupString` resolves `dead_acute` to its
+        // own accent character and `e` to `e`; only the compose table turns
+        // the pair into `é`. Applied ONLY on the no-XIM path: with an input
+        // method the `Xutf8LookupString` above already composed, and feeding
+        // the same keysyms in again would compose twice.
+        //
+        // `None` text means the keystroke belongs to the sequence and produces
+        // no text of its own — which is exactly what makes the dead key stop
+        // typing a stray accent.
+        let char_str = match (is_down, self.compose.as_mut(), keysym) {
+            (true, Some(sequencer), Some(sym)) => match sequencer.feed(sym as u32) {
+                ComposeAction::Commit(text) => Some(text),
+                ComposeAction::Composing | ComposeAction::Cancelled => None,
+                ComposeAction::Pass => char_str,
+            },
+            _ => char_str,
         };
 
         // Escape dismisses an open menu/popup (close() ungrabs the pointer; the
@@ -1207,10 +1236,39 @@ impl X11Window {
         // mode — so the first mouse-crossing event (handle_mouse_crossing) panicked and
         // aborted the process. (Mirrors the Wayland update_hit_test.)
         let hit_test = self.common.perform_hit_test(position);
-        if let Some(ref mut layout_window) = self.common.layout_window {
+        self.push_hit_test_latched(hit_test);
+    }
+
+    /// Push a hit test into the hover manager THROUGH THE DRAG LATCH.
+    ///
+    /// A button press puts the pointer under an X11 implicit passive grab, so
+    /// motion and the release keep arriving after the cursor crosses the
+    /// window edge — but the server ALSO sends a `LeaveNotify`, and hit-testing
+    /// a position outside the window answers with nothing. Either one landing
+    /// in the hover manager retargets every remaining Drag / DragOver /
+    /// DragEnd / Drop of the gesture at the root node and fires `MouseLeave`
+    /// down the whole hovered chain: as far as the app can tell the drag ended,
+    /// while the user is still holding the button. Dragging a selection or a
+    /// node one pixel past the edge — the normal way to drag onto something
+    /// near the border, and the normal way to trigger drag-autoscroll — was
+    /// enough.
+    ///
+    /// The latch is deliberately narrow. It only refuses an EMPTY hit test,
+    /// and only while a button is held: a drag INSIDE the window still
+    /// re-targets on every move (the drop target has to follow the cursor),
+    /// and an ordinary pointer-out with no button held still clears the hover
+    /// chain as before.
+    fn push_hit_test_latched(&mut self, hit_test: FullHitTest) {
+        let ms = &self.common.current_window_state.mouse_state;
+        let any_button_down = ms.left_down || ms.right_down || ms.middle_down;
+        let Some(ref mut layout_window) = self.common.layout_window else {
+            return;
+        };
+        let standing = layout_window.hover_manager.get_current(&InputPointId::Mouse);
+        if let Some(next) = latched_hit_test(any_button_down, standing, hit_test) {
             layout_window
                 .hover_manager
-                .push_hit_test(InputPointId::Mouse, hit_test);
+                .push_hit_test(InputPointId::Mouse, next);
         }
     }
 
@@ -1483,6 +1541,37 @@ fn apply_modifier_mask_state(
     }
 }
 
+/// Does this hit test name any node at all?
+///
+/// Stricter than [`FullHitTest::is_empty`], which only asks whether the
+/// per-DOM map has entries: a hit test carrying a DOM whose own node maps are
+/// all empty names nothing either, and treating it as a target would latch the
+/// drag onto nothing.
+fn hit_test_names_nothing(hit_test: &FullHitTest) -> bool {
+    hit_test.hovered_nodes.values().all(HitTest::is_empty)
+}
+
+/// THE drag latch: what to push into the hover manager, or `None` to keep the
+/// hit test already standing.
+///
+/// See [`X11Window::push_hit_test_latched`] for why.
+pub(super) fn latched_hit_test(
+    any_button_down: bool,
+    standing: Option<&FullHitTest>,
+    incoming: FullHitTest,
+) -> Option<FullHitTest> {
+    if !any_button_down || !hit_test_names_nothing(&incoming) {
+        return Some(incoming);
+    }
+    // A drag is in flight and the incoming hit test names nothing. Hold the
+    // standing target — but only if there IS one; latching onto an equally
+    // empty predecessor would just hide the fact that nothing was ever hit.
+    match standing {
+        Some(standing) if !hit_test_names_nothing(standing) => None,
+        _ => Some(incoming),
+    }
+}
+
 pub(super) fn apply_key_state_change(
     keyboard_state: &mut azul_core::window::KeyboardState,
     pressed_key_vks: &mut std::collections::BTreeMap<u32, VirtualKeyCode>,
@@ -1651,6 +1740,127 @@ mod tests {
     use super::*;
 
     type PressedKeyVks = std::collections::BTreeMap<u32, VirtualKeyCode>;
+
+    // --- drag latch (C2) ---
+
+    /// A hit test naming one node of DOM 0 — a drag target.
+    fn hit_on(node: usize) -> FullHitTest {
+        use azul_core::hit_test::HitTestItem;
+        let mut nodes = azul_core::hit_test::HitTest::empty();
+        nodes.regular_hit_test_nodes.insert(
+            NodeId::new(node),
+            HitTestItem {
+                point_in_viewport: LogicalPosition::zero(),
+                point_relative_to_item: LogicalPosition::zero(),
+                is_focusable: false,
+                is_virtual_view_hit: None,
+                hit_depth: 0,
+            },
+        );
+        let mut hit = FullHitTest::empty(None);
+        hit.hovered_nodes.insert(DomId { inner: 0 }, nodes);
+        hit
+    }
+
+    /// A hit test that carries a DOM but names no node in it — what an
+    /// out-of-bounds position can answer with.
+    fn hit_on_nothing_but_carrying_a_dom() -> FullHitTest {
+        let mut hit = FullHitTest::empty(None);
+        hit.hovered_nodes
+            .insert(DomId { inner: 0 }, azul_core::hit_test::HitTest::empty());
+        hit
+    }
+
+    /// THE defect: dragging one pixel past the window edge is a NotifyNormal
+    /// crossing (the grab-mode filter cannot catch it, and must not), and the
+    /// empty hit test it brings used to replace the drag's target — retargeting
+    /// every remaining Drag / DragEnd / Drop at the root node while the user
+    /// was still holding the button.
+    ///
+    /// NEGATIVE CONTROL: the pre-fix behaviour — make `latched_hit_test`
+    /// return `Some(incoming)` unconditionally, so nothing is ever latched.
+    #[test]
+    fn a_drag_leaving_the_window_keeps_its_target() {
+        let standing = hit_on(7);
+        assert_eq!(
+            latched_hit_test(true, Some(&standing), FullHitTest::empty(None)),
+            None,
+            "the drag must keep the node it started on"
+        );
+        assert_eq!(
+            latched_hit_test(true, Some(&standing), hit_on_nothing_but_carrying_a_dom()),
+            None,
+            "a hit test naming no node is just as empty as one carrying no DOM"
+        );
+    }
+
+    /// The latch must not freeze the target: a drag INSIDE the window still
+    /// re-targets on every move, or the drop target would never follow the
+    /// cursor and text selection could not extend.
+    ///
+    /// NEGATIVE CONTROL: make `latched_hit_test` return `None` whenever
+    /// `any_button_down` — this reports `None` instead of the new target.
+    #[test]
+    fn a_drag_inside_the_window_still_follows_the_cursor() {
+        let standing = hit_on(7);
+        assert_eq!(
+            latched_hit_test(true, Some(&standing), hit_on(9)),
+            Some(hit_on(9))
+        );
+    }
+
+    /// With no button held, a pointer-out clears the hover chain exactly as
+    /// before — `MouseLeave` and the `:hover` restyle depend on it.
+    #[test]
+    fn a_plain_pointer_out_still_clears_the_hover_chain() {
+        let standing = hit_on(7);
+        assert_eq!(
+            latched_hit_test(false, Some(&standing), FullHitTest::empty(None)),
+            Some(FullHitTest::empty(None))
+        );
+    }
+
+    /// Nothing to hold on to: a drag that never had a target must not latch
+    /// onto an equally empty predecessor and hide that fact.
+    #[test]
+    fn a_drag_with_no_standing_target_does_not_latch() {
+        assert_eq!(
+            latched_hit_test(true, None, FullHitTest::empty(None)),
+            Some(FullHitTest::empty(None))
+        );
+        let empty = FullHitTest::empty(None);
+        assert_eq!(
+            latched_hit_test(true, Some(&empty), FullHitTest::empty(None)),
+            Some(FullHitTest::empty(None))
+        );
+    }
+
+    /// Both of the backend's hover-manager writes go through the latch. A
+    /// second, unlatched `push_hit_test` would reopen the defect at whichever
+    /// site it lives on, and the crossing handler is exactly where it used to.
+    ///
+    /// NEGATIVE CONTROL: restore the inline
+    /// `layout_window.hover_manager.push_hit_test(InputPointId::Mouse,
+    /// FullHitTest::empty(None))` in `handle_mouse_crossing`.
+    #[test]
+    fn every_hover_manager_write_in_this_file_goes_through_the_latch() {
+        let source = include_str!("events.rs");
+        let body = source
+            .split_once("mod tests {")
+            .map_or(source, |(before, _)| before);
+
+        assert!(
+            body.matches("push_hit_test_latched").count() >= 3,
+            "the latch must be defined and used at BOTH the hit-test update \
+             and the crossing-leave"
+        );
+        assert_eq!(
+            body.matches(".push_hit_test(").count(),
+            1,
+            "exactly one raw hover_manager.push_hit_test may remain — the one \
+             INSIDE push_hit_test_latched"
+        );
+    }
 
     fn press(state: &mut KeyboardState, map: &mut PressedKeyVks, keycode: u32, keysym: u32) {
         apply_key_state_change(
