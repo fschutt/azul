@@ -436,6 +436,11 @@ pub mod glyph_cache;
 pub mod default_actions;
 /// Post-layout developer warnings for raw text nodes used without a
 /// containing block (azul does not auto-wrap them the way browsers do).
+///
+/// Reads computed display through `solver3::getters`, so it exists only
+/// where the layout solver does — same gate as `window` and
+/// `default_actions`, its only caller being inside `window`.
+#[cfg(feature = "text_layout")]
 pub mod dom_lint;
 /// Apply structural `DocumentOperation`s to a plain XML tree.
 ///
