@@ -562,6 +562,19 @@ pub struct WaylandWindow {
     /// The evdev keycode currently held (armed for repeat).
     key_repeat_keycode: Option<u32>,
 
+    /// evdev keycode → the `VirtualKeyCode` its PRESS put into
+    /// `pressed_virtual_keycodes`.
+    ///
+    /// `xkb_state_key_get_one_sym` returns the keysym for the modifier state at
+    /// that instant, so the press and the release of one physical key can resolve
+    /// to different keysyms (release Shift/AltGr before the key and they always
+    /// do). Translating the release keysym independently therefore removes the
+    /// wrong code — or none — and leaves the pressed key latched forever, which
+    /// the engine reads as a modifier that never came up. Releases consult this
+    /// map instead. Only mapped keys get an entry; unmapped keysyms add nothing
+    /// to either structure and so need nothing removed.
+    pressed_key_vks: std::collections::BTreeMap<u32, azul_core::window::VirtualKeyCode>,
+
     // Monitor tracking for multi-monitor support
     pub known_outputs: Vec<MonitorState>,
     pub current_outputs: Vec<*mut defines::wl_output>,
@@ -765,195 +778,17 @@ fn set_mouse_button_down(
 }
 
 // XKB Keyboard Translation
-
-/// Translate XKB keysym to Azul VirtualKeyCode
-///
-/// XKB keysyms are defined in <xkbcommon/xkbcommon-keysyms.h>
-/// This function maps common keysyms to VirtualKeyCode variants.
-fn translate_keysym_to_virtual_keycode(keysym: u32) -> azul_core::window::VirtualKeyCode {
-    use azul_core::window::VirtualKeyCode;
-
-    // XKB keysym constants (from xkbcommon-keysyms.h)
-    const XKB_KEY_Escape: u32 = 0xff1b;
-    const XKB_KEY_Return: u32 = 0xff0d;
-    const XKB_KEY_Tab: u32 = 0xff09;
-    const XKB_KEY_BackSpace: u32 = 0xff08;
-    const XKB_KEY_Delete: u32 = 0xffff;
-    const XKB_KEY_Insert: u32 = 0xff63;
-    const XKB_KEY_Home: u32 = 0xff50;
-    const XKB_KEY_End: u32 = 0xff57;
-    const XKB_KEY_Page_Up: u32 = 0xff55;
-    const XKB_KEY_Page_Down: u32 = 0xff56;
-
-    const XKB_KEY_Left: u32 = 0xff51;
-    const XKB_KEY_Up: u32 = 0xff52;
-    const XKB_KEY_Right: u32 = 0xff53;
-    const XKB_KEY_Down: u32 = 0xff54;
-
-    const XKB_KEY_F1: u32 = 0xffbe;
-    const XKB_KEY_F2: u32 = 0xffbf;
-    const XKB_KEY_F3: u32 = 0xffc0;
-    const XKB_KEY_F4: u32 = 0xffc1;
-    const XKB_KEY_F5: u32 = 0xffc2;
-    const XKB_KEY_F6: u32 = 0xffc3;
-    const XKB_KEY_F7: u32 = 0xffc4;
-    const XKB_KEY_F8: u32 = 0xffc5;
-    const XKB_KEY_F9: u32 = 0xffc6;
-    const XKB_KEY_F10: u32 = 0xffc7;
-    const XKB_KEY_F11: u32 = 0xffc8;
-    const XKB_KEY_F12: u32 = 0xffc9;
-
-    const XKB_KEY_Shift_L: u32 = 0xffe1;
-    const XKB_KEY_Shift_R: u32 = 0xffe2;
-    const XKB_KEY_Control_L: u32 = 0xffe3;
-    const XKB_KEY_Control_R: u32 = 0xffe4;
-    const XKB_KEY_Alt_L: u32 = 0xffe9;
-    const XKB_KEY_Alt_R: u32 = 0xffea;
-    const XKB_KEY_Super_L: u32 = 0xffeb;
-    const XKB_KEY_Super_R: u32 = 0xffec;
-
-    const XKB_KEY_space: u32 = 0x0020;
-    const XKB_KEY_comma: u32 = 0x002c;
-    const XKB_KEY_period: u32 = 0x002e;
-    const XKB_KEY_slash: u32 = 0x002f;
-    const XKB_KEY_semicolon: u32 = 0x003b;
-    const XKB_KEY_apostrophe: u32 = 0x0027;
-    const XKB_KEY_bracketleft: u32 = 0x005b;
-    const XKB_KEY_bracketright: u32 = 0x005d;
-    const XKB_KEY_backslash: u32 = 0x005c;
-    const XKB_KEY_minus: u32 = 0x002d;
-    const XKB_KEY_equal: u32 = 0x003d;
-    const XKB_KEY_grave: u32 = 0x0060;
-
-    match keysym {
-        // Special keys
-        XKB_KEY_Escape => VirtualKeyCode::Escape,
-        XKB_KEY_Return => VirtualKeyCode::Return,
-        XKB_KEY_Tab => VirtualKeyCode::Tab,
-        XKB_KEY_BackSpace => VirtualKeyCode::Back,
-        XKB_KEY_Delete => VirtualKeyCode::Delete,
-        XKB_KEY_Insert => VirtualKeyCode::Insert,
-        XKB_KEY_Home => VirtualKeyCode::Home,
-        XKB_KEY_End => VirtualKeyCode::End,
-        XKB_KEY_Page_Up => VirtualKeyCode::PageUp,
-        XKB_KEY_Page_Down => VirtualKeyCode::PageDown,
-
-        // Arrow keys
-        XKB_KEY_Left => VirtualKeyCode::Left,
-        XKB_KEY_Up => VirtualKeyCode::Up,
-        XKB_KEY_Right => VirtualKeyCode::Right,
-        XKB_KEY_Down => VirtualKeyCode::Down,
-
-        // Function keys
-        XKB_KEY_F1 => VirtualKeyCode::F1,
-        XKB_KEY_F2 => VirtualKeyCode::F2,
-        XKB_KEY_F3 => VirtualKeyCode::F3,
-        XKB_KEY_F4 => VirtualKeyCode::F4,
-        XKB_KEY_F5 => VirtualKeyCode::F5,
-        XKB_KEY_F6 => VirtualKeyCode::F6,
-        XKB_KEY_F7 => VirtualKeyCode::F7,
-        XKB_KEY_F8 => VirtualKeyCode::F8,
-        XKB_KEY_F9 => VirtualKeyCode::F9,
-        XKB_KEY_F10 => VirtualKeyCode::F10,
-        XKB_KEY_F11 => VirtualKeyCode::F11,
-        XKB_KEY_F12 => VirtualKeyCode::F12,
-
-        // Modifier keys
-        XKB_KEY_Shift_L => VirtualKeyCode::LShift,
-        XKB_KEY_Shift_R => VirtualKeyCode::RShift,
-        XKB_KEY_Control_L => VirtualKeyCode::LControl,
-        XKB_KEY_Control_R => VirtualKeyCode::RControl,
-        XKB_KEY_Alt_L => VirtualKeyCode::LAlt,
-        XKB_KEY_Alt_R => VirtualKeyCode::RAlt,
-        XKB_KEY_Super_L => VirtualKeyCode::LWin,
-        XKB_KEY_Super_R => VirtualKeyCode::RWin,
-
-        // Punctuation
-        XKB_KEY_space => VirtualKeyCode::Space,
-        XKB_KEY_comma => VirtualKeyCode::Comma,
-        XKB_KEY_period => VirtualKeyCode::Period,
-        XKB_KEY_slash => VirtualKeyCode::Slash,
-        XKB_KEY_semicolon => VirtualKeyCode::Semicolon,
-        XKB_KEY_apostrophe => VirtualKeyCode::Apostrophe,
-        XKB_KEY_bracketleft => VirtualKeyCode::LBracket,
-        XKB_KEY_bracketright => VirtualKeyCode::RBracket,
-        XKB_KEY_backslash => VirtualKeyCode::Backslash,
-        XKB_KEY_minus => VirtualKeyCode::Minus,
-        XKB_KEY_equal => VirtualKeyCode::Equals,
-        XKB_KEY_grave => VirtualKeyCode::Grave,
-
-        // Letters a-z (lowercase keysyms 0x0061-0x007a)
-        0x0061 => VirtualKeyCode::A,
-        0x0062 => VirtualKeyCode::B,
-        0x0063 => VirtualKeyCode::C,
-        0x0064 => VirtualKeyCode::D,
-        0x0065 => VirtualKeyCode::E,
-        0x0066 => VirtualKeyCode::F,
-        0x0067 => VirtualKeyCode::G,
-        0x0068 => VirtualKeyCode::H,
-        0x0069 => VirtualKeyCode::I,
-        0x006a => VirtualKeyCode::J,
-        0x006b => VirtualKeyCode::K,
-        0x006c => VirtualKeyCode::L,
-        0x006d => VirtualKeyCode::M,
-        0x006e => VirtualKeyCode::N,
-        0x006f => VirtualKeyCode::O,
-        0x0070 => VirtualKeyCode::P,
-        0x0071 => VirtualKeyCode::Q,
-        0x0072 => VirtualKeyCode::R,
-        0x0073 => VirtualKeyCode::S,
-        0x0074 => VirtualKeyCode::T,
-        0x0075 => VirtualKeyCode::U,
-        0x0076 => VirtualKeyCode::V,
-        0x0077 => VirtualKeyCode::W,
-        0x0078 => VirtualKeyCode::X,
-        0x0079 => VirtualKeyCode::Y,
-        0x007a => VirtualKeyCode::Z,
-
-        // Letters A-Z (uppercase keysyms 0x0041-0x005a)
-        0x0041 => VirtualKeyCode::A,
-        0x0042 => VirtualKeyCode::B,
-        0x0043 => VirtualKeyCode::C,
-        0x0044 => VirtualKeyCode::D,
-        0x0045 => VirtualKeyCode::E,
-        0x0046 => VirtualKeyCode::F,
-        0x0047 => VirtualKeyCode::G,
-        0x0048 => VirtualKeyCode::H,
-        0x0049 => VirtualKeyCode::I,
-        0x004a => VirtualKeyCode::J,
-        0x004b => VirtualKeyCode::K,
-        0x004c => VirtualKeyCode::L,
-        0x004d => VirtualKeyCode::M,
-        0x004e => VirtualKeyCode::N,
-        0x004f => VirtualKeyCode::O,
-        0x0050 => VirtualKeyCode::P,
-        0x0051 => VirtualKeyCode::Q,
-        0x0052 => VirtualKeyCode::R,
-        0x0053 => VirtualKeyCode::S,
-        0x0054 => VirtualKeyCode::T,
-        0x0055 => VirtualKeyCode::U,
-        0x0056 => VirtualKeyCode::V,
-        0x0057 => VirtualKeyCode::W,
-        0x0058 => VirtualKeyCode::X,
-        0x0059 => VirtualKeyCode::Y,
-        0x005a => VirtualKeyCode::Z,
-
-        // Numbers 0-9 (keysyms 0x0030-0x0039)
-        0x0030 => VirtualKeyCode::Key0,
-        0x0031 => VirtualKeyCode::Key1,
-        0x0032 => VirtualKeyCode::Key2,
-        0x0033 => VirtualKeyCode::Key3,
-        0x0034 => VirtualKeyCode::Key4,
-        0x0035 => VirtualKeyCode::Key5,
-        0x0036 => VirtualKeyCode::Key6,
-        0x0037 => VirtualKeyCode::Key7,
-        0x0038 => VirtualKeyCode::Key8,
-        0x0039 => VirtualKeyCode::Key9,
-
-        // Unknown key - default to Escape
-        _ => VirtualKeyCode::Escape,
-    }
-}
+//
+// There is NO Wayland-specific keysym table. Keysyms are an X11/xkb concept
+// that both backends receive verbatim, so the single maintained mapping lives
+// in `x11::events::keysym_to_virtual_keycode` and this backend reaches it
+// through `events::keysym_to_virtual_keycode` — the one entry point. The
+// hand-rolled table that used to live here returned a bare VirtualKeyCode with
+// `_ => VirtualKeyCode::Escape` as its catch-all, so every key it did not know
+// (Shift+digit, F13+, the whole keypad, every non-Latin letter) pressed AND
+// released Escape: menus closed and Escape default-actions fired on innocent
+// keystrokes. The shared table returns `Option` instead — an unmapped keysym
+// is *no* virtual key, never a wrong one.
 
 // Lifecycle methods (formerly on PlatformWindow V1 trait)
 
@@ -1721,6 +1556,7 @@ impl WaylandWindow {
                 )
             },
             key_repeat_keycode: None,
+            pressed_key_vks: std::collections::BTreeMap::new(),
             known_outputs: Vec::new(),
             current_outputs: Vec::new(),
             pending_window_creates: Vec::new(),
@@ -2803,7 +2639,7 @@ impl WaylandWindow {
 
     /// Handle keyboard key event with full XKB translation
     pub fn handle_key(&mut self, key: u32, state: u32) {
-        use azul_core::window::{OptionChar, OptionVirtualKeyCode};
+        use azul_core::window::OptionVirtualKeyCode;
 
         // Only process key press events (state == 1)
         let is_pressed = state == 1;
@@ -2855,8 +2691,14 @@ impl WaylandWindow {
         // Get keysym (symbolic key identifier)
         let keysym = unsafe { (self.xkb.xkb_state_key_get_one_sym)(xkb_state, xkb_keycode) };
 
-        // Translate keysym to VirtualKeyCode
-        let virtual_keycode = translate_keysym_to_virtual_keycode(keysym);
+        // Translate keysym to VirtualKeyCode through the SHARED xkb table
+        // (`x11::events::keysym_to_virtual_keycode`). `None` means "this keysym
+        // has no virtual key" — it must stay None all the way down: inventing a
+        // code here is what made every unmapped key act like Escape. Character
+        // production does NOT depend on this: it comes from
+        // `xkb_state_key_get_utf8` further down, so an unmapped key still types.
+        let virtual_keycode: Option<azul_core::window::VirtualKeyCode> =
+            events::keysym_to_virtual_keycode(keysym);
 
         // Client-side key repeat: arm on press of a repeatable key, disarm
         // when THAT key is released. The keymap decides what repeats — modifiers,
@@ -2874,22 +2716,26 @@ impl WaylandWindow {
                     key_repeats(self.keyboard_state.keymap, xkb_keycode) != 0
                 },
                 // No keymap / symbol unavailable: fall back to "everything except
-                // the modifiers we can name repeats".
+                // the modifiers we can name repeats". An unmapped keysym (None)
+                // is not a modifier we can name, and text keys are exactly what
+                // needs to repeat, so it repeats.
                 _ => {
                     use azul_core::window::VirtualKeyCode as VK;
                     !matches!(
                         virtual_keycode,
-                        VK::LShift
-                            | VK::RShift
-                            | VK::LControl
-                            | VK::RControl
-                            | VK::LAlt
-                            | VK::RAlt
-                            | VK::LWin
-                            | VK::RWin
-                            | VK::Capital
-                            | VK::Numlock
-                            | VK::Scroll
+                        Some(
+                            VK::LShift
+                                | VK::RShift
+                                | VK::LControl
+                                | VK::RControl
+                                | VK::LAlt
+                                | VK::RAlt
+                                | VK::LWin
+                                | VK::RWin
+                                | VK::Capital
+                                | VK::Numlock
+                                | VK::Scroll
+                        )
                     )
                 }
             };
@@ -2903,7 +2749,7 @@ impl WaylandWindow {
         // While a menu popup is open, Escape closes it (consumed, not forwarded
         // to the app), matching the click-outside dismiss behaviour.
         if is_pressed
-            && virtual_keycode == azul_core::window::VirtualKeyCode::Escape
+            && virtual_keycode == Some(azul_core::window::VirtualKeyCode::Escape)
             && self.active_popup.is_some()
         {
             self.dismiss_active_popup();
@@ -2924,9 +2770,13 @@ impl WaylandWindow {
                     "[wayland-popup] routing key to popup: {:?}",
                     virtual_keycode
                 );
-                if virtual_keycode == azul_core::window::VirtualKeyCode::Return
-                    || virtual_keycode == azul_core::window::VirtualKeyCode::NumpadEnter
-                {
+                if matches!(
+                    virtual_keycode,
+                    Some(
+                        azul_core::window::VirtualKeyCode::Return
+                            | azul_core::window::VirtualKeyCode::NumpadEnter
+                    )
+                ) {
                     let activated = self
                         .active_popup
                         .as_mut()
@@ -2952,15 +2802,34 @@ impl WaylandWindow {
         // `previous.is_some() && current.is_none()`, and a leftover Some(vk) also
         // swallows the next discrete press of the SAME key (no Some → Some delta),
         // which is why Backspace/Enter/arrows only registered every other tap.
+        //
+        // An unmapped keysym (`virtual_keycode == None`) leaves
+        // current_virtual_keycode at None — no key code is invented, so
+        // `determine_all_events` emits neither KeyDown nor KeyUp for it — and it
+        // adds NOTHING to `pressed_virtual_keycodes`, so there is nothing for the
+        // release to fail to remove.
+        //
+        // The release removes the code THE PRESS RECORDED for this physical key
+        // (`pressed_key_vks`), not whatever the release keysym happens to resolve
+        // to. `xkb_state_key_get_one_sym` reports the EFFECTIVE keysym, so the same
+        // physical key yields different keysyms depending on the modifiers held at
+        // that instant: press AltGr+Q on a German layout and the keysym is XK_at
+        // (→ Key2), release AltGr first and the release keysym is XK_q (→ Q). The
+        // shared table folds the common shifted forms onto one code, which covers
+        // Shift+digit and the keypad, but it cannot cover the level-3 layouts —
+        // remembering the press is what makes press/release symmetric for every key.
         if is_pressed {
             self.common.current_window_state
                 .keyboard_state
-                .current_virtual_keycode = OptionVirtualKeyCode::Some(virtual_keycode);
+                .current_virtual_keycode = virtual_keycode.into();
             // Add key to pressed lists
-            self.common.current_window_state
-                .keyboard_state
-                .pressed_virtual_keycodes
-                .insert_hm_item(virtual_keycode);
+            if let Some(vk) = virtual_keycode {
+                self.common.current_window_state
+                    .keyboard_state
+                    .pressed_virtual_keycodes
+                    .insert_hm_item(vk);
+                self.pressed_key_vks.insert(key, vk);
+            }
             self.common.current_window_state
                 .keyboard_state
                 .pressed_scancodes
@@ -2969,11 +2838,15 @@ impl WaylandWindow {
             self.common.current_window_state
                 .keyboard_state
                 .current_virtual_keycode = OptionVirtualKeyCode::None;
-            // Remove key from pressed lists
-            self.common.current_window_state
-                .keyboard_state
-                .pressed_virtual_keycodes
-                .remove_hm_item(&virtual_keycode);
+            // Remove key from pressed lists. `.or(virtual_keycode)` only covers a
+            // key whose press we never saw (held across focus-in before the keymap
+            // arrived); the recorded code wins whenever we have one.
+            if let Some(vk) = self.pressed_key_vks.remove(&key).or(virtual_keycode) {
+                self.common.current_window_state
+                    .keyboard_state
+                    .pressed_virtual_keycodes
+                    .remove_hm_item(&vk);
+            }
             self.common.current_window_state
                 .keyboard_state
                 .pressed_scancodes
@@ -3736,6 +3609,10 @@ impl WaylandWindow {
             azul_core::window::ScanCodeVec::new();
         self.common.current_window_state.keyboard_state.current_virtual_keycode =
             azul_core::window::OptionVirtualKeyCode::None;
+        // The press→code record must die with the list it mirrors, or a key held
+        // across the focus change keeps an entry that a much later release of the
+        // same physical key would use to remove a code nobody pressed.
+        self.pressed_key_vks.clear();
         // MWA-A3b: forward to AT-SPI — accesskit_unix never learns window
         // focus on its own (Orca got no focus events on Wayland).
         #[cfg(feature = "a11y")]
@@ -3972,10 +3849,16 @@ impl WaylandWindow {
             // XKB keycode = evdev keycode + 8 (same offset as handle_key).
             let keysym =
                 unsafe { (self.xkb.xkb_state_key_get_one_sym)(xkb_state, scancode + 8) };
-            self.common.current_window_state
-                .keyboard_state
-                .pressed_virtual_keycodes
-                .insert_hm_item(translate_keysym_to_virtual_keycode(keysym));
+            // Same shared table, same rule: a keysym with no virtual key seeds
+            // nothing. Record what we DID seed so the eventual release removes
+            // exactly that code (see the bookkeeping in `handle_key`).
+            if let Some(vk) = events::keysym_to_virtual_keycode(keysym) {
+                self.common.current_window_state
+                    .keyboard_state
+                    .pressed_virtual_keycodes
+                    .insert_hm_item(vk);
+                self.pressed_key_vks.insert(scancode, vk);
+            }
         }
         // MWA-A3b: mirror of handle_keyboard_leave — forward focus to AT-SPI.
         #[cfg(feature = "a11y")]

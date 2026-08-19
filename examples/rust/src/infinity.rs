@@ -20,7 +20,7 @@ extern "C" fn layout(mut data: RefAny, _: LayoutCallbackInfo) -> Dom {
         d.file_paths.len()
     };
 
-    let title = Dom::create_text_do_not_use_without_block_level_wrapper(format!("Pictures - {} images", file_count))
+    let title = Dom::create_div_with_text(format!("Pictures - {} images", file_count))
         .with_css("font-size: 20px; margin-bottom: 10px;");
 
     // Now we can pass the function pointer directly - the API builds the wrapper internally
@@ -62,7 +62,7 @@ extern "C" fn render_virtual_view(mut data: RefAny, info: VirtualViewCallbackInf
             ",
             )
             .with_child(
-                Dom::create_text_do_not_use_without_block_level_wrapper(d.file_paths[i].clone())
+                Dom::create_div_with_text(d.file_paths[i].clone())
                     .with_css("font-size: 10px; text-align: center;"),
             );
 

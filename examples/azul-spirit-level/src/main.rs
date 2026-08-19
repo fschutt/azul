@@ -122,8 +122,8 @@ extern "C" fn layout(mut data: RefAny, _info: LayoutCallbackInfo) -> Dom {
     Dom::create_body().with_child(
         Dom::create_div()
             .with_css(ROOT)
-            .with_child(Dom::create_text_do_not_use_without_block_level_wrapper("Spirit Level").with_css(TITLE))
-            .with_child(Dom::create_text_do_not_use_without_block_level_wrapper("Wasserwaage · accelerometer").with_css(SUBTITLE))
+            .with_child(Dom::create_div_with_text("Spirit Level").with_css(TITLE))
+            .with_child(Dom::create_div_with_text("Wasserwaage · accelerometer").with_css(SUBTITLE))
             .with_child(
                 Dom::create_div().with_css(LEVEL_AREA).with_child(
                     Dom::create_div()
@@ -131,8 +131,8 @@ extern "C" fn layout(mut data: RefAny, _info: LayoutCallbackInfo) -> Dom {
                         .with_child(Dom::create_div().with_css(bubble_css.as_str())),
                 ),
             )
-            .with_child(Dom::create_text_do_not_use_without_block_level_wrapper(readout.as_str()).with_css(READOUT))
-            .with_child(Dom::create_text_do_not_use_without_block_level_wrapper(status).with_css(status_css)),
+            .with_child(Dom::create_div_with_text(readout.as_str()).with_css(READOUT))
+            .with_child(Dom::create_div_with_text(status).with_css(status_css)),
     )
 }
 

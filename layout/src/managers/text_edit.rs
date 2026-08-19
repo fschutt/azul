@@ -15,7 +15,7 @@ use core::sync::atomic::{AtomicBool, Ordering as AtomicOrdering};
 use azul_core::{
     dom::{DomId, DomNodeId, NodeId},
     geom::LogicalRect,
-    selection::{MultiCursorState, Selection, TextCursor},
+    selection::{MultiCursorState, Selection, SelectionRange, TextCursor},
     styled_dom::NodeHierarchyItemId,
     task::{Duration, Instant},
 };
@@ -74,8 +74,32 @@ impl BlinkState {
     /// Takes a [`Duration`] rather than milliseconds so a `t`-unit stylesheet
     /// value stays a frame count: a `5t` caret flips on the 5th frame exactly,
     /// on any machine, at any load.
+    ///
+    /// Prefer [`Self::adopt_blink_interval`] on a focus change: a RUNNING timer
+    /// does not pick the new value up on its own.
     pub const fn set_blink_interval(&mut self, interval: Duration) {
         self.blink_interval = interval;
+    }
+
+    /// Adopt `interval`, reporting whether it actually CHANGED.
+    ///
+    /// The blink timer bakes the interval into the `Timer` once, at
+    /// construction (`LayoutWindow::create_cursor_blink_timer`), so a timer
+    /// that is already running keeps the PREVIOUS node's period no matter what
+    /// this state says. Refocusing between two editables with different
+    /// `caret-animation-duration` must therefore rebuild the timer — and only
+    /// then, because rebuilding it on every focus change would restart the
+    /// blink phase for nothing.
+    ///
+    /// This is the predicate that decides (see `HANDOFF-text-fix.md` for the
+    /// `CursorBlinkTimerAction::Restart` half). A change of UNIT is a change:
+    /// `5t` and `530ms` are different intervals, not one interval spelled two
+    /// ways — the tick-unit caret must stay clockless.
+    #[must_use]
+    pub fn adopt_blink_interval(&mut self, interval: Duration) -> bool {
+        let changed = self.blink_interval != interval;
+        self.blink_interval = interval;
+        changed
     }
 
     /// Reset blink on user input — cursor stays solid until blink interval elapses.
@@ -226,6 +250,39 @@ impl TextTweenState {
         self.last_selection.clear();
         self.publish_active();
     }
+}
+
+/// The range selections of ONE editing session, as
+/// [`TextEditManager::session_selection_ranges`] reports them.
+///
+/// All ranges of a session live on the same IFC root — `MultiCursorState` is
+/// single-node by construction; a selection spanning several roots takes the
+/// `cross_block` path instead.
+#[derive(Debug, Clone, PartialEq)]
+pub struct SessionSelectionRanges {
+    /// DOM the session's node belongs to.
+    pub dom_id: DomId,
+    /// IFC root every range is expressed against.
+    pub node_id: NodeId,
+    /// Every range, in `MultiCursorState` order (position-sorted,
+    /// non-overlapping). Never empty.
+    pub ranges: Vec<SelectionRange>,
+    /// The primary range: the most recently added one (Ctrl+D's newest
+    /// occurrence), or the document-first range when the primary selection is
+    /// a bare caret. Always an element of `ranges`.
+    pub primary: SelectionRange,
+}
+
+/// Does `range` run FORWARD — anchor before focus in logical order?
+///
+/// `SelectionRange.start` is the ANCHOR and `.end` the FOCUS (the moving end:
+/// `build_cursor_locations` reads the caret off `.end`), so a backward drag
+/// arrives with `start > end`. This is the per-range form of the question
+/// `LayoutWindow::set_cross_block_selection` answers for its node pair. A
+/// degenerate range counts as forward, matching `TextSelection::new_collapsed`.
+#[must_use]
+pub fn range_is_forward(range: &SelectionRange) -> bool {
+    range.start <= range.end
 }
 
 /// Unified text editing manager.
@@ -472,13 +529,6 @@ impl TextEditManager {
         }).collect()
     }
 
-    /// Build a `TextSelection` map for the display list's `paint_selections`.
-    ///
-    /// Extracts Range selections from `MultiCursorState` into the format that
-    /// `LayoutContext.text_selections` expects: `BTreeMap<DomId, TextSelection>`.
-    /// The `affected_nodes` map uses the editing node's `NodeId` as key.
-    /// NOTE: only one range per node is supported — if multiple cursors have
-    /// range selections on the same node, later ranges overwrite earlier ones.
     /// Cross-block selection (spans multiple IFC roots), precomputed by
     /// `LayoutWindow::set_cross_block_selection` — the manager stores it
     /// render-ready because computing the per-IFC ranges needs layout/text
@@ -510,6 +560,61 @@ impl TextEditManager {
         self.cross_block.as_ref()
     }
 
+    /// Every range selection of the current editing session.
+    ///
+    /// `None` when there is no session, the session's node is detached, or the
+    /// session holds only bare carets — a collapsed caret is not a selection,
+    /// so there is nothing to highlight.
+    ///
+    /// This is the COMPLETE selection data. `select_next_occurrence` (Ctrl+D)
+    /// builds sessions with several ranges on one node, and the render-facing
+    /// [`Self::build_text_selections_map`] can carry only one of them (see
+    /// there); anything that needs all of them reads this.
+    #[must_use]
+    pub fn session_selection_ranges(&self) -> Option<SessionSelectionRanges> {
+        let mc = self.multi_cursor.as_ref()?;
+        let node_id = mc.node_id.node.into_crate_internal()?;
+
+        let mut ranges = Vec::new();
+        let mut primary = None;
+        for sel in &mc.selections {
+            if let Selection::Range(range) = &sel.selection {
+                if sel.id == mc.primary_id {
+                    primary = Some(*range);
+                }
+                ranges.push(*range);
+            }
+        }
+
+        // The primary selection can be a bare caret while other selections are
+        // ranges (a multi-cursor click adds one; an edit can collapse the
+        // primary range). The document-first range then stands in, so the
+        // endpoints always describe a range that is actually painted.
+        let primary = primary.or_else(|| ranges.first().copied())?;
+
+        Some(SessionSelectionRanges {
+            dom_id: mc.node_id.dom,
+            node_id,
+            ranges,
+            primary,
+        })
+    }
+
+    /// Build a `TextSelection` map for the display list's `paint_selections`.
+    ///
+    /// Extracts Range selections from `MultiCursorState` into the format that
+    /// `LayoutContext.text_selections` expects: `BTreeMap<DomId, TextSelection>`.
+    /// The `affected_nodes` map uses the editing node's `NodeId` as key.
+    ///
+    /// `anchor`, `focus`, `is_forward` and the range in `affected_nodes` all
+    /// describe the SAME range — the session's primary. They used to disagree:
+    /// the endpoints came from the first range, `affected_nodes` kept the last
+    /// (each insert overwrote the same key), and `is_forward` was hard-coded.
+    ///
+    /// ONE RANGE PER NODE, STILL: `affected_nodes` maps a `NodeId` to a single
+    /// `SelectionRange`, so a multi-range session paints its primary occurrence
+    /// only. [`Self::session_selection_ranges`] carries all of them; the range
+    /// list has to reach `TextSelection` for them to render (`HANDOFF-text-fix.md`).
     #[must_use] pub fn build_text_selections_map(&self) -> std::collections::BTreeMap<DomId, azul_core::selection::TextSelection> {
         if let Some(cb) = &self.cross_block {
             let mut map = std::collections::BTreeMap::new();
@@ -517,45 +622,32 @@ impl TextEditManager {
             return map;
         }
         use azul_core::selection::{TextSelection, SelectionAnchor, SelectionFocus};
-        use azul_core::geom::LogicalRect;
 
         let mut map = std::collections::BTreeMap::new();
-        let Some(ref mc) = self.multi_cursor else {
+        let Some(session) = self.session_selection_ranges() else {
             return map;
         };
-        let Some(node_id) = mc.node_id.node.into_crate_internal() else {
-            return map;
-        };
+        let range = session.primary;
 
         let mut affected_nodes = std::collections::BTreeMap::new();
-        let mut first_range: Option<azul_core::selection::SelectionRange> = None;
-        for sel in &mc.selections {
-            if let Selection::Range(range) = &sel.selection {
-                affected_nodes.insert(node_id, *range);
-                if first_range.is_none() {
-                    first_range = Some(*range);
-                }
-            }
-        }
+        affected_nodes.insert(session.node_id, range);
 
-        if let Some(range) = first_range {
-            map.insert(mc.node_id.dom, TextSelection {
-                dom_id: mc.node_id.dom,
-                anchor: SelectionAnchor {
-                    ifc_root_node_id: node_id,
-                    cursor: range.start,
-                    char_bounds: LogicalRect::zero(),
-                    mouse_position: azul_core::geom::LogicalPosition::zero(),
-                },
-                focus: SelectionFocus {
-                    ifc_root_node_id: node_id,
-                    cursor: range.end,
-                    mouse_position: azul_core::geom::LogicalPosition::zero(),
-                },
-                affected_nodes,
-                is_forward: true,
-            });
-        }
+        map.insert(session.dom_id, TextSelection {
+            dom_id: session.dom_id,
+            anchor: SelectionAnchor {
+                ifc_root_node_id: session.node_id,
+                cursor: range.start,
+                char_bounds: LogicalRect::zero(),
+                mouse_position: azul_core::geom::LogicalPosition::zero(),
+            },
+            focus: SelectionFocus {
+                ifc_root_node_id: session.node_id,
+                cursor: range.end,
+                mouse_position: azul_core::geom::LogicalPosition::zero(),
+            },
+            affected_nodes,
+            is_forward: range_is_forward(&range),
+        });
 
         map
     }
@@ -899,6 +991,39 @@ mod autotest_generated {
 
         assert!(!b.should_blink(&plus_ms(&base, 83)));
         assert!(b.should_blink(&plus_ms(&base, 84)));
+    }
+
+    /// The refocus predicate: a running blink timer holds the interval it was
+    /// BUILT with, so the only safe trigger for rebuilding it is "the value
+    /// actually changed". Same value ⇒ false (never restart the blink phase for
+    /// nothing); different value — including a different UNIT — ⇒ true.
+    #[test]
+    fn autotest_blink_adopt_interval_reports_only_real_changes() {
+        let mut b = BlinkState::new();
+
+        assert!(
+            !b.adopt_blink_interval(CURSOR_BLINK_INTERVAL),
+            "the default adopted again is not a change"
+        );
+
+        assert!(b.adopt_blink_interval(Duration::from_millis(250)));
+        assert_eq!(b.blink_interval, Duration::from_millis(250));
+        assert!(
+            !b.adopt_blink_interval(Duration::from_millis(250)),
+            "idempotent: refocusing a node with the SAME duration must not restart the timer"
+        );
+
+        // 5 frames is 83.33ms, and 83ms is not 5 frames: the unit is part of
+        // the value, so switching between them is a real change.
+        assert!(b.adopt_blink_interval(Duration::from_ticks(5)));
+        assert!(b.adopt_blink_interval(Duration::from_millis(83)));
+        assert!(b.adopt_blink_interval(Duration::from_ticks(5)));
+        assert_eq!(b.blink_interval, Duration::from_ticks(5));
+
+        // `clear()` puts the default back, so the next focus on a node with an
+        // explicit duration sees a change and rebuilds.
+        b.clear();
+        assert!(b.adopt_blink_interval(Duration::from_ticks(5)));
     }
 
     #[test]
@@ -1403,10 +1528,9 @@ mod autotest_generated {
     }
 
     #[test]
-    fn autotest_build_text_selections_map_backward_range_is_reported_forward() {
-        // A backward drag (start after end) is still emitted with `is_forward:
-        // true` — the flag is hard-coded. Pinning the current behaviour so a
-        // future direction fix has to update this test deliberately.
+    fn autotest_build_text_selections_map_backward_range_reports_is_forward_false() {
+        // A backward drag anchors at 9 and puts the focus at 2, so the emitted
+        // selection must say so. `is_forward` used to be hard-coded `true`.
         let node = NodeId::new(6);
         let start = cursor(0, 9);
         let end = cursor(0, 2);
@@ -1422,15 +1546,21 @@ mod autotest_generated {
         let sel = map.get(&DOM0).expect("keyed by the editing DomId");
         assert_eq!(sel.anchor.cursor, start);
         assert_eq!(sel.focus.cursor, end);
-        assert!(sel.is_forward);
+        assert!(!sel.is_forward, "anchor is logically AFTER the focus");
+        assert!(!range_is_forward(&range(start, end)));
+        assert!(range_is_forward(&range(end, start)), "the mirrored drag is forward");
+        assert!(
+            range_is_forward(&range(start, start)),
+            "a degenerate range counts as forward, like TextSelection::new_collapsed"
+        );
     }
 
     #[test]
-    fn autotest_build_text_selections_map_multi_range_first_wins_endpoints() {
-        // Documented limitation: only one range per node survives. What is NOT
-        // documented is that the two halves disagree — `affected_nodes` keeps the
-        // LAST range (each insert overwrites the same NodeId key) while the
-        // anchor/focus endpoints come from the FIRST. Pinned deliberately.
+    fn autotest_build_text_selections_map_multi_range_endpoints_match_the_painted_range() {
+        // The two halves of the emitted `TextSelection` must agree: whichever
+        // range `affected_nodes` paints is the one `anchor`/`focus` describe.
+        // They used to disagree — endpoints from the FIRST range, the map from
+        // the LAST. The one that survives is the PRIMARY (last-added).
         let node = NodeId::new(4);
         let first = range(cursor(0, 0), cursor(0, 1));
         let last = range(cursor(0, 5), cursor(0, 8));
@@ -1449,13 +1579,68 @@ mod autotest_generated {
         let map = m.build_text_selections_map();
         assert_eq!(map.len(), 1, "one entry per DomId, not per range");
         let sel = map.get(&DOM0).expect("keyed by the editing DomId");
-        assert_eq!(sel.anchor.cursor, first.start, "endpoints from the FIRST range");
-        assert_eq!(sel.focus.cursor, first.end);
+        assert_eq!(sel.anchor.cursor, last.start, "endpoints from the PRIMARY range");
+        assert_eq!(sel.focus.cursor, last.end);
         assert_eq!(
             sel.affected_nodes.get(&node),
             Some(&last),
-            "affected_nodes keeps the LAST range — it disagrees with anchor/focus"
+            "the painted range IS the range the endpoints describe"
         );
+
+        // …and no range is lost on the way: the session reports both, so the
+        // painter can draw every occurrence once `affected_nodes` carries a
+        // list (HANDOFF-text-fix.md).
+        let session = m.session_selection_ranges().expect("a session with ranges");
+        assert_eq!(session.dom_id, DOM0);
+        assert_eq!(session.node_id, node);
+        assert_eq!(session.ranges, vec![first, last], "carets are not ranges");
+        assert_eq!(session.primary, last);
+    }
+
+    #[test]
+    fn autotest_session_selection_ranges_falls_back_to_the_first_range() {
+        // The primary selection is a bare CARET here (the fixture makes the
+        // last element primary), so the endpoints stand in from the first
+        // range — never from a caret, which would emit a collapsed selection
+        // and paint nothing.
+        let node = NodeId::new(2);
+        let only = range(cursor(0, 4), cursor(0, 7));
+
+        let mut m = TextEditManager::new();
+        m.multi_cursor = Some(multi_cursor_with(
+            dom_node(DOM1, Some(node)),
+            vec![Selection::Range(only), Selection::Cursor(cursor(0, 12))],
+            9,
+        ));
+
+        let session = m.session_selection_ranges().expect("one range is a session");
+        assert_eq!(session.ranges, vec![only]);
+        assert_eq!(session.primary, only);
+
+        let map = m.build_text_selections_map();
+        let sel = map.get(&DOM1).expect("keyed by the editing DomId");
+        assert_eq!(sel.anchor.cursor, only.start);
+        assert_eq!(sel.focus.cursor, only.end);
+    }
+
+    #[test]
+    fn autotest_session_selection_ranges_is_none_without_ranges() {
+        assert!(TextEditManager::new().session_selection_ranges().is_none());
+
+        // Carets only — nothing to highlight.
+        let mut m = TextEditManager::new();
+        m.initialize_editing(cursor(0, 3), DOM0, NodeId::new(1), 8);
+        assert!(m.session_selection_ranges().is_none());
+
+        // A range on a DETACHED node has no IFC root to express it against.
+        let mut m = TextEditManager::new();
+        m.multi_cursor = Some(multi_cursor_with(
+            dom_node(DOM0, None),
+            vec![Selection::Range(range(cursor(0, 0), cursor(0, 1)))],
+            1,
+        ));
+        assert!(m.session_selection_ranges().is_none());
+        assert!(m.build_text_selections_map().is_empty());
     }
 
     #[test]

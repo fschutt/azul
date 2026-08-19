@@ -5,7 +5,7 @@
 use azul_core::selection::{CursorAffinity, GraphemeClusterId, SelectionRange, TextCursor};
 
 use crate::text3::cache::{
-    is_word_char, PositionedItem, ShapedCluster, ShapedItem, UnifiedLayout,
+    is_word_char, BreakType, ShapedCluster, ShapedItem, UnifiedLayout,
 };
 
 /// Select the word at the given cursor position
@@ -49,49 +49,78 @@ use crate::text3::cache::{
     })
 }
 
-/// Select the paragraph/line at the given cursor position
+/// Select the paragraph at the given cursor position (triple-click).
 ///
-/// Returns a `SelectionRange` covering the entire line from the first
-/// to the last cluster on that line.
+/// Returns a `SelectionRange` covering the whole paragraph the cursor is in,
+/// in LOGICAL order, from its first to its last grapheme cluster.
+///
+/// "Paragraph" is the run of inline content between HARD breaks (`<br>`, a
+/// preserved newline) — soft wraps do not divide it. Two consequences, both of
+/// which the old `line_index` filter got wrong:
+///   * a wrapped paragraph selects whole instead of one visual line (no editor
+///     selects a soft-wrapped fragment on triple-click), and
+///   * a visually reordered (bidi/RTL) paragraph yields `start <= end`, because
+///     the endpoints are taken in logical order rather than from the ends of
+///     the visual item vector — an inverted range mis-highlights, as
+///     `get_selection_rects` walks logically.
+///
+/// Same gathering discipline as [`extract_line_text_and_clusters`], which fixed
+/// this class for WORD selection: work on the logical sequence, not on one
+/// visual line.
 #[must_use] pub fn select_paragraph_at_cursor(
     cursor: &TextCursor,
     layout: &UnifiedLayout,
 ) -> Option<SelectionRange> {
     // Find the item containing this cursor
-    let (item_idx, _) = find_cluster_at_cursor(cursor, layout)?;
-    let item = &layout.items[item_idx];
-    let line_index = item.line_index;
+    let (_, cursor_cluster) = find_cluster_at_cursor(cursor, layout)?;
+    let cursor_run = cursor_cluster.source_cluster_id.source_run;
 
-    // Find all items on this line
-    let line_items: Vec<(usize, &PositionedItem)> = layout
-        .items
-        .iter()
-        .enumerate()
-        .filter(|(_, item)| item.line_index == line_index)
-        .collect();
-
-    if line_items.is_empty() {
-        return None;
+    // Hard breaks occupy their OWN slot in the inline-content array, and every
+    // cluster carries that array index as `source_run` — so a break's run index
+    // is a boundary in the same coordinate the clusters are ordered by. Take
+    // the nearest one on each side of the cursor's run; either may be absent
+    // (the paragraph reaches the start/end of the IFC).
+    let mut before: Option<u32> = None;
+    let mut after: Option<u32> = None;
+    for item in &layout.items {
+        let ShapedItem::Break { source, break_info } = &item.item else {
+            continue;
+        };
+        if break_info.break_type != BreakType::Hard {
+            continue;
+        }
+        let run = source.run_index;
+        if run < cursor_run {
+            before = Some(before.map_or(run, |b: u32| b.max(run)));
+        } else if run > cursor_run {
+            after = Some(after.map_or(run, |a: u32| a.min(run)));
+        }
     }
 
-    // Get first and last cluster on line
-    let first_cluster = line_items
-        .iter()
-        .find_map(|(_, item)| item.item.as_cluster())?;
+    // Logical extremes of every cluster inside those bounds. `GraphemeClusterId`
+    // orders by (source_run, start_byte_in_run), which IS logical order.
+    let mut first: Option<GraphemeClusterId> = None;
+    let mut last: Option<GraphemeClusterId> = None;
+    for cluster in layout.items.iter().filter_map(|item| item.item.as_cluster()) {
+        let id = cluster.source_cluster_id;
+        if before.is_some_and(|b| id.source_run <= b) || after.is_some_and(|a| id.source_run >= a) {
+            continue;
+        }
+        if first.is_none_or(|f| id < f) {
+            first = Some(id);
+        }
+        if last.is_none_or(|l| id > l) {
+            last = Some(id);
+        }
+    }
 
-    let last_cluster = line_items
-        .iter()
-        .rev()
-        .find_map(|(_, item)| item.item.as_cluster())?;
-
-    // Create selection spanning entire line
     Some(SelectionRange {
         start: TextCursor {
-            cluster_id: first_cluster.source_cluster_id,
+            cluster_id: first?,
             affinity: CursorAffinity::Leading,
         },
         end: TextCursor {
-            cluster_id: last_cluster.source_cluster_id,
+            cluster_id: last?,
             affinity: CursorAffinity::Trailing,
         },
     })
@@ -332,8 +361,7 @@ mod tests {
 /// reordered (bidi) item vectors, words split across a soft wrap, and cluster
 /// metadata that contradicts the cluster text. Where the current behaviour is
 /// surprising but real (an empty range for a trailing boundary char; a combining
-/// mark splitting a word; paragraph selection returning a *logically inverted*
-/// range for reordered runs) the test PINS that behaviour and says so rather than
+/// mark splitting a word) the test PINS that behaviour and says so rather than
 /// pretending it is correct.
 #[cfg(test)]
 #[allow(
@@ -348,7 +376,8 @@ mod autotest_generated {
 
     use super::*;
     use crate::text3::cache::{
-        BidiDirection, OverflowInfo, Point, Rect, ShapedGlyphVec, StyleProperties,
+        BidiDirection, ClearType, InlineBreak, OverflowInfo, Point, PositionedItem, Rect,
+        ShapedGlyphVec, StyleProperties,
     };
 
     // ------------------------------------------------------------------
@@ -399,6 +428,33 @@ mod autotest_generated {
     fn cl(text: &str, id: GraphemeClusterId, line: usize) -> PositionedItem {
         PositionedItem {
             item: ShapedItem::Cluster(cluster(text, id)),
+            position: Point::default(),
+            line_index: line,
+        }
+    }
+
+    /// A forced break occupying inline-content slot `run` (its own slot, like
+    /// production: `<br>` / a preserved newline is an `InlineContent::LineBreak`
+    /// between the text runs it separates).
+    fn hard_break(run: u32, line: usize) -> PositionedItem {
+        break_item(run, line, BreakType::Hard)
+    }
+
+    /// A soft wrap opportunity — NOT a paragraph boundary.
+    fn soft_break(run: u32, line: usize) -> PositionedItem {
+        break_item(run, line, BreakType::Soft)
+    }
+
+    fn break_item(run: u32, line: usize, break_type: BreakType) -> PositionedItem {
+        PositionedItem {
+            item: ShapedItem::Break {
+                source: ci(run, 0),
+                break_info: InlineBreak {
+                    break_type,
+                    clear: ClearType::None,
+                    content_index: 0,
+                },
+            },
             position: Point::default(),
             line_index: line,
         }
@@ -1009,7 +1065,10 @@ mod autotest_generated {
     }
 
     #[test]
-    fn select_paragraph_covers_only_the_cursors_line() {
+    fn select_paragraph_covers_the_whole_soft_wrapped_paragraph() {
+        // One paragraph wrapped over two visual lines. Triple-click selects the
+        // paragraph — filtering by `line_index` used to select the clicked
+        // visual line only, which no editor does.
         let layout = layout_of(vec![
             cl("a", gid(0, 0), 0),
             cl("b", gid(0, 1), 0),
@@ -1017,19 +1076,76 @@ mod autotest_generated {
             cl("d", gid(0, 3), 1),
         ]);
 
-        let range = select_paragraph_at_cursor(&cursor_at(gid(0, 3)), &layout).unwrap();
-        assert_eq!(range.start.cluster_id, gid(0, 2), "line 1 starts at 'c'");
-        assert_eq!(range.end.cluster_id, gid(0, 3));
-        assert_eq!(range.start.affinity, CursorAffinity::Leading);
-        assert_eq!(range.end.affinity, CursorAffinity::Trailing);
+        for probe in [gid(0, 0), gid(0, 1), gid(0, 2), gid(0, 3)] {
+            let range = select_paragraph_at_cursor(&cursor_at(probe), &layout).unwrap();
+            assert_eq!(range.start.cluster_id, gid(0, 0), "from {probe:?}");
+            assert_eq!(range.end.cluster_id, gid(0, 3), "from {probe:?}");
+            assert_eq!(range.start.affinity, CursorAffinity::Leading);
+            assert_eq!(range.end.affinity, CursorAffinity::Trailing);
+        }
+    }
+
+    /// A paragraph made of several logical runs (`<p>plain <b>bold</b></p>`)
+    /// selects whole — the runs are one paragraph, no break separates them.
+    #[test]
+    fn select_paragraph_spans_every_run_between_breaks() {
+        let layout = layout_of(vec![
+            cl("a", gid(0, 0), 0),
+            cl("b", gid(1, 0), 0),
+            cl("c", gid(2, 0), 1),
+        ]);
+
+        for probe in [gid(0, 0), gid(1, 0), gid(2, 0)] {
+            let range = select_paragraph_at_cursor(&cursor_at(probe), &layout).unwrap();
+            assert_eq!(range.start.cluster_id, gid(0, 0), "from {probe:?}");
+            assert_eq!(range.end.cluster_id, gid(2, 0), "from {probe:?}");
+        }
+    }
+
+    /// A HARD break (`<br>`, a preserved newline) IS a paragraph boundary: it
+    /// occupies its own slot in the inline-content array, so its `run_index`
+    /// splits the clusters into two paragraphs.
+    #[test]
+    fn select_paragraph_stops_at_hard_breaks() {
+        let layout = layout_of(vec![
+            cl("a", gid(0, 0), 0),
+            cl("b", gid(0, 1), 0),
+            hard_break(1, 0),
+            cl("c", gid(2, 0), 1),
+            cl("d", gid(2, 1), 2), // wrapped: still the second paragraph
+            hard_break(3, 2),
+            cl("e", gid(4, 0), 3),
+        ]);
+
+        let first = select_paragraph_at_cursor(&cursor_at(gid(0, 1)), &layout).unwrap();
+        assert_eq!(first.start.cluster_id, gid(0, 0));
+        assert_eq!(first.end.cluster_id, gid(0, 1), "must not cross the break");
+
+        let middle = select_paragraph_at_cursor(&cursor_at(gid(2, 1)), &layout).unwrap();
+        assert_eq!(middle.start.cluster_id, gid(2, 0), "bounded on both sides");
+        assert_eq!(middle.end.cluster_id, gid(2, 1));
+
+        let last = select_paragraph_at_cursor(&cursor_at(gid(4, 0)), &layout).unwrap();
+        assert_eq!(last.start.cluster_id, gid(4, 0));
+        assert_eq!(last.end.cluster_id, gid(4, 0));
+    }
+
+    /// A SOFT break is a wrap opportunity, not a paragraph boundary.
+    #[test]
+    fn select_paragraph_ignores_soft_breaks() {
+        let layout = layout_of(vec![
+            cl("a", gid(0, 0), 0),
+            soft_break(1, 0),
+            cl("b", gid(2, 0), 1),
+        ]);
 
         let range = select_paragraph_at_cursor(&cursor_at(gid(0, 0)), &layout).unwrap();
         assert_eq!(range.start.cluster_id, gid(0, 0));
-        assert_eq!(range.end.cluster_id, gid(0, 1), "must not spill onto line 1");
+        assert_eq!(range.end.cluster_id, gid(2, 0));
     }
 
     #[test]
-    fn select_paragraph_ignores_non_cluster_items_at_the_line_edges() {
+    fn select_paragraph_ignores_non_cluster_items_at_the_paragraph_edges() {
         let layout = layout_of(vec![
             tab(0),
             cl("a", gid(0, 0), 0),
@@ -1041,25 +1157,30 @@ mod autotest_generated {
         assert_eq!(range.end.cluster_id, gid(0, 1));
     }
 
+    /// A saturated `line_index` is no longer load-bearing (the paragraph is
+    /// delimited by breaks, not by lines), and must not change the answer or
+    /// overflow anything.
     #[test]
-    fn select_paragraph_handles_saturated_line_index() {
+    fn select_paragraph_is_unaffected_by_a_saturated_line_index() {
         let layout = layout_of(vec![
             cl("a", gid(0, 0), 0),
             cl("b", gid(0, 1), usize::MAX),
             cl("c", gid(0, 2), usize::MAX),
         ]);
-        let range = select_paragraph_at_cursor(&cursor_at(gid(0, 2)), &layout).unwrap();
-        assert_eq!(range.start.cluster_id, gid(0, 1));
-        assert_eq!(range.end.cluster_id, gid(0, 2));
+        for probe in [gid(0, 0), gid(0, 1), gid(0, 2)] {
+            let range = select_paragraph_at_cursor(&cursor_at(probe), &layout).unwrap();
+            assert_eq!(range.start.cluster_id, gid(0, 0), "from {probe:?}");
+            assert_eq!(range.end.cluster_id, gid(0, 2), "from {probe:?}");
+        }
     }
 
-    /// PINNED QUIRK: paragraph selection walks `layout.items` in VISUAL order,
-    /// unlike `select_word_at_cursor`, which sorts into logical order. For a
-    /// visually reordered (RTL) run the returned range is therefore logically
-    /// INVERTED (start > end). Recorded as-is — a caller that assumes
-    /// `start <= end` will mis-highlight RTL lines.
+    /// Bidi: the items arrive in VISUAL (reversed) order, but the endpoints are
+    /// taken in LOGICAL order, so the range is never inverted. It used to read
+    /// the ends of the visual vector and return `start > end`, which
+    /// `get_selection_rects` (a logical walk) cannot highlight — an inverted
+    /// range is a bug, not a quirk.
     #[test]
-    fn select_paragraph_returns_a_logically_inverted_range_for_reordered_runs() {
+    fn select_paragraph_returns_a_logical_range_for_reordered_runs() {
         let layout = layout_of(vec![
             cl("o", gid(0, 4), 0),
             cl("l", gid(0, 3), 0),
@@ -1069,12 +1190,30 @@ mod autotest_generated {
         ]);
         let range = select_paragraph_at_cursor(&cursor_at(gid(0, 2)), &layout).unwrap();
 
-        assert_eq!(range.start.cluster_id, gid(0, 4), "visually-first cluster");
-        assert_eq!(range.end.cluster_id, gid(0, 0), "visually-last cluster");
+        assert_eq!(range.start.cluster_id, gid(0, 0), "logically-first cluster");
+        assert_eq!(range.end.cluster_id, gid(0, 4), "logically-last cluster");
         assert!(
-            range.start.cluster_id > range.end.cluster_id,
-            "pinned: the range is logically inverted for visual order"
+            range.start.cluster_id <= range.end.cluster_id,
+            "a selection range must never be logically inverted"
         );
+    }
+
+    /// The same invariant `select_word_at_cursor` is held to, over every
+    /// reachable cursor of every nasty string.
+    #[test]
+    fn select_paragraph_is_never_inverted_for_nasty_unicode() {
+        for &text in NASTY {
+            let layout = layout_from_str(text, 0);
+            for (byte_idx, _) in text.char_indices() {
+                let cur = cursor_at(gid(0, byte_idx as u32));
+                let range = select_paragraph_at_cursor(&cur, &layout)
+                    .unwrap_or_else(|| panic!("{text:?} @ {byte_idx}: expected a selection"));
+                assert!(
+                    range.start.cluster_id <= range.end.cluster_id,
+                    "{text:?} @ {byte_idx}: inverted range {range:?}"
+                );
+            }
+        }
     }
 
     /// Whenever the cursor resolves to a cluster, paragraph selection must resolve

@@ -26,7 +26,9 @@
 ;; layout returns an AzDom, rebuilt on each RefreshDom.
 (define (layout data-ptr info-ptr)
   (define counter (unbox model))
-  (define label (dom-create-text (az-str (number->string counter))))
+  (define label
+    (dom-create-text-do-not-use-without-block-level-wrapper
+     (az-str (number->string counter))))
   (define wrap (dom-create-div))
   (dom-add-css-property
    wrap

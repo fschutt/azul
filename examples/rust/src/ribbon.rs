@@ -210,7 +210,9 @@ fn column(items: Vec<RibbonItem>) -> RibbonItem {
 }
 
 fn cell(preview_css: &str, sample: &str, name: &str) -> RibbonGalleryCell {
-    RibbonGalleryCell::new(Dom::create_text_do_not_use_without_block_level_wrapper(sample).with_css(preview_css), name)
+    // The preview sits next to the cell's <p> label, so it needs a box of
+    // its own — a DIV, which (unlike <p>) adds no UA margins to the sample.
+    RibbonGalleryCell::new(Dom::create_div_with_text(sample).with_css(preview_css), name)
 }
 
 // ---------------------------------------------------------------------------
@@ -391,7 +393,7 @@ fn title_bar() -> Dom {
             "display: flex; align-items: center; justify-content: center; width: 22px; \
              height: 22px; background: #2b579a; margin-right: 10px;",
         )
-        .with_child(Dom::create_text_do_not_use_without_block_level_wrapper("W").with_css("font-size: 13px; color: white;"));
+        .with_child(Dom::create_div_with_text("W").with_css("font-size: 13px; color: white;"));
 
     let left = Dom::create_div()
         .with_css("display: flex; flex-direction: row; align-items: center;")
@@ -403,7 +405,7 @@ fn title_bar() -> Dom {
             Dom::create_icon("arrow_drop_down").with_css("font-size: 14px; color: #6a6a6a;"),
         );
 
-    let title = Dom::create_text_do_not_use_without_block_level_wrapper("Document1 - AzWriter")
+    let title = Dom::create_div_with_text("Document1 - AzWriter")
         .with_css("flex-grow: 1; text-align: center; font-size: 12px; color: #444444;");
 
     let right = Dom::create_div()

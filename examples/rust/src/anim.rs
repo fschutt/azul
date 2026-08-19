@@ -50,9 +50,9 @@ extern "C" fn layout(mut data: RefAny, _info: LayoutCallbackInfo) -> Dom {
     Dom::create_body().with_child(
         Dom::create_div()
             .with_css(ROOT)
-            .with_child(Dom::create_text_do_not_use_without_block_level_wrapper("Timer Animation").with_css(TITLE))
+            .with_child(Dom::create_div_with_text("Timer Animation").with_css(TITLE))
             .with_child(
-                Dom::create_text_do_not_use_without_block_level_wrapper("box slides via add_timer → RefreshDom").with_css(SUBTITLE),
+                Dom::create_div_with_text("box slides via add_timer → RefreshDom").with_css(SUBTITLE),
             )
             .with_child(
                 Dom::create_div()
@@ -60,7 +60,7 @@ extern "C" fn layout(mut data: RefAny, _info: LayoutCallbackInfo) -> Dom {
                     .with_child(Dom::create_div().with_css(bubble_css.as_str())),
             )
             .with_child(
-                Dom::create_text_do_not_use_without_block_level_wrapper(format!("frame {}", frame).as_str()).with_css(COUNTER),
+                Dom::create_div_with_text(format!("frame {}", frame).as_str()).with_css(COUNTER),
             ),
     )
 }

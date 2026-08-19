@@ -196,8 +196,8 @@ fn div_with_id(id: &str, css: &str) -> Dom {
 /// would be nothing to animate BETWEEN.
 fn shared_card(title: &str) -> Dom {
     let mut card = div_with_id("shared-card", CARD);
-    card.add_child(Dom::create_text_do_not_use_without_block_level_wrapper(title));
-    card.add_child(Dom::create_text_do_not_use_without_block_level_wrapper("same node, different screen").with_css(HINT));
+    card.add_child(Dom::create_div_with_text(title));
+    card.add_child(Dom::create_div_with_text("same node, different screen").with_css(HINT));
     card
 }
 
@@ -259,7 +259,7 @@ extern "C" fn layout(data: RefAny, _: LayoutCallbackInfo) -> Dom {
                 RefAny::new(()),
             );
         for item in ["Inbox", "Drafts", "Archive", "Trash"] {
-            sidebar.add_child(Dom::create_text_do_not_use_without_block_level_wrapper(item).with_css(SIDE_ITEM));
+            sidebar.add_child(Dom::create_div_with_text(item).with_css(SIDE_ITEM));
         }
         body.add_child(sidebar);
     }

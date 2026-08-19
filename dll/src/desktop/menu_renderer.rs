@@ -395,20 +395,26 @@ fn create_icon_dom(icon: &OptionMenuItemIcon) -> Dom {
     if let Some(icon_value) = icon.as_option() {
         match icon_value {
             MenuItemIcon::Checkbox(checked) => {
+                // The classes stay on the icon DIV: it is the box the menu
+                // stylesheet sizes and paints. Putting them on the checkmark
+                // text node instead made them inert (a text node has no box)
+                // AND dropped the div itself.
+                icon_dom = icon_dom.with_ids_and_classes(IdOrClassVec::from_vec(vec![
+                    IdOrClass::Class("menu-item-icon".into()),
+                    IdOrClass::Class("menu-item-checkbox".into()),
+                    IdOrClass::Class(
+                        if *checked {
+                            "menu-item-checkbox-checked"
+                        } else {
+                            "menu-item-checkbox-unchecked"
+                        }
+                        .into(),
+                    ),
+                ]));
                 // Add checkmark if checked
                 if *checked {
-                    icon_dom =
-                        Dom::create_text_do_not_use_without_block_level_wrapper("✓").with_ids_and_classes(IdOrClassVec::from_vec(vec![
-                            IdOrClass::Class("menu-item-icon".into()),
-                            IdOrClass::Class("menu-item-checkbox".into()),
-                            IdOrClass::Class("menu-item-checkbox-checked".into()),
-                        ]));
-                } else {
-                    icon_dom = icon_dom.with_ids_and_classes(IdOrClassVec::from_vec(vec![
-                        IdOrClass::Class("menu-item-icon".into()),
-                        IdOrClass::Class("menu-item-checkbox".into()),
-                        IdOrClass::Class("menu-item-checkbox-unchecked".into()),
-                    ]));
+                    icon_dom = icon_dom
+                        .with_child(Dom::create_text_do_not_use_without_block_level_wrapper("✓"));
                 }
             }
             MenuItemIcon::Image(image_ref) => {

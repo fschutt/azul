@@ -50,8 +50,11 @@ extern "C" fn layout(mut data: RefAny, _info: LayoutCallbackInfo) -> Dom {
     Dom::create_body().with_child(
         Dom::create_div()
             .with_css(ROOT)
-            .with_child(Dom::create_text_do_not_use_without_block_level_wrapper("🖥 AzScreenShare").with_css(TITLE))
-            .with_child(Dom::create_text_do_not_use_without_block_level_wrapper("live screen capture · ScreenCaptureWidget").with_css(SUBTITLE))
+            .with_child(Dom::create_div_with_text("🖥 AzScreenShare").with_css(TITLE))
+            .with_child(
+                Dom::create_div_with_text("live screen capture · ScreenCaptureWidget")
+                    .with_css(SUBTITLE),
+            )
             .with_child(ScreenCaptureWidget::create(config).dom().with_css(PREVIEW)),
     )
 }

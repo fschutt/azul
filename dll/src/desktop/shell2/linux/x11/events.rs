@@ -988,12 +988,23 @@ impl X11Window {
             return ProcessEventResult::DoNothing;
         }
 
+        // Resolve the VirtualKeyCode from the PHYSICAL key (group 0 / level 0),
+        // NOT from the composed keysym: `1` pressed, Shift pressed, `1`
+        // released reports XK_exclam for the release, and a release that
+        // resolves to a different code — or to none — leaves the key stuck in
+        // `pressed_virtual_keycodes` forever. Falls back to the looked-up
+        // keysym when XKB is unavailable; the table folds the common shifted
+        // forms onto their base key for exactly that case.
+        let vk_pressed = self
+            .unmodified_keysym(event.keycode)
+            .and_then(keysym_to_virtual_keycode)
+            .or_else(|| keysym.and_then(keysym_to_virtual_keycode));
+
         // Save previous state BEFORE making changes.
         // Detect key repeat: if the key is already in pressed_virtual_keycodes,
         // this is a repeat. Clear current_virtual_keycode in the snapshot
         // so the state-diff system sees None → Some(key).
-        let vk_for_repeat = keysym.and_then(keysym_to_virtual_keycode);
-        let is_repeat = is_down && vk_for_repeat.map(|vk| {
+        let is_repeat = is_down && vk_pressed.map(|vk| {
             self.common.current_window_state.keyboard_state
                 .pressed_virtual_keycodes.as_ref().iter().any(|k| *k == vk)
         }).unwrap_or(false);
@@ -1033,7 +1044,7 @@ impl X11Window {
         }
 
         // Update keyboard state with virtual key and scancode
-        if let Some(vk) = keysym.and_then(keysym_to_virtual_keycode) {
+        if let Some(vk) = vk_pressed {
             if is_down {
                 self.common.current_window_state
                     .keyboard_state
@@ -1162,6 +1173,30 @@ impl X11Window {
         keyboard_state.pressed_virtual_keycodes = VirtualKeyCodeVec::from_vec(Vec::new());
         keyboard_state.pressed_scancodes = ScanCodeVec::from_vec(Vec::new());
         keyboard_state.current_virtual_keycode = OptionVirtualKeyCode::None;
+    }
+
+    /// The group-0 / level-0 keysym of a physical keycode — the key's
+    /// UNMODIFIED symbol.
+    ///
+    /// Pressed-key bookkeeping must be keyed by the PHYSICAL key, never by the
+    /// composed symbol: `XLookupString` reports `XK_exclam` for Shift+`1` but
+    /// `XK_1` for the release once Shift is up (AltGr shifts to a third level,
+    /// a second layout group shifts again), and a press/release pair that
+    /// disagrees leaves the key stuck in `pressed_virtual_keycodes` forever.
+    /// Same translation `resync_keyboard_state_from_vector` uses, for the same
+    /// reason.
+    ///
+    /// `None` when XKB is unavailable or the keycode is unbound, so callers
+    /// fall back to the looked-up keysym.
+    fn unmodified_keysym(&self, keycode: u32) -> Option<KeySym> {
+        let to_keysym = self.xlib.XkbKeycodeToKeysym?;
+        // X11 keycodes are 8-bit; the c_uint field is protocol padding.
+        let keysym = unsafe { (to_keysym)(self.display, keycode as KeyCode, 0, 0) };
+        if keysym == NoSymbol {
+            None
+        } else {
+            Some(keysym)
+        }
     }
 
     /// Rebuild `pressed_virtual_keycodes` / `pressed_scancodes` from a 32-byte
@@ -1454,16 +1489,20 @@ pub fn keysym_to_virtual_keycode(keysym: KeySym) -> Option<VirtualKeyCode> {
         XK_Insert => Some(VirtualKeyCode::Insert),
         XK_Delete => Some(VirtualKeyCode::Delete),
         XK_space => Some(VirtualKeyCode::Space),
-        XK_0 => Some(VirtualKeyCode::Key0),
-        XK_1 => Some(VirtualKeyCode::Key1),
-        XK_2 => Some(VirtualKeyCode::Key2),
-        XK_3 => Some(VirtualKeyCode::Key3),
-        XK_4 => Some(VirtualKeyCode::Key4),
-        XK_5 => Some(VirtualKeyCode::Key5),
-        XK_6 => Some(VirtualKeyCode::Key6),
-        XK_7 => Some(VirtualKeyCode::Key7),
-        XK_8 => Some(VirtualKeyCode::Key8),
-        XK_9 => Some(VirtualKeyCode::Key9),
+        // The digit row folds its shifted form onto the same code for the same
+        // press/release-symmetry reason as the punctuation block below: the
+        // release of `1` arrives as XK_exclam once Shift is down, and an
+        // unmapped release leaves Key1 stuck in `pressed_virtual_keycodes`.
+        XK_0 | XK_parenright => Some(VirtualKeyCode::Key0),
+        XK_1 | XK_exclam => Some(VirtualKeyCode::Key1),
+        XK_2 | XK_at => Some(VirtualKeyCode::Key2),
+        XK_3 | XK_numbersign => Some(VirtualKeyCode::Key3),
+        XK_4 | XK_dollar => Some(VirtualKeyCode::Key4),
+        XK_5 | XK_percent => Some(VirtualKeyCode::Key5),
+        XK_6 | XK_asciicircum => Some(VirtualKeyCode::Key6),
+        XK_7 | XK_ampersand => Some(VirtualKeyCode::Key7),
+        XK_8 | XK_asterisk => Some(VirtualKeyCode::Key8),
+        XK_9 | XK_parenleft => Some(VirtualKeyCode::Key9),
         XK_a | XK_A => Some(VirtualKeyCode::A),
         XK_b | XK_B => Some(VirtualKeyCode::B),
         XK_c | XK_C => Some(VirtualKeyCode::C),

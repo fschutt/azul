@@ -813,63 +813,93 @@ pub fn validation_enabled() -> bool {
 }
 
 /// The first event-bearing field on which two window states disagree, for the
-/// validation message. Only the fields `event_determination` actually reads —
-/// naming `platform_specific_options` would not help anybody debug a lost
-/// `Resized`.
+/// validation message.
+///
+/// STRICT ALLOW-LIST: it names exactly the fields `determine_all_events` diffs
+/// to derive an event, and nothing else. It used to end in a catch-all —
+/// `if a == b { None } else { Some("(a field event determination does not
+/// read)") }` — which quietly turned it into a DENY-list over
+/// `FullWindowState: PartialEq`, so every field the *shells* own was reported
+/// as a lost event. `ime_position` is the one that fires in practice: all four
+/// backends write it after `process_window_events` has consumed the delta,
+/// because it needs the post-layout caret rect. A debug build (where
+/// [`validation_enabled`] is unconditionally true) therefore panicked on the
+/// next poll as soon as the user typed into a contenteditable.
+///
+/// A field no event is derived from cannot encode a LOST event, which is the
+/// only failure [`check_input_delta_consumed`] exists to catch. The omissions
+/// are deliberate, not oversights: `title`, the rest of `flags` (frame,
+/// decorations, visibility, …), `size.min_dimensions`/`max_dimensions` and
+/// `renderer_options` are pushed to the OS by each backend's
+/// `sync_window_state()`, which diffs against `os_synced_state` — a different
+/// baseline this check never looks at — and `ime_position`, `debug_state`,
+/// `window_id`, `active_route` and the callback handles are pure bookkeeping.
+///
+/// Never add a catch-all back. The destructuring below is exhaustive on
+/// purpose (no `..`): a field added to `FullWindowState` breaks THIS function
+/// at compile time and has to be classified — bound and compared if an event
+/// is derived from it, bound to `_` if not — instead of silently re-arming the
+/// panic for every shell-owned write.
 fn first_differing_state_field(
     a: &FullWindowState,
     b: &FullWindowState,
 ) -> Option<&'static str> {
-    if a.size.dimensions != b.size.dimensions {
+    let FullWindowState {
+        // Event-bearing: `determine_all_events` turns a change in one of these
+        // into a callback, so an unconsumed delta here IS a lost event.
+        size,
+        position,
+        flags,
+        window_focused,
+        theme,
+        monitor_id,
+        mouse_state,
+        keyboard_state,
+        touch_state,
+        // Not event-bearing — see the doc above. Never compared.
+        platform_specific_options: _,
+        window_id: _,
+        title: _,
+        close_callback: _,
+        layout_callback: _,
+        ime_position: _,
+        renderer_options: _,
+        debug_state: _,
+        background_color: _,
+        active_route: _,
+    } = a;
+
+    if size.dimensions != b.size.dimensions {
         return Some("size.dimensions");
     }
-    if a.size.dpi != b.size.dpi {
+    if size.dpi != b.size.dpi {
         return Some("size.dpi");
     }
-    if a.position != b.position {
+    if *position != b.position {
         return Some("position");
     }
-    if a.flags.frame != b.flags.frame {
-        return Some("flags.frame");
-    }
-    if a.flags.is_visible != b.flags.is_visible {
-        return Some("flags.is_visible");
-    }
-    if a.flags.has_focus != b.flags.has_focus {
-        return Some("flags.has_focus");
-    }
-    if a.flags.close_requested != b.flags.close_requested {
+    if flags.close_requested != b.flags.close_requested {
         return Some("flags.close_requested");
     }
-    if a.flags.decorations != b.flags.decorations {
-        return Some("flags.decorations");
-    }
-    if a.window_focused != b.window_focused {
+    if *window_focused != b.window_focused {
         return Some("window_focused");
     }
-    if a.theme != b.theme {
+    if *theme != b.theme {
         return Some("theme");
     }
-    if a.monitor_id != b.monitor_id {
+    if *monitor_id != b.monitor_id {
         return Some("monitor_id");
     }
-    if a.title != b.title {
-        return Some("title");
-    }
-    if a.mouse_state != b.mouse_state {
+    if *mouse_state != b.mouse_state {
         return Some("mouse_state");
     }
-    if a.keyboard_state != b.keyboard_state {
+    if *keyboard_state != b.keyboard_state {
         return Some("keyboard_state");
     }
-    if a.touch_state != b.touch_state {
+    if *touch_state != b.touch_state {
         return Some("touch_state");
     }
-    if a == b {
-        None
-    } else {
-        Some("(a field event determination does not read)")
-    }
+    None
 }
 
 /// Catch an UNCONSUMED INPUT DELTA before it is silently overwritten.
@@ -3015,33 +3045,42 @@ pub trait PlatformWindow {
             CallbackChange::SetVirtualViewGeometry {
                 dom_id,
                 node_id,
-                scroll_size,
-                scroll_offset,
-                virtual_scroll_size,
-                virtual_scroll_offset,
+                materialized,
+                virtual_rect,
             } => {
-                // #28 (a): reconfigure a VirtualView's ENTIRE geometry (USER
-                // design; guide/en/dom/virtual-views.md) WITHOUT re-invoking
-                // its callback — exactly the two stores a normal invoke
-                // writes (VirtualViewManager + ScrollManager), minus the
-                // child relayout. Each field: Some = set, None = keep. The
-                // scroll manager's offset arg is the RENDERED window's
-                // position in virtual space (what an invoke passes there);
-                // `virtual_scroll_offset` is accepted for API symmetry but
-                // has no separate store today (guide: usually zero).
+                // #28 (a): reconfigure a VirtualView's geometry (USER design;
+                // guide/en/dom/virtual-views.md) WITHOUT re-invoking its
+                // callback — exactly the two stores a normal invoke writes
+                // (VirtualViewManager + ScrollManager), minus the child
+                // relayout. Each rect: Some = set, None = keep.
+                //
+                // The streaming case this exists for — a background
+                // exact-pagination pass correcting the document extent — sets
+                // `virtual_rect` only. Content placement reads the
+                // materialized window and the live scroll offset, never the
+                // virtual extent, so the scrollbar re-scales and not one
+                // pixel moves.
                 if let Some(internal_node_id) = node_id.into_crate_internal() {
                     if let Some(lw) = self.get_layout_window_mut() {
                         let (kept_scroll, kept_virtual) = lw
                             .virtual_view_manager
                             .get_declared_sizes(*dom_id, internal_node_id);
-                        let new_virtual: Option<_> = (*virtual_scroll_size).into();
-                        let new_scroll: Option<_> = (*scroll_size).into();
-                        let eff_virtual = new_virtual.or(kept_virtual);
-                        let eff_scroll = new_scroll.or(kept_scroll).or(eff_virtual);
+                        let kept_origin = lw
+                            .virtual_view_manager
+                            .materialized_window_origin(*dom_id, internal_node_id);
+                        let new_mat: Option<azul_core::geom::LogicalRect> = (*materialized).into();
+                        let new_virt: Option<azul_core::geom::LogicalRect> = (*virtual_rect).into();
+                        let eff_virtual = new_virt.map(|r| r.size).or(kept_virtual);
+                        let eff_scroll = new_mat.map(|r| r.size).or(kept_scroll).or(eff_virtual);
+                        let eff_origin = new_mat
+                            .map(|r| r.origin)
+                            .or(kept_origin)
+                            .unwrap_or_else(azul_core::geom::LogicalPosition::zero);
                         if let (Some(s), Some(v)) = (eff_scroll, eff_virtual) {
                             let _ = lw.virtual_view_manager.update_virtual_view_info(
                                 *dom_id,
                                 internal_node_id,
+                                eff_origin,
                                 s,
                                 v,
                             );
@@ -3049,15 +3088,12 @@ pub trait PlatformWindow {
                                 *dom_id,
                                 internal_node_id,
                                 v,
-                                (*scroll_offset).into(),
+                                Some(eff_origin),
                             );
                             lw.scroll_manager.calculate_scrollbar_states();
                         }
-                        let _ = virtual_scroll_offset;
                     }
                 }
-                // Scrollbar geometry changed — repaint only; no display-list
-                // rebuild, no callback re-invocation (the op's whole point).
                 ProcessEventResult::ShouldReRenderCurrentWindow
             }
 
@@ -4407,9 +4443,11 @@ pub trait PlatformWindow {
                         .as_ref()
                         .map(|mc| mc.node_id);
 
-                    // This will reset multi_cursor to a single cursor at click position
-                    let external = ExternalSystemCallbacks::rust_internal();
-                    let current_instant = (external.get_system_time_fn.cb)();
+                    // This will reset multi_cursor to a single cursor at click position.
+                    // `time_ms` is vestigial: multi-click detection moved into
+                    // `gesture_drag_manager.detect_click_count()` and the callee
+                    // no longer reads the parameter at all, so no clock is sampled
+                    // here (the timestamp this arm used to compute was dead).
                     layout_window.process_mouse_click_for_selection(*position, 0);
 
                     // Now add back the old cursors
@@ -7299,10 +7337,17 @@ pub trait PlatformWindow {
             _ => return ProcessEventResult::DoNothing,
         };
 
-        // Get current scroll state
+        // Get current scroll state. `get_scroll_node_info` rather than
+        // `get_scroll_state` because its `max_scroll_x`/`max_scroll_y` are THE
+        // definition of "how far can this thing scroll" — they prefer
+        // `virtual_scroll_size` over `content_rect`, and on a `VirtualView` the
+        // content rect holds the VIEWPORT size (`invoke_virtual_view_callback_impl`
+        // overwrites it), so deriving the extent from `content_rect` here made
+        // `max_scroll` zero and `JumpToPosition` a silent no-op on every
+        // virtualized list. Same accessor `auto_scroll_timer_callback` already uses.
         let scroll_state = match layout_window
             .scroll_manager
-            .get_scroll_state(dom_id, node_id)
+            .get_scroll_node_info(dom_id, node_id)
         {
             Some(s) => s,
             None => return ProcessEventResult::DoNothing,
@@ -7326,13 +7371,11 @@ pub trait PlatformWindow {
             scroll_state.container_rect.size.width
         };
 
-        let content_size = if is_vertical {
-            scroll_state.content_rect.size.height
+        let max_scroll = if is_vertical {
+            scroll_state.max_scroll_y
         } else {
-            scroll_state.content_rect.size.width
+            scroll_state.max_scroll_x
         };
-
-        let max_scroll = (content_size - container_size).max(0.0);
         let target_scroll = click_ratio * max_scroll;
 
         // Calculate delta from current position
@@ -7679,9 +7722,15 @@ pub trait PlatformWindow {
                 _ => return ProcessEventResult::DoNothing,
             };
 
+        // `get_scroll_node_info`, not `get_scroll_state`: its `max_scroll_*`
+        // already prefers `virtual_scroll_size` over `content_rect`. On a
+        // `VirtualView` the content rect is the VIEWPORT
+        // (`invoke_virtual_view_callback_impl` overwrites it), so computing the
+        // extent from it gave max_scroll = 0 — the thumb was grabbable but
+        // dragging it clamped every target to [0, 0] and moved nothing.
         let scroll_state = match layout_window
             .scroll_manager
-            .get_scroll_state(dom_id, node_id)
+            .get_scroll_node_info(dom_id, node_id)
         {
             Some(s) => s,
             None => return ProcessEventResult::DoNothing,
@@ -7695,19 +7744,11 @@ pub trait PlatformWindow {
             scrollbar_state.track_rect.size.width
         };
 
-        let container_size = if is_vertical {
-            scroll_state.container_rect.size.height
+        let max_scroll = if is_vertical {
+            scroll_state.max_scroll_y
         } else {
-            scroll_state.container_rect.size.width
+            scroll_state.max_scroll_x
         };
-
-        let content_size = if is_vertical {
-            scroll_state.content_rect.size.height
-        } else {
-            scroll_state.content_rect.size.width
-        };
-
-        let max_scroll = (content_size - container_size).max(0.0);
 
         // Account for thumb size: usable track size is track_size - thumb_size
         let thumb_size = scrollbar_state.thumb_size_ratio * track_size;

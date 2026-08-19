@@ -881,7 +881,7 @@ fn percent_decode(s: &str) -> String {
     String::from_utf8_lossy(&out).into_owned()
 }
 
-/// Handle an XI2 GenericEvent.
+/// Fetch, route, process and free ONE XI2 GenericEvent.
 ///
 /// IMPORTANT: this window `XISelectEvents`'d for XI_ButtonPress/Release/Motion
 /// (see window creation), which makes the X server deliver pointer events ONLY
@@ -891,39 +891,78 @@ fn percent_decode(s: &str) -> String {
 /// (`handle_mouse_button` / `handle_mouse_move`). It also feeds pen
 /// pressure/tilt and multi-touch (which core events can't express). Keyboard is
 /// NOT XI-selected, so keys still arrive as core KeyPress events.
-fn handle_xi_event(win: &mut X11Window, xev: &mut defines::XEvent) -> ProcessEventResult {
+///
+/// COOKIE OWNERSHIP: `XGetEventData` may be called at most ONCE per cookie —
+/// libX11 deletes the cookie from its jar on a successful fetch, so a second
+/// call returns False and the payload is unreachable. This frame therefore owns
+/// the entire lifetime: it fetches once, hands the already-fetched
+/// `XIDeviceEvent` to `handle_xi_device_event` (which never fetches and never
+/// frees), and frees once on every path that got past the fetch. Routing to a
+/// child window hands over the SAME payload; it must never re-enter here.
+fn handle_xi_event(win: &mut X11Window, xev: &mut defines::XEvent) {
     let cookie = unsafe { &mut xev.xcookie };
     if cookie.extension != win.xi_opcode {
-        return ProcessEventResult::DoNothing;
+        return;
     }
     if win.xi.is_none() {
-        return ProcessEventResult::DoNothing;
+        return;
     }
-    let mut result = ProcessEventResult::DoNothing;
+    // Read the free-side handles off the RECEIVING window before the borrow can
+    // move to a child: every window on this display shares `display`, and a
+    // cookie must be freed on the display it was fetched from.
+    let display = win.display;
+    let free_event_data = win.xlib.XFreeEventData;
+    let own_window = win.window as u64;
     unsafe {
         if (win.xlib.XGetEventData)(win.display, cookie) == 0 {
-            return ProcessEventResult::DoNothing;
+            // Nothing was fetched, so there is nothing to free.
+            return;
         }
         let ev = &*(cookie.data as *const defines::XIDeviceEvent);
         // XI2 events name their target in `ev.event` (the event window) —
         // `xev.any.window` overlays the cookie's `extension` field and is NOT
-        // a window, so `dispatch_shared_display_event` cannot route them and
-        // every XI2 pointer event lands on the display owner. Re-route here,
-        // the first point where the cookie data (and thus the real target)
-        // exists. libX11 caches fetched cookie data until XFreeEventData, so
-        // the child's own XGetEventData reuses the same buffer; returning
-        // early skips this frame's free and the child's tail frees exactly
-        // once.
-        let xi_target = ev.event as u64;
-        if xi_target != win.window as u64 {
-            if let Some(wptr) = super::registry::get_window(xi_target) {
+        // a window, so `dispatch_shared_display_event` cannot route them. This
+        // is the first point at which the real target exists. A child
+        // menu/dialog is its own registered X window with its own `X11Window`,
+        // so `win` and `child` are always distinct objects.
+        let mut routed: Option<&mut X11Window> = None;
+        if ev.event as u64 != own_window {
+            if let Some(wptr) = super::registry::get_window(ev.event as u64) {
                 if let super::LinuxWindow::X11(child) = &mut *wptr {
-                    return handle_xi_event(child, xev);
+                    routed = Some(child);
                 }
             }
             // Unknown / just-closed target: fall through, handle on self so
             // the event isn't lost (matches dispatch_shared_display_event).
         }
+        let target: &mut X11Window = match routed {
+            Some(child) => child,
+            None => win,
+        };
+
+        let result = handle_xi_device_event(target, ev);
+        // THE single free — `ev`, and everything borrowed from it, dangles from
+        // here on, so nothing below may touch the payload.
+        (free_event_data)(display, cookie);
+        // The pass ran on `target`, so the redraw / incremental relayout / IME
+        // resync it asked for belong to `target`. Returning the result to the
+        // display owner instead would repaint the wrong window.
+        target.apply_event_result(result);
+        target.sync_ime_state();
+    }
+}
+
+/// Process ONE already-fetched XI2 device event on `win`.
+///
+/// Never fetches and never frees: `handle_xi_event` owns the cookie for the
+/// whole of this call (`ev` is borrowed from the cookie payload) and is also
+/// the only place that decides which window an XI2 event belongs to.
+fn handle_xi_device_event(
+    win: &mut X11Window,
+    ev: &defines::XIDeviceEvent,
+) -> ProcessEventResult {
+    let mut result = ProcessEventResult::DoNothing;
+    unsafe {
         let evtype = ev.evtype;
         // XI2 event coords are physical; touch/pen state wants logical.
         let pos = win.to_logical_pos(ev.event_x as f32, ev.event_y as f32);
@@ -1115,7 +1154,6 @@ fn handle_xi_event(win: &mut X11Window, xev: &mut defines::XEvent) -> ProcessEve
                 _ => {}
             }
         }
-        (win.xlib.XFreeEventData)(win.display, cookie);
     }
     result
 }
@@ -1428,7 +1466,22 @@ impl X11Window {
     /// menu-local coordinates hit-tested against the parent DOM. Unknown
     /// targets (just-closed windows, the tooltip helper window) are handled
     /// on self so nothing is lost.
+    ///
+    /// GenericEvent (XI2) is the one event this function CANNOT route: it has
+    /// no window field at all — `XAnyEvent.window` overlays
+    /// `XGenericEventCookie.extension` there, which is an extension opcode, not
+    /// an XID. Its target only becomes readable after `XGetEventData`, so the
+    /// whole cookie lifetime (fetch → route → process → free) is owned by
+    /// `handle_xi_event`, which also applies the result to the window it routed
+    /// to. Pretending to route it here is what made every XI2 pointer event
+    /// land on the display owner.
     fn dispatch_shared_display_event(&mut self, event: &mut XEvent) {
+        if unsafe { event.type_ } == defines::GenericEvent {
+            // Same raw-event trace handle_event emits for every other type.
+            crate::plog_trace!("[x11 ev] raw GenericEvent (#{})", defines::GenericEvent);
+            handle_xi_event(self, event);
+            return;
+        }
         let target = unsafe { event.any.window } as u64;
         // self.window is an XID (c_ulong) = u32 on 32-bit targets, so
         // widen it to match `target: u64` (no-op on 64-bit).
@@ -3083,7 +3136,16 @@ impl X11Window {
                 self.pending_motion = Some(unsafe { event.motion });
                 ProcessEventResult::DoNothing
             }
-            defines::GenericEvent => handle_xi_event(self, event),
+            defines::GenericEvent => {
+                // Normally intercepted by dispatch_shared_display_event (a
+                // cookie carries no window, so it can only be routed from its
+                // payload). Kept as a backstop so no future caller of
+                // handle_event can silently drop an XI2 event; the XI2 frame
+                // routes AND applies its own result, hence DoNothing here —
+                // applying it again on `self` would service the wrong window.
+                handle_xi_event(self, event);
+                ProcessEventResult::DoNothing
+            }
             defines::KeyPress | defines::KeyRelease => {
                 self.handle_keyboard(unsafe { &mut event.key })
             }

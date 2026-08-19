@@ -493,6 +493,25 @@ pub const XK_bar: u32 = 0x007C;
 pub const XK_slash: u32 = 0x002F;
 pub const XK_question: u32 = 0x003F;
 
+// Shifted forms of the digit row (US layout). The digit keys were the one group
+// whose shifted keysym had no entry, so `1` pressed, Shift pressed, `1`
+// released reported XK_exclam on the release and the key never left
+// `pressed_virtual_keycodes`.
+pub const XK_exclam: u32 = 0x0021;
+pub const XK_at: u32 = 0x0040;
+pub const XK_numbersign: u32 = 0x0023;
+pub const XK_dollar: u32 = 0x0024;
+pub const XK_percent: u32 = 0x0025;
+pub const XK_asciicircum: u32 = 0x005E;
+pub const XK_ampersand: u32 = 0x0026;
+pub const XK_asterisk: u32 = 0x002A;
+pub const XK_parenleft: u32 = 0x0028;
+pub const XK_parenright: u32 = 0x0029;
+
+/// "This keycode produces no symbol" — `XkbKeycodeToKeysym` returns it for an
+/// unbound keycode/group/level.
+pub const NoSymbol: KeySym = 0;
+
 // Keypad.
 pub const XK_KP_Space: u32 = 0xFF80;
 pub const XK_KP_Tab: u32 = 0xFF89;

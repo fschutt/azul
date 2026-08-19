@@ -112,7 +112,9 @@ if you build from a checkout.
 
 ;; Layout callback: f(data, info) -> AzDom. Runs on startup and each RefreshDom.
 (define (layout data-ptr info-ptr)
-  (define label (dom-create-text (az-str (number->string (unbox model)))))
+  (define label
+    (dom-create-text-do-not-use-without-block-level-wrapper
+     (az-str (number->string (unbox model)))))
   (define wrap (dom-create-div))
   (dom-add-css-property
    wrap

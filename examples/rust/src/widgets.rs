@@ -71,7 +71,7 @@ extern "C" fn layout(mut data: RefAny, _: LayoutCallbackInfo) -> Dom {
         .with_on_choice_change(data.clone(), on_dropdown_change)
         .dom()
         .with_css(margin);
-    let selected_label = Dom::create_text_do_not_use_without_block_level_wrapper(
+    let selected_label = Dom::create_div_with_text(
         format!("Selected: {}", CHOICES[showcase.selected_choice.min(CHOICES.len() - 1)]).as_str(),
     )
     .with_css("margin-bottom: 10px; color: #2a6;");

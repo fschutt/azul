@@ -2088,7 +2088,21 @@ extern "C" fn keyboard_repeat_info_handler(
     window.key_repeat_delay_ms = delay.max(0) as u32;
 }
 
-/// Keycode translation from XKB keysym to Azul VirtualKeyCode
+/// Keycode translation from XKB keysym to Azul `VirtualKeyCode` — the ONLY
+/// keysym→keycode entry point on this backend.
+///
+/// Keysyms are an X11/xkb concept that Wayland hands us verbatim, so there is one
+/// table for both backends: `x11::events::keysym_to_virtual_keycode`. It is the
+/// maintained one (punctuation, the full keypad, AltGr/`XK_ISO_Level3_Shift`,
+/// Num/Caps Lock, Menu, Print, and the shifted digit forms folded onto their
+/// unshifted codes so a press and its release resolve to the same code).
+///
+/// The result is deliberately an `Option`: a keysym this table does not know has
+/// NO virtual key. Callers must propagate that `None` — the hand-rolled Wayland
+/// table this replaced ended in `_ => VirtualKeyCode::Escape`, so every unknown
+/// key pressed and released Escape, dismissing menus and firing Escape default
+/// actions. Text still reaches the app for those keys: characters come from
+/// `xkb_state_key_get_utf8`, which never consults this table.
 pub(super) fn keysym_to_virtual_keycode(keysym: xkb_keysym_t) -> Option<VirtualKeyCode> {
     // Re-use the X11 keysym mapping as they are identical
     use super::super::x11::events::keysym_to_virtual_keycode as x11_map;

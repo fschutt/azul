@@ -117,7 +117,9 @@ fn column(items: Vec<RibbonItem>) -> RibbonItem {
 }
 
 fn cell(preview_css: &str, sample: &str, name: &str) -> RibbonGalleryCell {
-    RibbonGalleryCell::new(Dom::create_text_do_not_use_without_block_level_wrapper(sample).with_css(preview_css), s(name))
+    // The preview sits next to the cell's <p> label, so it needs a box of its
+    // own — a DIV, which (unlike <p>) adds no UA margins to the sample.
+    RibbonGalleryCell::new(Dom::create_div_with_text(sample).with_css(preview_css), s(name))
 }
 
 // ---------------------------------------------------------------------------

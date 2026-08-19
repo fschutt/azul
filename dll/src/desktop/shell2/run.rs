@@ -1167,7 +1167,15 @@ pub fn run(
     // 2. V2 state diff + callback dispatch (compares previous vs current)
     // 3. Render all windows that need updates
     // 4. Block until next event (zero CPU when idle)
-    loop {
+    //
+    // LABELLED because the WM_QUIT arms below are nested two loops deep and
+    // must reach the cleanup after this loop — they used to `return Ok(())`,
+    // which skipped `unregister_window` / `Box::from_raw` /
+    // `drain_closed_windows()` for every window still open and leaked the whole
+    // Win32Window (renderer included). Harmless while unreachable — an
+    // hwnd-filtered PeekMessage can never retrieve a thread-level WM_QUIT — but
+    // the NULL-hwnd thread-queue drain made the second arm live.
+    'event_loop: loop {
         // Check if all windows are closed
         if registry::is_empty() {
             break;
@@ -1216,8 +1224,8 @@ pub fn run(
 
                     // Check for WM_QUIT
                     if msg.message == 0x0012 {
-                        // WM_QUIT - exit event loop
-                        return Ok(());
+                        // WM_QUIT - exit event loop via the shared cleanup below
+                        break 'event_loop;
                     }
 
                     (translate_message)(&msg);
@@ -1269,8 +1277,8 @@ pub fn run(
 
                     // Check for WM_QUIT
                     if msg.message == 0x0012 {
-                        // WM_QUIT - exit event loop
-                        return Ok(());
+                        // WM_QUIT - exit event loop via the shared cleanup below
+                        break 'event_loop;
                     }
 
                     (translate_message)(&msg);
@@ -1425,12 +1433,22 @@ pub fn run(
         }
     }
 
-    // Clean up: Unregister and drop all windows
+    // Clean up: Unregister and drop all windows.
+    //
+    // Two ways in. `registry::is_empty()` — every window already went through
+    // WM_CLOSE/WM_DESTROY, so this loop finds nothing to do. Or `break
+    // 'event_loop` on WM_QUIT — windows are still OPEN and got neither, so this
+    // is the only place their renderer is released. `Renderer::deinit()` is not
+    // a `Drop` (see `CommonWindowState::deinit_renderer`): dropping the boxed
+    // window instead deletes textures outside a frame, which aborts a debug
+    // build in `SharedDepthTarget::drop`. It takes the renderer, so a window
+    // that DID go through the close path is unaffected.
     let window_handles = registry::get_all_window_handles();
     for hwnd in window_handles {
         if let Some(win_ptr) = registry::unregister_window(hwnd) {
             // SAFETY: We created this pointer with Box::into_raw
             unsafe {
+                (*win_ptr).common.deinit_renderer();
                 drop(Box::from_raw(win_ptr));
             }
         }

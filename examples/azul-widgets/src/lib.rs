@@ -60,7 +60,10 @@ fn labelled(label: &str, widget: Dom) -> Dom {
     Dom::create_div()
         .with_css("display: flex; flex-direction: column; margin-bottom: 16px;")
         .with_child(
-            Dom::create_text_do_not_use_without_block_level_wrapper(label)
+            // The caption is one of two flex items, so the styling has to land
+            // on a real box: a bare text node has none, and the margin, weight
+            // and colour would all be inert.
+            Dom::create_div_with_text(label)
                 .with_css("font-size: 12px; font-weight: bold; color: #667085; margin-bottom: 6px;"),
         )
         .with_child(widget)
@@ -74,7 +77,7 @@ fn section(title: &str, items: Vec<Dom>) -> Dom {
              border-radius: 10px; padding: 18px; margin-bottom: 20px;",
         )
         .with_child(
-            Dom::create_text_do_not_use_without_block_level_wrapper(title).with_css(
+            Dom::create_div_with_text(title).with_css(
                 "font-size: 18px; font-weight: bold; color: #1d2939; margin-bottom: 14px;",
             ),
         );
@@ -237,7 +240,7 @@ extern "C" fn layout(mut data: RefAny, _: LayoutCallbackInfo) -> Dom {
             labelled("Avatar", Avatar::create("FS").with_size(AvatarSize::Large).dom()),
             labelled(
                 "Card",
-                Card::create(Dom::create_text_do_not_use_without_block_level_wrapper("Card body content"))
+                Card::create(Dom::create_div_with_text("Card body content"))
                     .with_flex_grow(0.0)
                     .dom(),
             ),
@@ -287,7 +290,7 @@ extern "C" fn layout(mut data: RefAny, _: LayoutCallbackInfo) -> Dom {
             ),
             labelled(
                 "Modal (starts closed)",
-                Modal::create(Dom::create_text_do_not_use_without_block_level_wrapper("Modal body goes here."))
+                Modal::create(Dom::create_div_with_text("Modal body goes here."))
                     .with_title("Example dialog")
                     .with_open(false)
                     .with_close_button(true)
@@ -337,12 +340,12 @@ extern "C" fn layout(mut data: RefAny, _: LayoutCallbackInfo) -> Dom {
                 Accordion::new(vec![
                     AccordionSection {
                         title: "What is Azul?".into(),
-                        content: Dom::create_text_do_not_use_without_block_level_wrapper("A cross-platform Rust GUI framework."),
+                        content: Dom::create_div_with_text("A cross-platform Rust GUI framework."),
                         is_open: true,
                     },
                     AccordionSection {
                         title: "How do widgets work?".into(),
-                        content: Dom::create_text_do_not_use_without_block_level_wrapper("Each widget builds a styled Dom."),
+                        content: Dom::create_div_with_text("Each widget builds a styled Dom."),
                         is_open: false,
                     },
                 ])
@@ -364,7 +367,7 @@ extern "C" fn layout(mut data: RefAny, _: LayoutCallbackInfo) -> Dom {
                 "Popover (starts closed)",
                 Popover::new(
                     Button::create("Open popover").dom(),
-                    Dom::create_text_do_not_use_without_block_level_wrapper("Popover content"),
+                    Dom::create_div_with_text("Popover content"),
                 )
                 .with_open(false)
                 .with_on_toggle(
@@ -377,8 +380,8 @@ extern "C" fn layout(mut data: RefAny, _: LayoutCallbackInfo) -> Dom {
                 "SplitPane",
                 SplitPane::create(
                     SplitDirection::Horizontal,
-                    Dom::create_text_do_not_use_without_block_level_wrapper("Left pane"),
-                    Dom::create_text_do_not_use_without_block_level_wrapper("Right pane"),
+                    Dom::create_div_with_text("Left pane"),
+                    Dom::create_div_with_text("Right pane"),
                 )
                 .with_ratio(0.5)
                 .with_on_resize(
@@ -418,9 +421,9 @@ extern "C" fn layout(mut data: RefAny, _: LayoutCallbackInfo) -> Dom {
     );
 
     // ── Header ──────────────────────────────────────────────────────────
-    let heading = Dom::create_text_do_not_use_without_block_level_wrapper("Azul Widget Showcase")
+    let heading = Dom::create_div_with_text("Azul Widget Showcase")
         .with_css("font-size: 26px; font-weight: bold; color: #101828; margin-bottom: 4px;");
-    let subtitle = Dom::create_text_do_not_use_without_block_level_wrapper(
+    let subtitle = Dom::create_div_with_text(
         format!("Every built-in widget (callbacks fired so far: {})", s.interactions).as_str(),
     )
     .with_css("font-size: 13px; color: #667085; margin-bottom: 20px;");

@@ -16,6 +16,7 @@ use azul_core::dom::Dom;
 use azul_css::dynamic_selector::{CssPropertyWithConditions, CssPropertyWithConditionsVec};
 use azul_css::props::basic::color::ColorU;
 use azul_css::props::basic::font::{StyleFontFamily, StyleFontFamilyVec, StyleFontSize};
+use azul_css::props::layout::{LayoutMarginBottom, LayoutMarginTop};
 use azul_css::props::property::CssProperty;
 use azul_css::props::style::text::StyleTextColor;
 
@@ -54,16 +55,17 @@ pub const TEXT_FAINT: ColorU = ColorU { r: 148, g: 148, b: 148, a: 255 };
 pub const TITLE_GRAY: ColorU = ColorU { r: 86, g: 86, b: 86, a: 255 };
 pub const WHITE: ColorU = ColorU { r: 255, g: 255, b: 255, a: 255 };
 
-/// A text node with programmatic font-size + color (+ the pinned family).
+/// A `<p>` label with programmatic font-size + color (+ the pinned family).
 ///
-/// WORKAROUND(engine, see ENGINE-ISSUES.md #4): inline `with_css` strings
-/// on TEXT nodes drop declarations unpredictably once the string carries
-/// more than font-size/color (margins, flex-grow — even the color itself
-/// goes missing). Styling text through `CssPropertyWithConditions` — the
-/// same path the widgets use — is reliable, so every app-side label goes
-/// through this helper; wrapping DIVs own margins and layout.
+/// The label is a real block box, not a bare text node: azul does not wrap a
+/// raw text run in an anonymous block the way browsers do, so a text node has
+/// no box and every property put on it is inert. (That is the whole of the
+/// old "inline `with_css` on TEXT nodes drops declarations unpredictably"
+/// note — the declarations were never dropped, they had nowhere to apply.)
+/// Every app-side label goes through this helper; wrapping DIVs still own
+/// margins and layout.
 pub fn text(contents: &str, size_px: isize, color: ColorU) -> Dom {
-    Dom::create_text_do_not_use_without_block_level_wrapper(contents).with_css_props(CssPropertyWithConditionsVec::from_vec(vec![
+    Dom::create_p_with_text(contents).with_css_props(CssPropertyWithConditionsVec::from_vec(vec![
         CssPropertyWithConditions::simple(CssProperty::const_font_size(StyleFontSize::const_px(
             size_px,
         ))),
@@ -71,5 +73,14 @@ pub fn text(contents: &str, size_px: isize, color: ColorU) -> Dom {
             inner: color,
         })),
         ui_font_cond(),
+        // `<p>` carries the UA 1em block margins; the bare text node this
+        // helper used to return carried none, and every margin in this app
+        // belongs to the wrapping DIVs.
+        CssPropertyWithConditions::simple(CssProperty::const_margin_top(LayoutMarginTop::const_px(
+            0,
+        ))),
+        CssPropertyWithConditions::simple(CssProperty::const_margin_bottom(
+            LayoutMarginBottom::const_px(0),
+        )),
     ]))
 }

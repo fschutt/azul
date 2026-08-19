@@ -128,7 +128,8 @@ extern "C" fn layout(mut data: RefAny, _info: LayoutCallbackInfo) -> Dom {
         Some(p) => Dom::create_div()
             .with_css(PANEL)
             .with_child(
-                Dom::create_text_do_not_use_without_block_level_wrapper(format!("Controller #{}", p.id.id).as_str()).with_css(SUBTITLE),
+                Dom::create_div_with_text(format!("Controller #{}", p.id.id).as_str())
+                    .with_css(SUBTITLE),
             )
             .with_child(button_row(&p, &FACE))
             .with_child(button_row(&p, &SHOULDER))
@@ -151,7 +152,7 @@ extern "C" fn layout(mut data: RefAny, _info: LayoutCallbackInfo) -> Dom {
     Dom::create_body().with_child(
         Dom::create_div()
             .with_css(ROOT)
-            .with_child(Dom::create_text_do_not_use_without_block_level_wrapper("🎮 Gamepad").with_css(TITLE))
+            .with_child(Dom::create_div_with_text("🎮 Gamepad").with_css(TITLE))
             .with_child(body),
     )
 }

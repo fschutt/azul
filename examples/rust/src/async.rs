@@ -91,7 +91,7 @@ impl ConnectionStatus {
     pub fn dom(&self, data_clone: RefAny) -> Dom {
         match self {
             NotConnected { database } => Dom::create_div()
-                .with_child(Dom::create_text_do_not_use_without_block_level_wrapper("Enter database to connect to:"))
+                .with_child(Dom::create_div_with_text("Enter database to connect to:"))
                 .with_child(
                     TextInput::create()
                         .with_text(database.clone())
@@ -112,14 +112,14 @@ impl ConnectionStatus {
                 use self::ConnectionStage::*;
 
                 let progress_div = match stage {
-                    EstablishingConnection => Dom::create_text_do_not_use_without_block_level_wrapper("Establishing connection..."),
+                    EstablishingConnection => Dom::create_div_with_text("Establishing connection..."),
                     ConnectionEstablished => {
-                        Dom::create_text_do_not_use_without_block_level_wrapper("Connection established! Waiting for data...")
+                        Dom::create_div_with_text("Connection established! Waiting for data...")
                     }
                     LoadingData { percent_done } => Dom::create_div()
-                        .with_child(Dom::create_text_do_not_use_without_block_level_wrapper("Loading data..."))
+                        .with_child(Dom::create_div_with_text("Loading data..."))
                         .with_child(ProgressBar::create(*percent_done).dom()),
-                    LoadingFinished => Dom::create_text_do_not_use_without_block_level_wrapper("Loading finished!"),
+                    LoadingFinished => Dom::create_div_with_text("Loading finished!"),
                 };
 
                 let mut data_rendered_div = Dom::create_div();
@@ -151,7 +151,7 @@ impl ConnectionStatus {
                     .with_child(reset_btn)
             }
             Error { error } => {
-                let error_div = Dom::create_text_do_not_use_without_block_level_wrapper(format!("{}", error).as_str());
+                let error_div = Dom::create_div_with_text(format!("{}", error).as_str());
 
                 let reset_btn = Button::create("Reset")
                     .with_on_click(data_clone.clone(), reset)

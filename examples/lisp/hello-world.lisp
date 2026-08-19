@@ -39,7 +39,8 @@
   (declare (ignore info-ptr))
   (let ((m (azul:refany-get data-ptr)))
     (let* ((counter-text (princ-to-string (if (consp m) (model-counter m) 5)))
-           (counter-dom  (azul:make-dom-create-text (azul:az-string-ptr (az-str counter-text))))
+           (counter-dom  (azul:make-dom-create-text-do-not-use-without-block-level-wrapper
+                          (azul:az-string-ptr (az-str counter-text))))
            (label-div    (azul:make-dom-create-div))
            (label-div    (azul:dom-with-css label-div
                                             (azul:az-string-ptr (az-str "font-size: 32px;"))))
