@@ -792,10 +792,11 @@ Before writing a single api.json entry:
 
 | Class family | `determine_module` verdict | Action |
 |---|---|---|
-| `RequestId` | `misc` + warning — matches no module name and no keyword, **and `module_from_external_path` has no `azul_core::task::` arm**, so there is no pin either | **EDIT REQUIRED**: add an `azul_core::task::` → `task` arm to `module_from_external_path` (`module_map.rs:654-709`), or add keyword `"requestid"` to `task`'s list (`:359-372`). Prefer the arm. |
+| `RequestId` | `misc` + warning — verified: no keyword owns `request`, `task`, `thread` or `callback`, **and `module_from_external_path` has no `azul_core::task::` arm**, so there is no pin either. `misc` has **zero** classes in api.json today, so this would re-create a module the tree deliberately emptied. | **EDIT REQUIRED**: add an `azul_core::task::` → `task` arm to `module_from_external_path` (`module_map.rs:654-709`), or add keyword `"requestid"` to `task`'s list (`:359-372`). Prefer the arm. |
 | `ResumeCallback` | `dom` — dom's generic keyword `callback` (len 8) matches; the module name `callbacks` (plural) does not substring-match | Pinned by `external: azul_core::callbacks::ResumeCallback` + module `callbacks` (arm `:662`). *(Empirically: 44 `*Callback` classes sit in `dom`; only the 4 with dedicated keywords sit in `callbacks`.)* |
 | `ResumeCallbackType` | `callbacks` — keyword `callbacktype` (len 12) wins | OK as-is; pin also applies |
-| `*Result` structs, generally | error's keyword `result` (len 6) usually wins → `error` | Pin every one via its `external` prefix (table in §3.2) |
+| `*Result` structs, **ending** in Result | error's keyword `result` (len 6) usually wins → `error` | These are domain structs; pin each via its `external` prefix (table in §3.2) |
+| `Result*` structs, **starting** with Result | `error`, unconditionally (`:520`, `:600` — `starts_with("result")`) | **Intended — do not fight it.** Verified: all 22 existing `Result*` classes (`ResultXmlXmlError`, `ResultRawImageDecodeImageError`, …) already live in `error`. New `Result<T,E>` pairs join them. |
 | `FileOpenResult`, `FileOpenMultiResult`, `ColorPickResult`, `SaveTargetResult`, `SaveTarget`, `SaveTargetKind` | `error` / `css` / `misc` | Pinned by `azul_layout::desktop::dialogs::` → `dialog` (`:700`) |
 | `FileReadBytesResult`, `FileReadStringResult`, `FileDirListResult`, `FilePathVecSlice` | `error` / `str` | Pinned by `azul_layout::file::` → `file` (`:696`) |
 | `HttpGetResult`, `HttpBytesResult`, `HttpReachableResult` | `error` (`result` 6 > `http` 4) | **EDIT REQUIRED**: add an `azul_layout::http::` → `http` arm |
