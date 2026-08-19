@@ -416,6 +416,7 @@ fn generate_index_html(
     let index_html_template = include_str!("../../templates/index.template.html")
         .replace("$$ROOT_RELATIVE$$", "https://azul.rs")
         .replace("<!-- HEAD -->", &get_landing_head_tags(inline_css))
+        .replace("<!-- NAV -->", &azlin_nav("overview"))
         .replace(
             "<!-- PRISM_SCRIPT -->",
             &format!("{}\n{}", get_prism_script(), get_search_init(PageKind::Other)),
@@ -1179,6 +1180,7 @@ pub const AZLIN_TAB_SHOULDERS: &str =
      <span class=\"fl-tab-edge fl-tab-edge-l\" aria-hidden=\"true\"></span>\
      <span class=\"fl-tab-edge fl-tab-edge-r\" aria-hidden=\"true\"></span>";
 
+/// The docs strip: everything under /ui.
 pub fn azlin_nav(active: &str) -> String {
     // `code` points off-site, so it sits last: the strip reads left to
     // right as a path through the site and the one exit belongs at the end.
@@ -1192,10 +1194,31 @@ pub fn azlin_nav(active: &str) -> String {
         ("donate", "https://azul.rs/ui/donate"),
         ("code", "https://github.com/fschutt/azul"),
     ];
-    let nav_links = LINKS
+    render_nav(&LINKS, active)
+}
+
+/// The product strip: the marketing pages at the domain root.
+///
+/// There is no separate home page - the workspace IS the front page, so its
+/// tab points at `/`. The three root templates used to carry a hand-written
+/// copy of this each, which is how `/os` ended up still saying "/OS" after
+/// the labels were rewritten. One list, one renderer, no drift.
+pub fn azlin_root_nav(active: &str) -> String {
+    const LINKS: [(&str, &str); 3] = [
+        ("workspace", "/"),
+        ("ui toolkit", "/ui/"),
+        ("operating system", "/os"),
+    ];
+    render_nav(&LINKS, active)
+}
+
+/// Renders a nav strip and its drop panel from ONE ordered list, so a label
+/// or an order can never differ between the two.
+fn render_nav(links: &[(&str, &str)], active: &str) -> String {
+    let nav_links = links
         .iter()
         .map(|(name, href)| {
-            // The selected tab carries two shoulder elements: the cove
+            // The selected tab carries the shoulder elements: the cove
             // fillets that flare it out to meet the strip's rule. They are
             // decorative geometry, hence aria-hidden.
             if *name == active {
@@ -1209,14 +1232,14 @@ pub fn azlin_nav(active: &str) -> String {
         })
         .collect::<Vec<_>>()
         .join("\n          ");
-    // The drop panel is the full navigation, so it leads with the site root -
-    // the socket took the brand link's place in the strip.
-    let mut panel = vec!["<a href=\"/\">home</a>".to_string()];
-    panel.extend(LINKS.iter().map(|(name, href)| {
-        let class = if *name == active { " class=\"active\"" } else { "" };
-        format!("<a href=\"{href}\"{class}>{name}</a>")
-    }));
-    let mobile_links = panel.join("\n    ");
+    let panel = links
+        .iter()
+        .map(|(name, href)| {
+            let class = if *name == active { " class=\"active\"" } else { "" };
+            format!("<a href=\"{href}\"{class}>{name}</a>")
+        })
+        .collect::<Vec<_>>()
+        .join("\n    ");
     let theme_toggle = azlin_theme_toggle();
     let orb = azlin_orb();
     format!(
@@ -1233,8 +1256,8 @@ pub fn azlin_nav(active: &str) -> String {
     </div>
   </nav>
   <div class="nav-overlay" aria-hidden="true" onclick="document.body.classList.remove('nav-open')"></div>
-  <aside class="mobile-menu" aria-label="Site navigation">
-    {mobile_links}
+  <aside class="mobile-menu" id="site-nav-panel" aria-label="Site navigation">
+    {panel}
   </aside>"##
     )
 }

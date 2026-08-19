@@ -22,54 +22,7 @@
 </head>
 <body>
     <a href="#main-content" class="skip-to-content">Skip to main content</a>
-    <nav class="navbar" role="navigation" aria-label="Main navigation">
-      <div class="container">
-        <div class="nav-links" role="menu">
-          <a href="/ws" class="active" role="menuitem"><span class="fl-tab-shoulder fl-tab-shoulder-l" aria-hidden="true"></span><span class="fl-tab-shoulder fl-tab-shoulder-r" aria-hidden="true"></span><span class="fl-tab-seam" aria-hidden="true"></span><span class="fl-tab-foot" aria-hidden="true"></span><span class="fl-tab-edge fl-tab-edge-l" aria-hidden="true"></span><span class="fl-tab-edge fl-tab-edge-r" aria-hidden="true"></span>/WS</a>
-          <a href="/ui/" role="menuitem">ui toolkit</a>
-          <a href="/os" role="menuitem">operating system</a>
-        </div>
-        <div class="nav-right">
-          <button class="fl-lamp" type="button" aria-label="Switch between light and dark" title="Light / dark"
-          onclick="(function(b){var r=document.documentElement;var c=r.getAttribute('data-theme');var sysDark=window.matchMedia('(prefers-color-scheme: dark)').matches;var next=(c==='dark'||(!c&&sysDark))?'light':'dark';if((next==='dark')===sysDark){r.removeAttribute('data-theme');try{localStorage.removeItem('flora-theme');}catch(e){}}else{r.setAttribute('data-theme',next);try{localStorage.setItem('flora-theme',next);}catch(e){}}})(this)">
-          <svg class="fl-lamp-moon" viewBox="0 0 24 24" aria-hidden="true"><path d="M20 14.5A8.2 8.2 0 0 1 9.5 4 8.5 8.5 0 1 0 20 14.5z"/></svg>
-          <svg class="fl-lamp-sun" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="4.2"/><path d="M12 2.4v2.2M12 19.4v2.2M2.4 12h2.2M19.4 12h2.2M5.2 5.2l1.6 1.6M17.2 17.2l1.6 1.6M18.8 5.2l-1.6 1.6M6.8 17.2l-1.6 1.6"/></svg>
-        </button>
-          <a href="/" class="fl-orb fl-orb-home" aria-label="Go to the homepage">
-          <span class="fl-orb-well" aria-hidden="true">
-            <span class="fl-orb-well-shadow"></span>
-            <span class="fl-orb-well-bounce"></span>
-          </span>
-          <span class="fl-orb-collar" aria-hidden="true"></span>
-          <span class="fl-orb-stone">
-            <img src="/logo.svg" alt="Azul" class="nav-brand-logo">
-            <span class="fl-orb-gloss" aria-hidden="true"></span>
-            <span class="fl-orb-edge" aria-hidden="true"></span>
-          </span>
-        </a>
-        <button class="fl-orb fl-orb-menu" type="button" aria-label="Open site navigation" aria-expanded="false" aria-controls="site-nav-panel"
-          onclick="var o=document.body.classList.toggle('nav-open');this.setAttribute('aria-expanded',o);">
-          <span class="fl-orb-well" aria-hidden="true">
-            <span class="fl-orb-well-shadow"></span>
-            <span class="fl-orb-well-bounce"></span>
-          </span>
-          <span class="fl-orb-collar" aria-hidden="true"></span>
-          <span class="fl-orb-stone">
-            <img src="/logo.svg" alt="Azul" class="nav-brand-logo">
-            <span class="fl-orb-gloss" aria-hidden="true"></span>
-            <span class="fl-orb-edge" aria-hidden="true"></span>
-          </span>
-        </button>
-        </div>
-      </div>
-    </nav>
-    <div class="nav-overlay" aria-hidden="true" onclick="document.body.classList.remove('nav-open')"></div>
-    <aside class="mobile-menu" id="site-nav-panel" aria-label="Site navigation">
-    <a href="/">home</a>
-    <a href="/ws" class="active">workspace</a>
-    <a href="/ui/">ui toolkit</a>
-    <a href="/os">operating system</a>
-    </aside>
+    <!-- NAV -->
 
     <main id="main-content" role="main">
     <section class="hero" aria-labelledby="hero-heading">
@@ -82,6 +35,9 @@
                     <a href="/ui/" class="btn btn-secondary btn-hero-secondary">Explore the UI toolkit →</a>
                 </div>
             </div>
+            <div class="hero-image-wrapper">
+                <img src="/widgets-demo.png" alt="A native Azlin window showing the built-in widget set" class="hero-app-shot" loading="lazy">
+            </div>
         </div>
     </section>
 
@@ -89,27 +45,33 @@
         <div class="container">
             <h2 id="apps-heading">Apps in the suite</h2>
             <div class="features-grid grid-2x2" role="list">
-        <article class="feature-card" role="region" aria-label="Office" tabindex="0">
+        <article class="feature-card has-gradient" role="region" aria-label="Office" tabindex="0">
+            <div class="feature-media"></div>
             <h3 role="heading" aria-level="3">Office <span class="pill pill-soon">Coming soon</span></h3>
             <p>Documents, spreadsheets and presentations in open formats.</p>
         </article>
         <article class="feature-card" role="region" aria-label="Video" tabindex="0">
+            <div class="feature-media"></div>
             <h3 role="heading" aria-level="3">Video <span class="pill pill-soon">Coming soon</span></h3>
             <p>Native calls and meetings without a browser tab.</p>
         </article>
         <article class="feature-card" role="region" aria-label="Calendar" tabindex="0">
+            <div class="feature-media"></div>
             <h3 role="heading" aria-level="3">Calendar <span class="pill pill-soon">Coming soon</span></h3>
             <p>Fast, local-first scheduling, synced on your terms.</p>
         </article>
-        <article class="feature-card" role="region" aria-label="Drive" tabindex="0">
+        <article class="feature-card has-gradient" role="region" aria-label="Drive" tabindex="0">
+            <div class="feature-media"></div>
             <h3 role="heading" aria-level="3">Drive <span class="pill pill-soon">Coming soon</span></h3>
             <p>A storage and file-sync alternative on hardware you control.</p>
         </article>
-        <article class="feature-card" role="region" aria-label="Mail" tabindex="0">
+        <article class="feature-card has-gradient" role="region" aria-label="Mail" tabindex="0">
+            <div class="feature-media"></div>
             <h3 role="heading" aria-level="3">Mail <span class="pill pill-soon">Coming soon</span></h3>
             <p>A fast native mail client that respects your inbox.</p>
         </article>
         <article class="feature-card" role="region" aria-label="And more" tabindex="0">
+            <div class="feature-media"></div>
             <h3 role="heading" aria-level="3">…and more</h3>
             <p>Notes, contacts and the everyday tools a suite needs.</p>
         </article>
@@ -120,7 +82,7 @@
 
     <footer role="contentinfo">
         <div class="container">
-            <p>© 2026 Azlin · Built on the open-source <a href="/ui/">Azlin UI Toolkit</a> · <a href="https://github.com/fschutt/azul" target="_blank" rel="noopener noreferrer">GitHub</a></p>
+            <p><a href="https://en.wikipedia.org/wiki/Ad_maiorem_Dei_gloriam" target="_blank" rel="noopener noreferrer">A.M.D.G.</a> &mdash; Azlin Project 2026</p>
         </div>
     </footer>
     <script>document.querySelectorAll('.mobile-menu a, .nav-links a').forEach(function(a){a.addEventListener('click',function(){document.body.classList.remove('nav-open');});});</script>

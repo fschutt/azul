@@ -142,6 +142,13 @@
     --fl-r:  3px;
     --fl-r2: 5px;
 
+    /* One reading size for the whole site. Garamond sets small - its
+       x-height is well below a grotesque at the same nominal size - so this
+       sits where 17px would on a sans. Every prose rule refers to it; none
+       states its own. */
+    --fl-text:  20px;
+    --fl-lede:  22px;
+
     /* ======================================================================
        MOTION
        One easing curve and three durations, so a widget port can reproduce
@@ -380,10 +387,8 @@ section:focus-visible {
 
 body {
     font-family: var(--font-serif);
-    /* EB Garamond runs small: 18px here sits at the optical size of a 16px
-       grotesque. Line-height stays open enough for the long ascenders. */
-    font-size: 18px;
-    line-height: 1.65;
+    font-size: var(--fl-text);
+    line-height: 1.62;
     color: var(--color-text);
     background-color: var(--color-bg);
     background-image: var(--fl-grain);
@@ -1002,7 +1007,7 @@ body.nav-open .fl-orb .fl-orb-well-shadow { opacity: 1.35; }
 }
 
 .hero-subtitle {
-    font-size: 19px;
+    font-size: var(--fl-lede);
     line-height: 1.6;
     margin-bottom: 32px;
     font-weight: 400;
@@ -1294,7 +1299,7 @@ body.nav-open .fl-orb .fl-orb-well-shadow { opacity: 1.35; }
 
 .text-section .prose {
     font-family: var(--font-serif);
-    font-size: 18px;
+    font-size: var(--fl-text);
     font-weight: 400;
     line-height: 1.7;
     color: var(--color-text-light);
@@ -1439,8 +1444,10 @@ body.nav-open .fl-orb .fl-orb-well-shadow { opacity: 1.35; }
     text-shadow: 0 1px 1px rgba(0, 0, 0, 0.3);
 }
 
+/* A card does not jump toward the reader. Per the house rules a raised face
+   answers the pointer with light: the metal edge comes up and the specular
+   streak brightens (see the MOTION section), and that is the whole gesture. */
 .feature-card.has-gradient:hover {
-    transform: translateY(-4px);
     box-shadow: var(--fl-shadow-3);
 }
 
@@ -1448,6 +1455,25 @@ body.nav-open .fl-orb .fl-orb-well-shadow { opacity: 1.35; }
 .feature-card.has-gradient p,
 .feature-card.has-gradient ul li {
     color: var(--fl-on-acc);
+}
+
+/* The slot an app screenshot will drop into. Empty it takes no room, so the
+   markup can carry it on every card before any of the images exist. */
+.feature-media {
+    margin: -8px 0 20px;
+    border-radius: var(--fl-r);
+    overflow: hidden;
+    background: rgba(0, 0, 0, 0.12);
+    aspect-ratio: 16 / 10;
+}
+
+.feature-media:empty { display: none; }
+
+.feature-media img {
+    width: 100%;
+    height: 100%;
+    display: block;
+    object-fit: cover;
 }
 
 .feature-icon {
@@ -1493,7 +1519,7 @@ body.nav-open .fl-orb .fl-orb-well-shadow { opacity: 1.35; }
 .feature-card p {
     font-family: var(--font-serif);
     color: var(--color-text-light);
-    font-size: 18px;
+    font-size: var(--fl-text);
     font-weight: 400;
     line-height: 1.6;
     text-wrap: balance;
@@ -1593,7 +1619,6 @@ body.nav-open .fl-orb .fl-orb-well-shadow { opacity: 1.35; }
 }
 
 .feature-category.has-gradient:hover {
-    transform: translateY(-4px);
     box-shadow: var(--fl-shadow-3);
 }
 
@@ -2099,6 +2124,7 @@ body.nav-open .fl-orb .fl-orb-well-shadow { opacity: 1.35; }
 /* Footer */
 footer {
     padding: 48px 0;
+    font-size: 1.06rem;
     background-color: var(--fl-desk);
     background-image: var(--fl-grain);
     border-top: 1px solid var(--fl-bd);
@@ -3270,7 +3296,12 @@ pre[class*="language-"] code {
 .feature-category.has-gradient,
 .hero-badge,
 .pill-soon {
-    transition: filter var(--fl-dur-slow) var(--fl-ease),
+    /* `transform` has to stay on this list. Restating `transition` here
+       replaces the whole property, and the base rule's transform timing went
+       with it - which is why the cards jumped to their hover position
+       instead of moving to it. */
+    transition: transform var(--fl-dur) var(--fl-ease-out),
+                filter var(--fl-dur-slow) var(--fl-ease),
                 background var(--fl-dur-slow) var(--fl-ease),
                 border-color var(--fl-dur-slow) ease,
                 box-shadow var(--fl-dur-slow) ease;
