@@ -396,6 +396,44 @@ jobs:
   # each target is required.  build-dll is tested on same-OS cross-arch
   # targets (platform windowing code compiles via cfg gates); cross-OS
   # targets check the sub-crates and link-static only.
+  # There is no native x86_64-windows test job in this workflow at all: the only
+  # windows-2022 runners build the rust9x toolchain and cross-check i686. So every
+  # test under dll/src/desktop/shell2/windows/ has never executed either. This job
+  # exists solely to run them on the host arch.
+  dll_windows_unit_tests:
+    name: azul-dll unit tests (Windows backend)
+    timeout-minutes: 60
+    if: github.event_name != 'workflow_dispatch' || github.event.inputs.run_mode == 'ci' || github.event.inputs.run_mode == 'deploy' || github.event.inputs.run_mode == 'website'
+    runs-on: windows-2022
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v7
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: 1.88.0
+
+      # Deliberately NOT cached. target/codegen is GENERATED SOURCE: a partial
+      # or stale restore compiles against bindings for a program that no longer
+      # exists (see the long note on the codegen cache in the FFI job).
+      - name: Generate DLL API bindings
+        run: cargo run -r -p azul-doc codegen all
+
+      - name: azul-dll unit tests
+        shell: bash
+        run: |
+          set -o pipefail
+          cargo test -p azul-dll --lib --features build-dll 2>&1 | tee dll-lib.txt
+          if grep -qE 'running 0 tests' dll-lib.txt; then
+            echo "::error::azul-dll --lib compiled to ZERO tests on Windows - this gate proved nothing."
+            exit 1
+          fi
+          if ! grep -qE '^test desktop::shell2::windows::' dll-lib.txt; then
+            echo "::error::no desktop::shell2::windows::* test ran - the Win32 backend is still untested."
+            exit 1
+          fi
+
   cross_compile_check:
     name: Cross-Compile Check (${{ matrix.target }})
     if: github.event_name != 'workflow_dispatch' || github.event.inputs.run_mode == 'ci' || github.event.inputs.run_mode == 'deploy' || github.event.inputs.run_mode == 'website'
@@ -1265,6 +1303,29 @@ jobs:
           # exists to replace.
           if grep -qE 'running 0 tests' leak.txt; then
             echo "::error::leak_regression compiled to ZERO tests - its cfg is not satisfied, so this gate proved nothing."
+            exit 1
+          fi
+
+      # Every test under dll/src/desktop/shell2/macos/ had NEVER executed. The
+      # only azul-dll unit-test invocation in this workflow is `cd dll && cargo
+      # test` on ubuntu, where all of it is cfg'd out. That is why a duplicate
+      # objc selector registration and a void-typed msg_send! for a
+      # BOOL-returning method both shipped: the tests written to catch exactly
+      # those were dead weight. This job already builds azul-dll on macos-14.
+      - name: azul-dll unit tests (macOS backend — the cfg this code requires)
+        if: matrix.os == 'macos-14'
+        shell: bash
+        run: |
+          set -o pipefail
+          cargo test -p azul-dll --lib --features build-dll 2>&1 | tee dll-lib.txt
+          # A cfg'd-out module still exits 0. Require that the macOS tests
+          # actually ran, or this step re-becomes the no-op it replaces.
+          if grep -qE 'running 0 tests' dll-lib.txt; then
+            echo "::error::azul-dll --lib compiled to ZERO tests on macOS - this gate proved nothing."
+            exit 1
+          fi
+          if ! grep -qE '^test desktop::shell2::macos::' dll-lib.txt; then
+            echo "::error::no desktop::shell2::macos::* test ran - the macOS backend is still untested."
             exit 1
           fi
 
