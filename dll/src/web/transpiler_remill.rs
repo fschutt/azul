@@ -5698,20 +5698,26 @@ impl Transpiler for RemillTranspiler {
         // the same wasm.
         let mut roots: Vec<TransitiveLiftRoot> = Vec::with_capacity(symbols.len());
         for (name, addr, size) in symbols {
-            let sig = signature_for_eventloop_fn(name).ok_or_else(|| TranspileError {
-                fn_name: name.clone(),
-                reason: format!(
-                    "no entry in signature_for_eventloop_fn for {} — add it before \
-                     listing in EVENTLOOP_SYMBOLS",
-                    name
+            // Eventloop exports are called BY NAME from JS, so each needs its
+            // hand-written wrapper signature. Extra roots (fn-pointer-only
+            // targets seeded by the caller — today the app's state
+            // deserializer) are only ever reached through the indirect-call
+            // dispatcher, so they take the generic dep treatment: a
+            // `__az_dep_<addr>` export with the canonical callback shape,
+            // exactly as if the walk had discovered them itself.
+            let (sig, export_as) = match signature_for_eventloop_fn(name) {
+                Some(sig) => (sig, name.clone()),
+                None => (
+                    signature_for_callback_kind("Callback"),
+                    format!("__az_dep_{:x}", addr),
                 ),
-            })?;
+            };
             roots.push(TransitiveLiftRoot {
                 fn_name: name.clone(),
                 fn_addr: *addr,
                 fn_size: *size,
                 sig,
-                export_as: name.clone(),
+                export_as,
                 extra_exports: Vec::new(),
             });
         }
