@@ -927,16 +927,18 @@ impl RemillTranspiler {
         // The two target lines are placeholders retarget_to_wasm32
         // overwrites with the wasm32 datalayout/triple.
         let stub_ir = format!(
-            "; azul-web Leaf stub for {fn_name} (real lift unavailable — remill crashed)\n\
+            "; azul-web TRAP stub for {fn_name} (real lift unavailable — remill/llc crashed)\n\
              target datalayout = \"e-m:w-i64:64-f80:128-n8:16:32:64-S128\"\n\
              target triple = \"x86_64-unknown-windows-msvc-coff\"\n\
              define ptr @sub_{lift_hex}(ptr noalias %state, i64 %pc, ptr noalias %memory) {{\n  \
                %rp = getelementptr inbounds i8, ptr %state, i64 {ret_off}\n  \
                store i64 0, ptr %rp, align 8\n  \
-               ret ptr %memory\n\
+               store volatile i64 {lift_dec}, ptr inttoptr (i64 262216 to ptr), align 8\n  \
+               unreachable\n\
              }}\n",
             fn_name = fn_name,
             lift_hex = format!("{:x}", lift_addr),
+            lift_dec = lift_addr,
             ret_off = pcs::RET,
         );
         self.produce_object_from_lifted_ir(
