@@ -73,11 +73,51 @@ const recorders = () => ({
 });
 const before = recorders();
 
-// A zeroed Json: value_type = 0 and an all-zero internal. Whatever variant 0
-// is, Display's arms either write a literal or read a zeroed AzString — no
-// pointer chasing into unmapped memory either way.
+// Build the Json argument.
+//
+// With no payload argument this is a ZEROED Json = JsonType::Null, whose
+// Display arm writes a literal and never touches string_value — enough to
+// prove the callee runs, but it leaves the string path untested.
+//
+// With a payload it is a real JsonType::Object carrying that text, which is
+// what hydrateJson actually passes. Layout (all repr(C)):
+//   0  value_type: JsonType   (C enum = i32, padded to 8 for AzString align)
+//   8  string_value: AzString = U8Vec { ptr, len, cap, destructor }
+//        destructor is #[repr(C, u8)] with a fn-ptr payload = 16 bytes,
+//        NoDestructor = 1 so the callee's by-value drop frees nothing.
+//  48  number_value: f64
+//  56  bool_value: bool
+//
+// Building it by hand rather than via Json::parse_bytes is forced: the
+// __az_dep_ wrapper carries only RCX and RDX (PtrFromPairLo discards `hi`),
+// so a three-register signature like parse_bytes(sret, ptr, len) cannot be
+// driven through it at all.
+const JSON_TYPE = { Null: 0, Bool: 1, Number: 2, String: 3, Array: 4, Object: 5 };
+// NB: `argv[4] || null` would fold an EMPTY payload into the zeroed case,
+// silently testing Null instead of an empty string — which is exactly how a
+// bisect here first read as "string content matters" when it does not.
+const payload = process.argv.length > 4 ? process.argv[4] : null;
 const jsonPtr = m.AzStartup_alloc(256) >>> 0;
 u8().fill(0, jsonPtr, jsonPtr + 256);
+// Optional 4th arg names the JsonType, so the Display arm under test can be
+// varied independently of the payload: Object/Array/String take the
+// string_value arm, Bool and Number format a scalar and never read the string.
+const vtName = process.argv[5] || 'Object';
+if (payload !== null) {
+    const enc = new TextEncoder().encode(payload);
+    const txt = m.AzStartup_alloc(enc.length + 8) >>> 0;
+    u8().set(enc, txt);
+    const vt = JSON_TYPE[vtName];
+    if (vt === undefined) { console.log('unknown JsonType ' + vtName); process.exit(2); }
+    dv().setUint32(jsonPtr + 0, vt, true);
+    dv().setFloat64(jsonPtr + 48, 1.5, true);   // number_value
+    dv().setUint8(jsonPtr + 56, 1);             // bool_value = true
+    dv().setBigUint64(jsonPtr + 8, BigInt(txt), true);          // ptr
+    dv().setBigUint64(jsonPtr + 16, BigInt(enc.length), true);  // len
+    dv().setBigUint64(jsonPtr + 24, BigInt(enc.length), true);  // cap
+    dv().setUint8(jsonPtr + 32, 1);                             // NoDestructor
+    console.log(`built ${vtName} Json: text=0x${txt.toString(16)} len=${enc.length} ${JSON.stringify(payload)}`);
+}
 const sret = m.AzStartup_alloc(256) >>> 0;
 u8().fill(0, sret, sret + 256);
 console.log(`json=0x${jsonPtr.toString(16)} sret=0x${sret.toString(16)}`);
