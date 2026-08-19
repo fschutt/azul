@@ -158,7 +158,7 @@ LAYOUT = ->(data : LibAzul::AzRefAny, _info : LibAzul::AzLayoutCallbackInfo) : L
 
   text = m.value.counter.to_s
   counter_str = LibAzul.azString_fromUtf8(text.to_unsafe, LibC::SizeT.new(text.bytesize))
-  label = LibAzul.azDom_createText(counter_str)
+  label = LibAzul.azDom_createTextDoNotUseWithoutBlockLevelWrapper(counter_str)
 
   label_wrapper = LibAzul.azDom_createDiv
   font_size = LibAzul.azStyleFontSize_px(32.0_f32)

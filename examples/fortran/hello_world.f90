@@ -72,7 +72,7 @@ contains
       label_wrap = az_dom_create_div()
       label_wrap = az_dom_with_css(label_wrap, mk_str('font-size: 32px;'))
       label_wrap = az_dom_with_child(label_wrap, &
-                                     az_dom_create_text(mk_str(trim(num))))
+                                     az_dom_create_text_do_not_use_without_block_level_wrapper(mk_str(trim(num))))
 
       click_cb = azul_register_buttononclickcallback(my_on_click)
       click_data = azul_refany_create(c_loc(model))
