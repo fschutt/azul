@@ -961,6 +961,10 @@ pub enum TextEditNotify {
 /// multi-cursor paste). Replaces the three formerly hand-picked per-site id
 /// bands, which existed only so the sites could not collide.
 static CHANGESET_COUNTER: AtomicUsize = AtomicUsize::new(0);
+/// How many VirtualView hosts [`LayoutWindow::window_space_offset_of_dom`]
+/// will walk up through. Nesting is shallow; the bound only stops a cycle.
+const NESTED_DOM_HOST_WALK_LIMIT: usize = 32;
+
 /// How many nodes [`LayoutWindow::ifc_candidate_children`] will visit looking
 /// for the box that owns an editable's inline layout. Editable subtrees are
 /// small; the bound only stops a malformed hierarchy from spinning.
@@ -2072,6 +2076,51 @@ impl LayoutWindow {
     /// That is what lets background pagination refine the estimate (growing or
     /// shrinking the scrollbar) without moving a single pixel of content.
     #[must_use]
+    /// Where a dom's 0-relative geometry actually sits in WINDOW space.
+    ///
+    /// A VirtualView's child dom builds its display list at origin zero; the
+    /// rasteriser composites it at `host_bounds.origin + content_offset`
+    /// (`cpurender/raster.rs`). So every accessor that must answer in WINDOW
+    /// space — above all the IME caret rect the four shells hand to the
+    /// platform — has to walk back up through its hosts and add that per hop.
+    /// Without it a candidate window inside a virtualized view was placed as
+    /// if the host sat at the window origin.
+    ///
+    /// The host's own scroll is ALREADY inside `content_offset`, so it must
+    /// not be added a second time here.
+    #[must_use]
+    pub fn window_space_offset_of_dom(&self, dom_id: DomId) -> LogicalPosition {
+        let mut total = LogicalPosition::zero();
+        let mut current = dom_id;
+
+        for _ in 0..NESTED_DOM_HOST_WALK_LIMIT {
+            let Some((parent_dom, host_node)) =
+                self.virtual_view_manager.host_of_nested_dom(current)
+            else {
+                break;
+            };
+            let Some(parent_result) = self.layout_results.get(&parent_dom) else {
+                break;
+            };
+            let host_pos = parent_result
+                .layout_tree
+                .dom_to_layout
+                .get(&host_node)
+                .and_then(|indices| indices.first().copied())
+                .and_then(|idx| {
+                    solver3::pos_get(&parent_result.calculated_positions, idx.index())
+                });
+            if let Some(host_pos) = host_pos {
+                let content = self.virtual_view_content_offset(parent_dom, host_node);
+                total.x += host_pos.x + content.x;
+                total.y += host_pos.y + content.y;
+            }
+            current = parent_dom;
+        }
+
+        total
+    }
+
     pub fn virtual_view_content_offset(
         &self,
         dom_id: DomId,
@@ -9104,6 +9153,16 @@ impl LayoutWindow {
             // Move to parent for next iteration
             current_layout_idx = parent_idx;
         }
+
+        // STEP 3: lift out of the node's own dom into WINDOW space. A nested
+        // dom's display list is 0-relative, so everything above is measured as
+        // if the VirtualView host sat at the window origin. The shells feed
+        // this rect straight to the platform IME, which places the candidate
+        // window in screen coordinates — without this the popup appears at the
+        // top-left of the window instead of under the caret.
+        let host_offset = self.window_space_offset_of_dom(session_node.dom);
+        cursor_rect.origin.x += host_offset.x;
+        cursor_rect.origin.y += host_offset.y;
 
         Some(cursor_rect)
     }

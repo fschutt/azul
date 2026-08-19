@@ -489,3 +489,68 @@ fn scrolling_a_virtual_view_moves_its_content_not_only_its_scrollbar() {
         LogicalPosition::new(origin.x - offset.x, origin.y - offset.y)
     );
 }
+
+/// The IME caret rect must be in WINDOW space, not nested-dom space.
+///
+/// A VirtualView's child dom builds its display list at origin zero and the
+/// rasteriser composites it at `host.origin + content_offset`. Every geometry
+/// accessor therefore measures as if the host sat at the window origin — and
+/// all four shells hand `get_focused_cursor_rect_viewport` straight to the
+/// platform IME, which places its candidate window in screen coordinates. So
+/// the popup appeared at the top-left of the window instead of under the caret.
+#[test]
+fn the_ime_caret_rect_is_lifted_out_of_the_nested_dom() {
+    let model = fresh_model();
+    let mut lw = LayoutWindow::new(FcFontCache::build()).unwrap();
+    let mut window_state = FullWindowState::default();
+    window_state.size.dimensions = LogicalSize::new(800.0, 600.0);
+    lw.current_window_state = window_state;
+
+    relayout(&mut lw, &model);
+    let nested = lw
+        .virtual_view_manager
+        .get_nested_dom_id(DomId::ROOT_ID, NodeId::new(1))
+        .expect("virtual view mounted a nested dom");
+
+    // The root dom is already window space; nothing to lift.
+    assert_eq!(
+        lw.window_space_offset_of_dom(DomId::ROOT_ID),
+        LogicalPosition::zero(),
+        "the root dom IS window space"
+    );
+
+    // Scroll the view so the composite offset is genuinely non-zero — an
+    // assertion that only ever compares zero to zero proves nothing.
+    lw.scroll_manager.set_scroll_position(
+        DomId::ROOT_ID,
+        NodeId::new(1),
+        LogicalPosition::new(0.0, 230.0),
+        azul_core::task::Instant::from(std::time::Instant::now()),
+    );
+    relayout(&mut lw, &model);
+
+    // The nested dom is not window space: it sits wherever its host was placed
+    // and wherever the rasteriser then shifts its content.
+    let lifted = lw.window_space_offset_of_dom(nested);
+    assert_ne!(
+        lifted,
+        LogicalPosition::zero(),
+        "the probe must be able to read a non-zero lift, or it proves nothing"
+    );
+    let host_origin = lw
+        .get_layout_result(&DomId::ROOT_ID)
+        .and_then(|lr| lr.layout_tree.dom_to_layout.get(&NodeId::new(1)).cloned())
+        .and_then(|ix| ix.first().copied())
+        .and_then(|ix| {
+            lw.get_layout_result(&DomId::ROOT_ID)
+                .and_then(|lr| lr.calculated_positions.get(ix.index()).copied())
+        })
+        .expect("the host has a resolved position");
+    let content = lw.virtual_view_content_offset(DomId::ROOT_ID, NodeId::new(1));
+
+    assert_eq!(
+        lifted,
+        LogicalPosition::new(host_origin.x + content.x, host_origin.y + content.y),
+        "the lift must be exactly where the rasteriser composites the child"
+    );
+}
