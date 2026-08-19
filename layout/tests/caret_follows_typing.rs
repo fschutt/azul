@@ -7,7 +7,7 @@
 //! correct container and then scrolled it by zero would all have stayed green.
 
 use azul_core::dom::{Dom, DomId, IdOrClass, NodeId};
-use azul_core::geom::{LogicalPosition, LogicalRect, LogicalSize};
+use azul_core::geom::LogicalSize;
 use azul_core::resources::RendererResources;
 use azul_core::selection::{CursorAffinity, GraphemeClusterId, TextCursor};
 use azul_core::styled_dom::StyledDom;
@@ -72,16 +72,14 @@ fn editable_with_many_lines() -> LayoutWindow {
     lw
 }
 
-/// What the shells' `register_scroll_nodes` does after layout — it lives in
-/// the dll, so a layout test has to stand in for it.
-fn register_scroll(lw: &mut LayoutWindow, content_h: f32) {
-    lw.scroll_manager.update_node_bounds(
-        DomId::ROOT_ID,
-        NodeId::new(EDITABLE),
-        LogicalRect::new(LogicalPosition::zero(), LogicalSize::new(600.0, 60.0)),
-        LogicalRect::new(LogicalPosition::zero(), LogicalSize::new(600.0, content_h)),
-        now(),
-    );
+/// Publish the scroll containers the way production does.
+///
+/// This used to hand-seed `update_node_bounds` with numbers the test chose,
+/// which meant it could park a scroll state production would never produce.
+/// `register_scroll_nodes` now lives in azul-layout, so the test drives the
+/// real thing and the fixture cannot drift from the engine.
+fn register_scroll(lw: &mut LayoutWindow) {
+    azul_layout::managers::scroll_registration::register_scroll_nodes(lw, &now());
 }
 
 fn offset_y(lw: &LayoutWindow) -> f32 {
@@ -117,7 +115,7 @@ fn edit_at_last_line(lw: &mut LayoutWindow) -> NodeId {
 #[test]
 fn typing_below_the_fold_scrolls_the_caret_back_into_view() {
     let mut lw = editable_with_many_lines();
-    register_scroll(&mut lw, 60.0 * LINES as f32);
+    register_scroll(&mut lw);
     edit_at_last_line(&mut lw);
 
     assert_eq!(offset_y(&lw), 0.0, "the box starts at the top");
@@ -142,7 +140,7 @@ fn typing_below_the_fold_scrolls_the_caret_back_into_view() {
 #[test]
 fn typing_at_a_visible_caret_leaves_the_view_alone() {
     let mut lw = editable_with_many_lines();
-    register_scroll(&mut lw, 60.0 * LINES as f32);
+    register_scroll(&mut lw);
 
     // First text leaf — line 0, comfortably inside a 60px box.
     let first_text = NodeId::new(3);

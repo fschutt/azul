@@ -3021,9 +3021,19 @@ impl Runner {
         }
     }
 
-    /// Port of the DLL's `register_scroll_nodes` (dll/.../common/layout.rs):
-    /// after layout, push each scrollable container's bounds into the
-    /// ScrollManager so scroll ops + reads work.
+    /// Publish layout's scroll containers into the ScrollManager.
+    ///
+    /// This used to be a hand-maintained PORT of the dll's copy, so a scroll
+    /// bug could be fixed in one host and left standing in the other. Both
+    /// call the same function now.
+    fn register_scroll_nodes(&mut self) {
+        let now = self.now();
+        crate::managers::scroll_registration::register_scroll_nodes(
+            &mut self.layout_window,
+            &now,
+        );
+    }
+
     fn register_scroll_nodes(&mut self) {
         let now = self.now();
         let lw = &mut self.layout_window;

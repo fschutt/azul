@@ -45,6 +45,7 @@ pub mod keyring;
 pub mod permission;
 pub mod virtual_view;
 pub mod scroll_into_view;
+pub mod scroll_registration;
 pub mod scroll_state;
 pub mod selection;
 pub mod sensors;
