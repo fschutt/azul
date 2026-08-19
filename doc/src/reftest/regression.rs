@@ -1790,7 +1790,8 @@ fn generate_visual_html_report(
   <title>Azul Regression Visual Report</title>
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <link rel="shortcut icon" type="image/x-icon" href="https://azul.rs/ui/favicon.ico">
-  <link rel="stylesheet" type="text/css" href="https://azul.rs/ui/main.css">
+  <link rel="stylesheet" type="text/css" href="https://azul.rs/flora.css">
+  <link rel="stylesheet" type="text/css" href="https://azul.rs/azul-docs.css">
   <style>
     :root {
       --color-pass: #2ecc71;

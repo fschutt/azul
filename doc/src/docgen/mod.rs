@@ -826,24 +826,24 @@ document.addEventListener('DOMContentLoaded', function () {
 }
 
 /// Head tags for the /ui landing page ONLY. The landing uses the azlin.io
-/// marketing design system (azlin.css: Playfair Display + Rubik, pill navbar,
-/// gradient hero) plus ui-landing.css for the docs-specific parts (release
-/// card, example sections, code panels) — NOT the docs-site main.css.
+/// Flora Design system (flora.css: tokens, type stack, nav strip, stone
+/// buttons and the CSS depth rig) plus ui-landing.css for the docs-specific
+/// parts (release card, example sections, code panels) — NOT main.css.
 ///
 /// Production (`inline_css == true`) inlines both stylesheets to prevent FOUC;
-/// debug links them externally (azlin.css + ui-landing.css are copied to the
+/// debug links them externally (flora.css + ui-landing.css are copied to the
 /// deploy root by main.rs) so CSS edits don't need a docgen re-run.
 pub fn get_landing_head_tags(inline_css: bool) -> String {
     // Search assets live under the docs sub-path, same rule as the docs head.
     let base_url: &str = if inline_css { HTML_ROOT } else { UI_PATH };
 
     let css_tag = if inline_css {
-        let azlin_css = include_str!("../../templates/azlin.css");
+        let flora_css = include_str!("../../templates/flora.css");
         let landing_css = include_str!("../../templates/ui-landing.css");
-        format!("<style>\n{}\n{}\n</style>", azlin_css, landing_css)
+        format!("<style>\n{}\n{}\n</style>", flora_css, landing_css)
     } else {
         // Both files are copied to the deploy root (next to /foam.svg).
-        "<link rel='stylesheet' type='text/css' href='/azlin.css'>\n      \
+        "<link rel='stylesheet' type='text/css' href='/flora.css'>\n      \
          <link rel='stylesheet' type='text/css' href='/ui-landing.css'>"
             .to_string()
     };
@@ -855,9 +855,10 @@ pub fn get_landing_head_tags(inline_css: bool) -> String {
       <meta name='description' content='Cross-platform MIT-licensed desktop GUI framework for C and Rust using the Mozilla WebRender rendering engine'>
       <meta name='keywords' content='gui, rust, user interface'>
 
+      {theme_boot}
       <link rel='preconnect' href='https://fonts.googleapis.com'>
       <link rel='preconnect' href='https://fonts.gstatic.com' crossorigin>
-      <link href='https://fonts.googleapis.com/css2?family=Playfair+Display:wght@400;600;700;800;900&family=Rubik:wght@400;500;600;700&display=swap' rel='stylesheet'>
+      <link href='{fonts_href}' rel='stylesheet'>
       <link rel='preload' as='font' href='{base_url}/fonts/RedHatMono-VariableFont_wght.ttf' type='font/ttf' crossorigin='anonymous'>
       <link rel='shortcut icon' type='image/x-icon' href='{base_url}/favicon.ico'>
       <link rel='stylesheet' href='https://cdn.jsdelivr.net/npm/prismjs@1.29.0/themes/prism.min.css'>
@@ -874,10 +875,14 @@ pub fn get_landing_head_tags(inline_css: bool) -> String {
       {css_tag}
       <!-- TEMPORARY doc-review tool (remove this line + azul-review.js in a later release) -->
       <script defer src='{base_url}/azul-review.js'></script>
-    ", base_url=base_url, css_tag=css_tag)
+    ", base_url=base_url, css_tag=css_tag,
+       fonts_href=AZLIN_FONTS_HREF, theme_boot=get_theme_boot_script())
 }
 
-/// Generate common head tags for HTML pages.
+/// RETIRED. Every page now goes through `get_docs_head_tags` (Flora Design:
+/// flora.css + azul-docs.css) or `get_landing_head_tags`; nothing calls this
+/// and `main.css` is NOT part of the Flora theme. Kept only so an older
+/// generator path can be revived if needed - do not wire new pages to it.
 ///
 /// # Arguments
 /// * `inline_css` - If true, the CSS from main.css is inlined in a <style> tag
@@ -1040,8 +1045,8 @@ pub fn get_sidebar() -> String {
 // ===========================================================================
 // Azlin docs shell (2026-07-04 CSS rearchitecture)
 //
-// ONE shell for every docs page: floating glass navbar + airy opener +
-// footer, styled by azlin.css (tokens/nav/buttons) + azul-docs.css (docs
+// ONE shell for every docs page: floating nav strip + airy opener +
+// footer, styled by flora.css (tokens/nav/buttons) + azul-docs.css (docs
 // content). Page families may add ONE family stylesheet (docs-*.css,
 // passed as `page_css`); ad-hoc inline <style> blocks in Rust strings are
 // forbidden - that patchwork is what produced the unreadable-blue-links /
@@ -1067,18 +1072,61 @@ pub struct AzlinPage {
     pub main_html: String,
 }
 
-/// Head tags for docs pages: fonts (Playfair/Rubik/Red Hat Mono), favicon,
-/// prism theme, search css, azlin.css + azul-docs.css (linked in debug,
-/// inlined in prod - same rule as the /ui landing).
+/// The Azlin type stack - three hands, three jobs, never mixed up:
+///   Grenze Gotisch - the display hand. Important headings ONLY (h1/h2).
+///   Grenze         - the UI hand. Nav, sidebars, buttons, labels, h3-h6.
+///                    Same skeleton as the Gotisch without the blackletter
+///                    joins, so chrome and headings read as one family.
+///   EB Garamond    - the document hand. Running text, and nothing else.
+/// Red Hat Mono is self-hosted (see the @font-face in the head tags).
+pub const AZLIN_FONTS_HREF: &str = "https://fonts.googleapis.com/css2?\
+     family=EB+Garamond:ital,wght@0,400;0,500;0,600;0,700;1,400&\
+     family=Grenze+Gotisch:wght@400;500;600;700&\
+     family=Grenze:ital,wght@0,400;0,500;0,600;0,700;1,400&display=swap";
+
+/// Inline boot script for the light/dark switch. This MUST run before first
+/// paint (it is emitted in `<head>`, not deferred): reading the stored choice
+/// afterwards would flash the wrong ground for a frame.
+///
+/// Three states, matching the CSS: no attribute = follow the system,
+/// `data-theme="light"` / `"dark"` = the reader has chosen.
+pub fn get_theme_boot_script() -> &'static str {
+    r#"<script>
+      (function () {
+        try {
+          var t = localStorage.getItem('flora-theme');
+          if (t === 'light' || t === 'dark') {
+            document.documentElement.setAttribute('data-theme', t);
+          }
+        } catch (e) { /* private mode: fall back to the system preference */ }
+      })();
+    </script>"#
+}
+
+/// The lamp: a raised stone in the navbar that cycles light -> dark -> system.
+/// Rendered inside `.nav-right` so it sits next to the links on desktop and
+/// next to the hamburger on mobile.
+pub fn azlin_theme_toggle() -> &'static str {
+    r##"<button class="fl-lamp" type="button" aria-label="Switch between light and dark" title="Light / dark"
+          onclick="(function(b){var r=document.documentElement;var c=r.getAttribute('data-theme');var sysDark=window.matchMedia('(prefers-color-scheme: dark)').matches;var next=(c==='dark'||(!c&&sysDark))?'light':'dark';if((next==='dark')===sysDark){r.removeAttribute('data-theme');try{localStorage.removeItem('flora-theme');}catch(e){}}else{r.setAttribute('data-theme',next);try{localStorage.setItem('flora-theme',next);}catch(e){}}})(this)">
+          <svg class="fl-lamp-moon" viewBox="0 0 24 24" aria-hidden="true"><path d="M20 14.5A8.2 8.2 0 0 1 9.5 4 8.5 8.5 0 1 0 20 14.5z"/></svg>
+          <svg class="fl-lamp-sun" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="4.2"/><path d="M12 2.4v2.2M12 19.4v2.2M2.4 12h2.2M19.4 12h2.2M5.2 5.2l1.6 1.6M17.2 17.2l1.6 1.6M18.8 5.2l-1.6 1.6M6.8 17.2l-1.6 1.6"/></svg>
+        </button>"##
+}
+
+/// Head tags for docs pages: fonts (Grenze Gotisch / EB Garamond / Fira Sans
+/// + Red Hat Mono), favicon, prism theme, search css, flora.css +
+/// azul-docs.css (linked in debug, inlined in prod - same rule as the /ui
+/// landing).
 pub fn get_docs_head_tags(inline_css: bool, page_css: Option<&'static str>) -> String {
     let base_url: &str = if inline_css { HTML_ROOT } else { UI_PATH };
 
     let mut css_tag = if inline_css {
-        let azlin_css = include_str!("../../templates/azlin.css");
+        let flora_css = include_str!("../../templates/flora.css");
         let docs_css = include_str!("../../templates/azul-docs.css");
-        format!("<style>\n{}\n{}\n</style>", azlin_css, docs_css)
+        format!("<style>\n{}\n{}\n</style>", flora_css, docs_css)
     } else {
-        "<link rel='stylesheet' type='text/css' href='/azlin.css'>\n      \
+        "<link rel='stylesheet' type='text/css' href='/flora.css'>\n      \
          <link rel='stylesheet' type='text/css' href='/azul-docs.css'>"
             .to_string()
     };
@@ -1093,9 +1141,10 @@ pub fn get_docs_head_tags(inline_css: bool, page_css: Option<&'static str>) -> S
       <meta name='description' content='Cross-platform MIT-licensed desktop GUI framework for C and Rust using the Mozilla WebRender rendering engine'>
       <meta name='keywords' content='gui, rust, user interface'>
 
+      {theme_boot}
       <link rel='preconnect' href='https://fonts.googleapis.com'>
       <link rel='preconnect' href='https://fonts.gstatic.com' crossorigin>
-      <link href='https://fonts.googleapis.com/css2?family=Playfair+Display:wght@400;600;700;800;900&family=Rubik:wght@400;500;600;700&display=swap' rel='stylesheet'>
+      <link href='{fonts_href}' rel='stylesheet'>
       <link rel='preload' as='font' href='{base_url}/fonts/RedHatMono-VariableFont_wght.ttf' type='font/ttf' crossorigin='anonymous'>
       <link rel='shortcut icon' type='image/x-icon' href='{base_url}/favicon.ico'>
       <link rel='stylesheet' href='https://cdn.jsdelivr.net/npm/prismjs@1.29.0/themes/prism.min.css'>
@@ -1112,13 +1161,22 @@ pub fn get_docs_head_tags(inline_css: bool, page_css: Option<&'static str>) -> S
       {anchor_link}
       <!-- TEMPORARY doc-review tool (remove this line + azul-review.js in a later release) -->
       <script defer src='{base_url}/azul-review.js'></script>
-    ", base_url=base_url, css_tag=css_tag, anchor_link=get_anchor_link_script())
+    ", base_url=base_url, css_tag=css_tag, anchor_link=get_anchor_link_script(),
+       fonts_href=AZLIN_FONTS_HREF, theme_boot=get_theme_boot_script())
 }
 
-/// The floating glass navbar + mobile menu, identical to the /ui landing's
+/// The floating nav strip + mobile menu, identical to the /ui landing's
 /// (single source of truth for docs pages; the landing templates keep their
 /// static copies - keep the link list in sync with index.template.html and
 /// azlin-index.template.html).
+/// The cove fillets on the selected tab. Two elements, each one radial
+/// gradient - see `.fl-tab-shoulder` in flora.css.
+pub const AZLIN_TAB_SHOULDERS: &str =
+    "<span class=\"fl-tab-shoulder fl-tab-shoulder-l\" aria-hidden=\"true\"></span>\
+     <span class=\"fl-tab-shoulder fl-tab-shoulder-r\" aria-hidden=\"true\"></span>\
+     <span class=\"fl-tab-seam\" aria-hidden=\"true\"></span>\
+     <span class=\"fl-tab-foot\" aria-hidden=\"true\"></span>";
+
 pub fn azlin_nav(active: &str) -> String {
     const LINKS: [(&str, &str); 8] = [
         ("overview", "https://azul.rs/ui"),
@@ -1133,36 +1191,75 @@ pub fn azlin_nav(active: &str) -> String {
     let nav_links = LINKS
         .iter()
         .map(|(name, href)| {
-            let class = if *name == active { " class=\"active\"" } else { "" };
-            format!("<a href=\"{href}\" role=\"menuitem\"{class}>{name}</a>")
+            // The selected tab carries two shoulder elements: the cove
+            // fillets that flare it out to meet the strip's rule. They are
+            // decorative geometry, hence aria-hidden.
+            if *name == active {
+                format!(
+                    "<a href=\"{href}\" role=\"menuitem\" class=\"active\">{shoulders}{name}</a>",
+                    shoulders = AZLIN_TAB_SHOULDERS
+                )
+            } else {
+                format!("<a href=\"{href}\" role=\"menuitem\">{name}</a>")
+            }
         })
         .collect::<Vec<_>>()
         .join("\n          ");
-    let mobile_links = LINKS
-        .iter()
-        .map(|(name, href)| format!("<a href=\"{href}\">{name}</a>"))
-        .collect::<Vec<_>>()
-        .join("\n    ");
+    // The drop panel is the full navigation, so it leads with the site root -
+    // the socket took the brand link's place in the strip.
+    let mut panel = vec!["<a href=\"/\">home</a>".to_string()];
+    panel.extend(LINKS.iter().map(|(name, href)| {
+        let class = if *name == active { " class=\"active\"" } else { "" };
+        format!("<a href=\"{href}\"{class}>{name}</a>")
+    }));
+    let mobile_links = panel.join("\n    ");
+    let theme_toggle = azlin_theme_toggle();
+    let orb = azlin_orb();
     format!(
         r##"<a href="#main-content" class="skip-to-content">Skip to main content</a>
   <nav class="navbar" role="navigation" aria-label="Main navigation">
     <div class="container">
-      <a href="/" class="nav-brand-link" aria-label="Go to homepage">
-        <img src="/logo.svg" alt="Azul" class="nav-brand-logo">
-      </a>
+      <div class="nav-links" role="menu">
+        {nav_links}
+      </div>
       <div class="nav-right">
-        <button class="nav-toggle" aria-label="Toggle menu" aria-expanded="false" onclick="document.body.classList.toggle('nav-open');this.setAttribute('aria-expanded',document.body.classList.contains('nav-open'));"><span></span><span></span><span></span></button>
-        <div class="nav-links" role="menu">
-          {nav_links}
-        </div>
+        {theme_toggle}
+        {orb}
       </div>
     </div>
   </nav>
   <div class="nav-overlay" aria-hidden="true" onclick="document.body.classList.remove('nav-open')"></div>
-  <aside class="mobile-menu" aria-label="Mobile navigation">
+  <aside class="mobile-menu" aria-label="Site navigation">
     {mobile_links}
   </aside>"##
     )
+}
+
+/// The socket: the brand mark sunk into the nav strip at the top right,
+/// overhanging its bottom edge. It replaces BOTH the old brand link and the
+/// mobile hamburger - at every width, pressing it opens the drop panel.
+///
+/// The click handler only flips a class; the open/close motion is a CSS
+/// transition on `.mobile-menu`, so the widget port inherits the timing.
+/// It is built out of real layers rather than one box with a shadow list -
+/// the well cut into the strip, the shadow its top lip casts down into it,
+/// the light bouncing back off the far wall, a metal collar, the domed mark,
+/// its gloss, and the reflection the well throws onto the mark's lower rim.
+/// Each is its own element so the widget port can map one to one.
+pub fn azlin_orb() -> &'static str {
+    r##"<button class="fl-orb" type="button" aria-label="Open site navigation" aria-expanded="false" aria-controls="site-nav-panel"
+          onclick="var o=document.body.classList.toggle('nav-open');this.setAttribute('aria-expanded',o);">
+          <span class="fl-orb-well" aria-hidden="true">
+            <span class="fl-orb-well-shadow"></span>
+            <span class="fl-orb-well-bounce"></span>
+          </span>
+          <span class="fl-orb-collar" aria-hidden="true"></span>
+          <span class="fl-orb-stone">
+            <img src="/logo.svg" alt="Azul" class="nav-brand-logo">
+            <span class="fl-orb-gloss" aria-hidden="true"></span>
+            <span class="fl-orb-edge" aria-hidden="true"></span>
+          </span>
+        </button>"##
 }
 
 /// Docs footer, same voice as the /ui landing footer.

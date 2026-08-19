@@ -1,0 +1,3133 @@
+/* ==========================================================================
+   FLORA DESIGN - tokens
+   The design system behind azul.rs, and the source of truth for the Rust
+   widget theme that mirrors it. Everything a widget needs to draw itself is
+   here: the palette, the depth rig, the timing curves and the keyframes.
+   Nothing below this block may declare a literal color or duration.
+
+   The rules of the house:
+     - A pale, near-neutral ground with only the faintest warmth in it.
+       Never a pure white field, never a brown one.
+     - Metal (the leaf) lives on borders and initials only, never as a fill.
+     - Commands are cut as stones. The light always enters from the upper
+       left, so raised faces are lit along the top and sunken ones along the
+       bottom, and every stone carries the same shafts, bloom and cast
+       shadow. That rig is CSS - clip-paths and gradients, no SVG, no JS.
+     - Motion is slow and continuous. Light moves across a stone; it does
+       not snap. Every state change is a transition or a keyframe so the
+       widget port can replay the same curve.
+
+   Light is the default; dark is the same room at night.
+   ========================================================================== */
+:root {
+    color-scheme: light;
+
+    /* ---- ground & surfaces ---- */
+    --fl-pg:    #E6E4DF;  /* page: the bare ground */
+    --fl-sur:   #F2F1ED;  /* a leaf laid on the page: cards, panels */
+    --fl-desk:  #DDDBD5;  /* recessed bands behind the leaves */
+    --fl-strip: #E9E7E2;  /* toolbars, table stripes */
+    --fl-track: #E7E5E0;  /* troughs: sliders, scrollbars */
+
+    /* ---- rules & borders (bd -> bd5, light to heavy) ---- */
+    --fl-bd:   #C6C3BB;
+    --fl-bd2:  #B4B1A9;
+    --fl-bd3:  #9C9890;
+    --fl-bd4:  #D2CFC8;
+    --fl-bd5:  #A5A199;
+    --fl-sep:  #D8D5CE;
+    --fl-sep2: #E0DDD7;
+
+    /* ---- ink ---- */
+    --fl-ink:   #262521;
+    --fl-ink2:  #2E2C26;
+    --fl-intro: #4E4C45;
+    --fl-soft1: #66645C;
+    --fl-soft2: #827F76;
+    --fl-soft3: #74716A;
+    --fl-icon:  #56544C;
+
+    /* ---- raised / hover / pressed / field faces ---- */
+    --fl-rT: #FAF9F5;   --fl-rB: #ECEAE4;
+    --fl-hT: #FEFDFA;   --fl-hB: #F1EFE9;
+    --fl-pT: #E4E1DA;   --fl-pB: #EEECE6;
+    --fl-fld: #FBFAF6;  --fl-fld2: #EFEDE7;
+    --fl-hov: rgba(253, 252, 248, 0.6);
+    --fl-disBg: #EBE9E3; --fl-disTx: #A3A099;
+
+    /* ---- brass ink: quiet actions, links, marginalia. Muted almost to
+            gray - it should read as "a different ink", not as a highlight. */
+    --fl-qt:  #6E6349;
+    --fl-qt2: #4F4633;
+
+    /* ---- scrollbar ---- */
+    --fl-sbA: #D4D1C9;  --fl-sbB: #ADAAA1;
+    --fl-sbC: #DEDBD3;  --fl-sbD: #B7B4AB;
+
+    /* ---- window chrome (screenshots, mock titlebars) ---- */
+    --fl-ct: #837F74;   --fl-cb: #67635A;
+
+    /* ---- code reads as an ink panel on the ground, in both modes ---- */
+    --fl-code-bg:  #211F1B;
+    --fl-code-fg:  #E4E1D6;
+    --fl-code-bd:  #443F35;
+    --fl-code-dim: #928D80;
+
+    /* ---- the accent stone: deep blue, the house pair for the brass. One
+            block; swap it to retint the whole site. Alternates that hold up
+            against this ground:
+              leaf   #44684F / #2F4C39 / #E1E6E1 / #7FA98C
+              plum   #574A66 / #3E344B / #E5E1EA / #8E80A2
+              clay   #7E4A42 / #5E332D / #EAE0DD / #B3837A
+              slate  #4A5C6B / #354551 / #DEE3E7 / #8AA0B0            ---- */
+    --fl-acc:    #2F4A85;
+    --fl-deep:   #1E3260;
+    --fl-soft:   #E0E4EE;
+    --fl-glow:   #7A93C6;
+    --fl-gla:    rgba(122, 147, 198, 0.55);
+    --fl-on-acc: #F4F2EA;
+
+    /* ---- leaf: only ever a border. Two radial passes clipped to the
+            border box, so it catches light on opposite corners. Brass, not
+            gold - the yellow is barely there. ---- */
+    --fl-leaf-a: radial-gradient(at 100% 100%, #DFCB92 0%, #C6B279 8%, #8B8058 30%, #7A7052 40%, rgba(0, 0, 0, 0) 80%);
+    --fl-leaf-b: radial-gradient(at 0 0, #FFFEF8 0%, #EFEBD3 8%, #BAB08B 25%, #55503D 62.5%, #55503D 100%);
+    /* A rolled edge rather than a leafed corner: lit along the top, falling
+       away down the sides. This is the form that reads as ONE piece with a
+       horizontal metal rule, so tabs and rules can be cut from it together. */
+    --fl-rolled: linear-gradient(180deg, #FFFDF3 0%, #E4DCB8 22%, #C6B279 52%, #8B8058 100%);
+    --fl-rule-metal-bg: linear-gradient(90deg,
+        rgba(122, 112, 82, 0.5) 0%,
+        rgba(198, 178, 121, 0.95) 16%,
+        rgba(239, 235, 211, 1) 32%,
+        rgba(162, 146, 95, 0.9) 50%,
+        rgba(239, 235, 211, 1) 68%,
+        rgba(198, 178, 121, 0.95) 84%,
+        rgba(122, 112, 82, 0.5) 100%);
+
+    /* ---- the stone: light entering at 30% 12%, upper left ---- */
+    --fl-gem: radial-gradient(ellipse 130% 100% at 30% 12%, var(--fl-glow) 0%, var(--fl-acc) 48%, var(--fl-deep) 100%);
+    --fl-gem-sunken: linear-gradient(175deg, var(--fl-deep) 0%, var(--fl-acc) 96%);
+
+    /* ---- the band: the page the selected tab belongs to. It starts at the
+            colour the tab's foot ends on, so the two are continuous, and
+            darkens away from it. The figure printed over it is the house
+            mark, tiled - a mask, so its ink is a token like everything else.
+            ---- */
+    --fl-band:       linear-gradient(180deg, #2B4477 0%, #1B2C4C 46%, #16233D 100%);
+    --fl-band-ink:   #ECEEF4;
+    --fl-band-soft:  rgba(236, 238, 244, 0.74);
+    --fl-band-edge:  rgba(236, 238, 244, 0.16);
+    --fl-band-fig:   rgba(198, 178, 121, 0.06);
+    --fl-figure: url("data:image/svg+xml,<svg width='20' height='20' version='1.1' viewBox='0 0 5.2916 5.2916' xmlns='http://www.w3.org/2000/svg'><g transform='matrix(0 .072784 -.072784 0 14.124 -5.7428)' fill='%23fff'><path d='m109.77 173.53c-0.896 3.2059-6.8131 9.434-8.0516 10.303 1.9694 0.70774 8.0938-1.8637 9.64-2.9601-0.32514 2.9675 1.5339 12.903 3.8893 12.769 2.5788-0.72015 4.3088-10.93 4.1636-12.878 0.8414 1.2268 7.58 3.7138 9.0928 3.0693-1.9732-1.1212-6.6716-7.4871-7.8878-10.303m-1.3688-4.3097c0.57954-2.6037 0.10921-12.503 7.3182-18.743 3.9538-3.4232 8.0441-3.6951 12.075-2.8508 1.7598 0.37001 4.6761 3.3686 4.4986 7.5082-0.17996 4.2191-0.46042 6.0766-3.3693 9.3173-2.8965 3.2245-7.5775 4.1893-9.6785 4.1098 0.57582-2.4448 2.1643-4.9752 1.7101-6.4665-1.3788-4.2551-7.5539 3.9633-8.5207 7.1519m-11.757 0.036c-0.57336-2.6112-0.48772-11.851-7.6135-18.852-3.8744-3.8044-8.234-3.7175-12.38-2.8496-1.8019 0.37622-4.3435 3.3139-4.1623 7.4523 0.18491 4.2191 0.37974 5.7923 3.2862 9.0975 3.0839 3.5064 7.6694 4.9057 9.6401 4.3842-0.58822-2.4448-2.2177-4.974-1.7523-6.4665 1.4135-4.2551 7.7724 4.0453 8.7639 7.2338m-4.6004-0.0285h25.306v4.2747h-25.306zm12.555-47.499c-13.958 13.411-7.7935 25.824-3.5443 38.575 0.97417 2.9216 1.591 5.6718 1.3961 8.8628l4.3832 0.0347c5e-3 -3.1277 0.26555-6.2467 1.5363-9.1372 6.1554-13.993 9.9615-24.654-3.7639-38.312' fill='%23fff'/></g></svg>");
+
+    /* ---- grain: two hairline rasters the whole ground rests on ---- */
+    --fl-grain:
+        repeating-linear-gradient(0deg,  rgba(90, 86, 74, 0.030) 0 1px, transparent 1px 3px),
+        repeating-linear-gradient(90deg, rgba(90, 86, 74, 0.022) 0 1px, transparent 1px 3px);
+    --fl-fibre: repeating-linear-gradient(90deg, rgba(90, 86, 74, 0.026) 0 1px, transparent 1px 3px);
+
+    /* ---- depth. Shadows are barely warm, never blue-neutral ---- */
+    --fl-shadow-1: 0 1px 2px rgba(48, 45, 38, 0.14);
+    --fl-shadow-2: 0 2px 5px rgba(48, 45, 38, 0.16), 0 10px 26px rgba(48, 45, 38, 0.13);
+    --fl-shadow-3: 0 6px 14px rgba(48, 45, 38, 0.18), 0 22px 48px rgba(48, 45, 38, 0.16);
+    --fl-lip:      inset 0 1px 0 rgba(255, 255, 255, 0.7), inset 0 -2px 3px rgba(48, 45, 38, 0.10);
+    --fl-well:     inset 0 1px 2px rgba(48, 45, 38, 0.10);
+    /* the two facts a recess is made of: what the near lip hides, and what
+       the far wall throws back */
+    --fl-recess:   rgba(28, 26, 21, 0.55);
+    --fl-bounce:   rgba(255, 255, 255, 0.9);
+
+    /* ---- radii. The house radius is 3px; nothing is rounder than 5. ---- */
+    --fl-r:  3px;
+    --fl-r2: 5px;
+
+    /* ======================================================================
+       MOTION
+       One easing curve and three durations, so a widget port can reproduce
+       the feel exactly. `slow` is for light travelling across a stone,
+       `base` for a state change, `fast` for a press.
+       ====================================================================== */
+    --fl-ease:      cubic-bezier(0.25, 0.46, 0.45, 0.94);
+    --fl-ease-out:  cubic-bezier(0.22, 0.61, 0.36, 1);
+    --fl-dur-slow:  1.2s;
+    --fl-dur:       0.42s;
+    --fl-dur-fast:  0.14s;
+
+    /* ======================================================================
+       SEMANTIC ALIASES
+       The rest of the site speaks only in these. Retheming = editing the
+       block above.
+       ====================================================================== */
+    --color-text:         var(--fl-ink);
+    --color-text-light:   var(--fl-intro);
+    --color-bg:           var(--fl-pg);
+    --color-surface:      var(--fl-sur);
+    --color-accent:       var(--fl-qt);
+    --color-accent-hover: var(--fl-qt2);
+    --color-border:       var(--fl-bd);
+    --focus-color:        var(--fl-acc);
+
+    --color-gold:      #9A8B5F;
+    --color-gold-dark: #776B49;
+    --color-navy:      var(--fl-ink);
+
+    /* Three hands, three jobs. Garamond is for RUNNING TEXT and nothing
+       else; chrome and headings belong to the Grenze family so the whole
+       site reads as one piece. */
+    --font-serif:   'EB Garamond', Georgia, 'Times New Roman', serif;
+    --font-display: 'Grenze Gotisch', 'Grenze', Georgia, serif;
+    --font-ui:      'Grenze', 'EB Garamond', Georgia, serif;
+    /* Every label set in capitals uses Garamond. Grenze is a fine text face
+       but its capitals do not hold at UI sizes - they read as decoration
+       rather than as a label. If a rule says all-small-caps, it says
+       --font-caps. */
+    --font-caps:    'EB Garamond', Georgia, 'Times New Roman', serif;
+    --font-sans:    'Grenze', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+    --font-mono:    'Red Hat Mono', ui-monospace, SFMono-Regular, Menlo, monospace;
+}
+
+/* --------------------------------------------------------------------------
+   Dark: the same room at night. The ground darkens to a warm charcoal, the
+   ink inverts, and the brass warms up - it is the only thing in the room
+   still catching a light.
+
+   The two blocks below are deliberately identical: one for the system
+   preference (unless the reader has explicitly asked for light), one for the
+   explicit toggle. Keep them in sync.
+   -------------------------------------------------------------------------- */
+@media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+        color-scheme: dark;
+
+        --fl-pg: #1A1A1A;  --fl-sur: #232323;  --fl-desk: #121212;
+        --fl-strip: #1F1F1F; --fl-track: #151515;
+
+        --fl-bd: #3F3F3F;  --fl-bd2: #4A4A4A; --fl-bd3: #616161;
+        --fl-bd4: #343434; --fl-bd5: #101010;
+        --fl-sep: #383838; --fl-sep2: #2E2E2E;
+
+        --fl-ink: #E7E7E7;   --fl-ink2: #DCDCDC; --fl-intro: #BCBCBC;
+        --fl-soft1: #A8A8A8; --fl-soft2: #8C8C8C; --fl-soft3: #9A9A9A;
+        --fl-icon: #BEBEBE;
+
+        --fl-rT: #333333;  --fl-rB: #292929;
+        --fl-hT: #3F3F3F;  --fl-hB: #333333;
+        --fl-pT: #1F1F1F;  --fl-pB: #262626;
+        --fl-fld: #1D1D1D; --fl-fld2: #242424;
+        --fl-hov: rgba(58, 58, 58, 0.7);
+        --fl-disBg: #242424; --fl-disTx: #666666;
+
+        /* Brass survives as INK - a link has to read as a link - but the
+           ground it sits on stays neutral. */
+        --fl-qt: #C4B58E;  --fl-qt2: #DED3B4;
+
+        --fl-sbA: #3F3F3F; --fl-sbB: #333333;
+        --fl-sbC: #4A4A4A; --fl-sbD: #3F3F3F;
+
+        --fl-ct: #383838;  --fl-cb: #262626;
+
+        --fl-code-bg: #141414; --fl-code-fg: #E2E2E2;
+        --fl-code-bd: #363636; --fl-code-dim: #858585;
+
+        /* The accent keeps its stone; only the focus ring lifts to the
+           stone's own highlight so it survives on a dark ground. */
+        --focus-color: var(--fl-glow);
+
+        --color-gold: #C4B58E; --color-gold-dark: #DED3B4;
+
+        --fl-grain:
+            repeating-linear-gradient(0deg,  rgba(0, 0, 0, 0.20) 0 1px, transparent 1px 3px),
+            repeating-linear-gradient(90deg, rgba(0, 0, 0, 0.14) 0 1px, transparent 1px 3px);
+        --fl-fibre: repeating-linear-gradient(90deg, rgba(0, 0, 0, 0.16) 0 1px, transparent 1px 3px);
+
+        --fl-shadow-1: 0 1px 2px rgba(0, 0, 0, 0.55);
+        --fl-shadow-2: 0 2px 5px rgba(0, 0, 0, 0.5), 0 10px 26px rgba(0, 0, 0, 0.45);
+        --fl-shadow-3: 0 6px 14px rgba(0, 0, 0, 0.55), 0 22px 48px rgba(0, 0, 0, 0.5);
+        --fl-lip:  inset 0 1px 0 rgba(255, 255, 255, 0.09), inset 0 -2px 3px rgba(0, 0, 0, 0.4);
+    --fl-recess: rgba(0, 0, 0, 0.75);
+    --fl-band: linear-gradient(180deg, #24395F 0%, #141F35 46%, #101827 100%);
+    --fl-band-fig: rgba(198, 178, 121, 0.055);
+    --fl-bounce: rgba(255, 255, 255, 0.34);
+        --fl-recess: rgba(0, 0, 0, 0.75);
+    --fl-band: linear-gradient(180deg, #24395F 0%, #141F35 46%, #101827 100%);
+    --fl-band-fig: rgba(198, 178, 121, 0.055);
+        --fl-band: linear-gradient(180deg, #24395F 0%, #141F35 46%, #101827 100%);
+        --fl-band-fig: rgba(198, 178, 121, 0.055);
+        --fl-bounce: rgba(255, 255, 255, 0.34);
+        --fl-well: inset 0 1px 2px rgba(0, 0, 0, 0.45);
+    }
+}
+
+:root[data-theme="dark"] {
+    color-scheme: dark;
+
+    --fl-pg: #1A1A1A;  --fl-sur: #232323;  --fl-desk: #121212;
+    --fl-strip: #1F1F1F; --fl-track: #151515;
+
+    --fl-bd: #3F3F3F;  --fl-bd2: #4A4A4A; --fl-bd3: #616161;
+    --fl-bd4: #343434; --fl-bd5: #101010;
+    --fl-sep: #383838; --fl-sep2: #2E2E2E;
+
+    --fl-ink: #E7E7E7;   --fl-ink2: #DCDCDC; --fl-intro: #BCBCBC;
+    --fl-soft1: #A8A8A8; --fl-soft2: #8C8C8C; --fl-soft3: #9A9A9A;
+    --fl-icon: #BEBEBE;
+
+    --fl-rT: #333333;  --fl-rB: #292929;
+    --fl-hT: #3F3F3F;  --fl-hB: #333333;
+    --fl-pT: #1F1F1F;  --fl-pB: #262626;
+    --fl-fld: #1D1D1D; --fl-fld2: #242424;
+    --fl-hov: rgba(58, 58, 58, 0.7);
+    --fl-disBg: #242424; --fl-disTx: #666666;
+
+    /* Brass survives as INK - a link has to read as a link - but the
+       ground it sits on stays neutral. */
+    --fl-qt: #C4B58E;  --fl-qt2: #DED3B4;
+
+    --fl-sbA: #3F3F3F; --fl-sbB: #333333;
+    --fl-sbC: #4A4A4A; --fl-sbD: #3F3F3F;
+
+    --fl-ct: #383838;  --fl-cb: #262626;
+
+    --fl-code-bg: #141414; --fl-code-fg: #E2E2E2;
+    --fl-code-bd: #363636; --fl-code-dim: #858585;
+
+    /* The accent keeps its stone; only the focus ring lifts to the
+       stone's own highlight so it survives on a dark ground. */
+    --focus-color: var(--fl-glow);
+
+    --color-gold: #C4B58E; --color-gold-dark: #DED3B4;
+
+    --fl-grain:
+        repeating-linear-gradient(0deg,  rgba(0, 0, 0, 0.20) 0 1px, transparent 1px 3px),
+        repeating-linear-gradient(90deg, rgba(0, 0, 0, 0.14) 0 1px, transparent 1px 3px);
+    --fl-fibre: repeating-linear-gradient(90deg, rgba(0, 0, 0, 0.16) 0 1px, transparent 1px 3px);
+
+    --fl-shadow-1: 0 1px 2px rgba(0, 0, 0, 0.55);
+    --fl-shadow-2: 0 2px 5px rgba(0, 0, 0, 0.5), 0 10px 26px rgba(0, 0, 0, 0.45);
+    --fl-shadow-3: 0 6px 14px rgba(0, 0, 0, 0.55), 0 22px 48px rgba(0, 0, 0, 0.5);
+    --fl-lip:  inset 0 1px 0 rgba(255, 255, 255, 0.09), inset 0 -2px 3px rgba(0, 0, 0, 0.4);
+    --fl-recess: rgba(0, 0, 0, 0.75);
+    --fl-band: linear-gradient(180deg, #24395F 0%, #141F35 46%, #101827 100%);
+    --fl-band-fig: rgba(198, 178, 121, 0.055);
+    --fl-bounce: rgba(255, 255, 255, 0.34);
+    --fl-well: inset 0 1px 2px rgba(0, 0, 0, 0.45);
+}
+
+* {
+    margin: 0;
+    padding: 0;
+    box-sizing: border-box;
+}
+
+/* Smooth Scrolling */
+html {
+    scroll-behavior: smooth;
+}
+
+/* Skip to Content Link - Accessibility */
+.skip-to-content {
+    position: absolute;
+    top: -100px;
+    left: 0;
+    background: var(--fl-gem-sunken);
+    color: var(--fl-on-acc);
+    padding: 12px 24px;
+    text-decoration: none;
+    font-family: var(--font-caps);
+    font-weight: 700;
+    font-variant: all-small-caps;
+    letter-spacing: 0.06em;
+    z-index: 1001;
+    border: 1px solid var(--fl-deep);
+    border-top: none;
+    border-radius: 0 0 var(--fl-r) 0;
+    transition: top 0.2s ease;
+}
+
+.skip-to-content:focus {
+    top: 0;
+}
+
+/* Focus Indicators - Accessibility */
+*:focus {
+    outline: 2px solid var(--focus-color);
+    outline-offset: 2px;
+}
+
+a:focus,
+button:focus {
+    outline: 2px solid var(--focus-color);
+    outline-offset: 2px;
+}
+
+/* Section focus for keyboard navigation */
+section:focus {
+    outline: 3px solid var(--focus-color);
+    outline-offset: -3px;
+}
+
+/* Card focus for keyboard navigation */
+.feature-card:focus,
+.testimonial-card:focus,
+.faq-item:focus {
+    outline: 2px solid var(--focus-color);
+    outline-offset: 2px;
+}
+
+body {
+    font-family: var(--font-serif);
+    /* EB Garamond runs small: 18px here sits at the optical size of a 16px
+       grotesque. Line-height stays open enough for the long ascenders. */
+    font-size: 18px;
+    line-height: 1.65;
+    color: var(--color-text);
+    background-color: var(--color-bg);
+    background-image: var(--fl-grain);
+    -webkit-font-smoothing: antialiased;
+    display: flex;
+    flex-direction: column;
+    min-height: 100vh;
+}
+
+/* Openers are set in the display hand and never tracked tight - Grenze
+   Gotisch is already condensed; negative tracking closes it up into a blot.
+   Below h2 the display face gets too dense to read, so the lower ranks drop
+   to the UI hand in capitals - the specimen's own treatment for a label. */
+h1, h2 {
+    font-family: var(--font-display);
+    font-weight: 500;
+    letter-spacing: 0.015em;
+    color: var(--color-text);
+}
+
+/* h3 and below take the UI hand: the same skeleton, upright and readable
+   at body-adjacent sizes where the blackletter joins would clot. */
+h3, h4, h5, h6 {
+    font-family: var(--font-ui);
+    font-weight: 600;
+    letter-spacing: 0.01em;
+    color: var(--color-text);
+}
+
+/* Global h2 sizing - smaller than before */
+h2 {
+    font-size: 42px;
+}
+
+/* Underline for tel and mailto links */
+a[href^="tel:"],
+a[href^="mailto:"] {
+    text-decoration: underline;
+}
+
+/* Underline for links in contact glass box */
+.contact-glass-box a {
+    text-decoration: underline;
+}
+
+main {
+    flex: 1;
+}
+
+.container {
+    max-width: 1200px;
+    margin: 0 auto;
+    padding: 0 24px;
+}
+
+/* ==========================================================================
+   NAVIGATION - a full-bleed strip across the top of the page.
+
+   The strip has exactly one three-dimensional feature: a bevel along its
+   BOTTOM edge (a lit face, then a shadow line, then the page). Everything
+   else is flat, so the only thing that reads as an object is the socket.
+
+   The socket sits at the top right, is wider than the strip is tall, and
+   hangs past the bottom edge - the mark is sunk INTO the strip's surface
+   and pushes through it. It is also the menu trigger, at every width: on
+   mobile it replaces the hamburger outright.
+   ========================================================================== */
+.navbar {
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    width: 100%;
+    max-width: none;
+    transform: none;
+    z-index: 100;
+    border: 0;
+    border-bottom: 1px solid var(--fl-bd3);
+    border-radius: 0;
+    /* Clean. The raster belongs to page grounds; chrome is a smooth face. */
+    background: linear-gradient(var(--fl-rT), var(--fl-rB));
+    backdrop-filter: blur(6px);
+    -webkit-backdrop-filter: blur(6px);
+    /* the bevel: a lit face just inside the edge, a shadow line just below */
+    box-shadow: inset 0 -2px 0 rgba(255, 255, 255, 0.5),
+                0 1px 0 var(--fl-bd4),
+                0 6px 16px rgba(48, 45, 38, 0.13);
+    transition: border-color 0.3s ease, box-shadow 0.3s ease;
+}
+
+/* The rule that closes the strip is drawn in metal, and it is the SAME rule
+   the selected tab is cut from: it runs the width of the page, meets the
+   tab's left edge, climbs it, crosses the tab's head and comes back down the
+   right - because the tab carries the identical leaf on three sides and
+   nothing on the fourth, and sits above the rule so its own body hides the
+   segment underneath. No SVG: two stacked layers and a z-index. */
+.navbar::after {
+    content: "";
+    position: absolute;
+    left: 0;
+    right: 0;
+    bottom: -1px;
+    height: 2px;
+    z-index: 3;
+    pointer-events: none;
+    background: var(--fl-rule-metal-bg);
+}
+
+.navbar .container {
+    display: flex;
+    justify-content: space-between;
+    align-items: stretch;
+    gap: 16px;
+    padding-top: 9px;
+    padding-bottom: 0;
+    min-height: 42px;
+}
+
+/* The strip is short, so the links carry it: they sit on the left where the
+   eye starts, and the socket anchors the right. */
+.navbar .nav-links { margin-right: auto; align-items: flex-end; }
+/* The lamp and the socket are not tabs - they stay centred on the strip, and
+   they stay hard right even when the tabs are gone (below 900px the strip is
+   just these two, and space-between would otherwise park them on the left). */
+.navbar .nav-right { align-self: center; margin-left: auto; }
+
+.nav-brand-link {
+    text-decoration: none;
+    color: inherit;
+    display: flex;
+    align-items: center;
+}
+
+.nav-brand {
+    font-family: var(--font-display);
+    font-size: 22px;
+    font-weight: 500;
+    letter-spacing: 0.02em;
+    display: flex;
+    align-items: center;
+}
+
+.nav-brand img {
+    height: 30px;
+    width: auto;
+}
+
+/* ---- THE SOCKET -------------------------------------------------------
+   Seven layers, each its own element, because each is a separate physical
+   fact and the widget port needs to map them one to one:
+
+     .fl-orb-well          the recess cut into the strip
+     .fl-orb-well-shadow   what the top lip casts down into that recess
+     .fl-orb-well-bounce   light coming back off the far (lower) wall
+     .fl-orb-collar        the metal ring seating the mark
+     .fl-orb-stone         the mark itself, domed
+     .fl-orb-gloss         the specular cap on the dome's upper half
+     .fl-orb-edge          the well's bounce landing on the dome's lower rim
+
+   Negative margins keep the socket from growing the strip: it is wider than
+   the strip is tall, so it overhangs. That overhang is the point.
+   ---------------------------------------------------------------------- */
+.fl-orb {
+    position: relative;
+    flex: none;
+    width: 60px;
+    height: 60px;
+    margin: -9px 0 -23px;
+    padding: 0;
+    border: 0;
+    background: none;
+    cursor: pointer;
+    isolation: isolate;
+    -webkit-tap-highlight-color: transparent;
+    /* above .navbar::after (z-index 3): the rule passes BEHIND the socket,
+       it does not cut across it */
+    z-index: 5;
+}
+
+.fl-orb:focus-visible { outline: 2px solid var(--focus-color); outline-offset: 3px; border-radius: 50%; }
+
+/* 1. the recess. Its own drop shadow is what makes it read as hanging past
+      the strip rather than printed on it. */
+.fl-orb-well {
+    position: absolute;
+    inset: 0;
+    border-radius: 50%;
+    overflow: hidden;
+    border: 1px solid var(--fl-bd3);
+    background: linear-gradient(180deg, var(--fl-pT) 0%, var(--fl-rT) 82%);
+    box-shadow: 0 5px 12px rgba(48, 45, 38, 0.32);
+    transition: box-shadow var(--fl-dur) var(--fl-ease);
+}
+
+/* 2. the shadow the top lip throws down into the well */
+.fl-orb-well-shadow {
+    position: absolute;
+    inset: 0;
+    border-radius: 50%;
+    background: radial-gradient(ellipse 124% 80% at 50% -16%,
+        var(--fl-recess) 0%, transparent 62%);
+    transition: opacity var(--fl-dur) var(--fl-ease);
+}
+
+/* 3. light coming back up off the far wall */
+.fl-orb-well-bounce {
+    position: absolute;
+    inset: 0;
+    border-radius: 50%;
+    background: radial-gradient(ellipse 94% 54% at 50% 114%,
+        var(--fl-bounce) 0%, transparent 58%);
+}
+
+/* 4. the collar. A full disc of metal; the stone covers all but a hairline
+      annulus of it, which is exactly how a seated stone reads. */
+.fl-orb-collar {
+    position: absolute;
+    inset: 5px;
+    border-radius: 50%;
+    background: conic-gradient(from 208deg,
+        #8B8058 0%, #EFEBD3 15%, #A2925F 31%, #55503D 49%,
+        #C6B279 68%, #EFEBD3 80%, #7A7052 92%, #8B8058 100%);
+    box-shadow: 0 1px 2px rgba(0, 0, 0, 0.4);
+}
+
+/* 5. the mark, domed: dark falloff along the lower right, seated shadow */
+.fl-orb-stone {
+    position: absolute;
+    inset: 7px;
+    border-radius: 50%;
+    overflow: hidden;
+    box-shadow: inset 0 -4px 7px rgba(0, 0, 0, 0.45),
+                0 1px 3px rgba(0, 0, 0, 0.45);
+    transition: transform var(--fl-dur) var(--fl-ease-out),
+                filter var(--fl-dur-slow) var(--fl-ease);
+}
+
+.fl-orb-stone img,
+.fl-orb .nav-brand-logo {
+    width: 100%;
+    height: 100%;
+    display: block;
+    border-radius: 50%;
+}
+
+/* 6. the specular cap. Hard along the top, dissolving at the equator. */
+.fl-orb-gloss {
+    position: absolute;
+    left: 11%;
+    right: 11%;
+    top: 4%;
+    height: 46%;
+    border-radius: 50% 50% 44% 44% / 62% 62% 38% 38%;
+    background: linear-gradient(180deg,
+        rgba(255, 255, 255, 0.62) 0%,
+        rgba(255, 255, 255, 0.22) 52%,
+        rgba(255, 255, 255, 0.03) 100%);
+    pointer-events: none;
+}
+
+/* 7. the well's bounce landing on the dome's lower rim - the detail that
+      says the mark is sitting IN something, not on it. */
+.fl-orb-edge {
+    position: absolute;
+    inset: 0;
+    border-radius: 50%;
+    background: radial-gradient(ellipse 76% 44% at 50% 106%,
+        color-mix(in srgb, var(--fl-glow) 70%, white) 0%, transparent 58%);
+    pointer-events: none;
+}
+
+.fl-orb:hover .fl-orb-stone { filter: brightness(1.08); }
+
+/* Pressed / open: the well deepens, its lip shadow strengthens, and the
+   stone settles further in. */
+.fl-orb:active .fl-orb-stone,
+body.nav-open .fl-orb .fl-orb-stone { transform: scale(0.955); }
+
+body.nav-open .fl-orb .fl-orb-well {
+    box-shadow: 0 2px 6px rgba(48, 45, 38, 0.26);
+}
+
+body.nav-open .fl-orb .fl-orb-well-shadow { opacity: 1.35; }
+
+/* The socket does the hamburger's job now. */
+.nav-toggle { display: none !important; }
+
+.nav-right {
+    display: flex;
+    align-items: center;
+    gap: 14px;
+}
+
+.nav-links {
+    display: flex;
+    gap: 8px;
+}
+
+/* Nav items are tabs: capitals in the UI hand, square-shouldered at the
+   bottom so they close on the strip's rule. Unselected tabs sit BEHIND the
+   rule (it crosses their foot); the selected one sits above it and breaks
+   it, which is what "selected" means in a tab bar. */
+.nav-links a {
+    position: relative;
+    z-index: 1;
+    color: var(--fl-soft1);
+    text-decoration: none;
+    font-family: var(--font-caps);
+    font-size: 17px;
+    font-weight: 700;
+    font-variant: all-small-caps;
+    letter-spacing: 0.07em;
+    transition: color 0.2s ease, background 0.2s ease, border-color 0.2s ease;
+    cursor: pointer;
+    padding: 3px 12px 4px;
+    border: 1px solid transparent;
+    border-bottom: none;
+    border-radius: 4px 4px 0 0;
+}
+
+.nav-links a:hover {
+    color: var(--fl-ink);
+    background: linear-gradient(var(--fl-hT), var(--fl-hB));
+    border-color: var(--fl-bd);
+}
+
+.nav-links a:active {
+    background: linear-gradient(var(--fl-pT), var(--fl-pB));
+    border-color: var(--fl-bd3);
+    box-shadow: inset 0 1px 3px rgba(48, 45, 38, 0.2);
+}
+
+/* The selected tab: a sunken stone in a metal surround, open at the foot so
+   the strip's rule runs straight into it. */
+.nav-links a.active {
+    z-index: 4;
+    color: var(--fl-on-acc);
+    /* 2px of the same metal as the rule, on three sides, and the tab grows
+       down over the rule so the two are one continuous edge. */
+    border: 2px solid transparent;
+    border-bottom: none;
+    /* the 2px metal edge eats into the corner, so the outer radius has to
+       grow to keep the same shoulder the unselected tabs show */
+    border-radius: 6px 6px 0 0;
+    margin-bottom: -1px;
+    padding: 3px 12px 5px;
+    background:
+        var(--fl-gem-sunken) padding-box,
+        var(--fl-rolled) border-box;
+    box-shadow: inset 0 2px 5px rgba(0, 0, 0, 0.45);
+    text-shadow: 0 1px 1px rgba(0, 0, 0, 0.35);
+    /* the shoulders live outside the tab's box */
+    overflow: visible;
+}
+
+/* The depth rig normally bleeds past its host and relies on the host
+   clipping it. The selected tab cannot clip (its shoulders hang outside),
+   so the rig is pulled back inside instead. */
+.nav-links a.active::before { inset: 0; }
+
+/* ---- THE SHOULDERS ----------------------------------------------------
+   A tab does not meet its page at a right angle; it flares out and the
+   corner is coved. Each shoulder is one element carrying one radial
+   gradient with hard stops, measured from the corner the arc turns about:
+
+     r <  W        outside the tab   - the strip shows through
+     W <= r < W+2  the metal edge    - the same edge the tab and rule share
+     r >= W+2      the tab's own face, flaring to meet the rule
+
+   No mask, no SVG: position plus a three-stop radial. That is the whole
+   construction, and it ports as-is.
+   --------------------------------------------------------------------- */
+.navbar .nav-links a.active { overflow: visible; }
+.navbar .nav-links a.active::before { inset: 0; }
+
+/* ---- THE SHOULDER ASSEMBLY -------------------------------------------
+   A tab does not meet its page at a right angle. Four overlay elements do
+   the work, and every one of them is a rectangle carrying one gradient -
+   no SVG, nothing that a widget toolkit cannot draw:
+
+     .fl-tab-shoulder-l/-r  the cove itself: a radial with hard stops, the
+                            arc turning about the shoulder's outer top
+                            corner so it leaves the tab's side vertically
+                            and arrives at the rule horizontally
+     .fl-tab-seam           a 2px overlay lying ALONG the rule, opaque at
+                            both ends and open in the middle. It bridges
+                            arc-to-rule at both junctions without closing
+                            the tab's foot - matching one y and one
+                            thickness instead of two curves
+     .fl-tab-foot           a soft bleed of the tab's own colour under its
+                            foot, blurred, so the tab dissolves into the
+                            page rather than stopping at a line
+
+   --------------------------------------------------------------------- */
+.fl-tab-shoulder {
+    position: absolute;
+    bottom: 0;
+    width: 13px;
+    height: 13px;
+    pointer-events: none;
+    z-index: -1;
+}
+
+.fl-tab-shoulder-l {
+    left: -13px;
+    background: radial-gradient(circle 26px at 0 0,
+        transparent 0 12.9px,
+        #E4DCB8 13px 14.9px,
+        var(--fl-acc) 15px);
+}
+
+.fl-tab-shoulder-r {
+    right: -13px;
+    background: radial-gradient(circle 26px at 100% 0,
+        transparent 0 12.9px,
+        #E4DCB8 13px 14.9px,
+        var(--fl-acc) 15px);
+}
+
+/* The bridge. Ends opaque, middle open; a hair of blur so the meeting of
+   two separately drawn edges is a fade rather than a step. */
+.fl-tab-seam {
+    position: absolute;
+    left: -22px;
+    right: -22px;
+    bottom: 0;
+    height: 2px;
+    z-index: -1;
+    pointer-events: none;
+    filter: blur(0.6px);
+    background: linear-gradient(90deg,
+        #D8CFA6 0,
+        #E9E3C6 10px,
+        rgba(233, 227, 198, 0) 24px,
+        rgba(233, 227, 198, 0) calc(100% - 24px),
+        #E9E3C6 calc(100% - 10px),
+        #D8CFA6 100%);
+}
+
+/* The foot. The tab's own colour, blurred, bleeding down into the page. */
+.fl-tab-foot {
+    position: absolute;
+    left: -6px;
+    right: -6px;
+    bottom: -4px;
+    height: 10px;
+    z-index: -2;
+    pointer-events: none;
+    opacity: 0.9;
+    filter: blur(3px);
+    background: linear-gradient(180deg,
+        var(--fl-acc) 0%,
+        var(--fl-acc) 45%,
+        rgba(43, 68, 119, 0) 100%);
+}
+
+.lang-switcher {
+    font-size: 14px;
+    font-weight: 600;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    height: 100%;
+}
+
+.lang-switcher a {
+    color: var(--color-text-light);
+    text-decoration: none;
+    transition: all 0.2s ease;
+    cursor: pointer;
+    padding: 8px 12px;
+    border-radius: 8px;
+}
+
+.lang-switcher a:hover {
+    color: var(--color-accent);
+    background: rgba(0, 4, 40, 0.05);
+    transform: translateY(-2px);
+}
+
+.lang-switcher a:active {
+    transform: translateY(0);
+    background: rgba(0, 4, 40, 0.1);
+}
+
+/* ==========================================================================
+   THE BAND - the page the selected tab opens onto.
+
+   It begins at the colour the tab's foot ends on, so tab and page read as
+   one surface, then darkens away from it. The house mark is tiled across it
+   as a printed figure - drawn with a mask, so its ink stays a token. The
+   same metal rule that closes the strip at the top closes the band at the
+   bottom.
+   ========================================================================== */
+.hero {
+    padding: 116px 0 80px;
+    position: relative;
+    overflow: hidden;
+    background: var(--fl-band);
+    border-bottom: 1px solid rgba(0, 0, 0, 0.5);
+    color: var(--fl-band-ink);
+}
+
+/* the figure, tiled */
+.hero::before {
+    content: "";
+    position: absolute;
+    pointer-events: none;
+    /* Oversized and turned on the diagonal: a mask cannot be rotated on its
+       own, so the layer carrying it is. It is sized far larger than the band
+       in both axes and centred, so the rotation can never leave a bare
+       corner whatever the band's aspect ratio. */
+    inset: auto;
+    top: 50%;
+    left: 50%;
+    width: 260%;
+    height: 520%;
+    transform: translate(-50%, -50%) rotate(45deg);
+    background-color: var(--fl-band-fig);
+    -webkit-mask-image: var(--fl-figure);
+            mask-image: var(--fl-figure);
+    -webkit-mask-repeat: repeat;
+            mask-repeat: repeat;
+    -webkit-mask-size: 22px 22px;
+            mask-size: 22px 22px;
+}
+
+/* the metal rule that closes the band */
+.hero::after {
+    content: "";
+    position: absolute;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    height: 2px;
+    background: var(--fl-rule-metal-bg);
+    pointer-events: none;
+    z-index: 2;
+}
+
+.hero .container {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 48px;
+    align-items: center;
+    position: relative;
+    z-index: 1;
+}
+
+.hero h1,
+.hero .hero-subtitle {
+    color: var(--fl-band-ink);
+    position: relative;
+}
+
+.hero .hero-subtitle { color: var(--fl-band-soft); }
+
+.hero-content {
+    max-width: 580px;
+}
+
+.hero h1 {
+    font-family: var(--font-display);
+    font-size: 62px;
+    font-weight: 500;
+    line-height: 1.06;
+    letter-spacing: 0.01em;
+    margin-bottom: 20px;
+}
+
+.hero-subtitle {
+    font-size: 19px;
+    line-height: 1.6;
+    margin-bottom: 32px;
+    font-weight: 400;
+    max-width: 540px;
+}
+
+.hero-image-wrapper {
+    position: relative;
+    width: 100%;
+    max-width: 500px;
+    border-radius: 8px;
+    overflow: visible;
+    order: 2;
+    margin: 0 auto;
+}
+
+.hero-image, .hero-video {
+    width: 100%;
+    height: auto;
+    display: block;
+    border: 1px solid var(--fl-bd5);
+    border-radius: var(--fl-r2);
+    box-shadow: var(--fl-shadow-3);
+    background: var(--fl-sur);
+    position: relative;
+    z-index: 2;
+    overflow: hidden;
+}
+
+.hero-video {
+    max-height: 500px;
+    object-fit: cover;
+}
+
+/* Text and quiet controls on the band read light. */
+.hero a:not(.btn),
+.hero a:not(.btn):visited {
+    color: #DCCFA4;
+    text-decoration: underline;
+    text-decoration-color: rgba(220, 207, 164, 0.5);
+    text-underline-offset: 0.18em;
+}
+.hero a:not(.btn):hover { color: #F2ECD6; }
+
+.cta-buttons {
+    display: flex;
+    gap: 16px;
+    flex-wrap: wrap;
+}
+
+/* ==========================================================================
+   BUTTONS - cut as stones, lit from the upper left.
+
+     .btn-secondary     raised paper - the everyday command
+     .btn-primary       accent stone - one per view, the thing to do next
+     .btn-hero-primary  metal-edged  - a metal border on paper, rare
+     .btn-quiet         brass ink    - reads as a note, not a control
+
+   Transitions run on --fl-dur-slow on purpose: light moves across a stone,
+   it does not snap. The depth rig (shafts, bloom, cast shadow) is applied
+   to .btn-primary further down, in one place with every other stone.
+   ========================================================================== */
+.btn {
+    display: inline-block;
+    padding: 7px 22px;
+    text-decoration: none;
+    font-family: var(--font-caps);
+    font-size: 19px;
+    font-weight: 700;
+    font-variant: all-small-caps;
+    line-height: 1.25;
+    border-radius: var(--fl-r);
+    letter-spacing: 0.06em;
+    vertical-align: middle;
+    cursor: pointer;
+    transition: filter var(--fl-dur-slow) var(--fl-ease),
+                background var(--fl-dur-slow) var(--fl-ease),
+                border-color var(--fl-dur) var(--fl-ease),
+                box-shadow var(--fl-dur) var(--fl-ease);
+}
+
+/* -- the accent stone -- */
+.btn-primary {
+    background: var(--fl-gem);
+    color: var(--fl-on-acc);
+    border: 1px solid var(--fl-deep);
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.3),
+                inset 0 -2px 4px rgba(0, 0, 0, 0.3),
+                var(--fl-shadow-1);
+    text-shadow: 0 1px 1px rgba(0, 0, 0, 0.3);
+}
+
+.btn-primary:hover { filter: brightness(1.06) drop-shadow(0 0 10px var(--fl-gla)); }
+.btn-primary:active { filter: brightness(0.94); }
+
+/* -- raised paper: the standard command -- */
+.btn-secondary {
+    background: linear-gradient(var(--fl-rT), var(--fl-rB));
+    color: var(--fl-ink);
+    border: 1px solid var(--fl-bd2);
+    box-shadow: var(--fl-lip), var(--fl-shadow-1);
+}
+
+.btn-secondary:hover {
+    background: linear-gradient(var(--fl-hT), var(--fl-hB));
+    border-color: var(--fl-bd3);
+    color: var(--fl-ink);
+}
+
+.btn-secondary:active {
+    background: linear-gradient(var(--fl-pT), var(--fl-pB));
+    box-shadow: inset 0 1px 3px rgba(48, 45, 38, 0.18);
+}
+
+/* -- metal-edged: the leaf on the border only, the field stays paper -- */
+.btn-hero-primary {
+    background:
+        linear-gradient(var(--fl-rT), var(--fl-rB)) padding-box,
+        var(--fl-leaf-a) border-box,
+        var(--fl-leaf-b) border-box;
+    color: var(--fl-ink);
+    border: 1px solid transparent;
+    box-shadow: var(--fl-shadow-1);
+}
+
+.btn-hero-primary:hover {
+    filter: brightness(1.06) drop-shadow(0 0 10px rgba(255, 216, 96, 0.55));
+    color: var(--fl-ink);
+}
+
+/* The hero CTA carries BOTH classes: the accent stone set in a metal bezel.
+   This is the one place on the site where the two treatments combine, and it
+   is what gives the opening screen somewhere for the eye to land. */
+.btn-primary.btn-hero-primary {
+    background:
+        var(--fl-gem) padding-box,
+        var(--fl-rolled) border-box;
+    color: var(--fl-on-acc);
+    border: 1px solid transparent;
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.3),
+                inset 0 -2px 4px rgba(0, 0, 0, 0.3),
+                var(--fl-shadow-1);
+    text-shadow: 0 1px 1px rgba(0, 0, 0, 0.3);
+}
+
+.btn-primary.btn-hero-primary:hover {
+    color: var(--fl-on-acc);
+    filter: brightness(1.06) drop-shadow(0 0 12px var(--fl-gla));
+}
+
+.btn-hero-secondary {
+    background: linear-gradient(var(--fl-rT), var(--fl-rB));
+    color: var(--fl-ink);
+    border: 1px solid var(--fl-bd2);
+    box-shadow: var(--fl-lip), var(--fl-shadow-1);
+}
+
+.btn-hero-secondary:hover {
+    background: linear-gradient(var(--fl-hT), var(--fl-hB));
+    border-color: var(--fl-bd3);
+}
+
+/* -- quiet: brass ink with a rule under it. Not a stone at all. -- */
+.btn-quiet {
+    background: linear-gradient(var(--fl-rT), var(--fl-fld2));
+    color: var(--fl-qt);
+    border: 1px solid var(--fl-sep);
+    text-decoration: underline;
+    text-underline-offset: 3px;
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.55);
+}
+
+.btn-quiet:hover {
+    color: var(--fl-qt2);
+    background: rgba(180, 135, 44, 0.08);
+}
+
+.btn[disabled],
+.btn.is-disabled {
+    background: var(--fl-disBg);
+    background-image: none;
+    color: var(--fl-disTx);
+    border-color: var(--fl-bd4);
+    box-shadow: none;
+    cursor: default;
+    filter: none;
+}
+
+/* A blue stone on a blue band needs a metal edge, or it sinks into the
+   ground it is sitting on. */
+.hero .btn-primary,
+.ui-hero .btn-primary {
+    border-color: transparent;
+    background:
+        var(--fl-gem) padding-box,
+        var(--fl-rolled) border-box;
+}
+
+/* Hero Google Reviews - inline */
+.hero-google-reviews {
+    margin-top: 32px;
+    padding-top: 24px;
+}
+
+.hero-google-reviews-stars {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    margin-bottom: 8px;
+}
+
+.hero-google-reviews-stars .stars {
+    color: var(--color-gold);
+    letter-spacing: 2px;
+    font-size: 20px;
+}
+
+.hero-google-reviews-stars .rating-text {
+    font-size: 15px;
+    color: rgba(248, 243, 230, 0.9);
+    font-weight: 500;
+}
+
+.hero-reviews-link {
+    color: rgba(248, 243, 230, 0.85);
+    text-decoration: none;
+    font-size: 14px;
+    font-weight: 500;
+    transition: color 0.2s;
+    display: inline-block;
+}
+
+.hero-reviews-link:hover {
+    color: var(--fl-on-acc);
+    text-decoration: underline;
+}
+
+/* Text Sections */
+.text-section {
+    padding: 80px 0;
+    background: transparent;
+    border-bottom: 1px solid var(--color-border);
+    position: relative;
+}
+
+/* First section on page (when not hero) needs extra padding for floating navbar */
+/* First content section after hero should have less padding */
+.hero + .first-content-section {
+    padding-top: 80px !important;
+}
+
+/* First content section without hero needs more padding for navbar */
+.first-content-section {
+    padding-top: 200px !important;
+}
+
+/* First section title should be larger than other sections */
+.first-content-section h2,
+.first-content-section h1 {
+    font-size: 64px !important;
+}
+
+.section-has-background {
+    border-bottom: none;
+}
+
+.text-section.has-gradient {
+    color: var(--fl-on-acc);
+}
+
+.text-section.has-gradient h2,
+.text-section.has-gradient .prose,
+.text-section.has-gradient .prose p {
+    color: var(--fl-on-acc);
+}
+
+.section-image img,
+.content-image img {
+    background-color: var(--fl-sur); /* Fallback while loading */
+}
+
+.text-section h2 {
+    font-family: var(--font-display);
+    font-size: 38px;
+    font-weight: 600;
+    letter-spacing: 0.015em;
+    margin-bottom: 32px;
+}
+
+.text-section .prose {
+    font-family: var(--font-serif);
+    font-size: 18px;
+    font-weight: 400;
+    line-height: 1.7;
+    color: var(--color-text-light);
+    max-width: 700px;
+    text-wrap: balance;
+}
+
+.text-section .prose p {
+    margin-bottom: 20px;
+}
+
+.section-subtitle {
+    font-size: 19px;
+    color: var(--color-text-light);
+    margin-bottom: 48px;
+    max-width: 700px;
+}
+
+.section-image {
+    margin-top: 40px;
+}
+
+.section-image img {
+    width: 100%;
+    height: auto;
+    border-radius: 4px;
+    box-shadow: var(--fl-shadow-1);
+}
+
+.content-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 64px;
+    align-items: center;
+}
+
+.layout-image-left .content-text {
+    text-align: right;
+}
+
+.layout-image-right .content-text {
+    text-align: left;
+}
+
+.content-image {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    min-height: 300px;
+    background: var(--fl-sur);
+    border-radius: 4px;
+}
+
+.content-image img {
+    width: 100%;
+    height: auto;
+    border-radius: 4px;
+    box-shadow: var(--fl-shadow-1);
+    background: var(--fl-sur); /* Fallback for loading */
+}
+
+/* Features */
+.features-section {
+    padding: 80px 0;
+    background: transparent;
+    border-bottom: 1px solid var(--color-border);
+    position: relative;
+}
+
+.features-section.has-gradient {
+    color: var(--fl-on-acc);
+    border-bottom: none;
+}
+
+.features-section.has-gradient h2 {
+    color: var(--fl-on-acc);
+}
+
+.features-section h2 {
+    font-family: var(--font-display);
+    font-size: 56px;
+    font-weight: bold;
+    letter-spacing: 0.015em;
+    margin-bottom: 64px;
+    text-align: left;
+}
+
+.features-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+    gap: 64px;
+}
+
+/* Simple 2x2 grid for home page */
+.features-grid.grid-2x2 {
+    grid-template-columns: repeat(2, 1fr);
+    gap: 48px;
+}
+
+@media (max-width: 768px) {
+    .features-grid.grid-2x2 {
+        grid-template-columns: 1fr;
+    }
+}
+
+/* Desktop 2/1 brick pattern layout for features */
+@media (min-width: 1024px) {
+    .features-grid.grid-2-1 {
+        grid-template-columns: 2fr 1fr;
+        gap: 64px;
+        row-gap: 80px;
+    }
+    
+    /* Create brick pattern by swapping columns on odd rows */
+    /* Row 1: Items 1-2 stay in natural positions (2fr, 1fr) */
+    /* Row 2: Items 3-4 swap positions via grid-column */
+    .features-grid.grid-2-1 .feature-card:nth-child(4n+3) {
+        grid-column: 2; /* Small item goes to narrow column */
+        grid-row-start: 2;
+    }
+    .features-grid.grid-2-1 .feature-card:nth-child(4n+4) {
+        grid-column: 1; /* Large item goes to wide column */
+        grid-row-start: 2;
+    }
+}
+
+.feature-card {
+    padding: 32px;
+    transition: transform 0.3s ease, box-shadow 0.3s ease;
+    cursor: pointer;
+}
+
+.feature-card.has-gradient {
+    background:
+        var(--card-gradient, var(--fl-gem-sunken)) padding-box,
+        var(--fl-leaf-a) border-box,
+        var(--fl-leaf-b) border-box;
+    border: 1px solid transparent;
+    border-radius: var(--fl-r);
+    color: var(--fl-on-acc);
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.12), var(--fl-shadow-2);
+    text-shadow: 0 1px 1px rgba(0, 0, 0, 0.3);
+}
+
+.feature-card.has-gradient:hover {
+    transform: translateY(-4px);
+    box-shadow: var(--fl-shadow-3);
+}
+
+.feature-card.has-gradient h3,
+.feature-card.has-gradient p,
+.feature-card.has-gradient ul li {
+    color: var(--fl-on-acc);
+}
+
+.feature-icon {
+    font-size: 32px;
+    margin-bottom: 16px;
+    color: var(--color-accent);
+}
+
+.feature-card.has-gradient .feature-icon {
+    color: var(--fl-on-acc);
+    opacity: 0.9;
+}
+
+.feature-image {
+    width: 100%;
+    height: 250px;
+    object-fit: cover;
+    border-radius: 8px;
+    margin-bottom: 20px;
+    box-shadow: var(--fl-shadow-1);
+    background: var(--fl-sur); /* Fallback for loading */
+}
+
+.feature-video {
+    width: 100%;
+    height: 250px;
+    object-fit: cover;
+    border-radius: 8px;
+    margin-bottom: 20px;
+    box-shadow: var(--fl-shadow-1);
+    background: var(--fl-sur); /* Fallback for loading */
+}
+
+.feature-card h3 {
+    font-family: var(--font-ui);
+    font-size: 28px;
+    font-weight: 600;
+    margin-bottom: 16px;
+    letter-spacing: -0.01em;
+    line-height: 1.3;
+}
+
+.feature-card p {
+    font-family: var(--font-serif);
+    color: var(--color-text-light);
+    font-size: 18px;
+    font-weight: 400;
+    line-height: 1.6;
+    text-wrap: balance;
+}
+
+.feature-card ul {
+    list-style: none;
+    margin-top: 20px;
+}
+
+.feature-card ul li {
+    padding: 6px 0;
+    padding-left: 28px;
+    position: relative;
+    color: var(--color-text);
+    font-size: 17px;
+    line-height: 1.4;
+}
+
+.feature-card ul li strong {
+    font-weight: 600;
+    color: var(--color-text);
+}
+
+.feature-card.has-gradient ul li,
+.feature-card.has-gradient ul li strong {
+    color: var(--fl-on-acc);
+}
+
+.feature-card ul li:before {
+    content: "•";
+    position: absolute;
+    left: 10px;
+    color: var(--color-accent);
+    font-weight: bold;
+    font-size: 18px;
+}
+
+.feature-card.has-gradient ul li:before {
+    color: var(--fl-on-acc);
+}
+
+/* Feature Categories */
+.feature-categories-section {
+    padding: 80px 0;
+    background: transparent;
+    border-bottom: 1px solid var(--color-border);
+    position: relative;
+}
+
+.feature-categories-section.has-gradient {
+    color: var(--fl-on-acc);
+    border-bottom: none;
+}
+
+.feature-categories-section.has-gradient h2 {
+    color: var(--fl-on-acc);
+}
+
+.feature-categories-section h2 {
+    font-family: var(--font-display);
+    font-size: 38px;
+    font-weight: 600;
+    letter-spacing: 0.015em;
+    margin-bottom: 56px;
+}
+
+.categories-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+    gap: 48px;
+}
+
+/* Desktop 2/1 brick pattern layout for feature categories */
+@media (min-width: 1024px) {
+    .categories-grid.grid-2-1 {
+        grid-template-columns: 2fr 1fr;
+        gap: 64px;
+        row-gap: 80px;
+    }
+}
+
+.feature-category {
+    padding: 32px;
+    background: var(--color-bg);
+    border: 1px solid var(--color-border);
+    border-radius: 2px;
+    transition: transform 0.3s ease, box-shadow 0.3s ease;
+}
+
+.feature-category.has-gradient {
+    background: var(--card-gradient, var(--fl-gem-sunken));
+    border-radius: 12px;
+    color: var(--fl-on-acc);
+    box-shadow: var(--fl-shadow-2);
+    border: none;
+}
+
+.feature-category.has-gradient:hover {
+    transform: translateY(-4px);
+    box-shadow: var(--fl-shadow-3);
+}
+
+.feature-category h3 {
+    font-family: var(--font-ui);
+    font-size: 24px;
+    font-weight: 600;
+    margin-bottom: 20px;
+    letter-spacing: -0.01em;
+    color: var(--color-accent);
+}
+
+.feature-category.has-gradient h3 {
+    color: var(--fl-on-acc);
+}
+
+.feature-category ul {
+    list-style: none;
+}
+
+.feature-category li {
+    padding: 8px 0;
+    padding-left: 24px;
+    position: relative;
+    color: var(--color-text-light);
+    font-size: 15px;
+    line-height: 1.6;
+}
+
+.feature-category.has-gradient li {
+    color: var(--fl-on-acc);
+}
+
+.feature-category li:before {
+    content: "•";
+    position: absolute;
+    left: 8px;
+    color: var(--color-accent);
+    font-weight: bold;
+}
+
+.feature-category.has-gradient li:before {
+    color: var(--fl-on-acc);
+}
+
+/* Testimonials */
+.testimonials-section {
+    padding: 120px 0 180px;
+    background: var(--color-bg);
+    border-bottom: 1px solid var(--color-border);
+    position: relative;
+    perspective: 1500px;
+    min-height: 600px;
+}
+
+.testimonials-section h2 {
+    font-family: var(--font-display);
+    font-weight: bold;
+    letter-spacing: 0.015em;
+    margin-bottom: 80px;
+    text-align: left;
+    position: relative;
+    z-index: 10;
+}
+
+.testimonials-grid {
+    position: relative;
+    width: 100%;
+    min-height: 500px;
+}
+
+/* Desktop: Scattered absolute positioning with 3D effects */
+@media (min-width: 1024px) {
+    .testimonial-card {
+        background: var(--fl-sur);
+        backdrop-filter: blur(20px) saturate(80%);
+        -webkit-backdrop-filter: blur(20px) saturate(80%);
+        padding: 32px 40px;
+        border: 1px solid var(--fl-bd);
+        border-radius: 12px;
+        box-shadow: var(--fl-shadow-2);
+        max-width: 450px;
+        position: absolute;
+        transform-style: preserve-3d;
+        transition: transform 0.4s ease, box-shadow 0.4s ease;
+    }
+    
+    .testimonial-card:nth-child(1) {
+        top: 0;
+        left: 5%;
+        transform: rotateY(-8deg) rotateX(3deg) rotateZ(-2deg);
+    }
+    
+    .testimonial-card:nth-child(2) {
+        top: 80px;
+        right: 8%;
+        transform: rotateY(6deg) rotateX(-2deg) rotateZ(1deg);
+    }
+    
+    .testimonial-card:nth-child(3) {
+        top: 240px;
+        left: 15%;
+        transform: rotateY(4deg) rotateX(2deg) rotateZ(-1deg);
+    }
+    
+    .testimonial-card:nth-child(4) {
+        top: 180px;
+        right: 15%;
+        transform: rotateY(-5deg) rotateX(-3deg) rotateZ(2deg);
+    }
+    
+    .testimonial-card:hover {
+        transform: rotateY(0deg) rotateX(0deg) rotateZ(0deg) translateZ(40px);
+        box-shadow: var(--fl-shadow-3);
+        z-index: 100;
+    }
+}
+
+/* Mobile: Vertical stack */
+@media (max-width: 1023px) {
+    .testimonials-section {
+        padding: 80px 0;
+        min-height: auto;
+    }
+    
+    .testimonials-grid {
+        display: flex;
+        flex-direction: column;
+        gap: 24px;
+        min-height: auto;
+    }
+    
+    .testimonial-card {
+        background: var(--fl-sur);
+        backdrop-filter: blur(20px) saturate(80%);
+        -webkit-backdrop-filter: blur(20px) saturate(80%);
+        padding: 24px 28px;
+        border: 1px solid var(--fl-bd);
+        border-radius: 12px;
+        box-shadow: var(--fl-shadow-2);
+        position: relative;
+        transform: none;
+    }
+    
+    .testimonial-card:hover {
+        transform: translateY(-2px);
+        box-shadow: var(--fl-shadow-3);
+    }
+}
+
+
+.testimonial-card blockquote p {
+    font-family: var(--font-sans);
+    font-size: 17px;
+    line-height: 1.6;
+    color: var(--color-text);
+    margin-bottom: 20px;
+    font-style: normal;
+    text-align: left;
+}
+
+.testimonial-card footer {
+    font-family: var(--font-sans);
+    font-size: 14px;
+    font-weight: 600;
+    color: var(--color-text-light);
+    font-style: normal;
+    text-align: left;
+}
+
+/* Google Reviews */
+.google-reviews-section {
+    padding: 60px 0;
+    background: var(--color-bg);
+    border-bottom: 1px solid var(--color-border);
+    text-align: center;
+    position: relative;
+}
+
+.google-reviews-section.has-gradient {
+    color: var(--fl-on-acc);
+    border-bottom: none;
+}
+
+.google-reviews-section.has-gradient .rating-text,
+.google-reviews-section.has-gradient a {
+    color: var(--fl-on-acc);
+}
+
+.google-reviews-content {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 20px;
+}
+
+.google-reviews-stars {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    font-size: 24px;
+}
+
+.google-reviews-stars .stars {
+    color: var(--color-gold);
+    letter-spacing: 4px;
+}
+
+.google-reviews-stars .rating-text {
+    font-family: var(--font-sans);
+    font-size: 18px;
+    color: var(--color-text);
+    font-weight: 500;
+}
+
+.google-reviews-link {
+    display: inline-block;
+    margin-top: 12px;
+}
+
+.google-reviews-link a {
+    color: var(--color-accent);
+    text-decoration: none;
+    font-size: 16px;
+    font-weight: 500;
+    transition: color 0.2s;
+    cursor: pointer;
+}
+
+.google-reviews-link a:hover {
+    color: var(--color-accent-hover);
+    text-decoration: underline;
+}
+
+/* FAQ Section */
+.faq-section {
+    padding: 80px 0;
+    background: transparent;
+    border-bottom: 1px solid var(--color-border);
+    position: relative;
+}
+
+.faq-section.has-gradient {
+    color: var(--fl-on-acc);
+    border-bottom: none;
+}
+
+.faq-section.has-gradient h2 {
+    color: var(--fl-on-acc);
+}
+
+.faq-section h2 {
+    font-family: var(--font-display);
+    font-size: 56px;
+    font-weight: bold;
+    letter-spacing: 0.015em;
+    margin-bottom: 48px;
+    text-align: left;
+}
+
+.faq-list {
+    max-width: 900px;
+    margin: 0 auto;
+}
+
+.faq-item {
+    border-bottom: 1px solid var(--color-border);
+    margin-bottom: 0;
+}
+
+.faq-item h3 {
+    margin: 0;
+    padding: 0;
+    font-weight: inherit;
+    font-size: inherit;
+}
+
+.faq-section.has-gradient .faq-item {
+    border-bottom-color: rgba(248, 243, 230, 0.22);
+}
+
+.faq-question {
+    width: 100%;
+    padding: 24px 48px 24px 0;
+    background: none;
+    border: none;
+    text-align: left;
+    font-family: var(--font-ui);
+    font-size: 20px;
+    font-weight: 600;
+    color: var(--color-text);
+    cursor: pointer;
+    position: relative;
+    transition: color 0.2s;
+}
+
+.faq-question:focus {
+    outline: 2px solid var(--focus-color);
+    outline-offset: 2px;
+}
+
+.faq-section.has-gradient .faq-question {
+    color: var(--fl-on-acc);
+}
+
+.faq-question:hover {
+    color: var(--color-accent);
+}
+
+.faq-section.has-gradient .faq-question:hover {
+    color: rgba(248, 243, 230, 0.8);
+}
+
+.faq-question::after {
+    content: '+';
+    position: absolute;
+    right: 0;
+    top: 50%;
+    transform: translateY(-50%);
+    font-size: 28px;
+    font-weight: 400;
+    transition: transform 0.3s ease;
+}
+
+.faq-item.active .faq-question::after {
+    transform: translateY(-50%) rotate(45deg);
+}
+
+.faq-answer {
+    max-height: 0;
+    overflow: hidden;
+    transition: max-height 0.3s ease, padding 0.3s ease;
+    padding: 0;
+}
+
+.faq-item.active .faq-answer {
+    max-height: 1000px;
+    padding: 0 0 24px 0;
+}
+
+.faq-answer p {
+    color: var(--color-text-light);
+    font-size: 16px;
+    line-height: 1.7;
+    margin: 0;
+}
+
+.faq-section.has-gradient .faq-answer p {
+    color: rgba(248, 243, 230, 0.9);
+}
+
+/* CTA Section */
+.cta-section {
+    padding: 80px 0;
+    background: transparent;
+    border-bottom: 1px solid var(--color-border);
+    text-align: left;
+}
+
+.cta-section.has-gradient {
+    color: var(--fl-on-acc);
+    border-bottom: none;
+}
+
+.cta-section h2 {
+    font-family: var(--font-display);
+    font-size: 48px;
+    font-weight: bold;
+    letter-spacing: 0.015em;
+    margin-bottom: 20px;
+    text-align: left;
+}
+
+.cta-section.has-gradient h2,
+.cta-section.has-gradient .section-subtitle {
+    color: var(--fl-on-acc);
+}
+
+.cta-section .section-subtitle {
+    font-size: 19px;
+    color: var(--color-text-light);
+    margin-bottom: 40px;
+    text-align: left;
+    max-width: 700px;
+}
+
+.cta-section .cta-buttons {
+    display: flex;
+    gap: 16px;
+    justify-content: flex-start;
+    flex-wrap: wrap;
+}
+
+/* Contact */
+
+/* Contact */
+.contact-section {
+    padding: 80px 0;
+    background: transparent;
+    border-bottom: 1px solid var(--color-border);
+    position: relative;
+}
+
+.contact-section.has-gradient {
+    color: var(--fl-on-acc);
+    border-bottom: none;
+}
+
+.contact-section.has-gradient h2,
+.contact-section.has-gradient .section-subtitle,
+.contact-section.has-gradient .contact-item,
+.contact-section.has-gradient .contact-item strong {
+    color: var(--fl-on-acc);
+}
+
+.contact-section.has-gradient .contact-item a {
+    color: rgba(248, 243, 230, 0.9);
+}
+
+.contact-section.has-gradient .contact-item a:hover {
+    color: var(--fl-on-acc);
+}
+
+.contact-section h2 {
+    font-family: var(--font-display);
+    font-size: 38px;
+    font-weight: 600;
+    letter-spacing: 0.015em;
+    margin-bottom: 24px;
+}
+
+.contact-info {
+    margin-top: 48px;
+    display: flex;
+    flex-direction: column;
+    gap: 24px;
+}
+
+.contact-item {
+    font-size: 17px;
+    line-height: 1.6;
+}
+
+.contact-item strong {
+    font-weight: 600;
+    color: var(--color-text);
+    margin-right: 12px;
+}
+
+.contact-item a {
+    color: var(--color-accent);
+    text-decoration: none;
+    transition: color 0.2s;
+    cursor: pointer;
+}
+
+.contact-item a:hover {
+    color: var(--color-accent-hover);
+}
+
+/* Contact Glass Box - Bottom Left */
+.contact-glass-box {
+    position: fixed;
+    bottom: 24px;
+    right: 24px;
+    background: var(--fl-sur);
+    backdrop-filter: blur(20px) saturate(80%);
+    -webkit-backdrop-filter: blur(20px) saturate(80%);
+    border: 1px solid var(--fl-bd);
+    border-radius: 12px;
+    padding: 20px 24px;
+    box-shadow: var(--fl-shadow-2);
+    z-index: 900;
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    min-width: 240px;
+}
+
+.contact-glass-item {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 14px;
+}
+
+.contact-glass-icon {
+    font-size: 16px;
+    opacity: 0.8;
+}
+
+.contact-glass-item a {
+    color: var(--color-text);
+    text-decoration: none;
+    font-weight: 500;
+    transition: color 0.2s;
+}
+
+.contact-glass-item a:hover {
+    color: var(--color-accent);
+}
+
+/* Footer */
+footer {
+    padding: 48px 0;
+    background-color: var(--fl-desk);
+    background-image: var(--fl-grain);
+    border-top: 1px solid var(--fl-bd);
+    text-align: left;
+    color: var(--color-text-light);
+    font-size: 14px;
+}
+
+/* Responsive */
+@media (max-width: 768px) {
+    .nav-right {
+        flex-direction: column;
+        align-items: flex-end;
+        gap: 12px;
+    }
+    
+    .nav-links {
+        flex-wrap: wrap;
+        justify-content: flex-end;
+    }
+    
+    .lang-switcher {
+        border-left: none;
+        padding-left: 0;
+    }
+    
+    .hero .container {
+        grid-template-columns: 1fr;
+        gap: 40px;
+    }
+    
+    /* Scoped to the MARKETING hero (.hero): image-first on mobile is a
+       frontpage choice. Unscoped, this leaked into /ui's .ui-hero (which
+       also uses .hero-content) and pushed the release/search card above
+       the page heading on mobile. */
+    .hero .hero-image-wrapper {
+        order: 1;
+    }
+
+    .hero .hero-content {
+        order: 2;
+    }
+    
+    .hero h1 {
+        font-size: 42px;
+    }
+    
+    .hero-subtitle {
+        font-size: 17px;
+    }
+    
+    .content-grid {
+        grid-template-columns: 1fr;
+        gap: 32px;
+    }
+    
+    .features-grid,
+    .features-grid.grid-2-1 {
+        grid-template-columns: 1fr;
+        gap: 40px;
+    }
+    
+    .feature-card h3 {
+        font-size: 22px;
+    }
+    
+    .categories-grid {
+        grid-template-columns: 1fr;
+        gap: 32px;
+    }
+    
+    .categories-grid.grid-2-1 {
+        grid-template-columns: 1fr;
+    }
+    
+    .contact-glass-box {
+        bottom: 12px;
+        right: 12px;
+        padding: 12px 16px;
+        min-width: 180px;
+        font-size: 13px;
+    }
+    
+    .contact-glass-item {
+        gap: 6px;
+    }
+    
+    .contact-glass-icon {
+        font-size: 14px;
+    }
+    
+    .testimonials-grid {
+        grid-template-columns: 1fr;
+        gap: 32px;
+    }
+    
+    .testimonial-card {
+        padding: 32px;
+    }
+    
+    .text-section h2,
+    .features-section h2,
+    .feature-categories-section h2,
+    .testimonials-section h2,
+    .contact-section h2 {
+        font-size: 30px;
+    }
+    
+    .google-reviews-stars {
+        flex-direction: column;
+        gap: 12px;
+    }
+}
+
+/* Blog Styles */
+.blog-index-section {
+    padding: 80px 0;
+}
+
+.blog-index-section h1 {
+    font-family: var(--font-display);
+    font-size: 56px;
+    font-weight: 700;
+    margin-bottom: 16px;
+}
+
+.blog-subtitle {
+    font-family: var(--font-sans);
+    font-size: 20px;
+    color: var(--color-text-secondary);
+    margin-bottom: 48px;
+    max-width: 800px;
+}
+
+.blog-posts {
+    display: flex;
+    flex-direction: column;
+    gap: 48px;
+    max-width: 900px;
+}
+
+.blog-post-preview {
+    padding-bottom: 48px;
+    border-bottom: 1px solid var(--color-border);
+}
+
+.blog-post-preview:last-child {
+    border-bottom: none;
+}
+
+.blog-post-preview h3 {
+    font-family: var(--font-ui);
+    font-size: 32px;
+    font-weight: 600;
+    margin-bottom: 12px;
+}
+
+.blog-post-preview h3 a {
+    color: var(--color-text);
+    text-decoration: none;
+    transition: color 0.2s;
+}
+
+.blog-post-preview h3 a:hover {
+    color: var(--color-accent);
+}
+
+.blog-post-meta {
+    font-family: var(--font-sans);
+    font-size: 14px;
+    color: var(--color-text-secondary);
+    margin-bottom: 16px;
+}
+
+.blog-post-excerpt {
+    font-family: var(--font-sans);
+    font-size: 18px;
+    line-height: 1.7;
+    color: var(--color-text-secondary);
+    margin-bottom: 16px;
+    text-wrap: balance;
+}
+
+.blog-read-more {
+    font-family: var(--font-sans);
+    color: var(--color-accent);
+    text-decoration: none;
+    font-weight: 500;
+    transition: color 0.2s;
+}
+
+.blog-read-more:hover {
+    color: var(--color-accent-hover);
+}
+
+/* Individual Blog Post */
+.blog-post-section {
+    padding: 140px 0 80px;
+}
+
+.blog-post {
+    max-width: 800px;
+}
+
+.blog-post-header {
+    margin-bottom: 48px;
+}
+
+.blog-post-header h1 {
+    font-family: var(--font-display);
+    font-size: 56px;
+    font-weight: 700;
+    margin-bottom: 16px;
+}
+
+.blog-post-content {
+    font-family: var(--font-sans);
+    font-size: 18px;
+    line-height: 1.8;
+}
+
+.blog-post-content h1 {
+    font-family: var(--font-display);
+    font-size: 36px;
+    font-weight: 600;
+    margin-top: 48px;
+    margin-bottom: 24px;
+}
+
+.blog-post-content h2 {
+    font-family: var(--font-display);
+    font-size: 28px;
+    font-weight: 600;
+    margin-top: 40px;
+    margin-bottom: 20px;
+}
+
+.blog-post-content h3 {
+    font-family: var(--font-ui);
+    font-size: 22px;
+    font-weight: 600;
+    margin-top: 32px;
+    margin-bottom: 16px;
+}
+
+.blog-post-content p {
+    font-family: var(--font-sans);
+    margin-bottom: 24px;
+    text-wrap: balance;
+}
+
+.blog-post-content ul,
+.blog-post-content ol {
+    margin-bottom: 24px;
+    padding-left: 32px;
+}
+
+.blog-post-content li {
+    margin-bottom: 12px;
+}
+
+.blog-post-footer {
+    margin-top: 64px;
+    padding-top: 32px;
+    border-top: 1px solid var(--color-border);
+}
+
+.blog-back-link {
+    color: var(--color-accent);
+    text-decoration: none;
+    font-weight: 500;
+    transition: color 0.2s;
+}
+
+.blog-back-link:hover {
+    color: var(--color-accent-hover);
+}
+
+@media (max-width: 768px) {
+    .hero .container {
+        grid-template-columns: 1fr;
+    }
+    
+    .hero h1 {
+        font-size: 56px;
+    }
+    
+    .features-grid.grid-2-1 {
+        grid-template-columns: 1fr;
+    }
+}
+
+
+/* ===== Badges =====
+   A badge is a marginal note telling you what a thing is: a small-caps label
+   inside a hairline border. Outlined, not filled - a solid brass lozenge
+   would break the one rule the house keeps (metal on borders, never a
+   field). */
+.hero-badge {
+    display: inline-block;
+    margin-bottom: 16px;
+    padding: 2px 12px;
+    border: 1px solid transparent;
+    border-radius: var(--fl-r);
+    background:
+        linear-gradient(var(--fl-rT), var(--fl-rB)) padding-box,
+        var(--fl-leaf-a) border-box,
+        var(--fl-leaf-b) border-box;
+    color: var(--fl-qt);
+    font-family: var(--font-caps);
+    font-weight: 700;
+    font-variant: all-small-caps;
+    font-size: 1rem;
+    letter-spacing: 0.1em;
+    box-shadow: var(--fl-shadow-1);
+}
+
+.pill {
+    display: inline-block;
+    margin-left: 8px;
+    padding: 0 9px;
+    border: 1px solid var(--fl-bd2);
+    border-radius: var(--fl-r);
+    background: linear-gradient(var(--fl-rT), var(--fl-rB));
+    color: var(--fl-soft1);
+    font-family: var(--font-caps);
+    font-size: 0.78em;
+    font-weight: 700;
+    font-variant: all-small-caps;
+    letter-spacing: 0.1em;
+    vertical-align: middle;
+    text-shadow: none;
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.55);
+}
+
+/* Shipped: a small stone, the same accent as a primary command.
+   Not yet: metal on the border, paper inside - promised, not given. */
+.pill-live {
+    border-color: var(--fl-deep);
+    background: var(--fl-gem);
+    color: var(--fl-on-acc);
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.25);
+}
+
+.pill-soon {
+    border-color: transparent;
+    background:
+        linear-gradient(var(--fl-rT), var(--fl-rB)) padding-box,
+        var(--fl-leaf-a) border-box,
+        var(--fl-leaf-b) border-box;
+    color: var(--fl-qt);
+    box-shadow: none;
+}
+
+/* On an accent panel the pill has to survive a dark ground. */
+.has-gradient .pill {
+    border-color: rgba(248, 243, 230, 0.35);
+    background: rgba(248, 243, 230, 0.12);
+    color: var(--fl-on-acc);
+    box-shadow: none;
+}
+
+.has-gradient .pill-soon {
+    border-color: transparent;
+    background:
+        rgba(20, 14, 4, 0.35) padding-box,
+        var(--fl-leaf-a) border-box,
+        var(--fl-leaf-b) border-box;
+    color: #E0D9BC;
+}
+
+/* On the band the badge is read against dark blue. */
+.hero .hero-badge {
+    background:
+        rgba(12, 20, 38, 0.55) padding-box,
+        var(--fl-leaf-a) border-box,
+        var(--fl-leaf-b) border-box;
+    color: #DCCFA4;
+}
+
+.products-section { padding: 40px 0 80px; }
+.products-section h2 { text-align: center; margin-bottom: 32px; }
+.section-intro {
+    text-align: center;
+    max-width: 640px;
+    margin: -12px auto 32px;
+    color: var(--color-text-light);
+    font-size: 1.05rem;
+}
+
+/* ===== Link colors =====
+   Links are written in brass ink and underlined at a distance from the
+   baseline so the Garamond descenders stay clear. :visited mirrors every
+   rule so a link never flips to UA purple.
+
+   On an accent-stone panel the ink lifts to pale brass, which is the only
+   colour that survives that ground. */
+a,
+a:visited {
+    color: var(--color-accent);
+    text-decoration-color: color-mix(in srgb, var(--color-accent) 45%, transparent);
+    text-underline-offset: 0.18em;
+}
+a:hover {
+    color: var(--color-accent-hover);
+    text-decoration-color: currentColor;
+}
+/* Buttons / nav / pills define their own colours — restore them. */
+.btn, .btn:visited,
+.nav-links a, .nav-links a:visited,
+.mobile-menu a, .mobile-menu a:visited,
+.skip-to-content, .skip-to-content:visited {
+    color: inherit;
+    text-decoration: none;
+}
+.btn-primary, .btn-primary:visited { color: var(--fl-on-acc); }
+.btn-hero-primary, .btn-hero-primary:visited { color: var(--fl-ink); }
+/* MUST come after .btn-hero-primary: the hero CTA carries both classes and
+   its field is a stone, so ink-on-paper would be unreadable there. */
+.btn-primary.btn-hero-primary,
+.btn-primary.btn-hero-primary:visited { color: var(--fl-on-acc); }
+.btn-secondary, .btn-secondary:visited { color: var(--fl-ink); }
+.btn-hero-secondary, .btn-hero-secondary:visited { color: var(--fl-ink); }
+.nav-links a, .nav-links a:visited { color: var(--fl-soft1); }
+.nav-links a.active, .nav-links a.active:visited { color: var(--fl-on-acc); }
+.mobile-menu a, .mobile-menu a:visited { color: var(--color-text); }
+.skip-to-content, .skip-to-content:visited { color: var(--fl-on-acc); }
+
+/* Links on accent-stone surfaces: pale brass + underline. */
+.feature-card.has-gradient a,
+.feature-card.has-gradient a:visited,
+.feature-category.has-gradient a,
+.feature-category.has-gradient a:visited,
+.text-section.has-gradient a:not(.btn),
+.text-section.has-gradient a:not(.btn):visited,
+.faq-section.has-gradient .faq-answer a,
+.faq-section.has-gradient .faq-answer a:visited {
+    color: #D8CFA8;
+    text-decoration: underline;
+    text-decoration-color: rgba(216, 207, 168, 0.55);
+    text-underline-offset: 0.18em;
+}
+.feature-card.has-gradient a:hover,
+.feature-category.has-gradient a:hover,
+.text-section.has-gradient a:not(.btn):hover,
+.faq-section.has-gradient .faq-answer a:hover {
+    color: #F2ECD6;
+    text-decoration-color: #F2ECD6;
+}
+
+/* Brand logo in the nav (image, smaller than the docs header logo). */
+.nav-brand-logo {
+    height: 30px;
+    width: auto;
+    display: block;
+}
+
+/* The hero decoration retired with the band: the tiled figure is the
+   decoration now. The wrapper survives - the screenshot still uses it. */
+.hero-image-wrapper {
+    position: relative;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    min-height: 320px;
+}
+.hero-foam { display: none; }
+/* Native app screenshot floating above the foam blob. */
+.hero-app-shot {
+    position: relative;
+    z-index: 2;
+    width: 100%;
+    max-width: 440px;
+    height: auto;
+    border-radius: var(--fl-r2);
+    box-shadow: var(--fl-shadow-3);
+    border: 1px solid var(--fl-bd5);
+    background: var(--fl-sur);
+}
+@media (max-width: 900px) {
+    .hero-image-wrapper { display: none; }
+}
+
+/* ===== Responsive section headings (h2 is a fixed 42px display face, which
+   overflows + has a cramped line-height on phones). ===== */
+h2 { line-height: 1.12; }
+@media (max-width: 768px) {
+    h2 { font-size: 30px; line-height: 1.15; }
+    .section-intro { font-size: 1rem; }
+}
+@media (max-width: 600px) {
+    h2 { font-size: 25px; }
+}
+
+
+/* ==========================================================================
+   THE DROP PANEL
+   Opened by the socket, at every width. It falls from under the strip on the
+   right, anchored to the socket that opened it, and closes on the overlay or
+   on any link. The motion is a transition, not a script.
+   ========================================================================== */
+.nav-overlay {
+    position: fixed;
+    inset: 0;
+    background: rgba(20, 19, 16, 0.45);
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 0.3s ease;
+    z-index: 1400;
+}
+body.nav-open .nav-overlay { opacity: 1; pointer-events: auto; }
+
+/* The strip rides ABOVE the overlay while the panel is open: the socket you
+   just pressed has to stay lit, or the control that opened the panel looks
+   like part of what the panel is covering. */
+body.nav-open .navbar { z-index: 1450; }
+
+.mobile-menu {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    position: fixed;
+    top: 62px;
+    right: 20px;
+    width: min(288px, 86vw);
+    max-height: calc(100vh - 96px);
+    overflow-y: auto;
+    -webkit-overflow-scrolling: touch;
+    padding: 8px;
+    z-index: 1500;
+    border: 1px solid var(--fl-bd2);
+    border-radius: var(--fl-r);
+    background: var(--fl-sur);
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.6), var(--fl-shadow-3);
+    opacity: 0;
+    visibility: hidden;
+    transform: translateY(-10px);
+    transform-origin: 90% 0;
+    transition: opacity 0.26s ease,
+                transform 0.26s var(--fl-ease-out),
+                visibility 0s linear 0.26s;
+}
+
+body.nav-open .mobile-menu {
+    opacity: 1;
+    visibility: visible;
+    transform: translateY(0);
+    transition-delay: 0s, 0s, 0s;
+}
+
+.mobile-menu a {
+    color: var(--color-text);
+    text-decoration: none;
+    font-family: var(--font-caps);
+    font-size: 18px;
+    font-weight: 700;
+    font-variant: all-small-caps;
+    letter-spacing: 0.07em;
+    padding: 7px 12px;
+    border: 1px solid transparent;
+    border-radius: var(--fl-r);
+    transition: background var(--fl-dur) var(--fl-ease),
+                border-color var(--fl-dur) var(--fl-ease);
+}
+
+.mobile-menu a:hover,
+.mobile-menu a:focus {
+    background: linear-gradient(var(--fl-hT), var(--fl-hB));
+    border-color: var(--fl-bd);
+    color: var(--fl-ink);
+}
+
+.mobile-menu a.active {
+    color: var(--fl-on-acc);
+    border-color: transparent;
+    background:
+        var(--fl-gem-sunken) padding-box,
+        var(--fl-leaf-a) border-box,
+        var(--fl-leaf-b) border-box;
+    box-shadow: inset 0 2px 5px rgba(0, 0, 0, 0.45);
+}
+
+body.nav-open { overflow: hidden; }
+
+/* Below 900px the strip drops its inline links entirely - the panel is the
+   navigation, and the socket is how you reach it. */
+@media (max-width: 900px) {
+    .navbar .nav-links { display: none; }
+}
+
+/* ==========================================================================
+   PAGE FURNITURE
+   The parts of the page that are not components: the scrollbar in the
+   margin, the selection wash, rules, marginalia, and the lamp that turns
+   the room from day to night.
+   ========================================================================== */
+
+/* -- Selection: a wash of the accent's soft tint, not a system blue -- */
+::selection {
+    background: var(--fl-soft);
+    color: var(--fl-deep);
+}
+
+:root[data-theme="dark"] ::selection,
+:root[data-theme="dark"] *::selection {
+    background: var(--fl-acc);
+    color: var(--fl-on-acc);
+}
+
+@media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) ::selection {
+        background: var(--fl-acc);
+        color: var(--fl-on-acc);
+    }
+}
+
+/* -- The scrollbar is a ruled trough with a raised thumb. Firefox gets the
+      two-color form; WebKit gets the full apparatus. -- */
+html {
+    scrollbar-color: var(--fl-sbB) var(--fl-track);
+    scrollbar-width: auto;
+}
+
+::-webkit-scrollbar {
+    width: 15px;
+    height: 15px;
+}
+
+::-webkit-scrollbar-track {
+    background-color: var(--fl-track);
+    background-image: var(--fl-grain);
+    border-left: 1px solid var(--fl-bd);
+    box-shadow: inset 2px 0 5px rgba(48, 45, 38, 0.14);
+}
+
+::-webkit-scrollbar-thumb {
+    background-color: var(--fl-sbB);
+    background-image: linear-gradient(90deg, var(--fl-sbA), var(--fl-sbB));
+    border: 1px solid var(--fl-bd3);
+    border-radius: var(--fl-r);
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.45);
+}
+
+::-webkit-scrollbar-thumb:hover {
+    background-image: linear-gradient(90deg, var(--fl-sbC), var(--fl-sbD));
+}
+
+::-webkit-scrollbar-corner {
+    background: var(--fl-track);
+}
+
+/* -- Rules. A hairline, occasionally with a metal thread through it. -- */
+hr {
+    border: 0;
+    height: 1px;
+    background: var(--fl-sep);
+    margin: 40px 0;
+}
+
+hr.fl-rule-metal {
+    height: 2px;
+    background: var(--fl-rule-metal-bg);
+}
+
+/* -- The small-caps label that sits over every group -- */
+.fl-label {
+    font-family: var(--font-caps);
+    font-size: 0.9rem;
+    font-weight: 700;
+    font-variant: all-small-caps;
+    letter-spacing: 0.12em;
+    color: var(--fl-soft1);
+}
+
+/* -- Quotations sit against a metal thread in the margin -- */
+blockquote {
+    margin: 24px 0;
+    padding: 4px 0 4px 20px;
+    border-left: 2px solid var(--color-gold);
+    color: var(--fl-intro);
+    font-style: italic;
+}
+
+/* ==========================================================================
+   THE LAMP - light / dark toggle
+   A raised stone in the strip that reads as a physical switch. The icon is
+   swapped by CSS off the same `data-theme` state the palette reads, so the
+   button needs no script beyond flipping that attribute.
+   ========================================================================== */
+.fl-lamp {
+    position: relative;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 30px;
+    height: 30px;
+    padding: 0;
+    flex: none;
+    z-index: 5;
+    cursor: pointer;
+    border: 1px solid var(--fl-bd3);
+    border-radius: 50%;
+    /* A small stone in the same idiom as the socket, and it INVERTS with the
+       mode: a pale stone while the moon is showing (light room), a dark one
+       while the sun is showing (dark room). Either way the icon is the
+       opposite of the face it sits on, so it never disappears. */
+    color: #3A3730;
+    background:
+        radial-gradient(circle at 34% 26%, #FFFFFF 0%, #F2F0EA 42%, #D6D2C8 100%);
+    box-shadow: inset 0 -3px 5px rgba(48, 45, 38, 0.28),
+                inset 0 2px 2px rgba(255, 255, 255, 0.9),
+                var(--fl-shadow-1);
+    transition: background 0.6s var(--fl-ease), color 0.4s ease,
+                box-shadow 0.4s ease, border-color 0.4s ease;
+}
+
+:root[data-theme="dark"] .fl-lamp {
+    color: #F2EFE6;
+    border-color: #0C0C0A;
+    background:
+        radial-gradient(circle at 34% 26%, #4A4740 0%, #2C2A25 46%, #171613 100%);
+    box-shadow: inset 0 -3px 5px rgba(0, 0, 0, 0.6),
+                inset 0 2px 2px rgba(255, 255, 255, 0.14),
+                var(--fl-shadow-1);
+}
+
+@media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) .fl-lamp {
+        color: #F2EFE6;
+        border-color: #0C0C0A;
+        background:
+            radial-gradient(circle at 34% 26%, #4A4740 0%, #2C2A25 46%, #171613 100%);
+        box-shadow: inset 0 -3px 5px rgba(0, 0, 0, 0.6),
+                    inset 0 2px 2px rgba(255, 255, 255, 0.14),
+                    var(--fl-shadow-1);
+    }
+}
+
+/* The tabs are anchored to the strip's bottom edge; the lamp is not a tab,
+   so it rides the strip's centreline instead. */
+.fl-lamp { top: -3px; }
+
+.fl-lamp:hover { filter: brightness(1.06); border-color: var(--fl-bd2); }
+.fl-lamp:active { filter: brightness(0.94); }
+
+.fl-lamp svg {
+    width: 14px;
+    height: 15px;
+    display: block;
+    flex: none;
+    fill: none;
+    stroke: currentColor;
+    stroke-width: 1.5;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+}
+
+/* Show the sun while the room is dark (press it to bring the day back),
+   and the moon while it is light. */
+.fl-lamp .fl-lamp-sun { display: none; }
+.fl-lamp .fl-lamp-moon { display: block; }
+
+:root[data-theme="dark"] .fl-lamp .fl-lamp-sun { display: block; }
+:root[data-theme="dark"] .fl-lamp .fl-lamp-moon { display: none; }
+
+@media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) .fl-lamp .fl-lamp-sun { display: block; }
+    :root:not([data-theme="light"]) .fl-lamp .fl-lamp-moon { display: none; }
+}
+
+/* ==========================================================================
+   CODE - an ink panel on the page, the same in both modes.
+   Prism's default light theme is overridden here; the token palette is
+   drawn from the accent family so code belongs to the same room.
+   ========================================================================== */
+code, kbd, samp, pre {
+    font-family: var(--font-mono);
+}
+
+/* Inline code: a sunken slip of paper, not an ink panel. */
+:not(pre) > code {
+    padding: 0.1em 0.38em;
+    font-size: 0.86em;
+    color: var(--fl-ink2);
+    background: var(--fl-fld2);
+    border: 1px solid var(--fl-sep);
+    border-radius: var(--fl-r);
+    box-shadow: var(--fl-well);
+}
+
+pre[class*="language-"],
+pre.fl-code {
+    background: var(--fl-code-bg) !important;
+    color: var(--fl-code-fg) !important;
+    border: 1px solid var(--fl-code-bd);
+    border-radius: var(--fl-r);
+    box-shadow: inset 0 2px 6px rgba(0, 0, 0, 0.45), var(--fl-shadow-1);
+    text-shadow: none !important;
+    font-size: 0.82em;
+    line-height: 1.6;
+}
+
+code[class*="language-"],
+pre[class*="language-"] code {
+    background: none !important;
+    border: 0;
+    box-shadow: none;
+    color: inherit;
+    text-shadow: none !important;
+    padding: 0;
+    font-size: inherit;
+}
+
+/* Prism tokens, recut in the house palette: comments in faded ink,
+   strings in the accent leaf, keywords in brass. */
+.token.comment, .token.prolog, .token.cdata, .token.doctype {
+    color: var(--fl-code-dim) !important;
+    font-style: italic;
+}
+.token.punctuation { color: #A9A597 !important; }
+.token.string, .token.char, .token.attr-value, .token.regex, .token.inserted {
+    color: #A3C0AB !important;
+}
+.token.keyword, .token.selector, .token.important, .token.atrule, .token.rule {
+    color: #D2C79E !important;
+}
+.token.function, .token.class-name, .token.builtin {
+    color: #D3B79C !important;
+}
+.token.number, .token.boolean, .token.constant, .token.symbol {
+    color: #A9B6D8 !important;
+}
+.token.operator, .token.entity, .token.url, .token.variable {
+    color: #CBC7B4 !important;
+    background: none !important;
+}
+.token.property, .token.tag, .token.attr-name, .token.deleted {
+    color: #C9A49C !important;
+}
+.token.namespace { opacity: 0.7; }
+
+/* ==========================================================================
+   FLORA DESIGN - THE STONE RIG
+
+   Every accent stone on the site carries the same lighting apparatus, and
+   all of it is CSS: clip-paths, gradients and masks, no SVG and no script.
+   That is deliberate - the Rust widget theme has to be able to replay this
+   exact rig, so it may not depend on markup a widget cannot emit.
+
+   Two pseudo-elements, painted at z-index -1 so they sit above the stone's
+   own field and below its label:
+
+     ::before   THE SHAFTS. A clip-path wedge anchored at the upper-left
+                corner holds a set of hard-edged bands raked 114deg; a mask
+                fades them as they travel away from the source and a blur
+                turns the geometry back into light. Percentages, so the
+                wedge scales with the box - a 30px pill and a 300px card get
+                the same lighting.
+
+     ::after    THE SOURCE. The bloom just off the upper-left corner, the
+                shadow each lit edge casts immediately under itself, and the
+                far corner falling away. Four gradients, one layer.
+
+   On hover the shafts brighten and drift; nothing jumps, because light
+   moving across a stone is a slow continuous thing.
+   ========================================================================== */
+
+.btn-primary,
+.nav-links a.active,
+.lang-grid button.active,
+.pill-live,
+.feature-card.has-gradient,
+.feature-category.has-gradient {
+    position: relative;
+    overflow: hidden;
+    isolation: isolate;
+}
+
+.btn-primary::before,
+.nav-links a.active::before,
+.lang-grid button.active::before,
+.pill-live::before,
+.feature-card.has-gradient::before,
+.feature-category.has-gradient::before {
+    content: "";
+    position: absolute;
+    inset: -12% -8%;
+    z-index: -1;
+    pointer-events: none;
+    /* Three shafts, not a hatch: percentage stops so the set scales with
+       the box instead of tiling across it, each one dimmer than the last as
+       the light spreads. */
+    background: linear-gradient(114deg,
+        rgba(255, 253, 244, 0)    4%,
+        rgba(255, 253, 244, 0.50) 9%,
+        rgba(255, 253, 244, 0.50) 17%,
+        rgba(255, 253, 244, 0)    22%,
+        rgba(255, 253, 244, 0)    33%,
+        rgba(255, 253, 244, 0.30) 37%,
+        rgba(255, 253, 244, 0.30) 42%,
+        rgba(255, 253, 244, 0)    47%,
+        rgba(255, 253, 244, 0)    57%,
+        rgba(255, 253, 244, 0.18) 60%,
+        rgba(255, 253, 244, 0.18) 63%,
+        rgba(255, 253, 244, 0)    67%);
+    clip-path: polygon(0% 0%, 48% 0%, 100% 100%, 0% 100%);
+    -webkit-mask-image: linear-gradient(146deg, #000 0%, rgba(0, 0, 0, 0.45) 42%, transparent 86%);
+            mask-image: linear-gradient(146deg, #000 0%, rgba(0, 0, 0, 0.45) 42%, transparent 86%);
+    filter: blur(3px);
+    opacity: 0.34;
+    transform: translateX(0);
+    transition: opacity var(--fl-dur-slow) ease-in-out,
+                transform 2.4s var(--fl-ease-out);
+}
+
+.btn-primary::after,
+.nav-links a.active::after,
+.lang-grid button.active::after,
+.pill-live::after,
+.feature-card.has-gradient::after,
+.feature-category.has-gradient::after {
+    content: "";
+    position: absolute;
+    inset: 0;
+    z-index: -1;
+    pointer-events: none;
+    opacity: 0.85;
+    background:
+        radial-gradient(ellipse 58% 150% at 2% -20%,
+            rgba(255, 253, 238, 0.32) 0%, rgba(255, 253, 238, 0) 68%),
+        linear-gradient(180deg, rgba(12, 10, 4, 0.34) 0%, rgba(12, 10, 4, 0) 32%),
+        linear-gradient(90deg,  rgba(12, 10, 4, 0.22) 0%, rgba(12, 10, 4, 0) 15%),
+        radial-gradient(ellipse 72% 155% at 106% 126%,
+            rgba(12, 10, 4, 0.40) 0%, rgba(12, 10, 4, 0) 66%);
+    transition: opacity var(--fl-dur-slow) ease-in-out;
+}
+
+.btn-primary:hover::before,
+.nav-links a.active:hover::before,
+.lang-grid button.active:hover::before,
+.feature-card.has-gradient:hover::before,
+.feature-category.has-gradient:hover::before {
+    opacity: 0.6;
+    transform: translateX(7px);
+}
+
+.btn-primary:hover::after,
+.nav-links a.active:hover::after,
+.lang-grid button.active:hover::after,
+.feature-card.has-gradient:hover::after,
+.feature-category.has-gradient:hover::after {
+    opacity: 1;
+}
+
+/* A sunken stone is lit from below the near edge instead of above it: the
+   light falls INTO the well, so the top edge darkens and the bottom lifts.
+   That inversion is the whole difference between "pressed" and "raised". */
+.nav-links a.active::after,
+.lang-grid button.active::after {
+    background:
+        radial-gradient(ellipse 62% 170% at 4% -26%,
+            rgba(255, 253, 238, 0.26) 0%, rgba(255, 253, 238, 0) 62%),
+        linear-gradient(180deg, rgba(8, 6, 2, 0.48) 0%, rgba(8, 6, 2, 0) 42%),
+        linear-gradient(90deg,  rgba(8, 6, 2, 0.30) 0%, rgba(8, 6, 2, 0) 18%),
+        linear-gradient(0deg,   rgba(255, 253, 238, 0.10) 0%, rgba(255, 253, 238, 0) 14%);
+}
+
+/* ==========================================================================
+   THE SHEEN
+   Raised faces have no shafts - they are paper, not stone - but they do
+   catch a band of light as the pointer crosses them. One keyframe, run
+   once per hover, so the highlight reads as a reflection rather than a
+   colour change. Same for the lamp and any icon-only control.
+   ========================================================================== */
+
+@keyframes fl-sheen {
+    from { transform: translateX(-140%) skewX(-16deg); opacity: 0; }
+    18%  { opacity: 1; }
+    to   { transform: translateX(240%)  skewX(-16deg); opacity: 0; }
+}
+
+.btn-secondary,
+.btn-hero-secondary,
+.fl-lamp,
+.nav-links a:not(.active),
+.lang-grid button:not(.active),
+.docs-card {
+    position: relative;
+    overflow: hidden;
+    isolation: isolate;
+}
+
+.btn-secondary::after,
+.btn-hero-secondary::after,
+.fl-lamp::after,
+.nav-links a:not(.active)::after,
+.lang-grid button:not(.active)::after,
+.docs-card::after {
+    content: "";
+    position: absolute;
+    top: -20%;
+    bottom: -20%;
+    left: 0;
+    width: 34%;
+    z-index: -1;
+    pointer-events: none;
+    opacity: 0;
+    background: linear-gradient(90deg,
+        rgba(255, 255, 250, 0) 0%,
+        rgba(255, 255, 250, 0.75) 50%,
+        rgba(255, 255, 250, 0) 100%);
+    filter: blur(2px);
+    transform: translateX(-140%) skewX(-16deg);
+}
+
+.btn-secondary:hover::after,
+.btn-hero-secondary:hover::after,
+.fl-lamp:hover::after,
+.nav-links a:not(.active):hover::after,
+.lang-grid button:not(.active):hover::after,
+.docs-card:hover::after {
+    animation: fl-sheen 0.85s var(--fl-ease) 1;
+}
+
+/* The lamp's icon turns with the light rather than swapping instantly. */
+.fl-lamp svg {
+    transition: transform var(--fl-dur) var(--fl-ease-out),
+                opacity var(--fl-dur) ease;
+}
+.fl-lamp:hover svg {
+    transform: rotate(-14deg) scale(1.06);
+}
+
+/* ==========================================================================
+   RAISED <-> SUNKEN
+   The press is the one fast movement in the system: a face that was lit on
+   top flips to lit on the bottom in --fl-dur-fast, then eases back out over
+   --fl-dur when released. Declared here in one place so the widget port has
+   a single curve to copy.
+   ========================================================================== */
+
+.btn,
+.fl-lamp,
+.nav-links a,
+.lang-grid button,
+.tab-bar select,
+.lang-tab-dropdown .dialect-select {
+    transition: background var(--fl-dur) var(--fl-ease),
+                border-color var(--fl-dur) var(--fl-ease),
+                color var(--fl-dur) var(--fl-ease),
+                box-shadow var(--fl-dur) var(--fl-ease),
+                filter var(--fl-dur-slow) var(--fl-ease);
+}
+
+.btn:active,
+.fl-lamp:active,
+.nav-links a:active,
+.lang-grid button:active {
+    transition-duration: var(--fl-dur-fast);
+}
+
+/* ==========================================================================
+   Readers who ask for less motion get the same picture, held still: the
+   lighting stays (it is depth, not decoration), the travel stops.
+   ========================================================================== */
+@media (prefers-reduced-motion: reduce) {
+    *,
+    *::before,
+    *::after {
+        animation-duration: 0.001ms !important;
+        animation-iteration-count: 1 !important;
+        transition-duration: 0.001ms !important;
+        scroll-behavior: auto !important;
+    }
+    .btn-primary:hover::before,
+    .nav-links a.active:hover::before,
+    .lang-grid button.active:hover::before,
+    .feature-card.has-gradient:hover::before,
+    .feature-category.has-gradient:hover::before {
+        transform: none;
+    }
+}

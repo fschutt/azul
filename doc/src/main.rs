@@ -1929,13 +1929,13 @@ fn main() -> anyhow::Result<()> {
 
             // ---- Root marketing site (azlin.io style), independent of the
             // /ui docs. The landing/stub files use bare root-relative links
-            // (/azlin.css, /ui/, /ws.html, /os.html) and contain no
+            // (/flora.css, /ui/, /ws.html, /os.html) and contain no
             // "https://azul.rs", so the debug rewrite leaves them correct —
             // copy them verbatim into the deploy root.
             let templates_dir = project_root.join("doc").join("templates");
             fs::copy(
-                templates_dir.join("azlin.css"),
-                root_dir.join("azlin.css"),
+                templates_dir.join("flora.css"),
+                root_dir.join("flora.css"),
             )?;
             // Brand logo for the marketing nav (same asset the /ui docs use).
             fs::copy(
@@ -1996,7 +1996,7 @@ fn main() -> anyhow::Result<()> {
                     stub_dir.join("index.html"),
                 )?;
             }
-            println!("  [OK] Generated root marketing landing + ws/os stubs + azlin.css");
+            println!("  [OK] Generated root marketing landing + ws/os stubs + flora.css");
 
             // Mirror the /ui page tree with root-level redirect stubs so links
             // from before the /ui move (and bare .html URLs) don't 404. Runs
