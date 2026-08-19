@@ -526,6 +526,55 @@ extern "C" fn hydrate_noop_destructor(_ptr: *mut c_void) {}
 /// type_id is split into two u32 halves so JS doesn't have to BigInt
 /// the arg (and the lift wrapper doesn't need a 64-bit param slot,
 /// which the current `Pcs::Wreg`-only sig table can't represent).
+/// Rebuild the app state from its JSON reflection instead of a raw byte
+/// image, for models whose bytes are meaningless in the guest.
+///
+/// `AzStartup_hydrate` copies the model's native byte image verbatim. That
+/// is right for plain-old-data state (hello-world's `{ counter: u32 }`) and
+/// wrong for anything holding pointers: a `String`'s heap address belongs to
+/// the SERVER process, so the first deref in the guest leaves linear memory.
+///
+/// The app registers its `extern "C" fn(Json) -> ResultRefAnyString` via
+/// `set_deserialize_fn` in `main()`, which never runs here — so the loader
+/// passes the address (already synth-translated by the server) to
+/// [`AzStartup_registerStateDeserializer`], and this fn calls it through the
+/// stored pointer. In the lifted world that indirect call goes through the
+/// remill dispatcher, so the deserializer's body must be part of this
+/// bundle; the mini lift seeds it as an extra root.
+///
+/// `json_ptr`/`json_len` describe UTF-8 JSON text in guest memory. Returns
+/// the wasm offset of the new `AzRefAny`, or `0` on any failure — never a
+/// silent fallback to the raw-bytes path, which would resurrect exactly the
+/// corruption this exists to avoid.
+#[no_mangle]
+pub unsafe extern "C" fn AzStartup_hydrateJson(
+    state: u32,
+    json_ptr: u32,
+    json_len: u32,
+) -> u32 {
+    if state == 0 || json_ptr == 0 || json_len == 0 {
+        return 0;
+    }
+    let s = &mut *(state as usize as *mut EventloopState);
+    let deser_fn = s.state_deserializer as usize;
+    if deser_fn == 0 {
+        return 0;
+    }
+    let text = core::slice::from_raw_parts(json_ptr as usize as *const u8, json_len as usize);
+    let json = match azul_core::json::Json::parse_bytes(text) {
+        Ok(j) => j,
+        Err(_) => return 0,
+    };
+    let refany = match azul_layout::json::json_deserialize_to_refany(json, deser_fn) {
+        azul_layout::json::ResultRefAnyString::Ok(r) => r,
+        azul_layout::json::ResultRefAnyString::Err(_) => return 0,
+    };
+    let boxed = Box::new(refany);
+    let ptr = Box::into_raw(boxed) as usize as u32;
+    s.refany_ptr = ptr;
+    ptr
+}
+
 #[no_mangle]
 pub unsafe extern "C" fn AzStartup_hydrate(
     type_id_lo: u32,

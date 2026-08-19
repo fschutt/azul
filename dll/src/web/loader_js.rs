@@ -722,7 +722,40 @@ function azHydrate() {
         console.error('[azul-web] hydrate alloc(' + modelSize + ') failed');
         return;
     }
-    if (typeof payload.bytes === 'string' && payload.bytes.length === modelSize * 2) {
+    // Reflection path FIRST: a model whose fields hold pointers (String,
+    // Vec, …) cannot be restored from its native byte image — those
+    // addresses belong to the server process and the first deref in the
+    // guest leaves linear memory (AzWriter's DocState.export_path). When
+    // the app registered a deserializer, the server ships its synth
+    // address and the state travels as JSON instead.
+    // See doc/web-json-hydrate-plan.md.
+    var deserFn = (typeof payload.deserialize_fn === 'number') ? payload.deserialize_fn : 0;
+    var usedJsonHydrate = false;
+    if (deserFn !== 0 && payload.json !== null && typeof payload.json === 'object'
+        && typeof azMini.AzStartup_hydrateJson === 'function') {
+        var jsonText = JSON.stringify(payload.json);
+        var jsonBytes = new TextEncoder().encode(jsonText);
+        var jsonPtr = azMini.AzStartup_alloc(jsonBytes.length);
+        if (jsonPtr) {
+            new Uint8Array(azMemory.buffer, jsonPtr, jsonBytes.length).set(jsonBytes);
+            azMini.AzStartup_registerStateDeserializer(azState, BigInt(deserFn));
+            var jr = azMini.AzStartup_hydrateJson(azState, jsonPtr, jsonBytes.length);
+            if (jr) {
+                azRefAnyPtr = jr;
+                usedJsonHydrate = true;
+                console.info('[azul-web] hydrate via JSON reflection: refany=' + jr
+                    + ' (' + jsonBytes.length + ' bytes of state)');
+            } else {
+                // Loud, and NOT silently downgraded to the raw-byte path —
+                // that is exactly the corruption this exists to avoid.
+                console.error('[azul-web] AzStartup_hydrateJson failed (deserializer 0x'
+                    + deserFn.toString(16) + ') — app state will be missing');
+            }
+        }
+    }
+    if (usedJsonHydrate) {
+        // refany already built guest-side; skip the byte-image path below.
+    } else if (typeof payload.bytes === 'string' && payload.bytes.length === modelSize * 2) {
         var mem = new Uint8Array(azMemory.buffer, azModelPtr, modelSize);
         for (var bi = 0; bi < modelSize; bi++) {
             mem[bi] = parseInt(payload.bytes.substr(bi * 2, 2), 16);
@@ -735,7 +768,9 @@ function azHydrate() {
     // Hand to AzStartup_hydrate — the mini-side fn does the
     // RefCountInner + RefAny construction in lifted Rust code, no
     // hand-laid-out JS bytes.
-    azRefAnyPtr = azMini.AzStartup_hydrate(typeIdLo, typeIdHi, azModelPtr, modelSize);
+    if (!usedJsonHydrate) {
+        azRefAnyPtr = azMini.AzStartup_hydrate(typeIdLo, typeIdHi, azModelPtr, modelSize);
+    }
     if (!azRefAnyPtr) {
         console.error('[azul-web] AzStartup_hydrate returned 0');
         return;
