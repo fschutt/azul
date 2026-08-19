@@ -73,12 +73,21 @@ extern "C" fn render_virtual_view(mut data: RefAny, info: VirtualViewCallbackInf
     let rows = (d.file_paths.len() + 3) / 4; // 4 items per row
     let virtual_height = rows as f32 * 160.0; // 150px + 10px gap
 
+    // Each size+offset pair is one rect now: `materialized` is what was
+    // rendered and where it sits, `virtual_rect` is how big the document is.
+    // The old values are carried across unchanged -- this example already
+    // passed the same height for both, and migrating is not the place to
+    // redesign what it measures.
     VirtualViewReturn {
         dom: OptionDom::Some(container),
-        scroll_size: LogicalSize::create(0.0, virtual_height),
-        scroll_offset: LogicalPosition::create(0.0, 0.0),
-        virtual_scroll_size: LogicalSize::create(0.0, virtual_height),
-        virtual_scroll_offset: LogicalPosition::create(0.0, d.visible_start as f32 * 40.0),
+        materialized: LogicalRect::create(
+            LogicalPosition::create(0.0, 0.0),
+            LogicalSize::create(0.0, virtual_height),
+        ),
+        virtual_rect: LogicalRect::create(
+            LogicalPosition::create(0.0, d.visible_start as f32 * 40.0),
+            LogicalSize::create(0.0, virtual_height),
+        ),
     }
 }
 

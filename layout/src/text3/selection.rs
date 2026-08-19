@@ -90,10 +90,14 @@ use crate::text3::cache::{
             continue;
         }
         let run = source.run_index;
-        if run < cursor_run {
-            before = Some(before.map_or(run, |b: u32| b.max(run)));
-        } else if run > cursor_run {
-            after = Some(after.map_or(run, |a: u32| a.min(run)));
+        match run.cmp(&cursor_run) {
+            core::cmp::Ordering::Less => {
+                before = Some(before.map_or(run, |b: u32| b.max(run)));
+            }
+            core::cmp::Ordering::Greater => {
+                after = Some(after.map_or(run, |a: u32| a.min(run)));
+            }
+            core::cmp::Ordering::Equal => {}
         }
     }
 

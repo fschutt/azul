@@ -2052,7 +2052,7 @@ impl LayoutWindow {
     /// `materialized_window_origin - current_scroll_offset`, both in virtual
     /// space.
     ///
-    /// THE one definition of VirtualView placement — the display-list builder,
+    /// THE one definition of `VirtualView` placement — the display-list builder,
     /// the scroll-only rebuild and the fallback path all call this, so they
     /// cannot drift. Note what it does NOT read: the virtual document size.
     /// That is what lets background pagination refine the estimate (growing or
