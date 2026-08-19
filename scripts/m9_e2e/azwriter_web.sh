@@ -40,7 +40,10 @@ nohup "./$BIN" > /c/rb/azwriter_server.log 2>&1 &
 for i in $(seq 1 1080); do
   grep -qE "Listening on" /c/rb/azwriter_server.log 2>/dev/null && { echo "READY $(date +%H:%M:%S)" | tee -a "$LOG"; break; }
   a=$(ps -W 2>/dev/null | grep -icE 'azul-doc-demo')
-  [ "$a" = "0" ] && { echo "DIED $(date +%H:%M:%S)" | tee -a "$LOG"; tail -25 /c/rb/azwriter_server.log | tee -a "$LOG"; exit 1; }
+  [ "$a" = "0" ] && {
+    echo "DIED $(date +%H:%M:%S) — last lift line + any crash text below" | tee -a "$LOG"
+    grep -vE "^\[azul-web\]   (intercept|    dep)" /c/rb/azwriter_server.log | tail -12 | tee -a "$LOG"
+    exit 1; }
   sleep 10
 done
 grep -qE "Listening on" /c/rb/azwriter_server.log 2>/dev/null || {
