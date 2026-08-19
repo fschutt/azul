@@ -244,22 +244,26 @@ body.docs {
 .docs-content tr:last-child td { border-bottom: none; }
 
 /* ---- Index/list pages: hairline lists (erp-style, no cards) ---- */
+/* A list of chapters is a table of contents. It was set with article-sized
+   air between entries - 40px of gap plus 40px of padding on every one - which
+   made a 60-chapter guide a very long scroll for what is, per entry, a title
+   and a line. */
 .docs-list {
     display: flex;
     flex-direction: column;
-    gap: 40px;
+    gap: 18px;
     max-width: 900px;
 }
 .docs-list-item {
-    padding-bottom: 40px;
+    padding-bottom: 18px;
     border-bottom: 1px solid var(--color-border);
 }
 .docs-list-item:last-child { border-bottom: none; }
 .docs-list-item h3 {
     font-family: var(--font-display);
-    font-size: 28px;
+    font-size: 23px;
     font-weight: 500;
-    margin: 0 0 10px;
+    margin: 0 0 4px;
 }
 /* A button inside prose is a button, not a link: the prose rule would
    repaint its label in brass and underline it, which is unreadable on a
@@ -322,11 +326,11 @@ body.docs {
     margin-bottom: 12px;
 }
 .docs-list-item p {
-    font-size: var(--fl-text);
-    line-height: 1.65;
+    font-size: 1rem;
+    line-height: 1.5;
     color: var(--color-text-light);
     text-wrap: balance;
-    margin: 0 0 12px;
+    margin: 0 0 8px;
 }
 .docs-read-more,
 .docs-read-more:visited {

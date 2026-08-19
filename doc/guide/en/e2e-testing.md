@@ -270,4 +270,3 @@ The recorder uses the same selector resolver as `assert_*`, so the captured step
 
 - [Debugging](debugging.md) — Debug overlays, the inspector, and structured logging
 - [Headless Rendering](headless-rendering.md) — Running the pipeline without a window
-- [Code Generation](code-generation.md) — How `azul-doc` regenerates bindings from `api.json`

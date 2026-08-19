@@ -159,4 +159,3 @@ If `App::run` returns an error (e.g. no display server could be opened), it is a
 
 - [End-to-End Testing](e2e-testing.md) — Driving an Azul app from a script for tests
 - [Profiling](memory-profiling.md) — Tracking allocations and per-frame budgets
-- [Code Generation](code-generation.md) — How `azul-doc` regenerates bindings from `api.json`

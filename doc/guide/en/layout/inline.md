@@ -64,8 +64,7 @@ itself rides the surrounding line.
 
 You don't drive text layout directly. Set CSS properties on the container.
 The engine shapes glyphs, picks line breaks, reorders bidirectional runs,
-and positions output at layout time. For the architecture, see
-[Inline Layout and Text Shaping](../internals/layout/inline-text.md).
+and positions output at layout time.
 
 ## Wrapping: white-space, word-break, overflow-wrap
 

@@ -298,7 +298,6 @@ pub fn generate_guide_index(guides: &[crate::docgen::guide::Guide]) -> String {
             // for it - it belongs in the body below, where it is searchable
             // and shows as the snippet.
             p: Some(match crate::docgen::guide::classify_tree(g) {
-                "contributor" => "Contributors",
                 "advanced" => "Advanced",
                 _ => "Getting Started",
             }),
