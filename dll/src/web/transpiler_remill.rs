@@ -8700,6 +8700,40 @@ fn emit_helper_ir(
             // populated bytes in that region. To make this fully
             // correct we memset(0) the freshly allocated region.
             // Negligible cost (memset is intrinsic-fast on wasm).
+            // HeapAlloc(heap, flags, dwBytes) shape: identical bump body,
+            // size read from ARG[2] instead of ARG[0]. See
+            // FnClass::BumpAllocWinHeap.
+            Some(SymFnClass::BumpAllocWinHeap) => {
+                branch_stubs.push_str(&format!(
+                    "; bump-allocator body for {sym} (HeapAlloc arg shape: size in arg3)
+                     define linkonce_odr ptr @{sym}(ptr %state, i64 %pc, ptr %memory) alwaysinline {{
+                         %x0_p_{n} = getelementptr inbounds i8, ptr %state, i64 {size_off}
+                         %size_{n} = load i64, ptr %x0_p_{n}, align 8
+                         store volatile i64 %size_{n}, ptr inttoptr (i64 262192 to ptr), align 8
+                         %dbgc_{n} = load volatile i64, ptr inttoptr (i64 262200 to ptr), align 8
+                         %dbgcp_{n} = add i64 %dbgc_{n}, 1
+                         store volatile i64 %dbgcp_{n}, ptr inttoptr (i64 262200 to ptr), align 8
+                         %size_a_{n} = add i64 %size_{n}, 7
+                         %size_aligned_{n} = and i64 %size_a_{n}, -8
+                         %old_{n} = load i32, ptr inttoptr (i64 262176 to ptr), align 4
+                         %old_i64_{n} = zext i32 %old_{n} to i64
+                         %new_i64_{n} = add i64 %old_i64_{n}, %size_aligned_{n}
+                         %new_{n} = trunc i64 %new_i64_{n} to i32
+                         store i32 %new_{n}, ptr inttoptr (i64 262176 to ptr), align 4
+                         %ret_p_{n} = getelementptr inbounds i8, ptr %state, i64 {ret_off}
+                         store i64 %old_i64_{n}, ptr %ret_p_{n}, align 8
+                         store volatile i64 %old_i64_{n}, ptr inttoptr (i64 262208 to ptr), align 8
+                         %dest_p_{n} = inttoptr i32 %old_{n} to ptr
+                         call void @llvm.memset.p0.i64(ptr %dest_p_{n}, i8 0, i64 %size_aligned_{n}, i1 false)
+                         ret ptr %memory
+                     }}
+",
+                    sym = ext.sym_name,
+                    n = n_suffix,
+                    size_off = arg2_off,
+                    ret_off = ret_off,
+                ));
+            }
             Some(SymFnClass::BumpAlloc) => {
                 branch_stubs.push_str(&format!(
                     "; bump-allocator body for {sym}\n\

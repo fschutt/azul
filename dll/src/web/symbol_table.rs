@@ -125,6 +125,15 @@ pub enum FnClass {
     /// body that bumps `@__az_bump_ptr` by State.X0 and returns the
     /// old value. See `emit_helper_ir` BranchExternKind::RustAlloc.
     BumpAlloc,
+    /// Platform heap wrapper with the `HeapAlloc(heap, flags, dwBytes)`
+    /// argument shape — `std::sys::alloc::windows::process_heap_alloc`,
+    /// which LTO leaves as the surviving allocator call in a statically
+    /// linked binary. Same bump body as [`FnClass::BumpAlloc`] but the
+    /// size is the THIRD argument, not the first: classifying it as
+    /// plain BumpAlloc made the helper read the heap handle as a size,
+    /// so `AzStartup_init` allocated 0 bytes and its EventloopState
+    /// aliased the next allocation.
+    BumpAllocWinHeap,
     /// `__rust_realloc(old_ptr, old_size, align, new_size)`. Helper
     /// IR emits a body that bumps `@__az_bump_ptr` by new_size,
     /// memcpys `min(old_size, new_size)` bytes from old_ptr into the
@@ -253,7 +262,7 @@ impl FnClass {
     /// bump/noop body. The web force-enqueue lifts these so indirect
     /// calls to them (Drop glue) get a dispatcher `switch` case.
     pub fn is_bump_alloc(self) -> bool {
-        matches!(self, FnClass::BumpAlloc)
+        matches!(self, FnClass::BumpAlloc | FnClass::BumpAllocWinHeap)
     }
 
     /// M10-D: whether this symbol ships as its own per-fn wasm shard.
@@ -2464,6 +2473,10 @@ fn classify_for_name(name: &str, api: &HashMap<String, ApiFnClass>) -> FnClass {
             }
             if stripped.contains("realloc") {
                 return FnClass::BumpRealloc;
+            }
+            if stripped.contains("process_heap_alloc") {
+                // HeapAlloc(heap, flags, dwBytes): size is arg 3.
+                return FnClass::BumpAllocWinHeap;
             }
             if stripped.contains("alloc") {
                 return FnClass::BumpAlloc;
