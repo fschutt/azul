@@ -401,8 +401,7 @@ mod view_handlers {
                 EditCommand::Redo => focused.map(|target| SystemChange::RedoTextEdit { target }),
             };
             let Some(change) = change else { return };
-            macos_window.common.previous_window_state =
-                Some(macos_window.common.current_window_state.clone());
+            macos_window.snapshot_window_state_baseline("macos.edit_command");
             let result = macos_window.apply_system_change(&change);
             macos_window.apply_activation_pass_result(result);
         }
@@ -442,8 +441,7 @@ mod view_handlers {
                     }),
                 );
             }
-            macos_window.common.previous_window_state =
-                Some(macos_window.common.current_window_state.clone());
+            macos_window.snapshot_window_state_baseline("macos.magnify");
             let result = macos_window.process_window_events(0);
             macos_window.apply_activation_pass_result(result);
         }
@@ -474,8 +472,7 @@ mod view_handlers {
                     }),
                 );
             }
-            macos_window.common.previous_window_state =
-                Some(macos_window.common.current_window_state.clone());
+            macos_window.snapshot_window_state_baseline("macos.rotate");
             let result = macos_window.process_window_events(0);
             macos_window.apply_activation_pass_result(result);
         }
@@ -2684,8 +2681,7 @@ define_class!(
                     // false→true diff invisible, so WindowFocusReceived
                     // callbacks never fired on macOS and focus-conditional
                     // styling never repainted.
-                    macos_window.common.previous_window_state =
-                        Some(macos_window.common.current_window_state.clone());
+                    macos_window.snapshot_window_state_baseline("macos.window_did_become_key");
                     macos_window.common.current_window_state.window_focused = true;
                     macos_window.dynamic_selector_context.window_focused = true;
 
@@ -2721,8 +2717,7 @@ define_class!(
                     // fully dead: WindowFocusLost never dispatched, the caret
                     // kept blinking and selections stayed highlighted while
                     // the window was in the background.
-                    macos_window.common.previous_window_state =
-                        Some(macos_window.common.current_window_state.clone());
+                    macos_window.snapshot_window_state_baseline("macos.window_did_resign_key");
                     macos_window.common.current_window_state.window_focused = false;
                     macos_window.dynamic_selector_context.window_focused = false;
 
@@ -2750,8 +2745,7 @@ define_class!(
                     // with source = Os no longer advances it (it advances the OS-sync
                     // baseline instead), so without this the move delta would be left
                     // live for the next handler's snapshot to erase.
-                    macos_window.common.previous_window_state =
-                        Some(macos_window.common.current_window_state.clone());
+                    macos_window.snapshot_window_state_baseline("macos.window_did_move");
                     // MWA-B9: same primary-screen flip as sync_window_state —
                     // the per-screen height read-back produced coordinates in
                     // a DIFFERENT convention on secondary monitors, so the
@@ -2919,7 +2913,7 @@ fn set_window_frame_and_dispatch(window: &mut MacOSWindow, frame: WindowFrame) {
     if window.common.current_window_state.flags.frame == frame {
         return;
     }
-    window.common.previous_window_state = Some(window.common.current_window_state.clone());
+    window.snapshot_window_state_baseline("macos.set_window_frame_and_dispatch");
     // OS-REPORTED transition (the delegate fires AFTER the OS performed it), so
     // the OS-sync baseline must advance in lockstep (source = Os). A direct
     // `flags.frame = frame` write left `os_synced_state` stale, and the next
@@ -4485,7 +4479,7 @@ impl MacOSWindow {
             // Process callback changes via apply_user_change
             drop(app_data_ref); // Release borrow before apply_user_change
             use crate::desktop::shell2::common::event::PlatformWindow;
-            window.common.previous_window_state = Some(window.common.current_window_state.clone());
+            window.seed_window_state_baseline("macos.new_with_options.create_callback");
             let (changes, _update) = callback_result;
             for change in &changes {
                 let r = window.apply_user_change(change);
@@ -4606,8 +4600,7 @@ impl MacOSWindow {
         // and the first event pass reports a phantom window move. (No pass has
         // run yet, so this is the creation-time equivalent of a handler's
         // pre-mutation snapshot, not a mid-flight baseline rewrite.)
-        window.common.previous_window_state =
-            Some(window.common.current_window_state.clone());
+        window.seed_window_state_baseline("macos.new_with_options.seed_baseline");
         window.common.mark_os_synced();
 
         log_info!(
@@ -4785,8 +4778,13 @@ impl MacOSWindow {
         let new_hidpi = self.get_hidpi_factor();
         let old_hidpi = self.common.current_window_state.size.get_hidpi_factor();
 
-        // Check if monitor changed (detect current monitor)
+        // Check if monitor changed (detect current monitor).
+        // The snapshot goes BEFORE `detect_current_monitor`, which writes
+        // `monitor_id`: `WindowMonitorChanged` is derived from that delta, so a
+        // write on this side of the baseline was a lost event (and left a live
+        // delta for the next handler's snapshot to trip over).
         let old_display_id = self.current_display_id;
+        self.snapshot_window_state_baseline("macos.handle_dpi_change");
         self.detect_current_monitor();
         let new_display_id = self.current_display_id;
 
@@ -4818,8 +4816,12 @@ impl MacOSWindow {
             }
         }
 
-        // Only process if DPI actually changed
+        // Only process if DPI actually changed. Two same-DPI displays still
+        // move the window between monitors, and that delta is already
+        // snapshotted, so it is dispatched here rather than left live.
         if (new_hidpi.inner.get() - old_hidpi.inner.get()).abs() < 0.001 {
+            let result = self.process_window_events(0);
+            self.apply_activation_pass_result(result);
             return Ok(());
         }
 
@@ -4830,11 +4832,10 @@ impl MacOSWindow {
             new_hidpi.inner.get()
         );
 
-        // Snapshot the event baseline, write the new DPI, dispatch. Without the
-        // snapshot + pass the scale change was invisible to the event system, so
-        // no DPI-conditional callback ever ran and the delta was left for the
-        // next handler's snapshot to erase.
-        self.common.previous_window_state = Some(self.common.current_window_state.clone());
+        // The baseline was taken at the top (before the monitor write); write
+        // the new DPI and dispatch. Without the snapshot + pass the scale change
+        // was invisible to the event system, so no DPI-conditional callback ever
+        // ran and the delta was left for the next handler's snapshot to erase.
         self.common.update_window_state(
             crate::desktop::shell2::common::event::WindowStateSource::Os,
             |ws| ws.size.dpi = (new_hidpi.inner.get() * BASE_DPI) as u32,
@@ -4933,7 +4934,7 @@ impl MacOSWindow {
         // mark_os_synced() has run, take_os_sync_diff() answers None and nothing
         // is pushed, which is what keeps the first frame from firing a burst of
         // redundant setFrame/setContentSize calls.
-        self.common.previous_window_state = Some(self.common.current_window_state.clone());
+        self.seed_window_state_baseline("macos.apply_initial_window_state");
         self.common.mark_os_synced();
     }
 
@@ -5180,7 +5181,7 @@ impl MacOSWindow {
     /// state to previous state.
     pub fn update_window_state(&mut self, new_state: FullWindowState) {
         // Save current state as previous for next frame's diff
-        self.common.previous_window_state = Some(self.common.current_window_state.clone());
+        self.snapshot_window_state_baseline("macos.update_window_state");
 
         // Update current state with the new full state
         self.common.current_window_state = new_state;
@@ -5192,7 +5193,7 @@ impl MacOSWindow {
     /// Process close event: save state, set flag, run callbacks, handle result.
     /// Returns true if the close was confirmed (callback did not clear the flag).
     fn process_close_event(&mut self) -> bool {
-        self.common.previous_window_state = Some(self.common.current_window_state.clone());
+        self.snapshot_window_state_baseline("macos.process_close_event");
         self.common.current_window_state.flags.close_requested = true;
 
         let result = self.process_window_events(0);
@@ -5678,7 +5679,7 @@ impl MacOSWindow {
 
         // Process callback changes via apply_user_change
         use crate::desktop::shell2::common::event::PlatformWindow;
-        self.common.previous_window_state = Some(self.common.current_window_state.clone());
+        self.snapshot_window_state_baseline("macos.handle_menu_action");
         let mut event_result = ProcessEventResult::DoNothing;
         for change in &changes {
             let r = self.apply_user_change(change);
@@ -5739,8 +5740,7 @@ impl MacOSWindow {
             // snapshot leaves a delta for the next handler's snapshot to erase.
             // Echo suppression is NOT this baseline's job — `update_window_state`
             // with source = Os advances the OS-sync baseline instead.
-            self.common.previous_window_state =
-                Some(self.common.current_window_state.clone());
+            self.snapshot_window_state_baseline("macos.sync_window_size_from_content_view");
 
             // F4: size REPORTED by the OS (source = Os) — acknowledged into the
             // sync baseline so sync_window_state() doesn't echo it back via
@@ -7136,8 +7136,22 @@ impl MacOSWindow {
 
         // Check for close request from WindowDelegate
         if self.common.current_window_state.flags.close_requested {
-            self.common.current_window_state.flags.close_requested = false;
-            self.handle_close_request();
+            if self.is_open {
+                // Nobody has run the protocol for this one yet — it came from
+                // app code (info.close_window()), not from the title bar. Run
+                // it, so the app's close callback still gets its veto. It
+                // re-sets and then consumes the flag itself.
+                self.handle_close_request();
+            } else {
+                // `windowShouldClose:` already ran the whole protocol and
+                // confirmed (that is what cleared `is_open`), and it leaves the
+                // flag standing. Calling handle_close_request again here ran
+                // the app's close callback a SECOND time for one user close.
+                // Finish the teardown instead.
+                self.common.current_window_state.flags.close_requested = false;
+                self.discard_input_delta("macos.drain_loop_work.close_already_processed");
+                self.close_window();
+            }
         }
 
         // Process pending menu actions — only the ones THIS window's menu

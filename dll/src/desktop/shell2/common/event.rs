@@ -1727,6 +1727,22 @@ impl CommonWindowState {
         }
     }
 
+    /// Snapshot the EVENT-DIFF baseline from a plain `CommonWindowState`.
+    ///
+    /// Same contract and same check as
+    /// [`PlatformWindow::snapshot_window_state_baseline`], for the handful of
+    /// ingress points that only ever get handed the common state (the
+    /// system-theme adopters, which take `&mut CommonWindowState` so one body
+    /// serves every window on the backend).
+    pub fn snapshot_window_state_baseline(&mut self, site: &str) {
+        check_input_delta_consumed(
+            self.previous_window_state.as_ref(),
+            &self.current_window_state,
+            site,
+        );
+        self.previous_window_state = Some(self.current_window_state.clone());
+    }
+
     /// Seed / advance the OS-sync baseline to the current state.
     ///
     /// Call it once the window exists and its state is known to match what the
@@ -2009,6 +2025,24 @@ pub trait PlatformWindow {
             self.get_current_window_state(),
             site,
         );
+        let current = self.get_current_window_state().clone();
+        self.set_previous_window_state(current);
+    }
+
+    /// CREATION-TIME seed of the event-diff baseline, for
+    /// `apply_initial_window_state()` and the geometry read-back that follows
+    /// it — the points where the window is being BUILT and no pass has ever
+    /// run.
+    ///
+    /// Unchecked on purpose. Everything creation writes into
+    /// `current_window_state` (the frame flags it just applied, the position
+    /// the window manager answered with) is state, not input: there is no
+    /// callback yet to lose it, so [`check_input_delta_consumed`] has nothing
+    /// true to say and would only report the construction itself. Every OTHER
+    /// baseline advance must go through
+    /// [`Self::snapshot_window_state_baseline`] or
+    /// [`Self::discard_input_delta`].
+    fn seed_window_state_baseline(&mut self, _site: &str) {
         let current = self.get_current_window_state().clone();
         self.set_previous_window_state(current);
     }
@@ -3442,7 +3476,7 @@ pub trait PlatformWindow {
 
             CallbackChange::SetTextChangeset { changeset } => {
                 if let Some(lw) = self.get_layout_window_mut() {
-                    lw.text_input_manager.pending_changeset = Some(changeset.clone());
+                    lw.text_input_manager.set_changeset(changeset.clone());
                 }
                 ProcessEventResult::DoNothing
             }

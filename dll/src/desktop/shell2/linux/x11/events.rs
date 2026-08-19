@@ -603,7 +603,7 @@ impl X11Window {
         }
 
         // Save previous state BEFORE making changes
-        self.common.previous_window_state = Some(self.common.current_window_state.clone());
+        self.snapshot_window_state_baseline("x11.handle_mouse_button");
 
         // Update modifier state from X11 event state field
         self.update_modifiers_from_x11_state(event.state);
@@ -726,7 +726,7 @@ impl X11Window {
         }
 
         // Save previous state BEFORE making changes
-        self.common.previous_window_state = Some(self.common.current_window_state.clone());
+        self.snapshot_window_state_baseline("x11.handle_mouse_move");
 
         // Update modifier state from X11 event state field
         self.update_modifiers_from_x11_state(event.state);
@@ -780,7 +780,7 @@ impl X11Window {
         let position = self.to_logical_pos(event.x as f32, event.y as f32);
 
         // Save previous state BEFORE making changes
-        self.common.previous_window_state = Some(self.common.current_window_state.clone());
+        self.snapshot_window_state_baseline("x11.handle_mouse_crossing");
 
         // Update modifier state from X11 event state field
         self.update_modifiers_from_x11_state(event.state);
@@ -838,7 +838,7 @@ impl X11Window {
         continuous: bool,
     ) -> ProcessEventResult {
         // Save previous state BEFORE making changes
-        self.common.previous_window_state = Some(self.common.current_window_state.clone());
+        self.snapshot_window_state_baseline("x11.handle_scroll_input");
 
         // Update hit test
         self.update_hit_test(position);
@@ -1020,7 +1020,7 @@ impl X11Window {
             prev_snapshot.keyboard_state.current_virtual_keycode =
                 azul_core::window::OptionVirtualKeyCode::None;
         }
-        self.common.previous_window_state = Some(prev_snapshot);
+        self.set_previous_window_state(prev_snapshot);
 
         // Resync the modifier bits the SERVER reports for this event. Key
         // events never did this — only pointer events did — so a modifier
@@ -1224,7 +1224,7 @@ impl X11Window {
         position: LogicalPosition,
         paths: Vec<String>,
     ) -> ProcessEventResult {
-        self.common.previous_window_state = Some(self.common.current_window_state.clone());
+        self.snapshot_window_state_baseline("x11.handle_file_drag_entered");
         self.common.current_window_state.mouse_state.cursor_position =
             CursorPosition::InWindow(position);
         if !paths.is_empty() {
@@ -1243,7 +1243,7 @@ impl X11Window {
     /// XDND drag leaving the window without a drop (emits
     /// `EventType::FileHoverCancel`). Mirrors the macOS `handle_file_drag_exited`.
     pub fn handle_file_drag_exited(&mut self) -> ProcessEventResult {
-        self.common.previous_window_state = Some(self.common.current_window_state.clone());
+        self.snapshot_window_state_baseline("x11.handle_file_drag_exited");
         if let Some(layout_window) = self.common.layout_window.as_mut() {
             layout_window.file_drop_manager.set_hovered_file(None);
         }
@@ -1262,7 +1262,7 @@ impl X11Window {
         position: LogicalPosition,
         paths: Vec<String>,
     ) -> ProcessEventResult {
-        self.common.previous_window_state = Some(self.common.current_window_state.clone());
+        self.snapshot_window_state_baseline("x11.handle_file_drop");
         self.common.current_window_state.mouse_state.cursor_position =
             CursorPosition::InWindow(position);
         if !paths.is_empty() {

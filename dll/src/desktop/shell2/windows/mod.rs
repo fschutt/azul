@@ -1861,7 +1861,7 @@ impl Win32Window {
     /// position + hit test so HoveredFile re-targets the node under the
     /// drag. Previously DragOver did nothing positional at all.
     pub fn handle_file_drag_moved(&mut self, screen_pt: (i32, i32)) -> ProcessEventResult {
-        self.common.previous_window_state = Some(self.common.current_window_state.clone());
+        self.snapshot_window_state_baseline("windows.handle_file_drag_moved");
         self.set_drag_cursor_from_screen(screen_pt.0, screen_pt.1);
         self.update_file_drag_hit_test();
         self.process_window_events(0)
@@ -1883,7 +1883,7 @@ impl Win32Window {
         paths: Vec<String>,
         screen_pt: (i32, i32),
     ) -> ProcessEventResult {
-        self.common.previous_window_state = Some(self.common.current_window_state.clone());
+        self.snapshot_window_state_baseline("windows.handle_file_drag_entered");
         self.set_drag_cursor_from_screen(screen_pt.0, screen_pt.1); // MWA-B7
 
         if !paths.is_empty() {
@@ -1903,7 +1903,7 @@ impl Win32Window {
     /// Process a file drag leaving the window without a drop (emits
     /// `EventType::FileHoverCancel`).
     pub fn handle_file_drag_exited(&mut self) -> ProcessEventResult {
-        self.common.previous_window_state = Some(self.common.current_window_state.clone());
+        self.snapshot_window_state_baseline("windows.handle_file_drag_exited");
 
         // The Some -> None transition latches the one-shot hover-cancel flag.
         if let Some(layout_window) = self.common.layout_window.as_mut() {
@@ -1926,7 +1926,7 @@ impl Win32Window {
         paths: Vec<String>,
         screen_pt: (i32, i32),
     ) -> ProcessEventResult {
-        self.common.previous_window_state = Some(self.common.current_window_state.clone());
+        self.snapshot_window_state_baseline("windows.handle_file_drop");
         self.set_drag_cursor_from_screen(screen_pt.0, screen_pt.1); // MWA-B7
 
         if !paths.is_empty() {
@@ -2026,7 +2026,7 @@ impl Win32Window {
         // now applied on the HWND, so the first sync_window_state() must not
         // re-push the whole initial state (title, size, position, visibility,
         // frame) at the OS.
-        self.common.previous_window_state = Some(self.common.current_window_state.clone());
+        self.seed_window_state_baseline("windows.apply_initial_window_state");
         self.common.mark_os_synced();
     }
 
@@ -2516,6 +2516,10 @@ impl Win32Window {
         // Check for close request
         if self.common.current_window_state.flags.close_requested {
             self.common.current_window_state.flags.close_requested = false;
+            // WM_CLOSE's pass already derived and delivered WindowClose; this is
+            // the polling API consuming the flag afterwards, so the clear must
+            // not read as a second, lost close event.
+            self.discard_input_delta("windows.poll_event.close_consumed");
             // Close request will be handled by window_proc setting WM_QUIT
             return true;
         }
@@ -2949,7 +2953,7 @@ impl Win32Window {
         if !self.feed_pointer(hwnd, pointer_id, is_up) {
             return;
         }
-        self.common.previous_window_state = Some(prev_snapshot);
+        self.set_previous_window_state(prev_snapshot);
         let r = self.process_window_events(0);
         self.route_main_window_result(hwnd, r);
     }
@@ -3215,7 +3219,10 @@ unsafe extern "system" fn window_proc(
         WM_CLOSE => {
             log_debug!(LogCategory::Window, "[Win32] WM_CLOSE - Close requested");
             // User clicked close button - set close_requested flag
-            // and process callbacks to allow cancellation
+            // and process callbacks to allow cancellation. Snapshot first so the
+            // false -> true transition is what the pass diffs, rather than
+            // relying on the last completed pass having left the two equal.
+            window.snapshot_window_state_baseline("windows.wm_close");
             window.common.current_window_state.flags.close_requested = true;
 
             // Process window events to trigger OnWindowClose callback.
@@ -3360,7 +3367,7 @@ unsafe extern "system" fn window_proc(
                     crate::desktop::shell2::common::event::WindowStateSource::Os,
                     |ws| ws.flags.frame = WindowFrame::Minimized,
                 );
-                window.common.previous_window_state = Some(prev_snapshot);
+                window.set_previous_window_state(prev_snapshot);
                 let r = window.process_window_events(0);
                 window.route_main_window_result(hwnd, r);
                 return 0;
@@ -3494,7 +3501,7 @@ unsafe extern "system" fn window_proc(
                 // and never runs a pass (what this used to do) cannot fire
                 // them at all — no resize event has ever reached a Windows app.
                 // Mirrors the Wayland xdg_toplevel.configure handler.
-                window.common.previous_window_state = Some(prev_snapshot);
+                window.set_previous_window_state(prev_snapshot);
                 let r = window.process_window_events(0);
                 window.route_main_window_result(hwnd, r);
 
@@ -3601,7 +3608,7 @@ unsafe extern "system" fn window_proc(
             // the baseline split: an OS-equal write leaves a zero
             // current-vs-os_synced diff, so sync_window_state() has nothing
             // to echo. Same snapshot/ack/restore/pass shape as WM_SIZE.
-            window.common.previous_window_state = Some(prev_snapshot);
+            window.set_previous_window_state(prev_snapshot);
             let r = window.process_window_events(0);
             window.route_main_window_result(hwnd, r);
 
@@ -3633,7 +3640,7 @@ unsafe extern "system" fn window_proc(
             }
 
             // Save previous state BEFORE making changes
-            window.common.previous_window_state = Some(window.common.current_window_state.clone());
+            window.snapshot_window_state_baseline("windows.wm_mousemove");
 
             // Update mouse state
             window.common.current_window_state.mouse_state.cursor_position =
@@ -3730,7 +3737,7 @@ unsafe extern "system" fn window_proc(
             }
 
             // Save previous state
-            window.common.previous_window_state = Some(window.common.current_window_state.clone());
+            window.snapshot_window_state_baseline("windows.wm_mouseleave");
 
             // Get last known position, or default
             let last_pos = match window.common.current_window_state.mouse_state.cursor_position {
@@ -3849,7 +3856,7 @@ unsafe extern "system" fn window_proc(
             }
 
             // Save previous state BEFORE making changes
-            window.common.previous_window_state = Some(window.common.current_window_state.clone());
+            window.snapshot_window_state_baseline("windows.wm_lbuttondown");
 
             // Update mouse state
             window.common.current_window_state.mouse_state.cursor_position =
@@ -3938,7 +3945,7 @@ unsafe extern "system" fn window_proc(
             }
 
             // Save previous state BEFORE making changes
-            window.common.previous_window_state = Some(window.common.current_window_state.clone());
+            window.snapshot_window_state_baseline("windows.wm_lbuttonup");
 
             // Update mouse state
             window.common.current_window_state.mouse_state.cursor_position =
@@ -4018,7 +4025,7 @@ unsafe extern "system" fn window_proc(
             );
 
             // Save previous state BEFORE making changes
-            window.common.previous_window_state = Some(window.common.current_window_state.clone());
+            window.snapshot_window_state_baseline("windows.wm_rbuttondown");
 
             // Update mouse state
             window.common.current_window_state.mouse_state.cursor_position =
@@ -4081,7 +4088,7 @@ unsafe extern "system" fn window_proc(
             );
 
             // Save previous state BEFORE making changes
-            window.common.previous_window_state = Some(window.common.current_window_state.clone());
+            window.snapshot_window_state_baseline("windows.wm_rbuttonup");
 
             // Update mouse state
             window.common.current_window_state.mouse_state.cursor_position =
@@ -4149,7 +4156,7 @@ unsafe extern "system" fn window_proc(
             );
 
             // Save previous state
-            window.common.previous_window_state = Some(window.common.current_window_state.clone());
+            window.snapshot_window_state_baseline("windows.wm_mbuttondown");
 
             // Update mouse state
             window.common.current_window_state.mouse_state.cursor_position =
@@ -4178,7 +4185,7 @@ unsafe extern "system" fn window_proc(
             );
 
             // Save previous state
-            window.common.previous_window_state = Some(window.common.current_window_state.clone());
+            window.snapshot_window_state_baseline("windows.wm_mbuttonup");
 
             // Update mouse state
             window.common.current_window_state.mouse_state.cursor_position =
@@ -4247,7 +4254,7 @@ unsafe extern "system" fn window_proc(
             );
 
             // Save previous state
-            window.common.previous_window_state = Some(window.common.current_window_state.clone());
+            window.snapshot_window_state_baseline("windows.wm_mousewheel");
 
             // MWA-C-scroll: refresh the hit test BEFORE recording the wheel
             // delta (macOS/X11 order). record_scroll_from_hit_test targets
@@ -4380,7 +4387,7 @@ unsafe extern "system" fn window_proc(
                     prev_snapshot.keyboard_state.current_virtual_keycode =
                         azul_core::window::OptionVirtualKeyCode::None;
                 }
-                window.common.previous_window_state = Some(prev_snapshot);
+                window.set_previous_window_state(prev_snapshot);
 
                 // Update keyboard state
                 window
@@ -4430,7 +4437,7 @@ unsafe extern "system" fn window_proc(
             // Translate virtual key
             if let Some(virtual_key) = win_event::vkey_to_winit_vkey(vk_code as i32) {
                 // Save previous state
-                window.common.previous_window_state = Some(window.common.current_window_state.clone());
+                window.snapshot_window_state_baseline("windows.wm_keyup");
 
                 // Update keyboard state
                 window
@@ -4492,7 +4499,7 @@ unsafe extern "system" fn window_proc(
 
             // Update keyboard state with character
             if let Some(chr) = char_opt {
-                window.common.previous_window_state = Some(window.common.current_window_state.clone());
+                window.snapshot_window_state_baseline("windows.wm_char");
 
                 // Record text input in the TextInputManager
                 if let Some(ref mut layout_window) = window.common.layout_window {
@@ -4687,7 +4694,7 @@ unsafe extern "system" fn window_proc(
                 );
 
             if let Some(chr) = char_opt {
-                window.common.previous_window_state = Some(window.common.current_window_state.clone());
+                window.snapshot_window_state_baseline("windows.wm_ime_char");
 
                 // Record text input in the TextInputManager
                 if let Some(ref mut layout_window) = window.common.layout_window {
@@ -4796,7 +4803,7 @@ unsafe extern "system" fn window_proc(
             // and every later click is treated as an Alt+click.
             window.resync_keyboard_state_from_os();
 
-            window.common.previous_window_state = Some(prev_snapshot);
+            window.set_previous_window_state(prev_snapshot);
 
             // Phase 2: OnFocus callback - sync IME position after focus
             window.sync_ime_position_to_os();
@@ -4839,7 +4846,7 @@ unsafe extern "system" fn window_proc(
                 ks.pressed_scancodes = ScanCodeVec::from_vec(Vec::new());
             }
 
-            window.common.previous_window_state = Some(prev_snapshot);
+            window.set_previous_window_state(prev_snapshot);
 
             // Same as WM_SETFOCUS: process + route so blur callbacks fire and
             // unfocused styling repaints.
@@ -5078,7 +5085,7 @@ unsafe extern "system" fn window_proc(
             {
                 let mut baseline = window.common.current_window_state.clone();
                 baseline.size.dpi = old_dpi;
-                window.common.previous_window_state = Some(baseline);
+                window.set_previous_window_state(baseline);
                 let r = window.process_window_events(0);
                 window.route_main_window_result(hwnd, r);
             }
@@ -5193,8 +5200,7 @@ unsafe extern "system" fn window_proc(
             // the startup theme until restart. Re-discover the system style,
             // update the window theme through the diff pipeline (ThemeChange
             // events fire) and rebuild.
-            window.common.previous_window_state =
-                Some(window.common.current_window_state.clone());
+            window.snapshot_window_state_baseline("windows.wm_settingchange");
             let new_style =
                 std::sync::Arc::new(crate::desktop::app::discover_system_style());
             let new_theme = match new_style.theme {
