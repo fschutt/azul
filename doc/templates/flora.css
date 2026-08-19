@@ -2828,6 +2828,52 @@ body.nav-open { overflow: hidden; }
 .docs-footer a:visited { color: var(--color-accent); text-decoration: none; }
 .docs-footer a:hover { text-decoration: underline; }
 
+
+/* ---- THE COPY BUTTON --------------------------------------------------
+   One control, one rule. It existed twice - `.copy-btn` on the landing and
+   `.docs-copy-btn` on docs pages - with different backgrounds, so the same
+   button looked like two. It sits on the ink slab of a code panel, so it is
+   drawn from that panel's own palette rather than the page's.
+   ---------------------------------------------------------------------- */
+.copy-btn,
+.docs-copy-btn {
+    font-family: var(--font-caps);
+    font-size: 14px;
+    font-weight: 700;
+    font-variant: all-small-caps;
+    letter-spacing: 0.08em;
+    line-height: 1;
+    padding: 3px 10px;
+    border-radius: var(--fl-r);
+    border: 1px solid rgba(232, 222, 198, 0.3);
+    background: rgba(232, 222, 198, 0.1);
+    color: rgba(232, 222, 198, 0.9);
+    cursor: pointer;
+    opacity: 0.85;
+    transition: background var(--fl-dur) var(--fl-ease),
+                border-color var(--fl-dur) var(--fl-ease),
+                opacity var(--fl-dur) var(--fl-ease);
+}
+
+/* Opaque on hover: whatever is scrolling underneath used to read straight
+   through it. */
+.copy-btn:hover,
+.docs-copy-btn:hover {
+    opacity: 1;
+    background: var(--fl-code-bd);
+    border-color: rgba(232, 222, 198, 0.55);
+    color: #FFFDF6;
+}
+
+.copy-btn { flex-shrink: 0; }
+
+.docs-copy-btn {
+    position: absolute;
+    top: 10px;
+    right: 10px;
+    box-shadow: var(--fl-shadow-1);
+}
+
 /* ==========================================================================
    PAGE FURNITURE
    The parts of the page that are not components: the scrollbar in the
