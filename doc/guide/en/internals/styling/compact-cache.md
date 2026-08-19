@@ -11,7 +11,7 @@ short_desc: How layout results are stored across frames
 prerequisites: []
 tracked_files:
   - css/src/compact_cache.rs
-  - core/src/compact_cache_builder.rs
+  - core/src/compact.rs
 last_generated_rev: 7ecd570e4c0c3584e5107e770058c16cb59fa6e7
 generated_at: 2026-05-02T00:00:00Z
 default-search-keys:
@@ -277,7 +277,7 @@ if let Some(val) = self.get_width(nd, &node_id, &default_state) {
 
 Each `get_*` call cascades through `CssPropertyCache` (UA → global → cascaded → inline → user override). The result is an `Option<CssPropertyValue<T>>`; `None` leaves the slot at `Default::default()`.
 
-`encode_layout_width` and friends live in `core/src/compact_cache_builder.rs` because they need access to the cascade's `CssPropertyValue` resolution; pure encode helpers (`encode_pixel_value_u32`, `encode_resolved_px_i16`, `encode_flex_u16`, `encode_color_u32`) are in `css/src/compact_cache.rs` and have no `core` dependency.
+`encode_layout_width` and friends live in `core/src/compact.rs` because they need access to the cascade's `CssPropertyValue` resolution; pure encode helpers (`encode_pixel_value_u32`, `encode_resolved_px_i16`, `encode_flex_u16`, `encode_color_u32`) are in `css/src/compact_cache.rs` and have no `core` dependency.
 
 ## Defaults
 
@@ -320,7 +320,7 @@ For uncommon properties (transform, box-shadow, filter, content, transitions), t
 2. Add the field to the appropriate struct in `css/src/compact_cache.rs`. Update `Default`.
 3. If new tier-1 bits, add `*_SHIFT` and `*_MASK` constants and update `encode_tier1` + the matching `decode_*`.
 4. Add `encode_*` and `decode_*` helpers near the existing ones.
-5. Add encoder calls in `core/src/compact_cache_builder.rs` Step 3 and (if it's a global `*` rule target) Step 2.5.
+5. Add encoder calls in `core/src/compact.rs` Step 3 and (if it's a global `*` rule target) Step 2.5.
 6. Add inheritance handling in Step 1 if the property inherits.
 7. Add a getter on `CompactLayoutCache` (`get_<prop>_raw`, `get_<prop>`, `is_<prop>_auto`).
 8. Update the slow-path fallback in `CssPropertyCache::get_property_slow` so callers who don't use the compact cache still work.

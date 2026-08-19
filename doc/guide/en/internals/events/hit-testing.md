@@ -11,7 +11,7 @@ short_desc: Hit-test tag generation and cursor-to-node routing
 prerequisites: [events]
 tracked_files:
   - core/src/hit_test.rs
-  - core/src/hit_test_tag.rs
+  - core/src/hit_test.rs
   - core/src/drag.rs
   - core/src/selection.rs
   - layout/src/hit_test.rs
@@ -85,7 +85,7 @@ WebRender returns small, sequential `tag_value`s for normal DOM nodes
 scrollbar component. For a tag value of 673 that expression is `0`, the
 same encoding the decoder uses for `VerticalTrack`. Every normal click
 was misclassified as a scrollbar hit and the button callback never
-ran. The namespace constants in `core/src/hit_test_tag.rs` are the
+ran. The namespace constants in `core/src/hit_test.rs` are the
 fix.
 
 ## HitTestTag

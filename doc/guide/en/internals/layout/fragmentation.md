@@ -13,7 +13,7 @@ tracked_files:
   - layout/src/lib.rs
   - layout/src/window.rs
   - layout/src/fragmentation.rs
-  - layout/src/paged.rs
+  - core/src/paged.rs
   - layout/src/solver3/pagination.rs
   - layout/src/solver3/paged_layout.rs
 last_generated_rev: 7ecd570e4c0c3584e5107e770058c16cb59fa6e7
@@ -49,7 +49,7 @@ trade-off is that CSS break properties are parsed but largely advisory.
 - **`layout/src/fragmentation.rs`.** Partially superseded. CSS-spec-style
   "decide breaks during layout". Defines `FragmentationLayoutContext`,
   `BoxBreakBehavior`, and `BreakPoint`.
-- **`layout/src/paged.rs`.** Active container model. The
+- **`core/src/paged.rs`.** Active container model. The
   `FragmentationContext` enum has `Continuous`, `Paged`, `MultiColumn`, and
   `Regions` variants. Defines `Fragmentainer` and `FragmentationState`.
 - **`layout/src/solver3/pagination.rs`.** Active. `PageGeometer` is the

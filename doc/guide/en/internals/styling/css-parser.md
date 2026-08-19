@@ -103,7 +103,7 @@ The signature is `pub fn new_from_str<'a>(css_string: &'a str) -> (Css, Vec<CssP
 
 ## Selectors: CssPath and parse_css_path
 
-`parse_css_path(input) -> Result<CssPath, CssPathParseError>` handles the selector half of a rule independently. It's used by `parser2.rs` itself (called per rule), by `core/src/style.rs` for runtime `StyledDom::with_css(...)` overrides, and by `dll/src/web/cb_gen.rs` for the codegen pipeline that compiles HTML+CSS to const Rust.
+`parse_css_path(input) -> Result<CssPath, CssPathParseError>` handles the selector half of a rule independently. It's used by `parser2.rs` itself (called per rule), by `core/src/style.rs` for runtime `StyledDom::with_css(...)` overrides, and by `dll/src/web/mod.rs` for the codegen pipeline that compiles HTML+CSS to const Rust.
 
 ```rust,ignore
 use azul_css::parser2::parse_css_path;
@@ -295,7 +295,7 @@ Putting it all together, here's what it takes to add `text-stroke: 1px red`:
 4. Add an arm to `parse_css_property` routing to your parser.
 5. Add the new variant to `css_property_from_type!` so `auto` / `none` / `initial` / `inherit` work generically.
 6. Implement `CssProperty::get_type()`, `relayout_scope()`, and the formatter (`props/formatter.rs`).
-7. If the property should be inheritable, add it to the inheritance lists in `core/src/prop_cache.rs` and `core/src/compact_cache_builder.rs`.
+7. If the property should be inheritable, add it to the inheritance lists in `core/src/prop_cache.rs` and `core/src/compact.rs`.
 8. If it has a UA default, add it to `core/src/ua_css.rs`.
 9. If it's frequently set, encode into the [Compact Property Cache](compact-cache.md) instead of leaving it on the slow cascade path.
 

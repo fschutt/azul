@@ -80,7 +80,7 @@ without holding any locks during shaping.
 
 ## Per-node font_family_hash and the font_dirty_nodes set
 
-`build_compact_cache` (in `core/src/compact_cache_builder.rs`) computes a
+`build_compact_cache` (in `core/src/compact.rs`) computes a
 per-node `font_family_hash`:
 
 ```rust,ignore
