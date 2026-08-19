@@ -3580,8 +3580,26 @@ fn process_event_for_internal(
             ctx.keyboard_state,
             ctx.focused_node,
         ),
+        EventType::MouseUp => handle_mouse_up(),
         _ => None,
     }
+}
+
+/// Releasing the button ends a text-selection drag, so the autoscroll timer
+/// has to go.
+///
+/// `StopAutoScrollTimer` existed and was handled, but NOTHING emitted it:
+/// teardown relied entirely on the 60Hz callback noticing on its next tick
+/// that the button had been released and terminating itself. Any path that
+/// loses the release — a grab broken by the window manager, a crossing that
+/// swallows it — left a timer running at 60Hz for the life of the window.
+///
+/// It passes to callbacks: a MouseUp is a user event, and stopping an
+/// internal timer must not swallow it.
+fn handle_mouse_up() -> Option<InternalEventAction> {
+    Some(InternalEventAction::AddAndPass(
+        SystemChange::StopAutoScrollTimer,
+    ))
 }
 
 /// Action to take after processing an event for internal system events
@@ -6330,6 +6348,17 @@ mod autotest_generated {
         match handle_mouse_down(&ev, Some(&ht), 2, &mouse, &kb) {
             Some(InternalEventAction::AddAndPass(SystemChange::TextSelectionClick { .. })) => {}
             _ => panic!("primary+double-click must not add a cursor"),
+        }
+    }
+
+    /// Releasing the button must stop the autoscroll timer. Nothing emitted
+    /// `StopAutoScrollTimer` at all, so a lost release left a 60Hz timer
+    /// running for the life of the window.
+    #[test]
+    fn releasing_the_button_stops_the_autoscroll_timer() {
+        match handle_mouse_up() {
+            Some(InternalEventAction::AddAndPass(SystemChange::StopAutoScrollTimer)) => {}
+            _ => panic!("expected AddAndPass(StopAutoScrollTimer)"),
         }
     }
 
